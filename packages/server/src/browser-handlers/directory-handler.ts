@@ -226,7 +226,6 @@ export function handleSetFocusProfile(
   ctx: BrowserHandlerContext,
 ): void {
   // The store re-validates (strict, key cap) and returns false without mutating.
-  if (msg.profile !== null && (typeof msg.profile !== "object" || msg.profile === undefined)) return;
   if (ctx.preferencesStore?.setFocusProfile?.(msg.profile)) broadcastCardSections(ctx);
 }
 

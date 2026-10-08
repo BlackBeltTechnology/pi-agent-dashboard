@@ -233,3 +233,34 @@ describe("Focus profile switches the list to accordion", () => {
     expect(card("b1")).not.toBeNull();
   });
 });
+
+describe("folder banner safety chip survives compact folders (review B1)", () => {
+  const stubInitStatus = (data: object) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        headers: { get: () => "application/json" },
+        json: async () => ({ success: true, data }),
+      })),
+    );
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each([
+    ["compactEmpty (idle sessions)", [mk("a1", A), mk("b2", B), mk("b3", B)]],
+    ["compactAttention (a streaming session)", sessions],
+  ])("unfocused folder needing re-trust shows the chip: %s", async (_n, list) => {
+    stubInitStatus({ hasHook: true, trusted: false });
+    render(<Harness selectedId="a1" list={list} extra={{ pinnedDirectories: [B] }} />);
+    expect(await screen.findByTestId(`folder-banner-chip-${B}`)).toBeTruthy();
+    expect(screen.queryByTestId(`folder-banner-retrust-${B}`)).toBeNull();
+  });
+
+  it("healthy unfocused folder shows neither chip nor banner", async () => {
+    stubInitStatus({ hasHook: false });
+    render(<Harness selectedId="a1" list={[mk("a1", A), mk("b2", B)]} />);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.queryByTestId(`folder-banner-chip-${B}`)).toBeNull();
+  });
+});

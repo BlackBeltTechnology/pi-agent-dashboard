@@ -136,8 +136,10 @@ export function FolderActionBanner({
   const rung = computeBannerRung(status, run, isProjectRoot);
   // Per-tab reveal for the compact chip; resets once the folder leaves the state.
   const [revealed, setRevealed] = useState(false);
+  // Any change of state (incl. failed → retrust) re-collapses to the chip.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `rung` is the trigger, not a read value
   useEffect(() => {
-    if (!rung) setRevealed(false);
+    setRevealed(false);
   }, [rung]);
 
   // Re-probe init-status when a spawned project-init session reaches `ended`.

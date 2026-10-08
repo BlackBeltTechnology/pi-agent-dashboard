@@ -193,6 +193,8 @@ describe("preferences-store cardSections (configurable-session-card-sections)", 
       const many = Object.fromEntries(Array.from({ length: 257 }, (_, i) => [`s${i}`, true]));
       expect(store.setFocusProfile({ sections: many })).toBe(false);
       expect(store.setFocusProfile({ sections: { "../x": true } })).toBe(false);
+      expect(store.setFocusProfile(5 as never)).toBe(false);
+      expect(store.setFocusProfile([] as never)).toBe(false);
       expect(store.getCardSections().focus).toBeUndefined();
       store.dispose();
     });

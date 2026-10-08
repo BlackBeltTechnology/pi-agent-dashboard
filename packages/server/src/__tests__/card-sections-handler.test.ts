@@ -118,9 +118,6 @@ describe("focus handlers (add-focus-mode-and-card-block-toggles)", () => {
     const rej = harness(false);
     handleSetFocusProfile({ type: "set_focus_profile", profile: { sections: { "../x": true } } }, rej.ctx);
     expect(rej.broadcasts).toEqual([]);
-    const junk = harness();
-    handleSetFocusProfile({ type: "set_focus_profile", profile: 5 } as never, junk.ctx);
-    expect(junk.store.setFocusProfile).not.toHaveBeenCalled();
   });
 
   it("rejects folder-scoped fx-* writes, accepts global", () => {

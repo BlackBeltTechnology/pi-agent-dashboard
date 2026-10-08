@@ -2,18 +2,19 @@
  * System REST API routes: config, health, shutdown, tunnel.
  */
 
+import { fixturePluginsEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getHeapStatistics } from "node:v8";
-import { 
-  discoverPlugins,fixturePluginsEnabled, 
-  getPluginStatusStore,} from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import {
+  discoverPlugins,
+  getPluginStatusStore,
+} from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { BridgeLoadSource, PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
-import { ELECTRON_RESTART_EXIT_CODE, restartsViaElectron } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
 import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
@@ -28,6 +29,7 @@ import {
   safeComputeBindReachability,
   sameReachability,
 } from "../auth/bind-reachability-service.js";
+import { ELECTRON_RESTART_EXIT_CODE, restartsViaElectron } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
 import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries } from "../auth/localhost-guard.js";
 import { getRegistryError } from "../auth/provider-auth-registry.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
@@ -67,7 +69,7 @@ import { heapFallbackStatus } from "../spawn-process/heap-args.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 import { systemOpenCapability } from "../system-open-capability.js";
-import { connectedProviderIds, connectGateway, createTunnel, deleteTunnel, disconnectResolvedProviders, ensureReservedName, gatewayProviderStatus, getProviderReadiness, getTunnelStatus, getTunnelUrl, getZrokLastError, releaseShare } from "../tunnel/tunnel.js";
+import { connectGateway, connectedProviderIds, createTunnel, gatewayProviderStatus, getZrokLastError, deleteTunnel, disconnectResolvedProviders, ensureReservedName, getProviderReadiness, getTunnelStatus, getTunnelUrl, releaseShare } from "../tunnel/tunnel.js";
 import { acceptTargetFor, blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints, liveReadinessEndpoints } from "../tunnel/tunnel-endpoints.js";
 import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
@@ -81,7 +83,8 @@ const POLL_COST_KEYS = [
   "pollGitProbesTick", "pollGitProbesTool", "pollGitProbesWatch", "pollGitProbesRefresh",
   "pollGitSpawns", "pollGitMs", "pollGitWatchersAttached",
 ] as const;
-
+import type { NetworkGuard } from "./route-deps.js";
+import { createRuntimeHealthProvider, redactRuntimeHealth } from "../runtime-overlay/runtime-health.js";
 import {
   deriveLocalIdentity,
   ensureRuntimeRequest,
@@ -89,8 +92,6 @@ import {
   readRuntimeRequest,
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
-import { createRuntimeHealthProvider, redactRuntimeHealth } from "../runtime-overlay/runtime-health.js";
-import type { NetworkGuard } from "./route-deps.js";
 
 /**
  * `/api/health` → `piRuntime`.

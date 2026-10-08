@@ -2186,6 +2186,21 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               {groupByChip}
             </div>
           )}
+          {/* Accordion compact folders keep the safety cue: the condensed header
+              hides the banner block, but a folder that cannot proceed still
+              surfaces the compact warning chip. See change:
+              add-focus-mode-and-card-block-toggles (Safety cues survive). */}
+          {isCompact && !isStub && (
+            <FolderActionBanner
+              cwd={group.cwd}
+              status={initStatus}
+              isProjectRoot={isPinned || inWorkspace || group.sessions.some((s) => s.isGitRepo === true) || !!folderGitMap?.get(group.cwd)}
+              onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, { initialPrompt: PROJECT_INIT_PROMPT }) : undefined}
+              onStatusChange={refetchInit}
+              sessions={group.sessions}
+              compact
+            />
+          )}
           {!isCollapsed && !isStub && (<>
           {/* Git info + folder actions share ONE compact row (variant B):
               branch/commit left, Initialize + settings gear right-grouped.
