@@ -525,9 +525,11 @@ const CLEARED_LIVE_TAIL: SubagentLiveTail = { kind: "none", text: "" };
  * overwrites: a valid thinking/text tail is kept (text capped at 280), every
  * other object — sentinel, malformed, future shape — becomes the cleared tail.
  * Non-objects return undefined (key ignored, prior state kept).
+ * Also used by `AgentToolRenderer` for its session-less `details.liveTail`
+ * fallback, so both paths normalize identically.
  * See change: stream-subagent-reasoning-and-stable-card (D8).
  */
-function readLiveTail(raw: unknown): SubagentLiveTail | undefined {
+export function readLiveTail(raw: unknown): SubagentLiveTail | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const { kind, text } = raw as Record<string, unknown>;
   if ((kind === "thinking" || kind === "text") && typeof text === "string") {

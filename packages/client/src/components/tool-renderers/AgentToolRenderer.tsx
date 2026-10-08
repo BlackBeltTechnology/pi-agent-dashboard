@@ -29,6 +29,7 @@ import { Icon } from "@mdi/react";
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSubagentResyncCadence } from "../../hooks/useSubagentResyncCadence.js";
+import { readLiveTail } from "../../lib/chat/event-reducer.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import {
   noteSubagentRunning,
@@ -361,7 +362,9 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
   // edge: the held tail covers the gap and each resync reply is a full-timeline
   // frame that the store retains (A/B: +47% stored bytes with an open
   // inspector). See change: stream-subagent-reasoning-and-stable-card.
-  const rawTail = sub?.liveTail ?? details?.liveTail;
+  // `sub.liveTail` is already reducer-normalized; the raw toolDetails fallback
+  // (no session map) goes through the same normalizer (review B1).
+  const rawTail = sub?.liveTail ?? readLiveTail(details?.liveTail);
   const heldTail = useRef<{ kind: "thinking" | "text"; text: string } | undefined>(undefined);
   if (rawTail && rawTail.kind !== "none" && rawTail.text) {
     heldTail.current = { kind: rawTail.kind, text: rawTail.text };

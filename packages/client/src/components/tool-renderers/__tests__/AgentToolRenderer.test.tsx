@@ -225,6 +225,26 @@ describe("AgentToolRenderer — stable running card + live preview", () => {
     expect(rows(container).preview!.textContent).toBe("xyz");
   });
 
+  // Review B1: the session-less fallback reads raw `details.liveTail`; it must
+  // be normalized exactly like the reducer (D8) before reaching the ticker.
+  it.each([
+    ["non-string text", { kind: "thinking", text: 1 }],
+    ["unknown kind", { kind: "x", text: "abc" }],
+    ["array", ["thinking", "abc"]],
+  ])("#B1 a malformed raw tail (%s) renders the activity row, no ticker, no throw", (_label, liveTail) => {
+    const { container } = renderAgent(running({ activity: "running Read", liveTail }));
+    expect(rows(container).preview).toBeNull();
+    expect(rows(container).activity!.textContent).toContain("running Read");
+  });
+
+  it("#B1 an overlong raw tail is capped to the last 280 chars before the ticker", () => {
+    const text = `${"a".repeat(300)}${"b".repeat(100)}`;
+    const { container } = renderAgent(running({ liveTail: { kind: "text", text } }));
+    const shown = rows(container).preview!.textContent ?? "";
+    expect(shown.length).toBeLessThanOrEqual(280);
+    expect(shown.endsWith("b".repeat(100))).toBe(true);
+  });
+
   it("#X2 0.2.6-shaped details (no liveTail) render the activity row, no ticker", () => {
     const { container } = renderAgent(running({ activity: "running Read" }));
     expect(rows(container).preview).toBeNull();
