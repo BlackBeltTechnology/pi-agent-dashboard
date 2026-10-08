@@ -105,12 +105,12 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 
 ### L3 — Playwright e2e (exemplar: `tests/e2e/team/team-llm.spec.ts` with `fake-llm.ts`, `team-harness.ts`)
 
-- [ ] 8.46 E2E global + extension skills absent — input agent-dir `release-cut`, stub `resources_discover` extension adding `memory-x`, persona `[review]` · trigger first prompt · observable fake-LLM system prompt has `review`, lacks `release-cut`/`memory-x`, keeps persona + bridge fragment (test-plan #F1). Adds the stub-extension fixture beside `fake-llm.ts`.
-- [ ] 8.47 E2E granted skill readable — input `chat` persona with `review`, scripted reads of `references/x.md` and a sibling skill · trigger prompt · observable first result has content, second `team: path_outside_root` (test-plan #F2).
-- [ ] 8.48 E2E `/skill:` from the app — input effective `[review]` · trigger send `/skill:review check`, then `/skill:memory-x↵summarise` · observable envelope reaches the fake LLM; second sends no request, shows "skill not available", bubble settles (test-plan #F3).
-- [ ] 8.49 E2E revocation ends a streaming session — input session streaming (delayed fake-LLM reply) · trigger admin PATCH narrowing targets · observable status `ended` within 5 s of the 2xx, record kept, reopen `409 reason:"targets"`, banner with readable history (test-plan #F4). Adds a delayed-reply mode to `fake-llm.ts` if needed.
-- [ ] 8.50 E2E widening keeps sessions — input same live session · trigger admin PATCH adding `crm` · observable not ended after 6 s, next prompt answered (test-plan #F5).
-- [ ] 8.51 E2E blocked card before open — input persona with an invalid-path skill · trigger open grid · observable warning + "Fix skill", no chat button, click opens the Skills panel entry (test-plan #F6).
+- [x] 8.46 E2E global + extension skills absent — input agent-dir `release-cut`, stub `resources_discover` extension adding `memory-x`, persona `[review]` · trigger first prompt · observable fake-LLM system prompt has `review`, lacks `release-cut`/`memory-x`, keeps persona + bridge fragment (test-plan #F1). Adds the stub-extension fixture beside `fake-llm.ts`.
+- [x] 8.47 E2E granted skill readable — input `chat` persona with `review`, scripted reads of `references/x.md` and a sibling skill · trigger prompt · observable first result has content, second `team: path_outside_root` (test-plan #F2).
+- [x] 8.48 E2E `/skill:` from the app — input effective `[review]` · trigger send `/skill:review check`, then `/skill:memory-x↵summarise` · observable envelope reaches the fake LLM; second sends no request, shows "skill not available", bubble settles (test-plan #F3).
+- [x] 8.49 E2E revocation ends a streaming session — input session streaming (delayed fake-LLM reply) · trigger admin PATCH narrowing targets · observable status `ended` within 5 s of the 2xx, record kept, reopen `409 reason:"targets"`, banner with readable history (test-plan #F4). Adds a delayed-reply mode to `fake-llm.ts` if needed.
+- [x] 8.50 E2E widening keeps sessions — input same live session · trigger admin PATCH adding `crm` · observable not ended after 6 s, next prompt answered (test-plan #F5).
+- [x] 8.51 E2E blocked card before open — input persona with an invalid-path skill · trigger open grid · observable warning + "Fix skill", no chat button, click opens the Skills panel entry (test-plan #F6).
 
 ### Manual
 

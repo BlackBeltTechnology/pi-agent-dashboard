@@ -58,7 +58,7 @@ function ErrorBanner({ code, onRetry }: { code: string; onRetry(): void }) {
   );
 }
 
-function ChatBody({ sessionId, agent }: { sessionId: string; agent: Agent }) {
+function ChatBody({ sessionId, agent, readOnly = false }: { sessionId: string; agent: Agent; readOnly?: boolean }) {
   const host = useAppHost();
   const t = useT();
   const chat = useTeamChat(host, sessionId);
@@ -98,7 +98,7 @@ function ChatBody({ sessionId, agent }: { sessionId: string; agent: Agent }) {
         <ChatView sessionId={sessionId} state={chat.state} toolContext={toolContext} onAbort={chat.abort} />
       </div>
       {/* Direct pane child: CommandInput's own max-h-[40%] must resolve against the pane, not a wrapper. */}
-      {refused ? (
+      {refused && !readOnly ? (
         <div className="composer-error" role="alert">
           <Icon name="alert" className="ic sm" />
           <div>
@@ -107,7 +107,7 @@ function ChatBody({ sessionId, agent }: { sessionId: string; agent: Agent }) {
           </div>
         </div>
       ) : null}
-      <CommandInput
+      {readOnly ? null : <CommandInput
         commands={[]}
         sessionId={sessionId}
         sessionStatus={streaming ? "streaming" : "idle"}
@@ -120,11 +120,13 @@ function ChatBody({ sessionId, agent }: { sessionId: string; agent: Agent }) {
         invalid={refused !== null}
         onSend={onSend}
         onAbort={chat.abort}
-      />
-      <p className="composer-hint">
-        <Icon name="shield" className="ic sm" />
-        {t("cv.hint")}
-      </p>
+      />}
+      {readOnly ? null : (
+        <p className="composer-hint">
+          <Icon name="shield" className="ic sm" />
+          {t("cv.hint")}
+        </p>
+      )}
       <span className="sr-only">{agent.name}</span>
     </>
   );
@@ -320,19 +322,11 @@ export function ChatPane({ agent, conv, target, readOnlyReason, skillBlock, onCh
         <MenuButton label={t("cv.convMenu", { title: conv.title })} items={items} testId="conv-menu" />
       </div>
       <div className="convo-banners">{banners}</div>
-      {skillBlockedState ? (
-        <>
-          <div className="transcript" data-testid="transcript" />
-          <div className="composer">
-            <div className="composer-card" aria-disabled="true">
-              <textarea rows={1} disabled aria-label={t("cv.placeholder", { name: agent.name })} placeholder={t("cv.placeholder", { name: agent.name })} />
-              <button type="button" className="btn btn-primary btn-send" disabled aria-label={t("cv.send")}>
-                <Icon name="send" />
-              </button>
-            </div>
-          </div>
-        </>
-      ) : blocked ? (
+      {/* Skill-blocked: the transcript stays mounted read-only when a session existed (the history
+          must remain readable); without one there is nothing to show. */}
+      {skillBlockedState && ensure.kind !== "ready" ? (
+        <div className="transcript" data-testid="transcript" />
+      ) : blocked && !(ensure.kind === "ready" && skillBlockedState) ? (
         <div className="transcript" data-testid="transcript"><p className="hint chat-empty">{t("cv.startHint", { name: agent.name })}</p></div>
       ) : ensure.kind === "ensuring" ? (
         <div className="transcript" data-testid="transcript">
@@ -343,13 +337,23 @@ export function ChatPane({ agent, conv, target, readOnlyReason, skillBlock, onCh
         </div>
       ) : ensure.kind === "ready" ? (
         host.mode === "standalone" ? (
-          <ChatProviders apiBase=""><ChatBody sessionId={ensure.sessionId} agent={agent} /></ChatProviders>
+          <ChatProviders apiBase=""><ChatBody sessionId={ensure.sessionId} agent={agent} readOnly={!!skillBlockedState} /></ChatProviders>
         ) : (
-          <ChatBody sessionId={ensure.sessionId} agent={agent} />
+          <ChatBody sessionId={ensure.sessionId} agent={agent} readOnly={!!skillBlockedState} />
         )
       ) : (
         <div className="transcript" data-testid="transcript" />
       )}
+      {skillBlockedState ? (
+        <div className="composer">
+          <div className="composer-card" aria-disabled="true">
+            <textarea rows={1} disabled aria-label={t("cv.placeholder", { name: agent.name })} placeholder={t("cv.placeholder", { name: agent.name })} />
+            <button type="button" className="btn btn-primary btn-send" disabled aria-label={t("cv.send")}>
+              <Icon name="send" />
+            </button>
+          </div>
+        </div>
+      ) : null}
       {dialog === "rename" ? (
         <TextDialog
           title={t("dlg.rename.title")}
