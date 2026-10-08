@@ -8,8 +8,8 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 
 ## 2. Shared + host
 
-- [ ] 2.1 `packages/shared`: export `parseSkillCommand(text)` (design D13).
-- [ ] 2.2 `packages/server/src/pi/pi-resource-scanner.ts`: export `listGlobalSkills(globalDir)` (global skills + global-settings packages, never local). Register `host.listOperatorSkills` in `server.ts` beside `host.isProjectTrusted`.
+- [x] 2.1 `packages/shared`: export `parseSkillCommand(text)` (design D13).
+- [x] 2.2 `packages/server/src/pi/pi-resource-scanner.ts`: export `listGlobalSkills(globalDir)` (global skills + global-settings packages, never local). Register `host.listOperatorSkills` in `server.ts` beside `host.isProjectTrusted`.
 
 ## 3. Catalog service (team-plugin server)
 
@@ -31,8 +31,8 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 
 ## 6. Guard extension (team-plugin)
 
-- [ ] 6.1 `guard.ts`: `policyFromEnv` parses `PI_EXT_TEAM_SKILLS` (missing/unparseable → `null`); read-only tools allowed inside skill roots via `canonicalize`/`inside`; write/edit stay root-confined.
-- [ ] 6.2 `index.ts`: `before_agent_start` in-place filter on `(name, canonical filePath)`; `input` refusal of ungranted `parseSkillCommand` names and out-of-root `parseSkillBlock` envelopes (`handled`, no `ctx.ui.notify`).
+- [x] 6.1 `guard.ts`: `policyFromEnv` parses `PI_EXT_TEAM_SKILLS` (missing/unparseable → `null`); read-only tools allowed inside skill roots via `canonicalize`/`inside`; write/edit stay root-confined.
+- [x] 6.2 `index.ts`: `before_agent_start` in-place filter on `(name, canonical filePath)`; `input` refusal of ungranted `parseSkillCommand` names and out-of-root `parseSkillBlock` envelopes (`handled`, no `ctx.ui.notify`).
 
 ## 7. Bridge (packages/extension) — team-session skill route (design D12)
 
@@ -73,19 +73,19 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 
 ### L1 — host scanner (exemplar: `packages/server/src/__tests__/pi-resource-scanner.test.ts`)
 
-- [ ] 8.29 Test `listGlobalSkills` excludes project-local — input global `g1`, package `p1`, local `local-x` · trigger `listGlobalSkills(globalDir)` · observable `g1`, `p1` only (test-plan #E15).
+- [x] 8.29 Test `listGlobalSkills` excludes project-local — input global `g1`, package `p1`, local `local-x` · trigger `listGlobalSkills(globalDir)` · observable `g1`, `p1` only (test-plan #E15).
 
 ### L1 — guard (exemplar: `packages/team-plugin/src/extension/__tests__/guard.test.ts`)
 
-- [ ] 8.30 Test skill-root grant decision table — input tools × paths in/sibling/symlink-out/`..` · trigger `decideToolCall` · observable read-only allowed inside root; write/edit and escapes blocked (test-plan #E26).
-- [ ] 8.31 Test skill policy parsing — input `PI_EXT_TEAM_SKILLS` unset / bad JSON / bad shape / `"[]"` · trigger `policyFromEnv` · observable `null` ×3, empty-skills policy for `"[]"` (test-plan #E27).
-- [ ] 8.32 Test prompt filter — input granted, leaked, same-name-other-dir, planted-in-root, symlinked-path skills · trigger `before_agent_start` · observable in-place array with only the canonical granted skill; nothing else changed; no `systemPrompt` returned (test-plan #E28).
-- [ ] 8.33 Test input refusal table — input the ten texts in the manifest · trigger `input` · observable `handled` for ungranted command and out-of-root envelope, `continue` otherwise; `ctx.ui.notify` never called (test-plan #E29).
-- [ ] 8.34 Test missing policy aborts the spawn — input env without `PI_EXT_TEAM_SKILLS` · trigger `session_start` + ensure · observable no readiness, `503 guard_unavailable`, no record (test-plan #X2).
+- [x] 8.30 Test skill-root grant decision table — input tools × paths in/sibling/symlink-out/`..` · trigger `decideToolCall` · observable read-only allowed inside root; write/edit and escapes blocked (test-plan #E26).
+- [x] 8.31 Test skill policy parsing — input `PI_EXT_TEAM_SKILLS` unset / bad JSON / bad shape / `"[]"` · trigger `policyFromEnv` · observable `null` ×3, empty-skills policy for `"[]"` (test-plan #E27).
+- [x] 8.32 Test prompt filter — input granted, leaked, same-name-other-dir, planted-in-root, symlinked-path skills · trigger `before_agent_start` · observable in-place array with only the canonical granted skill; nothing else changed; no `systemPrompt` returned (test-plan #E28).
+- [x] 8.33 Test input refusal table — input the ten texts in the manifest · trigger `input` · observable `handled` for ungranted command and out-of-root envelope, `continue` otherwise; `ctx.ui.notify` never called (test-plan #E29).
+- [x] 8.34 Test missing policy aborts the spawn — input env without `PI_EXT_TEAM_SKILLS` · trigger `session_start` + ensure · observable no readiness, `503 guard_unavailable`, no record (test-plan #X2).
 
 ### L1 — shared (exemplar: `packages/shared/src/__tests__/skill-block-parser.test.ts`)
 
-- [ ] 8.35 Test `parseSkillCommand` BVA — input the eight strings in the manifest · trigger parse · observable the listed results (test-plan #E30).
+- [x] 8.35 Test `parseSkillCommand` BVA — input the eight strings in the manifest · trigger parse · observable the listed results (test-plan #E30).
 
 ### L1 — bridge (exemplar: `packages/extension/src/__tests__/command-handler.test.ts`, `prompt-expander.test.ts`)
 

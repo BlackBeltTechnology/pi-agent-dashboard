@@ -1,11 +1,14 @@
 /**
  * Team guard — companion pi extension loaded into every team session.
  *  - `tool_call`: deny-first name gate + path confinement (see guard.ts).
+ *  - `before_agent_start`: filters `systemPromptOptions.skills` in place to the effective set (D10).
+ *  - `input`: refuses ungranted `/skill:` commands and out-of-root skill envelopes (D10) — returns
+ *    `{action:"handled"}` and never calls `ctx.ui.notify` (the bridge owns the user-facing refusal, D12).
  *  - `session_start`: announces `team_guard_ready` to the plugin server so a
  *    session without a working guard is aborted instead of running ungated.
- * See change: add-team-plugin (D7).
+ * See change: add-team-plugin, add-team-skill-access (D9/D10).
  */
-import { decideToolCall, policyFromEnv, type TeamPolicy } from "./guard.js";
+import { decideToolCall, grantedSkillFilter, isRefusedInput, policyFromEnv, type TeamPolicy } from "./guard.js";
 
 export const TEAM_PLUGIN_ID = "team";
 export const GUARD_READY_MESSAGE = "team_guard_ready";
@@ -22,10 +25,32 @@ export function createToolCallHandler(policy: TeamPolicy | null) {
   };
 }
 
+/** D10: splice `systemPromptOptions.skills` in place; never return a `systemPrompt` string. */
+export function createBeforeAgentStartHandler(policy: TeamPolicy | null) {
+  const keep = grantedSkillFilter(policy);
+  return (event: { systemPromptOptions?: { skills?: unknown } }): undefined => {
+    const skills = event?.systemPromptOptions?.skills;
+    if (!Array.isArray(skills)) return;
+    skills.splice(0, skills.length, ...skills.filter(keep));
+    return;
+  };
+}
+
+/** D10: `{action:"handled"}` drops the text before any skill expansion; `{action:"continue"}` otherwise. */
+export function createInputHandler(policy: TeamPolicy | null) {
+  // `_ctx` is pi's handler context — intentionally unused: `ctx.ui.notify` is the bridge's job (D12).
+  return (event: { text?: unknown }, _ctx?: unknown): { action: "handled" } | { action: "continue" } =>
+    isRefusedInput(event?.text, policy) ? { action: "handled" } : { action: "continue" };
+}
+
 export default function teamGuard(pi: PiLike, options?: { policy?: TeamPolicy | null }): void {
   const policy = options?.policy !== undefined ? options.policy : policyFromEnv();
   const onToolCall = createToolCallHandler(policy);
+  const onBeforeAgentStart = createBeforeAgentStartHandler(policy);
+  const onInput = createInputHandler(policy);
   pi.on("tool_call", (event) => onToolCall((event ?? {}) as { toolName?: unknown; input?: unknown }));
+  pi.on("before_agent_start", (event) => onBeforeAgentStart((event ?? {}) as { systemPromptOptions?: { skills?: unknown } }));
+  pi.on("input", (event) => onInput((event ?? {}) as { text?: unknown }));
 
   const announce = () =>
     pi.events?.emit("dashboard:plugin-message", {
