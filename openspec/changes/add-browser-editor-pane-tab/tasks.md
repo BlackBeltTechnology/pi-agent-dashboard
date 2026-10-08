@@ -122,10 +122,10 @@
 
 Exemplar for all four: `tests/e2e/browser-relay.spec.ts` (harness port from `.pi-test-harness.json` `dashboardPort`, never `:18000`).
 
-- [ ] 10.1 Badge → pane (test-plan #F1). Triple: fake relay with 2 tabs (input) · click badge, choose "Open in pane" (trigger) · session selected, pane shows the browser tab with frames beside the visible chat (observable).
-- [ ] 10.2 `editor_tab_open` routing (test-plan #F14). Triple: broadcast for session S (input) · clients on S-chat, S-editor, another session, the settings overlay, landing (trigger) · on-route clients open or focus the tab, all others do not navigate (observable).
-- [ ] 10.3 Unavailable placeholder (test-plan #F15). Triple: persisted `browser:` tab with the plugin disabled (input) · reload the pane (trigger) · placeholder naming `browser`, Close removes it from persisted state (observable).
-- [ ] 10.4 Agent-initiated open e2e (test-plan #F17). Triple: agent session calls `browser_show_in_pane` (input) · tool executes (trigger) · client on that session shows `browser:<inst>:<tab>` active; re-open after close works (observable).
+- [x] 10.1 Badge → pane (test-plan #F1). Triple: fake relay with 2 tabs (input) · click badge, choose "Open in pane" (trigger) · session selected, pane shows the browser tab with frames beside the visible chat (observable).
+- [x] 10.2 `editor_tab_open` routing (test-plan #F14). Triple: broadcast for session S (input) · clients on S-chat, S-editor, another session, the settings overlay, landing (trigger) · on-route clients open or focus the tab, all others do not navigate (observable).
+- [x] 10.3 Unavailable placeholder (test-plan #F15). Triple: persisted `browser:` tab with the plugin disabled (input) · reload the pane (trigger) · placeholder naming `browser`, Close removes it from persisted state (observable).
+- [x] 10.4 Agent-initiated open e2e (test-plan #F17). Triple: agent session calls `browser_show_in_pane` (input) · tool executes (trigger) · client on that session shows `browser:<inst>:<tab>` active; re-open after close works (observable).
 
 ## 11. Manual-only (deferred post-merge)
 
