@@ -152,4 +152,65 @@ describe("preferences-store cardSections (configurable-session-card-sections)", 
     expect(store.getCardSections().folders?.[A_PATH]).toEqual({ git: false });
     store.dispose();
   });
+
+  describe("focus state + expandedFolders (add-focus-mode-and-card-block-toggles)", () => {
+    it("corrupt focus state on load -> focus off, empty profile, no proto key, other prefs intact", () => {
+      fs.writeFileSync(
+        filePath,
+        `{"pinnedDirectories":[],"cardSections":{"global":{"git":false},"focus":{"enabled":"x","profile":{"sections":{"__proto__":true,"git":"no"}}}}}`,
+      );
+      const store = createPreferencesStore(filePath);
+      const snap = store.getCardSections();
+      expect(snap.global).toEqual({ git: false });
+      expect(snap.focus?.enabled).toBeFalsy();
+      expect(snap.focus?.profile?.sections ?? {}).toEqual({});
+      expect(Object.hasOwn(snap.focus?.profile?.sections ?? {}, "__proto__")).toBe(false);
+      store.dispose();
+    });
+
+    it("setFocusEnabled / setFocusProfile mutate only on change and round-trip a restart", () => {
+      const store = createPreferencesStore(filePath);
+      expect(store.setFocusEnabled(true)).toBe(true);
+      expect(store.setFocusEnabled(true)).toBe(false);
+      expect(store.setFocusProfile({ sections: { git: false }, folderListMode: "classic" })).toBe(true);
+      expect(store.setFocusProfile({ sections: { git: false }, folderListMode: "classic" })).toBe(false);
+      expect(store.setExpandedFolder(A_PATH, true)).toBe(true);
+      store.flush();
+      store.dispose();
+      const re = createPreferencesStore(filePath);
+      expect(re.getCardSections().focus).toEqual({
+        enabled: true,
+        profile: { sections: { git: false }, folderListMode: "classic" },
+      });
+      expect(re.getExpandedFolders()).toEqual([A_PATH]);
+      expect(re.setFocusProfile(null)).toBe(true);
+      expect(re.getCardSections().focus).toEqual({ enabled: true });
+      re.dispose();
+    });
+
+    it("rejects an invalid or over-cap profile without mutation", () => {
+      const store = createPreferencesStore(filePath);
+      const many = Object.fromEntries(Array.from({ length: 257 }, (_, i) => [`s${i}`, true]));
+      expect(store.setFocusProfile({ sections: many })).toBe(false);
+      expect(store.setFocusProfile({ sections: { "../x": true } })).toBe(false);
+      expect(store.getCardSections().focus).toBeUndefined();
+      store.dispose();
+    });
+
+    it("pin clears collapsed and collapse clears pin; never pruned", () => {
+      const store = createPreferencesStore(filePath);
+      store.setFolderCollapsed(A_PATH, true);
+      expect(store.setExpandedFolder(A_PATH, true)).toBe(true);
+      expect(store.getCollapsedFolders()).toEqual([]);
+      expect(store.getExpandedFolders()).toEqual([A_PATH]);
+      expect(store.setFolderCollapsed(A_PATH, true)).toBe(true);
+      expect(store.getExpandedFolders()).toEqual([]);
+      expect(store.getCollapsedFolders()).toEqual([A_PATH]);
+      expect(store.setExpandedFolder(`${B_PATH}/`, true)).toBe(true);
+      expect(store.setExpandedFolder(B_PATH, true)).toBe(false);
+      expect(store.getExpandedFolders()).toEqual([B_PATH]);
+      expect(store.setExpandedFolder(B_PATH, false)).toBe(true);
+      store.dispose();
+    });
+  });
 });

@@ -2,19 +2,24 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { cleanup, render, renderHook, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createUiPrimitiveRegistry, registerUiPrimitive, UiPrimitiveProvider } from "../index.js";
+import { intentStore } from "../intent-store.js";
 import { PluginContextProvider } from "../plugin-context.js";
 import {
   ComposerContextGroup,
   ComposerContextGroupSlot,
-  ToolbarGroup,
   ComposerPanelSlot,
+  SessionCardActionBarSlot,
   SessionCardBadgeSlot,
   SessionCardMemorySlot,
   SettingsSectionByPluginSlot,
   SettingsSectionSlot,
+  SidebarFolderSectionSlot,
+  ToolbarGroup,
   ToolRendererSlot,
   useSlotHasAnyClaims,
   useSlotHasClaimsForSession,
+  useSlotHasVisibleClaimsForSession,
   WorktreeCardSectionSlot,
 } from "../slot-consumers.js";
 import { createSlotRegistry } from "../slot-registry.js";
@@ -766,5 +771,85 @@ describe("useSlotHasAnyClaims", () => {
   it("returns false without a registry", () => {
     const { result } = renderHook(() => useSlotHasAnyClaims("session-card-memory"));
     expect(result.current).toBe(false);
+  });
+});
+
+// ── isPluginVisible filter (add-focus-mode-and-card-block-toggles #E16) ──────
+
+describe("isPluginVisible filter", () => {
+  it("hides a legacy claim AND an intent of a hidden plugin; absent prop = unchanged", () => {
+    intentStore.__resetForTests();
+    const registry = createSlotRegistry();
+    const prims = createUiPrimitiveRegistry();
+    registerUiPrimitive(
+      prims,
+      "ui:action-list" as never,
+      (({ actions }: { actions: { label: string }[] }) => <b>{actions.map((a) => a.label)}</b>) as never,
+    );
+    registry.addClaim({
+      pluginId: "automation",
+      priority: 1,
+      slot: "session-card-badge",
+      Component: () => <span data-testid="legacy">L</span>,
+    });
+    intentStore.set(
+      { pluginId: "browser", sessionId: "s1", slot: "session-card-badge" },
+      { primitive: "ui:action-list", props: { actions: [{ label: "intent-browser" }] } } as never,
+    );
+    const view = (isPluginVisible?: (id: string) => boolean) =>
+      render(
+        <UiPrimitiveProvider value={prims}>
+          <PluginContextProvider registry={registry}>
+            <SessionCardBadgeSlot session={makeSession()} isPluginVisible={isPluginVisible} />
+          </PluginContextProvider>
+        </UiPrimitiveProvider>,
+      );
+    let r = view((id) => id !== "automation" && id !== "browser");
+    expect(screen.queryByTestId("legacy")).toBeNull();
+    expect(r.container.textContent ?? "").not.toContain("intent-browser");
+    r.unmount();
+    r = view((id) => id !== "browser");
+    expect(screen.getByTestId("legacy")).toBeDefined();
+    expect(r.container.textContent ?? "").not.toContain("intent-browser");
+    r.unmount();
+    r = view();
+    expect(screen.getByTestId("legacy")).toBeDefined();
+    expect(r.container.textContent ?? "").toContain("intent-browser");
+    intentStore.__resetForTests();
+  });
+
+  it("action bar and folder section honour the filter", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({ pluginId: "goal", priority: 1, slot: "session-card-action-bar", Component: () => <i data-testid="ab" /> });
+    registry.addClaim({ pluginId: "kb", priority: 1, slot: "sidebar-folder-section", Component: () => <i data-testid="fs" /> });
+    render(
+      <PluginContextProvider registry={registry}>
+        <SessionCardActionBarSlot session={makeSession()} isPluginVisible={() => false} />
+        <SidebarFolderSectionSlot folder={{ cwd: "/repo" } as never} isPluginVisible={() => false} />
+      </PluginContextProvider>,
+    );
+    expect(screen.queryByTestId("ab")).toBeNull();
+    expect(screen.queryByTestId("fs")).toBeNull();
+    cleanup();
+    render(
+      <PluginContextProvider registry={registry}>
+        <SessionCardActionBarSlot session={makeSession()} isPluginVisible={() => true} />
+        <SidebarFolderSectionSlot folder={{ cwd: "/repo" } as never} />
+      </PluginContextProvider>,
+    );
+    expect(screen.getByTestId("ab")).toBeDefined();
+    expect(screen.getByTestId("fs")).toBeDefined();
+  });
+
+  it("useSlotHasVisibleClaimsForSession reflects the filter", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({ pluginId: "automation", priority: 1, slot: "session-card-badge", Component: () => null });
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <PluginContextProvider registry={registry}>{children}</PluginContextProvider>
+    );
+    const on = renderHook(() => useSlotHasVisibleClaimsForSession("session-card-badge", makeSession(), () => true), { wrapper });
+    expect(on.result.current).toBe(true);
+    const off = renderHook(() => useSlotHasVisibleClaimsForSession("session-card-badge", makeSession(), () => false), { wrapper });
+    expect(off.result.current).toBe(false);
   });
 });

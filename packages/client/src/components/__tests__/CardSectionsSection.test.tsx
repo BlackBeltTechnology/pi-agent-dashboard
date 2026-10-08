@@ -62,3 +62,48 @@ describe("CardSectionsSection", () => {
     expect(screen.queryByTestId("card-sections-global-memory")).toBeNull();
   });
 });
+
+describe("CardSectionsSection — blocks, effects, notice (add-focus-mode-and-card-block-toggles)", () => {
+  it("offers directory-card rows and the Effects group (global only)", () => {
+    renderSection({});
+    expect(screen.getByTestId("card-sections-global-group-directory")).toBeTruthy();
+    expect(screen.getByTestId("card-sections-global-group-effects")).toBeTruthy();
+    expect(screen.getByTestId("card-sections-global-fx-selected-glow")).toBeTruthy();
+    expect(screen.getByTestId("card-sections-global-count-fx-selected-glow").textContent).not.toMatch(/folder/);
+  });
+
+  it("directory-card switch off writes a global false; on writes inherit", () => {
+    const { send } = renderSection({});
+    const sw = () => screen.getByTestId("card-sections-global-folder-create").querySelector("[role=switch]") as HTMLElement;
+    fireEvent.click(sw());
+    expect(send).toHaveBeenLastCalledWith({ type: "set_card_section_visibility", section: "folder-create", visible: false });
+  });
+
+  it("switching a child ON under a hidden legacy parent writes an explicit true", () => {
+    const { send } = renderSection({ global: { openspec: false } });
+    const sw = screen.getByTestId("card-sections-global-openspec-badge").querySelector("[role=switch]") as HTMLElement;
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(sw);
+    expect(send).toHaveBeenLastCalledWith({ type: "set_card_section_visibility", section: "openspec-badge", visible: true });
+  });
+
+  it("shows the global (normal) value while Focus is on, with a notice", () => {
+    renderSection({ global: { git: false }, focus: { enabled: true } });
+    expect(screen.getByTestId("focus-notice")).toBeTruthy();
+    const git = screen.getByTestId("card-sections-global-git").querySelector("[role=switch]") as HTMLElement;
+    expect(git.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("writes are disabled while disconnected, incl. effects", () => {
+    render(
+      <PluginContextProvider registry={createSlotRegistry()}>
+        <CardSectionsProvider value={{ prefs: {}, send: vi.fn(), connected: false }}>
+          <CardSectionsSection />
+        </CardSectionsProvider>
+      </PluginContextProvider>,
+    );
+    const fx = screen.getByTestId("card-sections-global-fx-status-animation").querySelector("[role=switch]") as HTMLButtonElement;
+    expect(fx.disabled).toBe(true);
+  });
+});
+

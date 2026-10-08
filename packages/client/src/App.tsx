@@ -34,13 +34,13 @@ import { MarkdownPreviewView } from "./components/preview/MarkdownPreviewView.js
 import { PreviewOverlayView } from "./components/preview/PreviewOverlayView.js";
 import { Toast, useToast } from "./components/primitives/Toast.js";
 import { ComposerSessionActions } from "./components/session/ComposerSessionActions.js";
+import { FileAccessToastHost } from "./components/session/FileAccessToastHost.js";
 import { MissingRequiredBanner } from "./components/session/MissingRequiredBanner.js";
 import { QueuePanel } from "./components/session/QueuePanel.js";
 import { RecoveryOfferHost } from "./components/session/RecoveryOfferHost.js";
 import { SessionBanner } from "./components/session/SessionBanner.js";
 import { SessionHeader } from "./components/session/SessionHeader.js";
 import { SessionList } from "./components/session/SessionList.js";
-import { FileAccessToastHost } from "./components/session/FileAccessToastHost.js";
 import { SpawnErrorToastHost } from "./components/session/SpawnErrorToastHost.js";
 import { TokenStatsBar } from "./components/session/TokenStatsBar.js";
 import { SettingsPanel } from "./components/settings/SettingsPanel.js";
@@ -175,6 +175,7 @@ import { FirstLaunchDisplayModal, shouldShowFirstLaunch } from "./components/set
 import type { ToolContext } from "./components/tool-renderers/index.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
 import { AddFoldersDialog } from "./components/workspace/AddFoldersDialog.js";
+import { useCardFxAttributes } from "./hooks/useCardFxAttributes.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
 import { useProvidersReady } from "./hooks/useProvidersReady.js";
@@ -766,6 +767,13 @@ export default function App() {
   // connect snapshot too). Server is the single source of truth — no optimistic
   // mirror, matching the `workspaces_updated` convention below.
   const [collapsedFolders, setCollapsedFolders] = useState<string[]>([]);
+  // add-focus-mode-and-card-block-toggles: accordion pinned-open folders, same
+  // channel + same server-owned convention as collapsedFolders.
+  const [expandedFolders, setExpandedFolders] = useState<string[]>([]);
+  // Configured sidebar folder behavior (Settings → Sessions), hydrated from
+  // /api/config on mount and on `config_updated {section:"sessions"}`.
+  const [configFolderListMode, setConfigFolderListMode] = useState<"classic" | "accordion">("classic");
+  const [folderAttentionPeek, setFolderAttentionPeek] = useState<boolean>(true);
   // session-list-group-by: server-owned grouping prefs (`group_by_prefs_updated`,
   // sent in the connect burst before any folder-materializing frame).
   // `undefined` until the snapshot lands — also the urgency migration's gate.
@@ -1090,7 +1098,7 @@ export default function App() {
   }, [send, historyGaps]);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed },
   );
 
@@ -1152,6 +1160,10 @@ export default function App() {
         if (d.success && d.data?.plugins && typeof d.data.plugins === "object") {
           initPluginConfigs(d.data.plugins as Record<string, Record<string, unknown>>);
         }
+        if (d.success) {
+          setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
+          if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);
+        }
         // Hydrate the OpenSpec fleet switches the readiness affordances read
         // (folder-section offer suppression + menu re-enable gating).
         // See change: add-openspec-init-affordances.
@@ -1171,10 +1183,14 @@ export default function App() {
   useEffect(() => {
     if (!onMessage) return;
     return onMessage((msg: any) => {
-      if (msg?.type !== "config_updated" || msg.section !== "openspec") return;
+      if (msg?.type !== "config_updated" || (msg.section !== "openspec" && msg.section !== "sessions")) return;
       fetch(`${apiBase}/api/config`)
         .then((r) => r.json())
         .then((d) => {
+          if (d?.success && msg.section === "sessions") {
+            setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
+            if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);
+          }
           const os = d?.data?.openspec;
           if (d?.success && os && typeof os === "object") {
             if (typeof os.offerInitialization === "boolean") setOpenspecOfferInitialization(os.offerInitialization);
@@ -2023,6 +2039,11 @@ export default function App() {
       // arrive (matches the workspace-collapse convention below).
       collapsedGroups={collapsedFolders}
       onSetFolderCollapsed={(path, collapsed) => send({ type: "set_folder_collapsed", path, collapsed })}
+      // add-focus-mode-and-card-block-toggles — accordion pinned-open set + config.
+      expandedGroups={expandedFolders}
+      onSetFolderExpanded={(path, expanded) => send({ type: "set_folder_expanded", path, expanded })}
+      folderListMode={configFolderListMode}
+      folderAttentionPeek={folderAttentionPeek}
       // session-list-group-by — server-owned, no optimistic mirror.
       groupByPrefs={groupByPrefs}
       onSetFolderGroupBy={(path, mode) => send({ type: "set_folder_group_by", path, mode })}
@@ -2788,10 +2809,15 @@ export default function App() {
     (text, variant, opts) => showToastRef.current(text, variant, opts),
     [],
   );
-  const cardSectionsContextValue = useMemo<CardSectionsContextValue>(
-    () => ({ prefs: cardSections, send, connected: ws !== null, showToast: stableShowToast }),
-    [cardSections, send, ws, stableShowToast],
+  const pluginNames = useMemo(
+    () => Object.fromEntries(PLUGIN_REGISTRY.map((e) => [e.manifest.id, e.manifest.displayName])),
+    [],
   );
+  const cardSectionsContextValue = useMemo<CardSectionsContextValue>(
+    () => ({ prefs: cardSections, send, connected: ws !== null, showToast: stableShowToast, folderListMode: configFolderListMode, pluginNames }),
+    [cardSections, send, ws, stableShowToast, configFolderListMode, pluginNames],
+  );
+  useCardFxAttributes(cardSections);
 
   const displayPrefsContextValue = useMemo(() => ({
     global: displayPrefs,

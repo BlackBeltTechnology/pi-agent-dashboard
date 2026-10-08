@@ -29,3 +29,10 @@ Mounts `<PiBelowFloorWarning>` after the tag strip (mobile + desktop) when `sess
 Attachment resolved via `useAttachmentResolution`; mobile chip shows `AttachmentTrace`; OpenSpec subcard stays for attached sessions with archived/missing data. See change: resolve-archived-attached-proposal.
 
 Status label shows 'Needs you' when `session.awaitingFileAccess`. See change: ask-agent-file-access-in-chat.
+
+## add-focus-mode-and-card-block-toggles
+
+- `openspec-badge` gates `OpenSpecActivityBadge` plus the mobile attached chip; `openspec` gates ONLY the subcard. Two ids on purpose — a user can keep the badge without the panel.
+- `TagStrip` renders user tags only; the phase tag is dropped.
+- `BadgeSubcard` and the card action bar filter plugin contributions through `usePluginSectionFilter("badge"|"actionbar", folderKey)`, so a per-plugin block toggle removes the contribution rather than blanking it.
+- See change: add-focus-mode-and-card-block-toggles.
