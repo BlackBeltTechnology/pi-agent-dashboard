@@ -31,6 +31,8 @@ export type GateOutcome =
   | "recently-denied"
   | "timeout"
   | "no-ui"
+  | "yolo-allowed"
+  | "yolo-refused"
   | "error";
 
 export type GateResult = { block: true; reason: string } | undefined;
@@ -58,7 +60,16 @@ export interface PathGateDeps {
   requestGrant: (req: { promptId: string; path: string; subject: string }) => Promise<{ ok: boolean; error?: string }>;
   notify?: (message: string) => void;
   log: (line: string) => void;
-  counters?: { inRoot: number; asked: number; blocked: number };
+  counters?: { inRoot: number; asked: number; blocked: number; yoloAllowed?: number };
+  /**
+   * YOLO link (change: yolo-covers-agent-path-gate). `yoloSupported` = the server
+   * advertised `path-yolo`; `yoloDecide` asks it (never rejects; `decline` on any
+   * failure); `reportRefusal` tells it about an operator Deny (fire-and-forget).
+   * All optional: absent → the gate behaves exactly as before.
+   */
+  yoloSupported?: () => boolean;
+  yoloDecide?: (req: { path: string; access: "r" | "w"; tool: string }) => Promise<"auto-allow" | "refused" | "decline">;
+  reportRefusal?: (req: { promptId: string; path: string; subject: string }) => void;
   sessionId: () => string;
   env?: ResolveEnv;
   now?: () => number;
@@ -181,6 +192,7 @@ export function createPathGateHandler(deps: PathGateDeps) {
           metadata: {
             kind: KIND_SELECT,
             path: d.canonical,
+            subject: d.subject,
             access,
             sensitive: d.sensitive,
             tool,
@@ -194,7 +206,17 @@ export function createPathGateHandler(deps: PathGateDeps) {
       ]);
       openId = null;
       if (answer === "expired" || expired) return settleTimeout();
-      if (answer === undefined || answer === OPT_DENY) return settleDeny();
+      if (answer === undefined || answer === OPT_DENY) {
+        // Remember the operator's Deny / dismiss (select step only), best effort.
+        if (deps.reportRefusal && deps.yoloSupported?.() && deps.grantStoreMatch()) {
+          try {
+            deps.reportRefusal({ promptId: id1, path: d.canonical, subject: d.subject });
+          } catch {
+            /* never changes the outcome */
+          }
+        }
+        return settleDeny();
+      }
       if (answer === OPT_ALLOW_ONCE) {
         log("allowed-once", tool, access, d.canonical, d.sensitive, sid);
         return undefined;
@@ -277,6 +299,33 @@ export function createPathGateHandler(deps: PathGateDeps) {
         log("recently-denied", tool, access, d.canonical, d.sensitive, sid);
         if (deps.counters) deps.counters.blocked++;
         return block("recently-denied", `access under ${d.suppressionKey} was denied moments ago`);
+      }
+      // YOLO (server-owned): asked before the mutex so in-scope calls never queue behind
+      // an open out-of-scope prompt. Only for a grantable, non-sensitive path, against a
+      // server that advertised `path-yolo` AND writes the same grant store (same host).
+      if (
+        deps.yoloDecide &&
+        !d.sensitive &&
+        d.grantable &&
+        deps.yoloSupported?.() &&
+        deps.grantStoreMatch()
+      ) {
+        let verdict: "auto-allow" | "refused" | "decline" = "decline";
+        try {
+          verdict = await deps.yoloDecide({ path: d.canonical, access: access === "read" ? "r" : "w", tool });
+        } catch {
+          verdict = "decline";
+        }
+        if (verdict === "auto-allow") {
+          log("yolo-allowed", tool, access, d.canonical, d.sensitive, sid);
+          if (deps.counters) deps.counters.yoloAllowed = (deps.counters.yoloAllowed ?? 0) + 1;
+          return undefined;
+        }
+        if (verdict === "refused") {
+          log("yolo-refused", tool, access, d.canonical, d.sensitive, sid);
+          if (deps.counters) deps.counters.blocked++;
+          return block("yolo-refused", `${d.subject} was denied earlier; clear it in Settings ▸ Access`);
+        }
       }
       // Per-session mutex: at most one gate prompt open per session; another session of
       // the same pi process is never queued behind it.

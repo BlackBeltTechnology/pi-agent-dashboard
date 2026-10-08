@@ -519,3 +519,54 @@ describe("a commit the target refuses is a no-op, not a lost session", () => {
     expect(origin.sent.some((m: any) => m?.type === "session_moved")).toBe(false);
   });
 });
+
+describe("path-gate frames from the move target (change: yolo-covers-agent-path-gate, test-plan #X5)", () => {
+  it("forwards dashboard_identity to the path gate instead of dropping it", async () => {
+    const forwarded: unknown[] = [];
+    const origin = fakeConnection("ws://origin");
+    origin.connect();
+    const made: ReturnType<typeof fakeConnection>[] = [];
+    const coord = createMoveCoordinator({
+      origin,
+      sessionId: "sess-A",
+      connect: (url) => {
+        const c = fakeConnection(url);
+        made.push(c);
+        return c;
+      },
+      onServerMessage: (m) => forwarded.push(m),
+    });
+    const move = coord.begin({ targetUrl: "ws://target", expectInstanceId: "instance-target" });
+    made[0].inbound?.({ type: "dashboard_identity", grantStoreId: "tok", features: ["path-yolo"] });
+    acceptProvisional(made[0]);
+    // Pre-commit: held, not applied — the target does not own sends yet.
+    expect(forwarded).toEqual([]);
+    expect((await move).ok).toBe(true);
+    expect(forwarded).toEqual([{ type: "dashboard_identity", grantStoreId: "tok", features: ["path-yolo"] }]);
+  });
+});
+
+describe("identity staging (CodeRabbit follow-up)", () => {
+  it("discards the staged identity when the move aborts", async () => {
+    const forwarded: unknown[] = [];
+    const origin = fakeConnection("ws://origin");
+    origin.connect();
+    const made: ReturnType<typeof fakeConnection>[] = [];
+    const coord = createMoveCoordinator({
+      origin,
+      sessionId: "sess-A",
+      connect: (url) => {
+        const c = fakeConnection(url);
+        made.push(c);
+        return c;
+      },
+      onServerMessage: (m) => forwarded.push(m),
+      timeoutMs: 50,
+    });
+    const move = coord.begin({ targetUrl: "ws://target", expectInstanceId: "instance-target" });
+    made[0].inbound?.({ type: "dashboard_identity", grantStoreId: "tok", features: ["path-yolo"] });
+    acceptProvisional(made[0], "instance-target", { ackCommit: false }); // commit refused
+    expect((await move).ok).toBe(false);
+    expect(forwarded).toEqual([]);
+  });
+});

@@ -23,12 +23,12 @@
  */
 import * as fs from "node:fs";
 import path from "node:path";
-import type { AccessPlaneId } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { YoloSurfaceId } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { canonicalSubject } from "./canonical-subject.js";
 
 export interface Refusal {
-  plane: AccessPlaneId;
+  plane: YoloSurfaceId;
   subject: string;
   refusedAt: number;
 }
@@ -38,7 +38,7 @@ interface StoreFile {
   refusals: Refusal[];
 }
 
-const PLANES: ReadonlySet<string> = new Set(["filesystem", "cwd", "network", "cors"]);
+const PLANES: ReadonlySet<string> = new Set(["filesystem", "cwd", "network", "cors", "agent-path"]);
 
 function refusalLedgerPath(): string {
   const override = process.env.PI_ACCESS_REFUSALS_STORE;
@@ -121,14 +121,14 @@ function refusalKey(subject: string): string {
   return canonicalSubject(subject)?.canonical ?? subject;
 }
 
-export function isRefused(plane: AccessPlaneId, subject: string): boolean {
+export function isRefused(plane: YoloSurfaceId, subject: string): boolean {
   const key = refusalKey(subject);
   return load().some((r) => r.plane === plane && (r.subject === key || refusalKey(r.subject) === key));
 }
 
 /** Remember an explicit deny. Idempotent per (plane, subject). */
 export function recordRefusal(
-  plane: AccessPlaneId,
+  plane: YoloSurfaceId,
   subject: string,
   now: number = Date.now(),
 ): { ok: true } | { ok: false; error: string } {
@@ -144,7 +144,7 @@ export function recordRefusal(
 }
 
 /** The operator's explicit clear, from the Access surface. */
-export function clearRefusal(plane: AccessPlaneId, subject: string): boolean {
+export function clearRefusal(plane: YoloSurfaceId, subject: string): boolean {
   const current = load();
   const key = refusalKey(subject);
   const remaining = current.filter((r) => !(r.plane === plane && (r.subject === subject || refusalKey(r.subject) === key)));

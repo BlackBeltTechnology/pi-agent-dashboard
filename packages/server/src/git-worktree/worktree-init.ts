@@ -24,6 +24,18 @@ import { createHash } from "node:crypto";
 import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { ChildProcess, SpawnOptions } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { stripDashboardHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
+
+/**
+ * Default env for every hook child (gate, script run, agent spawn): a COPY of
+ * the server env minus the dashboard's own V8 heap stamp, so heavy Node work in
+ * the hook (pnpm install → vite build) is not capped at the server's ceiling.
+ * Provenance-gated — operator-pinned heap flags survive.
+ * See change: strip-heap-flag-from-worktree-init (#820).
+ */
+function defaultHookEnv(): NodeJS.ProcessEnv {
+  return stripDashboardHeapFlag({ ...process.env });
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -133,7 +145,7 @@ export async function evaluateGate(
     try {
       child = spawnFn("bash", ["-c", hook.gate], {
         cwd,
-        env: opts.env ?? process.env,
+        env: opts.env ?? defaultHookEnv(),
         stdio: ["ignore", "ignore", "ignore"],
       });
     } catch (err) {
@@ -251,7 +263,7 @@ async function runScript(
     try {
       child = spawnFn("bash", ["-c", command], {
         cwd,
-        env: opts.env ?? process.env,
+        env: opts.env ?? defaultHookEnv(),
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (err) {
@@ -364,7 +376,7 @@ async function runAgent(
     try {
       child = spawnFn(piBin, args, {
         cwd,
-        env: opts.env ?? process.env,
+        env: opts.env ?? defaultHookEnv(),
         detached: true,
         stdio: ["ignore", logFd ?? "ignore", logFd ?? "ignore"],
       } as SpawnOptions);

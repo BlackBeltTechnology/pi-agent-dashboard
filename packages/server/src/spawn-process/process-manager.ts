@@ -321,6 +321,11 @@ export function buildSpawnEnv(
   // non-blocking finding — grandchild marker leak).
   delete env.PI_DASHBOARD_ELECTRON;
   delete env.PI_DASHBOARD_RESOURCES_PATH;
+  // Dashboard spawns ALWAYS activate the bridge: overrides a host-global
+  // `bridge.enabled:false` and any opt-out inherited from the server's shell.
+  // Descendants inherit it. tmux panes get it via `-e` (buildTmuxCommand).
+  // See change: add-bridge-env-opt-out (D5).
+  env.PI_DASHBOARD_BRIDGE = "on";
   // Withhold the DASHBOARD'S OWN heap flag from the child. `NODE_OPTIONS` is
   // inherited by every descendant, so the server's ceiling otherwise governs
   // not just pi but every vitest / tsc / vite the agent runs. Provenance-gated
@@ -538,7 +543,10 @@ export function buildTmuxCommand(
         `PI_DASHBOARD_SOCKET=${endpoint.socket ?? ""}`,
       ]
     : [];
-  const envArgs = [...tokenEnv, ...endpointEnv, ...heapEnv];
+  // Bridge activation stamp rides `-e` for the same reason: the spawn env
+  // never reaches the pane. See change: add-bridge-env-opt-out (D5).
+  const bridgeEnv = ["-e", "PI_DASHBOARD_BRIDGE=on"];
+  const envArgs = [...tokenEnv, ...endpointEnv, ...heapEnv, ...bridgeEnv];
   if (sessionExists) {
     return ["tmux", "new-window", "-t", "pi-dashboard", ...envArgs, "-c", cwd, paneCommand];
   }

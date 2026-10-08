@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-app-kit",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Client plumbing for a standalone SPA on its own origin that talks to a pi-dashboard host: runtime endpoint config, OIDC PKCE sign-in, bearer transport, single-use WebSocket tickets and a reconnecting socket.",
   "type": "module",
   "repository": {
