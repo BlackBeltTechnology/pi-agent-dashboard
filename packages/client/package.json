@@ -40,6 +40,7 @@
     "@blackbelt-technology/pi-dashboard-flows-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-goal-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-grammar-plugin": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-context-mode-settings-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-hermes-memory-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-kb-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-keycloak-resolver-plugin": "^0.9.0",

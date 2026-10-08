@@ -28,6 +28,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/node/", reason: "node runtime UI" },
   { pattern: "/api/preferences/", reason: "UI preferences" },
   { pattern: "/api/grammar/", reason: "UI-only" },
+  { pattern: "/api/roles/used-by", reason: "Model roles page \"used by\" overview; informational, UI-only" },
   { pattern: "/api/kb/", reason: "kb engine admin" },
   // add-server-push-notifications (Decision 12).
   { pattern: "/api/push/", reason: "push management is UI/REST-only in v1" },
@@ -46,6 +47,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/plugins/gmail/", reason: "Google account sign-in, levels and revoke; credential-bearing, UI-only" },
   { pattern: "/api/system-one/", reason: "decision-model config, key entry and managed-process control; UI-only" },
   { pattern: "/api/plugins/hermes-memory/", reason: "plugin-internal config" },
+  { pattern: "/api/plugins/context-mode-settings/", reason: "plugin-internal config; writes a file under ~/.pi and alters session env" },
   { pattern: "/api/plugins/flows/", reason: "plugin-internal" },
   { pattern: "/api/tools/", reason: "tool-registry UI" },
   { pattern: "/api/ws-ticket", reason: "transport credential" },

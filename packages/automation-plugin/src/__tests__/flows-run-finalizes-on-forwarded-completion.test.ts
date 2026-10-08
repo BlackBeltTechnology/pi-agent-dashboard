@@ -73,7 +73,7 @@ async function boot(
   let lastRunId = "";
 
   const ctx = {
-    fastify: { get: () => {}, post: () => {}, delete: () => {} },
+    fastify: { get: () => {}, post: () => {}, delete: () => {}, addHook: () => {} },
     sessionManager: {
       listAll: () => [{ cwd: repo }],
       getSession: (id: string) => sessions.get(id),

@@ -31,11 +31,11 @@ The plugin SHALL contribute its UI exclusively through existing dashboard slots 
 
 ### Requirement: Create Automation entry point
 
-The dashboard SHALL present a "Create Automation" action reachable from the folder Automations entry. The folder Automations row SHALL expose a "+ New" action that opens the create editor directly, and the board SHALL also expose a "Create Automation" action. Activating either SHALL open an editor for the trigger, action (prompt or skill), model (direct via `ModelSelector` **with a paired thinking-level control**, or `@role` via role dropdown), scope (`folder` | `global`), `mode`, and `concurrency`, and SHALL write `automation.yaml` (and `prompt.md` for prompt actions) to the chosen scope.
+The dashboard SHALL present a "Create Automation" action reachable from the folder Automations entry. The folder Automations row SHALL expose a "+ New" action that opens the create editor directly, and the board SHALL also expose a "Create Automation" action. Activating either SHALL open an editor for the trigger, action (prompt or skill), model (direct via `ModelSelector` **with a paired thinking-level control**, or `@role` via the same picker's Role tab, which lists the live effective role set — built-in and custom), scope (`folder` | `global`), `mode`, and `concurrency`, and SHALL write `automation.yaml` (and `prompt.md` for prompt actions) to the chosen scope.
 
 On the direct-model branch the editor SHALL render a thinking-level control beside the model selector, with selectable levels derived from the picked model's `supportedThinkingLevels`. The chosen level SHALL be written as a `:<level>` suffix on the existing `model` field; the no-override option SHALL write the bare `"<provider>/<id>"`.
 
-On the `@role` branch the editor SHALL NOT render a thinking-level control: the level travels with the role's own ref, resolved at run time.
+When a role is selected the editor SHALL NOT render a thinking-level control: the level travels with the role's own ref, resolved at run time.
 
 #### Scenario: Create from sidebar without opening board
 
@@ -59,9 +59,15 @@ On the `@role` branch the editor SHALL NOT render a thinking-level control: the 
 
 #### Scenario: Role branch offers no level control
 
-- **WHEN** a user switches the model field to the `@role` branch
+- **WHEN** a user selects a role on the model picker's Role tab
 - **THEN** no thinking-level control SHALL render
 - **AND** the written `model` value SHALL be the bare `@role` token with no suffix.
+
+#### Scenario: Custom role is selectable in the editor
+
+- **GIVEN** a custom role `nightly` exists
+- **WHEN** the user opens the automation editor's model picker Role tab
+- **THEN** `nightly` SHALL be offered and selecting it SHALL store `model: "@nightly"`
 
 ### Requirement: Default run visibility setting
 

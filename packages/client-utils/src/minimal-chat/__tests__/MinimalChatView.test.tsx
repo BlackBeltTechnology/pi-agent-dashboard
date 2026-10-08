@@ -233,3 +233,50 @@ describe("MinimalChatView", () => {
     }
   });
 });
+
+// See change: stream-subagent-reasoning-and-stable-card (#E7).
+describe("MinimalChatView liveEntry", () => {
+  afterEach(() => cleanup());
+  const three: MinimalChatEntry[] = [
+    { kind: "text", text: "one" },
+    { kind: "error", text: "two" },
+    { kind: "text", text: "three" },
+  ];
+  const tails = [undefined, { kind: "thinking" as const, text: "live-think" }, { kind: "text" as const, text: "live-text" }];
+
+  for (const entries of [[], three]) {
+    for (const liveEntry of tails) {
+      it(`entries=${entries.length} tail=${liveEntry?.kind ?? "none"}`, () => {
+        const { container } = renderView(
+          <MinimalChatView title="a" status="running" entries={entries} liveEntry={liveEntry} emptyMessage="EMPTY" />,
+        );
+        const live = container.querySelector('[data-testid="minimal-live-entry"]');
+        if (liveEntry) {
+          expect(live).not.toBeNull();
+          expect(live!.textContent).toContain(liveEntry.text);
+          expect(live!.textContent?.toLowerCase()).toContain("in progress");
+          expect(live!.getAttribute("data-kind")).toBe(liveEntry.kind);
+          // last child of the body (after finished entries)
+          expect(live!.parentElement!.lastElementChild).toBe(live);
+        } else {
+          expect(live).toBeNull();
+        }
+        const emptyShown = screen.queryByText("EMPTY") !== null;
+        expect(emptyShown).toBe(entries.length === 0 && !liveEntry);
+      });
+    }
+  }
+
+  // PR #831 review: pulses honour prefers-reduced-motion.
+  it.each(["thinking", "text"] as const)("%s live entry animates only under motion-safe", (kind) => {
+    const { container } = renderView(
+      <MinimalChatView title="a" status="running" entries={[]} liveEntry={{ kind, text: "x" }} />,
+    );
+    const live = container.querySelector('[data-testid="minimal-live-entry"]')!;
+    const pulsing = [...live.querySelectorAll("[class*='animate-']")].map((el) => el.getAttribute("class") ?? "");
+    expect(pulsing.length).toBeGreaterThan(0);
+    for (const cls of pulsing) {
+      expect(cls.split(/\s+/).filter((c) => c.includes("animate-")).every((c) => c.startsWith("motion-safe:"))).toBe(true);
+    }
+  });
+});

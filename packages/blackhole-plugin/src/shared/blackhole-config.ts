@@ -17,6 +17,27 @@
  * See change: add-blackhole-plugin.
  */
 
+import { parseModelRef } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
+
+/**
+ * A role-bound slot as it travels on the PUT wire: a bare role ref string
+ * (`"@fast"`) or `{ role, cooldownHours?, contextWindow? }` (chain entries keep
+ * their per-entry tuning). It is NEVER written to the file — the PUT route
+ * resolves it to a concrete `ModelRef` first. See change: add-role-aware-model-refs.
+ */
+type RoleSlot = string | { role: string; cooldownHours?: number; contextWindow?: number };
+
+/** The role ref of a role slot, or null when `value` is not one. */
+export function roleSlotRef(value: unknown): string | null {
+  const ref =
+    typeof value === "string"
+      ? value
+      : typeof value === "object" && value !== null && !Array.isArray(value) && typeof (value as { role?: unknown }).role === "string"
+        ? (value as { role: string }).role
+        : null;
+  return ref !== null && parseModelRef(ref).kind === "role" ? ref.trim() : null;
+}
+
 /** Re-declared blackhole `OmModelConfig` (one entry of a fallback chain). */
 export interface ModelRef {
   provider: string;
@@ -26,6 +47,13 @@ export interface ModelRef {
   cooldownHours?: number;
   /** Context-window override. Absent = inherit from pi's model registry. */
   contextWindow?: number;
+  /**
+   * CLIENT UI STATE ONLY — never persisted, never validated as a model key:
+   * the `@role` this slot follows (serialized to the wire as a role slot), and
+   * its last-known binding status. See change: add-role-aware-model-refs.
+   */
+  role?: string;
+  roleStatus?: "ok" | "detached" | "dangling";
 }
 
 /** Re-declared blackhole `UnifiedConfig`, restricted to the MANAGED keys. */
@@ -232,7 +260,20 @@ function optionalModelFields(key: string, m: Record<string, unknown>): Validatio
   return null;
 }
 
-function validateModel(key: string, value: unknown): ValidationError | null {
+/** Validate a role slot's shape (ref grammar + optional per-entry tuning). */
+function validateRoleSlot(key: string, value: unknown): ValidationError | null {
+  if (roleSlotRef(value) === null) return err(key, `${key} must be a model object or a valid @role ref`);
+  if (typeof value === "string") return null;
+  const m = value as Record<string, unknown>;
+  const extra = Object.keys(m).find((k) => k !== "role" && k !== "cooldownHours" && k !== "contextWindow" && !isAnnotationKey(k));
+  if (extra !== undefined) return err(key, `${key} has unknown key: ${extra}`);
+  return optionalModelFields(key, { cooldownHours: m.cooldownHours, contextWindow: m.contextWindow });
+}
+
+function validateModel(key: string, value: unknown, allowRoleSlots = false): ValidationError | null {
+  if (allowRoleSlots && (typeof value === "string" || roleSlotRef(value) !== null)) {
+    return validateRoleSlot(key, value);
+  }
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return err(key, `${key} must be an object`);
   }
@@ -240,17 +281,22 @@ function validateModel(key: string, value: unknown): ValidationError | null {
   return unknownModelKey(key, m) ?? requiredModelStrings(key, m) ?? optionalModelFields(key, m);
 }
 
-function validateModelArray(key: string, value: unknown): ValidationError | null {
+function validateModelArray(key: string, value: unknown, allowRoleSlots = false): ValidationError | null {
   if (!Array.isArray(value)) return err(key, `${key} must be an array`);
   for (let i = 0; i < value.length; i++) {
-    const e = validateModel(`${key}[${i}]`, value[i]);
+    const e = validateModel(`${key}[${i}]`, value[i], allowRoleSlots);
     if (e) return e;
   }
   return null;
 }
 
 /** Validate one present field against its descriptor. Returns an error or null. */
-function validateField(key: string, value: unknown, desc: FieldDescriptor): ValidationError | null {
+function validateField(
+  key: string,
+  value: unknown,
+  desc: FieldDescriptor,
+  allowRoleSlots = false,
+): ValidationError | null {
   switch (desc.kind) {
     case "boolean":
       return typeof value === "boolean" ? null : err(key, `${key} must be a boolean`);
@@ -263,9 +309,9 @@ function validateField(key: string, value: unknown, desc: FieldDescriptor): Vali
     case "fraction":
       return validateFraction(key, value);
     case "model":
-      return isExplicitUnset(value) ? null : validateModel(key, value);
+      return isExplicitUnset(value) ? null : validateModel(key, value, allowRoleSlots);
     case "modelArray":
-      return isExplicitUnset(value) ? null : validateModelArray(key, value);
+      return isExplicitUnset(value) ? null : validateModelArray(key, value, allowRoleSlots);
   }
 }
 
@@ -277,7 +323,11 @@ function validateField(key: string, value: unknown, desc: FieldDescriptor): Vali
  * This is the security boundary: the client form is a convenience, never the
  * gate. A raw `PUT` bypassing the UI hits exactly this function.
  */
-export function validateBlackholeConfig(body: unknown): { ok: boolean; errors: ValidationError[] } {
+export function validateBlackholeConfig(
+  body: unknown,
+  opts: { allowRoleSlots?: boolean } = {},
+): { ok: boolean; errors: ValidationError[] } {
+  const allowRoleSlots = opts.allowRoleSlots === true;
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return { ok: false, errors: [{ field: "", message: "config body must be a JSON object" }] };
   }
@@ -289,7 +339,7 @@ export function validateBlackholeConfig(body: unknown): { ok: boolean; errors: V
       continue;
     }
     if (value === undefined) continue;
-    const e = validateField(key, value, FIELD_DESCRIPTORS[key as keyof BlackholeConfig]);
+    const e = validateField(key, value, FIELD_DESCRIPTORS[key as keyof BlackholeConfig], allowRoleSlots);
     if (e) errors.push(e);
   }
   return { ok: errors.length === 0, errors };

@@ -1037,6 +1037,22 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: MCP_DASHBOARD_CALL_PREFIX },
   },
 
+  // `[[faux:browser-show-in-pane]] <instanceId>` — the agent calls the browser
+  // plugin's REAL bridge tool `browser_show_in_pane` for the instance named in
+  // the prompt, then echoes the tool result. See change: add-browser-editor-pane-tab (F17).
+  "browser-show-in-pane": {
+    script: [
+      (context: FauxContext) => {
+        const last = [...context.messages].reverse().find((m) => m.role === "user");
+        const text = (last?.content ?? []).map((c) => c.text ?? "").join(" ");
+        const instanceId = /\[\[faux:browser-show-in-pane\]\]\s+(\S+)/.exec(text)?.[1] ?? "";
+        return fauxAssistantMessage([fauxToolCall("browser_show_in_pane", { instanceId })], { stopReason: "toolUse" });
+      },
+      (context: FauxContext) => fauxAssistantMessage([fauxText(`browser-show-in-pane: ${lastToolResultText(context).slice(0, 120)}`)]),
+    ],
+    expect: { text: "browser-show-in-pane:" },
+  },
+
   "tool-list-models": {
     script: [
       fauxAssistantMessage([fauxToolCall("list_models", {})], { stopReason: "toolUse" }),
@@ -1340,6 +1356,51 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText("sustained subagent complete")]),
     ],
     expect: { text: "sustained subagent complete" },
+  },
+
+  // Inner scenario for `subagent-reasoning`: thinking blocks interleaved with
+  // sleeping tool calls so the running card alternates thinking → tool → idle
+  // for ~6 s. Drives the stable-card-height L3 row (test-plan #F2).
+  // See change: stream-subagent-reasoning-and-stable-card.
+  "subagent-reasoning-inner": {
+    script: [
+      fauxAssistantMessage(
+        [fauxThinking("weighing the first probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 3 && echo r-one" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [fauxThinking("weighing the second probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 3 && echo r-two" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [fauxThinking("weighing the third probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 3 && echo r-three" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("reasoning inner complete")]),
+    ],
+    expect: { text: "reasoning inner complete" },
+  },
+
+  "subagent-reasoning": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux reasoning subagent",
+            // Literal faux model: Explore.md's `@fast` does not resolve to faux in
+            // the harness, so the child would fall back to a credential-less
+            // anthropic default and die in ~300 ms before any scripted step
+            // (reduce-bridge-tick-bandwidth measurement.md). args.model wins.
+            model: "faux/faux-1",
+            prompt: "[[faux:subagent-reasoning-inner]] run the reasoning subagent probe",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("reasoning subagent complete")]),
+    ],
+    expect: { text: "reasoning subagent complete" },
   },
 
   // NOTE: the `subagent-slow-inner-long` / `subagent-sustained-long` fixtures

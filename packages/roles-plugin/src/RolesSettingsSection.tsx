@@ -33,6 +33,7 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { isValidRoleName } from "@blackbelt-technology/pi-dashboard-shared/role-name-validation.js";
+import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import type React from "react";
 import { useEffect, useState } from "react";
 
@@ -52,7 +53,6 @@ interface ModelInfo {
  * one, so `off` writes a bare ref and lets pi's own default stand.
  * See change: add-default-thinking-level.
  */
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 /**
  * Split a role ref into its model base and optional thinking level.
@@ -70,7 +70,7 @@ export function splitRefLevel(ref: string): { base: string; level?: string } {
   const idx = ref.lastIndexOf(":");
   if (idx <= 0) return { base: ref };
   const tail = ref.slice(idx + 1);
-  if (!THINKING_LEVELS.includes(tail)) return { base: ref };
+  if (!(THINKING_LEVELS as readonly string[]).includes(tail)) return { base: ref };
   return { base: ref.slice(0, idx), level: tail };
 }
 
@@ -218,6 +218,43 @@ function shortModel(fullId: string): string {
   return parts[parts.length - 1];
 }
 
+/** One "follows this role" entry from `GET /api/roles/used-by`. */
+interface UsedByEntry {
+  kind: "binding" | "usage";
+  owner: string;
+  label: string;
+  status?: "ok" | "detached" | "dangling";
+}
+
+/**
+ * role → what follows it. Re-fetched whenever the role map changes (a preset
+ * load/assignment), so the list is current BEFORE the user makes the next
+ * change. Any failure → empty (the overview is informational, never blocking).
+ * See change: add-role-aware-model-refs.
+ */
+function useRoleUsedBy(rolesMap: Record<string, string>): Record<string, UsedByEntry[]> {
+  const [usedBy, setUsedBy] = useState<Record<string, UsedByEntry[]>>({});
+  const key = JSON.stringify(rolesMap);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` is the serialized rolesMap.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/roles/used-by");
+        if (!res.ok) return;
+        const body = (await res.json()) as { usedBy?: Record<string, UsedByEntry[]> };
+        if (!cancelled) setUsedBy(body.usedBy ?? {});
+      } catch {
+        /* inert without the roles server */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [key]);
+  return usedBy;
+}
+
 export function BuiltInRolesSettings() {
   const t = useT();
   const cfg = usePluginConfig<BuiltinsConfig>();
@@ -259,6 +296,7 @@ export function BuiltInRolesSettings() {
   const [pending, setPending] = useState<Record<string, string>>({});
 
   const rolesMap = cfg?.roles ?? {};
+  const usedBy = useRoleUsedBy(rolesMap);
   const presets = cfg?.presets ?? [];
   const activePreset = cfg?.activePreset ?? null;
   const models = cfg?.models ?? [];
@@ -756,6 +794,37 @@ export function BuiltInRolesSettings() {
             )}
             {addRoleControl}
           </div>
+        </div>
+      )}
+
+      {/* "Used by": every projector binding and resolve-at-use reference that
+          follows each role, so the impact of a role/preset change is visible
+          before it is made. See change: add-role-aware-model-refs. */}
+      {Object.keys(usedBy).length > 0 && (
+        <div data-testid="roles-used-by" className="space-y-1">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+            {t("usedByHeading", undefined, "Used by")}
+          </div>
+          <ul className="m-0 p-0 list-none space-y-0.5">
+            {Object.entries(usedBy).map(([role, entries]) => (
+              <li key={role} data-testid={`roles-used-by-${role}`} className="text-[11px] text-[var(--text-secondary)]">
+                <span className="font-semibold text-[var(--text-primary)]">@{role}</span>
+                {entries.map((e) => (
+                  <span
+                    key={`${e.kind}:${e.owner}:${e.label}`}
+                    data-testid={`roles-used-by-${role}-${e.owner}`}
+                    data-status={e.status ?? ""}
+                    className="ml-2 inline-flex items-center gap-1"
+                  >
+                    {e.owner} · {e.label}
+                    {e.status && e.status !== "ok" && (
+                      <span className="text-[10px] text-[var(--severity-warning-fg)]">({e.status})</span>
+                    )}
+                  </span>
+                ))}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

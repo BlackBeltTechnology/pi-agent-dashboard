@@ -73,5 +73,19 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
       : undefined,
     streamSimple: runtime ? (runtime.streamSimple as LlmStreamFn) : undefined,
   });
+  // "Used by" reporting for the roles plugin (Kind A, resolved per check). The
+  // roles plugin may be absent or load later → look it up in onReady; absent =
+  // no-op. See change: add-role-aware-model-refs.
+  ctx.fastify.addHook("onReady", async () => {
+    const roles = ctx.consume<{
+      registerUsage(owner: string, fn: () => Array<{ label: string; ref: string }>): () => void;
+    }>("roles.bindings");
+    if (!roles) return;
+    const dispose = roles.registerUsage("grammar", () => {
+      const llm = parseGrammarConfig(ctx.getPluginConfig()).llm;
+      return llm && "role" in llm ? [{ label: "grammar model", ref: llm.role }] : [];
+    });
+    ctx.onShutdown(dispose);
+  });
   ctx.logger.info?.("grammar routes mounted (/api/grammar/check, /api/grammar/health)");
 }

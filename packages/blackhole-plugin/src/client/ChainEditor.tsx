@@ -35,8 +35,25 @@ const inputCls =
 
 /** Stable label for a model entry — the model id is what the user recognises. */
 function modelLabel(model: ModelRef): string {
-  return model.id || model.provider || "unnamed model";
+  return model.role || model.id || model.provider || "unnamed model";
 }
+
+/** The ModelSelector `current` for an entry: its role ref when bound, else `provider/id`. */
+function entryCurrent(entry: ModelRef): string | undefined {
+  if (entry.role) return entry.role;
+  return entry.provider && entry.id ? `${entry.provider}/${entry.id}` : entry.id || undefined;
+}
+
+/** `provider/id` as last projected (empty when a role was just picked and not yet saved). */
+function concreteLabel(entry: ModelRef): string {
+  return entry.provider && entry.id ? `${entry.provider}/${entry.id}` : "";
+}
+
+const ROLE_STATUS_TEXT: Record<string, string> = {
+  ok: "following",
+  detached: "detached — edited outside the dashboard",
+  dangling: "role unassigned — keeping last model",
+};
 
 export type RegistryState = "pending" | "ok" | "empty" | "unavailable";
 
@@ -53,6 +70,8 @@ export interface ChainEditorProps {
   models?: ModelInfo[];
   registry?: RegistryState;
   onRetryRegistry?: () => void;
+  /** Re-project the role into a detached slot at `index` (chain position). */
+  onReattach?: (index: number) => void;
 }
 
 interface EntryRowProps {
@@ -68,6 +87,7 @@ interface EntryRowProps {
   onPatch: (index: number, field: keyof ModelRef, value: unknown) => void;
   onMove: (index: number, delta: number) => void;
   onRemove: (index: number) => void;
+  onReattach?: (index: number) => void;
 }
 
 function ThinkingControl({
@@ -83,6 +103,16 @@ function ThinkingControl({
 }): React.ReactElement {
   const t = useT();
   const ThinkingLevelPrimitive = useUiPrimitive(UI_PRIMITIVE_KEYS.thinkingLevelSelector);
+  if (entry.role) {
+    return (
+      <div className="flex items-center gap-2 text-[11.5px] text-[var(--text-secondary)]">
+        <span className="w-28">{t("mThinking", undefined, "Thinking")}</span>
+        <span data-testid={`blackhole-entry-${index}-thinking-from-role`} className="text-[var(--text-tertiary)]">
+          {t("thinkingFromRole", { role: entry.role }, `from ${entry.role}`)}
+        </span>
+      </div>
+    );
+  }
   const isOverrideEnabled = entry.thinking !== undefined;
   const picked = models.find((m) => m.provider === entry.provider && m.id === entry.id);
   const supportedLevels =
@@ -140,6 +170,7 @@ function EntryRow({
   onPatch,
   onMove,
   onRemove,
+  onReattach,
 }: EntryRowProps): React.ReactElement {
   const t = useT();
   const ModelSelectorPrimitive = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
@@ -159,8 +190,28 @@ function EntryRow({
               {t("primary", undefined, "Primary")}
             </span>
           )}
-          <span className="font-mono text-[12px] text-[var(--text-primary)]">{entry.id}</span>
-          <span className="text-[11px] text-[var(--text-tertiary)]">{entry.provider}</span>
+          {entry.role ? (
+            <>
+              <span className="font-mono text-[12px] text-[var(--text-primary)]" data-testid={`blackhole-chain-${worker}-entry-${index}-role`}>
+                {entry.role}
+              </span>
+              <span className="text-[11px] text-[var(--text-tertiary)]">{concreteLabel(entry)}</span>
+            </>
+          ) : (
+            <>
+              <span className="font-mono text-[12px] text-[var(--text-primary)]">{entry.id}</span>
+              <span className="text-[11px] text-[var(--text-tertiary)]">{entry.provider}</span>
+            </>
+          )}
+          {entry.role && entry.roleStatus && entry.roleStatus !== "ok" && (
+            <span
+              data-testid={`blackhole-chain-${worker}-entry-${index}-role-status`}
+              data-status={entry.roleStatus}
+              className="text-[10px] rounded px-1.5 border border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]"
+            >
+              {t(`roleStatus_${entry.roleStatus}`, undefined, ROLE_STATUS_TEXT[entry.roleStatus] ?? entry.roleStatus)}
+            </span>
+          )}
           <span className="ml-auto flex items-center gap-1">
             <button
               type="button"
@@ -209,12 +260,9 @@ function EntryRow({
             <div className="flex-1 min-w-0">
               {registry === "ok" ? (
                 <ModelSelectorPrimitive
-                  current={
-                    entry.provider && entry.id
-                      ? `${entry.provider}/${entry.id}`
-                      : entry.id || undefined
-                  }
+                  current={entryCurrent(entry)}
                   models={models}
+                  allowRoles
                   onSelect={(label: string) => onSelectModel(index, label)}
                 />
               ) : (
@@ -227,6 +275,20 @@ function EntryRow({
               )}
             </div>
           </div>
+
+          {entry.role && entry.roleStatus === "detached" && onReattach && (
+            <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
+              <span>{t("roleDetachedHelp", undefined, "This slot was edited outside the dashboard, so role changes no longer apply.")}</span>
+              <button
+                type="button"
+                data-testid={`blackhole-chain-${worker}-reattach-${index}`}
+                onClick={() => onReattach(index)}
+                className="px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+              >
+                {t("reattachRole", undefined, "Reattach")}
+              </button>
+            </div>
+          )}
 
           {levelDropNotice && (
             <div
@@ -283,6 +345,7 @@ export function ChainEditor({
   models = [],
   registry = "ok",
   onRetryRegistry: _onRetryRegistry,
+  onReattach,
 }: ChainEditorProps): React.ReactElement {
   const t = useT();
   const removable = canRemove(entries);
@@ -299,6 +362,13 @@ export function ChainEditor({
   };
 
   const handleSelectModel = (index: number, label: string) => {
+    if (label.startsWith("@")) {
+      // Role pick: the entry follows the role; the server resolves it on save and
+      // writes the concrete model. Concrete fields stay as display until then.
+      setLevelDropNotice((prev) => ({ ...prev, [index]: undefined }));
+      onChange(entries.map((e, i) => (i === index ? normalizeModel({ ...e, role: label, roleStatus: undefined }) : e)));
+      return;
+    }
     const picked = models.find((m) => `${m.provider}/${m.id}` === label);
     let newProvider = "";
     let newId = "";
@@ -338,6 +408,8 @@ export function ChainEditor({
 
     const nextEntry = normalizeModel({
       ...currentEntry,
+      role: undefined,
+      roleStatus: undefined,
       provider: newProvider,
       id: newId,
       thinking: nextThinking,
@@ -387,6 +459,7 @@ export function ChainEditor({
               onPatch={patch}
               onMove={(idx, delta) => onChange(moveEntry(entries, idx, delta))}
               onRemove={(idx) => onChange(removeEntry(entries, idx))}
+              onReattach={onReattach}
             />
           ))}
         </ol>
@@ -417,8 +490,14 @@ export function ChainEditor({
           </div>
           <ModelSelectorPrimitive
             models={models}
+            allowRoles
             placeholder={t("selectModelToAddPlaceholder", undefined, "Select model to add…")}
             onSelect={(label: string) => {
+              if (label.startsWith("@")) {
+                onChange(appendEntry(entries, { provider: "", id: "", role: label }));
+                setAdding(false);
+                return;
+              }
               const picked = models.find((m) => `${m.provider}/${m.id}` === label);
               let newProvider = "";
               let newId = "";

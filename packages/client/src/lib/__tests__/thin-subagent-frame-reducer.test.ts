@@ -86,3 +86,56 @@ describe("thin subagent frames in the reducer", () => {
     expect(sub.activity).toBe("c"); // scalars still live
   });
 });
+
+// See change: stream-subagent-reasoning-and-stable-card (#E6, #X3).
+describe("liveTail normalization in the reducer", () => {
+  const CLEARED = { kind: "none", text: "" };
+  const tailOf = (s: SessionState) => s.subagents.get("sub-1")!.liveTail;
+
+  it.each([
+    ["valid thinking", { kind: "thinking", text: "abc" }, { kind: "thinking", text: "abc" }],
+    ["valid text", { kind: "text", text: "hi" }, { kind: "text", text: "hi" }],
+    ["sentinel", { kind: "none", text: "" }, CLEARED],
+    ["invalid kind", { kind: "weird", text: "x" }, CLEARED],
+    ["non-string text", { kind: "thinking", text: 42 }, CLEARED],
+    ["400-char text", { kind: "text", text: "z".repeat(400) }, { kind: "text", text: "z".repeat(280) }],
+  ])("E6: %s → normalized tail", (_label, tail, expected) => {
+    let state!: SessionState;
+    expect(() => {
+      state = applyEvents([started({ liveTail: tail })]);
+    }).not.toThrow();
+    expect(tailOf(state)).toEqual(expected);
+  });
+
+  it("E6: an object tail overwrites a previous one (sentinel clears)", () => {
+    const state = applyEvents([
+      started({ liveTail: { kind: "thinking", text: "abc" } }),
+      started({ liveTail: { kind: "none", text: "" } }),
+    ]);
+    expect(tailOf(state)).toEqual(CLEARED);
+  });
+
+  it.each([
+    ["string", "abc"],
+    ["null", null],
+    ["array", [1, 2]],
+    ["number", 5],
+  ])("X3: non-object liveTail (%s) is ignored, previous state kept", (_label, bad) => {
+    let state!: SessionState;
+    expect(() => {
+      state = applyEvents([
+        started({ liveTail: { kind: "thinking", text: "keep" } }),
+        started({ liveTail: bad }),
+      ]);
+    }).not.toThrow();
+    expect(tailOf(state)).toEqual({ kind: "thinking", text: "keep" });
+  });
+});
+
+// See change: stream-subagent-reasoning-and-stable-card (task 5.3).
+describe("thinkingLevel in the reducer", () => {
+  it("keeps a string level and ignores a non-string one", () => {
+    const s = applyEvents([started({ thinkingLevel: "high" }), started({ thinkingLevel: 3 })]);
+    expect(s.subagents.get("sub-1")!.thinkingLevel).toBe("high");
+  });
+});

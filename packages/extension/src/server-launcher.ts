@@ -120,6 +120,11 @@ export function buildBridgeEnvOverrides(
     [HEAP_FLAG_MARKER_ENV]: stamped[HEAP_FLAG_MARKER_ENV],
     PI_DASHBOARD_ELECTRON: undefined,
     PI_DASHBOARD_RESOURCES_PATH: undefined,
+    // context-mode bridge-internal guard vars must not reach a bridge-started
+    // server (they would be inherited by every session it spawns).
+    // See change: add-context-mode-settings-plugin.
+    CONTEXT_MODE_BRIDGE_DEPTH: undefined,
+    CONTEXT_MODE_BRIDGE_IDLE_MS: undefined,
   };
 }
 

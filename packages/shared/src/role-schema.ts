@@ -137,6 +137,82 @@ export function joinRef(model: string, level?: string): string {
   return level ? `${model}:${level}` : model;
 }
 
+// -- Model-ref grammar + shared resolver ----------------------------------
+//
+// One value grammar for every model setting: `provider/id[:level]` (direct) OR
+// `@role[:level]` (follows the role). A level is split off ONLY when it is a
+// canonical thinking level, so ids with a legitimate `:` (`vendor:free`) stay
+// direct. The resolver reads `cfg.roles` only — a preset load already
+// materializes the preset into `roles`. See change: add-role-aware-model-refs.
+
+/** Canonical thinking levels — the single list every surface imports. */
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+const ROLE_REF_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+export type ParsedModelRef =
+  | { kind: "direct"; model: string; level?: string }
+  | { kind: "role"; role: string; level?: string }
+  | { kind: "invalid"; reason: string };
+
+function splitCanonicalLevel(value: string): { base: string; level?: string } {
+  const idx = value.lastIndexOf(":");
+  if (idx <= 0) return { base: value };
+  const tail = value.slice(idx + 1);
+  if (!(THINKING_LEVELS as readonly string[]).includes(tail)) return { base: value };
+  return { base: value.slice(0, idx), level: tail };
+}
+
+/** Parse a stored model value. TOTAL — never throws. */
+export function parseModelRef(value: string): ParsedModelRef {
+  const v = typeof value === "string" ? value.trim() : "";
+  if (v === "") return { kind: "invalid", reason: "empty model ref" };
+  if (v.startsWith("@")) {
+    const { base, level } = splitCanonicalLevel(v.slice(1));
+    if (!ROLE_REF_NAME_RE.test(base)) return { kind: "invalid", reason: `invalid role ref "${v}"` };
+    return level ? { kind: "role", role: base, level } : { kind: "role", role: base };
+  }
+  const { base, level } = splitCanonicalLevel(v);
+  return level ? { kind: "direct", model: base, level } : { kind: "direct", model: base };
+}
+
+export interface ResolvedModelRef {
+  kind: "direct" | "role";
+  /** Concrete `provider/id` (no level). Absent when unresolved. */
+  model?: string;
+  provider?: string;
+  id?: string;
+  level?: string;
+  /** Role name when `kind === "role"`. */
+  role?: string;
+  /** Reason the ref could not resolve to a concrete model. */
+  unresolved?: string;
+}
+
+function concrete(model: string, level: string | undefined): Pick<ResolvedModelRef, "model" | "provider" | "id" | "level"> {
+  const slash = model.indexOf("/");
+  const out: Pick<ResolvedModelRef, "model" | "provider" | "id" | "level"> = { model };
+  if (slash > 0) {
+    out.provider = model.slice(0, slash);
+    out.id = model.slice(slash + 1);
+  }
+  if (level) out.level = level;
+  return out;
+}
+
+/** Pure resolve against `cfg.roles`. Ref level > role-assignment level > none. */
+export function resolveModelRef(ref: string, cfg: Pick<RoleConfig, "roles">): ResolvedModelRef {
+  const parsed = parseModelRef(ref);
+  if (parsed.kind === "invalid") return { kind: "direct", unresolved: parsed.reason };
+  if (parsed.kind === "direct") return { kind: "direct", ...concrete(parsed.model, parsed.level) };
+  const assigned = cfg.roles[parsed.role];
+  if (typeof assigned !== "string" || assigned.trim() === "") {
+    return { kind: "role", role: parsed.role, unresolved: `role '${parsed.role}' not configured yet` };
+  }
+  const { base, level } = splitCanonicalLevel(assigned.trim());
+  return { kind: "role", role: parsed.role, ...concrete(base, parsed.level ?? level) };
+}
+
 // -- Total normalizer -----------------------------------------------------
 
 /**

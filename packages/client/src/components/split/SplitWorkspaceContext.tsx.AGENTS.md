@@ -5,3 +5,5 @@ Per-session provider. Lifts `useSplitState`+`useEditorPaneState`. Exposes `openI
 See change: add-lazy-terminal-diff-bootstrap — lazy boundary (D2: `React.lazy` + local `Suspense`); see the directory AGENTS.md row for the runtime detail.
 
 See change: surface-denial-remedy-in-previews — `openInSplit` opts gain `autoOpened` (provenance; independent of `background`/`restrictCsp`) → `openFile` action.
+
+See change: add-browser-editor-pane-tab — `openPluginTab(path): boolean` (claimed-prefix check via `findEditorPaneTabClaim`, then idempotent `openFile{viewer:"plugin"}` + `ensureRevealed`); file-watch set (`openPathsKey`) excludes every pseudo-tab/plugin path.

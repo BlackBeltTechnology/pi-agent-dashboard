@@ -26,6 +26,13 @@ export interface KbStats {
   jobStatus: KbJobStatus;
   /** Error string from the last failed job (present iff `jobStatus === "error"`). */
   lastError?: string;
+  /** The folder is not an existing directory (e.g. a removed worktree). Optional
+   *  on the wire: absent from an older server = unknown. See change:
+   *  kb-denied-folder-pin-state (design D10). */
+  folderMissing?: boolean;
+  /** Source specs in the resolved (defaults + global + project) config; `0` when
+   *  `folderMissing`. Optional on the wire: absent = unknown. */
+  sourceCount?: number;
 }
 
 /** Result of a completed reindex walk — the registry's `done` record (from

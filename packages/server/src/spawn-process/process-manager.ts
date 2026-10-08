@@ -66,6 +66,7 @@ import {
 } from "../runtime-resolution.js";
 import { type CwdPolicyRegistry, mergeCwdPolicy } from "./cwd-policy.js";
 import { applyHeapArgsToPiArgv, recordHeapArgvFallback } from "./heap-args.js";
+import { applySpawnEnvContributors, type ContributorMechanism } from "./spawn-env-contributors.js";
 
 // ── Resolver seam (injectable for tests) ────────────────────────────────────
 
@@ -298,6 +299,15 @@ export function buildSpawnEnv(
      * See change: unify-pi-runtime-identity (task 3.1).
      */
     spawnRuntime?: ResolvedRuntime | null;
+    /**
+     * Spawn mechanism this env is built for. When present, trusted plugins'
+     * spawn-env contributors are applied (additions only, never overriding an
+     * inherited variable). Absent ⇒ no contributors (legacy callers).
+     * See change: add-context-mode-settings-plugin.
+     */
+    mechanism?: ContributorMechanism;
+    /** Out-param: receives the contributor entries actually applied (tmux emits them as `-e`). */
+    contributedOut?: Record<string, string>;
   },
 ): NodeJS.ProcessEnv {
   // Defensive copy: never mutate the caller's env (often `process.env`).
@@ -321,6 +331,13 @@ export function buildSpawnEnv(
   // non-blocking finding — grandchild marker leak).
   delete env.PI_DASHBOARD_ELECTRON;
   delete env.PI_DASHBOARD_RESOURCES_PATH;
+  // context-mode's bridge-internal recursion guard / idle reaper vars. A server
+  // started from inside a context-mode sandbox would otherwise hand them to
+  // every session, where context-mode silently disables its `ctx_*` tools.
+  // True delete, never empty (an empty value reads as 0 = disabled).
+  // See change: add-context-mode-settings-plugin (D6).
+  delete env.CONTEXT_MODE_BRIDGE_DEPTH;
+  delete env.CONTEXT_MODE_BRIDGE_IDLE_MS;
   // Dashboard spawns ALWAYS activate the bridge: overrides a host-global
   // `bridge.enabled:false` and any opt-out inherited from the server's shell.
   // Descendants inherit it. tmux panes get it via `-e` (buildTmuxCommand).
@@ -380,6 +397,10 @@ export function buildSpawnEnv(
           typeof value === "string" ? value : JSON.stringify(value);
       }
     }
+  }
+  if (opts?.mechanism) {
+    const applied = applySpawnEnvContributors(env, opts.mechanism);
+    if (opts.contributedOut) Object.assign(opts.contributedOut, applied);
   }
   return env;
 }
@@ -510,8 +531,18 @@ export function buildTmuxCommand(
   piInvocation: string[] = ["pi"],
   heapNodeOptions = "",
   endpoint?: { url?: string; socket?: string },
+  contributedEnv: Record<string, string> = {},
 ): string[] {
+  // `env -u` truly unsets context-mode's bridge-internal vars that the pane
+  // would otherwise inherit from the long-lived tmux SERVER (an empty `-e`
+  // value would disable the idle reaper instead). See change:
+  // add-context-mode-settings-plugin (D6).
   const paneCommand = [
+    "env",
+    "-u",
+    "CONTEXT_MODE_BRIDGE_DEPTH",
+    "-u",
+    "CONTEXT_MODE_BRIDGE_IDLE_MS",
     ...piInvocation.map(shellEscape),
     ...sessionFlagsToArgv(options ?? {}).map(shellEscape),
   ].join(" ");
@@ -546,7 +577,10 @@ export function buildTmuxCommand(
   // Bridge activation stamp rides `-e` for the same reason: the spawn env
   // never reaches the pane. See change: add-bridge-env-opt-out (D5).
   const bridgeEnv = ["-e", "PI_DASHBOARD_BRIDGE=on"];
-  const envArgs = [...tokenEnv, ...endpointEnv, ...heapEnv, ...bridgeEnv];
+  // Trusted-plugin contributions ride per-window `-e` too (the pane env comes
+  // from the tmux server). Already validated by `applySpawnEnvContributors`.
+  const contribEnv: string[] = Object.entries(contributedEnv).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
+  const envArgs = [...tokenEnv, ...endpointEnv, ...heapEnv, ...bridgeEnv, ...contribEnv];
   if (sessionExists) {
     return ["tmux", "new-window", "-t", "pi-dashboard", ...envArgs, "-c", cwd, paneCommand];
   }
@@ -810,15 +844,18 @@ export function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   // pi process (tmux inherits the caller's env into new windows/sessions).
   // argv0 re-adds the Electron-as-node flag when piCmd[0] is the Electron binary.
   // See change: spawn-correlation-token.
+  const contributed: Record<string, string> = {};
   const env = buildSpawnEnv(process.env, {
     spawnToken: options?.spawnToken,
     argv0: piCmd[0],
     spawnRuntime: rt,
+    mechanism: "tmux",
+    contributedOut: contributed,
   });
   // Built AFTER `env` so the per-window value merges over the ALREADY-STRIPPED
   // child environment — unrelated operator options survive into the pane, and
   // the dashboard's own flag is already gone.
-  const cmd = buildTmuxCommand(cwd, exists, options, piCmd, tmuxHeapNodeOptions(env), tmuxEndpoint(env));
+  const cmd = buildTmuxCommand(cwd, exists, options, piCmd, tmuxHeapNodeOptions(env), tmuxEndpoint(env), contributed);
   try {
     const { argv, spawnOptions } = buildSafeArgv(cmd[0], cmd.slice(1));
     execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });
@@ -837,11 +874,14 @@ export function spawnWslTmux(cwd: string, options?: SessionOptions): SpawnResult
     // `wsl.exe --exec <tmux argv>`: `.exe` bypasses the cmd.exe branch in
     // buildSafeArgv; `--exec` runs tmux directly instead of through WSL's
     // default shell. `pi` stays literal so it resolves inside the WSL namespace.
+    const contributed: Record<string, string> = {};
     const env = buildSpawnEnv(process.env, {
       spawnToken: options?.spawnToken,
       spawnRuntime: spawnRuntimeForSession(),
+      mechanism: "wsl-tmux",
+      contributedOut: contributed,
     });
-    const tmuxArgv = buildTmuxCommand(cwd, false, options, ["pi"], tmuxHeapNodeOptions(env));
+    const tmuxArgv = buildTmuxCommand(cwd, false, options, ["pi"], tmuxHeapNodeOptions(env), undefined, contributed);
     const { argv, spawnOptions } = buildSafeArgv("wsl.exe", ["--exec", ...tmuxArgv]);
     execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });
     return { success: true, dashboardSpawned: true, message: "Pi session started via WSL tmux" };
@@ -870,6 +910,7 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
     spawnToken: options?.spawnToken,
     argv0: piCmd[0],
     spawnRuntime: rt,
+    mechanism: "wt",
   });
   if (heaped.fallback) {
     // Last resort (D3a): only the subset `NODE_OPTIONS` accepts, and only
@@ -929,6 +970,7 @@ async function spawnHeadless(cwd: string, options?: SessionOptions): Promise<Spa
     argv0: piCmd[0],
     extensionConfig: options?.extensionConfig,
     spawnRuntime: rt,
+    mechanism: "headless",
   });
   // The ceiling rides the invocation handed to the keeper, so it binds pi and
   // NOT the keeper. There is deliberately no env fallback on this strategy:

@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-automation-plugin. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Dispatch delivery by action kind
 
 When a run session registers, the engine SHALL deliver the run's action dispatch resolved at start: for a prompt action it SHALL seed the prompt text via `sendToSession`; for an event action it SHALL emit the configured event via `emitEventToSession`. Delivery SHALL happen exactly once per run and only after the session is correlated to the run by its `runId` stamp. Finalization is NOT determined by the dispatch kind alone: a run finalizes on its declared completion event when its dispatch declared one, and on `agent_end` otherwise (see "Event-dispatched runs finalize on their declared completion event").
@@ -102,7 +104,7 @@ The engine SHALL deliver a run's action prompt to the exact session it spawned f
 
 ### Requirement: Model resolution at spawn time
 
-When `model` is an `@role` alias, it SHALL be resolved to a concrete provider/model at spawn time via the roles plugin. A bare provider/model id SHALL be used as-is. An unresolvable `@role` SHALL fall back to a configured default model and surface a run error rather than silently selecting a model.
+When `model` is a role ref (`@<role>[:<level>]`), it SHALL be resolved to a concrete provider/model at spawn time via the shared role resolver (the same resolver used by every other dashboard consumer), honoring a ref-level thinking override. A bare provider/model id SHALL be used as-is. An unresolvable `@role` SHALL fall back to a configured default model and surface a run error rather than silently selecting a model. The concrete model passed to the spawn SHALL carry the resolved thinking level as a `:<level>` suffix when one is present (ref level first, else the role assignment's level).
 
 #### Scenario: @role resolved live
 
@@ -113,6 +115,12 @@ When `model` is an `@role` alias, it SHALL be resolved to a concrete provider/mo
 
 - **WHEN** an automation references `@gone` which has no assignment
 - **THEN** the run SHALL use the configured default model AND record a run error noting the unresolved role.
+
+#### Scenario: Role level suffix is preserved
+
+- **GIVEN** role `fast` is assigned `anthropic/claude-haiku-4-5:low`
+- **WHEN** an automation with `model: "@fast"` fires
+- **THEN** the run SHALL spawn with `anthropic/claude-haiku-4-5:low`.
 
 ### Requirement: Run monitoring reuses ChatView
 
@@ -454,4 +462,3 @@ The Automation view SHALL render a parent run as one entry that discloses its ch
 
 - **WHEN** the effective visibility for a fire is `hidden`
 - **THEN** neither the parent nor any child SHALL appear on the board
-

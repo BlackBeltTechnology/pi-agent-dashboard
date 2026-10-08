@@ -455,20 +455,22 @@ describe("Reindex now — optimistic state machine (test-plan #F1–#F6, #X1–#
     expect(queryByTestId("kb-settings-error")).toBeNull();
   });
 
+  // An ordinary (500) rejection: a cwd-refusal 403 now drives the shared
+  // `denied` state instead of `reindexError` (see change: kb-denied-folder-pin-state).
   it("#X1: trigger rejection is surfaced in kb-settings-error", async () => {
-    (globalThis as { fetch?: unknown }).fetch = fetchFor(cfgResponse(), { post: () => jsonFail({ error: "cwd not allowed" }) });
+    (globalThis as { fetch?: unknown }).fetch = fetchFor(cfgResponse(), { post: () => jsonFail({ error: "reindex exploded" }, 500) });
     const { getByTestId } = render(<KbSettingsPanel cwd="/repo" onBack={() => {}} />);
     await waitFor(() => expect(btn(getByTestId).disabled).toBe(false));
     fireEvent.click(getByTestId("kb-reindex-now"));
-    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("cwd not allowed"));
+    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("reindex exploded"));
   });
 
   it("#X2: retry is possible after rejection — the action returns to enabled", async () => {
-    (globalThis as { fetch?: unknown }).fetch = fetchFor(cfgResponse(), { post: () => jsonFail({ error: "cwd not allowed" }) });
+    (globalThis as { fetch?: unknown }).fetch = fetchFor(cfgResponse(), { post: () => jsonFail({ error: "reindex exploded" }, 500) });
     const { getByTestId } = render(<KbSettingsPanel cwd="/repo" onBack={() => {}} />);
     await waitFor(() => expect(btn(getByTestId).disabled).toBe(false));
     fireEvent.click(getByTestId("kb-reindex-now"));
-    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("cwd not allowed"));
+    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("reindex exploded"));
     await waitFor(() => expect(btn(getByTestId).disabled).toBe(false));
   });
 
@@ -495,27 +497,27 @@ describe("Reindex now — optimistic state machine (test-plan #F1–#F6, #X1–#
   }, 10000);
 
   it("#X5: trigger error outranks the poll outage", async () => {
-    const fetchMock = fetchFor(cfgResponse(), { stats: () => jsonFailHtml(), post: () => jsonFail({ error: "cwd not allowed" }) });
+    const fetchMock = fetchFor(cfgResponse(), { stats: () => jsonFailHtml(), post: () => jsonFail({ error: "reindex exploded" }, 500) });
     (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const { getByTestId } = render(<KbSettingsPanel cwd="/repo" onBack={() => {}} />);
     await waitFor(() => expect(btn(getByTestId).disabled).toBe(false));
     fireEvent.click(getByTestId("kb-reindex-now"));
-    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("cwd not allowed"));
+    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("reindex exploded"));
     // Let the sustained outage surface too (3 consecutive misses), then re-check:
     // the user-initiated trigger error must still win.
     await waitFor(() => expect(statsCalls(fetchMock)).toBeGreaterThanOrEqual(3), { timeout: 8000 });
     await new Promise((r) => setTimeout(r, 150));
-    expect(getByTestId("kb-settings-error").textContent).toContain("cwd not allowed");
+    expect(getByTestId("kb-settings-error").textContent).toContain("reindex exploded");
   }, 10000);
 
   it("#X6: bootstrap error outranks the trigger error", async () => {
     // cwd is NOT a worktree → Copy from parent fails immediately ("Parent repo
     // not detected"); the reindex trigger is rejected too.
-    (globalThis as { fetch?: unknown }).fetch = fetchFor(cfgResponse({ origin: "global" }), { post: () => jsonFail({ error: "cwd not allowed" }) });
+    (globalThis as { fetch?: unknown }).fetch = fetchFor(cfgResponse({ origin: "global" }), { post: () => jsonFail({ error: "reindex exploded" }, 500) });
     const { getByTestId } = render(<KbSettingsPanel cwd="/repo" onBack={() => {}} />);
     await waitFor(() => expect(btn(getByTestId).disabled).toBe(false));
     fireEvent.click(getByTestId("kb-reindex-now"));
-    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("cwd not allowed"));
+    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("reindex exploded"));
     fireEvent.click(getByTestId("kb-copy-parent"));
     await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("Parent repo not detected"));
   });

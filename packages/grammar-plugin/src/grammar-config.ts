@@ -6,6 +6,14 @@
  * settings UI both use. See change: make-grammar-fully-plugin-contained.
  */
 import type { GrammarCorrectionView } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
+import { parseModelRef } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
+
+/**
+ * Grammar model: a concrete provider/model OR a role ref (`@role[:level]`,
+ * resolved per check). Mutually exclusive — a mixed object is invalid.
+ * See change: add-role-aware-model-refs.
+ */
+type GrammarLlm = { provider: string; model: string } | { role: string };
 
 export interface GrammarConfig {
   /** Master gate. Default `false` — feature is fully invisible when off. */
@@ -32,9 +40,9 @@ export interface GrammarConfig {
    * `UPPERCASE_SENTENCE_START` rule). See change: add-grammar-capitalize-toggle.
    */
   capitalizeFirstWord: boolean;
-  /** LLM provider/model. Only set when configured; the check errors
+  /** LLM provider/model or `@role`. Only set when configured; the check errors
    * `backend_unconfigured` until a model is picked. */
-  llm?: { provider: string; model: string };
+  llm?: GrammarLlm;
 }
 
 export const DEFAULT_GRAMMAR: GrammarConfig = {
@@ -70,17 +78,14 @@ export function parseGrammarConfig(raw: unknown): GrammarConfig {
   }
   const r = raw as Record<string, unknown>;
   const correctionView: GrammarCorrectionView = r.correctionView === "list" ? "list" : d.correctionView;
-  let llm: { provider: string; model: string } | undefined;
-  const rl = r.llm as { provider?: unknown; model?: unknown } | undefined;
-  if (
-    rl &&
-    typeof rl === "object" &&
-    typeof rl.provider === "string" &&
-    rl.provider &&
-    typeof rl.model === "string" &&
-    rl.model
-  ) {
-    llm = { provider: rl.provider, model: rl.model };
+  let llm: GrammarLlm | undefined;
+  const rl = r.llm as { provider?: unknown; model?: unknown; role?: unknown } | undefined;
+  if (rl && typeof rl === "object") {
+    const hasDirect = typeof rl.provider === "string" && rl.provider && typeof rl.model === "string" && rl.model;
+    const hasRole = typeof rl.role === "string" && parseModelRef(rl.role).kind === "role";
+    // A mixed object (role + provider/model) is invalid → no model (schema parity).
+    if (hasDirect && !("role" in rl)) llm = { provider: rl.provider as string, model: rl.model as string };
+    else if (hasRole && !("provider" in rl) && !("model" in rl)) llm = { role: (rl.role as string).trim() };
   }
   return {
     enabled: typeof r.enabled === "boolean" ? r.enabled : d.enabled,

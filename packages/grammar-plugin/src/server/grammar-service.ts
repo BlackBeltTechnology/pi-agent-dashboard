@@ -14,6 +14,8 @@ import type {
   GrammarErrorCode,
   GrammarHealth,
 } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
+import { readRoleConfigFromDisk } from "@blackbelt-technology/pi-dashboard-shared/role-config-disk.js";
+import { type ResolvedModelRef, resolveModelRef } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import type { GrammarConfig } from "../grammar-config.js";
 import { checkWithLlm, type LlmModelRegistry, type LlmStreamFn } from "./backends/llm.js";
 import { GrammarBackendError } from "./grammar-errors.js";
@@ -31,7 +33,16 @@ export interface CheckGrammarArgs {
   registry?: LlmModelRegistry | null;
   /** pi-ai streamSimple adapter for the `llm` backend. */
   streamSimple?: LlmStreamFn | null;
+  /**
+   * Resolve a role ref (`@fast`) to a concrete model at CHECK time, so a
+   * preset change applies on the next check. Defaults to the shared resolver
+   * over `providers.json`. See change: add-role-aware-model-refs.
+   */
+  resolveRole?: (ref: string) => ResolvedModelRef;
 }
+
+const defaultResolveRole = (ref: string): ResolvedModelRef =>
+  resolveModelRef(ref, readRoleConfigFromDisk());
 
 /**
  * Run a grammar check honouring the resolved config. Never throws; all
@@ -51,10 +62,29 @@ export async function checkGrammar(args: CheckGrammarArgs): Promise<GrammarCheck
   const text = truncated ? raw.slice(0, config.maxChars) : raw;
   const language = (args.language ?? config.language) || "auto";
 
+  let provider: string | undefined;
+  let model: string | undefined;
+  const llm = config.llm;
+  if (llm && "role" in llm) {
+    const r = (args.resolveRole ?? defaultResolveRole)(llm.role);
+    if (r.unresolved || !r.provider || !r.id) {
+      return {
+        ok: false,
+        code: "model_role_unassigned",
+        message: `grammar model role ${llm.role} has no model assigned`,
+      };
+    }
+    provider = r.provider;
+    model = r.id;
+  } else if (llm) {
+    provider = llm.provider;
+    model = llm.model;
+  }
+
   try {
     const result = await checkWithLlm(text, {
-      provider: config.llm?.provider,
-      model: config.llm?.model,
+      provider,
+      model,
       language,
       capitalizeFirstWord: config.capitalizeFirstWord,
       registry: args.registry,

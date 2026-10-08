@@ -1,72 +1,47 @@
 /**
- * Unit tests for the module-level relay store (change: add-browser-relay).
- *
- * The `content-view` predicate `isLiveViewActive` reads `hasLiveInstance()`
- * synchronously, so the store's gating + dismissal semantics are the contract
- * the shell's slot layer depends on.
+ * Relay store (change: add-browser-relay; simplified by add-browser-editor-pane-tab D10):
+ * a plain snapshot store — no content-view gate, no dismiss/reopen.
  */
 import type { BrowserRelayStatusMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { afterEach, describe, expect, it } from "vitest";
-import {
-  __resetRelayStoreForTests,
-  dismissLiveView,
-  hasLiveInstance,
-  reopenLiveView,
-  setRelayStatus,
-} from "../relay-store.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as store from "../relay-store.js";
 
-function status(tabIds: number[], auditSeq = 0): BrowserRelayStatusMessage {
-  return {
-    type: "browser_relay_status",
-    instances: [
-      {
-        instanceId: "inst-1",
-        profileDirectory: "Fake",
-        state: "connected",
-        tabs: tabIds.map((tabId) => ({
-          tabId,
-          title: `tab ${tabId}`,
-          url: "https://fake.test/",
-          state: "live",
-        })),
-      },
-    ],
-    auditSeq,
-  };
+function status(tabIds: number[]): BrowserRelayStatusMessage {
+	return {
+		type: "browser_relay_status",
+		instances: [
+			{
+				instanceId: "inst-1",
+				profileDirectory: "Fake",
+				state: "connected",
+				tabs: tabIds.map((tabId) => ({ tabId, title: `tab ${tabId}`, url: "https://fake.test/", state: "live" as const })),
+			},
+		],
+		auditSeq: 0,
+	};
 }
 
-afterEach(() => __resetRelayStoreForTests());
+afterEach(() => store.__resetRelayStoreForTests());
 
-describe("relay store gate", () => {
-  it("needs a live tab to be active", () => {
-    expect(hasLiveInstance()).toBe(false);
-    setRelayStatus(status([]));
-    expect(hasLiveInstance()).toBe(false);
-    setRelayStatus(status([1]));
-    expect(hasLiveInstance()).toBe(true);
-  });
+describe("relay store", () => {
+	it("holds the latest snapshot and notifies subscribers", () => {
+		expect(store.getRelayStatus()).toBeNull();
+		const msg = status([1]);
+		store.setRelayStatus(msg);
+		expect(store.getRelayStatus()).toBe(msg);
+	});
 
-  it("a dismiss clears the gate, an audit-only change does not re-arm it, a new tab does", () => {
-    setRelayStatus(status([1]));
-    expect(hasLiveInstance()).toBe(true);
+	it("finds a tab by (instanceId, tabId); undefined when gone", () => {
+		store.setRelayStatus(status([1, 2]));
+		expect(store.findRelayTab(store.getRelayStatus(), "inst-1", 2)?.tab.title).toBe("tab 2");
+		expect(store.findRelayTab(store.getRelayStatus(), "inst-1", 9)).toBeUndefined();
+		expect(store.findRelayTab(store.getRelayStatus(), "nope", 1)).toBeUndefined();
+		expect(store.findRelayTab(null, "inst-1", 1)).toBeUndefined();
+	});
 
-    dismissLiveView();
-    expect(hasLiveInstance()).toBe(false);
-
-    // Same instance/tab shape, only `auditSeq` moved: NOT material → stays down.
-    setRelayStatus(status([1], 9));
-    expect(hasLiveInstance()).toBe(false);
-
-    // A new tab is a material change → the view re-arms.
-    setRelayStatus(status([1, 2]));
-    expect(hasLiveInstance()).toBe(true);
-  });
-
-  it("reopenLiveView re-arms a dismissed view without a material change", () => {
-    setRelayStatus(status([1]));
-    dismissLiveView();
-    expect(hasLiveInstance()).toBe(false);
-    reopenLiveView();
-    expect(hasLiveInstance()).toBe(true);
-  });
+	it("no longer exposes the content-view gate (D10)", () => {
+		const exported = Object.keys(store);
+		for (const gone of ["hasLiveInstance", "dismissLiveView", "reopenLiveView"]) expect(exported).not.toContain(gone);
+		vi.fn();
+	});
 });

@@ -178,6 +178,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/plugins/flows/flow-inputs", tier: "observe" },
   { method: "GET", path: "/api/plugins/gmail/state", tier: "operate" },
   { method: "GET", path: "/api/plugins/hermes-memory/config", tier: "operate" },
+  { method: "GET", path: "/api/plugins/context-mode-settings/config", tier: "operate" },
   { method: "GET", path: "/api/preferences/auto-name", tier: "observe" },
   { method: "GET", path: "/api/preferences/display", tier: "observe" },
   { method: "GET", path: "/api/preferences/worktree-auto-init", tier: "observe" },
@@ -192,6 +193,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/push/vapid-public-key", tier: "observe" },
   { method: "GET", path: "/api/quota", tier: "observe" },
   { method: "GET", path: "/api/roles", tier: "observe" },
+  { method: "GET", path: "/api/roles/used-by", tier: "observe" },
   { method: "GET", path: "/api/session-change/:sessionId/:toolCallId", tier: "observe" },
   { method: "GET", path: "/api/session-diff", tier: "observe" },
   { method: "GET", path: "/api/session-file", tier: "observe" },
@@ -289,6 +291,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/pi-core/update", tier: "operate" },
   // Runtime overlay mutations: stage / activate / roll back the dashboard
   // runtime (Electron-only). See change: electron-runtime-overlay-updates.
+  { method: "POST", path: "/api/plugins/blackhole/bindings/reattach", tier: "operate" },
   { method: "POST", path: "/api/plugins/team/agents/:key/conversations", tier: "operate" },
   { method: "POST", path: "/api/plugins/team/agents/:key/conversations/:c/restart", tier: "operate" },
   { method: "POST", path: "/api/plugins/team/agents/:key/conversations/:c/session", tier: "operate" },
@@ -360,6 +363,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PUT", path: "/api/plugins/blackhole/config", tier: "operate" },
   { method: "PUT", path: "/api/plugins/gmail/client", tier: "operate" },
   { method: "PUT", path: "/api/plugins/hermes-memory/config", tier: "operate" },
+  { method: "PUT", path: "/api/plugins/context-mode-settings/config", tier: "operate" },
   { method: "PUT", path: "/api/plugins/team/personas/:key", tier: "operate" },
   { method: "PUT", path: "/api/provider-auth/api-key", tier: "operate" },
   { method: "PUT", path: "/api/providers", tier: "operate" },

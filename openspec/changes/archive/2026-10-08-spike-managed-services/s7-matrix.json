@@ -1,0 +1,18 @@
+{
+  "runtimes": [
+    { "id": "docker", "kind": "oci", "installed": true, "version": "29.1.3", "hostVm": { "name": "Docker Desktop", "state": "stopped", "startable": "unreliable" },
+      "reachable": false, "reachError": "failed to connect to the docker API at unix:///var/run/docker.sock",
+      "capabilities": { "ps": "unavailable", "df": "unavailable", "images": "unavailable", "prune": "unavailable", "logs": "unavailable", "stats": "unavailable", "exec": "unavailable" } },
+    { "id": "podman", "kind": "oci", "installed": true, "version": "6.1.0", "engineVersion": "5.8.6",
+      "hostVm": { "name": "podman-machine-default", "state": "running", "startable": "yes" },
+      "reachable": true, "hostPortForwarding": "broken (ssh -L workaround)", "authWorkaround": "DOCKER_CONFIG=<empty>",
+      "capabilities": { "ps": "ok", "df": "ok", "images": "ok", "machine": "ok", "prune": "ok-destructive", "logs": "ok", "stats": "ok", "exec": "ok", "secrets": "ok" } },
+    { "id": "qemu", "kind": "vm", "installed": true, "version": "10.1.1", "capabilities": { "inventory": "none (no registry of VMs)" } },
+    { "id": "virtualbox", "kind": "vm", "installed": true, "version": "7.2.6r172322", "vms": 0,
+      "capabilities": { "list": "ok", "snapshot": "cli-present", "controlvm": "cli-present" } },
+    { "id": "vmware-fusion", "kind": "vm", "installed": true, "version": "vmrun 1.17.0", "vms": 2,
+      "capabilities": { "list": "ok", "listSnapshots": "ok | needs-vm-password (encrypted VM)", "snapshot": "cli-present", "revertToSnapshot": "cli-present", "suspend": "cli-present", "pause": "cli-present" } },
+    { "id": "nerdctl|colima|limactl|prlctl|orb", "installed": false }
+  ],
+  "capabilityValues": ["ok", "ok-destructive", "cli-present", "needs-secret", "unavailable", "unsupported"]
+}

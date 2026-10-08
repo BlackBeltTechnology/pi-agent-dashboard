@@ -4,6 +4,7 @@
  * Creates a ServerPluginContext scoped to a specific plugin id,
  * with a namespaced logger and typed config accessors.
  */
+import { paneTabPrefixOf } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import { isAbsolute } from "node:path";
 import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { BrowserLoginConfig, HostAccessPolicyFn, HostResource, Principal, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
@@ -571,6 +572,20 @@ export interface PluginSpawnResult {
 export type SpawnSessionFn = (opts: PluginSpawnOptions) => Promise<PluginSpawnResult>;
 
 /**
+ * Register a spawn-env contributor (EXPERIMENTAL). A synchronous function
+ * returning env vars the dashboard adds to every pi session it spawns. Trusted
+ * plugins only (same test as `spawnSession`); untrusted get a no-op. The host
+ * validates names/values, never overrides an inherited variable, skips the
+ * contributor while the plugin is disabled, and skips throwing contributors.
+ * `opts.supersede` names a provenance marker env var plus the names the host
+ * may delete when the marker lists them. See change: add-context-mode-settings-plugin.
+ */
+export type RegisterSpawnEnvContributorFn = (
+  fn: (ctx: { mechanism: "headless" | "tmux" | "wt" | "wsl-tmux" }) => Record<string, string>,
+  opts?: { supersede?: { marker: string; names: readonly string[] } },
+) => () => void;
+
+/**
  * Abort a running pi session by id. Gated to first-party / trusted plugins by
  * the host (same trust gate as `spawnSession`): untrusted plugins receive a
  * hook that returns `false` without sending anything. Returns `true` when the
@@ -847,6 +862,16 @@ export type ListWorkspacesFn = () => PluginWorkspace[];
  */
 export type OnWorkspacesChangedFn = (handler: () => void) => () => void;
 
+/**
+ * Ask every dashboard client viewing `sessionId` to open (or focus) a plugin
+ * tab. Accepted only when `path`'s prefix is one of the CALLING plugin's own
+ * `editor-pane-tab` claims; otherwise throws `Error` and nothing is broadcast.
+ * On acceptance broadcasts `editor_tab_open {sessionId, path}`; clients act
+ * only while on that session's chat/editor route.
+ * See change: add-browser-editor-pane-tab (D5).
+ */
+export type OpenEditorTabFn = (sessionId: string, path: string) => void;
+
 /** Full ServerPluginContext API exposed to plugin server entries. */
 export interface ServerPluginContext {
   fastify: FastifyInstance;
@@ -894,6 +919,12 @@ export interface ServerPluginContext {
    * See change: add-automation-plugin.
    */
   spawnSession: SpawnSessionFn;
+  /**
+   * Contribute env vars to dashboard-spawned sessions. Trusted-gated and
+   * OPTIONAL (absent on hosts that do not wire it). Experimental.
+   * See change: add-context-mode-settings-plugin.
+   */
+  registerSpawnEnvContributor?: RegisterSpawnEnvContributorFn;
   /**
    * Abort a running session. Gated to first-party/trusted plugins; untrusted
    * plugins get a hook that returns `false`. See change:
@@ -970,6 +1001,8 @@ export interface ServerPluginContext {
    * Optional. See change: expose-plugin-credential-and-oauth-seams (D7).
    */
   registerPiRequestHandler?: RegisterPiRequestHandlerFn;
+  /** Open a plugin tab for a session's viewers (own prefix only). See `OpenEditorTabFn`. */
+  openEditorTab: OpenEditorTabFn;
   /**
    * Mint a fresh spawn-correlation token (trusted-gated). See change:
    * relocate-goal-product-to-plugin (D1-#1).
@@ -1103,6 +1136,7 @@ export interface ServerContextDeps {
   emitEventToSession: EmitEventToSessionFn;
   sendExtensionMessage: SendExtensionMessageFn;
   spawnSession: SpawnSessionFn;
+  registerSpawnEnvContributor?: RegisterSpawnEnvContributorFn;
   abortSession: AbortSessionFn;
   /** Optional: hosts without it give plugins a refusing no-op. */
   shutdownSession?: ShutdownSessionFn;
@@ -1170,8 +1204,18 @@ export interface ServerContextDeps {
 export function createServerPluginContext(
   deps: ServerContextDeps,
   pluginId: string,
+  /** Prefixes of this plugin's own `editor-pane-tab` claims (from its manifest). */
+  ownedPaneTabPrefixes: readonly string[] = [],
 ): ServerPluginContext {
   const logger = createServerLogger(pluginId);
+  const ownedPrefixes = new Set(ownedPaneTabPrefixes);
+  const openEditorTab: OpenEditorTabFn = (sessionId, path) => {
+    const prefix = paneTabPrefixOf(path);
+    if (typeof sessionId !== "string" || !sessionId || !prefix || !ownedPrefixes.has(prefix)) {
+      throw new Error(`[plugin:${pluginId}] openEditorTab refused: "${String(path)}" is not under an own editor-pane-tab prefix`);
+    }
+    deps.broadcastToSubscribers({ type: "editor_tab_open", sessionId, path });
+  };
 
   return {
     fastify: deps.fastify,
@@ -1190,6 +1234,7 @@ export function createServerPluginContext(
     spawnSession: deps.spawnSession,
     abortSession: deps.abortSession,
     shutdownSession: deps.shutdownSession ?? (async () => false),
+    registerSpawnEnvContributor: deps.registerSpawnEnvContributor,
     abortSpawnedRun: deps.abortSpawnedRun,
     registerCwdPolicy: deps.registerCwdPolicy,
     unregisterCwdPolicy: deps.unregisterCwdPolicy,
@@ -1221,6 +1266,7 @@ export function createServerPluginContext(
       ? (type, handler) => deps.registerPiRequestHandler!(pluginId, type, handler)
       : undefined,
     isPiExtensionInstalled: deps.isPiExtensionInstalled,
+    openEditorTab,
     mintSpawnToken: deps.mintSpawnToken,
     renameSession: deps.renameSession,
     assignSessionRef: deps.assignSessionRef,

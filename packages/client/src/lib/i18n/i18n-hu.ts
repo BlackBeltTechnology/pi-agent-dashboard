@@ -91,6 +91,7 @@ export const huCatalog: Record<string, string> = {
   "editor.loopbackOnlyHint": "Csak loopback (localhost / 127.0.0.1). Homokozóban fut — az alkalmazás nem éri el az irányítópultot.",
   "editor.navigate": "navigálás",
   "editor.noFilesOpen": "Nincs megnyitott fájl — válasszon egyet a fából.",
+  "editor.pluginTabUnavailable": "A lap nem érhető el ({prefix})",
   "editor.open": "megnyitás",
   "editor.openExternal": "Megnyitás",
   "editor.openFileTitle": "{path} megnyitása",

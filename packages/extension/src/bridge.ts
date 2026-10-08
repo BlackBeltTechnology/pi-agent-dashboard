@@ -120,6 +120,7 @@ import { createTransportDiagnostics } from "./transport-diagnostics.js";
 import { createTuiPromptAdapter } from "./tui-prompt-adapter.js";
 import { classifyTurnActionability } from "./turn-actionability.js";
 import { handleUiManagement, refreshUiModules, subscribeUiInvalidate, type UiModulesBridgeCtx } from "./ui-modules.js";
+import { buildPromptMeta } from "./prompt-meta.js";
 import { runUiSafely } from "./ui-stale-guard.js";
 import { detectIsGitRepo } from "./vcs-info.js";
 import { buildVisibilityRegisterFields } from "./visibility-intent.js";
@@ -3263,18 +3264,9 @@ function initBridge(pi: ExtensionAPI) {
       // resulting interactiveUi row with its parent toolResult row).
       // Free-floating callers (slash commands, architect prompts) omit
       // `opts.toolCallId` and the metadata field stays undefined.
-      const buildMeta = (
-        opts: any,
-        explicitMessage?: string,
-      ): Record<string, unknown> | undefined => {
-        const message = explicitMessage ?? opts?.message;
-        const toolCallId = opts?.toolCallId;
-        if (!message && !toolCallId) return undefined;
-        const meta: Record<string, unknown> = {};
-        if (message) meta.message = message;
-        if (toolCallId) meta.toolCallId = toolCallId;
-        return meta;
-      };
+      // Also carries an optional namespaced `opts.pluginMeta` → `metadata.plugin`
+      // (validated; see prompt-meta.ts). See change: add-browser-editor-pane-tab.
+      const buildMeta = (opts: any, explicitMessage?: string) => buildPromptMeta(opts, explicitMessage);
 
       (ctx.ui as any).select = (title: string, options: string[], opts?: any) =>
         bus.request({ pipeline: "command", type: "select", question: title, options, metadata: buildMeta(opts) })
@@ -3362,7 +3354,7 @@ function initBridge(pi: ExtensionAPI) {
           type: "multiselect",
           question: title,
           options,
-          metadata: opts?.message ? { message: opts.message } : undefined,
+          metadata: buildMeta(opts),
         }).then(decodeMultiselectAnswer);
 
       // ── Batch ────────────────────────────────────────────────────

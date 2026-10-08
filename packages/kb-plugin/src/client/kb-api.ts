@@ -48,14 +48,59 @@ export function kbSettingsUrl(cwd: string): string {
   return `/folder/${encodeFolderPath(cwd)}/kb`;
 }
 
+// ── Typed refusals ────────────────────────────────────────────────
+// Discriminated on the server's body literal, never on the status alone: other
+// 403s (network / host / identity gates) and other 409s stay plain `Error`s.
+// `message` stays `json.error`, so consumers that only render `message` are
+// byte-identical. Consumers branch on `code` (robust to duplicated module
+// copies in bundled builds), not `instanceof`.
+// See change: kb-denied-folder-pin-state (design D1, D11).
+
+/** `403 { error: "cwd not allowed" }` — the folder is not admitted; pinning is the remedy. */
+class KbCwdDeniedError extends Error {
+  readonly code = "cwd_not_allowed" as const;
+  constructor(
+    message: string,
+    readonly reason?: string,
+    readonly hint?: string,
+  ) {
+    super(message);
+    this.name = "KbCwdDeniedError";
+  }
+}
+
+type KbPreconditionCode = "folder_missing" | "no_sources";
+
+/** `409 { error: "folder missing" | "no sources configured" }` — a write refused by its preflight. */
+class KbPreconditionError extends Error {
+  constructor(
+    message: string,
+    readonly code: KbPreconditionCode,
+  ) {
+    super(message);
+    this.name = "KbPreconditionError";
+  }
+}
+
+const PRECONDITION_CODES = new Map<string, KbPreconditionCode>([
+  ["folder missing", "folder_missing"],
+  ["no sources configured", "no_sources"],
+]);
+
 // ── REST ──────────────────────────────────────────────────────────
 async function parseJson<T>(res: Response): Promise<T> {
   const ct = res.headers.get("content-type") ?? "";
   if (!ct.includes("application/json")) {
     throw new Error(`HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`);
   }
-  const json = (await res.json()) as T & { error?: string };
-  if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+  const json = (await res.json()) as T & { error?: string; reason?: string; hint?: string };
+  if (!res.ok) {
+    const err = json?.error;
+    if (res.status === 403 && err === "cwd not allowed") throw new KbCwdDeniedError(err, json.reason, json.hint);
+    const precondition = res.status === 409 && err ? PRECONDITION_CODES.get(err) : undefined;
+    if (err && precondition) throw new KbPreconditionError(err, precondition);
+    throw new Error(err ?? `HTTP ${res.status}`);
+  }
   return json;
 }
 

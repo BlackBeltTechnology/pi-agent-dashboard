@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Subagent: performance options + truncated replay</title>
+<link rel="icon" href="data:," />
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root, [data-theme="dark"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858;
+    --border-subtle:rgba(255,255,255,.06);
+  }
+  [data-theme="light"] {
+    --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#636363; --text-muted:#aaa;
+    --border-subtle:rgba(0,0,0,.06);
+  }
+  body { background:var(--bg-primary); color:var(--text-primary); font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  .panel { background:var(--bg-secondary); border:1px solid var(--border-subtle); border-radius:12px; }
+  .card { background:var(--bg-tertiary); border:1px solid rgba(234,179,8,.35); border-radius:12px; }
+  .btn { font-size:11px; padding:3px 9px; border-radius:6px; border:1px solid var(--border-subtle); color:var(--text-secondary); background:var(--bg-surface); }
+  .row { border-left:2px solid var(--text-muted); padding:2px 0 2px 12px; font-size:12px; color:var(--text-tertiary); display:flex; gap:6px; align-items:center; }
+  .row.think { border-color: rgba(168,85,247,.35); }
+  .fade-left { -webkit-mask-image: linear-gradient(to right, transparent 0, #000 18%); mask-image: linear-gradient(to right, transparent 0, #000 18%); }
+  .caret { display:inline-block; width:2px; height:.95em; vertical-align:-.12em; margin-left:2px; background:rgba(192,132,252,.7); animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0 } }
+  .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg) } }
+  .tick { position:absolute; top:0; bottom:0; width:2px; border-radius:1px; }
+  @media (prefers-reduced-motion: reduce) { .caret,.spin { animation:none } }
+  h2 { font-size:15px; font-weight:600; }
+  .label { font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); }
+  .verdict { font-size:11px; padding:1px 7px; border-radius:999px; }
+</style>
+</head>
+<body class="p-6 max-w-6xl mx-auto space-y-12">
+
+<header class="sticky top-0 z-10 -mx-6 px-6 py-3 bg-[var(--bg-primary)] border-b border-[var(--border-subtle)] flex items-center gap-3">
+  <div class="mr-auto">
+    <h1 class="text-base font-semibold">Subagent: performance options + truncated replay</h1>
+    <p class="text-[11px] text-[var(--text-tertiary)]">Part 1 shows the three performance fixes against today. Part 2 shows the "N steps hidden" replay problem and three ways to fix it. The numbers are measured on the real store unless marked "est."</p>
+  </div>
+  <button id="theme" class="btn">Light / dark</button>
+</header>
+
+<!-- ═══════════════ PART 1 ═══════════════ -->
+<section class="space-y-8">
+  <div>
+    <div class="label">Part 1</div>
+    <h2>Performance fixes for the live tail</h2>
+  </div>
+
+  <!-- A -->
+  <div class="space-y-3">
+    <h3 class="text-sm font-semibold">A: Drop the early timeline request on block end</h3>
+    <p class="text-[12px] text-[var(--text-tertiary)] max-w-3xl">Each mark is a full-timeline reply from the bridge, and each one is also <b>stored</b>. Over 60 s with the inspector open, the subagent produces 14 blocks and its timeline keeps growing.</p>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="panel p-4 space-y-2">
+        <div class="flex items-center gap-2"><span class="text-[12px] font-medium">Current build (backoff + request on every block end)</span><span class="verdict bg-red-500/15 text-red-400">≈ 30+14 full replies</span></div>
+        <div class="relative h-8 rounded bg-[var(--bg-tertiary)]" id="tlA1"></div>
+        <div class="flex gap-4 text-[10px] text-[var(--text-muted)]"><span><span class="inline-block w-2 h-2 bg-sky-400 rounded-sm"></span> backoff (2 s, timeline growing)</span><span><span class="inline-block w-2 h-2 bg-red-400 rounded-sm"></span> extra on block end</span></div>
+      </div>
+      <div class="panel p-4 space-y-2">
+        <div class="flex items-center gap-2"><span class="text-[12px] font-medium">With A (backoff only, last tail held)</span><span class="verdict bg-green-500/15 text-green-400">≈ 30 full replies (−30%)</span></div>
+        <div class="relative h-8 rounded bg-[var(--bg-tertiary)]" id="tlA2"></div>
+        <div class="text-[10px] text-[var(--text-muted)]">Nothing changes on screen: the held tail covers the gap until the next backoff request (≤ 2 s).</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B -->
+  <div class="space-y-3">
+    <h3 class="text-sm font-semibold">B: Collapse <code>subagent_*</code> progress ticks in the store (keep the newest per agent)</h3>
+    <p class="text-[12px] text-[var(--text-tertiary)] max-w-3xl">Today the store keeps <b>every</b> <code>subagents:started</code> progress tick. <code>tool_execution_update</code> is already collapsed to 2. Measured: 100 s at 4 ticks/s.</p>
+    <div class="panel p-4 space-y-3">
+      <div class="grid grid-cols-[180px_1fr_120px] gap-x-3 gap-y-2 items-center text-[11px]" id="barsB"></div>
+      <div class="text-[10px] text-[var(--text-muted)]">Effect on replay: a reloaded tab replays 1 progress tick per subagent instead of 400. The client's end state is the same (same raw-vs-compacted replay check as the update collapse). Cost: a server change plus that test.</div>
+    </div>
+  </div>
+
+  <!-- C -->
+  <div class="space-y-3">
+    <h3 class="text-sm font-semibold">C: Shorten the tail from 280 to 160 chars</h3>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="panel p-4 space-y-2" data-len="280">
+        <div class="flex items-center gap-2"><span class="text-[12px] font-medium">280 chars (current)</span><span class="verdict bg-[var(--bg-surface)] text-[var(--text-tertiary)]">~477 B/tick</span></div>
+        <div class="card px-3 py-2"><div class="label mb-1">Card: ticker (option C)</div><div class="ticker-host"></div></div>
+        <div class="label">Opened view: live block</div>
+        <div class="insp-host"></div>
+      </div>
+      <div class="panel p-4 space-y-2" data-len="160">
+        <div class="flex items-center gap-2"><span class="text-[12px] font-medium">160 chars</span><span class="verdict bg-green-500/15 text-green-400">~357 B/tick (est. −25%)</span></div>
+        <div class="card px-3 py-2"><div class="label mb-1">Card: ticker (option C)</div><div class="ticker-host"></div></div>
+        <div class="label">Opened view: live block</div>
+        <div class="insp-host"></div>
+      </div>
+    </div>
+    <p class="text-[11px] text-[var(--text-muted)]">The card ticker looks the same (it only needs the current sentence). The opened view shows about half as much live text, but each finished block still shows in full once its entry arrives.</p>
+  </div>
+
+  <div class="panel p-4 text-[12px] space-y-1">
+    <div class="font-medium">Combined (A + B + C), per 10-minute subagent, est.</div>
+    <div class="text-[var(--text-tertiary)]">Stored progress bytes: <b>~1 MB → ~0.5 KB</b> (B dominates) · Full-timeline replies: <b>−30%</b> (A) · Bytes per tick on the wire: <b>−25%</b> (C)</div>
+  </div>
+</section>
+
+<!-- ═══════════════ PART 2 ═══════════════ -->
+<section class="space-y-8">
+  <div>
+    <div class="label">Part 2</div>
+    <h2>Replay hides the subagent's steps behind "⋯ N steps hidden ⋯"</h2>
+    <p class="text-[12px] text-[var(--text-tertiary)] max-w-3xl mt-1">When a timeline goes over the 256 KiB per-event limit, <code>reduceSubagentEvent</code> keeps the first and last few steps and swaps the middle for a text entry. After a reload, that's all you get: the steps are gone for good, though while the pi session is still running, the bridge still has the full timeline in memory.</p>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-6">
+    <!-- TODAY -->
+    <div class="space-y-2">
+      <div class="label">Today</div>
+      <div class="panel overflow-hidden">
+        <div class="px-3 py-2 border-b border-[var(--border-subtle)] text-sm font-medium">Fast read-only codebase &amp; docs exploration.</div>
+        <div class="p-3 space-y-1">
+          <div class="row think">💡 Reasoning</div>
+          <div class="row"><span class="text-green-500">✓</span> kb_search architecture overview</div>
+          <div class="row"><span class="text-green-500">✓</span> Read docs/architecture.md</div>
+          <div class="py-1.5 pl-3 text-sm text-[var(--text-secondary)]">⋯ 312 steps hidden ⋯</div>
+          <div class="row"><span class="text-green-500">✓</span> Read packages/server/src/cli.ts</div>
+          <div class="row think">💡 Reasoning</div>
+          <div class="py-1 pl-3 text-[13px] text-[var(--text-secondary)]">## Layout ‒ packages/: 28 workspaces…</div>
+        </div>
+      </div>
+      <p class="text-[11px] text-[var(--text-muted)]">Rendered as ordinary markdown text. It looks like something the agent wrote, with no way to see what was cut.</p>
+    </div>
+
+    <!-- R1 -->
+    <div class="space-y-2">
+      <div class="label">R1: Clear divider + "Load hidden steps" (fetches from the bridge)</div>
+      <div class="panel overflow-hidden">
+        <div class="px-3 py-2 border-b border-[var(--border-subtle)] text-sm font-medium">Fast read-only codebase &amp; docs exploration.</div>
+        <div class="p-3 space-y-1">
+          <div class="row think">💡 Reasoning</div>
+          <div class="row"><span class="text-green-500">✓</span> kb_search architecture overview</div>
+          <div class="row"><span class="text-green-500">✓</span> Read docs/architecture.md</div>
+          <div id="r1" class="my-1"></div>
+          <div class="row"><span class="text-green-500">✓</span> Read packages/server/src/cli.ts</div>
+          <div class="row think">💡 Reasoning</div>
+        </div>
+      </div>
+      <div class="flex gap-2"><button class="btn" data-r1="idle">Idle</button><button class="btn" data-r1="loading">Loading</button><button class="btn" data-r1="loaded">Loaded</button><button class="btn" data-r1="gone">Session ended</button></div>
+      <p class="text-[11px] text-[var(--text-muted)]">A real divider, not chat text. While pi is running, the button reuses the existing timeline request, and the bridge's full snapshot is shown <b>only in this browser</b> and never stored. Once the session has ended, the steps can't be recovered.</p>
+    </div>
+
+    <!-- R2 -->
+    <div class="space-y-2">
+      <div class="label">R2: Divider with a summary by kind (the server counts as it truncates)</div>
+      <div class="panel overflow-hidden">
+        <div class="px-3 py-2 border-b border-[var(--border-subtle)] text-sm font-medium">Fast read-only codebase &amp; docs exploration.</div>
+        <div class="p-3 space-y-1">
+          <div class="row"><span class="text-green-500">✓</span> Read docs/architecture.md</div>
+          <div class="my-1 rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--bg-tertiary)] px-3 py-2">
+            <div class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]"><span>⋯</span><b>312 steps hidden</b><span class="text-[var(--text-muted)]">· 11:04:12 → 11:19:40</span><button class="btn ml-auto">Load</button></div>
+            <div class="flex flex-wrap gap-1.5 mt-1.5 text-[10px]">
+              <span class="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] text-[var(--text-tertiary)]">Read ×124</span>
+              <span class="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] text-[var(--text-tertiary)]">bash ×61</span>
+              <span class="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] text-[var(--text-tertiary)]">kb_search ×38</span>
+              <span class="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">Reasoning ×71</span>
+              <span class="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] text-[var(--text-tertiary)]">Text ×14</span>
+              <span class="px-1.5 py-0.5 rounded bg-red-500/10 text-red-400">2 errors</span>
+            </div>
+          </div>
+          <div class="row"><span class="text-green-500">✓</span> Read packages/server/src/cli.ts</div>
+        </div>
+      </div>
+      <p class="text-[11px] text-[var(--text-muted)]">Even after the session has ended, you can see what happened in the gap: counts, time span and errors. The summary is computed once at truncation and is about 200 bytes, so memory stays bounded.</p>
+    </div>
+
+    <!-- R3 -->
+    <div class="space-y-2">
+      <div class="label">R3: Keep the full timeline on disk and load it on demand</div>
+      <div class="panel overflow-hidden">
+        <div class="px-3 py-2 border-b border-[var(--border-subtle)] text-sm font-medium">Fast read-only codebase &amp; docs exploration.</div>
+        <div class="p-3 space-y-1">
+          <div class="row"><span class="text-green-500">✓</span> Read docs/architecture.md</div>
+          <div class="my-1 rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--bg-tertiary)] px-3 py-2 flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
+            <span>⋯</span><b>312 steps hidden</b><span class="text-[var(--text-muted)]">· saved to disk (2.1 MB)</span><button class="btn ml-auto">Load all</button><button class="btn">Load 50</button>
+          </div>
+          <div class="row"><span class="text-green-500">✓</span> Read packages/server/src/cli.ts</div>
+        </div>
+      </div>
+      <p class="text-[11px] text-[var(--text-muted)]">On the terminal frame, the server writes the full timeline to <code>~/.pi/dashboard/subagents/&lt;agentId&gt;.json</code> before truncating, and serves it over REST in pages. Works after the session has ended and after a server restart, and the in-memory store stays bounded. It's the biggest change: a new file store, retention and cleanup, and a new endpoint.</p>
+    </div>
+  </div>
+  <div class="panel p-4 text-[12px]">
+    <b>Suggested:</b> R2 now (small, works everywhere) plus R1's load button while the session is alive. R3 later as its own change if you need full history after the session ends.
+  </div>
+</section>
+
+<script>
+/* A: request timelines */
+function marks(el, list) { el.innerHTML = list.map(([x, c]) => `<span class="tick" style="left:${x}%;background:${c}"></span>`).join(""); }
+const base = [], extra = [];
+for (let s = 0; s < 60; s += 2) base.push([s / 60 * 100, "#38bdf8"]);
+[3.1,6.8,9.4,13.9,17.2,21.5,26.0,29.7,34.3,38.8,44.1,48.6,53.0,57.4].forEach(s => extra.push([s / 60 * 100, "#f87171"]));
+marks(document.getElementById("tlA1"), [...base, ...extra]); marks(document.getElementById("tlA2"), base);
+
+/* B: bars */
+const rows = [
+  ["Today, without tail", 68244, "400 ticks kept", "#64748b"],
+  ["Current build (with tail)", 173924, "400 ticks kept", "#f87171"],
+  ["With B (with tail)", 477, "1 tick kept", "#4ade80"],
+];
+const max = 173924;
+document.getElementById("barsB").innerHTML = rows.map(([l, b, n, c]) =>
+  `<div class="text-[var(--text-secondary)]">${l}</div>
+   <div class="h-4 rounded bg-[var(--bg-tertiary)] overflow-hidden"><div class="h-full rounded" style="width:${Math.max(0.6, b / max * 100)}%;background:${c}"></div></div>
+   <div class="text-[var(--text-tertiary)] tabular-nums">${(b/1024).toFixed(b < 1024 ? 1 : 0)} KB · ${n}</div>`).join("");
+
+/* C: tail length demo */
+const THINK = `The user wants a concise overview of the repo. Let me plan this in one shot.
+
+I need:
+1. Top-level layout (ls)
+2. packages/ listing
+3. AGENTS.md files
+4. docs/architecture.md
+5. Root package.json for commands
+
+Medium thoroughness: 5-10 tool calls. I'll use ctx_batch_execute with several commands and then read the architecture doc.`;
+const esc = s => s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+let i = 0;
+function renderC() {
+  for (const p of document.querySelectorAll("[data-len]")) {
+    const tail = THINK.slice(0, i).slice(-Number(p.dataset.len));
+    const flat = tail.replace(/\s+/g, " ").trim();
+    const m = flat.match(/[^.!?:]*[.!?:]?\s*[^.!?:]*$/); const s = (m && m[0].trim()) || flat;
+    p.querySelector(".ticker-host").innerHTML = `<div class="h-4 flex items-center gap-1.5 text-[10px] overflow-hidden"><span class="text-purple-400 shrink-0">💡</span><div class="tk flex-1 min-w-0 flex justify-end overflow-hidden"><span class="min-w-full whitespace-nowrap text-[11px] text-[var(--text-secondary)]">${esc(s)}<span class="caret"></span></span></div></div>`;
+    const tk = p.querySelector(".tk"); tk.classList.toggle("fade-left", tk.firstElementChild.scrollWidth > tk.clientWidth);
+    p.querySelector(".insp-host").innerHTML = `<div class="border-l-2 border-purple-500/30 pl-3 py-1"><div class="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]"><span class="text-purple-400">💡</span>Reasoning</div><div class="mt-1 ml-4 rounded-xl border border-purple-500/10 bg-purple-500/5 shadow-md h-28 overflow-hidden flex flex-col justify-end px-3 py-2"><div class="text-[13px] leading-5 text-[var(--text-secondary)] whitespace-pre-line">${esc(tail)}<span class="caret"></span></div></div></div>`;
+  }
+}
+setInterval(() => { i = i >= THINK.length + 60 ? 0 : i + 3; renderC(); }, 60);
+
+/* R1 states */
+const R1 = {
+  idle: `<div class="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]"><div class="flex-1 border-t border-dashed border-[var(--text-muted)]"></div><span>312 steps hidden</span><button class="btn">Load hidden steps</button><div class="flex-1 border-t border-dashed border-[var(--text-muted)]"></div></div>`,
+  loading: `<div class="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]"><div class="flex-1 border-t border-dashed border-[var(--text-muted)]"></div><span class="spin inline-block w-3 h-3 rounded-full border-2 border-[var(--text-tertiary)] border-t-transparent"></span><span>Loading 312 steps…</span><div class="flex-1 border-t border-dashed border-[var(--text-muted)]"></div></div>`,
+  loaded: `<div class="space-y-1">${["Read packages/shared/src/protocol.ts","bash ls packages","💡 Reasoning","kb_search plugin runtime","Read docs/faq.md"].map(t => `<div class="row ${t.startsWith("💡")?"think":""}">${t.startsWith("💡")?"":"<span class='text-green-500'>✓</span>"} ${t}</div>`).join("")}<div class="pl-3 text-[10px] text-[var(--text-muted)]">… 307 more · <button class="underline">show all</button> · <button class="underline">collapse</button></div></div>`,
+  gone: `<div class="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]"><div class="flex-1 border-t border-dashed border-[var(--text-muted)]"></div><span>312 steps hidden · session ended, steps can't be loaded</span><div class="flex-1 border-t border-dashed border-[var(--text-muted)]"></div></div>`,
+};
+const r1 = document.getElementById("r1");
+document.querySelectorAll("[data-r1]").forEach(b => b.onclick = () => r1.innerHTML = R1[b.dataset.r1]);
+r1.innerHTML = R1.idle;
+document.getElementById("theme").onclick = () => { const h = document.documentElement; h.dataset.theme = h.dataset.theme === "dark" ? "light" : "dark"; };
+renderC();
+</script>
+</body>
+</html>

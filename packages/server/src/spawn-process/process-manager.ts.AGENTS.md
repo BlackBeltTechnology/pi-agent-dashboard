@@ -15,3 +15,5 @@ See change: align-ui-with-theme-tokens. SpawnResult messages say "started" / "Fa
 `SessionOptions` carries `appendSystemPrompt`, `noContextFiles`, `noProjectTrust`, `sessionDir` (mapped by `pluginSpawnToSessionOptions`, emitted by `sessionFlagsToArgv`); cwd-policy composition leaves them untouched. See change: add-team-plugin.
 
 `buildSpawnEnv` stamps `PI_DASHBOARD_BRIDGE=on` (overwrites inherited value; descendants inherit). `buildTmuxCommand` always appends `-e PI_DASHBOARD_BRIDGE=on` (pane inherits tmux SERVER env, not spawn env) after token/endpoint/heap pairs. Dashboard spawns therefore ignore `bridge.enabled:false` and a shell-exported opt-out. See change: add-bridge-env-opt-out.
+
+- `buildSpawnEnv` deletes `CONTEXT_MODE_BRIDGE_DEPTH`/`CONTEXT_MODE_BRIDGE_IDLE_MS` (true unset); `opts.mechanism` applies plugin spawn-env contributors, `opts.contributedOut` collects applied entries. `buildTmuxCommand` pane starts `env -u CONTEXT_MODE_BRIDGE_DEPTH -u CONTEXT_MODE_BRIDGE_IDLE_MS`, 7th param `contributedEnv` → per-window `-e`. See change: add-context-mode-settings-plugin.

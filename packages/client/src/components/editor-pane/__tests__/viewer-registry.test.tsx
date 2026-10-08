@@ -71,17 +71,21 @@ describe("viewerRegistry — preview/* delegation", () => {
     expect(Object.keys(viewerRegistry).sort()).toEqual([...OPEN_PATH_VIEWERS].sort());
   });
 
-  it("half (b) registers exactly the pseudo-tab viewers", () => {
-    expect(Object.keys(pseudoTabRegistry).sort()).toEqual([...PSEUDO_TAB_VIEWERS].sort());
+  it("half (b) registers exactly the pseudo-tab viewers except `plugin` (PluginTabHost)", () => {
+    expect(Object.keys(pseudoTabRegistry).sort()).toEqual(PSEUDO_TAB_VIEWERS.filter((k) => k !== "plugin").sort());
+    expect(Object.keys(pseudoTabRegistry)).not.toContain("plugin");
   });
 
-  it("the two halves are disjoint and together cover all 19 viewer kinds", () => {
+  // test-plan #E16 — `plugin` is a pseudo-tab kind but not a registry key.
+  it("the two halves are disjoint and, with `plugin`, cover all 20 viewer kinds", () => {
     const a = Object.keys(viewerRegistry);
     const b = Object.keys(pseudoTabRegistry);
     expect(a.filter((k) => b.includes(k))).toEqual([]);
-    expect(new Set([...a, ...b]).size).toBe(19);
+    expect(new Set([...a, ...b, "plugin"]).size).toBe(20);
+    expect(new Set([...OPEN_PATH_VIEWERS, ...PSEUDO_TAB_VIEWERS]).size).toBe(20);
     expect(a).toHaveLength(15);
     expect(b).toHaveLength(4);
+    expect(isPseudoTabViewer("plugin")).toBe(true);
   });
 
   // test-plan #E6 — correct-half assignment. The compile-time checks prove the
@@ -98,6 +102,7 @@ describe("viewerRegistry — preview/* delegation", () => {
     }
     for (const kind of PSEUDO_TAB_VIEWERS) {
       expect(isPseudoTabViewer(kind), kind).toBe(true);
+      if (kind === "plugin") continue; // rendered by PluginTabHost, not the registry
       expect(isRenderable(pseudoTabRegistry[kind]), kind).toBe(true);
       expect(Object.keys(viewerRegistry), kind).not.toContain(kind);
     }

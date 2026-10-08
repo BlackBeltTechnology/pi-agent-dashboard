@@ -75,7 +75,9 @@ function normalize(raw: Partial<GrammarConfig> | undefined): GrammarConfig {
   return {
     ...FALLBACK_GRAMMAR,
     ...(raw ?? {}),
-    ...(raw?.llm ? { llm: { provider: raw.llm.provider, model: raw.llm.model } } : {}),
+    ...(raw?.llm
+      ? { llm: "role" in raw.llm ? { role: raw.llm.role } : { provider: raw.llm.provider, model: raw.llm.model } }
+      : {}),
   };
 }
 
@@ -258,9 +260,17 @@ export function GrammarSettings(): React.ReactElement {
           {ModelSelector ? (
             <div data-testid="grammar-llm-model-selector">
               <ModelSelector
-                current={draft.llm ? `${draft.llm.provider}/${draft.llm.model}` : undefined}
+                current={
+                  draft.llm ? ("role" in draft.llm ? draft.llm.role : `${draft.llm.provider}/${draft.llm.model}`) : undefined
+                }
                 models={models}
+                allowRoles
                 onSelect={(label: string) => {
+                  // Role pick persists as `llm: { role }` (no provider/model) — resolved per check.
+                  if (label.startsWith("@")) {
+                    setDraft({ ...draft, llm: { role: label } });
+                    return;
+                  }
                   const i = label.indexOf("/");
                   const provider = i >= 0 ? label.slice(0, i) : label;
                   const model = i >= 0 ? label.slice(i + 1) : "";

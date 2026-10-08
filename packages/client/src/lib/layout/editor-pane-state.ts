@@ -12,6 +12,7 @@
 
 import type { ViewerKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { useEffect, useReducer, useRef } from "react";
+import { OPEN_PATH_VIEWERS, PSEUDO_TAB_VIEWERS } from "../../components/editor-pane/viewer-kinds.js";
 
 export const EDITOR_PANE_KEY_PREFIX = "pi-dashboard:editor-pane:";
 
@@ -268,9 +269,33 @@ function keyFor(sessionId: string): string {
   return EDITOR_PANE_KEY_PREFIX + sessionId;
 }
 
-const VALID_VIEWERS: ReadonlySet<string> = new Set([
-  "monaco", "image", "pdf", "markdown", "html", "mermaid", "video", "audio", "live-server", "url", "diff", "terminal", "binary-warn",
-]);
+/**
+ * Derived from the viewer partition, so a new `ViewerKind` can never be
+ * silently missing (the hand-kept set lacked six kinds and wiped any pane
+ * holding one). See change: add-browser-editor-pane-tab (D2).
+ */
+const VALID_VIEWERS: ReadonlySet<string> = new Set<string>([...OPEN_PATH_VIEWERS, ...PSEUDO_TAB_VIEWERS]);
+
+/**
+ * Drop only entries whose `viewer` is unknown (stale kind from a reverted or
+ * removed feature), re-deriving `activeIndex`: the same tab when it survived,
+ * else clamped. Runs BEFORE `isValidState`, which stays all-or-nothing for
+ * every structural check. See change: add-browser-editor-pane-tab (D2).
+ */
+function dropUnknownViewers(v: unknown): unknown {
+  if (!v || typeof v !== "object") return v;
+  const s = v as Record<string, unknown>;
+  if (!Array.isArray(s.openFiles) || !Number.isInteger(s.activeIndex)) return v;
+  const known = (f: unknown) =>
+    !f || typeof f !== "object" || VALID_VIEWERS.has((f as { viewer?: unknown }).viewer as string);
+  if (s.openFiles.every(known)) return v;
+  const ai = s.activeIndex as number;
+  const active = s.openFiles[ai];
+  const openFiles = s.openFiles.filter(known);
+  let activeIndex = openFiles.indexOf(active);
+  if (activeIndex < 0) activeIndex = openFiles.length === 0 ? -1 : Math.min(Math.max(ai, 0), openFiles.length - 1);
+  return { ...s, openFiles, activeIndex };
+}
 
 /** True only for well-formed persisted state; rejects corrupt/partial blobs. */
 function isValidState(v: unknown): v is EditorPaneState {
@@ -308,7 +333,7 @@ export function loadEditorPaneState(sessionId: string): EditorPaneState {
   try {
     const raw = globalThis.localStorage?.getItem(keyFor(sessionId));
     if (!raw) return EMPTY_PANE_STATE;
-    const parsed = JSON.parse(raw);
+    const parsed = dropUnknownViewers(JSON.parse(raw));
     if (!isValidState(parsed)) {
       console.error(`[editor-pane] discarding corrupt state for session ${sessionId}`);
       return EMPTY_PANE_STATE;

@@ -35,6 +35,8 @@ export const catalog = {
     close: "关闭",
     defaultBadge: "默认",
     reset: "重置",
+    modelSelectorUnavailable: "模型选择器不可用",
+    inheritSessionModel: "继承会话模型",
   },
   hu: {
     loadError: "A konfiguráció betöltése sikertelen: {error}",
@@ -57,5 +59,7 @@ export const catalog = {
     close: "Bezárás",
     defaultBadge: "alapért.",
     reset: "Visszaállítás",
+    modelSelectorUnavailable: "A modellválasztó nem érhető el",
+    inheritSessionModel: "Munkamenet modelljének öröklése",
   },
 };

@@ -48,6 +48,12 @@ export function errorMessage(t: ReturnType<typeof useT>, code: GrammarErrorCode)
       return t("grammar.err.timeout", undefined, "Grammar check timed out.");
     case "backend_unconfigured":
       return t("grammar.err.unconfigured", undefined, "Grammar backend is not configured.");
+    case "model_role_unassigned":
+      return t(
+        "grammar.err.roleUnassigned",
+        undefined,
+        "The grammar model role has no model assigned — assign it in Settings → Model roles.",
+      );
     case "backend_bad_response":
       return t("grammar.err.badResponse", undefined, "Grammar backend returned an unexpected response.");
     default:
