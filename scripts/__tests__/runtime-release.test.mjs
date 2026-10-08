@@ -25,6 +25,8 @@ import { pruneBinLinks, sha512Line } from "../build-runtime-asset.mjs";
 import { buildRuntimeRootManifest, finalizeRuntimeLock, serverTarballUrl } from "../generate-runtime-lock.mjs";
 import {
   bundledPluginPackages,
+  collectPluginRuntimeDeps,
+  pluginRuntimeDeps,
   RUNTIME_ASSET_TARGETS,
   RUNTIME_BASE_PACKAGES,
   runtimeAssetName,
@@ -79,8 +81,56 @@ describe("lib/runtime-release", () => {
   });
 });
 
+describe("plugin runtime deps (task 2.6)", () => {
+  const ws = (deps) => ({ name: "w", dependencies: deps });
+
+  it("real repo: union of bundled plugins' third-party deps, no conflicts, no first-party", () => {
+    const deps = pluginRuntimeDeps(REPO_ROOT);
+    expect(Object.keys(deps).length).toBeGreaterThan(0);
+    expect(Object.keys(deps).some((d) => d.startsWith(`${SCOPE}/`))).toBe(false);
+    // gmail-plugin's oauth4webapi is the observed failure this exists to close.
+    expect(deps).toHaveProperty("oauth4webapi");
+  });
+
+  it("unions plugin deps, skips first-party, peer and dev deps", () => {
+    const out = collectPluginRuntimeDeps({
+      plugins: [
+        { name: "p1", dependencies: { yaml: "^2", [`${SCOPE}/x`]: "^1" }, peerDependencies: { react: "*" }, devDependencies: { vitest: "*" } },
+        { name: "p2", dependencies: { yaml: "^2", debug: "^4" } },
+      ],
+      workspaces: [ws({ yaml: "^2" })],
+    });
+    expect(out).toEqual({ debug: "^4", yaml: "^2" });
+  });
+
+  it("differing specifiers across plugins or vs a runtime workspace → throw naming each", () => {
+    expect(() => collectPluginRuntimeDeps({ plugins: [{ name: "p1", dependencies: { ws: "^8" } }, { name: "p2", dependencies: { ws: "^7" } }], workspaces: [] })).toThrow(/ws: p1@\^8, p2@\^7/);
+    expect(() => collectPluginRuntimeDeps({ plugins: [{ name: "p1", dependencies: { ws: "^8" } }], workspaces: [{ name: "srv", dependencies: { ws: "^8.1" } }] })).toThrow(/srv@\^8\.1/);
+  });
+
+  it("rejects non-registry plugin specifiers", () => {
+    for (const spec of ["file:../x", "workspace:*", "git+https://x/y", "user/repo", "npm:other@1"]) {
+      expect(() => collectPluginRuntimeDeps({ plugins: [{ name: "p", dependencies: { d: spec } }], workspaces: [] })).toThrow(/non-registry/);
+    }
+  });
+});
+
 describe("generate-runtime-lock", () => {
   const plugins = [`${SCOPE}/pi-dashboard-roles-plugin`, `${SCOPE}/pi-dashboard-kb-plugin`];
+
+  it("root manifest carries the plugin runtime deps; first-party pins win", () => {
+    const m = buildRuntimeRootManifest({ version: V, packages: RUNTIME_BASE_PACKAGES, serverSpec: "file:server.tgz", extraDependencies: { yaml: "^2" } });
+    expect(m.dependencies.yaml).toBe("^2");
+    expect(m.dependencies[SERVER_PACKAGE]).toBe("file:server.tgz");
+  });
+
+  it("rejects a plugin runtime dep not at the root node_modules slot (nested only)", () => {
+    const raw = rawLock();
+    raw.packages[`node_modules/${plugins[0]}/node_modules/oauth4webapi`] = { version: "3.0.0", integrity: "x" };
+    expect(() => finalizeRuntimeLock(raw, { version: V, packages: plugins, rootDependencies: ["oauth4webapi"] })).toThrow(/oauth4webapi/);
+    raw.packages["node_modules/oauth4webapi"] = { version: "3.0.0", integrity: "x" };
+    expect(() => finalizeRuntimeLock(raw, { version: V, packages: plugins, rootDependencies: ["oauth4webapi"] })).not.toThrow();
+  });
 
   it("root manifest pins every package at exactly X; server from the local tarball", () => {
     const m = buildRuntimeRootManifest({ version: V, packages: [...RUNTIME_BASE_PACKAGES, ...plugins], serverSpec: "file:server.tgz" });

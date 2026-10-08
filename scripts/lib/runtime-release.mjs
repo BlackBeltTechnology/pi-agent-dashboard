@@ -11,7 +11,7 @@
  * See change: electron-runtime-release-pipeline (design R1, R3).
  */
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
@@ -72,6 +72,59 @@ export function bundledPluginPackages(repoRoot) {
     if (typeof pkg.name !== "string") throw new Error(`packages/${id}/package.json has no name`);
     return { id, name: pkg.name };
   });
+}
+
+/**
+ * Union of bundled plugins' third-party `dependencies` (task 2.6; mirrors
+ * bundle-plugin-third-party-deps D1/D3). Materialized plugins ship without
+ * node_modules, so each dep must sit at the runtime root. First-party, peer,
+ * dev and optional deps are excluded. Every declaration among plugins AND
+ * runtime workspaces must use the identical specifier (else throw listing
+ * each); non-registry specifiers (`:` or `/`) are rejected.
+ */
+export function collectPluginRuntimeDeps({ plugins, workspaces }) {
+  const decls = new Map(); // dep → [[owner, spec]]
+  const add = (owner, deps) => {
+    for (const [dep, spec] of Object.entries(deps ?? {})) {
+      if (dep.startsWith(`${SCOPE}/`)) continue;
+      if (!decls.has(dep)) decls.set(dep, []);
+      decls.get(dep).push([owner, spec]);
+    }
+  };
+  for (const p of plugins) {
+    for (const [dep, spec] of Object.entries(p.dependencies ?? {})) {
+      if (!dep.startsWith(`${SCOPE}/`) && /[:/]/.test(String(spec))) throw new Error(`${p.name}: non-registry specifier ${dep}@${spec}`);
+    }
+    add(p.name, p.dependencies);
+  }
+  const pluginDeps = new Set(decls.keys());
+  for (const w of workspaces) add(w.name, w.dependencies);
+  const out = {};
+  const conflicts = [];
+  for (const dep of [...pluginDeps].sort()) {
+    const list = decls.get(dep);
+    if (new Set(list.map(([, s]) => s)).size > 1) conflicts.push(`${dep}: ${list.map(([o, s]) => `${o}@${s}`).join(", ")}`);
+    else out[dep] = list[0][1];
+  }
+  if (conflicts.length) throw new Error(`conflicting plugin dependency specifiers:\n  ${conflicts.join("\n  ")}`);
+  return out;
+}
+
+/** `collectPluginRuntimeDeps` over the repo's bundled plugins + runtime workspaces. */
+export function pluginRuntimeDeps(repoRoot) {
+  const plugins = bundledPluginPackages(repoRoot).map(({ id }) => readJson(join(repoRoot, "packages", id, "package.json")));
+  // Server-side runtime workspaces only — same set as the Electron bundle's
+  // BUNDLED_WORKSPACE_PKGS. pi-dashboard-web is a Vite bundle: its deps are
+  // compiled into dist/ and never resolved at runtime.
+  const want = new Set([SERVER_PACKAGE, `${SCOPE}/pi-dashboard-shared`, `${SCOPE}/pi-dashboard-extension`, `${SCOPE}/dashboard-plugin-runtime`]);
+  const workspaces = [];
+  for (const d of readdirSync(join(repoRoot, "packages"))) {
+    const file = join(repoRoot, "packages", d, "package.json");
+    if (!existsSync(file)) continue;
+    const m = readJson(file);
+    if (want.has(m.name)) workspaces.push(m);
+  }
+  return collectPluginRuntimeDeps({ plugins, workspaces });
 }
 
 /**

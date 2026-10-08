@@ -13,7 +13,8 @@
  * Lock root = server + web + extension + dashboard-plugin-runtime + every
  * `piDashboard.bundledPlugins` package, all pinned at exactly X (the server
  * does not depend on the plugins, so they are listed explicitly). Meta is not
- * included (design R1).
+ * included (design R1). The root also declares the union of bundled plugins'
+ * third-party deps (task 2.6) so `npm ci` places them at the root slot.
  *
  * MUST run after every package except server + meta is published at X (the
  * lock resolves them from the registry) and BEFORE the server is published:
@@ -31,7 +32,7 @@ import { mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { bundledPluginPackages, parseFlags, RUNTIME_BASE_PACKAGES, runNpm, SCOPE, SERVER_PACKAGE } from "./lib/runtime-release.mjs";
+import { bundledPluginPackages, parseFlags, pluginRuntimeDeps, RUNTIME_BASE_PACKAGES, runNpm, SCOPE, SERVER_PACKAGE } from "./lib/runtime-release.mjs";
 
 export const DEFAULT_REGISTRY = "https://registry.npmjs.org";
 const SERVER_TARBALL = "server.tgz";
@@ -43,8 +44,9 @@ export function serverTarballUrl(registry, name, version) {
 }
 
 /** Temp-root package.json: every package at exactly X; server from the local tarball. */
-export function buildRuntimeRootManifest({ version, packages, serverSpec }) {
-  const dependencies = {};
+export function buildRuntimeRootManifest({ version, packages, serverSpec, extraDependencies = {} }) {
+  // Plugin runtime deps (task 2.6) first; first-party pins at X override.
+  const dependencies = { ...extraDependencies };
   for (const p of packages) dependencies[p] = p === SERVER_PACKAGE ? serverSpec : version;
   return { name: "pi-dashboard-runtime", version, private: true, dependencies };
 }
@@ -54,7 +56,7 @@ export function buildRuntimeRootManifest({ version, packages, serverSpec }) {
  * root is not at X; a required package is absent; any first-party package in
  * the tree is not at X (lockstep); any other entry resolves locally (`file:`).
  */
-export function finalizeRuntimeLock(raw, { version, packages, registry = DEFAULT_REGISTRY }) {
+export function finalizeRuntimeLock(raw, { version, packages, registry = DEFAULT_REGISTRY, rootDependencies = [] }) {
   const lock = structuredClone(raw);
   const root = lock.packages?.[""];
   if (!root || root.version !== version) throw new Error(`lock root is ${root?.version ?? "missing"}, expected ${version}`);
@@ -69,7 +71,9 @@ export function finalizeRuntimeLock(raw, { version, packages, registry = DEFAULT
     delete server.integrity;
   }
 
-  const missing = packages.filter((p) => !lock.packages[`node_modules/${p}`]);
+  // Plugin runtime deps must occupy the ROOT slot: materialized plugins ship
+  // without node_modules, so a copy nested under the plugin is dropped (2.6).
+  const missing = [...packages, ...rootDependencies].filter((p) => !lock.packages[`node_modules/${p}`]);
   if (missing.length) throw new Error(`runtime lock lacks ${missing.join(", ")}`);
   const problems = lockProblems(lock, version);
   if (problems.length) throw new Error(`invalid runtime lock:\n  ${problems.join("\n  ")}`);
@@ -102,6 +106,7 @@ async function main() {
   if (serverPkg.version !== version) throw new Error(`${serverDir} is at ${serverPkg.version}, expected ${version}`);
 
   const packages = [...RUNTIME_BASE_PACKAGES, ...bundledPluginPackages(repoRoot).map((p) => p.name)];
+  const pluginDeps = pluginRuntimeDeps(repoRoot);
   rmSync(out, { force: true }); // never pack a stale lock into the local server tarball
   const work = mkdtempSync(join(tmpdir(), "runtime-lock-"));
   try {
@@ -110,14 +115,14 @@ async function main() {
     if (tgz.length !== 1) throw new Error(`npm pack produced ${tgz.length} tarballs`);
     renameSync(join(work, tgz[0]), join(work, SERVER_TARBALL));
 
-    const manifest = buildRuntimeRootManifest({ version, packages, serverSpec: `file:${SERVER_TARBALL}` });
+    const manifest = buildRuntimeRootManifest({ version, packages, serverSpec: `file:${SERVER_TARBALL}`, extraDependencies: pluginDeps });
     writeFileSync(join(work, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     // --allow-remote=all: npm 12 refuses bundleDependencies tarballs
     // (EALLOWREMOTE on @tailwindcss/oxide-wasm32-wasi) while building the tree.
     await runNpm(["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund", "--allow-remote=all", ...registryArgs], { cwd: work });
 
     const raw = JSON.parse(readFileSync(join(work, "package-lock.json"), "utf8"));
-    const lock = finalizeRuntimeLock(raw, { version, packages, registry });
+    const lock = finalizeRuntimeLock(raw, { version, packages, registry, rootDependencies: Object.keys(pluginDeps) });
     writeFileSync(out, `${JSON.stringify(lock, null, 2)}\n`);
     const count = Object.keys(lock.packages).length - 1;
     console.log(`runtime-lock.json: ${count} packages, ${packages.length} pinned at ${version} → ${out}`);

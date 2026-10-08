@@ -9,7 +9,7 @@
 - [x] 2.3 (was 2.5) Publish prereleases under the npm `beta` dist-tag and as GitHub prereleases; attach the runtime asset(s) + `.sha512` per spike 1.1.
 - [x] 2.4 (was 2.6) Test (test-plan #X16): workflow assertion step modelled on `packages/electron/scripts/assert-runnable-bundle.mjs` (exemplar). Input: release workflow on a prerelease tag. Trigger: publish job. Observable: asset + `.sha512` attached; `npm dist-tag ls` shows `beta` = tag version; runtime manifest version equals the tag.
 - [x] 2.5 Test (test-plan #X17): unit-test the gate script against a stubbed `npm view` (one package missing → non-zero exit naming it; all present → zero); wire it into the workflow.
-- [ ] 2.6 Cross-change (bundle-plugin-third-party-deps): the stager now fails `plugin_deps_unresolved` when a bundled plugin's dep is installed only under that plugin's nested `node_modules` (materialization drops it). Ensure the generated lock tree places every bundled plugin's `dependencies` at the release root (e.g. declare their union in the lock's root package, mirroring the Electron bundle's synthetic root), and verify with an `npm ci` of the generated lock that `findUnresolvedPluginDeps` returns `[]`.
+- [x] 2.6 Cross-change (bundle-plugin-third-party-deps): the stager now fails `plugin_deps_unresolved` when a bundled plugin's dep is installed only under that plugin's nested `node_modules` (materialization drops it). Ensure the generated lock tree places every bundled plugin's `dependencies` at the release root (e.g. declare their union in the lock's root package, mirroring the Electron bundle's synthetic root), and verify with an `npm ci` of the generated lock that `findUnresolvedPluginDeps` returns `[]`.
 
 ## 3. Electron end-to-end
 

@@ -41,6 +41,15 @@ Run from a temporary checkout of v0.9.0 with this change's scripts:
 - The stager + asset build produce 202 MiB with manifest 0.9.0 and 21 plugins.
 - Finding: the server depends on `xlsx` via a URL tarball (cdn.sheetjs.com). npm 12 defaults `allow-remote=none` and `npm ci` refuses it. The consumer stager now passes `--allow-remote=all`; the lock pins integrity; npm 10 ignores the flag.
 
+### R7. Plugin runtime deps at the lock root (task 2.6)
+Materialized plugins ship without `node_modules`, so a dependency nested under a plugin package is lost. The generator adds the union of bundled plugins' third-party `dependencies` to the lock root, following bundle-plugin-third-party-deps D1/D3:
+- Every declaration must use an identical specifier across plugins and the server-side workspaces (server, shared, extension, plugin-runtime); otherwise generation fails.
+- `web` is excluded from that check: it is a Vite bundle, and its `yaml ^2.6.1` would otherwise conflict.
+- Non-registry specifiers fail generation.
+- `finalizeRuntimeLock` requires each dep at `node_modules/<dep>`.
+
+Today's tree yields 12 deps. Verified against published 0.9.0: after staging, all 35 plugin→dep edges across 21 plugins resolve inside the runtime root `node_modules`.
+
 ## Risks / Trade-offs
 
 - Registry propagation delay → retries with backoff, bounded.
