@@ -6,15 +6,17 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs";
-import type { PluginSpawnOptions } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import path from "node:path";
+import type { PluginCwdPolicy, PluginSpawnOptions } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { piSessionDirForCwd } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { PRESET_TOOLS } from "../extension/guard.js";
 import type { Access } from "./access.js";
 import { canonicalize, type TeamPaths, userKey } from "./paths.js";
 import { cpLength } from "./persona.js";
 import type { ProjectRegistry } from "./projects.js";
-import type { LocatedRecord, Locator, RecordStore } from "./records.js";
+import { type LocatedRecord, type Locator, type RecordStore, spawnedSkillNames } from "./records.js";
 import { collectContextFiles } from "./render.js";
+import { allowed, type SkillBlockReason, type SkillEntry, type SkillSnapshot, type SkillsService } from "./skills-service.js";
 import type { PersonaStore } from "./store-types.js";
 import {
   type AvatarSpec,
@@ -23,6 +25,7 @@ import {
   type Persona,
   type PersonaRole,
   type Project,
+  type SpawnedSkill,
   type TeamConfig,
   TeamError,
   WORKSPACE_TARGET,
@@ -65,6 +68,14 @@ export interface ServiceDeps {
   records: RecordStore;
   config: () => TeamConfig;
   logger: Logger;
+  /** Skill catalog: start check (D6), listing state (D14), spawn resolver (D7). */
+  skills: SkillsService;
+  /**
+   * Host cwd capability floor for a spawn dir (D7 composition, mirrors
+   * `mergeCwdPolicy`'s read of `CwdPolicyRegistry`). Absent (older host, no
+   * `host.resolveCwdPolicy` service) → no composition narrowing possible.
+   */
+  resolveCwdPolicy?: (cwd: string) => PluginCwdPolicy | undefined;
   /** Absolute path of the team guard extension (`-e`). */
   guardExtensionPath: string;
   /** Renders persona.md for (persona, uk) and returns its absolute path. */
@@ -83,6 +94,15 @@ const DEFAULT_MAX_LIVE_SESSIONS = 10;
 const ACTIVITY_WRITE_MS = 10_000;
 /** An event older than this is treated as replayed history. */
 const REPLAY_AGE_MS = 120_000;
+
+/** Current realpath of a directory, or null when it no longer resolves. */
+function realpathOf(p: string): string | null {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return null;
+  }
+}
 
 export type ConvStatus = "busy" | "running" | "sleeping";
 type AgentStatus = ConvStatus | "new" | "retired" | "unavailable";
@@ -112,6 +132,10 @@ export interface AgentView {
   personaStale: boolean;
   unassigned: boolean;
   retired: boolean;
+  /** Persona skills the caller may use in this target (persona order). */
+  effectiveSkills: string[];
+  /** Spawn-check state (D6/D14): the first skill that would refuse the start. */
+  skillBlock: { skill: string; reason: SkillBlockReason } | null;
 }
 
 interface Pending {
@@ -251,6 +275,83 @@ export class ConversationService {
     }
   }
 
+  /**
+   * D6 epoch re-check: a managed catalog write between the start check and
+   * the session correlating re-runs the check on the now-live session. A
+   * revocation aborts it (non-graceful — it was never handed out) and answers
+   * the same 409, before any record is written.
+   */
+  private async assertUnblockedAtCorrelation(
+    caller: Caller,
+    personaKey: string,
+    t: string,
+    persona: Persona,
+    epoch: number,
+    sessionId: string,
+    spawned: SpawnedSkill[],
+  ): Promise<void> {
+    if (this.d.skills.epoch() === epoch) return;
+    // The spawned set is authoritative for a session born seconds ago; the persona's current list
+    // only covers records without one (audit F4).
+    const names = spawned.map((s) => s.name);
+    const now = this.d.skills.firstBlockedSkill(names.length > 0 ? names : (persona.skills ?? []), caller, t);
+    if (!now) {
+      // A managed path edit that MOVED a granted root also aborts, even when every name is still
+      // allowed (audit F5).
+      for (const s of spawned) {
+        const r = this.d.skills.resolveSkillRoot(s.name, caller, t);
+        if (r?.root === s.root) continue;
+        await this.d.host.abortSpawnedRun({ sessionId, graceful: false });
+        throw this.skillBlocked(caller, personaKey, t, { skill: s.name, reason: "invalid" });
+      }
+      return;
+    }
+    await this.d.host.abortSpawnedRun({ sessionId, graceful: false });
+    throw this.skillBlocked(caller, personaKey, t, now);
+  }
+
+  /**
+   * D8: after a successful managed catalog write, end every live, owner-bound
+   * session whose grant of `name` changed (denied / removed / realpath
+   * moved). Modelled on `sweepIdle`, but revocation is a security event: it
+   * ends even a streaming session, non-gracefully, and keeps every record.
+   * Reachable only from a successful admin write (SkillsService), never from
+   * ensure/resume/restart routes. Returns the number of sessions ended.
+   */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one linear pass over records with per-record owner binding
+  async invalidateSkill(name: string, before: SkillEntry | null, after: SkillEntry | null, by: string): Promise<number> {
+    const mode = this.d.access.mode();
+    let ended = 0;
+    for (const lr of this.d.records.scanAll()) {
+      if (lr.record.archived) continue;
+      const s = this.d.host.getSession(lr.record.sessionId);
+      if (!s || s.status === "ended") continue;
+      // Same owner binding as sweepIdle: a misbound record never reaches another user's session.
+      if (mode === "multi" && (!s.principalOwner || userKey(s.principalOwner.iss, s.principalOwner.sub) !== lr.uk)) continue;
+      const persona = this.d.personas.get(lr.record.personaKey, lr.uk);
+      // The session is judged by the skills it was SPAWNED with (recorded at correlation); the
+      // persona's current list is only the fallback for records predating that (audit F4).
+      if (!(spawnedSkillNames(lr.record) ?? persona?.skills ?? []).includes(name)) continue;
+      const owner = s.principalOwner ?? { iss: "", sub: "" };
+      const holder: Caller = { uk: lr.uk, iss: owner.iss, sub: owner.sub, admin: false };
+      if (!this.lostGrant(before, after, holder, lr.t)) continue;
+      await this.d.host.abortSpawnedRun({ sessionId: lr.record.sessionId, graceful: false });
+      ended++;
+      this.d.logger.info(`team.skill_end name=${name} uk=${lr.uk} t=${lr.t} by=${by}`);
+    }
+    return ended;
+  }
+
+  /** D8 grant delta: the session held the grant and now loses it (denied / removed / realpath moved). */
+  private lostGrant(before: SkillEntry | null, after: SkillEntry | null, holder: Caller, t: string): boolean {
+    const mode = this.d.access.mode();
+    // Only a session that HELD the grant can lose it: widenings and cosmetic edits end nothing.
+    if (before === null || !allowed(before, holder, t, mode)) return false;
+    const denied = after === null || !allowed(after, holder, t, mode);
+    const rootChanged = after !== null && realpathOf(before.path) !== realpathOf(after.path);
+    return denied || rootChanged;
+  }
+
   // ── resolution helpers ─────────────────────────────────────────────────────
 
   private persona(caller: Caller, key: string): Persona {
@@ -360,6 +461,35 @@ export class ConversationService {
     );
   }
 
+  /** D6 refusal: log without paths/skill text, answer 409 {skill, reason}. */
+  private skillBlocked(caller: Caller, personaKey: string, t: string, b: { skill: string; reason: string }): TeamError {
+    this.d.logger.info(`team.skill_not_allowed name=${b.skill} uk=${caller.uk} target=${t} reason=${b.reason}`);
+    return new TeamError(409, "skill_not_allowed", { skill: b.skill, reason: b.reason });
+  }
+
+  /**
+   * D7 composition: would the host's `mergeCwdPolicy` change the skill set?
+   * Mirrors `intersectAllow` (absent caller list = the floor applies
+   * wholesale). Returns the first offending skill + counts, or null.
+   */
+  private composedSkillDelta(cwd: string, requested: readonly { name: string; root: string }[]): { skill: string; requested: number; composed: number } | null {
+    const floor = this.d.resolveCwdPolicy?.(cwd)?.skills;
+    if (!floor) return null;
+    if (requested.length === 0) {
+      return floor.length > 0 ? { skill: path.basename(floor[0]), requested: 0, composed: floor.length } : null;
+    }
+    const keep = new Set(floor);
+    const composed = requested.filter((s) => keep.has(s.root));
+    if (composed.length === requested.length) return null;
+    return { skill: requested.find((s) => !keep.has(s.root))?.name ?? "", requested: requested.length, composed: composed.length };
+  }
+
+  /** D7 refusal: log counts only (no paths), answer 409 {skill, reason:"invalid"}. */
+  private skillsNarrowed(caller: Caller, t: string, delta: { skill: string; requested: number; composed: number }): TeamError {
+    this.d.logger.info(`team.skills_narrowed name=${delta.skill} uk=${caller.uk} target=${t} requested=${delta.requested} composed=${delta.composed}`);
+    return new TeamError(409, "skill_not_allowed", { skill: delta.skill, reason: "invalid" });
+  }
+
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
   private async launch(
     caller: Caller,
@@ -368,7 +498,7 @@ export class ConversationService {
     c: string,
     root: { dir: string; project?: Project },
     resumeFile?: string,
-  ): Promise<{ sessionId: string; sessionFile?: string; runId: string; spawnToken: string; release: () => void }> {
+  ): Promise<{ sessionId: string; sessionFile?: string; runId: string; spawnToken: string; skills: SpawnedSkill[]; release: () => void }> {
     if (!fs.existsSync(this.d.guardExtensionPath)) throw new TeamError(503, "guard_unavailable");
     // An unconfined (`full`) persona must never run in multi-user mode, whatever mode it was authored in.
     if (persona.tools === "full" && this.d.access.mode() === "multi") throw new TeamError(409, "persona_unavailable");
@@ -380,8 +510,15 @@ export class ConversationService {
     const contextFiles = root.project?.contextFiles ? collectContextFiles(root.dir) : [];
     const runId = randomUUID();
     const spawnToken = randomUUID();
-    const catalog = this.d.config().skillCatalog ?? {};
-    const skills = (persona.skills ?? []).map((n) => catalog[n]).filter((p): p is string => typeof p === "string");
+    const snap = this.d.skills.snapshot();
+    const effective = (persona.skills ?? []).flatMap((n) => {
+      const r = this.d.skills.resolveSkillRoot(n, caller, t, snap);
+      return r ? [r] : [];
+    });
+    // D7: the host may compose a cwd capability floor into the spawn — refuse
+    // rather than run with a narrowed (or forced) skill set.
+    const delta = this.composedSkillDelta(root.dir, effective);
+    if (delta) throw this.skillsNarrowed(caller, t, delta);
     const ownerStamp = this.owner(caller);
 
     let settleFn: () => void = () => {};
@@ -414,9 +551,17 @@ export class ConversationService {
         lifecycle: { recover: false, finalizeOnSocketClose: true },
         scope: {
           tools: [...PRESET_TOOLS[persona.tools]],
-          ...(skills.length ? { skills } : {}),
+          // D7: exact skill set — never discovered/settings/package skills.
+          // `noSkills` always; `skills` is the effective realpaths (the mapper
+          // drops an empty list, so no `--skill` reaches argv); the guard
+          // policy travels as one JSON string (`sanitizeExtensionConfig`
+          // keeps strings verbatim → `PI_EXT_TEAM_SKILLS`).
+          skills: effective.map((s) => s.root),
+          noSkills: true,
           extensions: [this.d.guardExtensionPath],
-          extensionConfig: { team: { persona: personaFile, root: root.dir, tools: persona.tools, runId } },
+          extensionConfig: {
+            team: { persona: personaFile, root: root.dir, tools: persona.tools, runId, skills: JSON.stringify(effective) },
+          },
           appendSystemPrompt: [personaFile, ...contextFiles],
           noContextFiles: true,
           noProjectTrust: true,
@@ -442,7 +587,7 @@ export class ConversationService {
       const sessionId = entry.sessionId as string;
       const s = this.d.host.getSession(sessionId);
       // The caller releases the slot AFTER the record is written, so the new session is never uncounted.
-      return { sessionId, sessionFile: s?.sessionFile, runId, spawnToken, release: releaseSlot };
+      return { sessionId, sessionFile: s?.sessionFile, runId, spawnToken, skills: effective.map((s) => ({ name: s.name, root: s.root })), release: releaseSlot };
     } catch (err) {
       this.pending.delete(runId);
       releaseSlot();
@@ -487,6 +632,9 @@ export class ConversationService {
   async createConversation(caller: Caller, personaKey: string, t: string): Promise<{ id: string; sessionId: string }> {
     const persona = this.persona(caller, personaKey);
     const root = this.target(caller, persona, t);
+    const blocked = this.d.skills.firstBlockedSkill(persona.skills ?? [], caller, t);
+    if (blocked) throw this.skillBlocked(caller, personaKey, t, blocked);
+    const epoch = this.d.skills.epoch();
     const lockKey = `${caller.uk}|${personaKey}|${t}`;
     const prev = this.createLocks.get(lockKey) ?? Promise.resolve();
     let release: () => void = () => {};
@@ -509,6 +657,8 @@ export class ConversationService {
         throw err;
       }
       try {
+        // D6 epoch: a managed write may have landed while the spawn was in flight.
+        await this.assertUnblockedAtCorrelation(caller, personaKey, t, persona, epoch, bound.sessionId, bound.skills);
         const stamp = this.iso();
         const rec: ConversationRecord = {
           schemaVersion: 1,
@@ -525,6 +675,9 @@ export class ConversationService {
           personaUpdatedAt: persona.updatedAt,
           archived: false,
           personaSnapshot: this.snapshot(persona),
+          // The spawned skill set: revocation and the start check judge THIS set, not the
+          // persona's current list (audit F4).
+          skills: bound.skills.map((s) => ({ name: s.name, root: s.root })),
         };
         this.d.records.write(this.loc(caller, personaKey, t, c), rec);
         this.logEnsure(caller, personaKey, t, c, "create", bound.sessionId);
@@ -538,6 +691,19 @@ export class ConversationService {
         if (this.createLocks.get(lockKey) === tail) this.createLocks.delete(lockKey);
       });
     }
+  }
+
+  /**
+   * Read-only handle on a conversation's transcript: the host session id, so the client can replay history
+   * when a start is blocked (`409 skill_not_allowed`) and no session will be spawned. Never spawns, ends or
+   * writes. Owner-fail-closed like resume: in multi-user mode only a host session this caller owns is returned.
+   * See change: add-team-skill-access.
+   */
+  historyHandle(caller: Caller, personaKey: string, t: string, c: string): { sessionId: string } {
+    const { rec } = this.requireRecord(caller, personaKey, t, c);
+    const known = this.d.host.getSession(rec.sessionId);
+    if (!known || !this.ownerMatches(known, caller)) throw new TeamError(404, "history_unavailable");
+    return { sessionId: rec.sessionId };
   }
 
   async ensureConversation(caller: Caller, personaKey: string, t: string, c: string): Promise<{ sessionId: string }> {
@@ -560,9 +726,25 @@ export class ConversationService {
     if (!rec) throw new TeamError(404, "conversation_not_found");
     const persona = this.persona(caller, personaKey);
     const root = this.target(caller, persona, t, true);
+    const live = this.ownLive(rec, c);
+
+    // 2. Start check on EVERY path (D6): before reuse, so a revoked skill also
+    // ends the live session instead of handing it back out. A live session is
+    // also judged by the skill set it was SPAWNED with (audit F4): the persona
+    // may have been edited since, but the session keeps the roots it was born
+    // with. Records without a spawned set fall back to persona.skills.
+    const spawned = spawnedSkillNames(rec);
+    const checked = spawned ? [...new Set([...spawned, ...(persona.skills ?? [])])] : (persona.skills ?? []);
+    const blocked = this.d.skills.firstBlockedSkill(checked, caller, t);
+    if (blocked) {
+      if (live && live.status !== "ended" && this.ownerMatches(live, caller)) {
+        await this.d.host.abortSpawnedRun({ sessionId: rec.sessionId, graceful: true });
+      }
+      throw this.skillBlocked(caller, personaKey, t, blocked);
+    }
+    const epoch = this.d.skills.epoch();
 
     // 3. reuse
-    const live = this.ownLive(rec, c);
     const team = this.teamRef(live);
     if (
       live &&
@@ -614,6 +796,8 @@ export class ConversationService {
         await this.d.host.abortSpawnedRun({ sessionId: bound.sessionId, graceful: true });
         throw new TeamError(cur ? 409 : 404, cur ? "conversation_archived" : "conversation_not_found");
       }
+      // D6 epoch: a managed write may have landed while the spawn was in flight.
+      await this.assertUnblockedAtCorrelation(caller, personaKey, t, persona, epoch, bound.sessionId, bound.skills);
       const stamp = this.iso();
       this.d.records.write(l, {
         ...cur,
@@ -625,6 +809,8 @@ export class ConversationService {
         lastActivityAt: stamp,
         personaUpdatedAt: persona.updatedAt,
         personaSnapshot: this.snapshot(persona),
+        // The spawned skill set (audit F4) — replaces any set recorded by an earlier spawn.
+        skills: bound.skills.map((s) => ({ name: s.name, root: s.root })),
       });
       this.logEnsure(caller, personaKey, t, c, fileExists ? "resume" : "create", bound.sessionId);
       return { sessionId: bound.sessionId };
@@ -710,6 +896,8 @@ export class ConversationService {
     const personas = [...this.d.personas.listShared(), ...this.d.personas.listPrivate(caller.uk)];
     // Computed ONCE per request (each call re-validates every project path on disk).
     const usable = new Set(this.d.projects.usableBy(caller, mode).map((x) => x.id));
+    // Catalog validated once per request (D14).
+    const snap = this.d.skills.snapshot();
     const out: AgentView[] = [];
     const seen = new Set<string>();
 
@@ -719,7 +907,7 @@ export class ConversationService {
       const active = recs.filter((r) => !r.record.archived);
       if (!assigned && active.length === 0) continue;
       seen.add(p.key);
-      out.push(this.card(p, recs, assigned, mode));
+      out.push(this.card(p, recs, assigned, mode, caller, t, snap));
     }
     // Retired: records whose persona no longer exists.
     for (const [key, recs] of byPersona) {
@@ -745,6 +933,8 @@ export class ConversationService {
         personaStale: false,
         unassigned: false,
         retired: true,
+        effectiveSkills: [],
+        skillBlock: null,
       });
     }
     return out;
@@ -761,11 +951,21 @@ export class ConversationService {
     };
   }
 
-  private card(p: Persona, recs: LocatedRecord[], assigned: boolean, mode: "single" | "multi"): AgentView {
+  private card(
+    p: Persona,
+    recs: LocatedRecord[],
+    assigned: boolean,
+    mode: "single" | "multi",
+    caller: Caller,
+    t: string,
+    snap: SkillSnapshot,
+  ): AgentView {
     const active = recs.filter((r) => !r.record.archived);
     const fullBlocked = p.tools === "full" && mode === "multi";
+    const skillBlock = this.d.skills.firstBlockedSkill(p.skills ?? [], caller, t, snap);
+    const effectiveSkills = skillBlock ? this.d.skills.effectiveSkills(p.skills ?? [], caller, t, snap) : [...(p.skills ?? [])];
     let status: AgentStatus;
-    if (!assigned || fullBlocked) status = "unavailable";
+    if (!assigned || fullBlocked || skillBlock) status = "unavailable";
     else if (active.length === 0) status = "new";
     else {
       const statuses = active.map((r) => this.statusOf(r.record, r.c));
@@ -787,6 +987,8 @@ export class ConversationService {
       personaStale: active.some((r) => this.isStale(r.record, r.c, p)),
       unassigned: !assigned,
       retired: false,
+      effectiveSkills,
+      skillBlock,
     };
   }
 

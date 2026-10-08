@@ -1,10 +1,12 @@
 /**
- * Team isolation guard (D7): a deny-first `tool_call` decision. Pure — the
- * policy comes from the spawn-time env projection, the filesystem is only read
- * to canonicalise path arguments. See change: add-team-plugin.
+ * Team isolation guard: a deny-first `tool_call` decision plus the skill
+ * gates (D9/D10). Pure — the policy comes from the spawn-time env projection,
+ * the filesystem is only read to canonicalise path arguments.
+ * See change: add-team-plugin, add-team-skill-access.
  */
 import fs from "node:fs";
 import path from "node:path";
+import { parseSkillBlock, parseSkillCommand } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 
 export type Preset = "chat" | "files" | "full";
 
@@ -21,13 +23,46 @@ const PROTECTED_SEGMENTS = new Set([".git", ".pi", ".claude"]);
 /** Tools whose `path` argument is confined to the target root. */
 const PATH_TOOLS = new Set(["read", "write", "edit", "grep", "find", "ls"]);
 
+/** Read-only tools may additionally reach into effective skill roots (D9). */
+const READONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
+
+interface SkillRoot {
+  /** The catalog name — pi's skill name (D1). */
+  name: string;
+  /** The granted skill root: the skill directory's realpath (D3). */
+  root: string;
+}
+
 export interface TeamPolicy {
   preset: Preset;
   /** Target root (project realpath or own workspace). */
   root: string;
+  /** Effective skills only (D9): the plugin always sets `PI_EXT_TEAM_SKILLS`, `"[]"` when empty. */
+  skills: SkillRoot[];
 }
 
 export type Decision = { allow: true } | { allow: false; reason: string };
+
+/** Parse `PI_EXT_TEAM_SKILLS` (D7 transport): a JSON array of `{name, root}`. Anything else ⇒ null (fail closed). */
+function parseSkills(raw: string | undefined): SkillRoot[] | null {
+  if (typeof raw !== "string") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+  const skills: SkillRoot[] = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") return null;
+    const { name, root } = entry as Record<string, unknown>;
+    if (typeof name !== "string" || !name) return null;
+    if (typeof root !== "string" || !path.isAbsolute(root)) return null;
+    skills.push({ name, root });
+  }
+  return skills;
+}
 
 /** Read the policy from `PI_EXT_TEAM_*`; missing / garbage ⇒ null (caller blocks everything). */
 export function policyFromEnv(env: Record<string, string | undefined> = process.env): TeamPolicy | null {
@@ -35,7 +70,9 @@ export function policyFromEnv(env: Record<string, string | undefined> = process.
   const root = env.PI_EXT_TEAM_ROOT;
   if (tools !== "chat" && tools !== "files" && tools !== "full") return null;
   if (typeof root !== "string" || !path.isAbsolute(root)) return null;
-  return { preset: tools, root };
+  const skills = parseSkills(env.PI_EXT_TEAM_SKILLS);
+  if (!skills) return null; // D9: a missing or unparseable skill policy is an unusable policy — no readiness.
+  return { preset: tools, root, skills };
 }
 
 function canonicalize(p: string): string {
@@ -88,10 +125,54 @@ export function decideToolCall(toolName: unknown, input: unknown, policy: TeamPo
     const n = normalise(v);
     if (n === null) return { allow: false, reason: "invalid_path" };
     const target = canonicalize(path.isAbsolute(n) ? n : path.join(root, n));
-    if (!inside(root, target)) return { allow: false, reason: "path_outside_root" };
+    if (!inside(root, target)) {
+      // D9: outside the target root, a read-only tool may still reach into an effective skill root.
+      const inSkillRoot = READONLY_TOOLS.has(toolName) && policy.skills.some((s) => inside(canonicalize(s.root), target));
+      if (!inSkillRoot) return { allow: false, reason: "path_outside_root" };
+    }
     if (WRITE_TOOLS.has(toolName) && path.relative(root, target).split(path.sep).some((seg) => PROTECTED_SEGMENTS.has(seg))) {
       return { allow: false, reason: "protected_path" };
     }
   }
   return { allow: true };
+}
+
+/**
+ * D10: predicate for the `before_agent_start` filter — keep a listed skill only when its `(name, canonical
+ * filePath)` matches a policy entry (`<root>/SKILL.md`), at most one entry per policy slot (the canonical
+ * granted skill). A missing policy grants nothing: every skill is filtered out. The returned predicate
+ * holds one-shot per-slot state: construct a FRESH predicate per agent start (the handler does) —
+ * reusing one across starts would drop every granted skill after the first (audit F3).
+ */
+export function grantedSkillFilter(policy: TeamPolicy | null): (entry: unknown) => boolean {
+  if (!policy) return () => false;
+  const slots = policy.skills.map((s) => ({ name: s.name, canonical: canonicalize(path.join(s.root, "SKILL.md")), used: false }));
+  return (entry: unknown) => {
+    if (!entry || typeof entry !== "object") return false;
+    const { name, filePath } = entry as Record<string, unknown>;
+    if (typeof name !== "string" || typeof filePath !== "string") return false;
+    const canonical = canonicalize(filePath);
+    const slot = slots.find((s) => !s.used && s.name === name && s.canonical === canonical);
+    if (!slot) return false;
+    slot.used = true;
+    return true;
+  };
+}
+
+/**
+ * D10/D13: is this user input refused? An ungranted `/skill:<name>` command, or a `<skill …>` envelope whose
+ * canonical location lies outside every effective skill root. A missing policy fails closed: every skill
+ * command and every envelope is refused; plain text still continues. The caller returns `{action:"handled"}`
+ * and never calls `ctx.ui.notify` (the bridge owns the user-facing refusal, D12).
+ */
+export function isRefusedInput(text: unknown, policy: TeamPolicy | null): boolean {
+  if (typeof text !== "string") return false;
+  const command = parseSkillCommand(text);
+  if (command) return !policy?.skills.some((s) => s.name === command.name);
+  const envelope = parseSkillBlock(text);
+  if (envelope) {
+    const location = canonicalize(envelope.location);
+    return !policy?.skills.some((s) => inside(canonicalize(s.root), location));
+  }
+  return false;
 }

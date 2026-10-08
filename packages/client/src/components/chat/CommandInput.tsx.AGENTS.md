@@ -15,3 +15,5 @@ See change: add-composer-grammar-check — optional `onGrammarCheck?: () => void
 - Attach (＋) menu stays height-agnostic on purpose: horizontal axis only (`anchorRight`/`maxWidth`), hardcoded `bottom-full`, no height bound → no floor to lose.
 
 Card rows: `composer-input-row` [textarea | terminal · action, items-end] + hairline + `composer-settings-row` [＋ · model · thinking · Steer|Queue · ⋯ when folded]. Stop-after-turn + Stop = one split `stop-split` (label → ◎ below `@[30rem]`). Textarea has no focus-ring; focused card border full `--accent`. See change: redesign-composer-session-strip.
+
+See change: add-team-skill-access — optional `invalid?: boolean` prop: `aria-invalid` on the textarea + card border `--severity-error-border` while set (team-app composer pre-check refuses an unavailable `/skill:`; the visual error box lives beside the composer in team-app `skills.css`).

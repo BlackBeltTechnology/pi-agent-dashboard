@@ -28,7 +28,7 @@ The bridge SHALL only attempt template expansion on inputs beginning with `/`, a
 
 ### Requirement: Template and Skill File Resolution
 
-The bridge SHALL resolve a slash-command name to a file on disk by consulting local `.pi/prompts` and `.pi/skills` directories under the session cwd, skill-bundled `commands/*.md` files, and the `pi.getCommands()` registry, honoring `:` ↔ `-` alias variants with the typed form taking precedence.
+The bridge SHALL resolve a slash-command name to a file on disk by consulting local `.pi/prompts` and `.pi/skills` directories under the session cwd, skill-bundled `commands/*.md` files, and the `pi.getCommands()` registry, honoring `:` ↔ `-` alias variants with the typed form taking precedence. In a team-confined session the bridge SHALL NOT perform this resolution: it SHALL expand only `/skill:<name>` for a name in the session's effective skill set, from `<root>/SKILL.md`, and SHALL pass every other slash text through unexpanded or refuse it as the team rules require.
 
 #### Scenario: Flat prompt template resolves by basename
 
@@ -57,6 +57,14 @@ The bridge SHALL resolve a slash-command name to a file on disk by consulting lo
 - **WHEN** a command name contains `:` or `-` and does not match directly
 - **THEN** the bridge SHALL try the alternate-punctuation variant (`:`↔`-`)
 - **AND** SHALL consult every store on the originally typed form before consulting any remapped variant on any store
+
+#### Scenario: Team session never resolves from disk or registry
+- **WHEN** a team-confined session receives `/deploy\nnow` and `<cwd>/.pi/prompts/deploy.md` exists
+- **THEN** the bridge SHALL NOT read that file and SHALL send the text unexpanded
+
+#### Scenario: Team session expands an effective skill with the standard envelope
+- **WHEN** a team-confined session whose effective skills include `review` receives `/skill:review check it`
+- **THEN** the bridge SHALL send `buildSkillBlock({name:"review", filePath:<root>/SKILL.md, baseDir:<root>, body, userArgs:"check it"})`, which is byte-identical to the non-team expansion of the same file
 
 ### Requirement: Template Reading and Frontmatter Parsing
 

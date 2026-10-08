@@ -93,7 +93,8 @@ export function AgentView({ agentKey, convId }: { agentKey: string; convId?: str
     );
   }
 
-  const ro = readOnlyReason(agent);
+  const skillBlocked = !!agent.skillBlock && !agent.retired;
+  const ro = skillBlocked ? null : readOnlyReason(agent);
   const limit = agent.activeCount >= maxConv;
   const shown = showArchived ? archived : active;
   const wideDefault = !convId && wide ? (active[0] ?? null) : null;
@@ -129,11 +130,19 @@ export function AgentView({ agentKey, convId }: { agentKey: string; convId?: str
               <Icon name={agent.tools === "full" ? "warning" : "shield"} className="ic sm" />
               {t(toolsKey)}
             </span>
+            {agent.effectiveSkills.map((s) => (
+              <span className="chip skill" key={s}>
+                <Icon name="spark" className="ic sm" />
+                {s}
+              </span>
+            ))}
           </div>
         </div>
       </div>
       {ro ? (
         <p className="hint">{t(`card.${agent.retired ? "retired" : ro}Note` as never)}</p>
+      ) : skillBlocked && agent.skillBlock ? (
+        <p className="hint">{t(`card.blocked.${agent.skillBlock.reason}` as never, { s: agent.skillBlock.skill })}</p>
       ) : (
         <div className="new-conv">
           <button type="button" className="btn btn-primary" disabled={limit} aria-describedby={limit ? "limit-hint" : undefined} data-testid="list-new-conv" onClick={() => void create()}>
@@ -180,7 +189,7 @@ export function AgentView({ agentKey, convId }: { agentKey: string; convId?: str
   );
 
   const chatPane = current ? (
-    <ChatPane key={current.id} agent={agent} conv={current} target={target} readOnlyReason={ro} onChanged={() => void load()} />
+    <ChatPane key={current.id} agent={agent} conv={current} target={target} readOnlyReason={ro} skillBlock={skillBlocked ? (agent.skillBlock as NonNullable<Agent["skillBlock"]>) : null} onChanged={() => void load()} />
   ) : (
     <section className="chat-pane" aria-label={t("cv.list")}>
       <p className="hint chat-empty">{t("cv.pick")}</p>

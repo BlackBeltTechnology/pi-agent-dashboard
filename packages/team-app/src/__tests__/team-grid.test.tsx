@@ -181,3 +181,64 @@ describe("target switch", () => {
     await screen.findByRole("heading", { name: "BBB" });
   });
 });
+
+describe("E37: reason-specific blocked card", () => {
+  const openWith = async (admin: boolean, extra: Parameters<typeof agent>[1]) => {
+    const host = makeHost();
+    bootRoutes(host, { admin });
+    host.routes.set(AGENTS, () => ({ agents: [agent("shared:x", { name: "Blocked", status: "unavailable", activeCount: 1, effectiveSkills: [], ...extra })] }));
+    renderApp(<TeamGrid />, host);
+    await screen.findByText("Blocked");
+    return host;
+  };
+
+  it("invalid: specific copy, Fix skill opens the skill in the Skills panel, no chat button, card not dimmed", async () => {
+    await openWith(true, { skillBlock: { skill: "legacy-lint", reason: "invalid" } });
+    const card = document.querySelector('[data-key="shared:x"]') as HTMLElement;
+    expect(card.className).not.toContain("is-dim");
+    expect(within(card).getByText("Nem indítható: a(z) legacy-lint képesség útvonala érvénytelen.")).toBeTruthy();
+    expect(within(card).queryByTestId("talk")).toBeNull();
+    expect(within(card).queryByTestId("new-conv")).toBeNull();
+    fireEvent.click(within(card).getByText("Képesség javítása"));
+    await waitFor(() => expect(screen.getByTestId("loc").textContent).toBe("/skills/legacy-lint?project=_ws"));
+  });
+
+  it("missing → Fix skill; targets → Fix persona opens the editor", async () => {
+    await openWith(true, { skillBlock: { skill: "gone", reason: "missing" } });
+    let card = document.querySelector('[data-key="shared:x"]') as HTMLElement;
+    expect(within(card).getByText("Nem indítható: a(z) gone képesség nem található.")).toBeTruthy();
+    fireEvent.click(within(card).getByText("Képesség javítása"));
+    await waitFor(() => expect(screen.getByTestId("loc").textContent).toBe("/skills/gone?project=_ws"));
+    document.body.innerHTML = "";
+
+    await openWith(true, { skillBlock: { skill: "review", reason: "targets" } });
+    card = document.querySelector('[data-key="shared:x"]') as HTMLElement;
+    expect(within(card).getByText("Nem indítható: a(z) review képesség itt már nem engedélyezett.")).toBeTruthy();
+    fireEvent.click(within(card).getByText("Persona javítása"));
+    await waitFor(() => expect(screen.getByTestId("loc").textContent).toBe("/personas/shared%3Ax?project=_ws"));
+    document.body.innerHTML = "";
+
+    await openWith(true, { skillBlock: { skill: "review", reason: "users" } });
+    card = document.querySelector('[data-key="shared:x"]') as HTMLElement;
+    expect(within(card).getByText("Nem indítható neked: a(z) review képességet nem használhatod.")).toBeTruthy();
+  });
+
+  it("member: no fix button, ask-your-administrator note", async () => {
+    await openWith(false, { skillBlock: { skill: "review", reason: "targets" } });
+    const card = document.querySelector('[data-key="shared:x"]') as HTMLElement;
+    expect(within(card).getByText("Szólj az adminisztrátornak.")).toBeTruthy();
+    expect(within(card).queryByText("Persona javítása")).toBeNull();
+    expect(within(card).queryByText("Képesség javítása")).toBeNull();
+  });
+
+  it("skills chip: count with the names in its tooltip", async () => {
+    const host = makeHost();
+    bootRoutes(host);
+    host.routes.set(AGENTS, () => ({ agents: [agent("shared:s", { name: "Skilled", status: "running", effectiveSkills: ["review", "openspec-propose"] })] }));
+    renderApp(<TeamGrid />, host);
+    await screen.findByText("Skilled");
+    const chip = [...document.querySelectorAll('[data-key="shared:s"] .chip')].find((c) => c.textContent?.includes("képesség")) as HTMLElement;
+    expect(chip.textContent).toContain("2 képesség");
+    expect(chip.title).toBe("review, openspec-propose");
+  });
+});

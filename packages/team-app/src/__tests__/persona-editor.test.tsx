@@ -115,3 +115,85 @@ describe("F25: project assignment", () => {
     expect(screen.getByText(/Másolat innen/)).toBeTruthy();
   });
 });
+
+const SKILLS = "GET /api/plugins/team/skills";
+
+describe("E34: skills follow the targets", () => {
+  it("ticking crm unticks + disables review (billing only), links the reason, announces the note, keeps focus", async () => {
+    const host = makeHost();
+    bootRoutes(host, { admin: true }, [project("billing", { name: "billing-api" }), project("crm", { name: "crm-web" })]);
+    host.routes.set(PERSONAS, () => ({ personas: [] }));
+    host.routes.set(SKILLS, () => ({
+      skills: [{ name: "review", source: "managed", path: "/s/review", users: "*", targets: ["billing"], valid: true, usage: { personas: 0, liveSessions: 0 } }],
+    }));
+    renderApp(<PersonaEditor />, host, "/personas/new");
+    localStorage.setItem("team:target", "_ws");
+    await screen.findByLabelText("Név");
+    const crm = (await waitFor(() => {
+      const b = document.querySelector<HTMLInputElement>('input[name="projects"][value="crm"]');
+      expect(b).toBeTruthy();
+      return b as HTMLInputElement;
+    })) as HTMLInputElement;
+    const review = () => screen.getByRole("checkbox", { name: /review/ }) as HTMLInputElement;
+    // own workspace is pre-ticked and review is not allowed there: untick it first
+    fireEvent.click(document.querySelector<HTMLInputElement>('input[name="projects"][value="_ws"]') as HTMLInputElement);
+    fireEvent.click(document.querySelector<HTMLInputElement>('input[name="projects"][value="billing"]') as HTMLInputElement);
+    await waitFor(() => expect(review().disabled).toBe(false));
+    fireEvent.click(review());
+    expect(review().checked).toBe(true);
+    crm.focus(); // a real click focuses the checkbox; keep it stable for the focus assertion
+    fireEvent.click(crm);
+    // unticked + disabled, reason linked via aria-describedby
+    expect(review().checked).toBe(false);
+    expect(review().disabled).toBe(true);
+    const whyId = review().getAttribute("aria-describedby");
+    expect(whyId).toBeTruthy();
+    expect(document.getElementById(whyId as string)?.textContent).toContain("crm-web");
+    // note announced (polite live region)
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("review");
+    // focus stays on the project checkbox
+    expect(document.activeElement).toBe(crm);
+  });
+
+  it("a skill allowed everywhere stays ticked when a target is added", async () => {
+    const host = makeHost();
+    bootRoutes(host, { admin: true }, [project("billing"), project("crm")]);
+    host.routes.set(PERSONAS, () => ({ personas: [] }));
+    host.routes.set(SKILLS, () => ({
+      skills: [{ name: "all-ok", source: "managed", path: "/s/all-ok", users: "*", targets: "*", valid: true, usage: { personas: 0, liveSessions: 0 } }],
+    }));
+    renderApp(<PersonaEditor />, host, "/personas/new");
+    await screen.findByLabelText("Név");
+    const allOk = () => screen.getByRole("checkbox", { name: /all-ok/ }) as HTMLInputElement;
+    await waitFor(() => expect(allOk().disabled).toBe(false));
+    fireEvent.click(allOk());
+    fireEvent.click(document.querySelector<HTMLInputElement>('input[name="projects"][value="billing"]') as HTMLInputElement);
+    expect(allOk().checked).toBe(true);
+    expect(allOk().disabled).toBe(false);
+  });
+});
+
+describe("E35: empty catalog", () => {
+  it("admin sees a hint linking to the Skills panel", async () => {
+    const host = makeHost();
+    bootRoutes(host, { admin: true });
+    host.routes.set(PERSONAS, () => ({ personas: [] }));
+    host.routes.set(SKILLS, () => ({ skills: [] }));
+    renderApp(<PersonaEditor />, host, "/personas/new");
+    await screen.findByText("Még nincs engedélyezett képesség.");
+    fireEvent.click(screen.getByText("Képességek kezelése"));
+    await waitFor(() => expect(screen.getByTestId("loc").textContent).toBe("/skills?project=_ws"));
+  });
+
+  it("a member sees no Skills field at all", async () => {
+    const host = makeHost();
+    bootRoutes(host, { admin: false });
+    host.routes.set(PERSONAS, () => ({ personas: [] }));
+    host.routes.set(SKILLS, () => ({ skills: [] }));
+    renderApp(<PersonaEditor />, host, "/personas/new");
+    await screen.findByLabelText("Név");
+    await waitFor(() => expect(host.calls.some((c) => c.path.endsWith("/skills"))).toBe(true));
+    expect(screen.queryByText("Képességek", { selector: "legend" })).toBeNull();
+    expect(document.querySelector('input[name="skills"]')).toBeNull();
+  });
+});

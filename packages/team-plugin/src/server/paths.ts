@@ -46,14 +46,17 @@ export function personaDirName(key: string): string {
   return `${p.scope}-${p.slug}`;
 }
 
-/** Longest-existing-ancestor realpath (symlinks resolved; absent tail kept lexically). */
+/** Longest-existing-ancestor realpath (symlinks resolved; absent tail kept lexically). Native
+ * `realpath` so every component gets its on-disk case: on a case-insensitive filesystem the plain
+ * JS realpath keeps the typed case, which would let a mis-cased path slip past an `isInside` guard
+ * (audit F1). */
 export function canonicalize(p: string): string {
   const abs = path.resolve(p);
   let head = abs;
   const tail: string[] = [];
   for (;;) {
     try {
-      const real = fs.realpathSync(head);
+      const real = fs.realpathSync.native(head);
       return tail.length ? path.join(real, ...tail.reverse()) : real;
     } catch {
       const parent = path.dirname(head);
@@ -106,6 +109,9 @@ export class TeamPaths {
   }
   privatePersonasDir(uk: string): string {
     return this.under("users", this.ukSeg(uk), "personas");
+  }
+  usersRoot(): string {
+    return this.under("users");
   }
   conversationsDir(uk: string, t: string, personaKey: string): string {
     if (!isTargetId(t)) throw new TeamError(400, "invalid_target");

@@ -61,4 +61,18 @@ describe("extractRecentUrls", () => {
     const m = { id: "t", role: "toolResult", content: "", result: "fetched https://api.example.com/v1", timestamp: 0 } as ChatMessage;
     expect(extractRecentUrls([m])).toEqual(["https://api.example.com/v1"]);
   });
+
+  it("strips trailing punctuation but keeps interior punctuation", () => {
+    expect(extractRecentUrls([msg("(see https://a.test/p?x=1&y=2!). Then https://b.test/a.b,.;:")])).toEqual([
+      "https://a.test/p?x=1&y=2",
+      "https://b.test/a.b",
+    ]);
+  });
+
+  it("stays linear on a long run of trailing-strip characters (CodeQL js/polynomial-redos)", () => {
+    const hostile = `https://a.test/${"!".repeat(60_000)}x`;
+    const t0 = performance.now();
+    expect(extractRecentUrls([msg(hostile)])).toEqual([hostile]);
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
 });

@@ -120,6 +120,14 @@ export interface HarnessOptions {
   renderPersona?: (p: import("../types.js").Persona, uk: string) => string;
   now?: () => number;
   ops?: import("../paths.js").FsOps;
+  listOperatorSkills?: () => Promise<{ name: string; description: string; path: string; source: string }[]>;
+  onManagedWrite?: (
+    name: string,
+    before: import("../skills-service.js").SkillEntry | null,
+    after: import("../skills-service.js").SkillEntry | null,
+  ) => number | Promise<number>;
+  /** Host cwd capability floor resolver (D7 composition); absent → no narrowing possible. */
+  resolveCwdPolicy?: (cwd: string) => import("@blackbelt-technology/dashboard-plugin-runtime/server").PluginCwdPolicy | undefined;
 }
 
 export async function makeHarness(o: HarnessOptions = {}): Promise<Harness> {
@@ -152,6 +160,9 @@ export async function makeHarness(o: HarnessOptions = {}): Promise<Harness> {
     now: o.now,
     ops: o.ops,
     sweepEveryMs: 0,
+    listOperatorSkills: o.listOperatorSkills,
+    onManagedWrite: o.onManagedWrite,
+    resolveCwdPolicy: o.resolveCwdPolicy,
   });
   await team.start();
   await app.ready();

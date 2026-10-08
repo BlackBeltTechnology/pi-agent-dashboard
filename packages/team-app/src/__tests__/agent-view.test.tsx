@@ -10,8 +10,9 @@ import { agent, bootRoutes, conv, json, makeHost, renderApp } from "./helpers.js
 
 vi.mock("@blackbelt-technology/pi-dashboard-web/chat-embed", async () => (await import("./chat-mock.js")).chatEmbedMock());
 vi.mock("../agent/chat-providers.js", () => ({ ChatProviders: ({ children }: { children: unknown }) => children }));
+const { sendPromptMock } = vi.hoisted(() => ({ sendPromptMock: vi.fn() }));
 vi.mock("../agent/chat-session.js", () => ({
-  useTeamChat: () => ({ state: { messages: [] }, status: "connected", sendPrompt: vi.fn(), abort: vi.fn() }),
+  useTeamChat: () => ({ state: { messages: [] }, status: "connected", sendPrompt: sendPromptMock, abort: vi.fn() }),
 }));
 
 const AGENTS = "GET /api/plugins/team/agents";
@@ -142,5 +143,74 @@ describe("conversation states", () => {
     fireEvent.click(screen.getByTestId("conv-menu"));
     fireEvent.click(await screen.findByText("Megnyitás a dashboardon"));
     expect(opened).toEqual(["sess-1"]);
+  });
+});
+
+describe("E36: composer refuses an unavailable skill before sending", () => {
+  it("/skill:<other> sends nothing, keeps the text, marks the field invalid, lists the available skills", async () => {
+    const host = makeHost();
+    bootRoutes(host);
+    host.routes.set(AGENTS, () => ({
+      agents: [agent("shared:a", { name: "Alpha", status: "running", activeCount: 1, effectiveSkills: ["review", "openspec-propose"], skillBlock: null })],
+    }));
+    host.routes.set(CONVS, () => ({ conversations: [conv("c1")] }));
+    host.routes.set(ENSURE, () => ({ sessionId: "sess-1" }));
+    renderApp(<AgentView agentKey="shared:a" convId="c1" />, host, "/agent/shared%3Aa/c/c1");
+    await screen.findByTestId("chatview");
+    sendPromptMock.mockClear();
+    const ta = screen.getByTestId("composer") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "/skill:memory-x summarise" } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(sendPromptMock).not.toHaveBeenCalled();
+    expect(ta.value).toBe("/skill:memory-x summarise");
+    expect(ta.getAttribute("aria-invalid")).toBe("true");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("memory-x");
+    expect(alert.textContent).toContain("/skill:review, /skill:openspec-propose");
+    // a granted skill goes through
+    fireEvent.change(ta, { target: { value: "/skill:review check it" } });
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(sendPromptMock).toHaveBeenCalledWith("/skill:review check it");
+    expect(ta.getAttribute("aria-invalid")).toBeNull();
+  });
+
+  it("the header lists the effective skills", async () => {
+    const host = makeHost();
+    bootRoutes(host);
+    host.routes.set(AGENTS, () => ({
+      agents: [agent("shared:a", { name: "Alpha", status: "running", effectiveSkills: ["review"], skillBlock: null })],
+    }));
+    host.routes.set(CONVS, () => ({ conversations: [conv("c1")] }));
+    host.routes.set(ENSURE, () => ({ sessionId: "sess-1" }));
+    renderApp(<AgentView agentKey="shared:a" convId="c1" />, host, "/agent/shared%3Aa/c/c1");
+    await screen.findByTestId("chatview");
+    const chips = [...document.querySelectorAll(".chat-head .chip.skill")];
+    expect(chips.map((c) => c.textContent)).toEqual(["review"]);
+  });
+});
+
+describe("B2: a blocked conversation keeps its history readable without a session", () => {
+  const HISTORY = "GET /api/plugins/team/agents/:k/conversations/:c/history";
+
+  it("409 skill_not_allowed on open: banner + read-only transcript replayed from the history handle, composer disabled", async () => {
+    const host = setup();
+    host.routes.set(ENSURE, () => json({ error: "skill_not_allowed", skill: "review", reason: "targets" }, 409));
+    host.routes.set(HISTORY, () => ({ sessionId: "sess-old" }));
+    renderApp(<AgentView agentKey="shared:a" convId="c1" />, host, "/agent/shared%3Aa/c/c1");
+    await screen.findByTestId("chatview");
+    expect(host.calls.some((c) => c.path.endsWith("/history?project=_ws"))).toBe(true);
+    expect(screen.queryByTestId("composer")).toBeNull();
+    expect(document.querySelector(".composer-card[aria-disabled='true'] textarea")?.hasAttribute("disabled")).toBe(true);
+    expect(document.querySelector(".convo-banners")?.textContent).toContain("review");
+  });
+
+  it("no history handle (404): the banner stays and the transcript is simply empty", async () => {
+    const host = setup();
+    host.routes.set(ENSURE, () => json({ error: "skill_not_allowed", skill: "review", reason: "targets" }, 409));
+    host.routes.set(HISTORY, () => json({ error: "history_unavailable" }, 404));
+    renderApp(<AgentView agentKey="shared:a" convId="c1" />, host, "/agent/shared%3Aa/c/c1");
+    await waitFor(() => expect(host.calls.some((c) => c.path.endsWith("/history?project=_ws"))).toBe(true));
+    expect(screen.queryByTestId("chatview")).toBeNull();
+    expect(screen.getByTestId("transcript")).toBeTruthy();
   });
 });

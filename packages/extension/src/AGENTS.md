@@ -17,7 +17,7 @@ Files in this directory. One row per source file.
 | `bridge-polling.ts` | Testable seams from `bridge.ts` to the poll-cost machinery: `createPollingHolder` (scan + tracker, replace… → see `bridge-polling.ts.AGENTS.md` |
 | `bridge-ticket-client.ts` | Mints the credential a REMOTE bridge needs to open a gateway connection (§6 made TCP bridge auth mandatory). → see `bridge-ticket-client.ts.AGENTS.md` |
 | `bridge.ts` | Main bridge extension entry (default export). Connects to dashboard server, forwards pi events via… → see… → see `bridge.ts.AGENTS.md` |
-| `command-handler.ts` | Command routing: `!`/`!!` bash, `/compact`, slash commands. → see `command-handler.ts.AGENTS.md` |
+| `command-handler.ts` | Command routing: `!`/`!!` bash, `/compact`, slash commands. → see `command-handler.ts.AGENTS.md` Team `/skill:` route → see `command-handler.ts.AGENTS.md`. See change: add-team-skill-access. |
 | `connect-target.ts` | `parseConnectTarget()` / `describeConnectTarget()` — parses the overloaded `/dashboard connect <target>`… → see `connect-target.ts.AGENTS.md` |
 | `connection.ts` | WebSocket connection manager with exponential backoff reconnect, message buffering while disconnected,… → see… → see `connection.ts.AGENTS.md` |
 | `custom-entry-forward.ts` | Pure mappers for the bridge's custom-content forwarding: `toCustomEntryForward(entry)` (null for… → see `custom-entry-forward.ts.AGENTS.md` |
@@ -62,7 +62,7 @@ Files in this directory. One row per source file.
 | `project-trust.ts` | `project_trust` auto-decision (pure gate + defensive cwd read). → see `project-trust.ts.AGENTS.md` |
 | `pending-prompt-emitter.ts` | ONE emitter for re-sending every PromptBus prompt still awaiting an answer — shared by `onReconnect` replay… → see `pending-prompt-emitter.ts.AGENTS.md` |
 | `prompt-bus.ts` | Prompt dispatch bus — first-response-wins adapter routing + cross-adapter dismissal. → see `prompt-bus.ts.AGENTS.md` |
-| `prompt-expander.ts` | Expand prompt templates from disk for dashboard slash commands (`pi.sendUserMessage` skips expansion). → see `prompt-expander.ts.AGENTS.md` |
+| `prompt-expander.ts` | Expand prompt templates from disk for dashboard slash commands (`pi.sendUserMessage` skips expansion). `readTemplate` exported — team `/skill:` route reads granted `<root>/SKILL.md` through it. → see `prompt-expander.ts.AGENTS.md` |
 | `prompt-meta.ts` | `buildPromptMeta(opts, explicitMessage?)` — dialog `metadata`: `message`, `toolCallId`, plus validated… → see `prompt-meta.ts.AGENTS.md` |
 | `provider-register.ts` | Register custom LLM providers + auto-discovered models from `~/.pi/agent/providers.json`. → see `provider-register.ts.AGENTS.md` |
 | `session-move.ts` | `createMoveCoordinator()` + `MOVE_TIMEOUT` — two-connection move handover; forwards path-gate frames via `onServerMessage`. → see `session-move.ts.AGENTS.md` |

@@ -9,11 +9,14 @@ import type { ChatMessage } from "../chat/event-reducer.js";
 const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
 const MAX = 50;
 
-/** Strip a trailing punctuation char that's unlikely to be part of the URL. */
-const TRAILING_STRIP = /[)\].,;:!?'"`]+$/;
+/** Trailing punctuation chars that are unlikely to be part of the URL. */
+const TRAILING_CHARS = new Set([")", "]", ".", ",", ";", ":", "!", "?", "'", '"', "`"]);
 
+/** Linear trailing strip (a `/[…]+$/` regex backtracks quadratically on long runs). */
 function clean(raw: string): string {
-  return raw.replace(TRAILING_STRIP, "");
+  let end = raw.length;
+  while (end > 0 && TRAILING_CHARS.has(raw[end - 1])) end--;
+  return raw.slice(0, end);
 }
 
 export function extractRecentUrls(messages: ChatMessage[]): string[] {

@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { listGlobalSkills } from "./pi/pi-resource-scanner.js";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
@@ -1366,6 +1367,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // folder's `.pi/mcp.json` is active. Resolved once; an unresolvable pi reads
   // every project as untrusted. See change: migrate-mcp-to-pi-builtin (D3).
   pluginServiceRegistry.set("host.isProjectTrusted", await loadHostProjectTrust());
+  // cwd-policy as the spawn funnel composes it, so the team plugin can refuse a
+  // start whose skill set the policy would narrow. See change: add-team-skill-access (D7).
+  pluginServiceRegistry.set("host.resolveCwdPolicy", (cwd: string) => cwdPolicyRegistry.resolve(cwd));
+  // Operator-visible (global + global-package) skills for the team plugin's
+  // admin skill picker. Never project-local. See change: add-team-skill-access (D11).
+  pluginServiceRegistry.set("host.listOperatorSkills", async () =>
+    listGlobalSkills(path.join(os.homedir(), ".pi", "agent")).map((s) => ({
+      name: s.name,
+      description: s.description ?? "",
+      path: path.dirname(s.filePath),
+      source: "global" as const,
+    })),
+  );
   // Host services consumed by mcp-server-plugin. Registered HERE because the
   // plugin must verify a device bearer WITHOUT going through the global
   // `onRequest` hook — `/mcp` deliberately does not trust

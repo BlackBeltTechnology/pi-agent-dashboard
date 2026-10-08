@@ -11,6 +11,8 @@ import { AgentView } from "./agent/AgentView.js";
 import { useT } from "./i18n/index.js";
 import { PersonaEditor } from "./persona/PersonaEditor.js";
 import { withProject } from "./shell/nav.js";
+import { SkillForm } from "./skills/SkillForm.js";
+import { SkillsPanel } from "./skills/SkillsPanel.js";
 import { useEffectiveTarget } from "./state/effective-target.js";
 import { targetStore } from "./state/target-store.js";
 import { TeamGrid } from "./team/TeamGrid.js";
@@ -90,6 +92,13 @@ function Routes() {
         <PersonaEditor forkKey={fork} />
       </Route>
       <Route path="/personas/:key">{(p) => <PersonaEditor editKey={dec(p.key)} />}</Route>
+      <Route path="/skills/new">
+        <SkillForm />
+      </Route>
+      <Route path="/skills/:name">{(p) => <SkillForm name={dec(p.name)} />}</Route>
+      <Route path="/skills">
+        <SkillsPanel />
+      </Route>
       <Route>
         <TeamGrid />
       </Route>

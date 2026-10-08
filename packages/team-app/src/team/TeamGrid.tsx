@@ -77,10 +77,18 @@ export function TeamGrid() {
         <h1 className="page-title">{t("grid.title")}</h1>
         <p className="subtitle">{t("grid.subtitleTarget", { name })}</p>
       </div>
-      <button type="button" className="btn btn-primary" data-testid="new-persona" onClick={() => nav.toEditor(target)}>
-        <Icon name="plus" className="ic sm" />
-        {t("grid.new")}
-      </button>
+      <div className="row-actions">
+        {canManage ? (
+          <button type="button" className="btn btn-secondary" data-testid="open-skills" onClick={() => nav.toSkills(target)}>
+            <Icon name="spark" className="ic sm" />
+            {t("grid.skills")}
+          </button>
+        ) : null}
+        <button type="button" className="btn btn-primary" data-testid="new-persona" onClick={() => nav.toEditor(target)}>
+          <Icon name="plus" className="ic sm" />
+          {t("grid.new")}
+        </button>
+      </div>
     </div>
   );
 
@@ -162,6 +170,7 @@ export function TeamGrid() {
               onEdit={(x) => nav.toEditor(target, x.key)}
               onFork={(x) => nav.toEditor(target, undefined, x.key)}
               onDelete={(x) => void del(x)}
+              onFixSkill={(x) => nav.toSkill(target, x.skillBlock?.skill ?? "")}
             />
           ))}
         </div>

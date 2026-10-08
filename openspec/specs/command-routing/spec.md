@@ -62,6 +62,8 @@ The command handler SHALL process `send_prompt` text in this exact order:
 10. Check for `/` prefix → fall through to template expansion + `pi.sendUserMessage()` (handles skills, prompt templates, unrecognized slashes)
 11. Default (no `/` prefix) → `pi.sendUserMessage(text)` (existing passthrough behavior)
 
+**Team-confined sessions** (the process carries `PI_EXT_TEAM_TOOLS`): before step 1 the handler SHALL apply the shared `parseSkillCommand` rule. A `/skill:<name>` (single or multi-line) SHALL be expanded only when `<name>` is in the session's effective skill set (`PI_EXT_TEAM_SKILLS`), from that skill's own `SKILL.md`. Otherwise it SHALL be refused with `command_feedback` and `prompt_received { fresh: false }`, and never queued. For all other text, only step 3 (`/compact`) and step 11 (passthrough, sent with prompt-template expansion disabled and without disk or registry expansion) SHALL apply. Steps 1–2 and 4–10 SHALL NOT run in a team-confined session, whatever the input's line structure.
+
 Note: pi-flows management commands (`/flows`, `/flows:new`, `/flows:edit`, `/flows:delete`) are registered by the pi-flows extension via `pi.registerCommand` and are therefore handled by step 9 (`/roles` is in `DASHBOARD_NATIVE_COMMANDS` and handled by the bridge). The kebab-menu UI continues to invoke `flows:new-request` / `flows:edit-request` / `flow:run` / `flow:delete-request` directly via the `flow_management` WebSocket message handler in `bridge.ts` — that path is independent of typed-text command routing and is not covered by this requirement.
 
 #### Scenario: Routing precedence — bang beats slash
@@ -84,6 +86,10 @@ Note: pi-flows management commands (`/flows`, `/flows:new`, `/flows:edit`, `/flo
 - **WHEN** `send_prompt` text is `/ctx-stats` AND `ctx-stats` is an extension command AND no earlier step matches
 - **THEN** step 9 fires (in-process dispatch)
 - **AND** step 10's fall-through to template expansion SHALL NOT execute
+
+#### Scenario: Team session skips extension dispatch and exec templates
+- **WHEN** a team-confined session receives `/ctx-stats` (a registered extension command), `/x` and `/x\nargs` where `x` is an `executable: bash` template in the cwd, and `!id`
+- **THEN** no command is dispatched, no bash runs, no text is sent with `expandPromptTemplates: true`, and each input is either dropped with `prompt_received { fresh: false }` or (multi-line) sent unexpanded
 
 ### Requirement: Model command routing
 The command handler SHALL detect `/model provider/id` in `send_prompt` text and route it through the `setModel` callback instead of sending to the LLM. The `/model` command is a TUI-only command in pi and does not work via `session.prompt()` or `sendUserMessage()`.

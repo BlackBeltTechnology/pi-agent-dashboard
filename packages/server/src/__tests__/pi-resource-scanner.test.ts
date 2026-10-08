@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { parseFrontmatter, resolvePackages, scanGlobalResources, scanLocalResources, scanPiResources } from "../pi/pi-resource-scanner.js";
+import { listGlobalSkills, parseFrontmatter, resolvePackages, scanGlobalResources, scanLocalResources, scanPiResources } from "../pi/pi-resource-scanner.js";
 
 let tmpDir: string;
 
@@ -636,5 +636,17 @@ describe("scanPiResources degraded fallback", () => {
 
     expect(result.degraded).toBeUndefined();
     expect(result.local.skills).toEqual([]);
+  });
+});
+
+describe("listGlobalSkills", () => {
+  it("returns global and global-package skills, never project-local", () => {
+    writeFile("agent/skills/g1/SKILL.md", "---\nname: g1\ndescription: global\n---\n");
+    writeFile("pkg/skills/p1/SKILL.md", "---\nname: p1\ndescription: pkg\n---\n");
+    writeFile("pkg/package.json", JSON.stringify({ name: "pkg" }));
+    writeFile("agent/settings.json", JSON.stringify({ packages: [path.join(tmpDir, "pkg")] }));
+    writeFile("proj/.pi/skills/local-x/SKILL.md", "---\nname: local-x\n---\n");
+    const names = listGlobalSkills(path.join(tmpDir, "agent")).map((s) => s.name).sort();
+    expect(names).toEqual(["g1", "p1"]);
   });
 });

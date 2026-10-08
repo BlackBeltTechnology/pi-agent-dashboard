@@ -6,7 +6,7 @@
  */
 import http from "node:http";
 
-export interface LlmRequest {
+interface LlmRequest {
   system: string;
   userTexts: string[];
   toolNames: string[];
@@ -14,7 +14,8 @@ export interface LlmRequest {
   raw: Record<string, unknown>;
 }
 
-export type LlmReply = { text: string } | { toolCall: { name: string; args: Record<string, unknown> } };
+/** `delayMs` holds the SSE response so the agent turn stays streaming (#F4 revocation window). */
+type LlmReply = { text: string; delayMs?: number } | { toolCall: { name: string; args: Record<string, unknown> } };
 
 export interface FakeLlm {
   baseUrl: string;
@@ -59,18 +60,32 @@ export async function startFakeLlm(): Promise<FakeLlm> {
       const isAgentTurn = lr.toolNames.length > 0;
       if (isAgentTurn) requests.push(lr);
       const reply = (isAgentTurn ? script.shift() : undefined) ?? { text: "FAKE-REPLY" };
-      res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
-      const chunk = (delta: Record<string, unknown>, finish: string | null) =>
-        res.write(`data: ${JSON.stringify({ id: "chatcmpl-fake", object: "chat.completion.chunk", created: 1, model: "fake-model", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
-      if ("text" in reply) {
-        chunk({ role: "assistant", content: reply.text }, null);
-        chunk({}, "stop");
+      res.on("error", () => {
+        /* the client vanished while a delayed reply was held (revocation abort, #F4) */
+      });
+      const writeReply = () => {
+        res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
+        const chunk = (delta: Record<string, unknown>, finish: string | null) =>
+          res.write(`data: ${JSON.stringify({ id: "chatcmpl-fake", object: "chat.completion.chunk", created: 1, model: "fake-model", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
+        if ("text" in reply) {
+          chunk({ role: "assistant", content: reply.text }, null);
+          chunk({}, "stop");
+        } else {
+          chunk({ role: "assistant", tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: reply.toolCall.name, arguments: JSON.stringify(reply.toolCall.args) } }] }, null);
+          chunk({}, "tool_calls");
+        }
+        res.write(`data: ${JSON.stringify({ id: "chatcmpl-fake", object: "chat.completion.chunk", created: 1, model: "fake-model", choices: [], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })}\n\n`);
+        res.end("data: [DONE]\n\n");
+      };
+      if ("text" in reply && reply.delayMs) {
+        const timer = setTimeout(() => {
+          if (!res.destroyed) writeReply();
+        }, reply.delayMs);
+        timer.unref?.();
+        res.on("close", () => clearTimeout(timer));
       } else {
-        chunk({ role: "assistant", tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: reply.toolCall.name, arguments: JSON.stringify(reply.toolCall.args) } }] }, null);
-        chunk({}, "tool_calls");
+        writeReply();
       }
-      res.write(`data: ${JSON.stringify({ id: "chatcmpl-fake", object: "chat.completion.chunk", created: 1, model: "fake-model", choices: [], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })}\n\n`);
-      res.end("data: [DONE]\n\n");
     });
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
