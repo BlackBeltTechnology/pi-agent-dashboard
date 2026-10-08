@@ -50,6 +50,8 @@ describe("buildTmuxCommand (E16)", () => {
 
 describe("contributors", () => {
   it("E10: rejects reserved/invalid names, applies the valid one, never touches base", () => {
+    const baseEnv = { NODE_OPTIONS: "--max-old-space-size=1", PATH: "/usr/bin", PI_DASHBOARD_URL: "ws://base" };
+    const expectedPath = buildSpawnEnv(baseEnv, { mechanism: "headless" }).PATH;
     registerSpawnEnvContributor("p", () => ({
       NODE_OPTIONS: "--inspect",
       CONTEXT_MODE_BRIDGE_DEPTH: "1",
@@ -61,14 +63,11 @@ describe("contributors", () => {
       OK_VAR: "a\u0000b",
       CTX_FETCH_STRICT: "1",
     }));
-    const env = buildSpawnEnv(
-      { NODE_OPTIONS: "--max-old-space-size=1", PATH: "/usr/bin", PI_DASHBOARD_URL: "ws://base" },
-      { mechanism: "headless" },
-    );
+    const env = buildSpawnEnv(baseEnv, { mechanism: "headless" });
     expect(env.CTX_FETCH_STRICT).toBe("1");
     expect(env.NODE_OPTIONS).toBe("--max-old-space-size=1");
     expect(env.PI_DASHBOARD_URL).toBe("ws://base");
-    expect(env.PATH).not.toContain("/x");
+    expect(env.PATH).toBe(expectedPath); // contributor PATH ignored
     expect(env.CONTEXT_MODE_BRIDGE_DEPTH).toBeUndefined();
     expect(env.LD_PRELOAD).toBeUndefined();
     expect(env.OK_VAR).toBeUndefined();
