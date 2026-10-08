@@ -32,6 +32,9 @@ test.describe("hermes model override selector (L3)", () => {
   test("F3: pick a model, save, reload — the chosen provider/id persists", async ({ page }) => {
     const original = onDisk(((await (await page.request.get(CONFIG_ROUTE)).json()) as { fields: Fields }).fields);
     try {
+      // Start with no override so picking the first row is always a real change (Save Bar appears).
+      const { llmModelOverride: _drop, ...rest } = original;
+      expect((await page.request.put(CONFIG_ROUTE, { data: rest })).ok()).toBe(true);
       await runF3(page);
     } finally {
       // Restore whatever the harness had, even when an assertion above failed.
