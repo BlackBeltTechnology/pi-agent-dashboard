@@ -44,29 +44,29 @@
 
 ## 3. Relay fixes (`packages/browser-plugin/src/server/`)
 
-- [ ] 3.1 Add the redaction helpers `redactExtensionUrl` and `isRelayConnectPage`, applied at every viewer egress (status broadcast, `/api/browser/profiles`, audit detail, `editor_tab_open` paths). Omit the connect page from tab lists. Refuse subscribe and input to it, auditing `viewer-subscribe-refused` with reason `extension-page`. Verify with: (test-plan: #X4, #X6)
+- [x] 3.1 Add the redaction helpers `redactExtensionUrl` and `isRelayConnectPage`, applied at every viewer egress (status broadcast, `/api/browser/profiles`, audit detail, `editor_tab_open` paths). Omit the connect page from tab lists. Refuse subscribe and input to it, auditing `viewer-subscribe-refused` with reason `extension-page`. Verify with: (test-plan: #X4, #X6)
   - a helper table test;
   - route and status tests asserting no `token=`, `mcpRelayUrl` or guid while connected, and an empty tab list when only the connect page exists;
   - a test that a subscribe to the connect page starts no screencast.
-- [ ] 3.2 In `relay-instance.ts`: answer `Target.setDiscoverTargets` `{}` locally. On enable, announce attached tabs. Then mirror the vendored `attachedToTarget`/`detachedFromTarget` as `targetCreated`/`targetDestroyed`, idempotent per `targetId`. Do not mirror child sessions; `{discover: false}` stops mirroring. Drop model→client attach/detach events for the connect page, and fail CDP-client commands addressed to its session. Unservable browser-level commands reply with `code: -32000`. Verify with `relay-instance.test.ts`: (test-plan: #X3, #X5)
+- [x] 3.2 In `relay-instance.ts`: answer `Target.setDiscoverTargets` `{}` locally. On enable, announce attached tabs. Then mirror the vendored `attachedToTarget`/`detachedFromTarget` as `targetCreated`/`targetDestroyed`, idempotent per `targetId`. Do not mirror child sessions; `{discover: false}` stops mirroring. Drop model→client attach/detach events for the connect page, and fail CDP-client commands addressed to its session. Unservable browser-level commands reply with `code: -32000`. Verify with `relay-instance.test.ts`: (test-plan: #X3, #X5)
   - no attached tab means success and the instance stays open;
   - enabling discovery after auto-attach announces exactly once;
   - the connect page is never announced nor attached-to on the CDP path;
   - no child-session announcement;
   - discover:false stops announcements;
   - the error code is present.
-- [ ] 3.3 `deny-list.ts`: move `Browser.setDownloadBehavior` to `ACK_AND_DROP_METHODS` (reply `{}`, never forwarded). `audit.ts`: add the kinds `dropped` and `open`. Verify with updated E12 tests: a success reply, not forwarded, audited `dropped`. (test-plan: #E11, #X7, #X8, #X9)
-- [ ] 3.4 Add a tab-metadata overlay refreshed by a relay-issued `Target.getTargetInfo` sent **through the extension** (bypassing the vendored cached handler) after main-frame `Page.frameNavigated`/`loadEventFired`, on subscribe, and after `Page.navigate`. A change calls the coalescing `status.schedule()`. Entries are deleted on tab removal and on close. `tabList()` keeps its id set and overrides only title and URL. Verify with tests: (test-plan: #X11, #P1)
+- [x] 3.3 `deny-list.ts`: move `Browser.setDownloadBehavior` to `ACK_AND_DROP_METHODS` (reply `{}`, never forwarded). `audit.ts`: add the kinds `dropped` and `open`. Verify with updated E12 tests: a success reply, not forwarded, audited `dropped`. (test-plan: #E11, #X7, #X8, #X9)
+- [x] 3.4 Add a tab-metadata overlay refreshed by a relay-issued `Target.getTargetInfo` sent **through the extension** (bypassing the vendored cached handler) after main-frame `Page.frameNavigated`/`loadEventFired`, on subscribe, and after `Page.navigate`. A change calls the coalescing `status.schedule()`. Entries are deleted on tab removal and on close. `tabList()` keeps its id set and overrides only title and URL. Verify with tests: (test-plan: #X11, #P1)
   - a `Page.navigate` updates status;
   - a link-click navigation (an event without any CDP command) updates status;
   - a removed tab leaves no entry.
-- [ ] 3.5 Implement `resize`: (test-plan: #E5, #E6, #X10)
+- [x] 3.5 Implement `resize`: (test-plan: #E5, #E6, #X10)
   - `viewer-input.ts`: add `resize` to `ALLOWED_KINDS` and `ViewerInputMessage` (`width`, `height`) → `Emulation.setDeviceMetricsOverride`, clamped; drop non-numeric values with audit.
   - `relay-instance.ts`: track whether the CDP client holds a device-metrics override per tab session (set by `setDeviceMetricsOverride`, released by `clearDeviceMetricsOverride`). While held, refuse viewer `resize` with `agent-emulation-active` and report `agentEmulation: true` in status.
   - `screencast-tap.ts`: clear the relay-set override on the last unsubscribe and in `closeAll`/finalize (best effort).
 
   Verify with BVA tests (319/320/3840/3841 and 239/240/2160/2161) and tests for clear on last unsubscribe, clear on instance close, the agent-emulation refusal with its status flag, and resize allowed again after the agent clears.
-- [ ] 3.6 Build an integration harness: real `agent-browser connect` and Playwright `connectOverCDP` against a relay backed by `FakeExtension`. Both must attach, create a target and navigate. For any further pre-attach verb that fails, add a tab-independent local answer. Verify the harness is green (skip with a reason when agent-browser is absent). (test-plan: #X1, #X2)
+- [x] 3.6 Build an integration harness: real `agent-browser connect` and Playwright `connectOverCDP` against a relay backed by `FakeExtension`. Both must attach, create a target and navigate. For any further pre-attach verb that fails, add a tab-independent local answer. Verify the harness is green (skip with a reason when agent-browser is absent). (test-plan: #X1, #X2)
 
 - [ ] 3.7 Bring `fake-relay-instance.ts` to parity: accept `resize` (audit it), report redacted tabs, and support `browser/open` resolution. Verify that the existing fake tests plus new parity tests pass under `PI_BROWSER_RELAY_FAKE=1`. (test-plan: #X15)
 
@@ -87,7 +87,7 @@
 - [ ] 5.1 Add `packages/browser-plugin/src/bridge/index.ts` and the `package.json` `bridge` entry, registering the pi tools `browser_show_in_pane {instanceId, tabId?}` and `browser_await_human {instanceId, reason}`. Verify with a bridge test that both register and call `requestPluginServer("browser", "browser/open", …)`.
 - [ ] 5.2 Server: `registerPiRequestHandler("browser/open")`. It takes `sessionId` from the handler context only, resolves the default tab (excluding the connect page; `no-tab` when none), calls `ctx.openEditorTab(sessionId, "browser:<inst>:<tab>")`, and audits `open` on accept and on refusal. Enforce the 5 s per (session, instance) rate limit for `browser_show_in_pane` only; `browser_await_human` is exempt. Prune entries older than 5 s on each call and drop them on instance close. Verify with tests for accept, the spoofed payload `sessionId` being ignored, `disabled`, `rate-limited`, the takeover exemption, `no-tab` and the unknown tab. (test-plan: #E9, #E10, #E15, #X12)
 - [ ] 5.3 `browser_await_human`: use the per-call ToolContext `ctx.ui` (5th `execute` arg) and check `ctx.hasUI` (no UI → `cancelled`, reason `no-ui`). Open, then `ctx.ui.confirm(…, {pluginMeta: {pluginId: "browser", kind: "browser-takeover", instanceId}})`, returning `done` or `cancelled`. Verify with tests for confirm, decline, timeout and no UI, using a stub ToolContext. (test-plan: #X13)
-- [ ] 5.4 Shared protocol: restructure `BrowserRelayInputMessage` into a union discriminated on `kind` (existing kinds keep their fields; `resize` requires `width` and `height`), and add `agentEmulation?` to the tab status in `browser-protocol.ts`. Update the existing senders and receivers. Verify with `tsc` and union-narrowing type tests.
+- [x] 5.4 Shared protocol: restructure `BrowserRelayInputMessage` into a union discriminated on `kind` (existing kinds keep their fields; `resize` requires `width` and `height`), and add `agentEmulation?` to the tab status in `browser-protocol.ts`. Update the existing senders and receivers. Verify with `tsc` and union-narrowing type tests.
 
 ## 6. Browser pane tab (client)
 

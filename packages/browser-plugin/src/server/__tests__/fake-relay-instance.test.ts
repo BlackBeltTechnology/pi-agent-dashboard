@@ -70,3 +70,27 @@ describe("FakeRelayInstance (#E28)", () => {
     inst.close("done");
   });
 });
+
+// change: add-browser-editor-pane-tab (#X15 parity)
+describe("FakeRelayInstance parity (#X15)", () => {
+  const mk = () => {
+    const audit = new AuditRing();
+    const inst = new FakeRelayInstance({
+      instanceId: "f",
+      audit,
+      logger: { info() {}, warn() {}, error() {} },
+      timers: { setTimeout: () => 0, clearTimeout: () => {} },
+    });
+    return { audit, inst };
+  };
+  it("accepts and audits a numeric resize; refuses a non-numeric one", async () => {
+    const { audit, inst } = mk();
+    await inst.input({} as never, 1, { kind: "resize", width: 800, height: 600 });
+    await inst.input({} as never, 1, { kind: "resize", width: "800", height: 600 });
+    expect(audit.list().map((e) => `${e.kind}:${e.detail}`)).toEqual(["denied:resize", "viewer-input:resize"]);
+  });
+  it("lists tabs without any connect page or token", () => {
+    const { inst } = mk();
+    expect(JSON.stringify(inst.tabList())).not.toMatch(/token=|mcpRelayUrl|connect\.html/);
+  });
+});

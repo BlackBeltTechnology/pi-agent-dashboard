@@ -56,6 +56,7 @@ async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     canOpenChrome: () => canOpenChrome(),
     listProfiles: () => listChromeProfiles(),
     onStatusChange: () => status.broadcastNow(),
+    onTabMetaChange: () => status.schedule(),
   });
 
   status = new BrowserRelayStatus({

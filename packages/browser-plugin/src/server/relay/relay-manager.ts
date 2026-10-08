@@ -86,6 +86,8 @@ export interface RelayManagerDeps {
   /** Injectable opener (tests assert argv without spawning Chrome). */
   openChrome?(profileDirectory: string, url: string): void;
   onStatusChange(): void;
+  /** Coalescing status emit for tab title/URL changes. See change: add-browser-editor-pane-tab. */
+  onTabMetaChange?(): void;
   timers?: RelayTimers;
   connectTimeoutMs?: number;
   guidExpiryMs?: number;
@@ -319,6 +321,7 @@ export class RelayManager {
         if (entry) this._remove(entry);
       },
       onStatusChange: () => this.deps.onStatusChange(),
+      onTabMetaChange: () => (this.deps.onTabMetaChange ?? this.deps.onStatusChange)(),
     });
   }
 
