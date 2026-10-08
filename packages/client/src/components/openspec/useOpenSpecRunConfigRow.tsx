@@ -19,8 +19,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { useModelConfig } from "../../lib/state/ModelConfigContext.js";
 import { rolePickNoticeText, useRolePick } from "../../lib/roles/useRolePick.js";
+import { useModelConfig } from "../../lib/state/ModelConfigContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { ModelSelector } from "../settings/ModelSelector.js";
 import { ThinkingLevelSelector } from "../settings/ThinkingLevelSelector.js";

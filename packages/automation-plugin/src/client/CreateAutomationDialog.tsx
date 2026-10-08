@@ -18,6 +18,7 @@
 import { AutomationActionEditorSlot, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { getPluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import {
   mdiCalendarClock,
   mdiClipboardTextOutline,
@@ -38,7 +39,6 @@ import type {
   TriggerCategoryDescriptor,
   Visibility,
 } from "../shared/automation-types.js";
-import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import { nextFire } from "../shared/cron.js";
 import {
   createAutomation,

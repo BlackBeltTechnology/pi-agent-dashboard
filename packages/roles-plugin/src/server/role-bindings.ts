@@ -13,14 +13,13 @@
  *
  * See change: add-role-aware-model-refs (D1, D4–D6).
  */
-import { resolveModelRef, type RoleConfig } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
-import { parseModelRef } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
+import { parseModelRef, type RoleConfig, resolveModelRef } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import {
   type BindingStatus,
   type Concrete,
   loadStore,
-  saveStore,
   type StoreData,
+  saveStore,
 } from "./binding-store.js";
 
 export type { Concrete } from "./binding-store.js";

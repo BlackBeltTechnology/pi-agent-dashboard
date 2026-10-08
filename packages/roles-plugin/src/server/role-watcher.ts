@@ -8,8 +8,9 @@
  *
  * See change: add-role-aware-model-refs (D7).
  */
-import { type FSWatcher, mkdirSync, watch } from "node:fs";
+
 import { createHash } from "node:crypto";
+import { type FSWatcher, mkdirSync, watch } from "node:fs";
 
 export interface RoleWatcherDeps {
   dir: string;

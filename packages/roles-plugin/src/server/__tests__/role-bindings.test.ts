@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
 import Fastify from "fastify";
+import { describe, expect, it, vi } from "vitest";
+import { type Concrete, createRoleBindings, type Projector } from "../role-bindings.js";
 import { hashRoles, startRoleWatcher } from "../role-watcher.js";
 import { mountRolesRoutes } from "../roles-routes.js";
-import { createRoleBindings, type Concrete, type Projector } from "../role-bindings.js";
 
 const A: Concrete = { provider: "anthropic", id: "claude-haiku-4-5" };
 const B: Concrete = { provider: "openai", id: "gpt-5-mini" };

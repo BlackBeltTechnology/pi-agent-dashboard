@@ -5,21 +5,22 @@
  *
  * api + ui-primitive mocked. See change: redesign-automation-editor-and-board.
  */
-import React from "react";
-import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
-import { render, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
-import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
+
+import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   applyPluginConfigUpdate,
-  PluginContextProvider,
   CurrentPluginLayer,
+  PluginContextProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type {
   UiModelSelectorProps,
   UiThinkingLevelSelectorProps,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import type { TriggerCategoryDescriptor, AutomationConfig } from "../shared/automation-types.js";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AutomationConfig, TriggerCategoryDescriptor } from "../shared/automation-types.js";
 
 const { createAutomation, updateAutomation, listTriggerKinds, isGitCapable, listActions } = vi.hoisted(() => ({
   createAutomation: vi.fn(async (_b: any) => ({ ok: true as const })),

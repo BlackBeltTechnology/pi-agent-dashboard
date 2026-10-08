@@ -396,7 +396,7 @@ function useRoleRows(enabled: boolean, open: boolean): PickerRoleRow[] | null {
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const res = await fetch("/api/roles");
         if (!res.ok) throw new Error(String(res.status));
@@ -480,7 +480,7 @@ function RoleList({ rows, current, onPick }: { rows: PickerRoleRow[]; current?: 
           data-role={r.role}
           onClick={() => onPick(r.role)}
           className={`w-full px-3 py-1 min-h-[44px] md:min-h-0 text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-hover)] ${
-            r.role === currentRole ? "text-[var(--accent-blue)]" : "text-[var(--text-secondary)]"
+            r.role === currentRole ? "text-[var(--text-primary)] bg-[var(--bg-tertiary)]" : "text-[var(--text-secondary)]"
           }`}
         >
           <span className="font-mono">@{r.role}</span>

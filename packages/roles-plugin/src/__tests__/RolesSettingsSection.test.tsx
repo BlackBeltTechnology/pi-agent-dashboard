@@ -12,28 +12,29 @@
  *     existing protocol (no new WS messages).
  *   - Preset save/load/delete dispatch the matching existing messages.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, act, cleanup } from "@testing-library/react";
-import React from "react";
+
+import { createSlotRegistry, type RegisteredSource, SettingsDraftProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
-  PluginContextProvider,
-  CurrentPluginLayer,
   applyPluginConfigUpdate,
+  CurrentPluginLayer,
+  PluginContextProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import { createSlotRegistry, SettingsDraftProvider, type RegisteredSource } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type {
   UiModelSelectorProps,
   UiThinkingLevelSelectorProps,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   BuiltInRolesSettings,
-  inferProviderForBareId,
-  splitRefLevel,
-  joinRefLevel,
-  computeEffectiveRoles,
   computeDirtyRoles,
+  computeEffectiveRoles,
   computeRoleGroups,
+  inferProviderForBareId,
+  joinRefLevel,
+  splitRefLevel,
 } from "../RolesSettingsSection.js";
 
 /**

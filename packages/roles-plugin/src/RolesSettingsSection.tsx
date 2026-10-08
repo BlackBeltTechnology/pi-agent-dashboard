@@ -32,8 +32,8 @@ import {
   usePluginSend,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import { isValidRoleName } from "@blackbelt-technology/pi-dashboard-shared/role-name-validation.js";
+import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import type React from "react";
 import { useEffect, useState } from "react";
 
@@ -238,7 +238,7 @@ function useRoleUsedBy(rolesMap: Record<string, string>): Record<string, UsedByE
   // biome-ignore lint/correctness/useExhaustiveDependencies: `key` is the serialized rolesMap.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const res = await fetch("/api/roles/used-by");
         if (!res.ok) return;
@@ -808,7 +808,7 @@ export function BuiltInRolesSettings() {
           <ul className="m-0 p-0 list-none space-y-0.5">
             {Object.entries(usedBy).map(([role, entries]) => (
               <li key={role} data-testid={`roles-used-by-${role}`} className="text-[11px] text-[var(--text-secondary)]">
-                <span className="font-semibold text-[var(--accent-blue)]/70">@{role}</span>
+                <span className="font-semibold text-[var(--text-primary)]">@{role}</span>
                 {entries.map((e) => (
                   <span
                     key={`${e.kind}:${e.owner}:${e.label}`}

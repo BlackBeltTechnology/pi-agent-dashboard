@@ -4,14 +4,14 @@
  * the watcher and re-projects the bound target.
  * See change: add-role-aware-model-refs.
  */
-import { homedir } from "node:os";
+
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdtempSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
 import { readRoleConfigFromDisk } from "@blackbelt-technology/pi-dashboard-shared/role-config-disk.js";
+import { describe, expect, it } from "vitest";
 import { loadRoleConfig, saveRoleConfig } from "../../../../extension/src/role-manager.js";
-import { createRoleBindings, type Concrete } from "../role-bindings.js";
+import { type Concrete, createRoleBindings } from "../role-bindings.js";
 import { startRoleWatcher } from "../role-watcher.js";
 
 describe("X8 agent tool writer → watcher → projection", () => {

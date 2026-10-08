@@ -3,10 +3,10 @@
  * at client startup in main.tsx. See change: improve-kb-settings-sources-and-search.
  */
 import fs from "node:fs";
-import type React from "react";
 import path from "node:path";
 import type { UiModelSelectorProps, UiPrimitiveMap } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import type React from "react";
 import { describe, expect, it } from "vitest";
 
 describe("main.tsx primitive registrations", () => {

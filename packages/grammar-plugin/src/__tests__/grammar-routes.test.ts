@@ -97,9 +97,9 @@ describe("GET /api/grammar/health", () => {
   });
 });
 
+import { resolveModelRef } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 // ── role-aware llm (add-role-aware-model-refs) ───────────────────────────
 import { checkGrammar } from "../server/grammar-service.js";
-import { resolveModelRef } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 
 describe("role-aware grammar model", () => {
   const streamSimple = (() => {

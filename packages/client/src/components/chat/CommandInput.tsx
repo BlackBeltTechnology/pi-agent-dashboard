@@ -13,9 +13,9 @@ import {
   CHAT_COMPOSER_BOUND,
 } from "../../lib/layout/chat-pane-row-class.js";
 import { extractRecentUrls } from "../../lib/preview/extract-urls.js";
+import { rolePickNoticeText, useRolePick } from "../../lib/roles/useRolePick.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { ImagePreviewStrip } from "../preview/ImagePreviewStrip.js";
-import { rolePickNoticeText, useRolePick } from "../../lib/roles/useRolePick.js";
 import { ModelSelector } from "../settings/ModelSelector.js";
 import { ThinkingLevelSelector } from "../settings/ThinkingLevelSelector.js";
 

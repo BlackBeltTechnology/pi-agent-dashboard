@@ -10,25 +10,25 @@
  * pre-existing `~/.pi/agent/providers.json` path.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   activate,
-  getModelRole,
-  lookupRole,
-  loadRoleConfig,
-  saveRoleConfig,
+  addRoleName,
   DEFAULT_ROLE_NAMES,
+  effectiveRoleNames,
+  getModelRole,
+  loadRoleConfig,
+  lookupRole,
   overlayDefaultRoles,
   overlayRoles,
-  effectiveRoleNames,
-  addRoleName,
+  type RoleConfig,
   removeRoleFromSchema,
   resolveNamingModel,
-  type RoleConfig,
+  saveRoleConfig,
 } from "../role-manager.js";
 
 /** Build the expected overlay map: every default name empty, then `assigned` wins. */

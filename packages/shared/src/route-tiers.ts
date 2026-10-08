@@ -188,6 +188,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/push/vapid-public-key", tier: "observe" },
   { method: "GET", path: "/api/quota", tier: "observe" },
   { method: "GET", path: "/api/roles", tier: "observe" },
+  { method: "GET", path: "/api/roles/used-by", tier: "observe" },
   { method: "GET", path: "/api/session-change/:sessionId/:toolCallId", tier: "observe" },
   { method: "GET", path: "/api/session-diff", tier: "observe" },
   { method: "GET", path: "/api/session-file", tier: "observe" },
@@ -284,6 +285,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/pi-core/update", tier: "operate" },
   // Runtime overlay mutations: stage / activate / roll back the dashboard
   // runtime (Electron-only). See change: electron-runtime-overlay-updates.
+  { method: "POST", path: "/api/plugins/blackhole/bindings/reattach", tier: "operate" },
   { method: "POST", path: "/api/plugins/team/agents/:key/conversations", tier: "operate" },
   { method: "POST", path: "/api/plugins/team/agents/:key/conversations/:c/restart", tier: "operate" },
   { method: "POST", path: "/api/plugins/team/agents/:key/conversations/:c/session", tier: "operate" },

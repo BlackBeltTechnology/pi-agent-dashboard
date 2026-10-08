@@ -28,19 +28,20 @@
  *
  * See change: add-blackhole-plugin, add-blackhole-session-pipeline.
  */
+
+import { existsSync } from "node:fs";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { FastifyInstance } from "fastify";
-import { existsSync } from "node:fs";
 import { validateBlackholeConfig } from "../shared/blackhole-config.js";
-import { createBlackholeProjector, BLACKHOLE_OWNER, acceptsField, type Concrete, type RolesBindingsLike } from "./role-projector.js";
-import { nextBindingSet, resolveRoleSlots } from "./role-save.js";
 import { ConfigParseErrorOnWrite, readConfig, saveConfig } from "./config-io.js";
 import { resolveBlackholeConfigPath } from "./config-path.js";
 import {
+  type GlobalConfigFields,
   isValidSessionId,
   readSessionPipeline,
-  type GlobalConfigFields,
 } from "./pipeline-reader.js";
+import { acceptsField, BLACKHOLE_OWNER, type Concrete, createBlackholeProjector, type RolesBindingsLike } from "./role-projector.js";
+import { nextBindingSet, resolveRoleSlots } from "./role-save.js";
 
 /** Minimal structured logger surface (subset of PluginLogger). */
 export interface RouteLogger {

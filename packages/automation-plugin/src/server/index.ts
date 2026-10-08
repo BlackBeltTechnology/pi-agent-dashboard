@@ -36,12 +36,12 @@ import {
   collectActionRegistry,
   coreActionContributions,
 } from "./action-registry.js";
-import { FOLDER_SCOPE_CONTRIBUTION_PREFIX, collectFolderScopeBases } from "./folder-scope-contributions.js";
 import type { Engine } from "./engine.js";
+import { collectFolderScopeBases, FOLDER_SCOPE_CONTRIBUTION_PREFIX } from "./folder-scope-contributions.js";
 import { settingsDefaultBound } from "./resolve-children.js";
 import { automationRoleUsage } from "./role-usage.js";
-import { scanAutomations } from "./scanner.js";
 import { mountAutomationRoutes, unknownActionKind } from "./routes.js";
+import { scanAutomations } from "./scanner.js";
 
 const PLUGIN_ID = "automation";
 

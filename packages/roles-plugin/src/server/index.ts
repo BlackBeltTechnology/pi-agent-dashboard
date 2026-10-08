@@ -9,11 +9,12 @@
  *
  * See change: add-roles-read-api.
  */
+
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { readRoleConfigFromDisk } from "@blackbelt-technology/pi-dashboard-shared/role-config-disk.js";
-import { join } from "node:path";
-import { homedir } from "node:os";
 import { createRoleBindings } from "./role-bindings.js";
 import { startRoleWatcher } from "./role-watcher.js";
 import { mountRolesRoutes } from "./roles-routes.js";

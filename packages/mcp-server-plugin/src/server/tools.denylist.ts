@@ -28,6 +28,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/node/", reason: "node runtime UI" },
   { pattern: "/api/preferences/", reason: "UI preferences" },
   { pattern: "/api/grammar/", reason: "UI-only" },
+  { pattern: "/api/roles/used-by", reason: "Model roles page \"used by\" overview; informational, UI-only" },
   { pattern: "/api/kb/", reason: "kb engine admin" },
   // add-server-push-notifications (Decision 12).
   { pattern: "/api/push/", reason: "push management is UI/REST-only in v1" },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseModelRef, resolveModelRef, THINKING_LEVELS } from "../role-schema.js";
 import type { RoleConfig } from "../role-schema.js";
+import { parseModelRef, resolveModelRef, THINKING_LEVELS } from "../role-schema.js";
 
 const cfg = (roles: Record<string, string>, extra: Partial<RoleConfig> = {}): RoleConfig => ({
   roles,

@@ -1,7 +1,7 @@
 /**
  * Model resolution tests. See change: add-automation-plugin.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { resolveModel } from "../server/model-resolver.js";
 
 const roles = () => ({ fast: "anthropic/claude-haiku-4-5", deep: "openai/gpt-5" });
