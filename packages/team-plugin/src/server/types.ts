@@ -52,6 +52,12 @@ interface PersonaSnapshot {
   model?: string;
 }
 
+/** A skill grant as spawned: catalog name + granted realpath root (audit F4). */
+export interface SpawnedSkill {
+  name: string;
+  root: string;
+}
+
 export interface ConversationRecord {
   schemaVersion: 1;
   c: string;
@@ -69,6 +75,8 @@ export interface ConversationRecord {
   title?: string;
   archived: boolean;
   personaSnapshot: PersonaSnapshot;
+  /** The effective skill set the session was spawned with; absent on records predating audit F4. */
+  skills?: SpawnedSkill[];
 }
 
 export interface ProjectConfigEntry {

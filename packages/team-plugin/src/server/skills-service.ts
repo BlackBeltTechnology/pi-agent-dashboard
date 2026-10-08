@@ -11,7 +11,7 @@ import type { Access } from "./access.js";
 import type { HostSession, Logger } from "./conversations.js";
 import { atomicWriteJson, canonicalize, type FsOps, isInside, isTargetId, realFs, type TeamPaths, userKey } from "./paths.js";
 import type { ProjectRegistry } from "./projects.js";
-import type { LocatedRecord } from "./records.js";
+import { type LocatedRecord, spawnedSkillNames } from "./records.js";
 import { type Caller, type Mode, type Persona, type PersonaScope, type SkillCatalogEntry, type TeamConfig, TeamError } from "./types.js";
 
 type SkillUsers = "*" | { iss: string; sub: string }[];
@@ -29,6 +29,9 @@ export interface SkillEntry {
 export type SkillBlockReason = "missing" | "invalid" | "users" | "targets";
 
 const SKILL_PATH_MAX_BYTES = 512;
+
+/** Only the head of SKILL.md is read for frontmatter; it lives at the top of the file (audit F6). */
+const FRONTMATTER_MAX_BYTES = 8 * 1024;
 
 /** pi skill name: `[a-z0-9-]`, 1–64 chars, no leading/trailing/doubled hyphen. */
 const SKILL_NAME_RE = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,63}$/;
@@ -168,13 +171,25 @@ function parseFrontmatter(raw: string): Record<string, string> {
 
 const WRITE_KEYS = new Set(["name", "path", "users", "targets"]);
 
+/** The first `FRONTMATTER_MAX_BYTES` of `md` — frontmatter lives at the top; the body is never read here (audit F6). */
+function readHead(md: string): string {
+  const fd = fs.openSync(md, "r");
+  try {
+    const buf = Buffer.alloc(FRONTMATTER_MAX_BYTES);
+    const bytes = fs.readSync(fd, buf, 0, buf.length, 0);
+    return buf.toString("utf8", 0, bytes);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
 export class SkillsService {
   private readonly ops: FsOps;
   private readonly file: string;
   private managed: { error: string | null; records: ManagedRecord[] } | undefined;
   private readonly warned = new Set<string>();
-  /** Skill descriptions memoised by the SKILL.md file's (realpath, mtimeMs, size). */
-  private readonly descMemo = new Map<string, string>();
+  /** Frontmatter memoised by the SKILL.md file's (realpath, mtimeMs, size), checked BEFORE any
+   * read so a memo hit costs only a stat; the read itself is capped at the first 8 KiB (audit F6). */
+  private readonly fmMemo = new Map<string, Record<string, string>>();
   private tail: Promise<unknown> = Promise.resolve();
   private epochN = 0;
 
@@ -254,14 +269,18 @@ export class SkillsService {
     let real: string;
     let st: fs.Stats;
     try {
-      real = fs.realpathSync(raw);
+      // Native realpath: on-disk case, so the exclusions below cannot be slipped past with a
+      // mis-cased candidate on a case-insensitive filesystem (audit F1).
+      real = fs.realpathSync.native(raw);
       st = fs.statSync(real);
     } catch {
       return { ok: false, reason: "missing" };
     }
     if (!st.isDirectory()) return { ok: false, reason: "not_directory" };
     try {
-      if (!fs.statSync(path.join(real, "SKILL.md")).isFile()) return { ok: false, reason: "no_skill_md" };
+      // lstat: SKILL.md must be a REGULAR file — a symlink would let the granted root vouch for
+      // bytes living elsewhere (audit F2).
+      if (!fs.lstatSync(path.join(real, "SKILL.md")).isFile()) return { ok: false, reason: "no_skill_md" };
     } catch {
       return { ok: false, reason: "no_skill_md" };
     }
@@ -283,7 +302,7 @@ export class SkillsService {
     const fm = this.frontmatter(v.root);
     const piName = fm.name || path.basename(v.root);
     if (piName !== entry.name) return this.invalid(entry, "name_mismatch");
-    return { entry, valid: true, root: v.root, description: this.description(v.root, fm) };
+    return { entry, valid: true, root: v.root, description: this.description(fm) };
   }
 
   private invalid(entry: SkillEntry, reason: string): CheckedSkill {
@@ -299,27 +318,23 @@ export class SkillsService {
   }
 
   private frontmatter(root: string): Record<string, string> {
+    const md = path.join(root, "SKILL.md");
     try {
-      return parseFrontmatter(fs.readFileSync(path.join(root, "SKILL.md"), "utf8"));
+      const st = fs.statSync(md);
+      const key = `${root}:${st.mtimeMs}:${st.size}`;
+      const hit = this.fmMemo.get(key);
+      if (hit !== undefined) return hit;
+      if (this.fmMemo.size > 1000) this.fmMemo.clear();
+      const fm = parseFrontmatter(readHead(md));
+      this.fmMemo.set(key, fm);
+      return fm;
     } catch {
       return {};
     }
   }
 
-  private description(root: string, fm?: Record<string, string>): string | undefined {
-    const md = path.join(root, "SKILL.md");
-    try {
-      const st = fs.statSync(md);
-      const key = `${root}:${st.mtimeMs}:${st.size}`;
-      const hit = this.descMemo.get(key);
-      if (hit !== undefined) return hit;
-      if (this.descMemo.size > 1000) this.descMemo.clear();
-      const d = (fm ?? parseFrontmatter(fs.readFileSync(md, "utf8"))).description ?? "";
-      this.descMemo.set(key, d);
-      return d;
-    } catch {
-      return undefined;
-    }
+  private description(fm: Record<string, string>): string {
+    return fm.description ?? "";
   }
 
   // ── snapshot + decisions ─────────────────────────────────────────────────
@@ -633,8 +648,10 @@ export class SkillsService {
 
     let endSessions = 0;
     for (const lr of this.liveRecords()) {
-      const p = this.d.personas.get(lr.record.personaKey, lr.uk);
-      if (!p?.skills?.includes(name)) continue;
+      // A session is judged by the skills it was spawned with (recorded at spawn); the persona's
+      // CURRENT list is only the fallback for records that predate spawned-set records (audit F4).
+      const held = spawnedSkillNames(lr.record) ?? (this.d.personas.get(lr.record.personaKey, lr.uk)?.skills ?? []);
+      if (!held.includes(name)) continue;
       const owner = mode === "single" ? { iss: "local", sub: "local" } : this.d.getSession(lr.record.sessionId)?.principalOwner;
       if (!owner) continue;
       if (beforeAllows(principalOf(owner), lr.t) && !afterAllows(principalOf(owner), lr.t)) endSessions++;

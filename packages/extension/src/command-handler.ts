@@ -1,9 +1,9 @@
 /**
  * Handles server→extension messages by dispatching to pi API.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { resolveDashboardPorts } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { imageBlockData, imageBlockMime } from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 import { diffOr } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
@@ -309,15 +309,20 @@ function teamSkillPolicy(env: NodeJS.ProcessEnv = process.env): Array<{ name: st
   return skills;
 }
 
+/** A granted SKILL.md larger than this is refused rather than read unbounded (audit F6). */
+const TEAM_SKILL_MD_MAX_BYTES = 256 * 1024;
+
 /**
  * Resolve a `/skill:<name>` command in a team-confined session (design D12,
  * add-team-skill-access). A granted name expands from its own granted root —
  * `readTemplate` + `buildSkillBlock` on `<root>/SKILL.md` — into the standard
  * envelope, byte-identical to the non-team `expandPromptTemplateFromDisk`
  * expansion of the same file, so `parseSkillBlock` and the skill card keep
- * working. Anything else — an ungranted name or an unreadable `SKILL.md` —
- * is refused: the caller settles the prompt with an error and never queues
- * it. Never consults the local cwd scan or the pi command registry.
+ * working. Anything else — an ungranted name, an unreadable `SKILL.md`, one
+ * swapped for a symlink that leaves the granted root (audit F2), or one above
+ * the read cap (audit F6) — is refused: the caller settles the prompt with an
+ * error and never queues it. Never consults the local cwd scan or the pi
+ * command registry.
  */
 function resolveTeamSkill(text: string, env: NodeJS.ProcessEnv = process.env): TeamSkillResolution {
   const cmd = parseSkillCommand(text);
@@ -326,6 +331,14 @@ function resolveTeamSkill(text: string, env: NodeJS.ProcessEnv = process.env): T
   if (!granted) return { kind: "refused" };
   try {
     const skillMdPath = join(granted.root, "SKILL.md");
+    // The file may have been swapped for a symlink after the grant: resolve both and refuse
+    // unless SKILL.md still canonicalises INSIDE the canonical root (audit F2).
+    const rootReal = realpathSync.native(granted.root);
+    const mdReal = realpathSync.native(skillMdPath);
+    const rel = relative(rootReal, mdReal);
+    if (rel.startsWith("..") || isAbsolute(rel)) throw new Error("team: skill file left the granted root");
+    // Unbounded reads are refused, not truncated (audit F6).
+    if (statSync(mdReal).size > TEAM_SKILL_MD_MAX_BYTES) throw new Error("team: skill file too large");
     // `readTemplate` strips frontmatter + trims exactly like pi's own
     // `_expandSkillCommand`; `buildSkillBlock` reproduces its envelope bytes.
     const { body } = readTemplate(skillMdPath);

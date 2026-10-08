@@ -36,6 +36,12 @@ function skillDir(name: string): string {
 const recordFile = (uk: string, key: string, t: string, c: string) =>
   path.join(h.home, "users", uk, "conversations", t, key.replace(":", "-"), `${c}.json`);
 
+/** A persona body WITHOUT the immutable slug — the shape the PUT /personas route accepts. */
+const personaUpdate = (slug: string, extra: Record<string, unknown> = {}) => {
+  const { slug: _omit, ...body } = persona(slug, extra);
+  return body;
+};
+
 describe("spawn transport (E23, task 5.1)", () => {
   it("E23: every spawn sets --no-skills; skills travel as argv paths + a JSON-string guard policy", async () => {
     const config: TeamConfig = { admins: [ADMIN] };
@@ -195,6 +201,71 @@ describe("invalidation pass authority (X5, task 5.3)", () => {
     const ukR = await ukOf("root");
     expect(h.logs.some((l) => l.includes("team.skill_end") && l.includes("name=review") && l.includes(`uk=${ukB}`) && l.includes(`by=${ukR}`) && l.includes("t=_ws"))).toBe(true);
     expect(h.logs.some((l) => l.includes("team.skill_invalidated") && l.includes("name=review") && l.includes("sessions=1"))).toBe(true);
+  });
+});
+
+describe("spawned-set authority (audit F4)", () => {
+  it("revocation judges the skills the session was spawned with, not the persona's current list", async () => {
+    const config: TeamConfig = { admins: [ADMIN] };
+    h = await makeHarness({ config });
+    const root = skillDir("review");
+    expect((await admin("POST", `${API}/skills`, { name: "review", path: root })).status).toBe(201);
+    const ka = await mkPersona("alice", "wa", { skills: ["review"] });
+    const c = (await create("alice", ka)).json;
+    const rec = JSON.parse(fs.readFileSync(recordFile(await ukOf("alice"), ka, "_ws", c.id), "utf8"));
+    expect(rec.skills).toEqual([{ name: "review", root }]); // the spawned set is recorded
+
+    // The owner drops the skill from the persona; the live session keeps the spawned root.
+    const put = await h.call("PUT", `${API}/personas/${enc(ka)}`, { user: "alice", body: personaUpdate("wa") });
+    expect(put.status, JSON.stringify(put.json)).toBe(200);
+
+    // The impact preview still counts the session (it holds the spawned root).
+    const impact = await admin("POST", `${API}/skills/review/impact`, { remove: true });
+    expect(impact.status, JSON.stringify(impact.json)).toBe(200);
+    expect(impact.json.endSessions).toBe(1);
+
+    // Revocation ends the session non-gracefully even though the persona no longer lists it.
+    expect((await admin("DELETE", `${API}/skills/review`)).status).toBe(200);
+    expect(h.host.aborts).toContainEqual({ sessionId: c.sessionId, graceful: false });
+    expect(h.host.sessions.get(c.sessionId)?.status).toBe("ended");
+  });
+
+  it("a session of a persona that never held the skill is untouched (spawned set is authoritative)", async () => {
+    const config: TeamConfig = { admins: [ADMIN] };
+    h = await makeHarness({ config });
+    expect((await admin("POST", `${API}/skills`, { name: "review", path: skillDir("review") })).status).toBe(201);
+    const ka = await mkPersona("alice", "wa"); // no skills at spawn
+    const c = (await create("alice", ka)).json;
+    // The owner adds the skill to the persona AFTER the spawn: the session holds no root for it.
+    expect((await h.call("PUT", `${API}/personas/${enc(ka)}`, { user: "alice", body: personaUpdate("wa", { skills: ["review"] }) })).status).toBe(200);
+
+    expect((await admin("DELETE", `${API}/skills/review`)).status).toBe(200);
+    expect(h.host.aborts).toHaveLength(0);
+    expect(h.host.sessions.get(c.sessionId)?.status).not.toBe("ended");
+  });
+});
+
+describe("epoch root re-check (audit F5)", () => {
+  it("a managed path edit between the start check and correlation aborts the spawn even when the name stays allowed", async () => {
+    const config: TeamConfig = { admins: [ADMIN] };
+    h = await makeHarness({ config });
+    const root = skillDir("review");
+    expect((await admin("POST", `${API}/skills`, { name: "review", path: root })).status).toBe(201);
+    const ka = await mkPersona("alice", "wa", { skills: ["review"] });
+
+    h.host.behavior.delayMs = 150;
+    const pending = create("alice", ka);
+    await new Promise((r) => setTimeout(r, 30));
+    // The grant MOVES to a different valid root while the spawn is in flight.
+    const moved = h.dir("skills/moved");
+    fs.writeFileSync(path.join(moved, "SKILL.md"), "---\nname: review\ndescription: review desc\n---\nbody\n");
+    expect((await admin("PATCH", `${API}/skills/review`, { path: moved })).status).toBe(200);
+
+    const r = await pending;
+    expect(r.status).toBe(409);
+    expect(r.json).toEqual({ error: "skill_not_allowed", skill: "review", reason: "invalid" });
+    expect(h.host.aborts.some((a) => a.sessionId === "sess-1" && a.graceful === false)).toBe(true);
+    expect((await list("alice", ka)).json.conversations).toEqual([]);
   });
 });
 

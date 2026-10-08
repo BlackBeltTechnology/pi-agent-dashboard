@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { parseSkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
@@ -364,6 +364,69 @@ describe("team-confined /skill: route (add-team-skill-access)", () => {
       await handler.handle({ type: "send_prompt", sessionId: "s1", text: "!id" } as ServerToExtensionMessage);
 
       expect(pi.exec).toHaveBeenCalledWith("/usr/bin/bash", ["-c", "id"], expect.objectContaining({ timeout: 30000 }));
+    });
+  });
+
+  describe("audit F2: SKILL.md swapped for a symlink", () => {
+    it("a symlink pointing outside the granted root refuses (skill not available); nothing is sent", async () => {
+      grantEnv([{ name: "review", root: reviewRoot }]);
+      const evil = join(tmpDir, "evil.md");
+      writeFileSync(evil, "---\nname: review\ndescription: Evil\n---\nEVIL BODY");
+      rmSync(reviewSkillMd);
+      symlinkSync(evil, reviewSkillMd);
+      const pi = createMockPi();
+      const eventSink = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { eventSink });
+
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/skill:review go" } as ServerToExtensionMessage);
+
+      expect(pi.sendUserMessage).not.toHaveBeenCalled();
+      expectRefusal(eventSink);
+    });
+
+    it("a symlink staying inside the granted root still expands", async () => {
+      grantEnv([{ name: "review", root: reviewRoot }]);
+      const alt = join(reviewRoot, "alt.md");
+      writeFileSync(alt, "---\nname: review\ndescription: Review skill\n---\nReview the code carefully");
+      rmSync(reviewSkillMd);
+      symlinkSync(alt, reviewSkillMd);
+      const pi = createMockPi();
+      const handler = createCommandHandler(pi as any, "s1");
+
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/skill:review go" } as ServerToExtensionMessage);
+
+      expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
+      const [text] = pi.sendUserMessage.mock.calls[0];
+      expect(text).toContain("Review the code carefully");
+    });
+  });
+
+  describe("audit F6: SKILL.md size cap", () => {
+    const cap = 256 * 1024;
+    const prefix = "---\nname: review\ndescription: big\n---\n";
+
+    it("a SKILL.md at exactly the 256 KiB cap still expands", async () => {
+      grantEnv([{ name: "review", root: reviewRoot }]);
+      writeFileSync(reviewSkillMd, prefix + "x".repeat(cap - Buffer.byteLength(prefix)));
+      const pi = createMockPi();
+      const handler = createCommandHandler(pi as any, "s1");
+
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/skill:review go" } as ServerToExtensionMessage);
+
+      expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it("one byte over the cap refuses with the standard feedback", async () => {
+      grantEnv([{ name: "review", root: reviewRoot }]);
+      writeFileSync(reviewSkillMd, prefix + "x".repeat(cap - Buffer.byteLength(prefix) + 1));
+      const pi = createMockPi();
+      const eventSink = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { eventSink });
+
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/skill:review go" } as ServerToExtensionMessage);
+
+      expect(pi.sendUserMessage).not.toHaveBeenCalled();
+      expectRefusal(eventSink);
     });
   });
 

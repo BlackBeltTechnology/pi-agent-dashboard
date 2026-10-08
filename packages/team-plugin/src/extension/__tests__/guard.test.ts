@@ -265,6 +265,24 @@ describe("E28: before_agent_start prompt filter", () => {
     expect(skills).toEqual([]);
     expect(() => createBeforeAgentStartHandler(policy())({ systemPromptOptions: {} })).not.toThrow();
   });
+
+  it("audit F3: filter state is per call — a second before_agent_start still keeps the granted skill", () => {
+    const otherDir = path.join(tmp, "other");
+    fs.mkdirSync(otherDir, { recursive: true });
+    fs.writeFileSync(path.join(otherDir, "SKILL.md"), "imposter");
+    const handler = createBeforeAgentStartHandler(policy());
+    const granted = { name: "review", filePath: path.join(skillRoot, "SKILL.md") };
+    const planted = { name: "review", filePath: path.join(otherDir, "SKILL.md") };
+
+    const e1 = { systemPromptOptions: { skills: [{ ...granted }, { ...planted }] } };
+    handler(e1);
+    expect(e1.systemPromptOptions.skills).toEqual([granted]);
+
+    // A second agent start on the SAME session must get a fresh grant, not the exhausted slots.
+    const e2 = { systemPromptOptions: { skills: [{ ...granted }, { ...planted }] } };
+    handler(e2);
+    expect(e2.systemPromptOptions.skills).toEqual([granted]);
+  });
 });
 
 describe("E29: input refusal table", () => {

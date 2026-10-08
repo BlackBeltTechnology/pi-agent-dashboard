@@ -126,6 +126,14 @@ test("F1: the provider prompt carries the granted skill only — no agent-dir sk
   expect(system).not.toContain("MEMORY-X-LEAK-DESC"); // extension-discovered: the guard filter (D10)
   expect(system).toContain("MARKER-PERSONA-SKILLS"); // persona contribution survives
   expect(system).toMatch(/You are pi session `[^`]+`/); // bridge fragment survives
+
+  // Second prompt on the SAME conversation: the guard filter state is per agent
+  // start (audit F3) — the granted skill survives the second before_agent_start.
+  await sendPrompt("PROMPT-SKILL-SET-2 again");
+  await waitForTurns(2);
+  const system2 = lastTurn().system;
+  expect(system2).toContain("REVIEW-SKILL-DESC-MK1");
+  expect(system2).not.toContain("MEMORY-X-LEAK-DESC");
 });
 
 test("F2: a read inside the granted root works; a sibling skill read is refused with path_outside_root", async () => {

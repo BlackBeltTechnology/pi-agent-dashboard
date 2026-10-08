@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { allowed } from "../skills-service.js";
 import type { TeamConfig } from "../types.js";
 import { API, type Harness, makeHarness, persona } from "./harness.js";
@@ -53,6 +53,103 @@ function deepSkillPath(total: number, name: string): string {
   expect(Buffer.byteLength(p, "utf8")).toBe(total);
   return p;
 }
+
+/** True when the filesystem is case-insensitive: a mis-cased path of an existing file still stats (audit F1). */
+const CASE_INSENSITIVE_FS = (() => {
+  const probe = path.join(fs.realpathSync(os.tmpdir()), `team-case-probe-${process.pid}-${Date.now()}`);
+  try {
+    fs.writeFileSync(probe, "x");
+    return fs.statSync(probe.toUpperCase()).isFile();
+  } catch {
+    return false;
+  } finally {
+    fs.rmSync(probe, { force: true });
+  }
+})();
+
+describe("audit F1: case-insensitive filesystem bypass", () => {
+  it.runIf(CASE_INSENSITIVE_FS)("a mis-cased path inside a project is rejected as protected_dir", async () => {
+    const config: TeamConfig = { admins: [ADMIN] };
+    h = await makeHarness({ config });
+    const billing = h.dir(path.join("billing"));
+    config.projects = { billing: { name: "B", path: billing, users: "*" } };
+    const inside = h.dir(path.join("billing", "sub", "review"));
+    fs.writeFileSync(path.join(inside, "SKILL.md"), "---\nname: review\n---\nbody\n");
+    // Mis-case the PROJECT segment the root is compared against: the typed path resolves on a
+    // case-insensitive FS but no longer matches the project root's canonical case lexically.
+    const misCased = inside.replace(`${path.sep}billing${path.sep}`, `${path.sep}BILLING${path.sep}`);
+    expect(misCased).not.toBe(inside);
+    expect(fs.existsSync(misCased)).toBe(true);
+
+    const r = await admin("POST", `${API}/skills`, { name: "review", path: misCased });
+    expect(r.status, JSON.stringify(r.json)).toBe(400);
+    expect(r.json).toMatchObject({ error: "invalid_skill", fields: { path: "protected_dir" } });
+  });
+
+  it.runIf(CASE_INSENSITIVE_FS)("a mis-cased path inside the team home is rejected", async () => {
+    h = await makeHarness({ config: { admins: [ADMIN] } });
+    fs.mkdirSync(path.join(h.home, "inhome"), { recursive: true });
+    fs.writeFileSync(path.join(h.home, "inhome", "SKILL.md"), "x");
+    const misCased = path.join(path.dirname(h.home), path.basename(h.home).toUpperCase(), "inhome");
+    expect(misCased).not.toBe(path.join(h.home, "inhome"));
+    expect(fs.existsSync(misCased)).toBe(true);
+
+    const r = await admin("POST", `${API}/skills`, { name: "review", path: misCased });
+    expect(r.status, JSON.stringify(r.json)).toBe(400);
+    expect(r.json.fields.path).toBe("protected_dir");
+  });
+});
+
+describe("audit F2: symlinked SKILL.md", () => {
+  it("a SKILL.md symlinked to a regular file outside the root is rejected", async () => {
+    h = await makeHarness({ config: { admins: [ADMIN] } });
+    const dir = skillDir("symfile");
+    const outside = path.join(h.tmp, "outside.md");
+    fs.writeFileSync(outside, "---\nname: review\n---\nbody\n");
+    fs.rmSync(path.join(dir, "SKILL.md"));
+    fs.symlinkSync(outside, path.join(dir, "SKILL.md"));
+
+    const r = await admin("POST", `${API}/skills`, { name: "review", path: dir });
+    expect(r.status, JSON.stringify(r.json)).toBe(400);
+    expect(r.json.fields.path).toBe("no_skill_md");
+  });
+});
+
+describe("audit F6: SKILL.md read cap + frontmatter memo", () => {
+  it("frontmatter comes from the first 8 KiB only — a description beyond the cap is not read", async () => {
+    const config: TeamConfig = { admins: [ADMIN] };
+    h = await makeHarness({ config });
+    const near = h.dir("skills/near");
+    // "description:" starts at byte 8012 — inside the 8 KiB head.
+    fs.writeFileSync(path.join(near, "SKILL.md"), `---\nname: near\n${"x".repeat(8000)}\ndescription: near desc\n---\nbody\n`);
+    const far = h.dir("skills/far");
+    // "name: far\n" is 10 bytes + 8182 pad + newline ⇒ "description:" starts at byte 8193 — past the head.
+    fs.writeFileSync(path.join(far, "SKILL.md"), `---\nname: far\n${"x".repeat(8182)}\ndescription: far desc\n---\nbody\n`);
+    config.skillCatalog = { near, far };
+
+    const rows = (await admin("GET", `${API}/skills`)).json.skills as Array<{ name: string; description?: string }>;
+    expect(rows.find((r) => r.name === "near")?.description).toBe("near desc");
+    expect(rows.find((r) => r.name === "far")?.description).toBe("");
+  });
+
+  it("the memo saves the read: a second listing opens no SKILL.md (same mtimeMs/size)", async () => {
+    const config: TeamConfig = { admins: [ADMIN] };
+    h = await makeHarness({ config });
+    config.skillCatalog = { review: skillDir("review"), solo: skillDir("solo") };
+    const open = vi.spyOn(fs, "openSync");
+    try {
+      await admin("GET", `${API}/skills`);
+      const first = open.mock.calls.filter(([p]) => String(p).endsWith("SKILL.md"));
+      expect(first.length).toBeGreaterThan(0);
+      open.mockClear();
+
+      await admin("GET", `${API}/skills`);
+      expect(open.mock.calls.filter(([p]) => String(p).endsWith("SKILL.md"))).toHaveLength(0);
+    } finally {
+      open.mockRestore();
+    }
+  });
+});
 
 describe("normalisation (E1, E2)", () => {
   it("legacy string and missing users/targets read as *", async () => {

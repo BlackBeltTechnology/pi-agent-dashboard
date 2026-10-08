@@ -140,7 +140,9 @@ export function decideToolCall(toolName: unknown, input: unknown, policy: TeamPo
 /**
  * D10: predicate for the `before_agent_start` filter — keep a listed skill only when its `(name, canonical
  * filePath)` matches a policy entry (`<root>/SKILL.md`), at most one entry per policy slot (the canonical
- * granted skill). A missing policy grants nothing: every skill is filtered out.
+ * granted skill). A missing policy grants nothing: every skill is filtered out. The returned predicate
+ * holds one-shot per-slot state: construct a FRESH predicate per agent start (the handler does) —
+ * reusing one across starts would drop every granted skill after the first (audit F3).
  */
 export function grantedSkillFilter(policy: TeamPolicy | null): (entry: unknown) => boolean {
   if (!policy) return () => false;

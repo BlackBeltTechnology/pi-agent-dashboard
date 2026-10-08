@@ -21,6 +21,21 @@ export interface LocatedRecord extends Locator {
   record: ConversationRecord;
 }
 
+/**
+ * Skill names the record's session was spawned with (audit F4): revocation is judged against
+ * this set, not the persona's current list. `null` when the record carries no usable spawned
+ * set (predates audit F4, or a broken shape) — callers fall back to `persona.skills`.
+ */
+export function spawnedSkillNames(rec: ConversationRecord): string[] | null {
+  if (!Array.isArray(rec.skills)) return null;
+  const out: string[] = [];
+  for (const s of rec.skills) {
+    if (!s || typeof s.name !== "string" || !s.name || typeof s.root !== "string" || !path.isAbsolute(s.root)) return null;
+    out.push(s.name);
+  }
+  return out;
+}
+
 function personaKeyFromDir(name: string): string | null {
   if (name.startsWith("shared-")) return `shared:${name.slice(7)}`;
   if (name.startsWith("private-")) return `private:${name.slice(8)}`;

@@ -85,7 +85,9 @@ export class ProjectRegistry {
     if (!path.isAbsolute(p)) return { ok: false, reason: "not_absolute" };
     let real: string;
     try {
-      real = fs.realpathSync(p);
+      // Native realpath: on-disk case, so stored project roots compare correctly against
+      // canonicalised skill candidates on a case-insensitive filesystem (audit F1).
+      real = fs.realpathSync.native(p);
     } catch {
       return { ok: false, reason: "missing" };
     }
@@ -209,7 +211,7 @@ export class ProjectRegistry {
     if (typeof cwd !== "string" || !path.isAbsolute(cwd)) return null;
     let real: string;
     try {
-      real = fs.realpathSync(cwd);
+      real = fs.realpathSync.native(cwd);
     } catch {
       return null;
     }

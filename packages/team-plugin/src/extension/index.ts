@@ -27,11 +27,12 @@ export function createToolCallHandler(policy: TeamPolicy | null) {
 
 /** D10: splice `systemPromptOptions.skills` in place; never return a `systemPrompt` string. */
 export function createBeforeAgentStartHandler(policy: TeamPolicy | null) {
-  const keep = grantedSkillFilter(policy);
   return (event: { systemPromptOptions?: { skills?: unknown } }): undefined => {
     const skills = event?.systemPromptOptions?.skills;
     if (!Array.isArray(skills)) return;
-    skills.splice(0, skills.length, ...skills.filter(keep));
+    // The filter's grant slots are single-use: build it per agent start so a second
+    // `before_agent_start` on the same session keeps the granted skill (audit F3).
+    skills.splice(0, skills.length, ...skills.filter(grantedSkillFilter(policy)));
     return;
   };
 }
