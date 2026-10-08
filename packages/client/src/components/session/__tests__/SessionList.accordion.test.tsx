@@ -236,7 +236,7 @@ describe("Focus profile switches the list to accordion", () => {
 
 describe("folder banner safety chip survives compact folders (review B1)", () => {
   const stubInitStatus = (data: object) => {
-    const fetchMock = vi.fn(async () => ({
+    const fetchMock = vi.fn(async (..._args: unknown[]) => ({
       ok: true,
       status: 200,
       headers: { get: () => "application/json" },
