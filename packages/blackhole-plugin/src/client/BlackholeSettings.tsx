@@ -144,16 +144,52 @@ function scalarPayload(draft: Draft): Record<string, unknown> {
   return out;
 }
 
+/** The entry without its UI-only role markers — the shape the file holds. */
+function bare(entry: ModelRef): ModelRef {
+  const { role: _role, roleStatus: _status, ...rest } = entry;
+  return rest;
+}
+
+/**
+ * A role-bound key the user has not changed since load. Re-sending it would
+ * re-resolve the role on an unrelated save: a `dangling` binding would 400 the
+ * whole PUT, and a `detached` slot's external edit would be overwritten.
+ */
+function boundUntouched(bound: boolean, current: unknown, loaded: unknown): boolean {
+  return bound && same(current, loaded);
+}
+
 /** The base model plus each worker chain, split back into its key pair. */
 function modelPayload(draft: Draft): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  if (shouldEmit(draft, "model", draft.baseModel)) {
+  if (
+    shouldEmit(draft, "model", draft.baseModel) &&
+    !boundUntouched(
+      draft.baseModel?.role !== undefined,
+      draft.baseModel ? bare(draft.baseModel) : null,
+      draft.loaded.model,
+    )
+  ) {
     out.model = draft.baseModel ? toWire(draft.baseModel) : null;
   }
   for (const w of WORKER_META) {
     const { primary, fallbacks } = writeChain(draft.chains[w.worker] ?? []);
-    if (shouldEmit(draft, w.primaryKey, primary ?? null)) out[w.primaryKey] = primary ? toWire(primary) : null;
-    if (shouldEmit(draft, w.fallbackKey, fallbacks ?? null)) out[w.fallbackKey] = fallbacks ? fallbacks.map(toWire) : null;
+    if (
+      shouldEmit(draft, w.primaryKey, primary ?? null) &&
+      !boundUntouched(primary?.role !== undefined, primary ? bare(primary) : null, draft.loaded[w.primaryKey])
+    ) {
+      out[w.primaryKey] = primary ? toWire(primary) : null;
+    }
+    if (
+      shouldEmit(draft, w.fallbackKey, fallbacks ?? null) &&
+      !boundUntouched(
+        (fallbacks ?? []).some((e) => e.role !== undefined),
+        fallbacks ? fallbacks.map(bare) : null,
+        draft.loaded[w.fallbackKey],
+      )
+    ) {
+      out[w.fallbackKey] = fallbacks ? fallbacks.map(toWire) : null;
+    }
   }
   return out;
 }
