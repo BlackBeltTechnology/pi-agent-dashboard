@@ -126,6 +126,12 @@ The automation editor keeps its existing rule (no level control for roles, bare 
 - [Background projection changes a running blackhole's config with no user action] → apply semantics unchanged (spec makes no hot-reload promise); each projection write is logged and the slot shows the role + last-projected value + time, so the change is discoverable.
 - [Trust boundary] → only in-process plugins can register projectors; field keys allow-listed per projector; no HTTP surface takes a path or field name outside an owner's own route.
 
+### Review outcomes recorded at implementation (task 2.7)
+
+- **security-hardening (service surface).** Projectors are registered in-process only (no HTTP/WS path registers one). No service method or route takes a file path: the blackhole projector's file is fixed by `resolveBlackholeConfigPath`; `replaceBindings` and the reattach route reject any field the owner's `acceptsField` does not accept (blackhole: the four primaries + `<chain>[n]`, n a non-negative integer without leading zeros — `__proto__`, `[-1]`, bare chain names are rejected). Role refs on the PUT wire are re-validated after resolution (the concrete body goes through the unchanged strict validator), and the engine never writes target files. Logs record owner/field/outcome, never model values beyond what the status UI already shows.
+- **doubt-driven-review (v1 contract).** (1) A projector write that detects a concurrent external edit signals it with an error `code: "PROJECTION_CONFLICT"` → the binding goes `detached` rather than retry-looping — added to the contract during implementation (duck-typed, so plugins need no import of the roles plugin). (2) `registerProjector` is last-write-wins per owner and returns a dispose; every registration triggers a targeted pass, which is what makes load order irrelevant. (3) Blackhole bindings are recorded only when the service is present; with it absent role refs are rejected (400) and stored bindings are never touched. (4) A role resolving to a thinking level blackhole cannot store (`max`) fails the pass for that binding (logged, retried next pass) instead of writing an invalid file.
+- **Deviation from task text.** Session pickers (E31–E34) are tested on `CommandInput` (the composer model chip), not `StatusBar`: StatusBar was reduced to a working-status label by `redesign-prompt-input` and no longer hosts a model picker.
+
 ## Migration Plan
 
 1. Ship shared resolver + service + picker (inert until a caller opts in).

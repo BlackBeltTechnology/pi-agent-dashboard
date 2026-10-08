@@ -186,3 +186,181 @@ describe("PUT config — rejected without writing", () => {
     expect(fs.readFileSync(file).equals(before)).toBe(true);
   });
 });
+
+// ── role-aware slots (add-role-aware-model-refs) ─────────────────────────
+import { createRoleBindings } from "../../../../roles-plugin/src/server/role-bindings.js";
+import { createBlackholeProjector, type RolesBindingsLike } from "../role-projector.js";
+
+describe("PUT config — role slots", () => {
+  let roleDir: string;
+  const roles: Record<string, string> = {};
+  let engine: ReturnType<typeof createRoleBindings>;
+  let rolesApp: FastifyInstance;
+  let storePath: string;
+
+  async function boot(withService = true) {
+    roleDir = fs.mkdtempSync(path.join(os.tmpdir(), "blackhole-roles-"));
+    const bhFile = path.join(roleDir, "pi-blackhole", "pi-blackhole-config.json");
+    storePath = path.join(roleDir, "role-bindings.json");
+    for (const k of Object.keys(roles)) delete roles[k];
+    roles.fast = "anthropic/claude-haiku-4-5:low";
+    engine = createRoleBindings({ storePath, readRoleConfig: () => ({ roles }), logger: silentLogger });
+    const svc = engine.service as unknown as RolesBindingsLike;
+    rolesApp = Fastify();
+    registerBlackholeRoutes(rolesApp, {
+      logger: silentLogger,
+      env: { PI_CODING_AGENT_DIR: roleDir },
+      getRoles: () => (withService ? svc : undefined),
+    });
+    await rolesApp.ready();
+    if (withService) svc.registerProjector(createBlackholeProjector(() => bhFile));
+    await engine.idle();
+    return { bhFile, svc };
+  }
+  afterEach(async () => {
+    await rolesApp?.close();
+    fs.rmSync(roleDir, { recursive: true, force: true });
+  });
+  const putRoles = (payload: unknown) => rolesApp.inject({ method: "PUT", url: ROUTE, payload: payload as object });
+  const readJson = (f: string) => JSON.parse(fs.readFileSync(f, "utf-8"));
+
+  it("E14: role slot is written concretely (with thinking), never as '@'; binding ok", async () => {
+    const { bhFile, svc } = await boot();
+    const res = await putRoles({ observerModel: "@fast" });
+    expect(res.statusCode).toBe(200);
+    expect(readJson(bhFile).observerModel).toEqual({ provider: "anthropic", id: "claude-haiku-4-5", thinking: "low" });
+    expect(fs.readFileSync(bhFile, "utf-8")).not.toContain("@");
+    expect(svc.getBindings("blackhole")).toMatchObject([{ field: "observerModel", ref: "@fast", status: "ok" }]);
+    expect(res.json().roleBindings).toEqual([{ field: "observerModel", ref: "@fast", status: "ok" }]);
+  });
+
+  it("E15: a binding follows its entry when the chain is reordered", async () => {
+    const { bhFile, svc } = await boot();
+    const X = { provider: "x", id: "y" };
+    await putRoles({ observerFallbackModels: ["@fast", X] });
+    expect(svc.getBindings("blackhole").map((b) => b.field)).toEqual(["observerFallbackModels[0]"]);
+    await putRoles({ observerFallbackModels: [X, "@fast"] });
+    expect(svc.getBindings("blackhole").map((b) => b.field)).toEqual(["observerFallbackModels[1]"]);
+    expect(readJson(bhFile).observerFallbackModels[0]).toEqual(X);
+  });
+
+  it("E16: removing a bound entry removes its binding; a later role change writes nothing there", async () => {
+    const { bhFile, svc } = await boot();
+    await putRoles({ observerFallbackModels: [{ provider: "x", id: "y" }, "@fast"] });
+    await putRoles({ observerFallbackModels: [{ provider: "x", id: "y" }] });
+    expect(svc.getBindings("blackhole")).toEqual([]);
+    roles.fast = "openai/gpt-5-mini";
+    await engine.runPass("change");
+    expect(readJson(bhFile).observerFallbackModels).toEqual([{ provider: "x", id: "y" }]);
+  });
+
+  it("role object keeps per-entry cooldownHours/contextWindow", async () => {
+    const { bhFile } = await boot();
+    await putRoles({ observerFallbackModels: [{ role: "@fast", cooldownHours: 3, contextWindow: 1000 }] });
+    expect(readJson(bhFile).observerFallbackModels[0]).toMatchObject({ provider: "anthropic", cooldownHours: 3, contextWindow: 1000 });
+  });
+
+  it("X9: unassigned role → 400 naming the role; file + bindings unchanged", async () => {
+    const { bhFile, svc } = await boot();
+    await putRoles({ observerModel: "@fast" });
+    const before = fs.readFileSync(bhFile);
+    const bindingsBefore = JSON.stringify(svc.getBindings("blackhole"));
+    const res = await putRoles({ observerModel: "@research" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("@research");
+    expect(fs.readFileSync(bhFile).equals(before)).toBe(true);
+    expect(JSON.stringify(svc.getBindings("blackhole"))).toBe(bindingsBefore);
+  });
+
+  it("X10: roles plugin absent → concrete save works and leaves the store alone; a role ref is rejected", async () => {
+    const { bhFile, svc } = await boot();
+    await putRoles({ observerModel: "@fast" });
+    await rolesApp.close();
+    // second app: same disk, service absent
+    const app2 = Fastify();
+    registerBlackholeRoutes(app2, { logger: silentLogger, env: { PI_CODING_AGENT_DIR: roleDir }, getRoles: () => undefined });
+    await app2.ready();
+    const storeBefore = fs.readFileSync(storePath);
+    const ok = await app2.inject({ method: "PUT", url: ROUTE, payload: { reflectorModel: { provider: "p", id: "m" } } });
+    expect(ok.statusCode).toBe(200);
+    expect(readJson(bhFile).reflectorModel).toEqual({ provider: "p", id: "m" });
+    expect(fs.readFileSync(storePath).equals(storeBefore)).toBe(true);
+    const rej = await app2.inject({ method: "PUT", url: ROUTE, payload: { reflectorModel: "@fast" } });
+    expect(rej.statusCode).toBe(400);
+    expect(ok.json().rolesAvailable).toBe(false);
+    void svc;
+    await app2.close();
+    rolesApp = Fastify(); // keep afterEach close() valid
+  });
+
+  it("5.4: preset change rewrites only the bound slot in the real file", async () => {
+    const { bhFile } = await boot();
+    await putRoles({ observerModel: "@fast", reflectorModel: { provider: "r", id: "keep" }, memory: true });
+    fs.writeFileSync(bhFile, JSON.stringify({ ...readJson(bhFile), foo: 1 }, null, 2));
+    roles.fast = "openai/gpt-5-mini";
+    await engine.runPass("change");
+    const after = readJson(bhFile);
+    expect(after.observerModel).toEqual({ provider: "openai", id: "gpt-5-mini" });
+    expect(after.reflectorModel).toEqual({ provider: "r", id: "keep" });
+    expect(after.foo).toBe(1);
+  });
+
+  it("reattach route re-projects a detached slot; rejects an unlisted field", async () => {
+    const { bhFile, svc } = await boot();
+    await putRoles({ observerModel: "@fast" });
+    fs.writeFileSync(bhFile, JSON.stringify({ observerModel: { provider: "edited", id: "z" } }));
+    roles.fast = "openai/gpt-5-mini";
+    await engine.runPass("change");
+    expect(svc.getBindings("blackhole")[0]!.status).toBe("detached");
+    const bad = await rolesApp.inject({ method: "POST", url: "/api/plugins/blackhole/bindings/reattach", payload: { field: "compaction" } });
+    expect(bad.statusCode).toBe(400);
+    const ok = await rolesApp.inject({ method: "POST", url: "/api/plugins/blackhole/bindings/reattach", payload: { field: "observerModel" } });
+    expect(ok.statusCode).toBe(200);
+    expect(readJson(bhFile).observerModel).toEqual({ provider: "openai", id: "gpt-5-mini" });
+    expect(ok.json().roleBindings[0].status).toBe("ok");
+  });
+
+  describe("review B1 (round 2): a save never resets a non-ok binding status", () => {
+    it("detached survives an unrelated save; the externally edited value is untouched", async () => {
+      const { bhFile, svc } = await boot();
+      await putRoles({ observerModel: "@fast" });
+      fs.writeFileSync(bhFile, JSON.stringify({ observerModel: { provider: "edited", id: "z" } }));
+      roles.fast = "openai/gpt-5-mini";
+      await engine.runPass("change");
+      expect(svc.getBindings("blackhole")[0]!.status).toBe("detached");
+
+      const res = await putRoles({ memory: true });
+      expect(res.statusCode).toBe(200);
+      expect(readJson(bhFile).observerModel).toEqual({ provider: "edited", id: "z" });
+      expect(svc.getBindings("blackhole")[0]!.status).toBe("detached");
+      expect(res.json().roleBindings).toEqual([{ field: "observerModel", ref: "@fast", status: "detached" }]);
+    });
+
+    it("dangling survives an unrelated save and the save itself succeeds", async () => {
+      const { bhFile, svc } = await boot();
+      await putRoles({ observerModel: "@fast" });
+      delete roles.fast;
+      await engine.runPass("change");
+      expect(svc.getBindings("blackhole")[0]!.status).toBe("dangling");
+
+      const res = await putRoles({ memory: true });
+      expect(res.statusCode).toBe(200);
+      expect(readJson(bhFile).observerModel).toEqual({ provider: "anthropic", id: "claude-haiku-4-5", thinking: "low" });
+      expect(svc.getBindings("blackhole")[0]!.status).toBe("dangling");
+    });
+
+    it("a kept detached binding stays detached when the save touches another bound key", async () => {
+      const { bhFile, svc } = await boot();
+      await putRoles({ observerModel: "@fast" });
+      fs.writeFileSync(bhFile, JSON.stringify({ observerModel: { provider: "edited", id: "z" } }));
+      roles.fast = "openai/gpt-5-mini";
+      await engine.runPass("change");
+
+      const res = await putRoles({ reflectorModel: "@fast" });
+      expect(res.statusCode).toBe(200);
+      const byField = Object.fromEntries(svc.getBindings("blackhole").map((b) => [b.field, b.status]));
+      expect(byField).toEqual({ observerModel: "detached", reflectorModel: "ok" });
+      expect(readJson(bhFile).observerModel).toEqual({ provider: "edited", id: "z" });
+    });
+  });
+});

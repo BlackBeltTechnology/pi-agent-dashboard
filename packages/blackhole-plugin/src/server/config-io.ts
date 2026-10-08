@@ -182,3 +182,90 @@ export function writeAtomic(filePath: string, obj: Record<string, unknown>): voi
     throw e;
   }
 }
+
+// -- Role projection (add-role-aware-model-refs) ---------------------------
+
+/** A blackhole model entry as the projector sees it. */
+export interface ProjectedModel {
+  provider: string;
+  id: string;
+  thinking?: string;
+}
+
+/**
+ * Thrown by `projectModelField` when the file changed between the projector's
+ * read and its write. The roles engine reads `code` to mark the binding
+ * `detached` instead of retrying (duck-typed — no import coupling).
+ */
+export class ProjectionConflictError extends Error {
+  readonly code = "PROJECTION_CONFLICT";
+  constructor(message: string) {
+    super(message);
+    this.name = "ProjectionConflictError";
+  }
+}
+
+/** Split `observerFallbackModels[2]` → `{ key, index: 2 }`; a bare key → `{ key, index: null }`. */
+function splitField(field: string): { key: string; index: number | null } {
+  const m = /^([A-Za-z]+)\[(\d+)\]$/.exec(field);
+  return m ? { key: m[1]!, index: Number(m[2]) } : { key: field, index: null };
+}
+
+function entryAt(parsed: Record<string, unknown>, field: string): Record<string, unknown> | undefined {
+  const { key, index } = splitField(field);
+  const v = Object.hasOwn(parsed, key) ? parsed[key] : undefined;
+  const entry = index === null ? v : Array.isArray(v) ? v[index] : undefined;
+  return typeof entry === "object" && entry !== null && !Array.isArray(entry)
+    ? (entry as Record<string, unknown>)
+    : undefined;
+}
+
+/** Current concrete value of a managed model field, or undefined when absent. */
+export function readModelField(filePath: string, field: string): ProjectedModel | undefined {
+  const { parsed, parseError } = readRaw(filePath);
+  if (parseError !== null) return undefined;
+  const e = entryAt(parsed, field);
+  if (!e || typeof e.provider !== "string" || typeof e.id !== "string") return undefined;
+  return {
+    provider: e.provider,
+    id: e.id,
+    ...(typeof e.thinking === "string" ? { thinking: e.thinking } : {}),
+  };
+}
+
+/**
+ * Write `resolved` into one model field, MERGING into the existing entry so
+ * `cooldownHours` / `contextWindow` and every unmanaged key survive. `thinking`
+ * is set when the resolution carries a level and removed otherwise. Refuses to
+ * overwrite when the file changed since this call's read (conflict → detached).
+ */
+export function projectModelField(
+  filePath: string,
+  field: string,
+  resolved: ProjectedModel,
+  /** Test seam: runs after the read, before the pre-write conflict check. */
+  afterRead?: () => void,
+): void {
+  const before = fingerprint(filePath);
+  const { parsed, parseError } = readRaw(filePath);
+  afterRead?.();
+  if (parseError !== null) throw new ConfigParseErrorOnWrite(parseError);
+  const { key, index } = splitField(field);
+  const existing = entryAt(parsed, field);
+  if (!existing) throw new Error(`field ${field} has no entry to project into`);
+  const next: Record<string, unknown> = { ...existing, provider: resolved.provider, id: resolved.id };
+  if (resolved.thinking) next.thinking = resolved.thinking;
+  else delete next.thinking;
+
+  const merged: Record<string, unknown> = { ...parsed };
+  if (index === null) merged[key] = next;
+  else {
+    const arr = [...(parsed[key] as unknown[])];
+    arr[index] = next;
+    merged[key] = arr;
+  }
+  if (fingerprint(filePath) !== before) {
+    throw new ProjectionConflictError(`${path.basename(filePath)} changed during projection of ${field}`);
+  }
+  writeAtomic(filePath, merged);
+}

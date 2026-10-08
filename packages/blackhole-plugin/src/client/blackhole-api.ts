@@ -28,6 +28,10 @@ export interface ConfigOk {
   exists: boolean;
   fields: Record<string, FieldView>;
   unmanagedKeys: string[];
+  /** Roles plugin reachable (the picker's Role tab + binding status are meaningful). */
+  rolesAvailable?: boolean;
+  /** Role bindings per bound slot (`observerModel`, `observerFallbackModels[0]`, …). */
+  roleBindings?: Array<{ field: string; ref: string; status: "ok" | "detached" | "dangling" }>;
 }
 
 export interface ConfigParseError {
@@ -80,6 +84,19 @@ export async function putConfig(managed: Record<string, unknown>, apiBase = ""):
     throw new Error(detail || body?.error || `HTTP ${res.status}`);
   }
   return body;
+}
+
+/** Re-project the current role resolution into a detached slot. */
+export async function reattachBinding(field: string, apiBase = ""): Promise<void> {
+  const res = await fetch(`${apiBase}/api/plugins/blackhole/bindings/reattach`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ field }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || `HTTP ${res.status}`);
+  }
 }
 
 /**

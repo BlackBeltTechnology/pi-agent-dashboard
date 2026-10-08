@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-grammar-settings-plugin. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Plugin manifest claims the settings-section slot
 
 The grammar plugin (renamed `grammar`, formerly `grammar-settings`) SHALL be a first-party package
@@ -53,7 +55,7 @@ hook. No hard-coded display strings SHALL remain in the component.
 
 The `GrammarSettings` component SHALL expose controls for the LLM-only grammar
 config shape (`enabled`, `autoCheck`, `debounceMs`, `minChars`, `maxChars`,
-`language`, a SINGLE model picker, `capitalizeFirstWord`, and `correctionView`
+`language`, a SINGLE model picker (direct model or, when the roles plugin is installed, a model role), `capitalizeFirstWord`, and `correctionView`
 (`redline` | `list`, default `redline`) as a segmented **Correction view**
 control), grouped into collapsible `<details>` accordion sections. It SHALL NOT
 render a backend selector or a LanguageTool URL field. Values SHALL be read from
@@ -76,7 +78,7 @@ SHALL NOT render its own Save/Reload buttons).
 - **THEN** a single model picker SHALL be shown (the `ui:model-selector`
   primitive fed by `GET /api/models`), with NO separate free-text
   `provider`/`model` fields and NO backend selector
-- **WHEN** `plugins.grammar.llm` is unset
+- **WHEN** `plugins.grammar.llm` is unset (neither a direct model nor a role)
 - **THEN** the section SHALL show a "pick a model" prompt indicating the feature
   cannot run until a model is chosen
 
@@ -99,7 +101,8 @@ SHALL NOT render its own Save/Reload buttons).
 - **THEN** the config SHALL be written via `POST /api/config/plugins/grammar`
   (auth-gated), NOT `PUT /api/config`
 - **AND** a model pick SHALL persist as `llm: { provider, model }` within the
-  plugin config
+  plugin config, and a role pick SHALL persist as `llm: { role }` (a role ref
+  `@<role>[:<level>]`); the two shapes SHALL be mutually exclusive
 
 #### Scenario: Legacy core config is migrated in once
 - **WHEN** the plugin server entry loads AND `plugins.grammar` is empty AND a
@@ -203,3 +206,23 @@ meets WCAG-AA contrast in every theme.
 - **THEN** each focused control SHALL show a visible focus indicator (the shared `focus-ring`
   affordance or equivalent)
 
+### Requirement: The grammar model MAY follow a model role
+
+The grammar model picker SHALL enable the model-selector Role tab. A role pick SHALL persist in the plugin config as a role ref (`@<role>[:<level>]`) alongside the existing direct `llm: { provider, model }` shape, and the plugin `configSchema` SHALL accept both. Each grammar check SHALL resolve a role ref at check time through the shared role resolver, so a role or preset change takes effect on the next check without re-saving grammar settings. An unresolved role SHALL fail the check with a distinct, user-visible "model role unassigned" outcome, never silently using another model.
+
+#### Scenario: Role pick persists as a role ref
+- **WHEN** the user picks `@fast` in the grammar model picker and the host Save Bar commits
+- **THEN** the plugin config SHALL store the role ref `@fast` for the grammar model
+
+#### Scenario: Preset change applies on the next check
+- **GIVEN** the grammar model is `@fast`
+- **WHEN** the active preset reassigns `fast` and a grammar check runs
+- **THEN** the check SHALL use the newly assigned model
+
+#### Scenario: Unassigned role fails visibly
+- **WHEN** the grammar model is `@fast`, `fast` is unassigned, and a check runs
+- **THEN** the check SHALL fail with a "model role unassigned" outcome naming `@fast`
+
+#### Scenario: Direct model config is unchanged
+- **WHEN** the persisted grammar model is a direct `llm: { provider, model }`
+- **THEN** checks SHALL behave exactly as before this change

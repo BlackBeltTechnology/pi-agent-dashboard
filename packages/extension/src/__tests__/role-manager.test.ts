@@ -10,25 +10,25 @@
  * pre-existing `~/.pi/agent/providers.json` path.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   activate,
-  getModelRole,
-  lookupRole,
-  loadRoleConfig,
-  saveRoleConfig,
+  addRoleName,
   DEFAULT_ROLE_NAMES,
+  effectiveRoleNames,
+  getModelRole,
+  loadRoleConfig,
+  lookupRole,
   overlayDefaultRoles,
   overlayRoles,
-  effectiveRoleNames,
-  addRoleName,
+  type RoleConfig,
   removeRoleFromSchema,
   resolveNamingModel,
-  type RoleConfig,
+  saveRoleConfig,
 } from "../role-manager.js";
 
 /** Build the expected overlay map: every default name empty, then `assigned` wins. */
@@ -548,6 +548,11 @@ describe("lookupRole", () => {
   it("strips a leading @ and returns the literal", () => {
     writeFileSync(CONFIG(), JSON.stringify({ roles: { fast: "anthropic/haiku" } }));
     expect(lookupRole("@fast")).toEqual({ literal: "anthropic/haiku" });
+  });
+
+  it("E7: keeps the assignment literal verbatim incl. its :level", () => {
+    writeFileSync(CONFIG(), JSON.stringify({ roles: { fast: "anthropic/claude-haiku-4-5:low" } }));
+    expect(lookupRole("@fast")).toEqual({ literal: "anthropic/claude-haiku-4-5:low" });
   });
 
   it("returns a structured reason for an unset role", () => {

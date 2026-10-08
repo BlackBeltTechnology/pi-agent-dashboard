@@ -12,12 +12,25 @@
     "correctionView": { "enum": ["redline", "list"], "default": "redline" },
     "capitalizeFirstWord": { "type": "boolean", "default": false },
     "llm": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "provider": { "type": "string" },
-        "model": { "type": "string" }
-      }
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provider", "model"],
+          "properties": {
+            "provider": { "type": "string" },
+            "model": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["role"],
+          "properties": {
+            "role": { "type": "string", "pattern": "^@[A-Za-z0-9][A-Za-z0-9_-]*(:[a-z]+)?$" }
+          }
+        }
+      ]
     }
   }
 }

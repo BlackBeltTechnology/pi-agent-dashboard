@@ -178,7 +178,28 @@ export function normalizeModel(draft: Record<string, unknown>): ModelRef {
   if (cooldown !== undefined) out.cooldownHours = cooldown;
   const ctx = toOptionalNumber(draft.contextWindow);
   if (ctx !== undefined) out.contextWindow = ctx;
+  // UI-only role binding marker (see `ModelRef.role`); stripped by `toWire`.
+  if (typeof draft.role === "string" && draft.role !== "") out.role = draft.role;
+  if (typeof draft.role === "string" && draft.role !== "" && typeof draft.roleStatus === "string") {
+    out.roleStatus = draft.roleStatus;
+  }
   return out as unknown as ModelRef;
+}
+
+/**
+ * Serialize an entry for the PUT body. A role-bound entry travels as
+ * `{ role, cooldownHours?, contextWindow? }` (the server resolves it and the
+ * file never holds `@`); a direct entry is the normalized concrete model. The
+ * UI-only `roleStatus` never leaves the client.
+ */
+export function toWire(entry: ModelRef): Record<string, unknown> {
+  const m = normalizeModel(entry as unknown as Record<string, unknown>) as unknown as Record<string, unknown>;
+  const { roleStatus: _status, ...rest } = m;
+  if (typeof rest.role !== "string") return rest;
+  const wire: Record<string, unknown> = { role: rest.role };
+  if (rest.cooldownHours !== undefined) wire.cooldownHours = rest.cooldownHours;
+  if (rest.contextWindow !== undefined) wire.contextWindow = rest.contextWindow;
+  return wire;
 }
 
 /** `""` / `null` / `undefined` / `NaN` → absent; anything else → the number. */
