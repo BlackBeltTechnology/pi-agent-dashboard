@@ -56,25 +56,39 @@ const toTime = (v) => {
 function jsonRows(text, src) {
   const data = JSON.parse(text);
   if (!src.table) return Array.isArray(data) ? data : [];
-  if (!Array.isArray(data?.[src.table])) throw new Error(`${src.file}: no table ${src.table}`);
-  return data[src.table];
+  return Array.isArray(data?.[src.table]) ? data[src.table] : null;
 }
 
 /** Events of one source: [{customer, type, user, time, object, kind}]. */
 function sourceEvents(src, jobDir) {
   const text = decodeSource(readFileSync(join(jobDir, src.file)), src.encoding);
   const rows = src.format === "csv" ? parseCsv(text, src.file) : jsonRows(text, src);
-  if (!rows.length) throw new Error(`${src.file}: no rows`);
+  if (rows === null) return { events: [], skip: `${src.file}: no table ${src.table}` };
+  if (!rows.length) return { events: [], skip: `${src.file}: no rows` };
   const c = src.columns;
   const typeOf = (r) => (Array.isArray(c.type) ? c.type.map((k) => r[k]).join(":") : r[c.type]);
-  return rows.map((r) => ({ customer: src.customer, type: String(typeOf(r)), user: c.user ? r[c.user] : null, time: c.time ? toTime(r[c.time]) : null, object: c.object ? r[c.object] : null }));
+  return { events: rows.map((r) => ({ customer: src.customer, type: String(typeOf(r)), user: c.user ? r[c.user] : null, time: c.time ? toTime(r[c.time]) : null, object: c.object ? r[c.object] : null })) };
 }
 
 export function readJob(jobFile) {
   const job = JSON.parse(readFileSync(jobFile, "utf8"));
   return { ...job, dir: dirname(jobFile) };
 }
-export const jobEvents = (job) => job.sources.flatMap((s) => sourceEvents(s, job.dir));
+/**
+ * Events of every source. One customer's snapshot without a table, or with no rows, is normal
+ * (`onNote`); a table named by the job but present in no source (typo), or no events at all, throws.
+ */
+export function jobEvents(job, onNote = () => {}) {
+  const results = job.sources.map((s) => ({ s, ...sourceEvents(s, job.dir) }));
+  const events = results.flatMap((r) => r.events);
+  const skips = results.filter((r) => r.skip);
+  if (!events.length) throw new Error(skips.map((r) => r.skip).join("; ") || "no events in any source");
+  const tables = [...new Set(job.sources.map((s) => s.table).filter(Boolean))];
+  const absent = tables.filter((t) => results.filter((r) => r.s.table === t).every((r) => r.skip?.endsWith(`no table ${t}`)));
+  if (absent.length) throw new Error(absent.map((t) => `table ${t} is in no source (check the job)`).join("; "));
+  for (const r of skips) onNote(r.skip);
+  return events;
+}
 
 /** Last token of a type (`error,fix,align` -> `align`): what the code must spell out. */
 export const typeToken = (type) => String(type).split(/[^\w$-]+/).filter(Boolean).at(-1) ?? String(type);

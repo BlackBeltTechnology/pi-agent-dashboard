@@ -19,7 +19,9 @@ windows-1252). Times: epoch ms, epoch s, or ISO strings.
    per-customer counts or file names), `candidates` (app code lines with the token in quotes, up to
    10). Refuses (never naming the value) when a type contains a user/object value or there are more
    than `maxTypes` (job, default 500) distinct types. CSV sources: RFC 4180 (quoted newlines); a
-   row whose cell count differs from the header is an error.
+   row whose cell count differs from the header is an error. One customer's snapshot without a
+   table, or with no rows, prints `note:`; a table present in no source (job typo) or no events at all
+   is an error.
 2. Mapper (`reverse-spec-for-rebuild` `prompts/usage-mapper.md`, agent `rsfr-usage-mapper`) writes
    `diagrams/usage/mapping.json`: `types: [{type, cite, kind: user|auto|repair, actions, useCases}]`,
    `unmapped: [{type, reason}]`. Shared: no customer values.

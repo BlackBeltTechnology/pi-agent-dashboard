@@ -150,7 +150,7 @@ function parseLibs(args) {
 /** Events of a usage job, or the source-reading errors (malformed CSV rows) as gate lines. */
 function loadEvents(job) {
   try {
-    return { events: jobEvents(job), errors: [] };
+    return { events: jobEvents(job, (n) => process.stderr.write(`note: ${n}\n`)), errors: [] };
   } catch (e) {
     return { events: [], errors: [e.message] };
   }

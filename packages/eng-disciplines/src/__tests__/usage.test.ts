@@ -238,6 +238,26 @@ describe("usage evidence", () => {
     const e = run("usage-draft", pkg, app, join(dir, "src", "e-job.json"), join(dir, "e.json"));
     expect(e.code).toBe(1);
     expect(e.stderr).toMatch(/e\.csv: no rows/);
+    // one customer without the table / with no rows is normal: a note, not an error
+    put(dir, "src/mixed-job.json", { sources: [
+      { customer: "A", file: "a_db.json", encoding: "windows-1250", format: "json", table: "log", columns: { type: "type" }, kind: "event" },
+      { customer: "B", file: "b_db.json", format: "json", table: "lllogs", columns: { type: "type" }, kind: "change" },
+      { customer: "A", file: "a_db.json", encoding: "windows-1250", format: "json", table: "lllogs", columns: { type: "type" }, kind: "change" },
+    ] });
+    const m = run("usage-draft", pkg, app, join(dir, "src", "mixed-job.json"), join(dir, "m.json"));
+    expect(m.code).toBe(1);
+    expect(m.stderr).toMatch(/table lllogs is in no source/);
+    put(dir, "src/b2.json", { lllogs: [{ type: "x" }] });
+    put(dir, "src/mixed-job.json", { sources: [
+      { customer: "A", file: "a_db.json", encoding: "windows-1250", format: "json", table: "log", columns: { type: "type" }, kind: "event" },
+      { customer: "B", file: "b2.json", format: "json", table: "lllogs", columns: { type: "type" }, kind: "change" },
+      { customer: "A", file: "a_db.json", encoding: "windows-1250", format: "json", table: "lllogs", columns: { type: "type" }, kind: "change" },
+      { customer: "C", file: "e.csv", format: "csv", columns: { type: "kind" }, kind: "event" },
+    ] });
+    const ok = run("usage-draft", pkg, app, join(dir, "src", "mixed-job.json"), join(dir, "m.json"));
+    expect(ok.code).toBe(0);
+    expect(ok.stderr).toMatch(/note: a_db\.json: no table lllogs/);
+    expect(ok.stderr).toMatch(/note: e\.csv: no rows/);
     symlinkSync(join(app, "gone.js"), join(app, "js", "dead.js"));
     const r = run("usage-draft", pkg, app, job, join(dir, "s.json"));
     rmSync(join(app, "js", "dead.js"));
