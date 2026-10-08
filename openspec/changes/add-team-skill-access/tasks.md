@@ -36,7 +36,7 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 
 ## 7. Bridge (packages/extension) — team-session skill route (design D12)
 
-- [ ] 7.1 `command-handler.ts`: in team-confined sessions, `parseSkillCommand` runs before `parseSendPrompt`; granted names expand via `readTemplate` + `buildSkillBlock`; refusals and read failures emit `prompt_received{fresh:false}` + `command_feedback{status:"error"}` and are never queued; no `expandPromptTemplateFromDisk`; multi-line other `/` text sent verbatim; `sessionPrompt`, flow fast-path, extension dispatch and exec templates unreachable.
+- [x] 7.1 `command-handler.ts`: in team-confined sessions, `parseSkillCommand` runs before `parseSendPrompt`; granted names expand via `readTemplate` + `buildSkillBlock`; refusals and read failures emit `prompt_received{fresh:false}` + `command_feedback{status:"error"}` and are never queued; no `expandPromptTemplateFromDisk`; multi-line other `/` text sent verbatim; `sessionPrompt`, flow fast-path, extension dispatch and exec templates unreachable.
 
 ## 8. Tests (folded from test-plan.md, one task per manifest row)
 
@@ -89,10 +89,10 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 
 ### L1 — bridge (exemplar: `packages/extension/src/__tests__/command-handler.test.ts`, `prompt-expander.test.ts`)
 
-- [ ] 8.36 Test team envelope byte-identity — input `SKILL.md` with frontmatter, args `check it` · trigger team route vs `expandPromptTemplateFromDisk` · observable identical strings, `parseSkillBlock` round-trips (test-plan #E31).
-- [ ] 8.37 Test team routing carve-out — input the ten team-session inputs in the manifest · trigger `send_prompt` · observable granted single send without expansion flag, refusals settled, verbatim multi-line, nothing dispatched/executed; spies on `expandPromptTemplateFromDisk`, `sessionPrompt`, `tryDispatchExtensionCommand`, `tryExecSlashTemplate` never called (test-plan #E32).
-- [ ] 8.38 Test non-team regression — input same inputs without `PI_EXT_TEAM_TOOLS` · trigger `send_prompt` · observable unchanged behavior, existing suite green (test-plan #E33).
-- [ ] 8.39 Test unreadable granted skill — input granted `SKILL.md` deleted after spawn · trigger `/skill:review go` · observable no send, settlement + error feedback, no fallback (test-plan #X1).
+- [x] 8.36 Test team envelope byte-identity — input `SKILL.md` with frontmatter, args `check it` · trigger team route vs `expandPromptTemplateFromDisk` · observable identical strings, `parseSkillBlock` round-trips (test-plan #E31).
+- [x] 8.37 Test team routing carve-out — input the ten team-session inputs in the manifest · trigger `send_prompt` · observable granted single send without expansion flag, refusals settled, verbatim multi-line, nothing dispatched/executed; spies on `expandPromptTemplateFromDisk`, `sessionPrompt`, `tryDispatchExtensionCommand`, `tryExecSlashTemplate` never called (test-plan #E32).
+- [x] 8.38 Test non-team regression — input same inputs without `PI_EXT_TEAM_TOOLS` · trigger `send_prompt` · observable unchanged behavior, existing suite green (test-plan #E33).
+- [x] 8.39 Test unreadable granted skill — input granted `SKILL.md` deleted after spawn · trigger `/skill:review go` · observable no send, settlement + error feedback, no fallback (test-plan #X1).
 
 ### L1 — team-app (exemplar: `packages/team-app/src/__tests__/persona-editor.test.tsx`, `team-grid.test.tsx`, `chat-session.test.tsx`)
 

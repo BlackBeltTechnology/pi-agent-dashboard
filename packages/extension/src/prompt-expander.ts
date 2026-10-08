@@ -170,8 +170,12 @@ function parseFrontmatterBlock(block: string): PromptFrontmatter {
  * Read template content, parsing YAML frontmatter into a typed object and
  * returning the body separately. An unclosed / absent frontmatter block yields
  * empty frontmatter and the whole content as body (graceful fall-back to LLM).
+ * Exported for the team-session `/skill:` route (command-handler.ts), which
+ * must read a granted `<root>/SKILL.md` through the SAME reader so the
+ * envelope bytes match the non-team expansion exactly.
+ * See change: add-team-skill-access (design D12).
  */
-function readTemplate(filePath: string): { frontmatter: PromptFrontmatter; body: string } {
+export function readTemplate(filePath: string): { frontmatter: PromptFrontmatter; body: string } {
   const content = readFileSync(filePath, "utf-8");
   // Capture both the frontmatter block (group 1) and the body (group 2).
   const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);

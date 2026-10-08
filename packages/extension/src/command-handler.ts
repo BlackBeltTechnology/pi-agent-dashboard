@@ -3,7 +3,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { resolveDashboardPorts } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { imageBlockData, imageBlockMime } from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 import { diffOr } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
@@ -12,6 +12,7 @@ import type {
   InboundDropClass,
   ServerToExtensionMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import { buildSkillBlock, parseSkillCommand } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { FileEntry, ImageContent, MissingToolError, PiSessionInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -19,7 +20,7 @@ import { filterHiddenCommands } from "./bridge-context.js";
 import { draftCommitMessage } from "./commit-draft.js";
 import { errText, reportRefresh } from "./model-refresh.js";
 import { killProcessByPgid } from "./process-scanner.js";
-import { expandPromptTemplateFromDisk, loadPromptTemplate } from "./prompt-expander.js";
+import { expandPromptTemplateFromDisk, loadPromptTemplate, readTemplate } from "./prompt-expander.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
 import { filterByEnabledModels } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
@@ -272,6 +273,77 @@ export function isTeamConfinedSession(env: NodeJS.ProcessEnv = process.env): boo
 }
 
 const TEAM_ALLOWED_PARSED: ReadonlySet<ParsedPrompt["type"]> = new Set(["passthrough", "compact", "retry"]);
+
+/**
+ * Outcome of the team-session `/skill:` resolution (design D12,
+ * add-team-skill-access): the text is not a skill command, it expands to the
+ * standard skill envelope, or it is refused.
+ */
+type TeamSkillResolution =
+  | { kind: "not-skill" }
+  | { kind: "envelope"; text: string }
+  | { kind: "refused" };
+
+/**
+ * Parse the effective team skill set from `PI_EXT_TEAM_SKILLS` — the JSON
+ * string `[{name, root}]` the team-plugin spawn always projects (design D7,
+ * add-team-skill-access), `"[]"` when the persona has no skills. Missing,
+ * unparseable or wrong-shaped input ⇒ the empty set (fail closed), matching
+ * the team guard's `policyFromEnv`.
+ */
+function teamSkillPolicy(env: NodeJS.ProcessEnv = process.env): Array<{ name: string; root: string }> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(env.PI_EXT_TEAM_SKILLS ?? "");
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const skills: Array<{ name: string; root: string }> = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") return [];
+    const { name, root } = entry as Record<string, unknown>;
+    if (typeof name !== "string" || !name || typeof root !== "string" || !root) return [];
+    skills.push({ name, root });
+  }
+  return skills;
+}
+
+/**
+ * Resolve a `/skill:<name>` command in a team-confined session (design D12,
+ * add-team-skill-access). A granted name expands from its own granted root —
+ * `readTemplate` + `buildSkillBlock` on `<root>/SKILL.md` — into the standard
+ * envelope, byte-identical to the non-team `expandPromptTemplateFromDisk`
+ * expansion of the same file, so `parseSkillBlock` and the skill card keep
+ * working. Anything else — an ungranted name or an unreadable `SKILL.md` —
+ * is refused: the caller settles the prompt with an error and never queues
+ * it. Never consults the local cwd scan or the pi command registry.
+ */
+function resolveTeamSkill(text: string, env: NodeJS.ProcessEnv = process.env): TeamSkillResolution {
+  const cmd = parseSkillCommand(text);
+  if (!cmd) return { kind: "not-skill" };
+  const granted = teamSkillPolicy(env).find((e) => e.name === cmd.name);
+  if (!granted) return { kind: "refused" };
+  try {
+    const skillMdPath = join(granted.root, "SKILL.md");
+    // `readTemplate` strips frontmatter + trims exactly like pi's own
+    // `_expandSkillCommand`; `buildSkillBlock` reproduces its envelope bytes.
+    const { body } = readTemplate(skillMdPath);
+    return {
+      kind: "envelope",
+      text: buildSkillBlock({
+        name: cmd.name,
+        filePath: skillMdPath,
+        baseDir: dirname(skillMdPath),
+        body,
+        userArgs: cmd.args || undefined,
+      }),
+    };
+  } catch {
+    // Granted file deleted after spawn — no fallback, refuse.
+    return { kind: "refused" };
+  }
+}
 
 /** Parse input text to detect pi internal command prefixes */
 export function parseSendPrompt(text: string): ParsedPrompt {
@@ -557,7 +629,37 @@ export function createCommandHandler(
 
       switch (msg.type) {
         case "send_prompt": {
-          const parsed = parseSendPrompt(msg.text);
+          // Team-confined sessions: the shared parseSkillCommand rule runs
+          // FIRST — before parseSendPrompt routing and before any
+          // streaming/follow-up buffering (design D12, add-team-skill-access).
+          // A granted command expands from its granted root into the standard
+          // envelope and rides the normal delivery routing below; a refused
+          // command (ungranted name, unreadable SKILL.md) settles the
+          // optimistic bubble with an inline error and is never queued.
+          // Team sessions never reach expandPromptTemplateFromDisk, the
+          // extension dispatch, exec templates or sessionPrompt.
+          const teamSkill: TeamSkillResolution = isTeamConfinedSession()
+            ? resolveTeamSkill(msg.text)
+            : { kind: "not-skill" };
+          if (teamSkill.kind === "refused") {
+            options?.eventSink?.({ type: "prompt_received", sessionId, fresh: false });
+            options?.eventSink?.({
+              type: "event_forward",
+              sessionId,
+              event: {
+                eventType: "command_feedback",
+                timestamp: Date.now(),
+                data: { command: "skill", status: "error", message: "skill not available" },
+              },
+            });
+            return undefined;
+          }
+          // A granted team /skill: is forced through the passthrough delivery
+          // tail with the envelope as the outgoing text — never the slash
+          // route (sessionPrompt / extension dispatch / exec templates).
+          const parsed: ParsedPrompt = teamSkill.kind === "envelope"
+            ? { type: "passthrough", text: teamSkill.text }
+            : parseSendPrompt(msg.text);
 
           if (isTeamConfinedSession() && !TEAM_ALLOWED_PARSED.has(parsed.type)) {
             options?.eventSink?.({ type: "prompt_received", sessionId, fresh: false });
@@ -772,8 +874,13 @@ export function createCommandHandler(
           // disarm the latch — they never start a replacement turn.
           // See change: unify-error-retry-lifecycle.
           options?.noteUserPrompt?.();
-          let outgoing = msg.text;
-          if (outgoing.startsWith("/")) {
+          let outgoing = teamSkill.kind === "envelope" ? teamSkill.text : msg.text;
+          if (outgoing.startsWith("/") && !isTeamConfinedSession()) {
+            // Team-confined sessions never resolve templates from disk or the
+            // registry (design D12, add-team-skill-access): their multi-line
+            // `/` text is sent verbatim — only `/skill:` expands (above),
+            // `/compact` keeps its own route, other single-line slashes stay
+            // dropped as before.
             outgoing = expandPromptTemplateFromDisk(outgoing, process.cwd(), pi);
           }
           // Route the prompt based on delivery + streaming state:
