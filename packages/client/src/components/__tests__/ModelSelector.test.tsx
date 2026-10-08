@@ -583,4 +583,16 @@ describe("ModelSelector Role tab", () => {
     expect(screen.getByTestId("model-tab-role").getAttribute("aria-selected")).toBe("true");
     expect(screen.getByTestId("model-tab-model").getAttribute("aria-selected")).toBe("false");
   });
+
+  it("tablist: ArrowRight moves focus with the selection (WAI-ARIA tabs)", async () => {
+    stubRoles(200);
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} allowRoles />);
+    await act(async () => {});
+    open();
+    await act(async () => {});
+    screen.getByTestId("model-tab-model").focus();
+    fireEvent.keyDown(screen.getByRole("tablist"), { key: "ArrowRight" });
+    await act(async () => {});
+    expect(document.activeElement).toBe(screen.getByTestId("model-tab-role"));
+  });
 });

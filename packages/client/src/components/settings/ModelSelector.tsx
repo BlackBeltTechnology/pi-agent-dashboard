@@ -430,7 +430,10 @@ function RoleTabs({ tab, setTab }: { tab: "model" | "role"; setTab: (t: "model" 
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
       e.preventDefault();
-      setTab(tab === "model" ? "role" : "model");
+      const next = tab === "model" ? "role" : "model";
+      setTab(next);
+      // WAI-ARIA tabs: the arrow key moves focus with the selection.
+      e.currentTarget.querySelector<HTMLElement>(`[data-testid="model-tab-${next}"]`)?.focus();
     }
   };
   return (

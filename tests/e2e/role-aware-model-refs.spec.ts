@@ -53,7 +53,11 @@ async function cleanup(page: Page) {
   if (await remove.isVisible().catch(() => false)) await remove.click();
 }
 
-const modelIdOf = (ref: string) => ref.replace(/:(off|minimal|low|medium|high|xhigh|max)$/, "");
+/** `roles-ref-echo` reads "saves provider/id[:level]" — keep only the model id. */
+const modelIdOf = (echo: string) => {
+  const ref = echo.split(/\s+/).find((t) => t.includes("/")) ?? echo;
+  return ref.replace(/:(off|minimal|low|medium|high|xhigh|max)$/, "");
+};
 
 test.describe("role-aware model refs (L3)", () => {
   test("F1 + F4: a bound blackhole slot follows a role change; Model roles lists the usage", async ({ page }) => {
@@ -119,21 +123,24 @@ test.describe("role-aware model refs (L3)", () => {
     page.on("dialog", (d) => d.accept());
     await spawnFreshGitSession(page);
     try {
-      await assignRole(page, "first");
+      const first = modelIdOf(await assignRole(page, "first"));
       await page.goto("/");
       await spawnFreshGitSession(page);
       const trigger = page.getByTestId("model-selector-button").first();
       await trigger.click();
       await page.getByTestId("model-tab-role").click();
       await page.locator(`[data-testid='role-row'][data-role='${ROLE}']`).click();
-      await expect(page.getByTestId("model-via-role")).toContainText(`@${ROLE}`, { timeout: 15_000 });
-      const before = (await trigger.textContent()) ?? "";
+      // The pick resolved once: the chip settles on the role's model at pick time.
+      await expect(trigger).toContainText(first, { timeout: 20_000 });
+      const sessionUrl = page.url();
 
-      await assignRole(page, "last"); // the role now resolves elsewhere
-      await page.goBack().catch(() => {});
+      const second = modelIdOf(await assignRole(page, "last")); // the role now resolves elsewhere
+      test.skip(second === first, "harness catalogue has a single model — cannot observe a change");
+      await page.goto(sessionUrl);
       await page.waitForTimeout(6_000);
-      const after = (await page.getByTestId("model-selector-button").first().textContent()) ?? "";
-      expect(after.split("via")[0]).toBe(before.split("via")[0]);
+      const chip = page.getByTestId("model-selector-button").first();
+      await expect(chip).toContainText(first);
+      await expect(chip).not.toContainText(second);
     } finally {
       await cleanup(page);
     }
