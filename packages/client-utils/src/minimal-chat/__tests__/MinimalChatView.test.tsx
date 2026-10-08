@@ -233,3 +233,37 @@ describe("MinimalChatView", () => {
     }
   });
 });
+
+// See change: stream-subagent-reasoning-and-stable-card (#E7).
+describe("MinimalChatView liveEntry", () => {
+  afterEach(() => cleanup());
+  const three: MinimalChatEntry[] = [
+    { kind: "text", text: "one" },
+    { kind: "error", text: "two" },
+    { kind: "text", text: "three" },
+  ];
+  const tails = [undefined, { kind: "thinking" as const, text: "live-think" }, { kind: "text" as const, text: "live-text" }];
+
+  for (const entries of [[], three]) {
+    for (const liveEntry of tails) {
+      it(`entries=${entries.length} tail=${liveEntry?.kind ?? "none"}`, () => {
+        const { container } = renderView(
+          <MinimalChatView title="a" status="running" entries={entries} liveEntry={liveEntry} emptyMessage="EMPTY" />,
+        );
+        const live = container.querySelector('[data-testid="minimal-live-entry"]');
+        if (liveEntry) {
+          expect(live).not.toBeNull();
+          expect(live!.textContent).toContain(liveEntry.text);
+          expect(live!.textContent?.toLowerCase()).toContain("in progress");
+          expect(live!.getAttribute("data-kind")).toBe(liveEntry.kind);
+          // last child of the body (after finished entries)
+          expect(live!.parentElement!.lastElementChild).toBe(live);
+        } else {
+          expect(live).toBeNull();
+        }
+        const emptyShown = screen.queryByText("EMPTY") !== null;
+        expect(emptyShown).toBe(entries.length === 0 && !liveEntry);
+      });
+    }
+  }
+});

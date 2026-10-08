@@ -10,6 +10,7 @@ A running subagent card in the chat does not look like the main session. It neve
 - **Client reducer:** copies `liveTail` like `activity`. A `kind: "none"` tail means nothing is streaming.
 - **`AgentToolRenderer` (collapsed running card):** a fixed-height activity row that is always rendered (with a placeholder when idle), plus a fixed-height, clamped live-preview line showing `liveTail` styled like the main chat's thinking or text. The card height stays constant while the subagent runs.
 - **`MinimalChatView` (expanded or popout):** renders a non-empty `liveTail` as a trailing in-progress thinking or text entry after the finished entries. It counts as body content, so the "No detail available yet" empty state is suppressed, so reasoning appears without waiting for a resync.
+- **Thinking level on the card (added in apply):** the producer adds `details.thinkingLevel`, the effective level of the child session (`session.thinkingLevel`, falling back to the requested level). The client reads it and shows `thinking <level>` after the model name in the card stats line and the inspector header. The 0.2.6 fix made the level take effect but never surfaced it.
 - The dashboard degrades gracefully: producers without `liveTail` render exactly as today, minus the height jump.
 
 ## Capabilities

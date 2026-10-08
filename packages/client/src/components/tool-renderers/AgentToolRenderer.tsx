@@ -19,11 +19,15 @@
  */
 
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import { SubagentDetailView } from "@blackbelt-technology/pi-dashboard-subagents-plugin/client";
-import { mdiChevronDown, mdiChevronUp, mdiOpenInNew } from "@mdi/js";
+import { currentSentence } from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
+import {
+  SubagentDetailView,
+  type SubagentLiveTail,
+} from "@blackbelt-technology/pi-dashboard-subagents-plugin/client";
+import { mdiChevronDown, mdiChevronUp, mdiHeadLightbulb, mdiOpenInNew, mdiPencil } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSubagentResyncCadence } from "../../hooks/useSubagentResyncCadence.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import {
@@ -50,6 +54,8 @@ interface AgentDetails {
   maxTurns?: number;
   durationMs?: number;
   modelName?: string;
+  /** Effective child thinking level (producer ≥ 0.2.7). */
+  thinkingLevel?: string;
   tags?: string[];
   agentId?: string;
   /**
@@ -58,6 +64,11 @@ interface AgentDetails {
    * deep-link resolves. See change: resolve-subagent-inspector-by-session-id.
    */
   agentSessionId?: string;
+  /**
+   * Bounded tail of the streaming block (producer ≥ 0.2.7); `kind: "none"` =
+   * nothing streaming. See change: stream-subagent-reasoning-and-stable-card.
+   */
+  liveTail?: SubagentLiveTail;
   error?: string;
 }
 
@@ -108,6 +119,7 @@ function mapStatus(details: AgentDetails | undefined, toolStatus: string): strin
 function buildStats(d: AgentDetails): string {
   const parts: string[] = [];
   if (d.modelName) parts.push(d.modelName);
+  if (d.thinkingLevel) parts.push(`thinking ${d.thinkingLevel}`);
   if (d.tags?.length) parts.push(...d.tags);
   if (d.turnCount != null && d.turnCount > 0) {
     parts.push(d.maxTurns != null ? `⟳${d.turnCount}≤${d.maxTurns}` : `⟳${d.turnCount}`);
@@ -115,6 +127,37 @@ function buildStats(d: AgentDetails): string {
   if (d.toolUses != null && d.toolUses > 0) parts.push(`${d.toolUses} tool use${d.toolUses === 1 ? "" : "s"}`);
   if (d.tokens) parts.push(d.tokens);
   return parts.join(" · ");
+}
+
+/**
+ * One-line ticker: right-anchored so the newest words stay visible; the left
+ * edge fades ONLY when the sentence overflows (short text stays crisp).
+ * See change: stream-subagent-reasoning-and-stable-card (card option C).
+ */
+function LiveTicker({ kind, text }: { kind: "thinking" | "text"; text: string }) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [overflow, setOverflow] = useState(false);
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const inner = box?.firstElementChild as HTMLElement | null;
+    if (box && inner) setOverflow(inner.scrollWidth > box.clientWidth);
+  }, [text]);
+  return (
+    <div
+      ref={boxRef}
+      className={`flex-1 min-w-0 flex justify-end overflow-hidden ${
+        overflow ? "[mask-image:linear-gradient(to_right,transparent_0,#000_18%)]" : ""
+      }`}
+    >
+      <span
+        data-testid="agent-live-preview"
+        data-kind={kind}
+        className="min-w-full whitespace-nowrap text-[11px] text-[var(--text-secondary)]"
+      >
+        {text}
+      </span>
+    </div>
+  );
 }
 
 /** Prompt display block */
@@ -313,6 +356,17 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
     },
   });
 
+  // Hold the last non-empty tail so the ticker never blinks out between a
+  // block's end and the next block (or terminal). No extra resync on the clear
+  // edge: the held tail covers the gap and each resync reply is a full-timeline
+  // frame that the store retains (A/B: +47% stored bytes with an open
+  // inspector). See change: stream-subagent-reasoning-and-stable-card.
+  const rawTail = sub?.liveTail ?? details?.liveTail;
+  const heldTail = useRef<{ kind: "thinking" | "text"; text: string } | undefined>(undefined);
+  if (rawTail && rawTail.kind !== "none" && rawTail.text) {
+    heldTail.current = { kind: rawTail.kind, text: rawTail.text };
+  }
+
   // Toggle the inline expanded body; when expanding, resync if stale so the
   // inline timeline hydrates the same way the popout does (previously the
   // inline path skipped resync → "Subagent not found in this session.").
@@ -381,6 +435,10 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
   }
 
   const statsText = buildStats(details);
+  // Session map first (inside `rawTail`): resync replies only update
+  // `session.subagents`. See change: stream-subagent-reasoning-and-stable-card (D9).
+  const shownTail = heldTail.current;
+  const tickerText = shownTail ? currentSentence(shownTail.text) : "";
 
   // --- Running ---
   if (details.status === "running" || details.status === "queued") {
@@ -394,9 +452,25 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
         {description && (
           <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
         )}
-        {details.activity && (
-          <div className="text-[10px] text-[var(--text-tertiary)] mt-1 truncate">▸ {details.activity}</div>
-        )}
+        {/* ONE fixed-height row, ALWAYS mounted (card option C): the sentence
+            being written (kind icon + ticker, left-fade only on overflow), else
+            the activity. Hidden ticker while expanded — the inspector shows the
+            full tail. See change: stream-subagent-reasoning-and-stable-card (D4). */}
+        <div
+          data-testid="agent-activity-row"
+          className="h-4 mt-1 flex items-center gap-1.5 text-[10px] leading-4 text-[var(--text-tertiary)] overflow-hidden"
+        >
+          {!expanded && tickerText ? (
+            <>
+              <span className={`shrink-0 inline-flex ${shownTail?.kind === "thinking" ? "text-purple-400" : ""}`}>
+                <Icon path={shownTail?.kind === "thinking" ? mdiHeadLightbulb : mdiPencil} size={0.45} />
+              </span>
+              <LiveTicker kind={shownTail!.kind} text={tickerText} />
+            </>
+          ) : (
+            <span className="truncate">▸ {details.activity ?? "…"}</span>
+          )}
+        </div>
         {!expanded && promptText && <PromptBlock text={promptText} />}
         {expandedBody}
         {detailDialog}

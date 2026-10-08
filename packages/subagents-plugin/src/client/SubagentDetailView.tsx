@@ -95,6 +95,37 @@ function mapSubagentEntries(entries?: SubagentTimelineEntry[]): MinimalChatEntry
   });
 }
 
+interface HeldTail {
+  kind: "thinking" | "text";
+  text: string;
+  entryCount: number;
+}
+const heldTails = new Map<string, HeldTail>();
+/** Test-only: drop all held tails. */
+export function __resetHeldTailsForTest(): void {
+  heldTails.clear();
+}
+
+/** Live tail, or the last one held until its finished entry has arrived. */
+function heldLiveEntry(
+  sub: SubagentState,
+  isComplete: boolean,
+): { kind: "thinking" | "text"; text: string } | undefined {
+  const count = sub.entries?.length ?? 0;
+  const tail = sub.liveTail;
+  if (tail && tail.kind !== "none" && tail.text) {
+    heldTails.set(sub.id, { kind: tail.kind, text: tail.text, entryCount: count });
+    return { kind: tail.kind, text: tail.text };
+  }
+  const held = heldTails.get(sub.id);
+  if (!held) return undefined;
+  if (isComplete || count > held.entryCount) {
+    heldTails.delete(sub.id);
+    return undefined;
+  }
+  return { kind: held.kind, text: held.text };
+}
+
 export function SubagentDetailView({
   session,
   agentId,
@@ -130,6 +161,14 @@ export function SubagentDetailView({
       />
     );
   }
+
+  // In-progress streaming block (producer ≥ 0.2.7). `kind: "none"` / empty
+  // text = nothing streaming. See change: stream-subagent-reasoning-and-stable-card.
+  // The finished entry reaches the client only on the next resync, while the
+  // tail clears at block end. Hold the last tail until the timeline grows so
+  // the block never blinks out. Hook-free: module Map keyed by agent id; entry is
+  // dropped on completion or once the timeline grows.
+  const liveEntry = heldLiveEntry(sub, isComplete);
 
   // Tier resolution — pick entries / synthesized fallback / empty placeholder.
   let entries: MinimalChatEntry[];
@@ -184,13 +223,18 @@ export function SubagentDetailView({
       onBack={onBack}
       sessionId={sessionId}
       meta={{
-        modelName: sub.modelName,
+        modelName:
+          sub.modelName && sub.thinkingLevel
+            ? `${sub.modelName} · thinking ${sub.thinkingLevel}`
+            : sub.modelName,
         tokens: sub.tokens ? { input: sub.tokens.input, output: sub.tokens.output } : undefined,
         durationMs: isComplete ? sub.durationMs : undefined,
       }}
       emptyMessage={emptyMessage}
       footer={footer}
       activity={sub.activity}
+      liveEntry={liveEntry}
+      expandLastThinking={!isComplete}
     />
   );
 }

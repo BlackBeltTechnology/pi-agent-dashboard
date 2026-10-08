@@ -34,11 +34,19 @@ A running subagent's `activity` SHALL always hold its latest known state. Finish
 
 ### Requirement: The collapsed running card SHALL keep a stable height
 
-The collapsed card of a running subagent SHALL always render its activity row and its live-preview row at fixed heights, whether or not `activity` or `liveTail` is present. The preview row SHALL show `liveTail` clamped to its fixed height, styled as thinking or text to match the main chat.
+The collapsed card of a running subagent SHALL always render one fixed-height activity row, whether or not `activity` or `liveTail` is present. While a tail is shown, the row SHALL show the kind icon and the sentence being written (markdown markers stripped), fading at the left edge only when it overflows; otherwise it SHALL show the activity.
 
-#### Scenario: Resync clears a stale tail on the card
-- **WHEN** the collapsed card shows a tail and a resync reply arrives carrying the cleared tail
-- **THEN** the card's preview row empties
+#### Scenario: Resync tail wins over the tool-call tail
+- **WHEN** the session map holds a tail from a resync reply and the tool-call details hold an older one
+- **THEN** the card's preview row shows the session-map tail
+
+#### Scenario: Finished block stays up until replaced
+- **WHEN** a block ends and its tail clears before the finished entry has reached the client
+- **THEN** the card ticker and the inspector keep showing the last tail, the inspector drops it once the timeline grows, and no extra resync request is sent
+
+#### Scenario: Newest reasoning stays open
+- **WHEN** the inspector shows a running subagent's timeline
+- **THEN** the newest reasoning entry mounts expanded
 
 #### Scenario: Malformed tail is treated as cleared
 - **WHEN** a snapshot carries `liveTail` as an object without a valid `kind`/`text`
@@ -49,8 +57,8 @@ The collapsed card of a running subagent SHALL always render its activity row an
 - **THEN** the collapsed card's rendered height stays the same across all ticks
 
 #### Scenario: Live preview shown
-- **WHEN** a tick carries `liveTail.kind = "thinking"`
-- **THEN** the collapsed card shows the tail text in the thinking style
+- **WHEN** a tick carries `liveTail.kind = "thinking"` with text "Done with that. Now batching ctx calls"
+- **THEN** the card's activity row shows the thinking icon and "Now batching ctx calls"
 
 ### Requirement: The expanded inspector SHALL show the in-progress block
 
@@ -63,6 +71,22 @@ The expanded and popout subagent views SHALL render the current `liveTail` as a 
 #### Scenario: Live entry suppresses the empty state
 - **WHEN** a running subagent has no finished entries and a non-empty `liveTail`
 - **THEN** the inspector shows the in-progress entry and does not show "No detail available yet" 
+
+### Requirement: A running subagent SHALL show its effective thinking level
+
+Once the child session exists, the producer SHALL set `details.thinkingLevel` to the child's effective thinking level. The collapsed card and the inspector header SHALL show it next to the model name. When the field is absent, nothing SHALL render in its place.
+
+#### Scenario: Level shown on the card
+- **WHEN** a running subagent's details carry `modelName = "glm-5.3-flash"` and `thinkingLevel = "high"`
+- **THEN** the card stats line reads `glm-5.3-flash · thinking high …`
+
+#### Scenario: Effective level reported
+- **WHEN** the child session reports a thinking level different from the requested one (clamped)
+- **THEN** `details.thinkingLevel` equals the session's level
+
+#### Scenario: Old producer without the field
+- **WHEN** details carry no `thinkingLevel`
+- **THEN** the stats line has no thinking segment
 
 ### Requirement: The dashboard SHALL degrade gracefully for producers without a live tail
 

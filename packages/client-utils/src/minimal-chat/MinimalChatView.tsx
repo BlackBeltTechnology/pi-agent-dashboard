@@ -26,14 +26,18 @@ import {
   mdiCircle,
   mdiCircleOutline,
   mdiCloseCircle,
+  mdiHeadLightbulb,
+  mdiPencil,
 } from "@mdi/js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { useUiPrimitive, useUiPrimitiveOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type {
   MinimalChatEntry,
+  MinimalChatLiveEntry,
   MinimalChatStatus,
   MinimalChatViewProps,
 } from "./types.js";
+import { plainTail } from "./live-tail-text.js";
 
 // ---- Status visuals ----
 
@@ -197,14 +201,14 @@ function TextEntry({ text }: { text: string }) {
   );
 }
 
-function ThinkingEntry({ text }: { text: string }) {
+function ThinkingEntry({ text, defaultExpanded }: { text: string; defaultExpanded?: boolean }) {
   // Prefer the shell-registered `thinkingBlock` primitive for parity with
   // the main chat view. Falls back to a simple inline rendition when the
   // primitive is not registered.
   // See change: fix-flows-plugin-polish (chat-view parity).
   const ThinkingBlockImpl = useUiPrimitiveOrNull(UI_PRIMITIVE_KEYS.thinkingBlock);
   if (ThinkingBlockImpl) {
-    return <ThinkingBlockImpl content={text} />;
+    return <ThinkingBlockImpl content={text} defaultExpanded={defaultExpanded} />;
   }
   return <FallbackThinkingEntry text={text} />;
 }
@@ -229,6 +233,53 @@ function FallbackThinkingEntry({ text }: { text: string }) {
   );
 }
 
+/**
+ * In-progress block (streaming tail), mock `mockups/live-tail.html`:
+ * main-chat ThinkingBlock header (icon, label, pulsing dots) over a tinted
+ * box at READING size (13px), line breaks kept, newest line at the bottom,
+ * oldest fading out at the top (mask, not a leading "…"), pulse caret.
+ * Thinking = purple rail/tint; writing = neutral, markdown markers stripped
+ * (the tail is a partial block). See change: stream-subagent-reasoning-and-stable-card.
+ */
+function LiveEntry({ entry }: { entry: MinimalChatLiveEntry }) {
+  const isThinking = entry.kind === "thinking";
+  const body = isThinking ? entry.text : plainTail(entry.text);
+  return (
+    <div
+      data-testid="minimal-live-entry"
+      data-kind={entry.kind}
+      className={`border-l-2 pl-3 py-1 ${isThinking ? "border-purple-500/30" : "border-[var(--text-muted)]"}`}
+    >
+      <div className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
+        <span className={`inline-flex ${isThinking ? "text-purple-400" : ""}`}>
+          <Icon path={isThinking ? mdiHeadLightbulb : mdiPencil} size={0.55} />
+        </span>
+        <span>
+          {isThinking ? "Reasoning" : "Writing"}
+          <span className="ml-1 animate-pulse">…</span>
+          <span className="sr-only"> in progress</span>
+        </span>
+      </div>
+      <div
+        className={`mt-1 ml-4 rounded-xl border shadow-md ${
+          isThinking ? "bg-purple-500/5 border-purple-500/10" : "bg-[var(--bg-tertiary)] border-[var(--border-subtle)]"
+        }`}
+      >
+        <div className="max-h-36 overflow-hidden flex flex-col justify-end px-3 py-2 [mask-image:linear-gradient(to_bottom,transparent_0,#000_22%)]">
+          <div className="text-[13px] leading-5 text-[var(--text-secondary)] whitespace-pre-line break-words">
+            {body}
+            <span
+              className={`inline-block w-0.5 h-[0.95em] align-[-0.12em] ml-0.5 animate-pulse ${
+                isThinking ? "bg-purple-400/70" : "bg-[var(--text-tertiary)]"
+              }`}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ErrorEntry({ text }: { text: string }) {
   return <div className="py-1.5 pl-3 text-sm text-red-400">{text}</div>;
 }
@@ -248,6 +299,8 @@ export function MinimalChatView({
   footer,
   activity,
   sessionId,
+  liveEntry,
+  expandLastThinking,
 }: MinimalChatViewProps) {
   // Soft-read formatters — fall back to identity formatting when the
   // primitive registry is partially populated (matches the spec’s
@@ -345,6 +398,16 @@ export function MinimalChatView({
       ? "flex flex-col h-full overflow-hidden"
       : "flex flex-col h-[60vh] overflow-hidden";
 
+  // Newest reasoning entry opens on mount while the producer is live, so a
+  // just-finished block stays readable (main-chat parity). Mount-time only.
+  let lastThinkingIdx = -1;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].kind === "thinking") {
+      lastThinkingIdx = i;
+      break;
+    }
+  }
+
   const defaultEmpty = "No activity yet";
   const empty = emptyMessage ?? defaultEmpty;
 
@@ -357,7 +420,7 @@ export function MinimalChatView({
   // See change: fix-flows-plugin-polish (scrollbar fix).
   const body = (
     <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-0.5">
-      {entries.length === 0 ? (
+      {entries.length === 0 && !liveEntry ? (
         <div className="text-sm text-[var(--text-muted)] py-4 text-center">{empty}</div>
       ) : (
         entries.map((entry, i) => {
@@ -367,7 +430,13 @@ export function MinimalChatView({
             case "text":
               return <TextEntry key={i} text={entry.text} />;
             case "thinking":
-              return <ThinkingEntry key={i} text={entry.text} />;
+              return (
+                <ThinkingEntry
+                  key={i}
+                  text={entry.text}
+                  defaultExpanded={expandLastThinking && i === lastThinkingIdx}
+                />
+              );
             case "error":
               return <ErrorEntry key={i} text={entry.text} />;
             default:
@@ -376,6 +445,7 @@ export function MinimalChatView({
         })
       )}
       {footer}
+      {liveEntry && <LiveEntry entry={liveEntry} />}
     </div>
   );
 

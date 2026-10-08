@@ -409,7 +409,7 @@ export interface InteractiveUiRequest {
 // See change: add-subagent-inspector.
 export type { SubagentState, SubagentTimelineEntry } from "@blackbelt-technology/pi-dashboard-subagents-plugin/client";
 
-import type { SubagentState, SubagentTimelineEntry } from "@blackbelt-technology/pi-dashboard-subagents-plugin/client";
+import type { SubagentLiveTail, SubagentState, SubagentTimelineEntry } from "@blackbelt-technology/pi-dashboard-subagents-plugin/client";
 
 export interface SessionState {
   messages: ChatMessage[];
@@ -516,6 +516,26 @@ export interface SessionState {
   streamingTextFlushed?: boolean;
 }
 
+/** Max chars of a subagent live tail kept in client state. */
+const LIVE_TAIL_MAX = 280;
+const CLEARED_LIVE_TAIL: SubagentLiveTail = { kind: "none", text: "" };
+
+/**
+ * Normalize a wire `details.liveTail`, never rejecting. Any plain object
+ * overwrites: a valid thinking/text tail is kept (text capped at 280), every
+ * other object — sentinel, malformed, future shape — becomes the cleared tail.
+ * Non-objects return undefined (key ignored, prior state kept).
+ * See change: stream-subagent-reasoning-and-stable-card (D8).
+ */
+function readLiveTail(raw: unknown): SubagentLiveTail | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const { kind, text } = raw as Record<string, unknown>;
+  if ((kind === "thinking" || kind === "text") && typeof text === "string") {
+    return { kind, text: text.length > LIVE_TAIL_MAX ? text.slice(-LIVE_TAIL_MAX) : text };
+  }
+  return CLEARED_LIVE_TAIL;
+}
+
 /**
  * Pull optional Phase-2 fields (`entries`, `activity`, `displayName`, model,
  * etc.) from a streamed `AgentDetails`-shaped object. Returns a partial that
@@ -539,8 +559,11 @@ function readSubagentDetails(
     out.entries = details.entries as SubagentTimelineEntry[];
   }
   if (typeof details.activity === "string") out.activity = details.activity;
+  const liveTail = readLiveTail(details.liveTail);
+  if (liveTail) out.liveTail = liveTail;
   if (typeof details.displayName === "string") out.displayName = details.displayName;
   if (typeof details.modelName === "string") out.modelName = details.modelName;
+  if (typeof details.thinkingLevel === "string" && details.thinkingLevel) out.thinkingLevel = details.thinkingLevel;
   if (typeof details.subagentType === "string") out.subagentType = details.subagentType;
   if (typeof details.toolUses === "number") out.toolUses = details.toolUses;
   if (typeof details.durationMs === "number") out.durationMs = details.durationMs;

@@ -108,6 +108,37 @@ test.describe("subagents inspector (L3)", () => {
       beforeBody.storeTrim.collapsedUpdates,
     );
   });
+
+  // F2 (change: stream-subagent-reasoning-and-stable-card) — the collapsed
+  // running card keeps ONE height while the subagent alternates thinking,
+  // tool calls and idle gaps. Sampled every 250 ms for ≥ 5 s while running.
+  test("collapsed running card height is stable while the subagent streams", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await page.keyboard.press("Escape").catch(() => {});
+
+    await sendPrompt(page, "[[faux:subagent-reasoning]] go");
+
+    const activityRow = page.getByTestId("agent-activity-row").first();
+    await expect(activityRow).toBeVisible({ timeout: 60_000 });
+    // The rows' parent is the card body (description + fixed rows + prompt).
+    const body = activityRow.locator("xpath=..");
+
+    const heights: number[] = [];
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      if ((await page.getByTestId("agent-activity-row").count()) === 0) break; // finished
+      const box = await body.boundingBox();
+      if (box) heights.push(Math.round(box.height));
+      await page.waitForTimeout(250);
+    }
+    expect(heights.length).toBeGreaterThanOrEqual(10);
+    expect(new Set(heights).size).toBe(1);
+
+    await expect(page.getByText(/reasoning subagent complete/i).first()).toBeVisible({
+      timeout: 60_000,
+    });
+  });
 });
 
 // F4 (D5 sibling non-interaction, change: reduce-bridge-tick-bandwidth) is now

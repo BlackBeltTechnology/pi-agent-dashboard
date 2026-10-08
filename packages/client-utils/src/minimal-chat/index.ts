@@ -7,8 +7,10 @@
  * See change: extract-minimal-chat-view.
  */
 export { MinimalChatView, statusVisualsFor, extractInputPreview } from "./MinimalChatView.js";
+export { currentSentence, plainTail } from "./live-tail-text.js";
 export type {
   MinimalChatEntry,
+  MinimalChatLiveEntry,
   MinimalChatMeta,
   MinimalChatMode,
   MinimalChatStatus,

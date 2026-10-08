@@ -11,7 +11,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import React from "react";
-import { SubagentDetailView, type SessionStateLike } from "../SubagentDetailView.js";
+import { __resetHeldTailsForTest, SubagentDetailView, type SessionStateLike } from "../SubagentDetailView.js";
 import type { SubagentState } from "../types.js";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 
@@ -31,7 +31,10 @@ function renderWithPrimitives(ui: React.ReactElement) {
 }
 
 describe("SubagentDetailView", () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    __resetHeldTailsForTest();
+  });
 
   it("renders 'not found' when agentId is missing from session", () => {
     renderWithPrimitives(<SubagentDetailView session={emptySession()} agentId="missing" />);
@@ -171,5 +174,106 @@ describe("SubagentDetailView", () => {
     expect(screen.getByText(/Reading docs/)).toBeTruthy();
     // Body content from entries must NOT render in row mode
     expect(screen.queryByText(/should not render in row mode/)).toBeNull();
+  });
+});
+
+// See change: stream-subagent-reasoning-and-stable-card (#E7, #X2).
+describe("SubagentDetailView liveTail", () => {
+  afterEach(() => {
+    cleanup();
+    __resetHeldTailsForTest();
+  });
+  const base: SubagentState = { id: "a1", type: "Explore", description: "d", status: "running" };
+  const three = [
+    { kind: "text" as const, text: "one", ts: 1 },
+    { kind: "text" as const, text: "two", ts: 2 },
+    { kind: "text" as const, text: "three", ts: 3 },
+  ];
+  const tails = [
+    { kind: "none" as const, text: "" },
+    { kind: "thinking" as const, text: "live-think" },
+    { kind: "text" as const, text: "live-text" },
+  ];
+  for (const entries of [[], three]) {
+    for (const liveTail of tails) {
+      it(`entries=${entries.length} tail=${liveTail.kind}`, () => {
+        const { container } = renderWithPrimitives(
+          <SubagentDetailView session={makeSession({ ...base, entries, liveTail })} agentId="a1" />,
+        );
+        const live = container.querySelector('[data-testid="minimal-live-entry"]');
+        if (liveTail.kind === "none") expect(live).toBeNull();
+        else {
+          expect(live).not.toBeNull();
+          expect(live!.textContent).toContain(liveTail.text);
+        }
+        const emptyShown = screen.queryByText(/No detail available yet/) !== null;
+        expect(emptyShown).toBe(entries.length === 0 && liveTail.kind === "none");
+      });
+    }
+  }
+
+  it("#X2 0.2.6-shaped state (no liveTail) renders as before", () => {
+    const { container } = renderWithPrimitives(
+      <SubagentDetailView session={makeSession({ ...base, entries: three })} agentId="a1" />,
+    );
+    expect(container.querySelector('[data-testid="minimal-live-entry"]')).toBeNull();
+    expect(screen.getByText(/three/)).toBeTruthy();
+  });
+});
+
+// See change: stream-subagent-reasoning-and-stable-card (task 5.3).
+describe("SubagentDetailView thinking level", () => {
+  afterEach(() => {
+    cleanup();
+    __resetHeldTailsForTest();
+  });
+  it("shows the level next to the model in the header", () => {
+    renderWithPrimitives(
+      <SubagentDetailView
+        session={makeSession({ id: "a1", type: "Explore", description: "d", status: "running", modelName: "glm", thinkingLevel: "high" })}
+        agentId="a1"
+      />,
+    );
+    expect(screen.getByText("glm · thinking high")).toBeTruthy();
+  });
+});
+
+// Block end → finished entry arrives later (next resync). The tail must stay
+// up meanwhile, then hand off to the finished entry without a gap.
+describe("SubagentDetailView tail hand-off", () => {
+  afterEach(() => {
+    cleanup();
+    __resetHeldTailsForTest();
+  });
+  const base: SubagentState = { id: "a1", type: "Explore", description: "d", status: "running" };
+  const one = [{ kind: "text" as const, text: "one", ts: 1 }];
+  const view = (sub: SubagentState) => <SubagentDetailView session={makeSession(sub)} agentId="a1" />;
+
+  it("keeps the last tail while cleared and no new entry has arrived, drops it once entries grow", () => {
+    const { container, rerender } = renderWithPrimitives(view({ ...base, entries: one, liveTail: { kind: "thinking", text: "deep thought" } }));
+    const live = () => container.querySelector('[data-testid="minimal-live-entry"]');
+    expect(live()?.textContent).toContain("deep thought");
+    rerender(withUiPrimitiveProvider({ "ui:markdown-content": MockMarkdown }, view({ ...base, entries: one, liveTail: { kind: "none", text: "" } })));
+    expect(live()?.textContent).toContain("deep thought");
+    rerender(
+      withUiPrimitiveProvider(
+        { "ui:markdown-content": MockMarkdown },
+        view({ ...base, entries: [...one, { kind: "thinking", text: "deep thought full", ts: 2 }], liveTail: { kind: "none", text: "" } }),
+      ),
+    );
+    expect(live()).toBeNull();
+  });
+
+  it("opens the newest reasoning entry while running", () => {
+    const Thinking = (p: { content: string; defaultExpanded?: boolean }) => (
+      <div data-testid="tb" data-expanded={String(Boolean(p.defaultExpanded))}>{p.content}</div>
+    );
+    const { getAllByTestId } = render(
+      withUiPrimitiveProvider(
+        { "ui:markdown-content": MockMarkdown, "ui:thinking-block": Thinking },
+        view({ ...base, entries: [{ kind: "thinking", text: "old", ts: 1 }, { kind: "text", text: "x", ts: 2 }, { kind: "thinking", text: "new", ts: 3 }] }),
+      ),
+    );
+    expect(getAllByTestId("tb").map((e) => e.getAttribute("data-expanded"))).toEqual(["false", "true"]);
   });
 });
