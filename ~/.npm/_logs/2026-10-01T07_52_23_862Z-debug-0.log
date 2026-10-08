@@ -1,0 +1,24 @@
+0 verbose cli /Users/bmiller/.nvm/versions/node/v26.9.0/bin/node /Users/bmiller/.nvm/versions/node/v26.9.0/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@11.19.1
+2 info using node@v26.9.0
+3 silly config load:file:/Users/bmiller/.nvm/versions/node/v26.9.0/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/bmiller/Projects/Pi-Packages/pi-agent-dashboard/.worktrees/os-add-multi-user-identity-plane/.npmrc
+5 silly config load:file:/Users/bmiller/Projects/Pi-Packages/pi-agent-dashboard/.worktrees/os-add-multi-user-identity-plane/~/.npmrc
+6 silly config load:file:/Users/bmiller/.nvm/versions/node/v26.9.0/etc/npmrc
+7 verbose title npm exec vitest run src/server/__tests__/supervisor
+8 verbose argv "exec" "--" "vitest" "run" "src/server/__tests__/supervisor"
+9 verbose logfile logs-max:10 dir:/Users/bmiller/Projects/Pi-Packages/pi-agent-dashboard/.worktrees/os-add-multi-user-identity-plane/~/.npm/_logs/2026-10-01T07_52_23_862Z-
+10 verbose logfile /Users/bmiller/Projects/Pi-Packages/pi-agent-dashboard/.worktrees/os-add-multi-user-identity-plane/~/.npm/_logs/2026-10-01T07_52_23_862Z-debug-0.log
+11 silly logfile done cleaning log files
+12 http fetch GET 200 https://registry.npmjs.org/npm 113ms
+13 verbose cwd /Users/bmiller/Projects/Pi-Packages/pi-agent-dashboard/.worktrees/os-add-multi-user-identity-plane
+14 verbose os Darwin 25.2.0
+15 verbose node v26.9.0
+16 verbose npm  v11.19.1
+17 notice
+17 notice New major version of npm available! 11.19.1 -> 12.2.0
+17 notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+17 notice To update run: npm install -g npm@12.2.0
+17 notice  { force: true, Symbol(proc-log.meta): true }
+18 verbose exit 1
+19 verbose code 1

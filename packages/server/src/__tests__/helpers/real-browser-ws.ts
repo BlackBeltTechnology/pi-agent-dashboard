@@ -31,6 +31,7 @@ export async function startRealBrowserWs(browserPingIntervalMs?: number): Promis
     undefined, undefined, undefined, undefined, undefined, undefined, undefined,
     undefined, undefined, undefined, undefined, undefined, undefined, undefined,
     undefined, undefined, undefined, undefined, undefined, undefined,
+    undefined, undefined, // pendingPrincipalOwnerRegistry, isResolverActive (identity plane)
     browserPingIntervalMs,
   );
   const server = http.createServer();

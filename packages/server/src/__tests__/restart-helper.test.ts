@@ -2,8 +2,11 @@
  * Tests for the cross-platform restart orchestrator.
  * See change: fix-windows-server-parity.
  */
-import { describe, it, expect } from "vitest";
-import { buildOrchestratorScript } from "../spawn-process/restart-helper.js";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, it, expect, vi } from "vitest";
+import { buildOrchestratorScript, buildRestartEnv, spawnRestart } from "../spawn-process/restart-helper.js";
 
 describe("buildOrchestratorScript", () => {
   const baseParams = {
@@ -38,6 +41,20 @@ describe("buildOrchestratorScript", () => {
     expect(script).toMatch(/"\/tmp\/cli\.ts"/);
     expect(script).not.toContain(JSON.stringify("file:///tmp/cli.ts"));
     expect(script).toMatch(/"start"/);
+  });
+
+  // E19 — restart keeps the running loader; PI_DASHBOARD_TS_LOADER (unset →
+  // native) is never consulted. See change: fix-appimage-cold-boot-latency.
+  it("E19: re-uses the given jiti loader even when the env would select native", () => {
+    vi.stubEnv("PI_DASHBOARD_TS_LOADER", undefined as unknown as string);
+    try {
+      const script = buildOrchestratorScript({ ...baseParams, loader: "file:///j/jiti/lib/jiti-register.mjs" });
+      const args = JSON.parse(script.match(/const ARGS = (\[.*\]);/)![1]!) as string[];
+      expect(args.slice(0, 2)).toEqual(["--import", "file:///j/jiti/lib/jiti-register.mjs"]);
+      expect(script).not.toContain("native-ts-register");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("omits --import when loader is empty", () => {
@@ -270,5 +287,111 @@ describe("buildOrchestratorScript — gateway port preservation", () => {
   it("omits --pi-port when unspecified, leaving pre-existing callers unchanged", () => {
     const script = buildOrchestratorScript(baseParams);
     expect(script).not.toMatch(/"--pi-port"/);
+  });
+});
+
+// ── Ceiling re-stamp (design D5) ────────────────────────────────────────────
+// The respawn re-reads the configured ceiling, so `/api/restart` both keeps
+// it and applies an edit made since boot — without shadowing an operator pin.
+// See change: guard-server-heap-and-store-coupling (test-plan #E11 #E12 #X9).
+
+const { execSpawn } = vi.hoisted(() => ({
+  execSpawn: vi.fn(() => ({ unref: () => {} })),
+}));
+vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/exec.js", async (orig) => ({
+  ...(await orig<typeof import("@blackbelt-technology/pi-dashboard-shared/platform/exec.js")>()),
+  spawn: execSpawn,
+}));
+
+const MARKER = "PI_DASHBOARD_HEAP_FLAG";
+
+describe("buildRestartEnv — ceiling survives /api/restart", () => {
+  it("E11: carries the configured ceiling on an unchanged config", () => {
+    const env = buildRestartEnv(
+      { NODE_OPTIONS: "--max-old-space-size=1536", [MARKER]: "--max-old-space-size=1536" },
+      1536,
+    );
+    expect(env.NODE_OPTIONS).toBe("--max-old-space-size=1536");
+    expect(env[MARKER]).toBe("--max-old-space-size=1536");
+  });
+
+  it("E11: stamps a server that booted without one (e.g. no wrapper)", () => {
+    const env = buildRestartEnv({ PATH: "/usr/bin" }, 1536);
+    expect(env.NODE_OPTIONS).toBe("--max-old-space-size=1536");
+    expect(env.PATH).toBe("/usr/bin");
+  });
+
+  it("E12: adopts a ceiling edited since boot, with no duplicate token", () => {
+    const env = buildRestartEnv(
+      { NODE_OPTIONS: "--enable-source-maps --max-old-space-size=1536", [MARKER]: "--max-old-space-size=1536" },
+      2048,
+    );
+    expect(env.NODE_OPTIONS).toBe("--enable-source-maps --max-old-space-size=2048");
+    expect(env[MARKER]).toBe("--max-old-space-size=2048");
+  });
+
+  it("X9: leaves an operator pin untouched and adds nothing", () => {
+    const env = buildRestartEnv({ NODE_OPTIONS: "--max_old_space_size=4096" }, 2048);
+    expect(env.NODE_OPTIONS).toBe("--max_old_space_size=4096");
+    expect(env).not.toHaveProperty(MARKER);
+  });
+
+  it("does not mutate the caller's env", () => {
+    const base = { NODE_OPTIONS: "--enable-source-maps" };
+    buildRestartEnv(base, 1536);
+    expect(base).toEqual({ NODE_OPTIONS: "--enable-source-maps" });
+  });
+});
+
+/** Run `fn` with `~/.pi/dashboard/config.json` set to `config`, restoring the prior file after. */
+function withDashboardConfig<T>(config: unknown, fn: () => T): T {
+  const dir = path.join(os.homedir(), ".pi", "dashboard");
+  const configFile = path.join(dir, "config.json");
+  const prior = existsSync(configFile) ? readFileSync(configFile, "utf-8") : null;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(configFile, JSON.stringify(config));
+  try {
+    return fn();
+  } finally {
+    if (prior === null) rmSync(configFile, { force: true });
+    else writeFileSync(configFile, prior);
+  }
+}
+
+describe("spawnRestart re-reads config.json at restart time", () => {
+  it("E12: the orchestrator env carries the ceiling from the CURRENT config file", () => {
+    vi.stubEnv("NODE_OPTIONS", "--max-old-space-size=1536");
+    vi.stubEnv(MARKER, "--max-old-space-size=1536");
+    try {
+      withDashboardConfig({ serverHeap: { maxOldSpaceMb: 3072 } }, () =>
+        spawnRestart({ cliPath: "/tmp/cli.ts", loader: "", port: 8000, extraArgs: [], execPath: "/usr/bin/node" }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const opts = (execSpawn.mock.calls.at(-1) as unknown[])[2] as { env: Record<string, string> };
+    expect(opts.env.NODE_OPTIONS).toBe("--max-old-space-size=3072");
+    expect(opts.env[MARKER]).toBe("--max-old-space-size=3072");
+  });
+
+  // Orchestrator env = buildRestartEnv(process.env, ceiling): the ceiling replaces
+  // a stale NODE_OPTIONS pin of ours and other keys are copied (test-plan #E17).
+  // See change: cleanup-stale-fork-specs.
+  it("E17: the spawn env equals buildRestartEnv(process.env, configured ceiling)", () => {
+    vi.stubEnv("NODE_OPTIONS", "--max-old-space-size=1024");
+    vi.stubEnv(MARKER, "--max-old-space-size=1024");
+    let expected: Record<string, string | undefined>;
+    try {
+      expected = buildRestartEnv(process.env, 4096);
+      withDashboardConfig({ serverHeap: { maxOldSpaceMb: 4096 } }, () =>
+        spawnRestart({ cliPath: "/tmp/cli.ts", loader: "", port: 8000, extraArgs: [], execPath: "/usr/bin/node" }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const opts = (execSpawn.mock.calls.at(-1) as unknown[])[2] as { env: Record<string, string> };
+    expect(opts.env).toEqual(expected);
+    expect(opts.env.NODE_OPTIONS).toContain("--max-old-space-size=4096");
+    expect(opts.env.NODE_OPTIONS).not.toContain("1024");
   });
 });

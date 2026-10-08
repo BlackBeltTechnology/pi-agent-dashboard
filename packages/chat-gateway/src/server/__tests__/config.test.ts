@@ -18,6 +18,25 @@ describe("resolveConfig", () => {
     expect(cfg.defaultCwd).toBeUndefined();
   });
 
+  it('sessionVisibility defaults to "hidden"; only "shown" opts out', () => {
+    expect(resolveConfig({}).sessionVisibility).toBe("hidden");
+    expect(resolveConfig({ sessionVisibility: "shown" }).sessionVisibility).toBe("shown");
+    // biome-ignore lint/suspicious/noExplicitAny: malformed-input probe
+    expect(resolveConfig({ sessionVisibility: "bogus" as any }).sessionVisibility).toBe("hidden");
+  });
+
+  it("threadPerConversation defaults to true; only an explicit false turns it off", () => {
+    expect(resolveConfig({}).threadPerConversation).toBe(true);
+    expect(resolveConfig({ threadPerConversation: false }).threadPerConversation).toBe(false);
+  });
+
+  it("mirrorDashboardSessions defaults to false; only an explicit true turns it on", () => {
+    expect(resolveConfig({}).mirrorDashboardSessions).toBe(false);
+    // biome-ignore lint/suspicious/noExplicitAny: malformed-input probe
+    expect(resolveConfig({ mirrorDashboardSessions: "yes" as any }).mirrorDashboardSessions).toBe(false);
+    expect(resolveConfig({ mirrorDashboardSessions: true }).mirrorDashboardSessions).toBe(true);
+  });
+
   it("is total on undefined and non-object input", () => {
     expect(() => resolveConfig(undefined)).not.toThrow();
     // biome-ignore lint/suspicious/noExplicitAny: malformed-input probe

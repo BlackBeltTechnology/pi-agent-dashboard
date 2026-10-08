@@ -32,6 +32,7 @@ export const ModelSelectorPrimitive: React.FC<UiModelSelectorProps> = (props) =>
       models={props.models}
       onSelect={props.onSelect}
       placeholder={props.placeholder}
+      allowRoles={props.allowRoles}
       favorites={cfg?.favorites}
       onToggleFavorite={cfg ? cfg.toggleFavorite : undefined}
       onRefresh={cfg ? cfg.refreshModels : undefined}

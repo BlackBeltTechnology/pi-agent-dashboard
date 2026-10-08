@@ -4,7 +4,10 @@
  * Creates a ServerPluginContext scoped to a specific plugin id,
  * with a namespaced logger and typed config accessors.
  */
+import { paneTabPrefixOf } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
+import { isAbsolute } from "node:path";
 import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { BrowserLoginConfig, HostAccessPolicyFn, HostResource, Principal, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
@@ -166,6 +169,12 @@ export interface PluginSessionLifecycle {
   recover?: boolean;
   /** `true` finalizes the session on socket close (no reconnect grace). */
   finalizeOnSocketClose?: boolean;
+  /**
+   * `true` hides the owned session from the board on its FIRST register (same
+   * `hidden` flag the headless auto-hide sets; revealed by "show hidden").
+   * Never re-applied on reattach. See change: hide-chat-gateway-sessions.
+   */
+  hidden?: boolean;
 }
 
 /**
@@ -246,6 +255,19 @@ export interface PluginSpawnOptions {
      * filesystem paths, for which every delimiter is unsafe (design D8).
      */
     extensionConfig?: Record<string, Record<string, string | string[]>>;
+    /**
+     * Repeatable → `--append-system-prompt <path>` per entry. ABSOLUTE paths
+     * only (pi treats a non-existent path as literal prompt text). Rendered by
+     * pi as base-option `addendum`, so it survives the bridge's per-turn
+     * splice in any load order. See change: add-team-plugin (D12).
+     */
+    appendSystemPrompt?: string[];
+    /** `--no-context-files` (bare toggle): skip AGENTS.md/CLAUDE.md discovery. */
+    noContextFiles?: boolean;
+    /** `--no-approve` (bare toggle): skip trust-gated project `.pi/` resources. */
+    noProjectTrust?: boolean;
+    /** `--session-dir <abs path>`; relative / empty / NUL ⇒ dropped. */
+    sessionDir?: string;
   };
 
   /**
@@ -312,6 +334,12 @@ function isSafeArgvString(v: unknown): v is string {
 function sanitizeArgvList(v: unknown): string[] | undefined {
   if (!Array.isArray(v)) return undefined;
   return v.filter(isSafeArgvString);
+}
+
+/** Like {@link sanitizeArgvList} but keeps only ABSOLUTE paths (add-team-plugin D12). */
+function sanitizeAbsolutePathList(v: unknown): string[] | undefined {
+  const list = sanitizeArgvList(v);
+  return list?.filter((p) => isAbsolute(p));
 }
 
 /** A NUL-free string (empty allowed — env values may legitimately be empty). */
@@ -405,6 +433,14 @@ export function pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpa
     if (extensions) result.extensions = extensions;
     const extensionConfig = sanitizeExtensionConfig(scope.extensionConfig);
     if (extensionConfig) result.extensionConfig = extensionConfig;
+    // add-team-plugin (D12): absolute-path-only, boolean-only.
+    const append = sanitizeAbsolutePathList(scope.appendSystemPrompt);
+    if (append && append.length > 0) result.appendSystemPrompt = append;
+    if (scope.noContextFiles === true) result.noContextFiles = true;
+    if (scope.noProjectTrust === true) result.noProjectTrust = true;
+    if (isSafeArgvString(scope.sessionDir) && isAbsolute(scope.sessionDir)) {
+      result.sessionDir = scope.sessionDir;
+    }
   }
   return result;
 }
@@ -476,6 +512,23 @@ export type RenameSessionFn = (sessionId: string, name: string) => boolean;
  * the old value so a restart rehydrates it). An `undefined` value clears the
  * key at each layer touched. Returns `false` for an untrusted caller or an
  * unknown session. See change: relocate-goal-product-to-plugin (D1-#5).
+ *
+ * Durability: persisted keys (spawn `pluginRef` and `persist !== false`) are
+ * kept in the core-owned bag `session.pluginRefs[<pluginId>]`, which survives
+ * the routine `.meta.json` rewrite, a dashboard restart and a bridge reattach,
+ * and is re-projected onto the session top level. Key ownership
+ * (first-writer-wins) is rebuilt from it on restart. Per plugin the bag must be
+ * JSON-plain (no functions, cycles or class instances) and ≤ 16 KB; a write
+ * breaking either is dropped for that plugin only (warn). `pluginRefs` itself
+ * is a reserved key. Out-of-process readers of `.meta.json` find a plugin's
+ * keys under `pluginRefs.<pluginId>`.
+ *
+ * Identity: `principalOwner` is deliberately NOT reserved. A trusted plugin
+ * may set it (e.g. to spawn on behalf of a signed-in user), with the same
+ * first-writer-wins rule across plugins; it persists and survives a restart.
+ * This can replace an owner stamped by the browser spawn road, so a plugin
+ * setting it takes responsibility for having authorized that user. Pinned by
+ * `plugin-ref-persistence.test.ts`. See change: add-multi-user-identity-plane.
  */
 export type AssignSessionRefFn = (
   sessionId: string,
@@ -519,6 +572,20 @@ export interface PluginSpawnResult {
 export type SpawnSessionFn = (opts: PluginSpawnOptions) => Promise<PluginSpawnResult>;
 
 /**
+ * Register a spawn-env contributor (EXPERIMENTAL). A synchronous function
+ * returning env vars the dashboard adds to every pi session it spawns. Trusted
+ * plugins only (same test as `spawnSession`); untrusted get a no-op. The host
+ * validates names/values, never overrides an inherited variable, skips the
+ * contributor while the plugin is disabled, and skips throwing contributors.
+ * `opts.supersede` names a provenance marker env var plus the names the host
+ * may delete when the marker lists them. See change: add-context-mode-settings-plugin.
+ */
+export type RegisterSpawnEnvContributorFn = (
+  fn: (ctx: { mechanism: "headless" | "tmux" | "wt" | "wsl-tmux" }) => Record<string, string>,
+  opts?: { supersede?: { marker: string; names: readonly string[] } },
+) => () => void;
+
+/**
  * Abort a running pi session by id. Gated to first-party / trusted plugins by
  * the host (same trust gate as `spawnSession`): untrusted plugins receive a
  * hook that returns `false` without sending anything. Returns `true` when the
@@ -526,6 +593,15 @@ export type SpawnSessionFn = (opts: PluginSpawnOptions) => Promise<PluginSpawnRe
  * See change: automation-ui-mockup-parity.
  */
 export type AbortSessionFn = (sessionId: string) => boolean;
+
+/**
+ * End a session exactly like the dashboard's Shutdown control (same host body:
+ * process terminated for any spawn strategy, manual-close liveness written,
+ * unregistered + broadcast). Gated to first-party / trusted plugins like
+ * `abortSession`: untrusted plugins get a hook that resolves `false`. Resolves
+ * `false` for an unknown session. See change: chat-gateway-close-command.
+ */
+export type ShutdownSessionFn = (sessionId: string) => Promise<boolean>;
 
 /**
  * Terminate a plugin-spawned driver session (generic kill primitive shared by
@@ -786,6 +862,16 @@ export type ListWorkspacesFn = () => PluginWorkspace[];
  */
 export type OnWorkspacesChangedFn = (handler: () => void) => () => void;
 
+/**
+ * Ask every dashboard client viewing `sessionId` to open (or focus) a plugin
+ * tab. Accepted only when `path`'s prefix is one of the CALLING plugin's own
+ * `editor-pane-tab` claims; otherwise throws `Error` and nothing is broadcast.
+ * On acceptance broadcasts `editor_tab_open {sessionId, path}`; clients act
+ * only while on that session's chat/editor route.
+ * See change: add-browser-editor-pane-tab (D5).
+ */
+export type OpenEditorTabFn = (sessionId: string, path: string) => void;
+
 /** Full ServerPluginContext API exposed to plugin server entries. */
 export interface ServerPluginContext {
   fastify: FastifyInstance;
@@ -834,11 +920,22 @@ export interface ServerPluginContext {
    */
   spawnSession: SpawnSessionFn;
   /**
+   * Contribute env vars to dashboard-spawned sessions. Trusted-gated and
+   * OPTIONAL (absent on hosts that do not wire it). Experimental.
+   * See change: add-context-mode-settings-plugin.
+   */
+  registerSpawnEnvContributor?: RegisterSpawnEnvContributorFn;
+  /**
    * Abort a running session. Gated to first-party/trusted plugins; untrusted
    * plugins get a hook that returns `false`. See change:
    * automation-ui-mockup-parity.
    */
   abortSession: AbortSessionFn;
+  /**
+   * End a session like the dashboard's Shutdown control. Trusted plugins
+   * only; untrusted ⇒ resolves `false`. See change: chat-gateway-close-command.
+   */
+  shutdownSession: ShutdownSessionFn;
   /**
    * Terminate an automation run's spawned session (Stop + completion).
    * Gated to first-party/trusted plugins; untrusted plugins get a hook that
@@ -904,6 +1001,8 @@ export interface ServerPluginContext {
    * Optional. See change: expose-plugin-credential-and-oauth-seams (D7).
    */
   registerPiRequestHandler?: RegisterPiRequestHandlerFn;
+  /** Open a plugin tab for a session's viewers (own prefix only). See `OpenEditorTabFn`. */
+  openEditorTab: OpenEditorTabFn;
   /**
    * Mint a fresh spawn-correlation token (trusted-gated). See change:
    * relocate-goal-product-to-plugin (D1-#1).
@@ -944,7 +1043,80 @@ export interface ServerPluginContext {
    * change: add-browser-relay (D1).
    */
   registerWsRoute(scope: string, opts: WsRouteRegistration): void;
+  /**
+   * Register a principal resolver for the identity plane. Host-trust-gated
+   * (bundled `keycloak-resolver` or a plugin named in
+   * `identity.trustedResolverPlugins`); an untrusted plugin receives a no-op
+   * registrar that registers nothing and returns an inert unregister handle.
+   * Returns an unregister handle. See openspec: add-multi-user-identity-plane
+   * (D4). Optional — absent on hosts that do not wire the identity plane.
+   */
+  registerPrincipalResolver?: RegisterPrincipalResolverFn;
+  /**
+   * Register THIS plugin's host access policy (identity plane, D9). Accepted
+   * only from the plugin named in `identity.trustedPolicyPlugin`; any other
+   * plugin receives a no-op registrar. Governs only NON-session host roads;
+   * session roads are owner-gated regardless. Optional — absent on hosts that
+   * do not wire the identity plane. See openspec: add-multi-user-identity-plane.
+   */
+  registerHostAccessPolicy?: RegisterHostAccessPolicyFn;
+  /**
+   * Publish THIS plugin's browser login descriptor (identity plane, D16).
+   * Accepted only from a trusted resolver plugin; any other plugin receives a
+   * no-op registrar. Optional — absent when the host does not wire the identity
+   * plane. See openspec: add-multi-user-identity-plane.
+   */
+  registerBrowserLoginConfig?: RegisterBrowserLoginConfigFn;
+  /** Identity consumer seam (D24). Optional — absent when the host does not wire the identity plane. */
+  identity?: PluginIdentitySeam;
   logger: PluginLogger;
+}
+
+/**
+ * Host capability to register a principal resolver (identity plane, D4).
+ * Injected by the server; the host owns the trust decision and the registry.
+ */
+export type RegisterPrincipalResolverFn = (
+  resolve: PrincipalResolverFn,
+  options?: { active?: boolean; clockSkewSeconds?: number },
+) => () => void;
+
+/**
+ * Host capability to register the single host access policy (identity plane,
+ * D9). Injected by the server; the host owns the trust decision and the
+ * registry. Returns an unregister handle.
+ */
+export type RegisterHostAccessPolicyFn = (authorize: HostAccessPolicyFn) => () => void;
+
+/**
+ * Host capability for a TRUSTED resolver plugin to publish its browser login
+ * descriptor (identity plane, D16). The server binds the plugin id + trust
+ * decision and stamps `pluginId` on the descriptor; the plugin passes only
+ * `{ issuer, clientId }`. Relayed by `GET /api/identity/login-config`. Optional
+ * — absent when the host does not wire the identity plane.
+ */
+export type RegisterBrowserLoginConfigFn = (
+  config: Omit<BrowserLoginConfig, "pluginId">,
+) => () => void;
+
+/**
+ * Plugin CONSUMER seam for the identity plane (D24, 18.27): read the caller's
+ * principal, ask the ONE host policy, store per-user data. Host-bound per
+ * plugin (the id namespaces `authorize` actions as `plugin:<id>:<action>` and
+ * the `userDataDir`). Optional — absent when the host does not wire identity.
+ * See openspec: add-multi-user-identity-plane.
+ */
+export interface PluginIdentitySeam {
+  /** Identity enforced (D21 latch)? */
+  isEnforced(): boolean;
+  /** The frozen principal the host resolved on a plugin HTTP route, else null. */
+  principalOf(request: unknown): Principal | null;
+  /** The principal behind a plugin WS upgrade's `Authorization` credential, else null. */
+  principalOfUpgrade(request: import("node:http").IncomingMessage): Promise<Principal | null>;
+  /** Ask the ONE trusted policy; the host namespaces `action` as `plugin:<id>:<action>`. No policy ⇒ true. */
+  authorize(principal: Principal, action: string, resource: HostResource): Promise<boolean>;
+  /** Per-user storage `<plugin data>/users/<sha256(iss,sub)>` (created 0700). */
+  userDataDir(principal: Principal): string;
 }
 
 /** Dependencies injected by the server to construct a ServerPluginContext. */
@@ -964,7 +1136,10 @@ export interface ServerContextDeps {
   emitEventToSession: EmitEventToSessionFn;
   sendExtensionMessage: SendExtensionMessageFn;
   spawnSession: SpawnSessionFn;
+  registerSpawnEnvContributor?: RegisterSpawnEnvContributorFn;
   abortSession: AbortSessionFn;
+  /** Optional: hosts without it give plugins a refusing no-op. */
+  shutdownSession?: ShutdownSessionFn;
   abortSpawnedRun: AbortSpawnedRunFn;
   registerCwdPolicy: RegisterCwdPolicyFn;
   unregisterCwdPolicy: UnregisterCwdPolicyFn;
@@ -995,6 +1170,29 @@ export interface ServerContextDeps {
   networkGuard: PluginNetworkGuard;
   /** Subscribe to server shutdown. See change: relocate-goal-product-to-plugin. */
   onShutdown: OnShutdownFn;
+  /**
+   * Register a principal resolver for THIS plugin (identity plane, D4). The
+   * server binds the plugin id + manifest priority + trust decision; the
+   * plugin-facing signature is just `(resolve) => unregister`. Optional —
+   * absent when the host does not wire the identity plane.
+   */
+  registerPrincipalResolver?: RegisterPrincipalResolverFn;
+  /**
+   * Register THIS plugin's host access policy (identity plane, D9). The server
+   * binds the plugin id + trust decision; the plugin-facing signature is just
+   * `(authorize) => unregister`. Optional — absent when the host does not wire
+   * the identity plane.
+   */
+  registerHostAccessPolicy?: RegisterHostAccessPolicyFn;
+  /**
+   * Publish THIS plugin's browser login descriptor (identity plane, D16). The
+   * server binds the plugin id + trust decision + stamps `pluginId`; the
+   * plugin-facing signature is `({ issuer, clientId }) => unregister`. Optional
+   * — absent when the host does not wire the identity plane.
+   */
+  registerBrowserLoginConfig?: RegisterBrowserLoginConfigFn;
+  /** Identity consumer seam, bound to this plugin by the host (D24, 18.27). */
+  identity?: PluginIdentitySeam;
   /** Workspace seam (optional on test hosts; the context defaults it). See change: add-chat-gateway-team-controls. */
   listWorkspaces?: ListWorkspacesFn;
   onWorkspacesChanged?: OnWorkspacesChangedFn;
@@ -1006,8 +1204,18 @@ export interface ServerContextDeps {
 export function createServerPluginContext(
   deps: ServerContextDeps,
   pluginId: string,
+  /** Prefixes of this plugin's own `editor-pane-tab` claims (from its manifest). */
+  ownedPaneTabPrefixes: readonly string[] = [],
 ): ServerPluginContext {
   const logger = createServerLogger(pluginId);
+  const ownedPrefixes = new Set(ownedPaneTabPrefixes);
+  const openEditorTab: OpenEditorTabFn = (sessionId, path) => {
+    const prefix = paneTabPrefixOf(path);
+    if (typeof sessionId !== "string" || !sessionId || !prefix || !ownedPrefixes.has(prefix)) {
+      throw new Error(`[plugin:${pluginId}] openEditorTab refused: "${String(path)}" is not under an own editor-pane-tab prefix`);
+    }
+    deps.broadcastToSubscribers({ type: "editor_tab_open", sessionId, path });
+  };
 
   return {
     fastify: deps.fastify,
@@ -1025,6 +1233,8 @@ export function createServerPluginContext(
     sendExtensionMessage: deps.sendExtensionMessage,
     spawnSession: deps.spawnSession,
     abortSession: deps.abortSession,
+    shutdownSession: deps.shutdownSession ?? (async () => false),
+    registerSpawnEnvContributor: deps.registerSpawnEnvContributor,
     abortSpawnedRun: deps.abortSpawnedRun,
     registerCwdPolicy: deps.registerCwdPolicy,
     unregisterCwdPolicy: deps.unregisterCwdPolicy,
@@ -1056,6 +1266,7 @@ export function createServerPluginContext(
       ? (type, handler) => deps.registerPiRequestHandler!(pluginId, type, handler)
       : undefined,
     isPiExtensionInstalled: deps.isPiExtensionInstalled,
+    openEditorTab,
     mintSpawnToken: deps.mintSpawnToken,
     renameSession: deps.renameSession,
     assignSessionRef: deps.assignSessionRef,
@@ -1066,6 +1277,16 @@ export function createServerPluginContext(
     listWorkspaces: deps.listWorkspaces ?? (() => []),
     onWorkspacesChanged: deps.onWorkspacesChanged ?? (() => () => {}),
     registerWsRoute: (scope, opts) => getWsRouteRegistry().register(pluginId, scope, opts),
+    ...(deps.registerPrincipalResolver
+      ? { registerPrincipalResolver: deps.registerPrincipalResolver }
+      : {}),
+    ...(deps.registerHostAccessPolicy
+      ? { registerHostAccessPolicy: deps.registerHostAccessPolicy }
+      : {}),
+    ...(deps.registerBrowserLoginConfig
+      ? { registerBrowserLoginConfig: deps.registerBrowserLoginConfig }
+      : {}),
+    ...(deps.identity ? { identity: deps.identity } : {}),
     logger,
   };
 }

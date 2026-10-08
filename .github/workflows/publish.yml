@@ -81,19 +81,21 @@ jobs:
           echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
 
   # ── release-gate: ci-checks (lint+test+build) ─────────────────────────────
-  # Mirrors `ci.yml`'s `ci` job, but runs at release time against the
-  # resolved ref. Fans out in parallel with `smoke`. See change:
+  # The FULL unit suite plus lint and build, at release time against the
+  # resolved ref. Unlike ci.yml it applies no affected-test selection (change:
+  # speed-up-ci-affected-tests). Fans out in parallel with `smoke`. See change:
   # gate-publish-on-smoke-and-tests.
   ci-checks:
     needs: [resolve]
     runs-on: ubuntu-latest
-    # Budget must cover install + lint + the FULL suite + build. `ci.yml` runs
-    # the same work with no timeout at all (GitHub default 360) and takes ~27
-    # minutes at 16.7k tests. This job was capped at 15, so once the suite grew
+    # Budget must cover install + lint + the FULL suite + build. The serial
+    # suite took ~27 minutes at 16.7k tests (measured when ci.yml still ran it
+    # in one job). This job was capped at 15, so once the suite grew
     # past that the release gate could not pass: v0.8.0 was killed mid-`pnpm
     # test` at 15m15s and reported as `cancelled` (GitHub marks a timed-out job
     # cancelled, not failed — it does NOT look like a test failure). Keep this
-    # comfortably above ci.yml's real duration; it still bounds a genuine hang.
+    # comfortably above the serial suite's real duration; it still bounds a
+    # genuine hang.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -157,11 +159,9 @@ jobs:
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          npm version "$VERSION" \
-            --no-git-tag-version \
-            --allow-same-version \
-            --workspaces \
-            --include-workspace-root
+          # `npm pkg set`, not `npm version`: the latter reifies the tree and
+          # newer npm refuses remote-tarball deps (xlsx) with EALLOWREMOTE.
+          npm pkg set version="$VERSION" --workspaces --include-workspace-root
 
       - name: Sync inter-package dep specifiers
         shell: bash
@@ -267,7 +267,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Set version from resolved tag
-        run: npm version "${{ needs.resolve.outputs.version }}" --no-git-tag-version --allow-same-version --workspaces --include-workspace-root
+        # `npm pkg set`, not `npm version`: npm@latest (OIDC) reifies on
+        # `npm version` and refuses the remote-tarball xlsx dep (EALLOWREMOTE).
+        run: npm pkg set version="${{ needs.resolve.outputs.version }}" --workspaces --include-workspace-root
 
       - name: Sync inter-package dep specifiers to bumped version
         run: node scripts/sync-versions.js
@@ -316,12 +318,14 @@ jobs:
             "@blackbelt-technology/pi-dashboard-web"
             "@blackbelt-technology/dashboard-plugin-runtime"
             "@blackbelt-technology/pi-dashboard-client-utils"
+            "@blackbelt-technology/pi-dashboard-app-kit"
             "@blackbelt-technology/pi-system-one"
             "@blackbelt-technology/pi-dashboard-flows-plugin"
             "@blackbelt-technology/pi-dashboard-plugin-skill"
             "@blackbelt-technology/pi-dashboard-roles-plugin"
             "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin"
             "@blackbelt-technology/pi-dashboard-subagents-plugin"
+            "@blackbelt-technology/pi-dashboard-keycloak-resolver-plugin"
             "@blackbelt-technology/pi-dashboard-goal-plugin"
             "@blackbelt-technology/pi-dashboard-automation-plugin"
             "@blackbelt-technology/pi-dashboard-quota-plugin"
@@ -336,6 +340,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-kb-extension"
             "@blackbelt-technology/pi-dashboard-kb-plugin"
             "@blackbelt-technology/pi-dashboard-hermes-memory-plugin"
+            "@blackbelt-technology/pi-dashboard-context-mode-settings-plugin"
             "@blackbelt-technology/pi-dashboard-blackhole-plugin"
             "@blackbelt-technology/pi-dashboard-gmail-plugin"
             "@blackbelt-technology/pi-dashboard-system-one-plugin"
@@ -343,6 +348,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-chat-gateway-plugin"
             "@blackbelt-technology/pi-dashboard-mcp-server-plugin"
             "@blackbelt-technology/pi-dashboard-mcp-client-plugin"
+            "@blackbelt-technology/pi-dashboard-team-plugin"
             "@blackbelt-technology/pi-dashboard-document-converter"
             "@blackbelt-technology/pi-dashboard-deck3d"
             "@blackbelt-technology/anti-slop-frontend"
@@ -839,3 +845,48 @@ jobs:
           gh workflow run deploy-site.yml \
             --repo "${GITHUB_REPOSITORY}" \
             --ref develop
+
+  # ── Discord release announcement (best-effort, terminal) ─────────────
+  # Posts the GitHub Release notes to the community Discord via an incoming
+  # webhook stored in the DISCORD_RELEASE_WEBHOOK repo secret. Best-effort:
+  # npm + the GitHub Release have already shipped, so a webhook outage must
+  # never red the release (continue-on-error). Prereleases stay quiet. The
+  # secret is read through env only and the step exits 0 when it is unset,
+  # so forks and repos without the secret skip cleanly. allowed_mentions is
+  # empty so changelog text can never ping @everyone / roles / users.
+  # Rollback: delete this job or the secret.
+  discord-announce:
+    needs: [resolve, github-release]
+    if: ${{ !cancelled() && needs.github-release.result == 'success' && needs.resolve.outputs.is_prerelease != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Post release notes to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_RELEASE_WEBHOOK not set — skipping Discord announcement"
+            exit 0
+          fi
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json name,url,body > release.json
+          # Embed description cap is 4096 chars; keep headroom for the suffix.
+          jq '{
+            username: "pi-dashboard releases",
+            allowed_mentions: { parse: [] },
+            embeds: [{
+              title: ("Released " + (.name // env.TAG)),
+              url: .url,
+              color: 5793266,
+              description: ((.body // "") | if length > 3800 then .[0:3800] + "\n\n… (truncated — see the full release notes)" else . end)
+            }]
+          }' release.json > payload.json
+          curl --fail-with-body -sS -X POST -H "Content-Type: application/json" \
+            --data @payload.json "$DISCORD_WEBHOOK_URL"
+          echo "Announced $TAG on Discord"

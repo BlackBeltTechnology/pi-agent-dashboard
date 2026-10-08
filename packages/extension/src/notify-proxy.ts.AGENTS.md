@@ -1,0 +1,3 @@
+# notify-proxy.ts — index
+
+`createNotifyProxy({sessionId, send, originalNotify, newId?})` — builds the `ctx.ui.notify` replacement bridge.ts installs. Calls pi's original notify, then sends `{type:"notify", sessionId, notifyId, message, level?}`; never PromptBus, never `prompt_request`, no `promptId`/`component`/`placement`. Level normalized via `normalizeNotifyLevel`; omitted when the caller passes none. `newId` injectable for tests. See change: split-notify-from-prompt-request. Stamps `ts: Date.now()` (bridge clock = transcript clock) on every `notify`. See change: collapse-and-order-notify-rows.

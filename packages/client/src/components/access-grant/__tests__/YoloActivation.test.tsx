@@ -72,7 +72,7 @@ describe("Access page card", () => {
 
     const active = await within(card).findByTestId("yolo-access-active");
     expect(active.dataset.scope).toBe("scoped");
-    expect(within(active).getByTestId("yolo-access-planes").textContent).toMatch(/filesystem.*working directory/);
+    expect(within(active).getByTestId("yolo-access-planes").textContent).toMatch(/filesystem.*working directory.*Agent path gate/);
     expect(within(active).getAllByTestId("yolo-access-root").map((r) => r.textContent)).toEqual([
       expect.stringContaining("/repo/app"),
     ]);

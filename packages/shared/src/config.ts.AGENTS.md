@@ -14,3 +14,11 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 `DashboardConfig` gains `accessGrants: AccessGrantsConfig` (`{ promptEnabled: boolean }`), default `{ promptEnabled: false }`. Prompting is OPT-IN: an absent key AND a malformed value both parse to `false`, so a config written before the feature existed never starts raising dialogs. NOT seeded by `ensureConfig()` — absent and explicit-false mean the same thing here, so seeding would churn every existing config file for no behaviour change. Tests: `__tests__/config-access-grants.test.ts`. See change: add-access-grant-dialog (task 2.3).
 
 `PushConfig {enabled, coalesceWindowMs, fcm?:{serviceAccountPath}, webPush?:{contactEmail}}` + `parsePushConfig(raw)` (enabled only on strict `true`; window clamp 5000–300000, default `DEFAULT_PUSH_COALESCE_WINDOW_MS` 30000). `DashboardConfig.push?`; `loadConfig` always sets it. See change: add-server-push-notifications.
+
+`parseHostGateMode(raw, absentDefault = "enforce")`: `undefined` → enforce, recognised string → itself, anything else → report (typo cannot lock operator out). `DEFAULTS.hostGate` = `{ mode: "enforce" }` (the loadConfig early returns — no file, empty, malformed JSON — bypass the parser). See change: harden-server-request-surfaces.
+
+`AgentPathGateConfig {enabled=true, timeoutSeconds=120}`, `DEFAULT_AGENT_PATH_GATE`, `parseAgentPathGate`, `resolveAgentPathGate(cfg, env)` (`PI_DASHBOARD_AGENT_PATH_GATE=off|on` override); `DashboardConfig.agentPathGate`. See change: ask-agent-file-access-in-chat.
+
+`BridgeActivationConfig {enabled}` + `DEFAULT_BRIDGE_ACTIVATION` (`enabled:true`), `parseBridgeActivation` (non-boolean → true), `bridgeEnvOverride(env)` (`PI_DASHBOARD_BRIDGE` off/0/false/no | on/1/true/yes, trimmed, case-insensitive; else `undefined`), `resolveBridgeEnabled(cfg, env)` (env > config). `DashboardConfig.bridge` always set by `loadConfig`/`DEFAULTS`; NOT seeded by `ensureConfig`. See change: add-bridge-env-opt-out.
+
+`DashboardConfig` gains `folderListMode` (`"classic" | "accordion"`, default `classic`; unknown value → `classic`) and `folderAttentionPeek` (boolean, default `true`). Both are sidebar session-list defaults the client reads through `resolveFolderListMode`; a focus profile overrides `folderListMode` while focus is enabled. See change: add-focus-mode-and-card-block-toggles.

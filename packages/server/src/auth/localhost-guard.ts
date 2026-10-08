@@ -3,9 +3,11 @@
  * Supports loopback, trusted networks (CIDR/wildcard/exact), and authenticated users.
  */
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { isBypassed } from "./bypass-urls.js";
 import { verifyLocalToken } from "./local-token.js";
+import { hasLocalProof, type LocalTrustContext } from "./local-proof.js";
 import { isLoopback, isLoopbackRange } from "./loopback.js";
 
 /**
@@ -77,6 +79,22 @@ export function isGenuinelyLocal(ip: string, headers: HeaderBag): boolean {
 }
 
 /**
+ * The ONE admission predicate for "this request originates on this host".
+ * Default (no ctx, or `requireLocalProof` off): exactly {@link isGenuinelyLocal}.
+ * Strict: additionally requires local proof (cookie or local token), so a
+ * marker-less relay presenting as bare loopback is not admitted.
+ * See change: harden-trust-and-credential-boundaries (D2).
+ */
+export function isLocallyTrusted(
+  input: { ip: string; headers: HeaderBag },
+  ctx?: LocalTrustContext,
+): boolean {
+  if (!isGenuinelyLocal(input.ip, input.headers)) return false;
+  if (!ctx || !ctx.strict()) return true;
+  return hasLocalProof(input.headers, ctx);
+}
+
+/**
  * May this request see the access-prompting posture (host-gate mode, whether
  * prompting is on, why a denial was not asked about)? Authenticated OR
  * genuinely local — stricter than the network guard, because a trusted-CIDR or
@@ -122,11 +140,14 @@ export function isPluginScopePeerLocal(
   ip: string,
   hostHeader: string | undefined,
   headers: HeaderBag,
+  ctx?: LocalTrustContext,
 ): boolean {
   return (
     isLoopback(ip) &&
     isLoopbackHostHeader(hostHeader) &&
-    !hasProxyForwardingHeaders(headers, { extended: true })
+    !hasProxyForwardingHeaders(headers, { extended: true }) &&
+    // Strict: a marker-less relay is indistinguishable here; require proof.
+    (!ctx || !ctx.strict() || hasLocalProof(headers, ctx))
   );
 }
 
@@ -173,9 +194,17 @@ export function isRelayedLoopback(ip: string, headers: HeaderBag): boolean {
  * genuine local traffic is admitted by `isGenuinelyLocal` instead.
  * See change: fix-trusted-network-tunnel-bypass (D1).
  */
-export function isTrustedSource(ip: string, headers: HeaderBag, trusted: string[]): boolean {
+export function isTrustedSource(
+  ip: string,
+  headers: HeaderBag,
+  trusted: string[],
+  ctx?: LocalTrustContext,
+): boolean {
   if (trusted.length === 0) return false;
   if (isRelayedLoopback(ip, headers)) return false;
+  // Strict: a loopback-range peer without proof cannot be re-admitted by a
+  // `127.0.0.1` trusted entry (a marker-less relay looks identical).
+  if (ctx?.strict() && isLoopbackRange(ip) && !hasLocalProof(headers, ctx)) return false;
   return isBypassedHost(ip, trusted);
 }
 
@@ -296,7 +325,7 @@ export function setNetworkDenialObserver(observer: ((request: FastifyRequest) =>
   networkDenialObserver = observer;
 }
 
-function sendNetworkDenied(request: FastifyRequest, reply: FastifyReply): void {
+function sendNetworkDenied(request: FastifyRequest, reply: FastifyReply, localTrust?: LocalTrustContext): void {
   // The recorded IP is the SOCKET PEER (`request.ip`) only — never a forwarding
   // header; a proxy-terminated peer is flagged non-trustable. See change: add-tunnel-providers.
   try {
@@ -314,6 +343,20 @@ function sendNetworkDenied(request: FastifyRequest, reply: FastifyReply): void {
     try {
       networkDenialObserver?.(request);
     } catch { /* observing is best-effort, never blocks the denial */ }
+  }
+  // Strict mode: a bare-loopback caller lacking proof gets an actionable denial.
+  if (
+    localTrust?.strict() &&
+    isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>) &&
+    !hasLocalProof(request.headers as Record<string, unknown>, localTrust)
+  ) {
+    reply.code(403).send({
+      success: false,
+      error: "network_not_allowed",
+      reason: "local_proof_required",
+      hint: "requireLocalProof is on: open the dashboard with `pi-dashboard open` (or use the desktop app).",
+    });
+    return;
   }
   // Self-describing denial so clients can branch on policy-denial vs
   // transport failure. `error` is the stable machine-readable literal;
@@ -343,19 +386,48 @@ function sendNetworkDenied(request: FastifyRequest, reply: FastifyReply): void {
  */
 function hasNetworkPassCondition(
   request: FastifyRequest,
-  opts: { readTrusted: () => string[]; localToken?: string },
+  opts: { readTrusted: () => string[]; localToken?: string; localTrust?: LocalTrustContext },
 ): boolean {
   const headers = request.headers as Record<string, unknown>;
   // Genuine same-host origin (loopback AND no proxy-forwarding header). A tunnel
   // presenting as 127.0.0.1 injects a forwarding header and is NOT exempted here
-  // (D10, narrowed).
-  if (isGenuinelyLocal(request.ip, headers)) return true;
+  // (D10, narrowed). Under `requireLocalProof` it additionally needs proof.
+  if (isLocallyTrusted({ ip: request.ip, headers }, opts.localTrust)) return true;
+  // Strict exceptions for a bare local caller: READ observe-tier REST routes, and
+  // the `/v1/*` model proxy (local pi processes call it with no proof; admission is
+  // unchanged by design — a documented trade-off).
+  if (
+    opts.localTrust?.strict() &&
+    isGenuinelyLocal(request.ip, headers) &&
+    (isObserveApiRequest(request) || isModelProxyRequest(request))
+  ) {
+    return true;
+  }
   // Affirmative local-IPC token.
   if (opts.localToken && verifyLocalToken(headers, opts.localToken)) return true;
   const trusted = opts.readTrusted();
   noteTrustedList(trusted);
-  if (isTrustedSource(request.ip, headers, trusted)) return true;
+  if (isTrustedSource(request.ip, headers, trusted, opts.localTrust)) return true;
   return Boolean((request as any).isAuthenticated);
+}
+
+/**
+ * Is this a `/v1/*` model-proxy request? Judged on the matched route pattern
+ * (post-routing), never the raw URL, so dot-segment tricks cannot borrow it.
+ * See change: harden-trust-and-credential-boundaries (D2 trade-off).
+ */
+function isModelProxyRequest(request: FastifyRequest): boolean {
+  return (request.routeOptions?.url ?? "").startsWith("/v1/");
+}
+
+/**
+ * Is this an `/api/*` request whose matched route is `observe`-tier? `onRequest`
+ * runs after routing, so `routeOptions.url` is the route PATTERN; an unmatched
+ * route is `operate` (fail closed).
+ */
+export function isObserveApiRequest(request: FastifyRequest): boolean {
+  const route = request.routeOptions?.url ?? "";
+  return route.startsWith("/api/") && routeTier(request.method, route) === "observe";
 }
 
 /**
@@ -370,15 +442,15 @@ export function createNetworkGuard(
    * way in (D15). See change: config-override-oauth-redirect-base.
    */
   trustedNetworks: string[] | (() => string[]),
-  opts?: { localToken?: string },
+  opts?: { localToken?: string; localTrust?: LocalTrustContext },
 ) {
   const readTrusted = typeof trustedNetworks === "function" ? trustedNetworks : () => trustedNetworks;
   return async function networkGuard(
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<void> {
-    if (hasNetworkPassCondition(request, { readTrusted, localToken: opts?.localToken })) return;
-    sendNetworkDenied(request, reply);
+    if (hasNetworkPassCondition(request, { readTrusted, localToken: opts?.localToken, localTrust: opts?.localTrust })) return;
+    sendNetworkDenied(request, reply, opts?.localTrust);
   };
 }
 
@@ -392,11 +464,18 @@ const GUARD_JURISDICTION_PREFIXES = ["/api/", "/v1/", "/editor/", "/live/"] as c
 
 /**
  * Fixed in-namespace public endpoints, compared against the EXACT pathname.
- * Only `/api/health` (the liveness probe clients and the tunnel watchdog read).
+ * - `/api/health` (the liveness probe clients and the tunnel watchdog read).
+ * - `/api/identity/login-config` (identity plane, D16): an unauthenticated
+ *   browser — the exact login target — must read the pre-auth login descriptor
+ *   before it holds a token, so it cannot pass the authed path; it discloses
+ *   nothing when the resolver is inert (`{active:false}`).
  * Not copied from `auth-plugin.ts`'s `request.url === "/api/health"`, which
  * misses `?query`; the guard compares the parsed pathname.
  */
-const PUBLIC_IN_NAMESPACE_PATHS: ReadonlySet<string> = new Set(["/api/health"]);
+const PUBLIC_IN_NAMESPACE_PATHS: ReadonlySet<string> = new Set([
+  "/api/health",
+  "/api/identity/login-config",
+]);
 
 /**
  * Resolve `.` / `..` segments (RFC 3986 "remove_dot_segments") in an already
@@ -446,7 +525,7 @@ function removeDotSegments(path: string): string {
  *   `/foo/../api/sessions`   → resolved in jurisdiction    → denied
  *   `/foo/../settings`       → neither in jurisdiction     → no-op (SPA served)
  */
-interface GuardTarget {
+export interface GuardTarget {
   raw: string;
   resolved: string;
 }
@@ -467,7 +546,7 @@ interface GuardTarget {
  * then resolvable.
  * See change: add-universal-network-guard (design: "Path matching").
  */
-function parseGuardTarget(url: string | undefined): GuardTarget | null {
+export function parseGuardTarget(url: string | undefined): GuardTarget | null {
   if (typeof url !== "string" || !url.startsWith("/") || url.startsWith("//")) return null;
   let end = url.length;
   for (const sep of ["?", "#"] as const) {
@@ -573,6 +652,8 @@ export interface NetworkGuardHookOptions {
   trustedNetworks: string[] | (() => string[]);
   /** Local-IPC allowlist token granting genuine-local trust (D10). */
   localToken?: string;
+  /** Strict local-proof context (`requireLocalProof`); absent ⇒ default behaviour. */
+  localTrust?: LocalTrustContext;
   /** Live read of configured `auth.bypassUrls` prefixes (in-namespace exception). */
   getBypassUrls?: () => string[];
   /**
@@ -683,12 +764,12 @@ export function createNetworkGuardHook(opts: NetworkGuardHookOptions) {
     if (isPublicInNamespace(target.raw) && isPublicInNamespace(target.resolved)) return;
 
     // ── Pass conditions (shared with the per-route guard) ──
-    if (hasNetworkPassCondition(request, { readTrusted, localToken: opts.localToken })) return;
+    if (hasNetworkPassCondition(request, { readTrusted, localToken: opts.localToken, localTrust: opts.localTrust })) return;
 
     // The logged path is the RAW (decoded) one: it is what the caller actually
     // sent, so a probe is recorded faithfully. Detail is bounded + sanitized.
     emitDenial(target.raw, request.ip, GUARD_DENY_REASON.noPassCondition);
-    sendNetworkDenied(request, reply);
+    sendNetworkDenied(request, reply, opts.localTrust);
   };
 }
 

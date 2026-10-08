@@ -22,7 +22,9 @@ const _lockfile = _require("proper-lockfile") as typeof import("proper-lockfile"
  * Lock options — the SINGLE source of the dashboard's lock contract, shared by
  * `auth.json` and `plugin-credentials.json`.
  *
- * `stale: 30_000` is coupled to pi 0.86.1 `auth-storage.js` `acquireLockAsync`
+ * `stale: 30_000` is coupled to pi's `auth-storage.js` `acquireLockAsync`
+ * (first verified on 0.86.1; re-verified unchanged on 1.0.0 — `staleMs =
+ * 30_000`, `realpath: false`, see change: update-pi-core-1-0-adopt-apis)
  * (`withLockAsync`), which holds the auth.json lock across its OAuth network
  * refresh and refreshes the lockfile mtime only every `stale/2` = 15 s.
  * proper-lockfile judges staleness by the ACQUIRER's `stale`, so any shorter
@@ -65,9 +67,13 @@ async function acquireLock(
   filePath: string,
   budgetMs: number,
   onCompromised: (err: Error) => void,
+  signal?: AbortSignal,
 ): Promise<() => Promise<void>> {
   const deadline = Date.now() + budgetMs;
   for (let attempt = 0; ; attempt++) {
+    // A caller that gave up must not keep queueing on the lock.
+    // See change: collapse-model-proxy-onto-modelruntime (D1).
+    signal?.throwIfAborted();
     try {
       return await _lockfile.lock(filePath, { ...LOCK_OPTIONS, onCompromised });
     } catch (err) {
@@ -90,6 +96,8 @@ export interface LockedJsonFileOptions {
   createIfMissing?: boolean;
   /** Log prefix for the compromise warning. */
   logTag?: string;
+  /** Abort the lock-retry wait. Checked before every attempt; never interrupts `fn`. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -109,8 +117,9 @@ export interface LockedJsonFileOptions {
 export async function withLockedJsonFile<T>(
   filePath: string,
   fn: () => T & NotPromise<T>,
-  { budgetMs = LOCK_RETRY_BUDGET_MS, createIfMissing = true, logTag = "locked-json" }: LockedJsonFileOptions = {},
+  { budgetMs = LOCK_RETRY_BUDGET_MS, createIfMissing = true, logTag = "locked-json", signal }: LockedJsonFileOptions = {},
 ): Promise<T> {
+  signal?.throwIfAborted();
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   // With `realpath: false` proper-lockfile only `mkdir`s `<file>.lock`, so the
   // target need not exist; the placeholder is for interactive writers.
@@ -128,7 +137,7 @@ export async function withLockedJsonFile<T>(
     console.warn(`[${logTag}] ${name} lock compromised (${(err as { code?: string }).code ?? "unknown"})`);
   };
 
-  const release = await acquireLock(filePath, budgetMs, onCompromised);
+  const release = await acquireLock(filePath, budgetMs, onCompromised, signal);
   try {
     if (cell.compromised) throw cell.compromised;
     return fn();
@@ -244,6 +253,32 @@ export function readJsonChecked<T extends object = Record<string, unknown>>(
     if (!(err instanceof SyntaxError)) throw err;
     const quarantined = quarantineCorruptFile(filePath, bytes, logTag);
     return { data: {} as T, corrupt: true, quarantined };
+  }
+}
+
+/**
+ * Unlocked, side-effect-free parse: `{ ok: true, data }` (ENOENT → `{}`), or
+ * `{ ok: false }` for unparseable / non-object content. Never quarantines —
+ * an unlocked read can observe a torn in-place write by pi, so the caller
+ * re-reads under the lock (which quarantines if the bytes are really bad).
+ * Read failures other than ENOENT still throw.
+ * See change: collapse-model-proxy-onto-modelruntime (D1).
+ */
+export function tryReadJson<T extends object = Record<string, unknown>>(
+  filePath: string,
+): { ok: true; data: T } | { ok: false } {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { ok: true, data: {} as T };
+    throw err;
+  }
+  try {
+    return { ok: true, data: parseJsonObject(raw, path.basename(filePath)) as T };
+  } catch (err) {
+    if (err instanceof SyntaxError) return { ok: false };
+    throw err;
   }
 }
 

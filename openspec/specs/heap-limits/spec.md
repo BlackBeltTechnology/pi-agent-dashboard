@@ -63,7 +63,7 @@ ceiling the running process was started with.
 - **AND** it SHALL carry the effective old-space ceiling the process was started with
 
 #### Scenario: Effective ceiling reflects the running process, not the config
-- **WHEN** the configured ceiling has been changed but the process has not been cold-started
+- **WHEN** the configured ceiling has been changed but the process has not been restarted
 - **THEN** the reported effective ceiling SHALL remain the value the running process was started with
 
 ### Requirement: Invalid heap configuration falls back to the default
@@ -202,7 +202,87 @@ that inherits the environment of the process being replaced.
 - **THEN** a heap flag MAY be present in that pane's environment because it is the delivery mechanism for the ceiling on that strategy
 - **AND** the value present SHALL be the configured ceiling, never the dashboard's own
 
-### Requirement: Heap configuration applies to newly started processes only
+### Requirement: The server ceiling and the store budget SHALL be guarded as a pair
+
+The system SHALL warn when the store budget converted to heap, plus the
+baseline, exceeds the server ceiling's effective crash point — that is, when
+`budgetMiB × 1.33 + 112 > ceilingMB × 0.82`, where
+`budgetMiB = maxTotalEventBytes / 1024²`. `maxTotalEventBytes` of `0` means
+unlimited and SHALL always warn, at any ceiling. The warning SHALL NOT block the
+save.
+
+The guard SHALL accept the budget in the byte denomination `MemoryLimitsConfig`
+stores and perform the MiB conversion internally, so no call site can pass a raw
+byte count into a MiB-denominated term.
+
+The three factors SHALL be exported as named shared constants so the guard, its
+tests and any future re-derivation read one source. The multiplier's name SHALL
+carry its MiB denomination.
+
+#### Scenario: Unlimited store budget under a bounded ceiling
+- **WHEN** `maxTotalEventBytes` is `0` and `serverHeap.maxOldSpaceMb` is `1536`
+- **THEN** a non-blocking warning SHALL state that the store is unbounded under a bounded ceiling
+- **AND** the value SHALL remain saveable
+
+#### Scenario: Budget raised past what the ceiling can hold
+- **WHEN** the operator raises `maxTotalEventBytes` to `2048` MiB against a `1536` MB ceiling
+- **THEN** the guard SHALL warn, reporting the budget's heap-equivalent against the ceiling
+
+#### Scenario: Default pairing is silent
+- **WHEN** `maxTotalEventBytes` is the default `768` MiB and the ceiling is the default `1536`
+- **THEN** no warning SHALL be shown
+
+#### Scenario: The byte-denominated default does not warn spuriously
+- **WHEN** the guard is given `maxTotalEventBytes` as the stored byte value `805306368` against a `1536` MB ceiling
+- **THEN** no warning SHALL be shown, because the guard converts bytes to MiB before applying the multiplier
+
+### Requirement: The lowered server default SHALL NOT ship without a bounded store
+
+A build-time assertion SHALL fail when the shared server-heap default is below
+`8192` while the shared memory-limits default carries no `maxTotalEventBytes` or
+carries a `0`. The assertion SHALL read the same shared server-heap default the
+launchers stamp, and that default SHALL be importable as a value from the
+browser bundle so the panel guard and the assertion cannot diverge.
+
+The assertion SHALL fail the CI gate rather than throwing at module scope, so a
+mispairing cannot brick the browser bundle at runtime.
+
+#### Scenario: Missing budget default fails the assertion
+- **WHEN** the shared server-heap default is below `8192` and the shared memory-limits default carries no `maxTotalEventBytes`
+- **THEN** the assertion SHALL fail
+
+#### Scenario: Unlimited budget default fails the assertion
+- **WHEN** the shared server-heap default is below `8192` and the shared memory-limits default carries `maxTotalEventBytes` of `0`
+- **THEN** the assertion SHALL fail
+
+#### Scenario: Bounded pairing passes
+- **WHEN** the shared server-heap default is below `8192` and the shared memory-limits default carries a non-zero `maxTotalEventBytes`
+- **THEN** the assertion SHALL pass
+
+### Requirement: The dashboard's heap flag SHALL NOT reach dashboard terminals
+
+A dashboard terminal's environment SHALL NOT carry the dashboard's own
+old-space flag, and an operator-set heap flag SHALL be preserved. The dashboard's
+own token SHALL be identified by the provenance marker naming it, NOT by testing
+for the flag's presence.
+
+#### Scenario: Terminal environment carries no inherited ceiling
+- **WHEN** a dashboard terminal is created while the server runs under a stamped ceiling
+- **THEN** the terminal's environment SHALL NOT carry the server's old-space flag
+
+#### Scenario: An operator-set flag survives the strip
+- **WHEN** the environment carries an operator-set heap flag distinct from the dashboard's stamp
+- **THEN** that flag SHALL be preserved in the terminal environment
+
+#### Scenario: An operator flag identical to the stamp's value survives
+- **WHEN** the environment carries an operator-set heap flag whose value equals the dashboard's stamped value but no marker names it
+- **THEN** that flag SHALL be preserved in the terminal environment
+
+#### Scenario: The provenance marker does not leak into the terminal
+- **WHEN** a dashboard terminal is created while the server runs under a stamped ceiling
+- **THEN** the terminal's environment SHALL NOT carry the provenance marker variable
+
+### Requirement: Heap configuration SHALL apply to newly started processes and on server restart
 
 Changing heap configuration SHALL NOT resize any running process. A new value
 SHALL take effect for processes started after the change.
@@ -210,8 +290,9 @@ SHALL take effect for processes started after the change.
 The boundary SHALL be the next spawn. Reloading a session counts as a spawn: it
 replaces the process and rebuilds the invocation from current configuration.
 
-A change to `serverHeap` SHALL NOT take effect on an in-place server restart
-that inherits the current environment; it SHALL take effect on a cold start.
+A change to `serverHeap` SHALL take effect on the next server start, including
+an in-place `/api/restart`, which re-reads the configured ceiling rather than
+inheriting the replaced process's value.
 
 #### Scenario: Running sessions are unaffected by a config change
 - **WHEN** the operator lowers `sessionHeap.maxOldSpaceMb` while sessions are running
@@ -221,7 +302,41 @@ that inherits the current environment; it SHALL take effect on a cold start.
 - **WHEN** the operator lowers the ceiling and then reloads a running session
 - **THEN** the replacement process SHALL run under the new ceiling
 
-#### Scenario: Server ceiling changes only on cold start
+#### Scenario: Server ceiling changes on the next restart
 - **WHEN** the operator changes `serverHeap.maxOldSpaceMb` and triggers an in-place restart
-- **THEN** the restarted server SHALL retain the previous ceiling
-- **AND** the surface offering the setting SHALL state that a cold start is required
+- **THEN** the restarted server SHALL run under the new ceiling
+
+### Requirement: The dashboard's heap flag SHALL NOT reach worktree-init hook processes
+
+Every process the server spawns to evaluate or run a worktree-init hook — the
+gate, the script-flavor run, and the agent-flavor headless pi — SHALL run in an
+environment that does NOT carry the dashboard's own old-space flag nor the
+provenance marker naming it. The dashboard's own token SHALL be identified by
+the provenance marker, NOT by testing for the flag's presence, so an
+operator-set heap flag and unrelated `NODE_OPTIONS` entries SHALL be preserved.
+An environment explicitly supplied by the caller SHALL be used as given.
+
+#### Scenario: Script run carries no inherited ceiling
+- **WHEN** a script-flavor init hook runs while the server runs under a stamped ceiling
+- **THEN** the hook process's environment SHALL NOT carry the server's old-space flag
+- **AND** SHALL NOT carry the provenance marker variable
+
+#### Scenario: Gate and agent spawn carry no inherited ceiling
+- **WHEN** the init gate is evaluated, or an agent-flavor hook is spawned, while the server runs under a stamped ceiling
+- **THEN** the spawned process's environment SHALL NOT carry the server's old-space flag
+
+#### Scenario: Unrelated NODE_OPTIONS entries survive
+- **WHEN** the server's `NODE_OPTIONS` carries the stamped flag plus an unrelated option
+- **THEN** the hook process's `NODE_OPTIONS` SHALL contain only the unrelated option
+
+#### Scenario: NODE_OPTIONS is removed when only the stamp was present
+- **WHEN** the server's `NODE_OPTIONS` carries only the stamped flag
+- **THEN** the hook process's environment SHALL NOT define `NODE_OPTIONS`
+
+#### Scenario: An operator-set flag survives
+- **WHEN** the environment carries an operator-set heap flag not named by the marker
+- **THEN** that flag SHALL be preserved in the hook process's environment
+
+#### Scenario: Explicit caller environment is respected
+- **WHEN** a caller passes an explicit environment to the hook runner
+- **THEN** the hook process SHALL receive that environment unchanged

@@ -17,31 +17,58 @@
   <header class="flex items-center justify-between mb-8">
     <div>
       <h1 class="text-xl font-semibold" style="color:var(--text-primary)">voice-assistant dashboard plugin</h1>
-      <p class="text-sm mt-1" style="color:var(--text-tertiary)">UX mockup pass — openspec/changes/add-voice-assistant-dashboard-plugin</p>
+      <p class="text-sm mt-1" style="color:var(--text-secondary)">UX mockup pass — openspec/changes/add-voice-assistant-dashboard-plugin</p>
     </div>
     <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'" class="px-3 py-1.5 rounded border text-sm" style="border-color:var(--border-primary); color:var(--text-secondary)">Toggle theme</button>
   </header>
 
+    <h2 class="text-xs uppercase tracking-wider mt-6 mb-2" style="color:var(--text-secondary)">Meetings</h2>
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-    <a href="session-card.html" class="card p-4 block">
-      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Session card controls</div>
-      <div class="text-xs" style="color:var(--text-tertiary)">session-card-action-bar + session-card-badge — 8 states (incl. capture-source picker)</div>
+    <a href="folder-row.html" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Folder row — meeting pill + folder menu</div>
+      <div class="text-xs" style="color:var(--text-secondary)">sidebar-folder-section + useFolderMenuItem — idle → start phases → live → stop phases → error</div>
+    </a>
+    <a href="start-dialog.html" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Start meeting dialog</div>
+      <div class="text-xs" style="color:var(--text-secondary)">disclosure, archive path + kb coverage, options, preflight — ready / dry run / blocked</div>
+    </a>
+    <a href="meeting-stop.html" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Stop → archive → outcome</div>
+      <div class="text-xs" style="color:var(--text-secondary)">stop confirm, progress stepper, outcome toasts, spawned copilot/transcriber cards</div>
     </a>
     <a href="wall-view.html" class="card p-4 block">
       <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Live meeting wall</div>
-      <div class="text-xs" style="color:var(--text-tertiary)">core live-server-preview embed + browser popout (not a plugin slot)</div>
-    </a>
-    <a href="knowledge-browser.html" class="card p-4 block">
-      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Knowledge browser</div>
-      <div class="text-xs" style="color:var(--text-tertiary)">folder-scoped — sidebar-folder-section + shell-overlay-route @ /folder/:encodedCwd/voice-assistant-knowledge</div>
-    </a>
-    <a href="config-editor.html" class="card p-4 block">
-      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Settings</div>
-      <div class="text-xs" style="color:var(--text-tertiary)">settings-section</div>
+      <div class="text-xs" style="color:var(--text-secondary)">wall plugin folder page /folder/&lt;cwd&gt;/wall (like the OpenSpec board) + standalone /apps/wall — via add-plugin-app-host</div>
     </a>
   </div>
+  <h2 class="text-xs uppercase tracking-wider mt-6 mb-2" style="color:var(--text-secondary)">Dictation</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <a href="composer-dictation.html" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Composer — dictation mic</div>
+      <div class="text-xs" style="color:var(--text-secondary)">composer-toolbar-action (new core slot) — 12 states: idle, source menu, starting, recording, processing, draft/send delivery, failed, retained</div>
+    </a>
+  </div>
+  <h2 class="text-xs uppercase tracking-wider mt-6 mb-2" style="color:var(--text-secondary)">Knowledge</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <a href="knowledge-browser.html" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Meetings & knowledge</div>
+      <div class="text-xs" style="color:var(--text-secondary)">shell-overlay-route — archived meetings, decisions, sources; fallback / empty / invalid</div>
+    </a>
+  </div>
+  <h2 class="text-xs uppercase tracking-wider mt-6 mb-2" style="color:var(--text-secondary)">Settings</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <a href="global-settings.html" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Global settings</div>
+      <div class="text-xs" style="color:var(--text-secondary)">settings-section — default models, STT key, voiceprints, meeting defaults, scripts allow-list</div>
+    </a>
+    <a href="config-editor.html" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Folder settings</div>
+      <div class="text-xs" style="color:var(--text-secondary)">folder-settings-section — project config, operator name, per-folder model override</div>
+    </a>
+  </div>
+  <p class="text-xs mt-6"><a href="ui-plan.md" style="color:var(--accent-blue)">ui-plan.md</a> — UX design: IA, flows, surfaces → tokens → states, cited rules.</p>
 
-  <footer class="mt-8 text-xs" style="color:var(--text-muted)">
+  <footer class="mt-8 text-xs" style="color:var(--text-secondary)">
     Tokens lifted verbatim from <code>packages/client/src/index.css</code> (<code>tokens.css</code> in this
     folder). See <code>ui-plan.md</code> for the cited UX rules behind each decision.
   </footer>

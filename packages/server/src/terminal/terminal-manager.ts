@@ -3,6 +3,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { stripDashboardHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import type { TerminalControlMessage, TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { IPty } from "node-pty";
 import * as pty from "node-pty";
@@ -185,7 +186,7 @@ export interface TerminalManagerOptions {
 }
 
 export interface TerminalManager {
-  spawn(cwd: string, opts?: { ephemeral?: boolean }): TerminalSession;
+  spawn(cwd: string, opts?: { ephemeral?: boolean; owner?: { iss: string; sub: string } }): TerminalSession;
   attach(id: string, ws: WebSocket): void;
   detach(id: string, ws: WebSocket): void;
   kill(id: string): void;
@@ -255,7 +256,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     }
   }
 
-  function spawn(cwd: string, opts?: { ephemeral?: boolean }): TerminalSession {
+  function spawn(cwd: string, opts?: { ephemeral?: boolean; owner?: { iss: string; sub: string } }): TerminalSession {
     const shell = detectShell();
     const id = generateId();
 
@@ -265,10 +266,20 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     // Normalize the win32 `Path` key to `PATH` first so a bundled-source
     // PATH write does not leave a `Path`/`PATH` pair. See change:
     // fix-windows-path-env-key-casing.
-    const baseEnv = normalizeEnvPathKey({ ...process.env, ...platformTerminalEnvHints() }) as Record<string, string>;
+    // Drop the dashboard's OWN stamped heap token + its marker (provenance-
+    // gated; an operator's flag survives), so the server ceiling does not cap
+    // every Node tool run in the terminal. See change:
+    // guard-server-heap-and-store-coupling (D4).
+    const baseEnv = normalizeEnvPathKey(
+      stripDashboardHeapFlag({ ...process.env, ...platformTerminalEnvHints() }),
+    ) as Record<string, string>;
     const env = augmentEnvWithGitSource(baseEnv, whichSync) as Record<string, string>;
 
-    const p = pty.spawn(shell, [], {
+    // POSIX: start a login shell (as Terminal.app/iTerm do) so ~/.zprofile /
+    // ~/.bash_profile run — e.g. `brew shellenv` adding /opt/homebrew/bin,
+    // which the server's inherited PATH (GUI/launchd) usually lacks.
+    const shellArgs = process.platform === "win32" ? [] : ["-l"];
+    const p = pty.spawn(shell, shellArgs, {
       cwd,
       env,
       cols: 80,
@@ -282,6 +293,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
       status: "active",
       createdAt: Date.now(),
       ...(opts?.ephemeral ? { ephemeral: true } : {}),
+      ...(opts?.owner ? { principalOwner: { iss: opts.owner.iss, sub: opts.owner.sub } } : {}),
     };
 
     const buffer = new RingBuffer(bufferSize);

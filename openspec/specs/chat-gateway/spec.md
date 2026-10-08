@@ -241,9 +241,158 @@ gated.
 - **WHEN** the session was bound via attach-to-existing (source a)
 - **THEN** the tool guard SHALL NOT be applied
 
+### Requirement: Triggering message runs on spawn or resume
+When an inbound message causes the gateway to start a new session or resume an ended one,
+that message SHALL be delivered as the session's `initialPrompt` (with the steer prefix
+stripped), so the user never has to resend it. The gateway SHALL correlate the spawn with
+the later session registration only through `pluginRef` keys it owns (`chatSpawnToken`,
+`bindSource`) — never through a core-reserved key (`spawnToken`, `source`, …), which the
+host strips before notifying the plugin. On resolution the gateway SHALL persist the
+channel→session binding so the next message reuses it.
+
+#### Scenario: First message runs in the new session
+- **WHEN** an authorized message arrives on an unbound channel and the gateway starts a session
+- **THEN** the session SHALL receive that message as its initial prompt
+- **AND** the gateway SHALL persist the binding once the session registers
+
+#### Scenario: Follow-up does not spawn again
+- **WHEN** a second message arrives after the spawned session registered
+- **THEN** it SHALL route to the same session via `send_prompt`, not start another session
+
+#### Scenario: Reserved ref keys are not used for correlation
+- **WHEN** the host strips core-reserved `pluginRef` keys before notifying the gateway
+- **THEN** the gateway SHALL still bind the spawned session via its own `chatSpawnToken`
+
+### Requirement: One thread per conversation
+When `threadPerConversation` is enabled (default `true`; only an explicit `false`
+disables), an authorized message posted in a bound channel's root SHALL make the gateway
+open a platform thread on that message and bind a **new** session keyed to the thread
+(`(platform, threadId, threadId)`, parent channel recorded); the reply and all follow-ups
+SHALL stay in that thread. Thread creation SHALL happen only after authorization and the
+team-controls check, and never for DMs, messages already in a thread, or `!disarm`
+commands. The thread name SHALL be the message text (steer prefix stripped, whitespace
+collapsed, at most 100 characters; `conversation` when empty). If the adapter cannot
+create a thread, the gateway SHALL log a warning and continue the conversation in the
+channel root so the message is not lost. Adapters without thread support SHALL keep
+channel-root behaviour.
+
+#### Scenario: Root message opens a thread
+- **WHEN** an authorized user posts in the root of a bound channel with `threadPerConversation` on
+- **THEN** the gateway SHALL open a thread on that message, start a new session bound to the thread, and reply inside it
+
+#### Scenario: Follow-up stays in the thread
+- **WHEN** the user replies inside that thread
+- **THEN** the message SHALL route to the thread's session without opening another thread
+
+#### Scenario: Opt-out keeps channel-root routing
+- **WHEN** `threadPerConversation` is `false`
+- **THEN** root messages SHALL bind to the channel root as before
+
+#### Scenario: Thread creation failure falls back
+- **WHEN** opening the thread fails (e.g. missing Create Public Threads permission)
+- **THEN** the gateway SHALL log a warning and handle the message in the channel root
+
+#### Scenario: Refused message opens no thread
+- **WHEN** a message is refused by authorization or arrives as a DM
+- **THEN** no thread SHALL be created
+
+### Requirement: Gateway sessions hidden from the board by default
+Sessions the gateway starts or resumes SHALL be hidden from the dashboard board by default
+by declaring `lifecycle: { hidden: true }` on the spawn. A `sessionVisibility` setting
+(`"hidden"` default, `"shown"` opts out) SHALL control this. Sessions the gateway merely
+attaches to SHALL NOT be hidden. Hidden sessions remain revealable via `Show hidden`.
+
+#### Scenario: Default hides gateway sessions
+- **WHEN** the gateway starts or resumes a session with default configuration
+- **THEN** the session SHALL register with `hidden = true`
+
+#### Scenario: Opt-out shows them
+- **WHEN** `sessionVisibility` is `"shown"`
+- **THEN** the gateway SHALL NOT declare `hidden` on its spawns
+
+#### Scenario: Attached sessions untouched
+- **WHEN** the gateway attaches a channel to an existing dashboard session
+- **THEN** that session's `hidden` value SHALL NOT change
+
+### Requirement: Reach dashboard sessions from chat
+Sessions started in the dashboard SHALL be reachable from chat without the gateway starting
+them. Two whole-message commands SHALL be recognised in a bound channel (any other text,
+including steer-prefixed text, is a prompt):
+
+- `!sessions` — authorized as verb `list_sessions` (observe); replies with a numbered list
+  (at most 25) of live, non-hidden sessions whose cwd lies in the channel's bound workspace
+  (else `allowedRoots`), each with name, status, short id and its thread when attached.
+- `!attach <number | id-prefix>` — authorized as the chat-local verb `attach_session`
+  (observe) with the target's cwd for the scope check; opens a thread named after the
+  session on the command message, persists a binding with `source: "attach"` keyed to the
+  thread, subscribes the session and confirms in the thread. A session already attached
+  SHALL get a pointer to its existing thread, not a second one. Run inside a thread, it
+  SHALL be refused with a hint. Every prompt later sent into the thread SHALL still be
+  authorized as `send_prompt`.
+
+Attached sessions SHALL NOT be hidden or otherwise re-policied by the gateway.
+
+When `mirrorDashboardSessions` is `true` (default `false`; team-controls mode), the gateway
+SHALL attach every live, non-hidden, unbound session whose cwd lies in a bound workspace
+into that workspace's channel — at gateway start and when a session is first seen on the
+host's forwarded event stream — by posting a `Dashboard session: <name>` message and
+opening the thread on it. Each session SHALL be considered at most once per gateway run,
+and persisted bindings SHALL prevent a duplicate thread after a restart.
+
+#### Scenario: List then attach by number
+- **WHEN** a permitted user sends `!sessions` then `!attach 1` in the workspace channel root
+- **THEN** the gateway SHALL list the workspace's live sessions and open a thread bound to the first one, without starting a session
+
+#### Scenario: Attach outside the workspace is refused
+- **WHEN** `!attach` names a session whose cwd is outside the channel's workspace
+- **THEN** no thread or binding SHALL be created
+
+#### Scenario: Thread messages drive the attached session
+- **WHEN** a user sends a message inside an attached thread
+- **THEN** it SHALL be delivered to that session via `send_prompt`
+
+#### Scenario: Auto-mirror at start and on a new session
+- **WHEN** `mirrorDashboardSessions` is on and the gateway starts, or a new eligible session emits its first event
+- **THEN** each eligible session SHALL get exactly one thread in its workspace channel
+
+#### Scenario: Hidden sessions are never mirrored
+- **WHEN** a session is hidden (headless worker or plugin-hidden)
+- **THEN** it SHALL be neither listed nor auto-mirrored
+
+### Requirement: Close a conversation from chat
+A whole-message `!close` sent inside a bound thread SHALL be authorized as the chat-local
+verb `close_session` (tier `control`) with the bound session as target. When permitted:
+
+- a thread whose session the gateway started or resumed (`source` `spawn`/`resume`) SHALL
+  have its live session ended through the host's `shutdownSession` hook — the same shutdown
+  the dashboard's Shutdown control performs — before anything else changes; if the host
+  refuses, nothing SHALL change and the author SHALL be told;
+- a thread bound by attach (`source: "attach"`) SHALL only be detached; the session SHALL
+  keep running;
+- in both cases the binding SHALL be removed, the session SHALL stop streaming into chat
+  unless another binding still needs it, the author SHALL get a confirmation, and the
+  thread SHALL be archived when the adapter supports it.
+
+`!close` in a channel root SHALL only reply with a hint, and in an unbound thread SHALL
+reply that there is nothing to close. Text that merely starts with `!close` SHALL remain a
+steer prompt. Deleting channels SHALL NOT be possible from chat.
+
+#### Scenario: Close a gateway-started conversation
+- **WHEN** a `control` user sends `!close` in a thread whose live session the gateway started
+- **THEN** that session SHALL be shut down, the binding removed and the thread archived
+
+#### Scenario: Close an attached thread
+- **WHEN** a `control` user sends `!close` in a thread bound by attach
+- **THEN** the binding SHALL be removed and the thread archived, and the session SHALL keep running
+
+#### Scenario: Observe principal cannot close
+- **WHEN** an `observe` user sends `!close` in a bound thread
+- **THEN** the request SHALL be refused and nothing SHALL change
+
 ### Requirement: Configuration surface
 The gateway SHALL expose configuration for: the Discord bot token, `allowedRoots`, the
-fixed channel→cwd map, the user allowlist and admins, and a read view of current bindings.
+fixed channel→cwd map, the user allowlist and admins, `sessionVisibility`,
+`threadPerConversation`, `mirrorDashboardSessions`, and a read view of current bindings.
 Secrets SHALL be stored at rest with restrictive permissions consistent with existing
 dashboard credential handling and SHALL NOT appear in logs or API responses.
 

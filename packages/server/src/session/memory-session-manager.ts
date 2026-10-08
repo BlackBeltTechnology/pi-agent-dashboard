@@ -6,7 +6,9 @@
 import { pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import type { ClosedReason, DashboardSession, SessionSource, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { deriveEndedAt, type EndedAtDeriver } from "./derive-ended-at.js";
+import { projectPluginRefs } from "./plugin-refs.js";
 import { resolveOrderKey } from "./resolve-order-key.js";
+import { STATS_EXTRACTOR_VERSION, emptyUsageTotals, type UsageTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 
 /**
  * Snapshot window constants (D4). The specs state the same numbers.
@@ -121,6 +123,29 @@ export interface RegisterSessionParams {
    * See change: fix-spawn-correlation-ttl-coupling (D3).
    */
   dashboardSpawned?: boolean;
+  /**
+   * Bridge baseline totals (every kind, cache included), forwarded from
+   * `SessionRegisterMessage.usageSeed` (normalized by the gateway). Applied
+   * ONLY when the id is unknown (fork, switch to an unscanned file); a known
+   * id keeps its carried-over totals. See change: count-non-message-usage.
+   */
+  usageSeed?: UsageTotals;
+}
+
+/**
+ * Normalize an untrusted `usageSeed` off the socket: every field a finite,
+ * non-negative number, else the whole seed is dropped (undefined).
+ */
+export function normalizeUsageSeed(raw: unknown): UsageTotals | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  const out = emptyUsageTotals();
+  for (const k of Object.keys(out) as (keyof UsageTotals)[]) {
+    const v = r[k];
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return undefined;
+    out[k] = v;
+  }
+  return out;
 }
 
 export interface OnChangeContext {
@@ -313,6 +338,8 @@ export function createMemorySessionManager(
       const priorStatus = existing?.status;
 
       const session: DashboardSession = {
+        // Plugin-owned refs survive a reattach (projection first: core wins).
+        ...(existing ? { ...projectPluginRefs(existing.pluginRefs), pluginRefs: existing.pluginRefs } : {}),
         // Carry over accumulated data from the existing session (e.g. restored after restart)
         ...(existing ? {
           tokensIn: existing.tokensIn,
@@ -320,6 +347,7 @@ export function createMemorySessionManager(
           cacheRead: existing.cacheRead,
           cacheWrite: existing.cacheWrite,
           cost: existing.cost,
+          statsExtractorVersion: existing.statsExtractorVersion,
           // Preserve user-set openspec assignment (not polled, set via dashboard UI)
           attachedProposal: existing.attachedProposal,
           // Preserve user-owned tags across a bridge reattach (not polled, set via
@@ -331,6 +359,14 @@ export function createMemorySessionManager(
           // them here would wipe them from disk too.
           // See change: split-notify-from-prompt-request.
           notifyLog: existing.notifyLog,
+          // Preserve the identity-plane owner across a bridge reattach
+          // (dashboard restart). Same full-overwrite hazard as `tags`: dropping
+          // it here wipes it from disk and the session turns ownerless.
+          // A re-register never CHANGES an owner (only the spawn token does).
+          principalOwner: existing.principalOwner,
+          // Plugin-declared hide intent: re-asserted by the `hidden` decision
+          // below and kept for the next save. See change: fix-plugin-hidden-across-restart.
+          pluginHidden: existing.pluginHidden,
           // Preserve context usage until bridge sends fresh data
           contextTokens: existing.contextTokens,
           contextWindow: existing.contextWindow,
@@ -342,9 +378,20 @@ export function createMemorySessionManager(
           // worktree-removal window. See design D2b.
           // See change: fix-worktree-grouping-lost-on-remove.
           gitWorktree: existing.cwd === params.cwd ? existing.gitWorktree : undefined,
+        } : params.usageSeed ? {
+          // First-seen id with existing history (fork, switch to an unscanned
+          // file): start from the bridge's baseline snapshot totals; live
+          // drain adds only usage after that baseline. Seed totals count every
+          // kind, so they are current-extractor totals.
+          // See change: count-non-message-usage.
+          ...params.usageSeed,
+          statsExtractorVersion: STATS_EXTRACTOR_VERSION,
         } : {
+          // All five totals pinned to zero (cache fields too).
           tokensIn: 0,
           tokensOut: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
           cost: 0,
         }),
         // Apply registration params (always override)
@@ -375,7 +422,11 @@ export function createMemorySessionManager(
             ? true
             : params.visibilityIntent === "visible"
               ? false
-              : params.hasUI === false && params.dashboardSpawned !== true,
+              // A restart may RESPAWN a plugin-owned session (registerReason
+              // "spawn", no token): its owner's hide intent still holds.
+              : existing?.pluginHidden === true
+                ? true
+                : params.hasUI === false && params.dashboardSpawned !== true,
         firstMessage: params.firstMessage ?? existing?.firstMessage,
         dataUnavailable: false,
         pid: params.pid,

@@ -1,0 +1,66 @@
+/* add-team-skill-access additions. Tokens only (tokens.css); sizes follow ui-contract steps. */
+.skill-list { display: flex; flex-direction: column; gap: 0.5rem; list-style: none; margin: 0; padding: 0; }
+.skill-row { display: grid; grid-template-columns: 1fr; gap: 0.5rem; padding: 0.75rem 1rem; }
+@media (min-width: 768px) { .skill-row { grid-template-columns: minmax(12rem, 1.4fr) 1fr 1fr auto; align-items: center; gap: 1rem; } }
+.skill-row.is-invalid { border-color: var(--severity-warning-border); }
+.skill-id { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.skill-name { font-family: "SF Mono", Menlo, Consolas, monospace; font-weight: 700; font-size: 0.875rem; margin: 0; overflow-wrap: anywhere; }
+.skill-desc { margin: 0; font-size: 0.75rem; color: var(--text-secondary); }
+.skill-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; min-width: 0; }
+.cell-label { font-size: 0.6875rem; color: var(--text-secondary); }
+@media (min-width: 768px) { .cell-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } }
+.list-head { display: none; }
+@media (min-width: 768px) {
+  .list-head { display: grid; grid-template-columns: minmax(12rem, 1.4fr) 1fr 1fr auto; gap: 1rem; padding: 0 1rem; font-size: 0.6875rem; font-weight: 600; color: var(--text-secondary); }
+  .list-head span:last-child { width: 2.75rem; }
+}
+.row-actions { display: flex; align-items: center; gap: 0.25rem; justify-content: flex-end; }
+.chip.src-config { background: var(--tint-purple-bg); color: var(--tint-purple-fg); border-color: var(--tint-purple-border); }
+.chip.src-managed { background: var(--tint-blue-bg); color: var(--tint-blue-fg); border-color: var(--tint-blue-border); }
+.chip.warn { background: var(--severity-warning-bg); color: var(--severity-warning-fg); border-color: var(--severity-warning-border); }
+.chip.ok { background: var(--tint-green-bg); color: var(--tint-green-fg); border-color: var(--tint-green-border); }
+.lock-note { display: inline-flex; gap: 0.25rem; align-items: center; font-size: 0.6875rem; color: var(--text-secondary); min-height: 2.75rem; }
+@media (min-width: 640px) { .lock-note { min-height: 2rem; } }
+
+/* picker */
+.picker-search { position: relative; }
+.picker-search .ic { position: absolute; left: 0.625rem; top: 50%; transform: translateY(-50%); color: var(--text-secondary); }
+.picker-search .input { padding-left: 2rem; }
+.picker { display: flex; flex-direction: column; gap: 0.25rem; max-height: 18rem; overflow-y: auto; border: 1px solid var(--border-secondary); border-radius: 0.5rem; padding: 0.25rem; background: var(--bg-secondary); }
+.pick { display: flex; gap: 0.5rem; align-items: flex-start; padding: 0.5rem 0.625rem; border-radius: 0.375rem; cursor: pointer; min-height: 2.75rem; }
+.pick:hover { background: var(--bg-hover); }
+.pick:has(input:checked) { background: var(--tint-blue-bg); }
+.pick:has(input:disabled) { cursor: not-allowed; }
+.pick input { margin: 0.2rem 0 0; accent-color: var(--accent-solid); }
+.pick .p-text { display: flex; flex-direction: column; gap: 0.125rem; min-width: 0; flex: 1; }
+.pick .p-name { font-family: "SF Mono", Menlo, Consolas, monospace; font-weight: 600; font-size: 0.8125rem; }
+.pick .p-desc { font-size: 0.75rem; color: var(--text-secondary); }
+.pick .p-meta { font-size: 0.6875rem; color: var(--text-secondary); }
+.pick:has(input:disabled) .p-name { color: var(--text-secondary); }
+.path-line { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.75rem; background: var(--bg-code); border: 1px solid var(--border-subtle); border-radius: 0.375rem; padding: 0.375rem 0.625rem; overflow-wrap: anywhere; color: var(--text-primary); }
+.sub-list { margin-left: 1.5rem; }
+
+/* impact preview */
+.impact ul { margin: 0.25rem 0 0; padding-left: 1.125rem; }
+.impact li { margin: 0.125rem 0; }
+
+/* persona editor skill options */
+.skill-opts { display: flex; flex-direction: column; gap: 0.25rem; }
+.skill-opt { display: flex; gap: 0.5rem; align-items: flex-start; padding: 0.375rem 0; min-height: 2.75rem; }
+@media (min-width: 640px) { .skill-opt { min-height: 2rem; } }
+.skill-opt input { margin: 0.2rem 0 0; accent-color: var(--accent-solid); width: 1rem; height: 1rem; flex: none; }
+.skill-opt .o-text { display: flex; flex-direction: column; gap: 0.125rem; min-width: 0; }
+.skill-opt .o-name { font-family: "SF Mono", Menlo, Consolas, monospace; font-weight: 600; font-size: 0.8125rem; }
+.skill-opt .o-desc { font-size: 0.75rem; color: var(--text-secondary); }
+.skill-opt .o-why { font-size: 0.75rem; color: var(--text-secondary); display: inline-flex; gap: 0.25rem; align-items: center; }
+.skill-opt.is-off .o-name { color: var(--text-secondary); }
+.skill-opt.is-off { cursor: not-allowed; }
+
+/* chat: inline refusal under the composer */
+.composer-error { display: flex; gap: 0.375rem; align-items: flex-start; font-size: 0.75rem; color: var(--severity-error-fg); background: var(--severity-error-bg); border: 1px solid var(--severity-error-border); border-radius: 0.375rem; padding: 0.375rem 0.625rem; margin: 0 0 0.5rem; }
+.composer-error p { margin: 0; }
+.chip.skill { font-family: "SF Mono", Menlo, Consolas, monospace; }
+.callout a { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.skill-link { color: var(--text-primary); text-decoration: none; display: inline-flex; align-items: center; min-height: 2.75rem; }
+@media (min-width: 640px) { .skill-link { min-height: 2rem; } }
+.skill-link:hover { text-decoration: underline; }

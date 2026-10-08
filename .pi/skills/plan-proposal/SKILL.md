@@ -29,8 +29,9 @@ flowchart LR
 ## Hard constraint — main session only (never a subagent)
 
 `plan-proposal` MUST run in the main interactive session. It invokes
-`doubt-driven-review` (which spawns a fresh-context reviewer, and interactively a
-second cross-model reviewer — nested subagent spawn is blocked) and
+`doubt-driven-review` (which spawns a fresh-context reviewer, and a second
+cross-model reviewer — automatically when a `@propose-review-N` role resolves,
+offered interactively only when none does; nested subagent spawn is blocked) and
 `scenario-design` (whose proposal/design-stage HARD gate calls `ask_user`). Both
 need a live main session.
 
@@ -67,6 +68,12 @@ re-offers rows not declined.
 Artifacts live at `openspec/changes/<change>/`: `proposal.md`, `design.md` (when
 the change warrants one), `specs/**/spec.md`, `tasks.md`.
 
+**Cite code claims in `design.md`.** Instruct the author to cite the path (and
+`:line` when the statement is line-specific) for every statement in `design.md`
+about existing code behaviour — e.g. `packages/server/src/pi-core-checker.ts:42`.
+Not gated: a citation makes a wrong-file or "does not exist" claim cheap to spot
+before review.
+
 ### 1b. Adopt pending mockups (idempotent backstop)
 
 Backstop for direct entry, `-continue` on an existing proposal, re-runs, and
@@ -100,8 +107,20 @@ invoke `doubt-driven-review` on the changed artifact:
   - ARTIFACT = the proposal/design prose (decompose if large per doubt-review).
   - CONTRACT = the requirements/constraints the artifact must satisfy (the specs
     deltas, the non-goals, the invariants it asserts).
-- **Surface the cross-model offer** — this is an interactive session, so the
-  offer is mandatory (doubt-review Step 3 "always offer, never silently skip").
+- **Run the spec-collateral scan before each doubt-review cycle** (the artifact
+  changes between cycles): `node scripts/spec-collateral.mjs --change <change>`.
+  Append its output to the CONTRACT under the heading **"Candidate conflicting
+  requirements (advisory scan) — check each"**. The candidates are facts about
+  the corpus, not the CLAIM. If the scan cannot run or exits non-zero, report
+  the failure and proceed with the cycle without candidates — the scan never
+  blocks planning.
+- **Reviewer prompt hygiene** — the reviewer verifies claims against the
+  repository, writes `unverified` for any claim it cannot check instead of
+  asserting it, and reports every listed candidate the artifact contradicts.
+  A contradicted candidate is resolved by a MODIFIED/REMOVED delta or an
+  artifact correction; "unaffected" is reserved for a verified false positive.
+- **Cross-model review** — runs automatically when a `@propose-review-N` role
+  resolves; surface the interactive cross-model offer only when none does.
 - **Reconcile every finding** against the artifact text using doubt-review's
   precedence (contract-misread → actionable → trade-off → noise). When a finding
   is valid + actionable, **PAUSE**: the artifact is corrected before proceeding.
@@ -149,6 +168,13 @@ Then **fold** each row into `tasks.md`:
 - **`manual-only` rows** → a plain manual task tagged `(test-plan: manual-only)`;
   **no test is folded**. `ship-change` defers these post-merge (its manifest-aware
   defer rule).
+
+**Post-fold re-scan (before Step 4):** folded tasks can introduce identifiers
+the doubt cycles never saw, so run `node scripts/spec-collateral.mjs --change
+<change>` once more after the fold and report every candidate not seen in the
+doubt-review cycles. A real conflict among them returns planning to Step 2; a
+contradicted candidate is resolved by a delta or an artifact correction —
+"unaffected" only for a verified false positive.
 
 **Fold-completeness gate (before Step 4):** every `automated` row in
 `test-plan.md` MUST map to exactly one folded test task in `tasks.md`, and every

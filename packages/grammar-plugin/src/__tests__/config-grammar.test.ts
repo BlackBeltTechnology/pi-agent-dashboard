@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_GRAMMAR, parseGrammarConfig } from "../grammar-config.js";
 
@@ -99,5 +102,27 @@ describe("parseGrammarConfig", () => {
     expect(second).toEqual(first);
     expect(second.enabled).toBe(true);
     expect(second.debounceMs).toBe(1500);
+  });
+});
+
+describe("llm: direct | role (oneOf)", () => {
+  const schema = JSON.parse(readFileSync(path.resolve(__dirname, "../../configSchema.json"), "utf-8"));
+  const validate = new Ajv({ allErrors: true }).compile(schema);
+
+  it("E19: mixed {provider, model, role} is invalid", () => {
+    expect(validate({ llm: { provider: "a", model: "b", role: "@fast" } })).toBe(false);
+  });
+  it("direct and role-only shapes are valid; empty/partial are not", () => {
+    expect(validate({ llm: { provider: "a", model: "b" } })).toBe(true);
+    expect(validate({ llm: { role: "@fast" } })).toBe(true);
+    expect(validate({ llm: { role: "@fast:high" } })).toBe(true);
+    expect(validate({ llm: { role: "fast" } })).toBe(false);
+    expect(validate({ llm: { provider: "a" } })).toBe(false);
+    expect(validate({})).toBe(true);
+  });
+  it("parseGrammarConfig keeps a role llm and rejects a mixed one", () => {
+    expect(parseGrammarConfig({ llm: { role: "@fast" } }).llm).toEqual({ role: "@fast" });
+    expect(parseGrammarConfig({ llm: { provider: "a", model: "b", role: "@fast" } }).llm).toBeUndefined();
+    expect(parseGrammarConfig({ llm: { role: "bad name" } }).llm).toBeUndefined();
   });
 });

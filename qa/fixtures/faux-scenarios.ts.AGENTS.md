@@ -7,3 +7,10 @@ Adds `demo-echo` (calls `demo_echo({text:"hi"})`, then text `demo echo done`). S
 Adds `gmail-send` (`gmail_send` a@fake.test → x@/y@dest.test, raises the tool's own confirm) and `gmail-search` (`gmail_search` a@fake.test, drives reauth badge) for gmail-plugin L3 F5/F6. See change: add-gmail-plugin.
 
 Adds `notify-repeat` (one `e2e_notify` call, 5 identical warnings) + `notify-repeat-slow` (10 warnings 800 ms apart, watched growing live) + exported `NOTIFY_REPEAT_MESSAGE` / `NOTIFY_REPEAT_DONE`. Drive `tests/e2e/notify-collapse.spec.ts`. See change: collapse-and-order-notify-rows.
+
+Adds `mcp-env-probe` (X1: reads the pi session env and reports `PI_DASHBOARD_MCP_TOKEN` absent — `MCP_ENV_PROBE_PREFIX`, `summarizeEnvProbe`) + `mcp-dashboard-call` (X2: `tool_search` then call `MCP_DASHBOARD_LIST_SESSIONS_TOOL` = `mcp__pi_dashboard__list_sessions` — `MCP_DASHBOARD_CALL_PREFIX`, `summarizeDashboardCall`) for the built-in-MCP registration e2e. See change: migrate-mcp-to-pi-builtin.
+
+Catalog `tool-read-outside` (reads `/etc/hostname`) and `tool-read-outside-grantable` (reads `/srv/fixtures-outside/a.txt` then `b.txt`, then text `outside reads done`) for the agent path gate e2e. See change: ask-agent-file-access-in-chat.
+
+See change: add-browser-editor-pane-tab — scenario `browser-show-in-pane` (`[[faux:browser-show-in-pane]] <instanceId>`): calls the real `browser_show_in_pane` tool, echoes its result.
+- Adds `subagent-reasoning` (parent) + `subagent-reasoning-inner` (thinking + `sleep 3` bash ×3, ~9 s); parent Agent call pins literal `model: "faux/faux-1"` (Explore `@fast` falls back to credential-less anthropic in harness → child dies ~300 ms) for stable-card-height L3. See change: stream-subagent-reasoning-and-stable-card.

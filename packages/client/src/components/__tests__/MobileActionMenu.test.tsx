@@ -1,6 +1,7 @@
-import { cleanup, fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as rtlRender, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { archiveEntry, knownData, stubArchiveApi, withOpenSpecMap } from "../../test-support/attachmentHarness.js";
 import { makeRunConfig, RunConfigHarness } from "../../test-support/runConfigHarness.js";
 import { MobileActionMenu } from "../shell/MobileActionMenu.js";
 
@@ -140,5 +141,60 @@ describe("MobileActionMenu unattached OpenSpec section", () => {
     expect(onSendPrompt).toHaveBeenCalledWith("/skill:openspec-new-change add-auth\nAdd OAuth");
     // Dialog should close
     expect(screen.queryByTestId("new-change-dialog")).toBeNull();
+  });
+});
+
+describe("MobileActionMenu overlay-layering (portal contract)", () => {
+  it("panel has fixed and z-popover, not absolute or z-50", () => {
+    render(
+      <MobileActionMenu
+        session={makeSession({ status: "idle" })}
+        openspecChanges={[sampleChange]}
+        onSendPrompt={vi.fn()}
+      />
+    );
+    openMenu();
+    const panel = screen.getByTestId("mobile-action-menu");
+    expect(panel.className).toContain("fixed");
+    expect(panel.className).toContain("z-popover");
+    expect(panel.className).not.toContain("absolute");
+    expect(panel.className).not.toContain("z-50");
+  });
+
+  it("outside click closes the menu", () => {
+    render(
+      <MobileActionMenu
+        session={makeSession({ status: "idle" })}
+        openspecChanges={[sampleChange]}
+        onSendPrompt={vi.fn()}
+      />
+    );
+    openMenu();
+    expect(screen.queryByTestId("mobile-action-menu")).not.toBeNull();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByTestId("mobile-action-menu")).toBeNull();
+  });
+});
+
+describe("MobileActionMenu archived attachment (resolve-archived-attached-proposal)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("F7 offers no workflow rows for an archived attachment", async () => {
+    stubArchiveApi({ "/project/foo": [archiveEntry("2026-09-30-add-auth")] });
+    render(
+      withOpenSpecMap(
+        { "/project/foo": knownData() },
+        <MobileActionMenu
+          session={makeSession({ attachedProposal: "add-auth", status: "idle" })}
+          openspecChanges={[]}
+          onSendPrompt={vi.fn()}
+          onDetachProposal={vi.fn()}
+        />,
+      ),
+    );
+    await act(async () => { await Promise.resolve(); });
+    openMenu();
+    const text = document.body.textContent ?? "";
+    for (const w of ["Continue", "Apply", "Archive", "Verify", "Explore"]) expect(text).not.toContain(w);
+    expect(text).toContain("Detach: add-auth");
   });
 });

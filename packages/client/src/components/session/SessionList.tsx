@@ -1,6 +1,7 @@
 import { SidebarFolderSectionSlot, useFolderMenuRefreshRunner } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import type { ArchivedSessionSummary } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { cardSectionFolderKey, isPluginSectionVisible, resolveCardSectionVisible, resolveFolderListMode } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { GroupByMode, GroupByPrefs, LaneId, StatusLaneId } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
@@ -14,6 +15,7 @@ import { useFlipOnLaneChange } from "../../hooks/useFlipOnLaneChange.js";
 import { useInitStatus } from "../../hooks/useInitStatus.js";
 import { useInstallPrompt } from "../../hooks/useInstallPrompt.js";
 import { useLaneHysteresis } from "../../hooks/useLaneHysteresis.js";
+import { demandsAttention, type FocusIntent, type GroupRenderMode, resolveActiveCwd, resolveGroupRenderMode } from "../../lib/folder-focus.js";
 import { maybeAutoInitWorktreeOnSpawn } from "../../lib/git/auto-init-worktree.js";
 import { resolveWorktreeAvailability } from "../../lib/git/folder-worktree-availability.js";
 import type { WorktreeInitStatus } from "../../lib/git/git-api.js";
@@ -54,6 +56,7 @@ import {
   type StatusLaneFlags,
 } from "../../lib/session/session-lanes.js";
 import { selectedCardScrollFingerprint } from "../../lib/session/session-list-scroll.js";
+import { useCardSectionPrefs } from "../../lib/state/CardSectionsContext.js";
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
 import { YoloPill } from "../access-grant/YoloIndicators.js";
@@ -63,6 +66,7 @@ import { FolderActionsMenu, type FolderMenuItem, type FolderMenuRadioGroup } fro
 import { FolderSpawnButtons } from "../folder/FolderSpawnButtons.js";
 import { FolderStatusCapsule, WidgetBarProbe } from "../folder/FolderStatusCapsule.js";
 import { projectSetupLabel } from "../folder/folder-menu-labels.js";
+import { SignedInUserBar } from "../identity/UserBar.js";
 import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import { InstallButton } from "../packages/InstallButton.js";
 import { PiLogo } from "../primitives/PiLogo.js";
@@ -84,6 +88,7 @@ import { ManageWorktreesDialog } from "../worktree/ManageWorktreesDialog.js";
 import { WorktreeSpawnDialog } from "../worktree/WorktreeSpawnDialog.js";
 import { ArchivedSessionRow } from "./ArchivedSessionRow.js";
 import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
+import { FocusToggle } from "./FocusToggle.js";
 import { GroupByChip, groupByModeLabel } from "./GroupByChip.js";
 import { LaneHeader, laneMeta, laneRailStyle } from "./LaneHeader.js";
 import { PlaceholderSessionCard } from "./PlaceholderSessionCard.js";
@@ -93,7 +98,7 @@ import { SortableSessionCard } from "./SortableSessionCard.js";
 import { SpawnErrorBanner } from "./SpawnErrorBanner.js";
 
 /** Community invite surfaced in the app header. */
-const DISCORD_INVITE_URL = "https://discord.gg/DrNebZ3pF5";
+const DISCORD_INVITE_URL = "https://discord.gg/uQsJgsejb";
 /** Discord brand glyph — @mdi/js 7.x ships no brand icons, so the path is inlined. */
 const mdiDiscordPath =
   "M20.317 4.369A19.79 19.79 0 0 0 15.446 3c-.21.375-.455.88-.624 1.28a18.27 18.27 0 0 0-5.644 0A12.6 12.6 0 0 0 8.548 3a19.74 19.74 0 0 0-4.874 1.372C.605 8.98-.232 13.475.186 17.905a19.9 19.9 0 0 0 6.026 3.05c.485-.66.917-1.362 1.29-2.1a12.9 12.9 0 0 1-2.03-.978c.17-.125.337-.256.498-.39a14.2 14.2 0 0 0 12.06 0c.163.135.33.266.5.39-.647.383-1.33.71-2.033.98a15.8 15.8 0 0 0 1.29 2.099 19.86 19.86 0 0 0 6.03-3.05c.49-5.138-.838-9.593-3.5-13.537ZM8.02 15.21c-1.182 0-2.152-1.086-2.152-2.42 0-1.332.95-2.42 2.152-2.42 1.21 0 2.18 1.096 2.16 2.42 0 1.334-.95 2.42-2.16 2.42Zm7.96 0c-1.183 0-2.152-1.086-2.152-2.42 0-1.332.95-2.42 2.152-2.42 1.21 0 2.18 1.096 2.16 2.42 0 1.334-.95 2.42-2.16 2.42Z";
@@ -222,6 +227,15 @@ interface Props {
   collapsedGroups?: string[];
   /** Set one folder group's collapsed state (explicit target, never a toggle). */
   onSetFolderCollapsed?: (path: string, collapsed: boolean) => void;
+  // ── add-focus-mode-and-card-block-toggles (accordion) ───
+  /** Canonical pinned-open folder keys (`collapsed_folders_updated.expandedFolders`). */
+  expandedGroups?: string[];
+  /** Pin a folder open / unpin it (explicit target). */
+  onSetFolderExpanded?: (path: string, expanded: boolean) => void;
+  /** Configured folder list mode (Settings); the Focus profile may override. Absent ⇒ classic. */
+  folderListMode?: "classic" | "accordion";
+  /** Accordion: unfocused folders with attention-demanding sessions peek open. Default true. */
+  folderAttentionPeek?: boolean;
   // ── session-list-group-by ───────────────────────────────
   /** Server-owned grouping prefs (`group_by_prefs_updated`). Absent ⇒ every folder `none`. */
   groupByPrefs?: GroupByPrefs;
@@ -383,7 +397,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, groupByPrefs, onSetFolderGroupBy, onSetLaneCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, historyPhaseMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, pageReplyGen, pageExhausted, connected, onSessionsPage }: Props) {
+export function SessionList({ sessions, selectedId, onSelect: onSelectProp, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, expandedGroups, onSetFolderExpanded, folderListMode: configuredFolderListMode, folderAttentionPeek = true, groupByPrefs, onSetFolderGroupBy, onSetLaneCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, historyPhaseMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, pageReplyGen, pageExhausted, connected, onSessionsPage }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -614,6 +628,33 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     () => new Set((pinnedDirectories ?? []).map((d) => pathKey(d, collapsePlatform))),
     [pinnedDirectories, collapsePlatform],
   );
+  // Directory-card block visibility (add-focus-mode-and-card-block-toggles D4).
+  const cardSectionPrefs = useCardSectionPrefs();
+  const folderBlockVisible = useCallback(
+    (cwd: string, id: string) => resolveCardSectionVisible(cardSectionPrefs, cardSectionFolderKey(cwd), id),
+    [cardSectionPrefs],
+  );
+  // ── Accordion folder list (design D6) ────────────────────────────────────
+  const effectiveFolderListMode = resolveFolderListMode(cardSectionPrefs, { folderListMode: configuredFolderListMode });
+  const accordion = effectiveFolderListMode === "accordion";
+  // Latest intent wins: a session selection or a folder activation. The
+  // activated folder is per-tab state, never persisted.
+  const [activatedCwd, setActivatedCwd] = useState<string | null>(null);
+  const [lastIntent, setLastIntent] = useState<FocusIntent | null>(selectedId ? "select" : null);
+  const onSelect = useCallback(
+    (sessionId: string) => {
+      setLastIntent("select");
+      onSelectProp(sessionId);
+    },
+    [onSelectProp],
+  );
+  useEffect(() => {
+    if (selectedId) setLastIntent("select");
+  }, [selectedId]);
+  const activateFolder = useCallback((cwd: string) => {
+    setActivatedCwd(cwd);
+    setLastIntent("activate");
+  }, []);
   const collapsedGroupKeys = useMemo(
     () => new Set((collapsedGroups ?? []).map((p) => pathKey(p, collapsePlatform))),
     [collapsedGroups, collapsePlatform],
@@ -622,6 +663,27 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     (groupPath: string) => collapsedGroupKeys.has(pathKey(groupPath, collapsePlatform)),
     [collapsedGroupKeys, collapsePlatform],
   );
+  const expandedGroupKeys = useMemo(
+    () => new Set((expandedGroups ?? []).map((p) => pathKey(p, collapsePlatform))),
+    [expandedGroups, collapsePlatform],
+  );
+  const isGroupKeyPinnedOpen = useCallback(
+    (groupPath: string) => expandedGroupKeys.has(pathKey(groupPath, collapsePlatform)),
+    [expandedGroupKeys, collapsePlatform],
+  );
+  const activeGroupKey = useMemo(() => {
+    if (!accordion) return null;
+    const sel = selectedId ? sessions.find((x) => x.id === selectedId) : undefined;
+    const selectedCwd = sel ? pathKey(resolveSessionGroupPath(sel, pinnedGroupKeys, collapsePlatform), collapsePlatform) : null;
+    const rendered = new Set<string>(pinnedGroupKeys);
+    for (const x of sessions) rendered.add(pathKey(resolveSessionGroupPath(x, pinnedGroupKeys, collapsePlatform), collapsePlatform));
+    return resolveActiveCwd({
+      selectedCwd,
+      activatedCwd: activatedCwd === null ? null : pathKey(activatedCwd, collapsePlatform),
+      lastIntent,
+      isRendered: (k) => rendered.has(k),
+    });
+  }, [accordion, selectedId, sessions, pinnedGroupKeys, collapsePlatform, activatedCwd, lastIntent]);
   // ADD-ONLY / explicit-target setter. Never a toggle: collapse state now
   // round-trips through the server, so a guarded toggle is a read-modify-write
   // race (a repeat reveal could re-collapse a folder it just opened).
@@ -884,6 +946,10 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // Inline state for AddToWorkspace popover and NewWorkspace dialog.
   // See change: folder-workspaces.
   const [addToWsMenuFor, setAddToWsMenuFor] = React.useState<string | null>(null);
+  // A single trigger ref: only one workspace flyout is open at a time (keyed by
+  // `addToWsMenuFor`), so the currently-open button carries this ref and the
+  // portaled `AddToWorkspaceMenu` anchors its `fixed` panel from it.
+  const wsTriggerRef = React.useRef<HTMLButtonElement>(null);
   // Folder actions menu open flag, keyed by folder SCOPE (`folder:<cwd>`) the
   // same way `addToWsMenuFor` is — a cwd key would co-open a folder row and a
   // same-cwd card. See change: add-folder-actions-menu.
@@ -1527,6 +1593,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     return (
       <span className={`relative inline-flex ${wrapperClass}`}>
         <button
+          ref={menuOpen ? wsTriggerRef : undefined}
           type="button"
           onClick={(e) => {
             e.stopPropagation();
@@ -1547,6 +1614,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           <AddToWorkspaceMenu
             workspaces={workspaces ?? []}
             currentWorkspaceId={owningWsId}
+            triggerRef={wsTriggerRef}
             // Each terminal action also closes the hosting folder actions menu
             // — otherwise picking a workspace leaves the outer menu open behind
             // the dismissed popover. See change: add-folder-actions-menu.
@@ -1807,7 +1875,29 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     const lastSlash = displayPath.lastIndexOf('/');
     const parentPath = lastSlash >= 0 ? displayPath.slice(0, lastSlash + 1) : '';
     const lastSegment = lastSlash >= 0 ? displayPath.slice(lastSlash + 1) : displayPath;
-    const isCollapsed = isFolderCollapsed(group.cwd);
+    // Accordion render mode (folder-focus): full / collapsed / compact*.
+    // Classic mode never enters this path, so its DOM stays unchanged.
+    const filterActive = workspaceFilter.length > 0 || sessionSearch.length > 0 || anyTagFilterActive;
+    const groupKey = pathKey(group.cwd, collapsePlatform);
+    const accordionSessions = accordion
+      ? (() => {
+          let m = sessionSearch.length > 0 ? filterByQuery(group.sessions, sessionSearch) : group.sessions;
+          if (anyTagFilterActive) m = m.filter(passesTagAxes);
+          return m;
+        })()
+      : group.sessions;
+    const pinnedOpen = accordion && isGroupKeyPinnedOpen(group.cwd);
+    const accordionMode: GroupRenderMode | null = accordion
+      ? resolveGroupRenderMode({
+          focused: activeGroupKey === groupKey,
+          collapsed: isGroupKeyCollapsed(group.cwd),
+          pinnedOpen,
+          hasAttention: folderAttentionPeek && accordionSessions.some(demandsAttention),
+          forceFull: filterActive,
+        })
+      : null;
+    const isCompact = accordionMode === "compactAttention" || accordionMode === "compactEmpty";
+    const isCollapsed = accordion ? accordionMode !== "full" : isFolderCollapsed(group.cwd);
     // Root (non-workspace) folders get a subtle accent-tinted surface so their
     // boundary stays legible across themes, incl. low-contrast/warm ones where
     // --bg-primary blends into the page (change: folder-card-enclosure, C).
@@ -1830,6 +1920,93 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     const groupMode = groupByMode(group.cwd);
     const groupModeInherited = !groupByPrefs || explicitGroupBy(group.cwd, groupByPrefs, collapsePlatform) === undefined;
     const groupLanes = !isCollapsed && !isStub ? lanesForGroup(group) : null;
+    // One card renderer shared by the plain list and the lanes.
+    // `hold` = status-lane hysteresis hold (session-list-group-by).
+    const renderCard = (session: DashboardSession, hold?: { until: number; dest: LaneId }) => (
+        <SortableSessionCard key={session.id} id={session.id}>
+          <SessionCard
+            session={session}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            now={now}
+            showGitInfo={group.sessions.length === 1}
+            isHidden={!!session.hidden}
+            onArchive={handleArchive}
+
+            contextUsage={contextUsageMap?.get(session.id)}
+            openspecChanges={openspecMap?.get(session.cwd)?.changes}
+            openspecInitialized={openspecMap?.get(session.cwd)?.initialized}
+            openspecPending={openspecMap?.get(session.cwd)?.pending}
+            openspecHasDir={openspecMap?.get(session.cwd)?.hasOpenspecDir}
+            openspecReadiness={openspecMap?.get(session.cwd)?.readiness}
+            onSeekToFolderOpenSpec={seekToFolderOpenSpec}
+            onOpenOpenSpecSettings={openOpenSpecSettings}
+            openspecGroups={openspecGroupsMap?.get(session.cwd)?.groups}
+            openspecAssignments={openspecGroupsMap?.get(session.cwd)?.assignments}
+            onSendPrompt={onSendPrompt ? (text, images) => onSendPrompt(session.id, text, images) : undefined}
+            onAttachProposal={onAttachProposal ? (changeName) => onAttachProposal(session.id, changeName) : undefined}
+            onDetachProposal={onDetachProposal ? () => onDetachProposal(session.id) : undefined}
+            onReplaceProposal={onReplaceProposal ? (accept, changeName) => onReplaceProposal(session.id, accept, changeName) : undefined}
+            onReadArtifact={onReadArtifact ? (changeName, artifactId) => onReadArtifact(session.cwd, changeName, artifactId) : undefined}
+            onBulkArchive={onBulkArchive ? () => onBulkArchive(session.cwd) : undefined}
+            onRename={onRename ? (name) => onRename(session.id, name) : undefined}
+            onShutdown={onShutdown}
+            onResume={onResume ? (mode) => onResume(session.id, mode) : undefined}
+            onSpawnSibling={onSpawnSession ? (s) => onSpawnSession(s.cwd, s.attachedProposal || undefined) : undefined}
+            onSpawnWorktree={onSpawnSession && gitWorktreeEnabled ? (s) => {
+              // Reuse existing worktree dialogs: proposal-aware path
+              // when attached, plain path otherwise. No new state.
+              if (s.attachedProposal) setWorktreeForChange({ cwd: s.cwd, changeName: s.attachedProposal });
+              else setWorktreeDialogCwd(s.cwd);
+            } : undefined}
+            commands={commandsMap?.get(session.id)}
+            processes={session.processes}
+            onKillProcess={onKillProcess ? (pgid) => onKillProcess(session.id, pgid) : undefined}
+            onSetProcessDrawerCollapsed={onSetProcessDrawer ? (collapsed) => onSetProcessDrawer(session.id, collapsed) : undefined}
+            inflightBashTools={inflightBashMap?.get(session.id)}
+            historyPhase={historyPhaseMap?.get(session.id)?.phase}
+            historyStartedAt={historyPhaseMap?.get(session.id)?.startedAt}
+            onAbortTool={onAbortTool ? (toolCallId) => onAbortTool(session.id, toolCallId) : undefined}
+            hasError={errorSessionIds?.has(session.id)}
+            isRetrying={retrySessionIds?.has(session.id)}
+            retryAttempt={retryAttemptMap?.get(session.id)}
+            hasNotice={noticeSessionIds?.has(session.id)}
+          />
+          {resumeErrors?.get(session.id) && (
+            <div data-testid="resume-error-banner" className="mt-1 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs text-red-300">
+              <span className="flex-1">{i18nT("session.resumeFailed", undefined, "Resume failed:")} {resumeErrors.get(session.id)}</span>
+              {onDismissResumeError && (
+                <button
+                  data-testid="resume-error-dismiss"
+                  onClick={() => onDismissResumeError(session.id)}
+                  className="text-red-400 hover:text-red-300 shrink-0"
+                >✕</button>
+              )}
+            </div>
+          )}
+          {hold && (
+            // Hold countdown in the DESTINATION lane colour; remaining
+            // time as duration so a remount mid-hold stays correct.
+            <div
+              key={hold.until}
+              aria-hidden="true"
+              className="lane-hold-bar"
+              data-testid={`lane-hold-bar-${session.id}`}
+              style={{
+                "--lane-dest": laneMeta(hold.dest).color,
+                "--lane-hold-ms": `${Math.max(0, hold.until - Date.now())}ms`,
+              } as React.CSSProperties}
+            />
+          )}
+        </SortableSessionCard>
+    );
+    const showFolderGit = folderBlockVisible(group.cwd, "folder-git");
+    const showFolderBanner = folderBlockVisible(group.cwd, "folder-banner");
+    const showFolderOpenspec = folderBlockVisible(group.cwd, "folder-openspec");
+    const showFolderCreate = folderBlockVisible(group.cwd, "folder-create");
+    const showFolderEnded = folderBlockVisible(group.cwd, "folder-ended");
+    const pillVisible = (pluginId: string) =>
+      isPluginSectionVisible(cardSectionPrefs, cardSectionFolderKey(group.cwd), "pill", pluginId);
     const groupByChip = (
       <GroupByChip
         cwd={group.cwd}
@@ -1865,7 +2042,13 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           {/* Left gutter — chevron at top, drag-handle column extending below */}
           <FolderDragGutter
             isCollapsed={isCollapsed}
-            onToggle={() => setFolderCollapsed(group.cwd, !isGroupKeyCollapsed(group.cwd))}
+            onToggle={() => {
+              if (!accordion) return setFolderCollapsed(group.cwd, !isGroupKeyCollapsed(group.cwd));
+              // Accordion: the chevron collapses/expands the FOCUSED folder and
+              // pins/unpins an unfocused one. Never changes the focused folder.
+              if (activeGroupKey === groupKey) setFolderCollapsed(group.cwd, accordionMode === "full");
+              else onSetFolderExpanded?.(pathKey(group.cwd, collapsePlatform), !pinnedOpen);
+            }}
           />
           <div className="flex-1 min-w-0">
           {/* One shared init-status probe per row feeds BOTH the tier-0 banner
@@ -1883,7 +2066,10 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               See change: directory-card-clickable-select, add-folder-actions-menu (D3). */}
           <div
             className="group flex items-center gap-1.5 cursor-pointer"
-            onClick={() => navigate(buildFolderHomeUrl(group.cwd))}
+            onClick={() => {
+              if (accordion) activateFolder(group.cwd);
+              navigate(buildFolderHomeUrl(group.cwd));
+            }}
             title={t("sessionList.openFolderHome", undefined, "Open folder home")}
             data-testid={`folder-home-row-${group.cwd}`}
           >
@@ -1908,6 +2094,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 if (e.key !== "Enter") return;
                 e.preventDefault();
                 e.stopPropagation();
+                if (accordion) activateFolder(group.cwd);
                 navigate(buildFolderHomeUrl(group.cwd));
               }}
               className="focus-ring rounded text-xs font-medium text-[var(--text-secondary)] min-w-0 overflow-hidden flex items-center gap-1"
@@ -1999,6 +2186,21 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               {groupByChip}
             </div>
           )}
+          {/* Accordion compact folders keep the safety cue: the condensed header
+              hides the banner block, but a folder that cannot proceed still
+              surfaces the compact warning chip. See change:
+              add-focus-mode-and-card-block-toggles (Safety cues survive). */}
+          {isCompact && !isStub && (
+            <FolderActionBanner
+              cwd={group.cwd}
+              status={initStatus}
+              isProjectRoot={isPinned || inWorkspace || group.sessions.some((s) => s.isGitRepo === true) || !!folderGitMap?.get(group.cwd)}
+              onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, { initialPrompt: PROJECT_INIT_PROMPT }) : undefined}
+              onStatusChange={refetchInit}
+              sessions={group.sessions}
+              compact
+            />
+          )}
           {!isCollapsed && !isStub && (<>
           {/* Git info + folder actions share ONE compact row (variant B):
               branch/commit left, Initialize + settings gear right-grouped.
@@ -2017,12 +2219,14 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               See change: session-list-group-by. */}
           <div className="mt-1 min-w-0 flex items-center gap-2">
             <div className="min-w-0 flex-1">
+              {showFolderGit && (
               <GroupGitInfo
                 sessions={group.sessions}
                 cwd={group.cwd}
                 folderBranch={folderGitMap?.has(group.cwd) ? folderGitMap.get(group.cwd) : undefined}
                 onBranchClick={() => setBranchDialogCwd(group.cwd)}
               />
+              )}
             </div>
             {groupByChip}
           </div>
@@ -2040,21 +2244,22 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, { initialPrompt: PROJECT_INIT_PROMPT }) : undefined}
             onStatusChange={refetchInit}
             sessions={group.sessions}
+            compact={!showFolderBanner}
           />
           {/* Slot-pill grid: the plugin slot sections (Automations / Goals /
               KB) + OpenSpec render as single-concern pills in a 2-col grid that
               collapses to 1-col at mobile width. A section that renders null
               (plugin disabled / not yet loaded) simply leaves no cell.
               See change: redesign-directory-card. */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-2 gap-y-3 mt-3">
-            <SidebarFolderSectionSlot folder={{ cwd: group.cwd }} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-2 gap-y-3 mt-3 empty:hidden">
+            <SidebarFolderSectionSlot folder={{ cwd: group.cwd }} isPluginVisible={pillVisible} />
             {/* Readiness-gated (inside the section): READY pill, PENDING
                 spinner, ABSENT offer (+dismiss), BROKEN/STALE recovery pill;
                 nothing for GLOBAL_OFF / OPTED_OUT / legacy not-initialized.
                 Rendered whenever the server has broadcast data for the cwd —
                 including pinned directories with no sessions.
                 See change: add-openspec-init-affordances. */}
-            {openspecMap?.get(group.cwd) && (
+            {showFolderOpenspec && openspecMap?.get(group.cwd) && (
               <FolderOpenSpecSection
                 data={openspecMap.get(group.cwd)!}
                 cwd={group.cwd}
@@ -2078,12 +2283,44 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             --bg-primary surface with one continuous border (header is border-b-0
             when expanded); no seam shading — the CREATE separator alone marks
             the header/body junction. See change: folder-card-enclosure. */}
+        {/* Accordion compact body (folder-focus): an unfocused, unpinned folder shows
+            only its attention-demanding session cards, or one subdued
+            `N sessions — click to view` row. See change: add-focus-mode-and-card-block-toggles. */}
+        {isCompact && !isStub && (() => {
+          if (accordionMode === "compactAttention") {
+            const attention = sortSessionsByOrder(accordionSessions.filter(demandsAttention), sessionOrderMap?.get(group.cwd));
+            return (
+              <div
+                className="relative space-y-1 pt-1 pb-1 pl-[18px] before:content-[''] before:absolute before:left-[7px] before:top-0.5 before:bottom-1 before:w-0.5 before:rounded-full before:bg-[var(--rail-directory)]"
+                data-testid={`folder-compact-body-${group.cwd}`}
+              >
+                <SortableContext items={attention.map((x) => x.id)} strategy={verticalListSortingStrategy}>
+                  {attention.map((x) => (
+                    <React.Fragment key={`c-${x.id}`}>{renderCard(x)}</React.Fragment>
+                  ))}
+                </SortableContext>
+              </div>
+            );
+          }
+          const n = accordionSessions.length;
+          if (n === 0) return null;
+          return (
+            <button
+              type="button"
+              onClick={() => activateFolder(group.cwd)}
+              className="focus-ring w-full text-left text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] px-3 py-1 select-none"
+              data-testid={`folder-compact-row-${group.cwd}`}
+            >
+              {t("sessionList.compactCount", { count: n }, `${n} sessions — click to view`)}
+            </button>
+          );
+        })()}
         {/* Stub group body (D9): ended expander only — no Create tray, no
             spawn buttons, no session cards, no section slots. The label
             carries the group's full ended count; expanding pulls the first
             page and the materialized rows turn the group into a normal card.
             See change: fix-connect-snapshot-frame-loss. */}
-        {!isCollapsed && isStub && (
+        {!isCollapsed && isStub && showFolderEnded && (
           <div
             className="relative bg-[var(--bg-primary)] border border-[var(--border-subtle)] border-t-0 rounded-b-[14px] px-1.5 pb-1.5 shadow-[0_2px_4px_var(--shadow-card)]"
             style={folderTint}
@@ -2106,6 +2343,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           style={folderTint}
           data-testid={`folder-body-${group.cwd}`}
         >
+            {showFolderCreate && (<>
             <div className="relative text-center text-[9.5px] font-semibold tracking-[.1em] uppercase text-[var(--text-muted)] mt-0 mb-2 before:content-[''] before:absolute before:top-1/2 before:left-0 before:w-[38%] before:h-px before:bg-[var(--border-subtle)] after:content-[''] after:absolute after:top-1/2 after:right-0 after:w-[38%] after:h-px after:bg-[var(--border-subtle)]">
               {t("sessionList.create", undefined, "Create")}
             </div>
@@ -2135,6 +2373,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               {t("sessionList.sessions", undefined, "Sessions")}
             </div>
             )}
+            </>)}
         {/* Session + terminal cards */}
         <div className="group-collapse expanded">
         {/* Directory rail: ONE 2px gray vertical line standing for the folder
@@ -2222,86 +2461,6 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 </div>
               );
             }
-            // One card renderer shared by the plain list and the lanes.
-            // `hold` = status-lane hysteresis hold (session-list-group-by).
-            const renderCard = (session: DashboardSession, hold?: { until: number; dest: LaneId }) => (
-                <SortableSessionCard key={session.id} id={session.id}>
-                  <SessionCard
-                    session={session}
-                    selectedId={selectedId}
-                    onSelect={onSelect}
-                    now={now}
-                    showGitInfo={group.sessions.length === 1}
-                    isHidden={!!session.hidden}
-                    onArchive={handleArchive}
-
-                    contextUsage={contextUsageMap?.get(session.id)}
-                    openspecChanges={openspecMap?.get(session.cwd)?.changes}
-                    openspecInitialized={openspecMap?.get(session.cwd)?.initialized}
-                    openspecPending={openspecMap?.get(session.cwd)?.pending}
-                    openspecHasDir={openspecMap?.get(session.cwd)?.hasOpenspecDir}
-                    openspecReadiness={openspecMap?.get(session.cwd)?.readiness}
-                    onSeekToFolderOpenSpec={seekToFolderOpenSpec}
-                    onOpenOpenSpecSettings={openOpenSpecSettings}
-                    openspecGroups={openspecGroupsMap?.get(session.cwd)?.groups}
-                    openspecAssignments={openspecGroupsMap?.get(session.cwd)?.assignments}
-                    onSendPrompt={onSendPrompt ? (text, images) => onSendPrompt(session.id, text, images) : undefined}
-                    onAttachProposal={onAttachProposal ? (changeName) => onAttachProposal(session.id, changeName) : undefined}
-                    onDetachProposal={onDetachProposal ? () => onDetachProposal(session.id) : undefined}
-                    onReplaceProposal={onReplaceProposal ? (accept, changeName) => onReplaceProposal(session.id, accept, changeName) : undefined}
-                    onReadArtifact={onReadArtifact ? (changeName, artifactId) => onReadArtifact(session.cwd, changeName, artifactId) : undefined}
-                    onBulkArchive={onBulkArchive ? () => onBulkArchive(session.cwd) : undefined}
-                    onRename={onRename ? (name) => onRename(session.id, name) : undefined}
-                    onShutdown={onShutdown}
-                    onResume={onResume ? (mode) => onResume(session.id, mode) : undefined}
-                    onSpawnSibling={onSpawnSession ? (s) => onSpawnSession(s.cwd, s.attachedProposal || undefined) : undefined}
-                    onSpawnWorktree={onSpawnSession && gitWorktreeEnabled ? (s) => {
-                      // Reuse existing worktree dialogs: proposal-aware path
-                      // when attached, plain path otherwise. No new state.
-                      if (s.attachedProposal) setWorktreeForChange({ cwd: s.cwd, changeName: s.attachedProposal });
-                      else setWorktreeDialogCwd(s.cwd);
-                    } : undefined}
-                    commands={commandsMap?.get(session.id)}
-                    processes={session.processes}
-                    onKillProcess={onKillProcess ? (pgid) => onKillProcess(session.id, pgid) : undefined}
-                    onSetProcessDrawerCollapsed={onSetProcessDrawer ? (collapsed) => onSetProcessDrawer(session.id, collapsed) : undefined}
-                    inflightBashTools={inflightBashMap?.get(session.id)}
-                    historyPhase={historyPhaseMap?.get(session.id)?.phase}
-                    historyStartedAt={historyPhaseMap?.get(session.id)?.startedAt}
-                    onAbortTool={onAbortTool ? (toolCallId) => onAbortTool(session.id, toolCallId) : undefined}
-                    hasError={errorSessionIds?.has(session.id)}
-                    isRetrying={retrySessionIds?.has(session.id)}
-                    retryAttempt={retryAttemptMap?.get(session.id)}
-                    hasNotice={noticeSessionIds?.has(session.id)}
-                  />
-                  {resumeErrors?.get(session.id) && (
-                    <div data-testid="resume-error-banner" className="mt-1 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs text-red-300">
-                      <span className="flex-1">{i18nT("session.resumeFailed", undefined, "Resume failed:")} {resumeErrors.get(session.id)}</span>
-                      {onDismissResumeError && (
-                        <button
-                          data-testid="resume-error-dismiss"
-                          onClick={() => onDismissResumeError(session.id)}
-                          className="text-red-400 hover:text-red-300 shrink-0"
-                        >✕</button>
-                      )}
-                    </div>
-                  )}
-                  {hold && (
-                    // Hold countdown in the DESTINATION lane colour; remaining
-                    // time as duration so a remount mid-hold stays correct.
-                    <div
-                      key={hold.until}
-                      aria-hidden="true"
-                      className="lane-hold-bar"
-                      data-testid={`lane-hold-bar-${session.id}`}
-                      style={{
-                        "--lane-dest": laneMeta(hold.dest).color,
-                        "--lane-hold-ms": `${Math.max(0, hold.until - Date.now())}ms`,
-                      } as React.CSSProperties}
-                    />
-                  )}
-                </SortableSessionCard>
-            );
             // Lanes (session-list-group-by): one SortableContext per lane so
             // dnd-kit never visually shifts a card across lanes mid-drag
             // (design D4); ended bucket stays a plain list below all lanes.
@@ -2455,6 +2614,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               : group.sessions;
             if (anyTagFilterActive) matched = matched.filter(passesTagAxes);
             const endedCount = matched.filter((s) => s.status === "ended").length;
+            if (!showFolderEnded) return null;
             if (endedCount === 0 && endedTotal <= 0) return null;
             if (sessionSearch.length > 0 || anyTagFilterActive) return null; // auto-expanded
             const expanded = endedExpanded.has(group.cwd);
@@ -2607,6 +2767,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             <TunnelButton showToast={showToast} />
             {/* Conditional active-YOLO pill (sidebar-header row 1). See change: add-access-grant-dialog (8b.7). */}
             <YoloPill />
+            <FocusToggle />
             {headerExtra}
             {/* Community entry point. MDI 7 dropped brand icons, so the Discord
                 glyph is an inline path constant. See change: add-discord-link. */}
@@ -3019,6 +3180,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       <Toast messages={messages} onDismiss={dismissToast} />
 
       </div>
+      {/* D22 user line, pinned to the bottom of the session stream. Renders
+          nothing unless identity is enforced and a principal resolved. */}
+      <SignedInUserBar connected={connected === true} />
     </div>
   );
 }

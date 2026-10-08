@@ -53,6 +53,9 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     cacheRead: session.cacheRead,
     cacheWrite: session.cacheWrite,
     cost: session.cost,
+    // Full-overwrite save: omitting it would re-trigger extractor-version
+    // re-extraction on every boot. See change: count-non-message-usage.
+    statsExtractorVersion: session.statsExtractorVersion,
     contextTokens: session.contextTokens ?? undefined,
     contextWindow: session.contextWindow,
     firstMessage: session.firstMessage,
@@ -94,6 +97,9 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // session. `undefined` (a normal user session) serializes to no key, so the
     // byte-identity guard holds. See change: detach-automation-goal-from-core.
     recover: session.recover,
+    // Plugin-declared hide intent; same full-overwrite hazard as `recover`.
+    // Undefined on user sessions → no key. See change: fix-plugin-hidden-across-restart.
+    pluginHidden: session.pluginHidden,
     // Session classification + automation-run identity. MUST be enumerated here
     // because this save is a FULL overwrite (not a merge) — the spawn seam
     // merges them onto the sidecar, and omitting them here wipes both on the
@@ -107,6 +113,17 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // notify log, making notifications the one transcript row type that
     // vanishes on restart. See change: split-notify-from-prompt-request.
     notifyLog: session.notifyLog,
+    // Persist the identity-plane owner. MUST be listed here because this save
+    // does a full .meta.json overwrite (not a merge) — omitting it wipes the
+    // owner on the next routine save, so a dashboard restart makes every
+    // session ownerless (= invisible to its owner while enforced). `undefined`
+    // (inert / ownerless) serializes to no key.
+    // See change: add-multi-user-identity-plane (§6.2).
+    principalOwner: session.principalOwner,
+    // Plugin-owned refs, verbatim, namespaced by plugin — so a plugin key is
+    // not wiped by this full overwrite without core naming it here.
+    // See session/plugin-refs.ts.
+    pluginRefs: session.pluginRefs,
     cachedAt: Date.now(),
   };
 }

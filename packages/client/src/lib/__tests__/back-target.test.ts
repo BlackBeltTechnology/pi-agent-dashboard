@@ -8,11 +8,12 @@
  *   - depth 2 ambiguous overlays (openspec/pi-resources/pi-resource/view) → "/"
  *   - depth 0 ("/") → null (no-op)
  */
-import { afterEach, describe, expect, it } from "vitest";
+
 import {
   interpolateParentPath,
   type RouteDescriptor,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   computeBackTarget,
   isModalRoute,
@@ -94,6 +95,7 @@ describe("computeBackTarget", () => {
     const ambiguous = [
       "/folder/Zm9v/openspec/my-change/proposal",
       "/folder/Zm9v/openspec/archive",
+      "/folder/Zm9v/openspec/archive/2026-09-30-x/design", // E25: archive deep link
       "/folder/Zm9v/openspec/specs",
       "/folder/Zm9v/pi-resources",
       "/folder/Zm9v/view?path=%2Ftmp%2Fa.txt",

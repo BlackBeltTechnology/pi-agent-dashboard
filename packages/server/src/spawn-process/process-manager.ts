@@ -28,7 +28,6 @@ import {
   mergeHeapIntoNodeOptions,
   stripDashboardHeapFlag,
 } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
-import { resolveLocalGatewayEndpoint } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { MANAGED_BIN } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import {
@@ -67,6 +66,7 @@ import {
 } from "../runtime-resolution.js";
 import { type CwdPolicyRegistry, mergeCwdPolicy } from "./cwd-policy.js";
 import { applyHeapArgsToPiArgv, recordHeapArgvFallback } from "./heap-args.js";
+import { applySpawnEnvContributors, type ContributorMechanism } from "./spawn-env-contributors.js";
 
 // ── Resolver seam (injectable for tests) ────────────────────────────────────
 
@@ -97,6 +97,20 @@ let spawnDashboardPiPort: number | null = null;
 /** Set the owning server's piPort so spawned sessions connect back here. */
 export function setSpawnDashboardPiPort(piPort: number | null): void {
   spawnDashboardPiPort = piPort;
+}
+
+/** The bridge transport this server actually serves, for spawn pinning (D6). */
+type SpawnGatewayTransport =
+  | { transport: "unix"; path: string }
+  | { transport: "loopback-fallback" }
+  | { transport: "tcp" };
+
+// Read lazily on every spawn: the gateway starts after this module loads and
+// may fall back to loopback. Unset = never pin a socket.
+let spawnGatewayTransport: (() => SpawnGatewayTransport | null) | null = null;
+
+export function setSpawnGatewayTransport(get: (() => SpawnGatewayTransport | null) | null): void {
+  spawnGatewayTransport = get;
 }
 
 // ── Cwd-policy registry seam (Part B — host-cwd-policy) ──────────────────────
@@ -182,6 +196,11 @@ export interface SessionOptions {
   skills?: string[];
   noSkills?: boolean;
   extensions?: string[];
+  /** add-team-plugin D12: see `SessionFlags`. */
+  appendSystemPrompt?: string[];
+  noContextFiles?: boolean;
+  noProjectTrust?: boolean;
+  sessionDir?: string;
   /**
    * Per-extension config projected to namespaced env (`PI_EXT_<NAME>_<KEY>`)
    * by `buildSpawnEnv` on the headless mechanism. Name+key are uppercased
@@ -280,6 +299,15 @@ export function buildSpawnEnv(
      * See change: unify-pi-runtime-identity (task 3.1).
      */
     spawnRuntime?: ResolvedRuntime | null;
+    /**
+     * Spawn mechanism this env is built for. When present, trusted plugins'
+     * spawn-env contributors are applied (additions only, never overriding an
+     * inherited variable). Absent ⇒ no contributors (legacy callers).
+     * See change: add-context-mode-settings-plugin.
+     */
+    mechanism?: ContributorMechanism;
+    /** Out-param: receives the contributor entries actually applied (tmux emits them as `-e`). */
+    contributedOut?: Record<string, string>;
   },
 ): NodeJS.ProcessEnv {
   // Defensive copy: never mutate the caller's env (often `process.env`).
@@ -303,6 +331,18 @@ export function buildSpawnEnv(
   // non-blocking finding — grandchild marker leak).
   delete env.PI_DASHBOARD_ELECTRON;
   delete env.PI_DASHBOARD_RESOURCES_PATH;
+  // context-mode's bridge-internal recursion guard / idle reaper vars. A server
+  // started from inside a context-mode sandbox would otherwise hand them to
+  // every session, where context-mode silently disables its `ctx_*` tools.
+  // True delete, never empty (an empty value reads as 0 = disabled).
+  // See change: add-context-mode-settings-plugin (D6).
+  delete env.CONTEXT_MODE_BRIDGE_DEPTH;
+  delete env.CONTEXT_MODE_BRIDGE_IDLE_MS;
+  // Dashboard spawns ALWAYS activate the bridge: overrides a host-global
+  // `bridge.enabled:false` and any opt-out inherited from the server's shell.
+  // Descendants inherit it. tmux panes get it via `-e` (buildTmuxCommand).
+  // See change: add-bridge-env-opt-out (D5).
+  env.PI_DASHBOARD_BRIDGE = "on";
   // Withhold the DASHBOARD'S OWN heap flag from the child. `NODE_OPTIONS` is
   // inherited by every descendant, so the server's ceiling otherwise governs
   // not just pi but every vitest / tsc / vite the agent runs. Provenance-gated
@@ -321,17 +361,18 @@ export function buildSpawnEnv(
   // server that spawned them, not the config-default piPort. Overrides any
   // inherited PI_DASHBOARD_URL. See setSpawnDashboardPiPort above.
   if (spawnDashboardPiPort != null) {
-    env.PI_DASHBOARD_URL = `ws://localhost:${spawnDashboardPiPort}`;
+    const served = spawnGatewayTransport?.() ?? null;
+    // After a fallback the URL is a literal so a bridge never lands on a
+    // `[::1]` squatter. See change: fix-gateway-socket-stale-owner (D6).
+    env.PI_DASHBOARD_URL = `ws://${served?.transport === "loopback-fallback" ? "127.0.0.1" : "localhost"}:${spawnDashboardPiPort}`;
     // Pin over the socket too when this instance is serving one. The URL pin
     // alone stops working the moment the default TCP listener goes away (task
     // 8.1), and an inherited `PI_DASHBOARD_SOCKET` from another instance would
     // outrank our URL in the bridge's precedence ladder — the same
     // cross-instance capture, via a different variable (task 2.0f).
     delete env.PI_DASHBOARD_SOCKET;
-    const local = resolveLocalGatewayEndpoint({ homedir: env.HOME }, spawnDashboardPiPort);
-    if (local.transport === "unix" && existsSync(local.path)) {
-      env.PI_DASHBOARD_SOCKET = local.path;
-    }
+    // Only when THIS server serves a unix socket at that path.
+    if (served?.transport === "unix") env.PI_DASHBOARD_SOCKET = served.path;
   }
   if (opts?.spawnToken) {
     // Inject the correlation token so the bridge inside the spawned pi
@@ -356,6 +397,10 @@ export function buildSpawnEnv(
           typeof value === "string" ? value : JSON.stringify(value);
       }
     }
+  }
+  if (opts?.mechanism) {
+    const applied = applySpawnEnvContributors(env, opts.mechanism);
+    if (opts.contributedOut) Object.assign(opts.contributedOut, applied);
   }
   return env;
 }
@@ -485,8 +530,19 @@ export function buildTmuxCommand(
   options?: SessionOptions,
   piInvocation: string[] = ["pi"],
   heapNodeOptions = "",
+  endpoint?: { url?: string; socket?: string },
+  contributedEnv: Record<string, string> = {},
 ): string[] {
+  // `env -u` truly unsets context-mode's bridge-internal vars that the pane
+  // would otherwise inherit from the long-lived tmux SERVER (an empty `-e`
+  // value would disable the idle reaper instead). See change:
+  // add-context-mode-settings-plugin (D6).
   const paneCommand = [
+    "env",
+    "-u",
+    "CONTEXT_MODE_BRIDGE_DEPTH",
+    "-u",
+    "CONTEXT_MODE_BRIDGE_IDLE_MS",
     ...piInvocation.map(shellEscape),
     ...sessionFlagsToArgv(options ?? {}).map(shellEscape),
   ].join(" ");
@@ -507,10 +563,34 @@ export function buildTmuxCommand(
   // it is inherited by descendants, which is the accepted cost of reaching the
   // pane at all (design D3).
   const heapEnv: string[] = heapNodeOptions ? ["-e", `NODE_OPTIONS=${heapNodeOptions}`] : [];
+  // The dashboard endpoint pin rides `-e` too: a pane inherits the long-lived
+  // tmux SERVER's env, so the spawn env never reaches it. An empty
+  // PI_DASHBOARD_SOCKET reads as unset in the bridge, which cancels a stale
+  // value from the server's env. See change: fix-gateway-socket-stale-owner (D6).
+  const endpointEnv: string[] = endpoint
+    ? [
+        ...(endpoint.url ? ["-e", `PI_DASHBOARD_URL=${endpoint.url}`] : []),
+        "-e",
+        `PI_DASHBOARD_SOCKET=${endpoint.socket ?? ""}`,
+      ]
+    : [];
+  // Bridge activation stamp rides `-e` for the same reason: the spawn env
+  // never reaches the pane. See change: add-bridge-env-opt-out (D5).
+  const bridgeEnv = ["-e", "PI_DASHBOARD_BRIDGE=on"];
+  // Trusted-plugin contributions ride per-window `-e` too (the pane env comes
+  // from the tmux server). Already validated by `applySpawnEnvContributors`.
+  const contribEnv: string[] = Object.entries(contributedEnv).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
+  const envArgs = [...tokenEnv, ...endpointEnv, ...heapEnv, ...bridgeEnv, ...contribEnv];
   if (sessionExists) {
-    return ["tmux", "new-window", "-t", "pi-dashboard", ...tokenEnv, ...heapEnv, "-c", cwd, paneCommand];
+    return ["tmux", "new-window", "-t", "pi-dashboard", ...envArgs, "-c", cwd, paneCommand];
   }
-  return ["tmux", "new-session", "-d", "-s", "pi-dashboard", ...tokenEnv, ...heapEnv, "-c", cwd, paneCommand];
+  return ["tmux", "new-session", "-d", "-s", "pi-dashboard", ...envArgs, "-c", cwd, paneCommand];
+}
+
+/** The endpoint pin `buildSpawnEnv` set, for the tmux `-e` path (D6). */
+function tmuxEndpoint(env: NodeJS.ProcessEnv): { url?: string; socket?: string } | undefined {
+  if (spawnDashboardPiPort == null) return undefined;
+  return { url: env.PI_DASHBOARD_URL, socket: env.PI_DASHBOARD_SOCKET };
 }
 
 // ── Availability probes (isolated, one place) ───────────────────────────────
@@ -764,15 +844,18 @@ export function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   // pi process (tmux inherits the caller's env into new windows/sessions).
   // argv0 re-adds the Electron-as-node flag when piCmd[0] is the Electron binary.
   // See change: spawn-correlation-token.
+  const contributed: Record<string, string> = {};
   const env = buildSpawnEnv(process.env, {
     spawnToken: options?.spawnToken,
     argv0: piCmd[0],
     spawnRuntime: rt,
+    mechanism: "tmux",
+    contributedOut: contributed,
   });
   // Built AFTER `env` so the per-window value merges over the ALREADY-STRIPPED
   // child environment — unrelated operator options survive into the pane, and
   // the dashboard's own flag is already gone.
-  const cmd = buildTmuxCommand(cwd, exists, options, piCmd, tmuxHeapNodeOptions(env));
+  const cmd = buildTmuxCommand(cwd, exists, options, piCmd, tmuxHeapNodeOptions(env), tmuxEndpoint(env), contributed);
   try {
     const { argv, spawnOptions } = buildSafeArgv(cmd[0], cmd.slice(1));
     execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });
@@ -791,11 +874,14 @@ export function spawnWslTmux(cwd: string, options?: SessionOptions): SpawnResult
     // `wsl.exe --exec <tmux argv>`: `.exe` bypasses the cmd.exe branch in
     // buildSafeArgv; `--exec` runs tmux directly instead of through WSL's
     // default shell. `pi` stays literal so it resolves inside the WSL namespace.
+    const contributed: Record<string, string> = {};
     const env = buildSpawnEnv(process.env, {
       spawnToken: options?.spawnToken,
       spawnRuntime: spawnRuntimeForSession(),
+      mechanism: "wsl-tmux",
+      contributedOut: contributed,
     });
-    const tmuxArgv = buildTmuxCommand(cwd, false, options, ["pi"], tmuxHeapNodeOptions(env));
+    const tmuxArgv = buildTmuxCommand(cwd, false, options, ["pi"], tmuxHeapNodeOptions(env), undefined, contributed);
     const { argv, spawnOptions } = buildSafeArgv("wsl.exe", ["--exec", ...tmuxArgv]);
     execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });
     return { success: true, dashboardSpawned: true, message: "Pi session started via WSL tmux" };
@@ -824,6 +910,7 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
     spawnToken: options?.spawnToken,
     argv0: piCmd[0],
     spawnRuntime: rt,
+    mechanism: "wt",
   });
   if (heaped.fallback) {
     // Last resort (D3a): only the subset `NODE_OPTIONS` accepts, and only
@@ -883,6 +970,7 @@ async function spawnHeadless(cwd: string, options?: SessionOptions): Promise<Spa
     argv0: piCmd[0],
     extensionConfig: options?.extensionConfig,
     spawnRuntime: rt,
+    mechanism: "headless",
   });
   // The ceiling rides the invocation handed to the keeper, so it binds pi and
   // NOT the keeper. There is deliberately no env fallback on this strategy:

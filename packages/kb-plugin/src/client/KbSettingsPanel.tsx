@@ -11,21 +11,26 @@
  */
 
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { isAbsolutePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import {
   mdiArrowDown,
   mdiArrowLeft,
   mdiArrowUp,
   mdiClose,
   mdiDatabaseRefreshOutline,
-  mdiPlus,
   mdiRefresh,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
-import type { KbConfig, SourceConfig } from "../shared/kb-plugin-types.js";
-import { fetchKbConfig } from "./kb-api.js";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { KbConfig, KbSourceStatus, SourceConfig } from "../shared/kb-plugin-types.js";
+import { KbSourceAdd } from "./KbSourceAdd.js";
+import { KbTestSearch } from "./KbTestSearch.js";
+import { KbTrustDialog } from "./KbTrustDialog.js";
+import { fetchKbConfig, grantSourceTrust } from "./kb-api.js";
+import { isOutside, isRemoteKind } from "./source-ref.js";
 import { useKbConfig } from "./useKbConfig.js";
+import { useKbSources } from "./useKbSources.js";
 import { useKbStats } from "./useKbStats.js";
 
 /** Best-effort parent repo path for a worktree checked out under `.worktrees/`
@@ -40,6 +45,14 @@ interface EditState {
   include: string[];
   exclude: string[];
   dbPath: string;
+  /** Refs of remote sources the user consented to trust in the NEXT save (`trustRefs`). */
+  pendingTrust: string[];
+}
+
+/** A trust prompt: a freshly added remote spec, or an already-saved untrusted row. */
+interface TrustPrompt {
+  spec: SourceConfig;
+  mode: "add" | "existing";
 }
 
 function seedFrom(config: KbConfig): EditState {
@@ -48,7 +61,40 @@ function seedFrom(config: KbConfig): EditState {
     include: [...(config.include ?? [])],
     exclude: [...(config.exclude ?? [])],
     dbPath: config.dbPath ?? "",
+    pendingTrust: [],
   };
+}
+
+/** Compact status badges for one source row (kind, files, outside, trust, outcome). */
+function SourceBadges({ spec, status, cwd, onTrust }: { spec: SourceConfig; status?: KbSourceStatus; cwd: string; onTrust: () => void }): React.ReactElement {
+  const t = useT();
+  const kind = status?.kind ?? spec.kind ?? "filesystem";
+  const outside = status?.outside ?? (kind === "filesystem" && isAbsolutePath(spec.ref) && isOutside(cwd, spec.ref));
+  const chip = "text-[10px] px-1.5 py-px rounded border";
+  return (
+    <span className="flex items-center gap-1 shrink-0" data-testid="kb-source-badges">
+      <span className={`${chip} border-[var(--border-subtle)] text-[var(--text-tertiary)]`} data-testid="kb-source-kind">{kind}</span>
+      {outside && (
+        <span className={`${chip} border-amber-500/40 text-amber-400`} data-testid="kb-source-outside">{t("outsideFolder", undefined, "outside folder")}</span>
+      )}
+      {status && (
+        <span className={`${chip} border-[var(--border-subtle)] text-[var(--text-muted)]`} data-testid="kb-source-files">
+          {t("filesCount", { count: status.files }, `${status.files} files`)}
+        </span>
+      )}
+      {status?.revision && <span className={`${chip} border-[var(--border-subtle)] text-[var(--text-muted)] font-mono`} data-testid="kb-source-revision">{status.revision}</span>}
+      {status?.trusted === true && <span className={`${chip} border-green-500/40 text-green-400`} data-testid="kb-source-trusted">{t("trusted", undefined, "trusted")}</span>}
+      {status?.trusted === false && (
+        <>
+          <span className={`${chip} border-amber-500/40 text-amber-400`} data-testid="kb-source-untrusted">⚠ {t("notTrusted", undefined, "not trusted")}</span>
+          <button type="button" onClick={onTrust} className={`${chip} border-indigo-500/40 text-indigo-300 hover:border-indigo-400`} data-testid="kb-source-trust">{t("trustAction", undefined, "Trust…")}</button>
+        </>
+      )}
+      {status?.lastStatus === "error" && (
+        <span className={`${chip} border-red-500/40 text-red-400`} title={status.lastError} data-testid="kb-source-error">{t("failed", undefined, "failed")}</span>
+      )}
+    </span>
+  );
 }
 
 /** Inline add-input + removable chips for a string[] (include / exclude). */
@@ -105,12 +151,24 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
   // channel binds as `statsError`. See change: fix-kb-settings-reindex-gate.
   const { stats, loading: statsLoading, refetch: refetchStats, reindex, pending, reindexError, error: statsError } = useKbStats(cwd);
   const [edit, setEdit] = useState<EditState | null>(null);
-  const [newSource, setNewSource] = useState("");
+  const { sources: sourceStatus, refetch: refetchSources } = useKbSources(cwd);
+  const [trustPrompt, setTrustPrompt] = useState<TrustPrompt | null>(null);
+  const [trustBusy, setTrustBusy] = useState(false);
+  const [trustError, setTrustError] = useState<string | null>(null);
+  const [untrustedNote, setUntrustedNote] = useState<string | null>(null);
   const [bootstrapErr, setBootstrapErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (data?.config) setEdit(seedFrom(data.config));
   }, [data?.config]);
+
+  // Refresh per-source status when a reindex job settles (running → idle) — never on a timer.
+  const wasIndexing = useRef(false);
+  useEffect(() => {
+    const now = stats?.indexing === true;
+    if (wasIndexing.current && !now) refetchSources();
+    wasIndexing.current = now;
+  }, [stats?.indexing, refetchSources]);
 
   const origin = data?.origin ?? "defaults";
   const isProject = origin === "project";
@@ -119,15 +177,16 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
     () => (edit && baseline ? JSON.stringify(edit) !== JSON.stringify(baseline) : false),
     [edit, baseline],
   );
-  // The reindex job walks cfg.resolvedSources loaded FROM DISK, so that is what
-  // the gate reads — never the form's (possibly unsaved) source list, and not
-  // the config origin. See change: fix-kb-settings-reindex-gate (design D1).
+  // The reindex job walks cfg.allSourceSpecs (every saved spec, any kind) loaded
+  // FROM DISK, so that is what the gate reads — never the form's (possibly
+  // unsaved) source list, and not the config origin. See change:
+  // fix-kb-settings-reindex-gate (design D1), improve-kb-settings-sources-and-search (D9).
   // `statsLoading` keeps the action disabled through the stats hand-offs (initial
   // mount and the post-save refetch): an unobserved in-flight job must not
   // invite a redundant POST (CodeRabbit, PR #568). The poll-outage settled
   // state (statsLoading=false, stats=null) stays enabled — X4's settled observable.
   const busy = pending || statsLoading || stats?.indexing === true;
-  const canIndex = (data?.config.resolvedSources?.length ?? 0) > 0;
+  const canIndex = (data?.config.allSourceSpecs?.length ?? 0) > 0;
 
   if (loading && !edit) {
     return <Shell cwd={cwd} onBack={onBack}><div className="p-4 text-xs text-[var(--text-muted)]">{t("loadingConfig", undefined, "Loading KB config…")}</div></Shell>;
@@ -144,17 +203,37 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
     include: edit.include,
     exclude: edit.exclude,
     dbPath: edit.dbPath,
+    // Only refs still in the form can be granted; the server re-checks against the SAVED config.
+    ...(edit.pendingTrust.length > 0 ? { trustRefs: edit.pendingTrust.filter((r) => edit.sources.some((s) => s.ref === r)) } : {}),
   });
 
-  const addSource = (): void => {
-    const ref = newSource.trim();
-    if (!ref) return;
-    if (edit.sources.some((s) => s.ref === ref)) { setNewSource(""); return; }
-    setEdit({ ...edit, sources: [...edit.sources, { kind: "filesystem", ref, priority: 0 }] });
-    setNewSource("");
+  const appendSource = (spec: SourceConfig, trust: boolean): void =>
+    setEdit({ ...edit, sources: [...edit.sources, spec], pendingTrust: trust ? [...edit.pendingTrust, spec.ref] : edit.pendingTrust });
+  const addSource = (spec: SourceConfig): void => {
+    if (isRemoteKind(spec.kind)) setTrustPrompt({ spec, mode: "add" });
+    else appendSource(spec, false);
+  };
+  const confirmTrust = async (): Promise<void> => {
+    if (!trustPrompt) return;
+    if (trustPrompt.mode === "add") {
+      appendSource(trustPrompt.spec, true);
+      setTrustPrompt(null);
+      return;
+    }
+    setTrustBusy(true);
+    setTrustError(null);
+    try {
+      await grantSourceTrust(cwd, trustPrompt.spec.ref);
+      setTrustPrompt(null);
+      refetchSources();
+    } catch (e) {
+      setTrustError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTrustBusy(false);
+    }
   };
   const removeSource = (i: number): void =>
-    setEdit({ ...edit, sources: edit.sources.filter((_, idx) => idx !== i) });
+    setEdit({ ...edit, sources: edit.sources.filter((_, idx) => idx !== i), pendingTrust: edit.pendingTrust.filter((r) => r !== edit.sources[i].ref) });
   const moveSource = (i: number, dir: -1 | 1): void => {
     const j = i + dir;
     if (j < 0 || j >= edit.sources.length) return;
@@ -166,7 +245,14 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
     setEdit({ ...edit, sources: edit.sources.map((s, idx) => (idx === i ? { ...s, priority } : s)) });
 
   const doSave = async (reindex: boolean): Promise<void> => {
-    await save({ ...patch(), reindex });
+    const res = await save({ ...patch(), reindex });
+    // A requested grant the server could not make is reported, never assumed.
+    setUntrustedNote(
+      res?.untrustedRefs?.length
+        ? t("untrustedNote", { refs: res.untrustedRefs.join(", ") }, `Not trusted (grant failed): ${res.untrustedRefs.join(", ")}`)
+        : null,
+    );
+    refetchSources();
     if (reindex) setTimeout(() => refetchStats(), 300);
   };
 
@@ -192,6 +278,7 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
         include: [...(parentCfg.config.include ?? edit.include)],
         exclude: [...(parentCfg.config.exclude ?? edit.exclude)],
         dbPath: edit.dbPath,
+        pendingTrust: [],
       };
       setEdit(next);
       await save({ sources: next.sources, include: next.include, exclude: next.exclude, dbPath: next.dbPath, reindex: true });
@@ -238,7 +325,13 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
           )}
           {edit.sources.map((s, i) => (
             <div key={`${s.ref}-${i}`} className="flex items-center gap-2 px-2 py-1.5 mb-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)]" data-testid="kb-source-row">
-              <span className="flex-1 font-mono text-[12px] text-[var(--text-secondary)] truncate">{s.ref}</span>
+              <span className="flex-1 font-mono text-[12px] text-[var(--text-secondary)] truncate" title={s.ref}>{s.ref}</span>
+              <SourceBadges
+                spec={s}
+                status={sourceStatus.find((x) => x.ref === s.ref)}
+                cwd={cwd}
+                onTrust={() => { setTrustError(null); setTrustPrompt({ spec: s, mode: "existing" }); }}
+              />
               <label className="text-[10px] text-[var(--text-tertiary)] flex items-center gap-1">
                 {t("prio", undefined, "prio")}
                 <input
@@ -260,19 +353,8 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
             </div>
           ))}
         </div>
-        <div className="flex items-center gap-1.5 mt-1">
-          <input
-            value={newSource}
-            onChange={(e) => setNewSource(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSource(); } }}
-            placeholder={t("sourcePlaceholder", undefined, "path relative to folder, e.g. docs")}
-            data-testid="kb-source-input"
-            className="flex-1 text-[12px] font-mono bg-transparent border border-[var(--border-subtle)] rounded px-2 py-1 text-[var(--text-secondary)] focus:outline-none focus:border-indigo-500/60"
-          />
-          <button onClick={addSource} data-testid="kb-source-add" className="text-[11px] px-2 py-1 rounded border text-indigo-400 border-indigo-500/40 bg-indigo-500/5 hover:border-indigo-500/70 flex items-center gap-1">
-            <Icon path={mdiPlus} size={0.5} />{t("addPath", undefined, "Add path")}
-          </button>
-        </div>
+        <KbSourceAdd cwd={cwd} existingRefs={edit.sources.map((x) => x.ref)} onAdd={addSource} />
+        {untrustedNote && <div className="mt-1 text-[11px] text-amber-400" role="alert" data-testid="kb-untrusted-note">{untrustedNote}</div>}
       </div>
 
       {/* Include / Exclude / DB path */}
@@ -361,6 +443,20 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
         <div className="px-4 py-2 text-[11px] text-red-400" data-testid="kb-settings-error">
           {bootstrapErr ?? reindexError ?? error ?? statsError}
         </div>
+      )}
+
+      <KbTestSearch cwd={cwd} dirty={dirty} />
+
+      {trustPrompt && (
+        <KbTrustDialog
+          spec={trustPrompt.spec}
+          mode={trustPrompt.mode}
+          busy={trustBusy}
+          error={trustError}
+          onTrust={() => void confirmTrust()}
+          onAddWithoutTrust={() => { appendSource(trustPrompt.spec, false); setTrustPrompt(null); }}
+          onCancel={() => setTrustPrompt(null)}
+        />
       )}
     </Shell>
   );

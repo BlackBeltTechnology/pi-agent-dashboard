@@ -8,7 +8,7 @@
 ## 2. Reuse distiller extraction
 
 - [ ] 2.1 Drive the existing `readSession` → `buildTrajectory` → `segment` path; do NOT re-parse JSONL.
-- [ ] 2.2 Import `scrub.ts` (from `add-automatic-session-kb-index`) as the mandatory scrub stage.
+- [ ] 2.2 Import `scrub.ts` (from `context-manager-lessons-and-cues`) as the mandatory scrub stage.
 
 ## 3. Segmentation
 

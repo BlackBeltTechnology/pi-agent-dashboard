@@ -62,6 +62,26 @@ describe("GET /api/sessions/:sessionId/tool-result/:toolCallId", () => {
     expect(JSON.parse(res.payload).error).toMatch(/in flight|unknown/);
   });
 
+  // See change: render-nested-tool-calls — test-plan E19. A nested id carries
+  // `/`; Fastify decodes `%2F` into one `:toolCallId` param, a raw `/` 404s.
+  it("serves a nested call's stored end via an encoded id; raw `/` 404s", async () => {
+    eventStore.insertEvent("s1", {
+      eventType: "tool_execution_end",
+      timestamp: 1,
+      data: {
+        toolCallId: "call_1/1",
+        parentToolCallId: "call_1",
+        result: { content: [{ type: "text", text: "nested out" }] },
+        isError: false,
+      },
+    });
+    const ok = await fastify.inject({ method: "GET", url: "/api/sessions/s1/tool-result/call_1%2F1" });
+    expect(ok.statusCode).toBe(200);
+    expect(JSON.parse(ok.payload).result).toEqual({ content: [{ type: "text", text: "nested out" }] });
+    const raw = await fastify.inject({ method: "GET", url: "/api/sessions/s1/tool-result/call_1/1" });
+    expect(raw.statusCode).toBe(404);
+  });
+
   it("returns 404 for an evicted / unknown session", async () => {
     const res = await fastify.inject({ method: "GET", url: "/api/sessions/ghost/tool-result/t3" });
     expect(res.statusCode).toBe(404);

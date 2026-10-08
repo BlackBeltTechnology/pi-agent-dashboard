@@ -52,12 +52,18 @@ export default defineConfig({
       // music-production (change: add-music-production-skills): skill-text and
       // repo-wiring invariants. Its Python behaviour runs in ci.yml music-pytest.
       "packages/music-production",
+      // eng-disciplines (change: add-reverse-spec-for-rebuild): guard.mjs,
+      // package wiring, skill self-containment and eval-fixture consistency.
+      "packages/eng-disciplines",
       // deck3d: deterministic markdown → 3D deck engine. Browser-driving suites
       // self-skip without chromium, so the plain job stays green.
       "packages/deck3d",
       "packages/video-transcription",
       "packages/client",
       "packages/client-utils",
+      // Standalone-SPA client plumbing (OIDC, transport, WS ticket, socket).
+      // See change: extract-standalone-app-kit.
+      "packages/app-kit",
       "packages/shell",
       "packages/dashboard-plugin-runtime",
       "packages/automation-plugin",
@@ -90,9 +96,30 @@ export default defineConfig({
       // prompt mapping, adapter payload codec) gate real spawn boundaries.
       "packages/chat-gateway",
       "packages/mcp-server-plugin",
+      // team-plugin (change: add-team-plugin): personas, project teams, conversations and the
+      // isolation guard. Its suites gate owner isolation and path confinement.
+      "packages/team-plugin",
+      // team-app (change: add-team-plugin): the Csapat SPA — grid, selector, editor, conversations.
+      "packages/team-app",
       // Owns the pi-mcp-adapter config surface + version floor. See change:
       // extract-mcp-client-plugin.
       "packages/mcp-client-plugin",
+      // keycloak-resolver-plugin: the bundled identity resolver. Its server
+      // suites (jwks, resolver, config, fake-issuer) + the D16 browser
+      // login-flow suite gate real auth boundaries; a package absent here
+      // never runs its tests. See change: add-multi-user-identity-plane.
+      "packages/keycloak-resolver-plugin",
+      // fixture-policy-plugin: test-only host-policy fixture (identity
+      // policy seam); its policy suite pins the fail-closed contract.
+      "packages/fixture-policy-plugin",
+      // Test-bearing packages no project collected, so no CI job ever ran
+      // them. Guarded by shared/src/__tests__/test-collection-completeness.
+      // See change: speed-up-ci-affected-tests.
+      "packages/apple-tools",
+      "packages/dashboard-plugin-skill",
+      "packages/hermes-memory-plugin",
+      "packages/context-mode-settings-plugin",
+      "packages/quota-plugin",
       "scripts",
       // Pure helpers under tests/e2e/helpers/. NOT the Playwright specs — the
       // project's include glob is scoped to `e2e/helpers/__tests__/`. Added

@@ -45,3 +45,46 @@ describe("isOauthIncompatible", () => {
     expect(OAUTH_INCOMPATIBLE["openai-codex"]).toBeUndefined();
   });
 });
+
+/**
+ * test-plan #E5 — the OAuth-incompatible filter survives the move onto the
+ * model runtime: an OAuth-only credential excludes a flagged model from
+ * `/api/models`, and `?annotated=1` names the reason.
+ * See change: collapse-model-proxy-onto-modelruntime (D5).
+ */
+describe("OAuth-incompatible filter over the runtime catalogue (E5)", () => {
+  it("E5: flagged model excluded from /api/models; annotated excludedReason is oauth-incompatible", async () => {
+    const Fastify = (await import("fastify")).default;
+    const { InternalRegistry } = await import("../internal-registry.js");
+    const { registerModelsIntrospectionRoute } = await import("../../routes/models-introspection-routes.js");
+    const catalogue = {
+      getProviders: () => [{ id: "anthropic" }],
+      getModels: () => [
+        { id: "claude-3-5-haiku-20241022", provider: "anthropic", api: "anthropic-messages" },
+        { id: "claude-haiku-4-5", provider: "anthropic", api: "anthropic-messages" },
+      ],
+    };
+    const registry = new InternalRegistry(catalogue, {} as never, {
+      readProviders: () => ({}),
+      readModels: () => [],
+      readAuth: () => ({ anthropic: { type: "oauth", access: "a", refresh: "r", expires: Date.now() + 3_600_000 } }),
+    });
+    const app = Fastify({ logger: false });
+    registerModelsIntrospectionRoute(app, { getRegistry: async () => registry });
+    await app.ready();
+
+    const plain = JSON.parse((await app.inject({ method: "GET", url: "/api/models" })).body).data as Array<{ id: string }>;
+    const ids = plain.map((m) => m.id);
+    expect(ids.some((id) => id.endsWith("claude-haiku-4-5"))).toBe(true);
+    expect(ids.some((id) => id.endsWith("claude-3-5-haiku-20241022"))).toBe(false);
+
+    const annotated = JSON.parse((await app.inject({ method: "GET", url: "/api/models?annotated=1" })).body).data as Array<{
+      id: string;
+      excludedReason: string | null;
+    }>;
+    const flagged = annotated.find((m) => m.id.endsWith("claude-3-5-haiku-20241022"));
+    expect(flagged?.excludedReason).toBe("oauth-incompatible");
+    expect(annotated.find((m) => m.id.endsWith("claude-haiku-4-5"))?.excludedReason).toBeNull();
+    await app.close();
+  });
+});

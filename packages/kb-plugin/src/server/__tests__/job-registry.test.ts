@@ -43,4 +43,36 @@ describe("KbJobRegistry", () => {
     await registry.start("/c", async () => ({ changed: 1, chunks: 3 })).promise;
     expect(registry.statusFor("/c")).toBe("idle");
   });
+  it("X4 retains per-source outcomes; error outcomes derive a bounded job error, untrusted alone stays done", async () => {
+    const registry = new KbJobRegistry();
+    const t0 = Date.now();
+    const mixed = [
+      { ref: "docs", status: "ok" as const, at: Date.now() },
+      { ref: "https://h/x.git", status: "error" as const, error: "e".repeat(800), at: Date.now() },
+      { ref: "https://h/y.git", status: "untrusted" as const, error: "not trusted", at: Date.now() },
+    ];
+    await registry.start("/c", async () => ({ changed: 1, chunks: 2, outcomes: mixed })).promise;
+    expect(registry.statusFor("/c")).toBe("error");
+    const job = registry.get("/c");
+    expect(job?.error?.startsWith("1 source(s) failed:")).toBe(true);
+    expect(job?.error?.length).toBeLessThanOrEqual(500);
+    expect(registry.outcomesFor("/c").map((o) => o.ref)).toEqual(["docs", "https://h/x.git", "https://h/y.git"]);
+    for (const o of registry.outcomesFor("/c")) expect(o.at).toBeGreaterThanOrEqual(t0);
+
+    await registry.start("/d", async () => ({ changed: 0, chunks: 0, outcomes: [mixed[2]] })).promise;
+    expect(registry.statusFor("/d")).toBe("idle");
+  });
+
+  it("keeps the last outcomes while a later job runs or throws", async () => {
+    const registry = new KbJobRegistry();
+    await registry.start("/c", async () => ({ changed: 0, chunks: 0, outcomes: [{ ref: "docs", status: "ok" as const, at: 1 }] })).promise;
+    const running = registry.start("/c", async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      throw new Error("boom");
+    });
+    expect(registry.outcomesFor("/c")).toHaveLength(1);
+    await running.promise.catch(() => {});
+    expect(registry.statusFor("/c")).toBe("error");
+    expect(registry.outcomesFor("/c")).toHaveLength(1);
+  });
 });

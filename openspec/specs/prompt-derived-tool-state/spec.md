@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change restore-ask-user-tool-state-on-reconnect. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Pending prompts are readable from the browser gateway
 
 The browser gateway SHALL expose a read predicate over its PromptBus pending-prompt registry, reporting whether a given session has at least one tracked pending prompt. The registry itself SHALL NOT be exposed to session-state or lifecycle code.
@@ -71,7 +73,7 @@ A notification is not a prompt. A `notify` message SHALL NOT set `currentTool`, 
 
 ### Requirement: The derived state survives the writers that clear currentTool
 
-While a session has at least one pending prompt, a **live** event that would otherwise clear `currentTool` to `null` — `agent_start`, `agent_end`, or `tool_execution_end` — SHALL leave the session's `currentTool` as `"ask_user"`.
+While a session has at least one pending prompt, a **live** event that would otherwise clear `currentTool` to `null` — `agent_start`, `agent_end`, or a `tool_execution_end` without `parentToolCallId` — SHALL leave the session's `currentTool` as `"ask_user"`. A nested `tool_execution_end` (carrying `parentToolCallId`) clears nothing, so it neither needs nor receives the reconciliation.
 
 The reconciliation SHALL NOT be applied while the session is replaying. During replay `currentTool` SHALL remain purely event-derived, and the replay exit SHALL be the only place the registry is consulted for a replayed session. This keeps a stale registry entry from contaminating the stored value before the reconcile can prune it.
 
@@ -104,8 +106,13 @@ The reconciliation SHALL NOT be applied while the session is replaying. During r
 #### Scenario: No pending prompt leaves clearing behaviour unchanged
 
 - **WHEN** a session has no pending prompt
-- **AND** an `agent_start`, `agent_end`, or `tool_execution_end` event arrives
+- **AND** an `agent_start`, `agent_end`, or `tool_execution_end` event without `parentToolCallId` arrives
 - **THEN** the session's `currentTool` SHALL be cleared to `null` exactly as before
+
+#### Scenario: Nested end never clears currentTool
+- **WHEN** a session has no pending prompt and `currentTool` is `codemode`
+- **AND** a `tool_execution_end` carrying `parentToolCallId` arrives
+- **THEN** the session's `currentTool` SHALL remain `codemode`
 
 ### Requirement: Reconnect preserves edge-triggered consumers
 
@@ -273,4 +280,3 @@ A `prompt_request` arriving while the session is replaying SHALL update session 
 
 - **WHEN** a `prompt_request` arrives for a session that is not replaying
 - **THEN** the resulting `currentTool` change SHALL reach browser subscribers
-

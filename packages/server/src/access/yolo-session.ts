@@ -27,11 +27,18 @@
  * See change: add-access-grant-dialog.
  */
 import * as fs from "node:fs";
-import type { AccessPlaneId } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import os from "node:os";
+import path from "node:path";
+import type { YoloSurfaceId } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AccessPlane } from "./access-plane.js";
 import { offeredAncestorLadder } from "./ancestor-ladder.js";
-import { isSubjectWithin } from "./canonical-subject.js";
-import { isUngrantableSubject } from "./forbidden-subjects.js";
+import { isResolvedSubjectWithin } from "./canonical-subject.js";
+import {
+  type ForbiddenSubjectsEnv,
+  forbiddenGrantSubjects,
+  isUngrantableSubject,
+  realpathNearestAncestor,
+} from "./forbidden-subjects.js";
 import type { HostGateMode } from "./prompt-channel.js";
 import { parseYoloEnv } from "./yolo-env.js";
 
@@ -56,7 +63,7 @@ export interface YoloSession {
 
 /** One automatic answer, as the Access surface lists it (task 8b.8). */
 export interface YoloLogEntry {
-  plane: AccessPlaneId;
+  plane: YoloSurfaceId;
   subject: string;
   at: number;
   outcome: "auto-allowed" | "refused-by-prior-refusal";
@@ -67,10 +74,20 @@ export type YoloResult = { ok: true; session: YoloSession; added?: boolean } | {
 export interface YoloDeps {
   now?(): number;
   hostGateMode(): HostGateMode;
-  isRefused(plane: AccessPlaneId, subject: string): boolean;
+  isRefused(plane: YoloSurfaceId, subject: string): boolean;
+  /** Injected home/platform for the forbidden + system-dir sets (tests). */
+  forbiddenEnv?: ForbiddenSubjectsEnv;
   /** Ancestor rungs of a base directory (defaults to the shipped ladder). */
   ladder?(base: string): Promise<string[]>;
   onLog?(line: string): void;
+}
+
+function isDirectory(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 function realpathOrNull(p: string): string | null {
@@ -221,13 +238,55 @@ export class YoloController {
     if (input.plane.mode !== "held" || !input.plane.yoloEligible) return null;
     // The proof the prompt would have required (8b.4).
     if (!input.requestHoldsCapability) return null;
-    const real = realpathOrNull(input.subject);
-    if (!real || isUngrantableSubject(real)) return null;
-    const inScope = session.unscoped || session.roots.some((r) => isSubjectWithin(real, r.path));
+    if (!input.subject) return null;
+    const resolved = realpathNearestAncestor(path.resolve(input.subject));
+    return this.answer(input.plane.id, session, { resolved, subject: input.subject });
+  }
+
+  /**
+   * The agent path gate's would-prompt point (change: yolo-covers-agent-path-gate).
+   * Same verdicts as `decide`. The capability proof is the authenticated bridge
+   * connection (checked by the caller), not a prompt capability.
+   */
+  decideAgentPath(input: {
+    path: string;
+    hostGateMode: HostGateMode;
+  }): "auto-allow" | "refused-by-prior-refusal" | null {
+    const session = this.status();
+    if (!session) return null;
+    if (input.hostGateMode !== "enforce") return null;
+    if (typeof input.path !== "string" || !path.isAbsolute(input.path)) return null;
+    const resolved = realpathNearestAncestor(path.resolve(input.path));
+    const subject = isDirectory(resolved) ? resolved : path.dirname(resolved);
+    return this.answer("agent-path", session, { resolved, subject });
+  }
+
+  /** Shared tail: forbidden → (agent-path) system dirs → scope → refusal → record. */
+  private answer(
+    surface: YoloSurfaceId,
+    session: YoloSession,
+    t: { resolved: string; subject: string },
+  ): "auto-allow" | "refused-by-prior-refusal" | null {
+    const env = this.deps.forbiddenEnv;
+    if (isUngrantableSubject(t.resolved, env)) return null;
+    if (surface === "agent-path" && this.inSystemDir(t.resolved)) return null;
+    const inScope = session.unscoped || session.roots.some((r) => isResolvedSubjectWithin(t.resolved, r.path));
     if (!inScope) return null;
-    const outcome = this.deps.isRefused(input.plane.id, input.subject) ? "refused-by-prior-refusal" : "auto-allowed";
-    this.record(input.plane.id, input.subject, outcome);
+    const outcome = this.deps.isRefused(surface, t.subject) ? "refused-by-prior-refusal" : "auto-allowed";
+    this.record(surface, t.subject, outcome);
     return outcome === "auto-allowed" ? "auto-allow" : "refused-by-prior-refusal";
+  }
+
+  /** D9: platform system dirs (not `/`, not home), minus the temp dir. */
+  private inSystemDir(resolved: string): boolean {
+    const env = this.deps.forbiddenEnv;
+    const { whole } = forbiddenGrantSubjects(env);
+    const home = realpathNearestAncestor(path.resolve(env?.homedir ?? os.homedir()));
+    const root = path.parse(realpathNearestAncestor(path.resolve(path.sep))).root;
+    const system = whole.filter((w) => w !== home && w !== root);
+    if (!system.some((w) => isResolvedSubjectWithin(resolved, w))) return false;
+    const tmp = realpathNearestAncestor(os.tmpdir());
+    return !isResolvedSubjectWithin(resolved, tmp);
   }
 
   // ---------------------------------------------------------------------------
@@ -245,7 +304,7 @@ export class YoloController {
     return { ok: true, path: real };
   }
 
-  private record(plane: AccessPlaneId, subject: string, outcome: YoloLogEntry["outcome"]): void {
+  private record(plane: YoloSurfaceId, subject: string, outcome: YoloLogEntry["outcome"]): void {
     this.log.push({ plane, subject, at: this.now(), outcome });
     if (outcome === "auto-allowed") this.totals.autoAllowed += 1;
     else this.totals.refusedByPriorRefusal += 1;

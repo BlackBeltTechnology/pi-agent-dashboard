@@ -16,6 +16,7 @@ import * as XLSX from "xlsx";
 import { clearEmlCache } from "../lib/eml.js";
 import { extToContentType } from "../lib/mime-types.js";
 import type { DocxPdfEngine, OfficeCaps } from "../lib/office-preview.js";
+import * as officePreviewModule from "../lib/office-preview.js";
 import { OFFICE_CAPS } from "../lib/office-preview.js";
 import { registerFileRoutes } from "../routes/file-routes.js";
 
@@ -981,6 +982,30 @@ describe("GET /api/file/sheet (xlsx/csv)", () => {
       url: `/api/file/sheet?cwd=${encodeURIComponent(tmp)}&path=big.csv`,
     });
     expect(res.statusCode).toBe(413);
+  });
+
+  // E70 (change: harden-untrusted-content-ingestion): the size gate is the
+  // pre-parse bound — exactly the cap passes, one byte over is refused before
+  // the parser runs (no parsed payload in the body).
+  it("size cap boundary: cap bytes → 200, cap+1 → 413 with no parsed rows (E70)", async () => {
+    await setup({ officeCaps: { sheetSizeCap: 1000 } });
+    const csv = (n: number) => "a,b\n" + "x,y\n".repeat(Math.ceil(n / 4)).slice(0, n - 4);
+    await fsp.writeFile(path.join(tmp, "at.csv"), csv(1000));
+    await fsp.writeFile(path.join(tmp, "over.csv"), csv(1001));
+    expect((await fsp.stat(path.join(tmp, "at.csv"))).size).toBe(1000);
+    expect((await fsp.stat(path.join(tmp, "over.csv"))).size).toBe(1001);
+    const get = (f: string) =>
+      app.inject({ method: "GET", url: `/api/file/sheet?cwd=${encodeURIComponent(tmp)}&path=${f}` });
+    const parseSpy = vi.spyOn(officePreviewModule, "parseSheet");
+    const ok = await get("at.csv");
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().success).toBe(true);
+    expect(parseSpy).toHaveBeenCalledTimes(1); // the spy does observe a real parse
+    const over = await get("over.csv");
+    expect(parseSpy).toHaveBeenCalledTimes(1); // cap+1 refused BEFORE the parser ran
+    parseSpy.mockRestore();
+    expect(over.statusCode).toBe(413);
+    expect(Object.keys(over.json()).sort()).toEqual(["error", "success"]);
   });
 });
 

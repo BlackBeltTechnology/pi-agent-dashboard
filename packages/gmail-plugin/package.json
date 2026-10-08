@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-gmail-plugin",
-  "version": "0.8.0",
-  "description": "Multi-account Gmail for pi agents \u2014 guided Google OAuth setup, per-account permission levels, server-side token leasing and account-scoped Gmail tools with confirmed writes.",
+  "version": "0.9.0",
+  "description": "Multi-account Gmail for pi agents — guided Google OAuth setup, per-account permission levels, server-side token leasing and account-scoped Gmail tools with confirmed writes.",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
@@ -61,8 +61,8 @@
     "react-dom": ">=18.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
     "oauth4webapi": "^3.8.8",
     "@fastify/rate-limit": "^11.2.0"
   },

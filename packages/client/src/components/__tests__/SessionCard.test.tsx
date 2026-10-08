@@ -1,11 +1,15 @@
 import { createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 import { useSessionActions } from "../../hooks/useSessionActions.js";
 import { DisplayPrefsProvider } from "../../lib/state/DisplayPrefsContext.js";
+import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
+import { absentData, archiveEntry, knownData, makeChange, stubArchiveApi, withOpenSpecMap } from "../../test-support/attachmentHarness.js";
 import { branchCache, GroupGitInfo, SessionCard } from "../session/SessionCard.js";
 
 vi.mock("../../hooks/useMobile.js", () => ({
@@ -1750,9 +1754,13 @@ describe("SessionCard — OPENSPEC subcard readiness (add-openspec-init-affordan
  */
 describe("SessionCard notifyLog invariance (fix-connect-snapshot-frame-loss F5)", () => {
   it("renders identical DOM with and without a populated notifyLog", () => {
+    // Pin startedAt: makeSession() reads Date.now() per call, so a second
+    // boundary between the two renders flipped the uptime label (59s→58s).
+    const startedAt = Date.now() - 60000;
     const withLog = render(
       <SessionCard
         session={makeSession({
+          startedAt,
           notifyLog: [
             { notifyId: "n1", message: "provider rate limited", level: "warning" },
             { notifyId: "n2", message: "retrying in 4s" },
@@ -1764,7 +1772,7 @@ describe("SessionCard notifyLog invariance (fix-connect-snapshot-frame-loss F5)"
     const htmlWithLog = withLog.container.innerHTML;
     withLog.unmount();
 
-    const withoutLog = render(<SessionCard session={makeSession()} {...defaultProps} />);
+    const withoutLog = render(<SessionCard session={makeSession({ startedAt })} {...defaultProps} />);
     expect(withoutLog.container.innerHTML).toBe(htmlWithLog);
   });
 });
@@ -1967,5 +1975,131 @@ describe("SessionCard — Merge emphasis + working (#E13, #F7)", () => {
     for (const id of ["archive-btn", "worktree-action-push", "worktree-action-merge"]) {
       expect(screen.getByTestId(id).getAttribute("aria-disabled"), id).toBeNull();
     }
+  });
+});
+
+// --- attachment resolution on the card (resolve-archived-attached-proposal) ---
+describe("SessionCard attachment resolution", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const cardProps = { onSendPrompt: () => {}, onAttachProposal: () => {}, onDetachProposal: () => {} };
+
+  it("F4 active elsewhere: ended removed-worktree session is read-only with In main checkout", () => {
+    const session = makeSession({
+      id: "ended-1",
+      status: "ended",
+      cwd: "/repo/.worktrees/os-x",
+      attachedProposal: "x",
+      gitWorktree: { mainPath: "/repo", name: "os-x" } as never,
+    });
+    const mem = memoryLocation({ path: "/", record: true });
+    stubArchiveApi({});
+    render(
+      <Router hook={mem.hook}>
+        {withOpenSpecMap(
+          { "/repo/.worktrees/os-x": absentData(), "/repo": knownData(makeChange("x", ["proposal", "design"])) },
+          <SessionCard
+            session={session}
+            {...defaultProps}
+            openspecChanges={[]}
+            openspecReadiness={{ state: "ABSENT" }}
+            {...cardProps}
+          />,
+        )}
+      </Router>,
+    );
+    expect(screen.getByTestId("attachment-main-checkout-badge").textContent).toBe("In main checkout");
+    for (const id of ["apply-btn", "continue-btn", "archive-btn", "openspec-stepper"]) expect(screen.queryByTestId(id)).toBeNull();
+    fireEvent.click(screen.getAllByTestId("artifact-letter")[1]); // D
+    expect(mem.history?.at(-1)).toBe(`/folder/${encodeFolderPath("/repo")}/openspec/x/design`);
+  });
+
+  it("F5 archive letter pushes the archive deep link and does not select the card", async () => {
+    stubArchiveApi({ "/home/user/project": [archiveEntry("2026-09-30-add-auth")] });
+    const onSelect = vi.fn();
+    const mem = memoryLocation({ path: "/", record: true });
+    render(
+      <Router hook={mem.hook}>
+        {withOpenSpecMap(
+          { "/home/user/project": knownData() },
+          <SessionCard
+            session={makeSession({ status: "ended", attachedProposal: "add-auth" })}
+            {...defaultProps}
+            onSelect={onSelect}
+            openspecChanges={[]}
+            {...cardProps}
+          />,
+        )}
+      </Router>,
+    );
+    await screen.findByTestId("attachment-archived-badge");
+    const letters = screen.getAllByTestId("artifact-letter");
+    fireEvent.click(letters[1]); // D
+    expect(mem.history?.at(-1)).toBe(`/folder/${encodeFolderPath("/home/user/project")}/openspec/archive/2026-09-30-add-auth/design`);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["BROKEN", { state: "BROKEN", reason: "cli-failed" }],
+    ["STALE", { state: "STALE", reason: "missing-skills" }],
+  ] as const)("B3 %s readiness: an archived attachment keeps its badge, letters and Detach (not the disabled panel)", async (_n, readiness) => {
+    stubArchiveApi({ "/home/user/project": [archiveEntry("2026-09-30-add-auth")] });
+    const mem = memoryLocation({ path: "/", record: true });
+    render(
+      <Router hook={mem.hook}>
+        {withOpenSpecMap(
+          { "/home/user/project": { initialized: false, changes: [], readiness } as never },
+          <SessionCard
+            session={makeSession({ status: "ended", attachedProposal: "add-auth" })}
+            {...defaultProps}
+            openspecChanges={[]}
+            openspecReadiness={readiness}
+            {...cardProps}
+          />,
+        )}
+      </Router>,
+    );
+    expect((await screen.findByTestId("attachment-archived-badge")).textContent).toBe("Archived 2026-09-30");
+    expect(screen.getAllByTestId("artifact-letter").length).toBe(3);
+    fireEvent.click(screen.getByTestId("openspec-overflow-btn"));
+    expect(screen.getByTestId("detach-btn")).toBeTruthy();
+  });
+
+  it.each([
+    ["loading", {}, {}],
+    ["error", { "/home/user/project": { initialized: false, changes: [], readiness: { state: "BROKEN", reason: "cli-failed" } } }, { "/home/user/project": "error" as const }],
+  ])("B3/r2 BROKEN + unresolved (%s): bare attached name + Detach stay reachable", async (_n, map, archives) => {
+    stubArchiveApi(archives as never);
+    render(
+      <Router hook={memoryLocation({ path: "/" }).hook}>
+        {withOpenSpecMap(
+          map as never,
+          <SessionCard
+            session={makeSession({ status: "ended", attachedProposal: "add-auth" })}
+            {...defaultProps}
+            openspecChanges={[]}
+            openspecReadiness={{ state: "BROKEN", reason: "cli-failed" }}
+            {...cardProps}
+          />,
+        )}
+      </Router>,
+    );
+    await waitFor(() => expect(screen.getByText(/add-auth/)).toBeTruthy());
+    fireEvent.click(screen.getByTestId("openspec-overflow-btn"));
+    expect(screen.getByTestId("detach-btn")).toBeTruthy();
+    expect(screen.queryByTestId("attachment-not-found-badge")).toBeNull();
+  });
+
+  it("B3 BROKEN with no attachment still renders the disabled panel", () => {
+    stubArchiveApi({});
+    render(
+      <SessionCard
+        session={makeSession({ status: "idle" })}
+        {...defaultProps}
+        openspecChanges={[]}
+        openspecReadiness={{ state: "BROKEN", reason: "cli-failed" }}
+        {...cardProps}
+      />,
+    );
+    expect(screen.queryByTestId("openspec-overflow-btn")).toBeNull();
   });
 });

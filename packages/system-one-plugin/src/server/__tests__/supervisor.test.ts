@@ -310,6 +310,10 @@ describe("X12 stop escalation (6.7)", () => {
     const s = new Supervisor(
       deps({
         clock,
+        // Virtual sleep yields ~1 ms real per 500 ms poll, so the default 20 s
+        // budget left the real engine child <100 ms to boot "ready" (flaky on
+        // loaded CI shards). Polling stops at first health, so this is free.
+        healthBudgetMs: 3_600_000,
         signal: (child, sig) => {
           signals.push({ sig: String(sig), at: clock.t });
           child.kill(sig);

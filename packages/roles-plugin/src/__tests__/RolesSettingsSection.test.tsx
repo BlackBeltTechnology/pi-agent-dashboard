@@ -12,28 +12,29 @@
  *     existing protocol (no new WS messages).
  *   - Preset save/load/delete dispatch the matching existing messages.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, act, cleanup } from "@testing-library/react";
-import React from "react";
+
+import { createSlotRegistry, type RegisteredSource, SettingsDraftProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
-  PluginContextProvider,
-  CurrentPluginLayer,
   applyPluginConfigUpdate,
+  CurrentPluginLayer,
+  PluginContextProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import { createSlotRegistry, SettingsDraftProvider, type RegisteredSource } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type {
   UiModelSelectorProps,
   UiThinkingLevelSelectorProps,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   BuiltInRolesSettings,
-  inferProviderForBareId,
-  splitRefLevel,
-  joinRefLevel,
-  computeEffectiveRoles,
   computeDirtyRoles,
+  computeEffectiveRoles,
   computeRoleGroups,
+  inferProviderForBareId,
+  joinRefLevel,
+  splitRefLevel,
 } from "../RolesSettingsSection.js";
 
 /**
@@ -1023,5 +1024,42 @@ describe("the naming role", () => {
     // reversion rather than keep displaying a model that no longer applies.
     seedConfig(namingConfig({ naming: "", fast: "deepseek/flash" }));
     expect(getByTestId("roles-row-naming").textContent).not.toContain("gpt-namer");
+  });
+});
+
+
+describe("BuiltInRolesSettings — used-by overview (add-role-aware-model-refs)", () => {
+  afterEach(() => {
+    cleanup();
+    (globalThis as { fetch?: unknown }).fetch = undefined;
+  });
+
+  it("lists, per role, every binding (with status) and resolve-at-use reference", async () => {
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => ({
+      ok: String(url).endsWith("/api/roles/used-by"),
+      json: async () => ({
+        usedBy: {
+          fast: [
+            { kind: "binding", owner: "blackhole", label: "observerModel", status: "detached" },
+            { kind: "usage", owner: "grammar", label: "grammar model" },
+          ],
+        },
+      }),
+    });
+    const r = render(wrap(<BuiltInRolesSettings />));
+    seedConfig(sampleConfig);
+    await act(async () => {});
+    const row = r.getByTestId("roles-used-by-fast");
+    expect(row.textContent).toContain("blackhole · observerModel");
+    expect(row.textContent).toContain("detached");
+    expect(row.textContent).toContain("grammar · grammar model");
+  });
+
+  it("renders no overview when the endpoint is unavailable", async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => ({ ok: false, json: async () => ({}) });
+    const r = render(wrap(<BuiltInRolesSettings />));
+    seedConfig(sampleConfig);
+    await act(async () => {});
+    expect(r.queryByTestId("roles-used-by")).toBeNull();
   });
 });

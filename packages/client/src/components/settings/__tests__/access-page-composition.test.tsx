@@ -260,4 +260,33 @@ describe("settings access page", () => {
     expect(within(plain).queryByTestId("access-entry-via-prompt")).toBeNull();
     expect(within(plain).queryByTestId("access-entry-widened")).toBeNull();
   });
+
+  // ask-agent-file-access-in-chat #E33 — an agent-prompt grant is labelled with its
+  // session; an unknown future `via` degrades to the generic prompt origin.
+  it("labels agent-prompt grants and treats an unknown via as a generic prompt origin", async () => {
+    const fixture = grantsFixture();
+    for (const [subject, via, origin] of [
+      ["/repo/agent", "agent-prompt", "sess-agent"],
+      ["/repo/future", "x", "sess-future"],
+    ] as const) {
+      fixture.pathGrants.push({
+        subject, scope: "project", grantedAt: "2026-01-04T00:00:00Z", origin, via,
+      } as (typeof fixture.pathGrants)[number]);
+    }
+    accessFixture = fixture;
+    setPath("/settings/access");
+    render(<SettingsPanel />);
+
+    const rows = await waitFor(() => {
+      const r = screen.getAllByTestId("access-entry");
+      expect(r.some((x) => x.textContent?.includes("/repo/future"))).toBe(true);
+      return r;
+    });
+    const agent = rows.find((r) => r.textContent?.includes("/repo/agent"))!;
+    expect(within(agent).getByTestId("access-entry-via-agent-prompt").textContent).toBe("Agent prompt");
+    expect(within(agent).getByTestId("access-entry-origin").textContent).toContain("sess-agent");
+    const future = rows.find((r) => r.textContent?.includes("/repo/future"))!;
+    expect(within(future).getByTestId("access-entry-via-prompt")).toBeTruthy();
+    expect(within(future).queryByTestId("access-entry-via-agent-prompt")).toBeNull();
+  });
 });

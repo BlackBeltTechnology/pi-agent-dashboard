@@ -18,3 +18,9 @@ Card sections: routes `set_card_section_visibility` / `reset_folder_card_section
 `frameClassOf`: `pair_pending_changed` → `{cls:"state", key:"pair_pending"}` (coalescing, never shed — a shed hint is a dialog that never appears). See change: add-pairing-approval-dialog.
 
 `replayNotifyLog` forwards `entry.ts` when present; pre-change entries replay without `ts`. See change: collapse-and-order-notify-rows.
+
+`hasPendingPromptKind(sessionId, kinds)` — true when a tracked pending prompt's `prompt.metadata.kind` is in `kinds` (drives `awaitingFileAccess`). See change: ask-agent-file-access-in-chat.
+
+`hasPendingPromptOtherThan(sessionId, excludeKinds)` — any pending prompt not of the given kinds; drives the `ask_user` fold so a file-access prompt never overwrites the in-flight tool. `hasPendingPromptRequests` unchanged (reaper). See change: ask-agent-file-access-in-chat.
+
+Routes `set_focus_mode` → `handleSetFocusMode`, `set_focus_profile` → `handleSetFocusProfile`, `set_folder_expanded` → `handleSetFolderExpanded`. The connect-burst `collapsed_folders_updated` now carries `expandedFolders` alongside `collapsedFolders`, so the accordion mounts at its persisted state in the same frame that materializes folder groups. See change: add-focus-mode-and-card-block-toggles.

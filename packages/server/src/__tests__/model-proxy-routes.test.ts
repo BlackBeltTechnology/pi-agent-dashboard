@@ -11,7 +11,7 @@
  * - auth missing → 401 (auth gate wired)
  * - concurrency cap exhaust → 503
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import Fastify from "fastify";
 import { registerModelProxyRoutes } from "../routes/model-proxy-routes.js";
 import { createModelProxyAuthGate } from "../model-proxy/auth-gate.js";
@@ -444,5 +444,151 @@ describe("model-id resolution — aliases + preferred fallback", () => {
 
     expect(res.statusCode).toBe(404);
     expect(JSON.parse(res.body).error.message).toBe("Model not found: ghost/none");
+  });
+});
+
+// ── collapse-model-proxy-onto-modelruntime (test-plan #E2, #X7) ────────────
+
+describe("client abort propagates upstream (X7)", () => {
+  it("X7: aborting an in-flight /v1/chat/completions stream aborts the upstream signal", async () => {
+    let upstreamSignal: AbortSignal | undefined;
+    const firstChunkSent = { resolve: () => {} };
+    const sent = new Promise<void>((r) => {
+      firstChunkSent.resolve = r;
+    });
+    const { app, cleartext } = await buildApp({
+      streamFn: (o: any) => {
+        upstreamSignal = o.signal;
+        return (async function* () {
+          yield { type: "start" };
+          yield { type: "text_delta", delta: "first" };
+          firstChunkSent.resolve();
+          // Hold the stream open until the upstream request is aborted.
+          await new Promise<void>((resolve) => {
+            if (o.signal.aborted) resolve();
+            o.signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        })();
+      },
+    });
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    try {
+      const { port } = app.server.address() as { port: number };
+      const client = new AbortController();
+      const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${cleartext}`, "content-type": "application/json" },
+        body: JSON.stringify({ model: "anthropic/claude-3-5-sonnet", messages: [{ role: "user", content: "hi" }], stream: true }),
+        signal: client.signal,
+      });
+      expect(res.status).toBe(200);
+      const reader = res.body!.getReader();
+      await reader.read();
+      await sent;
+      client.abort();
+      await vi.waitFor(() => expect(upstreamSignal?.aborted).toBe(true));
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe("catalogue and login flows agree (E2)", () => {
+  it("E2: an anthropic OAuth credential lists anthropic in the provider-auth flows AND its models in /api/models", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const dir = path.join(os.homedir(), ".pi", "agent");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "auth.json"),
+      JSON.stringify({ anthropic: { type: "oauth", access: "a", refresh: "r", expires: Date.now() + 3_600_000 } }),
+      { mode: 0o600 },
+    );
+    const registryMod = await import("../auth/provider-auth-registry.js");
+    const { getServerModelRuntime } = await import("../model-proxy/server-model-runtime.js");
+    const singleton = await import("../model-proxy/registry-singleton.js");
+    const { getOAuthProvidersMeta } = await import("../auth/provider-auth-storage.js");
+    const { registerModelsIntrospectionRoute } = await import("../routes/models-introspection-routes.js");
+
+    singleton.disposeModelRegistry();
+    registryMod.setOAuthRegistryRuntimeSource(getServerModelRuntime);
+    await registryMod.initOAuthRegistry({ log: () => {} });
+    try {
+      expect(getOAuthProvidersMeta().map((p) => p.id)).toContain("anthropic");
+
+      const app = Fastify({ logger: false });
+      registerModelsIntrospectionRoute(app, { getRegistry: () => singleton.getModelRegistry() });
+      await app.ready();
+      const res = await app.inject({ method: "GET", url: "/api/models" });
+      expect(res.statusCode).toBe(200);
+      const listed: Array<{ id: string; provider?: string }> = JSON.parse(res.body).data ?? JSON.parse(res.body);
+      const anthropicListed = listed.filter((m) => (m.provider ?? m.id.split("/")[0]) === "anthropic");
+      expect(anthropicListed.length).toBeGreaterThan(0);
+
+      // The listed models ARE the runtime's anthropic models (minus the OAuth-incompatible filter).
+      const { runtime } = await getServerModelRuntime();
+      const runtimeIds = new Set(runtime.getModels("anthropic").map((m: any) => `anthropic/${m.id}`));
+      for (const m of anthropicListed) {
+        const fq = m.id.includes("/") ? m.id : `anthropic/${m.id}`;
+        expect(runtimeIds.has(fq), fq).toBe(true);
+      }
+      await app.close();
+    } finally {
+      singleton.disposeModelRegistry();
+    }
+  });
+});
+
+describe("client disconnect during credential resolution (ship-it review B1, test-plan X14)", () => {
+  it("aborts the signal handed to getApiKeyAndHeaders when the client disconnects mid-refresh", async () => {
+    let authSignal: AbortSignal | undefined;
+    const authStarted = { resolve: () => {} };
+    const started = new Promise<void>((r) => {
+      authStarted.resolve = r;
+    });
+    const { cleartext, entry } = makeKey();
+    const config: ModelProxyConfig = {
+      enabled: true,
+      maxConcurrentStreams: 16,
+      perKeyConcurrentStreams: 4,
+      logRequests: false,
+      apiKeys: [entry],
+    };
+    const app = Fastify({ logger: false });
+    app.addHook("onRequest", createModelProxyAuthGate({ getConfig: () => config }));
+    registerModelProxyRoutes(app, {
+      getConfig: () => config,
+      getRegistry: async () => ({
+        ...makeFakeRegistry(),
+        // A refresh that only ends when the request's signal aborts.
+        getApiKeyAndHeaders: (_model: unknown, signal?: AbortSignal) => {
+          authSignal = signal;
+          authStarted.resolve();
+          return new Promise((_resolve, reject) => {
+            signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+          });
+        },
+      }),
+      streamSimple: () => fakeTextStream("never"),
+    });
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    try {
+      const { port } = app.server.address() as { port: number };
+      const client = new AbortController();
+      const pending = fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${cleartext}`, "content-type": "application/json" },
+        body: JSON.stringify({ model: "anthropic/claude-3-5-sonnet", messages: [{ role: "user", content: "hi" }], stream: true }),
+        signal: client.signal,
+      }).catch(() => undefined);
+      await started;
+      expect(authSignal).toBeDefined();
+      client.abort();
+      await vi.waitFor(() => expect(authSignal?.aborted).toBe(true));
+      await pending;
+    } finally {
+      await app.close();
+    }
   });
 });

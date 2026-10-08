@@ -4,8 +4,9 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
-| `chat-pane-row-class.ts` | Row classification (`shrinkable` vs `fixed`), declared transcript floor/bound/weights, and composer bound for `split-chat-pane` below-floor allocation. See change: define-chat-pane-below-floor-allocation. |
+| `chat-pane-row-class.ts` | Row classification (`shrinkable` vs `fixed`), declared transcript floor/bound/weights, composer bound, and header bound/floor/weight (`CHAT_HEADER_BOUND` 0, `CHAT_HEADER_FLOOR` 1, `CHAT_HEADER_WEIGHT` 2) for `split-chat-pane` below-floor allocation. Three shrinkable rows now: transcript, composer, `content-header-sticky` (owns a scrollport; bound 0 so an empty slot takes no pane height). See change: consolidate-flow-agent-cards. |
 | `editor-pane-state.ts` | Per-session pane state + localStorage persistence under `pi-dashboard:editor-pane:<sessionId>`. → see `editor-pane-state.ts.AGENTS.md` |
+| `editor-tab-open.ts` | Client side of `editor_tab_open`: `isOnSessionRoute(pathname, sessionId)` (chat or editor route only), `useEditorTabOpenListener(pathname, navigate)` → `openPluginTabRoute` (one navigation, fresh nonce); ignored on other sessions/settings/landing. See change: add-browser-editor-pane-tab. |
 | `folder-pane-id.ts` | Namespaced localStorage key for the folder-scoped editor pane. Exports `FOLDER_PANE_PREFIX` (`folder:`), `folderPaneId(cwd)`, `isFolderPaneId(id)`. Disjoint from UUID session-id key space. See change: remove-external-editor-integration. |
 | `mobile-depth.ts` | Computes `MobileShell` nav depth from route-match flags. Exports `MobileDepthInput`, `getMobileDepth(input)`… → see `mobile-depth.ts.AGENTS.md` |
 | `rail-width.ts` | Per-session browse-rail width, localStorage `pi-dashboard:rail:<id>`, clamp [160,480], default 224. `useRailWidth`. Independent of outer split ratio. See change: split-editor-workspace. |

@@ -26,6 +26,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type React from "react";
+import { type MutableRefObject, useRef } from "react";
 import type { SubagentState, SubagentTimelineEntry } from "./types.js";
 
 /** Minimal session-state shape this component cares about. */
@@ -95,6 +96,38 @@ function mapSubagentEntries(entries?: SubagentTimelineEntry[]): MinimalChatEntry
   });
 }
 
+interface HeldTail {
+  agentId: string;
+  kind: "thinking" | "text";
+  text: string;
+  entryCount: number;
+}
+
+/**
+ * Live tail, or the last one held until its finished entry has arrived.
+ * The hold lives in the mounted view's ref, so it goes away with the view
+ * (PR #831 review: a module-global map outlived closed inspectors).
+ */
+function heldLiveEntry(
+  sub: SubagentState,
+  isComplete: boolean,
+  heldRef: MutableRefObject<HeldTail | undefined>,
+): { kind: "thinking" | "text"; text: string } | undefined {
+  const count = sub.entries?.length ?? 0;
+  const tail = sub.liveTail;
+  if (tail && tail.kind !== "none" && tail.text) {
+    heldRef.current = { agentId: sub.id, kind: tail.kind, text: tail.text, entryCount: count };
+    return { kind: tail.kind, text: tail.text };
+  }
+  const held = heldRef.current;
+  if (!held || held.agentId !== sub.id) return undefined;
+  if (isComplete || count > held.entryCount) {
+    heldRef.current = undefined;
+    return undefined;
+  }
+  return { kind: held.kind, text: held.text };
+}
+
 export function SubagentDetailView({
   session,
   agentId,
@@ -104,6 +137,7 @@ export function SubagentDetailView({
 }: SubagentDetailViewProps) {
   const t = useT();
   const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
+  const heldTail = useRef<HeldTail | undefined>(undefined);
   const sub = session.subagents.get(agentId);
   if (!sub) {
     return (
@@ -130,6 +164,14 @@ export function SubagentDetailView({
       />
     );
   }
+
+  // In-progress streaming block (producer ≥ 0.2.7). `kind: "none"` / empty
+  // text = nothing streaming. See change: stream-subagent-reasoning-and-stable-card.
+  // The finished entry reaches the client only on the next resync, while the
+  // tail clears at block end. Hold the last tail until the timeline grows so
+  // the block never blinks out. Held per mounted view (ref keyed by agent id);
+  // dropped on completion or once the timeline grows.
+  const liveEntry = heldLiveEntry(sub, isComplete, heldTail);
 
   // Tier resolution — pick entries / synthesized fallback / empty placeholder.
   let entries: MinimalChatEntry[];
@@ -184,13 +226,18 @@ export function SubagentDetailView({
       onBack={onBack}
       sessionId={sessionId}
       meta={{
-        modelName: sub.modelName,
+        modelName:
+          sub.modelName && sub.thinkingLevel
+            ? `${sub.modelName} · thinking ${sub.thinkingLevel}`
+            : sub.modelName,
         tokens: sub.tokens ? { input: sub.tokens.input, output: sub.tokens.output } : undefined,
         durationMs: isComplete ? sub.durationMs : undefined,
       }}
       emptyMessage={emptyMessage}
       footer={footer}
       activity={sub.activity}
+      liveEntry={liveEntry}
+      expandLastThinking={!isComplete}
     />
   );
 }

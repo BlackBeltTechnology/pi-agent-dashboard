@@ -1,18 +1,18 @@
 /**
- * registerPlugin wiring (change extract-mcp-client-plugin, task 6.1): the
- * adapter-version diagnostic runs lazily on the FIRST POST /mcp, not at
- * registration; an absent `mcp-client.config` service reads as `unknown`; and
- * the plugin declares no manifest `dependsOn` (the config service is a package
- * dependency, so a missing plugin degrades rather than blocking load).
+ * registerPlugin wiring: the mint reply carries the `/mcp` URL (E30), a
+ * bridge-side registration failure is logged (D1 guard), the legacy
+ * provisioned `mcp.json` entry is removed at startup and nothing is written
+ * (D2), and the plugin declares no manifest `dependsOn` (the config service is
+ * a package dependency, so a missing plugin degrades rather than blocking
+ * load). See change: migrate-mcp-to-pi-builtin; earlier: extract-mcp-client-plugin.
  */
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import { ADAPTER_VERSION_FLOOR } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import Fastify from "fastify";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerPlugin } from "../index.js";
 import { type ListSessionsArgs, listSessions } from "../list-sessions.js";
 
@@ -27,16 +27,14 @@ interface CtxHandle {
   sentMessages: Array<{ sessionId: string; msg: unknown }>;
 }
 
-function makeCtx(config: { adapterVerdict: () => unknown } | undefined): CtxHandle {
+function makeCtx(services: Record<string, unknown> = {}): CtxHandle {
   const warnings: string[] = [];
   const infos: string[] = [];
   const piHandlers = new Map<string, (msg: unknown, sessionId: string) => void>();
   const sentMessages: Array<{ sessionId: string; msg: unknown }> = [];
   let deliverable = true;
   const app = Fastify();
-  const consumed: Record<string, unknown> = {
-    "mcp-client.config": config,
-  };
+  const consumed: Record<string, unknown> = services;
   const ctx = {
     logger: {
       info: (m: string) => infos.push(m),
@@ -64,12 +62,10 @@ function makeCtx(config: { adapterVerdict: () => unknown } | undefined): CtxHand
   return { ctx, app, warnings, infos, piHandlers, setDeliverable: (ok: boolean) => { deliverable = ok; }, sentMessages };
 }
 
-const ADAPTER_MSG = "upgrade now";
-
 let cfgDir: string;
 beforeEach(() => {
-  // Sandbox provisioning: the plugin writes the Pi-global mcp.json at
-  // registration, and PI_CODING_AGENT_DIR is where the adapter resolves it.
+  // Sandbox the startup migration: it reads the Pi-global mcp.json under
+  // PI_CODING_AGENT_DIR.
   cfgDir = mkdtempSync(join(tmpdir(), "mcp-server-cfg-"));
   process.env.PI_CODING_AGENT_DIR = cfgDir;
 });
@@ -78,41 +74,63 @@ afterEach(() => {
   rmSync(cfgDir, { recursive: true, force: true });
 });
 
-describe("registerPlugin adapter diagnostic (task 6.1)", () => {
-  it("does not probe at registration; warns once on the first /mcp request", async () => {
-    const adapterVerdict = vi.fn(() => ({
-      kind: "below-floor",
-      installed: "2.19.0",
-      floor: ADAPTER_VERSION_FLOOR,
-      message: ADAPTER_MSG,
-    }));
-    const { ctx, app, warnings } = makeCtx({ adapterVerdict });
+describe("E30 — the server delivers the /mcp URL with the token", () => {
+  it("host.httpPort 9123 → mcp_token_minted.url === http://127.0.0.1:9123/mcp", async () => {
+    const { ctx, app, piHandlers, sentMessages } = makeCtx({ "host.httpPort": () => 9123 });
     await registerPlugin(ctx);
-    await app.ready();
-
-    // Registration must NOT have probed or warned.
-    expect(adapterVerdict).not.toHaveBeenCalled();
-    expect(warnings.filter((w) => w.includes(ADAPTER_MSG))).toHaveLength(0);
-
-    // First POST /mcp fires it exactly once.
-    await app.inject({ method: "POST", url: "/mcp", payload: {} });
-    expect(adapterVerdict).toHaveBeenCalledTimes(1);
-    expect(warnings.filter((w) => w.includes(ADAPTER_MSG))).toHaveLength(1);
-
-    // Second POST does not repeat it.
-    await app.inject({ method: "POST", url: "/mcp", payload: {} });
-    expect(adapterVerdict).toHaveBeenCalledTimes(1);
-    expect(warnings.filter((w) => w.includes(ADAPTER_MSG))).toHaveLength(1);
-
+    piHandlers.get("mcp/mint-token")?.({}, "session-a");
+    expect((sentMessages[0].msg as { url: string }).url).toBe("http://127.0.0.1:9123/mcp");
     await app.close();
   });
 
-  it("an absent service still warns once on first request, reading as `unknown`", async () => {
-    const { ctx, app, warnings } = makeCtx(undefined);
+  it("reads the port live at mint time, not at registration", async () => {
+    let port: number | null = null;
+    const { ctx, app, piHandlers, sentMessages } = makeCtx({ "host.httpPort": () => port });
     await registerPlugin(ctx);
-    await app.ready();
-    await app.inject({ method: "POST", url: "/mcp", payload: {} });
-    expect(warnings.filter((w) => w.includes("unknown"))).toHaveLength(1);
+    port = 8123;
+    piHandlers.get("mcp/mint-token")?.({}, "session-a");
+    expect((sentMessages[0].msg as { url: string }).url).toBe("http://127.0.0.1:8123/mcp");
+    await app.close();
+  });
+});
+
+describe("D1 guard — registration unavailable is logged server-side with the session id", () => {
+  it("logs mcp.dashboard_registration_unavailable once per report", async () => {
+    const { ctx, app, piHandlers, warnings } = makeCtx();
+    await registerPlugin(ctx);
+    piHandlers.get("mcp/registration-unavailable")?.({ reason: "api-missing" }, "session-q");
+    const lines = warnings.filter((w) => w.includes("mcp.dashboard_registration_unavailable"));
+    expect(lines).toEqual(["mcp.dashboard_registration_unavailable session=session-q reason=api-missing"]);
+    // A bridge-supplied string outside the closed set never reaches the log.
+    piHandlers.get("mcp/registration-unavailable")?.({ reason: "x\nFAKE LINE" }, "session-q");
+    expect(warnings.at(-1)).toBe("mcp.dashboard_registration_unavailable session=session-q reason=unknown");
+    await app.close();
+  });
+});
+
+describe("D2 — startup removes the legacy provisioned entry and writes nothing else", () => {
+  it("a provisioned entry is removed at registration; no new entry is written", async () => {
+    const file = join(cfgDir, "mcp.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        mcpServers: {
+          "pi-dashboard": { url: "http://127.0.0.1:8000/mcp", requestHeadersCommand: { command: "node", args: ["/x/header-command.mjs"] } },
+          docs: { url: "https://docs.example/mcp" },
+        },
+      }),
+    );
+    const { ctx, app, infos } = makeCtx();
+    await registerPlugin(ctx);
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ mcpServers: { docs: { url: "https://docs.example/mcp" } } });
+    expect(infos.some((l) => l.includes("removed the legacy"))).toBe(true);
+    await app.close();
+  });
+
+  it("no mcp.json → none is created", async () => {
+    const { ctx, app } = makeCtx();
+    await registerPlugin(ctx);
+    expect(existsSync(join(cfgDir, "mcp.json"))).toBe(false);
     await app.close();
   });
 });
@@ -132,7 +150,7 @@ describe("manifest (task 6.1)", () => {
 
 describe("X1/X5 — the mint reply rides the session-private lane", () => {
   it("X5 — mint → deliver logs the session id but NEVER the plaintext", async () => {
-    const { ctx, app, piHandlers, infos, warnings, sentMessages } = makeCtx(undefined);
+    const { ctx, app, piHandlers, infos, warnings, sentMessages } = makeCtx();
     await registerPlugin(ctx);
     await app.ready();
 
@@ -156,7 +174,7 @@ describe("X1/X5 — the mint reply rides the session-private lane", () => {
   });
 
   it("X1 — a closed bridge socket at delivery time is logged with the session id; /mcp keeps serving", async () => {
-    const { ctx, app, piHandlers, warnings, infos, setDeliverable, sentMessages } = makeCtx(undefined);
+    const { ctx, app, piHandlers, warnings, infos, setDeliverable, sentMessages } = makeCtx();
     await registerPlugin(ctx);
     await app.ready();
 

@@ -51,3 +51,17 @@ describe("E16 single peer-IP trust predicate", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe("E18 single local-trust predicate (requireLocalProof)", () => {
+  it("calls isGenuinelyLocal( only in localhost-guard.ts", () => {
+    const offenders: string[] = [];
+    for (const file of walk(serverSrc)) {
+      const rel = path.relative(serverSrc, file);
+      if (rel.split(path.sep).includes("__tests__") || /\.test\.tsx?$/.test(rel)) continue;
+      if (rel === path.join("auth", "localhost-guard.ts")) continue;
+      if (stripComments(fs.readFileSync(file, "utf-8")).includes("isGenuinelyLocal(")) offenders.push(rel);
+    }
+    // See change: harden-trust-and-credential-boundaries (D2).
+    expect(offenders).toEqual([]);
+  });
+});

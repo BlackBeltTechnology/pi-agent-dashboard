@@ -470,3 +470,50 @@ describe("_buildAuthStatus — registry-driven rows (E23–E27)", () => {
     expect(result.filter((r) => r.id === "openrouter")).toHaveLength(1);
   });
 });
+
+/**
+ * pi 1.0.0: env-auth label + subscription flag.
+ * See change: update-pi-core-1-0-adopt-apis (test-plan #E17, #E18).
+ */
+describe("_buildAuthStatus — authLabel + subscription (pi 1.0.0)", () => {
+  const federation: ProviderInfo = {
+    id: "anthropic",
+    displayName: "Anthropic",
+    hasOAuth: true,
+    configured: true,
+    source: "environment",
+    authLabel: "workload identity federation",
+  };
+
+  it("E17: a federation row is configured + authenticated + labelled; the OAuth row is not configured", () => {
+    const result = _buildAuthStatus([federation], {}, [ANTHROPIC_HANDLER]);
+    const apiRow = result.find((r) => r.id === "anthropic-api");
+    expect(apiRow).toMatchObject({
+      configured: true,
+      authenticated: true,
+      source: "environment",
+      authLabel: "workload identity federation",
+    });
+    expect(apiRow?.envVar).toBeUndefined();
+    expect(result.find((r) => r.id === "anthropic")?.configured).toBe(false);
+  });
+
+  it("an env-var row keeps authenticated:false even though pi labels it", () => {
+    const envVarRow: ProviderInfo = {
+      ...federation,
+      envVar: "ANTHROPIC_API_KEY",
+      authLabel: "ANTHROPIC_API_KEY",
+    };
+    const apiRow = _buildAuthStatus([envVarRow], {}, [ANTHROPIC_HANDLER]).find((r) => r.id === "anthropic-api");
+    expect(apiRow?.configured).toBe(true);
+    expect(apiRow?.authenticated).toBe(false);
+  });
+
+  it("E18: OAuth rows carry the registry's subscription flag", () => {
+    const sub = { ...makeOAuthEntry("anthropic", "Anthropic"), subscription: true };
+    const acct = { ...makeOAuthEntry("openrouter", "OpenRouter"), subscription: false };
+    const result = _buildAuthStatus([], {}, [sub, acct]);
+    expect(result.find((r) => r.id === "anthropic")?.subscription).toBe(true);
+    expect(result.find((r) => r.id === "openrouter")?.subscription).toBe(false);
+  });
+});

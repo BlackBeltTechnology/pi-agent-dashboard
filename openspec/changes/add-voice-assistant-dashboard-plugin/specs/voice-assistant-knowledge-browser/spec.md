@@ -56,6 +56,13 @@ When the kb backend is active, the system SHALL group decisions by their `status
 - **WHEN** the view renders with the fallback backend active
 - **THEN** decisions are listed without status facet counts
 
+### Requirement: Archived meetings are listed
+The knowledge view SHALL list the folder's archived meetings (kb `category = meeting`, newest first), each linking to its transcript and notes files; on the fallback path it SHALL list markdown files under the configured archive dir.
+
+#### Scenario: Meetings listed
+- **WHEN** a folder has archived meetings
+- **THEN** the view shows them newest first with date, title, and links to transcript and notes
+
 ### Requirement: Read-only in v1
 The system SHALL NOT allow editing decisions or knowledge source files from this view; it is a read-only browser for v1.
 

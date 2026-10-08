@@ -31,3 +31,11 @@ Row 1 (`header-app-bar`) renders conditional `YoloPill` right after `TunnelButto
 ## show-session-history-load-state
 
 Prop `historyPhaseMap` (App `buildHistoryPhaseMap`); passes `historyPhase` + `historyStartedAt` primitives to each `SessionCard`. Absent id → no ring. See change: show-session-history-load-state.
+
+## add-focus-mode-and-card-block-toggles
+
+Directory-card blocks — each folder-group part is individually gated: `GroupGitInfo` (`folder-git`), the compact `FolderActionBanner` chip (`folder-banner`), `FolderOpenSpecSection` (`folder-openspec`), the plugin pill grid (per-plugin `pill-*` filter; the grid carries `empty:hidden` so a fully filtered row leaves no gap), the Create/Sessions dividers + `FolderSpawnButtons` (`folder-create`), and `EndedExpanderRow` (`folder-ended`).
+
+Accordion mode — props `expandedGroups`, `onSetFolderExpanded`, `folderListMode`, `folderAttentionPeek`. The focused folder follows the LATEST intent (`resolveActiveCwd`: card `select` vs folder header-body `activate`). The header chevron COLLAPSES the focused folder and pins/unpins an unfocused one — two meanings for one control, resolved by focus, not by a second affordance. Unfocused groups render compact: attention cards only, or an `N sessions — click to view` row (`resolveGroupRenderMode`, `demandsAttention` from `lib/folder-focus.ts`). An active search or filter FORCES full render — a hidden match is worse than a tall list. `renderCard` hoisted to `renderGroup` scope so both render modes share one card factory. Folder header mounts `<FocusToggle/>`.
+
+See change: add-focus-mode-and-card-block-toggles.

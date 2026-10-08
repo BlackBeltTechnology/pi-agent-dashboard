@@ -1,16 +1,17 @@
 # Workflow Taxonomy
 
-`.github/workflows/` contains 10 workflow files: 8 entry workflows and 2 reusable workflows.
+`.github/workflows/` contains 11 workflow files: 9 entry workflows and 2 reusable workflows.
 
 ## Entry workflows
 
 | Workflow | Trigger | Purpose | Mutates releases? |
 |---|---|---|---|
-| `ci.yml` | Push and pull request to `develop` | Node 22 lint, type checks, tests, and build | No |
+| `ci.yml` | Push and pull request to `develop`, manual (always full) | Parallel jobs: `select` (affected-test selection) → `unit` ×4 / `real-process` / `ci-scenarios`, beside `ci` (guards, lint, type checks, build), `docker-plugin-load`, `music-pytest`; `ci-result` aggregates | No |
 | `deploy-site.yml` | `site/**`/`packages/shell/**` push to develop, manual dispatch (release redeploy arrives via `publish.yml` `site-redeploy` dispatch — a `release:` trigger can never start a run) | Build and deploy GitHub Pages (site + shell at `/app/`) | Site only |
 | `ci-e2e-electron.yml` | Path-filtered pull request, manual | Native Electron Playwright checks on Linux and Windows | No |
 | `ci-electron.yml` | Manual | Build selected Electron installer matrix legs | No |
 | `ci-smoke.yml` | Manual | Run the standalone installation smoke matrix | No |
+| `nightly-tests.yml` | Daily cron `0 3 * * *`, manual | Full sharded vitest suite incl. the slow tier; red scheduled run opens/updates the `nightly-tests` issue with the bisect range | No |
 | `nightly.yml` | Manual; schedule currently disabled | Full-fidelity Verdaccio and Electron round-trip | No public release mutation |
 | `publish.yml` | `v*` tag or manual version dispatch | Gate, tag when dispatched, publish npm packages, build Electron, create GitHub Release | Yes |
 | `sync-release-version.yml` | Release published or edited, manual | Write release metadata to the site and push `develop` | Site metadata commit |
@@ -26,7 +27,8 @@
 
 ```mermaid
 flowchart LR
-  ci[ci.yml] --> checks[tests + lint + build]
+  ci[ci.yml] --> checks[guards + lint + build<br/>+ affected tests]
+  nightlyTests[nightly-tests.yml] --> full[full suite]
   deploy[deploy-site.yml] --> pages[GitHub Pages]
   native[ci-e2e-electron.yml] --> nativeTests[native Electron E2E]
   ciSmoke[ci-smoke.yml] --> smoke[_smoke.yml]

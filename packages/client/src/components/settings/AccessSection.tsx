@@ -192,10 +192,17 @@ export function AccessSection() {
                           {i18nT("access.columnOrigin", undefined, "Origin")}: {entry.origin}
                         </span>
                       )}
-                      {entry.via === "prompt" && (
-                        <span data-testid="access-entry-via-prompt">
-                          {i18nT("access.viaPrompt", undefined, "via prompt")}
+                      {entry.via === "agent-prompt" ? (
+                        <span data-testid="access-entry-via-agent-prompt">
+                          {i18nT("access.viaAgentPrompt", undefined, "Agent prompt")}
                         </span>
+                      ) : (
+                        // `prompt` and any unknown future `via` render as a generic prompt origin.
+                        entry.via && (
+                          <span data-testid="access-entry-via-prompt">
+                            {i18nT("access.viaPrompt", undefined, "via prompt")}
+                          </span>
+                        )
                       )}
                       {entry.widenedFrom && (
                         <span data-testid="access-entry-widened">

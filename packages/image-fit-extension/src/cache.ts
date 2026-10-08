@@ -21,6 +21,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as log from "./log.js";
 
 export const ROOT_DIR = path.join(os.tmpdir(), "pi-image-fit");
 
@@ -99,7 +100,7 @@ export async function hasCached(scope: CacheScope, hash: string, ext: string): P
  */
 export async function cleanupSession(
   scope: CacheScope,
-  warn: (msg: string) => void = (msg) => console.warn(msg),
+  warn: (msg: string) => void = log.warn,
 ): Promise<void> {
   try {
     await fs.rm(scope.dir, { recursive: true, force: true });
@@ -118,7 +119,7 @@ export async function cleanupSession(
 export async function cleanupOrphans(
   maxAgeMs: number = 24 * 60 * 60 * 1000,
   now: () => number = Date.now,
-  warn: (msg: string) => void = (msg) => console.warn(msg),
+  warn: (msg: string) => void = log.warn,
 ): Promise<void> {
   let entries: string[];
   try {

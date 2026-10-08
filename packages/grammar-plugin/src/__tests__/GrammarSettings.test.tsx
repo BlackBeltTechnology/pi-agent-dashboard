@@ -31,9 +31,14 @@ import { GrammarSettings } from "../GrammarSettings.js";
 import type { GrammarConfig } from "../grammar-config.js";
 
 /** Mock `ui:model-selector`: one button per model, emitting the `provider/id` label. */
-function MockModelSelector({ models, current, onSelect }: UiModelSelectorProps) {
+function MockModelSelector({ models, current, onSelect, allowRoles }: UiModelSelectorProps) {
   return (
-    <div data-testid="grammar-model-selector-impl" data-current={current ?? ""}>
+    <div data-testid="grammar-model-selector-impl" data-current={current ?? ""} data-allow-roles={String(!!allowRoles)}>
+      {allowRoles && (
+        <button type="button" data-testid="grammar-role-option-fast" onClick={() => onSelect("@fast")}>
+          @fast
+        </button>
+      )}
       {(models ?? []).map((m) => {
         const label = `${m.provider}/${m.id}`;
         return (
@@ -164,6 +169,29 @@ describe("GrammarSettings", () => {
     // No LanguageTool keys ever written.
     expect(postBodies[0].backend).toBeUndefined();
     expect(postBodies[0].languagetool).toBeUndefined();
+  });
+
+  it("E20: a Role-tab pick persists as llm:{role} with no provider/model", async () => {
+    const { getByTestId, src, postBodies } = await mount({ grammar: baseGrammar() });
+    expect(getByTestId("grammar-model-selector-impl").getAttribute("data-allow-roles")).toBe("true");
+    fireEvent.click(getByTestId("grammar-role-option-fast"));
+    await waitFor(() => expect(src().isDirty).toBe(true));
+    await src().commit();
+    expect(postBodies[0].llm).toEqual({ role: "@fast" });
+  });
+
+  it("a role model is shown as current and satisfies the 'pick a model' prompt", async () => {
+    const { getByTestId, queryByTestId } = await mount({ grammar: baseGrammar({ llm: { role: "@fast" } }) });
+    expect(getByTestId("grammar-model-selector-impl").getAttribute("data-current")).toBe("@fast");
+    expect(queryByTestId("grammar-model-required")).toBeNull();
+  });
+
+  it("a direct pick still persists provider/model unchanged", async () => {
+    const { getByTestId, src, postBodies } = await mount({ grammar: baseGrammar() });
+    fireEvent.click(getByTestId("grammar-model-option-anthropic/claude-opus-4"));
+    await waitFor(() => expect(src().isDirty).toBe(true));
+    await src().commit();
+    expect(postBodies[0].llm).toEqual({ provider: "anthropic", model: "claude-opus-4" });
   });
 
   it("reset reverts the draft to the loaded config (E3)", async () => {

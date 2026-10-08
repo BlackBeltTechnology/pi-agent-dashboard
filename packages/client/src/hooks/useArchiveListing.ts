@@ -1,7 +1,5 @@
 import type { ArchiveEntry } from "@blackbelt-technology/pi-dashboard-shared/archive-types.js";
-import { useEffect, useState } from "react";
-import { getApiBase } from "../lib/api/api-context.js";
-import { t } from "../lib/i18n/i18n.js";
+import { useArchiveEntries } from "../lib/openspec/useAttachmentResolution.js";
 
 export type { ArchiveEntry };
 
@@ -11,37 +9,15 @@ interface ArchiveListingState {
   error: string | undefined;
 }
 
+/** Archive listing for `cwd`, read through the shared per-folder cache.
+ *  See change: resolve-archived-attached-proposal (D4). */
 export function useArchiveListing(cwd: string): ArchiveListingState {
-  const [entries, setEntries] = useState<ArchiveEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    setError(undefined);
-
-    fetch(`${getApiBase()}/api/openspec-archive?cwd=${encodeURIComponent(cwd)}`)
-      .then((res) => res.json())
-      .then((body) => {
-        if (cancelled) return;
-        if (!body.success) {
-          setError(body.error ?? t("archive.fetchFailed", undefined, "Failed to fetch archive"));
-        } else {
-          setEntries(body.data);
-        }
-        setIsLoading(false);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err.message ?? t("archive.fetchFailed", undefined, "Failed to fetch archive"));
-        setIsLoading(false);
-      });
-
-    return () => { cancelled = true; };
-  }, [cwd]);
-
-  return { entries, isLoading, error };
+  const s = useArchiveEntries(cwd);
+  return {
+    entries: s.status === "ok" ? s.entries : [],
+    isLoading: s.status === "idle" || s.status === "loading",
+    error: s.status === "error" ? s.error : undefined,
+  };
 }
 
 /** Group entries by date and return groups sorted newest-first. */

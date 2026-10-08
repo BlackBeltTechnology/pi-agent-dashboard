@@ -86,6 +86,15 @@ async function addAccount(section: Locator, cid: string, email: string, tier: st
   await expect(row(section, email)).toBeVisible({ timeout: 15_000 });
 }
 
+/** Click Revoke on the row and confirm in the host `ui:confirm-dialog`. */
+async function revokeConfirmed(page: Page, section: Locator, email: string): Promise<void> {
+  await row(section, email).getByTestId("gmail-account-revoke").click();
+  const dialog = page.getByTestId("confirm-dialog");
+  await expect(dialog).toBeVisible();
+  await page.getByTestId("confirm-dialog-action").click();
+  await expect(dialog).toHaveCount(0);
+}
+
 const row = (section: Locator, email: string) => section.locator(`[data-testid="gmail-account-row"][data-email="${email}"]`);
 
 test.describe("gmail plugin", () => {
@@ -145,13 +154,23 @@ test.describe("gmail plugin", () => {
     await addAccount(section, cid, "a@fake.test", "readonly");
     await addAccount(section, cid, "b@fake.test", "readonly");
 
+    // test-plan #F8 (improve-gmail-settings-ux): dismissing the confirm sends nothing.
+    const dialog = page.getByTestId("confirm-dialog");
     await row(section, "b@fake.test").getByTestId("gmail-account-revoke").click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("b@fake.test");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(row(section, "b@fake.test")).toHaveCount(1);
+    expect(fakeGoogleState(cid).revokes).toBe(0);
+
+    await revokeConfirmed(page, section, "b@fake.test");
     await expect(row(section, "b@fake.test")).toHaveCount(0, { timeout: 15_000 });
     await expect(section.getByTestId("gmail-revoke-result")).toContainText("revoked at Google");
     expect(fakeGoogleState(cid).revokes).toBe(1);
 
     fakeGoogleControl(cid, "config", { revokeDown: true });
-    await row(section, "a@fake.test").getByTestId("gmail-account-revoke").click();
+    await revokeConfirmed(page, section, "a@fake.test");
     await expect(row(section, "a@fake.test")).toHaveCount(0, { timeout: 15_000 });
     await expect(section.getByTestId("gmail-revoke-result")).toContainText("myaccount.google.com/permissions");
   });

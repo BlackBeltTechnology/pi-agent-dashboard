@@ -2,10 +2,10 @@
  * Shared configuration module for PI Dashboard.
  * Used by both the server CLI and bridge extension.
  */
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { HostGateMode } from "./host-admission.js";
 import {
   DEFAULT_SERVER_HEAP,
   DEFAULT_SESSION_HEAP,
@@ -13,6 +13,7 @@ import {
   type ServerHeapConfig,
   type SessionHeapConfig,
 } from "./heap-limits.js";
+import type { HostGateMode } from "./host-admission.js";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
@@ -42,10 +43,16 @@ export interface HostGateConfig {
 const HOST_GATE_MODES: HostGateMode[] = ["report", "enforce"];
 
 /**
- * Validate a raw `hostGate.mode`. Absent / unrecognised → `report` (the
- * non-breaking rollout default; see design D4).
+ * Validate a raw `hostGate.mode`. Absent (`undefined`) → `absentDefault`
+ * (`enforce`); a recognised string → itself; anything else (typo, wrong type)
+ * → `report`, so a mistyped config cannot lock the operator out.
+ * See change: harden-server-request-surfaces.
  */
-export function parseHostGateMode(raw: unknown): HostGateMode {
+export function parseHostGateMode(
+  raw: unknown,
+  absentDefault: HostGateMode = "enforce",
+): HostGateMode {
+  if (raw === undefined) return absentDefault;
   return typeof raw === "string" && (HOST_GATE_MODES as string[]).includes(raw)
     ? (raw as HostGateMode)
     : "report";
@@ -106,6 +113,32 @@ export interface AuthProviderConfig {
   name?: string;
 }
 
+/**
+ * Multi-user identity plane (openspec: add-multi-user-identity-plane).
+ *
+ * There is NO mode flag. The plane activates purely on the bundled
+ * `keycloak-resolver` plugin being enabled AND configured; this block only
+ * carries the host-owned TRUST GRANTS and timeouts, all optional. An absent
+ * `identity` block ⇒ empty trust list, no policy ⇒ inert (today's behavior).
+ */
+export interface IdentityConfig {
+  /**
+   * Plugin ids permitted to register a principal resolver, IN ADDITION to the
+   * bundled `keycloak-resolver`. A self-declared `manifest.priority` grants
+   * nothing — trust is only this operator-controlled list. Default `[]`.
+   */
+  trustedResolverPlugins: string[];
+  /**
+   * The single plugin id permitted to register the OPTIONAL host access
+   * policy (non-session roads). Unset ⇒ no policy ⇒ non-session roads ungated.
+   */
+  trustedPolicyPlugin?: string;
+  /** Per-resolver dispatch budget (ms). Default 2000, clamped [100, 5000]. */
+  resolverTimeoutMs: number;
+  /** Per-policy-call budget (ms). Default 500, clamped [50, 2000]. */
+  policyTimeoutMs: number;
+}
+
 export interface AuthConfig {
   secret: string;
   providers: Record<string, AuthProviderConfig>;
@@ -118,20 +151,6 @@ export interface AuthConfig {
   admin?: string;
 }
 
-/**
- * Memory-limit types + defaults live in a BROWSER-SAFE module and are
- * re-exported here so existing `config.js` importers are unaffected. The client
- * settings panel needs `DEFAULT_MEMORY_LIMITS` as a VALUE, and a value import of
- * THIS module would drag `node:fs`/`node:os`/`node:path` into the browser
- * bundle — a blank page at boot, not a build error.
- * See change: fix-lazy-history-backfill-ux (D7).
- */
-export {
-  DEFAULT_MEMORY_LIMITS,
-  type MemoryLimitsConfig,
-  MIN_REPLAY_WINDOW,
-  type ReplayWindowMode,
-} from "./memory-limits.js";
 
 /**
  * V8 heap-sizing types + defaults follow the same browser-safe split, for the
@@ -149,6 +168,20 @@ export {
   SUBAGENT_HEAP_GUIDANCE_MB,
   subagentHeapBudget,
 } from "./heap-limits.js";
+/**
+ * Memory-limit types + defaults live in a BROWSER-SAFE module and are
+ * re-exported here so existing `config.js` importers are unaffected. The client
+ * settings panel needs `DEFAULT_MEMORY_LIMITS` as a VALUE, and a value import of
+ * THIS module would drag `node:fs`/`node:os`/`node:path` into the browser
+ * bundle — a blank page at boot, not a build error.
+ * See change: fix-lazy-history-backfill-ux (D7).
+ */
+export {
+  DEFAULT_MEMORY_LIMITS,
+  type MemoryLimitsConfig,
+  MIN_REPLAY_WINDOW,
+  type ReplayWindowMode,
+} from "./memory-limits.js";
 
 /**
  * Server push notifications (Web Push / FCM / webhook). Opt-in: a missing or
@@ -499,6 +532,84 @@ export interface AccessGrantsConfig {
   promptEnabled: boolean;
 }
 
+/**
+ * Agent path gate: asks the operator before pi's read/write/edit tools touch
+ * paths outside the session's roots. Default on.
+ * `PI_DASHBOARD_AGENT_PATH_GATE=off|on` overrides per process.
+ * See change: ask-agent-file-access-in-chat.
+ */
+export interface AgentPathGateConfig {
+  enabled: boolean;
+  timeoutSeconds: number;
+}
+
+export const DEFAULT_AGENT_PATH_GATE: AgentPathGateConfig = { enabled: true, timeoutSeconds: 120 };
+
+export function parseAgentPathGate(raw: unknown): AgentPathGateConfig {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    enabled: typeof r.enabled === "boolean" ? r.enabled : DEFAULT_AGENT_PATH_GATE.enabled,
+    timeoutSeconds:
+      typeof r.timeoutSeconds === "number" && Number.isFinite(r.timeoutSeconds) && r.timeoutSeconds > 0
+        ? r.timeoutSeconds
+        : DEFAULT_AGENT_PATH_GATE.timeoutSeconds,
+  };
+}
+
+/** Apply the `PI_DASHBOARD_AGENT_PATH_GATE` override (`off`/`on`) to a parsed config. */
+export function resolveAgentPathGate(
+  cfg: AgentPathGateConfig,
+  env: Record<string, string | undefined> = process.env,
+): AgentPathGateConfig {
+  const v = env.PI_DASHBOARD_AGENT_PATH_GATE?.trim().toLowerCase();
+  if (v === "off") return { ...cfg, enabled: false };
+  if (v === "on") return { ...cfg, enabled: true };
+  return cfg;
+}
+
+/**
+ * Per-process bridge activation. `PI_DASHBOARD_BRIDGE` (off/0/false/no |
+ * on/1/true/yes, trimmed, case-insensitive) overrides `bridge.enabled`; any
+ * other value defers to config. Default enabled. The server stamps
+ * `PI_DASHBOARD_BRIDGE=on` on every session spawn, so this only affects
+ * user-launched pi processes. See change: add-bridge-env-opt-out.
+ */
+export interface BridgeActivationConfig {
+  enabled: boolean;
+}
+
+export const DEFAULT_BRIDGE_ACTIVATION: BridgeActivationConfig = { enabled: true };
+
+export function parseBridgeActivation(raw: unknown): BridgeActivationConfig {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return { enabled: typeof r.enabled === "boolean" ? r.enabled : DEFAULT_BRIDGE_ACTIVATION.enabled };
+}
+
+const BRIDGE_ENV_OFF = new Set(["off", "0", "false", "no"]);
+const BRIDGE_ENV_ON = new Set(["on", "1", "true", "yes"]);
+
+/**
+ * Env-only half of the resolution: `false`/`true` when `PI_DASHBOARD_BRIDGE`
+ * holds a recognised value, `undefined` when config must decide.
+ */
+export function bridgeEnvOverride(
+  env: Record<string, string | undefined> = process.env,
+): boolean | undefined {
+  const v = env.PI_DASHBOARD_BRIDGE?.trim().toLowerCase();
+  if (v === undefined) return undefined;
+  if (BRIDGE_ENV_OFF.has(v)) return false;
+  if (BRIDGE_ENV_ON.has(v)) return true;
+  return undefined;
+}
+
+/** Resolve bridge activation: env > config > default (on). */
+export function resolveBridgeEnabled(
+  cfg: BridgeActivationConfig,
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return bridgeEnvOverride(env) ?? cfg.enabled;
+}
+
 export interface DashboardConfig {
   port: number;
   piPort: number;
@@ -632,6 +743,11 @@ export interface DashboardConfig {
   };
   devBuildOnReload: boolean;
   auth?: AuthConfig;
+  /**
+   * Multi-user identity plane trust grants + timeouts. Always present (default
+   * inert: empty resolver trust list, no policy plugin). See IdentityConfig.
+   */
+  identity: IdentityConfig;
   defaultModel: string;
   /**
    * Default thinking level applied to brand-new startup sessions alongside
@@ -693,8 +809,20 @@ export interface DashboardConfig {
    * See change: add-access-grant-dialog.
    */
   accessGrants: AccessGrantsConfig;
+  agentPathGate: AgentPathGateConfig;
+  /** Per-process bridge activation (see `BridgeActivationConfig`). */
+  bridge: BridgeActivationConfig;
   /** Networks trusted for full access without authentication (CIDR, wildcard, exact IP) */
   trustedNetworks: string[];
+  /**
+   * Strict local proof. When true, bare loopback admits only `observe`-tier REST
+   * routes; control/operate routes and WebSockets need the local-proof cookie
+   * (`pi-dashboard open` / Electron), the local token, or an authenticated
+   * principal. Default false (unchanged). Only header-injecting tunnels (zrok)
+   * are safe without it; marker-less relays (`ssh -R`, `socat`) are not.
+   * See change: harden-trust-and-credential-boundaries (D2).
+   */
+  requireLocalProof: boolean;
   /** Merged trustedNetworks + auth.bypassHosts (deduplicated). Computed at load time. */
   resolvedTrustedNetworks: string[];
   /** CORS allowed origins for cross-origin client hosting */
@@ -762,6 +890,14 @@ export interface DashboardConfig {
    * See change: simplify-session-card-ordering.
    */
   questionFirst: boolean;
+  /**
+   * Sidebar folder list behavior. `classic` = today; `accordion` = focused folder
+   * full, others compact. Unknown values fall back to `classic`.
+   * See change: add-focus-mode-and-card-block-toggles.
+   */
+  folderListMode: "classic" | "accordion";
+  /** Accordion: unfocused folders with sessions demanding attention peek open. Default `true`. */
+  folderAttentionPeek: boolean;
   /** Persisted list of known remote servers */
   knownServers: KnownServer[];
   /**
@@ -1035,6 +1171,60 @@ export function resolveDashboardPorts(
  */
 export const DEFAULT_SUBAGENT_TICK_THROTTLE_MS = 500;
 
+/** Inert default: no trusted resolver plugins beyond the bundled one, no policy. */
+export const DEFAULT_IDENTITY: IdentityConfig = {
+  trustedResolverPlugins: [],
+  resolverTimeoutMs: 2000,
+  policyTimeoutMs: 500,
+};
+
+const IDENTITY_RESOLVER_TIMEOUT_MIN = 100;
+const IDENTITY_RESOLVER_TIMEOUT_MAX = 5000;
+const IDENTITY_POLICY_TIMEOUT_MIN = 50;
+const IDENTITY_POLICY_TIMEOUT_MAX = 2000;
+
+function clampInt(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+/**
+ * Parse the `identity` block. Always returns a valid IdentityConfig; a missing
+ * or malformed block yields the inert default (empty trust list, no policy),
+ * so an unconfigured dashboard behaves exactly as before this change.
+ */
+export function parseIdentityConfig(raw: any): IdentityConfig {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_IDENTITY };
+  const trustedResolverPlugins = Array.isArray(raw.trustedResolverPlugins)
+    ? raw.trustedResolverPlugins.filter(
+        (p: unknown): p is string => typeof p === "string" && p.length > 0,
+      )
+    : [];
+  return {
+    trustedResolverPlugins,
+    ...(typeof raw.trustedPolicyPlugin === "string" && raw.trustedPolicyPlugin.length > 0
+      ? { trustedPolicyPlugin: raw.trustedPolicyPlugin }
+      : {}),
+    resolverTimeoutMs: clampInt(
+      raw.resolverTimeoutMs,
+      IDENTITY_RESOLVER_TIMEOUT_MIN,
+      IDENTITY_RESOLVER_TIMEOUT_MAX,
+      DEFAULT_IDENTITY.resolverTimeoutMs,
+    ),
+    policyTimeoutMs: clampInt(
+      raw.policyTimeoutMs,
+      IDENTITY_POLICY_TIMEOUT_MIN,
+      IDENTITY_POLICY_TIMEOUT_MAX,
+      DEFAULT_IDENTITY.policyTimeoutMs,
+    ),
+  };
+}
+
 /**
  * Default cap on concurrently in-flight `Agent` children per session.
  *
@@ -1115,6 +1305,8 @@ const DEFAULTS: DashboardConfig = {
   },
   devBuildOnReload: false,
   accessGrants: { promptEnabled: false },
+  agentPathGate: { ...DEFAULT_AGENT_PATH_GATE },
+  bridge: { ...DEFAULT_BRIDGE_ACTIVATION },
   defaultModel: "",
   defaultThinkingLevel: "",
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
@@ -1126,8 +1318,9 @@ const DEFAULTS: DashboardConfig = {
   embedLifecycle: { ...DEFAULT_EMBED_LIFECYCLE },
   keeperLog: { ...DEFAULT_KEEPER_LOG },
   allowedHosts: [],
-  hostGate: { mode: "report" },
+  hostGate: { mode: "enforce" },
   trustedNetworks: [],
+  requireLocalProof: false,
   resolvedTrustedNetworks: [],
   cors: { allowedOrigins: [] },
   pairing: { publicBaseUrls: [] },
@@ -1138,9 +1331,12 @@ const DEFAULTS: DashboardConfig = {
   reopenSessionsAfterShutdown: DEFAULT_REOPEN_SESSIONS_AFTER_SHUTDOWN,
   completedFirst: false,
   questionFirst: false,
+  folderListMode: "classic",
+  folderAttentionPeek: true,
   spawnRegisterTimeoutMs: 30000,
   gitWorktreeEnabled: true,
   windowsGitSource: "auto",
+  identity: { ...DEFAULT_IDENTITY },
 };
 
 /**
@@ -1784,6 +1980,35 @@ export function validateTunnelForConnect(tunnel: DashboardConfig["tunnel"]): Tun
 }
 
 /**
+ * Write a config file atomically with mode 0600 (it holds the auth HMAC secret).
+ * Unique tmp name so concurrent writers never clobber each other; chmod is
+ * best-effort (umask-proof on POSIX, ignored where unsupported, e.g. win32).
+ * See change: harden-trust-and-credential-boundaries (D4).
+ */
+export function writeConfigFileSecure(file: string, text: string): void {
+  const tmp = `${file}.tmp.${process.pid}.${randomUUID()}`;
+  try {
+    fs.writeFileSync(tmp, text, { mode: 0o600 });
+    try { fs.chmodSync(tmp, 0o600); } catch { /* best-effort */ }
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch { /* already gone */ }
+    throw err;
+  }
+}
+
+/** Best-effort: tighten a group/world-readable config file to 0600. Never throws. */
+function tightenConfigMode(file: string): void {
+  if (process.platform === "win32") return; // platform-branch-ok: POSIX mode bits are meaningless on win32
+  try {
+    const st = fs.statSync(file);
+    if (st.mode & 0o077) fs.chmodSync(file, 0o600);
+  } catch (err) {
+    console.warn(`[config] could not tighten ${file} to 0600: ${(err as Error).message}`);
+  }
+}
+
+/**
  * Load configuration from ~/.pi/dashboard/config.json.
  * Returns defaults for missing fields, malformed JSON, or missing file.
  */
@@ -1791,6 +2016,8 @@ export function loadConfig(): DashboardConfig {
   const configDir = path.join(os.homedir(), ".pi", "dashboard");
   const configFile = path.join(configDir, "config.json");
   const defaults: DashboardConfig = { ...DEFAULTS };
+
+  if (fs.existsSync(configFile)) tightenConfigMode(configFile);
 
   try {
     if (!fs.existsSync(configFile)) return defaults;
@@ -1835,6 +2062,7 @@ export function loadConfig(): DashboardConfig {
       defaultThinkingLevel:
         typeof parsed.defaultThinkingLevel === "string" ? parsed.defaultThinkingLevel : defaults.defaultThinkingLevel,
       auth: parseAuthConfig(parsed.auth),
+      identity: parseIdentityConfig(parsed.identity),
       memoryLimits: parseMemoryLimits(parsed.memoryLimits),
       sessionHeap: parseSessionHeap(parsed.sessionHeap),
       serverHeap: parseServerHeap(parsed.serverHeap),
@@ -1849,6 +2077,7 @@ export function loadConfig(): DashboardConfig {
         : defaults.allowedHosts,
       hostGate: { mode: parseHostGateMode(parsed.hostGate?.mode) },
       trustedNetworks: parseTrustedNetworks(parsed.trustedNetworks),
+      requireLocalProof: parsed.requireLocalProof === true,
       resolvedTrustedNetworks: [],
       cors: {
         allowedOrigins: Array.isArray(parsed.cors?.allowedOrigins)
@@ -1878,11 +2107,15 @@ export function loadConfig(): DashboardConfig {
             ? parsed.accessGrants.promptEnabled
             : defaults.accessGrants.promptEnabled,
       },
+      agentPathGate: parseAgentPathGate(parsed.agentPathGate),
+      bridge: parseBridgeActivation(parsed.bridge),
       knownServers: parseKnownServers(parsed.knownServers),
       reattachPlacement: parseReattachPlacement(parsed.reattachPlacement),
       reopenSessionsAfterShutdown: parseReopenSessionsAfterShutdown(parsed.reopenSessionsAfterShutdown),
       completedFirst: typeof parsed.completedFirst === "boolean" ? parsed.completedFirst : defaults.completedFirst,
       questionFirst: typeof parsed.questionFirst === "boolean" ? parsed.questionFirst : defaults.questionFirst,
+      folderListMode: parsed.folderListMode === "accordion" ? "accordion" : "classic",
+      folderAttentionPeek: typeof parsed.folderAttentionPeek === "boolean" ? parsed.folderAttentionPeek : defaults.folderAttentionPeek,
       plugins: parsePluginsConfig(parsed.plugins),
       askUserPromptTimeoutSeconds: typeof parsed.askUserPromptTimeoutSeconds === "number"
         ? parsed.askUserPromptTimeoutSeconds
@@ -1947,5 +2180,5 @@ export function ensureConfig(): void {
     devBuildOnReload: DEFAULTS.devBuildOnReload,
   };
 
-  fs.writeFileSync(configFile, JSON.stringify(defaults, null, 2) + "\n");
+  writeConfigFileSecure(configFile, JSON.stringify(defaults, null, 2) + "\n");
 }

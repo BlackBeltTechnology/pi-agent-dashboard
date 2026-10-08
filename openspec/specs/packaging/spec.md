@@ -39,8 +39,8 @@ The package SHALL provide a `pi-dashboard` CLI command (via `bin` in package.jso
 - **WHEN** a user runs `pi-dashboard --no-tunnel`
 - **THEN** the server SHALL not create a zrok tunnel even if `tunnel.enabled` is `true` in config
 
-### Requirement: Bin entry is plain JavaScript wrapper (jiti-only)
-The package's `bin.pi-dashboard` field SHALL point to `bin/pi-dashboard.mjs`, a plain ESM JavaScript file that resolves jiti at runtime via `resolveJitiImport()` and re-execs Node with `--import <jiti-url> packages/server/src/cli.ts <args>`. The wrapper SHALL NOT carry a tsx fallback; on jiti-resolution failure it SHALL exit 1 with an install-hint stderr message.
+### Requirement: Bin entry is plain JavaScript wrapper
+The package's `bin.pi-dashboard` field SHALL point to `bin/pi-dashboard.mjs`, a plain ESM JavaScript file that selects a TypeScript loader at runtime (Node-native by default, jiti when `PI_DASHBOARD_TS_LOADER=jiti`, per `server-launch`) and re-execs Node with `--import <loader-url> packages/server/src/cli.ts <args>`. The wrapper SHALL NOT carry a tsx fallback; when jiti is selected and jiti resolution fails it SHALL exit 1 with an install-hint stderr message.
 
 #### Scenario: Package bin entry after npm install
 - **WHEN** the package is installed via `npm install`
@@ -76,11 +76,15 @@ The dashboard server SHALL support a configuration file at `~/.pi/dashboard/conf
 - **THEN** the server SHALL use port 4000 (CLI wins)
 
 ### Requirement: Peer dependencies
-The package SHALL declare `@mariozechner/pi-coding-agent` as a peer dependency so that the bridge extension resolves core packages from the host runtime's installation.
+The package SHALL declare `@earendil-works/pi-coding-agent` as an optional peer dependency so that the bridge extension resolves core packages from the host runtime's installation.
 
 #### Scenario: Installed under pi
 - **WHEN** the package is installed as a pi package via `pi install`
-- **THEN** `@mariozechner/pi-coding-agent` satisfies the peer dependency
+- **THEN** `@earendil-works/pi-coding-agent` satisfies the peer dependency
+
+#### Scenario: No legacy fork peers
+- **WHEN** the root `package.json` or any `packages/*/package.json` is inspected
+- **THEN** neither `peerDependencies` nor `peerDependenciesMeta` SHALL contain `@mariozechner/pi-coding-agent`, `@mariozechner/pi-ai` or `@mariozechner/pi-tui`
 
 ### Requirement: Architecture documentation
 The project SHALL maintain a `docs/architecture.md` file that describes the system architecture, data flow, protocol, and component interactions. This file SHALL be updated with every significant change per the project's code instructions.

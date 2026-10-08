@@ -16,6 +16,8 @@ import { createDocumentConverter } from "@blackbelt-technology/pi-dashboard-docu
 const dc = createDocumentConverter({
   image: "pi-doc-engine:0.1.0",
   stagingDir: "/abs/kb-staging",
+  // Files outside process.cwd() must sit under a configured root:
+  mounts: ["/docs", "/out"],          // or workspaceRoot: "/abs/project"
 });
 
 // Ingest -> Markdown with provenance frontmatter (written into stagingDir).
@@ -68,10 +70,23 @@ The `provenance` frontmatter (`source_path`, `sha256`, `doc_type`,
 originating file. Re-ingesting an unchanged file yields the same `sha256`, so
 staging output is byte-stable (idempotent by hash).
 
+## Path confinement
+
+Every absolute path in a request must lie under a configured root:
+`stagingDir` (mounted read-write), `mounts`, or `workspaceRoot` (default
+`process.cwd()`). Comparison uses real paths, so a symlink cannot escape a root.
+Sensitive dirs (`/etc`, `/root`, `/var/run`, `/proc`, `/sys`, `/dev`, `~/.ssh`,
+`~/.aws`, `~/.gnupg`, `~/.config`, `~/.pi`, `~/.docker`, `~/.kube`) are refused
+unless a root containing the path is itself inside that dir. A root of `/` is
+refused. Violations reject with `DocConverterError` code `PATH_NOT_ALLOWED`
+before docker runs. Inputs of `convertToMarkdown`, `renderPdf`, and
+`fillFrontmatter`/`profileTables` with `apply:false` mount read-only.
+
 ## Templates (runtime-mounted, not baked)
 
 DOCX templates are NOT baked into the image — pass `templatesDir` (an absolute
-host dir containing `<template>/template.docx`); the facade bind-mounts it. Keeps
+host dir containing `<template>/template.docx`, under a configured root — add it
+to `mounts`); the facade bind-mounts it. Keeps
 branded/template assets out of the image and the repo.
 
 ## Engine image

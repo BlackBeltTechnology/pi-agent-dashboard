@@ -53,6 +53,10 @@ const CENSUS: Record<string, string[]> = {
     "renders a ⋯ trigger instead of inline buttons",
     "opens an action sheet on click revealing the actions and the PR segment",
     "mobile sheet hides until the trigger is clicked",
+    // Added by change: migrate-workspace-menus-to-portal-layer (mobile sheet
+    // portaled to the layer root at z-popover).
+    "sheet panel has fixed and z-popover, not absolute or z-50 (overlay-layering)",
+    "outside click closes the mobile sheet",
     // Added by change: redesign-composer-session-strip (test-plan #E5, D6).
     "merged → ⑂ #747 merged, no checks marker",
     "closed → ⊘ #747 closed, no checks marker",
@@ -148,6 +152,10 @@ const CENSUS: Record<string, string[]> = {
     "unreachable entry is disabled and does NOT fire onSwitch when clicked",
     "renders CORS-blocked (not Unreachable) for a LAN host whose probe fails",
     "shows spinner on the entry that matches inFlightSwitchKey",
+    // Added by change: migrate-workspace-menus-to-portal-layer (dropdown
+    // portaled to the layer root at z-popover).
+    "dropdown panel uses fixed z-popover, not absolute z-50 (overlay-layering)",
+    "outside click closes the dropdown",
   ],
   "components/__tests__/PiUpdateBadge.test.tsx": [
     "renders nothing when there are no updates",

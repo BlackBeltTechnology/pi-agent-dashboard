@@ -107,6 +107,15 @@ export function instanceIdHealthFields(instanceId: string): { instanceId: string
   return { [INSTANCE_ID_HEALTH_FIELD]: instanceId };
 }
 
+/**
+ * Non-creating, non-memoized read of the persisted id for `piPort`.
+ * `null` when absent/empty/unreadable. Never writes (unlike `ensureInstanceId`).
+ * See change: fix-cli-stop-foreign-home-kill.
+ */
+export function peekInstanceId(env: NodeJS.ProcessEnv | undefined, piPort: number): string | null {
+  return readInstanceId(getInstanceIdPath(env, piPort));
+}
+
 /** Read a persisted id, or `null` when absent, empty, or unreadable. */
 function readInstanceId(file: string): string | null {
   try {

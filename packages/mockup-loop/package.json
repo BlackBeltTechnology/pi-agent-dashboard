@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/frontend-mockup-loop",
-  "version": "0.8.0",
-  "description": "Pi extension + skill for a ground\u2192contract\u2192mockup\u2192test\u2192fix\u2192learn frontend design loop. Ships a live mockup server tool, a Playwright breakpoint-screenshot tool, and a design-contract scaffolder. Works in any React/Tailwind/shadcn project.",
+  "version": "0.9.0",
+  "description": "Pi extension + skill for a ground→contract→mockup→test→fix→learn frontend design loop. Ships a live mockup server tool, a Playwright breakpoint-screenshot tool, and a design-contract scaffolder. Works in any React/Tailwind/shadcn project.",
   "type": "module",
   "repository": {
     "type": "git",
@@ -54,7 +54,7 @@
     "eslint-plugin-tailwindcss": "^3.17.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.80.10",
+    "@earendil-works/pi-coding-agent": ">=1.0.0",
     "typebox": ">=1.3.6"
   },
   "peerDependenciesMeta": {
@@ -63,7 +63,7 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.80.10",
+    "@earendil-works/pi-coding-agent": "^1.0.0",
     "typebox": ">=1.3.6"
   }
 }

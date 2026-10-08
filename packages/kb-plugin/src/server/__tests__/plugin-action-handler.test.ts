@@ -8,18 +8,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // vi.mock is hoisted above module-level const initializers, so the mock fns must
 // live in vi.hoisted to avoid a TDZ hit inside the factory.
-const { reindexAll, applyConfigPatch, isAllowedCwd } = vi.hoisted(() => ({
+const { reindexAll, applyConfigPatchAndTrust, isAllowedCwd, preflightWrite } = vi.hoisted(() => ({
   reindexAll: vi.fn(async () => ({ changed: 1, chunks: 2 })),
-  applyConfigPatch: vi.fn(() => ({ ok: true as const, projectPath: "/w/repo/.pi/dashboard/knowledge_base.json" })),
+  applyConfigPatchAndTrust: vi.fn((): { ok: true; projectPath: string; untrustedRefs: string[] } => ({
+    ok: true,
+    projectPath: "/w/repo/.pi/dashboard/knowledge_base.json",
+    untrustedRefs: [],
+  })),
   isAllowedCwd: vi.fn(() => true),
+  preflightWrite: vi.fn((_cwd: string, _opts: { needsSources: boolean }): string | null => null),
 }));
 
 vi.mock("../kb-routes.js", () => ({
   mountKbRoutes: vi.fn(),
   reindexAll,
-  applyConfigPatch,
-  isAllowedCwd,
+  applyConfigPatchAndTrust,
+  preflightWrite,
 }));
+// The handler imports the guard DIRECTLY from the shared module (the CodeQL
+// barrier model only recognizes that import path, not the kb-routes re-export).
+vi.mock("@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", () => ({ isAllowedCwd }));
 vi.mock("@blackbelt-technology/pi-dashboard-kb", () => ({
   loadConfig: () => ({ origin: "project" }),
 }));
@@ -48,21 +56,40 @@ const tick = () => new Promise((r) => setImmediate(r));
 describe("kb plugin_action handler", () => {
   beforeEach(() => {
     reindexAll.mockClear();
-    applyConfigPatch.mockClear();
+    applyConfigPatchAndTrust.mockClear();
     isAllowedCwd.mockReturnValue(true);
+    preflightWrite.mockReset();
+    preflightWrite.mockReturnValue(null);
   });
 
   it("reindex reaches the reindexAll core for an allowed cwd", async () => {
     const { handler } = await setup();
     handler({ pluginId: "kb", action: "reindex", payload: { cwd: "/w/repo" } });
     await tick();
-    expect(reindexAll).toHaveBeenCalledWith("/w/repo");
+    expect(reindexAll).toHaveBeenCalledWith("/w/repo", expect.anything());
   });
 
-  it("config.set reaches the applyConfigPatch core", async () => {
+  it("config.set reaches the applyConfigPatchAndTrust core", async () => {
     const { handler } = await setup();
     handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/w/repo", patch: { include: ["docs"] } } });
-    expect(applyConfigPatch).toHaveBeenCalledWith("/w/repo", { include: ["docs"] });
+    expect(applyConfigPatchAndTrust).toHaveBeenCalledWith("/w/repo", { include: ["docs"] });
+  });
+
+  it("E28 config.set with trustRefs passes them through and warns on untrustedRefs", async () => {
+    applyConfigPatchAndTrust.mockReturnValueOnce({ ok: true, projectPath: "/p", untrustedRefs: ["missing"] });
+    const { handler, ctx } = await setup();
+    handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/w/repo", patch: { trustRefs: ["g", "missing"] } } });
+    expect(applyConfigPatchAndTrust).toHaveBeenCalledWith("/w/repo", { trustRefs: ["g", "missing"] });
+    const warns = (ctx.logger.warn as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    expect(warns.some((w) => w.includes("missing"))).toBe(true);
+  });
+
+  it("X8 config.set with trustRefs for a non-admitted cwd is guarded — no core call", async () => {
+    isAllowedCwd.mockReturnValue(false);
+    const { handler, ctx } = await setup();
+    handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/etc", patch: { trustRefs: ["g"] } } });
+    expect(applyConfigPatchAndTrust).not.toHaveBeenCalled();
+    expect(ctx.logger.warn as ReturnType<typeof vi.fn>).toHaveBeenCalled();
   });
 
   it("rejects a cwd outside the allow-list — no core call", async () => {
@@ -85,5 +112,43 @@ describe("kb plugin_action handler", () => {
     handler({ pluginId: "goal", action: "reindex", payload: { cwd: "/w/repo" } });
     await tick();
     expect(reindexAll).not.toHaveBeenCalled();
+  });
+
+  // E23 (kb-denied-folder-pin-state, design D9): the action path honours the same
+  // preconditions as REST — no job, a warn naming the reason, nothing written.
+  describe("E23 preconditions on the action path", () => {
+    const warns = (ctx: { logger: { warn: unknown } }) =>
+      (ctx.logger.warn as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+
+    for (const reason of ["folder missing", "no sources configured"]) {
+      it(`reindex refused: ${reason}`, async () => {
+        preflightWrite.mockReturnValue(reason);
+        const { handler, ctx } = await setup();
+        handler({ pluginId: "kb", action: "reindex", payload: { cwd: "/w/repo" } });
+        await tick();
+        expect(reindexAll).not.toHaveBeenCalled();
+        expect(warns(ctx).some((w) => w.includes(reason))).toBe(true);
+      });
+    }
+
+    it("config.set{reindex} on a removed folder writes nothing and starts no job", async () => {
+      preflightWrite.mockImplementation((_cwd, opts) => (opts.needsSources ? "no sources configured" : "folder missing"));
+      const { handler, ctx } = await setup();
+      handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/w/repo", patch: { include: ["docs"] }, reindex: true } });
+      await tick();
+      expect(applyConfigPatchAndTrust).not.toHaveBeenCalled();
+      expect(reindexAll).not.toHaveBeenCalled();
+      expect(warns(ctx).some((w) => w.includes("folder missing"))).toBe(true);
+    });
+
+    it("config.set{reindex} with zero sources saves but starts no job", async () => {
+      preflightWrite.mockImplementation((_cwd, opts) => (opts.needsSources ? "no sources configured" : null));
+      const { handler, ctx } = await setup();
+      handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/w/repo", patch: { sources: [] }, reindex: true } });
+      await tick();
+      expect(applyConfigPatchAndTrust).toHaveBeenCalled();
+      expect(reindexAll).not.toHaveBeenCalled();
+      expect(warns(ctx).some((w) => w.includes("no sources configured"))).toBe(true);
+    });
   });
 });

@@ -1,9 +1,10 @@
 import { type APIRequestContext, expect, type Page, test } from "./fixtures.js";
-import { ensureGitSession, gotoDashboard } from "./helpers/index.js";
+import { ensureGitSession, gotoDashboard, sendPrompt } from "./helpers/index.js";
 
 /**
  * L3 e2e for the browser relay (change: add-browser-relay, test-plan rows
- * F1-F5, F10).
+ * F1-F5, F10; the pane-tab rows F1, F5, F10, F14, F15, F17 of
+ * add-browser-editor-pane-tab).
  *
  * Requires the harness with `PI_E2E_SEED=1 PI_BROWSER_RELAY_FAKE=1` (task 7.61):
  * the docker container has no Chrome, so the plugin boots ENABLED and seeds one
@@ -98,9 +99,9 @@ async function fakeInstanceId(request: APIRequestContext): Promise<string> {
 
 // Variant-harness gate: the Fake relay instance exists only when the container
 // booted with PI_BROWSER_RELAY_FAKE=1. That faucet CANNOT be a shared-harness
-// default — a live relay instance makes `isLiveViewActive()` true for every
-// session, so the `content-view` slot renders the live-browser tile and occludes
-// the chat for EVERY spec (systemic cause S2 of stabilize-browser-e2e). It runs
+// default — the seeded Fake instance adds a badge to every session card and is
+// state other specs never expect (it used to occlude the chat through the
+// `content-view` slot, systemic cause S2 of stabilize-browser-e2e). It runs
 // on its OWN CI leg (`e2e-browser-relay` in .github/workflows/ci-e2e-browser.yml,
 // which sets PI_E2E_SEED=1 + PI_BROWSER_RELAY_FAKE=1); every other shard skips
 // this file. Locally opt in with:
@@ -234,61 +235,151 @@ test.describe("browser relay — settings surface (F1-F4)", () => {
   });
 });
 
-test.describe("browser relay — live-view tile (F5, F10)", () => {
+test.describe("browser relay — editor pane tab (F1, F5, F10, F14, F15, F17)", () => {
   // Spawning a real pi session is slow; the harness model is faux.
   test.setTimeout(180_000);
 
-  test("F5+F10: selecting a session mounts the tile, frames arrive over /ws, unmount unsubscribes", async ({
+  /** Select the first session and return its id (from the route). */
+  async function selectSession(page: Page): Promise<string> {
+    await ensureGitSession(page);
+    await page.getByTestId("session-card-desktop").first().click();
+    await expect(page).toHaveURL(/\/session\/[^/?]+/, { timeout: 30_000 });
+    return decodeURIComponent(new URL(page.url()).pathname.split("/")[2] as string);
+  }
+
+  /** Open the Fake's tab from the selected card's badge menu. */
+  async function openFromBadge(page: Page, instanceId: string): Promise<void> {
+    const badge = page.getByTestId("session-card-desktop").first().getByTestId("browser-relay-badge");
+    await expect(badge).toBeVisible({ timeout: 40_000 });
+    await badge.click();
+    await page.getByTestId(`browser-relay-open-${instanceId}-1`).click();
+    await expect(page.getByTestId("browser-pane-tab")).toBeVisible({ timeout: 40_000 });
+  }
+
+  test("F1+F5+F10: badge menu opens the pane tab beside the chat; frames over /ws; closing unsubscribes", async ({
     page,
     request,
   }) => {
     await installWsSpy(page);
     await request.put("/api/browser/enabled", { data: { enabled: true } });
     const instanceId = await fakeInstanceId(request);
+    await selectSession(page);
 
-    // A session card is required: the badge lives on it, feeds the relay store,
-    // which is what flips the content-view predicate.
-    await ensureGitSession(page);
-    await page.getByTestId("session-card-desktop").first().click();
+    // Nothing opened on its own: the relay never replaces the chat.
+    await expect(page.getByTestId("browser-pane-tab")).toHaveCount(0);
+    await openFromBadge(page, instanceId);
 
-    await expect(page.getByTestId("browser-live-view")).toBeVisible({ timeout: 40_000 });
+    // F1: the chat is still visible next to the pane tab.
+    await expect(page.getByTestId("chat-scroll-container")).toBeVisible();
+
     // F10: the viewer path rides the core /ws gateway — never a relay socket.
     const afterMount = await spy(page);
-    expect(afterMount.urls.some((u) => u.includes("/ws/browser-ext/") || u.includes("/ws/browser-cdp/"))).toBe(
-      false,
-    );
+    expect(afterMount.urls.some((u) => u.includes("/ws/browser-ext/") || u.includes("/ws/browser-cdp/"))).toBe(false);
 
-    // The tile subscribes and the Fake streams frames to it.
     await expect
-      .poll(
-        async () =>
-          (await spy(page)).sent.filter((m) => m.includes("browser_relay_subscribe")).length,
-        { timeout: 30_000 },
-      )
+      .poll(async () => (await spy(page)).sent.filter((m) => m.includes("browser_relay_subscribe")).length, { timeout: 30_000 })
       .toBeGreaterThan(0);
-
-    await expect(page.getByTestId(`browser-frame-${instanceId}-1`)).toBeVisible({ timeout: 40_000 });
+    await expect(page.getByTestId("browser-pane-frame")).toBeVisible({ timeout: 40_000 });
     await expect
-      .poll(async () => (await spy(page)).recv.filter((m) => m.includes("browser_relay_frame")).length, {
-        timeout: 30_000,
-      })
+      .poll(async () => (await spy(page)).recv.filter((m) => m.includes("browser_relay_frame")).length, { timeout: 30_000 })
       .toBeGreaterThanOrEqual(5);
 
-    // Leaving the content view unmounts the tile → the cleanup unsubscribe.
-    // The shell's `onClose` is a no-op, so the Close button dismisses via the
-    // plugin's own store (which is what flips the content-view predicate).
-    await page.getByTestId("browser-live-view-close").click();
-    await expect(page.getByTestId("browser-live-view")).toHaveCount(0, { timeout: 30_000 });
+    // Closing the pane tab unmounts the body → the cleanup unsubscribe.
+    await page.getByTestId("editor-tab").first().getByRole("button").click();
+    await expect(page.getByTestId("browser-pane-tab")).toHaveCount(0, { timeout: 30_000 });
     await expect
-      .poll(
-        async () =>
-          (await spy(page)).sent.filter((m) => m.includes("browser_relay_unsubscribe")).length,
-        { timeout: 30_000 },
-      )
+      .poll(async () => (await spy(page)).sent.filter((m) => m.includes("browser_relay_unsubscribe")).length, { timeout: 30_000 })
       .toBeGreaterThan(0);
 
     // Leave the container enabled for any later spec.
     await request.put("/api/browser/enabled", { data: { enabled: true } });
+  });
+
+  test("F14: editor_tab_open acts only on the session's own route", async ({ page, request }) => {
+    await installWsSpy(page);
+    await request.put("/api/browser/enabled", { data: { enabled: true } });
+    const instanceId = await fakeInstanceId(request);
+    const sessionId = await selectSession(page);
+    const path = `browser:${instanceId}:1`;
+    const announce = (sid: string) =>
+      page.evaluate(
+        ([id, p]) => window.dispatchEvent(new CustomEvent("editor-tab-open", { detail: { sessionId: id, path: p } })),
+        [sid, path] as const,
+      );
+
+    // Another session's announcement: this client stays where it is.
+    const before = page.url();
+    await announce("some-other-session");
+    await page.waitForTimeout(500);
+    expect(page.url()).toBe(before);
+    await expect(page.getByTestId("browser-pane-tab")).toHaveCount(0);
+
+    // Its own session: opens/focuses the tab.
+    await announce(sessionId);
+    await expect(page.getByTestId("browser-pane-tab")).toBeVisible({ timeout: 30_000 });
+    expect(page.url()).toContain("tab=");
+
+    // Off the session routes (settings overlay): ignored, no navigation.
+    await page.getByTestId("settings-btn").click();
+    await page.getByTestId("settings-content").waitFor({ state: "visible", timeout: 15_000 });
+    const settingsUrl = page.url();
+    await announce(sessionId);
+    await page.waitForTimeout(500);
+    expect(page.url()).toBe(settingsUrl);
+  });
+
+  test("F15: a persisted plugin tab whose prefix has no enabled claim shows the unavailable placeholder; Close removes it", async ({
+    page,
+    request,
+  }) => {
+    await installWsSpy(page);
+    await request.put("/api/browser/enabled", { data: { enabled: true } });
+    const instanceId = await fakeInstanceId(request);
+    const sessionId = await selectSession(page);
+    await openFromBadge(page, instanceId); // reveals the split and persists the pane
+
+    // The relay-fake harness FORCES the browser plugin on (PI_BROWSER_RELAY_FAKE),
+    // so the plugin cannot be disabled here. "Plugin gone" is the same state as
+    // "prefix with no enabled claim": persist a tab for an unclaimed prefix.
+    const key = `pi-dashboard:editor-pane:${sessionId}`;
+    await page.evaluate(
+      (k) =>
+        localStorage.setItem(
+          k,
+          JSON.stringify({ openFiles: [{ path: "gone:x", viewer: "plugin", addedAt: 1 }], activeIndex: 0, treeOpenRoots: [] }),
+        ),
+      key,
+    );
+    await page.goto(`/session/${encodeURIComponent(sessionId)}`);
+    const placeholder = page.getByTestId("plugin-tab-unavailable");
+    await expect(placeholder).toBeVisible({ timeout: 60_000 });
+    await expect(placeholder).toContainText("gone");
+    await placeholder.getByRole("button", { name: /close/i }).click();
+    await expect(placeholder).toHaveCount(0);
+    const persisted = await page.evaluate((k) => localStorage.getItem(k), key);
+    expect(persisted ?? "").not.toContain("gone:x");
+  });
+
+  test("F17: an agent's browser_show_in_pane opens the tab in that session's pane; re-open after close works", async ({
+    page,
+    request,
+  }) => {
+    await installWsSpy(page);
+    await request.put("/api/browser/enabled", { data: { enabled: true } });
+    const instanceId = await fakeInstanceId(request);
+    await selectSession(page);
+    const prompt = `[[faux:browser-show-in-pane]] ${instanceId}`;
+    const send = () => sendPrompt(page, prompt);
+    await send();
+    await expect(page.getByTestId("browser-pane-tab")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("editor-tab").first()).toHaveAttribute("data-tab-path", `browser:${instanceId}:1`);
+
+    await page.getByTestId("editor-tab").first().getByRole("button").click();
+    await expect(page.getByTestId("browser-pane-tab")).toHaveCount(0, { timeout: 30_000 });
+    // The relay rate limit is 5 s per (session, instance): wait it out, then re-open.
+    await page.waitForTimeout(5_500);
+    await send();
+    await expect(page.getByTestId("browser-pane-tab")).toBeVisible({ timeout: 60_000 });
   });
 });
 

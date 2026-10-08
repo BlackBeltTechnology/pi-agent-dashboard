@@ -11,6 +11,8 @@
  *
  * See change: fix-windows-server-parity.
  */
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { stampHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { buildNodeImportArgvParts, toFileUrl, shouldUrlWrapEntry } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
 import os from "node:os";
@@ -19,7 +21,13 @@ import path from "node:path";
 export interface RestartParams {
   /** Absolute path to the server CLI (typically process.argv[1]) */
   cliPath: string;
-  /** Loader value from --import (e.g. file:// URL). Empty string = none. */
+  /**
+   * Loader value from --import (e.g. file:// URL). Empty string = none.
+   * Always the RUNNING server's loader (native or jiti) — restart never
+   * re-reads `PI_DASHBOARD_TS_LOADER`, so a loader switch (incl. the jiti
+   * rollback) needs a fresh launch, not `/api/restart`.
+   * See change: fix-appimage-cold-boot-latency (design D4).
+   */
   loader: string;
   /** Port the server listens on */
   port: number;
@@ -221,8 +229,31 @@ async function killPriorDaemon() {
 }
 
 /**
+ * The respawn environment: a copy of `baseEnv` with the server heap ceiling
+ * re-stamped via the shared provenance-aware `stampHeapFlag`. Our own previous
+ * token (marker match) is replaced, so an edited ceiling is adopted; an
+ * operator pin is left alone and nothing is added. Pure; never mutates
+ * `baseEnv`. See change: guard-server-heap-and-store-coupling (D5).
+ */
+export function buildRestartEnv(
+  baseEnv: NodeJS.ProcessEnv,
+  maxOldSpaceMb: number,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(baseEnv)) {
+    if (typeof v === "string") env[k] = v;
+  }
+  return stampHeapFlag(env, maxOldSpaceMb);
+}
+
+/**
  * Spawn a detached orchestrator child that restarts the server.
  * Returns immediately (the caller is expected to exit shortly after).
+ *
+ * The ceiling is re-read from `config.json` HERE, at restart time, so
+ * `/api/restart` applies a `serverHeap` edit instead of echoing the booted
+ * value. The orchestrator hands this env to the new server unchanged.
+ * See change: guard-server-heap-and-store-coupling (D5).
  */
 export function spawnRestart(params: RestartParams): void {
   const script = buildOrchestratorScript(params);
@@ -230,7 +261,7 @@ export function spawnRestart(params: RestartParams): void {
   const child = spawn(execPath, ["-e", script], {
     detached: true,
     stdio: "ignore",
-    env: { ...process.env },
+    env: buildRestartEnv(process.env, loadConfig().serverHeap.maxOldSpaceMb),
     windowsHide: true,
   });
   child.unref();

@@ -14,10 +14,13 @@ import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boo
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import type { PackageOperationCompleteMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import fastifyCookie from "@fastify/cookie";
+import * as pluginEventSeam from "./plugin-event-seam.js";
+import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls, writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { createPushService, type PushService } from "./push/push-service.js";
 import { registerPushRoutes } from "./routes/push-routes.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
+import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
@@ -49,6 +52,7 @@ import { shouldIssuePromptCapability } from "./access/capability-issuance.js";
 import { createCorsDenialObserver } from "./access/cors-denial.js";
 import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
+import { ensureGrantStoreId } from "./access/grant-store-id.js";
 import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "./access/planes.js";
 import { promptChannelCount } from "./access/prompt-channel.js";
 import { clearRefusal, isRefused, listRefusals, recordRefusal } from "./access/refusal-ledger.js";
@@ -56,13 +60,16 @@ import { sourceChannel } from "./access/source-channel.js";
 import { YOLO_ENV } from "./access/yolo-env.js";
 import { YoloController } from "./access/yolo-session.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
-import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
-import { registerBearerAuth } from "./auth/bearer-auth.js";
+import { resolveRedirectBase } from "./auth/auth.js";
+import { authorizeWsUpgrade, registerAuthPlugin } from "./auth/auth-plugin.js";
+import { registerBearerAuth, registerDeviceSessionRoutes } from "./auth/bearer-auth.js";
 import {
   computeBindReachability,
   formatBindReachabilityWarning,
   initBindReachability,
 } from "./auth/bind-reachability-service.js";
+import { registerLocalProofRoutes } from "./routes/local-proof-routes.js";
+import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
 import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
 import {
   type CorsOriginOptions,
@@ -77,6 +84,7 @@ import {
   evaluateHostGate,
   type HostGateContext,
   HostGateState,
+  hostGateBootLine,
   hostGateEnvWarning,
   resolveHostGateMode,
 } from "./auth/host-gate.js";
@@ -85,13 +93,12 @@ import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
 import {
   createNetworkGuard,
   createNetworkGuardHook,
-  isGenuinelyLocal,
   isPluginScopePeerLocal,
-  isTrustedSource,
   noteTrustedList,
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
+import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { beginFlow, pluginFlowProvider } from "./auth/begin-flow.js";
 import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
@@ -123,8 +130,10 @@ import {
   liveAllowedHosts,
   liveCorsAllowedOrigins,
   liveHostGateMode,
+  liveRequireLocalProof,
   livePublicBaseUrls,
   liveTrustedNetworks,
+  rawConfigHasHostGateMode,
 } from "./config-snapshot.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
@@ -132,6 +141,26 @@ import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycl
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
+import { identityDisarmedWarning, isIdentityEnforced } from "./identity/activation.js";
+import { browserLoginAuthStatus } from "./identity/browser-login-auth-status.js";
+import { BrowserLoginConfigRegistry, publicLoginConfig, sanitizeBrowserLoginConfig } from "./identity/browser-login-config-registry.js";
+import { identityFloorAllows } from "./identity/identity-floor.js";
+import { IdentityRegistrationTracker, releaseFailedIdentityRegistrations } from "./identity/identity-registration-tracker.js";
+import { PolicyRegistry } from "./identity/policy-registry.js";
+import { createIdentityRoadGate } from "./identity/identity-road-gate.js";
+import { getRouteOwnerRegistry } from "./identity/route-owner-registry.js";
+import { identityMe } from "./identity/identity-me.js";
+import { registerResolverHook } from "./identity/resolver-hook.js";
+import { ResolverRegistry } from "./identity/resolver-registry.js";
+import { buildAuthContext } from "./identity/auth-context.js";
+import { type BootstrapGrants, DENY_ALL_GRANTS, decideBootstrapGrants } from "./identity/bootstrap-grants.js";
+import { BreakGlass } from "./identity/break-glass.js";
+import { dispatchResolvers } from "./identity/dispatch.js";
+import { createPluginIdentity } from "./identity/plugin-identity.js";
+import { scheduleAtExpiry } from "./identity/socket-lifetime.js";
+import { authorizeRoadUpgrade } from "./identity/upgrade-gate.js";
+import { HostActions, hostResource } from "./identity/host-resources.js";
+import { canAccessSession, isLocalOperator, markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
@@ -148,6 +177,7 @@ import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.j
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
 import { getModelRegistry, getStreamSimpleFn } from "./model-proxy/registry-singleton.js";
+import { getServerModelRuntime } from "./model-proxy/server-model-runtime.js";
 import { callPiAiStreamSimple } from "./model-proxy/streamer.js";
 import { currentGlobalWorkflowSignature } from "./openspec/global-signature.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
@@ -161,6 +191,7 @@ import { createPendingClientCorrelations } from "./pending/pending-client-correl
 import { createPendingForkRegistry } from "./pending/pending-fork-registry.js";
 import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
 import { createPendingPluginRefRegistry } from "./pending/pending-plugin-ref-registry.js";
+import { createPendingPrincipalOwnerRegistry } from "./pending/pending-principal-owner-registry.js";
 import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
@@ -170,6 +201,7 @@ import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
 import { createPreferencesStore } from "./persistence/preferences-store.js";
+import { loadHostProjectTrust } from "./pi/host-project-trust.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
@@ -206,6 +238,11 @@ import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
+import {
+  createMcpClientConfigService,
+  createRealConfigIO,
+} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
@@ -230,6 +267,7 @@ import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js
 import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
+import { applyPluginRef } from "./session/plugin-refs.js";
 import { applyReattachPolicy } from "./session/reattach-placement.js";
 import { reconcileSessionOrder } from "./session/reconcile-session-order.js";
 import { createRemoteTranscriptStore } from "./session/remote-transcript-store.js";
@@ -244,6 +282,7 @@ import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
+import { registerSpawnEnvContributorForPlugin, setSpawnEnvPluginEnabledCheck } from "./spawn-process/spawn-env-contributors.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { createTerminalGateway } from "./terminal/terminal-gateway.js";
@@ -437,6 +476,9 @@ function resolvedPiVersion(): string | undefined {
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
+/** Plugin frames that are NOT domain events: replay-cached UI intents and settings echoes. */
+const NON_DOMAIN_PLUGIN_FRAMES: ReadonlySet<string> = new Set(["plugin_intents", "plugin_config_update"]);
+
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
@@ -512,9 +554,52 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const serverIdentity = ensureServerIdentity();
   const pairedDeviceRegistry = new PairedDeviceRegistry();
   const wsTicketStore = new WsTicketStore();
+  // Principal-resolver registry (identity plane, D4). Trust list is
+  // operator-controlled; the bundled `keycloak-resolver` is always trusted.
+  // Empty + unconfigured ⇒ inert ⇒ behavior identical to pre-change.
+  const resolverRegistry = new ResolverRegistry(loadConfig().identity.trustedResolverPlugins);
+  // Browser login descriptor seam (D16): a trusted resolver plugin publishes
+  // `{ issuer, clientId }` here; `GET /api/identity/login-config` relays it so
+  // core advertises login without importing anything provider-specific (I1).
+  const browserLoginConfigRegistry = new BrowserLoginConfigRegistry();
+  // Self-lockout guard (D21): the plane enforces only when FULLY configured
+  // (resolver + login provider, no D8/D9 conflict); anything less ⇒ inert.
+  // Decided ONCE, pre-listen, after plugins load and failed registrations are
+  // released (see the readiness block), then latched: runtime plugin changes
+  // take effect on restart, so no road ever sees a mixed state.
+  let identityArmed = false;
+  const identityEnforced = () => identityArmed;
+  // A plugin whose activation fails must not leave identity registrations live;
+  // after arming, registrations are frozen (runtime changes apply on restart).
+  const identityRegistrations = new IdentityRegistrationTracker((id) =>
+    console.warn(`[identity] plugin '${id}' tried to unregister an identity registration after startup; ignored until restart`),
+  );
+  const refuseLateIdentityRegistration = (id: string, what: string): boolean => {
+    if (!identityRegistrations.frozen) return false;
+    console.warn(`[identity] plugin '${id}' registered a ${what} after startup; ignored until restart`);
+    return true;
+  };
+  // D8 keys on whether the legacy cookie plugin actually MOUNTED (≥1 provider
+  // resolved), not on config keys — set where the auth plugin is registered.
+  let legacyConnectorsActive = false;
+  // Host access policy registry (D9): one optional policy from the configured
+  // `trustedPolicyPlugin`, bounded + fail-closed. Governs only non-session
+  // roads. A deny emits a structured audit line (no token/secret material).
+  const policyRegistry = new PolicyRegistry({
+    trustedPolicyPlugin: loadConfig().identity.trustedPolicyPlugin,
+    timeoutMs: loadConfig().identity.policyTimeoutMs,
+    audit: (e) =>
+      console.warn(
+        `[identity] host access policy denied action=${e.action} resource=${e.resource.kind} reason=${e.reason} principal=${e.principal.iss}#${e.principal.sub}`,
+      ),
+  });
   // Local-IPC allowlist token (D10, narrowed): affirmative genuine-local trust
   // for same-host process callers, independent of the forgeable loopback IP.
   const localToken = ensureLocalToken();
+  // Strict local-proof context (`requireLocalProof`, live config read). Threaded to
+  // every genuinely-local admission site. See change: harden-trust-and-credential-boundaries (D2).
+  const localTrust = createLocalTrustContext(localToken, liveRequireLocalProof);
+  const localProofCodes = new LocalProofCodeStore();
   const pairingManager = new PairingManager({
     registry: pairedDeviceRegistry,
     getFingerprint: () => serverIdentity.fingerprint,
@@ -851,6 +936,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // headlessPidRegistry entry, and its owner notified.
   // See change: detach-automation-goal-from-core.
   const pendingPluginRefRegistry = createPendingPluginRefRegistry();
+  // Plugin key ownership survives a restart: rebuild it from the bags the boot
+  // scan restored, before any plugin writes. See session/plugin-refs.ts.
+  pendingPluginRefRegistry.claimPersisted(sessionManager.listAll());
+  // §6.2 / D11: token-keyed correlation of a human owner to a spawn, filed by
+  // a trusted spawn road before the await, consumed on session_register.
+  const pendingPrincipalOwnerRegistry = createPendingPrincipalOwnerRegistry();
   // Pending user-initiated resume intents (sessionId → timestamp).
   // Consumed by `sessionManager.onChange` in the ended→alive branch to
   // gate the sessionOrder mutation behind explicit user intent so that
@@ -1082,11 +1173,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   const liveServerManager = createLiveServerManager(preferencesStore);
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore);
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced);
   // App-wide pairing approval dialog: a content-free hint on every pending
   // change; operator browsers refetch the guarded list (D1).
   // See change: add-pairing-approval-dialog.
   wirePendingHint(pairingManager, (msg) => browserGateway.broadcastToAll(msg));
+  // Optional host access policy for non-session WS commands (D9/D14, 18.28).
+  browserGateway.setHostPolicy(policyRegistry);
   // Wire the archive broadcaster now that the gateway exists. `session_archived`
   // carries the folder count for its own transition; restore/delete/re-key use
   // `archived_count_updated`. See change: archive-sessions-lazy-load.
@@ -1268,6 +1361,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     for (const d of preferencesStore.getPinnedDirectories()) set.add(d);
     return [...set];
   });
+  // pi's project-trust rule as a SESSION applies it (recorded decision, else
+  // `defaultProjectTrust`), consumed by mcp-client to decide whether a
+  // folder's `.pi/mcp.json` is active. Resolved once; an unresolvable pi reads
+  // every project as untrusted. See change: migrate-mcp-to-pi-builtin (D3).
+  pluginServiceRegistry.set("host.isProjectTrusted", await loadHostProjectTrust());
   // Host services consumed by mcp-server-plugin. Registered HERE because the
   // plugin must verify a device bearer WITHOUT going through the global
   // `onRequest` hook — `/mcp` deliberately does not trust
@@ -1392,7 +1490,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     onMismatch: (sid, detail) => console.warn(`[runtime-overlay] ${detail} session=${sid}`),
   });
 
+  // Name the grant store this dashboard writes (exclusive-create, never overwritten);
+  // announced to each bridge on registration. See change: ask-agent-file-access-in-chat.
+  ensureGrantStoreId();
   wireEvents({
+    // Lazy: `yolo` is constructed further down; a pre-init call throws and the
+    // handler declines. See change: yolo-covers-agent-path-gate.
+    decideAgentPath: (p) =>
+      yolo.decideAgentPath({
+        path: p,
+        hostGateMode: resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
+      }),
     onBridgeRegister: (sid, identity) => {
       const outcome = extensionReloadGuard.onRegister(sid, identity);
       if (outcome !== "skipped") {
@@ -1416,6 +1524,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingAttachRegistry,
     pendingWorktreeBaseRegistry,
     pendingPluginRefRegistry,
+    pendingPrincipalOwnerRegistry,
     dispatchPluginSessionResolved,
     pendingInitialPromptRegistry,
     viewedSessionTracker: browserGateway.viewedSessionTracker,
@@ -1531,6 +1640,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const wsUpgradeRejectLog = createWsUpgradeRejectLogger();
   const hostGateBootWarning = hostGateEnvWarning(process.env.PI_DASHBOARD_HOST_GATE);
   if (hostGateBootWarning) console.error(hostGateBootWarning);
+  console.log(
+    hostGateBootLine(
+      process.env.PI_DASHBOARD_HOST_GATE,
+      rawConfigHasHostGateMode(),
+      resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
+    ),
+  );
   const getHostGateCtx = (): HostGateContext => ({
     admission: {
       allowedHosts: liveAllowedHosts(),
@@ -1701,21 +1817,178 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Decorate isAuthenticated once, up front, so both the bearer branch and the
   // OAuth plugin can read/set it without racing on the decorator.
   fastify.decorateRequest("isAuthenticated", false);
+  // Cookie parsing/setting for the whole server, with or without OAuth providers
+  // (login state, local-proof and device-session cookies). Registered once here;
+  // BEFORE registerBearerAuth so its hook can read cookies.
+  // See change: harden-trust-and-credential-boundaries (D0).
+  await fastify.register(fastifyCookie);
   // Bearer device-auth branch — registered BEFORE the OAuth plugin so its
   // onRequest hook runs first and OAuth can early-return when already
   // authenticated. Additive (D5/D7); independent of whether OAuth is on.
   registerBearerAuth(fastify, { registry: pairedDeviceRegistry });
+  registerDeviceSessionRoutes(fastify, {
+    registry: pairedDeviceRegistry,
+    // `Secure` iff the resolved public origin is https (request.protocol is always
+    // "http" behind a proxy), mirroring `pi_dash_token`.
+    isSecure: () => resolveRedirectBase(config.port, config.authConfig?.redirectBaseUrl).base.startsWith("https:"),
+  });
+  // Principal-resolver dispatch (identity plane, D2). Registered AFTER the
+  // device-bearer branch and BEFORE the OAuth plugin so a valid Keycloak
+  // bearer authenticates instead of being rejected by the cookie hook. Inert
+  // (no registered resolver) ⇒ returns immediately ⇒ behavior unchanged.
+  // `redirectBaseUrl` is static boot config; only getTunnelUrl() inside
+  // resolveRedirectBase is dynamic (and cheap), so capture the override once
+  // rather than re-reading the config file on every authenticated request.
+  const identityRedirectBaseOverride = config.authConfig?.redirectBaseUrl;
+  // D23 break-glass: one-time code → short-lived operator bearer (in-memory).
+  const breakGlass = new BreakGlass();
+  let lastBreakGlassUseWarnAt = 0;
+  // Principal behind a (plugin) WS upgrade's `Authorization` credential: the host's
+  // own operator bearer first, else the trusted resolvers. null ⇒ unauthenticated.
+  const resolveUpgradePrincipal = async (req: import("node:http").IncomingMessage): Promise<Principal | null> => {
+    const authz = req.headers.authorization;
+    const op = breakGlass.resolveBearer(authz);
+    if (op) return op.principal;
+    if (typeof authz === "string" && /^Bearer pi_op_/.test(authz)) return null;
+    const ctx = buildAuthContext(
+      {
+        method: "GET",
+        url: req.url ?? "/",
+        ip: req.socket.remoteAddress ?? "",
+        headers: req.headers as Record<string, string | string[] | undefined>,
+        isAuthenticated: false,
+      },
+      resolveRedirectBase(config.port, identityRedirectBaseOverride).base,
+    );
+    const out = await dispatchResolvers(ctx, {
+      resolvers: resolverRegistry.ordered(),
+      timeoutMs: loadConfig().identity.resolverTimeoutMs,
+      log: (msg) => console.warn(msg),
+    });
+    return out.kind === "claim" ? out.resolution.principal : null;
+  };
+  registerResolverHook(fastify, {
+    registry: resolverRegistry,
+    breakGlass,
+    onBreakGlassUse: () => {
+      if (Date.now() - lastBreakGlassUseWarnAt > 60_000) {
+        lastBreakGlassUseWarnAt = Date.now();
+        console.warn("[identity] local-operator (break-glass) bearer in use — sees every session");
+      }
+    },
+    isEnforced: identityEnforced,
+    timeoutMs: loadConfig().identity.resolverTimeoutMs,
+    getPublicBase: () => resolveRedirectBase(config.port, identityRedirectBaseOverride).base,
+    log: (msg) => console.warn(msg),
+  });
+  // D24 signed-out floor: registered right AFTER the resolver hook so
+  // `request.principal` is settled. Enforced + no principal + no host-only local
+  // token ⇒ every browser road (`/api/`, `/editor/`, `/live/`) except the
+  // pre-auth set is 401, loopback included (D23). Inert ⇒ no-op.
+  let lastLocalOperatorWarnAt = 0;
+  fastify.addHook("onRequest", async (request, reply) => {
+    const enforced = identityEnforced();
+    const hasPrincipal = (request as { principal?: unknown }).principal != null;
+    const hasLocalToken = verifyLocalToken(request.headers as Record<string, unknown>, localToken);
+    const allowed = identityFloorAllows({ enforced, path: request.url, method: request.method, hasPrincipal, hasLocalToken });
+    if (!allowed) return reply.code(401).send({ success: false, error: "sign_in_required" });
+    // D23 break-glass (local-token part): the host-only token with no
+    // signed-in principal acts as the local operator on session roads.
+    if (enforced && !hasPrincipal && hasLocalToken) {
+      markLocalOperator(request);
+      if (Date.now() - lastLocalOperatorWarnAt > 10 * 60_000) {
+        lastLocalOperatorWarnAt = Date.now();
+        console.warn("[identity] local-operator (break-glass) access via the host-only local token — sees every session");
+      }
+    }
+  });
   if (config.authConfig) {
     await registerAuthPlugin(fastify, {
       authConfig: config.authConfig,
       port: config.port,
       resolvedTrustedNetworks: config.resolvedTrustedNetworks,
       localToken,
+      localTrust,
     });
-  } else {
-    // Auth disabled — still expose /auth/status so clients can detect this
-    fastify.get("/auth/status", async () => ({ authenticated: true, authEnabled: false }));
   }
+  // `/auth/status` is what the client's WS-refusal handler polls to tell
+  // `auth_required` (→ browser login gate, D16/H5) from a plain `offline`.
+  // Registered whenever the legacy cookie plugin did not register one — no
+  // `auth` block, OR an `auth` block whose providers resolved to none (the
+  // plugin returns early). When legacy providers DO resolve, D8 keeps identity
+  // inert, so the cookie route is the correct one. Enforced (D21) ⇒ only a
+  // resolved bearer PRINCIPAL is authenticated (a device bearer or loopback is
+  // not — §9.2 refuses their principal-less browser socket). Inert ⇒ unchanged.
+  // The legacy plugin registers its routes only when ≥1 provider resolved.
+  legacyConnectorsActive = fastify.hasRoute({ method: "GET", url: "/auth/status" });
+  if (!legacyConnectorsActive) {
+    fastify.get("/auth/status", async (request) =>
+      browserLoginAuthStatus({
+        enforced: identityEnforced(),
+        principal: (request as { principal?: Principal | null }).principal ?? null,
+      }),
+    );
+  }
+
+  // Identity plane (D16): pre-auth browser login descriptor. Relays whatever the
+  // active trusted resolver published via `registerBrowserLoginConfig` — core
+  // reads NO resolver plugin config keys (I1). `{active:false}` (nothing else)
+  // when no descriptor is registered, so an inert dashboard discloses nothing.
+  // Reachable pre-auth via the auth-plugin skip + the network-guard public path.
+  fastify.get("/api/identity/login-config", async () =>
+    // D21: advertise login only while identity is enforced.
+    publicLoginConfig(identityEnforced() ? browserLoginConfigRegistry.list() : []),
+  );
+
+  // D23 break-glass. `local-code` proves control of the HOST (the 0600 local token,
+  // same OS user only) and mints a one-time code; `local-exchange` is the pre-auth
+  // redemption for an operator bearer. The CLI (`pi-dashboard login --local`)
+  // prints `http://localhost:<port>/?pi_local=<code>`; the browser exchanges it
+  // like `#pi_handoff` and keeps the bearer in memory (no cookies, D22).
+  fastify.post("/api/identity/local-code", async (request, reply) => {
+    if (!verifyLocalToken(request.headers as Record<string, unknown>, localToken)) {
+      reply.code(401);
+      return { success: false as const, error: "local_token_required" };
+    }
+    const issued = breakGlass.issueCode();
+    console.warn("[identity] break-glass: one-time local-operator code issued via the host-only local token");
+    return { success: true as const, data: issued };
+  });
+  fastify.post<{ Body: { code?: unknown } }>("/api/identity/local-exchange", async (request, reply) => {
+    const out = breakGlass.redeem(request.body?.code);
+    if (!out) {
+      reply.code(401);
+      return { error: "invalid_code" };
+    }
+    console.warn("[identity] break-glass: local-operator bearer issued (code redeemed)");
+    return { access_token: out.accessToken, expires_in: out.expiresIn, token_type: "Bearer" };
+  });
+
+  // Route → registering plugin (D24, 18.28): `loadServerEntries` activates
+  // plugins sequentially; `createContext` brackets each activation, so every
+  // route registered meanwhile is attributed to that plugin.
+  const routeOwners = getRouteOwnerRegistry();
+  fastify.addHook("onRoute", (r) => routeOwners.record(r.url));
+
+  // Identity plane: who am I + what the host policy allows (D24, 18.28).
+  // Advisory for the UI; every road is still enforced server-side.
+  fastify.get("/api/identity/me", async (request) =>
+    identityMe({ enforced: identityEnforced(), principal: sessionPrincipalOf(request), policy: policyRegistry }),
+  );
+
+  // Central identity road gate (D10/D11/D14/D24; tasks 18.14 + 18.28):
+  // session-param routes ⇒ exact owner equality (404); non-session routes ⇒
+  // the optional host policy (403). Inert plane ⇒ no-op. `preHandler` so the
+  // route pattern + params are resolved; principal settled by the hooks above.
+  fastify.addHook(
+    "preHandler",
+    createIdentityRoadGate({
+      isEnforced: identityEnforced,
+      policy: policyRegistry,
+      ownerOf: (id) => sessionManager.get(id)?.principalOwner ?? sessionArchive.getById(id)?.principalOwner,
+      routeOwnerOf: (route) => routeOwners.ownerOf(route),
+    }),
+  );
 
   // REST tier gate (change: expand-mcp-tiered-surface, D1b). Registered AFTER
   // both admission hooks above (bearer-auth, then the cookie auth plugin) so
@@ -1725,6 +1998,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     "onRequest",
     createRouteTierGate({
       getTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+      localTrust,
     }),
   );
 
@@ -1733,7 +2007,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // new lifecycle/extension-ui routes can carry it as a preHandler.
   const networkGuard = createNetworkGuard(
     () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
-    { localToken },
+    { localToken, localTrust },
   );
 
   // Session control REST API (wraps WebSocket-only operations)
@@ -1743,12 +2017,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     browserGateway,
     pendingForkRegistry,
     pendingDashboardSpawns,
+    isResolverActive: identityEnforced,
+    pendingPrincipalOwnerRegistry,
     pendingResumeIntents,
     pendingAttachRegistry,
     pendingPromptAcks,
     sessionArchive,
     pendingArchiveIntents,
     networkGuard,
+    localTrust,
     // Shared lifecycle handler (change: expand-mcp-tiered-surface, D3): the
     // three bridge forwards plus the shared force-kill ladder.
     handleLifecycle: (sessionId, action, extras) =>
@@ -1805,6 +2082,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     sessionArchive,
     remoteTranscriptStore,
+    isResolverActive: identityEnforced,
     // Transcript-sourced session diffs dispatch through the same pool the
     // hydration path owns; `maxStringSize` is the store's cap so projected
     // tool payloads match store-sourced ones. See change:
@@ -2215,7 +2493,31 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerLiveServerRoutes(fastify, liveServerManager, { networkGuard });
   registerLiveServerProxy(fastify, liveServerManager);
 
-  registerProviderAuthRoutes(fastify, { piGateway, browserGateway });
+  // ONE model runtime for the provider-auth flow listing AND the model proxy,
+  // injected so auth/ never imports model-proxy/.
+  // See change: collapse-model-proxy-onto-modelruntime (D6).
+  setOAuthRegistryRuntimeSource(getServerModelRuntime);
+  // Radius MCP follow-up: the writer is the mcp-client `./core` service, built
+  // lazily over the host's known-folder cwds + pi's project-trust rule so its
+  // `-`/`_` cross-folder collision check is live. Reload goes through
+  // `dispatchReload` and counts only real reloads.
+  // See change: add-radius-provider-login (D5, D6).
+  let radiusMcpService: RadiusMcpService | undefined;
+  registerProviderAuthRoutes(fastify, {
+    piGateway,
+    browserGateway,
+    radiusMcp: {
+      service: () => {
+        radiusMcpService ??= createMcpClientConfigService({
+          configIO: createRealConfigIO(),
+          knownCwds: pluginServiceRegistry.get("host.knownFolderCwds") as () => string[],
+          isProjectTrusted: pluginServiceRegistry.get("host.isProjectTrusted") as (cwd: string) => boolean,
+        });
+        return radiusMcpService;
+      },
+      reload: () => countReloads(reloadFanOutTargets(), dispatchReload),
+    },
+  });
   // Ungated model-introspection surface for in-session agents (GET /api/models).
   // Registered unconditionally (not behind modelProxy.enabled), subject only to
   // the dashboard's own auth gate — same posture as /api/provider-auth/status.
@@ -2230,12 +2532,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
   });
   registerKnownServersRoutes(fastify, { networkGuard, getPeerServers: () => peerServers });
+  registerLocalProofRoutes(fastify, { codes: localProofCodes, ctx: localTrust });
   registerPairingRoutes(fastify, {
     networkGuard,
     identity: serverIdentity,
     pairing: pairingManager,
     registry: pairedDeviceRegistry,
     localToken,
+    localTrust,
     hostAdmission: () => getHostGateCtx().admission,
     // Public (tunnel + configured public) base URLs, already TLS-gated.
     getReachableUrls: () => pairingManager.reachableUrls(),
@@ -2271,6 +2575,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           authorization: request.headers.authorization,
           ip: request.ip,
           headers: request.headers as Record<string, unknown>,
+          localTrust,
           verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token),
         });
         if (!verdict.allow) {
@@ -2284,7 +2589,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           data: { ticket: wsTicketStore.mint(scope, verdict.deviceId) },
         };
       }
-      return { success: true as const, data: { ticket: wsTicketStore.mint(scope) } };
+      // Non-bridge scope: bind the human principal resolved by the identity
+      // hook (§9.1) onto the ticket so the socket can owner-gate. A
+      // principal-less caller (inert era, cookie/local-token/trusted-network
+      // auth) mints a principal-less ticket — refused at upgrade only when the
+      // resolver is active (§9.2).
+      const authed = request as { principal?: Principal; principalExpiresAt?: number };
+      const identity = authed.principal
+        ? { principal: authed.principal, principalExpiresAt: authed.principalExpiresAt }
+        : undefined;
+      return { success: true as const, data: { ticket: wsTicketStore.mint(scope, undefined, identity) } };
     },
   );
   registerPluginConfigRoutes(fastify, {
@@ -2389,6 +2703,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // without a restart (D15). Mirrors the per-route guard at 1499.
       trustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
       localToken,
+      localTrust,
       getBypassUrls: () => config.authConfig?.bypassUrls ?? [],
       getPairingPrefixes: () => PUBLIC_PAIRING_PREFIXES,
     }),
@@ -2594,6 +2909,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       {
         const { setSpawnDashboardPiPort } = await import("./spawn-process/process-manager.js");
         setSpawnDashboardPiPort(config.piPort);
+        // Pin spawned sessions to the transport actually served (read lazily,
+        // after the gateway starts) — never to another instance's socket.
+        // See change: fix-gateway-socket-stale-owner (D6).
+        const { setSpawnGatewayTransport } = await import("./spawn-process/process-manager.js");
+        setSpawnGatewayTransport(() => {
+          const { listeners } = piGateway.bridgeListeners();
+          const t = piGateway.transport();
+          if (listeners.includes("unix") && t?.transport === "unix") return { transport: "unix", path: t.path };
+          if (listeners.includes("loopback-fallback")) return { transport: "loopback-fallback" };
+          return { transport: "tcp" };
+        });
       }
 
       // Claim (or attach to) this HOME's rendezvous BEFORE the gateway starts
@@ -2645,23 +2971,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           piPort: config.piPort,
         });
         console.log(`[pi-gateway] ${policy.reason}`);
-        // TCP first: `startOnSocket` installs the shared WebSocketServer, and
-        // `start()` refuses to run after it rather than orphan the listener.
-        if (policy.tcp) piGateway.start(policy.tcp.port, policy.tcp.host);
-        if (policy.socketPath) {
-          try {
-            await piGateway.startOnSocket(policy.socketPath);
-          } catch (err) {
-            // A refused socket bind (a live incumbent — D9) must not leave the
-            // gateway with no listener at all. Fall back to loopback, never to
-            // discovery.
-            console.error(`[pi-gateway] socket bind refused: ${err}`);
-            if (!policy.tcp) {
-              console.warn(`[pi-gateway] falling back to 127.0.0.1:${config.piPort}`);
-              piGateway.start(config.piPort, "127.0.0.1");
-            }
-          }
-        }
+        const { startGatewayListeners } = await import("./pi/gateway-listeners.js");
+        await startGatewayListeners(piGateway, policy, { piPort: config.piPort });
       }
 
       // Load plugin server entries BEFORE fastify.listen() so plugins can
@@ -2675,6 +2986,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // registering during its activation is immediately routable.
       const wsRouteRegistry = getWsRouteRegistry();
       setPluginScopeResolver((path) => wsRouteRegistry.resolveScope(path));
+      // Spawn-env contributors of a plugin disabled in config are skipped at
+      // each spawn (the loader has no teardown hook). Same predicate as the
+      // loader's `isEnabled` below. See change: add-context-mode-settings-plugin.
+      setSpawnEnvPluginEnabledCheck((pluginId) => {
+        const pluginCfg = getPluginConfigFromFile(loadConfig(), pluginId) as Record<string, unknown>;
+        const manifest = discoverPlugins().find((p) => p.manifest.id === pluginId)?.manifest;
+        return resolvePluginEnabled(pluginCfg, manifest?.defaultEnabled);
+      });
       try {
         await loadServerEntries({
           isEnabled: (pluginId) => {
@@ -2694,7 +3013,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           // placeholder resolves against. See change: add-apple-tools-imcp-plugin.
           getPluginConfig: (id) =>
             getPluginConfigFromFile(loadConfig(), id) as Record<string, unknown>,
-          createContext: (plugin) => createServerPluginContext(
+          // Bracket this plugin's activation for route-owner attribution (D24): the
+          // next plugin's createContext re-begins; the finally below ends.
+          createContext: (plugin) => (routeOwners.begin(plugin.manifest.id), createServerPluginContext(
             {
               fastify,
               isPiExtensionInstalled,
@@ -2723,7 +3044,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                     (m.intent ?? null) as Parameters<typeof pluginIntentCache.set>[3],
                   );
                 }
-                browserGateway.broadcast(msg as ServerToBrowserMessage);
+                // §10 / 18.37b: a plugin's GLOBAL (non-session) frame is a domain event.
+                // Enforced + a host policy ⇒ per-socket policy fan-out; else the plain
+                // broadcast. Session-scoped frames, intents and config echoes keep
+                // their own roads (owner-gated / replay-cached / settings).
+                if (m && typeof m.type === "string" && m.sessionId == null && !NON_DOMAIN_PLUGIN_FRAMES.has(m.type)) {
+                  browserGateway.broadcastDomainEvent(msg as ServerToBrowserMessage, plugin.manifest.id, m.type);
+                } else {
+                  browserGateway.broadcast(msg as ServerToBrowserMessage);
+                }
               },
               subscribeSession: (sessionId, handler) => {
                 // Trusted gate — same priority rule as the other control-plane
@@ -2871,6 +3200,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   return { success: false, message: err instanceof Error ? err.message : String(err) };
                 }
               },
+              // Spawn-env contributor hook. Trusted-gated like `spawnSession`
+              // (policy, not a sandbox); untrusted plugins get a no-op.
+              // See change: add-context-mode-settings-plugin.
+              registerSpawnEnvContributor: (fn, opts) =>
+                registerSpawnEnvContributorForPlugin(plugin.manifest, fn, opts),
               // Session-abort hook. Gated to first-party/trusted plugins
               // (priority <= 100), mirroring `spawnSession`. Untrusted plugins
               // get a hook that returns false without sending anything.
@@ -2879,6 +3213,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 const trusted = (plugin.manifest.priority ?? 1000) <= 100;
                 if (!trusted) return false;
                 return piGateway.sendToSession(sessionId, { type: "abort", sessionId });
+              },
+              // Session-shutdown hook (Chat Gateway `!close`). Reuses the ONE
+              // shutdown body the browser + REST paths share — never a parallel
+              // {type:"shutdown"} send (#449/#452). Same trust gate as above.
+              // See change: chat-gateway-close-command.
+              shutdownSession: async (sessionId) => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) return false;
+                if (!sessionManager.get(sessionId)) return false;
+                await browserGateway.shutdownSession(sessionId);
+                return true;
               },
               // Terminate an automation run's spawned session. Same trust
               // gate as spawnSession/abortSession. `graceful` sends a clean-
@@ -2970,13 +3315,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 const trusted = (plugin.manifest.priority ?? 1000) <= 100;
                 if (!trusted) return false;
                 if (typeof sessionId !== "string" || !sessionManager.get(sessionId)) return false;
-                const sanitized = pendingPluginRefRegistry.sanitize(ref, plugin.manifest.id);
-                sessionManager.update(sessionId, sanitized as Partial<DashboardSession>);
-                if (opts?.persist !== false) {
+                const persist = opts?.persist !== false;
+                // Durable: persisted refs go into the plugin's `pluginRefs` bag,
+                // which the routine full-overwrite save keeps (session/plugin-refs.ts).
+                const sanitized = applyPluginRef(
+                  { sessionManager, sanitize: pendingPluginRefRegistry.sanitize },
+                  sessionId, plugin.manifest.id, ref, { persist },
+                );
+                if (Object.keys(sanitized).length === 0) return true;
+                if (persist) {
                   const session = sessionManager.get(sessionId);
                   if (session?.sessionFile) {
                     try {
-                      mergeSessionMeta(session.sessionFile, sanitized as Partial<SessionMeta>);
+                      mergeSessionMeta(session.sessionFile, {
+                        ...sanitized,
+                        pluginRefs: session.pluginRefs,
+                      } as Partial<SessionMeta>);
                     } catch (err) {
                       console.warn(
                         `[plugin-assignSessionRef] failed to persist ref to .meta.json for ${sessionId}:`,
@@ -3021,28 +3375,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // `plugin_emit_event` control message; the in-session bridge
               // re-emits it on pi.events). Same trust gate as abortSession.
               // See change: automation-emit-configured-event.
-              emitEventToSession: (sessionId, eventType, data) => {
-                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
-                if (!trusted) return false;
-                if (typeof eventType !== "string" || eventType.length === 0) return false;
-                return piGateway.sendToSession(sessionId, {
-                  type: "plugin_emit_event",
-                  sessionId,
-                  eventType,
-                  data: data ?? {},
-                });
-              },
+              emitEventToSession: (sessionId, eventType, data) =>
+                pluginEventSeam.emitEventToSession(
+                  (plugin.manifest.priority ?? 1000) <= 100,
+                  (sid, m) => piGateway.sendToSession(sid, m),
+                  sessionId, eventType, data,
+                ),
               // Raw server→extension control message to one session's bridge
               // socket — the `credentials_updated` lane, WITHOUT the
               // `pi.events` re-emit `plugin_emit_event` does. mcp-server-plugin
               // delivers the minted session token over this; a credential must
               // never ride the shared bus. Same trust gate as
               // emitEventToSession. See change: wire-mcp-session-token (D5).
-              sendExtensionMessage: (sessionId, msg) => {
-                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
-                if (!trusted) return false;
-                return piGateway.sendToSession(sessionId, msg as Parameters<typeof piGateway.sendToSession>[1]);
-              },
+              sendExtensionMessage: (sessionId, msg) =>
+                pluginEventSeam.sendExtensionMessage(
+                  (plugin.manifest.priority ?? 1000) <= 100,
+                  (sid, m) => piGateway.sendToSession(sid, m as Parameters<typeof piGateway.sendToSession>[1]),
+                  sessionId, msg,
+                ),
               provide: (name, value) => { pluginServiceRegistry.set(name, value); },
               consume: <T = unknown>(name: string) =>
                 pluginServiceRegistry.get(name) as T | undefined,
@@ -3064,8 +3414,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                       plugin.manifest.id,
                       (msg, ws) => handler(msg, ws as unknown),
                     )
-                  : browserGateway.registerHandler(type, (msg, ws) =>
-                      handler(msg, ws as unknown),
+                  : browserGateway.registerHandler(
+                      type,
+                      (msg, ws) => handler(msg, ws as unknown),
+                      plugin.manifest.id,
                     ),
               getPluginConfig: (id) => {
                 const cfg = loadConfig();
@@ -3082,9 +3434,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 } catch { /* start fresh */ }
                 rawConfig.plugins = { ...(rawConfig.plugins as Record<string, unknown> ?? {}), [id]: merged };
                 const fs = (await import('node:fs')).default;
-                const tmpFile = `${CONFIG_FILE}.tmp.${process.pid}`;
-                fs.writeFileSync(tmpFile, `${JSON.stringify(rawConfig, null, 2)}\n`);
-                fs.renameSync(tmpFile, CONFIG_FILE);
+                writeConfigFileSecure(CONFIG_FILE, `${JSON.stringify(rawConfig, null, 2)}\n`);
                 browserGateway.broadcast({
                   type: 'plugin_config_update',
                   id,
@@ -3147,12 +3497,77 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   return fn(opts.model, { messages: opts.messages, systemPrompt: opts.system }, opts);
                 },
               },
+              // Identity plane (D4): bind this plugin's id + manifest priority
+              // to the host resolver registry. Trust is host-owned; an
+              // untrusted plugin gets a no-op registrar (registers nothing,
+              // returns an inert unregister handle) rather than a throw.
+              registerPrincipalResolver: (resolve, options) => {
+                const id = plugin.manifest.id;
+                if (!resolverRegistry.isTrusted(id)) {
+                  console.warn(`[identity] plugin '${id}' is not trusted to register a principal resolver; ignoring`);
+                  return () => {};
+                }
+                if (refuseLateIdentityRegistration(id, "principal resolver")) return () => {};
+                return identityRegistrations.track(id, resolverRegistry.register({
+                  pluginId: id,
+                  priority: plugin.manifest.priority ?? 1000,
+                  active: options?.active ?? true,
+                  clockSkewSeconds: options?.clockSkewSeconds,
+                  resolve,
+                }));
+              },
+              // Identity plane (D9): bind this plugin's host access policy to the
+              // host registry. Only the configured `trustedPolicyPlugin` is
+              // accepted; any other plugin gets a no-op registrar.
+              registerHostAccessPolicy: (authorize) => {
+                const id = plugin.manifest.id;
+                if (!policyRegistry.isTrusted(id)) {
+                  console.warn(`[identity] plugin '${id}' is not trusted to register a host access policy; ignoring`);
+                  return () => {};
+                }
+                if (refuseLateIdentityRegistration(id, "host access policy")) return () => {};
+                return identityRegistrations.track(id, policyRegistry.register(id, authorize));
+              },
+              // Identity plane (D16): a TRUSTED resolver plugin publishes its
+              // browser login descriptor; core stamps the owning pluginId (F6)
+              // and relays it pre-auth. Untrusted plugin ⇒ no-op registrar.
+              // D24 consumer seam (18.27): principal, policy, per-user data for THIS plugin.
+              identity: createPluginIdentity(plugin.manifest.id, {
+                isEnforced: identityEnforced,
+                principalOfRequest: (req) => sessionPrincipalOf(req as object),
+                resolveUpgrade: resolveUpgradePrincipal,
+                policy: policyRegistry,
+                pluginDataRoot: (pid) => path.join(os.homedir(), ".pi", "dashboard", "plugins", pid),
+              }),
+              registerBrowserLoginConfig: (loginConfig) => {
+                const id = plugin.manifest.id;
+                if (!resolverRegistry.isTrusted(id)) {
+                  console.warn(`[identity] plugin '${id}' is not trusted to publish a browser login config; ignoring`);
+                  return () => {};
+                }
+                if (refuseLateIdentityRegistration(id, "browser login config")) return () => {};
+                // D19: the host never forwards an unvetted redirect target —
+                // sanitize at the trust boundary, before stamping the owner.
+                const safe = sanitizeBrowserLoginConfig(loginConfig);
+                if (!safe) {
+                  console.warn(
+                    `[identity] plugin '${id}' published an unusable browser login config (needs issuer+clientId or a same-origin loginUrl); ignoring`,
+                  );
+                  return () => {};
+                }
+                return identityRegistrations.track(id, browserLoginConfigRegistry.set({ pluginId: id, ...safe }));
+              },
             },
             plugin.manifest.id,
-          ),
+            // Own editor-pane-tab prefixes gate `ctx.openEditorTab`. See change: add-browser-editor-pane-tab (D5).
+            plugin.manifest.claims.flatMap((c) => (c.slot === "editor-pane-tab" && c.pathPrefix ? [c.pathPrefix] : [])),
+          )),
         });
       } catch (err) {
         console.error('[plugin-loader] Unexpected error during pre-listen load:', err);
+      } finally {
+        // Close the last activation's attribution bracket (D24 route owners).
+        routeOwners.end();
       }
 
       // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
@@ -3212,7 +3627,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               registration.admitOrigins,
               corsOpts(),
             ) ||
-            !isPluginScopePeerLocal(remoteAddress, request.headers.host, wsReqHeaders)
+            !isPluginScopePeerLocal(remoteAddress, request.headers.host, wsReqHeaders, localTrust)
           ) {
             console.error(
               `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope} peer=${sanitizeHeaderForLog(remoteAddress)}`,
@@ -3281,26 +3696,35 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           return;
         }
         const ticket = extractTicket(request.url, secWsProtocol);
-        const consumeTicket = (t: string, s: CoreWsRouteScope) => wsTicketStore.consume(t, s);
+        const consumeTicket = (t: string, s: CoreWsRouteScope) => wsTicketStore.consumeDetailed(t, s);
         const wsHeaders = request.headers as unknown as Record<string, unknown>;
-        if (config.authConfig?.secret) {
-          if (!validateWsUpgrade(request.headers.cookie, remoteAddress, config.authConfig.secret, trusted, { ticket, scope, consumeTicket, headers: wsHeaders, localToken })) {
-            wsUpgradeRejectLog.log({ status: 401, scope: scope ?? "none", remoteAddress, headers: wsHeaders, ticketPresent: ticket !== null });
-            socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-            socket.destroy();
-            return;
-          }
-        } else if (
-          !isGenuinelyLocal(remoteAddress, wsHeaders) &&
-          !verifyLocalToken(wsHeaders, localToken) &&
-          !isTrustedSource(remoteAddress, wsHeaders, trusted) &&
-          !(scope && ticket && consumeTicket(ticket, scope))
-        ) {
-          // No auth configured — allow genuine-local, local-IPC token, trusted
-          // networks, or a valid single-use ticket. A tunnel presenting as
-          // 127.0.0.1 (forwarding header) is NOT trusted (D10, narrowed).
-          wsUpgradeRejectLog.log({ status: 403, scope: scope ?? "none", remoteAddress, headers: wsHeaders, ticketPresent: ticket !== null });
-          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+        // §9.2: when the resolver is active a browser socket MUST present a
+        // principal-bearing identity ticket — cookie / local-IPC token /
+        // trusted-network / no-ticket browser upgrades are all refused. Other
+        // scopes (terminal/live) and the inert era are unchanged.
+        // 18.13: while enforced the terminal + live scopes also require a
+        // principal-bearing ticket — they were the legacy loopback / local-token /
+        // trusted-network / principal-less-ticket allowances that bypassed it.
+        const requireIdentityTicket = (scope === "browser" || scope === "terminal" || scope === "live") && identityEnforced();
+        const upgradeAuth = authorizeWsUpgrade({
+          cookieHeader: request.headers.cookie,
+          remoteAddress,
+          secret: config.authConfig?.secret ?? null,
+          trustedNetworks: trusted,
+          ticket,
+          scope,
+          consumeTicket,
+          headers: wsHeaders,
+          localToken,
+          localTrust,
+          requireIdentityTicket,
+        });
+        if (!upgradeAuth.ok) {
+          // 401 when an auth secret is configured (cookie realm), else 403 for
+          // the no-auth allowances — preserving the prior status semantics.
+          const status = config.authConfig?.secret ? "401 Unauthorized" : "403 Forbidden";
+          wsUpgradeRejectLog.log({ status: config.authConfig?.secret ? 401 : 403, scope: scope ?? "none", remoteAddress, headers: wsHeaders, ticketPresent: ticket !== null });
+          socket.write(`HTTP/1.1 ${status}\r\n\r\n`);
           socket.destroy();
           return;
         }
@@ -3311,22 +3735,135 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // "/ws" would destroy the authorized upgrade. `routeScopeForUrl` strips
         // the query, so scope stays query-string-safe by construction and
         // auth-scope + routing-scope cannot drift.
+        // Review B2: a ticket proves WHO; the optional host policy still decides
+        // whether that principal may reach the terminal / live roads. Bounded +
+        // fail-closed (`authorizeRoadUpgrade`); unchanged when inert or no policy.
+        const gateRoadUpgrade = (action: HostAction, resource: HostResource, proceed: () => void) => {
+          if (!identityEnforced() || !policyRegistry.hasPolicy()) {
+            proceed();
+            return;
+          }
+          authorizeRoadUpgrade({
+            enforced: true,
+            policy: policyRegistry,
+            principal: upgradeAuth.principal ?? null,
+            action,
+            resource,
+          })
+            .then((ok) => {
+              if (ok) {
+                proceed();
+              } else {
+                socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+                socket.destroy();
+              }
+            })
+            .catch(() => socket.destroy());
+        };
+
         switch (scope) {
-          case "browser":
+          case "browser": {
+            // 18.37a: decide the non-session policy grants BEFORE the upgrade
+            // completes (the policy is async; the gateway's connect handler is
+            // not). Only when enforced AND a policy exists — otherwise the
+            // upgrade proceeds synchronously, byte-for-byte as before.
+            const finishBrowserUpgrade = (grants?: BootstrapGrants) =>
             browserGateway.wss.handleUpgrade(request, socket, head, (ws) => {
+              // §9.3: attach the immutable principal + its expiry resolved at
+              // upgrade so every session road can owner-gate. Absent in the
+              // inert era (no identity ticket required). Frozen so downstream
+              // handlers cannot rebind the socket's identity.
+              if (upgradeAuth.principal) {
+                const bound = ws as {
+                  principal?: Principal;
+                  principalExpiresAt?: number;
+                };
+                // D23: the break-glass operator is matched by REFERENCE, so keep it
+                // (it is already frozen); every other principal is bound as a copy.
+                bound.principal = isLocalOperator(upgradeAuth.principal)
+                  ? upgradeAuth.principal
+                  : Object.freeze({ ...upgradeAuth.principal });
+                bound.principalExpiresAt = upgradeAuth.principalExpiresAt;
+              }
+              if (grants) (ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants = grants;
               browserGateway.wss.emit("connection", ws, request);
             });
+            if (identityEnforced() && policyRegistry.hasPolicy()) {
+              decideBootstrapGrants(upgradeAuth.principal, policyRegistry, terminalManager.list())
+                .then(finishBrowserUpgrade, () => finishBrowserUpgrade(DENY_ALL_GRANTS))
+                .catch((err) => {
+                  console.error("[ws-gate] browser upgrade failed after the policy decision:", err);
+                  socket.destroy();
+                });
+            } else {
+              finishBrowserUpgrade();
+            }
             break;
-          case "terminal":
-            terminalGateway.handleUpgrade(request, socket, head);
+          }
+          case "terminal": {
+            // 18.13: owner equality on the PTY attach (shell I/O is the most
+            // sensitive surface). Inert ⇒ no gate; break-glass operator ⇒ all.
+            // Review B2: the host policy also decides `terminal.read` BEFORE the
+            // upgrade; B1: the attached socket closes at the ticket's expiry.
+            const termId = terminalGateway.parseTerminalId(request.url ?? "")?.split("?")[0];
+            gateRoadUpgrade(HostActions.terminalRead, hostResource.terminal(termId), () =>
+              terminalGateway.handleUpgrade(
+                request,
+                socket,
+                head,
+                identityEnforced()
+                  ? (id) =>
+                      canAccessSession({
+                        active: true,
+                        principal: upgradeAuth.principal ?? null,
+                        owner: terminalManager.get(id)?.principalOwner,
+                      })
+                  : undefined,
+                upgradeAuth.principalExpiresAt,
+              ),
+            );
             break;
-          case "live":
-            handleLiveServerUpgrade(liveServerManager, request, socket, head);
+          }
+          case "live": {
+            // Review B2 (policy `live.read` before the upgrade) + B1 (a proxied
+            // dev-server socket must not outlive the ticket's principal).
+            gateRoadUpgrade(HostActions.liveRead, { kind: "live", route: (request.url ?? "").split("?")[0] }, () => {
+              // Chunked past the 32-bit timer cap (`scheduleAtExpiry`), released on close.
+              const cancelExpiry = scheduleAtExpiry(upgradeAuth.principalExpiresAt, () => socket.destroy());
+              socket.once("close", cancelExpiry);
+              handleLiveServerUpgrade(liveServerManager, request, socket, head);
+            });
             break;
+          }
           default:
             socket.destroy();
         }
       });
+
+      // Identity-plane arming (D1/D8/D9/D21). Runs AFTER plugins have loaded
+      // (outside the loader try, so a loader throw cannot skip it) and BEFORE
+      // listen(). Releases every identity registration of a plugin that failed
+      // to load, then decides + latches enforcement. A conflicting or partial
+      // config never aborts boot: it stays inert and says why.
+      {
+        releaseFailedIdentityRegistrations(identityRegistrations, (pid) => getPluginStatusStore().getStatus(pid)?.loaded === true);
+        const idCfg = loadConfig();
+        const input = {
+          resolverActive: resolverRegistry.hasActiveResolver(),
+          loginProviderRegistered: browserLoginConfigRegistry.get() !== null,
+          legacyConnectorsActive,
+          trustedPolicyPlugin: idCfg.identity.trustedPolicyPlugin,
+          registeredPolicyCount: policyRegistry.size,
+        };
+        identityArmed = isIdentityEnforced(input);
+        identityRegistrations.freeze();
+        const disarmed = identityDisarmedWarning(input);
+        if (disarmed) console.warn(disarmed);
+        // D23: name the recovery path while enforced, so an IdP outage is never a mystery lockout.
+        if (identityArmed) {
+          console.log("[identity] identity is ENFORCED. Locked out (IdP unreachable)? On this host run: pi-dashboard login --local");
+        }
+      }
 
       await fastify.listen({ port: config.port, host: config.host });
       writePid(process.pid);

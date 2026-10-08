@@ -138,6 +138,16 @@ export interface SessionFlags {
   skills?: string[];
   noSkills?: boolean;
   extensions?: string[];
+  /**
+   * Persona/system-prompt scope (add-team-plugin D12). `appendSystemPrompt`
+   * repeats `--append-system-prompt <abs path>`; `noContextFiles` →
+   * `--no-context-files`; `noProjectTrust` → `--no-approve`; `sessionDir` →
+   * `--session-dir <abs path>`. Absent ⇒ nothing emitted.
+   */
+  appendSystemPrompt?: string[];
+  noContextFiles?: boolean;
+  noProjectTrust?: boolean;
+  sessionDir?: string;
 }
 
 /**
@@ -173,6 +183,10 @@ function scopeFlags(flags: SessionFlags): string[] {
   for (const skill of flags.skills ?? []) argv.push("--skill", skill);
   if (flags.noSkills) argv.push("--no-skills");
   for (const ext of flags.extensions ?? []) argv.push("-e", ext);
+  for (const p of flags.appendSystemPrompt ?? []) argv.push("--append-system-prompt", p);
+  if (flags.noContextFiles) argv.push("--no-context-files");
+  if (flags.noProjectTrust) argv.push("--no-approve");
+  if (flags.sessionDir) argv.push("--session-dir", flags.sessionDir);
   return argv;
 }
 

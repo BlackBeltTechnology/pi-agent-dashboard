@@ -63,6 +63,10 @@ function createMockPreferencesStore(pinnedDirs: string[] = []): PreferencesStore
     reorderPinnedDirs: vi.fn(),
     getCollapsedFolders: vi.fn(() => []),
     setFolderCollapsed: vi.fn(() => false),
+    setExpandedFolder: vi.fn(() => false),
+    setFocusEnabled: vi.fn(() => false),
+    setFocusProfile: vi.fn(() => false),
+    getExpandedFolders: vi.fn(() => []),
     getGroupByPrefs: vi.fn(() => ({ defaultGroupBy: "none" as const, folderGroupBy: {}, collapsedLanes: [] })),
     setFolderGroupBy: vi.fn(() => false),
     setDefaultGroupBy: vi.fn(() => false),
@@ -332,6 +336,40 @@ describe("DirectoryService", () => {
       const data = await service.refreshOpenSpec(tmp);
       const change = data.changes.find((c) => c.name === "change-y")!;
       expect(change.artifacts.find((a) => a.id === "design")!.status).toBe("ready");
+
+      fs.rmSync(tmp, { recursive: true, force: true });
+    });
+  });
+
+  describe("refreshOpenSpec un-gated contract — harden-server-request-surfaces (E9)", () => {
+    it("resolves an OpenSpecData object, never null, for an untracked opted-out cwd", async () => {
+      // Regression guard for `refreshOpenSpec`'s four internal callers (design
+      // D1): the gated variant returns `null` on gate failure, but
+      // `refreshOpenSpec` itself keeps resolving data regardless of the
+      // tracked/opted-out gates. GREEN before AND after 1.12.
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ds-ungated-"));
+      fs.mkdirSync(path.join(tmp, "openspec", "changes", "change-1"), { recursive: true });
+
+      const { runOpenSpecList, runOpenSpecStatus } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
+      (runOpenSpecList as any).mockResolvedValue({ changes: [
+        { name: "change-1", status: "in-progress", completedTasks: 0, totalTasks: 1 },
+      ] });
+      (runOpenSpecStatus as any).mockResolvedValue({ artifacts: [], isComplete: false });
+
+      // Untracked (no sessions, no pins) AND opted out — both gates would
+      // fail; the un-gated contract ignores them.
+      const stateStore = createMockPreferencesStore();
+      const sessionManager = createMockSessionManager();
+      service = createDirectoryService(stateStore, sessionManager, { optOutDirectories: [tmp] });
+
+      const data = await service.refreshOpenSpec(tmp);
+      expect(data).not.toBeNull();
+      expect(typeof data).toBe("object");
+      expect(data.initialized).toBe(true);
+      expect(data.changes.map((c) => c.name)).toContain("change-1");
 
       fs.rmSync(tmp, { recursive: true, force: true });
     });

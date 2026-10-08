@@ -47,6 +47,12 @@ export default defineConfig({
     // build does. Mirrors packages/client/vitest.config.ts resolve.alias.
     alias: {
       "@blackbelt-technology/pi-dashboard-shared": path.resolve(__dirname, "../shared/src"),
+      // `./core` only (no host/React imports). Worktree-local for the same
+      // reason as shared. See change: add-radius-provider-login (D5).
+      "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core": path.resolve(
+        __dirname,
+        "../mcp-client-plugin/src/core/index.ts",
+      ),
       // Worktree-local runtime source wins for the same reason — server.ts
       // calls `createIsPiExtensionInstalled`, an export that exists only in
       // this worktree until it lands. Specific `/server` key MUST precede the

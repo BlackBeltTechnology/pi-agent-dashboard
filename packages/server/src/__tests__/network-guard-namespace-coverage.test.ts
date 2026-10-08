@@ -84,6 +84,11 @@ const STATIC_PUBLIC: ReadonlySet<string> = new Set([
   "/favicon.svg",
   "/robots.txt",
   "/apple-touch-icon.png",
+  // team-plugin's same-origin app shell (design D14): static files only, exactly like the dashboard's own
+  // SPA — it carries no persona / user data. Every data call is under the guarded /api/plugins/team/*.
+  // See change: add-team-plugin.
+  "/apps/team",
+  "/apps/team/*",
 ]);
 
 /** `url` is under `prefix` as a path segment (exact, or `/`-continuation). */

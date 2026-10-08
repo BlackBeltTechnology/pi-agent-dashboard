@@ -6,9 +6,15 @@ import { readFileSync, realpathSync } from "node:fs";
  *
  * The actual CLI is `../src/cli.ts`. This wrapper exists because a
  * `#!/usr/bin/env` shebang cannot interpolate a dynamic `--import`
- * loader path. The wrapper resolves jiti from `process.argv[1]`'s
- * module graph at runtime and re-execs Node with
- * `--import <jiti-url> cli.ts <args>`.
+ * loader path. The wrapper selects the TypeScript loader at runtime and
+ * re-execs Node with `--import <loader-url> cli.ts <args>`:
+ *   - default: the Node-native loader shipped by
+ *     `@blackbelt-technology/pi-dashboard-shared` (`platform/native-ts-register.mjs`),
+ *     located by package specifier from this file;
+ *   - `PI_DASHBOARD_TS_LOADER=jiti`: jiti, resolved from `process.argv[1]`.
+ * Selection uses the shared `.mjs` helper `platform/ts-loader-select.mjs`
+ * (plain JS — runs before any TS loader). A missing jiti is fatal only when
+ * jiti is selected. See change: fix-appimage-cold-boot-latency (D1, D4, D8).
  *
  * Since `@blackbelt-technology/pi-dashboard-server` declares `jiti` as
  * a direct runtime dependency, `createRequire(argv[1]).resolve("jiti/...")`
@@ -16,8 +22,7 @@ import { readFileSync, realpathSync } from "node:fs";
  * hoisted, pnpm). A miss therefore indicates a corrupted install, not
  * a missing prerequisite. The error message reflects that.
  *
- * No tsx fallback: jiti is the sole supported TypeScript loader.
- * Mirrors the resolution shape in
+ * No tsx fallback. The jiti lookup mirrors the resolution shape in
  * `packages/shared/src/platform/binary-lookup.ts::ToolResolver.resolveJiti`
  * (cannot import the .ts module before a TS loader is registered, so
  * the lookup is inlined).
@@ -86,7 +91,31 @@ function resolveJitiUrl() {
   return null;
 }
 
-const loader = resolveJitiUrl();
+// Loader selection via the shared helper. Dynamic import so a corrupted
+// install (helper unresolvable) still reaches a readable error, and the jiti
+// opt-in still works without it.
+let tsLoaderSelect = null;
+try {
+  tsLoaderSelect = await import("@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs");
+} catch {
+  /* handled below */
+}
+const loaderKind = tsLoaderSelect
+  ? tsLoaderSelect.selectTsLoader(process.env)
+  : process.env.PI_DASHBOARD_TS_LOADER === "jiti" ? "jiti" : null;
+if (!loaderKind) {
+  process.stderr.write(
+    "pi-dashboard: cannot find the native TypeScript loader (@blackbelt-technology/pi-dashboard-shared).\n" +
+      "Your install may be corrupted. Try:\n" +
+      "  npm install -g @blackbelt-technology/pi-agent-dashboard\n" +
+      "Workaround: set PI_DASHBOARD_TS_LOADER=jiti to boot with the jiti loader.\n",
+  );
+  process.exit(1);
+}
+
+const loader = loaderKind === "jiti"
+  ? resolveJitiUrl()
+  : tsLoaderSelect.resolveNativeTsLoader({ anchor: fileURLToPath(import.meta.url) });
 if (!loader) {
   // jiti is a direct dep of @blackbelt-technology/pi-dashboard-server, so a
   // miss here means the install is corrupted (deleted node_modules entry,
@@ -105,11 +134,13 @@ if (!loader) {
 }
 
 // Mirrors shouldUrlWrapEntry() in packages/shared/src/platform/node-spawn.ts:
-// jiti misnormalises file:/// URL entries on Windows (verified live on
-// Node 22.18.0 + jiti 2.7.0 in a standalone install — the entry gets
-// re-prepended with cwd as if it were a relative specifier). Pass the
-// RAW path on every platform; Node's drive-letter heuristic handles
-// `C:\…` entries directly. See change: fix-windows-standalone-spawn.
+// the entry is passed RAW for both loaders, on every platform. jiti
+// misnormalises file:/// URL entries on Windows (verified live on Node 22.18.0
+// + jiti 2.7.0), and with any `--import` loader Node itself runs the main
+// entry through `path.resolve()` first, so a `file:///D:/…` entry becomes a
+// cwd-relative path (native loader, windows-latest CI run 37347903583).
+// Node's drive-letter heuristic handles raw `C:\…` entries directly.
+// See changes: fix-windows-standalone-spawn, fix-appimage-cold-boot-latency.
 const entry = cliPath;
 
 // Heap ceiling for the standalone launch path, from `serverHeap.maxOldSpaceMb`.
@@ -145,7 +176,45 @@ const existingNodeOptions = process.env.NODE_OPTIONS ?? "";
 // See change: bound-session-heap-and-gc-telemetry (D4, D8).
 const heapFlag = `--max-old-space-size=${readServerMaxOldSpaceMb()}`;
 const ourPreviousFlag = process.env[HEAP_FLAG_MARKER_ENV];
-const nodeOptionTokens = existingNodeOptions.split(/\s+/).filter(Boolean);
+// Quote-aware option spans `[start, end)`: whitespace separates options only
+// OUTSIDE double quotes; inside, a backslash escapes the next char. Mirrors
+// `optionSpans` in packages/shared/src/heap-flags.ts (this file runs before
+// jiti and cannot import it). See change: guard-server-heap-and-store-coupling
+// (CodeRabbit PR #780).
+function optionSpans(options) {
+  const spans = [];
+  let i = 0;
+  while (i < options.length) {
+    while (i < options.length && /\s/.test(options[i])) i++;
+    if (i >= options.length) break;
+    const start = i;
+    let quoted = false;
+    for (; i < options.length; i++) {
+      const c = options[i];
+      if (quoted && c === "\\") i++;
+      else if (c === '"') quoted = !quoted;
+      else if (!quoted && /\s/.test(c)) break;
+    }
+    spans.push([start, Math.min(i, options.length)]);
+  }
+  return spans;
+}
+// Remove options exactly equal to `token`, every other byte as written.
+// Mirrors `withoutToken` in packages/shared/src/heap-flags.ts.
+function withoutToken(options, token) {
+  if (!token) return options;
+  let out = options;
+  const hits = optionSpans(options).filter(([a, b]) => options.slice(a, b) === token);
+  for (const [a, b] of hits.reverse()) {
+    let start = a;
+    let end = b;
+    while (start > 0 && /\s/.test(options[start - 1])) start--;
+    if (start === a) while (end < options.length && /\s/.test(options[end])) end++;
+    out = out.slice(0, start) + out.slice(end);
+  }
+  return out;
+}
+const nodeOptionTokens = optionSpans(existingNodeOptions).map(([a, b]) => existingNodeOptions.slice(a, b));
 // BOTH spellings: V8 accepts `--max_old_space_size=N` and resolves a repeated
 // flag last-wins, so a hyphen-only detector would append our value after an
 // operator's underscore pin and silently defeat it. Kept in lockstep with
@@ -158,20 +227,23 @@ const operatorPinned = nodeOptionTokens.some(
 // An operator pin wins, and OUR stale marker is dropped with it: a marker that
 // no longer describes a present token would let the spawn-side strip misread
 // their flag as ours.
+// Drop OUR previous token without a split/join round-trip and without
+// matching inside a quoted value, so every other byte survives.
+// See change: guard-server-heap-and-store-coupling (CodeRabbit PR #780).
+const keptNodeOptions = withoutToken(existingNodeOptions, ourPreviousFlag).trimEnd();
 const childEnvBase = operatorPinned
   ? (() => {
       // Their pin wins, but OUR stale token goes with the marker: V8 is
       // last-wins, so leaving it could override the pin we just honoured.
       const e = { ...process.env };
-      const keptForPin = nodeOptionTokens.filter((t) => t !== ourPreviousFlag);
-      if (keptForPin.length === 0) delete e.NODE_OPTIONS;
-      else e.NODE_OPTIONS = keptForPin.join(" ");
+      if (!keptNodeOptions) delete e.NODE_OPTIONS;
+      else e.NODE_OPTIONS = keptNodeOptions;
       delete e[HEAP_FLAG_MARKER_ENV];
       return e;
     })()
   : {
       ...process.env,
-      NODE_OPTIONS: [...nodeOptionTokens.filter((t) => t !== ourPreviousFlag), heapFlag].join(" "),
+      NODE_OPTIONS: keptNodeOptions ? `${keptNodeOptions} ${heapFlag}` : heapFlag,
       [HEAP_FLAG_MARKER_ENV]: heapFlag,
     };
 

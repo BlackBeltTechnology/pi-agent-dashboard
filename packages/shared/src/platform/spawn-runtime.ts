@@ -52,7 +52,8 @@ import {
   MIN_SUPPORTED_NODE,
   meetsFloor,
 } from "../node-version.js";
-import { MANAGED_PI_PACKAGES, whichSync, whichViaLoginShell } from "./binary-lookup.js";
+import { isPiCodingAgentName } from "../pi-installs/candidates.js";
+import { whichSync, whichViaLoginShell } from "./binary-lookup.js";
 import { spawnSync } from "./exec.js";
 
 // ── Classification (design D4 — vendored from manage-node-runtime-updates) ──
@@ -211,7 +212,7 @@ export function readPiEnginesFloor(piEntry?: string | null): PiEnginesFloor {
           name?: string;
           engines?: { node?: string };
         };
-        if (pkg.name && (MANAGED_PI_PACKAGES as readonly string[]).includes(pkg.name)) {
+        if (isPiCodingAgentName(pkg.name)) {
           const range = pkg.engines?.node;
           const floor = range ? parseEnginesFloor(range) : null;
           // Found the pi package: its engines (or their absence) decide.

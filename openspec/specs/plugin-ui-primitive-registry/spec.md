@@ -7,7 +7,9 @@ This capability defines a **typed, runtime-resolved registry of UI primitive com
 The registry decouples plugin tarballs from the dashboard's primitive implementations: plugins ship without heavy transitive deps (markdown stack, mdi icons, mermaid, etc.) and the dashboard remains free to swap primitive implementations without rebuilding plugins.
 
 The motivating design notes live in `openspec/changes/add-plugin-ui-primitive-registry/design.md`.
+
 ## Requirements
+
 ### Requirement: Frozen primitive key set
 
 The repository SHALL define a frozen set of stable string keys identifying UI primitives the dashboard provides to plugins. The keys SHALL live in `packages/shared/src/dashboard-plugin/ui-primitives.ts` as a `UI_PRIMITIVE_KEYS` const object with `as const` assertion. The initial set SHALL include at minimum:
@@ -160,6 +162,8 @@ The primitive registry's mechanism — `createUiPrimitiveRegistry`, `registerUiP
 
 What changes: the expected caller of `useUiPrimitive(...)` SHALL move from plugin React components to the shell's `IntentRenderer`. Plugins SHALL NOT directly call `useUiPrimitive` from their client-side code as a renderer of their own state. The shell, on each connected client, SHALL call `useUiPrimitive(intent.primitive)` inside `IntentRenderer` to resolve a primitive name from an incoming intent to a `ComponentType` for rendering.
 
+Exception — transient input primitives: a plugin MAY look up an input primitive directly with `useUiPrimitiveOrNull`, provided the primitive is a modal picker or selector that holds no shared state and whose only output is a callback value consumed by that plugin's local form state (for example `ui:path-picker`). The plugin SHALL handle a `null` result by degrading gracefully. It SHALL NOT use the strict hook for such primitives.
+
 This SUPERSEDES the usage pattern established by the archived change `add-plugin-ui-primitive-registry` (2026-05-11), where plugins like flows-plugin called `useUiPrimitive` from inside their React components. That pattern, while functional, runs plugin React code in every connected client independently — incompatible with multi-client state coherence. The new pattern keeps the registry's mechanism and moves the call site to the shell.
 
 #### Scenario: Plugin's intent uses a registered primitive name
@@ -175,6 +179,12 @@ This SUPERSEDES the usage pattern established by the archived change `add-plugin
 - **THEN** the IntentRenderer SHALL use `useUiPrimitiveOrNull` and receive `null`
 - **AND** render an inline error placeholder identifying the missing primitive name and the broadcasting pluginId
 - **AND** sibling intent contributions continue to render normally
+
+#### Scenario: Plugin uses a transient input primitive directly
+
+- **WHEN** a plugin settings form needs a directory and calls `useUiPrimitiveOrNull(UI_PRIMITIVE_KEYS.pathPicker)`
+- **THEN** a non-null result is rendered locally in that client and its `onSelect` value updates only that plugin's local form state
+- **AND** a `null` result hides the picker affordance without throwing
 
 ### Requirement: Plugin client-side `useUiPrimitive` calls SHALL be marked DEPRECATED
 
@@ -230,18 +240,19 @@ flows-plugin MAY retain a `client-utils` dep IF it imports hooks (e.g. `useMobil
 
 The contract:
 
-- `"ui:model-selector"`: `ComponentType<{ current?: string; models?: ModelInfo[]; onSelect: (modelLabel: string) => void; placeholder?: string }>`
+- `"ui:model-selector"`: `ComponentType<{ current?: string; models?: ModelInfo[]; onSelect: (modelLabel: string) => void; placeholder?: string; allowRoles?: boolean }>`
 
 Where:
 
-- `current` is a string in `"<provider>/<id>"` form, or `undefined` for "no current".
+- `current` is a string in `"<provider>/<id>"` form, a role ref `"@<role>"` (only meaningful when `allowRoles` is set), or `undefined` for "no current".
 - `models` is the list of available models as `ModelInfo[]` from `packages/shared/src/types.ts`, or `undefined` when models have not yet loaded (in which case the primitive renders the current label as non-interactive text).
-- `onSelect(modelLabel)` is called with the full `"<provider>/<id>"` string of the chosen model.
+- `onSelect(modelLabel)` is called with the full `"<provider>/<id>"` string of the chosen model, or with `"@<role>"` when a role is chosen on the Role tab.
 - `placeholder` is optional trigger text shown when `current` is absent; when omitted the primitive's default placeholder is used.
+- `allowRoles` is optional; when `true` and the roles plugin is installed the primitive offers a Role tab for *selecting* a role. When absent the primitive SHALL behave exactly as the four-prop contract.
 
-Favorites state and model-list refresh SHALL NOT appear in this contract; they are supplied by the shell at registration time (see "A primitive registration MAY be a shell-bound wrapper"), because they are session-scoped and shell-owned.
+Favorites state, model-list refresh, and the role list SHALL NOT appear in this contract; they are supplied by the shell (favorites/refresh at registration time — see "A primitive registration MAY be a shell-bound wrapper"; the role list fetched by the shell from the roles read surface), because they are shell-owned.
 
-The contract SHALL NOT expose role/preset props — role management is a separate concern owned by `BuiltInRolesSettings` (in builtins-plugin) and is layered on top of this primitive, not inside it.
+The contract SHALL NOT expose role *management* (assigning models to roles, presets) — that remains owned by the roles plugin's settings section. Role *selection* via `allowRoles` is the only role-related surface of the primitive.
 
 #### Scenario: Key is part of `UI_PRIMITIVE_KEYS`
 
@@ -252,7 +263,7 @@ The contract SHALL NOT expose role/preset props — role management is a separat
 #### Scenario: Contract is typed in `UiPrimitiveMap`
 
 - **WHEN** TypeScript resolves `UiPrimitiveMap["ui:model-selector"]`
-- **THEN** the resolved type SHALL be `ComponentType<{ current?: string; models?: ModelInfo[]; onSelect: (modelLabel: string) => void; placeholder?: string }>`
+- **THEN** the resolved type SHALL be `ComponentType<{ current?: string; models?: ModelInfo[]; onSelect: (modelLabel: string) => void; placeholder?: string; allowRoles?: boolean }>`
 
 #### Scenario: Existing three-prop call sites still compile
 
@@ -380,6 +391,31 @@ The public contract SHALL remain the sole compile-time surface: a plugin SHALL N
 
 - **WHEN** TypeScript resolves the wrapped primitive's contract
 - **THEN** no shell-injected prop SHALL appear as a required prop
+
+### Requirement: Path picker primitive
+
+`UI_PRIMITIVE_KEYS` SHALL include `pathPicker: "ui:path-picker"`. `UiPrimitiveMap` SHALL map it to a component type with props `{ open: boolean; initialPath?: string; title?: string; onSelect: (absPath: string) => void; onCancel: () => void }`. The dashboard SHALL register an implementation that renders the host's single-select directory picker inside a modal dialog.
+
+#### Scenario: Registered at startup
+
+- **WHEN** the dashboard boots
+- **THEN** `useUiPrimitive(UI_PRIMITIVE_KEYS.pathPicker)` returns the registered component
+
+#### Scenario: Selection and cancel
+
+- **WHEN** the picker is open and the user confirms a directory
+- **THEN** `onSelect` is called once with that directory's absolute path
+- **AND** when the user cancels or presses Escape, `onCancel` is called and `onSelect` is not
+
+#### Scenario: Non-directory is not selectable
+
+- **WHEN** the confirmed path is not an existing directory, for example a file or a nonexistent path
+- **THEN** `onSelect` is not called and the picker shows an inline error
+
+#### Scenario: Plugin soft lookup on older hosts
+
+- **WHEN** a plugin looks the key up with `useUiPrimitiveOrNull` on a host that has not registered it
+- **THEN** the lookup returns `null` without throwing
 
 ## Related Capabilities
 

@@ -130,6 +130,8 @@ export interface MessageHandlerSetters {
   setPinnedDirectories: React.Dispatch<React.SetStateAction<string[]>>;
   /** Canonical collapsed folder keys, synced via `collapsed_folders_updated`. See change: persist-folder-collapse-server-side. */
   setCollapsedFolders: React.Dispatch<React.SetStateAction<string[]>>;
+  /** Accordion pinned-open folders, carried by `collapsed_folders_updated`. See change: add-focus-mode-and-card-block-toggles. */
+  setExpandedFolders?: React.Dispatch<React.SetStateAction<string[]>>;
   /** Session-list grouping prefs, synced via `group_by_prefs_updated`. See change: session-list-group-by. */
   setGroupByPrefs?: React.Dispatch<React.SetStateAction<import("@blackbelt-technology/pi-dashboard-shared/session-group-by.js").GroupByPrefs | undefined>>;
   /** Session-card section visibility snapshot, synced via `card_sections_updated`. Optional so older setter bags stay valid. See change: configurable-session-card-sections. */
@@ -313,7 +315,7 @@ export function useMessageHandler(
   const {
     setSessions, setSessionStates, setSessionCommands,
     setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult,
-    setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals,
+    setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
     setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev,
     setEndedTotalsMap, setArchivedCountMap, setPagedCount, setSnapshotGeneration,
@@ -1726,6 +1728,7 @@ export function useMessageHandler(
         // persist-folder-collapse-server-side: full snapshot on connect and
         // after every mutation. Replace, do not merge.
         setCollapsedFolders(msg.collapsedFolders);
+        setExpandedFolders?.(msg.expandedFolders ?? []);
         break;
 
       case "group_by_prefs_updated":
@@ -1818,6 +1821,10 @@ export function useMessageHandler(
               questions: msg.prompt?.metadata?.questions,
               _promptBusComponent: msg.component,
               _promptBusPlacement: msg.placement,
+              // Namespaced plugin data (`ctx.ui.*` `pluginMeta`), exposed to
+              // plugins via the interactive-request snapshot. Core keys never
+              // come from here. See change: add-browser-editor-pane-tab (D6).
+              _pluginMeta: msg.prompt?.metadata?.plugin,
             },
             toolCallId,
           );
@@ -1914,6 +1921,12 @@ export function useMessageHandler(
         setDisplayPrefs(msg.prefs);
         break;
 
+      case "editor_tab_open":
+        // Plugin-server-initiated tab open. App (always mounted, route-aware)
+        // decides whether this client acts. See change: add-browser-editor-pane-tab (D5).
+        window.dispatchEvent(new CustomEvent("editor-tab-open", { detail: { sessionId: msg.sessionId, path: msg.path } }));
+        break;
+
       case "plugin_config_update":
         // Update the plugin config store and re-render any usePluginConfig consumers.
         applyPluginConfigUpdate(msg);
@@ -2002,5 +2015,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap, setHistorySpliceRev, setEndedTotalsMap, setPagedCount, setSnapshotGeneration, setPageReplyGen, setPageExhausted, sessionsRef, openspecGetInflightRef, markHistoryLoadFailed, clearHistoryLoadFailed]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap, setHistorySpliceRev, setEndedTotalsMap, setPagedCount, setSnapshotGeneration, setPageReplyGen, setPageExhausted, sessionsRef, openspecGetInflightRef, markHistoryLoadFailed, clearHistoryLoadFailed]);
 }

@@ -174,7 +174,7 @@ describe("defaultRunNpmUpdate — registry resolution + managed PATH", () => {
 		fs.mkdirSync(managedDir, { recursive: true });
 
 		await defaultRunNpmUpdate(
-			makePkg({ name: "@mariozechner/pi-coding-agent", installSource: "managed" }),
+			makePkg({ name: "@earendil-works/pi-coding-agent", installSource: "managed" }),
 			() => {},
 			{
 				_resolveNpm: () => ({ ok: true, argv: ["/usr/bin/npm"] }),
@@ -187,7 +187,7 @@ describe("defaultRunNpmUpdate — registry resolution + managed PATH", () => {
 		// NOT "-g" for managed installs.
 		expect(capturedArgs).not.toContain("-g");
 		// The hot bit: @latest suffix.
-		expect(capturedArgs.some((a) => a === "@mariozechner/pi-coding-agent@latest")).toBe(true);
+		expect(capturedArgs.some((a) => a === "@earendil-works/pi-coding-agent@latest")).toBe(true);
 	});
 
 	it("spawns npm install -g with @latest suffix for global install (regression guard)", async () => {
@@ -200,7 +200,7 @@ describe("defaultRunNpmUpdate — registry resolution + managed PATH", () => {
 		});
 
 		await defaultRunNpmUpdate(
-			makePkg({ name: "@mariozechner/pi-coding-agent", installSource: "global" }),
+			makePkg({ name: "@earendil-works/pi-coding-agent", installSource: "global" }),
 			() => {},
 			{
 				_resolveNpm: () => ({ ok: true, argv: ["/usr/bin/npm"] }),

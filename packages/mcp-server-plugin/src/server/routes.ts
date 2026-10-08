@@ -67,12 +67,6 @@ export interface McpRouteDeps extends AuthDeps, DispatchDeps {
   streaming?: { registry: SubscriptionRegistry; source: EventSource };
   /** Injectable for tests; a default instance is created when absent. */
   throttle?: AuthFailureThrottle;
-  /**
-   * Fired at the top of every POST /mcp request. The plugin wires a
-   * once-guarded lazy adapter-version diagnostic here, so the check runs on
-   * first use rather than at registration.
-   */
-  onMcpRequest?: () => void;
 }
 
 /**
@@ -216,7 +210,7 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
   const methodNotAllowed = async (_req: FastifyRequest, reply: FastifyReply) => {
     // 405 MUST carry Allow per RFC 9110, and it doubles as discovery: a
     // client that guessed GET learns the endpoint exists and wants POST.
-    reply.code(405).header("allow", "POST").type("application/json").send({
+    return reply.code(405).header("allow", "POST").type("application/json").send({
       error: "Method Not Allowed",
       message: "The MCP endpoint accepts POST only.",
     });
@@ -231,9 +225,6 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
   const postHandler =
     (cap?: Tier) =>
     async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-      // Lazy, once-per-process diagnostics (e.g. the adapter-version floor)
-      // belong to first use, not registration.
-      deps.onMcpRequest?.();
       // Throttle BEFORE the comparison, so a locked-out source cannot keep
       // spending server CPU on `timingSafeEqual` scans. Keyed on
       // `(ip, credential fingerprint)` — every local session shares `request.ip`,
@@ -332,11 +323,20 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
     ["/mcp/observe", "observe"],
     ["/mcp/control", "control"],
   ] as const) {
+    const handle = postHandler(cap);
     fastify.route({
       method: "POST",
       url,
       bodyLimit: MCP_BODY_LIMIT_BYTES,
-      handler: postHandler(cap),
+      // RETURN the reply: an async handler that only calls `reply.send()`
+      // races the host's global @fastify/compress onSend stream, which then
+      // ships `content-encoding: gzip` + `content-length: 0` for any body over
+      // the 1 KiB threshold (pi's MCP client failed `tools/list` on exactly
+      // that). A hijacked `subscriptions/listen` reply ignores the return.
+      handler: async (request: FastifyRequest, reply: FastifyReply) => {
+        await handle(request, reply);
+        return reply;
+      },
     });
   }
 
@@ -344,7 +344,7 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
   // answers 404 JSON for every method instead of falling through to the SPA
   // handler. More specific static paths above win over this wildcard.
   const notFound = async (_req: FastifyRequest, reply: FastifyReply) => {
-    reply.code(404).type("application/json").send({
+    return reply.code(404).type("application/json").send({
       error: "Not Found",
       message: "Unknown MCP endpoint. Use /mcp, /mcp/observe or /mcp/control.",
     });

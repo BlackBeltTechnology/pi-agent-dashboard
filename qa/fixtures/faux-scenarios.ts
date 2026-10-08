@@ -195,6 +195,33 @@ export function summarizeListModelsResult(context: FauxContext): string {
   }
 }
 
+/**
+ * Markers for the built-in MCP registration scenarios (change:
+ * migrate-mcp-to-pi-builtin, test-plan X1/X2). Each scenario runs REAL tools in
+ * a harness session and echoes a deterministic summary of the last tool result
+ * as plain text, so the L3 spec asserts a stable transcript marker.
+ */
+export const MCP_ENV_PROBE_PREFIX = "mcp-env-probe";
+export const MCP_DASHBOARD_CALL_PREFIX = "mcp-dashboard-call";
+/** pi sanitizes `mcp__<server>__<tool>` to `[A-Za-z0-9_]`: `pi-dashboard` → `pi_dashboard`. */
+export const MCP_DASHBOARD_LIST_SESSIONS_TOOL = "mcp__pi_dashboard__list_sessions";
+
+/** X1: does the bash `env` dump expose the dashboard MCP credential? */
+export function summarizeEnvProbe(context: FauxContext): string {
+  const out = lastToolResultText(context);
+  const tokenVar = /(^|\n)PI_DASHBOARD_MCP_TOKEN=/.test(out);
+  const mcpToken = /mcp_[A-Za-z0-9_-]{20,}/.test(out);
+  const ran = out.includes("PATH=");
+  return `${MCP_ENV_PROBE_PREFIX} ran=${ran} tokenVar=${tokenVar} mcpToken=${mcpToken}`;
+}
+
+/** X2: did the deferred `pi-dashboard` tool answer with a session list? */
+export function summarizeDashboardCall(context: FauxContext): string {
+  const out = lastToolResultText(context);
+  const ok = /"sessions"\s*:/.test(out);
+  return `${MCP_DASHBOARD_CALL_PREFIX} ok=${ok} result=${out.replace(/\s+/g, " ").slice(0, 120)}`;
+}
+
 /** Build a single-tool-call scenario for the client renderer matrix. */
 function toolScenario(
   name: string,
@@ -780,6 +807,35 @@ export const SCENARIOS: Record<string, Scenario> = {
   // serve. Used by tests/e2e/editor-pane.spec.ts.
   // See change: add-internal-monaco-editor-pane.
   "tool-read-fixture": toolScenario("read", { path: "README.md" }),
+  // Agent path gate (change: ask-agent-file-access-in-chat): out-of-root reads.
+  // One gated read, then a closing text so the script ends (a bare tool scenario
+  // would be re-issued after the result and raise a second prompt).
+  "tool-read-outside": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("read", { path: "/etc/hostname" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("outside read done")]),
+    ],
+    expect: { toolName: "read" },
+  },
+  // Reads a file under the harness-created /srv/fixtures-outside/, then a sibling
+  // (the sibling must NOT prompt once "Always allow" persisted the directory).
+  "tool-read-outside-grantable": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("read", { path: "/srv/fixtures-outside/a.txt" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [fauxToolCall("read", { path: "/srv/fixtures-outside/b.txt" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("outside reads done")]),
+    ],
+    expect: { toolName: "read" },
+  },
   "tool-edit": toolScenario("edit", {
     // A file that REALLY exists in the sample-git fixture. The editor-pane
     // Changes rail renders its per-file rows inline in the DISK-backed file
@@ -827,6 +883,13 @@ export const SCENARIOS: Record<string, Scenario> = {
     content: `<!doctype html>\n<!-- ${"A".repeat(6000)} -->\n<h1>big out of cwd</h1>\n`,
   }),
   "tool-bash": toolScenario("bash", { command: "ls -la" }),
+  // A bash call that backgrounds a long-lived child with its stdio attached:
+  // pi's bash tool keeps running until the pipe closes, so the wrapper stays a
+  // live child of pi for the whole call and the process scan can capture it
+  // (a fully detached `nohup … &` would return at once and reparent to init
+  // before any scan). Drives tests/e2e/poll-hot-paths.spec.ts F4.
+  // See change: optimize-polling-hot-paths.
+  "tool-bash-background": toolScenario("bash", { command: "sleep 120 &" }),
   // Strategy B (reduce-session-replay-traffic): a bash result with > 200 LINES.
   // On a FULL replay the server pre-truncates it to the display form
   // (`«N earlier lines hidden»` + last 200 lines) to trim replay bytes; the
@@ -950,6 +1013,46 @@ export const SCENARIOS: Record<string, Scenario> = {
   // collapse/virtualization. Proves the steady-state `registryReady: true` +
   // populated catalogue path (V.2); the absent-registry race (V.3) stays
   // unit-proven (role-model-tools-registry-readiness.test.ts case A).
+  // Built-in MCP registration, live (change: migrate-mcp-to-pi-builtin X1/X2).
+  // X1 runs the REAL bash tool and reports whether `env` carries the dashboard
+  // MCP credential (it must not: the bridge keeps it in pi's registration only).
+  "mcp-env-probe": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "env" })], { stopReason: "toolUse" }),
+      (context: FauxContext) => fauxAssistantMessage([fauxText(summarizeEnvProbe(context))]),
+    ],
+    expect: { text: MCP_ENV_PROBE_PREFIX },
+  },
+  // X2 loads the deferred `pi-dashboard` tool through pi's `tool_search`, then
+  // calls it directly — a round trip through pi's built-in MCP client to the
+  // dashboard's /mcp with the session's registered bearer.
+  "mcp-dashboard-call": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("tool_search", { query: "pi dashboard list sessions", limit: 5 })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxToolCall(MCP_DASHBOARD_LIST_SESSIONS_TOOL, { limit: 1 })], { stopReason: "toolUse" }),
+      (context: FauxContext) => fauxAssistantMessage([fauxText(summarizeDashboardCall(context))]),
+    ],
+    expect: { text: MCP_DASHBOARD_CALL_PREFIX },
+  },
+
+  // `[[faux:browser-show-in-pane]] <instanceId>` — the agent calls the browser
+  // plugin's REAL bridge tool `browser_show_in_pane` for the instance named in
+  // the prompt, then echoes the tool result. See change: add-browser-editor-pane-tab (F17).
+  "browser-show-in-pane": {
+    script: [
+      (context: FauxContext) => {
+        const last = [...context.messages].reverse().find((m) => m.role === "user");
+        const text = (last?.content ?? []).map((c) => c.text ?? "").join(" ");
+        const instanceId = /\[\[faux:browser-show-in-pane\]\]\s+(\S+)/.exec(text)?.[1] ?? "";
+        return fauxAssistantMessage([fauxToolCall("browser_show_in_pane", { instanceId })], { stopReason: "toolUse" });
+      },
+      (context: FauxContext) => fauxAssistantMessage([fauxText(`browser-show-in-pane: ${lastToolResultText(context).slice(0, 120)}`)]),
+    ],
+    expect: { text: "browser-show-in-pane:" },
+  },
+
   "tool-list-models": {
     script: [
       fauxAssistantMessage([fauxToolCall("list_models", {})], { stopReason: "toolUse" }),
@@ -1253,6 +1356,51 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText("sustained subagent complete")]),
     ],
     expect: { text: "sustained subagent complete" },
+  },
+
+  // Inner scenario for `subagent-reasoning`: thinking blocks interleaved with
+  // sleeping tool calls so the running card alternates thinking → tool → idle
+  // for ~6 s. Drives the stable-card-height L3 row (test-plan #F2).
+  // See change: stream-subagent-reasoning-and-stable-card.
+  "subagent-reasoning-inner": {
+    script: [
+      fauxAssistantMessage(
+        [fauxThinking("weighing the first probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 3 && echo r-one" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [fauxThinking("weighing the second probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 3 && echo r-two" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [fauxThinking("weighing the third probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 3 && echo r-three" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("reasoning inner complete")]),
+    ],
+    expect: { text: "reasoning inner complete" },
+  },
+
+  "subagent-reasoning": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux reasoning subagent",
+            // Literal faux model: Explore.md's `@fast` does not resolve to faux in
+            // the harness, so the child would fall back to a credential-less
+            // anthropic default and die in ~300 ms before any scripted step
+            // (reduce-bridge-tick-bandwidth measurement.md). args.model wins.
+            model: "faux/faux-1",
+            prompt: "[[faux:subagent-reasoning-inner]] run the reasoning subagent probe",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("reasoning subagent complete")]),
+    ],
+    expect: { text: "reasoning subagent complete" },
   },
 
   // NOTE: the `subagent-slow-inner-long` / `subagent-sustained-long` fixtures

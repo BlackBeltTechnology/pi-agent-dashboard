@@ -65,6 +65,7 @@ import {
   ProviderAddDialog,
 } from "./ProviderAddDialog.js";
 import { derivePillView, type LiveTestResult, ProviderHealthPill } from "./ProviderHealthPill.js";
+import { fetchRadiusMcpOffer, RadiusMcpOffer, type RadiusMcpOfferInfo } from "./RadiusMcpOffer.js";
 
 // ── Fetch helpers ────────────────────────────────────────────────────────────
 
@@ -291,6 +292,11 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
   // F10 — names with a write in flight whose detached probe has not landed.
   // The ref mirrors the state so the reconcile timer's failure path can name
   // the entries whose cached health must drop without a stale closure.
+  // Post-sign-in Radius MCP offer. See change: add-radius-provider-login (D4).
+  const [radiusOffer, setRadiusOffer] = useState<RadiusMcpOfferInfo | null>(null);
+  // Bumped on every completion and on dismissal: an offer read older than the
+  // latest event is dropped instead of resurrecting a stale offer.
+  const radiusOfferSeqRef = useRef(0);
   const [pendingHealth, setPendingHealth] = useState<Set<string>>(new Set());
   const pendingHealthRef = useRef<Set<string>>(new Set());
   const addPendingHealth = useCallback((name: string) => {
@@ -396,6 +402,23 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     // picker entry is gone) and lands the single dispatch.
     setDialogProvider(undefined);
     handleChanged();
+    // pi 1.0.0 `/login` follow-up: only a completed Radius sign-in asks, and
+    // only when the Pi-global mcp.json is not already configured. A failed read
+    // (503/409) means no offer — never an error on a sign-in that succeeded.
+    const seq = ++radiusOfferSeqRef.current;
+    // Every completion first drops the displayed offer: it belongs to the
+    // PREVIOUS sign-in and must not stay clickable while this one's read is
+    // pending (or when that read reports configured / fails).
+    setRadiusOffer(null);
+    if (id === "radius") {
+      void fetchRadiusMcpOffer()
+        .then((offer) => {
+          if (seq === radiusOfferSeqRef.current) setRadiusOffer(offer);
+        })
+        .catch(() => {
+          if (seq === radiusOfferSeqRef.current) setRadiusOffer(null);
+        });
+    }
   }, [handleChanged, stopFlowTimers]);
 
   const failFlow = useCallback((id: string, error: string) => {
@@ -646,6 +669,22 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     <div className="space-y-4">
       <Toast messages={messages} onDismiss={dismissToast} />
 
+      {radiusOffer && (
+        <RadiusMcpOffer
+          info={radiusOffer}
+          onDone={(result) => {
+            radiusOfferSeqRef.current += 1;
+            setRadiusOffer(null);
+            if (result) {
+              showToast(
+                i18nT("providers.radiusMcpDone", { count: result.reloaded }, `Radius MCP configured — ${result.reloaded} session(s) reloaded`),
+                "success",
+              );
+            }
+          }}
+        />
+      )}
+
       {/* Add-provider — the single entry point (provider-add-flow) */}
       <div className="flex items-center justify-between gap-2">
         <button
@@ -829,8 +868,13 @@ function AuthRow({ provider, kind, onChanged, showToast, peerMissing = false, pe
     { showToast, successToast: i18nT("providers.keyRemoved", { name: provider.name }, `Removed ${provider.name} key`), onSuccess: onChanged },
   );
 
+  // An OAuth row whose server reports `subscription: false` is an account
+  // sign-in (e.g. OpenRouter); absent (older server) keeps "Subscription".
+  // See change: update-pi-core-1-0-adopt-apis (D8).
   const badgeLabel = kind === "subscription"
-    ? i18nT("providers.badgeSubscription", undefined, "Subscription")
+    ? provider.subscription === false
+      ? i18nT("providers.badgeAccount", undefined, "Account")
+      : i18nT("providers.badgeSubscription", undefined, "Subscription")
     : kind === "environment"
       ? i18nT("providers.badgeEnvironment", undefined, "Environment")
       : i18nT("providers.badgeApiKey", undefined, "API key");
@@ -859,7 +903,9 @@ function AuthRow({ provider, kind, onChanged, showToast, peerMissing = false, pe
               <span>
                 {provider.envVar
                   ? i18nT("providers.fromEnvVar", { envVar: provider.envVar }, `from ${provider.envVar}`)
-                  : i18nT("providers.ambientMechanism", undefined, "application default credentials · not stored by pi")}
+                  : provider.authLabel
+                    ? provider.authLabel
+                    : i18nT("providers.ambientMechanism", undefined, "application default credentials · not stored by pi")}
               </span>
             )}
             {kind === "api-key" && provider.maskedKey && (

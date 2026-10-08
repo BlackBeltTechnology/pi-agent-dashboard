@@ -7,19 +7,54 @@ GitHub Actions CI/CD: lint+test+build on push/PR, version-tag publish (npm + Ele
 ## Requirements
 
 ### Requirement: CI workflow on push and PR
-The project SHALL have a GitHub Actions workflow (`.github/workflows/ci.yml`) that runs on every push to `develop` and on every pull request targeting `develop`. The workflow SHALL execute lint, test, and build steps in sequence on Node.js 22. The workflow SHALL NOT include the standalone-install-smoke matrix; that matrix is hosted in the reusable `_smoke.yml` and consumed by `ci-smoke.yml` (manual dispatch) and `publish.yml` (release gate) only.
+The project SHALL have a GitHub Actions workflow (`.github/workflows/ci.yml`) that runs on every push to `develop` and on every pull request targeting `develop`, on Node.js 22. It SHALL install with pnpm from the frozen lockfile.
+
+It SHALL run these jobs in parallel:
+- a job named `ci` holding every repository guard, `pnpm run lint`, the E2E typecheck, Biome, `pnpm run build`, and both publish-import checks;
+- a selection job that computes the affected test set per the `affected-test-selection` capability;
+- a sharded unit-test job over the selected parallel-phase files, with chromium installed so browser-driving suites do not self-skip;
+- a real-process job over the selected real-process files;
+- a packaging-scenarios job when the selection requires it;
+- the existing Docker plugin-load and Python jobs.
+
+A shard or job with nothing selected SHALL skip its test steps and succeed.
+
+An aggregate result job SHALL depend on every job, including the selection job. It SHALL fail in any of these cases:
+- any job failed or was cancelled;
+- the selection job did not succeed;
+- a job that the recorded selection expected to run tests did not succeed.
+
+It SHALL succeed only when every job the selection expected to run tests succeeded and every other job succeeded or was skipped.
+
+The workflow SHALL be triggered by `push` to `develop`, by `pull_request` targeting `develop` (default event types), and by `workflow_dispatch`, which always runs in full mode. Runs for the same pull request SHALL share a concurrency group that cancels superseded runs. Pushes to `develop` SHALL NOT be cancelled.
+
+The workflow SHALL NOT include the standalone-install-smoke matrix. That matrix is hosted in the reusable `_smoke.yml` and consumed by `ci-smoke.yml` (manual dispatch) and `publish.yml` (release gate) only.
 
 #### Scenario: PR triggers CI
 - **WHEN** a pull request is opened or updated targeting the `develop` branch
-- **THEN** the CI workflow SHALL run `npm ci`, `npm run lint`, `npm test`, and `npm run build` in that order
+- **THEN** the CI workflow SHALL run `pnpm install --frozen-lockfile`, the `ci` job (including `pnpm run lint` and `pnpm run build`), and the unit tests selected for the PR's diff against its merge base with `develop`
 
 #### Scenario: Push to develop triggers CI
 - **WHEN** a commit is pushed directly to `develop`
-- **THEN** the CI workflow SHALL run the same lint, test, and build steps
+- **THEN** the CI workflow SHALL run the same jobs, selecting unit tests for the pushed range (`before`..`after`)
 
 #### Scenario: CI failure blocks merge
-- **WHEN** any CI step (lint, test, or build) fails
-- **THEN** the workflow SHALL report a failed status check on the PR
+- **WHEN** any guard, selected test shard, real-process run, or required packaging-scenario run fails
+- **THEN** the aggregate result job SHALL fail and the workflow SHALL report a failed status check on the PR
+
+#### Scenario: A failed or skipped selection is never green
+- **WHEN** the selection job fails, or a shard the selection assigned files to is skipped
+- **THEN** the aggregate result job SHALL fail
+
+#### Scenario: Docs-only PR runs guards and the always-run set
+- **WHEN** a pull request changes only documentation or OpenSpec files
+- **THEN** the `ci` job SHALL run
+- **AND** the unit shards SHALL run the always-run set
+- **AND** the packaging-scenarios job SHALL be skipped
+
+#### Scenario: Guards do not wait for tests
+- **WHEN** CI runs
+- **THEN** the `ci` job SHALL NOT depend on any test job, and no test shard SHALL depend on the `ci` job
 
 #### Scenario: Smoke matrix does not run on push or PR
 - **WHEN** any `push` or `pull_request` event triggers `ci.yml`
@@ -181,17 +216,17 @@ The `packages/shared/src/__tests__/publish-workflow-contract.test.ts` test SHALL
 - **THEN** `npm test` SHALL pass without warnings related to the prerelease wiring
 
 ### Requirement: Release lockfile MUST mirror workspace versions
-The release-pipeline `tag-and-push` job in `.github/workflows/publish.yml` SHALL regenerate `package-lock.json` immediately after bumping workspace versions and rewriting cross-ref specifiers, so that the tagged commit contains a lockfile in which every cross-ref specifier matches `^<current-root-version>` exactly. Without this, strict prerelease semver causes `npm ci` on consumers (and the publish job's own CI) to fall back to registry-published tarballs of workspace dependencies, masking the in-tree workspace via nested installs.
+The release-pipeline `tag-and-push` job in `.github/workflows/publish.yml` SHALL regenerate `pnpm-lock.yaml` immediately after bumping workspace versions and rewriting cross-ref specifiers, so that the tagged commit contains a lockfile in which every cross-ref specifier matches `^<current-root-version>` exactly. Without this, strict prerelease semver causes installs on consumers (and the publish job's own CI) to fall back to registry-published tarballs of workspace dependencies, masking the in-tree workspace via nested installs.
 
 #### Scenario: tag-and-push job runs lockfile regen between sync-versions and commit
 - **WHEN** the `tag-and-push` job in `publish.yml` runs the `Bump versions and update CHANGELOG` step (or successor)
-- **THEN** the job SHALL execute `npm install --package-lock-only --no-audit --no-fund` AFTER `node scripts/sync-versions.js` and BEFORE the `git commit -m "chore(release): ..."` step
-- **AND** the regenerated `package-lock.json` SHALL be staged by the existing `git add -A` step and included in the release commit
+- **THEN** the job SHALL execute `pnpm install --lockfile-only` AFTER `node scripts/sync-versions.js` and BEFORE the `git commit -m "chore(release): ..."` step
+- **AND** the regenerated `pnpm-lock.yaml` SHALL be staged by the existing `git add -A` step and included in the release commit
 
 #### Scenario: tag-and-push job verifies lockfile after regen
 - **WHEN** the tag-and-push job has regenerated the lockfile
 - **THEN** the job SHALL execute `node scripts/verify-lockfile-versions.mjs` BEFORE the commit step
-- **AND** the script SHALL exit non-zero with a file:specifier:expected report if any cross-ref dep specifier in `package-lock.json` does not equal `^<root-version>`
+- **AND** the script SHALL exit non-zero with a file:specifier:expected report if any cross-ref dep specifier in the lockfile does not equal `^<root-version>`
 
 #### Scenario: Repo-lint enforces the step ordering
 - **WHEN** the test `publish-workflow-contract.test.ts` runs as part of `npm test`
@@ -200,7 +235,7 @@ The release-pipeline `tag-and-push` job in `.github/workflows/publish.yml` SHALL
 
 #### Scenario: Local release-cut path documents the lockfile step
 - **WHEN** a maintainer cuts a release manually (not via `workflow_dispatch`)
-- **THEN** the `release-cut` skill in `.pi/skills/release-cut/SKILL.md` SHALL document running `npm install --package-lock-only` between `sync-versions.js` and the commit step
+- **THEN** the `release-cut` skill in `.pi/skills/release-cut/SKILL.md` SHALL document running `pnpm install --lockfile-only` between `sync-versions.js` and the commit step
 - **AND** `scripts/sync-versions.js` SHALL print a console hint pointing the maintainer at the right command
 
 ### Requirement: Build tools referenced by workflows MUST be declared dependencies
@@ -263,10 +298,10 @@ The project SHALL provide a workflow `.github/workflows/ci-smoke.yml` with `on: 
 
 ### Requirement: Release-gate runs lint+test+build and smoke before publish
 The `publish.yml` workflow SHALL define a `release-gate` aggregate composed of two parallel jobs:
-1. `ci-checks`: runs `npm ci && npm run lint && npm test && npm run build` on `ubuntu-latest` with Node.js 22 (matches `ci.yml`'s `ci` job).
+1. `ci-checks`: runs `pnpm install --frozen-lockfile && pnpm run lint && pnpm test && pnpm run build` on `ubuntu-latest` with Node.js 22. This is the full unit suite; unlike `ci.yml`, it applies no affected-test selection.
 2. `smoke`: invokes `_smoke.yml` via `uses: ./.github/workflows/_smoke.yml` with `ref: ${{ needs.resolve.outputs.ref }}`.
 
-Both jobs SHALL declare `needs: [resolve]` so they fan out in parallel after version resolution. The `publish` job SHALL declare `needs: [resolve, ci-checks, smoke, tag-and-push]`; the `tag-and-push` `needs:` entry SHALL be tolerated when skipped (tag-push entry) via GitHub Actions' default behavior treating skipped predecessors as success.
+Both jobs SHALL declare `needs: [resolve]` so they fan out in parallel after version resolution. The `publish` job SHALL declare `needs: [resolve, ci-checks, smoke, tag-and-push]`. The `tag-and-push` `needs:` entry SHALL be tolerated when skipped (tag-push entry), via GitHub Actions' default behaviour of treating skipped predecessors as success.
 
 #### Scenario: Release-gate fans out in parallel
 - **WHEN** the publish workflow runs (either trigger)
@@ -275,7 +310,8 @@ Both jobs SHALL declare `needs: [resolve]` so they fan out in parallel after ver
 
 #### Scenario: ci-checks mirrors PR CI
 - **WHEN** the `ci-checks` job runs as part of `release-gate`
-- **THEN** it SHALL execute `npm ci`, `npm run lint`, `npm test`, `npm run build` in that order on Node.js 22 / `ubuntu-latest`
+- **THEN** it SHALL execute `pnpm install --frozen-lockfile`, `pnpm run lint`, `pnpm test`, `pnpm run build` in that order on Node.js 22 / `ubuntu-latest`
+- **AND** `pnpm test` SHALL run the full suite with no affected-test selection
 
 #### Scenario: smoke calls reusable workflow with resolved ref
 - **WHEN** the `smoke` job runs as part of `release-gate`
@@ -290,7 +326,7 @@ Both jobs SHALL declare `needs: [resolve]` so they fan out in parallel after ver
 ### Requirement: Repo-lint pins the release-gate contract
 The `packages/shared/src/__tests__/publish-workflow-contract.test.ts` test SHALL be extended to assert the release-gate shape so that the gate cannot silently disappear in a future workflow edit. The test SHALL parse `publish.yml` and assert:
 1. A `resolve` job exists with `outputs.ref` declared.
-2. A `ci-checks` job exists with `needs: [resolve]` and runs `npm run lint`, `npm test`, `npm run build`.
+2. A `ci-checks` job exists with `needs: [resolve]` and runs `pnpm run lint`, `pnpm test`, `pnpm run build`.
 3. A `smoke` job exists with `needs: [resolve]` and is a `uses: ./.github/workflows/_smoke.yml` reference passing `ref: ${{ needs.resolve.outputs.ref }}`.
 4. A `tag-and-push` job exists with `if: github.event_name == 'workflow_dispatch'`.
 5. The `publish` job's `needs:` array contains all of: `resolve`, `ci-checks`, `smoke`, `tag-and-push`.
@@ -501,15 +537,19 @@ edit that adds a dependency without that machinery is invalid.
   neutral shell (already pinned by `pnpm-migration-contract.test.ts` X6)
 
 ### Requirement: CI uploads the vitest JSON report on every run
-The `ci.yml` unit-test step SHALL produce a vitest JSON report and upload it as a workflow artifact on success and failure alike, so a failed or retried timing test is attributable from the run page without log mining.
+Every `ci.yml` and `nightly-tests.yml` job that runs vitest SHALL produce a vitest JSON report and SHALL upload it as a workflow artifact on success and on failure. This covers each unit shard, the real-process job, and the packaging-scenarios job. Artifact names SHALL be unique per job and shard, so a failed or retried timing test is attributable from the run page without log mining. A job that was cancelled before vitest wrote a report MAY upload nothing. A consumer SHALL report any job that the selection expected to run tests and that uploaded no report as having no report, and SHALL NOT treat it as passing. A shard with no assigned files is not expected to upload a report.
 
 #### Scenario: Artifact present on a red run
-- **WHEN** `pnpm test` fails in CI
-- **THEN** an artifact containing the vitest JSON report SHALL be attached to the run
+- **WHEN** a unit shard fails in CI
+- **THEN** an artifact containing that shard's vitest JSON report SHALL be attached to the run
 
 #### Scenario: Artifact present on a green run
-- **WHEN** `pnpm test` passes in CI
-- **THEN** the same artifact SHALL be attached
+- **WHEN** a unit shard passes in CI
+- **THEN** the same per-shard artifact SHALL be attached
+
+#### Scenario: Shard artifacts do not collide
+- **WHEN** several unit shards run in one workflow run
+- **THEN** each SHALL upload under a distinct artifact name and all SHALL be present
 
 ### Requirement: Sharded browser-E2E workflow runs on schedule, dispatch, and label
 

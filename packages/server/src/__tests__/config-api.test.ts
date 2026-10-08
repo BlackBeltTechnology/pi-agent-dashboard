@@ -208,14 +208,15 @@ describe("config-api", () => {
       expect(written.sessionHeap).toEqual({ maxOldSpaceMb: 256, initialOldSpaceMb: 64 });
     });
 
-    it("deep-merges serverHeap and flags a COLD start, not the generic restart", () => {
+    it("deep-merges serverHeap and flags the generic restart (it now applies on /api/restart)", () => {
       fs.writeFileSync(configFile, JSON.stringify({ port: 8000, serverHeap: { maxOldSpaceMb: 1536 } }));
       const result = writeConfigPartial({ serverHeap: { maxOldSpaceMb: 2048 } } as any);
       expect(result.success).toBe(true);
-      expect(result.coldStartRequired).toBe(true);
-      // The in-place restart banner must NOT fire: `/api/restart` inherits the
-      // environment and would keep the old ceiling, so promising it works lies.
-      expect(result.restartRequired).toBe(false);
+      // `/api/restart` re-reads and re-stamps the ceiling, so the in-place
+      // restart IS sufficient and no stronger cold-start signal exists.
+      // See change: guard-server-heap-and-store-coupling (D5).
+      expect(result.restartRequired).toBe(true);
+      expect(result).not.toHaveProperty("coldStartRequired");
       expect(JSON.parse(fs.readFileSync(configFile, "utf-8")).serverHeap.maxOldSpaceMb).toBe(2048);
     });
 
@@ -223,7 +224,7 @@ describe("config-api", () => {
       fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
       const result = writeConfigPartial({ sessionHeap: { maxOldSpaceMb: 256 } } as any);
       expect(result.restartRequired).toBe(false);
-      expect(result.coldStartRequired).toBeUndefined();
+      expect(result).not.toHaveProperty("coldStartRequired");
     });
 
     it("a partial write omitting sessionHeap preserves the persisted block (test-plan #E8)", () => {

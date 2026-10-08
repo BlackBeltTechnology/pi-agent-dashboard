@@ -2,11 +2,11 @@
  * Directory and preference handlers: pin, unpin, reorder, openspec, pi-gateway forwards.
  */
 
-import { isGroupByMode } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { isValidSectionId } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import { archiveCompleted as openspecArchiveCompleted } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import { isGroupByMode } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import { safeRealpathSync } from "../resolve-path.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 
@@ -179,6 +179,9 @@ function broadcastCollapsedFolders(ctx: BrowserHandlerContext): void {
   ctx.broadcast({
     type: "collapsed_folders_updated",
     collapsedFolders: ctx.preferencesStore.getCollapsedFolders(),
+    ...(ctx.preferencesStore.getExpandedFolders
+      ? { expandedFolders: ctx.preferencesStore.getExpandedFolders() }
+      : {}),
   });
 }
 
@@ -191,6 +194,15 @@ export function handleSetFolderCollapsed(
   }
 }
 
+export function handleSetFolderExpanded(
+  msg: Extract<BrowserToServerMessage, { type: "set_folder_expanded" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (typeof msg.path !== "string" || msg.path.length === 0 || typeof msg.expanded !== "boolean") return;
+  // Pinning may also un-collapse, so one broadcast carries both lists.
+  if (ctx.preferencesStore?.setExpandedFolder?.(msg.path, msg.expanded)) broadcastCollapsedFolders(ctx);
+}
+
 // ── card sections (configurable-session-card-sections) ──────────
 //
 // Same shape as collapsed folders: validate at the trust boundary, let the
@@ -201,11 +213,29 @@ function broadcastCardSections(ctx: BrowserHandlerContext): void {
   ctx.broadcast({ type: "card_sections_updated", cardSections: ctx.preferencesStore.getCardSections() });
 }
 
+export function handleSetFocusMode(
+  msg: Extract<BrowserToServerMessage, { type: "set_focus_mode" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (typeof msg.enabled !== "boolean") return;
+  if (ctx.preferencesStore?.setFocusEnabled?.(msg.enabled)) broadcastCardSections(ctx);
+}
+
+export function handleSetFocusProfile(
+  msg: Extract<BrowserToServerMessage, { type: "set_focus_profile" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  // The store re-validates (strict, key cap) and returns false without mutating.
+  if (ctx.preferencesStore?.setFocusProfile?.(msg.profile)) broadcastCardSections(ctx);
+}
+
 export function handleSetCardSectionVisibility(
   msg: Extract<BrowserToServerMessage, { type: "set_card_section_visibility" }>,
   ctx: BrowserHandlerContext,
 ): void {
   if (!isValidSectionId(msg.section)) return;
+  // Effects are global-only (card-visual-effects): a folder-scoped write is rejected.
+  if (msg.section.startsWith("fx-") && msg.path !== undefined) return;
   if (msg.visible !== null && typeof msg.visible !== "boolean") return;
   if (msg.path !== undefined && (typeof msg.path !== "string" || msg.path.length === 0)) return;
   if (ctx.preferencesStore?.setCardSectionVisibility?.(msg.path, msg.section, msg.visible)) {
@@ -330,9 +360,15 @@ export function handleOpenSpecRefresh(
 ): void {
   if (ctx.directoryService) {
     ctx.directoryService
-      .refreshOpenSpec(msg.cwd)
+      // Gated entry point (D1): same admission chain as `openspec_get` —
+      // enabled → opted out → tracked → `<cwd>/openspec/` root. `null` means
+      // a gated cwd: silence, never a broadcast (the client only renders
+      // folders for tracked cwds, and a gated refresh must spawn nothing and
+      // leave no cache residue).
+      // See change: harden-server-request-surfaces (D1).
+      .refreshOpenSpecGated(msg.cwd)
       .then((data) => {
-        ctx.broadcast({ type: "openspec_update", cwd: msg.cwd, data });
+        if (data) ctx.broadcast({ type: "openspec_update", cwd: msg.cwd, data });
       })
       // Fire-and-forget from a sync dispatch handler: a rejected refresh must
       // not float. The gateway stays responsive; the client simply gets no

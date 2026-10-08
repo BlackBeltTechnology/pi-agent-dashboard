@@ -5,3 +5,5 @@ Renders tool-call card. Adds `showResultBody?: boolean` prop (default `true`); w
 `toolDetails.healedBy === "superseded"` → renders a muted `recovered` badge (`data-testid="tool-superseded-badge"`) beside the summary, signalling a client-synthesized supersede heal (real result unrecoverable, completion proven by a later inference). See change: fix-stuck-tool-card-superseded-heal. Errored status icon uses `--severity-error-fg`; the sibling sky/green/yellow branches keep their literals. See change: repair-tool-error-surfaces.
 
 Stop UI delegated to `<ToolStopControl>` rendered as sibling AFTER the toggle `<button>` (header wrapped in flex div; no nested interactive). Optional `stopController` prop (burst-owned) wins; else own `useToolStopState({active: status==="running" && !stopController})`. Inline `<span role=button>` stop + `severity-exempt` red literal removed. See change: fix-chat-burst-tool-stop.
+
+Props `nested?`, `nestedComplete?` → renders `NestedToolCallList` under the header (independent of `showResultBody`). Passed by `ChatView`, `ToolBurstGroup`, `CollapsedToolGroup`. See change: render-nested-tool-calls.

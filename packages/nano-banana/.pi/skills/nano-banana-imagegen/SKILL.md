@@ -114,6 +114,30 @@ Edit instructions should describe the change:
 | `--flash` | Use gemini-2.0-flash (faster, simpler images) |
 | `--prompt-file <path>` | Read prompt from file |
 | `--list-models` | Show available models |
+| `--api-key <key>` | Explicit Gemini key |
+| `--backend gemini\|pi` | Backend (default `gemini`; `pi` is opt-in, see below) |
+
+### pi backend (opt-in, OpenRouter)
+
+`--backend pi` (or `NANO_BANANA_BACKEND=pi`) generates through pi's own model
+runtime instead of the Gemini CLI — no `GEMINI_API_KEY` needed.
+
+- **Credential:** sign in to OpenRouter in pi (`/login openrouter`) or set `OPENROUTER_API_KEY`.
+- **Requires** `@earendil-works/pi-coding-agent >= 1.0.0` resolvable next to this package.
+- **Opt-in only:** a missing Gemini key never falls back to pi; library callers
+  (e.g. the video-production storyboard) stay on Gemini unless they pass `backend: "pi"`.
+- **Models** are OpenRouter image ids. Bare Gemini ids get `google/` in front
+  (`--model gemini-3-pro-image` → `google/gemini-3-pro-image`); non-Google models
+  need the full `vendor/model` id (`black-forest-labs/flux.2-pro`). Default
+  `google/gemini-2.5-flash-image`; `--flash` maps to `google/gemini-3.1-flash-lite-image`.
+  `gemini-2.0-flash-exp` does not exist there — an unknown id lists the known ones.
+- **Cost:** the success line prints `(pi · <model>) · ~$<cost> est.` — an estimate
+  computed from token usage, not the billed amount.
+
+```bash
+pi-nano-banana "a red fox in the snow, watercolor" -o fox.png --backend pi
+pi-nano-banana "make it night" --file fox.png -o fox-night.png --backend pi
+```
 
 ## Best Practices
 
@@ -151,4 +175,6 @@ GEMINI_API_KEY=your-api-key-here
 |---------|----------|
 | "No image in response" | Prompt may have triggered safety filters — rephrase |
 | Poor quality results | Add more specific style guidance, use `gemini-2.0-flash-exp` |
+| `--backend pi`: "Provider is not configured" | Run `/login openrouter` in pi or set `OPENROUTER_API_KEY` |
+| `--backend pi`: "needs @earendil-works/pi-coding-agent >= 1.0.0" | Install/update pi next to the package |
 | Image doesn't match description | Be more explicit about composition, add negative constraints |

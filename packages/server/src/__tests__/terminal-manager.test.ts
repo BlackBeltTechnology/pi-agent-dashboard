@@ -104,6 +104,60 @@ describe("TerminalManager", () => {
       }
     });
 
+    // The dashboard's own stamped heap flag must not cap every Node tool run in
+    // a terminal; an operator's flag must survive. Provenance-gated by the
+    // marker, never by sniffing the flag. See change:
+    // guard-server-heap-and-store-coupling (D4, test-plan #X3 #X4 #X7 #X8).
+    describe("heap flag strip", () => {
+      const MARKER = "PI_DASHBOARD_HEAP_FLAG";
+      const spawnEnv = async (vars: Record<string, string | undefined>) => {
+        for (const [k, v] of Object.entries(vars)) vi.stubEnv(k, v);
+        try {
+          const pty = await import("node-pty");
+          manager.spawn("/tmp");
+          return vi.mocked(pty.spawn).mock.calls.at(-1)![2]!.env as Record<string, string>;
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      };
+
+      it("X3: drops the server's own stamped old-space flag", async () => {
+        const env = await spawnEnv({
+          NODE_OPTIONS: "--enable-source-maps --max-old-space-size=1536",
+          [MARKER]: "--max-old-space-size=1536",
+        });
+        expect(env.NODE_OPTIONS).toBe("--enable-source-maps");
+      });
+
+      it("X8: drops the provenance marker too", async () => {
+        const env = await spawnEnv({
+          NODE_OPTIONS: "--max-old-space-size=1536",
+          [MARKER]: "--max-old-space-size=1536",
+        });
+        expect(env).not.toHaveProperty(MARKER);
+        expect(env).not.toHaveProperty("NODE_OPTIONS");
+      });
+
+      it("keeps a quoted --require path with repeated spaces byte-for-byte (CodeRabbit #780)", async () => {
+        const quoted = '--require "/opt/my  hooks/pre  load.js"';
+        const env = await spawnEnv({
+          NODE_OPTIONS: `${quoted} --max-old-space-size=1536`,
+          [MARKER]: "--max-old-space-size=1536",
+        });
+        expect(env.NODE_OPTIONS).toBe(quoted);
+      });
+
+      it("X4: preserves an operator flag distinct from the stamp", async () => {
+        const env = await spawnEnv({ NODE_OPTIONS: "--max_old_space_size=4096", [MARKER]: undefined });
+        expect(env.NODE_OPTIONS).toBe("--max_old_space_size=4096");
+      });
+
+      it("X7: preserves an operator flag identical to the stamp when no marker names it", async () => {
+        const env = await spawnEnv({ NODE_OPTIONS: "--max-old-space-size=1536", [MARKER]: undefined });
+        expect(env.NODE_OPTIONS).toBe("--max-old-space-size=1536");
+      });
+    });
+
     it("creates a terminal with term- prefix ID", () => {
       const session = manager.spawn("/tmp");
       expect(session.id).toMatch(/^term-/);
@@ -147,7 +201,8 @@ describe("TerminalManager", () => {
       manager.spawn("/home/user");
       expect(pty.spawn).toHaveBeenCalledWith(
         expect.any(String),
-        [],
+        // POSIX: login shell so ~/.zprofile / ~/.bash_profile (e.g. `brew shellenv`) run.
+        process.platform === "win32" ? [] : ["-l"],
         expect.objectContaining({
           cwd: "/home/user",
           cols: 80,
@@ -668,5 +723,20 @@ describe("transcript tombstone + input tracking", () => {
     expect(mgr.getTerminalRecord(s.id)?.sawInput).toBe(false);
     handlers.message(Buffer.from("a"), false);
     expect(mgr.getTerminalRecord(s.id)?.sawInput).toBe(true);
+  });
+});
+
+
+describe("terminal owner stamp (identity plane, 18.13)", () => {
+  it("spawn stamps a COPY of the owner's (iss, sub) and nothing else; absent owner ⇒ no field", () => {
+    const mgr = createTerminalManager();
+    const owner = { iss: "https://idp", sub: "anna", name: "Anna", email: "a@x" };
+    const owned = mgr.spawn("/tmp", { owner });
+    expect(owned.principalOwner).toEqual({ iss: "https://idp", sub: "anna" });
+    expect(owned.principalOwner).not.toBe(owner);
+    const plain = mgr.spawn("/tmp");
+    expect("principalOwner" in plain).toBe(false);
+    mgr.kill(owned.id);
+    mgr.kill(plain.id);
   });
 });

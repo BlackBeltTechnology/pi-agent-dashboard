@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDashboardExecEnv, createCommandHandler, parseSendPrompt, tryExecSlashTemplate } from "../command-handler.js";
+import { buildDashboardExecEnv, createCommandHandler, isTeamConfinedSession, parseSendPrompt, tryExecSlashTemplate } from "../command-handler.js";
 import { RetryTracker } from "../retry-tracker.js";
 
 // Mock the tool registry so `!`/`!!` bash resolution is deterministic
@@ -55,6 +55,40 @@ describe("CommandHandler", () => {
     await handler.handle(msg);
 
     expect(pi.sendUserMessage).toHaveBeenCalledWith("Hello agent", { deliverAs: "followUp" });
+  });
+
+  // Team sessions (add-team-plugin D7): host-action prompts bypass the tool_call guard, so they are refused.
+  describe("team-confined sessions (PI_EXT_TEAM_TOOLS)", () => {
+    afterEach(() => {
+      process.env.PI_EXT_TEAM_TOOLS = undefined;
+      delete process.env.PI_EXT_TEAM_TOOLS;
+    });
+
+    it("refuses bash / slash / reload / new / model / shutdown / mgmt prompts; plain text still flows", async () => {
+      process.env.PI_EXT_TEAM_TOOLS = "chat";
+      const pi = createMockPi();
+      const execSpy = vi.fn();
+      (pi as any).exec = execSpy;
+      const shutdown = vi.fn();
+      const reload = vi.fn();
+      const eventSink = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { eventSink, shutdown, reload });
+      for (const text of ["!cat ~/.ssh/id_rsa", "!!id", "/reload", "/new", "/quit", "/model a/b", "/some-extension-command arg"]) {
+        await handler.handle({ type: "send_prompt", sessionId: "s1", text } as ServerToExtensionMessage);
+      }
+      expect(execSpy).not.toHaveBeenCalled();
+      expect(shutdown).not.toHaveBeenCalled();
+      expect(reload).not.toHaveBeenCalled();
+      expect(pi.sendUserMessage).not.toHaveBeenCalled();
+      expect(eventSink).toHaveBeenCalledWith({ type: "prompt_received", sessionId: "s1", fresh: false });
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "just a question" } as ServerToExtensionMessage);
+      expect(pi.sendUserMessage).toHaveBeenCalledWith("just a question", { deliverAs: "followUp" });
+    });
+
+    it("an unconfined (non-team) session keeps every route", () => {
+      expect(isTeamConfinedSession({})).toBe(false);
+      expect(isTeamConfinedSession({ PI_EXT_TEAM_TOOLS: "files" })).toBe(true);
+    });
   });
 
   // Non-turn commands never produce a user message_start, so the bridge settles

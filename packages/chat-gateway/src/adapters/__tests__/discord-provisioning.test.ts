@@ -17,6 +17,9 @@ import type {
 /** Discord VIEW_CHANNEL. */
 const VIEW = 1n << 10n;
 const GUILD = "g1";
+const SELF = "bot-self";
+/** What the bot grants itself: view, send, embed, history, public threads, send in threads. */
+const SELF_ALLOW = VIEW | (1n << 11n) | (1n << 14n) | (1n << 16n) | (1n << 35n) | (1n << 38n);
 
 interface Recorded {
   kind: "create" | "update";
@@ -42,6 +45,10 @@ class FakeOps implements DiscordChannelOps {
 
   async guildIdFor(_channelId: string) {
     return GUILD;
+  }
+
+  selfId() {
+    return SELF;
   }
 
   /** Permission PATCHes = updates that touch the access list. */
@@ -100,6 +107,15 @@ describe("DiscordAdapter channel provisioning", () => {
       allow: VIEW,
       deny: 0n,
     });
+    // The bot grants ITSELF access in the same create call: the @everyone deny
+    // applies to the bot too, and without this it is locked out of its own
+    // channel (seen on a real guild as 403 Missing Access, inbound never arrives).
+    expect(payload.permissionOverwrites[3]).toEqual({
+      id: SELF,
+      type: 1,
+      allow: SELF_ALLOW,
+      deny: 0n,
+    });
 
     // The invariant: zero create-then-patch window.
     expect(ops.overwritePatches).toHaveLength(0);
@@ -146,6 +162,14 @@ describe("DiscordAdapter channel provisioning", () => {
       id: "u2",
       type: 1,
       allow: VIEW,
+      deny: 0n,
+    });
+    // A reconcile REPLACES the list, so it must re-carry the bot-self allow or
+    // the first access change would lock the bot out of its channel.
+    expect(payload.permissionOverwrites?.[2]).toEqual({
+      id: SELF,
+      type: 1,
+      allow: SELF_ALLOW,
       deny: 0n,
     });
     // Never a recreate.

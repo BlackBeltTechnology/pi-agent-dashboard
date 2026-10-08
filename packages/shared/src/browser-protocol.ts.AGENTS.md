@@ -25,3 +25,15 @@ Server→browser: `PairPendingChangedMessage` (`pair_pending_changed`, NO fields
 ## electron-runtime-overlay-updates
 
 `RuntimeUpdateMessage` = `runtime_update_progress` (version, phase fetch/install/verify/materialize/done/error, message) \| `runtime_update_staged` \| `runtime_update_failed`. See change: electron-runtime-overlay-updates.
+
+Fork-named `legacyPiInstalls?` bootstrap field removed (no producer/consumer). See change: drop-mariozechner-pi-fork.
+
+- Adds `YoloSurfaceId = AccessPlaneId | "agent-path"` (AccessPlaneId stays closed). See change: yolo-covers-agent-path-gate.
+
+## add-focus-mode-and-card-block-toggles
+
+- Browser→server: `set_focus_mode {enabled}`, `set_focus_profile {profile: FocusProfile | null}` (null resets to built-in), `set_folder_expanded {path, expanded}`. Explicit target state, never toggles.
+- Server→browser: `collapsed_folders_updated` carries optional `expandedFolders: string[]` beside `collapsedFolders` — additive, so an older client ignores the accordion half.
+- See change: add-focus-mode-and-card-block-toggles.
+
+See change: add-browser-editor-pane-tab — `EditorTabOpenMessage {type:"editor_tab_open", sessionId, path}` in `ServerToBrowserMessage`; `BrowserRelayInputMessage` is a union on `kind` (mouse/key/scroll/bringToFront/resize; `resize` requires numeric `width`/`height`); `BrowserRelayTabStatus.agentEmulation?`.

@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
-import React from "react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import type React from "react";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 // Mock mermaid module
@@ -14,13 +14,14 @@ vi.mock("mermaid", () => ({
 
 // Import after mock is set up
 import {
-  MermaidBlock,
-  _svgCache,
   _errorCache,
+  _svgCache,
   colorizeDefaultNodes,
   hashId,
+  MermaidBlock,
   rgba,
 } from "../preview/MermaidBlock.js";
+import { VIEWPORT_HEIGHT_CSS } from "../preview/mermaid-fit.js";
 
 const ACCENTS_A = ["#3b82f6", "#22c55e", "#eab308", "#ef4444", "#a855f7", "#f97316"];
 const ACCENTS_B = ["#8be9fd", "#50fa7b", "#f1fa8c", "#ff5555", "#bd93f9", "#ffb86c"];
@@ -273,5 +274,47 @@ describe("MermaidBlock", () => {
     expect(_svgCache.size).toBe(2);
     expect(_svgCache.get("graph TD; A-->B\0base:light")).toBe(svgLight);
     expect(_svgCache.get("graph TD; A-->B\0base:dark")).toBe(svgDark);
+  });
+});
+
+// See change: fix-markdown-remount-storm (D4; test-plan E20-E22, fitted view)
+describe("MermaidBlock fixed-height fitted viewport", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _svgCache.clear();
+    _errorCache.clear();
+  });
+
+  async function mountWith(svg: string, rect: { width: number; height: number }) {
+    const spy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({ ...rect, x: 0, y: 0, top: 0, left: 0, right: rect.width, bottom: rect.height, toJSON() {} } as DOMRect);
+    mockRender.mockResolvedValue({ svg });
+    const utils = renderWithTheme(<MermaidBlock code={`graph TD; X-->${Math.random()}`} />);
+    await waitFor(() => expect(utils.container.querySelector(".mermaid-diagram-inner")).not.toBeNull());
+    return { ...utils, restore: () => spy.mockRestore() };
+  }
+
+  it("viewport uses clamp(240px, 50vh, 640px), not minHeight", async () => {
+    const { container, restore } = await mountWith('<svg viewBox="0 0 800 400"></svg>', { width: 600, height: 420 });
+    const vp = container.querySelector(".mermaid-diagram > div") as HTMLElement;
+    // jsdom's CSSOM drops clamp(); assert the source constant and that minHeight is gone.
+    expect(VIEWPORT_HEIGHT_CSS).toBe("clamp(240px, 50vh, 640px)");
+    expect(vp.style.minHeight).toBe("");
+    restore();
+  });
+
+  it("initial transform is the contain-fit scale", async () => {
+    const { container, restore } = await mountWith('<svg viewBox="0 0 800 400"></svg>', { width: 600, height: 420 });
+    const inner = container.querySelector(".mermaid-diagram-inner") as HTMLElement;
+    await waitFor(() => expect(inner.style.transform).toContain("scale(0.75)"));
+    restore();
+  });
+
+  it("very tall diagram clamps to the 0.5 floor", async () => {
+    const { container, restore } = await mountWith('<svg viewBox="0 0 800 2000"></svg>', { width: 600, height: 420 });
+    const inner = container.querySelector(".mermaid-diagram-inner") as HTMLElement;
+    await waitFor(() => expect(inner.style.transform).toContain("scale(0.5)"));
+    restore();
   });
 });

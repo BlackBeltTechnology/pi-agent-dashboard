@@ -66,6 +66,17 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     fi
     echo "No unresolved-symbol errors in server.log"
 
+    # See change: fix-appimage-cold-boot-latency. A default launch boots on the
+    # Node-native TS loader; the spawn header names the selected loader.
+    if [ "${PI_DASHBOARD_TS_LOADER:-}" != "jiti" ]; then
+      if ! grep -F "launch (parent pid" "$LOG_PATH" | tail -1 | grep -qF "native-ts-register.mjs"; then
+        echo "FAIL: the default launch's server.log header does not name native-ts-register.mjs:"
+        grep -F "launch (parent pid" "$LOG_PATH" | tail -1
+        exit 1
+      fi
+      echo "Default launch header names the native TS loader"
+    fi
+
     # The running pi must satisfy the declared compatibility floor, and the
     # health probe must not report a blocking skew error.
     #
@@ -304,8 +315,8 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     fi
     echo "Unauthenticated POST /mcp refused from loopback (401)"
 
-    # E28: no OAuth callback port is bound. This change implements no OAuth
-    # flow precisely so it cannot contend with pi-mcp-adapter's own callback
+    # E28: no OAuth callback port is bound. The dashboard implements no OAuth
+    # flow precisely so it cannot contend with pi's built-in MCP OAuth callback
     # server. Asserted by enumerating the server process's listening ports and
     # requiring only the two it should own.
     if command -v lsof >/dev/null 2>&1; then
@@ -315,7 +326,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
         case "$PORT" in
           8000|8001) ;;
           *)
-            echo "FAIL: unexpected listening port $PORT — an OAuth callback listener would contend with pi-mcp-adapter"
+            echo "FAIL: unexpected listening port $PORT — an OAuth callback listener would contend with pi's MCP OAuth callback"
             exit 1
             ;;
         esac
@@ -544,6 +555,32 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
       exit 1
     fi
     echo "#X11: in-place restart keeps $BEFORE; a cold start adopts 3072"
+
+    # --- TS loader rollback on a FRESH launch (test-plan #X5) ---------------
+    # See change: fix-appimage-cold-boot-latency. `/api/restart` keeps the
+    # running loader, so the jiti rollback needs `stop` + a fresh `start` with
+    # PI_DASHBOARD_TS_LOADER=jiti; its spawn header must name jiti-register.mjs.
+    pi-dashboard stop >/dev/null 2>&1 || true
+    sleep 2
+    # Truncate first: an earlier (possibly jiti) header must not satisfy the check.
+    : > "$LOG_PATH"
+    PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start >/dev/null 2>&1 &
+    waited=0
+    while [ $waited -lt 30 ]; do
+      curl -fsS http://localhost:8000/api/health >/dev/null 2>&1 && break
+      sleep 1
+      waited=$((waited + 1))
+    done
+    if ! curl -fsS http://localhost:8000/api/health >/dev/null 2>&1; then
+      echo "FAIL (#X5): PI_DASHBOARD_TS_LOADER=jiti fresh launch never reached /api/health"
+      exit 1
+    fi
+    if ! grep -F "launch (parent pid" "$LOG_PATH" | tail -1 | grep -qF "jiti-register.mjs"; then
+      echo "FAIL (#X5): the jiti launch's server.log header does not name jiti-register.mjs:"
+      grep -F "launch (parent pid" "$LOG_PATH" | tail -1
+      exit 1
+    fi
+    echo "#X5: jiti rollback on a fresh launch is healthy and its header names jiti-register.mjs"
 
     restore_config
 

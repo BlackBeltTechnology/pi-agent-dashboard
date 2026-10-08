@@ -13,6 +13,8 @@ import { mergeSessionMeta, metaPath, readSessionMeta, type SessionMeta, writeSes
 import { condenseForFirstMessage } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import type { DashboardSession, SessionSource } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { readJsonlMtime } from "./derive-ended-at.js";
+import { projectPluginRefs, sanitizePersistedBags } from "./plugin-refs.js";
+import { STATS_EXTRACTOR_VERSION } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import { extractSessionStats } from "./session-stats-reader.js";
 
 function getSessionsDir(): string {
@@ -147,6 +149,10 @@ export function sessionFromMeta(
   const status = (meta.status as DashboardSession["status"]) ?? "ended";
   const resolvedStartedAt = meta.startedAt ?? startedAt;
   return {
+    // Plugin-owned refs projected FIRST so every core field below wins; the
+    // bag is validated (untrusted sidecar) — see session/plugin-refs.ts.
+    ...projectPluginRefs(meta.pluginRefs),
+    pluginRefs: sanitizePersistedBags(meta.pluginRefs),
     id: sessionId,
     cwd: meta.cwd ?? "",
     name: meta.name,
@@ -194,6 +200,7 @@ export function sessionFromMeta(
     cacheRead: meta.cacheRead,
     cacheWrite: meta.cacheWrite,
     cost: meta.cost ?? 0,
+    statsExtractorVersion: meta.statsExtractorVersion,
     contextTokens: meta.contextTokens,
     contextWindow: meta.contextWindow,
     sessionFile,
@@ -223,6 +230,9 @@ export function sessionFromMeta(
     // Restore goal ownership from meta so the session-card goal chip resolves
     // its owning goal after a server restart. See change: add-goals-folder-page.
     goalId: meta.goalId,
+    // Restore the human owner so owner-scoping survives a restart / cold start
+    // without re-reading the sidecar. See change: add-multi-user-identity-plane.
+    principalOwner: meta.principalOwner,
     // Restore session classification for the client (grouping / board
     // visibility). Recovery no longer reads `kind` — it reads the core-owned
     // `recover` flag below. See change: reopen-sessions-after-shutdown.
@@ -236,6 +246,9 @@ export function sessionFromMeta(
     // classify an interrupted session without re-reading the sidecar. Absent
     // ⇒ recoverable (default true). See change: detach-automation-goal-from-core.
     recover: meta.recover,
+    // Plugin-declared hide intent, honoured by the register decision on a
+    // non-reattach re-register after restart. See change: fix-plugin-hidden-across-restart.
+    pluginHidden: meta.pluginHidden,
     // Reconstruct worktree parentage from the persisted grouping subset so
     // cold-start grouping (no live bridge) collapses this session under its
     // parent repo via `resolveSessionGroupPath`, matching live-bridge grouping.
@@ -315,6 +328,9 @@ function archivedRowFromMeta(
     // origin host's path on THIS disk (#E15).
     // See change: serve-retained-remote-transcripts.
     originDeviceId: meta.originDeviceId,
+    // Owner restored from the sidecar so a cold-boot archive reseed keeps the
+    // archived session owner-gated (§8.1). See change: add-multi-user-identity-plane.
+    principalOwner: meta.principalOwner,
   };
 }
 
@@ -393,8 +409,12 @@ export function scanAllSessions(sessionsDir?: string, opts: ScanOptions = {}): S
           }
         }
 
-        // Check cache freshness: if .jsonl is newer than cachedAt, re-extract
-        let needsReExtract = false;
+        // Check cache freshness: if .jsonl is newer than cachedAt, re-extract.
+        // A sidecar whose totals predate the current extractor rules also
+        // re-extracts, regardless of mtime, through the same merge (so the
+        // persisted-contextWindow rule covers both triggers).
+        // See change: count-non-message-usage.
+        let needsReExtract = (meta.statsExtractorVersion ?? 0) < STATS_EXTRACTOR_VERSION;
         if (meta.cachedAt) {
           try {
             const jsonlMtime = statSync(sessionFile).mtimeMs;
@@ -431,6 +451,7 @@ export function scanAllSessions(sessionsDir?: string, opts: ScanOptions = {}): S
             cacheRead: stats.cacheRead,
             cacheWrite: stats.cacheWrite,
             cost: stats.cost,
+            statsExtractorVersion: STATS_EXTRACTOR_VERSION,
             contextTokens: stats.lastTotalTokens,
             contextWindow: preserveContextWindow ? meta.contextWindow : stats.contextWindow,
             cachedAt: Date.now(),
@@ -468,6 +489,7 @@ export function scanAllSessions(sessionsDir?: string, opts: ScanOptions = {}): S
           cacheRead: stats.cacheRead,
           cacheWrite: stats.cacheWrite,
           cost: stats.cost,
+          statsExtractorVersion: STATS_EXTRACTOR_VERSION,
           contextTokens: stats.lastTotalTokens,
           contextWindow: stats.contextWindow,
         } : {}),

@@ -33,7 +33,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
-import { shouldUrlWrapEntry, isJitiLoader } from "../platform/node-spawn.js";
+import { shouldUrlWrapEntry, isJitiLoader, isTsxLoader, buildNodeImportArgvParts } from "../platform/node-spawn.js";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -54,6 +54,15 @@ describe("jiti behavioural contract for shouldUrlWrapEntry", () => {
     expect(shouldUrlWrapEntry(jitiLoader, "win32")).toBe(false);
     expect(shouldUrlWrapEntry(jitiLoader, "linux")).toBe(false);
     expect(shouldUrlWrapEntry(jitiLoader, "darwin")).toBe(false);
+  });
+
+  // Loader identity is mutually exclusive (test-plan #E3).
+  // See change: cleanup-stale-fork-specs.
+  it("isTsxLoader / isJitiLoader classify tsx, jiti and other loaders", () => {
+    const ident = (l: string) => [isTsxLoader(l), isJitiLoader(l)];
+    expect(ident("C:\\x\\node_modules\\tsx\\dist\\esm\\index.mjs")).toEqual([true, false]);
+    expect(ident("file:///a/node_modules/jiti/lib/jiti-register.mjs")).toEqual([false, true]);
+    expect(ident("/usr/bin/node-loader.mjs")).toEqual([false, false]);
   });
 
   it("tsx loader → entry passed RAW on every platform (unchanged)", () => {
@@ -92,5 +101,27 @@ describe("jiti behavioural contract for shouldUrlWrapEntry", () => {
           "See change: fix-windows-standalone-spawn.",
       );
     }
+  });
+});
+
+// E13 — the native loader passes the entry RAW on every platform, like jiti.
+// Node runs the main entry through `path.resolve()` before building its URL,
+// so a `file:///D:/…` entry becomes `D:\\<cwd>\\file:\\D:\\…` and the launch
+// dies with ERR_MODULE_NOT_FOUND (win32 CI run 37347903583). Loader stays
+// `file://`. See change: fix-appimage-cold-boot-latency (design D8, revised).
+describe("native loader entry-wrap (E13)", () => {
+  const native = "file:///x/pi-dashboard-shared/src/platform/native-ts-register.mjs";
+  it.each([
+    ["win32", "B:\\Dev\\cli.ts"],
+    ["win32", "D:\\a\\server\\cli.ts"],
+    ["linux", "/x/cli.ts"],
+    ["darwin", "/x/cli.ts"],
+  ] as const)("%s: entry %s stays raw", (platform, entry) => {
+    expect(shouldUrlWrapEntry(native, platform)).toBe(false);
+    const parts = buildNodeImportArgvParts({ loader: native, entry, platform });
+    expect(parts[0]).toBe("--import");
+    expect(parts[1]).toBe(native);
+    expect(parts[1]!.startsWith("file://")).toBe(true);
+    expect(parts[2]).toBe(entry);
   });
 });

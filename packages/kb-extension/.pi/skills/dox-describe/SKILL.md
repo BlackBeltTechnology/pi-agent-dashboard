@@ -45,7 +45,8 @@ on every markdown write, and every subagent contends on the single SQLite index;
 ≤2 keeps `SQLITE_BUSY` recoverable — the parent's final reindex is
 authoritative). Skip groups whose rows are entirely past the cap.
 
-Spawn with an inline `Agent` label (write-capable, parent defaults). Do NOT use
+Spawn with an inline `Agent` label (write-capable, parent defaults) and
+`model: "@fast"` — one-line summaries do not need the parent's model. Do NOT use
 `Explore` — it is read-only and cannot fill cells.
 
 Each subagent's task must include:
@@ -88,7 +89,9 @@ run writes nothing when everything is filled.
 
 For very large trees (well past the 50-row cap), the plan-then-confirm loop is
 boring to babysit. You may instead drive workers with parallel headless pi
-processes (`pi -p "<task>"`), one per `AGENTS.md`, then run steps 4.1–4.3
+processes (`pi -p --model <fast-ref> "<task>"`, where `<fast-ref>` is the
+`fast` role's `provider/id` from `list_roles` — the CLI takes no `@role`), one
+per `AGENTS.md`, then run steps 4.1–4.3
 yourself. This is an escape hatch, not the default: it skips the interactive
 confirm, so the CALLER owns the cap and the `kb dox lint` gate.
 

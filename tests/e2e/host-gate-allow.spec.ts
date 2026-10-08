@@ -370,3 +370,82 @@ test.describe.serial("host gate — Allow → Save → admitted", () => {
     expect(belowFloor, "section text below the repo's 3:1 legibility floor").toEqual([]);
   });
 });
+
+/**
+ * F3 (harden-server-request-surfaces): the gate now defaults to `enforce`, so the
+ * normal `localhost` path must still load end-to-end WITH a live WebSocket.
+ * Sibling specs flip and restore `hostGate.mode`, leaving an explicit key
+ * behind, so this test first removes the key from the harness `config.json`
+ * (the "no hostGate config" default state), asserts the live mode is `enforce`
+ * via `GET /api/host-gate`, then restores the file byte-for-byte. The port is
+ * the harness-derived `DASHBOARD_PORT`, never hardcoded.
+ */
+test.describe.serial("host gate — default enforce does not lock out localhost", () => {
+  const CONFIG_PATH = '"$HOME/.pi/dashboard/config.json"';
+  let originalRaw: string | undefined;
+
+  test.afterAll(() => {
+    if (originalRaw === undefined) return;
+    execFileSync("docker", ["exec", "-i", harnessContainer(), "sh", "-c", `cat > ${CONFIG_PATH}`], {
+      input: originalRaw,
+      timeout: 30_000,
+    });
+  });
+
+  test("F3: no hostGate key → mode enforce, dashboard + WebSocket still load on localhost", async ({
+    page,
+    request,
+  }) => {
+    originalRaw = execFileSync(
+      "docker",
+      ["exec", harnessContainer(), "sh", "-c", `cat ${CONFIG_PATH}`],
+      { encoding: "utf8", timeout: 30_000 },
+    );
+    const stripped = JSON.parse(originalRaw) as Record<string, unknown>;
+    delete stripped.hostGate;
+    execFileSync("docker", ["exec", "-i", harnessContainer(), "sh", "-c", `cat > ${CONFIG_PATH}`], {
+      input: JSON.stringify(stripped),
+      timeout: 30_000,
+    });
+
+    // The gate re-reads config live (mtime snapshot) — poll until it converges.
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`http://localhost:${DASHBOARD_PORT}/api/host-gate`);
+          return ((await res.json()) as { mode?: string }).mode;
+        },
+        { timeout: 15_000 },
+      )
+      .toBe("enforce");
+
+    const health = await request.get(`http://localhost:${DASHBOARD_PORT}/api/health`);
+    expect(health.status()).toBe(200);
+
+    // Subscribe BEFORE navigating: the snapshot is the first frame after the
+    // socket opens and would be missed by a listener attached after goto.
+    let snapshotSeen: () => void = () => {};
+    const snapshot = new Promise<void>((resolve) => {
+      snapshotSeen = resolve;
+    });
+    let dashboardWs: import("@playwright/test").WebSocket | undefined;
+    page.on("websocket", (ws) => {
+      if (!ws.url().includes("/ws")) return;
+      dashboardWs = ws;
+      ws.on("framereceived", (f) => {
+        // The session list is WebSocket-backed: the socket must deliver the
+        // `sessions_snapshot` frame, not merely open.
+        if (typeof f.payload === "string" && f.payload.includes('"sessions_snapshot"')) snapshotSeen();
+      });
+    });
+    await gotoDashboard(page);
+    await Promise.race([
+      snapshot,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("no sessions_snapshot frame within 30s")), 30_000),
+      ),
+    ]);
+    expect(dashboardWs, "dashboard opened a /ws WebSocket").toBeDefined();
+    expect(dashboardWs?.isClosed(), "dashboard WebSocket must stay open under the enforce default").toBe(false);
+  });
+});

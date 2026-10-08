@@ -30,6 +30,20 @@ interface Props {
   placeholder?: string;
 
   /**
+   * Opt-in Model | Role switch. The Role tab lists built-in + custom roles
+   * (from `GET /api/roles`) and emits `@role` via `onSelect`. Renders only
+   * when the roles plugin answers 2xx; otherwise the picker is unchanged.
+   * See change: add-role-aware-model-refs.
+   */
+  allowRoles?: boolean;
+
+  /**
+   * One-shot hint: the current model was resolved from this `@role` at pick time
+   * and will NOT follow later role changes. Shown beside the trigger text.
+   */
+  viaRole?: string;
+
+  /**
    * Opt-in disable of the trigger. Default (undefined/false) leaves the trigger
    * openable even with an empty catalogue — the composer's recovery path (see
    * change: open-empty-model-selector). Surfaces that legitimately want a dead
@@ -364,7 +378,132 @@ function PopulatedCatalogueBody({
   );
 }
 
-export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, onOpenProviderSettings, favorites, onToggleFavorite, placeholder, disabled }: Props) {
+/** One role row from `GET /api/roles` (live group) — only the fields the picker reads. */
+export interface PickerRoleRow {
+  role: string;
+  assigned: boolean;
+  model?: string;
+  thinkingLevel?: string;
+}
+
+/**
+ * Roles for the Role tab. `rows === null` → roles plugin absent/unreachable
+ * (no tab). Fetches on mount and again on every open so a preset switch made
+ * elsewhere is never stale. See change: add-role-aware-model-refs (D8).
+ */
+function useRoleRows(enabled: boolean, open: boolean): PickerRoleRow[] | null {
+  const [rows, setRows] = useState<PickerRoleRow[] | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/roles");
+        if (!res.ok) throw new Error(String(res.status));
+        const body = (await res.json()) as { data?: Array<{ preset: string | null; roles: PickerRoleRow[] }> };
+        const live = body.data?.find((g) => g.preset === null) ?? body.data?.[0];
+        if (!cancelled) setRows(live?.roles ?? []);
+      } catch {
+        if (!cancelled) setRows(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, open]);
+  return enabled ? rows : null;
+}
+
+/** `@fast → anthropic/claude-haiku-4-5 · low` (or just `@fast` when unresolved). */
+function roleResolutionLabel(ref: string, rows: PickerRoleRow[] | null): string {
+  const m = /^@([^:]+)/.exec(ref);
+  const row = m ? rows?.find((r) => r.role === m[1]) : undefined;
+  if (!row?.assigned || !row.model) return ref;
+  return `${ref} → ${row.model}${row.thinkingLevel ? ` · ${row.thinkingLevel}` : ""}`;
+}
+
+function RoleTabs({ tab, setTab }: { tab: "model" | "role"; setTab: (t: "model" | "role") => void }) {
+  const tabs = [
+    { id: "model" as const, label: i18nT("common.modelTab", undefined, "Model") },
+    { id: "role" as const, label: i18nT("common.roleTab", undefined, "Role") },
+  ];
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      e.preventDefault();
+      const next = tab === "model" ? "role" : "model";
+      setTab(next);
+      // WAI-ARIA tabs: the arrow key moves focus with the selection.
+      e.currentTarget.querySelector<HTMLElement>(`[data-testid="model-tab-${next}"]`)?.focus();
+    }
+  };
+  return (
+    <div role="tablist" aria-label={i18nT("common.modelOrRole", undefined, "Model or role")} className="flex gap-1 p-1.5 pb-0" onKeyDown={onKey}>
+      {tabs.map((x) => (
+        <button
+          key={x.id}
+          type="button"
+          role="tab"
+          id={`model-tab-${x.id}`}
+          aria-selected={tab === x.id}
+          tabIndex={tab === x.id ? 0 : -1}
+          data-testid={`model-tab-${x.id}`}
+          onClick={() => setTab(x.id)}
+          className={`px-2 py-0.5 text-xs rounded ${
+            tab === x.id ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+          }`}
+        >
+          {x.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RoleList({ rows, current, onPick }: { rows: PickerRoleRow[]; current?: string; onPick: (role: string) => void }) {
+  const currentRole = current?.startsWith("@") ? /^@([^:]+)/.exec(current)?.[1] : undefined;
+  const move = (e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[data-role-item]"));
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    const next = e.key === "ArrowDown" ? Math.min(i + 1, items.length - 1) : Math.max(i - 1, 0);
+    items[next]?.focus();
+  };
+  return (
+    <div role="tabpanel" aria-labelledby="model-tab-role" className="flex-1 min-h-0 overflow-y-auto py-1" data-testid="role-list" onKeyDown={move}>
+      {rows.length === 0 && (
+        <div className="px-3 py-2 text-xs text-[var(--text-muted)]">{i18nT("common.noRoles", undefined, "No roles")}</div>
+      )}
+      {rows.map((r) => (
+        <button
+          key={r.role}
+          type="button"
+          data-role-item
+          data-testid="role-row"
+          data-role={r.role}
+          onClick={() => onPick(r.role)}
+          className={`w-full px-3 py-1 min-h-[44px] md:min-h-0 text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-hover)] ${
+            r.role === currentRole ? "text-[var(--text-primary)] bg-[var(--bg-tertiary)]" : "text-[var(--text-secondary)]"
+          }`}
+        >
+          <span className="font-mono">@{r.role}</span>
+          {r.assigned && r.model ? (
+            <span className="font-mono text-[10px] text-[var(--text-muted)] truncate" data-testid="role-resolution">
+              {r.model}
+              {r.thinkingLevel ? ` · ${r.thinkingLevel}` : ""}
+            </span>
+          ) : (
+            <span className="text-[10px] text-amber-400" data-testid="role-unassigned">
+              {i18nT("common.roleUnassigned", undefined, "unassigned")}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, onOpenProviderSettings, favorites, onToggleFavorite, placeholder, disabled, allowRoles, viaRole }: Props) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -378,6 +517,9 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const dropdownId = useId();
+  const roleRows = useRoleRows(allowRoles === true, open);
+  const rolesAvailable = roleRows !== null;
+  const [tab, setTab] = useState<"model" | "role">("model");
   // Opt into the horizontal axis, left-preserving: this `left-0` 320px dropdown
   // must flip (not silently swap to right-0) when its composer pane is too
   // narrow, and flip rather than squish its dense provider/model grid below
@@ -464,8 +606,10 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
     if (open) {
       setFilter("");
       setSelectedIndex(0);
+      setTab(current?.startsWith("@") ? "role" : "model");
       requestAnimationFrame(() => inputRef.current?.focus());
     }
+    // biome-ignore lint/correctness/useExhaustiveDependencies: tab seeds on the open transition only.
   }, [open]);
 
   // Close on outside click / touch. The panel is PORTALED to the layer root,
@@ -503,6 +647,15 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
       setPendingModel(label);
       onSelect(label);
       setOpen(false);
+    },
+    [onSelect],
+  );
+
+  const handleRolePick = useCallback(
+    (role: string) => {
+      onSelect(`@${role}`);
+      setOpen(false);
+      requestAnimationFrame(() => triggerRef.current?.focus());
     },
     [onSelect],
   );
@@ -596,9 +749,14 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
               {pendingModel} <Icon path={mdiLoading} size={0.4} className="inline animate-spin" />
             </>
           ) : (
-            current ?? placeholder ?? "no model"
+            (current?.startsWith("@") ? roleResolutionLabel(current, roleRows) : current) ?? placeholder ?? "no model"
           )}
         </span>
+        {viaRole && !pendingModel && (
+          <span data-testid="model-via-role" className="text-[10px] text-[var(--text-muted)]">
+            {i18nT("roles.viaRole", { role: viaRole }, `via ${viaRole}`)}
+          </span>
+        )}
         {!pendingModel && !disabled && <Icon path={mdiChevronDown} size={0.5} />}
       </button>
 
@@ -634,7 +792,10 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
             data-testid="model-dropdown"
             id={dropdownId}
           >
-          {hasModels ? (
+          {rolesAvailable && <RoleTabs tab={tab} setTab={setTab} />}
+          {rolesAvailable && tab === "role" ? (
+            <RoleList rows={roleRows} current={current} onPick={handleRolePick} />
+          ) : hasModels ? (
             <PopulatedCatalogueBody
               filter={filter}
               setFilter={setFilter}

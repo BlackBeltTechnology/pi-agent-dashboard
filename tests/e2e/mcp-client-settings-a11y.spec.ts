@@ -9,10 +9,10 @@ import { REPO_ROOT } from "./lifecycle.js";
  * extract-mcp-client-plugin, task 7.7).
  *
  * The section is a plugin settings-section, so the harness needs the plugin row
- * to report `enabled: true, loaded: true` with its `pi-mcp-adapter` requirement
- * satisfied — otherwise the client never mounts the claim. `/api/plugins` is
- * REWRITTEN (not replaced) so every other rail row stays authentic, and the two
- * plugin data sources (`/effective`, `/schema`) are fixtures. The schema fixture
+ * to report `enabled: true, loaded: true` — otherwise the client never mounts
+ * the claim. `/api/plugins` is REWRITTEN (not replaced) so every other rail row
+ * stays authentic, and the three plugin data sources (`/effective`, `/live`,
+ * `/schema`) are fixtures (the real `/live` would spawn `pi mcp list`). The schema fixture
  * is the REAL published schema read off disk, so the form renders the true field
  * set.
  *
@@ -22,7 +22,8 @@ import { REPO_ROOT } from "./lifecycle.js";
  * so enabling the rule here would fail on pre-existing theme tokens rather than
  * on anything this section introduces. Same treatment as `host-gate-allow.spec.ts`.
  *
- * See change: extract-mcp-client-plugin (task 7.7).
+ * See changes: extract-mcp-client-plugin (task 7.7), migrate-mcp-to-pi-builtin
+ * (pi built-in MCP view shape; no adapter verdict, no global settings form).
  */
 
 const PLUGIN_PATH = "/settings/plugins/mcp-client";
@@ -45,44 +46,62 @@ function schemaFixture(): unknown {
 }
 
 /**
- * The effective view: one Pi-global server (editable) and one shared server
- * (read-only), plus an adapter verdict of `ok` so the section is not locked.
+ * The Pi-global view over pi's built-in MCP config: a stdio server, an OAuth
+ * HTTP server with a description, and a server carrying an adapter leftover
+ * key (so the "ignored by pi" flag + Convert action render too).
  */
 const EFFECTIVE = {
-  cwd: "",
+  scope: "global",
   servers: [
     {
       name: "alpha",
-      entry: { command: "/bin/alpha", lifecycle: "lazy" },
-      provenance: [
-        {
-          layer: "pi-global",
-          path: "/home/pi/.pi/agent/mcp.json",
-          label: "Pi global",
-          writable: true,
-        },
-      ],
+      provenance: "pi-global",
+      entry: { command: "/bin/alpha" },
+      transport: "stdio",
+      enabled: true,
+      exposure: "codemode",
+      active: true,
+      ignoredKeys: [],
+      adapterLeftovers: [],
     },
     {
-      name: "team-shared",
-      entry: { url: "https://mcp.example.test/mcp" },
-      provenance: [
-        {
-          layer: "shared",
-          path: "/opt/team/mcp.json",
-          label: "team",
-          importKind: "file",
-          writable: false,
-        },
-      ],
+      name: "docs",
+      provenance: "pi-global",
+      entry: { url: "https://mcp.example.test/mcp", description: "Team docs" },
+      transport: "http",
+      enabled: true,
+      exposure: "deferred",
+      active: true,
+      ignoredKeys: [],
+      adapterLeftovers: [],
+      authMode: { kind: "oauth" },
+    },
+    {
+      name: "legacy",
+      provenance: "pi-global",
+      entry: { command: "/bin/legacy", disabled: true },
+      transport: "stdio",
+      enabled: true,
+      exposure: "codemode",
+      active: true,
+      ignoredKeys: ["disabled"],
+      adapterLeftovers: ["disabled"],
     },
   ],
-  settings: { showStatusIcon: { value: true, source: "pi-global" } },
-  layerErrors: [],
-  adapter: { kind: "ok", installed: "2.21.0", floor: "2.20.0" },
+  layers: [{ layer: "pi-global", path: "/home/pi/.pi/agent/mcp.json", exists: true, ok: true }],
 };
 
-/** Report the plugin loaded with its `pi-mcp-adapter` requirement satisfied. */
+const LIVE = {
+  ok: true,
+  servers: {
+    alpha: { state: "connected", tools: 3 },
+    docs: { state: "needs-auth", tools: 0 },
+    legacy: { state: "connected", tools: 1 },
+  },
+  errors: [],
+};
+
+/** Report the plugin loaded (enabled, no missing deps). */
 async function routePluginLoaded(page: Page): Promise<void> {
   await page.route("**/api/plugins", async (route) => {
     const res = await route.fetch();
@@ -105,6 +124,9 @@ async function routeData(page: Page): Promise<void> {
   await page.route("**/api/mcp-client/effective*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(EFFECTIVE) }),
   );
+  await page.route("**/api/mcp-client/live*", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(LIVE) }),
+  );
   await page.route("**/api/mcp-client/schema", (route) =>
     route.fulfill({
       status: 200,
@@ -120,7 +142,6 @@ async function gotoMcpClient(page: Page): Promise<void> {
   await expect(page.locator(SECTION)).toBeVisible({ timeout: 30_000 });
   // The list resolves after `/effective` lands; wait for a real row, not a skeleton.
   await expect(page.getByTestId("mcp-server-row-alpha")).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId("mcp-adapter-timeout")).toBeAttached({ timeout: 30_000 });
 }
 
 test.describe("mcp-client settings section accessibility (L3)", () => {

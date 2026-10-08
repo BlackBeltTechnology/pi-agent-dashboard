@@ -8,7 +8,7 @@
  * zrok-only module. See change: add-tunnel-providers.
  */
 import fs from "node:fs";
-import { CONFIG_FILE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { CONFIG_FILE, writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { execFile, execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type {
@@ -147,7 +147,7 @@ function saveReservedName(name: string): boolean {
       ? JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8"))
       : {};
     raw.tunnel = { ...raw.tunnel, zrok: { ...raw.tunnel?.zrok, reservedName: name, persistent: true } };
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2) + "\n");
+    writeConfigFileSecure(CONFIG_FILE, JSON.stringify(raw, null, 2) + "\n");
     return true;
   } catch (err: any) {
     console.warn(`Failed to save reserved name to config: ${err.message}`);

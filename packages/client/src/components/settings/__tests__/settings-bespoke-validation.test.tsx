@@ -163,6 +163,60 @@ describe("Memory Limits byte budgets — sub-floor value is accepted as typed", 
   });
 });
 
+// Server-heap × store-budget coupling. Non-blocking: the value stays
+// saveable, the warning only discloses the heap the store will occupy.
+// See change: guard-server-heap-and-store-coupling (test-plan #E4, #E5).
+describe("server-heap / store-budget coupling warning", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    putBodies = [];
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    window.history.replaceState({}, "", "/settings/general");
+    global.fetch = mockFetchConfig();
+  });
+  afterEach(() => cleanup());
+
+  const openServer = async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    gotoPage("Server");
+    await waitFor(() => screen.getByText("Memory Limits"));
+  };
+  const budgetInput = () => screen.getByRole("spinbutton", { name: /Max Total Event Bytes/ }) as HTMLInputElement;
+
+  it("is silent on the default pairing", async () => {
+    await openServer();
+    expect(screen.queryByTestId("memory-limits-store-heap-warning")).toBeNull();
+  });
+
+  it("E4: 0 (unlimited) is described as unbounded, with no heap figure, and stays saveable", async () => {
+    await openServer();
+    fireEvent.change(budgetInput(), { target: { value: "0" } });
+    fireEvent.blur(budgetInput());
+    const warning = await waitFor(() => screen.getByTestId("memory-limits-store-heap-warning"));
+    expect(warning.textContent).toMatch(/unbounded/i);
+    expect(warning.textContent).not.toMatch(/\d+ MB of heap/);
+
+    const btn = await waitFor(() => screen.getByTestId("save-btn"));
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(btn);
+    await waitFor(() => expect(putBodies.length).toBeGreaterThan(0));
+    expect(putBodies[0].memoryLimits.maxTotalEventBytes).toBe(0);
+  });
+
+  it("E5: a finite budget names its heap-equivalent, not the raw budget", async () => {
+    await openServer();
+    fireEvent.change(budgetInput(), { target: { value: "2048" } });
+    fireEvent.blur(budgetInput());
+    const warning = await waitFor(() => screen.getByTestId("memory-limits-store-heap-warning"));
+    // 2048 MiB × 1.33 + 112 = 2836 MB of heap vs the 1536 MB ceiling's ~1260 MB crash point.
+    expect(warning.textContent).toMatch(/2836 MB of heap/);
+    expect(warning.textContent).toMatch(/1260 MB/);
+    expect(warning.textContent).not.toMatch(/2048/);
+  });
+});
+
 describe("wrapper toggles forward their hint (D6)", () => {
   afterEach(() => cleanup());
 

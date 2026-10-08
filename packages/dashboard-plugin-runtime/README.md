@@ -183,3 +183,15 @@ If your manifest declares `configSchema`, the loader:
 ## Demo plugin
 
 `packages/demo-plugin/` is a private fixture package that exercises the runtime end-to-end. It is **excluded from production builds** (manifest declares `fixture: true`). Do not use it as a template for real plugins.
+
+## Spawn-env contributors (experimental)
+
+Trusted plugins (`priority <= 100`, same gate as `spawnSession`) may call
+`ctx.registerSpawnEnvContributor(fn, opts?)` on the server context. `fn({ mechanism })`
+synchronously returns env vars added to every dashboard-spawned pi session
+(`headless`, `tmux`, `wt`, `wsl-tmux`). The host never overrides an inherited variable,
+rejects reserved names (`PATH`, `HOME`, `NODE_*`, `LD_*`, `DYLD_*`, `PI_DASHBOARD_*`,
+`ELECTRON_*`, `CONTEXT_MODE_BRIDGE_*`), skips throwing contributors, and skips a plugin while
+it is disabled. `opts.supersede = { marker, names }` lets the host delete listed names (only
+those declared) before applying contributions. Policy, not a sandbox. See
+`packages/context-mode-settings-plugin` for the reference user.

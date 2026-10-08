@@ -30,6 +30,7 @@ const STATUS_BY_CODE: Record<GrammarErrorCode, number> = {
   grammar_disabled: 409,
   empty_text: 400,
   backend_unconfigured: 400,
+  model_role_unassigned: 409,
   backend_unreachable: 502,
   backend_timeout: 504,
   backend_bad_response: 502,

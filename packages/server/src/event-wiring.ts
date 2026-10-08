@@ -8,9 +8,15 @@ import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js"
 import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
 import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
 import type { ExtensionToServerMessage, PluginRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
-import { mergeSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
-import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
+import { mergeSessionMeta, readSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { extractTurnStats, type StatsData } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
+import { usageToTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { createAgentConfirmRegistry } from "./access/agent-confirm-registry.js";
+import { handlePathGateRefusal, handlePathYoloRequest } from "./access/agent-yolo.js";
+import { recordRefusal } from "./access/refusal-ledger.js";
+import { handlePathGrantRequest } from "./access/agent-grant.js";
+import { announceableGrantStoreId } from "./access/grant-store-id.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
 import { AUTO_NAME_OUTCOMES, autoNameOutcomes } from "./auto-name-outcome-store.js";
@@ -28,6 +34,7 @@ import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
 import type { EventStore } from "./persistence/memory-event-store.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
 import type { PiGateway } from "./pi/pi-gateway.js";
+import { computePiBelowFloor, serverPiMinimum } from "./pi/pi-version-skew.js";
 import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
 import { routeReloadFeedback } from "./rpc-keeper/dispatch-reload.js";
 import {
@@ -38,6 +45,7 @@ import {
 import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js";
 import { extractSessionUpdates, isActivityEvent, isUnreadTrigger, reconcileAgentLiveness } from "./session/event-status-extraction.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
+import { applyPluginRef } from "./session/plugin-refs.js";
 import {
   findOpenSubagents,
   findOpenToolCalls,
@@ -94,6 +102,12 @@ const STRICT_SPAWN_CORRELATION =
 
 export interface EventWiringDeps {
   sessionManager: SessionManager;
+  /**
+   * Lazy YOLO verdict for an agent-path-gate would-prompt call. Absent (YOLO not
+   * constructed yet) → every `path_yolo_request` declines.
+   * See change: yolo-covers-agent-path-gate.
+   */
+  decideAgentPath?: (path: string) => "auto-allow" | "refused-by-prior-refusal" | null;
   /**
    * Retention for remote sessions' transcripts (D12). Optional: a wiring
    * without it simply does not retain, which is the correct degradation for
@@ -158,6 +172,14 @@ export interface EventWiringDeps {
    * plugin. cwd never confers ownership. See change: detach-automation-goal-from-core.
    */
   pendingPluginRefRegistry?: import("./pending/pending-plugin-ref-registry.js").PendingPluginRefRegistry;
+  /**
+   * Optional token-keyed pending principal-owner registry (§6.2 / D11). When
+   * provided, a `session_register` resolves (by spawn token) the human owner a
+   * trusted spawn road filed before the spawn await, stamps the in-memory
+   * `DashboardSession.principalOwner`, and persists it to `.meta.json`. Token-
+   * keyed only — cwd never confers ownership.
+   */
+  pendingPrincipalOwnerRegistry?: import("./pending/pending-principal-owner-registry.js").PendingPrincipalOwnerRegistry;
   /**
    * Owner-notify seam. When provided, a resolved session's owning plugin is
    * handed its own `pluginRef` + sessionId — BEFORE first-event forwarding and
@@ -293,6 +315,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     pendingInitialPromptRegistry,
     pendingWorktreeBaseRegistry,
     pendingPluginRefRegistry,
+    pendingPrincipalOwnerRegistry,
     dispatchPluginSessionResolved,
     viewedSessionTracker,
     pushDispatcher,
@@ -313,6 +336,33 @@ export function wireEvents(deps: EventWiringDeps): void {
   // → epoch already stamped. Prevents a fresh atomic write on every event.
   // See change: reopen-sessions-after-shutdown.
   const stampedLiveEpoch = new Map<string, number>();
+
+  // Agent path gate (change: ask-agent-file-access-in-chat).
+  // Confirm registry: first-sight record of `agent-path-gate-confirm` prompts a
+  // later `path_grant_request` must bind to.
+  const agentConfirmRegistry = createAgentConfirmRegistry({
+    getTtlMs: () => {
+      try {
+        return Math.max(1, loadConfig().agentPathGate.timeoutSeconds) * 1000;
+      } catch {
+        return 120_000;
+      }
+    },
+  });
+  const FILE_ACCESS_KINDS = ["agent-path-gate", "agent-path-gate-confirm"] as const;
+  /**
+   * Re-derive `awaitingFileAccess` from the pending-prompt registry (live,
+   * replayed and resynced prompts all land there) and broadcast only on change.
+   * `currentTool` is deliberately untouched (D7).
+   */
+  function syncAwaitingFileAccess(sessionId: string): void {
+    const session = sessionManager.get(sessionId);
+    if (!session) return;
+    const awaiting = browserGateway.hasPendingPromptKind(sessionId, FILE_ACCESS_KINDS);
+    if ((session.awaitingFileAccess ?? false) === awaiting) return;
+    sessionManager.update(sessionId, { awaitingFileAccess: awaiting });
+    browserGateway.broadcastSessionUpdated(sessionId, { awaitingFileAccess: awaiting });
+  }
 
   /**
    * Deferred order-key re-resolution. A worktree session registers BEFORE
@@ -391,9 +441,16 @@ export function wireEvents(deps: EventWiringDeps): void {
   // so a closed socket stops counting even while its reconnect-grace session
   // is still registered. One session remaining keeps the snapshot.
   // See change: redesign-providers-settings-page.
-  piGateway.onDisconnect = () => {
+  piGateway.onDisconnect = (disconnectedSessionId) => {
     if (piGateway.getConnectedSessionIds().length === 0) {
       invalidateCatalogue();
+    }
+    // A gate prompt cannot be answered through a closed bridge: drop the derived
+    // flag now; the replay exit re-derives it from the replayed prompts.
+    // See change: ask-agent-file-access-in-chat (D7).
+    if (disconnectedSessionId && sessionManager.get(disconnectedSessionId)?.awaitingFileAccess) {
+      sessionManager.update(disconnectedSessionId, { awaitingFileAccess: false });
+      browserGateway.broadcastSessionUpdated(disconnectedSessionId, { awaitingFileAccess: false });
     }
   };
 
@@ -491,6 +548,20 @@ export function wireEvents(deps: EventWiringDeps): void {
       type: "preferences_update",
       autoNameSessions: preferencesStore.getAutoNameSessions(),
     });
+
+    // Announce which grant store this dashboard writes (re-read every time, never
+    // cached) so the bridge's path gate can decide whether "Always allow" is
+    // honest. See change: ask-agent-file-access-in-chat (D3).
+    {
+      // Always sent: `features` advertises server capabilities (`path-yolo`);
+      // `grantStoreId` only when announceable. See change: yolo-covers-agent-path-gate.
+      const grantStoreId = announceableGrantStoreId();
+      piGateway.sendToSession(sessionId, {
+        type: "dashboard_identity",
+        ...(grantStoreId ? { grantStoreId } : {}),
+        features: ["path-yolo"],
+      });
+    }
 
     // Restore the persisted auto-namer stop state to the bridge, so a session
     // stopped before a process restart does not re-spend a full attempt budget
@@ -610,6 +681,8 @@ export function wireEvents(deps: EventWiringDeps): void {
     // (D5), i.e. a session that can never be reclaimed.
     // See change: restore-ask-user-tool-state-on-reconnect (D6b).
     browserGateway.clearPendingRequestsForSession(sessionId);
+    agentConfirmRegistry.clearSession(sessionId);
+    syncAwaitingFileAccess(sessionId);
     replayPromptIds.delete(sessionId);
     // Fan the death out to plugin onSessionEnded subscribers regardless of
     // whether a session record still exists — the automation plugin finalizes
@@ -773,9 +846,14 @@ export function wireEvents(deps: EventWiringDeps): void {
   function reconcileAndRecomputeOnReplayExit(sessionId: string): void {
     const collected = replayPromptIds.get(sessionId);
     browserGateway.reconcilePromptRequests(sessionId, [...(collected ?? [])]);
-    if (browserGateway.hasPendingPromptRequests(sessionId)) {
+    // File-access prompts are excluded from the fold: they must never overwrite the
+    // in-flight tool (`awaitingFileAccess` carries them). See change: ask-agent-file-access-in-chat.
+    if (browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS)) {
       sessionManager.update(sessionId, { currentTool: "ask_user" });
     }
+    // Re-derive from the reconciled registry (flag only; `currentTool` keeps its
+    // replay discipline). See change: ask-agent-file-access-in-chat (D7).
+    syncAwaitingFileAccess(sessionId);
     replayPromptIds.delete(sessionId);
   }
   // Debounce flows refresh to prevent infinite loop between sessions in same cwd
@@ -838,6 +916,60 @@ export function wireEvents(deps: EventWiringDeps): void {
   }
   const LAST_ACTIVITY_BROADCAST_INTERVAL_MS = 30_000;
 
+  /**
+   * One accumulator for every live usage source (assistant `turn_end`,
+   * tool-result `message_end`, bridge-drained `usage_recorded`): adds all five
+   * totals to the session record, then synthesizes a `stats_update` (stored +
+   * broadcast). A non-turn source carries `usageKind` and no `contextUsage`,
+   * so the client adds it to totals without turn bookkeeping.
+   * See change: count-non-message-usage.
+   */
+  function accumulateUsage(sessionId: string, stats: StatsData, usageKind?: string): void {
+    const session = sessionManager.get(sessionId);
+    const statsUpdates: Partial<DashboardSession> = {
+      tokensIn: (session?.tokensIn ?? 0) + stats.tokensIn,
+      tokensOut: (session?.tokensOut ?? 0) + stats.tokensOut,
+      cacheRead: (session?.cacheRead ?? 0) + (stats.turnUsage?.cacheRead ?? 0),
+      cacheWrite: (session?.cacheWrite ?? 0) + (stats.turnUsage?.cacheWrite ?? 0),
+      cost: (session?.cost ?? 0) + stats.cost,
+    };
+    if (stats.contextUsage) {
+      statsUpdates.contextTokens = stats.contextUsage.tokens;
+      statsUpdates.contextWindow = stats.contextUsage.contextWindow;
+    }
+    sessionManager.update(sessionId, statsUpdates);
+
+    // Synthesize a stats_update event for client replay compatibility
+    const statsEvent = {
+      eventType: "stats_update",
+      timestamp: Date.now(),
+      data: {
+        ...(usageKind ? { usageKind } : {}),
+        tokensIn: stats.tokensIn,
+        tokensOut: stats.tokensOut,
+        cost: stats.cost,
+        turnUsage: stats.turnUsage,
+        ...(usageKind ? {} : { contextUsage: stats.contextUsage }),
+      },
+    };
+    const statsSeq = eventStore.insertEvent(sessionId, statsEvent);
+    if (!replayingSessions.has(sessionId)) {
+      browserGateway.broadcastEvent(sessionId, statsSeq, statsEvent);
+      browserGateway.broadcastSessionUpdated(sessionId, statsUpdates);
+    }
+  }
+
+  /** `StatsData` for a non-turn usage (no `contextUsage`). */
+  function nonTurnStats(usage: Record<string, unknown>): StatsData {
+    const t = usageToTotals(usage);
+    return {
+      tokensIn: t.tokensIn,
+      tokensOut: t.tokensOut,
+      cost: t.cost,
+      turnUsage: { input: t.tokensIn, output: t.tokensOut, cacheRead: t.cacheRead, cacheWrite: t.cacheWrite },
+    };
+  }
+
   const coreGatewayEventHandler = (sessionId: string, msg: ExtensionToServerMessage): void => {
     // Generic plugin bridge→server channel. Routed to plugin-server
     // handlers by messageType; never touches core session state.
@@ -854,6 +986,35 @@ export function wireEvents(deps: EventWiringDeps): void {
     // See change: expose-plugin-credential-and-oauth-seams (D7).
     if (msg.type === "plugin_request") {
       dispatchPluginRequest?.(sessionId, msg);
+      return;
+    }
+
+    // Agent path gate: persist an "Always allow" grant bound to a raised confirm
+    // prompt of THIS connection's session. `sessionId` is the gateway's socket key.
+    // See change: ask-agent-file-access-in-chat (D3).
+    if (msg.type === "path_grant_request") {
+      piGateway.sendToSession(sessionId, handlePathGrantRequest(sessionId, msg, { registry: agentConfirmRegistry }));
+      return;
+    }
+
+    // Agent path gate × YOLO (change: yolo-covers-agent-path-gate): the bridge
+    // asks at its would-prompt point and reports operator denies.
+    if (msg.type === "path_yolo_request") {
+      piGateway.sendToSession(
+        sessionId,
+        handlePathYoloRequest(sessionId, msg, {
+          decideAgentPath: deps.decideAgentPath,
+          registry: agentConfirmRegistry,
+          recordRefusal,
+        }),
+      );
+      return;
+    }
+    if (msg.type === "path_gate_refusal") {
+      handlePathGateRefusal(sessionId, msg, {
+        registry: agentConfirmRegistry,
+        recordRefusal,
+      });
       return;
     }
 
@@ -963,7 +1124,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       // See change: restore-ask-user-tool-state-on-reconnect (D1/D4).
       const hasPendingPrompt =
         !replayingSessions.has(sessionId) &&
-        browserGateway.hasPendingPromptRequests(sessionId);
+        browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS);
       const updates = extractSessionUpdates(msg.event, hasPendingPrompt);
       if (updates) {
         sessionManager.update(sessionId, updates as Partial<DashboardSession>);
@@ -1197,40 +1358,30 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (msg.event.eventType === "turn_end") {
         const ctxUsage = msg.event.data.contextUsage as { tokens: number | null; contextWindow: number } | undefined;
         const stats = extractTurnStats(msg.event.data, ctxUsage);
-        if (stats) {
-          const session = sessionManager.get(sessionId);
-          const statsUpdates: Partial<DashboardSession> = {
-            tokensIn: (session?.tokensIn ?? 0) + stats.tokensIn,
-            tokensOut: (session?.tokensOut ?? 0) + stats.tokensOut,
-            cacheRead: (session?.cacheRead ?? 0) + (stats.turnUsage?.cacheRead ?? 0),
-            cacheWrite: (session?.cacheWrite ?? 0) + (stats.turnUsage?.cacheWrite ?? 0),
-            cost: (session?.cost ?? 0) + stats.cost,
-          };
-          if (stats.contextUsage) {
-            statsUpdates.contextTokens = stats.contextUsage.tokens;
-            statsUpdates.contextWindow = stats.contextUsage.contextWindow;
-          }
-          sessionManager.update(sessionId, statsUpdates);
-
-          // Synthesize a stats_update event for client replay compatibility
-          const statsEvent = {
-            eventType: "stats_update",
-            timestamp: Date.now(),
-            data: {
-              tokensIn: stats.tokensIn,
-              tokensOut: stats.tokensOut,
-              cost: stats.cost,
-              turnUsage: stats.turnUsage,
-              contextUsage: stats.contextUsage,
-            },
-          };
-          const statsSeq = eventStore.insertEvent(sessionId, statsEvent);
-          if (!replayingSessions.has(sessionId)) {
-            browserGateway.broadcastEvent(sessionId, statsSeq, statsEvent);
-            browserGateway.broadcastSessionUpdated(sessionId, statsUpdates);
-          }
+        if (stats) accumulateUsage(sessionId, stats);
+      }
+      // Tool-result usage (codemode models.classify()/generateImages()): its
+      // ONE live source is the forwarded tool-result `message_end`, read from
+      // the in-flight event (never the stored, possibly truncated copy). An
+      // assistant `message_end` is never counted (`turn_end` is its source),
+      // and `turn_end.toolResults` is never counted.
+      // See change: count-non-message-usage.
+      if (msg.event.eventType === "message_end") {
+        const m = (msg.event.data as { message?: { role?: unknown; usage?: unknown } } | undefined)?.message;
+        if (m?.role === "toolResult" && m.usage && typeof m.usage === "object") {
+          accumulateUsage(sessionId, nonTurnStats(m.usage as Record<string, unknown>), "tool");
         }
       }
+    }
+
+    // Entry usage drained by the bridge (`usage` entries, compaction /
+    // branch-summary usage). Same accumulator + kind-marked synthesis.
+    // See change: count-non-message-usage.
+    if (msg.type === "usage_recorded") {
+      if (typeof msg.kind === "string" && msg.usage && typeof msg.usage === "object") {
+        accumulateUsage(sessionId, nonTurnStats(msg.usage), msg.kind);
+      }
+      return;
     }
 
     // Heartbeat-carried agent liveness. `status: "streaming"` is otherwise a
@@ -1260,7 +1411,7 @@ export function wireEvents(deps: EventWiringDeps): void {
             // the same gate `extractSessionUpdates` applies via
             // `hasPendingPrompt` (design D10).
             const applied =
-              updates.currentTool === null && browserGateway.hasPendingPromptRequests(sessionId)
+              updates.currentTool === null && browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS)
                 ? { status: updates.status }
                 : updates;
             // `streaming`/`idle` disagreements mean a run-boundary event was
@@ -1482,7 +1633,7 @@ export function wireEvents(deps: EventWiringDeps): void {
         const reg = browserGateway.headlessPidRegistry;
         let ref: Record<string, unknown> | undefined;
         let ownerId: string | undefined;
-        let lifecycle: { recover?: boolean; finalizeOnSocketClose?: boolean } | undefined;
+        let lifecycle: { recover?: boolean; finalizeOnSocketClose?: boolean; hidden?: boolean } | undefined;
         const resolved = msg.spawnToken ? pendingPluginRefRegistry?.resolve(msg.spawnToken) : null;
         if (resolved) {
           // First register: consumed from the token store. Promote onto the
@@ -1500,12 +1651,29 @@ export function wireEvents(deps: EventWiringDeps): void {
           ref = reg.getPluginRef(sessionId);
         }
         if (ref && Object.keys(ref).length > 0) {
+          // First register (owner known): record the ref in the owner's durable
+          // `pluginRefs` bag. Reattach (owner not persisted on the entry): the
+          // bag already came back via the register carry-over / boot scan, so
+          // only re-apply the top-level keys (idempotent).
+          if (resolved && ownerId && pendingPluginRefRegistry) {
+            ref = applyPluginRef(
+              { sessionManager, sanitize: pendingPluginRefRegistry.sanitize },
+              sessionId, ownerId, ref, { persist: true },
+            );
+          } else {
+            sessionManager.update(sessionId, ref as Partial<DashboardSession>);
+          }
+        }
+        if (ref && Object.keys(ref).length > 0) {
           const refUpdate = ref as Partial<DashboardSession>;
-          sessionManager.update(sessionId, refUpdate);
           const session = sessionManager.get(sessionId);
-          if (session?.sessionFile) {
+          const sessionFile = session?.sessionFile ?? msg.sessionFile;
+          if (sessionFile) {
             try {
-              mergeSessionMeta(session.sessionFile, ref as Partial<SessionMeta>);
+              mergeSessionMeta(sessionFile, {
+                ...ref,
+                ...(session?.pluginRefs ? { pluginRefs: session.pluginRefs } : {}),
+              } as Partial<SessionMeta>);
             } catch (err) {
               console.warn(
                 `[event-wiring] failed to persist pluginRef to .meta.json for ${sessionId}:`,
@@ -1526,6 +1694,18 @@ export function wireEvents(deps: EventWiringDeps): void {
             inMemory.finalizeOnSocketClose = lifecycle.finalizeOnSocketClose;
           }
           if (Object.keys(inMemory).length > 0) sessionManager.update(sessionId, inMemory);
+          // Plugin-declared hide (e.g. chat-gateway Discord sessions): the same
+          // `hidden` flag the headless auto-hide sets, persisted via the routine
+          // `.meta.json` save. Fresh resolution only — this block never re-runs
+          // on reattach, so a later unhide survives. Broadcast, or every open
+          // board keeps the card until a full refresh.
+          // See change: hide-chat-gateway-sessions.
+          if (lifecycle.hidden === true) {
+            // `pluginHidden` persists the INTENT so a post-restart respawn
+            // re-register keeps it hidden. See change: fix-plugin-hidden-across-restart.
+            sessionManager.update(sessionId, { hidden: true, pluginHidden: true });
+            browserGateway.broadcastSessionUpdated(sessionId, { hidden: true });
+          }
           if (lifecycle.recover === false) {
             const session = sessionManager.get(sessionId);
             if (session?.sessionFile) {
@@ -1538,6 +1718,42 @@ export function wireEvents(deps: EventWiringDeps): void {
         // Owner-notify: only on a fresh resolution (carries ownerId), BEFORE
         // first-event forwarding / pending-prompt dispatch (task 3.1).
         if (ownerId && ref) dispatchPluginSessionResolved?.(ownerId, sessionId, ref);
+      }
+
+      // ── principalOwner arm (§6.2 / D11) ──────────────────────────────
+      // Resolve the human owner a trusted spawn road filed against this spawn
+      // token BEFORE the spawn await. Token-keyed only — cwd never confers
+      // ownership. Consumed once on first register; a reconnect / cold-start
+      // restore reads the owner back from `.meta.json` via `sessionFromMeta`,
+      // so no re-resolution is needed here.
+      // Re-register of a session the boot scan could not restore (no transcript
+      // yet): bring the persisted owner back into memory BEFORE any full
+      // `.meta.json` save can overwrite it. Never overrides an in-memory owner.
+      if (!sessionManager.get(sessionId)?.principalOwner && msg.sessionFile) {
+        const persisted = readSessionMeta(msg.sessionFile)?.principalOwner;
+        if (persisted) sessionManager.update(sessionId, { principalOwner: persisted });
+      }
+      if (pendingPrincipalOwnerRegistry && msg.spawnToken) {
+        const owner = pendingPrincipalOwnerRegistry.resolve(msg.spawnToken);
+        if (owner) {
+          sessionManager.update(sessionId, { principalOwner: owner });
+          // A fresh spawn registers before the in-memory session carries its
+          // file; the register message itself does (same source as the
+          // `source: "dashboard"` stamp below). Without the fallback the owner
+          // never reaches `.meta.json` and a restart makes the session ownerless.
+          const ownerFile = sessionManager.get(sessionId)?.sessionFile ?? msg.sessionFile;
+          if (ownerFile) {
+            try {
+              mergeSessionMeta(ownerFile, { principalOwner: owner });
+            } catch (err) {
+              console.warn(
+                `[event-wiring] failed to persist principalOwner to .meta.json for ${sessionId}:`,
+                err,
+              );
+            }
+          }
+          browserGateway.broadcastSessionUpdated(sessionId, { principalOwner: owner });
+        }
       }
 
 
@@ -1975,9 +2191,12 @@ export function wireEvents(deps: EventWiringDeps): void {
     if (msg.type === "pi_version_update") {
       // Bridge reports the pi version its session actually runs (ground truth
       // from inside pi's process). Store + broadcast, mirroring git_info_update.
-      // See change: restore-pi-version-skew-surface.
-      sessionManager.update(sessionId, { piVersion: msg.version });
-      browserGateway.broadcastSessionUpdated(sessionId, { piVersion: msg.version });
+      // The below-floor flag replaces per-feature pi version gates: one generic
+      // signal, `null` when in-floor so a stale flag is cleared.
+      // See change: restore-pi-version-skew-surface, update-pi-core-1-0-adopt-apis.
+      const piBelowFloor = computePiBelowFloor(msg.version, serverPiMinimum());
+      sessionManager.update(sessionId, { piVersion: msg.version, piBelowFloor });
+      browserGateway.broadcastSessionUpdated(sessionId, { piVersion: msg.version, piBelowFloor });
     }
 
     if (msg.type === "files_list") {
@@ -2087,6 +2306,27 @@ export function wireEvents(deps: EventWiringDeps): void {
       }
       browserGateway.trackPromptRequest(sessionId, msg as any);
       const promptId = (msg as any).promptId as string | undefined;
+      {
+        const meta = (msg as any).prompt?.metadata as { kind?: unknown; path?: unknown; subject?: unknown } | undefined;
+        if (
+          meta?.kind === "agent-path-gate-confirm" &&
+          promptId &&
+          typeof meta.path === "string" &&
+          typeof meta.subject === "string"
+        ) {
+          // First sight only: a replayed prompt neither re-registers nor extends the TTL.
+          agentConfirmRegistry.observe(sessionId, promptId, { path: meta.path, subject: meta.subject }, "confirm");
+        } else if (
+          meta?.kind === "agent-path-gate" &&
+          promptId &&
+          typeof meta.path === "string" &&
+          typeof meta.subject === "string"
+        ) {
+          // The gate's select prompt: lets a later `path_gate_refusal` bind to it.
+          agentConfirmRegistry.observe(sessionId, promptId, { path: meta.path, subject: meta.subject }, "select");
+        }
+      }
+      if (!replayingSessions.has(sessionId)) syncAwaitingFileAccess(sessionId);
       if (replayingSessions.has(sessionId)) {
         // Inside the replay window the bridge's re-sent burst is a snapshot;
         // collect the id for the exit reconcile and write nothing — the replay
@@ -2111,7 +2351,9 @@ export function wireEvents(deps: EventWiringDeps): void {
         };
         // Precedence (D3): a genuine in-flight tool wins; only an empty field
         // is folded to "ask_user".
-        if (sessionBefore && !sessionBefore.currentTool) {
+        const promptKind = (msg as any).prompt?.metadata?.kind;
+        const isFileAccessPrompt = typeof promptKind === "string" && (FILE_ACCESS_KINDS as readonly string[]).includes(promptKind);
+        if (sessionBefore && !sessionBefore.currentTool && !isFileAccessPrompt) {
           sessionManager.update(sessionId, { currentTool: "ask_user" });
           browserGateway.broadcastSessionUpdated(sessionId, { currentTool: "ask_user" });
         }
@@ -2168,11 +2410,14 @@ export function wireEvents(deps: EventWiringDeps): void {
 
     if (msg.type === "prompt_dismiss" || msg.type === "prompt_cancel") {
       browserGateway.clearPromptRequest(sessionId, (msg as any).promptId);
+      if (msg.type === "prompt_cancel") agentConfirmRegistry.cancel(sessionId, (msg as any).promptId);
+      else agentConfirmRegistry.settle(sessionId, (msg as any).promptId);
+      if (!replayingSessions.has(sessionId)) syncAwaitingFileAccess(sessionId);
       // Clear only when the registry is now empty AND the field still holds the
       // derived value — a real tool that started meanwhile must not be stomped.
       if (
         !replayingSessions.has(sessionId) &&
-        !browserGateway.hasPendingPromptRequests(sessionId) &&
+        !browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS) &&
         sessionManager.get(sessionId)?.currentTool === "ask_user"
       ) {
         sessionManager.update(sessionId, { currentTool: null });

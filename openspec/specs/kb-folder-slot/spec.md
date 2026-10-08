@@ -2,14 +2,16 @@
 
 ## Purpose
 TBD - created by archiving change add-kb-folder-slot. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: KB stats route
 
-The dashboard server SHALL expose `GET /api/kb/stats?cwd=<abs>` returning the knowledge-base entry counts for that folder's resolved KB store.
+The dashboard server SHALL expose `GET /api/kb/stats?cwd=<abs>` returning the knowledge-base entry counts for that folder's resolved KB store, whether the folder exists, and how many sources it configures. The stats route SHALL be side-effect free: it SHALL NOT create the folder, any directory beneath it, or an index database.
 
 #### Scenario: Populated folder returns counts
 - **WHEN** `GET /api/kb/stats?cwd=C` is called and folder `C`'s KB db has entries
-- **THEN** the response is `200` with `{ files, chunks, indexed: true, staleCount, indexing, jobStatus, lastError }`
+- **THEN** the response is `200` with `{ files, chunks, indexed: true, staleCount, indexing, jobStatus, lastError, folderMissing: false, sourceCount }`
 - **AND** `chunks` equals `store.counts().chunks` for `C`'s resolved `dbAbsPath`
 
 #### Scenario: Stats surface the last job error
@@ -25,9 +27,23 @@ The dashboard server SHALL expose `GET /api/kb/stats?cwd=<abs>` returning the kn
 - **WHEN** `GET /api/kb/stats?cwd=X` is called with a cwd not matching any known folder descriptor
 - **THEN** the request is rejected (no store is opened for an arbitrary path)
 
+#### Scenario: Stats never materialize a folder
+- **WHEN** `GET /api/kb/stats?cwd=C` is called for an admitted folder `C` whose KB db file does not exist
+- **THEN** the response is `200` with `chunks: 0` and `indexed: false`
+- **AND** no file or directory is created under `C` (in particular no `.pi/dashboard/kb/index.db`)
+
+#### Scenario: Removed folder reports missing
+- **WHEN** `GET /api/kb/stats?cwd=C` is called for an admitted folder `C` (for example a session cwd of a removed worktree) that no longer exists as a directory
+- **THEN** the response is `200` with `folderMissing: true`, `chunks: 0`, `sourceCount: 0`, `staleCount: 0`
+- **AND** `C` is not created
+
+#### Scenario: Stats report configured source count
+- **WHEN** `GET /api/kb/stats?cwd=C` is called for an existing folder whose resolved KB config lists `N` source specs (`N` may be `0` when no project, global, or legacy config defines any)
+- **THEN** the response carries `sourceCount: N`
+
 ### Requirement: KB reindex route
 
-The dashboard server SHALL expose `POST /api/kb/reindex?cwd=<abs>` that starts a reindex of the folder's resolved sources via the shared `indexSource` primitive, without requiring a live pi session, and SHALL respond as soon as the job is registered (non-blocking) rather than after the walk completes.
+The dashboard server SHALL expose `POST /api/kb/reindex?cwd=<abs>` that starts a reindex of the folder's resolved sources via the shared `indexSource` primitive, without requiring a live pi session, and SHALL respond as soon as the job is registered (non-blocking) rather than after the walk completes. Before registering a job the route SHALL refuse, without creating anything, a folder that no longer exists (`409 { error: "folder missing" }`) and a folder whose resolved config has zero source specs (`409 { error: "no sources configured" }`).
 
 #### Scenario: Reindex starts non-blocking and completes in-process
 - **WHEN** `POST /api/kb/reindex?cwd=W` is called for a worktree with no attached pi session and no reindex currently running
@@ -56,6 +72,29 @@ The dashboard server SHALL expose `POST /api/kb/reindex?cwd=<abs>` that starts a
 - **WHEN** the reindex walk for cwd `C` throws after the job has been registered
 - **THEN** the route has already responded `202` (the job started)
 - **AND** a subsequent `GET /api/kb/stats?cwd=C` reports the folder as not currently indexing (`indexing: false`) with `jobStatus: "error"` and the `lastError`
+
+#### Scenario: Missing folder is refused without materializing it
+- **WHEN** `POST /api/kb/reindex?cwd=C` is called for an admitted folder `C` that does not exist as a directory
+- **THEN** the response is `409` with `{ error: "folder missing" }`
+- **AND** no job is registered and nothing is created under `C`
+
+#### Scenario: Preflight runs after coalescing
+- **WHEN** a reindex job for `C` is already running and `C` is then removed, and a second `POST /api/kb/reindex?cwd=C` arrives
+- **THEN** the response is `202` referencing the in-flight job, not `409`
+
+#### Scenario: Folder removed after the job was accepted
+- **WHEN** `C` is removed after `POST /api/kb/reindex?cwd=C` returned `202` but before the walk opens the index
+- **THEN** the job settles with `jobStatus: "error"` and `lastError: "folder missing"`
+- **AND** nothing is created under `C`
+
+#### Scenario: Zero sources is refused instead of a silent no-op
+- **WHEN** `POST /api/kb/reindex?cwd=C` is called for an existing folder whose resolved config has zero source specs
+- **THEN** the response is `409` with `{ error: "no sources configured" }`
+- **AND** no job is registered and no index database is created
+
+#### Scenario: Same preconditions for the browser action path
+- **WHEN** a `plugin_action` reindex for `kb` arrives for an admitted folder that is missing or has zero source specs
+- **THEN** no job is started and nothing is created (the refusal is logged)
 
 ### Requirement: KB folder nav slot
 
@@ -90,10 +129,10 @@ A worktree session groups under its `gitWorktree.mainPath` in the sidebar and th
 
 ### Requirement: KB row reflects index state
 
-The KB folder row SHALL derive its presentation from the folder's KB stats and from the outcome of any client-initiated reindex, distinguishing not-indexed, indexing, populated, stale, and error states. A reindex that fails to complete — whether the server job errored or the client request itself was rejected — SHALL surface a visible failed state, never a silent no-op. Activating the primary reindex action SHALL give immediate visible feedback (an optimistic indexing indicator) on click, before the server acknowledges, and SHALL disable the action for the duration of that pending window so a single click cannot start two jobs. The optimistic indicator SHALL always resolve into a real state (polled indexing, populated, or failed) and SHALL never persist indefinitely.
+The KB folder row SHALL derive its presentation from the folder's KB stats and from the outcome of any client-initiated reindex, distinguishing not-indexed, no-sources, missing, indexing, populated, stale, error, and denied states. A folder with zero configured sources SHALL NOT offer an index action that cannot index anything; it SHALL offer to configure sources instead. A folder that no longer exists SHALL offer no index action. A reindex that fails to complete — whether the server job errored or the client request itself was rejected for a reason other than cwd admission — SHALL surface a visible failed state, never a silent no-op. A cwd-admission refusal (a `403` from any `/api/kb/*` request for the folder whose body carries `error: "cwd not allowed"`) SHALL surface a distinct `denied` state, never the failed state, because no index was attempted and a retry cannot succeed. Activating the primary reindex action SHALL give immediate visible feedback (an optimistic indexing indicator) on click, before the server acknowledges, and SHALL disable the action for the duration of that pending window so a single click cannot start two jobs. The optimistic indicator SHALL always resolve into a real state (polled indexing, populated, failed, or denied) and SHALL never persist indefinitely.
 
 #### Scenario: Empty worktree prompts indexing
-- **WHEN** folder `W` reports `indexed: false`
+- **WHEN** folder `W` reports `indexed: false` and a `sourceCount` greater than `0` (or no `sourceCount`)
 - **THEN** the row shows a not-indexed label and a prominent `Index now` action
 
 #### Scenario: Click gives immediate optimistic feedback before the server acknowledges
@@ -134,10 +173,65 @@ The KB folder row SHALL derive its presentation from the folder's KB stats and f
 - **AND** the failed state is distinguished from not-indexed even when `chunks` is `0`
 
 #### Scenario: Rejected client reindex surfaces an error, not a silent no-op
-- **WHEN** the user activates `Index now` for folder `C` and the `POST /api/kb/reindex?cwd=C` request itself is rejected (for example `403`, `500`, or a transport failure) so no server job is registered
+- **WHEN** the user activates `Index now` for folder `C` and the `POST /api/kb/reindex?cwd=C` request itself is rejected for any reason other than a cwd-admission refusal (for example `500`, a `403` from a network/host/permission gate, or a transport failure) so no server job is registered
 - **THEN** the optimistic pending indicator clears and the row shows a visible failed state carrying the reject reason with a `Retry` action
 - **AND** the failed state is driven by the trigger rejection specifically, distinct from a transient stats-poll failure
 - **AND** activating `Retry` re-issues the reindex for `C`
+
+#### Scenario: Unadmitted folder shows denied, not failed
+- **WHEN** `GET /api/kb/stats?cwd=C` responds `403 { error: "cwd not allowed" }` (folder `C` is neither a known session cwd nor a pinned directory nor admitted via its main checkout)
+- **THEN** the row shows a neutral (non-error-colored) `not allowed` label, never `index failed`
+- **AND** the row's tooltip explains, in the user's language, that the folder is not admitted and that pinning it grants access
+- **AND** the row offers no `Retry` action
+- **AND** the client stops polling `C` at the first `403`, without waiting for the stats-poll outage threshold
+
+#### Scenario: Rejected reindex trigger with 403 shows denied
+- **WHEN** the user activates the reindex action for folder `C` and `POST /api/kb/reindex?cwd=C` responds `403 { error: "cwd not allowed" }`
+- **THEN** the optimistic pending indicator clears and the row shows the `denied` state, not the failed state
+
+#### Scenario: Other 403s are not cwd refusals
+- **WHEN** a `/api/kb/*` request for folder `C` responds `403` with any body other than `error: "cwd not allowed"` (for example `network_not_allowed`, `host_not_allowed`, `forbidden`, or a non-JSON body)
+- **THEN** the row does NOT enter the `denied` state and offers no `Pin folder` action
+- **AND** the failure is handled exactly as the corresponding non-`403` failure (stats-poll outage tolerance, or failed state with `Retry` for a rejected trigger)
+
+#### Scenario: Pinning a denied folder resolves its real state
+- **WHEN** the row for folder `C` is in the `denied` state, the dashboard connection is up, and the user activates `Pin folder`
+- **THEN** the client requests pinning of exactly `C` through the dashboard's existing directory-pin mechanism
+- **AND** the row shows a busy indicator and the action is disabled until the pin outcome is known or a bounded wait elapses
+- **AND** when the dashboard reports the updated pinned-directory set including `C`, the client re-fetches `GET /api/kb/stats?cwd=C`
+- **AND** once that fetch succeeds the row shows the state derived from the fresh stats (not-indexed, populated, stale, indexing, or failed) and polling semantics resume as normal
+
+#### Scenario: Folder pinned elsewhere leaves denied
+- **WHEN** the row for folder `C` is in the `denied` state and `C` is pinned through any other dashboard surface
+- **THEN** the row re-fetches its stats once the updated pinned-directory set including `C` is reported, and leaves `denied` on success without a page reload
+
+#### Scenario: Pin unavailable while disconnected
+- **WHEN** the row for folder `C` is in the `denied` state and the dashboard connection is not established
+- **THEN** the `Pin folder` action is rendered disabled with a perceivable offline indication in every placement, and activating it sends nothing
+
+#### Scenario: Pin that does not admit the folder stays denied
+- **WHEN** the user activates `Pin folder` for folder `C` and no updated pinned-directory set including `C` arrives within the bounded wait, or the post-pin re-fetch still responds `403 { error: "cwd not allowed" }`
+- **THEN** the busy indicator clears and the row returns to the `denied` state with its `Pin folder` action enabled
+- **AND** no failed state or indefinite spinner is shown
+
+#### Scenario: Removed folder shows missing, no action
+- **WHEN** `GET /api/kb/stats?cwd=C` reports `folderMissing: true`
+- **THEN** the row shows a non-error `folder missing` label
+- **AND** its single KB action is rendered disabled, so no reindex request is sent
+- **AND** the row never shows `Index now` for `C`
+
+#### Scenario: Zero sources offers Configure sources, not Index now
+- **WHEN** `GET /api/kb/stats?cwd=C` reports `sourceCount: 0` and `chunks: 0`
+- **THEN** the row shows a `no sources` label and its single KB action reads `Configure sources`
+- **AND** activating it opens the folder's KB settings page and sends no reindex request
+
+#### Scenario: Failed job on a zero-source folder never offers a dead Retry
+- **WHEN** the row for `C` is in the failed state and `GET /api/kb/stats?cwd=C` reports `sourceCount: 0`
+- **THEN** the row keeps its failed label but its single KB action reads `Configure sources`, not `Retry`
+
+#### Scenario: Old server without the new fields
+- **WHEN** the stats response for `C` carries neither `folderMissing` nor `sourceCount`
+- **THEN** the row behaves as before this change for the non-denied states (no `missing` or `no-sources` presentation)
 
 ### Requirement: KB config read route
 
@@ -159,7 +253,7 @@ The dashboard server SHALL expose `GET /api/kb/config?cwd=<abs>` returning the f
 
 ### Requirement: KB config write route
 
-The dashboard server SHALL expose `PUT /api/kb/config?cwd=<abs>` that validates and writes the folder's project `knowledge_base.json`, editing the path fields (`sources`, `include`, `exclude`, `dbPath`) while preserving other config fields.
+The dashboard server SHALL expose `PUT /api/kb/config?cwd=<abs>` that validates and writes the folder's project `knowledge_base.json`, editing the path fields (`sources`, `include`, `exclude`, `dbPath`) while preserving other config fields. The route SHALL refuse a folder that no longer exists as a directory with `409 { error: "folder missing" }` and SHALL NOT create it.
 
 #### Scenario: Valid write persists project config
 - **WHEN** `PUT /api/kb/config?cwd=C` is called with a valid `sources`/`include`/`exclude`
@@ -180,13 +274,27 @@ The dashboard server SHALL expose `PUT /api/kb/config?cwd=<abs>` that validates 
 - **WHEN** `PUT /api/kb/config?cwd=W` is called for a folder whose `origin` is `global` or `defaults`
 - **THEN** a new project `knowledge_base.json` is scaffolded for `W` with the submitted path fields
 
+#### Scenario: Config write refuses a missing folder
+- **WHEN** `PUT /api/kb/config?cwd=C` (or a `plugin_action` `config.set` for `kb`) is called for an admitted folder `C` that does not exist as a directory
+- **THEN** the REST response is `409` with `{ error: "folder missing" }` (the action path logs and does nothing)
+- **AND** no `knowledge_base.json` and no directory are created under `C`
+
+#### Scenario: Save-and-reindex with zero sources skips the job
+- **WHEN** `PUT /api/kb/config?cwd=C` (or `config.set`) with a reindex request saves a config whose resolved source specs are empty
+- **THEN** the config is written, no reindex job is registered, and the REST response carries `reindexSkipped: "no sources configured"`
+
 ### Requirement: KB source management UI
 
-The per-folder KB settings page (opened from the folder row's `→`) SHALL let the user manage the indexed paths for that folder, AND SHALL offer a rebuild action that does not require editing the configuration. The rebuild action SHALL be enabled when the folder's server-resolved sources are non-empty — the same list the reindex job walks — and no rebuild or save is already in flight; it SHALL be disabled otherwise. Its enabled state SHALL NOT be gated on the config `origin` nor on whether the form has unsaved changes. The page SHALL NOT predict that a folder indexes nothing while that folder has resolvable sources.
+The per-folder KB settings page (opened from the folder row's `→`) SHALL let the user manage the indexed paths for that folder. It SHALL also offer a rebuild action that does not require editing the configuration.
+
+- The rebuild action SHALL be enabled when the folder's saved source specs are non-empty and no rebuild or save is already in flight. Saved source specs are those of every kind (`filesystem`, `npm`, `git`, `https`), the same list the reindex job walks.
+- It SHALL be disabled otherwise.
+- Its enabled state SHALL NOT be gated on the config `origin`, nor on whether the form has unsaved changes.
+- The page SHALL NOT predict that a folder indexes nothing while that folder has saved source specs.
 
 #### Scenario: List current sources
 - **WHEN** the KB settings page for folder `C` opens
-- **THEN** it lists each `source` (ref, priority) plus the `include`/`exclude` globs and `dbPath`
+- **THEN** it lists each `source` (kind, ref, priority) plus the `include`/`exclude` globs and `dbPath`
 - **AND** it shows the config `origin` and live entry count
 
 #### Scenario: Add and save a source
@@ -200,39 +308,44 @@ The per-folder KB settings page (opened from the folder row's `→`) SHALL let t
 - **AND** `Copy from parent repo` seeds `sources[]` from the parent, rewritten relative to the folder cwd
 
 #### Scenario: Rebuild an unchanged configuration
-- **WHEN** the settings page for a folder with non-empty resolved sources opens and the form has NO unsaved changes
+- **WHEN** the settings page for a folder with non-empty saved source specs opens and the form has NO unsaved changes
 - **THEN** a `Reindex now` action SHALL be enabled
 - **AND** activating it SHALL trigger `POST /api/kb/reindex?cwd=C` without first writing the config
 
+#### Scenario: Rebuild enabled for a remote-only configuration
+- **WHEN** the saved config contains only remote (`git` or `https`) source specs
+- **THEN** the `Reindex now` action SHALL be enabled
+- **AND** the reindex job SHALL walk those specs, skipping untrusted ones
+
 #### Scenario: Rebuild is offered for a folder configured outside the project
-- **WHEN** the settings page opens for a folder whose config `origin` is not `project` and whose resolved sources are non-empty
+- **WHEN** the settings page opens for a folder whose config `origin` is not `project` and whose saved source specs are non-empty
 - **THEN** the `Reindex now` action SHALL be present and enabled alongside the bootstrap affordances
 - **AND** its availability SHALL NOT depend on the presence of a project config file
 
 #### Scenario: Rebuild tracks the saved config, not the unsaved form
-- **WHEN** the form is edited so that its source list and the folder's resolved sources disagree
-- **THEN** the enabled state of `Reindex now` SHALL follow the resolved sources
-- **AND** a folder with empty resolved sources SHALL NOT offer an enabled `Reindex now` merely because sources were typed into the form
-- **AND** a folder with non-empty resolved sources SHALL keep an enabled `Reindex now` even when the form's source list has been emptied
+- **WHEN** the form is edited so that its source list and the folder's saved source specs disagree
+- **THEN** the enabled state of `Reindex now` SHALL follow the saved source specs
+- **AND** a folder with no saved source specs SHALL NOT offer an enabled `Reindex now` merely because sources were typed into the form
+- **AND** a folder with non-empty saved source specs SHALL keep an enabled `Reindex now` even when the form's source list has been emptied
 
 #### Scenario: Rebuild is refused, with a reason, when there is nothing to index
-- **WHEN** the settings page opens for a folder whose resolved sources are empty
+- **WHEN** the settings page opens for a folder whose saved source specs are empty
 - **THEN** the `Reindex now` action SHALL be rendered in a disabled state
 - **AND** an explanation that at least one indexable source must be defined first SHALL be VISIBLE beside the action without requiring hover or focus
 - **AND** the action SHALL NOT be hidden
 
 #### Scenario: The bootstrap notice does not contradict a populated index
-- **WHEN** the settings page opens for a folder with no project config file but non-empty resolved sources
+- **WHEN** the settings page opens for a folder with no project config file but non-empty saved source specs
 - **THEN** the page SHALL NOT state that the folder indexes nothing until sources are defined
 - **AND** the entry count and the notice SHALL NOT assert opposite facts on the same page
 
 #### Scenario: An empty edited source list does not predict an empty index
-- **WHEN** the settings page opens for a folder whose edited `sources[]` is empty but whose resolved sources are non-empty, such as a folder configured through legacy roots
+- **WHEN** the settings page opens for a folder whose edited `sources[]` is empty but whose saved source specs are non-empty, such as a folder configured through legacy roots
 - **THEN** the page MAY report that the source list is empty
 - **AND** it SHALL NOT predict that nothing will be indexed
 
 #### Scenario: An empty source list with nothing resolvable keeps its warning
-- **WHEN** the settings page opens for a folder whose edited `sources[]` is empty AND whose resolved sources are empty
+- **WHEN** the settings page opens for a folder whose edited `sources[]` is empty AND whose saved source specs are empty
 - **THEN** the page SHALL still warn that nothing will be indexed
 
 #### Scenario: Rebuild cannot be double-submitted
@@ -280,4 +393,3 @@ Every `/api/kb/*` route SHALL validate the query `cwd` against the host-provided
 #### Scenario: Missing cwd is rejected
 - **WHEN** any `/api/kb/*` route is called with no `cwd` query parameter
 - **THEN** the request is rejected with `400`
-

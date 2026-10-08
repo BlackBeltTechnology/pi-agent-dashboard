@@ -116,6 +116,44 @@ describe("reduceFlowsSessionState (pure)", () => {
   });
 });
 
+// ── attach-flow-before-run derivations (E13) ───────────────────────
+
+function ev(eventType: string, timestamp: number, data: Record<string, unknown>): DashboardEvent {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return { seq: timestamp, timestamp, eventType, data } as any;
+}
+
+describe("reduceFlowsSessionState — lastFlowStartedAt / lastAutonomousMode / lastRejection", () => {
+  it("tracks autonomous mode with no flowState, start time, and rejections without clobbering", () => {
+    const e1 = ev("flow_autonomous_changed", 600, { enabled: false });
+    const e2 = ev("flow_started", 700, {
+      flowName: "R",
+      task: "",
+      autonomousMode: true,
+      steps: [{ id: "s1", stepType: "agent", agent: "alpha", blockedBy: [] }],
+    });
+    const e3 = ev("flow_complete", 800, { status: "rejected", flowName: "X", reason: "r" });
+
+    const s1 = reduceFlowsSessionState([e1]);
+    expect(s1.flowState).toBeNull();
+    expect(s1.lastAutonomousMode).toBe(false);
+
+    const s2 = reduceFlowsSessionState([e1, e2]);
+    expect(s2.lastAutonomousMode).toBe(true);
+    expect(s2.lastFlowStartedAt).toBe(700);
+
+    const s3 = reduceFlowsSessionState([e1, e2, e3]);
+    expect(s3.lastRejection).toEqual({ flowName: "X", reason: "r", timestamp: 800 });
+    expect(s3.flowState?.status).toBe("running");
+    expect(s3.lastFlowStartedAt).toBe(700);
+  });
+
+  it("coerces ISO timestamps for lastFlowStartedAt", () => {
+    const s = reduceFlowsSessionState([flowStartedEvent(2, "build")]);
+    expect(s.lastFlowStartedAt).toBe(2000);
+  });
+});
+
 // ── Hook tests (live useSessionEvents subscription) ────────────────
 
 function Probe({ sessionId, onSnapshot }: {

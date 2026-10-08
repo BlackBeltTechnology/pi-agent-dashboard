@@ -1,14 +1,18 @@
-import { defineConfig, type Plugin } from "vite";
-import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
-import path from "node:path";
 import fs from "node:fs";
+import path from "node:path";
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig, type Plugin } from "vite";
 
 /**
- * GitHub Pages has no server-side rewrites, so a deep hash-routed URL that is
- * hard-reloaded (or a stray non-hash path) would 404. Copy the built
- * index.html to 404.html so Pages serves the SPA shell for any unknown path;
- * the client-side hash router then takes over.
+ * Copy the built index.html to 404.html in the shell's dist.
+ *
+ * On the deployed site this copy is NOT what answers an unknown path: GitHub
+ * Pages serves the repository-root 404 page (`site/404.html`) for any
+ * unmatched path, including paths under the shell's `/app/` subpath. The
+ * copied `dist/404.html` is reached only if the shell is ever deployed at a
+ * Pages root. Inert in practice: the shell uses hash routing, so deep links
+ * never reach the server as paths. See change: fix-ci-pipeline-followups.
  */
 function spa404Fallback(): Plugin {
   return {

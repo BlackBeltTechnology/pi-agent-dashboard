@@ -41,3 +41,5 @@ Binding: `isBoundCheckout(candidate, commonDir, {timeout?})`, `isBoundCheckoutAs
 `parseGitStatusV2(stdout)` → `GitStatus` (pure). Parses `git status --porcelain=v2 --branch`: `1`/`2`/`u`/`?` lines + `# branch.ab`. Reused by bridge broadcast AND server `getGitStatus`. See changes: add-change-summary-table, add-session-uncommitted-indicator-and-commit.
 
 `GH_PR_NUMBER`/`prNumber`/`prNumberOr` removed. Adds `GH_PR_STATUS` (`gh pr view --json number,url,state,isDraft,statusCheckRollup`, 20 s, no tolerate), `classifyPrStatus(Result) → PrStatusProbe` (parsed / absent on `no pull requests found` / failure), `prStatusAsync({cwd})`, types `GhPrViewJson`, `PrStatus`, `PrStatusProbe`, `GH_PR_STATUS_TIMEOUT`. See change: redesign-composer-session-strip.
+
+`GIT_STATUS_V2` argv gains `--no-optional-locks` (a polled read must not rewrite `.git/index`). New `gitStatusV2Async`, `remoteUrlOrAsync`, `currentBranchOrAsync`. `GitCheckoutRoots.gitDir?` (the per-worktree git dir the resolver already probed). See change: optimize-polling-hot-paths.

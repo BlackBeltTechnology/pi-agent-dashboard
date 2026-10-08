@@ -12,7 +12,7 @@ The requirements below are layered: the design-level (contract) requirements com
 
 `ServerPluginContext` SHALL expose `emitEventToSession(sessionId: string, eventType: string, data?: Record<string, unknown>): boolean`. It SHALL relay a `plugin_emit_event` control message to the target session over the bridge so the in-session bridge re-emits `eventType` with `data` on `pi.events`. It SHALL be gated to first-party / trusted plugins using the same gate as `spawnSession`/`abortSession`: an untrusted plugin SHALL receive a hook that returns `false` and sends nothing. A non-string or empty `eventType` SHALL return `false` without sending. It SHALL return `true` only when the control message is dispatched to a connected session.
 
-The host SHALL NOT enumerate or validate `eventType` against a fixed set — a plugin emits whatever event it registered.
+The host SHALL NOT enumerate `eventType` against a fixed allowlist — a plugin emits whatever event it registered — EXCEPT that it SHALL refuse (return `false`, send nothing, log one warning) any `eventType` beginning with a reserved prefix: `roles:`, `role:`, `model:`, `prompt:`, `dashboard:`, `ui:`. Those namespaces carry pi-agent-dashboard's own in-session control listeners (role/provider config writes, follow-up prompt injection, prompt adapters, model resolution, UI invalidation) and SHALL NOT be reachable through plugin emission. The raw `sendExtensionMessage` lane SHALL refuse (return `false`) any message whose `type` is `plugin_emit_event`, so the reserved-prefix check cannot be bypassed.
 
 #### Scenario: Trusted plugin emits an event
 
@@ -28,6 +28,16 @@ The host SHALL NOT enumerate or validate `eventType` against a fixed set — a p
 
 - **WHEN** `emitEventToSession` is called with an empty string `eventType`
 - **THEN** it SHALL return `false` and SHALL send nothing.
+
+#### Scenario: Reserved-namespace event refused
+
+- **WHEN** a trusted plugin calls `ctx.emitEventToSession("sess-1", "roles:set", {...})` or `ctx.emitEventToSession("sess-1", "dashboard:enqueue-followup", {...})`
+- **THEN** the call SHALL return `false` and SHALL send nothing.
+
+#### Scenario: Raw lane cannot smuggle an event emission
+
+- **WHEN** a trusted plugin calls `ctx.sendExtensionMessage("sess-1", { type: "plugin_emit_event", eventType: "roles:set", data: {} })`
+- **THEN** the call SHALL return `false` and SHALL send nothing.
 
 ### Requirement: Prefix enumeration over the service board
 
@@ -598,7 +608,7 @@ The dashboard server SHALL expose `POST /api/config/plugins/:id` accepting a par
 
 1. Validate the `:id` matches an installed, enabled plugin.
 2. Validate the body against that plugin's `configSchema`.
-3. Read existing config, merge the partial, write atomically (tmp + rename).
+3. Read existing config, merge the partial, write atomically (tmp + rename). Keys the body omits SHALL keep their stored values: schema defaults SHALL fill only keys absent from the merged result, never overwrite a stored value (validation SHALL NOT inject defaults into the body before the merge).
 4. Broadcast `plugin_config_update { id, config }` to all subscribers.
 5. Return `{ success: true, config: <merged> }`.
 
@@ -608,6 +618,12 @@ Writes to core config (`auth`, `port`, `bypassHosts`, etc.) continue via the exi
 
 - **WHEN** a `POST /api/config/plugins/openspec` body `{ "pollIntervalSeconds": 60 }` arrives
 - **THEN** the server SHALL persist `plugins.openspec.pollIntervalSeconds = 60`, return 200, and broadcast `plugin_config_update`.
+
+#### Scenario: Partial write keeps omitted keys
+
+- **WHEN** plugin `p` has stored `{ roots: ["/a"], flag: true }` with schema defaults `roots: []`, `flag: false`, and `POST /api/config/plugins/p` arrives with body `{ "throttle": 500 }`
+- **THEN** the stored config SHALL be `{ roots: ["/a"], flag: true, throttle: 500 }`
+- **AND** a key never stored SHALL receive its schema default
 
 #### Scenario: Unknown plugin id rejected
 
@@ -1590,13 +1606,25 @@ The client-side plugin runtime SHALL provide a module-level slot-claims version 
 
 ### Requirement: Generic session-ownership seam on `ServerPluginContext`
 
-`ServerPluginContext` SHALL expose a generic session-ownership seam so any plugin can stamp its own identity onto a session it spawns, without core naming the plugin. When a plugin spawns a session, it files an opaque `pluginRef` — a plugin-namespaced value core carries but never parses — plus an optional lifecycle declaration `{ recover?: boolean; finalizeOnSocketClose?: boolean }`. When the spawned session registers, the host resolves the ref and notifies the owning plugin.
+`ServerPluginContext` SHALL expose a generic session-ownership seam so any plugin can stamp its own identity onto a session it spawns, without core naming the plugin. When a plugin spawns a session, it files an opaque `pluginRef` — a plugin-namespaced value core carries but never parses — plus an optional lifecycle declaration `{ recover?: boolean; finalizeOnSocketClose?: boolean; hidden?: boolean }`. When the spawned session registers, the host resolves the ref and notifies the owning plugin.
 
-Core SHALL NOT read the interior of `pluginRef`. Core SHALL make lifecycle decisions only from the declared `{ recover, finalizeOnSocketClose }` values, never from the plugin's name, from any field inside `pluginRef`, or from the presence of an owner ref.
+Core SHALL NOT read the interior of `pluginRef`. Core SHALL make lifecycle decisions only from the declared `{ recover, finalizeOnSocketClose, hidden }` values, never from the plugin's name, from any field inside `pluginRef`, or from the presence of an owner ref.
 
 The first-party features `automation` and `goal` SHALL each own their identity through this seam as ordinary contributions (built-ins are peers, not privileged): `automation` files `{ kind: "automation", automationRun: {...} }`, `goal` files `{ goalId }`. The emitted `.meta.json`, wire protocol, and `DashboardSession` field names and values SHALL be byte-identical to before this change, except that a session whose owner declares `recover: false` gains that single additive core-owned boolean (see the recovery requirement); user sessions never carry it and stay byte-identical.
 
 `pluginRef` SHALL be boundary-validated on receipt, following the publish/collect doctrine's fail-open rule: core SHALL accept only a plain object, SHALL reject (drop + warn once, without throwing) a malformed ref, and SHALL NOT let a ref overwrite a reserved session field it does not own. A plugin's ref merges only the keys that plugin owns; it cannot set another plugin's `goalId`/`automationRun` or a core-reserved field.
+
+#### Scenario: Trusted plugin ends a session like the Shutdown control
+
+- **WHEN** a trusted plugin (manifest `priority <= 100`) calls `ctx.shutdownSession(sessionId)` for a known session
+- **THEN** the host SHALL run the same shutdown the browser `shutdown` message and `POST /api/session/:id/shutdown` run, and resolve `true`
+- **AND** an untrusted plugin, or an unknown session, SHALL get `false` with no effect
+
+#### Scenario: Declared hidden keeps the session off the board
+
+- **WHEN** a plugin spawns a session with `lifecycle: { hidden: true }` and the session registers via its spawn token
+- **THEN** core SHALL set the session `hidden = true`, broadcast the update, and record the core-owned `pluginHidden` intent
+- **AND** core SHALL NOT re-apply it on a later reattach, so the hide survives restarts without overriding an operator's choice
 
 #### Scenario: Malformed ref is dropped fail-open
 

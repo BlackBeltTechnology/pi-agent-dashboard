@@ -4,7 +4,7 @@ Server-side handling of `/reload` for headless-spawned pi sessions. One entry po
 
 Kill-and-respawn is the default for a headless session: it also rescues a session whose bridge has died. The server has no in-process path. pi's RPC `{type:"prompt"}` performed no slash-command dispatch when measured (a `/__dashboard_reload` written to the keeper, and pi's own built-in `/help`, arrived at the model as an ordinary user prompt), so the server never writes a reload to a keeper. See change: fix-out-of-band-reload.
 
-A terminal-hosted session reloads in-process. The server forwards `/reload` to the bridge. The bridge self-dispatches its `/__dashboard_reload <token>` command via `sendUserMessage({expandPromptTemplates: true})` (pi ≥ 0.84.2), which hands the handler a fresh `ExtensionCommandContext` with `reload()`. No TUI bootstrap is needed, and every reload works. The bridge instance loaded by the reload reports `completed`; the requesting instance reports failures. The server allows one forwarded reload in flight per session and backstops the bridge's feedback with a 75 s deadline. See change: fix-terminal-session-dashboard-reload.
+A terminal-hosted session reloads in-process. The server forwards `/reload` to the bridge. The bridge self-dispatches its `/__dashboard_reload <token>` command via `sendUserMessage({expandPromptTemplates: true})` (every supported pi), which hands the handler a fresh `ExtensionCommandContext` with `reload()`. No TUI bootstrap is needed, and every reload works. The bridge instance loaded by the reload reports `completed`; the requesting instance reports failures. The server allows one forwarded reload in flight per session and backstops the bridge's feedback with a 75 s deadline. See change: fix-terminal-session-dashboard-reload.
 
 ## Requirements
 
@@ -100,7 +100,70 @@ because its bridge died before `agent_end`, and it remains respawnable.
 - **THEN** the server SHALL respawn it
 - **AND** the stale `streaming` status SHALL NOT cause the reload to be refused
 
-### Requirement: Server-side reload dispatch
+### Requirement: Enumerated reload trigger sources
+The reload trigger sources are: (1) the reload button / `/reload` in the composer, (2)
+`scripts/reload-all.sh`, (3) the pi retry-policy settings save (`server.ts`
+`reloadConnectedSessions`), (4) package install/remove (`setReloadSessions`), (5) pi-core update
+completion (`piCoreUpdater.onAllComplete`), (6) `POST /api/resources/reload`, and (7) a writing
+`POST /api/provider-auth/radius/mcp` (Radius MCP server configured in the global `mcp.json`).
+Sources 1–4, 6 and 7 SHALL route through `dispatchReload` and produce the same observable outcome.
+Source 5 is a runtime swap and is specified separately. A fan-out SHALL NOT restrict itself to
+`piGateway.getConnectedSessionIds()`; a session with a headless PID but no bridge connection SHALL
+still be targeted.
+
+#### Scenario: Settings save fans out a reload
+- **WHEN** a pi retry-policy settings save triggers the reload fan-out
+- **THEN** each targeted session SHALL be reloaded via `dispatchReload`
+- **AND** each SHALL produce exactly one terminal `command_feedback` for `/reload`
+
+#### Scenario: Fan-out reaches a bridge-dead session
+- **WHEN** a fan-out runs and a session has a headless PID but no bridge connection
+- **THEN** that session SHALL still be targeted and reloaded through the respawn path
+
+#### Scenario: Package install fans out a reload
+- **WHEN** the post-package-operation reload runs
+- **THEN** each targeted session SHALL take the same path as a reload-button click
+
+#### Scenario: Radius MCP configure fans out a reload
+- **WHEN** `POST /api/provider-auth/radius/mcp` writes the global `mcp.json`
+- **THEN** each fan-out target SHALL be reloaded via `dispatchReload`, a busy session SHALL be handled by `dispatchReload`'s own busy rule, and a no-op POST (`written: false`) SHALL dispatch no reload
+
+### Requirement: pi-core update requires a runtime swap
+A reload SHALL NOT be treated as sufficient for a pi-core binary update. When a pi-core update
+completes, sessions with a headless PID SHALL be restarted via the kill-and-respawn path —
+including connected and streaming sessions, since a runtime swap cannot be satisfied in-process —
+and sessions that cannot be swapped SHALL report `error`, never success.
+
+#### Scenario: pi-core update completes with headless sessions connected
+- **WHEN** `piCoreUpdater.onAllComplete` runs and headless sessions are connected
+- **THEN** those sessions SHALL be respawned
+
+#### Scenario: pi-core update on a streaming headless session
+- **WHEN** the session is streaming at the time of the swap
+- **THEN** the respawn SHALL still proceed (the process is being replaced, not reloaded under an
+  active runner)
+- **AND** the streaming guard SHALL NOT convert it into an error
+
+#### Scenario: pi-core update on a session that cannot be swapped
+- **WHEN** a session has no `sessionFile`, or is not headless
+- **THEN** a terminal `command_feedback` with `status: "error"` SHALL be emitted for it
+
+### Requirement: Compaction is observable to the server
+The server SHALL be able to tell that a session is compacting. The bridge SHALL report compaction
+start and end for its session, and the server SHALL track that state on the session record so the
+busy-session refusal can be evaluated. The signal SHALL be cleared when compaction ends and when
+the session ends, so a stale compacting flag cannot permanently block reloads.
+
+#### Scenario: Compaction start and end are reported
+- **WHEN** a session begins compacting
+- **THEN** the server SHALL observe the session as compacting
+- **AND** when compaction ends, the server SHALL observe it as no longer compacting
+
+#### Scenario: Session ends while compacting
+- **WHEN** a session ends while its compacting flag is set
+- **THEN** the flag SHALL not survive onto a later registration of that session
+
+### Requirement: Server-side reload dispatch without a pi version gate
 The server SHALL expose a single reload entry point, `dispatchReload(sessionId)`, that resolves a
 reload in this order:
 1. The session is **busy** (streaming with a live bridge, or compacting) → refuse, per the
@@ -117,8 +180,7 @@ NOT deliver a reload via `headlessPidRegistry.writeRpc`, and SHALL NOT route a r
 bridge's generic extension-slash dispatch (whose `__`-prefix gate rejects the reload command).
 
 The **bridge**, on receiving a forwarded `/reload`, SHALL reach pi's command-context `reload()`
-by dispatching its own reload command in-process with command handling enabled. It SHALL do this
-only when the running pi honours command dispatch from extension-sent messages (pi ≥ 0.84.2).
+by dispatching its own reload command in-process with command handling enabled.
 The terminal-hosted path SHALL NOT require any prior manual step in the pi TUI. It SHALL keep
 working for every subsequent reload of the same process, not just the first.
 
@@ -133,24 +195,15 @@ refused with a terminal `command_feedback` `error`, and SHALL NOT be forwarded t
 
 #### Scenario: Reload on a terminal-hosted (tmux / wt / wsl-tmux) session
 - **WHEN** a reload is requested for an idle session with no headless PID but a live bridge
-- **AND** the running pi is ≥ 0.84.2
 - **THEN** the server SHALL forward `/reload` to the bridge
 - **AND** the session SHALL reload in-process (pi emits `session_start` with reason `reload`)
 - **AND** no user message SHALL be added to the transcript and no model turn SHALL start
-  (a pi that reports a missing or unparseable version is treated as ≥ 0.84.2, matching
-  extension slash dispatch)
 
 #### Scenario: Repeated reloads of the same terminal-hosted process
 - **WHEN** a terminal-hosted session has already been reloaded from the dashboard
 - **AND** a second reload is requested from the dashboard
 - **THEN** the session SHALL reload again
 - **AND** no "stale ctx" error SHALL be reported
-
-#### Scenario: Terminal-hosted session on pi older than 0.84.2
-- **WHEN** a reload is forwarded to a bridge whose running pi reports a version older than 0.84.2
-- **THEN** the bridge SHALL NOT send any text to pi
-- **AND** SHALL emit a terminal `command_feedback` with `status: "error"` whose message names the
-  minimum pi version
 
 #### Scenario: Concurrent reload of a terminal-hosted session is refused
 - **WHEN** a reload has been forwarded to a terminal-hosted session's bridge and its terminal
@@ -183,7 +236,7 @@ refused with a terminal `command_feedback` `error`, and SHALL NOT be forwarded t
 - **THEN** a terminal `command_feedback` with `status: "error"` SHALL be emitted
 - **AND** no pi process SHALL be spawned
 
-### Requirement: Reload feedback is truthful, singular, and keyed `/reload`
+### Requirement: Reload feedback is truthful, singular, and keyed `/reload` without a pi version gate
 Exactly one terminal `command_feedback` (`completed` XOR `error`) SHALL be emitted per reload, and
 its `command` field SHALL be `/reload` regardless of which internal path resolved it. The bridge
 SHALL NOT emit an unconditional `completed` for `/reload` independent of the outcome.
@@ -215,12 +268,6 @@ reload itself.
 - **THEN** exactly one `command_feedback` `{command: "/reload", status: "completed"}` SHALL reach
   the server for that session
 - **AND** it SHALL arrive after the session has re-registered
-
-#### Scenario: Bridge reload with no available path
-- **WHEN** the bridge receives `/reload` and the running pi cannot dispatch commands in-process
-  (older than 0.84.2)
-- **THEN** it SHALL emit `status: "error"` naming the minimum pi version
-- **AND** it SHALL NOT emit `completed`
 
 #### Scenario: Reload command never starts
 - **WHEN** the bridge dispatches its reload command but the handler does not start within the
@@ -259,61 +306,3 @@ reload itself.
   API)
 - **THEN** the bridge SHALL report `status: "error"` carrying the reason
 - **AND** the throw SHALL NOT escape the command handler
-
-### Requirement: Enumerated reload trigger sources
-The reload trigger sources are: (1) the reload button / `/reload` in the composer, (2)
-`scripts/reload-all.sh`, (3) the pi retry-policy settings save (`server.ts`
-`reloadConnectedSessions`), (4) package install/remove (`setReloadSessions`), (5) pi-core update
-completion (`piCoreUpdater.onAllComplete`), and (6) `POST /api/resources/reload`. Sources 1–4 and 6
-SHALL route through `dispatchReload` and produce the same observable outcome. Source 5 is a runtime
-swap and is specified separately. A fan-out SHALL NOT restrict itself to
-`piGateway.getConnectedSessionIds()`; a session with a headless PID but no bridge connection SHALL
-still be targeted.
-
-#### Scenario: Settings save fans out a reload
-- **WHEN** a pi retry-policy settings save triggers the reload fan-out
-- **THEN** each targeted session SHALL be reloaded via `dispatchReload`
-- **AND** each SHALL produce exactly one terminal `command_feedback` for `/reload`
-
-#### Scenario: Fan-out reaches a bridge-dead session
-- **WHEN** a fan-out runs and a session has a headless PID but no bridge connection
-- **THEN** that session SHALL still be targeted and reloaded through the respawn path
-
-#### Scenario: Package install fans out a reload
-- **WHEN** the post-package-operation reload runs
-- **THEN** each targeted session SHALL take the same path as a reload-button click
-
-### Requirement: pi-core update requires a runtime swap
-A reload SHALL NOT be treated as sufficient for a pi-core binary update. When a pi-core update
-completes, sessions with a headless PID SHALL be restarted via the kill-and-respawn path —
-including connected and streaming sessions, since a runtime swap cannot be satisfied in-process —
-and sessions that cannot be swapped SHALL report `error`, never success.
-
-#### Scenario: pi-core update completes with headless sessions connected
-- **WHEN** `piCoreUpdater.onAllComplete` runs and headless sessions are connected
-- **THEN** those sessions SHALL be respawned
-
-#### Scenario: pi-core update on a streaming headless session
-- **WHEN** the session is streaming at the time of the swap
-- **THEN** the respawn SHALL still proceed (the process is being replaced, not reloaded under an
-  active runner)
-- **AND** the streaming guard SHALL NOT convert it into an error
-
-#### Scenario: pi-core update on a session that cannot be swapped
-- **WHEN** a session has no `sessionFile`, or is not headless
-- **THEN** a terminal `command_feedback` with `status: "error"` SHALL be emitted for it
-
-### Requirement: Compaction is observable to the server
-The server SHALL be able to tell that a session is compacting. The bridge SHALL report compaction
-start and end for its session, and the server SHALL track that state on the session record so the
-busy-session refusal can be evaluated. The signal SHALL be cleared when compaction ends and when
-the session ends, so a stale compacting flag cannot permanently block reloads.
-
-#### Scenario: Compaction start and end are reported
-- **WHEN** a session begins compacting
-- **THEN** the server SHALL observe the session as compacting
-- **AND** when compaction ends, the server SHALL observe it as no longer compacting
-
-#### Scenario: Session ends while compacting
-- **WHEN** a session ends while its compacting flag is set
-- **THEN** the flag SHALL not survive onto a later registration of that session

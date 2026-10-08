@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Identity Login Plane — Frontend (D20 smoke)</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; display: grid; place-items: center;
+        font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+        background: radial-gradient(120% 120% at 50% 0%, #0d2233 0%, #060b12 60%);
+        color: #e7eefc;
+      }
+      main { width: min(46rem, 94vw); padding: 2rem; border-radius: 1rem; margin: 2rem 0;
+        background: #0c1622; border: 1px solid #1f3a55; box-shadow: 0 24px 60px -24px #000; }
+      .kicker { margin: 0 0 .75rem; font-size: .72rem; letter-spacing: .14em;
+        text-transform: uppercase; color: #6fd1c0; }
+      h1 { margin: 0 0 .35rem; font-size: 1.45rem; }
+      p.lede { margin: 0 0 1rem; color: #9db2cc; }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: .82em; background: #15263a; padding: .1em .38em; border-radius: .3rem; color: #cfe3ff; }
+      .actions { display: flex; gap: .75rem; margin: 0 0 1.25rem; flex-wrap: wrap; }
+      a.cta { padding: .6rem 1rem; border-radius: .6rem; background: #2fd4b0; color: #06231d;
+        font-weight: 650; text-decoration: none; }
+      a.cta:hover { background: #45e0be; }
+      a.quiet { padding: .6rem 1rem; border-radius: .6rem; background: #16283c; color: #bcd2ee;
+        text-decoration: none; }
+      a.quiet:hover { background: #1d3550; }
+      table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+      td { padding: .45rem .5rem; border-top: 1px solid #16283c; vertical-align: top; }
+      td.label { color: #8aa2bf; width: 46%; }
+      td.value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #d9e8ff; }
+      .pill { display: inline-block; margin-left: .5rem; font-size: .72rem; padding: .05rem .45rem;
+        border-radius: 999px; background: #16283c; color: #9db2cc; }
+      .pill.ok { background: #123a30; color: #6fe3c0; }
+      .pill.bad { background: #3d1a1a; color: #f0a3a3; }
+      .meta { margin: 1rem 0 0; font-size: .78rem; color: #6c86a6; }
+      .note { color: #8aa2bf; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="kicker">plugin frontend · identity-login-plane · D20 smoke</p>
+      <h1>Independent frontend</h1>
+      <p class="lede">
+        This document is served by the plugin, <strong>not</strong> the dashboard bundle. It holds
+        the access token in <strong>this page's memory only</strong> and talks to the dashboard as a
+        resource server: REST with <code>Authorization: Bearer</code>, then a browser-scope WS ticket.
+      </p>
+
+      <div class="actions">
+        <a class="cta" id="signin" href="/identity-login/start">Sign in with Keycloak</a>
+        <a class="quiet" href="/identity-login/logout">Sign out</a>
+      </div>
+
+      <table>
+        <tbody id="out"></tbody>
+      </table>
+
+      <p class="meta note" id="hint"></p>
+      <p class="meta">
+        Raw tokens and tickets are never rendered, stored in web storage, or written to the URL.
+        The handoff fragment is stripped on load with <code>history.replaceState</code>.
+      </p>
+    </main>
+
+    <script type="module">
+      // ── memory-only token ──────────────────────────────────────────────────
+      // The callback hands the bearer to THIS page's fragment
+      // (`#access_token=…`). It never reaches a server; read it once, strip it
+      // immediately, and keep it in a closure variable — never web storage.
+      let accessToken = null;
+      (function takeTokenFromFragment() {
+        const raw = location.hash.startsWith("#") ? location.hash.slice(1) : "";
+        if (!raw) return;
+        const params = new URLSearchParams(raw);
+        const token = params.get("access_token");
+        if (token) accessToken = token;
+        // Strip the fragment in place so it never lingers in the address bar or history.
+        history.replaceState(null, "", location.pathname + location.search);
+      })();
+
+      const out = document.getElementById("out");
+      const hint = document.getElementById("hint");
+
+      const rowValues = new Map();
+      function row(label, value, kind) {
+        let td2 = rowValues.get(label);
+        if (!td2) {
+          const tr = document.createElement("tr");
+          const td1 = document.createElement("td");
+          td1.className = "label";
+          td1.textContent = label;
+          td2 = document.createElement("td");
+          td2.className = "value";
+          tr.append(td1, td2);
+          out.appendChild(tr);
+          rowValues.set(label, td2);
+        }
+        td2.textContent = value;
+        if (kind) {
+          const pill = document.createElement("span");
+          pill.className = `pill ${kind}`;
+          pill.textContent = kind === "ok" ? "ok" : "check";
+          td2.appendChild(pill);
+        }
+      }
+
+      async function safeJson(res) {
+        try {
+          return await res.json();
+        } catch {
+          return null;
+        }
+      }
+
+      // ── WS: upgrade with the ticket only, then a harmless round-trip ───────
+      function connectSocket(ticket, cwd) {
+        return new Promise((resolve) => {
+          const proto = location.protocol === "https:" ? "wss:" : "ws:";
+          // The durable bearer NEVER rides the socket — only the single-use ticket.
+          const ws = new WebSocket(`${proto}//${location.host}/ws?ticket=${encodeURIComponent(ticket)}`);
+          const result = { snapshot: false, pageReplied: false, closeCode: null };
+          const timer = setTimeout(() => {
+            result.timedOut = true;
+            ws.close();
+            resolve({ result, ws });
+          }, 12_000);
+
+          ws.onopen = () => row("4. WS upgrade /ws?ticket=…", "open", "ok");
+          ws.onerror = () => row("4. WS upgrade /ws?ticket=…", "error", "bad");
+          ws.onclose = (ev) => {
+            result.closeCode = ev.code;
+            row("7. WS closed", `code ${ev.code}`);
+          };
+          ws.onmessage = (ev) => {
+            if (!ev.data) return;
+            let msg;
+            try {
+              msg = JSON.parse(ev.data);
+            } catch {
+              return;
+            }
+            if (msg?.type === "sessions_snapshot") {
+              result.snapshot = true;
+              row("5. bootstrap: sessions_snapshot", `${Array.isArray(msg.sessions) ? msg.sessions.length : 0} session(s)`, "ok");
+              // Actual protocol: a harmless, read-only request/response exchange.
+              ws.send(JSON.stringify({ type: "sessions_page", cwd, offset: 0 }));
+            } else if (msg?.type === "sessions_page_result") {
+              result.pageReplied = true;
+              // Acknowledge the round-trip only; the owner-scoped counts are the
+              // filtered snapshot (above) and the REST list (step 1).
+              row("6. exchange: sessions_page → result", "reply received", "ok");
+              clearTimeout(timer);
+              // Keep the socket open so the §9.5 transport heartbeat can run.
+              resolve({ result, ws });
+            }
+          };
+        });
+      }
+
+      // A ticketless upgrade must be refused while the resolver is active (§9.2).
+      function ticketlessControl() {
+        return new Promise((resolve) => {
+          const proto = location.protocol === "https:" ? "wss:" : "ws:";
+          let settled = false;
+          const ws = new WebSocket(`${proto}//${location.host}/ws`);
+          const done = (verdict) => {
+            if (settled) return;
+            settled = true;
+            try {
+              ws.close();
+            } catch {}
+            resolve(verdict);
+          };
+          ws.onopen = () => done("opened (unexpected)");
+          ws.onerror = () => done("refused");
+          ws.onclose = (ev) => done(`closed code ${ev.code}`);
+          setTimeout(() => done("no verdict within 6s"), 6_000);
+        });
+      }
+
+      async function run() {
+        if (!accessToken) {
+          row("token", "absent — sign in first");
+          hint.textContent = "No bearer in memory yet. Use “Sign in with Keycloak”.";
+          return;
+        }
+        row("0. token", "held in this page's memory", "ok");
+
+        // 1. bearer REST call
+        const listRes = await fetch("/api/sessions", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const listJson = await safeJson(listRes);
+        const sessions = Array.isArray(listJson?.data) ? listJson.data : [];
+        row("1. GET /api/sessions (Bearer)", `${listRes.status} · ${sessions.length} owned session(s)`, listRes.ok ? "ok" : "bad");
+
+        // 2. negative control — no bearer (LAN origin is NOT loopback, so the
+        // dashboard's network guard/identity gate is the floor).
+        const anonRes = await fetch("/api/sessions");
+        row("2. GET /api/sessions (no bearer — control)", `${anonRes.status}`, anonRes.ok ? "check" : "ok");
+
+        // 3. mint a single-use browser-scope WS ticket with the bearer
+        const mintRes = await fetch("/api/ws-ticket", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ scope: "browser" }),
+        });
+        const mintJson = await safeJson(mintRes);
+        const ticket = mintJson?.data?.ticket ?? null;
+        row("3. POST /api/ws-ticket {scope:\"browser\"}", `${mintRes.status} · ticket ${ticket ? "minted" : "absent"}`, ticket ? "ok" : "bad");
+
+        // 4-7. authenticated upgrade + harmless command + heartbeat
+        if (ticket) {
+          const cwd = sessions[0]?.cwd ?? "/";
+          const { result, ws } = await connectSocket(ticket, cwd);
+          if (result.timedOut && !result.snapshot) row("5/6. WS frames", "timed out before replies", "bad");
+          // §9.5 transport heartbeat: server pings, the browser auto-pongs; the
+          // socket must stay open. Surface liveness without inventing a frame.
+          let beats = 0;
+          const beat = setInterval(() => {
+            if (ws.readyState !== WebSocket.OPEN) {
+              clearInterval(beat);
+              return;
+            }
+            beats += 1;
+            row("8. heartbeat (transport ping/pong)", `socket alive · ${beats * 5}s`, "ok");
+          }, 5_000);
+          ws.addEventListener("close", () => clearInterval(beat));
+        }
+
+        // 9. a ticketless upgrade must be refused
+        const verdict = await ticketlessControl();
+        row("9. WS upgrade, NO ticket", verdict, verdict.includes("refused") || verdict.includes("closed") ? "ok" : "bad");
+      }
+
+      run().catch((err) => row("error", String(err?.message ?? err), "bad"));
+    </script>
+  </body>
+</html>

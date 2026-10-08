@@ -187,7 +187,19 @@ interface PiModule {
  * reason instead of a generic "not installed" message.
  */
 async function loadPiPackageManager(registry: ToolRegistry = getDefaultRegistry()): Promise<PiModule> {
-  const { module } = await registry.resolveModule<PiModule>("pi-coding-agent");
+  let module: PiModule;
+  try {
+    ({ module } = await registry.resolveModule<PiModule>("pi-coding-agent"));
+  } catch (err) {
+    // Keep the ModuleResolutionError (instanceof + .resolution trail) but
+    // lead with the install hint. See change: drop-mariozechner-pi-fork.
+    if (err instanceof ModuleResolutionError) {
+      err.message =
+        "pi-coding-agent is not installed. Install it with `npm i -g @earendil-works/pi-coding-agent`.\n" +
+        err.message;
+    }
+    throw err;
+  }
   if (!module.DefaultPackageManager) {
     throw new Error(
       "pi-coding-agent resolved but does not export DefaultPackageManager (unexpected package version)",

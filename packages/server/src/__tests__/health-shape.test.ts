@@ -514,4 +514,45 @@ describe("GET /api/health — push.errors disclosure (test-plan #X18)", () => {
     const body = (await (await fetch(`http://127.0.0.1:${pushHandle.httpPort}/api/health`)).json()) as Record<string, unknown>;
     expect("push" in body).toBe(false);
   });
+
+  // (test-plan #E10) See change: fix-gateway-socket-stale-owner (D7).
+  it("reports the bridge listeners without the socket path or any pid", async () => {
+    pushHandle = await createTestServer();
+    const res = await fetch(`http://127.0.0.1:${pushHandle.httpPort}/api/health`);
+    const body = (await res.json()) as { gateway?: Record<string, unknown> };
+    expect(Array.isArray(body.gateway?.listeners)).toBe(true);
+    expect(Object.keys(body.gateway ?? {}).every((k) => k === "listeners" || k === "fallbackReason")).toBe(true);
+    expect(JSON.stringify(body.gateway)).not.toMatch(/\.sock|\d{3,}/);
+  });
+});
+
+// optimize-polling-hot-paths #E42: poll-cost counters are SUMMED across live
+// sessions (unlike droppedBufferedFrames, which takes the max).
+describe("GET /api/health — pollCost", () => {
+  it("E42: sums pollGitSpawns across sessions", async () => {
+    const { WebSocket } = await import("ws");
+    const h = await createTestServer();
+    const sockets: InstanceType<typeof WebSocket>[] = [];
+    try {
+      const BASE = { rss: 1, heapUsed: 2, heapTotal: 3, cpuPercent: 0, loadAvg1m: 0 };
+      for (const [id, spawns] of [["poll-a", 3], ["poll-b", 4]] as const) {
+        const ws = new WebSocket(`ws://127.0.0.1:${h.piPort}/`);
+        sockets.push(ws);
+        await new Promise<void>((res, rej) => { ws.once("open", () => res()); ws.once("error", rej); });
+        ws.send(JSON.stringify({ type: "session_register", sessionId: id, cwd: process.cwd(), pid: process.pid }));
+        await new Promise((r) => setTimeout(r, 50));
+        ws.send(JSON.stringify({ type: "session_heartbeat", sessionId: id, metrics: { ...BASE, pollGitSpawns: spawns } }));
+      }
+      let sum = 0;
+      for (let i = 0; i < 100 && sum !== 7; i++) {
+        await new Promise((r) => setTimeout(r, 20));
+        const body = (await (await fetch(`http://localhost:${h.httpPort}/api/health`)).json()) as { pollCost: Record<string, number> };
+        sum = body.pollCost.pollGitSpawns;
+      }
+      expect(sum).toBe(7);
+    } finally {
+      for (const s of sockets) s.close();
+      await h.stop();
+    }
+  });
 });

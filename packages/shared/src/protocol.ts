@@ -2,6 +2,7 @@
  * Extension ↔ Server WebSocket protocol messages.
  */
 import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
+import type { UsageTotals } from "./usage-totals.js";
 
 // Notify level lives in types.ts (the session record retains a notify log);
 // re-exported here so protocol consumers import it from one place.
@@ -216,6 +217,16 @@ export interface SessionRegisterMessage {
    * See change: gate-session-worktree-button-on-git.
    */
   isGitRepo?: boolean;
+  /**
+   * Full usage totals (every kind, cache included) of the bridge's baseline
+   * `getEntries()` snapshot — the same snapshot its usage drain cursor starts
+   * after, so seed and live drain share one cutoff. Sent on the init/reload
+   * register and on a session change (new/fork/resume); never on a reconnect.
+   * The server applies it ONLY for a session id it has no record of.
+   * Optional/back-compatible: absent ⇒ all five totals start at zero.
+   * See change: count-non-message-usage.
+   */
+  usageSeed?: UsageTotals;
 }
 
 export interface SessionUnregisterMessage {
@@ -243,6 +254,20 @@ export interface ProcessMetrics {
    * fix-stuck-tool-card-on-dropped-event.
    */
   droppedBufferedFrames?: number;
+  /**
+   * Poll-cost counters (change: optimize-polling-hot-paths). Cumulative for the
+   * bridge's lifetime; summed across sessions on `/api/health`.
+   */
+  pollProcScanRuns?: number;
+  pollProcScanSpawns?: number;
+  pollProcScanMs?: number;
+  pollGitProbesTick?: number;
+  pollGitProbesTool?: number;
+  pollGitProbesWatch?: number;
+  pollGitProbesRefresh?: number;
+  pollGitSpawns?: number;
+  pollGitMs?: number;
+  pollGitWatchersAttached?: number;
   /**
    * Cumulative count of INBOUND messages the bridge refused because its
    * serialized inbound queue was full (server→bridge hop drop). Distinct from
@@ -381,6 +406,31 @@ export interface ExtensionUiRequestMessage {
 }
 
 // StatsUpdateMessage removed — server extracts stats directly from forwarded turn_end events
+
+/**
+ * Bridge -> server: one model-attributed usage that is not an assistant turn
+ * and not a tool result — a `usage` session entry (`kind: "usage:<kind>"`,
+ * e.g. `usage:cache_warm`) or the `usage` of a compaction / branch-summary
+ * entry (`kind: "compaction" | "branch_summary"`). Drained from
+ * `ctx.sessionManager.getEntries()` past the bridge's entry-id cursor at
+ * `turn_end`, `agent_settled`, `cache_warming_decision` and `session_shutdown`.
+ * The server adds it to the session totals and synthesizes a kind-marked
+ * `stats_update` (no `contextUsage`). A top-level message, not an
+ * `event_forward`: an older server ignores it instead of rendering a card.
+ * See change: count-non-message-usage.
+ */
+export interface UsageRecordedMessage {
+  type: "usage_recorded";
+  sessionId: string;
+  kind: string;
+  /** pi `Usage`: input/output/cacheRead/cacheWrite/totalTokens/cost.total. */
+  usage: Record<string, unknown>;
+  /** Present for `usage` entries only (compaction/branch-summary carry none). */
+  provider?: string;
+  model?: string;
+  /** pi entry id the usage came from (diagnostics). */
+  entryId?: string;
+}
 
 export interface FilesListMessage {
   type: "files_list";
@@ -548,11 +598,14 @@ export interface AutoNameStateMessage {
 
 /**
  * Bridge -> server: the pi-coding-agent version of the process this bridge
- * runs inside, read via `createRequire` from pi's own tree (ground truth for
- * the session). Sent at register and whenever the polled value changes
- * (e.g. after an out-of-band `pi update --self`). Server stores it as
- * `DashboardSession.piVersion` and re-broadcasts. See change:
- * restore-pi-version-skew-surface.
+ * runs inside, read argv-anchored by walking up from that process's entry
+ * point to the nearest pi manifest (`readRunningPiVersion`) — never by name,
+ * which can read a hoisted newer copy — so it is the ground truth for the
+ * session. Sent at register and whenever the polled value changes (e.g. after
+ * an out-of-band `pi update --self`). Server stores it as
+ * `DashboardSession.piVersion`, derives the below-floor flag from it, and
+ * re-broadcasts. See change: restore-pi-version-skew-surface,
+ * update-pi-core-1-0-adopt-apis.
  */
 export interface PiVersionUpdateMessage {
   type: "pi_version_update";
@@ -718,6 +771,73 @@ export interface PromptCancelMessage {
   promptId: string;
 }
 
+/**
+ * Bridge → server: persist a project-scope "Always allow" grant after the
+ * operator confirmed the agent path-gate confirm prompt. Bound to the raised
+ * confirm prompt (`promptId`) server-side.
+ * See change: ask-agent-file-access-in-chat.
+ */
+export interface PathGrantRequestMessage {
+  type: "path_grant_request";
+  requestId: string;
+  sessionId: string;
+  promptId: string;
+  path: string;
+  subject: string;
+}
+
+/** Server → bridge: outcome of a {@link PathGrantRequestMessage}. */
+export interface PathGrantResultMessage {
+  type: "path_grant_result";
+  requestId: string;
+  ok: boolean;
+  subject?: string;
+  error?: string;
+}
+
+/**
+ * Server → bridge, on every bridge (re)registration: content of the server's
+ * `~/.pi/dashboard/grant-store-id` token, re-read each time. The bridge offers
+ * "Always allow" only when it equals its own local token file.
+ */
+export interface DashboardIdentityMessage {
+  type: "dashboard_identity";
+  /** Absent when the server has no announceable grant store. */
+  grantStoreId?: string;
+  /** Server capability flags, e.g. `"path-yolo"`. See change: yolo-covers-agent-path-gate. */
+  features?: string[];
+}
+
+/**
+ * Bridge → server: at the would-prompt point of the agent path gate, ask whether
+ * a live YOLO session answers it. See change: yolo-covers-agent-path-gate.
+ */
+export interface PathYoloRequestMessage {
+  type: "path_yolo_request";
+  requestId: string;
+  sessionId: string;
+  /** Absolute, canonical path of the gated call. */
+  path: string;
+  access: "r" | "w";
+  tool: string;
+}
+
+/** Server → bridge: outcome of a {@link PathYoloRequestMessage}. */
+export interface PathYoloResultMessage {
+  type: "path_yolo_result";
+  requestId: string;
+  verdict: "auto-allow" | "refused" | "decline";
+}
+
+/** Bridge → server: the operator denied/dismissed a gate select prompt (fire-and-forget). */
+export interface PathGateRefusalMessage {
+  type: "path_gate_refusal";
+  sessionId: string;
+  promptId: string;
+  path: string;
+  subject: string;
+}
+
 export interface ProcessInfo {
   pid: number;
   pgid: number;
@@ -785,7 +905,7 @@ export interface CwdMissingMessage {
 // @deprecated Retired by change
 // `retire-slash-dispatch-via-expand-prompt-templates`: the bridge dispatches
 // extension slash commands in-process via
-// `pi.sendUserMessage(text, { expandPromptTemplates: true })` (pi >= 0.84.2), so
+// `pi.sendUserMessage(text, { expandPromptTemplates: true })`, so
 // no current bridge sends this message. The server keeps a one-release
 // tombstone arm that answers with `command_feedback {status:"error",
 // message:"bridge outdated — reload the session"}`. Successor requirement:
@@ -895,6 +1015,9 @@ export type ExtensionToServerMessage =
   | NotifyMessage
   | PromptDismissMessage
   | PromptCancelMessage
+  | PathGrantRequestMessage
+  | PathYoloRequestMessage
+  | PathGateRefusalMessage
   | ReplayCompleteMessage
   | FirstMessageUpdateMessage
   | RolesListMessage
@@ -917,7 +1040,8 @@ export type ExtensionToServerMessage =
   | PromptReceivedToServerMessage
   | InboundDropReportMessage
   | BridgeDiagnosticMessage
-  | TranscriptChunkMessage;
+  | TranscriptChunkMessage
+  | UsageRecordedMessage;
 
 
 /**
@@ -1198,6 +1322,13 @@ export interface McpTokenMintedExtensionMessage {
   type: "mcp_token_minted";
   /** Plaintext `mcp_`-prefixed bearer. Held in memory only — never logged. */
   token: string;
+  /**
+   * The `/mcp` URL the bridge registers with pi's built-in MCP
+   * (`http://127.0.0.1:<port>/mcp`). Optional: an older server omits it, and
+   * the bridge then reports registration unavailable.
+   * See change: migrate-mcp-to-pi-builtin (D1).
+   */
+  url?: string;
 }
 
 export interface FlowManagementExtensionMessage {
@@ -1381,6 +1512,13 @@ export interface AttachProposalChangedExtensionMessage {
  * does not know which events exist — it is a generic relay. Gated server-side
  * to trusted (priority ≤ 100) plugins. See change: automation-emit-configured-event.
  */
+export const RESERVED_EVENT_PREFIXES = ["roles:", "role:", "model:", "prompt:", "dashboard:", "ui:"] as const;
+
+/** True when `eventType` is in a namespace owned by host listeners (never plugin-emittable). */
+export function isReservedEventType(eventType: string): boolean {
+  return RESERVED_EVENT_PREFIXES.some((p) => eventType.startsWith(p));
+}
+
 export interface PluginEmitEventExtensionMessage {
   type: "plugin_emit_event";
   sessionId: string;
@@ -1467,6 +1605,9 @@ export type ServerToExtensionMessage =
   | FlowControlExtensionMessage
   | HeartbeatAckMessage
   | RegisterRejectedExtensionMessage
+  | PathGrantResultMessage
+  | PathYoloResultMessage
+  | DashboardIdentityMessage
   | RequestFlowsRefreshMessage
   | CredentialsUpdatedMessage
   | McpTokenMintedExtensionMessage

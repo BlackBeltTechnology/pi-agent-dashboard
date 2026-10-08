@@ -684,6 +684,18 @@ export interface ProviderAuthStatus {
   /** True when configured via ambient credential chain (AWS profile / GCP ADC). */
   ambient?: boolean;
   /**
+   * pi's label for an environment credential (api-key rows), e.g.
+   * `"workload identity federation"`. Shown as the Environment mechanism when
+   * the row has no `envVar`. See change: update-pi-core-1-0-adopt-apis (D7).
+   */
+  authLabel?: string;
+  /**
+   * OAuth rows: `true` for a subscription sign-in, `false` for an account
+   * sign-in (e.g. OpenRouter). Absent from an older server — clients treat
+   * absent as `true`. See change: update-pi-core-1-0-adopt-apis (D8).
+   */
+  subscription?: boolean;
+  /**
    * Whether *this row's own* credential kind is configured. Deliberately
    * distinct from `authenticated`: derived per row kind in the server
    * (`_buildAuthStatus`), so a keyless `-api` twin reads `false` rather than

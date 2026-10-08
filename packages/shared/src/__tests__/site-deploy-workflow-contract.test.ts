@@ -8,6 +8,9 @@
  *   E10 the dead release path is absent (release: trigger, redispatch
  *       job, `github.event_name != 'release'` guards)
  *   E11 sync-release-version.yml pushes HEAD:develop, never main
+ *   sync-release-version.yml declares no `release:` trigger in any YAML
+ *       form, and keeps workflow_dispatch.inputs.correlation
+ *       (change: fix-ci-pipeline-followups, test-plan E7–E10)
  *   E12 shell composed into site/dist/app/ before the Pages artifact upload
  *   E13 site/public/CNAME is exactly pi-dashboard.dev
  *   E14 workflow_dispatch stays available for manual redeploys
@@ -20,10 +23,12 @@
  * whether the next release redeploys the site. These assertions parse
  * workflow FILES; only the next real release closes that loop.
  */
-import { describe, it, expect } from "vitest";
+
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -119,6 +124,129 @@ describe("E11 — sync-release-version.yml pushes HEAD:develop, never main", () 
   it("no push targets main", () => {
     expect(syncCode, "a HEAD:main push would fight the develop contract").not.toMatch(
       /git push[^\n]*main/,
+    );
+  });
+});
+
+/**
+ * Throw (naming `file`) when `release` is a trigger under the top-level `on:`
+ * key, in ANY YAML spelling — block / flow mapping key, block / flow sequence
+ * item, bare scalar, quoted, commented. The workflow is PARSED (the `yaml`
+ * dependency, YAML 1.2 so `on` stays a string key): a regex over the text
+ * missed a new spelling every review round. E10's `/^\s*release:\s*$/m` on
+ * deploy-site.yml is block-key-only.
+ */
+function assertNoReleaseTrigger(file: string, yaml: string): void {
+  const doc = parseYaml(yaml) as Record<string, unknown> | null;
+  if (!doc || !("on" in doc)) throw new Error(`${file}: no top-level \`on:\` key`);
+  const on = doc.on;
+  const events =
+    typeof on === "string"
+      ? [on]
+      : Array.isArray(on)
+        ? on.map(String)
+        : on && typeof on === "object"
+          ? Object.keys(on)
+          : [];
+  if (events.includes("release")) {
+    throw new Error(
+      `${file}: \`release:\` trigger must not return — a GITHUB_TOKEN commit from this run cannot start deploy-site.yml, so the run it starts is incomplete (dispatch sync-release-version, then deploy-site). See change: fix-ci-pipeline-followups.`,
+    );
+  }
+}
+
+describe("sync-release-version.yml has no release-event trigger (change: fix-ci-pipeline-followups)", () => {
+  const FILE = "sync-release-version.yml";
+  const tail = `  workflow_dispatch:\n    inputs:\n      correlation:\n        type: string\n\npermissions:\n  contents: write\n`;
+
+  it("E7: block form is refused, naming the workflow", () => {
+    const yaml = `name: x\non:\n  release:\n    types: [published, edited]\n${tail}`;
+    expect(() => assertNoReleaseTrigger(FILE, yaml)).toThrow(FILE);
+  });
+
+  it("E8: inline-mapping form is refused", () => {
+    expect(() =>
+      assertNoReleaseTrigger(FILE, `name: x\non: {release: [published]}\njobs: {}\n`),
+    ).toThrow(FILE);
+    // The E10 block-form-only regex misses this shape.
+    expect(`on: {release: [published]}`).not.toMatch(/^\s*release:\s*$/m);
+  });
+
+  it("E9: sequence form is refused", () => {
+    expect(() => assertNoReleaseTrigger(FILE, `name: x\non: [release]\njobs: {}\n`)).toThrow(
+      FILE,
+    );
+    expect(() =>
+      assertNoReleaseTrigger(FILE, `name: x\non: [push, release]\njobs: {}\n`),
+    ).toThrow(FILE);
+  });
+
+  it("quoted forms are refused too (block key, inline-mapping key, sequence item)", () => {
+    for (const yaml of [
+      `name: x\non:\n  'release':\n    types: [published]\n${tail}`,
+      `name: x\non:\n  "release":\n${tail}`,
+      `name: x\non: {'release': [published]}\njobs: {}\n`,
+      `name: x\non: {"release": [published]}\njobs: {}\n`,
+      `name: x\non: ['release']\njobs: {}\n`,
+      `name: x\non: [push, "release"]\njobs: {}\n`,
+      `name: x\non: release\njobs: {}\n`,
+    ]) {
+      expect(() => assertNoReleaseTrigger(FILE, yaml), yaml).toThrow(FILE);
+    }
+  });
+
+  it("block-sequence form is refused (on:\n  - release)", () => {
+    for (const yaml of [
+      `name: x\non:\n  - workflow_dispatch\n  - release\njobs: {}\n`,
+      `name: x\non:\n  - "release"\njobs: {}\n`,
+      `name: x\non:\n- release\njobs: {}\n`,
+    ]) {
+      expect(() => assertNoReleaseTrigger(FILE, yaml), yaml).toThrow(FILE);
+    }
+    expect(() =>
+      assertNoReleaseTrigger(FILE, `name: x\non:\n  - workflow_dispatch\njobs: {}\n`),
+    ).not.toThrow();
+  });
+
+  it("trailing comments do not hide the trigger", () => {
+    for (const yaml of [
+      `name: x\non:\n  - workflow_dispatch\n  - release # published\njobs: {}\n`,
+      `name: x\non:\n  release: # published only\n    types: [published]\n${tail}`,
+      `name: x\non: [release] # legacy\njobs: {}\n`,
+    ]) {
+      expect(() => assertNoReleaseTrigger(FILE, yaml), yaml).toThrow(FILE);
+    }
+  });
+
+  it("does not misfire on a release-named branch filter", () => {
+    expect(() =>
+      assertNoReleaseTrigger(
+        FILE,
+        `name: x\non:\n  push:\n    branches:\n      - release/**\n      - release-1\n${tail}`,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertNoReleaseTrigger(FILE, `name: x\non: {push: {branches: [release-1, release/x]}}\n`),
+    ).not.toThrow();
+  });
+
+  it("does not misfire on dispatch-only triggers", () => {
+    expect(() => assertNoReleaseTrigger(FILE, `name: x\non:\n${tail}`)).not.toThrow();
+    expect(() => assertNoReleaseTrigger(FILE, `name: x\non: [workflow_dispatch]\n`)).not.toThrow();
+  });
+
+  it("the shipped workflow declares no release trigger", () => {
+    expect(() => assertNoReleaseTrigger(FILE, readWf(FILE))).not.toThrow();
+  });
+
+  it("E10: workflow_dispatch is the sole trigger and owns inputs.correlation", () => {
+    const wf = parseYaml(readWf(FILE)) as { on?: Record<string, unknown> };
+    expect(Object.keys(wf.on ?? {}), `${FILE}: workflow_dispatch must be the only trigger`).toEqual([
+      "workflow_dispatch",
+    ]);
+    const dispatch = wf.on?.workflow_dispatch as { inputs?: Record<string, unknown> } | undefined;
+    expect(dispatch?.inputs, `${FILE}: the correlation input publish.yml binds to must stay`).toHaveProperty(
+      "correlation",
     );
   });
 });

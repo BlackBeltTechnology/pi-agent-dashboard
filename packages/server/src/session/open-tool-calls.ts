@@ -71,6 +71,9 @@ export function findOpenToolCalls(events: StoredEvent[]): OpenToolCall[] {
     if (eventType === "tool_execution_start") {
       const id = data.toolCallId;
       if (typeof id !== "string" || closed.has(id)) continue;
+      // Nested calls (`parentToolCallId`) are rendered inside their root and
+      // are never healed top-level. See change: render-nested-tool-calls (D2).
+      if (typeof data.parentToolCallId === "string" && data.parentToolCallId !== "") continue;
       open.push({
         toolCallId: id,
         toolName: typeof data.toolName === "string" ? data.toolName : "",

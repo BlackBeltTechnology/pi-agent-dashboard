@@ -87,7 +87,7 @@ The plugin's server component SHALL persist a discovered non-default binary path
 #### Scenario: Command-line installer writes no plugin configuration
 
 - **WHEN** the installer runs from the command line on a host with no dashboard server running
-- **THEN** it completes normally and writes only the MCP configuration and the pi settings file
+- **THEN** it completes normally and writes only the MCP configuration
 - **AND** it does not attempt to reach the plugin configuration store
 
 ### Requirement: Guarded application installation
@@ -130,7 +130,7 @@ After a successful cask installation the traversal SHALL re-run application disc
 
 ### Requirement: Merge-only MCP configuration write
 
-The traversal SHALL register the iMCP server by merging exactly the `mcpServers.iMCP` key into the pi agent MCP configuration file, preserving every sibling server entry and every unrecognised key. The write SHALL be atomic and SHALL refuse to proceed when the existing file is present but unparseable. The write SHALL be performed through the `mcp-client.config` service's ensure-entry operation at global scope; the Apple-tools package SHALL contain no MCP configuration writer of its own.
+The traversal SHALL register the iMCP server by merging exactly the `mcpServers.iMCP` key into pi's global MCP configuration file, preserving every sibling server entry and every unrecognised key. The write SHALL be atomic and SHALL refuse to proceed when the existing file is present but unparseable. The write SHALL be performed through the `mcp-client.config` service's ensure-entry operation at global scope; the Apple-tools package SHALL contain no MCP configuration writer of its own. Tool visibility SHALL be expressed with pi's `exposure` / `toolExposure` fields.
 
 #### Scenario: Sibling servers survive the write
 
@@ -141,7 +141,7 @@ The traversal SHALL register the iMCP server by merging exactly the `mcpServers.
 #### Scenario: Command points at the discovered binary
 
 - **WHEN** the installer writes the iMCP entry after discovering the binary
-- **THEN** the `iMCP` entry's `command`, under whichever servers key the file already uses (`mcpServers` by default), equals the discovered `imcp-server` path
+- **THEN** the `iMCP` entry's `command` under `mcpServers` equals the discovered `imcp-server` path
 
 #### Scenario: Unparseable existing config aborts the write
 
@@ -161,51 +161,24 @@ The traversal SHALL register the iMCP server by merging exactly the `mcpServers.
 
 #### Scenario: Operator-set fields on the iMCP entry survive re-provisioning
 
-- **WHEN** the operator has set `disabled` or `directTools` on the `iMCP` entry via the MCP client and the installer re-runs
+- **WHEN** the operator has set `enabled`, `exposure` or `toolExposure` on the `iMCP` entry via the MCP client and the installer re-runs
 - **THEN** `command` is refreshed
-- **AND** `disabled` and `directTools` are preserved
+- **AND** `enabled`, `exposure` and `toolExposure` are preserved
 
 ### Requirement: Idempotent re-run
 
-Running the installer repeatedly SHALL converge on the same state without duplicating entries or reordering existing ones.
+Running the installer repeatedly SHALL converge on the same state without duplicating entries or reordering existing ones. The installer SHALL NOT modify pi's settings file.
 
 #### Scenario: Second run produces no change
 
 - **WHEN** the installer runs twice in succession on an already-provisioned machine
 - **THEN** the second run reports the same terminal state as the first
 - **AND** the MCP config contains exactly one `iMCP` entry
-- **AND** the pi settings `packages[]` array contains at most one `pi-mcp-adapter` entry
 
 #### Scenario: Existing package list order is preserved
 
-- **WHEN** the installer appends the MCP adapter to a populated `packages[]` array
-- **THEN** the pre-existing entries retain their original relative order
-
-### Requirement: Settings file write carries the same guarantees as the MCP config write
-
-The `packages[]` append to the pi settings file SHALL be merge-only, atomic, and SHALL abort rather than overwrite when the existing file is unparseable — identical discipline to the MCP config write. Presence detection SHALL use the repository's cross-kind source matcher rather than exact string equality, so an entry installed from a different source kind is recognised.
-
-#### Scenario: Unparseable settings file aborts the append
-
-- **WHEN** the pi settings file exists but is not valid JSON
-- **THEN** the installer terminates with state `CONFIG_UNPARSEABLE` and a non-zero exit code
-- **AND** the original file is left byte-identical
-
-#### Scenario: Settings write is atomic
-
-- **WHEN** the settings-file write is interrupted
-- **THEN** the target file is either the complete previous content or the complete new content, never truncated
-
-#### Scenario: Git-sourced adapter is recognised as already present
-
-- **WHEN** `packages[]` already contains a git-sourced entry for the MCP adapter and the installer runs
-- **THEN** no npm-sourced duplicate is appended
-- **AND** the existing entry is left unmodified
-
-#### Scenario: Unrelated packages survive the append
-
-- **WHEN** the installer appends to a `packages[]` array containing unrelated entries
-- **THEN** every unrelated entry is preserved and no entry is removed
+- **WHEN** the installer runs on a machine whose pi settings `packages[]` array is populated
+- **THEN** the settings file is left byte-identical
 
 ### Requirement: Write-suppressed check mode
 
@@ -249,7 +222,7 @@ Provisioning SHALL execute only on explicit invocation. The package SHALL NOT de
 
 ### Requirement: Provisioning state is a closed enumeration
 
-The traversal SHALL report exactly one of a closed set of terminal states so that the CLI, the diagnostic skill, and the settings panel render an identical vocabulary. The closed set has nine members, of which `READY` is reserved for live access: it is NOT reachable by the traversal in either mode, only by a successful tool round-trip through the adapter. The traversal therefore reports one of the other eight.
+The traversal SHALL report exactly one of a closed set of terminal states so that the CLI, the diagnostic skill, and the settings panel render an identical vocabulary. The closed set has nine members, of which `READY` is reserved for live access: it is NOT reachable by the traversal in either mode, only by a successful tool round-trip through pi's built-in MCP. The traversal therefore reports one of the other eight.
 
 #### Scenario: Terminal states are constrained
 
@@ -365,7 +338,7 @@ The plugin SHALL be listed in the Electron bundle's plugin manifest so it ships 
 
 ### Requirement: Plugin depends on the MCP client plugin
 
-The Apple-tools plugin manifest SHALL declare `dependsOn: ["mcp-client"]` and SHALL NOT declare `pi-mcp-adapter` as a required pi extension or package dependency of its own; that requirement is owned by `mcp-client`. All MCP configuration reads and writes, the adapter-package registration in `~/.pi/agent/settings.json`, and the check-mode parse-status of both files SHALL go through the `mcp-client.config` service (`ensureServerEntry`, `ensureAdapterPackage`, `checkConfigFiles`). The service's `write-failed` refusal maps to the existing `CONFIG_WRITE_FAILED` terminal state and every other refusal to `CONFIG_UNPARSEABLE`, so the closed nine-member state enumeration is unchanged. In the dashboard the service is the consumed instance; the hostless `pi-apple-tools-install` CLI obtains the identical implementation from the MCP client package's exported factory with its own injected IO and paths. Check mode SHALL ask the service's check operation about the same server name and fields the write run would ensure, so both verdicts derive from one validation of the same post-patch entry.
+The Apple-tools plugin manifest SHALL declare `dependsOn: ["mcp-client"]` and SHALL NOT declare `pi-mcp-adapter` as a required pi extension or package dependency. All MCP configuration reads and writes and the check-mode parse-status of the MCP config file SHALL go through the `mcp-client.config` service (`ensureServerEntry`, `checkConfigFiles`); the plugin SHALL NOT register any pi package in `~/.pi/agent/settings.json`. The service's `write-failed` refusal maps to the existing `CONFIG_WRITE_FAILED` terminal state and every other refusal to `CONFIG_UNPARSEABLE`, so the closed nine-member state enumeration is unchanged. In the dashboard the service is the consumed instance; the hostless `pi-apple-tools-install` CLI obtains the identical implementation from the MCP client package's exported factory with its own injected IO and paths. Check mode SHALL ask the service's check operation about the same server name and fields the write run would ensure, so both verdicts derive from one validation of the same post-patch entry.
 
 #### Scenario: Service write failure maps to CONFIG_WRITE_FAILED
 

@@ -1218,3 +1218,105 @@ describe("X10 — revocation is checked per request", () => {
     expect(call.statusCode).toBe(401);
   });
 });
+
+// ── migrate-mcp-to-pi-builtin E31 ───────────────────────────────────────────
+// pi 1.0.0's built-in MCP client offers revisions 2024-11-05…2025-11-25 and
+// sends 2025-11-25; `registerMcpServer` has no protocol-version field. The
+// dashboard's dual-era endpoint must serve that whole request/response
+// sequence, attributed to the session the bearer was minted for, and refuse
+// the modern-only `subscriptions/listen`.
+describe("E31 — a legacy-era pi client is served", () => {
+  it("initialize + tools/list + one call succeed for the session; subscriptions/listen is refused", async () => {
+    const { app, tokens, invokeTool } = await harness();
+    const t = tokens.mintForSession("session-pi");
+    const headers = {
+      authorization: `Bearer ${t}`,
+      "mcp-protocol-version": "2025-11-25",
+      "content-type": "application/json",
+    };
+    const init = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { authorization: `Bearer ${t}`, "content-type": "application/json" },
+      payload: { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "pi", version: "1.0.0" } } },
+    });
+    expect(init.statusCode).toBe(200);
+    expect(init.json().result.protocolVersion).toBe("2025-11-25");
+    const sid = init.headers["mcp-session-id"];
+    const withSid = sid ? { ...headers, "mcp-session-id": String(sid) } : headers;
+
+    const list = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: withSid,
+      payload: { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
+    });
+    expect(list.statusCode).toBe(200);
+    expect(Array.isArray(list.json().result.tools)).toBe(true);
+
+    const call = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: withSid,
+      payload: { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "list_sessions", arguments: {} } },
+    });
+    expect(call.statusCode).toBe(200);
+    expect(call.json().error).toBeUndefined();
+    expect(invokeTool).toHaveBeenCalledTimes(1);
+    expect((invokeTool.mock.calls[0] as unknown as [{ caller: unknown }])[0].caller).toMatchObject({
+      kind: "session",
+      sessionId: "session-pi",
+    });
+
+    const listen = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: withSid,
+      payload: { jsonrpc: "2.0", id: 4, method: "subscriptions/listen", params: { sessionIds: ["x"] } },
+    });
+    expect(listen.statusCode).toBe(404);
+    expect(listen.json().error.code).toBe(-32601);
+  });
+});
+
+// The dashboard registers @fastify/compress globally (threshold 1 KiB). An
+// async handler that calls `reply.send()` without RETURNING the reply races
+// the compress onSend stream and ships `content-encoding: gzip` with
+// `content-length: 0` — pi's MCP client (undici fetch, gzip by default) then
+// fails `tools/list` with "Unexpected end of JSON input" and the session sees
+// no dashboard tools. Found by the X2 harness run (migrate-mcp-to-pi-builtin).
+describe("compressed responses are complete (pi's MCP client sends accept-encoding: gzip)", () => {
+  it("a large tools/list body survives global gzip compression", async () => {
+    const compress = (await import("@fastify/compress")).default;
+    const { gunzipSync } = await import("node:zlib");
+    const { GENERATED_TOOLS } = await import("../generated/tools.js");
+    const app = Fastify();
+    open.push(app);
+    await app.register(compress, { global: true, threshold: 1024, encodings: ["gzip", "deflate"] });
+    const tokens = new McpTokenRegistry();
+    await mountMcpRoutes(app, {
+      tokens,
+      verifyDeviceToken: () => null,
+      tools: GENERATED_TOOLS,
+      invokeTool: async () => ({}),
+      serverInfo: { name: "pi-dashboard", version: "0.7.0" },
+      log: { info: () => {}, warn: () => {}, error: () => {} },
+    });
+    await app.ready();
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: `Bearer ${tokens.mintForSession("s")}`,
+        "mcp-protocol-version": "2025-11-25",
+        "content-type": "application/json",
+        "accept-encoding": "gzip",
+      },
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-encoding"]).toBe("gzip");
+    const body = JSON.parse(gunzipSync(res.rawPayload).toString("utf8"));
+    expect(body.result.tools.length).toBeGreaterThan(0);
+  });
+});

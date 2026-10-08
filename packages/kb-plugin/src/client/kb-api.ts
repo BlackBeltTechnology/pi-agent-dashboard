@@ -12,10 +12,15 @@
  */
 import type {
   KbConfigPatch,
+  KbConfigPutResponse,
   KbConfigResponse,
   KbReindexResult,
   KbReindexRunning,
+  KbSearchDocType,
+  KbSearchResponse,
+  KbSourcesResponse,
   KbStats,
+  KbTrustGrantResponse,
 } from "../shared/kb-plugin-types.js";
 
 // ── Folder-path codec (base64url, UTF-8 safe) ─────────────────────
@@ -43,14 +48,59 @@ export function kbSettingsUrl(cwd: string): string {
   return `/folder/${encodeFolderPath(cwd)}/kb`;
 }
 
+// ── Typed refusals ────────────────────────────────────────────────
+// Discriminated on the server's body literal, never on the status alone: other
+// 403s (network / host / identity gates) and other 409s stay plain `Error`s.
+// `message` stays `json.error`, so consumers that only render `message` are
+// byte-identical. Consumers branch on `code` (robust to duplicated module
+// copies in bundled builds), not `instanceof`.
+// See change: kb-denied-folder-pin-state (design D1, D11).
+
+/** `403 { error: "cwd not allowed" }` — the folder is not admitted; pinning is the remedy. */
+class KbCwdDeniedError extends Error {
+  readonly code = "cwd_not_allowed" as const;
+  constructor(
+    message: string,
+    readonly reason?: string,
+    readonly hint?: string,
+  ) {
+    super(message);
+    this.name = "KbCwdDeniedError";
+  }
+}
+
+type KbPreconditionCode = "folder_missing" | "no_sources";
+
+/** `409 { error: "folder missing" | "no sources configured" }` — a write refused by its preflight. */
+class KbPreconditionError extends Error {
+  constructor(
+    message: string,
+    readonly code: KbPreconditionCode,
+  ) {
+    super(message);
+    this.name = "KbPreconditionError";
+  }
+}
+
+const PRECONDITION_CODES = new Map<string, KbPreconditionCode>([
+  ["folder missing", "folder_missing"],
+  ["no sources configured", "no_sources"],
+]);
+
 // ── REST ──────────────────────────────────────────────────────────
 async function parseJson<T>(res: Response): Promise<T> {
   const ct = res.headers.get("content-type") ?? "";
   if (!ct.includes("application/json")) {
     throw new Error(`HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`);
   }
-  const json = (await res.json()) as T & { error?: string };
-  if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+  const json = (await res.json()) as T & { error?: string; reason?: string; hint?: string };
+  if (!res.ok) {
+    const err = json?.error;
+    if (res.status === 403 && err === "cwd not allowed") throw new KbCwdDeniedError(err, json.reason, json.hint);
+    const precondition = res.status === 409 && err ? PRECONDITION_CODES.get(err) : undefined;
+    if (err && precondition) throw new KbPreconditionError(err, precondition);
+    throw new Error(err ?? `HTTP ${res.status}`);
+  }
   return json;
 }
 
@@ -69,11 +119,41 @@ export async function fetchKbConfig(cwd: string, signal?: AbortSignal): Promise<
   return parseJson<KbConfigResponse>(res);
 }
 
-export async function saveKbConfig(cwd: string, patch: KbConfigPatch): Promise<KbConfigResponse> {
+export async function saveKbConfig(cwd: string, patch: KbConfigPatch): Promise<KbConfigPutResponse> {
   const res = await fetch(`/api/kb/config?cwd=${encodeURIComponent(cwd)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
-  return parseJson<KbConfigResponse>(res);
+  return parseJson<KbConfigPutResponse>(res);
+}
+
+/** Per-source status (file count, trust, outside, last outcome). */
+export async function fetchKbSources(cwd: string, signal?: AbortSignal): Promise<KbSourcesResponse> {
+  const res = await fetch(`/api/kb/sources?cwd=${encodeURIComponent(cwd)}`, { signal });
+  return parseJson<KbSourcesResponse>(res);
+}
+
+/** Grant trust to ONE saved remote source (by exact `ref`). Rejects with the server's `error`. */
+export async function grantSourceTrust(cwd: string, ref: string): Promise<KbTrustGrantResponse> {
+  const res = await fetch(`/api/kb/source-trust?cwd=${encodeURIComponent(cwd)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ref }),
+  });
+  return parseJson<KbTrustGrantResponse>(res);
+}
+
+/** Read-only test search over the folder's SAVED index. No `verdicts` param by design. */
+export async function searchKb(
+  cwd: string,
+  q: string,
+  opts: { limit?: number; docType?: KbSearchDocType } = {},
+  signal?: AbortSignal,
+): Promise<KbSearchResponse> {
+  const params = new URLSearchParams({ cwd, q });
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts.docType) params.set("docType", opts.docType);
+  const res = await fetch(`/api/kb/search?${params.toString()}`, { signal });
+  return parseJson<KbSearchResponse>(res);
 }

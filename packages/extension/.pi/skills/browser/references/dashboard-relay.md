@@ -124,12 +124,16 @@ client detaches or disconnects, but an explicit disconnect is faster.
   verbs and unsafe navigation. A denial is a CDP error `-32000` whose message
   reads `Denied by dashboard relay policy: <method>`:
   - always denied: `Storage.getCookies`, `Network.getAllCookies`,
-    `Network.getCookies` (cookie exfiltration), `Browser.setDownloadBehavior`.
+    `Network.getCookies` (cookie exfiltration).
   - navigation fence on `Page.navigate` / `Target.createTarget`: `file:`,
-    `javascript:`, `data:`, `blob:`, and — when the profile has
+    `javascript:`, `vbscript:`, `data:`, `blob:`, and — when the profile has
     `allowedDomains` set — any host-less URL or a host outside the list.
   Treat `-32000` as a hard stop: report which call was denied, do not retry it
   in a loop, and do not try to reach the data another way.
+- **`Browser.setDownloadBehavior` is acknowledged and dropped (ack-and-drop).**
+  Playwright `connectOverCDP` sends it during its handshake and aborts on an
+  error, so the relay answers success but never forwards it: the profile's
+  download behavior is **never** changed by you. Do not rely on download paths.
 - **One CDP client per instance.** A second `connect` to the same `cdpUrl` is
   closed with `Another CDP client already connected`. Use the `instanceId` you
   already hold.
@@ -140,11 +144,34 @@ client detaches or disconnects, but an explicit disconnect is faster.
   (checking `Host` and forwarding headers). A pi session that is not on the
   dashboard host cannot use this recipe.
 
+## Showing the page to the user, and handing over a login
+
+Two pi tools (registered by the dashboard's browser plugin, only when you run
+inside the dashboard) put your relay tab in the user's **editor pane**, next to
+the chat. Both take the `instanceId` from Step 3; the dashboard knows *your*
+session from the connection, so you never pass a session id.
+
+- **`browser_show_in_pane {instanceId, tabId?}`** — open the tab in your
+  session's pane. `tabId` defaults to the instance's most recent tab (never the
+  extension's own page). One call per 5 s per instance (`rate-limited`
+  otherwise). Errors name the cause: `disabled`, `unknown-instance`,
+  `unknown-tab`, `no-tab`, `rate-limited`.
+- **`browser_await_human {instanceId, reason}`** — for a step only the human
+  can do (login, 2FA, CAPTCHA). It opens the tab, then **blocks** on a confirm
+  prompt reading `reason`; the user acts in the pane (they can type and click
+  there, also from a phone) and presses **Done ✓** (or answers in chat).
+  Returns `done`, or `cancelled` (declined, timed out, no interactive UI —
+  reason `no-ui`). After `done`, continue with your CDP client; after
+  `cancelled`, do not pretend the login happened.
+
 ## Diagnostics
 
 - Settings → Browser Relay shows the audit trail (`GET /api/browser/audit`) —
   `denied` rows name the refused verb, `navigate` rows name the URL.
 - `POST /api/browser/disconnect` then reconnect to clear a wedged instance.
-- The dashboard's live-view tiles (`content-view`) mirror the same instance; if
-  a tile shows `no-frames`, the tab simply has not repainted (idle or hidden),
-  which is normal.
+- The dashboard shows the same instance as editor-pane tabs
+  (`browser:<instanceId>:<tabId>`, opened from the session-card badge menu or by
+  `browser_show_in_pane`); if a tab shows the idle indicator (`no-frames`), the
+  page simply has not repainted (idle or hidden), which is normal.
+- Audit `open` rows record every `browser_show_in_pane` / `browser_await_human`
+  call, accepted or refused; `dropped` rows record ack-and-drop verbs.

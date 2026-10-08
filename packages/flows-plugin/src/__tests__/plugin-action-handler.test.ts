@@ -21,7 +21,19 @@ async function setup() {
     provide: vi.fn(),
     consume: vi.fn(),
     sessionManager: { listActive: () => [], listAll: () => [] },
-    fastify: { get: vi.fn() },
+    // `register` runs encapsulated-scope callbacks against the same fake
+    // (rate-limited flow-file routes; see change: attach-flow-before-run).
+    fastify: (() => {
+      const f: { get: ReturnType<typeof vi.fn>; register: (fn: unknown, opts?: unknown) => Promise<void> } = {
+        get: vi.fn(),
+        // Scope callbacks (no options) run; option-bearing plugin
+        // registrations (e.g. @fastify/rate-limit) are no-ops here.
+        register: async (fn, opts) => {
+          if (typeof fn === "function" && opts === undefined) await fn(f);
+        },
+      };
+      return f;
+    })(),
     registerBrowserHandler: (type: string, h: Handler) => {
       if (type === "plugin_action") handler = h;
     },

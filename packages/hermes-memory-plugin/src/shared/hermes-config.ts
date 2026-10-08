@@ -56,6 +56,8 @@ export type FieldDescriptor =
   | { kind: "boolean" }
   | { kind: "number"; integer: boolean; min: number }
   | { kind: "string" }
+  /** `provider/id` model reference; validated like `string`, rendered with the shared model selector. */
+  | { kind: "model" }
   | { kind: "enum"; values: readonly string[] }
   | { kind: "stringArray" }
   | { kind: "regexArray" }
@@ -85,7 +87,7 @@ export const FIELD_DESCRIPTORS: Record<keyof MemoryConfig, FieldDescriptor> = {
   memoryDir: { kind: "string" },
   projectsMemoryDir: { kind: "string" },
   sessionSearch: { kind: "sessionSearch" },
-  llmModelOverride: { kind: "string" },
+  llmModelOverride: { kind: "model" },
   llmThinkingOverride: { kind: "enum", values: ["off", "minimal", "low", "medium", "high", "xhigh"] },
   childExtensionPaths: { kind: "stringArray" },
   memoryOverflowStrategy: { kind: "enum", values: ["auto-consolidate", "reject", "fifo-evict"] },
@@ -187,6 +189,7 @@ function validateField(key: string, value: unknown, desc: FieldDescriptor): Vali
     case "boolean":
       return typeof value === "boolean" ? null : err(key, `${key} must be a boolean`);
     case "string":
+    case "model":
       return typeof value === "string" ? null : err(key, `${key} must be a string`);
     case "number":
       return validateNumber(key, value, desc);

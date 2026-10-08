@@ -84,8 +84,11 @@ operator **deny**, never on redemption, so a premature redemption cannot lock ou
 the legitimate device. The
 trust decision SHALL rely on a **server-generated numeric confirmation code shown
 on BOTH the dashboard and the pairing device** for compare-and-match — NOT on any
-client-supplied device label. The approval action SHALL require a genuine
-authenticated browser session and SHALL NOT honor any loopback/tunnel exemption.
+client-supplied device label. The approval action (`POST /api/pair/approve`, `POST /api/pair/approve-pending`)
+SHALL require an operator proof — a dashboard login session, a valid local-proof
+cookie (see `trust-and-credential-boundaries`), or a valid `X-Pi-Local-Token` —
+and SHALL NOT honor a bare loopback/tunnel exemption in any mode, regardless of
+`requireLocalProof`. A paired-device bearer SHALL never approve.
 A pairing payload SHALL permit at most ONE active pending device at a time
 (further redemptions overwrite the slot or are hard rate-limited), bounding memory
 and approval-prompt flooding. The confirmation code SHALL have enough entropy to
@@ -116,6 +119,14 @@ lazy sweep, so the server remains the sole authority on code validity even when 
 #### Scenario: Approval cannot be self-satisfied via a bypass
 - **WHEN** an approval is attempted without a genuine authenticated browser session (e.g. via a loopback/tunnel path)
 - **THEN** the approval SHALL be rejected
+
+#### Scenario: Bare loopback cannot approve
+- **WHEN** an approval request arrives from `127.0.0.1` with no forwarding header, no login session, no local-proof cookie, and no local token, with `requireLocalProof` disabled
+- **THEN** the approval SHALL be rejected with 401 and the pending device SHALL stay pending
+
+#### Scenario: Local-proof cookie approves on an auth-off install
+- **WHEN** authentication is disabled and a browser bootstrapped via the launcher presents a valid local-proof cookie with the matching confirmation code
+- **THEN** the approval SHALL succeed
 
 #### Scenario: Redemption flood cannot exhaust the server
 - **WHEN** an attacker replays a QR payload to redeem many times
@@ -462,3 +473,35 @@ included in the list, the notification, or logs.
 #### Scenario: Reconnecting operator catches up
 - **WHEN** an operator browser reconnects while a device is pending
 - **THEN** it SHALL fetch the pending list and show the dialog without waiting for a new notification
+
+### Requirement: Approval refuses a paired-device credential and bounds the label
+The approval action SHALL refuse any request whose only credential is a
+paired-device bearer token, independent of the caller's network position. An
+optional operator-supplied `label` on approval SHALL be trimmed and SHALL be
+accepted only when it is 1..64 bytes of UTF-8 — the same bound as direct token
+issuance; a label outside that bound SHALL be rejected with `400` and no device
+SHALL be approved. A supplied `label` that is not a string SHALL likewise be
+rejected with `400`, not treated as absent — only a genuinely absent key takes
+the keep-the-pending-label branch. When no label is supplied the pending
+device's own label is kept.
+
+#### Scenario: Paired device cannot approve a pending device
+- **GIVEN** a pending device awaiting approval
+- **WHEN** a request authenticated only by an existing paired-device bearer posts the correct code and confirm code to the approval route
+- **THEN** the server SHALL respond `401`
+- **AND** the pending device SHALL remain pending and its token SHALL NOT verify
+
+#### Scenario: Oversized approval label is rejected
+- **WHEN** an operator posts a valid code and confirm code with a `label` of 65 bytes of UTF-8
+- **THEN** the server SHALL respond `400`
+- **AND** the pending device SHALL remain pending
+
+#### Scenario: Supplied non-string label is rejected
+- **WHEN** an operator posts a valid code and confirm code with `label: 123`
+- **THEN** the server SHALL respond `400`
+- **AND** the pending device SHALL remain pending
+- **AND** the server SHALL NOT respond `200` while silently keeping the pending label
+
+#### Scenario: Label absent keeps the pending label
+- **WHEN** an operator approves without a `label`
+- **THEN** the paired device SHALL carry the label recorded at redemption

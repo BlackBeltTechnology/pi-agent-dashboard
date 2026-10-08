@@ -25,7 +25,7 @@ import { type ComponentType, lazy } from "react";
 import type { ViewerProps } from "./types.js";
 import LiveServerViewer from "./LiveServerViewer.js";
 import UrlViewer from "./UrlViewer.js";
-import type { PseudoTabViewer } from "./viewer-kinds.js";
+import type { RegistryPseudoTabViewer } from "./viewer-kinds.js";
 
 const DiffViewer = lazy(() => import("./DiffViewer.js"));
 
@@ -36,7 +36,9 @@ const DiffViewer = lazy(() => import("./DiffViewer.js"));
  */
 const TerminalPlaceholder = (_p: ViewerProps) => null;
 
-export const pseudoTabRegistry: Record<PseudoTabViewer, ComponentType<ViewerProps>> = {
+// `plugin` is not a key: plugin tabs render via `PluginTabHost` (change:
+// add-browser-editor-pane-tab).
+export const pseudoTabRegistry: Record<RegistryPseudoTabViewer, ComponentType<ViewerProps>> = {
   "live-server": LiveServerViewer,
   // Opened explicitly under a virtual `url:<url>` path (never from `fileKind()`),
   // for `canvas()` url/youtube declares. See change: auto-canvas (S35).

@@ -111,6 +111,22 @@ describe("sendStateSync", () => {
 });
 
 describe("handleSessionChange", () => {
+  it("E21/E34: git info goes through the tracker's first evaluation, after register, with the status diff cache reset", () => {
+    const order: string[] = [];
+    const evaluateFirst = vi.fn((_bc: any, cwd: string) => order.push(`git:${cwd}`));
+    const bc = createMockBridgeContext({ gitTracker: { evaluateFirst } as any, lastGitStatusJson: '{"stale":1}' } as any);
+    const origSend = (bc as any).connection.send;
+    (bc as any).connection.send = (m: any) => { order.push(m.type); origSend(m); };
+    handleSessionChange(bc, {
+      cwd: "/proj",
+      sessionManager: { getSessionId: () => "sess-new", getSessionFile: () => "/f", getSessionDir: () => "/d", getBranch: () => [], getEntries: () => [] },
+    } as any, () => []);
+    expect(evaluateFirst).toHaveBeenCalledWith(bc, "/proj");
+    expect(order.indexOf("git:/proj")).toBeGreaterThan(order.indexOf("session_register"));
+    expect(order.indexOf("git:/proj")).toBeLessThan(order.indexOf("commands_list"));
+    expect(bc.lastGitStatusJson).toBeUndefined();
+  });
+
   it("always tags registerReason: spawn even after reattach", () => {
     const bc = createMockBridgeContext({ hasRegisteredOnce: true } as any);
 
@@ -296,5 +312,51 @@ describe("D3 re-mint on every re-register (wire-mcp-session-token)", () => {
     expect(registerIdx).toBeGreaterThanOrEqual(0);
     expect(mint).toBeDefined();
     expect(mint.sessionId).toBe("sess-456");
+  });
+});
+
+/**
+ * pi 0.99+ creates the session file on the FIRST user message, so a bridge
+ * registers while `getSessionFile()` names a path that does not exist yet.
+ * Register + state sync must succeed with cwd/model and log no error; a later
+ * session change picks the file up.
+ * See change: update-pi-core-1-0-adopt-apis (test-plan #X1).
+ */
+describe("session file not yet created (X1)", () => {
+  it("registers headless and TUI sessions without error and records the path", async () => {
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const fs = await import("node:fs");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-nofile-"));
+    const missing = path.join(dir, "not-yet.jsonl");
+    expect(fs.existsSync(missing)).toBe(false);
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const cachedHasUI of [false, true]) {
+        const bc = createMockBridgeContext({
+          cachedHasUI,
+          cachedCtx: {
+            sessionManager: {
+              getSessionFile: () => missing,
+              getSessionDir: () => dir,
+              getBranch: () => [],
+              getEntries: () => [],
+            },
+          } as any,
+        });
+        expect(() => sendStateSync(bc, () => [])).not.toThrow();
+        const register = (bc as any)._sent.find((m: any) => m.type === "session_register");
+        expect(register).toBeDefined();
+        expect(register.sessionFile).toBe(missing);
+        expect(register.cwd).toBe(process.cwd());
+      }
+      expect(err).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      err.mockRestore();
+      warn.mockRestore();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

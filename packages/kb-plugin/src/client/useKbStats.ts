@@ -10,7 +10,7 @@
  * ONE identical snapshot and ONE poll loop.
  *
  * Two DISTINCT error channels (see change: fix-kb-index-feedback):
- *   - `reindexError` — the reindex POST itself was rejected (403/500/transport),
+ *   - `reindexError` — the reindex POST itself was rejected (500/transport/other 403),
  *     so no job started. Definitive → surface failed + Retry immediately.
  *   - `error` — a `/stats` POLL outage. Resilient: a lone transient miss does
  *     NOT stop polling or set `error`; only a bounded run of consecutive misses
@@ -24,7 +24,7 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { KbStats } from "../shared/kb-plugin-types.js";
 import { EMPTY_SNAPSHOT, getKbStatsStore } from "./kb-stats-store.js";
 
-export { MAX_POLL_MISSES, POLL_MS, REINDEX_GUARD_MS, resetKbStatsStores } from "./kb-stats-store.js";
+export { MAX_POLL_MISSES, PIN_GUARD_MS, POLL_MS, REINDEX_GUARD_MS, resetKbStatsStores } from "./kb-stats-store.js";
 
 export interface UseKbStatsResult {
   stats: KbStats | null;
@@ -39,8 +39,16 @@ export interface UseKbStatsResult {
    * guard elapses). NEVER cleared on the bare `202`. See change: add-kb-index-optimistic-pending.
    */
   pending: boolean;
+  /** Cwd-guard refusal (`403 cwd not allowed`) — not an error; Pin is the remedy. See change: kb-denied-folder-pin-state. */
+  denied: boolean;
+  /** Server refusal `reason` (diagnostics only, never rendered). */
+  deniedReason: string | null;
+  /** A Pin was sent and admission is awaited (bounded by PIN_GUARD_MS). Never sets `pending`. */
+  pinPending: boolean;
   reindex: () => void;
   refetch: () => void;
+  /** Start the bounded pin wait (no-op unless denied and not already waiting). */
+  beginPinWait: () => void;
 }
 
 const noop = (): void => {};
@@ -61,9 +69,10 @@ export function useKbStats(cwd: string | null | undefined): UseKbStatsResult {
 
   const reindex = useCallback(() => store?.reindex(), [store]);
   const refetch = useCallback(() => store?.refetch(), [store]);
+  const beginPinWait = useCallback(() => store?.beginPinWait(), [store]);
 
   return useMemo(
-    () => ({ ...snapshot, reindex, refetch }),
-    [snapshot, reindex, refetch],
+    () => ({ ...snapshot, reindex, refetch, beginPinWait }),
+    [snapshot, reindex, refetch, beginPinWait],
   );
 }

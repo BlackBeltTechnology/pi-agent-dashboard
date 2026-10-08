@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-apple-tools",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Provision and surface iMCP (Apple PIM: Calendar, Contacts, Reminders, Messages, Location, Maps, Weather) for pi. One-command installer, a dashboard provisioning panel, and an agent skill. macOS-only; no Apple Mail.",
   "license": "MIT",
   "publishConfig": {
@@ -82,9 +82,9 @@
     "react-dom": ">=18.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-mcp-client-plugin": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0"
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-mcp-client-plugin": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

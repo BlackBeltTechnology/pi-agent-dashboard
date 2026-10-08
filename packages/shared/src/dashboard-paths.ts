@@ -81,6 +81,20 @@ export function resolvePiSessionsDir(env?: DashboardPathsEnv): string {
   );
 }
 
+/**
+ * Pi's default per-cwd session folder: `resolvePiSessionsDir(env)` + pi's
+ * folder name (`--<cwd, leading separator dropped, / \\ : → ->--`). Mirrors
+ * pi's `getDefaultSessionDirPath`; a parity test pins it against pi's
+ * `getDefaultSessionDir`. Used by host session discovery and the team plugin
+ * (`--session-dir`). See change: add-team-plugin (D15).
+ */
+export function piSessionDirForCwd(cwd: string, env?: DashboardPathsEnv): string {
+  // Drive-letter paths are kept verbatim so the encoding is testable off-Windows.
+  const resolved = /^[A-Za-z]:[\\/]/.test(cwd) ? cwd : path.resolve(cwd);
+  const safe = `--${resolved.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+  return path.join(resolvePiSessionsDir(env), safe);
+}
+
 /** `~/.pi/dashboard/` — config dir for `config.json`, `server.log`, etc. */
 export function getDashboardConfigDir(env?: DashboardPathsEnv): string {
   return path.join(env?.homedir ?? os.homedir(), ".pi", "dashboard");

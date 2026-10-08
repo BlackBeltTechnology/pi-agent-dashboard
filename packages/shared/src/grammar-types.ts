@@ -85,4 +85,6 @@ export type GrammarErrorCode =
   | "backend_unreachable"
   | "backend_timeout"
   | "backend_bad_response"
-  | "backend_unconfigured";
+  | "backend_unconfigured"
+  /** `llm.role` points at a role with no model assigned. See change: add-role-aware-model-refs. */
+  | "model_role_unassigned";

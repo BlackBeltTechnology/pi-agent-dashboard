@@ -113,7 +113,7 @@ RUN if getent passwd 1000 >/dev/null; then userdel -r "$(getent passwd 1000 | cu
 # 1.4 Global pi coding agent + openspec (spawned/probed by the dashboard).
 # Install must be fatal; the version probes stay non-fatal (grouped so a
 # non-zero `--version` can't mask an `npm install -g` failure).
-RUN npm install -g @earendil-works/pi-coding-agent@0.86.1 openspec \
+RUN npm install -g @earendil-works/pi-coding-agent@1.0.0 openspec \
  && { pi --version || true; } \
  && { openspec --version || true; }
 
@@ -205,6 +205,11 @@ RUN pnpm install --frozen-lockfile \
 # write. Create them here, owned by pi, so the copy-on-first-use hands the
 # volume to the user that actually runs.
 RUN mkdir -p /home/pi/.pi /home/pi/.zrok2 && chown pi:pi /home/pi/.pi /home/pi/.zrok2
+
+# Out-of-root fixture dir for the agent path-gate e2e (tool-read-outside-grantable).
+# See change: ask-agent-file-access-in-chat.
+RUN mkdir -p /srv/fixtures-outside && printf 'outside-a\n' > /srv/fixtures-outside/a.txt \
+ && printf 'outside-b\n' > /srv/fixtures-outside/b.txt && chown -R pi:pi /srv/fixtures-outside
 
 USER pi
 ENV HOME=/home/pi

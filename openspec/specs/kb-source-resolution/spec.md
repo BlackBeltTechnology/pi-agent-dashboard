@@ -94,17 +94,27 @@ The git resolver SHALL clone the repository into a cache directory, check out th
 
 ### Requirement: https source resolution and archive extraction
 
-The https resolver SHALL fetch a remote URL into a cache directory, extracting recognized archives and writing plain files directly, and SHALL record a fetch marker for staleness tracking.
+The https resolver SHALL fetch a remote `https:` URL into a cache directory through the SSRF-guarded fetch (see `untrusted-content-ingestion`), extracting recognized archives traversal-safely and writing plain files directly, and SHALL record a fetch marker for staleness tracking. A non-`https:` URL (including `http://` and `ssh://` refs classified as `https`), a non-2xx response, or a guard refusal SHALL fail resolution without writing a fetch marker and SHALL leave any previously cached content in place.
 
 #### Scenario: Archive fetched and extracted
 
 - **WHEN** the URL ends in `.tar.gz`, `.tgz`, `.tar.bz2`, or `.zip`
-- **THEN** the archive is downloaded into the cache and extracted (unzip for `.zip`, tar otherwise)
+- **THEN** the archive is downloaded into a staging directory outside the destination, its entry listing is validated, it is extracted (unzip for `.zip`, tar with compression auto-detection otherwise), and the result replaces the destination only after every check passes
 
 #### Scenario: Plain file fetched
 
 - **WHEN** the URL is not an archive
-- **THEN** its text is fetched and written into the cache under the URL's filename (or `index.md` when none)
+- **THEN** its body is fetched and written into the cache under the basename of the URL path (or `index.md` when that basename is empty, `.`, or `..`)
+
+#### Scenario: Non-https ref refused
+
+- **WHEN** a source classified as `https` has an `http://` or `ssh://` ref
+- **THEN** resolution fails with an https-only error and nothing is fetched
+
+#### Scenario: Non-2xx response refused
+
+- **WHEN** the remote responds with a non-2xx status after redirects
+- **THEN** resolution fails and the response body is not written to the cache
 
 #### Scenario: Staleness-based re-fetch
 
@@ -139,3 +149,45 @@ The resolver SHALL require trust confirmation before any npm, git, or https fetc
 
 - **WHEN** a filesystem source is resolved
 - **THEN** no trust check or prompt occurs
+
+### Requirement: Remote resolution does not block the event loop
+
+The `git` and `https` resolvers SHALL run external processes (`git`, `tar`, `unzip`) asynchronously, never via synchronous child-process APIs. Each git invocation SHALL be bounded by a timeout.
+
+#### Scenario: Clone does not stall the host process
+
+- **WHEN** a git source is cloned inside a long-running host process
+- **THEN** the host's event loop continues serving other work while the clone runs
+
+#### Scenario: Git timeout
+
+- **WHEN** a git invocation exceeds 120 seconds
+- **THEN** the child process is killed and resolution of that source fails with a timeout error
+
+#### Scenario: Hardening flags preserved
+
+- **WHEN** the resolver invokes git
+- **THEN** the argv carries the same protocol-restriction, address-pinning, and redirect flags required by the `untrusted-content-ingestion` capability
+
+### Requirement: Classifiable not-trusted failure
+
+When a remote source is not recorded as trusted and `promptTrust` returns false, resolution SHALL fail with an exported error type that callers can distinguish from network, timeout, and extraction failures.
+
+#### Scenario: Not-trusted error is classifiable
+
+- **WHEN** a remote source is not recorded as trusted and `promptTrust` returns false
+- **THEN** resolution throws the not-trusted error type and performs no network access
+
+### Requirement: Trust persistence is atomic and reports failure
+
+Recording trust SHALL write the trust store atomically: a temporary file in the same directory, then a rename. It SHALL return whether the write was persisted. A failed write SHALL leave the previous store contents intact.
+
+#### Scenario: Successful grant persisted
+
+- **WHEN** trust is recorded and the store is writable
+- **THEN** the call returns true and the entry is present on the next read
+
+#### Scenario: Failed write reported
+
+- **WHEN** the trust store directory is not writable
+- **THEN** the call returns false, logs the failure, and the previous store contents are unchanged

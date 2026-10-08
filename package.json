@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-agent-dashboard",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Web dashboard for monitoring and interacting with pi agent sessions",
   "repository": {
     "type": "git",
@@ -53,6 +53,7 @@
     "!packages/**/__tests__",
     "!packages/**/__fixtures__",
     "!packages/**/__mocks__",
+    "!packages/**/test-support",
     "!packages/**/*.test.*",
     "!packages/**/*.spec.*",
     "!packages/**/AGENTS.md",
@@ -61,7 +62,7 @@
   "scripts": {
     "postinstall": "node scripts/maybe-patch-package.cjs && node scripts/fix-pty-permissions.cjs",
     "dev": "npm run dev --workspace=@blackbelt-technology/pi-dashboard-web",
-    "build": "npm run build --workspace=@blackbelt-technology/pi-dashboard-web",
+    "build": "npm run build --workspace=@blackbelt-technology/pi-dashboard-web && npm run build:app --workspace=@blackbelt-technology/pi-dashboard-team-plugin",
     "test": "npm run test:parallel && npm run test:real-process",
     "test:parallel": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest run",
     "test:real-process": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest run --config packages/server/vitest.real-process.config.ts",
@@ -75,7 +76,7 @@
     "lint:e2e": "tsc -p tests/tsconfig.json --noEmit && node scripts/check-e2e-fixture-import.mjs",
     "lint:biome": "biome lint .",
     "fix:changed": "biome check --changed --write",
-    "quality:changed": "biome check --changed --error-on-warnings --write && tsc --noEmit && npm run lint:e2e && node scripts/z-layer-lint.mjs && npm test",
+    "quality:changed": "biome check --changed --error-on-warnings --write && tsc --noEmit && tsc --noEmit -p packages/team-app && npm run lint:e2e && node scripts/z-layer-lint.mjs && npm test",
     "quality:report": "biome lint . --reporter=github",
     "reload": "./scripts/reload-all.sh",
     "reload:check": "./scripts/reload-all.sh --check",
@@ -99,6 +100,10 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:chrome": "PW_CHANNEL=chrome playwright test",
     "test:e2e:reconnect": "PI_E2E_INDEPENDENT_SESSION=1 playwright test faux-ask",
+    "test:e2e:identity": "playwright test --config playwright.identity.config.ts",
+    "test:e2e:identity-matrix": "playwright test --config playwright.identity-matrix.config.ts",
+    "pretest:e2e:team": "npm run build:app --workspace=@blackbelt-technology/pi-dashboard-team-plugin",
+    "test:e2e:team": "playwright test --config playwright.team.config.ts",
     "test:e2e:perf": "PW_PERF=1 PW_CHANNEL=chrome playwright test chat-render-perf",
     "pretest:e2e:electron": "node -e \"const fs=require('fs');if(process.env.PW_ELECTRON_BINARY||fs.existsSync('packages/electron/out')){process.exit(0)}require('child_process').execSync('npm run -w packages/electron package',{stdio:'inherit'})\"",
     "test:e2e:electron": "playwright test --config playwright.electron.config.ts",
@@ -111,9 +116,9 @@
     "node": ">=22.19.0 <27"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-extension": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-server": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-web": "^0.8.0"
+    "@blackbelt-technology/pi-dashboard-extension": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-server": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-web": "^0.9.0"
   },
   "optionalDependencies": {
     "appdmg": "^0.6.6"
@@ -121,9 +126,9 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.10.0",
     "@biomejs/biome": "2.5.11",
-    "@blackbelt-technology/pi-dashboard-bus-client": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
-    "@earendil-works/pi-ai": "^0.86.1",
+    "@blackbelt-technology/pi-dashboard-bus-client": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
+    "@earendil-works/pi-ai": "^1.0.0",
     "@playwright/test": "1.62.1",
     "acorn": "^8.17.0",
     "jiti": "^2.7.0",
@@ -138,12 +143,9 @@
     "yaml": "^2.9.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": ">=0.75.5 <0.87.0",
-    "@earendil-works/pi-coding-agent": ">=0.80.10",
-    "@earendil-works/pi-tui": ">=0.80.10",
-    "@mariozechner/pi-ai": ">=0.73.1",
-    "@mariozechner/pi-coding-agent": ">=0.73.1",
-    "@mariozechner/pi-tui": ">=0.73.1",
+    "@earendil-works/pi-ai": ">=1.0.0",
+    "@earendil-works/pi-coding-agent": ">=1.0.0",
+    "@earendil-works/pi-tui": ">=1.0.0",
     "typebox": ">=1.3.6"
   },
   "peerDependenciesMeta": {
@@ -154,15 +156,6 @@
       "optional": true
     },
     "@earendil-works/pi-tui": {
-      "optional": true
-    },
-    "@mariozechner/pi-coding-agent": {
-      "optional": true
-    },
-    "@mariozechner/pi-ai": {
-      "optional": true
-    },
-    "@mariozechner/pi-tui": {
       "optional": true
     },
     "typebox": {

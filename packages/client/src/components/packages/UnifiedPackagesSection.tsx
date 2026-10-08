@@ -50,10 +50,6 @@ import { WhatsNewPackageRow } from "./WhatsNewPackageRow.js";
 
 /** Single core package the breaking-change icon is wired for. v1 scope. */
 const PI_CORE_PKG = "@earendil-works/pi-coding-agent";
-/** Legacy pre-rename scope, still accepted so installs on the old name keep the icon. */
-const PI_CORE_PKG_LEGACY = "@mariozechner/pi-coding-agent";
-const isPiCorePkg = (name: string): boolean =>
-	name === PI_CORE_PKG || name === PI_CORE_PKG_LEGACY;
 
 /**
  * Extract the bare npm package name from an installed-package `source`
@@ -116,7 +112,7 @@ export function UnifiedPackagesSection() {
 	// Only fetched for pi-coding-agent when it has an update available.
 	// See change: pi-update-whats-new-panel.
 	const piPkg = useMemo(
-		() => corePackages.find((p) => isPiCorePkg(p.name)),
+		() => corePackages.find((p) => p.name === PI_CORE_PKG),
 		[corePackages],
 	);
 	const piChangelogEnabled =
@@ -364,7 +360,7 @@ export function UnifiedPackagesSection() {
 					)}
 					<div className="space-y-1 mb-4">
 						{corePackages.map((pkg) => {
-							const isPi = isPiCorePkg(pkg.name);
+							const isPi = pkg.name === PI_CORE_PKG;
 							const opSource = piCoreSource(pkg.name);
 							const busy = operations.runningSource === opSource;
 							const opStatus = operations.statusFor(opSource);

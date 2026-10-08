@@ -28,8 +28,13 @@ let lastThinkingProps: UiThinkingLevelSelectorProps | null = null;
 
 function MockModelSelector(props: UiModelSelectorProps) {
   return (
-    <div data-testid="mock-model-selector" data-current={props.current}>
+    <div data-testid="mock-model-selector" data-current={props.current} data-allow-roles={String(!!props.allowRoles)}>
       <button data-testid="mock-model-trigger">{props.current ?? "select model"}</button>
+      {props.allowRoles && (
+        <button data-testid="role-opt-fast" onClick={() => props.onSelect("@fast")}>
+          @fast
+        </button>
+      )}
       {(props.models ?? []).map((m) => {
         const label = `${m.provider}/${m.id}`;
         return (
@@ -70,6 +75,7 @@ function renderChain(
     models?: ModelInfo[];
     registry?: RegistryState;
     onRetryRegistry?: () => void;
+    onReattach?: (index: number) => void;
   },
 ) {
   const onChange = vi.fn();
@@ -96,6 +102,7 @@ function renderChain(
         }
         registry={options?.registry ?? "ok"}
         onRetryRegistry={options?.onRetryRegistry}
+        onReattach={options?.onReattach}
       />,
     ),
   );
@@ -390,5 +397,46 @@ describe("Model selector and thinking level integrations (3.1-3.10)", () => {
     expect(queryByTestId("mock-model-selector")).toBeNull();
     const span = getByTestId("blackhole-chain-observer-0-model");
     expect(span.textContent).toBe("openrouter/model-a");
+  });
+});
+
+
+describe("role-aware slots (add-role-aware-model-refs)", () => {
+  it("entry pickers enable the Role tab and a role pick marks the entry as following it", () => {
+    const { getByTestId, onChange } = renderChain([A, B]);
+    expect(getByTestId("blackhole-chain-observer-entry-0").querySelector('[data-testid="mock-model-selector"]')?.getAttribute("data-allow-roles")).toBe("true");
+    fireEvent.click(within(getByTestId("blackhole-chain-observer-entry-0")).getByTestId("role-opt-fast"));
+    const next = onChange.mock.calls[0]![0] as ModelRef[];
+    expect(next[0]).toMatchObject({ role: "@fast", provider: "openrouter", id: "model-a" });
+    expect(next[1]).toEqual(B);
+  });
+
+  it("a bound entry shows its role as the picker's current value and hides the thinking override", () => {
+    const { getByTestId, queryByTestId } = renderChain([{ ...A, role: "@fast", roleStatus: "ok" }]);
+    expect(getByTestId("blackhole-chain-observer-entry-0").querySelector('[data-testid="mock-model-selector"]')?.getAttribute("data-current")).toBe("@fast");
+    expect(getByTestId("blackhole-chain-observer-entry-0-role").textContent).toBe("@fast");
+    expect(getByTestId("blackhole-entry-0-thinking-from-role")).toBeTruthy();
+    expect(queryByTestId("blackhole-chain-observer-entry-0-role-status")).toBeNull();
+  });
+
+  it("a dangling slot shows its status; a detached slot offers Reattach", () => {
+    const onReattach = vi.fn();
+    const { getByTestId } = renderChain(
+      [{ ...A, role: "@fast", roleStatus: "detached" }, { ...B, role: "@fast", roleStatus: "dangling" }],
+      true,
+      { onReattach },
+    );
+    expect(getByTestId("blackhole-chain-observer-entry-0-role-status").getAttribute("data-status")).toBe("detached");
+    expect(getByTestId("blackhole-chain-observer-entry-1-role-status").getAttribute("data-status")).toBe("dangling");
+    fireEvent.click(getByTestId("blackhole-chain-observer-reattach-0"));
+    expect(onReattach).toHaveBeenCalledWith(0);
+  });
+
+  it("a direct pick on a bound entry clears the role", () => {
+    const { getByTestId, onChange } = renderChain([{ ...A, role: "@fast", roleStatus: "ok" }]);
+    fireEvent.click(within(getByTestId("blackhole-chain-observer-entry-0")).getByTestId("model-opt-ollama/model-b"));
+    const next = onChange.mock.calls[0]![0] as ModelRef[];
+    expect(next[0]!.role).toBeUndefined();
+    expect(next[0]).toMatchObject({ provider: "ollama", id: "model-b" });
   });
 });

@@ -5,6 +5,10 @@
  *   excludedReason: null | "no-credential" | "oauth-incompatible".
  * JWT-gated (registered on the main instance only, never the /v1 proxy port).
  *
+ * `missingOAuth` lists providers holding an OAuth credential whose model-runtime
+ * provider exposes no OAuth implementation (their completions fail with a named
+ * missing-OAuth-capability error). See change: collapse-model-proxy-onto-modelruntime (D5).
+ *
  * See change: filter-oauth-incompatible-models, design §D3.
  */
 import type { FastifyInstance } from "fastify";
@@ -19,7 +23,7 @@ export function registerModelProxyDiagnosticsRoutes(fastify: FastifyInstance): v
         provider: model.provider,
         excludedReason,
       }));
-      return { object: "list", data };
+      return { object: "list", data, missingOAuth: registry.getMissingOAuthProviders() };
     } catch (err: any) {
       return reply.code(503).send({
         code: "MODEL_PROXY_RUNTIME_MISSING",

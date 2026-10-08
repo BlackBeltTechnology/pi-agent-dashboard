@@ -60,7 +60,7 @@ export function YoloAccessCard({
           {i18nT(
             "yolo.cardBody",
             undefined,
-            "Auto-answers file and working-directory prompts with Allow once for a fixed time, inside the chosen folders. Nothing is persisted; network, CORS and pairing are never touched; every auto-allow is listed below.",
+            "Auto-answers the agent's file-access gate and the dashboard's file and working-directory prompts with Allow once for a fixed time, inside the chosen folders. Nothing is persisted; network, CORS and pairing are never touched; every auto-allow is listed below.",
           )}
         </p>
       </div>
@@ -95,7 +95,7 @@ export function YoloAccessCard({
           <div data-testid="yolo-access-planes">
             {i18nT(
               "yolo.planes",
-              { planes: `${i18nT("grantPrompt.plane.filesystem", undefined, "filesystem")}, ${i18nT("grantPrompt.plane.cwd", undefined, "working directory")}` },
+              { planes: `${i18nT("grantPrompt.plane.filesystem", undefined, "filesystem")}, ${i18nT("grantPrompt.plane.cwd", undefined, "working directory")}, ${i18nT("yolo.planeAgentPath", undefined, "Agent path gate")}` },
               "Planes: {planes}",
             )}
           </div>

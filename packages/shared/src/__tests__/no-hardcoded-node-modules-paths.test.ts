@@ -28,10 +28,11 @@
  *
  * See change: register-build-time-tools.
  */
-import { describe, expect, it } from "vitest";
+
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 
 /** Banned substrings (after comment-stripping). */
 const PATTERNS: readonly { re: RegExp; suggestion: string }[] = [
@@ -80,6 +81,11 @@ const ALLOWLIST: readonly string[] = [
 const SCAN_FILES: readonly string[] = [
   ".github/workflows/publish.yml",
   ".github/workflows/ci.yml",
+  // Full-suite nightly (change: speed-up-ci-affected-tests).
+  ".github/workflows/nightly-tests.yml",
+  // Electron build matrix — runs `node install.js` via the resolver on
+  // linux/arm64 and darwin (change: fix-ci-pipeline-followups).
+  ".github/workflows/_electron-build.yml",
   "packages/electron/scripts/Dockerfile.build",
   "scripts/fix-pty-permissions.cjs",
   "packages/server/scripts/fix-pty-permissions.cjs",
@@ -122,6 +128,52 @@ function stripLineComment(line: string): string {
   return line;
 }
 
+/** Scan one file's text for banned substrings (after comment-stripping). */
+function scanContent(file: string, content: string): Violation[] {
+  const violations: Violation[] = [];
+  content.split(/\r?\n/).forEach((rawLine, idx) => {
+    const stripped = stripLineComment(rawLine);
+    for (const { re, suggestion } of PATTERNS) {
+      const m = stripped.match(re);
+      if (!m) continue;
+      const col = rawLine.indexOf(m[0]);
+      violations.push({
+        file,
+        line: idx + 1,
+        col: col >= 0 ? col + 1 : 1,
+        text: rawLine.trim(),
+        suggestion,
+      });
+    }
+  });
+  return violations;
+}
+
+describe("E2: the lint reaches _electron-build.yml (change: fix-ci-pipeline-followups)", () => {
+  const rel = ".github/workflows/_electron-build.yml";
+  const here = path.dirname(url.fileURLToPath(import.meta.url));
+  const real = fs.readFileSync(
+    path.resolve(here, "..", "..", "..", "..", rel),
+    "utf-8",
+  );
+
+  it("SCAN_FILES includes the workflow", () => {
+    expect(SCAN_FILES).toContain(rel);
+  });
+
+  it("a planted literal electron path is flagged, naming the workflow", () => {
+    const planted = `${real}\n          cd node_modules/electron/dist && ls\n`;
+    const v = scanContent(rel, planted);
+    expect(v).toHaveLength(1);
+    expect(v[0].file).toBe(rel);
+  });
+
+  it("the shipped workflow (resolver call) is clean", () => {
+    expect(real).toContain("pi-dashboard-resolve-tool.cjs electron");
+    expect(scanContent(rel, real)).toEqual([]);
+  });
+});
+
 describe("no hardcoded node_modules/<dep> paths in build-time files", () => {
   it("only allowlisted files reference node_modules/electron or node_modules/node-pty", () => {
     const here = path.dirname(url.fileURLToPath(import.meta.url));
@@ -139,23 +191,7 @@ describe("no hardcoded node_modules/<dep> paths in build-time files", () => {
       if (allowSet.has(normalized)) continue;
 
       const content = fs.readFileSync(file, "utf-8");
-      const lines = content.split(/\r?\n/);
-
-      lines.forEach((rawLine, idx) => {
-        const stripped = stripLineComment(rawLine);
-        for (const { re, suggestion } of PATTERNS) {
-          const m = stripped.match(re);
-          if (!m) continue;
-          const col = rawLine.indexOf(m[0]);
-          violations.push({
-            file: path.relative(repoRoot, file),
-            line: idx + 1,
-            col: col >= 0 ? col + 1 : 1,
-            text: rawLine.trim(),
-            suggestion,
-          });
-        }
-      });
+      violations.push(...scanContent(path.relative(repoRoot, file), content));
     }
 
     if (violations.length > 0) {

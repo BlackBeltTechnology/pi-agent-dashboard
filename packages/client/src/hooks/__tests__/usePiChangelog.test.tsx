@@ -10,7 +10,7 @@ import type { ChangelogResponse } from "@blackbelt-technology/pi-dashboard-share
 
 function makeResponse(): ChangelogResponse {
   return {
-    pkg: "@mariozechner/pi-coding-agent",
+    pkg: "@earendil-works/pi-coding-agent",
     from: "0.62.0",
     to: "0.70.0",
     releases: [],
@@ -37,17 +37,17 @@ describe("usePiChangelog", () => {
 
   it("does NOT fetch when enabled is false", () => {
     renderHook(() =>
-      usePiChangelog("@mariozechner/pi-coding-agent", "0.62.0", "0.70.0", { enabled: false }),
+      usePiChangelog("@earendil-works/pi-coding-agent", "0.62.0", "0.70.0", { enabled: false }),
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("fetches once when enabled and resolves data", async () => {
     const { result } = renderHook(() =>
-      usePiChangelog("@mariozechner/pi-coding-agent", "0.62.0", "0.70.0", { enabled: true }),
+      usePiChangelog("@earendil-works/pi-coding-agent", "0.62.0", "0.70.0", { enabled: true }),
     );
     await waitFor(() => expect(result.current.data).not.toBeNull());
-    expect(result.current.data!.pkg).toBe("@mariozechner/pi-coding-agent");
+    expect(result.current.data!.pkg).toBe("@earendil-works/pi-coding-agent");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.current.error).toBeNull();
     expect(result.current.loading).toBe(false);
@@ -55,7 +55,7 @@ describe("usePiChangelog", () => {
 
   it("does not fetch when from or to is missing", () => {
     renderHook(() =>
-      usePiChangelog("@mariozechner/pi-coding-agent", undefined, "0.70.0", { enabled: true }),
+      usePiChangelog("@earendil-works/pi-coding-agent", undefined, "0.70.0", { enabled: true }),
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -63,7 +63,7 @@ describe("usePiChangelog", () => {
   it("clears state when enabled flips to false", async () => {
     const { result, rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) =>
-        usePiChangelog("@mariozechner/pi-coding-agent", "0.62.0", "0.70.0", { enabled }),
+        usePiChangelog("@earendil-works/pi-coding-agent", "0.62.0", "0.70.0", { enabled }),
       { initialProps: { enabled: true } },
     );
     await waitFor(() => expect(result.current.data).not.toBeNull());
@@ -73,7 +73,7 @@ describe("usePiChangelog", () => {
 
   it("refetches on pi_core_update_complete WS event for the same pkg", async () => {
     const { result } = renderHook(() =>
-      usePiChangelog("@mariozechner/pi-coding-agent", "0.62.0", "0.70.0", { enabled: true }),
+      usePiChangelog("@earendil-works/pi-coding-agent", "0.62.0", "0.70.0", { enabled: true }),
     );
     await waitFor(() => expect(result.current.data).not.toBeNull());
     const initialCalls = fetchMock.mock.calls.length;
@@ -83,7 +83,7 @@ describe("usePiChangelog", () => {
         new CustomEvent("pi-core-event", {
           detail: {
             type: "pi_core_update_complete",
-            results: [{ name: "@mariozechner/pi-coding-agent", success: true }],
+            results: [{ name: "@earendil-works/pi-coding-agent", success: true }],
           },
         }),
       );
@@ -95,7 +95,7 @@ describe("usePiChangelog", () => {
 
   it("ignores pi_core_update_complete for unrelated packages", async () => {
     const { result } = renderHook(() =>
-      usePiChangelog("@mariozechner/pi-coding-agent", "0.62.0", "0.70.0", { enabled: true }),
+      usePiChangelog("@earendil-works/pi-coding-agent", "0.62.0", "0.70.0", { enabled: true }),
     );
     await waitFor(() => expect(result.current.data).not.toBeNull());
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -124,7 +124,7 @@ describe("usePiChangelog", () => {
       json: async () => ({ error: "bootstrap installing" }),
     });
     const { result } = renderHook(() =>
-      usePiChangelog("@mariozechner/pi-coding-agent", "0.62.0", "0.70.0", { enabled: true }),
+      usePiChangelog("@earendil-works/pi-coding-agent", "0.62.0", "0.70.0", { enabled: true }),
     );
     await waitFor(() => expect(result.current.error).not.toBeNull());
     expect(result.current.error).toMatch(/bootstrap installing/);

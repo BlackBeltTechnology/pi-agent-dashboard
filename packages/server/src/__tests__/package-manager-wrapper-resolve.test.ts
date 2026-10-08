@@ -11,14 +11,16 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import * as os from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import {
+  OverridesStore,
+  registerDefaultTools,
+  ToolRegistry,
+} from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 
 // Force the direct import to fail so resolution falls through to the
 // managed-install / global-npm paths. vi.mock is hoisted; the factory
 // throws at import time which mimics pi not being an installed dependency.
 vi.mock("@earendil-works/pi-coding-agent", () => {
-  throw new Error("not installed as direct dependency");
-});
-vi.mock("@mariozechner/pi-coding-agent", () => {
   throw new Error("not installed as direct dependency");
 });
 
@@ -132,5 +134,83 @@ describe("loadPiPackageManager resolution chain", () => {
     await expect(wrapper.listInstalled("global")).rejects.toThrow(
       /pi-coding-agent is not installed/,
     );
+  });
+});
+
+// E12 / E13 — module resolution is earendil-only. The wrapper's injectable
+// registry is the seam: real fs under a tmp home + npm root, bare-import
+// disabled so the repo's own node_modules never leaks in.
+// See change: drop-mariozechner-pi-fork (test-plan #E12, #E13).
+describe("loadPiPackageManager resolves the earendil package only", () => {
+  const FAKE_PM = [
+    "export class DefaultPackageManager {",
+    "  constructor() {}",
+    "  listConfiguredPackages() { return [{ source: 'npm:from-earendil', scope: 'user', filtered: false }]; }",
+    "}",
+    "export const SettingsManager = { create: () => ({}) };",
+  ].join("\n");
+
+  function writePi(root: string, scope: string): void {
+    const dist = path.join(root, scope, "pi-coding-agent", "dist");
+    fs.mkdirSync(dist, { recursive: true });
+    fs.writeFileSync(path.join(dist, "index.js"), FAKE_PM);
+    fs.writeFileSync(path.join(dist, "cli.js"), "");
+    fs.writeFileSync(
+      path.join(root, scope, "pi-coding-agent", "package.json"),
+      JSON.stringify({ name: `${scope}/pi-coding-agent`, version: "1.0.0", type: "module" }),
+    );
+  }
+
+  function makeRegistry(home: string, npmRoot: string, probed: string[]): ToolRegistry {
+    const r = new ToolRegistry({
+      overrides: new OverridesStore({
+        filePath: path.join(home, "tool-overrides.json"),
+        warn: () => {},
+      }),
+      platform: "linux",
+      env: { homedir: home },
+    });
+    registerDefaultTools(r, {
+      exists: (p) => {
+        probed.push(p);
+        return fs.existsSync(p);
+      },
+      which: () => null,
+      npmRootGlobal: () => npmRoot,
+      resolveModule: (id) => {
+        probed.push(id);
+        return null;
+      },
+    });
+    return r;
+  }
+
+  function tmp(prefix: string): string {
+    return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  }
+
+  it("E12: a fork-only machine (managed + npm-global) rejects with 'pi-coding-agent is not installed'", async () => {
+    const home = tmp("pi-dash-fork-only-home-");
+    const npmRoot = tmp("pi-dash-fork-only-npm-");
+    writePi(path.join(home, ".pi-dashboard", "node_modules"), "@mariozechner");
+    writePi(npmRoot, "@mariozechner");
+    const probed: string[] = [];
+    const { PackageManagerWrapper } = await import("../package/package-manager-wrapper.js");
+    const wrapper = new PackageManagerWrapper(makeRegistry(home, npmRoot, probed));
+    await expect(wrapper.listInstalled("global")).rejects.toThrow(/pi-coding-agent is not installed/);
+    await expect(wrapper.listInstalled("global")).rejects.toThrow(/@earendil-works\/pi-coding-agent/);
+  });
+
+  it("E13: with both installed in managed, earendil wins and the fork is never probed", async () => {
+    const home = tmp("pi-dash-both-home-");
+    const managed = path.join(home, ".pi-dashboard", "node_modules");
+    writePi(managed, "@earendil-works");
+    writePi(managed, "@mariozechner");
+    const probed: string[] = [];
+    const { PackageManagerWrapper } = await import("../package/package-manager-wrapper.js");
+    const wrapper = new PackageManagerWrapper(makeRegistry(home, tmp("pi-dash-both-npm-"), probed));
+    const result = await wrapper.listInstalled("global");
+    expect(result).toEqual([{ source: "npm:from-earendil", scope: "user", filtered: false }]);
+    expect(probed.filter((p) => p.includes("@mariozechner"))).toEqual([]);
   });
 });

@@ -753,3 +753,43 @@ describe("publish.yml — runtime release contract (electron-runtime-release-pip
     expect(job("runtime-release-assert")).toContain("scripts/assert-runtime-release.mjs");
   });
 });
+
+// ── discord-announce: post release notes to the community Discord ───────
+// Terminal, best-effort job: a webhook outage must never red a release that
+// already shipped (npm + GitHub Release are done by the time it runs), the
+// webhook URL is a credential (secret → env only, never interpolated into the
+// script body), forks without the secret skip cleanly, prereleases stay quiet,
+// and changelog text must not be able to ping @everyone / roles / users.
+describe("publish.yml — discord-announce contract", () => {
+  const yaml = fs.readFileSync(WORKFLOW_PATH, "utf8");
+  const block = extractJobBlock(yaml, "discord-announce");
+
+  it("D1: needs resolve + github-release", () => {
+    const needs = parseNeeds(block);
+    expect(needs).toEqual(expect.arrayContaining(["resolve", "github-release"]));
+  });
+
+  it("D2: runs only after a successful github-release and never for prereleases", () => {
+    const ifLine = block.match(/^\s{4}if:\s*(.+)$/m)?.[1] ?? "";
+    expect(ifLine).toContain("needs.github-release.result == 'success'");
+    expect(ifLine).toContain("needs.resolve.outputs.is_prerelease != 'true'");
+  });
+
+  it("D3: is best-effort (continue-on-error) so a webhook outage cannot red the release", () => {
+    expect(block).toMatch(/^\s{4}continue-on-error:\s*true\s*$/m);
+  });
+
+  it("D4: webhook URL comes from the secret via env only, never inline in a run script", () => {
+    expect(block).toMatch(/DISCORD_WEBHOOK_URL:\s*\$\{\{\s*secrets\.DISCORD_RELEASE_WEBHOOK\s*\}\}/);
+    const runBodies = block.split(/^\s+run:\s*\|/m).slice(1).join("\n");
+    expect(runBodies).not.toContain("secrets.");
+  });
+
+  it("D5: skips cleanly when the secret is unset (forks)", () => {
+    expect(block).toMatch(/if \[ -z "\$\{DISCORD_WEBHOOK_URL:-\}" \]/);
+  });
+
+  it("D6: suppresses mentions so changelog text cannot ping @everyone", () => {
+    expect(block).toMatch(/allowed_mentions:\s*\{\s*parse:\s*\[\]\s*\}/);
+  });
+});

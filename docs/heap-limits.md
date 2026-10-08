@@ -33,6 +33,7 @@ Three measured reasons:
 3. tmux panes do not see spawn-time env; pane env derives from long-lived tmux server.
 
 CLI `argv` overrides `NODE_OPTIONS` (measured: `NODE_OPTIONS=--max-old-space-size=8192` + argv `1024` yields `heap_size_limit` 1216 MB).
+Above applies to SESSIONS. Dashboard SERVER ceiling rides `NODE_OPTIONS` + `PI_DASHBOARD_HEAP_FLAG` marker on all three launch paths, not argv.
 
 ### Per-Mechanism Delivery
 
@@ -46,19 +47,27 @@ Server process runs with own `--max-old-space-size`.
 Server launcher marks spawned token via env var `PI_DASHBOARD_HEAP_FLAG`.
 Session spawner inspects child env. Exact match against `PI_DASHBOARD_HEAP_FLAG` strips flag.
 Marker absent or value mismatch indicates operator-provided flag; spawner preserves flag verbatim.
+Dashboard terminals apply same strip: `terminal-manager.ts` `spawn` runs `stripDashboardHeapFlag` over PTY env.
+Terminal drops own marker-matched token AND marker var. Operator flag survives, incl. identical value without marker.
+Regression, disclosed: terminal Node tooling on standalone-wrapper path previously inherited `8192` headroom; now runtime default (lower on small-memory hosts).
+Heavy builds inside dashboard terminal may newly OOM. Workaround: set own `NODE_OPTIONS=--max-old-space-size=N` in terminal.
 
 ### Effect Boundaries
 
 - `sessionHeap`: applies to next spawned session. Session reload triggers kill + fresh spawn; inherits updated config.
-- `serverHeap`: cold-start only. `/api/restart` respawns server with `env: process.env`; ignores changed `serverHeap` until full process relaunch.
+- `serverHeap`: next server start, incl. in-place `/api/restart`.
+  - `spawnRestart` (`packages/server/src/spawn-process/restart-helper.ts`) re-reads `config.json` via `loadConfig()` at restart time.
+  - `buildRestartEnv(baseEnv, mb)` re-stamps via shared `stampHeapFlag`: own marker-matched token replaced; operator pin untouched, nothing added.
+  - Electron-owned server: `/api/restart` exits `ELECTRON_RESTART_EXIT_CODE`; Electron respawns via `spawnFromSource`, stamps fresh.
+  - `PUT /api/config` reports `serverHeap` change as `restartRequired`. `coldStartRequired` removed (config-api, client, `settings.coldStartRequired` key).
 
-### Known gap: Electron-hosted server
+### Electron launch path
 
-`packages/electron` spawns its server without the stamp.
-An Electron-hosted server therefore runs at the bare V8 default; `serverHeap` has no effect there.
-`/api/health` reports `effectiveMaxOldSpaceMb: null` on that arm — the honest answer, not a fiction.
-Stamping the Electron launch path belongs to `guard-server-heap-and-store-coupling` (design D10).
-Named here so it is a known gap, not an unnoticed one.
+Third launch path, stamped. Wrapper (`packages/server/bin/pi-dashboard.mjs`) + bridge (`buildBridgeEnvOverrides`) + Electron.
+`packages/electron/src/lib/launch-source.ts` `spawnFromSource` calls `stampServerHeap(env)`.
+`readServerMaxOldSpaceMb(configFile?)` reads `~/.pi/dashboard/config.json`; wrapper's `JSON.parse`-in-`try` shape; validates via `isValidHeapMb`.
+Absent / unparseable / invalid → `DEFAULT_SERVER_HEAP.maxOldSpaceMb` (1536). Never fails launch.
+Operator pin in Electron env `NODE_OPTIONS` wins; no flag added.
 
 ## V8 Overhead & Sizing Realities
 
@@ -85,6 +94,35 @@ Operator action: raise `serverHeap.maxOldSpaceMb` to `2048` (~65% occupancy) if 
 Occupancy percentages use two distinct bases:
 - Internal formula (D9): 84% occupancy calculated against estimated crash threshold (~1417 MB).
 - UI dashboard panel: calculates `heapUsed / heapSizeLimit`. Same steady state reads ~69%.
+
+## Server Heap × Store Budget Coupling
+
+Server ceiling (`serverHeap.maxOldSpaceMb`) and store budget (`memoryLimits.maxTotalEventBytes`) multiply into heap the store occupies. Neither field shows it.
+Constants, `packages/shared/src/heap-limits.ts` (browser-safe):
+- `HEAP_MB_PER_BUDGET_MIB` = `1.33`. 768 MiB serialized budget ≈ 1 GiB heap. Per MiB, NOT per byte.
+- `BASELINE_MB` = `112`. 798 MB live set − 686 MB strings, heap snapshot.
+- `CRASH_RATIO` = `0.82`. OOM at ~1000 of 1216 MB limit, measured.
+
+Guard `serverHeapStoreCoupling(maxTotalEventBytes, serverMaxOldSpaceMb)` → `{ warn, unbounded, projectedHeapMb, crashPointMb }`.
+Predicate: `budgetMiB × 1.33 + 112 > ceilingMb × 0.82`, `budgetMiB = maxTotalEventBytes / 1024²`.
+Takes BYTES; converts internally. Raw bytes in a MiB term would warn permanently.
+`0` = unlimited → always warns, `unbounded: true`, no heap figure.
+Reads CONFIGURED budget, not store's post-clamp effective one.
+
+Examples vs `1536` ceiling (crash point ~1260 MB):
+- `384` / `768` MiB: silent.
+- `1024` MiB → ~1474 MB: warns.
+- `2048` MiB → ~2836 MB: warns.
+- Default `805306368` bytes: silent.
+
+Settings panel: `StoreHeapCouplingWarning` (`SettingsPanel.tsx`) renders beside BOTH fields.
+Testids `server-heap-store-heap-warning`, `memory-limits-store-heap-warning`. Keys `settings.heap.storeUnbounded`, `settings.heap.storeCoupling`.
+Non-blocking; values stay saveable.
+
+Ordering invariant: vitest assertion, `packages/shared/src/__tests__/heap-store-coupling.test.ts`, over REAL shared defaults.
+Fails CI when `DEFAULT_SERVER_HEAP.maxOldSpaceMb < 8192` and `DEFAULT_MEMORY_LIMITS.maxTotalEventBytes` missing or `0`. Boundedness, not presence.
+Test, not module-scope throw: throw in browser-imported module would brick SPA.
+Single-host tripwire, not proof of fit. Asymmetry: mispaired DEFAULT fails CI; operator-set `0` only warns.
 
 ## Subagent Coupling
 
@@ -114,3 +152,4 @@ Server `server` block reports process health:
 - `effectiveMaxOldSpaceMb`: active V8 limit parsed from running process `argv` and `process.env`, not raw config file.
 
 See change: bound-session-heap-and-gc-telemetry.
+See change: guard-server-heap-and-store-coupling.

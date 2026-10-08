@@ -19,13 +19,10 @@ import { augmentEnvWithGitSource } from "./git-source.js";
 
 /**
  * Pi-coding-agent package names searched for a managed-install jiti.
- * Upstream first, legacy fork second. Mirrors the prior
- * `resolveJitiFromPi` wrapper that lived in two electron files.
+ * Earendil only — the legacy fork is never an anchor.
+ * See change: drop-mariozechner-pi-fork.
  */
-export const MANAGED_PI_PACKAGES = [
-  "@earendil-works/pi-coding-agent",
-  "@mariozechner/pi-coding-agent",
-] as const;
+export const MANAGED_PI_PACKAGES = ["@earendil-works/pi-coding-agent"] as const;
 
 /**
  * jiti provider package names tried inside every anchor's resolution

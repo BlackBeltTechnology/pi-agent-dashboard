@@ -57,13 +57,16 @@ describe("router over real modules", () => {
 		modules = loadModules(MODULES_DIR);
 	});
 
-	it("loads all eight capability modules", () => {
+	it("loads all ten capability modules", () => {
 		const names = modules.map((m) => m.name).sort();
 		expect(names).toEqual([
 			"apple-tools",
 			"build-reload",
 			"env-node",
 			"install-topology",
+			// pi built-in MCP + per-session registration.
+			// See change: migrate-mcp-to-pi-builtin.
+			"mcp-builtin",
 			"model-resolution",
 			// Which OAuth redirect base won + its tier.
 			// See change: config-override-oauth-redirect-base.

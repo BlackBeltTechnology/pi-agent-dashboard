@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-server",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Dashboard server for monitoring and interacting with pi agent sessions",
   "license": "MIT",
   "type": "module",
@@ -16,8 +16,8 @@
     "node": ">=22.19.0"
   },
   "piCompatibility": {
-    "minimum": "0.86.1",
-    "recommended": "0.86.1",
+    "minimum": "1.0.0",
+    "recommended": "1.0.0",
     "maximum": null
   },
   "piDashboard": {
@@ -31,6 +31,7 @@
       "subagents-plugin",
       "kb-plugin",
       "hermes-memory-plugin",
+      "context-mode-settings-plugin",
       "grammar-plugin",
       "blackhole-plugin",
       "gmail-plugin",
@@ -40,8 +41,10 @@
       "cost-estimator",
       "quota-plugin",
       "browser-plugin",
+      "keycloak-resolver-plugin",
       "chat-gateway",
-      "system-one-plugin"
+      "system-one-plugin",
+      "team-plugin"
     ]
   },
   "main": "src/cli.ts",
@@ -63,11 +66,12 @@
     "postinstall": "node scripts/fix-pty-permissions.cjs"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-document-converter": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-extension": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
-    "@earendil-works/pi-coding-agent": "^0.86.1",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-document-converter": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-extension": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-mcp-client-plugin": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
+    "@earendil-works/pi-coding-agent": "^1.0.0",
     "@fastify/compress": "^9.2.0",
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.0.0",
@@ -86,6 +90,7 @@
     "isomorphic-dompurify": "3.18.0",
     "jimp": "^1.6.1",
     "jiti": "^2.7.0",
+    "jose": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "mailparser": "3.9.14",
     "mammoth": "^1.12.0",
@@ -96,13 +101,13 @@
     "undici": "^7.29.0",
     "web-push": "^3.6.7",
     "ws": "^8.18.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "optionalDependencies": {
     "koffi": "^3.1.0"
   },
   "devDependencies": {
-    "@blackbelt-technology/pi-dashboard-mcp-server-plugin": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-mcp-server-plugin": "^0.9.0",
     "@types/diff": "^7.0.0",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/mailparser": "^3.4.6",

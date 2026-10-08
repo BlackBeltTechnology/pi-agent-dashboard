@@ -494,6 +494,7 @@ describe("E7 — approve tier", () => {
       identity: {} as never,
       pairing: mgr,
       registry: reg,
+      localToken: "approve-local-token",
       hostAdmission: () => ({
         allowedHosts: [],
         publicBaseUrls: [],
@@ -516,7 +517,7 @@ describe("E7 — approve tier", () => {
       method: "POST",
       url: "/api/pair/approve",
       remoteAddress: "127.0.0.1",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-pi-local-token": "approve-local-token" },
       payload: { code: p1.code, confirmCode: r1.confirmCode, label: "agent", tier: "control" },
     });
     expect(a1.statusCode).toBe(200);
@@ -533,11 +534,273 @@ describe("E7 — approve tier", () => {
       method: "POST",
       url: "/api/pair/approve",
       remoteAddress: "127.0.0.1",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-pi-local-token": "approve-local-token" },
       payload: { code: p2.code, confirmCode: r2.confirmCode, label: "phone" },
     });
     expect(a2.statusCode).toBe(200);
     expect(a2.json().data.tier).toBe("operate");
     expect(reg.list().find((d) => d.label === "phone")?.tier).toBe("operate");
+  });
+});
+
+// ── D2 hardening (test-plan E10–E24, X5 of harden-server-request-surfaces) ──
+// Revoke + approve are OPERATOR routes: a paired-device bearer is refused
+// outright (401) regardless of network position, and the approve label is
+// bounded exactly like the mint route's. Session sim: `authVia` only — the
+// operator guard reads HOW a request authenticated, not the plugin's
+// `isAuthenticated` flag.
+async function mkD2App(opts: { deviceBearer?: boolean; localToken?: string } = {}) {
+  const { mgr, reg } = mkManager();
+  const app = Fastify();
+  openApps.push(app);
+  // Simulate a dashboard login session (models auth-plugin's cookie branch).
+  app.addHook("onRequest", async (req) => {
+    if (req.headers["x-test-session"] === "1") (req as unknown as { authVia: string }).authVia = "session";
+  });
+  if (opts.deviceBearer) registerBearerAuth(app, { registry: reg });
+  registerPairingRoutes(app, {
+    // Deliberately NO localToken here: the test must pin the operator guard's
+    // own local-token clause, not networkGuard's.
+    networkGuard: createNetworkGuard([]),
+    identity: {} as never,
+    pairing: mgr,
+    registry: reg,
+    localToken: opts.localToken,
+    hostAdmission: () => ({
+      allowedHosts: [],
+      publicBaseUrls: [],
+      configuredOrigins: [],
+      getLiveTunnelOrigins: () => [],
+      bindHost: "localhost",
+    }),
+  });
+  await app.ready();
+  return { app, mgr, reg };
+}
+
+/** Mint + redeem → an awaiting pending device (redemption label is "device"). */
+function d2Pending(mgr: PairingManager) {
+  const p = mgr.createPayload()!;
+  const r = mgr.redeem(p.code);
+  if (!r.ok) throw new Error("redeem failed");
+  return { code: p.code, pendingId: r.pendingId, confirmCode: r.confirmCode };
+}
+
+const d2Inject = (
+  app: FastifyInstance,
+  method: "DELETE" | "POST",
+  url: string,
+  opts: { ip?: string; headers?: Record<string, string>; payload?: unknown } = {},
+) =>
+  app.inject({
+    method,
+    url,
+    remoteAddress: opts.ip ?? "203.0.113.9", // non-local: the tunnel position
+    headers: {
+      ...(opts.payload !== undefined ? { "content-type": "application/json" } : {}),
+      ...opts.headers,
+    },
+    ...(opts.payload !== undefined ? { payload: opts.payload as Record<string, unknown> } : {}),
+  });
+
+describe("D2 — revoke + approve refuse a device bearer; approve label bounded", () => {
+  it("E10: device bearer cannot revoke a sibling", async () => {
+    const { app, reg } = await mkD2App({ deviceBearer: true });
+    const a = reg.add("A");
+    const b = reg.add("B");
+    const res = await d2Inject(app, "DELETE", `/api/paired-devices/${b.device.id}`, {
+      headers: { authorization: `Bearer ${a.token}` },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(reg.list().some((d) => d.id === b.device.id)).toBe(true);
+    expect(reg.verify(b.token)).not.toBe(null);
+  });
+
+  it("E11: device bearer cannot revoke itself", async () => {
+    const { app, reg } = await mkD2App({ deviceBearer: true });
+    const a = reg.add("A");
+    const res = await d2Inject(app, "DELETE", `/api/paired-devices/${a.device.id}`, {
+      headers: { authorization: `Bearer ${a.token}` },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(reg.list().some((d) => d.id === a.device.id)).toBe(true);
+  });
+
+  it("E12: loopback device bearer is still refused — the credential decides", async () => {
+    const { app, reg } = await mkD2App({ deviceBearer: true });
+    const a = reg.add("A");
+    const b = reg.add("B");
+    const res = await d2Inject(app, "DELETE", `/api/paired-devices/${b.device.id}`, {
+      ip: "127.0.0.1", // loopback, no forwarding headers
+      headers: { authorization: `Bearer ${a.token}` },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(reg.list().some((d) => d.id === b.device.id)).toBe(true);
+  });
+
+  it("E13: operator session revokes over a tunnel", async () => {
+    const { app, reg } = await mkD2App();
+    const b = reg.add("B");
+    const res = await d2Inject(app, "DELETE", `/api/paired-devices/${b.device.id}`, {
+      headers: { "x-test-session": "1" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(reg.verify(b.token)).toBe(null);
+  });
+
+  it("E14: local-token operator revokes", async () => {
+    const { app, reg } = await mkD2App({ localToken: "local-secret-token" });
+    const b = reg.add("B");
+    const res = await d2Inject(app, "DELETE", `/api/paired-devices/${b.device.id}`, {
+      headers: { "x-pi-local-token": "local-secret-token" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(reg.verify(b.token)).toBe(null);
+  });
+
+  it("E15: the mint route inherits the device refusal", async () => {
+    const { app, reg } = await mkD2App({ deviceBearer: true });
+    const a = reg.add("A");
+    const before = reg.list().length;
+    const res = await d2Inject(app, "POST", "/api/paired-devices", {
+      ip: "127.0.0.1", // loopback, no forwarding headers
+      headers: { authorization: `Bearer ${a.token}` },
+      payload: { label: "clone" },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(reg.list()).toHaveLength(before);
+  });
+
+  it("E16: device bearer cannot approve", async () => {
+    const { app, mgr, reg } = await mkD2App({ deviceBearer: true });
+    const a = reg.add("A");
+    const p = d2Pending(mgr);
+    const res = await d2Inject(app, "POST", "/api/pair/approve", {
+      ip: "127.0.0.1", // loopback, no forwarding headers
+      headers: { authorization: `Bearer ${a.token}` },
+      payload: { code: p.code, confirmCode: p.confirmCode },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(mgr.poll(p.pendingId).status).toBe("pending");
+    expect((mgr.poll(p.pendingId) as { token?: unknown }).token).toBeUndefined();
+    expect(reg.list()).toHaveLength(1); // only A — P never minted a token
+  });
+
+  it("E17: approval label just above max is 400", async () => {
+    const { app, mgr } = await mkD2App();
+    const p = d2Pending(mgr);
+    const res = await d2Inject(app, "POST", "/api/pair/approve", {
+      headers: { "x-test-session": "1" },
+      payload: { code: p.code, confirmCode: p.confirmCode, label: "x".repeat(65) },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mgr.poll(p.pendingId).status).toBe("pending");
+  });
+
+  it("E18: approval label at max (64 bytes) is accepted", async () => {
+    const { app, mgr } = await mkD2App();
+    const p = d2Pending(mgr);
+    const label = "y".repeat(64);
+    const res = await d2Inject(app, "POST", "/api/pair/approve", {
+      headers: { "x-test-session": "1" },
+      payload: { code: p.code, confirmCode: p.confirmCode, label },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.label).toBe(label);
+  });
+
+  it("E19: approval label at min is accepted", async () => {
+    const { app, mgr } = await mkD2App();
+    const p = d2Pending(mgr);
+    const res = await d2Inject(app, "POST", "/api/pair/approve", {
+      headers: { "x-test-session": "1" },
+      payload: { code: p.code, confirmCode: p.confirmCode, label: "x" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.label).toBe("x");
+  });
+
+  it("E20: whitespace-only label is below min; the redemption label survives", async () => {
+    const { app, mgr } = await mkD2App();
+    const p = d2Pending(mgr);
+    const bad = await d2Inject(app, "POST", "/api/pair/approve", {
+      headers: { "x-test-session": "1" },
+      payload: { code: p.code, confirmCode: p.confirmCode, label: "   " },
+    });
+    expect(bad.statusCode).toBe(400);
+    expect(mgr.poll(p.pendingId).status).toBe("pending");
+    // The refused label must never have overwritten the redemption label —
+    // redeem() records the constant "device" (pairing.ts) as the pending label.
+    const ok = await d2Inject(app, "POST", "/api/pair/approve", {
+      headers: { "x-test-session": "1" },
+      payload: { code: p.code, confirmCode: p.confirmCode },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().data.label).toBe("device");
+  });
+
+  it("E21: label is trimmed, not rejected", async () => {
+    const { app, mgr } = await mkD2App();
+    const p = d2Pending(mgr);
+    const res = await d2Inject(app, "POST", "/api/pair/approve", {
+      headers: { "x-test-session": "1" },
+      payload: { code: p.code, confirmCode: p.confirmCode, label: "  phone  " },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.label).toBe("phone");
+  });
+
+  it("E22: absent label keeps the label recorded at redemption", async () => {
+    const { app, mgr } = await mkD2App();
+    const p = d2Pending(mgr);
+    const res = await d2Inject(app, "POST", "/api/pair/approve", {
+      headers: { "x-test-session": "1" },
+      payload: { code: p.code, confirmCode: p.confirmCode }, // no label key
+    });
+    expect(res.statusCode).toBe(200);
+    // redeem() records "device" (pairing.ts) — the label the approval keeps.
+    expect(res.json().data.label).toBe("device");
+  });
+
+  it("E23: the bound counts bytes, not characters", async () => {
+    const { app, mgr } = await mkD2App();
+    const p1 = d2Pending(mgr);
+    const ok = await d2Inject(app, "POST", "/api/pair/approve", {
+      headers: { "x-test-session": "1" },
+      payload: { code: p1.code, confirmCode: p1.confirmCode, label: "é".repeat(32) }, // 64 bytes
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().data.label).toBe("é".repeat(32));
+    const p2 = d2Pending(mgr);
+    const over = await d2Inject(app, "POST", "/api/pair/approve", {
+      headers: { "x-test-session": "1" },
+      payload: { code: p2.code, confirmCode: p2.confirmCode, label: `${"é".repeat(32)}x` }, // 65 bytes
+    });
+    expect(over.statusCode).toBe(400);
+    expect(mgr.poll(p2.pendingId).status).toBe("pending");
+  });
+
+  it("E24: a supplied non-string label is 400, not silently kept", async () => {
+    const { app, mgr } = await mkD2App();
+    const p = d2Pending(mgr);
+    const res = await d2Inject(app, "POST", "/api/pair/approve", {
+      headers: { "x-test-session": "1" },
+      payload: { code: p.code, confirmCode: p.confirmCode, label: 123 },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mgr.poll(p.pendingId).status).toBe("pending");
+  });
+
+  it("X5: operator on a non-admitted Host is 403 host_not_admitted", async () => {
+    // The harness registers NO global host gate (i.e. report-only semantics),
+    // so the 403 can only come from the operator guard's own enforce check.
+    const { app, reg } = await mkD2App();
+    const b = reg.add("B");
+    const res = await d2Inject(app, "DELETE", `/api/paired-devices/${b.device.id}`, {
+      headers: { "x-test-session": "1", host: "attacker.example:8000" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error).toBe("host_not_admitted");
+    expect(reg.list().some((d) => d.id === b.device.id)).toBe(true);
   });
 });

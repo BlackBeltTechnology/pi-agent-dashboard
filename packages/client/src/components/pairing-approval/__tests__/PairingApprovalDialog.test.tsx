@@ -52,6 +52,14 @@ const type = (el: HTMLInputElement, v: string) => fireEvent.change(el, { target:
 afterEach(() => cleanup());
 
 describe("PairingApprovalDialog", () => {
+  it("F7: a 401 operator-credential refusal shows the `pi-dashboard open` hint", async () => {
+    const { input } = renderDialog({ approve: async () => ({ ok: false as const, error: "operator credential required" }) });
+    type(input, "12345678");
+    fireEvent.click(screen.getByTestId("pairing-approve"));
+    const err = await screen.findByTestId("pairing-dialog-error");
+    expect(err.textContent).toContain("pi-dashboard open");
+  });
+
   it("E8: 7 digits → no API call, 'Enter all 8 digits' at the field; Approve was enabled", () => {
     const { input, onApprove } = renderDialog();
     type(input, "1234567");

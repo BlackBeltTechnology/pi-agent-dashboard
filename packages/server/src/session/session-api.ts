@@ -32,6 +32,7 @@ import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registr
 import { spawnPiSession } from "../spawn-process/process-manager.js";
 import { deriveSpawnCorrelationTtlMs } from "../spawn-process/spawn-recovery-window.js";
 import { armSpawnWatchdog } from "../spawn-process/spawn-register-watchdog.js";
+import { mintSpawnToken } from "../auth/spawn-token.js";
 import type { NetworkGuard } from "../routes/route-deps.js";
 import type { SessionManager } from "./memory-session-manager.js";
 import { decideResume } from "./session-origin.js";
@@ -42,6 +43,10 @@ export interface SessionApiDeps {
   browserGateway: BrowserGateway;
   pendingForkRegistry?: PendingForkRegistry;
   pendingDashboardSpawns?: Map<string, number>;
+  /** D21 enforcement predicate; gates REST-spawn owner stamping (D11). */
+  isResolverActive?: () => boolean;
+  /** §6.2/D11: token-keyed owner correlation, shared with the browser spawn road. */
+  pendingPrincipalOwnerRegistry?: import("../pending/pending-principal-owner-registry.js").PendingPrincipalOwnerRegistry;
   /**
    * User-resume-intent registry. Tagged in the resume endpoint so the
    * `sessionManager.onChange` ended→alive branch can distinguish a
@@ -77,6 +82,8 @@ export interface SessionApiDeps {
    * See change: expand-mcp-tiered-surface (D3).
    */
   getTrustedNetworks?: () => string[];
+  /** Strict local-proof context (`requireLocalProof`). */
+  localTrust?: import("../auth/local-proof.js").LocalTrustContext;
   /**
    * Admission guard for the lifecycle/extension-ui routes. Without it an
    * unauthenticated off-host caller (no Origin, so the CSRF gate is silent)
@@ -296,9 +303,24 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         return { success: false, error: "cwd is required" } satisfies ApiResponse;
       }
 
+      // D11 trusted road: a host HTTP spawn stamps the REQUEST principal (a
+      // resolved human — never the local operator or a device bearer), filed
+      // against a pre-minted spawn token BEFORE the spawn await, exactly like
+      // the browser `spawn_session` road. Inert / principal-less ⇒ ownerless.
+      const requestPrincipal = (request as { principal?: { iss: string; sub: string } }).principal;
+      const ownerToStamp =
+        deps.isResolverActive?.() && requestPrincipal
+          ? { iss: requestPrincipal.iss, sub: requestPrincipal.sub }
+          : undefined;
+      const ownerSpawnToken = ownerToStamp ? mintSpawnToken() : undefined;
+      if (ownerToStamp && ownerSpawnToken) deps.pendingPrincipalOwnerRegistry?.file(ownerSpawnToken, ownerToStamp);
+
       const doSpawn = async () => {
         const config = loadConfig();
-        const spawnResult = await spawnPiSession(cwd, { strategy: config.spawnStrategy });
+        const spawnResult = await spawnPiSession(cwd, {
+          strategy: config.spawnStrategy,
+          ...(ownerSpawnToken ? { spawnToken: ownerSpawnToken } : {}),
+        });
         // REST spawn has no browser socket; the reclaim must run regardless, or
         // a duplicate refused for contention keeps writing the incumbent's
         // transcript. See change: fix-duplicate-bridge-registration (D0/D2).
@@ -320,6 +342,7 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
 
       const spawnResult = await doSpawn();
       if (!spawnResult.success) {
+        if (ownerSpawnToken) deps.pendingPrincipalOwnerRegistry?.remove(ownerSpawnToken);
         reply.code(500);
         return { success: false, error: spawnResult.message } satisfies ApiResponse;
       }
@@ -565,7 +588,7 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         return check.error;
       }
       if (action === "force_kill" || action === "kill_process") {
-        const refusal = tierRefusalFor(request, "operate", getTrustedNetworks);
+        const refusal = tierRefusalFor(request, "operate", getTrustedNetworks, deps.localTrust);
         if (refusal) {
           sendTierRefusal(reply, refusal.scope);
           return;

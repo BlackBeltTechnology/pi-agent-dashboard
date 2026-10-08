@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mockup · Focus mode, card blocks, effects</title>
+<style>
+/* Tokens copied 1:1 from packages/client/src/index.css (:root dark + [data-theme="light"]). */
+:root {
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a; --bg-hover:rgba(255,255,255,.06);
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858;
+  --border-primary:#252525; --border-secondary:#333333; --border-subtle:rgba(255,255,255,.06);
+  --rail-directory:rgba(255,255,255,.22);
+  --accent:#3b82f6; --accent-soft:#1d3a63; --accent-solid:#2563eb; --accent-text:#60a5fa;
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444; --accent-purple:#a855f7; --accent-orange:#f97316;
+  --accent-purple-text:#b56ff8; --accent-green-text:#22c55e; --accent-orange-text:#f97316; --accent-yellow-text:#eab308; --accent-red-text:#f26262; --accent-blue-text:#508ff7;
+  --status-needs-you:var(--accent-purple); --status-working:var(--accent-yellow); --status-idle:var(--accent-green); --status-unread:#22d3ee;
+  --focus-ring:var(--accent); --shadow-card:rgba(0,0,0,.4); --elevation-rim:rgba(255,255,255,.10);
+  --neon-rim-alpha:.75; --neon-glow-alpha:.10;
+  color-scheme: dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+[data-theme="light"] {
+  --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0; --bg-hover:rgba(0,0,0,.04);
+  --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#636363; --text-muted:#aaaaaa;
+  --border-primary:#e0e0e0; --border-secondary:#cccccc; --border-subtle:rgba(0,0,0,.06);
+  --rail-directory:rgba(0,0,0,.18);
+  --accent:#2563eb; --accent-soft:#dbeafe; --accent-solid:#2563eb; --accent-text:#1d4ed8;
+  --accent-purple-text:#8919f4; --accent-green-text:#147237; --accent-orange-text:#a64704; --accent-yellow-text:#7c5f04; --accent-red-text:#c61111; --accent-blue-text:#0a5ade;
+  --status-unread:#0891b2; --shadow-card:rgba(0,0,0,.08); --elevation-rim:rgba(255,255,255,.9);
+  --neon-glow-alpha:.30;
+  color-scheme: light;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg-primary); color:var(--text-primary); font-size:13px; line-height:1.4; }
+button, select, input { font:inherit; color:inherit; }
+:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
+
+/* ── page chrome ── */
+.top { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:12px 18px; border-bottom:1px solid var(--border-primary); background:var(--bg-secondary); position:sticky; top:0; z-index:20; }
+.top h1 { font-size:14px; margin:0 8px 0 0; }
+.tabs { display:flex; flex-wrap:wrap; gap:4px; }
+.tabs button { background:none; border:1px solid var(--border-secondary); color:var(--text-secondary); padding:5px 10px; border-radius:6px; cursor:pointer; min-height:30px; }
+.tabs button[aria-selected="true"] { background:var(--accent-soft); color:var(--text-primary); border-color:var(--accent); }
+.grow { flex:1; }
+.layout { display:grid; grid-template-columns:minmax(0,1fr) 372px; gap:24px; padding:20px; align-items:start; }
+.panel { min-width:0; }
+.preview { position:sticky; top:70px; }
+.preview .cap { font-size:12px; font-weight:600; color:var(--text-secondary); margin:0 0 8px; display:flex; justify-content:space-between; align-items:center; }
+@media (max-width: 960px) { .layout { grid-template-columns:1fr; } .preview { position:static; order:-1; } }
+/* ui-contract a11y #2: primary targets >= 44px below sm */
+@media (max-width: 640px) {
+  .switch { width:46px; height:28px; border-radius:14px; } .switch::after { width:22px; height:22px; } .switch[aria-checked="true"]::after { left:20px; }
+  .switch::before { content:""; position:absolute; inset:-8px -2px; }
+  .seg button, .btn, .tabs button { min-height:44px; }
+  .row { grid-template-columns:1fr; } .row .seg { justify-self:start; flex-wrap:wrap; }
+}
+
+h2 { font-size:15px; margin:0 0 4px; }
+p.lead { margin:0 0 16px; color:var(--text-secondary); max-width:68ch; }
+.why { margin-top:18px; background:var(--bg-secondary); border:1px solid var(--border-subtle); border-radius:10px; padding:12px 14px; color:var(--text-secondary); line-height:1.55; }
+.why h3 { margin:0 0 6px; font-size:12px; color:var(--text-primary); }
+.why ul { margin:0; padding-left:18px; }
+.why b { color:var(--text-primary); font-weight:600; }
+.callout { display:flex; gap:10px; align-items:center; border:1px solid var(--accent); background:var(--accent-soft); color:var(--text-primary); border-radius:8px; padding:9px 12px; margin-bottom:14px; }
+.callout .grow { flex:1; }
+
+/* buttons per contract */
+.btn { border:1px solid var(--border-secondary); background:var(--bg-tertiary); color:var(--text-primary); border-radius:6px; padding:5px 12px; min-height:32px; cursor:pointer; }
+.btn:hover { background:var(--bg-surface); }
+.btn:disabled { color:var(--text-secondary); opacity:.6; cursor:not-allowed; }
+.btn.primary { background:var(--accent-solid); border-color:var(--accent-solid); color:#fff; font-weight:600; }
+
+/* settings rows */
+.group { border:1px solid var(--border-subtle); border-radius:10px; margin-bottom:14px; background:var(--bg-secondary); }
+.group > .gh { display:flex; justify-content:space-between; align-items:center; font-size:12px; font-weight:600; color:var(--text-secondary); padding:9px 12px; border-bottom:1px solid var(--border-subtle); }
+.row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:center; padding:9px 12px; border-bottom:1px solid var(--border-subtle); min-height:48px; }
+.row:last-child { border-bottom:0; }
+.row .name { font-weight:600; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.row .desc { color:var(--text-secondary); font-size:12px; margin-top:1px; }
+.chip { font-size:11px; padding:1px 7px; border-radius:999px; background:var(--bg-tertiary); color:var(--text-secondary); border:1px solid var(--border-subtle); font-weight:500; white-space:nowrap; }
+.chip.ovr { color:var(--accent-orange-text); border-color:color-mix(in srgb,var(--accent-orange) 40%,transparent); background:color-mix(in srgb,var(--accent-orange) 10%,transparent); }
+.chip.plug { color:var(--accent-blue-text); border-color:color-mix(in srgb,var(--accent-blue) 40%,transparent); background:color-mix(in srgb,var(--accent-blue) 10%,transparent); }
+.chip.focus { color:var(--text-primary); border-color:var(--accent); background:var(--accent-soft); }
+.switch { position:relative; width:38px; height:22px; border-radius:11px; border:1px solid var(--border-secondary); background:var(--bg-surface); cursor:pointer; flex:none; }
+.switch::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:var(--text-secondary); transition:left .12s; }
+.switch[aria-checked="true"] { background:var(--accent-solid); border-color:var(--accent-solid); }
+.switch[aria-checked="true"]::after { left:18px; background:#fff; }
+.seg { display:inline-flex; border:1px solid var(--border-secondary); border-radius:6px; overflow:hidden; }
+.seg button { background:var(--bg-tertiary); border:0; color:var(--text-secondary); padding:4px 9px; min-height:30px; cursor:pointer; font-size:12px; white-space:nowrap; }
+.seg button + button { border-left:1px solid var(--border-secondary); }
+.seg button[aria-pressed="true"] { background:var(--accent-soft); color:var(--text-primary); font-weight:600; }
+details.disclose > summary { cursor:pointer; padding:9px 12px; font-weight:600; color:var(--text-secondary); list-style:none; display:flex; gap:6px; align-items:center; }
+details.disclose > summary::before { content:"▸"; }
+details.disclose[open] > summary::before { content:"▾"; }
+label.inline { display:inline-flex; gap:8px; align-items:center; }
+select { background:var(--bg-tertiary); border:1px solid var(--border-secondary); border-radius:6px; padding:4px 8px; min-height:30px; }
+
+/* ── sidebar preview ── */
+.sidebar { width:100%; border:1px solid var(--border-primary); border-radius:12px; background:var(--bg-secondary); overflow:hidden; }
+.appbar { display:flex; align-items:center; justify-content:space-between; padding:6px 10px; border-bottom:1px solid var(--border-primary); }
+.appbar .logo { color:var(--accent-text); font-weight:700; font-size:16px; }
+.appbar .right { display:flex; gap:6px; align-items:center; }
+.iconbtn { width:26px; height:26px; display:inline-grid; place-items:center; border-radius:6px; border:0; background:none; color:var(--text-tertiary); cursor:pointer; }
+.iconbtn:hover { color:var(--text-secondary); background:var(--bg-hover); }
+.focus-pill { display:inline-flex; gap:4px; align-items:center; height:26px; padding:0 9px; border-radius:999px; border:1px solid var(--accent); background:var(--accent-soft); color:var(--text-primary); font-size:11px; font-weight:600; cursor:pointer; }
+.filterbar { display:flex; gap:6px; padding:6px 10px; border-bottom:1px solid var(--border-primary); }
+.filterbar input { flex:1; min-width:0; background:var(--bg-primary); border:1px solid var(--border-subtle); border-radius:4px; padding:3px 7px; font-size:11px; color:var(--text-primary); }
+.filterbar input::placeholder { color:var(--text-tertiary); }
+.filterbar .tb { font-size:10px; padding:2px 6px; border-radius:4px; border:1px solid var(--border-secondary); color:var(--text-secondary); background:none; }
+.list { padding:10px; display:flex; flex-direction:column; gap:12px; max-height:calc(100vh - 210px); overflow:auto; }
+
+.folder { border:1px solid var(--border-subtle); border-radius:14px; background:var(--bg-primary); box-shadow:inset 0 1px 0 var(--elevation-rim),0 2px 4px var(--shadow-card); padding:8px; }
+.fh { display:flex; gap:6px; align-items:center; }
+.fh .chev { width:24px; height:24px; border:0; background:none; color:var(--text-secondary); cursor:pointer; border-radius:5px; }
+.fh .chev:hover { background:var(--bg-hover); }
+.fh .fname { font-weight:600; flex:1; min-width:0; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fh .fname small { color:var(--text-tertiary); font-weight:400; }
+.capsule { display:inline-flex; gap:5px; align-items:center; font-size:10px; color:var(--text-secondary); }
+.capsule i { width:7px; height:7px; border-radius:50%; display:inline-block; }
+.needs { font-size:10px; font-weight:600; color:var(--accent-purple-text); border:1px solid color-mix(in srgb,var(--status-needs-you) 45%,transparent); border-radius:999px; padding:0 6px; }
+.gitrow { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:6px 0 0 30px; font-size:11px; color:var(--text-secondary); }
+.groupby { font-size:10px; border:1px solid var(--border-secondary); border-radius:999px; padding:0 6px; color:var(--text-secondary); }
+.banner { margin:8px 0 0; border:1px solid color-mix(in srgb,var(--accent-orange) 45%,transparent); background:color-mix(in srgb,var(--accent-orange) 9%,transparent); border-radius:8px; padding:7px 9px; font-size:11px; display:flex; gap:8px; align-items:center; }
+.banner b { color:var(--accent-orange-text); }
+.banner .grow { flex:1; }
+.safety { margin:6px 0 0 30px; display:inline-flex; gap:5px; align-items:center; font-size:10px; font-weight:600; color:var(--accent-orange-text); border:1px solid color-mix(in srgb,var(--accent-orange) 45%,transparent); border-radius:999px; padding:1px 8px; background:none; cursor:pointer; }
+.pills { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:8px; }
+.spill { border:1px solid var(--border-subtle); border-radius:8px; padding:5px 8px; font-size:11px; background:var(--bg-secondary); display:flex; justify-content:space-between; gap:6px; }
+.spill span:last-child { color:var(--text-secondary); }
+.divider { text-align:center; font-size:9.5px; font-weight:600; letter-spacing:.1em; color:var(--text-secondary); margin:10px 0 6px; display:flex; gap:8px; align-items:center; }
+.divider::before, .divider::after { content:""; flex:1; height:1px; background:var(--border-subtle); }
+.create { display:flex; gap:6px; }
+.create button { flex:1; border:1px solid var(--border-secondary); background:var(--bg-tertiary); border-radius:6px; padding:4px; font-size:11px; font-weight:600; color:var(--text-primary); }
+.cards { display:flex; flex-direction:column; gap:8px; margin-top:8px; border-left:2px solid var(--rail-directory); padding-left:9px; }
+.ended { margin-top:8px; font-size:11px; color:var(--text-secondary); background:none; border:0; cursor:pointer; padding:2px 0; text-decoration:underline dotted; }
+.compact { margin-top:6px; width:100%; text-align:left; font-size:11px; color:var(--text-secondary); background:var(--bg-secondary); border:1px dashed var(--border-secondary); border-radius:8px; padding:6px 9px; cursor:pointer; }
+
+.card { position:relative; isolation:isolate; background:var(--bg-tertiary); border:1px solid var(--border-subtle); border-radius:12px; padding:8px 9px; box-shadow:inset 0 1px 0 var(--elevation-rim),0 4px 8px var(--shadow-card); overflow:visible; cursor:pointer; }
+.card.selected { border-color:color-mix(in srgb,var(--accent) 70%,transparent); box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent), inset 0 1px 0 var(--elevation-rim); }
+.l1 { display:flex; gap:6px; align-items:center; }
+.sdot { width:10px; height:10px; flex:none; display:inline-grid; place-items:center; font-size:9px; line-height:1; }
+.title { font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.model { font-size:10.5px; color:var(--text-secondary); }
+.meta { display:flex; gap:8px; align-items:center; font-size:10.5px; color:var(--text-secondary); margin-top:3px; }
+.ctx { width:56px; height:4px; border-radius:2px; background:var(--bg-surface); overflow:hidden; }
+.ctx i { display:block; height:100%; background:var(--accent-green); }
+.osb { margin-top:4px; font-size:10.5px; display:flex; gap:5px; align-items:center; color:var(--accent-text); }
+.osb .ph { border:1px solid color-mix(in srgb,var(--accent) 45%,transparent); border-radius:4px; padding:0 4px; font-size:9.5px; }
+.tags { margin-top:4px; display:flex; gap:4px; }
+.tag { font-size:9.5px; border-radius:999px; padding:0 6px; background:var(--bg-surface); color:var(--text-secondary); }
+.actrow { display:flex; gap:5px; margin-top:6px; }
+.act { font-size:11px; font-weight:600; border-radius:6px; padding:2px 7px; border:1px solid var(--border-secondary); background:none; }
+.act.g { color:var(--accent-green-text); border-color:color-mix(in srgb,var(--accent-green) 45%,transparent); }
+.act.o { color:var(--accent-orange-text); border-color:color-mix(in srgb,var(--accent-orange) 45%,transparent); }
+.sub { margin-top:9px; border:1px solid var(--border-subtle); border-radius:8px; padding:9px 7px 5px; position:relative; background:color-mix(in srgb,var(--bg-primary) 30%,transparent); font-size:10.5px; color:var(--text-secondary); display:flex; gap:5px; flex-wrap:wrap; align-items:center; }
+.sub .lg { position:absolute; top:-7px; left:8px; font-size:9px; letter-spacing:.08em; background:var(--bg-tertiary); padding:0 5px; border:1px solid var(--border-subtle); border-radius:6px; color:var(--text-secondary); }
+.badge { font-size:10px; border-radius:999px; padding:0 6px; border:1px solid var(--border-secondary); color:var(--text-primary); }
+.pchip { font-size:10px; font-weight:600; border-radius:999px; padding:0 7px; color:var(--accent-orange-text); border:1px solid color-mix(in srgb,var(--accent-orange) 45%,transparent); }
+
+/* status FX: real mechanism = translateX over static repeating gradient (index.css .card-stripes-*) */
+.fx { position:absolute; inset:0; border-radius:inherit; overflow:hidden; z-index:-1; pointer-events:none; }
+.fx::before { content:""; position:absolute; top:0; bottom:0; left:-460px; right:0; animation:sweep 2.6s linear infinite; }
+.fx.running::before { background:repeating-linear-gradient(90deg,transparent 0 60px,rgba(234,179,8,.16) 230px,transparent 400px 460px),linear-gradient(rgba(234,179,8,.05),rgba(234,179,8,.05)); }
+.fx.unread::before { background:repeating-linear-gradient(90deg,transparent 0 60px,color-mix(in srgb,var(--status-unread) 20%,transparent) 230px,transparent 400px 460px),linear-gradient(color-mix(in srgb,var(--status-unread) 5%,transparent),color-mix(in srgb,var(--status-unread) 5%,transparent)); }
+.fx.input::before { background:repeating-linear-gradient(90deg,transparent 0 60px,rgba(168,85,247,.22) 230px,transparent 400px 460px),linear-gradient(rgba(168,85,247,.05),rgba(168,85,247,.05)); }
+@keyframes sweep { to { transform:translateX(460px); } }
+/* selected neon ring (index.css .card-ring-fx) */
+.ring { position:absolute; inset:-3px; border-radius:14px; padding:3px; z-index:-1; pointer-events:none; overflow:hidden;
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude; }
+.ring::before { content:""; position:absolute; inset:-60%; background:conic-gradient(rgb(59 130 246 / var(--neon-rim-alpha)),rgb(139 92 246 / var(--neon-rim-alpha)),rgb(236 72 153 / var(--neon-rim-alpha)),rgb(34 211 238 / var(--neon-rim-alpha)),rgb(59 130 246 / var(--neon-rim-alpha))); animation:spin 13s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+/* THE GATE (design D5): one CSS mechanism, same classes, static tint */
+[data-fx-status="off"] .fx::before { animation:none; left:0; }
+[data-fx-status="off"] .fx.running::before { background:rgba(234,179,8,.10); }
+[data-fx-status="off"] .fx.unread::before { background:color-mix(in srgb,var(--status-unread) 10%,transparent); }
+[data-fx-status="off"] .fx.input::before { background:rgba(168,85,247,.12); }
+[data-fx-glow="off"] .ring { display:none; }
+@media (prefers-reduced-motion: reduce) { .fx::before, .ring::before { animation:none; } .fx::before { left:0; } }
+
+/* effects gallery */
+.gallery { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px; margin:12px 0; }
+.gallery .card { cursor:default; }
+.gallery .cap2 { font-size:11px; color:var(--text-secondary); margin-top:6px; }
+.sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Focus mode · card blocks · effects</h1>
+  <div class="tabs" role="tablist" aria-label="Mockup views">
+    <button role="tab" aria-selected="true" data-tab="t1">1 · Sidebar &amp; Focus</button>
+    <button role="tab" aria-selected="false" data-tab="t2">2 · Settings: card blocks</button>
+    <button role="tab" aria-selected="false" data-tab="t3">3 · Folder settings</button>
+    <button role="tab" aria-selected="false" data-tab="t4">4 · Focus profile</button>
+    <button role="tab" aria-selected="false" data-tab="t5">5 · Effects</button>
+  </div>
+  <span class="grow"></span>
+  <button class="btn" id="themeBtn" aria-pressed="false">Light theme</button>
+</header>
+
+<div class="layout">
+  <main class="panel" id="panel"></main>
+  <aside class="preview" aria-label="Live sidebar preview">
+    <p class="cap"><span>Live sidebar preview</span><span class="chip" id="modeChip"></span></p>
+    <div class="sidebar" id="sidebar"></div>
+  </aside>
+</div>
+
+<script>
+/* ═════════ model (mirrors design D1/D2) ═════════ */
+const FOLDER = { pad:"~/Project/pi-agent-dashboard", judo:"~/Project/judo-ng", csl:"~/Project/compsychletter" };
+const SESSION_IDS = [
+  ["openspec","OPENSPEC subcard","Attached change, artifact chips, workflow actions."],
+  ["openspec-badge","OpenSpec progress line","Phase, change name and task progress under the title.", "openspec"],
+  ["git","GIT subcard","Branch, ahead/behind, worktree pill and actions."],
+  ["process","PROCESS subcard","Running commands and background processes. Hidden: running processes still show a warning chip."],
+  ["tags","Tags strip","Your session tags."],
+  ["spawn","+ Session / + Worktree buttons","Quick buttons to start a sibling session or a worktree."],
+  ["flows","FLOWS subcard","Flow launcher and active flow."],
+];
+const SESSION_PLUGIN_IDS = [
+  ["badge-automation","Automation badge","Automation","Shows when a session was started by an automation.","status"],
+  ["badge-goal","Goal badge","Goal","Active goal of the session.","status"],
+  ["badge-browser","Browser relay badge","Browser","Shows when the session drives your browser.","status"],
+  ["actionbar-goal","Goal control (card footer)","Goal","Set or clear a goal from the card."],
+];
+const DIR_IDS = [
+  ["folder-git","Git row","Branch, ahead/behind and dirty state. The group-by chip stays."],
+  ["folder-banner","Setup banner","Setup, re-trust and failure call to action. Hidden: a compact warning chip shows when the folder is blocked."],
+  ["folder-openspec","OpenSpec section","Change counts and the board link. Hiding does not disable OpenSpec."],
+  ["folder-create","Create buttons","CREATE and SESSIONS dividers with the New session / New worktree buttons."],
+  ["folder-ended","Ended sessions row","The ‘Show N ended’ expander."],
+];
+const DIR_PLUGIN_IDS = [
+  ["pill-automation","Automations pill","Automation","Automations defined for this folder."],
+  ["pill-goal","Goals pill","Goal","Goals in this folder."],
+  ["pill-kb","KB pill","KB","Knowledge-base status for this folder."],
+];
+const FX_IDS = [
+  ["fx-status-animation","Animated status gradients","Moving stripes on running, unread and waiting cards. Off: a static tint in the same colour."],
+  ["fx-selected-glow","Selected card glow","Rotating colour ring on the selected card. Off: a plain blue border."],
+];
+const ALL_IDS = [...SESSION_IDS, ...SESSION_PLUGIN_IDS, ...DIR_IDS, ...DIR_PLUGIN_IDS, ...FX_IDS].map(r=>r[0]);
+const PARENT = { "openspec-badge":"openspec", "badge-automation":"status", "badge-goal":"status", "badge-browser":"status" };
+
+const S = {
+  prefs: { global:{}, folders:{ [FOLDER.pad]:{} } },
+  focus: { enabled:false, profile:null },     // profile null = built-in
+  config: { folderListMode:"classic", folderAttentionPeek:true },
+  selected:"s1", lastClicked:null, lastIntent:"select", pinned:new Set(), collapsed:new Set(),
+  revealBanner:false, judoBlocked:true, tab:"t1",
+};
+const builtin = (id) => id==="process" ? undefined : false;
+function profileVal(id){ if(!S.focus.enabled) return undefined; const p=S.focus.profile; if(!p) return builtin(id); return p.sections[id]; }
+function own(map,id){ return map && Object.hasOwn(map,id) ? map[id] : undefined; }
+function resolve(id, folder){
+  const f = profileVal(id); if (f!==undefined) return f;
+  const isFx = id.startsWith("fx-");
+  const fo = isFx ? undefined : own(S.prefs.folders[folder],id); if (fo!==undefined) return fo;
+  const g = own(S.prefs.global,id); if (g!==undefined) return g;
+  const p = PARENT[id]; if (p){ const pv = (isFx?undefined:own(S.prefs.folders[folder],p)) ?? own(S.prefs.global,p); if (pv!==undefined) return pv; }
+  return true;
+}
+function normalVal(id, folder){ // focus ignored: what the user's own settings say
+  const saved=S.focus.enabled; S.focus.enabled=false; const v=resolve(id,folder); S.focus.enabled=saved; return v;
+}
+function listMode(){ if(S.focus.enabled){ const m = S.focus.profile ? S.focus.profile.folderListMode : "accordion"; if(m) return m; } return S.config.folderListMode; }
+function overrideCount(id){ return Object.values(S.prefs.folders).filter(m=>own(m,id)!==undefined).length; }
+
+/* ═════════ data ═════════ */
+const SESSIONS = [
+  { id:"s1", folder:FOLDER.pad, title:"Plan focus mode", model:"claude-opus-5-5", state:"running", cost:"$1.84", ctx:38,
+    phase:"implementing", change:"add-focus-mode-and-card-block-toggles", prog:"12/65", tags:["ux"], branch:"develop ↑2", badges:{automation:false,goal:"Ship phase A",browser:false}, proc:"npm test · 41s", flow:"ship-it" },
+  { id:"s2", folder:FOLDER.pad, title:"Fix WS reconnect", model:"glm-5.3", state:"unread", cost:"$0.22", ctx:12, tags:[], branch:"fix/ws-reconnect · worktree", badges:{browser:"relay"} },
+  { id:"s3", folder:FOLDER.pad, title:"Review yolo gate", model:"gpt-6-sol", state:"input", cost:"$0.61", ctx:54, phase:"review", change:"yolo-covers-agent-path-gate", prog:"0/70", tags:["security"], branch:"develop", badges:{automation:"nightly"} },
+  { id:"s4", folder:FOLDER.judo, title:"Migrate DTO mapper", model:"glm-5.3-flash", state:"idle", cost:"$0.09", ctx:20, tags:[], branch:"main" },
+  { id:"s5", folder:FOLDER.csl, title:"Letter template: offer", model:"deepseek-v4.1-flash", state:"idle", cost:"$0.03", ctx:8, tags:[], branch:"main" },
+  { id:"s6", folder:FOLDER.csl, title:"Template publish fix", model:"deepseek-v4.1-flash", state:"idle", cost:"$0.05", ctx:15, tags:[], branch:"main" },
+];
+const FOLDERS = [
+  { key:FOLDER.pad, name:"pi-agent-dashboard", git:"develop ↑2 · 3 changed", ended:12, pills:{automation:"3 active",goal:"1 running",kb:"ready"}, openspec:"7 changes" },
+  { key:FOLDER.judo, name:"judo-ng", git:"main · clean", ended:4, pills:{kb:"stale"}, openspec:"2 changes" },
+  { key:FOLDER.csl, name:"compsychletter", git:"main · clean", ended:2, pills:{}, openspec:null },
+];
+const attention = (s) => s.state==="running" || s.state==="input" || s.state==="unread";
+const STATUS = { running:["var(--status-working)","▲","Working"], unread:["var(--status-unread)","◆","To review"], input:["var(--status-needs-you)","●","Needs you"], idle:["var(--status-idle)","■","Idle"] };
+
+/* ═════════ sidebar render ═════════ */
+const h = (s) => s; // template helper
+function activeFolder(){
+  if (listMode()!=="accordion") return null;
+  const sel = SESSIONS.find(s=>s.id===S.selected);
+  return S.lastIntent==="click" && S.lastClicked ? S.lastClicked : (sel ? sel.folder : S.lastClicked);
+}
+function renderCard(s){
+  const f=s.folder, st=STATUS[s.state], sel = s.id===S.selected;
+  const fxCls = s.state==="running"?"running":s.state==="unread"?"unread":s.state==="input"?"input":"";
+  let out = `<div class="card${sel?" selected":""}" data-sid="${s.id}" role="button" tabindex="0" aria-pressed="${sel}">`;
+  if (fxCls) out += `<div class="fx ${fxCls}" aria-hidden="true"></div>`;
+  if (sel) out += `<div class="ring" aria-hidden="true"></div>`;
+  out += `<div class="l1"><span class="sdot" style="color:${st[0]}" aria-hidden="true">${st[1]}</span><span class="title">${s.title}</span><span class="model">${s.model}</span></div>`;
+  out += `<div class="meta"><span>${st[2]}</span><span class="grow"></span><span class="ctx" aria-label="context ${s.ctx}%"><i style="width:${s.ctx}%"></i></span><span>${s.cost}</span></div>`;
+  if (s.change && resolve("openspec-badge",f)) out += `<div class="osb"><span class="ph">${s.phase}</span><span>${s.change}</span><span>${s.prog}</span></div>`;
+  if (s.tags.length && resolve("tags",f)) out += `<div class="tags">${s.tags.map(t=>`<span class="tag">#${t}</span>`).join("")}</div>`;
+  if (resolve("spawn",f)) out += `<div class="actrow"><span class="act g">+ Session</span>${s.branch.includes("worktree")?"":`<span class="act o">+ Worktree</span>`}</div>`;
+  if (s.change && resolve("openspec",f)) out += `<div class="sub"><span class="lg">OPENSPEC</span><span class="badge">${s.change}</span><span>proposal · design · specs · tasks</span></div>`;
+  if (resolve("git",f)) out += `<div class="sub"><span class="lg">GIT</span><span>⎇ ${s.branch}</span></div>`;
+  const b = s.badges||{}; const shown = ["automation","goal","browser"].filter(k=>b[k] && resolve("badge-"+k,f));
+  if (shown.length) out += `<div class="sub"><span class="lg">STATUS</span>${shown.map(k=>`<span class="badge">${k==="automation"?"⚙ "+b[k]:k==="goal"?"◎ "+b[k]:"⧉ browser "+b[k]}</span>`).join("")}</div>`;
+  if (s.proc){ out += resolve("process",f) ? `<div class="sub"><span class="lg">PROCESS</span><span>▶ ${s.proc}</span></div>` : `<div class="actrow"><span class="pchip">⚠ 1 background process</span></div>`; }
+  if (s.flow && resolve("flows",f)) out += `<div class="sub"><span class="lg">FLOWS</span><span>▶ ${s.flow}</span></div>`;
+  if (b.goal && resolve("actionbar-goal",f)) out += `<div class="actrow"><span class="act">◎ Goal</span></div>`;
+  return out + `</div>`;
+}
+function renderFolder(F){
+  const k=F.key, mode=listMode(), act=activeFolder(), sess=SESSIONS.filter(s=>s.folder===k);
+  const pinned=S.pinned.has(k), collapsed=S.collapsed.has(k);
+  let render;
+  if (mode!=="accordion") render = collapsed ? "collapsed" : "full";
+  else if (pinned) render="full";
+  else if (act===k) render = collapsed ? "collapsed" : "full";
+  else render = (S.config.folderAttentionPeek && sess.some(attention)) ? "attention" : "empty";
+  const full = render==="full";
+  const working=sess.filter(s=>s.state==="running").length, idle=sess.filter(s=>s.state==="idle"||s.state==="unread").length, needs=sess.filter(s=>s.state==="input").length;
+  const blocked = k===FOLDER.judo && S.judoBlocked;
+  const chevLabel = mode==="accordion" && act!==k ? (pinned?"Unpin folder":"Keep folder open") : (full?"Collapse folder":"Expand folder");
+  let o = `<section class="folder" aria-label="${F.name}">`;
+  o += `<div class="fh"><button class="chev" data-chev="${k}" aria-expanded="${full}" aria-label="${chevLabel}" title="${chevLabel}">${full?"▾":"▸"}</button>`;
+  o += `<span class="fname" data-fclick="${k}">${F.name} <small>${pinned&&mode==="accordion"?"· kept open":""}</small></span>`;
+  if (needs) o += `<span class="needs">${needs} needs you</span>`;
+  o += `<span class="capsule" aria-label="${working} working, ${idle} idle">${working?`<i style="background:var(--status-working)"></i>${working}`:""}<i style="background:var(--status-idle)"></i>${idle}</span><button class="iconbtn" aria-label="Folder actions">⋯</button></div>`;
+  if (full){
+    if (resolve("folder-git",k)) o += `<div class="gitrow"><span>⎇ ${F.git}</span><span class="groupby">Group: none</span></div>`;
+    if (blocked){
+      if (resolve("folder-banner",k) || S.revealBanner) o += `<div class="banner"><span><b>Re-trust needed.</b> .pi/settings.json changed since you trusted this folder.</span><span class="grow"></span><button class="btn" style="min-height:26px;padding:2px 8px">Review</button></div>`;
+      else o += `<button class="safety" data-reveal="1">⚠ Re-trust needed</button>`;
+    }
+    const pills = Object.entries(F.pills).filter(([p])=>resolve("pill-"+p,k)).map(([p,v])=>`<div class="spill"><span>${p==="automation"?"Automations":p==="goal"?"Goals":"KB"}</span><span>${v}</span></div>`);
+    if (F.openspec && resolve("folder-openspec",k)) pills.push(`<div class="spill"><span>OpenSpec</span><span>${F.openspec}</span></div>`);
+    if (pills.length) o += `<div class="pills">${pills.join("")}</div>`;
+    if (resolve("folder-create",k)) o += `<div class="divider">CREATE</div><div class="create"><button>+ New session</button><button>+ New worktree</button></div><div class="divider">SESSIONS</div>`;
+    o += `<div class="cards">${sess.map(renderCard).join("")}</div>`;
+    if (resolve("folder-ended",k)) o += `<button class="ended">Show ${F.ended} ended</button>`;
+  } else if (render==="attention"){
+    o += `<div class="cards">${sess.filter(attention).map(renderCard).join("")}</div>`;
+    const rest = sess.length - sess.filter(attention).length; if (rest) o += `<button class="compact" data-fclick="${k}">+ ${rest} more session${rest>1?"s":""} · click to view</button>`;
+  } else if (render==="empty" && sess.length){
+    if (blocked) o += `<button class="safety" data-fclick="${k}">⚠ Re-trust needed</button>`;
+    o += `<button class="compact" data-fclick="${k}">${sess.length} session${sess.length>1?"s":""} · click to view</button>`;
+  }
+  return o + `</section>`;
+}
+function renderSidebar(){
+  const on=S.focus.enabled;
+  const focusBtn = on
+    ? `<button class="focus-pill" id="focusBtn" aria-pressed="true" title="Focus mode is on. Click to show everything again.">◎ Focus</button>`
+    : `<button class="iconbtn" id="focusBtn" aria-pressed="false" aria-label="Focus mode" title="Focus mode: show only the cards">◎</button>`;
+  document.getElementById("sidebar").innerHTML =
+    `<div class="appbar"><span class="logo">π</span><span class="right">${focusBtn}<button class="iconbtn" aria-label="Settings" title="Settings">⚙</button></span></div>
+     <div class="filterbar"><input placeholder="Folder..." aria-label="Filter folders"><input placeholder="Session..." aria-label="Search sessions"><button class="tb">Hidden</button></div>
+     <div class="list">${FOLDERS.map(renderFolder).join("")}</div>`;
+  document.getElementById("modeChip").textContent = (on?"Focus on · ":"") + (listMode()==="accordion"?"accordion":"classic");
+  document.documentElement.dataset.fxStatus = resolve("fx-status-animation") ? "on" : "off";
+  document.documentElement.dataset.fxGlow = resolve("fx-selected-glow") ? "on" : "off";
+}
+
+/* ═════════ panels ═════════ */
+function sw(id,checked,label){ return `<button class="switch" role="switch" aria-checked="${checked}" aria-label="${label}" data-sw="${id}"></button>`; }
+function focusCallout(){ return S.focus.enabled ? `<div class="callout"><span class="grow"><b>Focus is on.</b> These are your normal settings. Focus currently overrides what you see in the sidebar.</span><button class="btn" data-act="focus-off">Turn off Focus</button></div>` : ""; }
+function globalRow([id,label,a,b,c]){
+  const plugin = SESSION_PLUGIN_IDS.concat(DIR_PLUGIN_IDS).some(r=>r[0]===id);
+  const desc = plugin ? b : a, pname = plugin ? a : null;
+  const n=overrideCount(id), on=normalVal(id);
+  const inherited = PARENT[id] && own(S.prefs.global,id)===undefined && own(S.prefs.global,PARENT[id])!==undefined;
+  return `<div class="row"><div><div class="name">${label}${pname?` <span class="chip plug">${pname} plugin</span>`:""}${n?` <span class="chip ovr">${n} folder override${n>1?"s":""}</span>`:""}${inherited?` <span class="chip">follows ${PARENT[id]==="status"?"STATUS":"OPENSPEC"}</span>`:""}</div><div class="desc">${desc}</div></div>${sw(id,on,label)}</div>`;
+}
+function panelT1(){ return `
+  <h2>Sidebar with Focus mode</h2>
+  <p class="lead">Use the ◎ button in the sidebar app bar (next to Settings). With Focus on, the button becomes a labelled <b>Focus</b> pill, so the state is always visible. Click a session card to select it; click a folder name to focus that folder.</p>
+  <div class="group"><div class="gh">Try it</div>
+    <div class="row"><div><div class="name">Focus mode</div><div class="desc">Same toggle as the ◎ button.</div></div>${sw("__focus",S.focus.enabled,"Focus mode")}</div>
+    <div class="row"><div><div class="name">Folder list mode (normal setting)</div><div class="desc">Classic: folders open or closed by their chevron. Accordion: one folder in full, the others show only sessions that need you.</div></div>
+      <div class="seg" role="group" aria-label="Folder list mode"><button data-mode="classic" aria-pressed="${S.config.folderListMode==="classic"}">Classic</button><button data-mode="accordion" aria-pressed="${S.config.folderListMode==="accordion"}">Accordion</button></div></div>
+    <div class="row"><div><div class="name">judo-ng needs re-trust</div><div class="desc">Shows how a hidden setup banner still surfaces as a warning chip.</div></div>${sw("__judo",S.judoBlocked,"judo-ng needs re-trust")}</div>
+  </div>
+  <div class="why"><h3>Design decisions</h3><ul>
+    <li><b>Toggle lives in the app bar, right cluster, left of Settings.</b> Global view controls sit with Settings; the on-state pill copies the existing YOLO pill (Jakob's Law, H4 consistency).</li>
+    <li><b>On-state has a text label, not just colour</b> (WCAG 1.4.1; H1 visibility of system status).</li>
+    <li><b>Focus never hides what blocks you:</b> a blocked folder keeps a ⚠ chip and a hidden PROCESS keeps the background-process chip (H1, H5 error prevention).</li>
+    <li><b>One click back</b> to the normal view; Focus never edits your settings (H3 user control and freedom).</li>
+    <li><b>Accordion "click to view"</b> focuses the folder you clicked even while a session elsewhere is selected: latest intent wins. <span class="chip ovr">spec change</span> The current spec says selection always wins, which would make this row do nothing while a session is selected (H1, feedback).</li>
+  </ul></div>`; }
+function panelT2(){ return `
+  <h2>Settings › Sessions › Card blocks</h2>
+  <p class="lead">Global defaults. Each folder can override them on its own Session cards page. Plugin rows appear only for installed plugins that add something to cards.</p>
+  ${focusCallout()}
+  <div class="group"><div class="gh">Session card</div>${SESSION_IDS.map(globalRow).join("")}</div>
+  <div class="group"><div class="gh">Session card · from plugins</div>${SESSION_PLUGIN_IDS.map(globalRow).join("")}</div>
+  <div class="group"><div class="gh">Directory card</div>${DIR_IDS.map(globalRow).join("")}</div>
+  <div class="group"><div class="gh">Directory card · plugin pills</div>${DIR_PLUGIN_IDS.map(globalRow).join("")}</div>
+  <div class="group"><div class="gh">Effects <span class="chip">all folders</span></div>${FX_IDS.map(globalRow).join("")}</div>
+  <div class="why"><h3>Design decisions</h3><ul>
+    <li><b>Four groups mirror the two surfaces</b> (card / directory) and split plugin rows out, so a 22-row list reads as 5 short ones (Hick's Law, chunking).</li>
+    <li><b>Plugin name chip on each plugin row</b> so "switch off Automation" is findable by plugin, not by slot name (recognition over recall, H6).</li>
+    <li><b>Override count per row</b> warns that some folders ignore this default (H1).</li>
+    <li><b>"follows OPENSPEC / STATUS" chip</b> explains why a child row is off when you never touched it (legacy parent fallback, H2 match with the user's mental model).</li>
+    <li><b>Effects are global only</b>, so they have no folder override and no override count.</li>
+  </ul></div>`; }
+function triRow(id,label,desc,folder){
+  const fo = own(S.prefs.folders[folder],id);
+  const g = own(S.prefs.global,id); const p=PARENT[id];
+  const gv = g!==undefined ? g : (p && own(S.prefs.global,p)!==undefined ? own(S.prefs.global,p) : true);
+  const via = g===undefined && p && own(S.prefs.global,p)!==undefined ? ` · from ${p==="status"?"STATUS":"OPENSPEC"}` : "";
+  const cur = fo===undefined?"d":fo?"s":"h";
+  return `<div class="row"><div><div class="name">${label}${fo!==undefined?` <span class="chip ovr">overridden</span>`:""}</div><div class="desc">${desc}</div></div>
+    <div class="seg" role="group" aria-label="${label}"><button data-tri="${id}" data-v="d" aria-pressed="${cur==="d"}">Default (${gv?"Show":"Hide"}${via})</button><button data-tri="${id}" data-v="s" aria-pressed="${cur==="s"}">Show</button><button data-tri="${id}" data-v="h" aria-pressed="${cur==="h"}">Hide</button></div></div>`;
+}
+function panelT3(){ const k=FOLDER.pad, n=Object.keys(S.prefs.folders[k]||{}).length; return `
+  <h2>pi-agent-dashboard › Settings › Session cards</h2>
+  <p class="lead">Overrides for this folder only. Default follows the global setting.</p>
+  ${focusCallout()}
+  <div class="callout" style="border-color:var(--border-secondary);background:var(--bg-tertiary)"><span class="grow">${n?`${n} override${n>1?"s":""} in this folder.`:"This folder follows all global defaults."}</span><button class="btn" data-act="reset-folder" ${n?"":"disabled"}>Reset to global</button></div>
+  <div class="group"><div class="gh">Session card</div>${SESSION_IDS.map(r=>triRow(r[0],r[1],r[2],k)).join("")}</div>
+  <div class="group"><div class="gh">Session card · from plugins</div>${SESSION_PLUGIN_IDS.map(r=>triRow(r[0],r[1],r[3],k)).join("")}</div>
+  <div class="group"><div class="gh">Directory card</div>${DIR_IDS.map(r=>triRow(r[0],r[1],r[2],k)).join("")}</div>
+  <div class="group"><div class="gh">Directory card · plugin pills</div>${DIR_PLUGIN_IDS.map(r=>triRow(r[0],r[1],r[3],k)).join("")}</div>
+  <div class="why"><h3>Design decisions</h3><ul>
+    <li><b>Same tri-state control as today's page</b>; the Default button names the value it inherits, so there is nothing to look up (H6 recognition over recall).</li>
+    <li><b>No Effects group here</b>: effects are global only (spec card-visual-effects).</li>
+  </ul></div>`; }
+function panelT4(){
+  const p=S.focus.profile, rows=[...SESSION_IDS.map(r=>[r[0],r[1]]),...SESSION_PLUGIN_IDS.map(r=>[r[0],r[1]]),...DIR_IDS.map(r=>[r[0],r[1]]),...DIR_PLUGIN_IDS.map(r=>[r[0],r[1]]),...FX_IDS.map(r=>[r[0],r[1]])];
+  const val=(id)=> p ? p.sections[id] : builtin(id);
+  const hidden = rows.filter(([id])=>val(id)===false).length;
+  return `
+  <h2>Settings › Sessions › Focus mode</h2>
+  <p class="lead">Focus shows only what you need right now. It never changes your normal settings; turning it off brings everything back.</p>
+  <div class="group">
+    <div class="row"><div><div class="name">Focus mode</div><div class="desc">Also available as the ◎ button in the sidebar.</div></div>${sw("__focus",S.focus.enabled,"Focus mode")}</div>
+    <div class="row"><div><div class="name">Focus profile <span class="chip focus">${p?"Custom":"Built-in: minimal"}</span></div><div class="desc">${p?`Hides ${hidden} blocks.`:"Hides every optional block and both effects, keeps PROCESS, uses the accordion folder list."}</div></div>
+      <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn" data-act="save-current">Save current as my focus profile</button><button class="btn" data-act="reset-profile" ${p?"":"disabled"}>Reset to built-in</button></span></div>
+    <details class="disclose"><summary>Customize profile</summary>
+      <div class="row"><div><div class="name">Folder list</div><div class="desc">Not set: use your normal folder list mode.</div></div>
+        <div class="seg" role="group" aria-label="Focus folder list mode">${["","classic","accordion"].map(m=>`<button data-pmode="${m}" aria-pressed="${(p?p.folderListMode??"":"accordion")===m}">${m?m[0].toUpperCase()+m.slice(1):"Not set"}</button>`).join("")}</div></div>
+      ${rows.map(([id,label])=>{ const v=val(id); const cur=v===undefined?"n":v?"s":"h"; return `<div class="row"><div class="name">${label}</div><div class="seg" role="group" aria-label="Focus: ${label}"><button data-prow="${id}" data-v="n" aria-pressed="${cur==="n"}">Not set</button><button data-prow="${id}" data-v="s" aria-pressed="${cur==="s"}">Show</button><button data-prow="${id}" data-v="h" aria-pressed="${cur==="h"}">Hide</button></div></div>`; }).join("")}
+    </details>
+  </div>
+  <div class="why"><h3>Design decisions</h3><ul>
+    <li><b>Works without setup:</b> the built-in profile is the smart default (Tesler's Law). Editing any row turns it into your own copy.</li>
+    <li><b>"Save current as my focus profile"</b> captures a hand-tuned setup in one click instead of ~25 row edits.</li>
+    <li><b>Row editor is collapsed</b> behind "Customize profile" (progressive disclosure, Hick's Law).</li>
+    <li><b>"Not set"</b> means Focus leaves that block to your normal setting; it is the only state that lets folder overrides through.</li>
+  </ul></div>`; }
+function panelT5(){
+  const demo = (state,label,sel)=>{ const st=STATUS[state]; return `<div><div class="card${sel?" selected":""}">${state!=="idle"?`<div class="fx ${state}" aria-hidden="true"></div>`:""}${sel?`<div class="ring" aria-hidden="true"></div>`:""}<div class="l1"><span class="sdot" style="color:${st[0]}">${st[1]}</span><span class="title">${label}</span></div><div class="meta"><span>${st[2]}</span></div></div><div class="cap2">${sel?"Selected card":st[2]+" card"}</div></div>`; };
+  return `
+  <h2>Settings › Sessions › Effects</h2>
+  <p class="lead">Independent of Focus. Off keeps the meaning: each state keeps its colour, icon shape and label; only the motion goes.</p>
+  ${focusCallout()}
+  <div class="group">${FX_IDS.map(globalRow).join("")}</div>
+  <div class="gallery">${demo("running","Plan focus mode")}${demo("unread","Fix WS reconnect")}${demo("input","Review yolo gate")}${demo("idle","Migrate DTO mapper",true)}</div>
+  <div class="why"><h3>Design decisions</h3><ul>
+    <li><b>Two switches, not one</b>: the glow is decoration, the stripes carry status. Users who only want a calmer selected card keep their status motion.</li>
+    <li><b>Static tint + shape + label</b> keeps status distinguishable without motion (WCAG 1.4.1; WCAG 2.3.3 animation from interactions).</li>
+    <li><b>Same classes, CSS gate on the root</b> (design D5), so the OpenSpec board rows switch together with the sidebar.</li>
+  </ul></div>`; }
+
+/* ═════════ wiring ═════════ */
+function render(){
+  const P={t1:panelT1,t2:panelT2,t3:panelT3,t4:panelT4,t5:panelT5}[S.tab];
+  const openDetails = document.querySelector("details.disclose")?.open;
+  document.getElementById("panel").innerHTML = P();
+  if (openDetails) document.querySelector("details.disclose")?.setAttribute("open","");
+  renderSidebar();
+}
+function setVal(map,id,v){ if (v===undefined) delete map[id]; else map[id]=v; }
+document.addEventListener("click",(e)=>{
+  const t=e.target.closest("button,[data-sid],[data-fclick]"); if(!t) return;
+  if (t.dataset.tab){ S.tab=t.dataset.tab; document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-selected",b===t)); }
+  else if (t.id==="focusBtn" || t.dataset.sw==="__focus") S.focus.enabled=!S.focus.enabled;
+  else if (t.dataset.sw==="__judo") { S.judoBlocked=!S.judoBlocked; S.revealBanner=false; }
+  else if (t.dataset.sw) { const id=t.dataset.sw; setVal(S.prefs.global,id, normalVal(id) ? false : (PARENT[id]? true : undefined)); }
+  else if (t.dataset.mode) S.config.folderListMode=t.dataset.mode;
+  else if (t.dataset.tri){ const m=S.prefs.folders[FOLDER.pad]; setVal(m,t.dataset.tri,{d:undefined,s:true,h:false}[t.dataset.v]); }
+  else if (t.dataset.prow){ if(!S.focus.profile) S.focus.profile=materialize(); setVal(S.focus.profile.sections,t.dataset.prow,{n:undefined,s:true,h:false}[t.dataset.v]); }
+  else if (t.dataset.pmode!==undefined){ if(!S.focus.profile) S.focus.profile=materialize(); S.focus.profile.folderListMode=t.dataset.pmode||undefined; }
+  else if (t.dataset.act==="focus-off") S.focus.enabled=false;
+  else if (t.dataset.act==="reset-folder") S.prefs.folders[FOLDER.pad]={};
+  else if (t.dataset.act==="reset-profile") S.focus.profile=null;
+  else if (t.dataset.act==="save-current"){ const sections={}; ALL_IDS.forEach(id=>sections[id]=normalVal(id)); S.focus.profile={sections,folderListMode:S.config.folderListMode}; }
+  else if (t.dataset.reveal) S.revealBanner=true;
+  else if (t.dataset.chev){ const k=t.dataset.chev; if (listMode()==="accordion" && activeFolder()!==k){ S.pinned.has(k)?S.pinned.delete(k):(S.pinned.add(k),S.collapsed.delete(k)); } else { S.collapsed.has(k)?S.collapsed.delete(k):(S.collapsed.add(k),S.pinned.delete(k)); } }
+  else if (t.dataset.fclick){ S.lastClicked=t.dataset.fclick; S.lastIntent="click"; }
+  else if (t.dataset.sid){ S.selected=t.dataset.sid; S.lastIntent="select"; }
+  else return;
+  render();
+});
+document.addEventListener("keydown",(e)=>{ const c=e.target.closest?.("[data-sid]"); if(c && (e.key==="Enter"||e.key===" ")){ e.preventDefault(); c.click(); } });
+function materialize(){ const sections={}; ALL_IDS.forEach(id=>{ const v=builtin(id); if(v!==undefined) sections[id]=v; }); return {sections,folderListMode:"accordion"}; }
+document.getElementById("themeBtn").addEventListener("click",(e)=>{ const l=document.documentElement.dataset.theme==="dark"; document.documentElement.dataset.theme=l?"light":"dark"; e.target.textContent=l?"Dark theme":"Light theme"; e.target.setAttribute("aria-pressed",l); });
+const q=new URLSearchParams(location.search); if(q.get("theme")==="light"){ document.documentElement.dataset.theme="light"; document.getElementById("themeBtn").textContent="Dark theme"; }
+if(q.get("tab")){ S.tab=q.get("tab"); document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===S.tab)); }
+if(q.get("focus")==="1") S.focus.enabled=true;
+render();
+</script>
+</body>
+</html>

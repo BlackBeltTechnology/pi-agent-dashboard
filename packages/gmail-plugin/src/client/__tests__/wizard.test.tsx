@@ -4,9 +4,10 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { catalog } from "../../i18n.js";
 import { validateClientJson } from "../../shared/client-json.js";
 import { SetupWizard } from "../GmailSettings.js";
-import { consoleLinks, errorStep, gcloudCommands } from "../wizard.js";
+import { consoleLinks, ERROR_EN, errorKey, errorStep, gcloudCommands, KNOWN_FLOW_CODES } from "../wizard.js";
 
 afterEach(() => {
   cleanup();
@@ -80,6 +81,75 @@ describe("E2 — sign-in error → wizard step", () => {
   });
   it("unknown codes map to no step", () => {
     expect(errorStep("state_mismatch")).toBeNull();
+  });
+  // test-plan #E3 (improve-gmail-settings-ux): the fix is in the account's Admin console, not a wizard step.
+  it("admin_policy_enforced maps to no step", () => {
+    expect(errorStep("admin_policy_enforced")).toBeNull();
+  });
+});
+
+/** Every code design D2 lists (a flow can terminate with each). See change: improve-gmail-settings-ux. */
+const D2_CODES = [
+  "org_internal",
+  "access_denied",
+  "admin_policy_enforced",
+  "redirect_uri_mismatch",
+  "invalid_client",
+  "scope_missing",
+  "account_mismatch",
+  "missing_refresh",
+  "email_unverified",
+  "invalid_redirect",
+  "state_mismatch",
+  "callback_failed",
+  "token_exchange_failed",
+  "id_token_invalid",
+  "authorization_failed",
+  "timeout",
+  "start_timeout",
+  "login_failed",
+  "aborted",
+];
+
+describe("test-plan #E1 — every sign-in error code has a human sentence", () => {
+  it.each(D2_CODES)("%s → own key + English sentence", (code) => {
+    const key = errorKey(code);
+    expect(key).not.toBe("errGeneric");
+    expect(ERROR_EN[key]?.trim()).toBeTruthy();
+    expect(KNOWN_FLOW_CODES).toContain(code);
+  });
+  it.each(["Cancelled", "CANCELLED", "cancelled"])("%s → the cancelled key", (code) => {
+    expect(errorKey(code)).toBe("errCancelled");
+  });
+  it("every key errorKey can return has a zh-CN and hu translation", () => {
+    const keys = new Set([...D2_CODES, "Cancelled", "unknown"].map(errorKey));
+    for (const k of keys) {
+      expect(catalog["zh-CN"]).toHaveProperty(k);
+      expect(catalog.hu).toHaveProperty(k);
+    }
+  });
+});
+
+describe("test-plan #E2 — unknown inputs get the generic sentence", () => {
+  it.each(["fetch failed", "", "Org_Internal ", "a".repeat(65), "__proto__", "toString"])("%j → errGeneric", (code) => {
+    expect(errorKey(code)).toBe("errGeneric");
+  });
+  it("null/undefined → errGeneric", () => {
+    expect(errorKey(null)).toBe("errGeneric");
+    expect(errorKey(undefined)).toBe("errGeneric");
+    expect(ERROR_EN.errGeneric?.trim()).toBeTruthy();
+  });
+});
+
+describe("test-plan #E6 — audience step explains Internal vs External", () => {
+  it("step 3 says Internal admits only the project's own Workspace organization", () => {
+    render(<SetupWizard state={{ client: { configured: false }, accounts: [] }} highlight={null} onUploaded={vi.fn()} />);
+    const text = screen.getByTestId("gmail-step-3").textContent ?? "";
+    expect(text).toMatch(/Internal/);
+    expect(text).toMatch(/only/i);
+    expect(text).toMatch(/Workspace organization/);
+    expect(text).toMatch(/External/);
+    expect(text).toMatch(/test user/);
   });
 });
 

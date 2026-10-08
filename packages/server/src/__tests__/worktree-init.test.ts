@@ -173,6 +173,106 @@ describe("runInitHook agent flavor", () => {
   });
 });
 
+// ── child env: dashboard heap flag stripped ───────────────────────────────
+// See change: strip-heap-flag-from-worktree-init (#820).
+
+describe("hook child env drops the dashboard's own heap flag", () => {
+  const STAMP = "--max-old-space-size=1536";
+  const MARKER = "PI_DASHBOARD_HEAP_FLAG";
+  let savedOpts: string | undefined;
+  let savedMarker: string | undefined;
+  beforeEach(() => {
+    savedOpts = process.env.NODE_OPTIONS;
+    savedMarker = process.env[MARKER];
+  });
+  afterEach(() => {
+    if (savedOpts === undefined) delete process.env.NODE_OPTIONS;
+    else process.env.NODE_OPTIONS = savedOpts;
+    if (savedMarker === undefined) delete process.env[MARKER];
+    else process.env[MARKER] = savedMarker;
+  });
+
+  /** Spawn stub that records the env it was handed. */
+  function capture() {
+    const envs: NodeJS.ProcessEnv[] = [];
+    const spawnFn = (_c: string, _a: readonly string[], o: any) => {
+      envs.push(o.env);
+      return fakeChild(0);
+    };
+    return { envs, spawnFn };
+  }
+  const scriptHook: WorktreeInitHook = { gate: "false", run: { type: "script", command: ":" } };
+  const agentHook: WorktreeInitHook = { gate: "g", run: { type: "agent", prompt: "go" } };
+
+  it("script run: strips the stamp + marker, keeps unrelated options", async () => {
+    process.env.NODE_OPTIONS = `--foo ${STAMP}`;
+    process.env[MARKER] = STAMP;
+    const { envs, spawnFn } = capture();
+    await runInitHook(tmp, scriptHook, () => {}, { spawnFn });
+    expect(envs).toHaveLength(1);
+    expect(envs[0]!.NODE_OPTIONS).toBe("--foo");
+    expect(envs[0]![MARKER]).toBeUndefined();
+  });
+
+  it("gate: strips the stamp", async () => {
+    process.env.NODE_OPTIONS = `--foo ${STAMP}`;
+    process.env[MARKER] = STAMP;
+    const { envs, spawnFn } = capture();
+    await evaluateGate(tmp, scriptHook, { spawnFn });
+    expect(envs).toHaveLength(1);
+    expect(envs[0]!.NODE_OPTIONS).toBe("--foo");
+    expect(envs[0]![MARKER]).toBeUndefined();
+  });
+
+  it("agent spawn: strips the stamp", async () => {
+    process.env.NODE_OPTIONS = `--foo ${STAMP}`;
+    process.env[MARKER] = STAMP;
+    const { envs, spawnFn } = capture();
+    await runInitHook(tmp, agentHook, () => {}, {
+      spawnFn,
+      resolvePiBin: () => "/fake/pi",
+      evaluateGateFn: async () => ({ needsInit: false }),
+    });
+    expect(envs).toHaveLength(1);
+    expect(envs[0]!.NODE_OPTIONS).toBe("--foo");
+    expect(envs[0]![MARKER]).toBeUndefined();
+  });
+
+  it("removes NODE_OPTIONS when only the stamp was present", async () => {
+    process.env.NODE_OPTIONS = STAMP;
+    process.env[MARKER] = STAMP;
+    const { envs, spawnFn } = capture();
+    await runInitHook(tmp, scriptHook, () => {}, { spawnFn });
+    expect("NODE_OPTIONS" in envs[0]!).toBe(false);
+  });
+
+  it("preserves an operator-pinned heap flag (no marker)", async () => {
+    process.env.NODE_OPTIONS = "--max-old-space-size=8192";
+    delete process.env[MARKER];
+    const { envs, spawnFn } = capture();
+    await runInitHook(tmp, scriptHook, () => {}, { spawnFn });
+    expect(envs[0]!.NODE_OPTIONS).toBe("--max-old-space-size=8192");
+  });
+
+  it("uses an explicit opts.env verbatim", async () => {
+    const explicit = { NODE_OPTIONS: STAMP, [MARKER]: STAMP, PATH: process.env.PATH };
+    const { envs, spawnFn } = capture();
+    await runInitHook(tmp, scriptHook, () => {}, { spawnFn, env: explicit });
+    expect(envs[0]).toBe(explicit);
+    expect(envs[0]!.NODE_OPTIONS).toBe(STAMP);
+  });
+
+  it("does not mutate process.env", async () => {
+    process.env.NODE_OPTIONS = `--foo ${STAMP}`;
+    process.env[MARKER] = STAMP;
+    const { spawnFn } = capture();
+    await runInitHook(tmp, scriptHook, () => {}, { spawnFn });
+    await evaluateGate(tmp, scriptHook, { spawnFn });
+    expect(process.env.NODE_OPTIONS).toBe(`--foo ${STAMP}`);
+    expect(process.env[MARKER]).toBe(STAMP);
+  });
+});
+
 // ── hookDefHash ───────────────────────────────────────────────────────────
 
 describe("hookDefHash", () => {

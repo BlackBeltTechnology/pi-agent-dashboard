@@ -1,0 +1,104 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "admins": {
+      "type": "array",
+      "description": "Principals ({iss, sub}) allowed to manage shared personas and folder projects (multi-user mode).",
+      "items": {
+        "type": "object",
+        "required": [
+          "iss",
+          "sub"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "iss": {
+            "type": "string"
+          },
+          "sub": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "skillCatalog": {
+      "type": "object",
+      "description": "Admin skill catalog: name -> absolute skill path. Personas pick names only.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "idleMinutes": {
+      "type": "number",
+      "minimum": 0,
+      "default": 30,
+      "description": "End idle sessions after N minutes (0 = off)."
+    },
+    "maxConversations": {
+      "type": "number",
+      "minimum": 1,
+      "default": 50,
+      "description": "Active conversations per user x agent x target."
+    },
+    "teamHome": {
+      "type": "string",
+      "description": "Team data directory (default ~/.pi/dashboard/team)."
+    },
+    "projects": {
+      "type": "object",
+      "description": "Admin-configured projects: id -> { name, path, users, contextFiles }.",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "name",
+          "path",
+          "users"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "users": {
+            "oneOf": [
+              {
+                "const": "*"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "iss",
+                    "sub"
+                  ],
+                  "properties": {
+                    "iss": {
+                      "type": "string"
+                    },
+                    "sub": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "contextFiles": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "maxLiveSessions": {
+      "type": "number",
+      "minimum": 1,
+      "default": 10,
+      "description": "Live pi processes per user (across all agents and targets)."
+    }
+  }
+}

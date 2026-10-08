@@ -1,27 +1,32 @@
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiArrowLeft, mdiCrosshairsGps, mdiFileCompare, mdiLinkOff, mdiPaperclip, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiRefresh, mdiSourceFork, mdiViewGridOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useEffect, useRef, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
+import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import type { SessionState } from "../../lib/chat/event-reducer.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useAttachmentResolution } from "../../lib/openspec/useAttachmentResolution.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
 import { isRemoteOrigin } from "../../lib/session/session-origin-view.js";
-import { CountBadges } from "./CountBadges.js";
+import { YoloSessionIndicator } from "../access-grant/YoloIndicators.js";
+import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
 import { FooterSegmentSlot } from "../extension-ui/FooterSegmentSlot.js";
-import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
-import { LayoutModeSwitch } from "../split/LayoutModeSwitch.js";
-import { MobileActionMenu } from "../shell/MobileActionMenu.js";
+import { AttachmentTrace } from "../openspec/AttachmentTrace.js";
 import { ArtifactLettersButton } from "../openspec/openspec-helpers.js";
+import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
 // FlowLaunchDialog removed: flow launching is owned entirely by
 // flows-plugin's command-route claims (/flows, /flows:new, etc.) and
 // SessionFlowActionsClaim. See change: pluginize-flows-via-registry.
 import { SearchableSelectDialog, type SelectOption } from "../primitives/SearchableSelectDialog.js";
-import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
+import { MobileActionMenu } from "../shell/MobileActionMenu.js";
+import { LayoutModeSwitch } from "../split/LayoutModeSwitch.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { TagChip } from "../tags/TagChip.js";
 import { TagEditor } from "../tags/TagEditor.js";
-import { YoloSessionIndicator } from "../access-grant/YoloIndicators.js";
+import { CountBadges } from "./CountBadges.js";
+import { PiBelowFloorWarning } from "./PiBelowFloorWarning.js";
 
 interface Props {
   session?: DashboardSession;
@@ -81,15 +86,22 @@ function MobileAttachButton({ session, openspecChanges, onAttach, onDetach }: {
   onDetach?: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const { flipUp, maxHeight, anchorRight, maxWidth, triggerRect } = usePopoverFlip(triggerRef, {
+    open,
+    estimatedWidth: 256,
+    minPopoverHeight: 0,
+  });
 
-  // Close on outside click/touch
+  // Close on outside click/touch — check portaled panel FIRST, then trigger.
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent | TouchEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     document.addEventListener("touchstart", handler);
@@ -107,8 +119,9 @@ function MobileAttachButton({ session, openspecChanges, onAttach, onDetach }: {
   if (!attached && !hasChanges) return null;
 
   return (
-    <div ref={containerRef} className="relative">
+    <div className="relative">
       <button
+        ref={triggerRef}
         onClick={() => setOpen(!open)}
         className={`p-2 min-w-[44px] min-h-[44px] flex items-center justify-center ${
           attached ? "text-blue-400" : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
@@ -120,7 +133,28 @@ function MobileAttachButton({ session, openspecChanges, onAttach, onDetach }: {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-64 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl shadow-lg z-50 overflow-hidden" data-testid="mobile-attach-menu">
+        <LayerPortal>
+        <div
+          ref={panelRef}
+          style={{
+            width: 256,
+            maxHeight,
+            maxWidth,
+            visibility: triggerRect ? "visible" : "hidden",
+            ...(triggerRect
+              ? flipUp
+                ? { bottom: Math.round(window.innerHeight - triggerRect.top + 4) }
+                : { top: Math.round(triggerRect.bottom + 4) }
+              : {}),
+            ...(triggerRect
+              ? anchorRight
+                ? { right: Math.max(0, Math.round(window.innerWidth - triggerRect.right)) }
+                : { left: Math.round(triggerRect.left) }
+              : {}),
+          }}
+          className="fixed overflow-hidden z-popover bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl shadow-lg"
+          data-testid="mobile-attach-menu"
+        >
           {attached ? (
             <>
               <div className="px-4 py-2 text-xs text-blue-400 border-b border-[var(--border-primary)]">
@@ -147,6 +181,7 @@ function MobileAttachButton({ session, openspecChanges, onAttach, onDetach }: {
             ))
           )}
         </div>
+        </LayerPortal>
       )}
     </div>
   );
@@ -169,8 +204,9 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
   // present, render the artifact-letters pill + task counter inside the
   // existing mobile-header-attached-chip span.
   // See change: add-attached-proposal-header-summary.
-  const attachedChange = session.attachedProposal
-    ? mobileActions?.openspecChanges?.find((c) => c.name === session.attachedProposal)
+  const attachmentResolution = useAttachmentResolution(session, mobileActions?.openspecChanges);
+  const attachedChange = attachmentResolution?.kind === "active" && attachmentResolution.cwd === session.cwd
+    ? attachmentResolution.change
     : undefined;
   const readArtifact = onReadArtifact ?? mobileActions?.onReadArtifact;
   // Row 1: back + name + attach button + kebab. Always present.
@@ -245,6 +281,7 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
       >
         <Icon path={mdiPaperclip} size={0.4} />
         <span className="truncate min-w-0">{session.attachedProposal}</span>
+        <AttachmentTrace resolution={attachmentResolution} sessionCwd={session.cwd} />
         {attachedChange && attachedChange.artifacts.length > 0 && (
           <span className="flex-shrink-0">
             <ArtifactLettersButton
@@ -273,6 +310,12 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
     <div className="px-2 py-1 border-b border-[var(--border-primary)] flex flex-col text-sm">
       {row1}
       {chipRow}
+      {/* See change: update-pi-core-1-0-adopt-apis. */}
+      {session.piBelowFloor ? (
+        <div className="py-0.5">
+          <PiBelowFloorWarning session={session} />
+        </div>
+      ) : null}
       {/* Active-YOLO peer indicator: the sidebar pill is not rendered here.
           See change: add-access-grant-dialog (8b.7). */}
       <YoloSessionIndicator cwd={session.cwd} />
@@ -303,6 +346,9 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
   // See change: pluginize-flows-via-registry.
 
   const attached = session?.attachedProposal;
+  // Resolve against active + archived data (hook must run before the mobile early return).
+  // See change: resolve-archived-attached-proposal.
+  const desktopResolution = useAttachmentResolution(session, openspecChanges);
   const openspecOptions: SelectOption[] = (openspecChanges || []).map(c => {
     const stateLabels: Record<string, string> = {
       "no-tasks": "Planning",
@@ -363,9 +409,8 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
 
   // Desktop attached-change lookup for the artifact-letters pill + task counter.
   // See change: add-attached-proposal-header-summary.
-  const desktopAttachedChange = attached
-    ? openspecChanges?.find((c) => c.name === attached)
-    : undefined;
+  const desktopAttachedChange =
+    desktopResolution?.kind === "active" && session && desktopResolution.cwd === session.cwd ? desktopResolution.change : undefined;
 
   // Resume / Fork affordance gate: only render when the session is dead-but-resumable
   // AND a parent callback was supplied. The render gate replaces the dimmed elapsed-
@@ -436,6 +481,8 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
       {session.piVersion && (
         <span className="text-[var(--text-tertiary)]" title="pi version">pi {session.piVersion}</span>
       )}
+      {/* See change: update-pi-core-1-0-adopt-apis. */}
+      {session.piBelowFloor ? <PiBelowFloorWarning session={session} /> : null}
       {/* Extension UI System (Phase 2): footer-segment decorator slot. */}
       {/* See change: add-extension-ui-decorations. */}
       <FooterSegmentSlot session={session} />
@@ -451,10 +498,11 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
       )}
       {/* OpenSpec + Flow buttons */}
       <span className="flex-1" />
-      {onAttachProposal && openspecChanges && openspecChanges.length > 0 && (
+      {onAttachProposal && ((openspecChanges && openspecChanges.length > 0) || attached) && (
         attached ? (
           <span className="text-[10px] flex items-center gap-1 mr-2">
             <span className="text-blue-400"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{attached}</span>
+            <AttachmentTrace resolution={desktopResolution} sessionCwd={session.cwd} />
             {desktopAttachedChange && desktopAttachedChange.artifacts.length > 0 && (
               <ArtifactLettersButton
                 artifacts={desktopAttachedChange.artifacts}

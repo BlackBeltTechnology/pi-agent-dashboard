@@ -1,6 +1,12 @@
 name: CI
 
-# Cheap PR safety net: lint + test + build on Node 22.
+# PR + develop-push safety net on Node 22, as parallel jobs (change:
+# speed-up-ci-affected-tests, D5): `ci` (guards, lint, typecheck, Biome, build)
+# runs beside `select`, whose affected-test selection drives `unit` (4 shards),
+# `real-process` and `ci-scenarios`; `ci-result` aggregates and checks the
+# selection's expectations. Wall time = the slowest job, not the sum. The full
+# suite runs nightly (nightly-tests.yml), on `workflow_dispatch`, and on the
+# next push to a PR labelled `ci:full`.
 # The standalone-install-smoke matrix moved to `_smoke.yml` (reusable),
 # triggered manually via `ci-smoke.yml` or automatically as the release
 # gate inside `publish.yml`. See change: gate-publish-on-smoke-and-tests.
@@ -10,8 +16,78 @@ on:
     branches: [develop]
   pull_request:
     branches: [develop]
+  # Always a FULL run (the selector's `--full`). Dispatch on a PR branch for an
+  # immediate full run; the `ci:full` label takes effect on the next push.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Superseded PR runs are cancelled; develop pushes (grouped by SHA) never are.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # ── affected-test selection ────────────────────────────────────────────────
+  # Change: speed-up-ci-affected-tests (D5). Computes which vitest files the
+  # diff can affect (vitest's own import graph + path literals + package
+  # fallback + checked-in data under scripts/test-selection/) and records the
+  # decision as the `test-selection` artifact and the job summary — the only
+  # evidence of what a run skipped. Any selector error, all-zero or
+  # non-ancestor base yields `mode: full`.
+  select:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+      has_real_process: ${{ steps.select.outputs.has_real_process }}
+      ci_scenarios: ${{ steps.select.outputs.ci_scenarios }}
+    steps:
+      # Full history for BOTH event kinds: a shallow clone has no merge-base
+      # (PR) and no `before` commit (push), which would force every run full.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Select affected tests
+        id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+          FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            node scripts/select-affected-tests.mjs --full --reason "workflow_dispatch" --out selection.json
+          elif [ "$FULL_LABEL" = "true" ]; then
+            node scripts/select-affected-tests.mjs --full --reason "ci:full label on the pull request" --out selection.json
+          elif [ "$EVENT" = "pull_request" ]; then
+            node scripts/select-affected-tests.mjs --base "origin/$BASE_REF" --merge-base --out selection.json
+          else
+            node scripts/select-affected-tests.mjs --base "$BEFORE" --out selection.json
+          fi
+
+      - name: Upload test selection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-selection
+          path: selection.json
+          retention-days: 14
+          if-no-files-found: error
+
   ci:
     runs-on: ubuntu-latest
     steps:
@@ -94,12 +170,6 @@ jobs:
       # fresh kb_search tool. See change: fix-kb-eval-measurement-integrity.
       - name: kb dist freshness (engine fingerprint)
         run: node scripts/check-kb-dist-fresh.mjs
-      # `ci`-level scenarios (test-plan E15, E26, P1). Held out of `pnpm test`
-      # because they shell out to `npm pack`/`npm publish --dry-run` across every
-      # workspace; run in parallel with the unit suite their CPU spike starves
-      # unrelated 5s-timeout tests. Run alone, sequentially, here.
-      - name: CI-level publish scenarios (dry-run set, repo-root probe, budget)
-        run: pnpm run test:ci-scenarios
       - run: pnpm run lint
       # Typechecks tests/e2e + guards the reap-fixture import. The root tsconfig
       # only includes `packages/*/src`, so before change
@@ -112,28 +182,6 @@ jobs:
       # Hard-gates Tier A (error-severity) regressions; Tier B/C (warn) only annotate.
       - name: Biome static analysis (Tier A gate, warn-tier annotate)
         run: pnpm exec biome lint . --reporter=github
-      # deck3d browser rows (mermaid harvest, check, snapshot) are opt-in behind
-      # `describe.skipIf(!chromiumAvailable())`. Install chromium so they run in
-      # CI; the no-chromium path stays covered by the X1/X2 rows on this job.
-      - name: Install chromium (deck3d browser tests)
-        run: npx playwright install chromium --with-deps
-      # Two phases: the parallel projects, then the real-process project alone
-      # at maxWorkers 2 (which retries once under CI). See change:
-      # isolate-real-process-tests.
-      - run: pnpm test
-      # `if: always()` on purpose: the RED run is the one whose report you need.
-      # A real-process test that passed on retry appears in the JSON as
-      # `status: passed` WITH a retained `failureMessages` entry (vitest 4 has
-      # no `retryCount` field), so a retry is attributable from the run page
-      # without log mining. Triage recipe: .pi/skills/ci-troubleshoot/SKILL.md.
-      - name: Upload vitest JSON report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: vitest-report
-          path: test-results/vitest*.json
-          retention-days: 14
-          if-no-files-found: warn
       # Build and fail on the mechanical warnings removed by
       # `fix-vite-build-warnings`, plus the @mdi/js dynamic-import warning
       # removed by `shrink-client-index-chunk`. The oversized-chunk (>700 kB)
@@ -164,6 +212,150 @@ jobs:
       # See change: check-root-package-imports.
       - name: Verify published imports on the built tree
         run: node scripts/verify-published-imports.mjs
+
+  # ── selector-driven test jobs ───────────────────────────────────────────────
+  # Each proves it ran what it was assigned (verify-executed): a filter that
+  # matched nothing must never read as a green shard. An empty shard skips its
+  # steps and succeeds. `enumerated=false` (the selector could not list tests)
+  # falls back to `vitest --shard` over everything.
+  unit:
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-selection
+      - name: Read shard assignment
+        id: shard
+        run: node scripts/test-selection/assigned.mjs selection.json "unit-${{ matrix.shard }}" assigned.txt
+      - if: steps.shard.outputs.empty != 'true'
+        uses: pnpm/action-setup@v4
+      - if: steps.shard.outputs.empty != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      # Scripts ON: packages/client's `prepare` builds dist/, which the bundle
+      # budget tests need (they return early without it — see the assertion).
+      - if: steps.shard.outputs.empty != 'true'
+        run: pnpm install --frozen-lockfile
+      # deck3d browser rows (mermaid harvest, check, snapshot) are opt-in behind
+      # `describe.skipIf(!chromiumAvailable())`. Install chromium so they run.
+      - name: Install chromium (deck3d browser tests)
+        if: steps.shard.outputs.empty != 'true'
+        run: npx playwright install chromium --with-deps
+      - name: Assert the built client exists (bundle-budget tests need it)
+        if: steps.shard.outputs.empty != 'true'
+        run: test -f packages/client/dist/index.html || { echo "::error::packages/client/dist/index.html missing — bundle-budget tests would pass vacuously"; exit 1; }
+      - name: vitest (assigned files)
+        if: steps.shard.outputs.empty != 'true'
+        run: |
+          if [ "${{ steps.shard.outputs.enumerated }}" = "true" ]; then
+            mapfile -t FILES < assigned.txt
+            pnpm run test:parallel "${FILES[@]}"
+          else
+            pnpm run test:parallel --shard=${{ matrix.shard }}/4
+          fi
+      - name: Verify every assigned file executed
+        if: steps.shard.outputs.empty != 'true'
+        run: node scripts/test-selection/verify-executed.mjs selection.json "unit-${{ matrix.shard }}" test-results/vitest.json
+      # `if: always()` on purpose: the RED run is the one whose report you need.
+      # Triage recipe: .pi/skills/ci-troubleshoot/SKILL.md.
+      - name: Upload vitest JSON report
+        if: always() && steps.shard.outputs.empty != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-report-unit-${{ matrix.shard }}
+          path: test-results/vitest.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  # The real-process phase (change: isolate-real-process-tests) on its own
+  # runner: never concurrent with the parallel projects on one machine.
+  # maxWorkers 2 and one CI retry come from its config.
+  real-process:
+    needs: select
+    if: needs.select.outputs.has_real_process == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-selection
+      - name: Read assignment
+        id: files
+        run: node scripts/test-selection/assigned.mjs selection.json real-process assigned.txt
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: vitest real-process phase
+        run: |
+          if [ "${{ steps.files.outputs.enumerated }}" = "true" ]; then
+            mapfile -t FILES < assigned.txt
+            pnpm run test:real-process "${FILES[@]}"
+          else
+            pnpm run test:real-process
+          fi
+      - name: Verify every assigned file executed
+        run: node scripts/test-selection/verify-executed.mjs selection.json real-process test-results/vitest-real-process.json
+      # A retried pass shows as `status: passed` WITH a retained
+      # `failureMessages` entry (vitest 4 has no `retryCount` field).
+      - name: Upload vitest JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-report-real-process
+          path: test-results/vitest-real-process.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  # `ci`-level packaging scenarios (RUN_CI_SCENARIOS=1): only the gated files,
+  # never the whole `scripts` project. Held out of the unit shards because they
+  # shell out to `npm pack`/`npm publish --dry-run` across every workspace and
+  # their CPU spike starves unrelated 5s-timeout tests. Skipped only for an
+  # OpenSpec-only diff (root docs ship in the package, so docs diffs count).
+  ci-scenarios:
+    needs: select
+    if: needs.select.outputs.ci_scenarios == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-selection
+      - name: Read assignment
+        run: node scripts/test-selection/assigned.mjs selection.json ci-scenarios assigned.txt
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: CI-level publish scenarios (gated files, RUN_CI_SCENARIOS=1)
+        run: |
+          mapfile -t FILES < assigned.txt
+          pnpm run test:ci-scenarios "${FILES[@]}"
+      - name: Verify every assigned file executed
+        run: node scripts/test-selection/verify-executed.mjs selection.json ci-scenarios test-results/vitest.json
+      - name: Upload vitest JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-report-ci-scenarios
+          path: test-results/vitest.json
+          retention-days: 14
+          if-no-files-found: warn
 
   # ── required Docker gate ───────────────────────────────────────────────────
   # Change: fix-browser-plugin-vendor-specifier-resolution (test-plan X12).
@@ -231,3 +423,24 @@ jobs:
 
       - name: pytest (music-production + footage-redaction)
         run: .venv/bin/python -m pytest packages/music-production/tests packages/video-production/tests/redaction
+
+  # ── aggregate ────────────────────────────────────────────────────────────────
+  # One check that means "this run proved what it had to". Fails when `select`
+  # did not succeed, when any job failed or was cancelled, or when a job the
+  # selection EXPECTED to run was skipped. A skip counts as success only for a
+  # test job the selection did not expect.
+  ci-result:
+    needs: [select, ci, unit, real-process, ci-scenarios, docker-plugin-load, music-pytest]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: test-selection
+      - name: Check every expected job succeeded
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node scripts/test-selection/check-result.mjs selection.json

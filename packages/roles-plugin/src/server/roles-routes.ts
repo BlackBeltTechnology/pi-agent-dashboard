@@ -32,6 +32,7 @@ import {
   parseRoleConfig,
   type RoleConfig,
   splitRef,
+  THINKING_LEVELS,
 } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import type { FastifyInstance } from "fastify";
 
@@ -41,6 +42,12 @@ export interface RolesRouteDeps {
    * defaults to `~/.pi/agent/providers.json`.
    */
   configPath?: () => string;
+  /**
+   * role → everything following it (projector bindings + resolve-at-use
+   * reporters), from the `roles.bindings` service. Absent → empty map.
+   * See change: add-role-aware-model-refs.
+   */
+  getUsedBy?: () => Record<string, Array<{ kind: string; owner: string; label: string; status?: string }>>;
 }
 
 const BUILTIN = new Set<string>(DEFAULT_ROLE_NAMES);
@@ -111,7 +118,16 @@ function toRow(role: string, roles: Record<string, string>): RoleRow {
   if (ref === null) {
     return { role, ref: null, assigned: false, builtin: BUILTIN.has(role) };
   }
-  const { model, provider, thinkingLevel } = splitRef(ref);
+  // Degenerate-ref decomposition stays splitRef (E5 contract); a non-canonical
+  // tail (`vendor:free`) is NOT a level per the shared grammar.
+  // See change: add-role-aware-model-refs.
+  const parts = splitRef(ref);
+  const { provider } = parts;
+  let { model, thinkingLevel } = parts;
+  if (thinkingLevel !== undefined && !(THINKING_LEVELS as readonly string[]).includes(thinkingLevel)) {
+    model = ref;
+    thinkingLevel = undefined;
+  }
   return {
     role,
     ref,
@@ -154,4 +170,6 @@ export function mountRolesRoutes(fastify: FastifyInstance, deps: RolesRouteDeps 
     const axis = buildAxis(cfg);
     return { object: "list", data: buildGroups(cfg, axis) };
   });
+  // "Used by" overview: what follows each role. Read-only; reporters run lazily.
+  fastify.get("/api/roles/used-by", async () => ({ usedBy: deps.getUsedBy?.() ?? {} }));
 }

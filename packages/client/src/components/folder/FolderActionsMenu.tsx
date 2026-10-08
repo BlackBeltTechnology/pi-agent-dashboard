@@ -38,7 +38,10 @@ import {
   type FolderMenuGroup,
   useFolderMenuItems,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
+import {
+  LayerHostProvider,
+  LayerPortal,
+} from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import { mdiFolderCogOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React from "react";
@@ -121,6 +124,19 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }
   );
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const panelRef = React.useRef<HTMLDivElement>(null);
+  // The panel doubles as the LAYER HOST for a nested overlay a child menu item
+  // opens (the workspace flyout `AddToWorkspaceMenu`). Portaling that flyout to
+  // `document.body` would drop it out of this panel's `panelRef.contains()`
+  // outside-click scope, so a click inside it would read as "outside" and close
+  // this menu mid-selection. Hosting it INSIDE the panel keeps it in scope and
+  // in this panel's stacking context, while `position:fixed` on the flyout still
+  // escapes the panel's `overflow` clip. State (not just the ref) so children
+  // re-render once the element exists. See change: fix-composer-popover-layering.
+  const [panelEl, setPanelEl] = React.useState<HTMLDivElement | null>(null);
+  const setPanel = React.useCallback((el: HTMLDivElement | null) => {
+    panelRef.current = el;
+    setPanelEl(el);
+  }, []);
   const isMobile = useMobile();
   const { flipUp, maxHeight, minHeight, anchorRight, maxWidth, triggerRect } = usePopoverFlip(
     triggerRef,
@@ -218,7 +234,7 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }
 
   const panel = (
     <div
-      ref={panelRef}
+      ref={setPanel}
       role="menu"
       aria-label={label}
       data-testid={`folder-actions-menu-panel-${cwd}`}
@@ -231,6 +247,7 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }
           : "fixed z-popover min-w-[220px] overflow-y-auto overflow-x-hidden rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-secondary)] py-1 shadow-lg"
       }
     >
+      <LayerHostProvider host={panelEl}>
       {radioGroup && (
         <div role="group" aria-label={radioGroup.label} data-testid={`folder-menu-radio-group-${radioGroup.id}`}>
           <div aria-hidden="true" className="px-3 py-1 text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
@@ -323,6 +340,7 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }
           </div>
         );
       })}
+      </LayerHostProvider>
     </div>
   );
 

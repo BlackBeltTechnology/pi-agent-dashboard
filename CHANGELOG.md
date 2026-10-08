@@ -12,172 +12,96 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
-- **Session list Group by.** Each folder's actions menu gains a "Group sessions
-  by" choice: `None` (today's list), `Status` (lanes Needs you · Failed · Working
-  · To review · Idle) or `Location` (Main checkout · Worktrees), plus `Use
-  default`. A global Default grouping lives in Settings ▸ Sessions ▸ Session
-  list. Lanes keep the stored session order, are collapsible, hide when empty
-  or when only one lane has sessions, and flatten under search/tag filters.
-  Drag-reorder works within a lane; a cross-lane drop is rejected with an
-  explanatory toast. In Status mode a card leaving Working is held there ~3 s
-  (countdown underline in the destination lane colour) so cards do not jump
-  between turns; moves animate unless reduced motion is preferred. Modes,
-  default and lane collapse are stored server-side in `preferences.json`
-  (`folderGroupBy`, `defaultGroupBy`, `collapsedLanes`) and shared live across
-  browsers. New theme token `--status-unread`. See change:
-  session-list-group-by.
+- **Per-block session-card and directory-card toggles.** Every card block is now
+  switchable on its own: the OpenSpec badge is separate from the OpenSpec subcard,
+  and a folder group's git row, action banner, OpenSpec section, Create row and
+  Ended expander each have their own switch (Settings › General › Session card
+  sections, or Directory Settings › Session cards for one folder).
+- **Per-plugin badge, action-bar and pill switches.** Plugin contributions to the
+  card badge row, card action bar and folder pill grid are listed per plugin, so a
+  single noisy plugin can be hidden without turning off the whole row.
+- **Card effect switches.** Status animation and the selected-card glow can be
+  turned off; both are global (no per-folder override).
+- **Focus mode.** A sidebar header toggle collapses the UI to a focused profile.
+  Ships with a built-in profile; `Save current` snapshots the live visibility as a
+  custom profile and `Reset` returns to the built-in one (Settings › Sessions ›
+  Focus). While focus is on, it outranks the per-block switches.
+- **Opt-in accordion folder list.** `folderListMode: "accordion"` renders only the
+  focused folder in full; the others collapse to their attention cards or a
+  `N sessions` row. `folderAttentionPeek` (default `true`) controls that peek, and
+  an active search or filter always forces the full list.
+- **Role-aware model refs.** Any model setting can hold `@role[:level]` instead of a concrete `provider/id`, so switching a role or preset re-routes every dependent setting from one place. `ui:model-selector` gains an opt-in `allowRoles` prop (Model | Role tabs; hidden when the roles plugin is absent). New roles-plugin service `roles.bindings` projects role-bound fields into third-party config files; blackhole is the first projector (all model slots + fallback chains, with `ok`/`dangling`/`detached` status and Reattach). Composer and OpenSpec run-dialog pickers resolve a role once at pick time ("via @role"). The Model roles page lists what follows each role. New `~/.pi/dashboard/role-bindings.json`.
 
-- **Browser WebSocket diagnostics.** Every browser socket close now logs one
-  line with its close code, JSON-quoted reason, lifetime, inbound frame count and
-  cause (`peer` / `keepalive` / `stalled`). The server pings browser sockets every
-  30 s and terminates one that leaves two consecutive pings unanswered
-  (`cause=keepalive`). WS upgrades rejected by the previously silent branches
-  (bridge-scope 400, auth 401, no-auth 403) log a rate-limited
-  `[ws-upgrade] rejected …` line naming forwarding-header *names* and ticket
-  presence — never header values, cookies or ticket strings. See change:
-  harden-ios-safari-memory-and-ws-diagnostics (#712).
+### Changed
 
-- **Extension slash commands sent from the dashboard now dispatch in-process, so
-  they work in every session kind — including tmux and terminal-hosted pi.** The
-  bridge calls `pi.sendUserMessage(text, { expandPromptTemplates: true,
-  deliverAs })` (pi >= 0.84.2) and pi's own `prompt()` runs the extension handler
-  before its compaction guard, so `/ctx-stats`, `/dashboard-where` and every
-  other `source:"extension"` command that passes `isExtensionSlashCommand`
-  executes immediately instead of being refused outside dashboard-spawned
-  headless sessions. (`/roles` — in `DASHBOARD_NATIVE_COMMANDS` — and
-  `__`-prefixed bridge-native names stay excluded, unchanged.) Retires the
-  three-way
-  `pi.dispatchCommand` / `dispatch_extension_command`-via-keeper-UDS / tmux-error
-  decision, along with `hasDispatchCommand` and the keeper RPC write client.
-  Below pi 0.84.2 the bridge refuses with an explicit "Extension slash commands
-  from the dashboard require pi 0.84.2+" error rather than silently sending the
-  raw slash to the model. See change:
-  retire-slash-dispatch-via-expand-prompt-templates.
-
-- **`composer-context-group` plugin slot** (react-only, `many`) renders labelled context groups inside the chat composer's session-action strip, after the Git group and before the Status group. Contributions are read-only and stay fully visible while a session streams (unlike the gated Status group). The runtime exports a `ComposerContextGroup({ label, children, testId? })` primitive. The quota plugin is the first claimant: its meter moved out of the composer's `content-inline-footer` into the strip, showing one chip per enabled provider with every window inline and the session's model provider ringed. See change: move-quota-to-context-strip.
+- Grammar model may be `llm: { role: "@fast" }` (resolved per check; new error `model_role_unassigned`). Automation drops its private role dropdown for the shared picker's Role tab, and its `@role` resolution now honors a `:level` suffix on the ref. **Rollback note:** reverting leaves any `llm.role` grammar config unreadable — it falls back to "pick a model" until a model is chosen again.
 
 ### Fixed
 
-- **Plugin config updates reach the plugin UI live.** A plugin server entry's
-  `ctx.updatePluginConfig` broadcast omitted the plugin `id`, so the client
-  stored the new config under `"undefined"` and the plugin's settings UI kept
-  the stale value until reload. The broadcast now carries `id`; the `as any`
-  that hid the omission is gone.
-
-- **Model proxy (`/v1/*`) forwards system prompts, stops abandoned streams,
-  and ends failed streams.** Client system prompts were silently dropped: the
-  adapter passed pi-ai `system` instead of `Context.systemPrompt` (new
-  `callPiAiStreamSimple` in `model-proxy/streamer.ts`). A client disconnect never
-  aborted the upstream call, because Node 24 fires `request.raw` "close" as soon
-  as the body is read; it now keys off `reply.raw` "close", so an abandoned
-  stream stops using tokens. An upstream error thrown mid-stream threw
-  `ERR_HTTP_HEADERS_SENT` and left the client hanging; the SSE stream now ends
-  like an upstream `error` event. Parallel-conversation isolation is covered by
-  `model-proxy-parallel-isolation.test.ts`.
-
-- **`pi-dashboard start` / `restart` no longer crash on a fresh npm install.**
-  The 0.8.0 tarball shipped `packages/{server,shared,extension}/tsconfig.json`,
-  which extend `../../tsconfig.base.json`, but not `tsconfig.base.json` itself,
-  so jiti died with `File '../../tsconfig.base.json' not found`. The root `files`
-  list now ships it. `scripts/verify-published-imports.mjs` now fails CI on any
-  packed tsconfig whose relative `extends` is not in the tarball
-  (`dangling-tsconfig-extends`), checks the root package's tsconfigs, and reads
-  the keyed `npm pack --json` payload npm emits at a workspace root (previously
-  read as zero files). See change: fix-ship-tsconfig-base.
-
-- **The browser relay plugin now loads in npm, managed and Electron installs.** The vendored playwright-core relay imported playwright-internal bare specifiers (`@isomorphic/manualPromise`, `@isomorphic/time`, `@isomorphic/timeoutRunner`, `@utils/wsServer`) that only resolved through `tsconfig.base.json` `paths`, a vitest `resolve.alias`, and the `JITI_TSCONFIG_PATHS` environment variable. None of the three exists in an npm global / managed `~/.pi-dashboard` / Electron bundled-server install, so plugin discovery reported `Failed to load plugin "browser": Cannot find module '@isomorphic/manualPromise'` and the whole relay was dead there. A committed idempotent script (`scripts/patch-vendor-specifiers.mjs`) rewrites the 5 import lines to package-relative `shims/*.js` paths, so resolution depends only on files inside the published package. All three alias layers are deleted (the tsconfig `paths`, the vitest aliases, the `verify-published-imports.mjs` waiver, and the `JITI_TSCONFIG_PATHS` stamp in `bin/pi-dashboard.mjs`), and the integrity manifest is restructured around provenance kinds (`upstream-verbatim` vs `authored`) with `shims/**` now covered. New gates that no alias layer can satisfy: a specifier guard, a `refresh-vendor.mjs` upstream-fidelity check, and an out-of-repo pack → install → import check (`scripts/verify-plugin-install-load.mjs`, run per-PR for changed plugins and nightly for all).
-
-  **Ship the server and the plugin together.** Once the server stops stamping `JITI_TSCONFIG_PATHS`, an older plugin copy still on disk (`~/.pi/dashboard/plugins/`, or `resources/plugins/` inside an already-installed Electron bundle) can no longer resolve its specifiers. The patched plugin resolves regardless of the flag, so a reverted server is safe; the unsafe pairing is new server + old plugin. See change: fix-browser-plugin-vendor-specifier-resolution.
-
-### Changed
-
-- **Composer strip redesign.** Every strip group (OpenSpec, Git, plugin groups
-  such as Quota, Status) is now one labelled `role="group"` container, spaced
-  wider apart than its items; a group wider than the strip wraps inside itself.
-  The OpenSpec group adopts the session card's model: the 5-segment lifecycle
-  bar (letters mode), one primary action and a `⋯` overflow, plus a change chip
-  for attach / detach. The Git group shows the worktree's branch, base and
-  drift, and a PR status segment (number, draft/open/merged/closed, CI checks)
-  replacing "View PR #N"; actions follow the PR state. Merge becomes the one
-  filled primary only for an open, non-draft PR with green (or no) checks,
-  fresh status, and no attached change or a COMPLETE one; the merge dialog
-  warns on failing / pending / stale checks. Composer card: terminal and
-  send/stop move into the text-field row, stop-after-turn joins Stop as one
-  split control, and the textarea's inner focus ring is gone. An empty STATUS
-  group no longer renders.
-  **Plugin note:** `ComposerContextGroup` keeps its signature but now renders a
-  dashed, named `role="group"` container (new runtime primitive `ToolbarGroup`);
-  contributions should drop their own chip borders.
-  **Protocol:** optional `gitPrState` / `gitPrDraft` / `gitPrChecks` /
-  `gitPrCheckedAt` on `git_info_update` and `DashboardSession`, plus a
-  server → bridge `git_info_refresh`. The bridge now probes PR status
-  asynchronously (`gh pr view`, ≥ 120 s cadence with back-off, forced after
-  Push / Open PR) instead of a blocking lookup on every 30 s tick. Older bridges
-  keep number-only behaviour. See change: redesign-composer-session-strip.
-
-- **BREAKING (UI): the per-folder "Float blocked sessions to top" toggle is
-  removed** — Group by ▸ Status's "Needs you" lane supersedes it. On first load
-  after upgrade, every folder that had the toggle on in that browser (and no
-  explicit grouping) is switched to `Status` once; the browser-local
-  `dashboard:folder-urgency-sort` key is then cleared. See change:
-  session-list-group-by.
-
-- **The root `@blackbelt-technology/pi-agent-dashboard` tarball no longer ships
-  tests, fixtures or DOX sidecars.** Its `files` list now excludes
-  `__tests__`, `__fixtures__`, `__mocks__`, `*.test.*`, `*.spec.*`,
-  `AGENTS.md` and `*.AGENTS.md` under `packages/` (the root `AGENTS.md` still
-  ships, now as the anchored `/AGENTS.md`: on npm <=11 a bare `AGENTS.md`
-  include matched at any depth and defeated the exclusion). With npm 11, the
-  publishing npm, this removes 1259 files and 8.4 MB unpacked (1831 → 572
-  files, 14.6 → 6.2 MB). The publish check (`scripts/verify-published-imports.mjs`)
-  now applies its full rules to the root package. Root-shipped copies of
-  workspace sources are credited with the runtime dependencies of workspaces
-  the root reaches at runtime; this is an explicit, counted exception for
-  npm hoisting. CI also re-runs the check after the build. (change:
-  check-root-package-imports)
-
-- **Provider OAuth sign-in is delegated to pi-ai, so every provider pi bundles is
-  sign-in-able — and remote dashboards can finally complete a sign-in.** The
-  dashboard carried a hand-copied fork of pi-ai's OAuth flows
-  (`provider-auth-handlers.ts` + `oauth-callback-server.ts`), so it lagged by
-  construction: of pi 0.86.1's eight OAuth providers it offered three, and its
-  auth-code flows had **no way to submit a pasted code** — the provider's
-  registered `redirect_uri` is `http://localhost:<port>/…`, so a dashboard
-  reached through zrok/docker/LAN could never finish an Anthropic or Codex
-  sign-in at all. The three handlers and the bespoke callback server are gone;
-  the server now builds one registry from `ModelRuntime` (pi-coding-agent's
-  public surface) and drives `provider.auth.oauth.login()` through a single
-  `AuthInteraction` adapter. `openrouter` (permanent API key, `expires: null`),
-  `kimi-coding`, `meta` and `xai` join `anthropic` / `openai-codex` /
-  `github-copilot`; Codex gains its browser-vs-device choice and GitHub Copilot
-  its enterprise-domain prompt. New routes: `POST /api/provider-auth/start`,
-  `GET|DELETE /api/provider-auth/flow/:flowId`, `POST
-  /api/provider-auth/flow/:flowId/input` (the pasted redirect URL — never
-  logged, never echoed). The sign-in pane renders whatever step the flow
-  reports (`manual_code` / `text` / `select` / `device_code`), shows the
-  authorization link and the paste field **together**, and offers Cancel +
-  Try Again; `POST /authorize`, `POST /device-code` and `GET
-  /device-status/:id` are removed. The `@earendil-works/pi-coding-agent` pin
-  moves `^0.85.1` → `^0.86.1` across all six governed surfaces. On a registry
-  build failure sign-in is simply unavailable: `/handlers` answers `{ ids: [] }`,
-  `/api/health` carries `providerAuth.error` naming the resolved version, and
-  every other route keeps serving. See change: delegate-provider-oauth-to-pi-ai.
-
-- **Retained remote-transcript hydration no longer blocks the server.** Reading, splitting, parsing and replaying a retained `.jsonl` ran synchronously on the main event loop, so a cold subscribe to a session whose retained transcript is at the observed maximum (44.1 MB) stalled every session's HTTP and WebSocket traffic — including the hydration heartbeat that exists to cover exactly that window. The read now uses `fs.promises`, and the split + parse + replay go through the same `worker_threads` pool the local path uses, with the same cancellation, metrics and in-process fallback. Measured on 46 MB: longest main-thread block **2838 ms → 201 ms** with identical events. Concurrent cold subscribes to one retained session now coalesce onto a single hydration. `RemoteTranscriptStore.read()` is async and gains `readRaw()` / `completenessOf()`. See change: offload-retained-transcript-replay.
-
-### Changed
-
-- **dashboard-plugin-runtime**: `ServerContextDeps` gains five REQUIRED members (`mintSpawnToken`, `renameSession`, `assignSessionRef`, `networkGuard`, `onShutdown`) and `PluginSpawnOptions` gains `spawnToken`/`resume`/`initialPrompt` — implementors of `createServerPluginContext` (custom hosts, injected test contexts) must add them. See change: relocate-goal-product-to-plugin.
-
-- **`dispatch_extension_command` is a deprecated tombstone.** No current bridge
-  sends it; a one-release server arm answers an un-reloaded bridge with a
-  persisted + broadcast `command_feedback { status: "error", message: "bridge
-  outdated — reload the session" }` so the chat pill converges instead of hanging
-  on "in progress". `DispatchExtensionCommandMessage` stays `@deprecated` until
-  the tombstone is removed. See change:
-  retire-slash-dispatch-via-expand-prompt-templates.
+## [0.9.0] - 2026-10-06
 
 ### Security
+
+- **Trust and credential boundaries hardened** (B5/B14/B15/B25/B4).
+  - Login OAuth: signed `pi_dash_oauth_state` cookie is verified before the code
+    exchange (CSRF / code-injection); `returnUrl` is constrained to same-origin paths
+    (open redirect).
+  - New opt-in `requireLocalProof` (default `false`, unchanged behaviour): bare
+    loopback then admits only `observe`-tier REST reads; control/operate routes and
+    WebSockets need the `pi_dash_local` cookie (`pi-dashboard open` / Electron), the
+    local token, or a login. Only header-injecting tunnels (zrok) are safe without it;
+    `ssh -R` / `socat` relays are not. `/v1/*` keeps its admission.
+  - **Behaviour change:** pairing approval (`/api/pair/approve`, `/approve-pending`)
+    no longer honors bare loopback in any mode; hand-typed `http://localhost:8000` on an
+    auth-off install must use `pi-dashboard open` (or the desktop app) to approve.
+  - Plugin event emission: automation `buildEvent` actions must declare `emits`;
+    reserved host namespaces (`roles:`, `role:`, `model:`, `prompt:`, `dashboard:`,
+    `ui:`) and the raw `plugin_emit_event` lane are refused.
+  - `config.json` (holds the auth secret) is written and tightened to `0600`.
+  - Same-origin browsers exchange the paired-device bearer for an httpOnly
+    `pi_dash_device` cookie; `localStorage` keeps only a non-secret marker.
+
+- **Untrusted-content ingestion hardened** (B11/B12/B13/B26).
+  - `document-converter`: every absolute request path must lie under a configured
+    root (`stagingDir`, `mounts`, or the new optional `workspaceRoot`, default
+    `cwd`), outside a sensitive-directory denylist (`/etc`, `/root`, `~/.ssh`,
+    `~/.pi`, …); violations reject with the new `PATH_NOT_ALLOWED` code before
+    docker runs. Read-only inputs mount `:ro`. **Compatibility:** callers
+    converting files outside `cwd` must pass `mounts: [dir]` or `workspaceRoot`.
+  - KB remote sources: https fetches are https-only with a connect-time
+    non-public-address check (incl. IPv6-embedded IPv4, rebinding, per-hop
+    redirect re-validation), size/time caps and 2xx-only; git sources allow only
+    https/ssh/`git@` URLs with transport, redirect and submodule hardening.
+    **Compatibility:** `http://`/`ssh://` refs in the https resolver now fail;
+    git sources relying on redirects (renamed repos) fail with a clear error.
+    A cached git clone whose configured `origin` differs from the source URL is
+    refused on refresh (remove the cache entry and retry) instead of being fetched.
+  - KB archive extraction lists and validates entries first (no `..`, absolute or
+    link entries), extracts into a stage dir and swaps atomically, so a failed
+    refresh keeps the previous cache. Also fixes `.tar.bz2` extraction.
+  - Spreadsheet preview: `xlsx` moves from npm `0.18.5` (prototype pollution,
+    ReDoS) to the official SheetJS build `0.20.3`. **The server package now
+    depends on a `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` tarball —
+    air-gapped or mirror-only installs must allowlist `cdn.sheetjs.com`.**
+- Oversized office previews (docx/pptx/xlsx, HTTP 413) now show the real size
+  limit with an "Open raw" link instead of the generic "can't preview" fallback.
+- **BREAKING: the host-admission gate now defaults to `enforce`.** With no
+  `PI_DASHBOARD_HOST_GATE` and no `hostGate.mode`, a request whose `Host` is not
+  loopback, an IP literal, `*.local`, a `publicBaseUrls` / `cors.allowedOrigins` /
+  live-tunnel host, or an `allowedHosts` entry now gets the self-describing `403`
+  page instead of a log line. Opt out with `hostGate.mode: "report"` in
+  `config.json` or `PI_DASHBOARD_HOST_GATE=report`. An unrecognised `mode` still
+  loads as `report`. The boot log names the resolved mode and its source.
+- `openspec_refresh` now applies the same gates as `openspec_get` (enabled,
+  per-folder opt-out, tracked folder, `openspec/` present); an untracked folder
+  no longer spawns the CLI.
+- Revoking a paired device (`DELETE /api/paired-devices/:id`) is operator-only,
+  and the operator guard now refuses a paired-device bearer even over loopback
+  (also tightens `POST /api/paired-devices`). The `POST /api/pair/approve` label
+  is bounded to 1..64 UTF-8 bytes like the mint label.
+- `git-operations` no longer builds shell strings: every git/gh call carrying a
+  branch, ref, path or PR title runs as an argv array with no shell. A missing
+  `git` / `gh` binary reports `git_not_found` / `gh_not_found`.
 
 - **BREAKING (behavioral): a loopback trusted-network entry no longer admits
   tunnel traffic.** zrok, ngrok and `tailscale serve` relay visitors from a
@@ -277,7 +201,477 @@ see [`docs/release-process.md`](docs/release-process.md).
   `~/.pi/dashboard/config.json`; it applies without a restart.
   See change: fix-ws-origin-cswsh.
 
+- **Untrusted content can no longer steer the agent silently** (#742). A
+  deterministic guard scans tool output and fetched content for hidden
+  payloads (invisible characters, smuggled instructions), spotlights what it
+  found in the transcript, and marks the session tainted so sensitive tools
+  stay gated until you decide. See change: add-untrusted-content-guard.
+
+- **`auth.json` locking now matches pi's, and an OAuth refresh can no longer
+  lose a credential** (#741). The dashboard and pi take the same lock on
+  `~/.pi/agent/auth.json`, a refreshed token is written compare-and-swap so a
+  concurrent refresh cannot clobber it, and a compromised provider entry is
+  contained to that provider. See change:
+  harden-auth-json-lock-coordination.
+
+### Added
+
+- **Per-process bridge opt-out** (#818). `PI_DASHBOARD_BRIDGE=off` (also `0`/`false`/`no`)
+  or `bridge.enabled: false` in `~/.pi/dashboard/config.json` makes the bridge inert in a
+  user-launched pi: no tools, commands, MCP server, prompt fragment, connection or auto-start.
+  Env wins over config; `on`/`1`/`true`/`yes` force-enables. Dashboard-spawned sessions are
+  unaffected: the server stamps `PI_DASHBOARD_BRIDGE=on` (spawn env + per-window tmux `-e`).
+  Proposed by @mcowger.
+
+- **`@blackbelt-technology/pi-dashboard-app-kit`** — new library for a standalone SPA
+  served from its own origin that talks to a dashboard host. It reads the
+  dashboard URL at runtime (`/config.json`), sets the identity mode from the login
+  descriptor (`oidc` / `none`, fail-closed otherwise), builds the OIDC PKCE client
+  config, attaches the bearer only to the dashboard origin, never sends cookies, and
+  opens reconnecting sockets with a fresh single-use ticket on every attempt. The
+  `.` entry is framework-free; `./react` adds the identity bridge. No host changes.
+
+- **One Discord thread per conversation.** A new message in a Chat Gateway
+  channel now opens a thread on it and runs that conversation in its own
+  session; reply inside the thread to continue it. The channel stays a clean
+  list of conversations. Turn it off in Settings \ Chat Gateway ("One thread per
+  conversation", `threadPerConversation: false`) to go back to one shared
+  session per channel. If the bot cannot open a thread (missing Create Public
+  Threads), it answers in the channel instead.
+
+- **Close a Discord conversation with `!close`.** Send `!close` inside a
+  thread to end it. A conversation the bot started is shut down like the
+  dashboard's Shutdown button; a thread you attached to a dashboard session
+  is only detached, and the session keeps running. Either way the thread is
+  archived. Requires control access. Plugins get a matching
+  `ctx.shutdownSession(id)` hook (trusted plugins only).
+
+- **Reach your dashboard sessions from Discord.** In a workspace channel,
+  `!sessions` lists the live sessions in that workspace and `!attach <number>`
+  opens a thread for one: its activity shows there, and your messages in the
+  thread go to it. The new "Show dashboard sessions on Discord" setting (off
+  by default) gives every session in a bound workspace its own thread
+  automatically, existing ones and new ones as they start. It sends their
+  activity to Discord at the channel's mirror level.
+
+- **Discord chat sessions stay off the board.** Sessions the Chat Gateway
+  starts or resumes are now hidden by default, like automation runs; turn on
+  "show hidden" to see them. Settings \ Chat Gateway "Chat sessions on the
+  board" (`sessionVisibility: "shown"`) brings them back. Sessions it attaches
+  to are yours and are never hidden. For plugin authors: `spawnSession` accepts
+  `lifecycle: { hidden: true }` to hide the session on its first register.
+
+- **Discord release announcements.** The Release workflow (`publish.yml`)
+  gains a best-effort `discord-announce` job that posts each production
+  release's notes to the community Discord through the
+  `DISCORD_RELEASE_WEBHOOK` repo secret. Prereleases are skipped, an unset
+  secret skips cleanly, mentions are suppressed, and a webhook failure never
+  fails the release. The community invite link moves to
+  `discord.gg/uQsJgsejb` (README, site, sidebar button).
+
+- **Radius sign-in.** Radius (Earendil's AI gateway) is now listed on the
+  providers page (Account badge) and signs in through the usual
+  browser/device-code choice. It stays hidden while `models.json` points
+  `radius` at a custom gateway. After signing in, the dashboard offers to add
+  the Radius MCP server to the global `mcp.json` (as pi's `/login` does) and
+  reloads sessions. `RADIUS_API_KEY` keeps working as "Radius (API Key)".
+
+- **nano-banana: opt-in pi image backend.** `pi-nano-banana --backend pi` (or
+  `NANO_BANANA_BACKEND=pi`; library `backend: "pi"`) generates and edits images
+  through pi 1.0.0's model runtime with the OpenRouter credential pi already
+  holds (`/login openrouter` or `OPENROUTER_API_KEY`) — no `GEMINI_API_KEY`.
+  Default stays Gemini; a missing Gemini key never falls back to pi. The CLI
+  prints the model and an estimated cost.
+
+- **pi 1.0.0 surfaces.** Sign in with ChatGPT (`openai` OAuth) from the
+  providers page; OAuth rows show **Subscription** or **Account**
+  (OpenRouter); an Environment row names pi's mechanism (e.g. "workload
+  identity federation") instead of the generic text; a session running a pi
+  below the supported floor shows a warning naming both versions on its card
+  and in the chat header.
+
+- **Spec-collateral scan for planning.** `scripts/spec-collateral.mjs` lists
+  main-spec requirements an OpenSpec change may contradict after archive
+  (advisory, never gates); `plan-proposal` feeds it into every doubt-review
+  CONTRACT. The `doubt-driven-review` adversarial template
+  (`@blackbelt-technology/pi-dashboard-eng-disciplines`) now asks the reviewer
+  to verify claims against the repository, label unverifiable ones
+  `unverified`, and check every listed candidate requirement.
+
+- **`review-code` sweeps named defect classes.** The published
+  `@blackbelt-technology/pi-dashboard-eng-disciplines` `review-code` rubric
+  names eight defect classes (spec/task conformance, canonicalize before check,
+  degenerate input, stale state, error-path cleanup, shared-helper blast radius,
+  concurrency, test fidelity) with sweep guidance, a four-step fix protocol
+  (reproducing test, smallest fix, sibling sweep, re-read), and a per-class
+  sweep summary in Verification.
+
+- **Session list Group by.** Each folder's actions menu gains a "Group sessions
+  by" choice: `None` (today's list), `Status` (lanes Needs you · Failed · Working
+  · To review · Idle) or `Location` (Main checkout · Worktrees), plus `Use
+  default`. A global Default grouping lives in Settings ▸ Sessions ▸ Session
+  list. Lanes keep the stored session order, are collapsible, hide when empty
+  or when only one lane has sessions, and flatten under search/tag filters.
+  Drag-reorder works within a lane; a cross-lane drop is rejected with an
+  explanatory toast. In Status mode a card leaving Working is held there ~3 s
+  (countdown underline in the destination lane colour) so cards do not jump
+  between turns; moves animate unless reduced motion is preferred. Modes,
+  default and lane collapse are stored server-side in `preferences.json`
+  (`folderGroupBy`, `defaultGroupBy`, `collapsedLanes`) and shared live across
+  browsers. New theme token `--status-unread`. See change:
+  session-list-group-by.
+
+- **Browser WebSocket diagnostics.** Every browser socket close now logs one
+  line with its close code, JSON-quoted reason, lifetime, inbound frame count and
+  cause (`peer` / `keepalive` / `stalled`). The server pings browser sockets every
+  30 s and terminates one that leaves two consecutive pings unanswered
+  (`cause=keepalive`). WS upgrades rejected by the previously silent branches
+  (bridge-scope 400, auth 401, no-auth 403) log a rate-limited
+  `[ws-upgrade] rejected …` line naming forwarding-header *names* and ticket
+  presence — never header values, cookies or ticket strings. See change:
+  harden-ios-safari-memory-and-ws-diagnostics (#712).
+
+- **Extension slash commands sent from the dashboard now dispatch in-process, so
+  they work in every session kind — including tmux and terminal-hosted pi.** The
+  bridge calls `pi.sendUserMessage(text, { expandPromptTemplates: true,
+  deliverAs })` (pi >= 0.84.2) and pi's own `prompt()` runs the extension handler
+  before its compaction guard, so `/ctx-stats`, `/dashboard-where` and every
+  other `source:"extension"` command that passes `isExtensionSlashCommand`
+  executes immediately instead of being refused outside dashboard-spawned
+  headless sessions. (`/roles` — in `DASHBOARD_NATIVE_COMMANDS` — and
+  `__`-prefixed bridge-native names stay excluded, unchanged.) Retires the
+  three-way
+  `pi.dispatchCommand` / `dispatch_extension_command`-via-keeper-UDS / tmux-error
+  decision, along with `hasDispatchCommand` and the keeper RPC write client.
+  Below pi 0.84.2 the bridge refuses with an explicit "Extension slash commands
+  from the dashboard require pi 0.84.2+" error rather than silently sending the
+  raw slash to the model. See change:
+  retire-slash-dispatch-via-expand-prompt-templates.
+
+- **`composer-context-group` plugin slot** (react-only, `many`) renders labelled context groups inside the chat composer's session-action strip, after the Git group and before the Status group. Contributions are read-only and stay fully visible while a session streams (unlike the gated Status group). The runtime exports a `ComposerContextGroup({ label, children, testId? })` primitive. The quota plugin is the first claimant: its meter moved out of the composer's `content-inline-footer` into the strip, showing one chip per enabled provider with every window inline and the session's model provider ringed. See change: move-quota-to-context-strip.
+
+- **Video-transcription: AssemblyAI backend.** `pi-transcribe` now supports an
+  opt-in second backend (`TRANSCRIBE_BACKEND=assemblyai`, key `ASSEMBLY_AI_KEY`,
+  EU endpoint) alongside the Soniox default — or both at once
+  (`TRANSCRIBE_BACKEND=both`). AssemblyAI output lands as `<name>.diarize.srt`,
+  so the same source can carry both transcripts side by side.
+
+- **A blocking `ctx.ui` prompt now shows as input-requested, not as busy work.**
+  The bridge forwards pi 0.84.4's `ui_prompt_start` / `ui_prompt_end`, and the
+  server maps them to `currentTool: "ask_user"` / `null` — which also raises the
+  unread stripe. `status` is untouched: a UI prompt is not a run boundary.
+
+- **AI Team (Phase 1).** A new team plugin lets you define personas, group
+  them into project teams and run conversations between them, each in its own
+  isolated session. Team sessions are owner-scoped and guarded: a persona
+  cannot reach another team's files or host actions, and per-run caps bound
+  how much a conversation may spawn. The team app is served from the
+  dashboard as its own SPA. (#819)
+
+- **Multi-user identity plane.** The dashboard now resolves a principal for
+  every request, scopes sessions, terminals and live previews to their owner,
+  and binds WebSocket tickets to that principal, so two signed-in people no
+  longer share one another's terminals. Policy-gated roads decide which
+  upgrades a principal may take; `pi-dashboard login --local` is the
+  break-glass path when policy locks you out. Plugins read the caller through
+  `ctx.identity`. (#811, #697)
+
+- **The agent asks before touching files outside its workspace** (#803). A
+  read, write or edit whose path falls outside the session's roots now raises
+  an operator prompt — in the dashboard and in the TUI — showing the exact
+  path; the session waits (and the card shows it needs you) until you Allow
+  once, Always allow, or deny. "Always allow" persists as a grant; a prompt
+  that times out fails closed. Turn the gate off in Settings.
+
+- **Ask at denial: the access grant dialog** (#727, #714, #738). When the
+  dashboard refuses a path, network, CORS or cwd access, it no longer just
+  logs a 403 — the denial raises a dialog that explains the refusal and
+  offers the narrowest grant that would fix it, including from a blocked file
+  preview. Grants are recorded with the real resolved path, capped per scope,
+  and reviewable (and revocable) under Settings ▸ Access. A YOLO mode and an
+  Access prompts page cover operators who want fewer interruptions.
+
+- **Gmail plugin.** Connect one or more Gmail accounts and give each its own
+  permission level (read, draft, send); the bridge exposes matching tools to
+  the agent while tokens stay on the server behind a short-lived lease and
+  never reach the session. A setup wizard walks through consent, and sign-in
+  problems and Gmail 403s are reported with the action that fixes them.
+  (#756, #813)
+
+- **Browser relay plugin.** Drive a real browser from a session through a
+  Playwright relay, with a live view of the page in the dashboard. A session
+  that hits an anti-bot challenge pauses and asks you to solve it instead of
+  failing the run, and the live view can be re-opened from the session badge.
+  (#658, #656, #733)
+
+- **Chat Gateway: drive the dashboard from a chat app, Discord first** (#698,
+  #711). Bind a Discord channel to a workspace and talk to pi from there —
+  the gateway spawns and resumes sessions, mirrors their activity back at a
+  per-channel level, and enforces an allowlist, admin list and folder scope so
+  only the people you name can start work.
+
+- **Push notifications for sessions that need you** (#757). The server can
+  now fan out Web Push, FCM and plain webhook notifications when a session
+  goes unread or blocks on a prompt: devices are notified on the unread edge,
+  webhooks per trigger with coalescing. Configure it in Settings; `/api/push/*`
+  stays 404 while the feature is off. Webhook delivery is SSRF-hardened and
+  tokens are stored `0600`.
+
+- **Approve a pairing request from anywhere in the app** (#755). A device
+  asking to pair now raises an app-wide approval dialog with Approve and
+  Deny, backed by a pending-request feed, instead of requiring you to be on
+  the pairing page at the right moment.
+
+- **Electron: update the pi runtime from the app** (#759). The desktop app can
+  switch its bundled runtime to an npm version, a GitHub build or a local
+  checkout. A candidate is compatibility-checked before launch, activation is
+  health-gated, and a runtime that fails to come up is rolled back to the
+  previous one automatically.
+
+- **Gateway: connect several tunnel providers, each with its own status.** The
+  Gateway page now manages multiple providers side by side and reports their
+  state separately, and a tailnet MagicDNS name is offered in the QR code and
+  the "Accessible at" list.
+
+- **KB: remote sources, a folder picker, trust verdicts and AsciiDoc.** A KB
+  folder can index https and git sources (with an explicit trust consent step),
+  the settings page gains a folder picker and a "test search" box, search
+  results carry freshness/trust verdicts and record-type marks, per-folder
+  stats are shared with the card placement control, and AsciiDoc is a
+  first-class source with a styled preview. (#812, #613, #612, #593, #560)
+
+- **Diagram rendering in previews** (#614). A server-side diagram proxy
+  renders PlantUML and Kroki diagrams, AsciiDoc previews hydrate their
+  diagrams, and a diagram opens in an overlay at full size.
+
+- **Archive sessions you are done with** (#653). Archived sessions leave the
+  main list and load lazily behind an archive fold, so a long-lived folder
+  stays readable without losing history.
+
+- **Remote sessions keep their transcript on reconnect** (#663). Transcripts
+  the server already retains for remote sessions are now served back on
+  subscribe, so a session that was running while you were away opens with its
+  history instead of an empty chat.
+
+- **Nested tool calls render inside their root card** (#786). A tool that
+  calls other tools (subagents, flows) now shows its children nested in the
+  parent card instead of as a flat run of sibling cards.
+
+- **Inline reasoning and plugin-owned custom entries** (#563, #707). Reasoning
+  is rendered inline in the message flow, unknown extension entries pass
+  through instead of being dropped, and a plugin can register its own renderer
+  for the entry types it owns, including a transparent view of bursts.
+
+- **Session cards say what they are doing while history loads, and you choose
+  what they show** (#753, #736). A card carries a history ring while its
+  transcript loads and reports waiting / slow / failed instead of looking
+  idle, and each section of the card can be turned off per folder or globally.
+
+- **Favorite models, everywhere a model is picked** (#644). The model picker
+  defaults to your favorites and is now also available when configuring an
+  automation.
+
+- **The MCP surface is tiered, paged and reachable by more clients** (#675,
+  #674, #666, #667). Tools are grouped into tiers with a matching REST tier
+  gate and generated manifest, `list_sessions` takes filters and a cursor with
+  strict validation instead of returning everything, `/mcp` serves both
+  protocol eras, and each session receives its own `/mcp` credential.
+
+- **Pick one Node installation and the whole family follows** (#589, #587).
+  Choosing a Node runtime now drives `node`, `npm` and `npx` together,
+  including a managed-runtime slot for `npx`, and an override the dashboard
+  had to reject is shown as such instead of silently ignored.
+
+- **Skills can declare the tools they need** (#585). A skill ships a
+  `pi.tools` manifest with probe kinds (including static npm installs); the
+  dashboard resolves what is missing and `ensureTools` (plus its CLI) installs
+  it, so a skill no longer fails halfway through for a missing binary.
+
+- **System-1 decision registry** (#740). A shared registry for fast, cheap
+  model decisions: a settings section to pick the decision models, a managed
+  Von/Laya pair the dashboard can run for you, an eval runner, and a decision
+  log. Egress and capabilities are explicit per adapter.
+
+- **OpenSpec: initialise a folder from the dashboard, and follow an archived
+  change** (#570, #797). A folder without `openspec/` offers a server-derived
+  readiness check and an init button, and a session attached to a change that
+  was archived (or removed) now says so, deep-links into the archive, and
+  links back from the archived change.
+
+- **Attach a flow to a session before it runs** (#763). The flow slot accepts
+  a flow ahead of the run, so the next turn uses it.
+
+- **Automations: folder scope and work-source fan-out** (#598, #592, #680). An
+  automation can be scoped to specific folders, and a scheduled run can fan
+  out over a work source — items registered by any plugin — and target a
+  single item with `runWorkItem`.
+
+- **Read the configured roles without a session** (#594). New
+  `GET /api/roles` serves the role definitions to any client, no session
+  required.
+
+- **deck3d: turn markdown into a 3D presentation** (#703, #762). A
+  deterministic package builds a navigable 3D deck from a markdown source,
+  with cinematic worlds: a video layer, effect slots and corrected
+  floor/shadow handling.
+
+- **Media production skills: video, music and transcripts** (#734, #731).
+  `pi-video-gen` exports a rendered video with sidecars and an ffmpeg mux, new
+  music and showreel production skills ship alongside it, and a `youtube-srt`
+  skill pulls subtitles for a video.
+
+- **`pi-voiceid`: enroll a speaker locally** (#624). A CLI that builds a local
+  speaker profile, so transcripts can attribute who said what without sending
+  audio anywhere.
+
+- **Context budget meter.** The `context-budget` package reports the payload
+  each turn actually sends, with an expect-removed diff so a regression in
+  what the bridge ships is visible instead of silent.
+
+- **Quota: a Go-subscription fetcher and a manual refresh** (#664, #596). The
+  quota widget adds an `opencode-go` provider fetcher, a refresh button, and
+  retries a transient failure with backoff instead of showing an error.
+
+- **Plugin seams: credentials, OAuth, spawn scope and request lanes** (#746,
+  #556). Plugins get a credential store, an OAuth flow they can drive, a
+  bridge request lane, and a declared spawn scope governed by a host cwd
+  capability policy — so a plugin can own an integration without the host
+  shipping it.
+
+- **Add the folder you are already in** (#597). The add-folder flow offers the
+  current working directory as its first row.
+
+- **The pi runtime is visible on Settings ▸ General** (#562). A read-only row
+  names the resolved pi, its version and where it came from.
+
 ### Changed
+
+- **BREAKING (pi peers): pi 1.0.0 is the single supported pi.** Every
+  `@earendil-works/pi-coding-agent`, `pi-ai` and `pi-tui` peer range in the
+  published packages is now `>=1.0.0` (still optional, no upper bound; the
+  `pi-ai <0.87.0` cap is gone). Standalone npm consumers on an older pi get an
+  install-time peer warning and must upgrade pi. The pi 0.84.2 dispatch/reload
+  gate and the legacy (global-registry) pi-ai generation are removed.
+- **BREAKING (pi fork): `@mariozechner/pi-coding-agent` is no longer a recognised pi.**
+  The legacy fork (and `@mariozechner/pi-ai` / `pi-tui`) drops out of the
+  Packages UI, version and update checks (`POST /api/pi-core/update` rejects
+  it with 400), module resolution and the published peer ranges. A fork `pi`
+  on PATH may still spawn, but its sessions only get the below-floor warning.
+  Fix: `npm i -g @earendil-works/pi-coding-agent`. The pi.dev latest-version
+  check is removed too; the npm registry is the only latest-version source.
+- **BREAKING: `pi-mcp-adapter` is dropped; the dashboard uses pi's built-in
+  MCP.** The bridge now registers the dashboard server per session with
+  `pi.registerMcpServer("pi-dashboard", …)` once the session token arrives (the
+  server sends the `/mcp` URL with the mint reply) and unregisters it on
+  `session_shutdown`; the token lives only in that in-memory registration, so it
+  no longer reaches `process.env` and every subprocess. No `mcp.json` write, no
+  header command. On server start the previously provisioned `pi-dashboard`
+  entry is removed from `~/.pi/agent/mcp.json` (an operator-authored entry under
+  that key is kept and warned about — it shadows the registration). **Migration,
+  in order:** (1) remove `pi-mcp-adapter` from `~/.pi/agent/settings.json`
+  `packages[]` — while it is installed it takes `/mcp` and disables the
+  built-in, so the dashboard's MCP tools stop until it is gone; (2) convert
+  servers turned off with the adapter's `disabled: true` to `enabled: false` —
+  pi ignores the unknown key, so such a server becomes ACTIVE (one-click
+  **Convert** in Settings → MCP); (3) fix any `mcp.json` with comments or
+  trailing commas — pi parses strict JSON and skips the whole file (the doctor
+  names it); (4) reload sessions. Adapter users lose adapter-only features
+  (host-config discovery, rmux, lifecycle modes, `approveTools`, output guard,
+  trace, sampling, elicitation, MCP Prompts, MCP Apps UI). Requires pi ≥ 1.0.0.
+  pi sessions reach `/mcp` in the legacy protocol era, so request/response tools
+  work but `subscriptions/listen` streaming does not. **BREAKING (`mcp-client`
+  plugin):** rebuilt on pi's two `mcp.json` layers (global + trusted folder;
+  project entry replaces global whole); the adapter worker, version floor,
+  global-settings form, `adapterLoadTimeoutMs` and the shared/import layers are
+  removed. `strip-json-comments` and `pi-mcp-adapter` are dropped. **BREAKING
+  (`apple-tools`):** writes the `iMCP` entry with `exposure`/`toolExposure`
+  instead of `directTools` and no longer adds `pi-mcp-adapter` to
+  `settings.json#packages` (it writes only `mcp.json`). See change:
+  migrate-mcp-to-pi-builtin.
+
+- **Composer strip redesign.** Every strip group (OpenSpec, Git, plugin groups
+  such as Quota, Status) is now one labelled `role="group"` container, spaced
+  wider apart than its items; a group wider than the strip wraps inside itself.
+  The OpenSpec group adopts the session card's model: the 5-segment lifecycle
+  bar (letters mode), one primary action and a `⋯` overflow, plus a change chip
+  for attach / detach. The Git group shows the worktree's branch, base and
+  drift, and a PR status segment (number, draft/open/merged/closed, CI checks)
+  replacing "View PR #N"; actions follow the PR state. Merge becomes the one
+  filled primary only for an open, non-draft PR with green (or no) checks,
+  fresh status, and no attached change or a COMPLETE one; the merge dialog
+  warns on failing / pending / stale checks. Composer card: terminal and
+  send/stop move into the text-field row, stop-after-turn joins Stop as one
+  split control, and the textarea's inner focus ring is gone. An empty STATUS
+  group no longer renders.
+  **Plugin note:** `ComposerContextGroup` keeps its signature but now renders a
+  dashed, named `role="group"` container (new runtime primitive `ToolbarGroup`);
+  contributions should drop their own chip borders.
+  **Protocol:** optional `gitPrState` / `gitPrDraft` / `gitPrChecks` /
+  `gitPrCheckedAt` on `git_info_update` and `DashboardSession`, plus a
+  server → bridge `git_info_refresh`. The bridge now probes PR status
+  asynchronously (`gh pr view`, ≥ 120 s cadence with back-off, forced after
+  Push / Open PR) instead of a blocking lookup on every 30 s tick. Older bridges
+  keep number-only behaviour. See change: redesign-composer-session-strip.
+
+- **BREAKING (UI): the per-folder "Float blocked sessions to top" toggle is
+  removed** — Group by ▸ Status's "Needs you" lane supersedes it. On first load
+  after upgrade, every folder that had the toggle on in that browser (and no
+  explicit grouping) is switched to `Status` once; the browser-local
+  `dashboard:folder-urgency-sort` key is then cleared. See change:
+  session-list-group-by.
+
+- **The root `@blackbelt-technology/pi-agent-dashboard` tarball no longer ships
+  tests, fixtures or DOX sidecars.** Its `files` list now excludes
+  `__tests__`, `__fixtures__`, `__mocks__`, `*.test.*`, `*.spec.*`,
+  `AGENTS.md` and `*.AGENTS.md` under `packages/` (the root `AGENTS.md` still
+  ships, now as the anchored `/AGENTS.md`: on npm <=11 a bare `AGENTS.md`
+  include matched at any depth and defeated the exclusion). With npm 11, the
+  publishing npm, this removes 1259 files and 8.4 MB unpacked (1831 → 572
+  files, 14.6 → 6.2 MB). The publish check (`scripts/verify-published-imports.mjs`)
+  now applies its full rules to the root package. Root-shipped copies of
+  workspace sources are credited with the runtime dependencies of workspaces
+  the root reaches at runtime; this is an explicit, counted exception for
+  npm hoisting. CI also re-runs the check after the build. (change:
+  check-root-package-imports)
+
+- **Provider OAuth sign-in is delegated to pi-ai, so every provider pi bundles is
+  sign-in-able — and remote dashboards can finally complete a sign-in.** The
+  dashboard carried a hand-copied fork of pi-ai's OAuth flows
+  (`provider-auth-handlers.ts` + `oauth-callback-server.ts`), so it lagged by
+  construction: of pi 0.86.1's eight OAuth providers it offered three, and its
+  auth-code flows had **no way to submit a pasted code** — the provider's
+  registered `redirect_uri` is `http://localhost:<port>/…`, so a dashboard
+  reached through zrok/docker/LAN could never finish an Anthropic or Codex
+  sign-in at all. The three handlers and the bespoke callback server are gone;
+  the server now builds one registry from `ModelRuntime` (pi-coding-agent's
+  public surface) and drives `provider.auth.oauth.login()` through a single
+  `AuthInteraction` adapter. `openrouter` (permanent API key, `expires: null`),
+  `kimi-coding`, `meta` and `xai` join `anthropic` / `openai-codex` /
+  `github-copilot`; Codex gains its browser-vs-device choice and GitHub Copilot
+  its enterprise-domain prompt. New routes: `POST /api/provider-auth/start`,
+  `GET|DELETE /api/provider-auth/flow/:flowId`, `POST
+  /api/provider-auth/flow/:flowId/input` (the pasted redirect URL — never
+  logged, never echoed). The sign-in pane renders whatever step the flow
+  reports (`manual_code` / `text` / `select` / `device_code`), shows the
+  authorization link and the paste field **together**, and offers Cancel +
+  Try Again; `POST /authorize`, `POST /device-code` and `GET
+  /device-status/:id` are removed. The `@earendil-works/pi-coding-agent` pin
+  moves `^0.85.1` → `^0.86.1` across all six governed surfaces. On a registry
+  build failure sign-in is simply unavailable: `/handlers` answers `{ ids: [] }`,
+  `/api/health` carries `providerAuth.error` naming the resolved version, and
+  every other route keeps serving. See change: delegate-provider-oauth-to-pi-ai.
+
+- **Retained remote-transcript hydration no longer blocks the server.** Reading, splitting, parsing and replaying a retained `.jsonl` ran synchronously on the main event loop, so a cold subscribe to a session whose retained transcript is at the observed maximum (44.1 MB) stalled every session's HTTP and WebSocket traffic — including the hydration heartbeat that exists to cover exactly that window. The read now uses `fs.promises`, and the split + parse + replay go through the same `worker_threads` pool the local path uses, with the same cancellation, metrics and in-process fallback. Measured on 46 MB: longest main-thread block **2838 ms → 201 ms** with identical events. Concurrent cold subscribes to one retained session now coalesce onto a single hydration. `RemoteTranscriptStore.read()` is async and gains `readRaw()` / `completenessOf()`. See change: offload-retained-transcript-replay.
+
+- **dashboard-plugin-runtime**: `ServerContextDeps` gains five REQUIRED members (`mintSpawnToken`, `renameSession`, `assignSessionRef`, `networkGuard`, `onShutdown`) and `PluginSpawnOptions` gains `spawnToken`/`resume`/`initialPrompt` — implementors of `createServerPluginContext` (custom hosts, injected test contexts) must add them. See change: relocate-goal-product-to-plugin.
+
+- **`dispatch_extension_command` is a deprecated tombstone.** No current bridge
+  sends it; a one-release server arm answers an un-reloaded bridge with a
+  persisted + broadcast `command_feedback { status: "error", message: "bridge
+  outdated — reload the session" }` so the chat pill converges instead of hanging
+  on "in progress". `DispatchExtensionCommandMessage` stays `@deprecated` until
+  the tombstone is removed. See change:
+  retire-slash-dispatch-via-expand-prompt-templates.
 
 - **pi is now pinned at `0.85.1`, and `piCompatibility.minimum` moved with it —
   a HARD BREAK for pi < 0.85.1.** Every user on pi 0.78.x–0.84.x flips from
@@ -305,21 +699,6 @@ see [`docs/release-process.md`](docs/release-process.md).
   removed and one-shot-migrated on load — a user who had hidden custom entries
   keeps the same rows hidden. See change: add-custom-event-group-filters.
 
-### Added
-
-- **Video-transcription: AssemblyAI backend.** `pi-transcribe` now supports an
-  opt-in second backend (`TRANSCRIBE_BACKEND=assemblyai`, key `ASSEMBLY_AI_KEY`,
-  EU endpoint) alongside the Soniox default — or both at once
-  (`TRANSCRIBE_BACKEND=both`). AssemblyAI output lands as `<name>.diarize.srt`,
-  so the same source can carry both transcripts side by side.
-
-- **A blocking `ctx.ui` prompt now shows as input-requested, not as busy work.**
-  The bridge forwards pi 0.84.4's `ui_prompt_start` / `ui_prompt_end`, and the
-  server maps them to `currentTool: "ask_user"` / `null` — which also raises the
-  unread stripe. `status` is untouched: a UI prompt is not a run boundary.
-
-### Changed
-
 - **Dependency refresh.** `@biomejs/biome` 2.5.1 → 2.5.11, `@playwright/test`
   1.61.1 → 1.62.1, `@fastify/compress` 8 → 9, `@fastify/static` 8 → 10
   (`setHeaders` now receives a `FastifyReply`, so the no-cache header for
@@ -337,6 +716,68 @@ see [`docs/release-process.md`](docs/release-process.md).
   broad-support floor (`piCompatibility.minimum`) stays at `0.78.0`. The only
   upstream breaking change in the range (0.84.3 renamed the pi-ai-internal
   `GoogleThinkingLevel` type) has no consumer in this repo.
+
+- **Accent text now meets AA contrast on every surface** (#799). The
+  accent-on-surface ramp was re-derived for contrast, and a guard rail fails
+  the build when accent is used as text colour where it would not pass.
+
+- **The UI follows theme tokens throughout** (#747). Identity tints, action
+  surfaces and the new-session copy were realigned onto the token set, so a
+  custom theme no longer leaves unreadable patches behind.
+
+- **Polling got out of the hot path** (#796). The session scan is async and
+  adaptive, git probes run on events instead of a fixed tick, and pi resource
+  data is fetched on demand — a large folder set no longer spends the event
+  loop on polling.
+
+- **Memory is bounded end to end** (#780, #693, #686, #679). The server
+  guards its own heap against the configured store budget, the event store is
+  bounded by bytes rather than by count, bridge-side subagent fan-out is
+  admitted under host pressure, and heap + GC telemetry is reported (the
+  Electron build stamps its budget and re-stamps it on restart).
+
+- **The cold landing no longer loads the terminal and diff viewers** (#694).
+  Both bootstrap lazily, so first paint ships less JavaScript.
+
+- **Streaming text costs fewer frames** (#706). The bridge coalesces
+  `message_update` snapshots instead of sending one per token burst.
+
+- **Notification rows replay in order and collapse when identical** (#761).
+  Replayed notifications now appear chronologically, and adjacent identical
+  rows fold into one.
+
+- **Flow agent cards are uniform and re-openable** (#766). Every agent in a
+  flow renders the same card, the cards stay reachable in a short pane, and
+  the button that opened one re-opens it.
+
+- **Pairing lives on the Gateway page** (#567). The separate pairing surface
+  is gone; Settings ▸ Security links to Gateway instead.
+
+- **Settings has a Models group** (#750). Model roles is promoted to its own
+  page under a new Models navigation group.
+
+- **Folder collapse is remembered server-side** (#687). Which folders are
+  collapsed now follows your account across browsers instead of living in one
+  browser's storage.
+
+- **Session totals count non-message usage** (#783). Tokens spent outside
+  assistant messages (tool and system traffic) are included in a session's
+  totals, so the number matches the provider's.
+
+- **MCP client configuration moved into its own plugin** (#654). The MCP
+  settings surface is now the `mcp-client` plugin rather than core settings.
+
+- **Faster cold boot for packaged builds** (#815). The Node-native TypeScript
+  loader is now the default and jiti is opt-in
+  (`PI_DASHBOARD_TS_LOADER=jiti`), cutting AppImage cold-start time.
+
+- **Bridge cold-start readiness is configurable.** `readinessTimeoutMs` in
+  `~/.pi/dashboard/config.json` sets how long the bridge waits for a
+  cold-starting server, and the auto-start lock budget is derived from it
+  instead of being a second, independent number.
+
+- **Keeper logs stop growing without bound** (#574). They rotate, a stale set
+  is swept at startup, and their size is reported in health.
 
 ### Removed
 
@@ -356,6 +797,94 @@ see [`docs/release-process.md`](docs/release-process.md).
   callers. See change: remove-pi-model-proxy-upstream-references.
 
 ### Fixed
+
+- **pi-image-fit no longer writes into the TUI prompt line** (#784, thanks
+  @axelbaumlisto). Resize telemetry now updates a `pi-image-fit` footer status
+  (`ctx.ui.setStatus`), so the dashboard gets no transcript row per screenshot.
+  Warnings use `ctx.ui.notify`. Print/JSON modes keep console output. Load-time
+  messages wait for `session_start`. The output follows the live session after
+  `/reload`, a new session or a fork. New `PI_IMAGE_FIT_QUIET=1` silences all
+  output.
+
+- **Worktree setup no longer runs out of memory** (#820, #823). The
+  worktree-init hook inherited the dashboard server's own heap cap, so heavy
+  setup work (e.g. `pnpm install` building the client) aborted with a V8
+  out-of-memory error on hosts with plenty of RAM. The hook now drops the
+  dashboard's heap flag; heap flags you set yourself are kept.
+
+- **The dashboard server boots on Node 26 again.** Node 26 dropped the
+  type-transform mode the native TypeScript loader relies on, so the
+  server exited at startup. On such a Node it now boots with the jiti
+  loader automatically; Node 22/24 keep the faster native loader.
+
+- **Saving one plugin setting no longer resets the others.** Writing part
+  of a plugin's config through `POST /api/config/plugins/:id` reset every
+  setting left out of the request to its default (e.g. the Chat Gateway's
+  allowed folders, allowlist and admins). Settings you don't send now keep
+  their saved values.
+
+- **Hidden Discord sessions stay hidden after a dashboard restart.** A
+  restart can bring a Chat Gateway session back as a fresh registration, which
+  re-decided its visibility and put it back on the board. The "hidden by its
+  plugin" choice is now saved with the session and honoured on every restart.
+  Sessions hidden before this fix are not migrated: they reappear once, and new
+  ones stay hidden.
+
+- **Chat Gateway runs your Discord message and keeps the session.** A message
+  in a bound channel started a session but never ran, and every later message
+  started yet another session. The gateway matched spawns on a key the
+  dashboard reserves for itself (`spawnToken`), which the host strips, so no
+  spawn was ever bound. It now uses its own key, and the message that starts
+  (or resumes) a session runs as that session's first prompt instead of asking
+  you to repeat it.
+
+- **Chat Gateway can see the Discord channels it creates.** A provisioned
+  workspace channel denied View to `@everyone`, and that deny applied to the
+  bot too, so on a real server the bot was locked out of its own channel
+  (403 Missing Access) and never received messages. Channel creation and every
+  access reconcile now add an allow overwrite for the bot itself (view, send,
+  embed, read history, threads). Channels provisioned before this fix need the
+  bot added to their permissions once (or a one-off access change).
+
+- **`/mcp` answers complete, standard tool results.** Large `/mcp` responses
+  (e.g. `tools/list`) were sent gzip-encoded with an empty body to clients
+  that accept compression (undici `fetch`, pi's built-in MCP client), so
+  `tools/list` failed with "Unexpected end of JSON input". And `list_sessions`,
+  `send_prompt`, `spawn_session`, `abort` and session-bound tools returned
+  their raw object instead of an MCP `CallToolResult`, which strict clients
+  read as empty content; the value now rides as JSON text. See change:
+  migrate-mcp-to-pi-builtin.
+
+- **Plugin config updates reach the plugin UI live.** A plugin server entry's
+  `ctx.updatePluginConfig` broadcast omitted the plugin `id`, so the client
+  stored the new config under `"undefined"` and the plugin's settings UI kept
+  the stale value until reload. The broadcast now carries `id`; the `as any`
+  that hid the omission is gone.
+
+- **Model proxy (`/v1/*`) forwards system prompts, stops abandoned streams,
+  and ends failed streams.** Client system prompts were silently dropped: the
+  adapter passed pi-ai `system` instead of `Context.systemPrompt` (new
+  `callPiAiStreamSimple` in `model-proxy/streamer.ts`). A client disconnect never
+  aborted the upstream call, because Node 24 fires `request.raw` "close" as soon
+  as the body is read; it now keys off `reply.raw` "close", so an abandoned
+  stream stops using tokens. An upstream error thrown mid-stream threw
+  `ERR_HTTP_HEADERS_SENT` and left the client hanging; the SSE stream now ends
+  like an upstream `error` event. Parallel-conversation isolation is covered by
+  `model-proxy-parallel-isolation.test.ts`.
+
+- **`pi-dashboard start` / `restart` no longer crash on a fresh npm install.**
+  The 0.8.0 tarball shipped `packages/{server,shared,extension}/tsconfig.json`,
+  which extend `../../tsconfig.base.json`, but not `tsconfig.base.json` itself,
+  so jiti died with `File '../../tsconfig.base.json' not found`. The root `files`
+  list now ships it. `scripts/verify-published-imports.mjs` now fails CI on any
+  packed tsconfig whose relative `extends` is not in the tarball
+  (`dangling-tsconfig-extends`), checks the root package's tsconfigs, and reads
+  the keyed `npm pack --json` payload npm emits at a workspace root (previously
+  read as zero files). See change: fix-ship-tsconfig-base.
+
+- **The browser relay plugin now loads in npm, managed and Electron installs.** The vendored playwright-core relay imported playwright-internal bare specifiers (`@isomorphic/manualPromise`, `@isomorphic/time`, `@isomorphic/timeoutRunner`, `@utils/wsServer`) that only resolved through `tsconfig.base.json` `paths`, a vitest `resolve.alias`, and the `JITI_TSCONFIG_PATHS` environment variable. None of the three exists in an npm global / managed `~/.pi-dashboard` / Electron bundled-server install, so plugin discovery reported `Failed to load plugin "browser": Cannot find module '@isomorphic/manualPromise'` and the whole relay was dead there. A committed idempotent script (`scripts/patch-vendor-specifiers.mjs`) rewrites the 5 import lines to package-relative `shims/*.js` paths, so resolution depends only on files inside the published package. All three alias layers are deleted (the tsconfig `paths`, the vitest aliases, the `verify-published-imports.mjs` waiver, and the `JITI_TSCONFIG_PATHS` stamp in `bin/pi-dashboard.mjs`), and the integrity manifest is restructured around provenance kinds (`upstream-verbatim` vs `authored`) with `shims/**` now covered. New gates that no alias layer can satisfy: a specifier guard, a `refresh-vendor.mjs` upstream-fidelity check, and an out-of-repo pack → install → import check (`scripts/verify-plugin-install-load.mjs`, run per-PR for changed plugins and nightly for all).
+
+  **Ship the server and the plugin together.** Once the server stops stamping `JITI_TSCONFIG_PATHS`, an older plugin copy still on disk (`~/.pi/dashboard/plugins/`, or `resources/plugins/` inside an already-installed Electron bundle) can no longer resolve its specifiers. The patched plugin resolves regardless of the flag, so a reverted server is safe; the unsafe pairing is new server + old plugin. See change: fix-browser-plugin-vendor-specifier-resolution.
 
 - **Cold page load no longer ships the full MDI icon set.** The landing
   document used to `modulepreload` the entire `@mdi/js` set (~2.78 MB raw);
@@ -437,6 +966,112 @@ see [`docs/release-process.md`](docs/release-process.md).
   mode `0600` instead of world-readable, and `DELETE /api/provider-auth/:provider`
   reports refusals in the same `{ error }` shape as `PUT`. See change:
   `fix-corrupt-auth-json-500`.
+
+- **Electron's bundled server loads its plugins again** (#806). The bundle now
+  carries the first-party workspace dependencies plugins import and strips
+  devDependencies, and the app dumps `server.log` on a failed start so the
+  cause is visible instead of a silent empty dashboard.
+
+- **The terminal starts a login shell on macOS and Linux.** Tools installed by
+  your shell profile (nvm, Homebrew, asdf) are on `PATH` in the dashboard
+  terminal like they are in a normal one.
+
+- **`pi-dashboard stop` only stops your own servers** (#814). The port sweep
+  was not ownership-scoped, so it could kill a dashboard belonging to another
+  user or `HOME` on the same machine. It now matches on ownership, with
+  `--force` to opt out.
+
+- **`/reload` works in terminal-hosted sessions** (#735). The dashboard
+  reload now runs in-process, so a session started in your own terminal
+  reloads like a dashboard-spawned one.
+
+- **Session state stops drifting from reality** (#669, #670, #623, #671,
+  #657, #650, #631, #685, #633). Known state is no longer discarded on a
+  shed frame: delivery is honest, a dead session is attributed a cause, the
+  unresponsive badge is derived on the server (no more false positives), a
+  latched streaming status is reconciled against bridge liveness, orphaned
+  tool cards and subagents are healed when a session ends, a pending prompt
+  survives replay, the connect snapshot cannot lose frames, and a persisted
+  compaction replays as a real boundary.
+
+- **Long sessions stay usable** (#699). Rendering a very long transcript no
+  longer degrades over time, and idle visual effects pause instead of burning
+  frames in the background.
+
+- **The served build and its plugin registry always match** (#696). A
+  deploy could serve a client built against a different plugin set; one
+  registry set now feeds every hash and the server refuses an incoherent
+  pairing instead of shipping it.
+
+- **Markdown and Mermaid no longer remount in a loop** (#795). A rendered
+  Mermaid diagram is fitted to its viewport and zoom/pan starts at the right
+  scale, ending the remount storm that froze the pane.
+
+- **Document previews render and save correctly** (3672cf9, 48d7db4). docx
+  previews scroll, AsciiDoc shows its title and latexmath, PlantUML output is
+  no longer cropped, the canvas is gated on mobile, and AsciiDoc Preview/Edit
+  plus csv/adoc saves work (the sanitizer now loads under jiti).
+
+- **Split-editor saves no longer always 409** (#729). `/api/file` returns a
+  full-precision mtime token, so the save's optimistic-concurrency check
+  compares like with like.
+
+- **Session diffs are correct and bounded** (#722, #676). Local session diffs
+  are sourced from the durable transcript, and diff retention no longer pins
+  heap for the life of the session.
+
+- **Worktrees keep their parentage and their anchor** (#655, #630, #629).
+  Removing a worktree no longer detaches its siblings from the group, worktree
+  operations run against the resolved main checkout, and file-read containment
+  is anchored on the bound checkout roots.
+
+- **The bridge stops forwarding payloads the client cannot use** (#717). pi
+  0.86's system-role and compaction payloads were sent through and rendered as
+  junk rows; they are filtered at the bridge.
+
+- **Auto-start finds the right server** (#583, #565, #569). A resolved port
+  outranks discovery, the shared port resolver gates a pinned endpoint,
+  ephemeral servers get a real lifecycle, and bridge migration over mDNS is
+  guarded, reversible and honestly advertised instead of silently hijacking a
+  session.
+
+- **History backfill on an incomplete store is truthful** (#584). Backfill is
+  capped, reports where each range was actually served from, and classifies
+  why it stopped, instead of reporting a hole as complete history.
+
+- **One pi runtime identity per native tree** (#575). The spawn-runtime ladder
+  resolves a single ABI for a shared native tree and a guard rail refuses a
+  mismatch, so a session no longer dies on a native module built for another
+  Node.
+
+- **An explicit `--model` is never overwritten** (#601). Spawning with a model
+  argument kept the dashboard's default model instead.
+
+- **zrok v2 tunnels start reliably, and pairing explains itself in a remote
+  browser** (#748). The spawn timeout was raised to match zrok v2's startup,
+  and the pairing screens tell a remote browser what to do next.
+
+- **Provider sign-in no longer blocks on the auth lock** (#704). The
+  `auth.json` lock is taken asynchronously with bounded, non-blocking retries,
+  so a slow writer stalls neither the request nor the event loop.
+
+- **Additional fixes.** Composer, model, thinking-level, attach/overflow and
+  file-tree popovers are portalled so a scrolling rail cannot clip them (#660,
+  #635, #728); nested overlays stop flipping dismiss forever (#764) and a
+  frozen underlay is contained to the content region (#661); the quota widget
+  and the chat pane no longer clip their bottom rows (#627, #639); a selected
+  session card keeps its light-mode colours; a burst of running tools shares
+  one stop control (#758); a failed lazy chunk fetch is contained to its pane
+  instead of blanking the app (#702); the Terminals quick action opens a
+  terminal (#684); the OpenSpec board's worktree button is gated on folder
+  availability rather than liveness (#619); artifact and change status
+  derivation report `blocked` without `proposal.md` and treat skipped
+  artifacts as done (#804); the pi gateway reclaims a stale socket by owner
+  start time and falls back to authenticated loopback (#794); the multi-ask
+  panel matches its shipped placement (#564); an automation run's identity is
+  persisted and restored (#710); BPMN form links resolve absolute artifact
+  paths for relative package directories (#816); and the extension no longer
+  force-closes a peer it merely failed to read from.
 
 ## [0.8.0] - 2026-08-26
 

@@ -274,6 +274,8 @@ export function createSessionArchive(deps: SessionArchiveDeps): SessionArchive {
         // `originDeviceId` uses everywhere.
         // See change: serve-retained-remote-transcripts.
         originDeviceId: session.originDeviceId,
+        // Carry the owner so the archived session stays owner-gated (§8.1).
+        principalOwner: session.principalOwner,
       };
       sessionManager.remove(id);
       insertRow(captured);

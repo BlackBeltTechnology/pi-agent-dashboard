@@ -28,6 +28,7 @@ import {
   type NotPromise,
   _resetQuarantineDedupForTests as _resetLockedJsonQuarantineDedup,
   readJsonChecked,
+  tryReadJson,
   withLockedJsonFile,
   writeJsonAtomic,
 } from "./locked-json-file.js";
@@ -43,6 +44,8 @@ export type AuthCredential = ApiKeyCredential | OAuthCredential;
 export type AuthData = Record<string, AuthCredential>;
 
 interface OAuthProviderMeta {
+  /** See change: update-pi-core-1-0-adopt-apis (D8). */
+  subscription?: boolean;
   id: string;
   name: string;
   flowType: "auth_code" | "device_code";
@@ -80,6 +83,8 @@ export interface WithLockOptions {
   budgetMs?: number;
   /** Pre-create an empty 0600 `auth.json` when absent. The refresh path passes `false`. */
   createIfMissing?: boolean;
+  /** Abort the lock-retry wait. See change: collapse-model-proxy-onto-modelruntime. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -102,6 +107,16 @@ function readAuthJsonChecked(): CheckedJsonRead<AuthData> {
 
 export function readAuthJson(): AuthData {
   return readAuthJsonChecked().data;
+}
+
+/**
+ * Unlocked, non-quarantining read for the request path. `null` = unparseable
+ * content (possibly a torn in-place pi write); the caller retries under the
+ * lock. See change: collapse-model-proxy-onto-modelruntime (D1).
+ */
+export function tryReadAuthJson(): AuthData | null {
+  const read = tryReadJson<AuthData>(AUTH_PATH);
+  return read.ok ? read.data : null;
 }
 
 function corruptUnbackedRefusal(): Error {
@@ -136,7 +151,39 @@ export type LockedCredentialRead =
   | { outcome: "replaced" }
   | { outcome: "corrupt" };
 
-const refreshLockOptions = (): WithLockOptions => ({ budgetMs: refreshLockBudgetMs, createIfMissing: false });
+const refreshLockOptions = (signal?: AbortSignal): WithLockOptions => ({
+  budgetMs: refreshLockBudgetMs,
+  createIfMissing: false,
+  ...(signal ? { signal } : {}),
+});
+
+/** Checked read of the whole file under the bounded refresh-path lock (never creates it). */
+export async function readAuthJsonLocked(signal?: AbortSignal): Promise<AuthData> {
+  return withLock((): AuthData => readAuthJsonChecked().data, refreshLockOptions(signal));
+}
+
+export type StoredCredentialRead =
+  | { outcome: "ok"; credential: AuthCredential }
+  | { outcome: "absent" }
+  | { outcome: "corrupt" };
+
+/**
+ * Type-agnostic locked read of one provider's credential (refresh-path
+ * window, signal-aware, never creates auth.json). Corrupt bytes are
+ * quarantined exactly as on every checked read and reported as `corrupt`.
+ * See change: collapse-model-proxy-onto-modelruntime (D1).
+ */
+export async function readStoredCredentialLocked(
+  provider: string,
+  signal?: AbortSignal,
+): Promise<StoredCredentialRead> {
+  return withLock((): StoredCredentialRead => {
+    const checked = readAuthJsonChecked();
+    if (checked.corrupt) return { outcome: "corrupt" };
+    const stored = checked.data[provider];
+    return stored ? { outcome: "ok", credential: stored } : { outcome: "absent" };
+  }, refreshLockOptions(signal));
+}
 
 /**
  * Read one provider's credential under the lock (refresh-path window, never
@@ -173,6 +220,7 @@ export async function writeRefreshedOAuth(
   provider: string,
   next: OAuthCredential,
   snapshot: OAuthCredential,
+  signal?: AbortSignal,
 ): Promise<RefreshedOAuthWrite> {
   return withLock((): RefreshedOAuthWrite => {
     const checked = readAuthJsonChecked();
@@ -185,7 +233,7 @@ export async function writeRefreshedOAuth(
     data[provider] = next;
     writeAuthJson(data);
     return { outcome: "written", credential: next };
-  }, refreshLockOptions());
+  }, refreshLockOptions(signal));
 }
 
 // ── Public API: write/remove ─────────────────────────────────────────────────
@@ -252,7 +300,14 @@ export async function writeCredential(provider: string, credential: AuthCredenti
  *  when nothing is stored — succeeds. Omitting `expectedKind` keeps the
  *  unguarded legacy behavior for any caller that has no row kind.
  */
-export async function removeCredential(provider: string, expectedKind?: AuthCredential["type"]): Promise<void> {
+export async function removeCredential(
+  provider: string,
+  expectedKind?: AuthCredential["type"],
+  opts: Pick<WithLockOptions, "createIfMissing" | "signal"> = {},
+): Promise<void> {
+  // `createIfMissing: false` (the runtime credential store's delete) leaves an
+  // absent auth.json absent: nothing to remove, nothing written.
+  // See change: collapse-model-proxy-onto-modelruntime (D1).
   await withLock(() => {
     const checked = readAuthJsonChecked();
     if (checked.corrupt && !checked.quarantined) throw corruptUnbackedRefusal();
@@ -261,9 +316,10 @@ export async function removeCredential(provider: string, expectedKind?: AuthCred
     if (stored && expectedKind && stored.type !== expectedKind) {
       throw new CredentialTypeConflictError(provider, stored.type, expectedKind);
     }
+    if (opts.createIfMissing === false && !stored && !checked.corrupt) return;
     delete data[provider];
     writeAuthJson(data, checked.corrupt ? 0o600 : undefined);
-  });
+  }, opts);
 }
 
 // ── Pure status builder (testable) ───────────────────────────────────────────
@@ -326,8 +382,12 @@ export function _buildAuthStatus(
     id: string,
     name: string,
     flowType: "auth_code" | "device_code",
+    subscription?: boolean,
   ): void => {
     const cred = authData[id];
+    // `subscription` only when the registry knows it (an unknown stored id
+    // leaves it absent → the client's "Subscription" default).
+    const sub = subscription === undefined ? {} : { subscription };
     if (cred?.type === "oauth") {
       statuses.push({
         id,
@@ -337,9 +397,10 @@ export function _buildAuthStatus(
         expires: oauthRowExpires(cred),
         configured: true,
         source: "stored",
+        ...sub,
       });
     } else {
-      statuses.push({ id, name, flowType, authenticated: false, configured: false });
+      statuses.push({ id, name, flowType, authenticated: false, configured: false, ...sub });
     }
   };
 
@@ -347,7 +408,7 @@ export function _buildAuthStatus(
   const registryIds = new Set<string>();
   for (const entry of oauthEntries) {
     registryIds.add(entry.id);
-    pushOAuthRow(entry.id, entry.name, entry.flowType);
+    pushOAuthRow(entry.id, entry.name, entry.flowType, entry.subscription);
   }
 
   // Stored OAuth credentials the registry does not list: written by pi (or an
@@ -392,11 +453,24 @@ export function _buildAuthStatus(
       !!entry.ambient ||
       (entry.configured && entry.source != null && entry.source !== "stored");
 
+    // D7 — an environment credential pi resolves ITSELF, with no key variable
+    // (e.g. Anthropic workload identity federation), counts as authenticated
+    // like `ambient`. pi labels EVERY environment credential (an env-var row's
+    // label is the var name), so the rule is gated on "no envVar, not ambient".
+    // See change: update-pi-core-1-0-adopt-apis.
+    const envLabelAuth =
+      !hasStoredKey &&
+      entry.configured &&
+      entry.source === "environment" &&
+      !!entry.authLabel &&
+      !entry.envVar &&
+      !entry.ambient;
+
     const row: ProviderAuthStatus = {
       id: uiId,
       name: displayName,
       flowType: "api_key",
-      authenticated: hasStoredKey || !!entry.ambient,
+      authenticated: hasStoredKey || !!entry.ambient || envLabelAuth,
       configured: rowConfigured,
     };
     // `source` mirrors the catalogue's evidence whenever the row is configured
@@ -417,6 +491,7 @@ export function _buildAuthStatus(
     }
     if (entry.envVar) row.envVar = entry.envVar;
     if (entry.ambient) row.ambient = true;
+    if (rowConfigured && entry.source === "environment" && entry.authLabel) row.authLabel = entry.authLabel;
     statuses.push(row);
   }
 
@@ -436,6 +511,7 @@ export function getOAuthProvidersMeta(
     id: e.id,
     name: e.name,
     flowType: e.flowType,
+    subscription: e.subscription,
   }));
 }
 

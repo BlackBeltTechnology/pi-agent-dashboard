@@ -46,6 +46,21 @@ describe("validateManifest — valid cases", () => {
     expect(m.claims[0].slot).toBe("composer-panel");
   });
 
+  it("accepts a login-provider claim with a component (D16, LG-6)", () => {
+    const m = validateManifest({
+      ...validManifest,
+      claims: [{ slot: "login-provider", component: "KeycloakLogin" }],
+    });
+    expect(m.claims[0].slot).toBe("login-provider");
+    expect(m.claims[0].component).toBe("KeycloakLogin");
+  });
+
+  it("rejects a login-provider claim without a component (D16, LG-6)", () => {
+    expect(() =>
+      validateManifest({ ...validManifest, claims: [{ slot: "login-provider" }] }),
+    ).toThrow(ManifestValidationError);
+  });
+
   it("accepts settings-section claim without tab (defaults handled downstream)", () => {
     const m = validateManifest({
       ...validManifest,

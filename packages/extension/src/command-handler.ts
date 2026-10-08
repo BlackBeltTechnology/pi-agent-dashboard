@@ -214,9 +214,9 @@ export type ReloadOutcome =
   | { ok: true; handedOff: true }
   | { ok: false; reason: string };
 
-/** Reason emitted when the running pi cannot dispatch the reload command in-process. */
-export const NO_RELOAD_PATH_REASON =
-  "Dashboard reload of a terminal-hosted session requires pi ≥ 0.84.2 — upgrade pi, or run /reload in the pi TUI.";
+/** Reason emitted when the bridge has no reload path for this session. */
+const NO_RELOAD_PATH_REASON =
+  "No dashboard reload path for this session — run /reload in the pi TUI.";
 
 /** A dashboard reload for this session is still in flight. */
 export const RELOAD_IN_PROGRESS_REASON = "A reload is already in progress for this session.";
@@ -259,6 +259,19 @@ const MANAGEMENT_COMMAND_EVENTS: Record<string, {
   event: string;
   dataFn: (args: string) => Record<string, unknown>;
 }> = {};
+
+/**
+ * Team sessions (add-team-plugin D7): the guard extension confines TOOL calls, but a prompt the bridge
+ * turns into a host action (`!cmd` bash, `/slash` extension commands, reload, new, model, shutdown,
+ * management) never reaches `tool_call`. Such a session's owner could run unconfined bash by typing
+ * `!id`. The spawn projects `PI_EXT_TEAM_TOOLS` into the pi process, so the bridge refuses those routes
+ * there; plain prompts, `/compact` and the dashboard-internal retry stay available.
+ */
+export function isTeamConfinedSession(env: NodeJS.ProcessEnv = process.env): boolean {
+  return typeof env.PI_EXT_TEAM_TOOLS === "string";
+}
+
+const TEAM_ALLOWED_PARSED: ReadonlySet<ParsedPrompt["type"]> = new Set(["passthrough", "compact", "retry"]);
 
 /** Parse input text to detect pi internal command prefixes */
 export function parseSendPrompt(text: string): ParsedPrompt {
@@ -399,7 +412,7 @@ export function createCommandHandler(
      *
      * Returns whether a reload ACTUALLY ran, so the caller never emits an
      * unconditional `completed`. The bridge self-dispatches its
-     * `/__dashboard_reload <token>` command in-process (pi >= 0.84.2) and
+     * `/__dashboard_reload <token>` command in-process and
      * resolves `{ok:true, handedOff:true}` on success: the RELOADED bridge
      * instance reports `completed` after re-registering, because this
      * instance's connection is torn down by the reload. On `handedOff` the
@@ -545,6 +558,11 @@ export function createCommandHandler(
       switch (msg.type) {
         case "send_prompt": {
           const parsed = parseSendPrompt(msg.text);
+
+          if (isTeamConfinedSession() && !TEAM_ALLOWED_PARSED.has(parsed.type)) {
+            options?.eventSink?.({ type: "prompt_received", sessionId, fresh: false });
+            return undefined;
+          }
 
           // Non-turn commands (bash/compact/shutdown/reload/new/model/mgmt)
           // return early below and never produce a user `message_start`, so an

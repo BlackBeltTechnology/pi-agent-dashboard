@@ -195,6 +195,7 @@ export function laneFingerprint(sessions: DashboardSession[], flagsFor: (id: str
     const f = flagsFor(s.id);
     const bits = [
       s.currentTool === "ask_user",
+      s.awaitingFileAccess,
       s.compacting,
       s.resuming,
       s.unread,

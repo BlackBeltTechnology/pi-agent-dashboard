@@ -11,9 +11,12 @@ import type { Resolution, ToolRegistry } from "@blackbelt-technology/pi-dashboar
 import { beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error -- .mjs release gate, no type declarations; exported for fixture-driven tests.
 import { checkPiPinCoherence, collectFailures } from "../../../../scripts/verify-release-deps.mjs";
+// @ts-expect-error -- .mjs release gate helper, no type declarations.
+import { rangeIsSatisfiable } from "../../../../scripts/verify-published-imports.mjs";
 import {
   compareVersions,
   computeCompatibility,
+  computePiBelowFloor,
   isAbove,
   isBelow,
   parseVersion,
@@ -22,18 +25,26 @@ import {
 } from "../pi/pi-version-skew.js";
 
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
-const PINNED_PI = "0.86.1";
-const BELOW_FLOOR_PI = "0.84.4";
+const PINNED_PI = "1.0.0";
+const BELOW_FLOOR_PI = "0.99.2";
 
 /**
- * The governed pi pins must move together. SIX surfaces, one version:
- * server dep, piCompatibility.minimum, piCompatibility.recommended,
- * docker/Dockerfile, the pnpm-workspace.yaml override, and the checker's own
- * minVersion. The literals are deliberate (design \u00a76) \u2014 this test asserts
+ * The governed pi pins must move together, one version across: server dep,
+ * piCompatibility.minimum, piCompatibility.recommended, docker/Dockerfile, the
+ * three pnpm-workspace.yaml overrides (pi-coding-agent, pi-ai, pi-tui), every
+ * publishable `@earendil-works` pi peer lower bound + devDependency, and the
+ * checker's own minVersion. The literals are deliberate (design \u00a76) \u2014 this test asserts
  * coherence, so deriving them would make it a tautology.
- * See change: update-pi-core-0-85-adopt-apis (test-plan #E1, #E2, #E3, #E4, #E5, #E6, #E11, #X13).
+ * See change: update-pi-core-0-85-adopt-apis (test-plan #E1, #E2, #E3, #E4, #E5, #E6, #E11, #X13),
+ * update-pi-core-1-0-adopt-apis (test-plan #E1, #E2).
  */
-describe("pi pin block \u2014 0.86.1", () => {
+const overridesYaml = (version: string) =>
+  "overrides:\n" +
+  `  "@earendil-works/pi-coding-agent": ${version}\n` +
+  `  "@earendil-works/pi-ai": ${version}\n` +
+  `  "@earendil-works/pi-tui": ${version}\n`;
+
+describe("pi pin block \u2014 1.0.0", () => {
   const serverPkg = JSON.parse(
     fs.readFileSync(path.join(REPO_ROOT, "packages/server/package.json"), "utf-8"),
   );
@@ -61,14 +72,14 @@ describe("pi pin block \u2014 0.86.1", () => {
       piCompatibility: { minimum: version, recommended: version, maximum: null },
     },
     dockerfile: `RUN npm install -g @earendil-works/pi-coding-agent@${version} openspec`,
-    workspaceYaml: `overrides:\n  "@earendil-works/pi-coding-agent": ${version}\n`,
+    workspaceYaml: overridesYaml(version),
     checkerMinVersion: version,
   });
 
   const runCheck = (f: PinFixture) =>
     checkPiPinCoherence(f.serverPkg, f.dockerfile, f.workspaceYaml, f.checkerMinVersion);
 
-  it("E1: piCompatibility declares recommended AND minimum 0.86.1 (lockstep)", () => {
+  it("E1: piCompatibility declares recommended AND minimum 1.0.0 (lockstep)", () => {
     expect(serverPkg.piCompatibility).toEqual({
       minimum: PINNED_PI,
       recommended: PINNED_PI,
@@ -76,7 +87,7 @@ describe("pi pin block \u2014 0.86.1", () => {
     });
   });
 
-  it("E1: the server dependency is pinned to ^0.86.1", () => {
+  it("E1: the server dependency is pinned to ^1.0.0", () => {
     expect(serverPkg.dependencies["@earendil-works/pi-coding-agent"]).toBe(`^${PINNED_PI}`);
   });
 
@@ -127,7 +138,10 @@ describe("pi pin block \u2014 0.86.1", () => {
         "pnpm-workspace.yaml overrides",
         (f) => ({
           ...f,
-          workspaceYaml: `overrides:\n  "@earendil-works/pi-coding-agent": ${BELOW_FLOOR_PI}\n`,
+          workspaceYaml: overridesYaml(PINNED_PI).replace(
+            `"@earendil-works/pi-coding-agent": ${PINNED_PI}`,
+            `"@earendil-works/pi-coding-agent": ${BELOW_FLOOR_PI}`,
+          ),
         }),
       ],
       ["verify-release-deps.mjs minVersion", (f) => ({ ...f, checkerMinVersion: BELOW_FLOOR_PI })],
@@ -149,12 +163,14 @@ describe("pi pin block \u2014 0.86.1", () => {
     expect(String(drift)).toContain("0.78.0");
   });
 
-  it("E3: all six governed pin surfaces report 0.86.1 and the gate passes", () => {
+  it("E3: all governed pin surfaces report 1.0.0 and the gate passes", () => {
     expect(serverPkg.dependencies["@earendil-works/pi-coding-agent"]).toContain(PINNED_PI);
     expect(serverPkg.piCompatibility.recommended).toBe(PINNED_PI);
     expect(serverPkg.piCompatibility.minimum).toBe(PINNED_PI);
     expect(dockerfile).toContain(`@earendil-works/pi-coding-agent@${PINNED_PI}`);
-    expect(workspaceYaml).toContain(`"@earendil-works/pi-coding-agent": ${PINNED_PI}`);
+    for (const dep of ["pi-coding-agent", "pi-ai", "pi-tui"]) {
+      expect(workspaceYaml).toContain(`"@earendil-works/${dep}": ${PINNED_PI}`);
+    }
     expect(gateSource).toContain(`minVersion: "${PINNED_PI}"`);
 
     expect(collectFailures({ repoRoot: REPO_ROOT })).toEqual([]);
@@ -167,7 +183,7 @@ describe("pi pin block \u2014 0.86.1", () => {
         piCompatibility: { minimum: PINNED_PI, recommended: PINNED_PI },
       },
       "RUN npm install -g @earendil-works/pi-coding-agent@0.84.0 openspec",
-      `overrides:\n  "@earendil-works/pi-coding-agent": ${PINNED_PI}\n`,
+      overridesYaml(PINNED_PI),
       PINNED_PI,
     );
     expect(drift).toBeTruthy();
@@ -178,7 +194,7 @@ describe("pi pin block \u2014 0.86.1", () => {
   });
 
   it("E4: a stale dependency is caught against the gate rule, not as a missing pin", () => {
-    // Fixture tree: server dep left at 0.84.4 while the gate rule floors at 0.86.1.
+    // Fixture tree: server dep left at 0.99.2 while the gate rule floors at 1.0.0.
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-pin-divergence-"));
     fs.mkdirSync(path.join(tmp, "packages/server"), { recursive: true });
     fs.mkdirSync(path.join(tmp, "docker"), { recursive: true });
@@ -195,7 +211,7 @@ describe("pi pin block \u2014 0.86.1", () => {
     );
     fs.writeFileSync(
       path.join(tmp, "pnpm-workspace.yaml"),
-      `overrides:\n  "@earendil-works/pi-coding-agent": ${PINNED_PI}\n`,
+      overridesYaml(PINNED_PI),
     );
 
     const failures = collectFailures({ repoRoot: tmp });
@@ -209,19 +225,38 @@ describe("pi pin block \u2014 0.86.1", () => {
 
   it("E5: below-floor versions are hard-blocked, naming running + required", () => {
     const range = { minimum: PINNED_PI, recommended: PINNED_PI, maximum: null };
-    for (const v of ["0.78.0", BELOW_FLOOR_PI, "0.86.0"]) {
+    // test-plan #E1 boundaries: 0.99.2 (just below) blocked; 1.0.0 / 1.0.1 not.
+    for (const v of ["0.86.1", BELOW_FLOOR_PI, "0.99.9"]) {
       const out = computeCompatibility(range, v);
       expect(out.error, `${v} must be blocked`).toBeTruthy();
       expect(out.error).toContain(v);
       expect(out.error).toContain(PINNED_PI);
     }
-    // `0.87.0` is ABOVE the pinned floor, so it must be allowed; the previous
-    // value here tracked "one release ahead of the then-current pin".
-    for (const v of [PINNED_PI, "0.87.0"]) {
+    // `1.0.1` is ABOVE the pinned floor (maximum is null), so it must be allowed.
+    for (const v of [PINNED_PI, "1.0.1"]) {
       const out = computeCompatibility(range, v);
       expect(out.error, `${v} must not be blocked`).toBeUndefined();
       expect(out.upgradeRecommended).toBeFalsy();
     }
+  });
+
+  // Review round 2 B2: the /api/health advisory treats a pre-release of the
+  // floor as below it (SemVer), naming both versions; build metadata does not.
+  it("E5b: a pre-release of the floor is hard-blocked by the health advisory", () => {
+    const range = { minimum: PINNED_PI, recommended: PINNED_PI, maximum: null };
+    const out = computeCompatibility(range, `${PINNED_PI}-beta.1`);
+    expect(out.error).toContain(`${PINNED_PI}-beta.1`);
+    expect(out.error).toContain(PINNED_PI);
+    expect(computeCompatibility(range, `${PINNED_PI}+build.7`).error).toBeUndefined();
+  });
+
+  // Review round 3 B2: SemVer pre-release precedence, both orders.
+  it("E5c: pre-release vs pre-release floors follow SemVer precedence", () => {
+    const betaFloor = { minimum: "1.0.0-beta.1", recommended: "1.0.0", maximum: null };
+    expect(computeCompatibility(betaFloor, "1.0.0-rc.1").error).toBeUndefined();
+    expect(computeCompatibility(betaFloor, "1.0.0-alpha.9").error).toContain("1.0.0-alpha.9");
+    expect(computePiBelowFloor("1.0.0-rc.1", "1.0.0-beta.1")).toBeNull();
+    expect(computePiBelowFloor("1.0.0-alpha.9", "1.0.0-beta.1")).toEqual({ minimum: "1.0.0-beta.1" });
   });
 
   it("E6: the hint band is empty under lockstep while the branch stays reachable", () => {
@@ -241,7 +276,7 @@ describe("pi pin block \u2014 0.86.1", () => {
     expect(synthetic.upgradeRecommended).toBe(true);
   });
 
-  it("E11: publishable peer ranges stay broad and out of the governed set", () => {
+  it("E2: publishable peer ranges follow the 1.0.0 floor (optional, no upper bound)", () => {
     const pkgRoot = path.join(REPO_ROOT, "packages");
     const peers: Array<{ name: string; range: string }> = [];
     for (const dir of fs.readdirSync(pkgRoot)) {
@@ -254,7 +289,7 @@ describe("pi pin block \u2014 0.86.1", () => {
     // 10th: packages/untrusted-content-guard (change: add-untrusted-content-guard).
     expect(peers.length).toBe(10);
     for (const { name, range } of peers) {
-      expect(range, `${name} peer range must stay broad`).toBe(">=0.80.10");
+      expect(range, `${name} peer range must follow the floor`).toBe(`>=${PINNED_PI}`);
     }
   });
 
@@ -277,12 +312,56 @@ describe("pi pin block \u2014 0.86.1", () => {
     // BELOW stable `0.84.1` and outside `^0.84.1`. Reject it up front.
     expect(resolved, `resolved ${resolved} must not be a prerelease`).not.toMatch(/[-+]/);
 
-    const [major, minor, patch] = parseVersion(resolved) ?? [];
-    const [dMajor, dMinor, dPatch] = parseVersion(declared.replace(/^[\^~]/, "")) ?? [];
-    expect(major, `resolved ${resolved} vs declared ${declared}`).toBe(dMajor);
-    // Caret on a 0.x range pins the minor; the patch may only move forward.
-    expect(minor).toBe(dMinor);
-    expect(patch).toBeGreaterThanOrEqual(dPatch as number);
+    // Real semver range satisfaction (caret semantics differ below/above 1.0).
+    expect(rangeIsSatisfiable(declared, resolved), `resolved ${resolved} vs declared ${declared}`).toBe(true);
+  });
+});
+
+/**
+ * A session running below the floor is flagged; the floor is the lockstep
+ * `piCompatibility.minimum`. Unknown / unparseable versions raise no flag.
+ * See change: update-pi-core-1-0-adopt-apis (test-plan #E5).
+ */
+describe("computePiBelowFloor — below-floor session flag (E5)", () => {
+  it("flags 0.87.1 against minimum 1.0.0, carrying the required version", () => {
+    expect(computePiBelowFloor("0.87.1", "1.0.0")).toEqual({ minimum: "1.0.0" });
+  });
+
+  it("does not flag a session at the floor", () => {
+    expect(computePiBelowFloor("1.0.0", "1.0.0")).toBeNull();
+  });
+
+  it("does not flag a session above the floor", () => {
+    expect(computePiBelowFloor("1.0.1", "1.0.0")).toBeNull();
+  });
+
+  it("does not flag an unreported version", () => {
+    expect(computePiBelowFloor(undefined, "1.0.0")).toBeNull();
+  });
+
+  // Review B1: a pre-release of the floor is BELOW it (SemVer); build metadata is not.
+  it("flags a pre-release of the floor and of earlier versions", () => {
+    expect(computePiBelowFloor("1.0.0-beta.1", "1.0.0")).toEqual({ minimum: "1.0.0" });
+    expect(computePiBelowFloor("0.99.9-rc.1", "1.0.0")).toEqual({ minimum: "1.0.0" });
+  });
+
+  it("does not flag build metadata at the floor or a pre-release above it", () => {
+    expect(computePiBelowFloor("1.0.0+build.7", "1.0.0")).toBeNull();
+    expect(computePiBelowFloor("1.0.1-rc.1", "1.0.0")).toBeNull();
+  });
+
+  it("does not flag an unparseable version", () => {
+    expect(computePiBelowFloor("dev", "1.0.0")).toBeNull();
+    expect(computePiBelowFloor("", "1.0.0")).toBeNull();
+  });
+
+  // Review round 2 B1: a numeric prefix with trailing junk is NOT a version.
+  it("does not flag a malformed version with a numeric prefix", () => {
+    // Review round 3 B1: empty identifiers and leading-zero numeric prerelease
+    // identifiers are invalid SemVer too.
+    for (const v of ["0.99.9garbage", "0.87.1.4", "0.87", "v0.87.1x", "0.87.1-", "0.87.1+", "0.99.9-.", "0.99.9-01", "0.99.9+.", "01.0.0"]) {
+      expect(computePiBelowFloor(v, "1.0.0"), v).toBeNull();
+    }
   });
 });
 
@@ -503,6 +582,8 @@ describe("pi-version-skew", () => {
       expect(readCurrentPiVersion(registry)).toBe("0.74.0");
     });
 
+    // E16 — the registry fallback is scope-agnostic: any `*/pi-coding-agent`
+    // manifest behind the `pi` bin is read. See change: drop-mariozechner-pi-fork.
     it("non-symlinked path is a no-op under realpath", () => {
       const pkgDir = path.join(tmpDir, "pkg");
       const distDir = path.join(pkgDir, "dist");
@@ -511,7 +592,7 @@ describe("pi-version-skew", () => {
       fs.writeFileSync(cli, "// stub");
       fs.writeFileSync(
         path.join(pkgDir, "package.json"),
-        JSON.stringify({ name: "@mariozechner/pi-coding-agent", version: "0.69.0" }),
+        JSON.stringify({ name: "@other/pi-coding-agent", version: "0.69.0" }),
       );
       const registry = stubRegistry(cli);
       expect(readCurrentPiVersion(registry)).toBe("0.69.0");

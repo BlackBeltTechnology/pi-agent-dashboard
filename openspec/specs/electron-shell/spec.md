@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines the Electron desktop shell: main-process lifecycle and bootstrap arms (attach / launch-server / remote), the splash + loading windows, the system tray (ownership-aware menu), the zombie-adoption modal, window state, the opt-in CDP debug surface, and single-instance handling.
+
 ## Requirements
+
 ### Requirement: Electron main process lifecycle
 
 The Electron main process SHALL discover or launch a dashboard server, then open a BrowserWindow pointing at the server URL. The server SHALL always run as a separate detached process, never in-process. On `ensureServer()` failure the main process SHALL classify the error and route to either the configuration-error dialog or the interactive loading page — it SHALL NOT retry `ensureServer()` a second time, because a second 15 s budget produces no useful signal that the loading page (which polls indefinitely) does not already provide.
@@ -10,7 +12,7 @@ The Electron main process SHALL discover or launch a dashboard server, then open
 #### Scenario: Launch with no server running
 
 - **WHEN** the Electron app starts and no dashboard server is discovered (mDNS via `@blackbelt-technology/pi-dashboard-shared/mdns-discovery` + health check fallback via `@blackbelt-technology/pi-dashboard-shared/server-identity`)
-- **THEN** it SHALL launch the server as a detached process using the `tsx` binary and open a BrowserWindow pointing at `http://localhost:<port>` once the server is ready
+- **THEN** it SHALL launch the server as a detached process through `launchDashboardServer` (see `server-launch`), with the TypeScript loader selected per `server-launch` (Node-native by default, jiti when `PI_DASHBOARD_TS_LOADER=jiti`) resolved from the launch source, and open a BrowserWindow pointing at `http://localhost:<port>` once the server is ready
 
 #### Scenario: Launch with server already running
 
@@ -152,7 +154,7 @@ The app SHALL provide a Doctor function accessible from the app menu that checks
 
 #### Scenario: Doctor checks all components
 - **WHEN** the user opens "Doctor..." from the menu
-- **THEN** it SHALL check: Electron version, system Node.js, bundled Node.js, bundled npm, pi CLI, openspec CLI, dashboard server code, offline packages bundle, TypeScript loader (tsx), dashboard server status, server log presence, server launch test, setup wizard state, API key configuration, and managed install directory
+- **THEN** it SHALL check: Electron version, system Node.js, bundled Node.js, bundled npm, pi CLI, openspec CLI, dashboard server code, TypeScript loader, dashboard server status, server log presence, server launch test, setup wizard state, API key configuration, and managed install directory
 - **AND** each check SHALL report status (ok/warning/error), version, path, the section it belongs to, and a remediation suggestion when the status is not ok
 
 #### Scenario: Doctor opens a styled window
@@ -186,26 +188,6 @@ When the `ELECTRON_DEV` environment variable is set, the Electron app SHALL conn
 #### Scenario: Dev mode skips server launch
 - **WHEN** `ELECTRON_DEV=1` is set
 - **THEN** the Electron app SHALL open a BrowserWindow pointing at `http://localhost:8000` with the loading page retry mechanism
-
-### Requirement: Server launch via tsx binary
-The server SHALL be launched using the `tsx` binary (not `node --import tsx/esm`) to ensure proper `__dirname`/`__filename` shimming for CJS dependencies. When `tsx` is not available, the server SHALL fall back to spawning `node` with a `jiti` ESM loader; the jiti loader SHALL be resolved via the existing `resolveJitiFromPi()` chain (managed install first, then system pi). The bundled server tree (`resources/server/node_modules/`) does NOT contain `pi-coding-agent` and SHALL NOT be a candidate in the resolution chain — the runtime model is "tsx and pi live in the managed dir; the bundled tree only contains workspace deps."
-
-#### Scenario: tsx binary resolution
-- **WHEN** the server needs to be launched
-- **THEN** it SHALL find the `tsx` binary in `~/.pi-dashboard/node_modules/.bin/tsx` (managed) or system PATH
-
-#### Scenario: Server launch with tsx
-- **WHEN** launching the server
-- **THEN** it SHALL spawn `tsx <cli.ts> --port <port> --pi-port <piPort>` with NODE_PATH including the bundled server's node_modules
-
-#### Scenario: Server launch logging
-- **WHEN** the server is launched
-- **THEN** it SHALL write launch diagnostics and server output to `~/.pi-dashboard/server.log`
-
-#### Scenario: jiti fallback uses managed install first
-- **WHEN** `tsx` is not found
-- **THEN** the jiti loader passed to `node --import` SHALL be resolved from `~/.pi-dashboard/node_modules/@mariozechner/pi-coding-agent` (managed install) BEFORE checking the system pi install
-- **AND** the resolver SHALL NOT check the bundled server's `node_modules` (which intentionally does not contain pi-coding-agent — see the `electron-build-pipeline` spec)
 
 ### Requirement: External links open in the system browser, not a secondary Electron window
 The main `BrowserWindow` created by `createMainWindow` SHALL route every external URL initiated **from the dashboard origin** to the user's system browser via `shell.openExternal`, and SHALL never allow an external URL to (a) replace the dashboard in the main window or (b) spawn a secondary Electron `BrowserWindow`. An external URL is any URL whose origin differs from the server origin the main window was loaded with.
@@ -302,39 +284,6 @@ The `waitForReady` callsites in `server-lifecycle.ts` SHALL use a deadline of `1
 - **AND** SHALL include the hint "The server is likely still starting; the loading page will keep polling — try the Doctor button if it doesn't connect"
 - **AND** SHALL include the spawn command, CWD, and the last 20 lines of `server.log`
 
-### Requirement: Power-user mode runs `installStandalone()` even when the wizard UI is skipped
-The Electron main-process startup logic in `packages/electron/src/main.ts` SHALL run `installStandalone()` (or its dependency-installer equivalent) on every first launch, regardless of whether the wizard UI is shown. The current "auto-skip wizard when `pi.found && bridge.found`" optimisation SHALL be limited to suppressing the *user-facing wizard window*; it SHALL NOT skip the *managed dependency install*.
-
-The two concerns are orthogonal:
-- *Show wizard UI?* — depends on user state (skip if pi+bridge already present)
-- *Install managed dependencies?* — should ALWAYS run on first launch (the bundled server's runtime requires `tsx`/`pi-coding-agent`/`openspec` to be in the managed dir, NOT in the user's system pi)
-
-Conflating them produced Defect 1 of change `fix-electron-windows-installer-and-server-bootstrap`: the user's `~/.pi-dashboard/node_modules/` stayed empty after the auto-skip path, so the bundled server had no `tsx` / `pi-coding-agent` / `openspec` to load and crashed with `MODULE_NOT_FOUND` (after falling back to system pi 0.71.x's broken jiti).
-
-#### Scenario: Power-user first launch installs managed dependencies
-- **WHEN** the Electron app launches for the first time AND `pi.found && bridge.found` evaluates to true
-- **THEN** the wizard UI SHALL NOT be shown (preserves the existing optimisation)
-- **AND** `installStandalone()` SHALL be called and complete (or fail loudly with a user-visible error)
-- **AND** `~/.pi-dashboard/node_modules/` SHALL contain `tsx`, `@mariozechner/pi-coding-agent` at the pinned version, and `@fission-ai/openspec` at the pinned version after the install completes
-
-#### Scenario: Subsequent launches in power-user mode are fast
-- **WHEN** the Electron app launches for the second or later time in power-user mode AND `~/.pi-dashboard/node_modules/` is already populated with the expected packages at the expected versions
-- **THEN** `installStandalone()` SHALL detect the populated state and return immediately (idempotency check)
-- **AND** the launch SHALL not be measurably slower than today's auto-skip path
-
-#### Scenario: Wizard UI path also runs install
-- **WHEN** the Electron app launches for the first time AND either pi or bridge is missing (so the wizard UI IS shown)
-- **THEN** the wizard SHALL run `installStandalone()` as part of its existing flow (preserves current behaviour)
-
-#### Scenario: Power-user mode + corrupt managed dir re-installs
-- **WHEN** the Electron app launches in power-user mode AND `~/.pi-dashboard/node_modules/` exists but is missing one or more pinned packages
-- **THEN** `installStandalone()` SHALL detect the partial state and re-install the missing packages
-
-#### Scenario: Loading page shows install progress
-- **WHEN** `installStandalone()` is running during the auto-skip path's first launch
-- **THEN** the Electron main window's loading page SHALL display a "Setting up dependencies..." indicator
-- **AND** the indicator SHALL switch to "Connecting to server..." once `installStandalone()` completes and the server-launch step begins
-
 ### Requirement: `detectPiDashboardCli()` filters for executable extensions on Windows
 On Windows, `detectPiDashboardCli()` in `packages/electron/src/lib/dependency-detector.ts` SHALL filter the output of `where pi-dashboard` for files with one of the executable extensions `.cmd`, `.exe`, `.bat`, `.ps1` (case-insensitive) and prefer the first such match. This SHALL fall back to `lines[0]` only when no candidate has a recognised executable extension. POSIX behaviour (single line from `which`) SHALL be unchanged.
 
@@ -355,54 +304,6 @@ This requirement exists because npm-global installs on Windows produce both an e
 #### Scenario: No executable extension found, fall back to lines[0]
 - **WHEN** `where pi-dashboard` returns multiple lines on Windows AND none have a recognised executable extension
 - **THEN** the function SHALL return `lines[0]` (preserves the current behaviour for unusual setups; the spawn site fails loudly there if needed)
-
-### Requirement: `shouldUrlWrapEntry()` documents jiti version contract
-The `shouldUrlWrapEntry()` helper in `packages/shared/src/platform/node-spawn.ts` SHALL include a documented contract in its header comment that the Windows-non-tsx arm assumes the jiti loader is from `@mariozechner/pi-coding-agent@0.70.x` (jiti 2.x with the `file:///` triple-slash URL handling fix). The contract SHALL explicitly note that newer jiti versions (e.g. jiti 2.6.5 in pi-coding-agent@0.71.x) misnormalize triple-slash URLs and break the contract. The contract SHALL also direct future contributors to either update the contract, add a per-version branch, or switch to tsx if the offline-cacache-pinned `pi-coding-agent` is ever bumped to a version with a different jiti.
-
-The contract is **defended in practice** by Defect 1's fix: when `installStandalone()` runs from the offline cacache, the managed dir contains `pi-coding-agent` at the version pinned in `packages/electron/offline-packages.json` (currently `0.70.0`). The runtime resolver `resolveJitiFromPi()` finds the managed version first; the system fallback (which is where jiti 2.6.5 would come from on a user's machine) is only reached when the managed dir is empty — which after Defect 1's fix should never happen.
-
-The contract SHALL be regression-pinned by an automated test that asserts the offline-cacache-pinned `pi-coding-agent` version falls within the supported range (`0.70.x`).
-
-#### Scenario: Header comment documents the version contract
-- **WHEN** `packages/shared/src/platform/node-spawn.ts` is read
-- **THEN** the `shouldUrlWrapEntry` function's header comment SHALL contain the strings "jiti version contract" and "0.70.x"
-- **AND** SHALL contain at least one of the strings "0.71" / "2.6.5" identifying the known-broken jiti version
-- **AND** SHALL contain remediation guidance (re-verify, add per-version branch, OR switch to tsx)
-
-#### Scenario: Test asserts offline-cacache pi version is in the supported range
-- **WHEN** the regression-pin test (`node-spawn-jiti-contract.test.ts`) runs
-- **THEN** it SHALL read the `@mariozechner/pi-coding-agent` pin from `packages/electron/offline-packages.json`
-- **AND** SHALL fail if the version does not begin with `0.70.` (i.e. is not within the contract-supported range)
-
-### Requirement: Extracted LaunchSource health-checks jiti reachability before returning
-The `extracted` LaunchSource resolution path SHALL verify that the bundled CLI tree is usable before returning. Specifically, `extractLaunchSource` SHALL compute `healthy = existsSync(cliPath) && resolveJitiFromAnchor(cliPath) !== null` after the version-marker check and SHALL run the bundle extraction + `installStandalone` block when `healthy` is `false`, even if the `.version` marker matches `currentVersion`. The current behavior — relying on the marker alone — is insufficient because the marker can be stale relative to the actual node_modules tree (partial extraction, antivirus quarantine, manual wipe, npm reconciliation prune).
-
-#### Scenario: Marker matches and jiti reachable — skip extraction
-- **WHEN** `extractLaunchSource` runs against a managed dir whose `.version` marker matches `bundledMinVersion` AND `cliPath` exists AND `resolveJitiFromAnchor(cliPath)` returns a non-null URL
-- **THEN** the function SHALL skip extraction (`didExtract: false`)
-- **AND** the returned `LaunchSource` SHALL be `{ kind: "extracted", cliPath, cwd: managedDir, didExtract: false }`
-
-#### Scenario: Marker matches but cliPath missing — re-extract
-- **WHEN** `extractLaunchSource` runs against a managed dir whose `.version` marker matches `bundledMinVersion` BUT `cliPath` does not exist on disk
-- **THEN** the function SHALL run `extractBundle` followed by `installStandalone` (the same block triggered by `needsExtraction`)
-- **AND** the returned `LaunchSource` SHALL reflect that re-extraction occurred
-
-#### Scenario: Marker matches and cliPath exists but jiti unreachable — re-extract
-- **WHEN** `extractLaunchSource` runs against a managed dir whose `.version` marker matches AND `cliPath` exists BUT `resolveJitiFromAnchor(cliPath)` returns `null`
-- **THEN** the function SHALL run `extractBundle` followed by `installStandalone`
-- **AND** SHALL log a single warn line `[launch-source] extracted source unhealthy (jiti missing); forcing re-extract` before doing so
-
-#### Scenario: Marker mismatch — re-extract regardless of health
-- **WHEN** `extractLaunchSource` runs against a managed dir whose `.version` marker does NOT match `bundledMinVersion`
-- **THEN** the function SHALL run `extractBundle` + `installStandalone` (existing behavior — health check is additive, not subtractive)
-
-#### Scenario: Health probe accepts injected dependencies for testing
-- **WHEN** `extractedSourceIsHealthy(cliPath, deps?)` is called from a unit test with `deps = { existsSync, resolveJitiFromAnchor }` mocked
-- **THEN** the helper SHALL use the injected functions and SHALL NOT touch the real filesystem or invoke the real jiti resolver
-
-#### Scenario: Health probe is defensive against thrown errors
-- **WHEN** an injected `existsSync` or `resolveJitiFromAnchor` throws
-- **THEN** `extractedSourceIsHealthy` SHALL return `false` (treating thrown errors as unhealthy)
 
 ### Requirement: Idempotent server launch routine
 The Electron main process SHALL expose an exported `requestServerLaunch()` routine in `packages/electron/src/lib/server-lifecycle.ts` that is the single entry point used by the loading page button, tray menu items, and any future in-app launch controls. The routine SHALL be idempotent under concurrent invocation.
@@ -696,3 +597,20 @@ When attaching in remote mode, the app SHALL determine target reachability using
 - **THEN** the main-process probe SHALL report not-reachable
 - **AND** the loading page SHALL surface the existing connection-error UI after the timeout (no indefinite silent hang)
 
+### Requirement: `shouldUrlWrapEntry()` documents the jiti URL-entry breakage
+The header comment of `shouldUrlWrapEntry()` in `packages/shared/src/platform/node-spawn.ts` SHALL carry a "JITI VERSION CONTRACT" section. The section SHALL explain why the entry-wrap rule passes jiti entries raw. The rule itself is owned by `server-launch` "Single shared dashboard-server spawn primitive". The section SHALL:
+- document the Windows breakage, either with the `file:/<cwd>/file:/…` error signature or by naming it misnormalisation;
+- give remediation guidance for a future jiti that fixes URL handling: re-verify on real Windows and add a per-version branch.
+
+The rule SHALL NOT branch on, or assert, a specific `pi-coding-agent` or jiti version. The comment may name versions as historical evidence.
+
+#### Scenario: Header comment documents the contract
+- **WHEN** `packages/shared/src/platform/node-spawn.ts` is read
+- **THEN** it SHALL contain the string "JITI VERSION CONTRACT"
+- **AND** it SHALL contain a Windows-breakage marker: the `file:/…file:/` error signature or the word "misnormalise"/"misnormalize"
+- **AND** it SHALL contain remediation guidance: "re-verify" or "per-version branch"
+
+#### Scenario: Contract is regression-pinned without a version pin
+- **WHEN** `node-spawn-jiti-contract.test.ts` runs
+- **THEN** it SHALL assert the header-comment markers above and the jiti arm of the `server-launch` entry-wrap rule
+- **AND** it SHALL NOT read `packages/electron/offline-packages.json` or assert any `pi-coding-agent` version range

@@ -44,13 +44,19 @@ describe("browser-plugin manifest (E31)", () => {
     expect(v.defaultEnabled).toBe(false);
   });
 
-  it("declares settings-section + session-card-badge + content-view claims that resolve to exported components", () => {
+  it("declares settings-section + session-card-badge + editor-pane-tab claims that resolve to exported components (and no content-view)", () => {
     const v = validateManifest(manifest, "browser");
     expect(v.claims.map((c) => c.slot).sort()).toEqual([
-      "content-view",
+      "editor-pane-tab",
       "session-card-badge",
       "settings-section",
     ]);
+    // D10: the relay no longer takes over the chat.
+    expect(v.claims.some((c) => c.slot === "content-view")).toBe(false);
+    const pane = v.claims.find((c) => c.slot === "editor-pane-tab");
+    expect(pane).toMatchObject({ pathPrefix: "browser", component: "BrowserPaneTab", labelComponent: "BrowserTabLabel" });
+    expect(typeof (clientEntry as Record<string, unknown>).BrowserTabLabel).toBe("function");
+    expect(v.bridge).toBe("./src/bridge/index.ts");
 
     for (const claim of v.claims) {
       const component = (clientEntry as Record<string, unknown>)[claim.component as string];

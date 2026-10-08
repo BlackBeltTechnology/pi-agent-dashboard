@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-client-utils",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Small reusable React components, hooks, and helpers shared between the pi-dashboard shell and dashboard plugins. Per-subpath exports; no markdown stack.",
   "license": "MIT",
   "publishConfig": {
@@ -32,6 +32,26 @@
     "./escape-stack": {
       "types": "./src/escape-stack.ts",
       "default": "./src/escape-stack.ts"
+    },
+    "./identity/pkce": {
+      "types": "./src/identity/pkce.ts",
+      "default": "./src/identity/pkce.ts"
+    },
+    "./identity/token-store": {
+      "types": "./src/identity/token-store.ts",
+      "default": "./src/identity/token-store.ts"
+    },
+    "./identity/oidc-flow": {
+      "types": "./src/identity/oidc-flow.ts",
+      "default": "./src/identity/oidc-flow.ts"
+    },
+    "./identity/login-flow": {
+      "types": "./src/identity/login-flow.ts",
+      "default": "./src/identity/login-flow.ts"
+    },
+    "./identity/dpop": {
+      "types": "./src/identity/dpop.ts",
+      "default": "./src/identity/dpop.ts"
     },
     "./Popover": {
       "types": "./src/Popover.tsx",
@@ -131,8 +151,8 @@
     "react-dom": ">=18.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1"
   },

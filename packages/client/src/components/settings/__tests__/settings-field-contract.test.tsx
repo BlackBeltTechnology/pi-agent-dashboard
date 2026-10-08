@@ -342,3 +342,51 @@ describe("Memory Limits — byte budgets and resident count", () => {
     expect(screen.getByText(/Requires server restart/)).toBeTruthy();
   });
 });
+
+// The coupling warning must be visible from BOTH edit points — a pairing that
+// guarantees an OOM looks unremarkable at either field on its own.
+// See change: guard-server-heap-and-store-coupling (test-plan #E6).
+describe("server-heap / store-budget coupling — surfaced on both fields", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    window.history.replaceState({}, "", "/settings/general");
+  });
+  afterEach(() => cleanup());
+
+  it("E6: an unsafe pairing warns at the server heap field and at the budget field", async () => {
+    const config = {
+      port: 8000,
+      piPort: 9999,
+      spawnStrategy: "headless",
+      tunnel: { enabled: true },
+      serverHeap: { maxOldSpaceMb: 1536 },
+      memoryLimits: { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304, maxTotalEventBytes: 2048 * 1024 * 1024 },
+    };
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: config }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    fireEvent.click(within(screen.getByTestId("settings-nav-rail")).getByRole("button", { name: "Server" }));
+    await waitFor(() => screen.getByText("Memory Limits"));
+
+    const atHeap = screen.getByTestId("server-heap-store-heap-warning");
+    const atBudget = screen.getByTestId("memory-limits-store-heap-warning");
+    expect(atHeap.textContent).toBe(atBudget.textContent);
+    // Each sits beside its own field, not one shared banner: the heap one
+    // after the ceiling input and before the Memory Limits heading, the budget
+    // one after the budget input.
+    const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const heapInput = screen.getByTestId("server-heap-max-old-space");
+    const memHeading = screen.getByText("Memory Limits");
+    const budgetInput = screen.getByRole("spinbutton", { name: /Max Total Event Bytes/ });
+    expect(follows(heapInput, atHeap)).toBe(true);
+    expect(follows(atHeap, memHeading)).toBe(true);
+    expect(follows(budgetInput, atBudget)).toBe(true);
+  });
+});

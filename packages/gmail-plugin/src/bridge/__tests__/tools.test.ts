@@ -75,7 +75,15 @@ function route(
 }
 
 function fakeGmail(
-  opts: { status?: number; retryAfter?: string; html?: boolean; attachmentSize?: number; emptyBody?: boolean } = {},
+  opts: {
+    status?: number;
+    retryAfter?: string;
+    html?: boolean;
+    attachmentSize?: number;
+    emptyBody?: boolean;
+    /** Raw error body sent with `status` (default `{}`). */
+    errorBody?: string;
+  } = {},
 ) {
   const calls: GmailCall[] = [];
   const base = `${TEST_ENDPOINTS.gmail}/users/me/`;
@@ -85,7 +93,7 @@ function fakeGmail(
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined;
     calls.push({ method: init?.method ?? "GET", path, body });
     if (opts.status) {
-      return new Response("{}", { status: opts.status, headers: opts.retryAfter ? { "retry-after": opts.retryAfter } : {} });
+      return new Response(opts.errorBody ?? "{}", { status: opts.status, headers: opts.retryAfter ? { "retry-after": opts.retryAfter } : {} });
     }
     if (opts.emptyBody && url.pathname.endsWith("/batchModify")) return new Response("", { status: 200 });
     return new Response(JSON.stringify(route(url, init?.method ?? "GET", body, opts)), {
@@ -328,5 +336,96 @@ describe("CodeRabbit — empty 200 bodies", () => {
     const { run } = setup({ gmail: { emptyBody: true } });
     const r = await run("gmail_modify", { account: "work", ids: ["m1"], removeLabels: ["INBOX"] }, ui(true).ctx);
     expect(r.details.ids).toEqual(["m1"]);
+  });
+});
+
+// ── improve-gmail-settings-ux — design D9 ────────────────────────────────────
+
+const errorInfo = (reason: unknown, metadata?: unknown, type: unknown = "type.googleapis.com/google.rpc.ErrorInfo") => ({
+  "@type": type,
+  reason,
+  ...(metadata === undefined ? {} : { metadata }),
+});
+const body403 = (error: unknown) => JSON.stringify({ error });
+const search403 = async (errorBody: string) => {
+  const { run } = setup({ gmail: { status: 403, errorBody } });
+  return (await run("gmail_search", { account: "work", query: "x" }).catch((e) => e)) as GmailToolError;
+};
+
+describe("test-plan #E14 — Gmail API disabled", () => {
+  it("modern ErrorInfo names the project and the enable command", async () => {
+    const err = await search403(
+      body403({
+        code: 403,
+        message: "Gmail API has not been used in project 603220229616 before or it is disabled.",
+        details: [errorInfo("SERVICE_DISABLED", { service: "gmail.googleapis.com", consumer: "projects/603220229616" })],
+      }),
+    );
+    expect(err).toBeInstanceOf(GmailToolError);
+    expect(err.code).toBe("api_disabled");
+    expect(err.message).toContain("603220229616");
+    expect(err.message).toContain("gcloud services enable gmail.googleapis.com --project=603220229616");
+    expect(err.message).not.toContain("has not been used");
+  });
+
+  it("legacy accessNotConfigured → api_disabled without a project number", async () => {
+    const err = await search403(body403({ errors: [{ reason: "accessNotConfigured", message: "x" }] }));
+    expect(err.code).toBe("api_disabled");
+    expect(err.message).not.toMatch(/\d{5,}/);
+    expect(err.message).toContain("gcloud services enable gmail.googleapis.com");
+  });
+});
+
+describe("test-plan #E15 — token lacks the Gmail scope", () => {
+  it.each([
+    body403({ details: [errorInfo("ACCESS_TOKEN_SCOPE_INSUFFICIENT", { service: "gmail.googleapis.com" })] }),
+    body403({ errors: [{ reason: "insufficientPermissions" }] }),
+  ])("%s → scope_insufficient", async (b) => {
+    const err = await search403(b);
+    expect(err.code).toBe("scope_insufficient");
+    expect(err.message).toMatch(/re-authenticate/);
+    expect(err.message).toMatch(/every permission/);
+  });
+});
+
+describe("test-plan #E16 — consumer must be projects/<digits>", () => {
+  it.each([["projects/abc", "abc"], ["projects/1;rm -rf", "rm -rf"], [12345, "12345"], [undefined, "undefined"]])(
+    "consumer %j → api_disabled without it",
+    async (consumer, needle) => {
+      const err = await search403(
+        body403({ details: [errorInfo("SERVICE_DISABLED", { service: "gmail.googleapis.com", consumer })] }),
+      );
+      expect(err.code).toBe("api_disabled");
+      expect(err.message).not.toContain(needle);
+    },
+  );
+});
+
+describe("test-plan #E17 — another service disabled is not ours", () => {
+  it("SERVICE_DISABLED for drive.googleapis.com → gmail_error", async () => {
+    const err = await search403(
+      body403({ details: [errorInfo("SERVICE_DISABLED", { service: "drive.googleapis.com", consumer: "projects/1" })] }),
+    );
+    expect(err.code).toBe("gmail_error");
+  });
+});
+
+describe("test-plan #X8 — malformed 403 bodies degrade to gmail_error", () => {
+  it.each([
+    "not json",
+    "{}",
+    body403("x"),
+    body403({ details: "x" }),
+    body403({ details: [errorInfo({}, "m", 5)] }),
+    body403({ details: [null, 3, errorInfo("SERVICE_DISABLED", "notobject", "x.ErrorInfo")] }),
+    body403({ errors: "x" }),
+    body403({ errors: [null, { reason: 7 }] }),
+    body403({ message: "SECRET-TEXT", details: [] }),
+    "null",
+  ])("%s → gmail_error", async (b) => {
+    const err = await search403(b);
+    expect(err).toBeInstanceOf(GmailToolError);
+    expect(err.code).toBe("gmail_error");
+    expect(err.message).toBe("gmail_error: Gmail returned HTTP 403");
   });
 });

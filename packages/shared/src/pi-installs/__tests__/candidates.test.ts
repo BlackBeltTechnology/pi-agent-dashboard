@@ -24,6 +24,7 @@ import {
 	type EnumerateDeps,
 	enumeratePiCandidates,
 	invalidatePiCandidatesCache,
+	isPiCodingAgentName,
 	PI_MODULE_ENTRY,
 	PI_SPAWN_ENTRY,
 	type PiCandidate,
@@ -347,5 +348,21 @@ describe("validatePiOverridePath (E11–E13)", () => {
 		expect(res.version).toBe("0.84.1");
 		// Compared via realpath: macOS reports /tmp as /private/tmp.
 		expect(samePackageDir(res.pkgDir, pkgDir)).toBe(true);
+	});
+});
+
+// E9 — scope-agnostic manifest-name predicate. See change:
+// drop-mariozechner-pi-fork (test-plan #E9, design decision 3).
+describe("isPiCodingAgentName", () => {
+	it.each([
+		["pi-coding-agent", true],
+		["@earendil-works/pi-coding-agent", true],
+		["@other/pi-coding-agent", true],
+		["pi-coding-agent-x", false],
+		["@x/pi-ai", false],
+		["", false],
+		[undefined, false],
+	] as const)("%s → %s", (name, expected) => {
+		expect(isPiCodingAgentName(name)).toBe(expected);
 	});
 });

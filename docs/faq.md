@@ -187,11 +187,16 @@ Commands:
 ```bash
 pi-dashboard start              # production daemon
 pi-dashboard start --dev        # dev mode (Vite proxy + fallback)
-pi-dashboard stop               # stop, also kills stale port holders
+pi-dashboard stop               # stop; honors --port/--pi-port; kills only port holders this HOME owns
+pi-dashboard stop --force       # DANGEROUS: kill EVERY listener on the resolved ports
 pi-dashboard restart            # restart (production)
 pi-dashboard restart --dev      # restart in dev mode
 ```
 
+- Port resolution identical to `start` (flag > env > file), including the temp-HOME guard; port `0` never inspected.
+- Sweep kills a holder only when this `HOME` proves ownership: `server.lock.meta.json` records that pid for the swept HTTP port, or `/api/health` reports this HOME's persisted `instanceId` with a matching pid. `server.pid` is not a proof for the sweep.
+- Non-owned holders are reported and left running. Exit code stays `0`, so `stop && start` chains keep working; the following `start` reports the port conflict.
+- `--force` kills every listener on the resolved ports. DANGEROUS: can kill another HOME's/user's dashboard, the Electron app's server, or an unrelated service. Use only to recover an orphaned listener nothing else can attribute. `restart` ignores `--force`.
 - Logs append to `~/.pi/dashboard/server.log` with timestamped headers per start.
 - `restart` delegates to `POST /api/restart` when dashboard already up.
 - Graceful restart via API: `curl -X POST http://localhost:8000/api/restart`. Body `{"dev":true|false}` switches mode.
@@ -234,6 +239,7 @@ Sequence:
 6. Port closed + `autoStart: false` → skip.
 
 - Concurrent spawns from multiple pi sessions fail harmlessly with `EADDRINUSE`.
+- Stale holder recovery: `pi-dashboard stop` (kills owned holders only) or `pi-dashboard stop --force` for an orphan nothing on disk attributes.
 - Disable via `"autoStart": false` in `~/.pi/dashboard/config.json`.
 - Bridge honours `PI_DASHBOARD_URL=ws://host:port` to point at remote server instead of localhost.
 
@@ -241,6 +247,37 @@ Cross-refs:
 - README.md:265
 - README.md:470
 - docs/architecture.md:13
+
+## How do I keep the bridge out of my own pi sessions?
+
+Problem: dashboard server registers bridge in `~/.pi/agent/settings.json` → every pi process on host loads it. Loads `ask_user` tool, canvas, role/model tools, `dashboard-*` commands, `pi-dashboard` MCP server, per-turn prompt fragment, connect + auto-start. `autoStart: false` only stops server spawn.
+
+Env opt-out: `PI_DASHBOARD_BRIDGE=off` (`0`, `false`, `no` also; trimmed, case-insensitive). Bridge inert in that process: nothing registered, no connect, no auto-start, no output.
+
+Example: `PI_DASHBOARD_BRIDGE=off pi`
+
+Force-enable: `on`, `1`, `true`, `yes`.
+
+Config opt-out: `{ "bridge": { "enabled": false } }` in `~/.pi/dashboard/config.json`. Default `true`. Non-boolean → `true`. Not seeded by `ensureConfig()`. No Settings UI toggle.
+
+Precedence: env > config > default (on). Unrecognised / empty env → config decides.
+
+Dashboard-spawned sessions always attach. Server stamps `PI_DASHBOARD_BRIDGE=on` in `buildSpawnEnv` (`packages/server/src/spawn-process/process-manager.ts`) + per-window `-e PI_DASHBOARD_BRIDGE=on` in `buildTmuxCommand`. tmux panes inherit tmux server env. Descendants (nested pi, subagents) inherit `on`. Explicit `PI_DASHBOARD_BRIDGE=off` on descendant still wins.
+
+Fail-open: config read error → bridge activates.
+
+Caveats:
+- Package skills (`pi-dashboard`, `browser`, `project-init`, `doctor`) still load — pi loads from package manifest, outside extension factory.
+- Inert pi never registers → no session card. `npm run reload` skips it.
+- pi typed in dashboard terminal panel follows env/config (no stamp).
+- Windows Terminal spawn relies on `wt.exe` env propagation (not guaranteed).
+
+See change: add-bridge-env-opt-out.
+
+Cross-refs:
+- packages/extension/src/bridge-activation.ts (`shouldActivateBridge`)
+- packages/shared/src/config.ts (`resolveBridgeEnabled`, `bridgeEnvOverride`)
+- Issue #818
 
 ## How do I retry the dashboard server launch from the Electron app?
 
@@ -277,6 +314,47 @@ Cross-refs:
 - packages/electron/src/lib/pick-node.ts
 - packages/electron/src/lib/server-lifecycle.ts
 - packages/shared/src/server-launcher.ts
+
+## Server fails to start / behaves differently after the native TS loader switch — how to roll back?
+
+Since change `fix-appimage-cold-boot-latency` the server boots the Node-native TS loader by default. Roll back to jiti.
+
+POSIX:
+
+```
+pi-dashboard stop && PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start
+```
+
+PowerShell:
+
+```
+pi-dashboard stop; $env:PI_DASHBOARD_TS_LOADER = "jiti"; pi-dashboard start
+```
+
+Electron: set `PI_DASHBOARD_TS_LOADER=jiti` in the launching environment, then relaunch the app. Windows: `setx PI_DASHBOARD_TS_LOADER jiti` for new processes, or `$env:` before launching.
+
+`/api/restart` keeps the running loader — it does NOT switch. Fresh launch required.
+
+Check which loader a launch used. Header names the loader (`native-ts-register.mjs` or jiti URL).
+
+POSIX:
+
+```
+grep "launch (parent pid" ~/.pi/dashboard/server.log | tail -1
+```
+
+PowerShell:
+
+```
+Select-String -Path "$HOME\.pi\dashboard\server.log" -SimpleMatch "launch (parent pid" | Select-Object -Last 1
+```
+
+Node < 22.19 unsupported by the server whatever the loader — server enforces floor `>= 22.19` (`engines` `>=22.19.0`, `packages/shared/src/node-version.ts`); upgrade Node. A Node build lacking `module.stripTypeScriptTypes` (embedded/stripped builds) fails with error naming `PI_DASHBOARD_TS_LOADER=jiti` — set it to boot with jiti.
+
+Cross-refs:
+- packages/shared/src/platform/ts-loader-select.mjs
+- packages/shared/src/platform/native-ts-register.mjs
+- docs/architecture.md
 
 ## Electron shows "Server managed externally" in the tray — what does that mean?
 
@@ -360,10 +438,12 @@ Common keys:
 - `devBuildOnReload` (default `false`)
 - `askUserPromptTimeoutSeconds` (default `300`; `≤0` = wait indefinitely)
 - `allowedHosts` (default `[]`) — bare hostnames the dashboard may answer on (e.g. reverse-proxy name). No scheme/port. Applies live.
-- `hostGate.mode` (default `"report"`) — `"report"` logs `[host-gate] would-refuse` + proceeds; `"enforce"` refuses unlisted hosts. Applies live.
+- `hostGate.mode` (default `"enforce"`) — `"enforce"` refuses unlisted hosts; `"report"` logs `[host-gate] would-refuse` + proceeds. Absent → `"enforce"`; unrecognised value → `"report"` (typo cannot lock out). Opt out: `hostGate.mode: "report"` or `PI_DASHBOARD_HOST_GATE=report`. Applies live. Boot line `[host-gate] mode=<m> source=env|config|default` names resolved mode.
+- `agentPathGate.enabled` (default `true`) — bridge `tool_call` gate for agent `read`/`write`/`edit` outside session roots; out-of-root asks in-chat. `false` → handler returns immediately. Applies from the next tool call.
+- `agentPathGate.timeoutSeconds` (default `120`) — one budget shared by the file-access select and its Always-allow confirm; expiry cancels open prompts and blocks.
 
 CLI flags: `--port`, `--pi-port`, `--dev`, `--no-tunnel`.
-Env vars: `PI_DASHBOARD_PORT`, `PI_DASHBOARD_PI_PORT`, `PI_DASHBOARD_URL` (bridge → remote server), `PI_DASHBOARD_HOST_GATE` (`report`|`enforce`; overrides `hostGate.mode`; unrecognised = ignored + logged once).
+Env vars: `PI_DASHBOARD_PORT`, `PI_DASHBOARD_PI_PORT`, `PI_DASHBOARD_URL` (bridge → remote server), `PI_DASHBOARD_HOST_GATE` (`report`|`enforce`; overrides `hostGate.mode`; unrecognised = ignored + logged once), `PI_DASHBOARD_AGENT_PATH_GATE` (`off`|`on`; overrides `agentPathGate.enabled`; Settings ▸ Security ▸ Agent file access toggle inert under env override).
 
 Live-reconfigurable via `PUT /api/config` — partial merge, secrets preserved as `***`. Port/piPort changes set `restartRequired: true`.
 
@@ -419,16 +499,18 @@ See change: warn-unreachable-trusted-networks.
 
 ## I got 'This address is not allowed'?
 
-Host-admission gate refused the request's `Host` header (issue #637; `hostGate.mode: "enforce"` or `PI_DASHBOARD_HOST_GATE=enforce`). Gate keys on `Host`, not `Origin` — a DNS-rebinding page is same-origin and sends no `Origin`.
+Host-admission gate refused the request's `Host` header (issue #637; default `hostGate.mode: "enforce"`). Gate keys on `Host`, not `Origin` — a DNS-rebinding page is same-origin and sends no `Origin`.
 
-Three ways in (the 403 page lists all):
+Locked out? Check `server.log` for boot line `[host-gate] mode=<m> source=env|config|default`, then add the host to `allowedHosts`/`publicBaseUrls`, or opt out (`hostGate.mode: "report"` / `PI_DASHBOARD_HOST_GATE=report`).
+
+Ways in (the 403 page lists all):
 - open `http://localhost:<port>` from the host machine
 - add the bare name to `allowedHosts` in `~/.pi/dashboard/config.json` (applies live)
 - add the full URL to `publicBaseUrls`
 
-Before flipping to `enforce`, check what would break: Settings ▸ Security ▸ Allowed hostnames ▸ Recent refusals, or `grep -F '[host-gate] would-refuse' server.log`. Report-only mode logs every name.
+`report` mode logs every `[host-gate] would-refuse` name + proceeds. Settings ▸ Security ▸ Allowed hostnames ▸ Recent refusals also lists refused names.
 
-See change: add-host-allowlist-admission.
+See change: add-host-allowlist-admission, harden-server-request-surfaces.
 
 ## Plugin pages 403 `network_not_allowed` after upgrade?
 
@@ -482,6 +564,37 @@ Remedy:
 Tailnet CIDR `100.64.0.0/10` never matches under `tailscale serve` — peer is `127.0.0.1`. Forwarded client IP deliberately not trusted (`trustProxy` false).
 
 See change: fix-trusted-network-tunnel-bypass.
+
+## Why do control routes 403 `local_proof_required` after enabling `requireLocalProof`?
+
+`requireLocalProof` on. Bare loopback (loopback peer, no `X-Forwarded-*`) no longer admits everything.
+
+Without proof:
+- `observe`-tier `GET /api/*` reads.
+- `/api/health`.
+
+Needs proof:
+- `control` / `operate` REST routes.
+- Browser WS (`/ws`, `/ws/terminal/*`, `/live/*`).
+- Plugin-registered WS scopes.
+- Bridge-ticket mint.
+- Route-tier exemption.
+- Pairing approval (`POST /api/pair/approve`, `/approve-pending`).
+
+Proof = `pi_dash_local` cookie (httpOnly, `SameSite=Strict`, 30 d), `X-Pi-Local-Token`, or a logged-in principal.
+
+Fix an interactive browser: run `pi-dashboard open`. Electron does this itself.
+Fix a script / `curl -X POST` on this host: send the local token. Value at `~/.pi/dashboard/local/token`, header `X-Pi-Local-Token`. `npm run reload` and CLI `restart` already send it.
+
+When to enable: only header-injecting tunnels (zrok) are safe without it. Marker-less relays (`ssh -R`, `socat`) terminate on `127.0.0.1` with no forwarding header, look like bare loopback, and get full code-exec access. Enable `requireLocalProof` when such a relay is used.
+
+`127.0.0.1` in `trustedNetworks` does NOT re-admit a relay under strict.
+Pairing approval never honors bare loopback in ANY mode — even default-off. Hand-typed `http://localhost:8000` on an auth-off install: use `pi-dashboard open` or Electron.
+Rotating `~/.pi/dashboard/local/token` invalidates every proof cookie — re-run `pi-dashboard open`.
+`/v1/*` model proxy stays bare-loopback-trusted (local pi processes call it; no code exec).
+Toggle applies live — no restart.
+
+See change: harden-trust-and-credential-boundaries.
 
 ## Pairing ≠ LAN access; how to get a secure road for LAN pairing
 
@@ -1151,6 +1264,7 @@ Plugin config:
 - All settings under `plugins.<id>.*` in `~/.pi/dashboard/config.json`.
 - Manifest may declare `configSchema` (JSON Schema 7); Ajv validates on read (with defaults) + write (rejects invalid).
 - `POST /api/config/plugins/:id` accepts partial config; broadcasts `plugin_config_update { id, config }`.
+- Partial write keeps omitted keys: validation clones the body so Ajv `useDefaults` cannot reset stored values; defaults fill only never-stored keys (`fix-plugin-config-partial-write`).
 - `pluginContext.usePluginConfig<T>()` reactive — re-renders within one frame of write.
 - Legacy top-level keys (e.g. `openspec.*`) auto-migrate on plugin's first server boot.
 
@@ -1208,7 +1322,7 @@ Headless command line:
 
 Detached spawn (`platform/detached-spawn.ts`): `spawnDetached` uses `detached: true` on every OS. Windows emits `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, skips `AssignProcessToJobObject` → child excluded from parent's `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Pi sessions survive dashboard restart on all platforms (matches Unix PGID behavior). `headlessPidRegistry` reconciles survivors at `~/.pi/dashboard/headless-pids.json` on server boot.
 
-Reload path selection: headless (dashboard-spawned) sessions → server kill-and-respawn (`handleHeadlessReload`). tmux/wt/wsl-tmux → server forwards `/reload` over session WS → bridge `reload()` (`createTerminalReload`, `terminal-reload.ts`) self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})`, gated pi >= 0.84.2; handler gets fresh `ExtensionCommandContext` → `ctx.reload()`. `ExtensionContext` has no `reload()`; nothing captured. See change: fix-terminal-session-dashboard-reload.
+Reload path selection: headless (dashboard-spawned) sessions → server kill-and-respawn (`handleHeadlessReload`). tmux/wt/wsl-tmux → server forwards `/reload` over session WS → bridge `reload()` (`createTerminalReload`, `terminal-reload.ts`) self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})`, ungated (pi 1.0.0 floor); handler gets fresh `ExtensionCommandContext` → `ctx.reload()`. `ExtensionContext` has no `reload()`; nothing captured. See change: fix-terminal-session-dashboard-reload.
 
 Cross-refs:
 - docs/architecture.md:1147
@@ -1317,11 +1431,11 @@ Cross-refs:
 
 ## Why does /ctx-stats work in some sessions but not others?
 
-Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), gated on running pi >= 0.84.2. No session-kind probe, no keeper UDS route.
+Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.0.0 lockstep floor). No session-kind probe, no keeper UDS route.
 
 Pi runs `_tryExecuteExtensionCommand` FIRST — before its compaction guard, before `streamingBehavior` — so headless, tmux, terminal and user-launched sessions all dispatch the same way. `deliverAs` is inert for an extension command.
 
-Below pi 0.84.2: no dispatch. Gate emits `command_feedback {status:"error", message:"Extension slash commands from the dashboard require pi 0.84.2+"}` and the raw slash never reaches the model.
+Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.0.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
 
 Retired by change `retire-slash-dispatch-via-expand-prompt-templates`: Path B (`pi.dispatchCommand`, never shipped upstream), Path C (headless RPC via keeper UDS), Path D (tmux / Windows Terminal error). Keeper sidecar UNCHANGED — still the durable owner of pi's stdin across dashboard restarts.
 
@@ -2338,7 +2452,7 @@ Safe to delete manually:
 rm -rf ~/.pi-dashboard
 ```
 
-Legacy scope `@mariozechner/pi-coding-agent` (pre-0.74 rename) lives there too; deleting the dir removes all of it.
+Legacy scope `@mariozechner/pi-coding-agent` (pre-0.74 rename) lives there too; deleting dir removes all of it. Fork no longer recognised by dashboard — not listed, not updated, not resolved. Fix: `npm i -g @earendil-works/pi-coding-agent`.
 
 Cross-refs:
 - docs/electron-immutable-bundle.md
@@ -2987,18 +3101,18 @@ Cross-refs:
 
 ## How do I reach Apple Calendar / Contacts / Reminders from pi?
 
-macOS ≥ 15.3. iMCP menu-bar app + `pi-mcp-adapter`.
+macOS ≥ 15.3. iMCP menu-bar app + pi's BUILT-IN MCP (pi ≥ 1.0.0).
 
 Steps:
 1. `pi install npm:@blackbelt-technology/pi-dashboard-apple-tools`.
-2. `pi-apple-tools-install` — provisions iMCP config (writes `mcp.json` + `settings.json`).
+2. `pi-apple-tools-install` — writes ONE file: `~/.pi/agent/mcp.json` key `mcpServers.iMCP`.
 3. Grant permissions in **iMCP menu-bar app**. Manual, unautomatable.
 
 Provisioning states (`pi-apple-tools-install --check`): `CONFIG_WRITE_FAILED` · `READY_PENDING_GRANTS` · `READY`. `READY_PENDING_GRANTS` = everything wired, permissions still needed. Manual remediation, not re-running installer.
 
-Reached via `pi-mcp-adapter` — loaded as `packages[]` entry in `~/.pi/agent/settings.json`.
+`READY` = live round trip through pi's built-in MCP. iMCP tools reached as `mcp__iMCP__*`; `codemode` by default, `deferred` via `tool_search`. NO `pi-mcp-adapter`. NO `settings.json` write. Operator-set `enabled`/`exposure`/`toolExposure` + unknown keys preserved.
 
-See change: add-apple-tools-imcp-plugin.
+See change: migrate-mcp-to-pi-builtin.
 
 Cross-refs:
 - packages/apple-tools/README.md
@@ -3084,6 +3198,38 @@ Check in order:
 - WRITE discipline missing → `"write": true` required. `inject: "off"` injects nothing and makes `write` inert.
 
 See change: inject-dox-doctrine-and-describe.
+
+## How do I add a KB source (folder, git repo, or URL) from the dashboard?
+
+Settings → Knowledge Base → add-source row. Toggle kind: `Folder | Git repo | URL`.
+
+- **Folder** — click `Browse…` (host `ui:path-picker`; hidden on older hosts) or type a path. Inside cwd → stored relative (`docs`). Outside cwd → stored absolute + `outside folder` badge.
+- **Git repo** — paste `https://github.com/…`, `https://gitlab.com/…`, `git@…`, or `git:` — kind auto-selects Git. Optional `pin` (branch/tag), `subdir`, `refresh`.
+- **URL** — `https://…` docs source.
+- One source per `ref` (ref = index root). Duplicate ref refused — edit the existing source; two sources sharing a ref erase each other's chunks.
+- Adding a remote source opens trust dialog: `Trust & add` / `Add without trusting` / `Cancel`.
+
+Then reindex from the panel. Reindex runs only when ≥1 saved source.
+
+See change: improve-kb-settings-sources-and-search.
+
+Cross-refs:
+- docs/architecture.md §Sources, trust & dashboard reindex
+- packages/kb-plugin/src/client/KbSettingsPanel.tsx
+
+## Why did my KB source fail or show untrusted after reindex?
+
+Per-source outcomes, dashboard reindex:
+
+- **Untrusted remote source** → skipped; job stays idle; prior chunks kept. Grant via trust dialog, `POST /api/kb/source-trust {ref}`, or `PUT /api/kb/config` `trustRefs`.
+- **Failure** → source marked `error`; job `jobStatus:"error"`; `lastError` `"N source(s) failed: …"` (≤500 chars). Other sources still index; failed source keeps prior chunks.
+- `git`/`https` resolution async (`execFile`, 120 s timeout) — never blocks server.
+- Trust is TOFU and global (`~/.pi/dashboard/kb-source-trust.json`), keyed sha256 of `{kind,ref,subdir,pin}`. One grant covers identical spec in every folder. Revoke under Access → `DELETE /api/kb/source-trust`.
+- `untrustedRefs` in `PUT /api/kb/config` response = grants that failed. Never assumed success.
+
+Details: `docs/architecture.md` §Sources, trust & dashboard reindex.
+
+See change: improve-kb-settings-sources-and-search.
 
 ## How do I connect Claude Code / Cursor to the dashboard MCP?
 
@@ -3184,6 +3330,39 @@ See change: expand-mcp-tiered-surface.
 Cross-refs:
 - docs/architecture.md
 - packages/server/src/routes/pairing-routes.ts
+
+## Why are the dashboard MCP tools missing in a pi session?
+
+Cause order (check in order):
+
+1. `pi-mcp-adapter` installed → disables pi's built-in MCP (adapter takes `/mcp`). Fix: remove `pi-mcp-adapter` from `~/.pi/agent/settings.json#packages`, reload sessions.
+2. Operator `pi-dashboard` entry in `~/.pi/agent/mcp.json` → SHADOWS the per-session registration. Fix: delete that entry (startup migration removes only the provisioned signature, keeps an operator entry).
+3. Registration refused → log `mcp.dashboard_registration_unavailable session=<id> reason=<api-missing|register-failed|no-url>`; doctor `mcp-builtin` row names it.
+4. `tool_search` disabled (`-builtin:`) → `deferred` server unreachable.
+
+pi ≥ 1.0.0 required. pi sessions reach `/mcp` in the LEGACY era: request/response tools work, `subscriptions/listen` streaming does NOT.
+
+See change: migrate-mcp-to-pi-builtin.
+
+Cross-refs:
+- docs/architecture.md §MCP Endpoint
+- packages/mcp-server-plugin/src/server/legacy-entry-migration.ts
+- packages/extension/src/mcp-token-delivery.ts
+
+## Why is my mcp.json server ignored?
+
+pi parses `mcp.json` with strict `JSON.parse`; ONE syntax error (comment, trailing comma) skips the WHOLE file. Check:
+
+- Comments / trailing commas anywhere → rewrite as strict JSON. Doctor names it.
+- Project `<cwd>/.pi/mcp.json` in an UNTRUSTED folder → project layer not loaded. Trust the folder in the session.
+- Adapter `disabled: true` key → pi ignores unknown keys, so the server stays ACTIVE. Convert to `enabled: false` (one click, Settings → MCP).
+- Two names differing only `-`/`_` → pi rejects the second.
+
+See change: migrate-mcp-to-pi-builtin.
+
+Cross-refs:
+- docs/architecture.md §MCP Client Plugin
+- packages/mcp-client-plugin/src/core/pi-rules.ts
 
 ## Why is a subagent or tool card stuck `running` after the session ended?
 

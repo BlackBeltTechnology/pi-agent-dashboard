@@ -25,8 +25,8 @@
  * unprompted denials (no frame is sent for them) still appear.
  */
 import type {
-  AccessPlaneId,
   GrantVerdict,
+  YoloSurfaceId,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useLocation } from "wouter";
@@ -52,11 +52,12 @@ import { YoloAccessCard } from "../access-grant/YoloAccessCard.js";
 /** Background refresh while the page is open (unprompted denials send no frame). */
 const POLL_MS = 10_000;
 
-const PLANE_EN: Record<AccessPlaneId, string> = {
+const PLANE_EN: Record<YoloSurfaceId, string> = {
   filesystem: "filesystem",
   cwd: "working directory",
   network: "network",
   cors: "CORS origin",
+  "agent-path": "agent path gate",
 };
 
 const OUTCOME_EN: Record<VerdictView["outcome"], string> = {
@@ -70,7 +71,7 @@ const OUTCOME_EN: Record<VerdictView["outcome"], string> = {
   "refused-by-prior-refusal": "Refused by a remembered refusal",
 };
 
-const planeLabel = (plane: AccessPlaneId) => i18nT(`grantPrompt.plane.${plane}`, undefined, PLANE_EN[plane]);
+const planeLabel = (plane: YoloSurfaceId) => i18nT(`grantPrompt.plane.${plane}`, undefined, PLANE_EN[plane]);
 const when = (at: number) => new Date(at).toLocaleString();
 
 const CARD = "border border-[var(--border-primary)] rounded bg-[var(--bg-secondary)]";

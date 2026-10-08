@@ -3,81 +3,153 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>voice-assistant — Live wall (embedded via live-server-preview)</title>
+<title>voice-assistant — Live wall (folder page)</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="va.css" />
 <script src="theme-init.js"></script>
 <style>
-  .panel { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 0.75rem; overflow: hidden; }
-  .tabbar { background: var(--bg-tertiary); border-bottom: 1px solid var(--border-subtle); }
-  .tab { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-bottom: none; border-radius: 0.375rem 0.375rem 0 0; }
-  .iframe-shell { background: #0d0d10; border-top: 1px solid var(--border-subtle); } /* upstream wall's own dark chrome — intentionally NOT a dashboard token, it's a sandboxed foreign document */
-  .upstream-line { color: #d4d4d4; }
-  .upstream-mic { color: #8ab4f8; }
-  .upstream-system { color: #9aa0a6; }
-  .upstream-alert { border-left: 3px solid #f0ad4e; background: rgba(240,173,78,0.12); color: #f0ad4e; }
+  .frame { border:1px solid var(--border-secondary); border-radius:14px; overflow:hidden; background:var(--bg-primary); box-shadow:0 10px 30px var(--shadow-card); }
+  .frame-label { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-secondary); margin:0 0 8px; font-weight:700; }
+  .shell { display:grid; grid-template-columns:300px 1fr; min-height:470px; }
+  .side { border-right:1px solid var(--border-primary); background:var(--bg-primary); display:flex; flex-direction:column; min-width:0; }
+  .row1 { display:flex; align-items:center; justify-content:space-between; padding:6px 10px; border-bottom:1px solid var(--border-primary); font-size:12px; color:var(--text-tertiary); }
+  .row1 .g { display:flex; gap:7px; align-items:center; }
+  .pi { color:#3b82f6; font-weight:800; font-size:17px; }
+  .on { color:var(--severity-success-fg); }
+  .row2 { padding:6px 10px; display:flex; gap:6px; }
+  .row2 .in { flex:1; height:26px; border-radius:6px; border:1px solid var(--border-primary); background:var(--bg-tertiary); }
+  .folder { margin:8px; background:var(--bg-tertiary); border:1px solid var(--border-subtle); border-radius:12px; padding:10px; }
+  .fh { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:700; color:var(--text-primary); margin-bottom:8px; }
+  .fh .k { margin-left:auto; color:var(--text-tertiary); font-weight:400; }
+  .entry { display:flex; align-items:center; gap:6px; font-size:12px; padding:6px 8px; border-radius:8px; color:var(--text-primary); border:1px solid transparent; }
+  .entry.cur { background:var(--bg-hover); border-color:var(--border-primary); }
+  .entry .n { margin-left:auto; color:var(--text-secondary); }
+  .live { width:7px; height:7px; border-radius:50%; background:#ef4444; flex:none; display:inline-block; }
+  .card { margin-top:6px; padding:8px; border-radius:8px; background:var(--bg-secondary); border:1px solid var(--border-subtle); font-size:12px; color:var(--text-primary); }
+  .card small { display:block; color:var(--text-secondary); font-size:10px; }
+  .role { font-size:10px; font-weight:700; padding:0 6px; border-radius:999px; color:var(--accent-purple); border:1px solid color-mix(in srgb, var(--accent-purple) 50%, transparent); }
+  .content { display:flex; flex-direction:column; min-width:0; }
+  /* Board-style top bar (OpenSpecBoardView: Back · breadcrumb · actions) */
+  .topbar { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border-primary); background:var(--bg-secondary); font-size:12px; color:var(--text-secondary); flex-wrap:wrap; }
+  .back { display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:6px; border:1px solid var(--border-primary); color:var(--text-secondary); background:transparent; min-height:28px; }
+  .crumb b { color:var(--text-primary); }
+  .hc { display:inline-flex; align-items:center; gap:6px; padding:2px 8px; border-radius:999px; border:1px dashed color-mix(in srgb, var(--accent-purple) 60%, transparent); background:var(--bg-tertiary); color:var(--text-primary); white-space:nowrap; }
+  .act { display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:6px; border:1px solid var(--border-primary); color:var(--text-primary); background:transparent; min-height:28px; white-space:nowrap; }
+  .wtabs { display:flex; gap:2px; padding:0 12px; border-bottom:1px solid var(--border-primary); }
+  .wtab { font-size:13px; padding:9px 12px; color:var(--text-secondary); border-bottom:2px solid transparent; }
+  .wtab.sel { color:var(--text-primary); font-weight:700; border-bottom-color:var(--accent-blue); }
+  .board { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; padding:12px; }
+  .area { background:var(--bg-secondary); border:1px solid var(--border-subtle); border-radius:12px; padding:10px; display:flex; flex-direction:column; gap:6px; min-height:120px; }
+  .area h2 { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-secondary); margin:0; font-weight:700; }
+  .item { font-size:13px; color:var(--text-primary); padding:7px 9px; border-radius:8px; background:var(--bg-tertiary); border:1px solid var(--border-subtle); }
+  .item.fresh { border-color:var(--severity-info-border); }
+  .src { display:block; font-size:11px; color:var(--text-secondary); margin-top:3px; } .src a { color:var(--accent-blue); text-decoration:underline; }
+  .tag { font-size:10px; font-weight:700; padding:1px 6px; border-radius:999px; border:1px solid; }
+  .t-dec { color:var(--severity-success-fg); border-color:var(--severity-success-border); background:var(--severity-success-bg); }
+  .t-q { color:var(--severity-info-fg); border-color:var(--severity-info-border); background:var(--severity-info-bg); }
+  .menu { width:270px; background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:10px; padding:4px; font-size:12px; box-shadow:0 10px 30px var(--shadow-card); }
+  .mh { font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-secondary); padding:6px 8px 2px; font-weight:700; }
+  .mi { display:flex; gap:8px; align-items:center; min-height:40px; padding:6px 8px; border-radius:6px; color:var(--text-primary); }
+  .mi small { margin-left:auto; color:var(--text-secondary); font-size:10px; }
+  .tag-owner { font-size:10px; color:var(--text-secondary); border:1px dashed var(--border-secondary); border-radius:6px; padding:1px 6px; }
+  .pill-ret { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; background:var(--bg-tertiary); border:1px solid var(--border-primary); color:var(--text-primary); font-size:12px; }
+  .phone { max-width:390px; }
+  @media (max-width:900px){ .shell{grid-template-columns:1fr;} .side{display:none;} .board{grid-template-columns:1fr;} }
 </style>
 </head>
 <body class="min-h-screen">
-<div class="max-w-4xl mx-auto p-4 sm:p-6">
-  <header class="flex items-center justify-between mb-4">
+<div class="max-w-6xl mx-auto p-4 sm:p-6">
+  <header class="shell-head">
     <div>
-      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Live wall — embedded via <code>live-server-preview</code></h1>
-      <p class="text-sm" style="color:var(--text-tertiary)">No custom wall UI. The vendored WallServer binds its own loopback port; the dashboard embeds it the same way it embeds a mockup/dev-server preview.</p>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Live wall — folder page, embedded like the OpenSpec board</h1>
+      <p class="text-sm" style="color:var(--text-secondary)">Folder entry + folder-menu items + <code>shell-overlay-route</code> with <code>presentation: "content"</code>. The app renders in the content area beside the sidebar; the sidebar and its header (π · theme · tunnel · YOLO · server · Discord · settings) stay untouched. Design D19. The wall belongs to the meeting, the meeting to the folder. The wall plugin owns the folder entry, its menu items and the page; voice-assistant links to it from the copilot session header and the meeting toast. Generic pattern: <code>add-plugin-app-host</code>.</p>
     </div>
     <nav class="flex items-center gap-3 text-sm">
-      <a href="index.html" class="hover:underline" style="color:var(--accent-blue)">← All screens</a>
-      <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'" class="px-2 py-1 rounded border text-xs" style="border-color:var(--border-primary); color:var(--text-secondary)">Toggle theme</button>
+      <a href="index.html" class="hover:underline" style="color:var(--accent-blue)">← All screens</a> <a href="../../add-plugin-app-host/mockups/dashboard/index.html" class="hover:underline" style="color:var(--accent-blue)">On the real dashboard →</a>
+      <button class="btn-ghost" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Toggle theme</button>
     </nav>
   </header>
 
-  <!-- Editor-pane tab bar, grounded in TabActions.tsx / LiveServerViewer -->
-  <div class="panel">
-    <div class="tabbar flex items-center gap-2 px-2 py-1.5">
-      <div class="tab flex items-center gap-1.5 px-3 py-1 text-xs" style="color:var(--text-primary)">
-        <span aria-hidden="true">▶</span>
-        <span>live: voice-assistant wall — acme-erp</span>
-      </div>
-      <span class="flex-1"></span>
-      <button class="p-1 rounded hover:bg-[var(--bg-hover)]" title="Open in system browser" data-testid="tab-open-in-browser" style="color:var(--text-tertiary)">
-        ⇱
-      </button>
-    </div>
-
-    <!-- Exposure notice (task 6.4): /live/:id/* has no auth — surfaced WHERE the wall is opened, once, dismissible. -->
-    <div class="flex items-start gap-2 px-3 py-1.5 text-[11px]" role="note" style="background:var(--severity-warning-bg); color:var(--severity-warning-fg); border-bottom:1px solid var(--severity-warning-border)">
-      <span aria-hidden="true">⚠</span>
-      <span class="flex-1">This wall shows live meeting transcript. Anyone who can reach this dashboard's address can open it at <code>/live/&lt;id&gt;/</code> — no login is asked on that path. Stop the copilot to take it down.</span>
-      <button class="px-1 rounded hover:bg-[var(--bg-hover)]" title="Dismiss for this wall" aria-label="Dismiss" style="color:var(--severity-warning-fg)">✕</button>
-    </div>
-
-    <!-- Sandboxed iframe placeholder: allow-scripts, NO allow-same-origin (opaque origin).
-         Styled with upstream's own wall.css look, not dashboard tokens — that's the point
-         of the isolation boundary, not an inconsistency. -->
-    <div class="iframe-shell p-4" aria-label="Embedded upstream wall UI (sandboxed iframe, opaque origin)">
-      <div class="text-[10px] uppercase tracking-wide mb-3" style="color:#7a7a7a">upstream wall UI — own styling, sandbox="allow-scripts" (no allow-same-origin)</div>
-
-      <div class="space-y-2 text-sm max-w-2xl">
-        <p class="upstream-line"><span class="upstream-mic">you</span> — So the cutting log — that was pushed to phase 2 in the last review, right?</p>
-        <p class="upstream-line"><span class="upstream-system">them</span> — Actually we'd like that back in scope for this phase.</p>
-        <div class="upstream-alert rounded px-3 py-2">
-          ⚠ CONTRADICTION — Cutting log deferred to phase 2 (DEC-002). Now requested in scope.
+  <p class="frame-label">1 · Desktop — /folder/&lt;acme-erp&gt;/wall</p>
+  <div class="frame">
+    <div class="shell">
+      <aside class="side" aria-label="Sidebar (unchanged)">
+        <div class="row1"><span class="g"><span class="pi">π</span>◐ ☾</span><span class="g"><span class="on">◎</span>● robson-mbp ▾ ☺ ⚙</span></div>
+        <div class="row2"><span class="in"></span><span class="in" style="flex:.6"></span></div>
+        <div class="folder">
+          <div class="fh">acme-erp <span class="k">⋯</span></div>
+          <div class="entry">OpenSpec (3) <span class="n">→</span></div>
+          <div class="entry"><span class="live"></span>Meeting · live 00:14 <span class="n">■ Stop</span></div>
+          <div class="entry cur" aria-current="page"><span class="live"></span>Live wall <span class="n">→</span></div>
+          <div class="card"><span class="role">copilot</span> Sprint 42 planning <span style="float:right;color:var(--accent-blue)">▣ Live wall</span><small>streaming · meeting</small></div>
+          <div class="card"><span class="role">transcriber</span> Sprint 42 planning<small>live · mic + system</small></div>
+          <div class="card">fix-auth<small>idle</small></div>
         </div>
-        <p class="upstream-line"><span class="upstream-mic">you</span> — Understood, I'll flag that as a scope change.</p>
-      </div>
+      </aside>
+      <section class="content">
+        <div class="topbar">
+          <button class="back">← Back</button>
+          <span class="crumb">acme-erp › <b>Live wall</b></span>
+          <span class="hc"><span class="live"></span>Sprint 42 planning · 00:14:32</span>
+          <span class="flex-1"></span>
+          <button class="act">⤢ Present</button>
+          <button class="act">⧉ Open standalone</button>
+        </div>
+        <div class="wtabs"><span class="wtab sel">Board</span><span class="wtab">Graph</span><span class="wtab">Transcript</span></div>
+        <div class="board">
+          <section class="area"><h2>Agenda</h2><div class="item">✓ Scope of sprint 42</div><div class="item fresh">→ Logistics API cut-over</div></section>
+          <section class="area"><h2>Decisions</h2><div class="item fresh"><span class="tag t-dec">decided</span> Cut over on the weekend.<span class="src"><a href="#">turn 212 · Anna K.</a></span></div></section>
+          <section class="area"><h2>Open questions</h2><div class="item"><span class="tag t-q">question</span> Who signs the runbook?</div></section>
+        </div>
+        <div class="px-3 pb-3"><span class="tag-owner">top bar = &lt;EmbeddedApp&gt; (board layout) · body = wall App component, same React tree</span></div>
+      </section>
     </div>
   </div>
+  <p class="caption">Same placement as <code>/folder/:cwd/openspec</code>: sidebar visible and interactive, no scrim. The folder entry <b>Live wall ●  →</b> is state-only (like <code>OpenSpec (N) →</code>) and marked current. Top bar: <b>Back</b> → <code>parentPath</code> (folder) · breadcrumb · the wall's <code>HeaderContext</code> (meeting chip) · app actions. The copilot card stays one click away during the meeting.</p>
 
-  <p class="text-xs mt-3" style="color:var(--text-muted)">
-    Click <strong>⇱ Open in system browser</strong> to pop this exact content into a real, standalone browser tab (or the OS default browser under Electron via <code>openExternal</code>) — the same affordance every <code>live-server-preview</code> tab already has. No plugin-specific popout code.
-    The yellow <strong>exposure notice</strong> sits inside the tab, above the iframe — the place the decision to share is made (Nielsen #1 visibility, #5 error prevention). Dismiss is per-wall; it comes back on the next start. It is deliberately a note, not a modal: no confirm-fatigue for a fact the operator needs to know but not re-approve.
-  </p>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+    <section>
+      <p class="frame-label">2 · Folder ⋯ menu entries (useFolderMenuItem)</p>
+      <div class="menu" role="menu">
+        <div class="mh">Open</div>
+        <div class="mi">OpenSpec board</div>
+        <div class="mi"><span class="live"></span>Live wall <small>wall plugin · /folder/…/wall</small></div>
+        <div class="mi">⧉ Open wall standalone <small>projector window</small></div>
+        <div class="mi">⇪ Share live wall… <small>wall plugin</small></div>
+        <div class="mi">◆ Open copilot <small>voice-assistant</small></div>
+      </div>
+      <p class="caption">The wall plugin owns its entries; they exist only while a wall runs for this folder. Voice-assistant keeps meeting verbs and links to the wall route from the copilot session header and the meeting toast.</p>
+    </section>
+    <section>
+      <p class="frame-label">3 · Standalone — /apps/wall/… (context URL)</p>
+      <div class="frame">
+        <div class="topbar" style="background:var(--bg-secondary)"><span class="live"></span><b style="color:var(--text-primary)">Sprint 42 planning</b><span>acme-erp · 00:14:32</span><span class="flex-1"></span><span>Viewing only</span></div>
+        <div class="board" style="grid-template-columns:1fr 1fr"><section class="area"><h2>Decisions</h2><div class="item"><span class="tag t-dec">decided</span> Cut over on the weekend.<span class="src">turn 212 · Anna K.</span></div></section><section class="area"><h2>Open questions</h2><div class="item"><span class="tag t-q">question</span> Who signs the runbook?</div></section></div>
+      </div>
+      <p class="caption">Same App component, <code>createStandaloneHost()</code>, app-kit <code>StandaloneBar</code>. No sidebar, no dashboard header, no top bar, no dashboard links.</p>
+    </section>
+  </div>
 
-  <!-- Empty state -->
-  <section class="panel p-8 mt-6 text-center" aria-label="Empty state example">
-    <p class="text-sm" style="color:var(--text-tertiary)">No wall server is running for this project yet.</p>
-    <p class="text-xs mt-1" style="color:var(--text-muted)">Start the meeting copilot from the session card — "View live wall" becomes available once its <code>WallServer</code> is bound.</p>
-  </section>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+    <section class="phone">
+      <p class="frame-label">4 · Mobile — detail panel (depth 2)</p>
+      <div class="frame">
+        <div class="topbar"><button class="back" aria-label="Back">←</button><span class="hc"><span class="live"></span>Sprint 42 · 00:14</span><span class="flex-1"></span><button class="act" aria-label="More">⋯</button></div>
+        <div class="wtabs"><span class="wtab sel">Board</span><span class="wtab">Graph</span><span class="wtab">Transcript</span></div>
+        <div class="board" style="grid-template-columns:1fr"><section class="area"><h2>Decisions</h2><div class="item fresh"><span class="tag t-dec">decided</span> Cut over on the weekend.</div></section></div>
+      </div>
+      <p class="caption">Same as other depth-2 folder boards: swipe/Back to the folder. Actions fold into ⋯; 44 px targets.</p>
+    </section>
+    <section>
+      <p class="frame-label">5 · Voice-assistant links + round trip</p>
+      <div class="frame p-3" style="font-size:12px; color:var(--text-secondary)">
+        <div class="flex items-center gap-2 mb-2"><span class="pill-ret">▣ Live wall</span><span>copilot session header and the meeting toast (while a wall runs) → <code>/folder/&lt;cwd&gt;/wall</code></span></div><div class="flex items-center gap-2 mb-2"><span class="pill-ret">← Live wall · Sprint 42</span><span>return pill after the wall opened the copilot session</span></div>
+        <div class="card">Copilot chat for <b>Sprint 42 planning</b> (normal session view)</div>
+      </div>
+      <p class="caption">Without <code>add-plugin-app-host</code> the links open <code>/apps/wall/…</code> in a named window. A turn link in the wall calls <code>host.openSession(copilotId)</code> (history push). The return pill appears once, while that history entry exists; browser Back works too.</p>
+    </section>
+  </div>
 </div>
 </body>
 </html>

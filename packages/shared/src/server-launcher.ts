@@ -33,6 +33,7 @@ import type { ChildProcess, SpawnOptions } from "node:child_process"; // ban:chi
 import { spawnNodeScript } from "./platform/node-spawn.js";
 import { ToolResolver } from "./platform/binary-lookup.js";
 import { normalizeEnvPathKey } from "./platform/env-path-key.js";
+import { resolveNativeTsLoader, selectTsLoader } from "./platform/ts-loader-select.mjs";
 import { isDashboardRunning } from "./server-identity.js";
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -41,7 +42,7 @@ import { isDashboardRunning } from "./server-identity.js";
 export class JitiNotFoundError extends Error {
   constructor(message =
     "Cannot find pi's TypeScript loader (jiti). " +
-    "Is @earendil-works/pi-coding-agent or @mariozechner/pi-coding-agent installed?",
+    "Is @earendil-works/pi-coding-agent installed?",
   ) {
     super(message);
     this.name = "JitiNotFoundError";
@@ -138,6 +139,8 @@ export interface LaunchOpts {
   // ── Test seams (production omits) ────────────────────────────────────────
   /** Replace `ToolResolver.resolveJiti` (returns loader URL or null). */
   _resolveJiti?: () => string | null;
+  /** Replace the native-register locator (returns a `file://` URL). */
+  _resolveNativeLoader?: () => string;
   /** Replace `spawnNodeScript` (returns ChildProcess). */
   _spawnNodeScript?: typeof spawnNodeScript;
   /** Replace `isDashboardRunning`. */
@@ -238,9 +241,18 @@ export async function launchDashboardServer(opts: LaunchOpts): Promise<LaunchRes
   const fsClose = opts._fs?.closeSync ?? closeSync;
   const fsWrite = opts._fs?.writeSync ?? writeSync;
 
-  // 1. Loader resolution.
-  const loader = resolveJiti();
-  if (!loader) throw new JitiNotFoundError();
+  // 1. Loader resolution. Native by default; jiti only on
+  // PI_DASHBOARD_TS_LOADER=jiti in THIS process's env (an `opts.env` overlay
+  // never changes the selection). A missing jiti is fatal only when selected.
+  // See change: fix-appimage-cold-boot-latency (design D1, D4).
+  let loader: string;
+  if (selectTsLoader(process.env) === "jiti") {
+    const jiti = resolveJiti();
+    if (!jiti) throw new JitiNotFoundError();
+    loader = jiti;
+  } else {
+    loader = (opts._resolveNativeLoader ?? (() => resolveNativeTsLoader({ anchor: opts.cliPath })))();
+  }
 
   // 2. Env: ToolResolver.buildSpawnEnv() merged with caller env (caller wins).
   const baseEnv = new ToolResolver({ processExecPath: nodeBin }).buildSpawnEnv(process.env);
@@ -267,7 +279,7 @@ export async function launchDashboardServer(opts: LaunchOpts): Promise<LaunchRes
     const { logFile } = opts.stdio;
     fsMkdir(dirname(logFile), { recursive: true });
     logFd = fsOpen(logFile, "a");
-    const header = `[${new Date().toISOString()}] ${opts.starter ?? "dashboard"} launch (parent pid ${process.pid}, port ${opts.port}, cli ${opts.cliPath})\n`;
+    const header = `[${new Date().toISOString()}] ${opts.starter ?? "dashboard"} launch (parent pid ${process.pid}, port ${opts.port}, cli ${opts.cliPath}, loader ${loader})\n`;
     try { fsWrite(logFd, header); } catch { /* best-effort */ }
     stdio = ["ignore", logFd, logFd];
   }

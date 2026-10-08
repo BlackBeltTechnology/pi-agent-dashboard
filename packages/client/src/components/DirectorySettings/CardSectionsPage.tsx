@@ -12,19 +12,21 @@ import {
   type CardSectionPrefs,
   cardSectionFolderKey,
   getFolderOverride,
-  getGlobalValue,
   resolveCardSectionVisible,
 } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import { useLocation } from "wouter";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { type CardSectionGroup, type CardSectionMeta, useOfferedCardSections } from "../../lib/session/card-section-meta.js";
 import { useCardSectionActions, useCardSectionPrefs } from "../../lib/state/CardSectionsContext.js";
+import { FocusNotice } from "../settings/FocusNotice.js";
 
 type TriState = "inherit" | "show" | "hide";
 
 function groupTitle(g: CardSectionGroup): string {
   if (g === "builtin") return i18nT("cardSections.groupSections", undefined, "Sections");
   if (g === "plugin") return i18nT("cardSections.groupPlugin", undefined, "Plugin sections");
+  if (g === "directory") return i18nT("cardSections.groupDirectory", undefined, "Directory card");
+  if (g === "effects") return i18nT("cardSections.groupEffects", undefined, "Effects");
   return i18nT("cardSections.groupLines", undefined, "Card lines");
 }
 
@@ -32,13 +34,23 @@ export function CardSectionsPage({ cwd }: { cwd: string }) {
   const prefs = useCardSectionPrefs();
   const actions = useCardSectionActions();
   const [, navigate] = useLocation();
-  const offered = useOfferedCardSections();
+  // Effects are global-only: the per-folder page never offers them.
+  const offered = useOfferedCardSections().filter((m) => !m.globalOnly);
   const key = cardSectionFolderKey(cwd);
   const overrideCount = Object.keys(prefs.folders?.[key] ?? {}).length;
 
   const row = (m: CardSectionMeta) => {
     const override = getFolderOverride(prefs, key, m.id);
-    const globalVisible = getGlobalValue(prefs, m.id) ?? true;
+    // What "Default" means for THIS row: the value with only this id's folder
+    // override removed (global → legacy parent → visible), so a child that
+    // inherits from a hidden legacy parent reads `Default (Hide)`.
+    const folderMap = { ...(prefs.folders?.[key] ?? {}) };
+    delete folderMap[m.id];
+    const globalVisible = resolveCardSectionVisible(
+      { global: prefs.global, folders: { [key]: folderMap } },
+      key,
+      m.id,
+    );
     const value: TriState = override === null ? "inherit" : override ? "show" : "hide";
     const label = m.label();
     const options: { v: TriState; text: string; send: boolean | null }[] = [
@@ -116,7 +128,7 @@ export function CardSectionsPage({ cwd }: { cwd: string }) {
     );
   };
 
-  const groups: CardSectionGroup[] = ["builtin", "plugin", "lines"];
+  const groups: CardSectionGroup[] = ["builtin", "plugin", "lines", "directory"];
 
   return (
     <div className="p-4 md:p-6 flex flex-col lg:flex-row gap-6" data-testid="card-sections-page">
@@ -132,6 +144,7 @@ export function CardSectionsPage({ cwd }: { cwd: string }) {
           )}
         </p>
 
+        <FocusNotice />
         <div className="flex items-center gap-3 px-3 py-2.5 mb-4 rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-tertiary)]">
           <span className="flex-1 text-xs text-[var(--text-secondary)]" data-testid="card-sections-override-summary">
             {overrideCount === 0
@@ -206,7 +219,7 @@ function CardSectionsPreview({
   offered: readonly CardSectionMeta[];
 }) {
   const on = (id: string) => resolveCardSectionVisible(prefs, folderKey, id);
-  const capsules = offered.filter((m) => m.group !== "lines" && on(m.id));
+  const capsules = offered.filter((m) => (m.group === "builtin" || m.group === "plugin") && on(m.id));
   return (
     <aside className="lg:w-72 shrink-0" aria-label={i18nT("cardSections.previewTitle", undefined, "Live preview")}>
       <h3 className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2">

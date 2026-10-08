@@ -149,3 +149,28 @@ describe("filterByEnabledModels — matching semantics", () => {
     expect(filterByEnabledModels(MODELS)).toEqual([]);
   });
 });
+
+/**
+ * pi 1.0.0 audit (design D3): `ctx.scopedModels` is a STARTUP snapshot, so it
+ * cannot include a provider discovered after start. The dashboard matcher is
+ * re-applied to the live registry on each `onProviderChanged` push, so the
+ * same `enabledModels` pattern picks the new provider's models up.
+ * See change: update-pi-core-1-0-adopt-apis (test-plan #E13).
+ */
+describe("late-discovered in-scope models (E13)", () => {
+  it("a provider registered after start is included on the next push", () => {
+    writeSettings({ enabledModels: ["myprovider/*"] });
+
+    // At session start the registry has no `myprovider` models yet.
+    const atStart = filterByEnabledModels(MODELS);
+    expect(atStart).toEqual([]);
+
+    // Async discovery registers them; onProviderChanged re-filters the live set.
+    const late: M[] = [
+      { provider: "myprovider", id: "fast-1" },
+      { provider: "myprovider", id: "smart-2" },
+    ];
+    const pushed = filterByEnabledModels([...MODELS, ...late]);
+    expect(ids(pushed)).toEqual(["myprovider/fast-1", "myprovider/smart-2"]);
+  });
+});

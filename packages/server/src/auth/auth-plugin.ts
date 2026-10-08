@@ -5,6 +5,7 @@
 
 import crypto from "node:crypto";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import cookie from "@fastify/cookie";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { PUBLIC_PAIRING_PREFIXES } from "../routes/pairing-routes.js";
@@ -27,8 +28,9 @@ import {
 } from "./auth.js";
 import { isBypassed } from "./bypass-urls.js";
 import { verifyLocalToken } from "./local-token.js";
-import { isGenuinelyLocal, isTrustedSource } from "./localhost-guard.js";
-import type { CoreWsRouteScope } from "./ws-ticket.js";
+import type { LocalTrustContext } from "./local-proof.js";
+import { isLocallyTrusted, isObserveApiRequest, isTrustedSource } from "./localhost-guard.js";
+import type { CoreWsRouteScope, TicketConsumption } from "./ws-ticket.js";
 
 // Re-exported so the existing `auth-plugin.js` import surface is unchanged; the
 // implementation moved to the leaf `bypass-urls.ts` so the universal network
@@ -54,31 +56,80 @@ export interface AuthPluginOptions {
   resolvedTrustedNetworks?: string[];
   /** Local-IPC allowlist token granting genuine-local trust (D10). */
   localToken?: string;
+  /** Strict local-proof context (`requireLocalProof`); absent ⇒ default behaviour. */
+  localTrust?: LocalTrustContext;
 }
 
 /**
  * State parameter encoding: encodes the return URL + CSRF nonce.
  */
-function encodeState(returnUrl: string): string {
-  const nonce = crypto.randomBytes(8).toString("hex");
-  return Buffer.from(JSON.stringify({ returnUrl, nonce })).toString("base64url");
+function encodeState(returnUrl: string, nonce: string): string {
+  return Buffer.from(JSON.stringify({ returnUrl: sanitizeReturnUrl(returnUrl), nonce })).toString("base64url");
 }
 
-function decodeState(state: string): { returnUrl: string } {
+function decodeState(state: string): { returnUrl: string; nonce: string } {
   try {
     const parsed = JSON.parse(Buffer.from(state, "base64url").toString());
-    return { returnUrl: parsed.returnUrl || "/" };
+    return {
+      returnUrl: sanitizeReturnUrl(parsed.returnUrl),
+      nonce: typeof parsed.nonce === "string" ? parsed.nonce : "",
+    };
   } catch {
-    return { returnUrl: "/" };
+    return { returnUrl: "/", nonce: "" };
   }
+}
+
+/**
+ * Constrain a post-login redirect to a same-origin relative path. No extra
+ * decode (Fastify already decoded the query): `%252F%252F` stays a literal
+ * path. Anything else → `/`. See change: harden-trust-and-credential-boundaries (D1).
+ */
+export function sanitizeReturnUrl(raw: unknown): string {
+  if (typeof raw !== "string" || raw.length === 0) return "/";
+  if (raw[0] !== "/" || raw[1] === "/" || raw[1] === "\\") return "/";
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control chars is the point
+  if (/[\u0000-\u001f\u007f]/.test(raw)) return "/";
+  try {
+    if (new URL(raw, "http://x.invalid").origin !== "http://x.invalid") return "/";
+  } catch {
+    return "/";
+  }
+  return raw;
+}
+
+const STATE_COOKIE = "pi_dash_oauth_state";
+
+/** Domain-separated key for the OAuth state cookie (never the JWT key). */
+function stateKey(secret: string): Buffer {
+  return crypto.createHmac("sha256", secret).update("pi-dashboard/oauth-state/v1").digest();
+}
+
+function stateMac(secret: string, nonce: string): string {
+  return crypto.createHmac("sha256", stateKey(secret)).update(nonce).digest("hex");
+}
+
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
+}
+
+/** Verify the state cookie (`nonce.mac`) and return its nonce, or null. */
+function readStateCookie(cookieValue: unknown, secret: string): string | null {
+  if (typeof cookieValue !== "string") return null;
+  const dot = cookieValue.indexOf(".");
+  if (dot <= 0) return null;
+  const nonce = cookieValue.slice(0, dot);
+  return safeEqual(cookieValue.slice(dot + 1), stateMac(secret, nonce)) ? nonce : null;
 }
 
 /**
  * Simple login page HTML with provider links.
  */
-function renderLoginPage(providers: ResolvedProvider[], error?: string): string {
+function renderLoginPage(providers: ResolvedProvider[], error?: string, returnUrl = "/"): string {
+  const ret = encodeURIComponent(sanitizeReturnUrl(returnUrl));
   const providerLinks = providers
-    .map((p) => `<a href="/auth/start/${p.key}" style="display:block;margin:10px 0;padding:12px 24px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;text-align:center;font-size:16px;">Sign in with ${p.name}</a>`)
+    .map((p) => `<a href="/auth/start/${p.key}?return=${ret}" style="display:block;margin:10px 0;padding:12px 24px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;text-align:center;font-size:16px;">Sign in with ${p.name}</a>`)
     .join("\n");
 
   const errorHtml = error
@@ -125,7 +176,7 @@ export async function registerAuthPlugin(
   fastify: FastifyInstance,
   options: AuthPluginOptions,
 ): Promise<void> {
-  const { authConfig, port, resolvedTrustedNetworks, localToken } = options;
+  const { authConfig, port, resolvedTrustedNetworks, localToken, localTrust } = options;
 
   // Mutable auth state — can be rebuilt at runtime via reloadAuth()
   const authState = {
@@ -171,8 +222,23 @@ export async function registerAuthPlugin(
     fastify.decorateRequest("isAuthenticated", false);
   }
 
-  // Register cookie plugin
-  await fastify.register(cookie);
+  // Cookie support is registered once at server level (server.ts, D0). Fall back
+  // only when this plugin is mounted on a bare instance (tests / embedders).
+  if (!fastify.hasRequestDecorator?.("cookies")) await fastify.register(cookie);
+
+  // Set the signed OAuth state cookie and return the nonce to embed in `state`.
+  const issueState = (reply: FastifyReply): string => {
+    const nonce = crypto.randomBytes(16).toString("hex");
+    const { base } = resolveRedirectBase(port, authState.redirectBaseUrl);
+    reply.setCookie(STATE_COOKIE, `${nonce}.${stateMac(authState.secret, nonce)}`, {
+      path: "/auth/",
+      httpOnly: true,
+      secure: base.startsWith("https:"),
+      sameSite: "lax", // the IdP callback is a cross-site top-level GET
+      maxAge: 600,
+    });
+    return nonce;
+  };
 
   // ─── Auth Routes ────────────────────────────────────────────────────────
 
@@ -185,13 +251,13 @@ export async function registerAuthPlugin(
       // Auto-redirect to single provider
       const p = providers[0];
       const redirectUri = buildRedirectUri(p.key, port, authState.redirectBaseUrl);
-      const returnUrl = (request.query as any)?.return || "/";
-      const state = encodeState(returnUrl);
+      const returnUrl = sanitizeReturnUrl((request.query as any)?.return);
+      const state = encodeState(returnUrl, issueState(reply));
       const url = buildAuthorizeUrl(p, redirectUri, state);
       return reply.redirect(url);
     }
 
-    return reply.type("text/html").send(renderLoginPage(providers, error));
+    return reply.type("text/html").send(renderLoginPage(providers, error, (request.query as any)?.return));
   });
 
   // GET /auth/start/:provider — redirect to provider's authorize URL
@@ -202,8 +268,8 @@ export async function registerAuthPlugin(
       return reply.code(404).send({ error: "Unknown provider" });
     }
     const redirectUri = buildRedirectUri(providerKey, port, authState.redirectBaseUrl);
-    const returnUrl = (request.query as any)?.return || "/";
-    const state = encodeState(returnUrl);
+    const returnUrl = sanitizeReturnUrl((request.query as any)?.return);
+    const state = encodeState(returnUrl, issueState(reply));
     const url = buildAuthorizeUrl(provider, redirectUri, state);
     return reply.redirect(url);
   });
@@ -220,8 +286,19 @@ export async function registerAuthPlugin(
     const code = query.code;
     const stateParam = query.state || "";
 
+    reply.clearCookie(STATE_COOKIE, { path: "/auth/" });
+
     if (!code) {
       return reply.redirect("/auth/login?error=Missing+authorization+code");
+    }
+
+    // CSRF / code-injection defence: the state nonce must match the signed
+    // cookie set at authorize time, BEFORE any code exchange. The state cookie
+    // is single-use: cleared on every outcome.
+    const cookieNonce = readStateCookie((request.cookies as any)?.[STATE_COOKIE], authState.secret);
+    const decoded = decodeState(stateParam);
+    if (!cookieNonce || !decoded.nonce || !safeEqual(cookieNonce, decoded.nonce)) {
+      return reply.redirect("/auth/login?error=Invalid+login+state");
     }
 
     const redirectUri = buildRedirectUri(providerKey, port, authState.redirectBaseUrl);
@@ -244,7 +321,7 @@ export async function registerAuthPlugin(
       authState.secret,
     );
 
-    const { returnUrl } = decodeState(stateParam);
+    const { returnUrl } = decoded;
 
     // `request.protocol` is ALWAYS "http" behind a reverse proxy, because
     // Fastify is deliberately not configured with `trustProxy` — enabling it
@@ -293,7 +370,13 @@ export async function registerAuthPlugin(
     // Genuine same-host bypass: loopback AND no proxy-forwarding header, or a
     // valid local-IPC token. A tunnel arriving as 127.0.0.1 (with a forwarding
     // header) is NOT exempted (D10, narrowed).
-    if (isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>)) return;
+    if (isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> }, localTrust)) return;
+    // Strict observe exception: bare local may still READ observe-tier REST routes.
+    if (
+      localTrust?.strict() &&
+      isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> }) &&
+      isObserveApiRequest(request)
+    ) return;
     if (localToken && verifyLocalToken(request.headers as Record<string, unknown>, localToken)) return;
 
     // Skip auth routes
@@ -306,6 +389,11 @@ export async function registerAuthPlugin(
     // Skip health endpoint
     if (request.url === "/api/health") return;
 
+    // Skip the identity-plane pre-auth login descriptor (D16): an
+    // unauthenticated browser must read it BEFORE it holds a token. It
+    // discloses nothing when the resolver is inert.
+    if (request.url.startsWith("/api/identity/login-config")) return;
+
     // Skip /v1/* — proxy auth gate handles those
     if (request.url.startsWith("/v1/")) return;
 
@@ -315,7 +403,7 @@ export async function registerAuthPlugin(
     // Skip configured bypass hosts (trusted source IPs). A relayed-loopback peer
     // (tunnel agent) is never a trusted source. See change:
     // fix-trusted-network-tunnel-bypass (D1).
-    if (isTrustedSource(request.ip, request.headers as Record<string, unknown>, authState.bypassHosts)) return;
+    if (isTrustedSource(request.ip, request.headers as Record<string, unknown>, authState.bypassHosts, localTrust)) return;
 
     // Validate JWT cookie
     const cookieToken = (request.cookies as any)?.[COOKIE_NAME];
@@ -363,13 +451,15 @@ export function validateWsUpgrade(
     headers?: Record<string, unknown>;
     /** Local-IPC allowlist token. */
     localToken?: string;
+    /** Strict local-proof context (`requireLocalProof`). */
+    localTrust?: LocalTrustContext;
   },
 ): boolean {
   // Genuine same-host origin, or a valid local-IPC token. A tunnel presenting
   // as loopback (with a forwarding header) is NOT trusted here (D10, narrowed).
-  if (isGenuinelyLocal(remoteAddress, opts?.headers)) return true;
+  if (isLocallyTrusted({ ip: remoteAddress, headers: opts?.headers }, opts?.localTrust)) return true;
   if (opts?.localToken && verifyLocalToken(opts.headers, opts.localToken)) return true;
-  if (isTrustedSource(remoteAddress, opts?.headers, trustedNetworks)) return true;
+  if (isTrustedSource(remoteAddress, opts?.headers, trustedNetworks, opts?.localTrust)) return true;
   // Cross-origin device auth: a valid single-use ticket minted from an
   // authenticated REST call. The upgrade is refused unless it validates, so no
   // authenticated socket exists before auth (no TOCTOU). F6: only the ephemeral
@@ -380,4 +470,90 @@ export function validateWsUpgrade(
   const token = parseAuthCookie(cookieHeader);
   if (!token) return false;
   return verifyToken(token, secret) !== null;
+}
+
+/** Result of an identity-aware WS upgrade authorization (§9.2/§9.3). */
+export interface WsUpgradeAuthResult {
+  ok: boolean;
+  /** Human principal bound to the consumed ticket, when one rode it. */
+  principal?: Principal;
+  /** The principal's own expiry (ms epoch) — bounds the socket lifetime (§9.4). */
+  principalExpiresAt?: number;
+}
+
+/**
+ * Identity-aware WS upgrade authorization (openspec §9.2–§9.3 / design D12).
+ *
+ * A superset of {@link validateWsUpgrade} that (a) surfaces the principal bound
+ * to a consumed ticket and (b) supports an identity-ticket-ONLY mode. Kept as a
+ * sibling so the many boolean `validateWsUpgrade` call sites/tests are
+ * untouched.
+ *
+ * Identity mode (`requireIdentityTicket`, set when the resolver is active AND
+ * the scope is `browser`): ONLY a principal-bearing single-use ticket
+ * authorizes. Cookie, local-IPC token, genuine-local, trusted-network, and
+ * no-ticket upgrades are ALL refused — a browser socket never exists without a
+ * human identity. Otherwise the legacy allowances apply unchanged, additionally
+ * surfacing a ticket principal when one is present.
+ *
+ * `secret` null/undefined ⇒ no-auth mode (the cookie branch is skipped),
+ * mirroring the server's no-`authConfig.secret` upgrade branch.
+ */
+export function authorizeWsUpgrade(opts: {
+  cookieHeader?: string;
+  remoteAddress: string;
+  secret?: string | null;
+  trustedNetworks?: string[];
+  ticket?: string | null;
+  scope?: CoreWsRouteScope | null;
+  consumeTicket?: (ticket: string, scope: CoreWsRouteScope) => TicketConsumption;
+  headers?: Record<string, unknown>;
+  localToken?: string;
+  localTrust?: LocalTrustContext;
+  requireIdentityTicket?: boolean;
+}): WsUpgradeAuthResult {
+  const {
+    cookieHeader,
+    remoteAddress,
+    secret,
+    trustedNetworks = [],
+    ticket,
+    scope,
+    consumeTicket,
+    headers,
+    localToken,
+    localTrust,
+    requireIdentityTicket,
+  } = opts;
+
+  // Identity-ticket-only mode (§9.2): a principal-bearing ticket is the sole
+  // authorizer. Consume it (single-use) and require a bound principal. Every
+  // other branch is skipped so a used/absent/principal-less ticket is refused.
+  if (requireIdentityTicket) {
+    if (!consumeTicket || !scope || !ticket) return { ok: false };
+    const consumed = consumeTicket(ticket, scope);
+    if (!consumed.ok || !consumed.principal) return { ok: false };
+    return { ok: true, principal: consumed.principal, principalExpiresAt: consumed.principalExpiresAt };
+  }
+
+  // Legacy allowances (order preserved from validateWsUpgrade), now surfacing
+  // any ticket principal so an identity-bearing ticket in inert/mixed mode
+  // still binds the socket.
+  if (isLocallyTrusted({ ip: remoteAddress, headers }, localTrust)) return { ok: true };
+  if (localToken && verifyLocalToken(headers, localToken)) return { ok: true };
+  // isTrustedSource (not isBypassedHost): a relayed loopback (tunnel presenting
+  // as 127.0.0.1 with forwarding headers) is never trusted by a trusted-network
+  // entry. See change: fix-trusted-network-tunnel-bypass.
+  if (trustedNetworks.length > 0 && isTrustedSource(remoteAddress, headers, trustedNetworks, localTrust)) return { ok: true };
+  if (consumeTicket && scope && ticket) {
+    const consumed = consumeTicket(ticket, scope);
+    if (consumed.ok) {
+      return { ok: true, principal: consumed.principal, principalExpiresAt: consumed.principalExpiresAt };
+    }
+  }
+  if (secret) {
+    const token = parseAuthCookie(cookieHeader);
+    if (token && verifyToken(token, secret) !== null) return { ok: true };
+  }
+  return { ok: false };
 }

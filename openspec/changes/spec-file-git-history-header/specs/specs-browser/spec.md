@@ -37,3 +37,8 @@ A `useMainSpecsReader(cwd)` hook SHALL fetch the `openspec/specs/` directory lis
 #### Scenario: History fetch failure for one spec
 - **WHEN** the history fetch for `auth` fails but the spec content and the `billing` fetches succeed
 - **THEN** `histories.auth` SHALL be omitted from the record (or set to `undefined`) AND `histories.billing` SHALL still be populated AND `error` SHALL remain unset
+
+#### Scenario: Hook returns spec names and concatenated content
+- **WHEN** the hook is called with cwd `/project/foo` which has specs `["auth", "billing"]`
+- **THEN** `specNames` SHALL be `["auth", "billing"]` (sorted)
+- **AND** `content` SHALL contain both spec contents separated by spec-name headings

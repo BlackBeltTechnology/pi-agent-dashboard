@@ -1,4 +1,5 @@
 import { type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import {
@@ -15,6 +16,7 @@ import {
   DEFAULT_SESSION_HEAP,
   HEAP_WARN_ABOVE_MB,
   MIN_HEAP_MB,
+  serverHeapStoreCoupling,
   subagentHeapBudget,
 } from "@blackbelt-technology/pi-dashboard-shared/heap-limits.js";
 // Type-only import — erased at bundle time, so the rule above holds.
@@ -30,10 +32,12 @@ import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 
 import { useLocation, useRoute } from "wouter";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
+import { useLaunchSource } from "../../hooks/useLaunchSource.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
+import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
@@ -68,19 +72,19 @@ import { PackageInstallConfirmDialog } from "../packages/PackageInstallConfirmDi
 import { PackageReadmeDialog } from "../packages/PackageReadmeDialog.js";
 import { PiVersionAdvisory } from "../packages/PiVersionAdvisory.js";
 import { PluginsSection } from "../packages/PluginsSection.js";
-import { useLaunchSource } from "../../hooks/useLaunchSource.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import type { ResourceType } from "../resource/ResourceCardGrid.js";
 import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
 import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
+import { AgentPathGateSection } from "./AgentPathGateSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
-import { PushNotificationsSection } from "./PushNotificationsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
-import { DefaultGroupingField } from "./DefaultGroupingField.js";
 import { CardSectionsSection } from "./CardSectionsSection.js";
+import { DefaultGroupingField } from "./DefaultGroupingField.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
+import { FocusSettingsSection } from "./FocusSettingsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
 import { NodeRuntimeSection } from "./NodeRuntimeSection.js";
@@ -90,6 +94,7 @@ import { PiRuntimeSection } from "./PiRuntimeSection.js";
 import { PiRuntimeStatusRow } from "./PiRuntimeStatusRow.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
+import { PushNotificationsSection } from "./PushNotificationsSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
@@ -186,6 +191,10 @@ interface Config {
   completedFirst?: boolean;
   /** Move ask_user sessions to front of active tier. See change: simplify-session-card-ordering. */
   questionFirst?: boolean;
+  /** Sidebar folder list behavior; absent = classic. See change: add-focus-mode-and-card-block-toggles. */
+  folderListMode?: "classic" | "accordion";
+  /** Accordion: unfocused folders with attention-demanding sessions peek open. Default true. */
+  folderAttentionPeek?: boolean;
   /** Timeout for ask_user prompts in seconds; -1 (or <=0) disables timeout. */
   askUserPromptTimeoutSeconds?: number;
   /** How long (ms) to wait for spawned pi to connect before a warning. Default 30000. See change: spawn-failure-diagnostics. */
@@ -233,6 +242,10 @@ interface Config {
   allowedHosts?: string[];
   /** Host-gate rollout mode; `PI_DASHBOARD_HOST_GATE` overrides it server-side. */
   hostGate?: { mode: HostGateMode };
+  /** Agent path gate (ask before out-of-workspace read/write/edit). See change: ask-agent-file-access-in-chat. */
+  agentPathGate?: { enabled: boolean; timeoutSeconds: number };
+  /** Computed by GET /api/config (never persisted): `PI_DASHBOARD_AGENT_PATH_GATE` as set on the server. */
+  agentPathGateEnvOverride?: "on" | "off" | null;
   openspec?: {
     enabled?: boolean;
     pollIntervalSeconds?: number;
@@ -289,10 +302,11 @@ export const CONFIG_FIELD_PAGE: Record<string, string> = {
   // page. See change: bound-session-heap-and-gc-telemetry (D7).
   serverHeap: "server", sessionHeap: "sessions", maxConcurrentSubagents: "sessions",
   spawnStrategy: "sessions", reattachPlacement: "sessions", reopenSessionsAfterShutdown: "sessions", completedFirst: "sessions",
+  folderListMode: "sessions", folderAttentionPeek: "sessions",
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
   windowsGitSource: "sessions", autoStart: "sessions",
-  trustedNetworks: "security", auth: "security", allowedHosts: "security", hostGate: "security",
+  trustedNetworks: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security",
   modelProxy: "providers",
   openspec: "openspec",
   devBuildOnReload: "developer", keeperLog: "developer",
@@ -326,6 +340,12 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
   }
   if ((config.questionFirst ?? false) !== (original.questionFirst ?? false)) {
     partial.questionFirst = config.questionFirst ?? false;
+  }
+  if ((config.folderListMode ?? "classic") !== (original.folderListMode ?? "classic")) {
+    partial.folderListMode = config.folderListMode ?? "classic";
+  }
+  if ((config.folderAttentionPeek ?? true) !== (original.folderAttentionPeek ?? true)) {
+    partial.folderAttentionPeek = config.folderAttentionPeek ?? true;
   }
   if (config.askUserPromptTimeoutSeconds !== original.askUserPromptTimeoutSeconds) {
     partial.askUserPromptTimeoutSeconds = config.askUserPromptTimeoutSeconds ?? 300;
@@ -377,8 +397,14 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
   if (JSON.stringify(config.allowedHosts ?? []) !== JSON.stringify(original.allowedHosts ?? [])) {
     partial.allowedHosts = config.allowedHosts ?? [];
   }
-  if ((config.hostGate?.mode ?? "report") !== (original.hostGate?.mode ?? "report")) {
-    partial.hostGate = { mode: config.hostGate?.mode ?? "report" };
+  if ((config.hostGate?.mode ?? "enforce") !== (original.hostGate?.mode ?? "enforce")) {
+    partial.hostGate = { mode: config.hostGate?.mode ?? "enforce" };
+  }
+  // Agent path gate: two flat fields, written whole (server shallow-merges the sub-object).
+  {
+    const a = config.agentPathGate ?? { enabled: true, timeoutSeconds: 120 };
+    const b = original.agentPathGate ?? { enabled: true, timeoutSeconds: 120 };
+    if (a.enabled !== b.enabled || a.timeoutSeconds !== b.timeoutSeconds) partial.agentPathGate = { enabled: a.enabled, timeoutSeconds: a.timeoutSeconds };
   }
   /**
    * FIELD-level, not whole-object. `GET /api/config` returns the PARSED config,
@@ -902,7 +928,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
     // claim cross-store atomicity; failed sources stay dirty for Retry.
     type Task = {
       label: string;
-      run: () => Promise<{ restartRequired?: boolean; coldStartRequired?: boolean }>;
+      run: () => Promise<{ restartRequired?: boolean }>;
     };
     const tasks: Task[] = [];
 
@@ -919,14 +945,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
           if (!data.success) throw new Error(data.error || "config");
           setOriginal(JSON.parse(JSON.stringify(config)));
           if (configPartial.windowsGitSource !== undefined) void refreshGitSourceReadout();
-          return {
-            restartRequired: !!data.restartRequired,
-            // `serverHeap` only. Distinct from `restartRequired`, whose message
-            // promises an in-place restart is enough — which for this field is
-            // provably false (`/api/restart` inherits the current environment).
-            // See change: bound-session-heap-and-gc-telemetry.
-            coldStartRequired: !!data.coldStartRequired,
-          };
+          return { restartRequired: !!data.restartRequired };
         },
       });
     }
@@ -939,11 +958,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
     const results = await Promise.allSettled(tasks.map((tk) => tk.run()));
     const failed: string[] = [];
     let restartRequired = false;
-    let coldStartRequired = false;
     results.forEach((r, i) => {
       if (r.status === "fulfilled") {
         restartRequired ||= !!r.value.restartRequired;
-        coldStartRequired ||= !!r.value.coldStartRequired;
       }
       else {
         const reason = r.reason instanceof Error ? r.reason.message : "";
@@ -955,17 +972,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
       setMessage({
         type: "error",
         text: t("settings.savePartialFail", undefined, "Couldn't save: ") + failed.join(", "),
-      });
-    } else if (coldStartRequired) {
-      // Checked BEFORE `restartRequired`: the cold-start requirement is the
-      // stronger one, and the generic message would understate it.
-      setMessage({
-        type: "warn",
-        text: t(
-          "settings.coldStartRequired",
-          undefined,
-          "Saved. The server heap ceiling takes effect on the next cold start — the in-place restart does not apply it.",
-        ),
       });
     } else if (restartRequired) {
       setMessage({ type: "warn", text: t("settings.restartRequired", undefined, "Saved. Some changes require a server restart to take effect.") });
@@ -1634,7 +1640,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     {t(
                       "settings.serverHeapDescription",
                       undefined,
-                      "Takes effect only on a full cold start of the dashboard server. The in-place restart button inherits the current environment and will NOT apply a new value. Bounds the V8 heap only — the process also holds memory outside it.",
+                      "Takes effect on the next restart of the dashboard server, including the in-place restart button. Bounds the V8 heap only — the process also holds memory outside it.",
                     )}
                   </p>
                   <HeapMbField
@@ -1661,10 +1667,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                         {t(
                           "settings.heap.serverDivergence",
                           { mb: String(effectiveServerHeapMb) },
-                          `The running server was started with ${effectiveServerHeapMb} MB. The configured value takes effect on the next cold start.`,
+                          `The running server was started with ${effectiveServerHeapMb} MB. The configured value takes effect on the next restart.`,
                         )}
                       </p>
                     )}
+                  <StoreHeapCouplingWarning config={config} testId="server-heap-store-heap-warning" />
                 </Section>
                 <Section title={t("settings.memoryLimits", undefined, "Memory Limits")}>
                   <p className="text-xs text-[var(--text-tertiary)] mb-2">
@@ -1732,6 +1739,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                       c.memoryLimits.maxTotalEventBytes = v * MIB;
                     })}
                   />
+                  <StoreHeapCouplingWarning config={config} testId="memory-limits-store-heap-warning" />
                   {/* Resident session count — the multiplier on every
                       per-session bound, previously hardcoded at 100 with no
                       operator control. See change: bound-event-store-by-bytes
@@ -1922,6 +1930,24 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     onChange={(v) => update((c) => { c.completedFirst = v; })}
                     hint={i18nT("session.whenASessionFinishesATurn", undefined, "When a session finishes a turn or ends, move its card to the top of its tier (active, resp. ended). Off keeps the card in place.")}
                   />
+                  <SelectField
+                    label={i18nT("settings.folderListMode", undefined, "Folder list")}
+                    value={config.folderListMode ?? "classic"}
+                    options={[
+                      { value: "classic", label: i18nT("settings.folderListModeClassic", undefined, "Classic — all folders expanded as you left them") },
+                      { value: "accordion", label: i18nT("settings.folderListModeAccordion", undefined, "Accordion — focused folder open, others compact") },
+                    ]}
+                    onChange={(v) => update((c) => { c.folderListMode = v === "accordion" ? "accordion" : "classic"; })}
+                    hint={i18nT("settings.folderListModeHint", undefined, "Accordion keeps the folder you are working in fully open and condenses the rest. Focus mode can switch this on temporarily.")}
+                  />
+                  {(config.folderListMode ?? "classic") === "accordion" && (
+                    <ToggleField
+                      label={i18nT("settings.folderAttentionPeek", undefined, "Peek folders that need you")}
+                      value={config.folderAttentionPeek ?? true}
+                      onChange={(v) => update((c) => { c.folderAttentionPeek = v; })}
+                      hint={i18nT("settings.folderAttentionPeekHint", undefined, "In accordion mode, a compact folder shows the sessions that are streaming, asking a question or unread.")}
+                    />
+                  )}
                   <ToggleField
                     label={i18nT("session.putQuestionSessionFirst", undefined, "Put question session first")}
                     value={config.questionFirst ?? false}
@@ -2194,6 +2220,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                 <Section title={t("settings.push.title", undefined, "Push notifications")}>
                   <PushNotificationsSection />
                 </Section>
+                <FocusSettingsSection />
               </>
             )}
 
@@ -2323,11 +2350,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     panel draft; the section itself never writes.
                     See change: add-host-allowlist-admission. */}
                 <AllowedHostsSection
-                  mode={config.hostGate?.mode ?? "report"}
+                  mode={config.hostGate?.mode ?? "enforce"}
                   allowedHosts={config.allowedHosts ?? []}
                   onModeChange={(mode) => update((c) => { c.hostGate = { mode }; })}
                   onAllowedHostsChange={(hosts) => update((c) => { c.allowedHosts = hosts; })}
                   onNavigate={navigate}
+                />
+                <AgentPathGateSection
+                  value={config.agentPathGate ?? { enabled: true, timeoutSeconds: 120 }}
+                  envOverride={config.agentPathGateEnvOverride ?? null}
+                  onChange={(next) => update((c) => { c.agentPathGate = next; })}
                 />
                 <Section title={t("settings.pairDevice", undefined, "Pair a device")}>
                   {/* A route, not a duplicate (D2): Security keeps the words an
@@ -3119,15 +3151,23 @@ function TrustedNetworksSection({
   const [interfaces, setInterfaces] = useState<NetworkInterfaceInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [manualEntry, setManualEntry] = useState("");
-  const dropdownRef = React.useRef<HTMLDivElement>(null);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const { flipUp, maxHeight, anchorRight, maxWidth, triggerRect } = usePopoverFlip(triggerRef, {
+    open: dropdownOpen,
+    estimatedWidth: 280,
+    minPopoverHeight: 0,
+    preferredAnchor: "left",
+  });
 
   // Close dropdown on outside click
   React.useEffect(() => {
     if (!dropdownOpen) return;
     const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setDropdownOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -3214,8 +3254,9 @@ function TrustedNetworksSection({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative" ref={dropdownRef}>
+        <div className="relative">
           <button
+            ref={triggerRef}
             onClick={fetchInterfaces}
             className="text-xs px-2 py-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
             data-testid="trusted-networks-add-local"
@@ -3223,8 +3264,26 @@ function TrustedNetworksSection({
             {loading ? t("settings.detecting", undefined, "Detecting...") : t("settings.addLocalNetwork", undefined, "+ Add Local Network")}
           </button>
           {dropdownOpen && (offerRows.length > 0 || unofferable.length > 0) && (
+            <LayerPortal>
             <div
-              className="absolute left-0 top-full mt-1 z-50 min-w-[280px] bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg shadow-xl py-1"
+              ref={panelRef}
+              style={{
+                minWidth: 280,
+                maxHeight,
+                maxWidth,
+                visibility: triggerRect ? "visible" : "hidden",
+                ...(triggerRect
+                  ? flipUp
+                    ? { bottom: Math.round(window.innerHeight - triggerRect.top + 4) }
+                    : { top: Math.round(triggerRect.bottom + 4) }
+                  : {}),
+                ...(triggerRect
+                  ? anchorRight
+                    ? { right: Math.max(0, Math.round(window.innerWidth - triggerRect.right)) }
+                    : { left: Math.round(triggerRect.left) }
+                  : {}),
+              }}
+              className="fixed overflow-y-auto z-popover bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg shadow-xl py-1"
               data-testid="trusted-networks-dropdown"
             >
               {offerRows.map((row) => (
@@ -3273,6 +3332,7 @@ function TrustedNetworksSection({
                 </div>
               ))}
             </div>
+            </LayerPortal>
           )}
         </div>
 
@@ -3547,6 +3607,39 @@ export function NumberField({ label, value, onChange, disabled, hint, unit }: Fi
         onChange={(e) => onChange(parseInt(e.target.value, 10) || 0)}
       />
     </FieldShell>
+  );
+}
+
+/**
+ * Server-heap × store-budget coupling warning. Rendered beside BOTH fields
+ * (server heap ceiling, Max Total Event Bytes): they multiply into the heap
+ * the store will occupy, which neither field shows. Non-blocking — the values
+ * stay saveable. One shared guard formula, so the warned figure cannot drift
+ * from the tested one. See change: guard-server-heap-and-store-coupling (D1).
+ */
+function StoreHeapCouplingWarning({ config, testId }: { config: Config; testId: string }) {
+  const { t } = useI18n();
+  const ceilingMb = config.serverHeap?.maxOldSpaceMb ?? DEFAULT_SERVER_HEAP.maxOldSpaceMb;
+  const r = serverHeapStoreCoupling(
+    config.memoryLimits?.maxTotalEventBytes ?? DEFAULT_MEMORY_LIMITS.maxTotalEventBytes,
+    ceilingMb,
+  );
+  if (!r.warn) return null;
+  const vars = { ceiling: String(ceilingMb), heap: String(r.projectedHeapMb), crash: String(r.crashPointMb) };
+  return (
+    <p data-testid={testId} role="status" className="mt-1 text-xs text-amber-400">
+      {r.unbounded
+        ? t(
+            "settings.heap.storeUnbounded",
+            vars,
+            `The event store is unbounded (Max Total Event Bytes = 0) under a ${ceilingMb} MB server heap ceiling, so the server will eventually run out of memory. Set a byte budget, or accept this only for a short diagnostic run.`,
+          )
+        : t(
+            "settings.heap.storeCoupling",
+            vars,
+            `This event budget needs about ${r.projectedHeapMb} MB of heap, above the ~${r.crashPointMb} MB crash point of a ${ceilingMb} MB server heap ceiling. Raise the ceiling or lower Max Total Event Bytes.`,
+          )}
+    </p>
   );
 }
 

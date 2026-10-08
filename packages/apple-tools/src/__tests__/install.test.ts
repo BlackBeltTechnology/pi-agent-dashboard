@@ -6,12 +6,9 @@
  * See change: add-apple-tools-imcp-plugin.
  */
 import {
-  type AdapterPort,
   type ConfigIO,
   createMcpClientConfigService,
   type McpClientConfigService,
-  type McpConfig,
-  type ServerProvenance,
 } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
 import { describe, expect, it } from "vitest";
 import { type BrewResult, type InstallerEnv, runInstaller, TERMINAL_STATES } from "../install.js";
@@ -39,20 +36,10 @@ function memIO(files: Record<string, string> = {}): ConfigIO & {
   };
 }
 
-/** Adapter port pointing both config layers at the in-memory test paths. */
-function fakePort(): AdapterPort {
-  return {
-    loadMcpConfig: () => Promise.resolve({} as McpConfig),
-    getServerProvenance: () => Promise.resolve(new Map<string, ServerProvenance>()),
-    getConfigDiscoveryPaths: () => [],
-    getPiGlobalConfigPath: () => GLOBAL,
-    getProjectPiConfigPath: (cwd) => `${cwd}/.pi/mcp.json`,
-  };
-}
 
 /** Build the real service over the in-memory IO (write-only paths only). */
 function makeService(io: ConfigIO): McpClientConfigService {
-  return createMcpClientConfigService({ configIO: io, knownCwds: () => [], adapter: fakePort() });
+  return createMcpClientConfigService({ configIO: io, knownCwds: () => [], paths: { globalPath: () => GLOBAL, projectPath: (cwd) => `${cwd}/.pi/mcp.json` } });
 }
 
 function makeEnv(overrides: Partial<InstallerEnv> = {}): InstallerEnv {
@@ -311,7 +298,8 @@ describe("check mode", () => {
         "mcpServers.iMCP is a scalar",
         { "/cfg/mcp.json": JSON.stringify({ mcpServers: { iMCP: "nope" } }) },
       ],
-      ["packages is an object", { "/cfg/settings.json": JSON.stringify({ packages: {} }) }],
+      ["mcp.json is not strict JSON", { "/cfg/mcp.json": '{ "mcpServers": {}, }' }],
+      ["existing iMCP entry defines url", { "/cfg/mcp.json": JSON.stringify({ mcpServers: { iMCP: { url: "https://x.example/mcp" } } }) }],
     ];
     for (const [label, files] of cases) {
       const env = makeEnv({ pathExists: (p) => p === DEFAULT_SERVER, mcps: makeService(memIO(files)) });
@@ -355,7 +343,7 @@ describe("re-provisioning", () => {
   it("preserves operator-set fields on the iMCP entry (merge-only)", () => {
     const io = memIO({
       [GLOBAL]: JSON.stringify({
-        mcpServers: { iMCP: { command: "old", disabled: true, directTools: ["a"], unknown: 1 } },
+        mcpServers: { iMCP: { command: "old", enabled: false, exposure: "direct", unknown: 1 } },
       }),
     });
     const r = runInstaller(
@@ -365,10 +353,36 @@ describe("re-provisioning", () => {
     expect(r.state).toBe("READY_PENDING_GRANTS");
     expect(JSON.parse(io.store[GLOBAL]).mcpServers.iMCP).toEqual({
       command: DEFAULT_SERVER,
-      disabled: true,
-      directTools: ["a"],
+      enabled: false,
+      exposure: "direct",
       unknown: 1,
     });
+  });
+
+  // migrate-mcp-to-pi-builtin test-plan E15.
+  it("E15: refreshes command, keeps enabled/exposure/toolExposure, never touches settings.json", () => {
+    const SETTINGS = "/cfg/settings.json";
+    const settings = `${JSON.stringify({ packages: ["npm:pi-mcp-adapter", "npm:other"], theme: "x" }, null, 2)}\n`;
+    const io = memIO({
+      [GLOBAL]: JSON.stringify({
+        mcpServers: { iMCP: { command: "old", enabled: false, exposure: "direct", toolExposure: { "calendar_*": "hidden" } } },
+      }),
+      [SETTINGS]: settings,
+    });
+    for (let i = 0; i < 2; i += 1) {
+      const r = runInstaller(makeEnv({ pathExists: (p) => p === DEFAULT_SERVER, mcps: makeService(io) }), {
+        check: false,
+      });
+      expect(r.state).toBe("READY_PENDING_GRANTS");
+    }
+    expect(JSON.parse(io.store[GLOBAL]).mcpServers.iMCP).toEqual({
+      command: DEFAULT_SERVER,
+      enabled: false,
+      exposure: "direct",
+      toolExposure: { "calendar_*": "hidden" },
+    });
+    expect(io.store[SETTINGS]).toBe(settings);
+    expect(io.writes).not.toContain(SETTINGS);
   });
 });
 

@@ -52,6 +52,9 @@ const PI_MIN_TO_NODE_FLOOR: Record<string, { major: number; minor: number }> = {
   // bundled OAuth provider set (`meta`), not a Node move.
   // See change: delegate-provider-oauth-to-pi-ai.
   "0.86.1": { major: 22, minor: 19 },
+  // 1.0.0 keeps `engines.node` at `>=22.19.0` (verified against the published
+  // manifest). See change: update-pi-core-1-0-adopt-apis.
+  "1.0.0": { major: 22, minor: 19 },
 };
 
 function parseSemver(v: string): [number, number, number] | null {

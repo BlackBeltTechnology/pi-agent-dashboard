@@ -2,10 +2,10 @@
 
 > Research basis: `docs/research/lora-dataset-from-pi-logs.md` Parts 1–6 (pipeline), 4.6
 > (success detector), and Part 9 (this is the **on-demand** downstream, deliberately
-> NOT automatic). Depends on `add-automatic-session-kb-index` for the shared scrub.
-> **Note (2026-09-24):** `add-automatic-session-kb-index` is superseded by
-> `unify-context-manager`; the shared `scrub.ts` now comes from
-> `context-manager-lessons-and-cues` (umbrella task 1.3).
+> NOT automatic). Depends on `context-manager-lessons-and-cues` (umbrella
+> `unify-context-manager` task 1.3) for the shared scrub.
+> **Note (2026-10-05):** the original scrub owner `add-automatic-session-kb-index`
+> was archived as superseded by `unify-context-manager`.
 
 ## Why
 
@@ -28,7 +28,7 @@ no path that emits a chat-templated, loss-masked, deduplicated SFT dataset.
   auto-triggered.
 - **Reuse, don't rebuild**: the skill drives the existing `session-distiller`
   `Trajectory`/`Episode` machinery and the shared `scrub.ts` (from
-  `add-automatic-session-kb-index`).
+  `context-manager-lessons-and-cues`).
 - **Pipeline stages** (research doc Part 3): segment (per-assistant-turn window with
   full prior context, capped at context length) → scrub (mandatory) → quality-filter →
   dedup (exact hash → MinHash/LSH → optional embedding) → format (chat template + loss
@@ -69,7 +69,8 @@ no path that emits a chat-templated, loss-masked, deduplicated SFT dataset.
   questions, and gets a dataset file + stats report ready for an external LoRA trainer.
 - **Out of scope**: the training run itself (external, GPU); hyperparameter tuning; the
   automatic KB index (separate change).
-- **Sequencing**: depends on `add-automatic-session-kb-index` for `scrub.ts`. Both read
+- **Sequencing**: depends on `context-manager-lessons-and-cues` (umbrella
+  `unify-context-manager` task 1.3) for `scrub.ts`. Both read
   the same verified artifacts from the same distiller — one upstream, two invocation
   models (research doc Part 9).
 

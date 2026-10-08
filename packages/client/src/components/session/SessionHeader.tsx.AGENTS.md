@@ -7,3 +7,7 @@ Desktop header renders the editable `<TagEditor tags={session.tags} allTags onCh
 Refresh-chat button carries `data-testid="refresh-chat"` (mapped as `TESTIDS.refreshChat`) so the L3 reset-path specs can drive the durable replay-cache purge. See change: purge-replay-cache-on-reset-paths.
 
 Desktop (after `FooterSegmentSlot`) and mobile (below the chip row) render `YoloSessionIndicator cwd={session.cwd}`: active-YOLO peer signal when cwd in scope, visible without the sidebar. See change: add-access-grant-dialog (tasks 8b.7).
+
+Mounts `<PiBelowFloorWarning>` next to `pi <version>` (desktop) and as a row in `MobileHeader`, guarded on `session.piBelowFloor`. See change: update-pi-core-1-0-adopt-apis.
+
+Mobile attached chip shows `AttachmentTrace` (archived/missing/main-checkout), read-only. See change: resolve-archived-attached-proposal.

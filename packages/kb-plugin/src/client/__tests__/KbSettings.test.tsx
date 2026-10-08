@@ -31,7 +31,7 @@ function configResponse(over: Partial<KbConfigResponse> = {}): KbConfigResponse 
     // ResolvedConfig carrying `resolvedSources` (filesystem-only, includes
     // legacy roots[]). The pre-fix mock omitted it, which read as empty and
     // let an inverted banner assertion pass (test-plan #E12).
-    config: { sources: [{ kind: "filesystem", ref: "docs" }], include: ["**/*.md"], exclude: ["**/node_modules/**"], dbPath: ".pi/dashboard/kb/index.db", resolvedSources: [{ id: "docs", dir: "/repo/docs", priority: 0 }] } as KbConfigResponse["config"],
+    config: { sources: [{ kind: "filesystem", ref: "docs" }], include: ["**/*.md"], exclude: ["**/node_modules/**"], dbPath: ".pi/dashboard/kb/index.db", resolvedSources: [{ id: "docs", dir: "/repo/docs", priority: 0 }], allSourceSpecs: [{ kind: "filesystem", ref: "docs" }] } as KbConfigResponse["config"],
     ...over,
   };
 }
@@ -42,7 +42,8 @@ function cfgResponse(o: { origin?: KbConfigResponse["origin"]; sources?: number;
   return {
     origin: o.origin ?? "project",
     projectPath: "/repo/.pi/dashboard/knowledge_base.json",
-    config: { sources: refs(o.sources ?? 1), resolvedSources: resolvedEntries(o.resolved ?? 1) } as KbConfigResponse["config"],
+    // `allSourceSpecs` is what the dashboard reindex walks (every saved spec, any kind) and what the gate reads.
+    config: { sources: refs(o.sources ?? 1), resolvedSources: resolvedEntries(o.resolved ?? 1), allSourceSpecs: refs(o.resolved ?? 1) } as KbConfigResponse["config"],
   };
 }
 function refs(n: number): SourceConfig[] {
@@ -454,20 +455,22 @@ describe("Reindex now — optimistic state machine (test-plan #F1–#F6, #X1–#
     expect(queryByTestId("kb-settings-error")).toBeNull();
   });
 
+  // An ordinary (500) rejection: a cwd-refusal 403 now drives the shared
+  // `denied` state instead of `reindexError` (see change: kb-denied-folder-pin-state).
   it("#X1: trigger rejection is surfaced in kb-settings-error", async () => {
-    (globalThis as { fetch?: unknown }).fetch = fetchFor(cfgResponse(), { post: () => jsonFail({ error: "cwd not allowed" }) });
+    (globalThis as { fetch?: unknown }).fetch = fetchFor(cfgResponse(), { post: () => jsonFail({ error: "reindex exploded" }, 500) });
     const { getByTestId } = render(<KbSettingsPanel cwd="/repo" onBack={() => {}} />);
     await waitFor(() => expect(btn(getByTestId).disabled).toBe(false));
     fireEvent.click(getByTestId("kb-reindex-now"));
-    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("cwd not allowed"));
+    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("reindex exploded"));
   });
 
   it("#X2: retry is possible after rejection — the action returns to enabled", async () => {
-    (globalThis as { fetch?: unknown }).fetch = fetchFor(cfgResponse(), { post: () => jsonFail({ error: "cwd not allowed" }) });
+    (globalThis as { fetch?: unknown }).fetch = fetchFor(cfgResponse(), { post: () => jsonFail({ error: "reindex exploded" }, 500) });
     const { getByTestId } = render(<KbSettingsPanel cwd="/repo" onBack={() => {}} />);
     await waitFor(() => expect(btn(getByTestId).disabled).toBe(false));
     fireEvent.click(getByTestId("kb-reindex-now"));
-    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("cwd not allowed"));
+    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("reindex exploded"));
     await waitFor(() => expect(btn(getByTestId).disabled).toBe(false));
   });
 
@@ -494,27 +497,27 @@ describe("Reindex now — optimistic state machine (test-plan #F1–#F6, #X1–#
   }, 10000);
 
   it("#X5: trigger error outranks the poll outage", async () => {
-    const fetchMock = fetchFor(cfgResponse(), { stats: () => jsonFailHtml(), post: () => jsonFail({ error: "cwd not allowed" }) });
+    const fetchMock = fetchFor(cfgResponse(), { stats: () => jsonFailHtml(), post: () => jsonFail({ error: "reindex exploded" }, 500) });
     (globalThis as { fetch?: unknown }).fetch = fetchMock;
     const { getByTestId } = render(<KbSettingsPanel cwd="/repo" onBack={() => {}} />);
     await waitFor(() => expect(btn(getByTestId).disabled).toBe(false));
     fireEvent.click(getByTestId("kb-reindex-now"));
-    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("cwd not allowed"));
+    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("reindex exploded"));
     // Let the sustained outage surface too (3 consecutive misses), then re-check:
     // the user-initiated trigger error must still win.
     await waitFor(() => expect(statsCalls(fetchMock)).toBeGreaterThanOrEqual(3), { timeout: 8000 });
     await new Promise((r) => setTimeout(r, 150));
-    expect(getByTestId("kb-settings-error").textContent).toContain("cwd not allowed");
+    expect(getByTestId("kb-settings-error").textContent).toContain("reindex exploded");
   }, 10000);
 
   it("#X6: bootstrap error outranks the trigger error", async () => {
     // cwd is NOT a worktree → Copy from parent fails immediately ("Parent repo
     // not detected"); the reindex trigger is rejected too.
-    (globalThis as { fetch?: unknown }).fetch = fetchFor(cfgResponse({ origin: "global" }), { post: () => jsonFail({ error: "cwd not allowed" }) });
+    (globalThis as { fetch?: unknown }).fetch = fetchFor(cfgResponse({ origin: "global" }), { post: () => jsonFail({ error: "reindex exploded" }, 500) });
     const { getByTestId } = render(<KbSettingsPanel cwd="/repo" onBack={() => {}} />);
     await waitFor(() => expect(btn(getByTestId).disabled).toBe(false));
     fireEvent.click(getByTestId("kb-reindex-now"));
-    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("cwd not allowed"));
+    await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("reindex exploded"));
     fireEvent.click(getByTestId("kb-copy-parent"));
     await waitFor(() => expect(getByTestId("kb-settings-error").textContent).toContain("Parent repo not detected"));
   });

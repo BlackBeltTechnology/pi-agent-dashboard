@@ -23,3 +23,16 @@ Both status-chip branches (desktop `w-4 h-4`, mobile bare icon) render `<Session
 Computes `working` (streaming ∨ `isRetrying`) + `isMergePrimary` once; threads to `SessionOpenSpecActions` and `GitSubcard` → `WorktreeActionsMenu` (`disabled`, `mergeIsPrimary`). See change: redesign-composer-session-strip.
 Selected card wraps each `.card-glow-fx` in an `aria-hidden` `.card-glow-mask` (outer: `card-glow-mask-outer`) — static mask wrapper so the glow never paints over card content. Test: `components/__tests__/selected-card-fx.test.tsx`. See change: fix-selected-card-light-wash.
 Desktop selected card background = `--bg-primary` (blue `--tint-blue-bg` fill dropped; rim carries selection). Mobile selected card keeps blue fill. See change: fix-selected-card-light-wash.
+
+Mounts `<PiBelowFloorWarning>` after the tag strip (mobile + desktop) when `session.piBelowFloor`. See change: update-pi-core-1-0-adopt-apis.
+
+Attachment resolved via `useAttachmentResolution`; mobile chip shows `AttachmentTrace`; OpenSpec subcard stays for attached sessions with archived/missing data. See change: resolve-archived-attached-proposal.
+
+Status label shows 'Needs you' when `session.awaitingFileAccess`. See change: ask-agent-file-access-in-chat.
+
+## add-focus-mode-and-card-block-toggles
+
+- `openspec-badge` gates `OpenSpecActivityBadge` plus the mobile attached chip; `openspec` gates ONLY the subcard. Two ids on purpose — a user can keep the badge without the panel.
+- `TagStrip` renders user tags only; the phase tag is dropped.
+- `BadgeSubcard` and the card action bar filter plugin contributions through `usePluginSectionFilter("badge"|"actionbar", folderKey)`, so a per-plugin block toggle removes the contribution rather than blanking it.
+- See change: add-focus-mode-and-card-block-toggles.

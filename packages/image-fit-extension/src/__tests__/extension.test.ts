@@ -269,9 +269,31 @@ describe("imageFitExtension", () => {
       imageFitExtension(pi as any);
       expect(pi.handlers.has("tool_call")).toBe(false);
       expect(pi.handlers.has("session_shutdown")).toBe(false);
-      // Logs the disabled message exactly once.
+      expect([...pi.handlers.keys()]).toEqual(["session_start"]);
+    });
+
+    it("holds the disabled notice until session_start, then logs it once (no UI)", async () => {
+      process.env.PI_IMAGE_FIT_DISABLE = "1";
+      const pi = makeFakePi();
+      imageFitExtension(pi as any);
+      expect(logSpy).not.toHaveBeenCalled();
+
+      await pi.fire("session_start", { type: "session_start" }, {});
+
       expect(logSpy).toHaveBeenCalledTimes(1);
       expect(String(logSpy.mock.calls[0][0])).toContain("disabled");
+    });
+
+    it("delivers the disabled notice through the host UI when there is one", async () => {
+      process.env.PI_IMAGE_FIT_DISABLE = "1";
+      const pi = makeFakePi();
+      imageFitExtension(pi as any);
+      const setStatus = vi.fn();
+
+      await pi.fire("session_start", { type: "session_start" }, { hasUI: true, ui: { notify: vi.fn(), setStatus } });
+
+      expect(setStatus).toHaveBeenCalledWith("pi-image-fit", expect.stringContaining("disabled"));
+      expect(logSpy).not.toHaveBeenCalled();
     });
   });
 

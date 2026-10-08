@@ -4,6 +4,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
+| `FileAccessToastHost.tsx` | Own toast tray + `useFileAccessToasts` for the whole app (both layouts); App-level `useToast` tray renders only in the mobile branch. See change: ask-agent-file-access-in-chat. |
 | `agent-card-utils.ts` | Re-export shim. Forwards to `@blackbelt-technology/pi-dashboard-client-utils/agent-card-utils`. Symbol moved in change `complete-flows-plugin-migration` (Layer 0). |
 | `AgentCardShell.tsx` | Re-export shim. Forwards to `@blackbelt-technology/pi-dashboard-client-utils/AgentCardShell`. Symbol moved in change `complete-flows-plugin-migration` (Layer 0). |
 | `ArchivedSessionRow.tsx` | Lightweight row for an archived session inside folder `Archive (N)` fold or `Archive matches` search. Exports `ArchivedSessionRow`. Never in live `sessions` Map; click opens read-only `?archived=1`. Testids `archived-session-row`, `session-unarchive-btn`, `archived-delete-btn`. See change: archive-sessions-lazy-load. |
@@ -12,9 +13,11 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `CountBadges.tsx` | Shared `+adds −dels` count badges. See change: add-change-summary-table. |
 | `DashboardSpawnButtons.tsx` | Sidebar spawn-button stack. Exports `DashboardSpawnButtons`. → see `DashboardSpawnButtons.tsx.AGENTS.md` |
 | `ElapsedBadge.tsx` | Elapsed-time badge. Exports `ElapsedBadge`, `formatElapsed`. Static when `duration` set; live ticking (1s interval) when only `startedAt` set. Formats <1s / Ns / Nm Ns / Nh Nm. |
+| `FocusToggle.tsx` | Sidebar-header focus-mode toggle. Exports `FocusToggle`; drives `useFocusActions().setEnabled`, reflects state via `aria-pressed`, testid `focus-toggle-btn`. See change: add-focus-mode-and-card-block-toggles. |
 | `GroupByChip.tsx` | Folder-header grouping indicator (`folder-group-by-chip-<cwd>`). Hidden for `none`; `<Mode>` / `<Mode> · default` when inherited; click (stopPropagation) opens folder menu. `.group-by-chip` 44px coarse hit area. Exports `GroupByChip`, `groupByModeLabel`. See change: session-list-group-by. |
 | `LaneHeader.tsx` | Lane header `<button aria-expanded aria-controls>` (`lane-toggle-<cwd>::<lane>`): glyph on rail (lane color), label in `--text-secondary` (never status color), sub (branch), selected marker when collapsed, inert rollup (collapsed location lanes only, capsule segments/shapes), count pill, right chevron. Exports `LaneHeader`, `laneMeta(lane)` (label/color/icon, per render), `isLocationLane`, `laneRailStyle` (`--lane-rail`). See change: session-list-group-by. |
 | `MissingRequiredBanner.tsx` | Top banner for missing `required` recommended extensions (`useRecommendedExtensions`). → see `MissingRequiredBanner.tsx.AGENTS.md` |
+| `PiBelowFloorWarning.tsx` | Warning chip for a session whose running pi is below the lockstep floor. Exports `PiBelowFloorWarning({session, className?})`; renders nothing unless `session.piBelowFloor`; text names `piVersion` + `piBelowFloor.minimum` (`session.piBelowFloor` i18n key); `role="status"`, `--severity-warning-*` tokens, icon `aria-hidden`. See change: update-pi-core-1-0-adopt-apis. |
 | `PlaceholderSessionCard.tsx` | Skeleton card shown while a new session spawns. Exports `PlaceholderSessionCard`. Pulse-animated bars mimicking `SessionCard` layout; shows "Starting new session…" text. |
 | `QueuePanel.tsx` | Read-only follow-up cycler. Pi ExtensionAPI exposes no queue mutation (verified through pi 0.76.0). → see `QueuePanel.tsx.AGENTS.md` |
 | `RecoveryOfferHost.tsx` | Sticky top-right cold-start recovery-offer notification; never auto-dismisses. Reopen routes candidates through resume; dismiss DURABLE (`recovery_dismiss` consumes the on-disk liveness marker — no re-appear on reconnect/reload/restart). See change: fix-recovery-offer-dismiss-and-phantom-reopen. |

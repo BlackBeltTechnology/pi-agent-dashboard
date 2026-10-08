@@ -271,6 +271,12 @@ export interface DashboardSession {
   cacheRead?: number;
   cacheWrite?: number;
   cost?: number;
+  /**
+   * Version of the stats extractor the totals were derived under (server-only).
+   * Persisted via `sessionToMeta` so a full-overwrite save keeps it.
+   * See change: count-non-message-usage.
+   */
+  statsExtractorVersion?: number;
   currentTool?: string | null;
   gitBranch?: string;
   gitBranchUrl?: string;
@@ -301,6 +307,15 @@ export interface DashboardSession {
    * first report. See change: restore-pi-version-skew-surface.
    */
   piVersion?: string;
+  /**
+   * Set when `piVersion` parses below the dashboard's lockstep floor
+   * (`piCompatibility.minimum`); carries the required version for the warning
+   * on the session card and chat view. `null` = explicitly cleared (the client
+   * merges `session_updated` shallowly); absent = never flagged. An unreported
+   * or unparseable version is never flagged.
+   * See change: update-pi-core-1-0-adopt-apis.
+   */
+  piBelowFloor?: { minimum: string } | null;
   /**
    * Per-session git-worktree identity. Set only when the session's cwd
    * is a git worktree (not the main checkout). See `GitWorktreeInfo`.
@@ -459,6 +474,14 @@ export interface DashboardSession {
    * live session as unresponsive. See change: fix-false-unresponsive-badge.
    */
   hostPressure?: HostPressure | null;
+  /**
+   * Server-derived: true while any tracked pending prompt of this session has
+   * metadata `kind` `agent-path-gate` / `agent-path-gate-confirm` (the agent is
+   * blocked on a file-access approval). Separate from `currentTool`, which is
+   * left untouched. Re-derived on replay/resync; false after disconnect.
+   * See change: ask-agent-file-access-in-chat (D7).
+   */
+  awaitingFileAccess?: boolean;
   /** Extension-declared UI modules (Phase 1: management-modal slot). */
   uiModules?: ExtensionUiModule[];
   /** Cached row data per `view.dataEvent` for table/grid views. Per-event item cap is enforced server-side. */
@@ -526,6 +549,19 @@ export interface DashboardSession {
    */
   goalId?: string;
   /**
+   * Human principal that owns this session `(iss, sub)`, mirror of
+   * `SessionMeta.principalOwner`. Absent ⇒ ownerless (scheduler/automation or
+   * inert-era). Surfaced on summaries so owner-scoping can filter without a
+   * sidecar read. See change: add-multi-user-identity-plane (D11).
+   */
+  principalOwner?: { iss: string; sub: string };
+  /**
+   * Plugin-owned session refs, namespaced by owning plugin id. Written and
+   * restored VERBATIM by core (it never parses the interior); every key is
+   * also projected onto the session top level. See session/plugin-refs.ts.
+   */
+  pluginRefs?: Record<string, Record<string, unknown>>;
+  /**
    * Core-owned cold-start recovery opt-out, mirror of `SessionMeta.recover`.
    * Absent ⇒ recoverable (`true`). Resolved from an owning plugin's lifecycle
    * declaration `{ recover }` through the generic session-ownership seam; core
@@ -534,6 +570,14 @@ export interface DashboardSession {
    * owned session gains). See change: detach-automation-goal-from-core.
    */
   recover?: boolean;
+  /**
+   * Core-owned "hidden by its owning plugin" intent, set when a spawn's
+   * `lifecycle.hidden` is applied. Persisted (like `recover`) so a NON-reattach
+   * re-register after a restart (respawn: `registerReason:"spawn"`, no token)
+   * keeps the session hidden instead of re-deciding from the headless
+   * heuristic. Absent on user sessions (byte-identical sidecars). See change: fix-plugin-hidden-across-restart.
+   */
+  pluginHidden?: boolean;
   /**
    * Core-owned socket-close finalization flag. When `true`, the gateway
    * finalizes the session immediately on socket close (no reconnect grace)
@@ -849,6 +893,13 @@ export interface ProviderInfo {
   envVar?: string;
   /** True when configured via ambient credential chain (AWS profile / GCP ADC). */
   ambient?: boolean;
+  /**
+   * pi's own label for the credential's source, from
+   * `modelRegistry.getProviderAuthStatus(id).label` (pi >= 0.99.2) — e.g.
+   * `"workload identity federation"`, or an env var name. Absent when pi
+   * reports none. See change: update-pi-core-1-0-adopt-apis (D7).
+   */
+  authLabel?: string;
   /** Expiry timestamp for OAuth credentials. */
   expires?: number;
   /**

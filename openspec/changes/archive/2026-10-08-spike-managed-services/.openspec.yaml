@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-10-08
+# Investigation only — the deliverable is findings.md, no shipped behaviour and
+# no capability deltas. The follow-up changes (see proposal.md roadmap) own the
+# eventual spec changes.
+skip_specs: true

@@ -1,26 +1,28 @@
 /**
- * mcp-client-plugin · REST routes.
+ * mcp-client-plugin · REST routes over pi's built-in MCP config.
  *
- *   GET    /api/mcp-client/effective?cwd=      effective view (+ adapter verdict)
- *   GET    /api/mcp-client/schema              published config schema
- *   GET    /api/mcp-client/adapter[?fresh=1]   adapter version verdict
- *   PUT    /api/mcp-client/servers/:name       {scope, cwd?, set, unset?}
- *   DELETE /api/mcp-client/servers/:name?scope=&cwd=
- *   PUT    /api/mcp-client/servers/:name/disabled  {scope, cwd?, disabled}
- *   PUT    /api/mcp-client/settings            {set, unset?}
+ *   GET    /api/mcp-client/effective?cwd=         effective view (files only, fast)
+ *   GET    /api/mcp-client/live?cwd=&fresh=1      live state from `pi mcp list --json`
+ *   GET    /api/mcp-client/schema                 published entry schema
+ *   PUT    /api/mcp-client/servers/:name          {scope, cwd?, entry, previousName?, create?} — whole-entry save
+ *   DELETE /api/mcp-client/servers/:name?scope=&cwd=   → {ok, removed}
+ *   PUT    /api/mcp-client/servers/:name/enabled  {scope, cwd?, enabled}
+ *   POST   /api/mcp-client/servers/:name/convert  {scope, cwd?} — adapter leftovers → pi
  *
- * Every route (GET included) is registered behind the host `networkGuard`:
- * mutating bodies become executable config for pi, and the effective view
- * returns own-layer credentials.
- * See change: extract-mcp-client-plugin (design D7).
+ * Every route (GET included) is registered behind the host `networkGuard`
+ * (cookie/token/loopback auth): a write becomes executable configuration for
+ * pi and the effective view returns own-layer credentials. Path names are
+ * decoded and validated, and a project cwd is admitted against the
+ * known-folder set, BEFORE any file is read or written.
+ *
+ * See change: migrate-mcp-to-pi-builtin (D3); earlier: extract-mcp-client-plugin (D7).
  */
 
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { isAllowedCwd } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { AdapterTimeoutError } from "../core/adapter-worker.js";
-import { isValidServerName } from "../core/config-writer.js";
-import { mcpConfigSchema, validateServerPatch, validateSettingsPatch } from "../core/schema-validation.js";
+import { isValidServerName } from "../core/pi-rules.js";
+import { errorFields, mcpConfigSchema, validateServerEntry } from "../core/schema-validation.js";
 import type { McpClientRuntime } from "../core/service.js";
 import type { ConfigRefusal, Scope, ServerEntry } from "../core/types.js";
 
@@ -28,47 +30,40 @@ export interface McpClientRouteDeps {
   runtime: McpClientRuntime;
   knownCwds: () => string[];
   networkGuard: ServerPluginContext["networkGuard"];
-  /** Reads `adapterLoadTimeoutMs` per request from the plugin namespace. */
-  getTimeoutMs: () => number;
 }
 
 const PREFIX = "/api/mcp-client";
 
 /**
- * Additive remedy fields on a cwd-allowlist refusal (design D7/D18). `error`
- * and `message` are unchanged; the known-cwd set already includes pinned
- * directories, so pinning the refused directory is the offered remedy. See
- * change: add-access-grants-and-review.
+ * Additive remedy fields on a cwd-allowlist refusal. The known-cwd set already
+ * includes pinned directories, so pinning the refused directory is the remedy.
+ * See change: add-access-grants-and-review.
  */
 const CWD_DENIED_REASON = "cwd is not a known session or pinned directory.";
 const CWD_DENIED_HINT = "Pin this directory to allow it, or open a session rooted in it.";
 
+function notAllowed(cwd: string): { status: number; body: Record<string, unknown> } {
+  return {
+    status: 403,
+    body: { error: "not-allowed", message: `cwd not allowed: ${cwd}`, reason: CWD_DENIED_REASON, hint: CWD_DENIED_HINT },
+  };
+}
+
 function refusalParts(refusal: ConfigRefusal): { status: number; body: Record<string, unknown> } {
+  const body: Record<string, unknown> = { error: refusal.code, message: refusal.message };
   switch (refusal.code) {
     case "invalid-name":
-      return { status: 400, body: { error: refusal.code, message: refusal.message } };
+    case "invalid-entry":
+      return { status: 400, body };
     case "transport-conflict":
-    case "missing-transport":
-      return { status: 400, body: { error: refusal.code, message: refusal.message, fields: refusal.fields ?? [] } };
-    case "not-allowed":
-      // The config writer's cwd refusal (`NotAllowedCwdError`) reaches the wire
-      // through this case on the DELETE / `disabled` routes, which have no
-      // inline `isAllowedCwd` pre-check. Same `{ error, message }` shape, plus
-      // the additive cwd remedy. See change: add-access-grants-and-review.
-      return {
-        status: 403,
-        body: {
-          error: refusal.code,
-          message: refusal.message,
-          reason: CWD_DENIED_REASON,
-          hint: CWD_DENIED_HINT,
-        },
-      };
+      return { status: 400, body: { ...body, fields: refusal.fields ?? [] } };
+    case "name-collision":
+      return { status: 409, body: { ...body, ...(refusal.conflict ? { conflict: refusal.conflict } : {}) } };
     case "unparseable":
     case "entry-not-object":
-      return { status: 409, body: { error: refusal.code, message: refusal.message } };
+      return { status: 409, body };
     default:
-      return { status: 500, body: { error: refusal.code, message: refusal.message } };
+      return { status: 500, body: { ...body, ...(refusal.ioCode ? { ioCode: refusal.ioCode } : {}) } };
   }
 }
 
@@ -77,201 +72,128 @@ function sendRefusal(reply: FastifyReply, refusal: ConfigRefusal): FastifyReply 
   return reply.code(status).send(body);
 }
 
-interface ScopeBody {
+interface ScopeInput {
   scope?: unknown;
   cwd?: unknown;
 }
 
-function parseScope(body: ScopeBody): { ok: true; scope: Scope } | { ok: false; error: string; status: number } {
-  const kind = body.scope;
-  if (kind === "global") return { ok: true, scope: { kind: "global" } };
-  if (kind === "project") {
-    if (typeof body.cwd !== "string" || body.cwd.length === 0) {
-      return { ok: false, error: "project scope requires a cwd", status: 400 };
+type ParsedScope = { ok: true; scope: Scope } | { ok: false; status: number; body: Record<string, unknown> };
+
+/** Parse + ADMIT a scope (no IO): a project cwd must be a known folder. */
+function parseScope(input: ScopeInput, knownCwds: () => string[]): ParsedScope {
+  if (input.scope === "global") return { ok: true, scope: { kind: "global" } };
+  if (input.scope === "project") {
+    if (typeof input.cwd !== "string" || input.cwd.length === 0) {
+      return { ok: false, status: 400, body: { error: "invalid-body", message: "project scope requires a cwd" } };
     }
-    return { ok: true, scope: { kind: "project", cwd: body.cwd } };
+    if (!isAllowedCwd(input.cwd, knownCwds)) return { ok: false, ...notAllowed(input.cwd) };
+    return { ok: true, scope: { kind: "project", cwd: input.cwd } };
   }
-  return { ok: false, error: "scope must be 'global' or 'project'", status: 400 };
+  return { ok: false, status: 400, body: { error: "invalid-body", message: "scope must be 'global' or 'project'" } };
 }
 
-function decodeName(request: FastifyRequest): string {
+/** Decoded + validated path name, or null. */
+function pathName(request: FastifyRequest): string | null {
   const raw = (request.params as { name?: string }).name ?? "";
-  // Fastify already decodes params; decode defensively for double-encoded input.
+  let name = raw;
   try {
-    return decodeURIComponent(raw);
+    // Fastify already decodes params; decode defensively for double-encoded input.
+    name = decodeURIComponent(raw);
   } catch {
-    return raw;
+    return null;
   }
+  return isValidServerName(name) ? name : null;
 }
 
-interface PatchOutcome {
-  status: number;
-  body: Record<string, unknown>;
+/** `?cwd=` → scope, admitted; a repeated key (array) is refused. */
+function queryScope(request: FastifyRequest, knownCwds: () => string[]): ParsedScope {
+  const rawCwd = (request.query as { cwd?: unknown }).cwd;
+  if (rawCwd !== undefined && typeof rawCwd !== "string") {
+    return { ok: false, status: 400, body: { error: "invalid-cwd", message: "cwd must be a single string" } };
+  }
+  if (rawCwd === undefined || rawCwd === "") return { ok: true, scope: { kind: "global" } };
+  return parseScope({ scope: "project", cwd: rawCwd }, knownCwds);
 }
 
-/**
- * The adapter merge for the scope defines the server below the target layer.
- * Needed by the ">= 1 transport when nothing lower defines the server" rule.
- */
-async function resolveHasLowerDefinition(
-  deps: McpClientRouteDeps,
-  scope: Scope,
-  name: string,
-): Promise<{ ok: true; value: boolean } | { ok: false; outcome: PatchOutcome }> {
-  try {
-    const view = await deps.runtime.getEffectiveView(scope, { timeoutMs: deps.getTimeoutMs() });
-    const targetLayer = scope.kind === "global" ? "pi-global" : "pi-folder";
-    const existing = view.servers.find((s) => s.name === name);
-    return { ok: true, value: existing?.provenance.some((p) => p.layer !== targetLayer) ?? false };
-  } catch (e) {
-    if (e instanceof AdapterTimeoutError) {
-      return { ok: false, outcome: { status: 504, body: { error: "adapter-timeout", timeoutMs: e.timeoutMs } } };
-    }
-    return {
-      ok: false,
-      outcome: { status: 500, body: { error: "adapter-error", message: "could not read the effective MCP configuration" } },
-    };
-  }
-}
-
-/** Validate + apply a `PUT /servers/:name` body; returns the HTTP status + body. */
-async function handleServerPatch(
-  deps: McpClientRouteDeps,
-  name: string,
-  rawBody: unknown,
-): Promise<PatchOutcome> {
-  const body = (rawBody ?? {}) as ScopeBody & { set?: unknown; unset?: unknown };
-  if (body.set === undefined || typeof body.set !== "object" || Array.isArray(body.set)) {
-    return { status: 400, body: { error: "invalid-body", message: "body must carry a `set` patch object" } };
-  }
-  const parsed = parseScope(body);
-  if (!parsed.ok) return { status: parsed.status, body: { error: "invalid-body", message: parsed.error } };
-  // Admit the cwd BEFORE the adapter merge read (same rule as the writer,
-  // hoisted so a disallowed cwd performs no IO).
-  if (parsed.scope.kind === "project" && !isAllowedCwd(parsed.scope.cwd, deps.knownCwds)) {
-    return {
-      status: 403,
-      body: {
-        error: "not-allowed",
-        message: `cwd not allowed: ${parsed.scope.cwd}`,
-        reason: CWD_DENIED_REASON,
-        hint: CWD_DENIED_HINT,
-      },
-    };
-  }
-  const validation = validateServerPatch(body.set);
-  if (!validation.ok) {
-    return {
-      status: 400,
-      body: { error: "schema", message: "server patch failed validation", fields: validationErrors(validation.errors) },
-    };
-  }
-  const lower = await resolveHasLowerDefinition(deps, parsed.scope, name);
-  if (!lower.ok) return lower.outcome;
-  const unset = Array.isArray(body.unset) ? body.unset.filter((k): k is string => typeof k === "string") : [];
-  const set = { ...(body.set as Record<string, unknown>) };
-  const result = deps.runtime.applyServerPatch(name, set as Partial<ServerEntry>, unset, parsed.scope, {
-    hasLowerDefinition: lower.value,
-  });
-  if (!result.ok) return refusalParts(result.refusal);
-  return { status: 200, body: { ok: true } };
-}
+const INVALID_NAME = { error: "invalid-name", message: "invalid server name" };
 
 export function mountMcpClientRoutes(fastify: FastifyInstance, deps: McpClientRouteDeps): void {
   const guard = { preHandler: deps.networkGuard };
+  const { runtime, knownCwds } = deps;
 
   fastify.get(`${PREFIX}/effective`, guard, async (request, reply) => {
-    const rawCwd = (request.query as { cwd?: unknown }).cwd;
-    // `fast-querystring` yields an array for a repeated key; reject rather than
-    // hand a non-string to `isAllowedCwd` → `path.resolve` (which would throw).
-    if (rawCwd !== undefined && typeof rawCwd !== "string") {
-      return reply.code(400).send({ error: "invalid-cwd", message: "cwd must be a single string" });
-    }
-    const cwd = rawCwd;
-    if (cwd !== undefined && !isAllowedCwd(cwd, deps.knownCwds)) {
-      return reply.code(403).send({
-        error: "not-allowed",
-        message: `cwd not allowed: ${cwd}`,
-        reason: CWD_DENIED_REASON,
-        hint: CWD_DENIED_HINT,
-      });
-    }
-    const scope: Scope = cwd ? { kind: "project", cwd } : { kind: "global" };
-    try {
-      const view = await deps.runtime.getEffectiveView(scope, { timeoutMs: deps.getTimeoutMs() });
-      return { ...view, adapter: deps.runtime.adapterVerdict() };
-    } catch (e) {
-      if (e instanceof AdapterTimeoutError) {
-        return reply.code(504).send({ error: "adapter-timeout", timeoutMs: e.timeoutMs });
-      }
-      return reply.code(500).send({ error: "adapter-error", message: (e as Error).message });
-    }
+    const parsed = queryScope(request, knownCwds);
+    if (!parsed.ok) return reply.code(parsed.status).send(parsed.body);
+    return runtime.getEffectiveView(parsed.scope);
+  });
+
+  fastify.get(`${PREFIX}/live`, guard, async (request, reply) => {
+    const parsed = queryScope(request, knownCwds);
+    if (!parsed.ok) return reply.code(parsed.status).send(parsed.body);
+    const fresh = (request.query as { fresh?: string }).fresh === "1";
+    return runtime.getLiveState(parsed.scope, { fresh });
   });
 
   fastify.get(`${PREFIX}/schema`, guard, async () => mcpConfigSchema);
 
-  fastify.get(`${PREFIX}/adapter`, guard, async (request) => {
-    const fresh = (request.query as { fresh?: string }).fresh === "1";
-    return deps.runtime.adapterVerdict({ fresh });
-  });
-
   fastify.put(`${PREFIX}/servers/:name`, guard, async (request, reply) => {
-    const name = decodeName(request);
-    if (!isValidServerName(name)) return reply.code(400).send({ error: "invalid-name", message: `invalid server name` });
-    const { status, body } = await handleServerPatch(deps, name, request.body);
-    return reply.code(status).send(body);
+    const name = pathName(request);
+    if (!name) return reply.code(400).send(INVALID_NAME);
+    const body = (request.body ?? {}) as ScopeInput & { entry?: unknown; previousName?: unknown; create?: unknown };
+    const parsed = parseScope(body, knownCwds);
+    if (!parsed.ok) return reply.code(parsed.status).send(parsed.body);
+    if (typeof body.entry !== "object" || body.entry === null || Array.isArray(body.entry)) {
+      return reply.code(400).send({ error: "invalid-body", message: "body must carry an `entry` object" });
+    }
+    if (body.previousName !== undefined && (typeof body.previousName !== "string" || !isValidServerName(body.previousName))) {
+      return reply.code(400).send(INVALID_NAME);
+    }
+    const validation = validateServerEntry(body.entry);
+    if (!validation.ok) {
+      return reply
+        .code(400)
+        .send({ error: "schema", message: "server entry failed validation", fields: errorFields(validation.errors) });
+    }
+    const result = runtime.saveServer(name, body.entry as ServerEntry, parsed.scope, {
+      ...(typeof body.previousName === "string" ? { previousName: body.previousName } : {}),
+      ...(body.create === true ? { create: true } : {}),
+    });
+    if (!result.ok) return sendRefusal(reply, result.refusal);
+    return { ok: true };
   });
 
   fastify.delete(`${PREFIX}/servers/:name`, guard, async (request, reply) => {
-    const name = decodeName(request);
-    if (!isValidServerName(name)) return reply.code(400).send({ error: "invalid-name", message: `invalid server name` });
-    const query = request.query as { scope?: string; cwd?: string };
-    const parsed = parseScope({ scope: query.scope ?? "global", cwd: query.cwd });
-    if (!parsed.ok) return reply.code(parsed.status).send({ error: "invalid-body", message: parsed.error });
-    const result = deps.runtime.removeServer(name, parsed.scope);
+    const name = pathName(request);
+    if (!name) return reply.code(400).send(INVALID_NAME);
+    const query = request.query as { scope?: unknown; cwd?: unknown };
+    const parsed = parseScope({ scope: query.scope ?? "global", cwd: query.cwd }, knownCwds);
+    if (!parsed.ok) return reply.code(parsed.status).send(parsed.body);
+    const result = runtime.removeServer(name, parsed.scope);
     if (!result.ok) return sendRefusal(reply, result.refusal);
     return { ok: true, removed: result.removed };
   });
 
-  fastify.put(`${PREFIX}/servers/:name/disabled`, guard, async (request, reply) => {
-    const name = decodeName(request);
-    if (!isValidServerName(name)) return reply.code(400).send({ error: "invalid-name", message: `invalid server name` });
-    const body = (request.body ?? {}) as ScopeBody & { disabled?: unknown };
-    if (typeof body.disabled !== "boolean") {
-      return reply.code(400).send({ error: "invalid-body", message: "`disabled` must be a boolean" });
+  fastify.put(`${PREFIX}/servers/:name/enabled`, guard, async (request, reply) => {
+    const name = pathName(request);
+    if (!name) return reply.code(400).send(INVALID_NAME);
+    const body = (request.body ?? {}) as ScopeInput & { enabled?: unknown };
+    const parsed = parseScope(body, knownCwds);
+    if (!parsed.ok) return reply.code(parsed.status).send(parsed.body);
+    if (typeof body.enabled !== "boolean") {
+      return reply.code(400).send({ error: "invalid-body", message: "`enabled` must be a boolean" });
     }
-    const parsed = parseScope(body);
-    if (!parsed.ok) return reply.code(parsed.status).send({ error: "invalid-body", message: parsed.error });
-    try {
-      const result = await deps.runtime.setServerDisabled(name, body.disabled, parsed.scope, {
-        timeoutMs: deps.getTimeoutMs(),
-      });
-      if (!result.ok) return sendRefusal(reply, result.refusal);
-      return { ok: true };
-    } catch (e) {
-      if (e instanceof AdapterTimeoutError) {
-        return reply.code(504).send({ error: "adapter-timeout", timeoutMs: e.timeoutMs });
-      }
-      throw e;
-    }
+    const result = runtime.setEnabled(name, body.enabled, parsed.scope);
+    if (!result.ok) return sendRefusal(reply, result.refusal);
+    return result;
   });
 
-  fastify.put(`${PREFIX}/settings`, guard, async (request, reply) => {
-    const body = (request.body ?? {}) as { set?: unknown; unset?: unknown };
-    if (body.set === undefined || typeof body.set !== "object" || Array.isArray(body.set)) {
-      return reply.code(400).send({ error: "invalid-body", message: "body must carry a `set` patch object" });
-    }
-    const validation = validateSettingsPatch(body.set);
-    if (!validation.ok) {
-      return reply.code(400).send({ error: "schema", message: "settings patch failed validation", fields: validationErrors(validation.errors) });
-    }
-    const unset = Array.isArray(body.unset) ? body.unset.filter((k): k is string => typeof k === "string") : [];
-    const result = deps.runtime.patchSettings(body.set as never, unset);
+  fastify.post(`${PREFIX}/servers/:name/convert`, guard, async (request, reply) => {
+    const name = pathName(request);
+    if (!name) return reply.code(400).send(INVALID_NAME);
+    const parsed = parseScope((request.body ?? {}) as ScopeInput, knownCwds);
+    if (!parsed.ok) return reply.code(parsed.status).send(parsed.body);
+    const result = runtime.convertAdapterLeftovers(name, parsed.scope);
     if (!result.ok) return sendRefusal(reply, result.refusal);
     return { ok: true };
   });
-}
-
-function validationErrors(errors: Array<{ instancePath: string }>): string[] {
-  return errors.map((e) => e.instancePath.replace(/^\//, "").split("/")[0]).filter((f) => f.length > 0);
 }

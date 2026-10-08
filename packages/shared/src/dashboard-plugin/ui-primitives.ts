@@ -73,6 +73,11 @@ export const UI_PRIMITIVE_KEYS = {
    *  select/text prompts, cancel) driven by an `OAuthFlowStatus`.
    *  See change: expose-plugin-credential-and-oauth-seams (D6). */
   oauthFlow: "ui:oauth-flow",
+  /** Modal single-folder picker over the guarded `/api/browse`. Transient
+   *  per-client input, so plugins read it with the SOFT hook
+   *  (`useUiPrimitiveOrNull`) and hide the affordance when absent.
+   *  See change: improve-kb-settings-sources-and-search. */
+  pathPicker: "ui:path-picker",
 } as const;
 
 /** Union of all valid UI primitive keys (literal-string narrowed). */
@@ -221,6 +226,8 @@ export interface UiZoomControlsProps {
   onZoomOut: () => void;
   onReset: () => void;
   scale: number;
+  /** Scale the surface starts/resets at (default 1); % readout hidden at this scale. */
+  initialScale?: number;
 }
 
 /** A single entry in an action-list primitive. */
@@ -270,9 +277,11 @@ export interface UiStatusPillProps {
  * pending-state with 10 s timeout) to plugins without forcing them to depend
  * on the client package.
  *
- * Role/preset props that historically existed on `ModelSelector` are NOT part
- * of this contract — role management is a host concern (see
- * `BuiltInRolesSettings` in roles-plugin) layered on top.
+ * Role MANAGEMENT props (preset load/save, role assignment) are NOT part of
+ * this contract — that stays a host concern (see `BuiltInRolesSettings` in
+ * roles-plugin). The opt-in `allowRoles` prop only lets a caller PICK an
+ * `@role` ref (Role tab); absent, behavior is unchanged.
+ * See change: add-role-aware-model-refs.
  */
 export interface UiModelSelectorProps {
   /** Currently-selected model label in `"<provider>/<id>"` form, or undefined. */
@@ -283,6 +292,12 @@ export interface UiModelSelectorProps {
   onSelect: (modelLabel: string) => void;
   /** Trigger text when `current` is absent; the primitive's default is used when omitted. */
   placeholder?: string;
+  /**
+   * Opt-in Model | Role switch. When true AND the roles plugin is installed,
+   * a Role tab lists roles and `onSelect` receives `"@<role>"` instead of a
+   * `"<provider>/<id>"` label. Ignored when the roles plugin is absent.
+   */
+  allowRoles?: boolean;
 }
 
 /**
@@ -372,6 +387,20 @@ export interface UiOAuthFlowViewProps {
   onCancel: (flowId: string) => void;
 }
 
+/**
+ * Public prop signature for the path-picker primitive: a modal that confirms ONE
+ * existing directory. `onSelect` receives an absolute path that the host has
+ * verified to be a directory; a file / missing path shows an inline error and
+ * never reaches `onSelect`. See change: improve-kb-settings-sources-and-search.
+ */
+export interface UiPathPickerDialogProps {
+  open: boolean;
+  initialPath?: string;
+  title?: string;
+  onSelect: (absPath: string) => void;
+  onCancel: () => void;
+}
+
 export interface UiPrimitiveMap {
   "ui:agent-card": ComponentType<UiAgentCardProps>;
   "ui:markdown-content": ComponentType<UiMarkdownContentProps>;
@@ -391,6 +420,7 @@ export interface UiPrimitiveMap {
   "ui:thinking-block": ComponentType<UiThinkingBlockProps>;
   "ui:log-block": ComponentType<UiLogBlockProps>;
   "ui:oauth-flow": ComponentType<UiOAuthFlowViewProps>;
+  "ui:path-picker": ComponentType<UiPathPickerDialogProps>;
 }
 
 /**

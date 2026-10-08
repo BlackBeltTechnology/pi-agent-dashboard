@@ -26,6 +26,10 @@ export const MODULE_TOKEN_SOURCES: Record<string, string[]> = {
 	"install-topology": ["packages/shared/src/dashboard-paths.ts"],
 	"model-resolution": ["packages/extension/src/provider-register.ts"],
 	"oauth-redirect-base": ["packages/server/src/auth/auth.ts", "packages/server/src/routes/system-routes.ts"],
+	"mcp-builtin": [
+		"packages/extension/src/mcp-token-delivery.ts",
+		"packages/mcp-server-plugin/src/server/legacy-entry-migration.ts",
+	],
 };
 
 /**

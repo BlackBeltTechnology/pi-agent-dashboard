@@ -5,6 +5,7 @@ import { Icon } from "@mdi/react";
 import type React from "react";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
+import { useHistoryState } from "wouter/use-browser-location";
 import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
@@ -33,6 +34,7 @@ import { MarkdownPreviewView } from "./components/preview/MarkdownPreviewView.js
 import { PreviewOverlayView } from "./components/preview/PreviewOverlayView.js";
 import { Toast, useToast } from "./components/primitives/Toast.js";
 import { ComposerSessionActions } from "./components/session/ComposerSessionActions.js";
+import { FileAccessToastHost } from "./components/session/FileAccessToastHost.js";
 import { MissingRequiredBanner } from "./components/session/MissingRequiredBanner.js";
 import { QueuePanel } from "./components/session/QueuePanel.js";
 import { RecoveryOfferHost } from "./components/session/RecoveryOfferHost.js";
@@ -50,6 +52,7 @@ import { SessionContentGate } from "./components/shell/SessionContentGate.js";
 import { ShellContent, type ShellContentRenderers } from "./components/shell/ShellContent.js";
 import { StatusBar } from "./components/shell/StatusBar.js";
 import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
+import { useEditorTabOpenListener } from "./lib/layout/editor-tab-open.js";
 import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
 import { allTagsInUse } from "./components/tags/all-tags.js";
 import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
@@ -58,6 +61,7 @@ import { WorktreeSpawnDialog } from "./components/worktree/WorktreeSpawnDialog.j
 import { useAppHidden } from "./hooks/useAppHidden.js";
 import { useContentViews } from "./hooks/useContentViews.js";
 import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
+import { useHistoryLoadState } from "./hooks/useHistoryLoadState.js";
 import { useIdleFx } from "./hooks/useIdleFx.js";
 import { selectInflightBashTools } from "./hooks/useInflightBashTools.js";
 import { useInstallPrompt } from "./hooks/useInstallPrompt.js";
@@ -87,8 +91,9 @@ import { fetchActiveInits } from "./lib/git/git-api.js";
 import { refreshGitStatus } from "./lib/git/git-status-cache.js";
 import { resendActiveCwdSubscriptions, setInitSender } from "./lib/git/worktree-init-bus.js";
 import { initStore } from "./lib/git/worktree-init-store.js";
+import { CHAT_HEADER_BOUND, CHAT_HEADER_WEIGHT } from "./lib/layout/chat-pane-row-class.js";
 import { getMobileDepth } from "./lib/layout/mobile-depth.js";
-import { goBack as goBackAction } from "./lib/nav/history-back.js";
+import { goBack as goBackAction, returnTo } from "./lib/nav/history-back.js";
 import {
   initNavTracker,
   popNav,
@@ -99,9 +104,11 @@ import {
 import {
   captureBackground,
   clearBackground,
+  isOverlayRoute,
   recordLauncher,
   resolveBackground,
   resolveDismissTarget,
+  splitLocation,
 } from "./lib/nav/overlay-background.js";
 import {
   buildFolderEditorUrl,
@@ -112,11 +119,14 @@ import {
   buildOpenSpecSpecsUrl,
   buildSessionDiffUrl,
 } from "./lib/nav/route-builders.js";
+import { useArchiveRoute } from "./lib/nav/useArchiveRoute.js";
 import { viewTargetToEditorPath } from "./lib/nav/view-route.js";
+import { OpenSpecMapContext } from "./lib/openspec/OpenSpecMapContext.js";
 import { useOpenSpecConfig } from "./lib/openspec/openspec-config-api.js";
+import { computeRenderedCwds } from "./lib/openspec/rendered-cwds.js";
+import { useArchiveEntries } from "./lib/openspec/useAttachmentResolution.js";
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
 import { buildHistoryPhaseMap, hasChatContent } from "./lib/replay/history-load-phase.js";
-import { useHistoryLoadState } from "./hooks/useHistoryLoadState.js";
 import { extractUserPromptHistory } from "./lib/replay/message-history.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
 // Strategy A (reduce-session-replay-traffic): durable replay cursor.
@@ -162,10 +172,11 @@ import { ToastSlot } from "./components/extension-ui/ToastSlot.js";
 import { DialogPortal } from "./components/primitives/DialogPortal.js";
 import { ErrorBoundary } from "./components/primitives/ErrorBoundary.js";
 import { SearchableSelectDialog, type SelectOption } from "./components/primitives/SearchableSelectDialog.js";
-import { FirstLaunchDisplayModal } from "./components/settings/FirstLaunchDisplayModal.js";
+import { FirstLaunchDisplayModal, shouldShowFirstLaunch } from "./components/settings/FirstLaunchDisplayModal.js";
 import type { ToolContext } from "./components/tool-renderers/index.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
 import { AddFoldersDialog } from "./components/workspace/AddFoldersDialog.js";
+import { useCardFxAttributes } from "./hooks/useCardFxAttributes.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
 import { useProvidersReady } from "./hooks/useProvidersReady.js";
@@ -174,6 +185,7 @@ import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
 import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib/api/api-context.js";
 import { buildContextUsageMap } from "./lib/context-usage.js";
 import { t as i18nT, registerPluginCatalog, useI18n } from "./lib/i18n/i18n.js";
+import { loginRedirectFor } from "./lib/identity/login-session.js";
 import { runUrgencyMigration } from "./lib/session/group-by-migration.js";
 import { deriveRetryProjection } from "./lib/session/retry-projection.js";
 import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
@@ -446,18 +458,27 @@ export default function App() {
     return base;
   }, [wsUrl]);
   const [overlayLocation, rawNavigate] = useLocation();
+  // D24: sign-in lost mid-page (expiry, restart…) ⇒ the dashboard is replaced
+  // by the core login page `/login?returnTo=<this page>`; nothing of it stays.
+  useEffect(() => {
+    const to = loginRedirectFor(status, window.location.pathname, window.location.search);
+    if (to) rawNavigate(to, { replace: true });
+  }, [status, overlayLocation, rawNavigate]);
   const overlaySearch = useSearch();
   // Instrument the single navigation path so every navigate records into the
   // in-app depth-tagged nav tracker (change: fix-mobile-back-depth-aware).
   // wouter pushState/replaceState does not fire popstate, so record here; the
   // tracker's own popstate listener realigns on browser back/forward.
   const navigate = useCallback(
-    (to: string, opts?: { replace?: boolean }) => {
+    (to: string, opts?: { replace?: boolean; state?: unknown }) => {
       recordNavigation(to, opts);
       rawNavigate(to, opts);
     },
     [rawNavigate],
   );
+  // Plugin-server-initiated tab opens (`editor_tab_open`), acted on only while
+  // on that session's chat/editor route. See change: add-browser-editor-pane-tab (D5).
+  useEditorTabOpenListener(overlayLocation, navigate);
   // Seed the stack with the cold-load location and attach the popstate listener.
   useEffect(() => {
     resetNavStack(window.location.pathname + window.location.search);
@@ -482,9 +503,13 @@ export default function App() {
   const [settingsMatch] = useRoute("/settings/:page?/:sub?");
   const [tunnelSetupMatch] = useRoute("/tunnel-setup");
   // Shell-owned overlay routes (overlay-url-routing).
-  const [openspecPreviewMatch, openspecPreviewParams] = useRoute("/folder/:encodedCwd/openspec/:changeName/:artifactId");
+  const [openspecPreviewRouteMatch, openspecPreviewParams] = useRoute("/folder/:encodedCwd/openspec/:changeName/:artifactId");
+  // `archive` is the CLI's archive dir, never a change name: those URLs belong to
+  // the archive routes. See change: resolve-archived-attached-proposal (D6).
+  const openspecPreviewMatch = openspecPreviewRouteMatch && openspecPreviewParams?.changeName !== "archive";
   const [openspecBoardMatch, openspecBoardParams] = useRoute("/folder/:encodedCwd/openspec");
-  const [archiveMatch, archiveParams] = useRoute("/folder/:encodedCwd/openspec/archive");
+  const archiveRoute = useArchiveRoute();
+  const archiveMatch = archiveRoute !== null;
   const [specsMatch, specsParams] = useRoute("/folder/:encodedCwd/openspec/specs");
   const [piResourcesMatch, piResourcesParams] = useRoute("/folder/:encodedCwd/pi-resources");
   // Directory Settings page — depth-1 detail surface that mirrors global
@@ -513,7 +538,7 @@ export default function App() {
   // Decoded overlay cwds (memo-free; cheap base64url decode).
   const openspecPreviewCwd = openspecPreviewMatch && openspecPreviewParams ? decodeFolderPath(openspecPreviewParams.encodedCwd) : null;
   const openspecBoardCwd = openspecBoardMatch && openspecBoardParams ? decodeFolderPath(openspecBoardParams.encodedCwd) : null;
-  const archiveCwd = archiveMatch && archiveParams ? decodeFolderPath(archiveParams.encodedCwd) : null;
+  const archiveCwd = archiveRoute?.cwd ?? null;
   const specsCwd = specsMatch && specsParams ? decodeFolderPath(specsParams.encodedCwd) : null;
   const piResourcesCwd = piResourcesMatch && piResourcesParams ? decodeFolderPath(piResourcesParams.encodedCwd) : null;
   const folderSettingsCwd = folderSettingsMatch && folderSettingsParams ? decodeFolderPath(folderSettingsParams.encodedCwd) : null;
@@ -529,9 +554,25 @@ export default function App() {
   // `/view <url>` deep-link param (mutually exclusive with `file`; `file` wins).
   // See change: open-view-command-in-editor-pane (D1/D6).
   const editorUrl = editorMatch ? fileViewSearch.get("url") : null;
+  // Repeatable `?tab=<virtual-path>` plugin-tab deep link. Stable string key so
+  // a re-render does not churn SplitRouteSync. See change: add-browser-editor-pane-tab (D3).
+  const editorTabsKey = editorMatch ? fileViewSearch.getAll("tab").join("\u0001") : "";
+  const editorTabs = useMemo(() => (editorTabsKey ? editorTabsKey.split("\u0001") : undefined), [editorTabsKey]);
   const editorLineRaw = editorMatch ? fileViewSearch.get("line") : null;
   const editorLineParsed = editorLineRaw ? Number.parseInt(editorLineRaw, 10) : Number.NaN;
   const editorLine = Number.isInteger(editorLineParsed) && editorLineParsed > 0 ? editorLineParsed : null;
+  // Deliberate-open intent (design D8): the flows plugin stamps a fresh
+  // `openNonce` into the history entry on every file-button open, so a target
+  // re-opened after the user closed the pane (or only its tab) — an identical
+  // URL — is still a NEW intent for `SplitRouteSync`'s apply-once key. Read only
+  // while the editor route matches; a host navigation without the nonce leaves
+  // the key exactly as it was before this change. The app mounts the default
+  // `<Router>` (main.tsx), so this is wouter's browser hook.
+  const editorHistoryNonce = (useHistoryState() as { openNonce?: unknown } | null)?.openNonce;
+  const editorOpenNonce =
+    editorMatch && (typeof editorHistoryNonce === "number" || typeof editorHistoryNonce === "string")
+      ? String(editorHistoryNonce)
+      : "";
   // Subagent popout decoded params + parent-session label.
   // See change: add-subagent-inspector §7.
   // Plugin overlay routes are tracked by the slot consumer hook.
@@ -734,6 +775,13 @@ export default function App() {
   // connect snapshot too). Server is the single source of truth — no optimistic
   // mirror, matching the `workspaces_updated` convention below.
   const [collapsedFolders, setCollapsedFolders] = useState<string[]>([]);
+  // add-focus-mode-and-card-block-toggles: accordion pinned-open folders, same
+  // channel + same server-owned convention as collapsedFolders.
+  const [expandedFolders, setExpandedFolders] = useState<string[]>([]);
+  // Configured sidebar folder behavior (Settings → Sessions), hydrated from
+  // /api/config on mount and on `config_updated {section:"sessions"}`.
+  const [configFolderListMode, setConfigFolderListMode] = useState<"classic" | "accordion">("classic");
+  const [folderAttentionPeek, setFolderAttentionPeek] = useState<boolean>(true);
   // session-list-group-by: server-owned grouping prefs (`group_by_prefs_updated`,
   // sent in the connect burst before any folder-materializing frame).
   // `undefined` until the snapshot lands — also the urgency migration's gate.
@@ -1058,7 +1106,7 @@ export default function App() {
   }, [send, historyGaps]);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed },
   );
 
@@ -1068,21 +1116,22 @@ export default function App() {
   // pull is bounded by the settled-map / in-flight gates, not filter
   // exactness. Ended cards and stub groups never enter the set.
   // See change: fix-connect-snapshot-frame-loss.
-  const renderedCwds = useMemo(() => {
-    const set = new Set<string>();
-    for (const s of sessions.values()) {
-      if (s.status !== "ended") set.add(s.cwd);
-    }
-    for (const p of pinnedDirectories) set.add(p);
-    const selected = selectedId ? sessions.get(selectedId) : undefined;
-    if (selected) set.add(selected.cwd);
-    // Active route surfaces: a direct load of an OpenSpec board/preview for an
-    // unpinned, ended-only folder renders no card, so without these the route
-    // directory would never pull and the view would stay loading.
-    if (openspecPreviewCwd) set.add(openspecPreviewCwd);
-    if (openspecBoardCwd) set.add(openspecBoardCwd);
-    return Array.from(set);
-  }, [sessions, pinnedDirectories, selectedId, openspecPreviewCwd, openspecBoardCwd]);
+  const archiveSessionList = useMemo(() => [...sessions.values()], [sessions]);
+  const archiveCandidates = useArchiveEntries(archiveCwd, openspecMap);
+  const renderedCwds = useMemo(
+    () =>
+      computeRenderedCwds({
+        sessions: archiveSessionList,
+        pinnedDirectories,
+        selectedSession: selectedId ? sessions.get(selectedId) : undefined,
+        // Active route surfaces: a direct load of an OpenSpec board/preview for an
+        // unpinned, ended-only folder renders no card, so without these the route
+        // directory would never pull and the view would stay loading.
+        routeCwds: [openspecPreviewCwd, openspecBoardCwd],
+        archive: archiveCwd ? { cwd: archiveCwd, entries: archiveCandidates.entries } : null,
+      }),
+    [archiveSessionList, sessions, pinnedDirectories, selectedId, openspecPreviewCwd, openspecBoardCwd, archiveCwd, archiveCandidates.entries],
+  );
 
   useOpenSpecReconcile({
     renderedCwds,
@@ -1119,6 +1168,10 @@ export default function App() {
         if (d.success && d.data?.plugins && typeof d.data.plugins === "object") {
           initPluginConfigs(d.data.plugins as Record<string, Record<string, unknown>>);
         }
+        if (d.success) {
+          setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
+          if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);
+        }
         // Hydrate the OpenSpec fleet switches the readiness affordances read
         // (folder-section offer suppression + menu re-enable gating).
         // See change: add-openspec-init-affordances.
@@ -1138,10 +1191,14 @@ export default function App() {
   useEffect(() => {
     if (!onMessage) return;
     return onMessage((msg: any) => {
-      if (msg?.type !== "config_updated" || msg.section !== "openspec") return;
+      if (msg?.type !== "config_updated" || (msg.section !== "openspec" && msg.section !== "sessions")) return;
       fetch(`${apiBase}/api/config`)
         .then((r) => r.json())
         .then((d) => {
+          if (d?.success && msg.section === "sessions") {
+            setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
+            if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);
+          }
           const os = d?.data?.openspec;
           if (d?.success && os && typeof os === "object") {
             if (typeof os.offerInitialization === "boolean") setOpenspecOfferInitialization(os.offerInitialization);
@@ -1990,6 +2047,11 @@ export default function App() {
       // arrive (matches the workspace-collapse convention below).
       collapsedGroups={collapsedFolders}
       onSetFolderCollapsed={(path, collapsed) => send({ type: "set_folder_collapsed", path, collapsed })}
+      // add-focus-mode-and-card-block-toggles — accordion pinned-open set + config.
+      expandedGroups={expandedFolders}
+      onSetFolderExpanded={(path, expanded) => send({ type: "set_folder_expanded", path, expanded })}
+      folderListMode={configFolderListMode}
+      folderAttentionPeek={folderAttentionPeek}
       // session-list-group-by — server-owned, no optimistic mirror.
       groupByPrefs={groupByPrefs}
       onSetFolderGroupBy={(path, mode) => send({ type: "set_folder_group_by", path, mode })}
@@ -2097,14 +2159,6 @@ export default function App() {
           {t("connection.offline", undefined, "Server offline")}
         </div>
       )}
-      {status === "auth_required" && (
-        <div className="bg-amber-600/20 text-amber-400 text-xs px-3 py-1 text-center">
-          {t("connection.authRequired", undefined, "Session expired")}{" - "}
-          <a href={`${apiBase}/auth/login?return=${encodeURIComponent(window.location.pathname)}`} className="underline hover:text-amber-300">
-            {t("connection.signIn", undefined, "Sign in")}
-          </a>
-        </div>
-      )}
     </>
   );
 
@@ -2141,10 +2195,13 @@ export default function App() {
   // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
   const dismissOverlay = useCallback(() => {
     const target = resolveDismissTarget(fullLocation);
-    // Drop the capture first: the navigation below lands on a non-overlay route,
-    // which immediately re-captures it as the next overlay's background.
-    clearBackground();
-    navigate(target);
+    // Leaving to a base route: drop the capture; landing re-captures it as the
+    // next overlay's background. Returning INTO a launching overlay: keep it, so
+    // the underlay stays put; the arrival pops the launcher stack.
+    if (!isOverlayRoute(splitLocation(target).path)) clearBackground();
+    // Pop/replace, never push: a pushed dismiss grows an overlay/launcher trail
+    // that browser Back walks forever. See change: fix-overlay-dismiss-flip-loop.
+    returnTo(navigate, target, NAV_TRACKER);
   }, [fullLocation, navigate]);
 
   // Live-selection aliases, captured BEFORE the shadowing block below.
@@ -2287,7 +2344,7 @@ export default function App() {
       {!frozen && openspecBoardMatch && openspecBoardCwd ? (
         renderOpenSpecBoardView(openspecBoardCwd)
       ) : !frozen && archiveMatch && archiveCwd ? (
-        <ArchiveBrowserView cwd={archiveCwd} onBack={goBack} />
+        <ArchiveBrowserView cwd={archiveCwd} onBack={goBack} sessions={archiveSessionList} deepLink={archiveRoute?.entry ? { entry: archiveRoute.entry, artifact: archiveRoute.artifact } : undefined} />
       ) : !frozen && specsMatch && specsCwd ? (
         <SpecsBrowserView cwd={specsCwd} onBack={goBack} />
       ) : !frozen && piResourceFileMatch && piResourceFilePath ? (
@@ -2335,7 +2392,15 @@ export default function App() {
               shell renders zero flow-specific content. See change:
               pluginize-flows-via-registry. */}
           {selectedSession && (
-            <div className="sticky top-0 z-10">
+            // Shrinkable row (D6): its own `overflow-y-auto` makes the flex
+            // automatic minimum 0, so it takes a share of a pane deficit and
+            // scrolls internally instead of clipping the card grid. Weight +
+            // bound come from the row table; no pixel floor (an empty slot
+            // renders 0px). See change: consolidate-flow-agent-cards.
+            <div
+              className="sticky top-0 z-10 overflow-y-auto"
+              style={{ flexShrink: CHAT_HEADER_WEIGHT, minHeight: CHAT_HEADER_BOUND }}
+            >
               <ContentHeaderStickySlot session={selectedSession} />
             </div>
           )}
@@ -2678,7 +2743,7 @@ export default function App() {
   // See change: add-route-backed-overlay-dialogs.
   const shellRenderers: Omit<ShellContentRenderers, "renderSession"> = {
     renderOpenSpecBoard: (cwd) => renderOpenSpecBoardView(cwd),
-    renderArchive: (cwd) => <ArchiveBrowserView cwd={cwd} onBack={goBack} />,
+    renderArchive: (cwd, deepLink) => <ArchiveBrowserView cwd={cwd} onBack={goBack} sessions={archiveSessionList} deepLink={deepLink} />,
     renderSpecs: (cwd) => <SpecsBrowserView cwd={cwd} onBack={goBack} />,
     renderDiff: (sessionId) => (
       <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">{i18nT("status.loadingDiff", undefined, "Loading diff…")}</div>}>
@@ -2752,10 +2817,15 @@ export default function App() {
     (text, variant, opts) => showToastRef.current(text, variant, opts),
     [],
   );
-  const cardSectionsContextValue = useMemo<CardSectionsContextValue>(
-    () => ({ prefs: cardSections, send, connected: ws !== null, showToast: stableShowToast }),
-    [cardSections, send, ws, stableShowToast],
+  const pluginNames = useMemo(
+    () => Object.fromEntries(PLUGIN_REGISTRY.map((e) => [e.manifest.id, e.manifest.displayName])),
+    [],
   );
+  const cardSectionsContextValue = useMemo<CardSectionsContextValue>(
+    () => ({ prefs: cardSections, send, connected: ws !== null, showToast: stableShowToast, folderListMode: configFolderListMode, pluginNames }),
+    [cardSections, send, ws, stableShowToast, configFolderListMode, pluginNames],
+  );
+  useCardFxAttributes(cardSections);
 
   const displayPrefsContextValue = useMemo(() => ({
     global: displayPrefs,
@@ -2769,7 +2839,11 @@ export default function App() {
   // term is what lets `onClose`, a cross-tab broadcast, AND the connect
   // snapshot each close the modal by defining `displayPrefs`.
   // See change: fix-first-launch-display-modal-stuck-on-mobile.
-  const firstLaunchModal = displayPrefsSeedless && displayPrefs === undefined ? (
+  const firstLaunchModal = shouldShowFirstLaunch({
+    seedless: displayPrefsSeedless,
+    prefsDefined: displayPrefs !== undefined,
+    authRequired: status === "auth_required",
+  }) ? (
     <FirstLaunchDisplayModal
       apiBase={apiBase}
       onClose={(prefs) => setDisplayPrefs(prefs)}
@@ -2790,13 +2864,14 @@ export default function App() {
 
   const apiProvider = (children: React.ReactNode) => (
     <ApiContext.Provider value={apiBase}>
+      <OpenSpecMapContext.Provider value={openspecMap}>
       <DisplayPrefsProvider value={displayPrefsContextValue}>
       <CardSectionsProvider value={cardSectionsContextValue}>
       <CommitDialogProvider onCommitted={(shortHash, cwd) => { showToast(`Committed ${shortHash}`, "success"); void refreshGitStatus(cwd); }}>
       <ModelConfigProvider value={modelConfig}>
       <PluginContextProvider
         registry={_pluginRegistry}
-        sessions={allSessionsList}
+        sessions={archiveSessionList}
         selectedSessionId={selectedId}
         // The live shell socket, so plugin `usePluginMessage` consumers actually
         // receive server→browser frames (the browser relay's status + screencast
@@ -2860,10 +2935,16 @@ export default function App() {
               });
             }}
           >
-            <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} url={editorUrl} />
+            <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} url={editorUrl} nonce={editorOpenNonce} tabs={editorTabs} />
             <CanvasDriver state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE} />
             <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
               {children}
+              {/* Non-modal "waiting for file access" toast (own tray, both layouts).
+                  See change: ask-agent-file-access-in-chat. */}
+              <FileAccessToastHost sessions={sessions} selectedId={selectedId} onOpen={handleSelect} />
+              {/* D22 sign-in dialog: ONE instance for every layout branch (it is
+                  `fixed inset-0`, so it need not sit inside the banner slots,
+                  which a session route renders twice). */}
             </SessionDiffProvider>
           </SplitWorkspaceProvider>
         </ErrorBoundary>
@@ -2874,6 +2955,7 @@ export default function App() {
       </CommitDialogProvider>
       </CardSectionsProvider>
       </DisplayPrefsProvider>
+      </OpenSpecMapContext.Provider>
     </ApiContext.Provider>
   );
 

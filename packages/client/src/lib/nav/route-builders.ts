@@ -46,6 +46,12 @@ export function buildOpenSpecArchiveUrl(cwd: string): string {
   return `/folder/${encodeFolderPath(cwd)}/openspec/archive`;
 }
 
+/** `/folder/:encodedCwd/openspec/archive/:entry/:artifact` — archive artifact deep link.
+ *  See change: resolve-archived-attached-proposal. */
+export function buildArchiveArtifactUrl(cwd: string, entry: string, artifact: string): string {
+  return `/folder/${encodeFolderPath(cwd)}/openspec/archive/${encodeURIComponent(entry)}/${encodeURIComponent(artifact)}`;
+}
+
 /** `/folder/:encodedCwd/openspec/specs` */
 export function buildOpenSpecSpecsUrl(cwd: string): string {
   return `/folder/${encodeFolderPath(cwd)}/openspec/specs`;

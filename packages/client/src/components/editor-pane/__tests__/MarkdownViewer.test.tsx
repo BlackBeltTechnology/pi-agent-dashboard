@@ -8,9 +8,10 @@
  *
  * See change: improve-content-editor (tasks §5).
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 vi.mock("../monaco-setup.js", () => ({}));
@@ -29,12 +30,16 @@ vi.mock("@monaco-editor/react", () => ({
   ),
 }));
 // Keep MarkdownContent light.
+const imageBases: unknown[] = [];
 vi.mock("../../preview/MarkdownContent.js", () => ({
-  MarkdownContent: ({ content }: { content: string }) => <div data-testid="md-preview">{content}</div>,
+  MarkdownContent: ({ content, imageBase }: { content: string; imageBase?: unknown }) => {
+    imageBases.push(imageBase);
+    return <div data-testid="md-preview">{content}</div>;
+  },
 }));
 
-import MarkdownViewer from "../MarkdownViewer.js";
 import { ThemeProvider } from "../../settings/ThemeProvider.js";
+import MarkdownViewer from "../MarkdownViewer.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -117,5 +122,61 @@ describe("MarkdownViewer — Preview/Edit (#4)", () => {
     fireEvent.change(ta, { target: { value: "# edited" } });
     fireEvent.click(screen.getByTestId("md-save-btn"));
     expect(await screen.findByTestId("changed-on-disk-banner")).toBeTruthy();
+  });
+});
+
+// See change: fix-markdown-remount-storm (D3; test-plan F6, F7)
+describe("MarkdownViewer imageBase identity", () => {
+  const el = (path: string) => (
+    <ThemeProvider>
+      <MarkdownViewer cwd="/proj" path={path} kind="markdown" mimeType="text/markdown" size={0} />
+    </ThemeProvider>
+  );
+
+  it("passes a stable imageBase across re-renders and a new one when path changes", async () => {
+    imageBases.length = 0;
+    const { rerender } = render(el("docs/a.md"));
+    await screen.findByTestId("md-preview");
+    rerender(el("docs/a.md"));
+    const seen = imageBases.filter(Boolean);
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(seen).size).toBe(1);
+
+    imageBases.length = 0;
+    rerender(el("other/b.md"));
+    await waitFor(() => expect(imageBases.some((b) => b && (b as { dir: string }).dir.endsWith("other"))).toBe(true));
+  });
+});
+
+// Review B1: the imageBase hook must be declared before the `loadFailure` early
+// return, else a refused load followed by a successful one changes hook order.
+describe("MarkdownViewer hook order across a refused load", () => {
+  it("recovers from a 404 target to a loadable one without a hook-order crash", async () => {
+    globalThis.fetch = vi.fn((url: string) =>
+      Promise.resolve(
+        String(url).includes("gone.md")
+          ? { ok: false, status: 404, json: () => Promise.resolve({}) }
+          : { ok: true, status: 200, json: () => Promise.resolve({ success: true, data: { type: "file", content: "# ok", mtime: 1 } }) },
+      ),
+    ) as unknown as typeof fetch;
+    const el = (path: string) => (
+      <ThemeProvider>
+        <MarkdownViewer cwd="/proj" path={path} kind="markdown" mimeType="text/markdown" size={0} />
+      </ThemeProvider>
+    );
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const winErrors: string[] = [];
+    const onErr = (e: ErrorEvent) => { winErrors.push(e.message); e.preventDefault(); };
+    window.addEventListener("error", onErr);
+    const { rerender } = render(el("gone.md"));
+    await waitFor(() => expect(screen.queryByTestId("md-preview")).toBeNull());
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    await act(async () => {}); // flush the 404 into loadFailure
+    rerender(el("fine.md"));
+    expect(await screen.findByTestId("md-preview")).toBeTruthy();
+    const hookErrors = errSpy.mock.calls.filter((c) => /hooks/i.test(String(c[0]) + String(c[1] ?? "")));
+    window.removeEventListener("error", onErr);
+    expect(hookErrors).toEqual([]);
+    expect(winErrors.filter((m) => /hooks/i.test(m))).toEqual([]);
   });
 });

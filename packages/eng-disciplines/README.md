@@ -34,6 +34,7 @@ cover**, with every `description` retargeted so it never fires on
 | `systematic-debugging` | post-failure root-cause discipline (no prior equiv) | "root cause this", "why is this failing", "debug systematically" |
 | `node-inspect-debugger` | runtime state a `console.log` can't reach; jiti-verified breakpoints | "set a breakpoint", "inspect runtime state", "console.log isn't enough" |
 | `scenario-design` | test-scenario design (ISTQB) before the bug exists (≠ post-bug `systematic-debugging`) | "design test scenarios", "find edge cases", "is this spec testable" |
+| `reverse-spec-for-rebuild` | rebuild-grade code characterization: `BR-NNN` rules (explicit/implicit), domain model, quirks, gaps, entry-point completeness, per-claim `file:line` provenance + confidence | "reverse-engineer this for a rebuild", "extract the business rules", "reimplement X without the original code" |
 
 > **On `review-code` vs the cloud gate.** The openspec pipeline does not own a
 > reviewer *discipline* — it delegates post-hoc review to a cloud tool
@@ -44,6 +45,15 @@ cover**, with every `description` retargeted so it never fires on
 > gate stays reserved for the PR. This is why `review-code` ships here while
 > `code-review-and-quality` (below) does not — it is a discipline, not a second
 > lifecycle.
+
+> **On `reverse-spec-for-rebuild` vs `reverse-spec-from-code`.** The
+> `openspec-workflow` package's `reverse-spec-from-code` writes kb-searchable
+> behavioral specs into `openspec/specs/` and deliberately strips line numbers,
+> rule catalogs and data shapes. `reverse-spec-for-rebuild` keeps exactly that
+> information for a rewrite, writes a self-contained rebuild package to the
+> gitignored `.reverse-spec-scratch/`, and never promotes into a kb-indexed root.
+> It is self-contained (own prompts, `scripts/guard.mjs`); kb and the OpenSpec CLI
+> are optional. Its seeded eval fixture (`eval/`) is not published.
 
 ### Deliberately excluded
 
@@ -77,5 +87,7 @@ dependency-free TypeScript rewrite of the upstream CDP scope-walker). The
 `scenario-design` skill is repo-authored (MIT, `author: robson`) — no
 third-party attribution. The `review-code` skill is repo-authored (MIT) —
 distilled from public methodology (Google Engineering Practices, the Conventional
-Comments spec) with no copied code. Full attribution and license in
+Comments spec) with no copied code. The `reverse-spec-for-rebuild` skill is
+repo-authored; its methodology is adapted and rewritten from greenfield
+(Apache-2.0, Prime Radiant, Inc.) with no copied files. Full attribution and license in
 [`NOTICE`](./NOTICE).

@@ -3,9 +3,11 @@
  * lower/raise, alias, revoke (remote down), client upload, secret-free logs.
  * See change: add-gmail-plugin.
  */
-import type {
-  PluginOAuthCredential,
-  PluginOAuthStartOptions,
+import {
+  PluginFlowStartError,
+  type PluginLoginInteraction,
+  type PluginOAuthCredential,
+  type PluginOAuthStartOptions,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -34,13 +36,20 @@ function account(sub: string, email: string, extra: Record<string, unknown> = {}
   };
 }
 
-async function setup(initial: Record<string, Record<string, unknown>> = {}, revokeStatus = 200) {
+interface SetupOptions {
+  /** Replaces the default recording `startFlow` fake. */
+  startFlow?: (o: PluginOAuthStartOptions) => Promise<{ flowId: string }>;
+  createCallback?: Parameters<typeof mountGmailRoutes>[1]["createCallback"];
+}
+
+async function setup(initial: Record<string, Record<string, unknown>> = {}, revokeStatus = 200, opts: SetupOptions = {}) {
   const creds = memoryCredentials({ [CLIENT_KEY]: { ...CLIENT }, ...initial });
   const store = new AccountStore(creds);
   const started: PluginOAuthStartOptions[] = [];
   const oauth = {
     startFlow: vi.fn(async (o: PluginOAuthStartOptions) => {
       started.push(o);
+      if (opts.startFlow) return opts.startFlow(o);
       return { flowId: `flow-${started.length}` };
     }),
   };
@@ -56,6 +65,7 @@ async function setup(initial: Record<string, Record<string, unknown>> = {}, revo
     networkGuard: async () => {},
     logger,
     fetchImpl: google.fetchImpl,
+    createCallback: opts.createCallback,
     newId: () => `uuid${++n}`,
   });
   return { app, creds, store, started, oauth, google, logger };
@@ -213,5 +223,105 @@ describe("E29 — sign-in + revoke logs are secret-free", () => {
     const log = logger.lines.join("\n");
     expect(log).toContain("a@x.com");
     expect(log).not.toMatch(/ACCESS-|REFRESH-|SECRET-client/);
+  });
+});
+
+// ── improve-gmail-settings-ux — design D3 ────────────────────────────────────
+
+/** Interaction whose paste prompt never answers (rejects on abort). */
+function idleInteraction(): PluginLoginInteraction {
+  const ac = new AbortController();
+  return {
+    signal: ac.signal,
+    prompt: (p) =>
+      new Promise<string>((_, reject) => p.signal?.addEventListener("abort", () => reject(new Error("aborted")))),
+    notify: () => {},
+  };
+}
+
+/** Loopback callback fake whose `waitForCode` rejects with `err`. */
+function failingCallback(err: unknown) {
+  return (async () => ({
+    redirectUri: "http://127.0.0.1:5555/",
+    state: "S".repeat(43),
+    waitForCode: () => Promise.reject(err),
+    close: () => {},
+    server: {} as never,
+  })) as never;
+}
+
+const failLines = (warns: string[]) => warns.filter((l) => l.startsWith("[gmail] sign-in failed:"));
+
+describe("test-plan #X1–#X5 — failed sign-ins are logged once, input-free", () => {
+  it("#X1 a Google error redirect logs one warn and keeps the flow error code", async () => {
+    const { app, started, logger } = await setup({}, 200, { createCallback: failingCallback({ code: "access_denied" }) });
+    await app.inject({ method: "POST", url: "/api/plugins/gmail/accounts", payload: { tier: "readonly" } });
+    await expect(started[0]?.loginFlow.login(idleInteraction())).rejects.toMatchObject({ code: "access_denied" });
+    expect(failLines(logger.warns)).toEqual(["[gmail] sign-in failed: access_denied"]);
+  });
+
+  it("#X2 persist failures log one warn each (account_mismatch, scope_missing)", async () => {
+    const { app, started, logger } = await setup({ [acctKey("s1")]: account("s1", "a@x.com") });
+    await app.inject({ method: "POST", url: "/api/plugins/gmail/accounts/s1/reauth" });
+    await expect(started[0]?.persist(cred("other", "o@x.com"))).rejects.toMatchObject({ code: "account_mismatch" });
+    await app.inject({ method: "POST", url: "/api/plugins/gmail/accounts", payload: { tier: "send" } });
+    await expect(started[1]?.persist(cred("s9", "z@x.com", { tier: "send" }))).rejects.toMatchObject({ code: "scope_missing" });
+    expect(failLines(logger.warns)).toEqual([
+      "[gmail] sign-in failed: account_mismatch",
+      "[gmail] sign-in failed: scope_missing",
+    ]);
+  });
+
+  it("#X3 a login failing before its first event is logged exactly once", async () => {
+    const { app, logger } = await setup({}, 200, {
+      createCallback: (async () => {
+        throw new Error("listen EADDRINUSE");
+      }) as never,
+      // Host behaviour: a login that throws before its first event → PluginFlowStartError("login_failed").
+      startFlow: async (o) => {
+        await o.loginFlow.login(idleInteraction()).catch(() => {
+          throw new PluginFlowStartError("login_failed", "login failed");
+        });
+        return { flowId: "never" };
+      },
+    });
+    const r = await app.inject({ method: "POST", url: "/api/plugins/gmail/accounts", payload: { tier: "readonly" } });
+    expect(r.statusCode).toBe(502);
+    expect(failLines(logger.warns)).toHaveLength(1);
+  });
+
+  it.each([
+    [{ code: "evil_123" }],
+    [{ code: "ya29.token" }],
+    [{ code: 42 }],
+    [new Error("boom")],
+    [Object.assign(new Error("redirect https://x?code=abc for a@x.com SECRET-client-xyz"), { code: "https://x?code=abc" })],
+  ])("#X4 %j logs the generic code and nothing from the input", async (err) => {
+    const viaLogin = await setup({}, 200, { createCallback: failingCallback(err) });
+    await viaLogin.app.inject({ method: "POST", url: "/api/plugins/gmail/accounts", payload: {} });
+    await viaLogin.started[0]?.loginFlow.login(idleInteraction()).catch(() => {});
+    const viaStart = await setup({}, 200, { startFlow: async () => Promise.reject(err) });
+    await viaStart.app.inject({ method: "POST", url: "/api/plugins/gmail/accounts", payload: {} });
+    for (const { logger } of [viaLogin, viaStart]) {
+      const lines = failLines(logger.warns);
+      // login: the callback rejection is re-coded by google-oauth (callback_failed) — still input-free.
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatch(/^\[gmail\] sign-in failed: [a-z_]+$/);
+      const all = logger.lines.join("\n");
+      for (const bad of ["ya29", "code=abc", "https://", "@", CLIENT.clientSecret, "evil", "boom"]) expect(all).not.toContain(bad);
+    }
+    expect(failLines(viaStart.logger.warns)).toEqual(["[gmail] sign-in failed: sign_in_failed"]);
+  });
+
+  it("#X5 a start timeout logs one warn and replies 502 start_timeout", async () => {
+    const { app, logger } = await setup({}, 200, {
+      startFlow: async () => {
+        throw new PluginFlowStartError("start_timeout", "timed out");
+      },
+    });
+    const r = await app.inject({ method: "POST", url: "/api/plugins/gmail/accounts", payload: {} });
+    expect(r.statusCode).toBe(502);
+    expect(r.json()).toEqual({ error: "start_timeout" });
+    expect(failLines(logger.warns)).toEqual(["[gmail] sign-in failed: start_timeout"]);
   });
 });

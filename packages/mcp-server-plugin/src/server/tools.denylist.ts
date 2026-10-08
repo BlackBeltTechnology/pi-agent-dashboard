@@ -11,6 +11,7 @@ export interface DenylistEntry {
 
 export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/auth/", reason: "auth internals" },
+  { pattern: "/api/identity/", reason: "identity-plane pre-auth login config; not an MCP tool" },
   { pattern: "/api/model-proxy/", reason: "model-proxy; host-local only" },
   { pattern: "/api/provider-auth/", reason: "provider auth + API-key material" },
   {
@@ -27,6 +28,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/node/", reason: "node runtime UI" },
   { pattern: "/api/preferences/", reason: "UI preferences" },
   { pattern: "/api/grammar/", reason: "UI-only" },
+  { pattern: "/api/roles/used-by", reason: "Model roles page \"used by\" overview; informational, UI-only" },
   { pattern: "/api/kb/", reason: "kb engine admin" },
   // add-server-push-notifications (Decision 12).
   { pattern: "/api/push/", reason: "push management is UI/REST-only in v1" },
@@ -40,12 +42,17 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/cost-estimator/", reason: "billing telemetry UI" },
   { pattern: "/api/flows-anthropic-bridge/", reason: "bridge diagnostics" },
   { pattern: "/api/plugins/blackhole/", reason: "plugin-internal" },
+  // add-team-plugin: per-user, owner-gated persona/conversation surface for the team app; not an LLM action.
+  { pattern: "/api/plugins/team/", reason: "per-user team app API (personas, projects, conversations); owner-gated, UI-only" },
   { pattern: "/api/plugins/gmail/", reason: "Google account sign-in, levels and revoke; credential-bearing, UI-only" },
   { pattern: "/api/system-one/", reason: "decision-model config, key entry and managed-process control; UI-only" },
   { pattern: "/api/plugins/hermes-memory/", reason: "plugin-internal config" },
+  { pattern: "/api/plugins/context-mode-settings/", reason: "plugin-internal config; writes a file under ~/.pi and alters session env" },
   { pattern: "/api/plugins/flows/", reason: "plugin-internal" },
   { pattern: "/api/tools/", reason: "tool-registry UI" },
   { pattern: "/api/ws-ticket", reason: "transport credential" },
+  { pattern: "/api/local-proof", reason: "mints a one-time local-proof bootstrap code; host-local credential" },
+  { pattern: "/api/device-session", reason: "exchanges the device bearer for an httpOnly cookie; browser credential plumbing" },
   { pattern: "/api/pair/challenge", reason: "pairing ceremony" },
   { pattern: "/api/pair/payload", reason: "pairing ceremony" },
   { pattern: "/api/pair/poll", reason: "pairing ceremony" },
@@ -146,7 +153,10 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "setSessionDisplayPrefs", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "set_default_group_by", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "set_card_section_visibility", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "set_focus_mode", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "set_focus_profile", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "set_folder_collapsed", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "set_folder_expanded", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "set_folder_group_by", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "set_lane_collapsed", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "set_model", reason: "duplicate-of:set_model" },

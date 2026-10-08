@@ -38,9 +38,12 @@ export interface LaunchResult {
    * Whether the spawn reached the log-owning path (i.e. `launchDashboardServer`
    * opened `~/.pi/dashboard/server.log` before failing). `false` only for
    * failures that abort BEFORE the log fd is opened (currently just
-   * `JitiNotFoundError` — loader resolution precedes log creation). Callers use
-   * this to avoid pointing users at a `server.log` that was never written.
-   * See change: fix-bridge-server-start-diagnostics (CodeRabbit #3).
+   * `JitiNotFoundError` — loader resolution precedes log creation). That error
+   * is thrown only under the `PI_DASHBOARD_TS_LOADER=jiti` opt-in; the default
+   * native loader never needs jiti. Callers use this to avoid pointing users at
+   * a `server.log` that was never written.
+   * See changes: fix-bridge-server-start-diagnostics (CodeRabbit #3),
+   * fix-appimage-cold-boot-latency.
    */
   logOwned?: boolean;
 }
@@ -117,6 +120,11 @@ export function buildBridgeEnvOverrides(
     [HEAP_FLAG_MARKER_ENV]: stamped[HEAP_FLAG_MARKER_ENV],
     PI_DASHBOARD_ELECTRON: undefined,
     PI_DASHBOARD_RESOURCES_PATH: undefined,
+    // context-mode bridge-internal guard vars must not reach a bridge-started
+    // server (they would be inherited by every session it spawns).
+    // See change: add-context-mode-settings-plugin.
+    CONTEXT_MODE_BRIDGE_DEPTH: undefined,
+    CONTEXT_MODE_BRIDGE_IDLE_MS: undefined,
   };
 }
 
@@ -168,7 +176,7 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
     return { success: true, message: "Server started", childPid: result.childPid, logOwned: true };
   } catch (err: unknown) {
     if (err instanceof JitiNotFoundError) {
-      // Thrown before the log fd is opened — no server.log exists.
+      // jiti opt-in only. Thrown before the log fd is opened — no server.log exists.
       return { success: false, message: err.message, logOwned: false };
     }
     if (err instanceof PortConflictError) {

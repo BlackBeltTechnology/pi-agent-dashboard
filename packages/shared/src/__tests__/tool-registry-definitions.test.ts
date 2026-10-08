@@ -72,12 +72,11 @@ function freshRegistry(opts: {
 }
 
 describe("pi binary definition", () => {
-  it("chain order: override → bare-import ×2 → managed → where", () => {
-    // bare-import strategies probe both pi-coding-agent aliases
-    // (@earendil-works + @mariozechner) before falling through to
-    // managed-bin and PATH. They fail in this fixture because the
-    // injected `exists` returns false for all paths.
-    // See change: eliminate-electron-runtime-install F9.
+  it("chain order: override → bare-import → managed → where", () => {
+    // The bare-import strategy probes the earendil pi-coding-agent
+    // before falling through to managed-bin and PATH. It fails in this
+    // fixture because the injected `exists` returns false for all paths.
+    // See change: eliminate-electron-runtime-install F9, drop-mariozechner-pi-fork.
     const r = freshRegistry({
       which: (n) => (n === "pi" ? "/usr/bin/pi" : null),
       // No resolveModule injection — real resolver runs against the
@@ -88,7 +87,6 @@ describe("pi binary definition", () => {
     const res = r.resolve("pi");
     expect(res.tried.map((t) => t.strategy)).toEqual([
       "override",
-      "bare-import",
       "bare-import",
       "managed",
       "where",
@@ -184,22 +182,21 @@ describe("pi binary definition", () => {
 });
 
 describe("pi-coding-agent module definition", () => {
-  it("probes both @earendil-works (preferred) and @mariozechner (legacy fallback) alias names", () => {
+  it("probes only the @earendil-works package name", () => {
     const r = freshRegistry({ exists: () => false });
     const res = r.resolve("pi-coding-agent");
-    const names = res.tried.map((t) => t.strategy);
-    // First strategy: override. Then two bare-import (one per alias),
-    // then two managed, then two npm-global.
-    expect(names[0]).toBe("override");
-    expect(names.filter((n) => n === "bare-import").length).toBe(2);
-    expect(names.filter((n) => n === "managed").length).toBe(2);
-    expect(names.filter((n) => n === "npm-global").length).toBe(2);
+    expect(res.tried.map((t) => t.strategy)).toEqual([
+      "override",
+      "bare-import",
+      "managed",
+      "npm-global",
+    ]);
   });
 
   it("managed strategy hits ~/.pi-dashboard/node_modules/<pkg>/dist/index.js", () => {
     const managed = path.join(
       os.homedir(), ".pi-dashboard", "node_modules",
-      "@mariozechner", "pi-coding-agent", "dist", "index.js",
+      "@earendil-works", "pi-coding-agent", "dist", "index.js",
     );
     const r = freshRegistry({ exists: (p) => p === managed });
     const res = r.resolve("pi-coding-agent");
@@ -210,7 +207,7 @@ describe("pi-coding-agent module definition", () => {
 
   it("npm-global strategy uses <npm root -g>/<pkg>/dist/index.js", () => {
     const npmRoot = "/npm/global/root";
-    const entry = path.join(npmRoot, "@mariozechner", "pi-coding-agent", "dist", "index.js");
+    const entry = path.join(npmRoot, "@earendil-works", "pi-coding-agent", "dist", "index.js");
     const r = freshRegistry({
       exists: (p) => p === entry,
       npmRootGlobal: () => npmRoot,
@@ -230,8 +227,8 @@ describe("pi-coding-agent module definition", () => {
     expect(res.ok).toBe(false);
     expect(res.path).toBeNull();
     expect(res.source).toBeNull();
-    // Trail should include override + 2 bare-import + 2 managed + 2 npm-global.
-    expect(res.tried.length).toBeGreaterThanOrEqual(5);
+    // Trail: override + bare-import + managed + npm-global (earendil only).
+    expect(res.tried.length).toBe(4);
     expect(res.tried.some((t) => t.strategy === "npm-global")).toBe(true);
   });
 });
@@ -711,4 +708,36 @@ describe("npmCliBesideNode peer seam (absorbed)", () => {
     expect(result).toBe("/base/b"); // b's fallback — its re-entrant a lookup was refused
     expect(calls).toEqual({ a: 1, b: 1 });
   });
+});
+
+// E11 — pi / pi-coding-agent / pi-ai strategies are earendil-only on every
+// platform: no probed path or module specifier names the legacy fork.
+// See change: drop-mariozechner-pi-fork (test-plan #E11).
+describe("pi tool strategies are earendil-only (E11)", () => {
+  for (const platform of ["win32", "linux"] as const) {
+    it(`${platform}: no strategy probes an @mariozechner path or specifier`, () => {
+      const probed: string[] = [];
+      const r = freshRegistry({
+        platform,
+        homedir: "/home/u",
+        exists: (p) => {
+          probed.push(p);
+          return false;
+        },
+        npmRootGlobal: () => "/npm/root",
+        resolveModule: (id) => {
+          probed.push(id);
+          return null;
+        },
+      });
+      const tried: string[] = [];
+      for (const tool of ["pi", "pi-coding-agent", "pi-ai"]) {
+        tried.push(JSON.stringify(r.resolve(tool).tried));
+      }
+      expect(probed.length).toBeGreaterThan(0);
+      expect(probed.filter((p) => p.includes("@mariozechner"))).toEqual([]);
+      expect(tried.join("\n")).not.toContain("@mariozechner");
+      expect(probed.some((p) => p.includes("@earendil-works"))).toBe(true);
+    });
+  }
 });

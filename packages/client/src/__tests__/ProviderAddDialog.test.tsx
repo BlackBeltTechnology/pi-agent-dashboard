@@ -168,6 +168,23 @@ describe("picker membership and the selectable count (E10)", () => {
   });
 });
 
+describe("Radius picker membership (F5, add-radius-provider-login)", () => {
+  const radiusRow = { id: "radius", name: "Radius", flowType: "auth_code", authenticated: false, configured: false, subscription: false };
+  const other = { id: "xai", name: "xAI", flowType: "device_code", authenticated: false, configured: false };
+
+  it("lists Radius when the server returns it", async () => {
+    await renderSection({ statuses: [radiusRow, other], calls: { put: 0, patch: 0, start: 0, status: 0 } });
+    await openPicker();
+    expect(dialog().getByText("Radius")).toBeTruthy();
+  });
+
+  it("shows no Radius OAuth entry when the server omits it (models.json override)", async () => {
+    await renderSection({ statuses: [other], calls: { put: 0, patch: 0, start: 0, status: 0 } });
+    await openPicker();
+    expect(dialog().queryByText("Radius")).toBeNull();
+  });
+});
+
 // ── 7.3 — the pane branches on flowType ──────────────────────────────────────
 
 describe("panes branch on flowType (7.3)", () => {
@@ -812,26 +829,27 @@ describe("prompt-driven pane — review-gate regressions", () => {
 
   it("AUTH-004/AUTH-005: a `select` step disables its options after the first click", async () => {
     const inputs: string[] = [];
+    // The unanswered select step ".../start" returns AND every flow poll re-reads
+    // (a poll answering DEFAULT_START would drop the step mid-test).
+    const selectStep = {
+      flowId: "flow-9",
+      provider: "openai-codex",
+      status: "pending",
+      pending: {
+        kind: "select",
+        message: "How do you want to sign in?",
+        options: [{ id: "browser", label: "Sign in with browser" }, { id: "device_code", label: "Device code login" }],
+      },
+    };
     const script: Script = {
       statuses: [{ id: "openai-codex", name: "OpenAI Codex", flowType: "auth_code", authenticated: false, configured: false }],
+      flowGet: async () => ({ ok: true, json: async () => selectStep }),
       calls: { put: 0, patch: 0, start: 0, status: 0 },
     };
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
       if (url.includes("/api/provider-auth/start")) {
         script.calls.start++;
-        return {
-          ok: true,
-          json: async () => ({
-            flowId: "flow-9",
-            provider: "openai-codex",
-            status: "pending",
-            pending: {
-              kind: "select",
-              message: "How do you want to sign in?",
-              options: [{ id: "browser", label: "Sign in with browser" }, { id: "device_code", label: "Device code login" }],
-            },
-          }),
-        } as any;
+        return { ok: true, json: async () => selectStep } as any;
       }
       if (url.includes("/input")) {
         inputs.push(JSON.parse(init.body).value);
@@ -847,6 +865,10 @@ describe("prompt-driven pane — review-gate regressions", () => {
     fireEvent.click(dialog().getByText("OpenAI Codex"));
     fireEvent.click(dialog().getByTestId("dialog-sign-in"));
 
+    await dialog().findByTestId("dialog-option-browser");
+    // A flow poll (2 s) may land before the click on a loaded runner; the
+    // still-unanswered step must survive it. Force one tick deterministically.
+    await vi.advanceTimersByTimeAsync(2100);
     const option = await dialog().findByTestId("dialog-option-browser");
     fireEvent.click(option);
     expect((option as HTMLButtonElement).disabled).toBe(true);

@@ -1,0 +1,32 @@
+# Opt-in overlay that activates the multi-user identity plane in the E2E harness
+# using a LIGHTWEIGHT in-container fake OIDC issuer
+# (packages/shared/src/test-support/fake-oidc-issuer.ts) — NOT a real Keycloak.
+#
+# This is the mainstream best practice for testing token VALIDATION: the
+# keycloak-resolver still does real OIDC discovery + JWKS fetch + RS256 verify;
+# only the heavyweight Keycloak dependency disappears (cf. oauth2-mock-server).
+# test-entrypoint.sh boots the fake issuer when PI_E2E_IDENTITY=1 and seeds the
+# resolver config to point at it.
+#
+# The dashboard NEVER ships or boots Keycloak. Production users wire the
+# keycloak-resolver plugin at their OWN Keycloak via its settings; the
+# docker/fixtures/keycloak/ realm is the real-Keycloak onboarding reference.
+#
+#   docker compose -f compose.test.yml -f compose.test.identity.yml up -d
+#
+# The fake issuer's port is published on loopback so the Playwright host can mint
+# tokens through it (POST /mint); the in-container resolver discovers it locally.
+services:
+  pi-dashboard:
+    environment:
+      PI_E2E_IDENTITY: "1"
+      PI_E2E_IDENTITY_PORT: "${PI_E2E_IDENTITY_PORT:-18090}"
+      PI_E2E_IDENTITY_AUDIENCE: "pi-dashboard"
+      # Opt-in: also install the login plugin + an interactive issuer login
+      # form, so identity is ENFORCED (D21) and the browser shows "Sign in".
+      PI_E2E_IDENTITY_LOGIN: "${PI_E2E_IDENTITY_LOGIN:-}"
+      # Opt-in: use a REAL Keycloak realm on the host instead of the fake issuer
+      # (e.g. http://localhost:18080/realms/pi-identity).
+      PI_E2E_IDENTITY_KEYCLOAK: "${PI_E2E_IDENTITY_KEYCLOAK:-}"
+    ports:
+      - "127.0.0.1:${PI_E2E_IDENTITY_PORT:-18090}:${PI_E2E_IDENTITY_PORT:-18090}"

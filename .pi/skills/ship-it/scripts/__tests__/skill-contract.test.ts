@@ -8,7 +8,7 @@
  *
  * Style mirrors `scripts/__tests__/lint-ledger.test.mjs`.
  *
- * See change: wire-local-review-gate.
+ * See change: wire-local-review-gate, harden-review-and-fix-loop (#X4-#X11).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -108,7 +108,7 @@ describe("the review checkpoint at 4.5", () => {
 
   it("#F2 states the hard two-round cap and rejects a no-progress bound", () => {
     const s = section();
-    expect(s).toMatch(/never a third round/i);
+    expect(s).toMatch(/base cap is two rounds/i);
     expect(s).toMatch(/hard numeric cap/i);
     expect(s).toMatch(/no-progress bound would never fire/i);
   });
@@ -141,5 +141,148 @@ describe("#F2 guardrails and composed skills", () => {
   it("points at review-gate.ts as unit-tested decision logic", () => {
     expect(SKILL).toMatch(/scripts\/review-gate\.ts/);
     expect(SKILL).toMatch(/reviewRoundDecision/);
+  });
+});
+
+// ─── harden-review-and-fix-loop (test-plan #X4-#X11) ─────────────────────────
+
+const REPO = path.resolve(skillDir, "../../..");
+const step45 = () => SKILL.slice(indexOfStep("### 4.5."), indexOfStep("### 5. Boundary-reverse"));
+const step1 = () => SKILL.slice(indexOfStep("### 1. Orient"), indexOfStep("### 2. Run apply"));
+const guardrails = () => SKILL.slice(indexOfStep("## Guardrails"), indexOfStep("## Composed skills"));
+
+function frontmatter(file: string): Record<string, string> {
+  const m = /^---\n([\s\S]*?)\n---\n/.exec(fs.readFileSync(file, "utf8"));
+  expect(m, `no frontmatter in ${file}`).not.toBeNull();
+  const out: Record<string, string> = {};
+  for (const line of m![1].split("\n")) {
+    const kv = /^([\w-]+):\s*(.*)$/.exec(line);
+    if (kv) out[kv[1]] = kv[2].trim();
+  }
+  return out;
+}
+
+describe("#X4 the CodeReviewer agent definition", () => {
+  const fm = () => frontmatter(path.join(REPO, ".pi/agents/CodeReviewer.md"));
+
+  it("runs on @review with context inheritance disabled", () => {
+    expect(fm().model).toBe('"@review"');
+    expect(fm().inherit_context).toBe("false");
+  });
+
+  it("has exactly the read-only tool set, in YAML array form", () => {
+    const tools = /^\[(.*)\]$/.exec(fm().tools);
+    expect(tools, "tools must be YAML array form").not.toBeNull();
+    expect(tools![1].split(",").map((t) => t.trim())).toEqual(["read", "grep", "find", "ls", "bash"]);
+  });
+});
+
+describe("#X5-#X7, #X11 step 4.5 procedure", () => {
+  it("#X5 spawns only the CodeReviewer agent type", () => {
+    const types = [...step45().matchAll(/subagent_type:\s*"([^"]+)"/g)].map((m) => m[1]);
+    expect(types.length).toBeGreaterThan(0);
+    expect(new Set(types)).toEqual(new Set(["CodeReviewer"]));
+  });
+
+  it("#X6 generates the prompt with the CLI and passes it verbatim", () => {
+    const s = step45();
+    expect(s).toMatch(/\.pi\/skills\/ship-it\/scripts\/review-prompt\.ts/);
+    expect(s).toMatch(/--change <change> --round 1/);
+    expect(s).toMatch(/\*\*verbatim\*\*/);
+    expect(s).toMatch(/never hand-write/i);
+  });
+
+  it("#X6 derives state and validates the ledger through the CLI", () => {
+    const s = step45();
+    expect(s).toMatch(/--state "\$RUN"/);
+    expect(s).toMatch(/--validate-ledger --prior/);
+    expect(s).toMatch(/No verification round while validation fails/);
+  });
+
+  it("#X6 commits before each round and re-runs harness + enforcers after a review fix", () => {
+    const s = step45();
+    expect(s).toMatch(/Commit the worktree before each round/);
+    expect(s).toMatch(/re-run the harness \(step 3\) and the step-4\.4 enforcers/i);
+  });
+
+  it("commits only the change's own paths before a round — never unrelated local edits", () => {
+    const s = step45();
+    expect(s).not.toMatch(/git add -A/);
+    expect(s).toMatch(/stage the\s+change's own paths explicitly/);
+    expect(s).toMatch(/unrelated local edits[\s\S]{0,80}stay unstaged/);
+    // `git commit` alone takes everything already staged — commit the path list only.
+    expect(s).toMatch(/git commit -- <paths>/);
+    expect(s).toMatch(/already staged[\s\S]{0,60}stay out/);
+  });
+
+  it("#X6 retries a malformed reply once, then halts like a timeout", () => {
+    const s = step45();
+    expect(s).toMatch(/Retry once/);
+    expect(s).toMatch(/second malformed reply halts\s+like\s+a timeout/i);
+  });
+
+  it("#X7 preserves the safety clauses", () => {
+    const s = step45();
+    expect(s).toMatch(/`Agent` call with `model: "@review"`/);
+    expect(s).toMatch(/REVIEW_TIMEOUT_MS/);
+    expect(s).toMatch(/never the\s*\n?\s*CodeRabbit CLI/i);
+    expect(s).toMatch(/assertNoWeakening/);
+  });
+
+  it("#X11 a failing ask_user call is treated as headless and escapes", () => {
+    expect(step45()).toMatch(/If the `ask_user` call fails, treat the run as\s+headless and take the escape hatch/);
+  });
+
+  it("asks with exactly the two continuation options and records approvals", () => {
+    const s = step45();
+    expect(s).toMatch(/one more verification round\*\* \/ \*\*hand back to\s+planning/);
+    expect(s).toMatch(/approvals\.log/);
+  });
+});
+
+describe("#X8 step-1 entry gate", () => {
+  it("stops headless runs and asks interactive runs when SHIP_IT_BLOCKED.md exists", () => {
+    const s = step1();
+    expect(s).toMatch(/SHIP_IT_BLOCKED\.md/);
+    expect(s).toMatch(/\*\*Headless\*\* → exit non-zero naming `SHIP_IT_BLOCKED\.md`/);
+    expect(s).toMatch(/`ask_user` \*\*resume \/ abort\*\*/);
+    expect(s).toMatch(/copy `SHIP_IT_BLOCKED\.md` into it[\s\S]*remove\s+the file/);
+  });
+});
+
+describe("#X9 Guardrails — the continuation cap", () => {
+  it("states the cap, the +1-per-approval rule, no self-renewal, and the escape hatch", () => {
+    const g = guardrails();
+    expect(g).toMatch(/Two review rounds, hard cap/);
+    expect(g).toMatch(/\+1 round per human approval/);
+    expect(g).toMatch(/never renews its own\s+budget/);
+    expect(g).toMatch(/boundary-reverse \(step-5\) escape hatch/);
+    expect(g).not.toMatch(/never a third round/i);
+  });
+});
+
+describe("#X10 review-code rubric — defect classes and fix protocol", () => {
+  const RC = fs.readFileSync(path.join(REPO, "packages/eng-disciplines/.pi/skills/review-code/SKILL.md"), "utf8");
+  const between = (a: string, b: string) => {
+    const i = RC.indexOf(a);
+    const j = RC.indexOf(b, i + 1);
+    expect(i, `missing ${a}`).toBeGreaterThan(-1);
+    return RC.slice(i, j < 0 ? undefined : j);
+  };
+
+  it("names all eight defect classes", async () => {
+    const { DEFECT_CLASSES } = await import("../review-gate.ts");
+    for (const c of DEFECT_CLASSES) expect(RC).toContain(c);
+  });
+
+  it("states the four-step fix protocol inside The Review → Fix Loop", () => {
+    const loop = between("## The Review → Fix Loop", "\n## ");
+    for (const step of [/Reproducing test first/, /Smallest fix/, /Sibling sweep/, /Re-read the fix against the finding's class/]) {
+      expect(loop).toMatch(step);
+    }
+  });
+
+  it("asks for a per-class sweep summary in Verification", () => {
+    expect(between("## Verification", "\n## ")).toMatch(/per-class sweep summary/);
   });
 });

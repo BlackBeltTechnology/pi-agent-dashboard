@@ -147,82 +147,123 @@ describe("EditorFileTree — copy-path popup (copy-file-path)", () => {
   it("(b) activating the glyph opens the popup and does NOT open the file", async () => {
     const onOpenFile = vi.fn();
     renderTree({ onOpenFile });
-    const { row, glyph } = await glyphOf("foo.ts");
+    const { glyph } = await glyphOf("foo.ts");
     fireEvent.click(glyph);
-    expect(within(row).getByRole("menuitem", { name: /Copy full path/ })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /Copy full path/ })).toBeTruthy();
     expect(onOpenFile).not.toHaveBeenCalled();
   });
 
   it("(c) Copy full path writes cwd + '/' + rel", async () => {
     renderTree();
-    const { row, glyph } = await glyphOf("foo.ts");
+    const { glyph } = await glyphOf("foo.ts");
     fireEvent.click(glyph);
-    fireEvent.click(within(row).getByRole("menuitem", { name: /Copy full path/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Copy full path/ }));
     expect(writeText).toHaveBeenCalledWith(`${CWD}/src/foo.ts`);
   });
 
   it("(d) Copy relative path writes rel", async () => {
     renderTree();
-    const { row, glyph } = await glyphOf("foo.ts");
+    const { glyph } = await glyphOf("foo.ts");
     fireEvent.click(glyph);
-    fireEvent.click(within(row).getByRole("menuitem", { name: /Copy relative path/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Copy relative path/ }));
     expect(writeText).toHaveBeenCalledWith("src/foo.ts");
   });
 
   it("(e) Copy file name writes the basename", async () => {
     renderTree();
-    const { row, glyph } = await glyphOf("foo.ts");
+    const { glyph } = await glyphOf("foo.ts");
     fireEvent.click(glyph);
-    fireEvent.click(within(row).getByRole("menuitem", { name: /Copy file name/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Copy file name/ }));
     expect(writeText).toHaveBeenCalledWith("foo.ts");
   });
 
   it("(f) a directory row's glyph copies without toggling onToggleRoot", async () => {
     const onToggleRoot = vi.fn();
     renderTree({ onToggleRoot });
-    const { row, glyph } = await glyphOf(".git");
+    const { glyph } = await glyphOf(".git");
     fireEvent.click(glyph);
-    fireEvent.click(within(row).getByRole("menuitem", { name: /Copy full path/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Copy full path/ }));
     expect(writeText).toHaveBeenCalledWith(`${CWD}/.git`);
     expect(onToggleRoot).not.toHaveBeenCalled();
   });
 
   it("(g1) outside-click dismisses the popup with no copy", async () => {
     renderTree();
-    const { row, glyph } = await glyphOf("foo.ts");
+    const { glyph } = await glyphOf("foo.ts");
     fireEvent.click(glyph);
-    expect(within(row).queryByRole("menuitem", { name: /Copy full path/ })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /Copy full path/ })).toBeTruthy();
     fireEvent.mouseDown(document.body);
-    expect(within(row).queryByRole("menuitem", { name: /Copy full path/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Copy full path/ })).toBeNull();
     expect(writeText).not.toHaveBeenCalled();
   });
 
   it("(g2) Escape dismisses the popup with no copy", async () => {
     renderTree();
-    const { row, glyph } = await glyphOf("foo.ts");
+    const { glyph } = await glyphOf("foo.ts");
     fireEvent.click(glyph);
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(within(row).queryByRole("menuitem", { name: /Copy full path/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Copy full path/ })).toBeNull();
     expect(writeText).not.toHaveBeenCalled();
   });
 
   it("(g3) rail scroll dismisses the popup with no copy", async () => {
     const { container } = renderTree();
-    const { row, glyph } = await glyphOf("foo.ts");
+    const { glyph } = await glyphOf("foo.ts");
     fireEvent.click(glyph);
     fireEvent.scroll(container.querySelector("[data-file-rail]") as HTMLElement);
-    expect(within(row).queryByRole("menuitem", { name: /Copy full path/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Copy full path/ })).toBeNull();
     expect(writeText).not.toHaveBeenCalled();
   });
 
   it("(h) does not throw when navigator.clipboard is undefined", async () => {
     Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
     renderTree();
-    const { row, glyph } = await glyphOf("foo.ts");
+    const { glyph } = await glyphOf("foo.ts");
     fireEvent.click(glyph);
     expect(() =>
-      fireEvent.click(within(row).getByRole("menuitem", { name: /Copy full path/ })),
+      fireEvent.click(screen.getByRole("menuitem", { name: /Copy full path/ })),
     ).not.toThrow();
+  });
+
+  // #728: the rail (`overflow-auto`) + EditorPane (`overflow-hidden`) clipped an
+  // inline `absolute` popup. It must portal out of the rail, `fixed`-positioned.
+  it("(i) popup is portaled outside [data-file-rail] with clickable items", async () => {
+    const { container } = renderTree();
+    const { glyph } = await glyphOf("foo.ts");
+    fireEvent.click(glyph);
+    const menu = screen.getByRole("menu");
+    expect(container.querySelector("[data-file-rail]")?.contains(menu)).toBe(false);
+    expect(menu.className).toContain("fixed");
+    expect(menu.className).not.toMatch(/(?<![\w-])z-\d/);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Copy relative path/ }));
+    expect(writeText).toHaveBeenCalledWith("src/foo.ts");
+  });
+
+  it("(j) glyph at the far right of a narrow rail right-anchors within the viewport", async () => {
+    renderTree();
+    const { glyph } = await glyphOf("foo.ts");
+    vi.spyOn(glyph, "getBoundingClientRect").mockReturnValue({
+      top: 100, bottom: 116, left: 440, right: 456, width: 16, height: 16, x: 440, y: 100,
+      toJSON: () => ({}),
+    } as DOMRect);
+    fireEvent.click(glyph);
+    const menu = screen.getByRole("menu");
+    expect(menu.style.right).toBe(`${window.innerWidth - 456}px`);
+    expect(menu.style.top).toBe("120px");
+    expect(menu.style.visibility).toBe("visible");
+  });
+
+  it("(k) glyph near the left viewport edge flips to left-anchored (never off-screen)", async () => {
+    renderTree();
+    const { glyph } = await glyphOf("foo.ts");
+    vi.spyOn(glyph, "getBoundingClientRect").mockReturnValue({
+      top: 100, bottom: 116, left: 40, right: 56, width: 16, height: 16, x: 40, y: 100,
+      toJSON: () => ({}),
+    } as DOMRect);
+    fireEvent.click(glyph);
+    const menu = screen.getByRole("menu");
+    expect(menu.style.left).toBe("40px");
+    expect(menu.style.right).toBe("");
   });
 });
 

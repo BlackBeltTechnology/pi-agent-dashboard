@@ -54,7 +54,7 @@ The `Show hidden` toggle, server-side hidden flag, per-folder collapsible ended 
 - **THEN** archived sessions SHALL remain only inside the folder's archive fold
 
 ### Requirement: Server-side hidden state
-Hidden state SHALL be managed server-side via the in-memory session manager with persistence through the session sidecar. `hidden` SHALL be set only by the auto-hide heuristic or an explicit bridge visibility intent; no browser message SHALL set or clear it. The client-side localStorage hidden set is no longer used. The server SHALL be the source of truth for visibility.
+Hidden state SHALL be managed server-side via the in-memory session manager with persistence through the session sidecar. `hidden` SHALL be set only by the auto-hide heuristic, an explicit bridge visibility intent, or an owning plugin's spawn lifecycle declaration `{ hidden: true }`; no browser message SHALL set or clear it. The client-side localStorage hidden set is no longer used. The server SHALL be the source of truth for visibility.
 
 #### Scenario: Migration from client-side hidden
 - **WHEN** the client detects a legacy `hiddenSessions` key in localStorage
@@ -210,6 +210,30 @@ When the `session_register` message omits `hasUI` (legacy bridge), the server SH
 - **AND WHEN** a session first registers with `visibilityIntent === "hidden"` and `hasUI === true`
 - **THEN** the server SHALL set `hidden = true`
 
+### Requirement: Plugin-declared hidden survives restart re-registration
+
+When a plugin-spawned session's lifecycle declares `hidden: true`, the server SHALL, on the
+fresh spawn-token resolution, set `hidden = true` AND record a core-owned intent
+`pluginHidden = true` on the session. `pluginHidden` SHALL be persisted in the session
+sidecar (absent on user sessions, so their sidecars stay byte-identical) and restored at
+boot. On a non-reattach registration of an already-known session (e.g. a session respawned
+after a dashboard restart registering with `registerReason: "spawn"` and no spawn token),
+the server SHALL decide `hidden` in this order: an explicit `visibilityIntent`; then
+`pluginHidden === true` → `hidden = true`; then the auto-hide heuristic. A reattach SHALL
+keep the existing `hidden` value as before.
+
+#### Scenario: Respawned plugin-hidden session stays hidden
+- **WHEN** a session restored with `hidden = true` and `pluginHidden = true` re-registers with `registerReason: "spawn"` and no visibility intent
+- **THEN** the server SHALL keep `hidden = true` and carry `pluginHidden` forward
+
+#### Scenario: Explicit visible intent still wins
+- **WHEN** such a session re-registers with `visibilityIntent === "visible"`
+- **THEN** the server SHALL set `hidden = false`
+
+#### Scenario: Sessions without the intent are unchanged
+- **WHEN** a restored session without `pluginHidden` re-registers with `registerReason: "spawn"`
+- **THEN** the server SHALL decide `hidden` from the auto-hide heuristic as before
+
 ### Requirement: Auto-hide is one-shot; manual hide state survives re-registration
 
 The auto-hide heuristic SHALL be evaluated only on the first registration of a session. On any subsequent `session_register` that the bridge tags with `registerReason: "reattach"` (a reconnect after a dashboard restart while the bridge stayed alive), the server SHALL preserve the existing `hidden` value rather than recomputing it. In-process new/fork/resume registers are tagged `registerReason: "spawn"` with a fresh `sessionId` and are therefore treated as first registers. This ensures a session a user has manually unhidden (or hidden) keeps that state across the worker's reconnects.
@@ -218,3 +242,57 @@ The auto-hide heuristic SHALL be evaluated only on the first registration of a s
 - **WHEN** an auto-hidden session is manually unhidden, then re-registers (reattach)
 - **THEN** the server SHALL keep `hidden = false`
 - **AND** SHALL NOT re-apply the auto-hide heuristic
+
+### Requirement: Attention predicate
+
+A session SHALL be considered to need attention when any of the following holds: it is waiting on an interactive question (`ask_user`), its status is `streaming`, its status is `active`, or it is unread. Idle and ended sessions that are not unread and not waiting on a question SHALL NOT need attention.
+
+#### Scenario: Waiting on a question
+- **WHEN** a session's current tool is `ask_user`
+- **THEN** it SHALL need attention
+
+#### Scenario: Streaming or active
+- **WHEN** a session's status is `streaming` or `active`
+- **THEN** it SHALL need attention
+
+#### Scenario: Unread
+- **WHEN** a session is unread
+- **THEN** it SHALL need attention
+
+#### Scenario: Idle and read
+- **WHEN** a session is idle, read, and not waiting on a question
+- **THEN** it SHALL NOT need attention
+
+### Requirement: Unfocused folder attention filter
+
+In accordion mode, a folder rendering `compact with attention` SHALL show only the session cards that need attention. The filter SHALL apply on top of the hidden-session and search filters: a hidden session SHALL stay hidden (while Show hidden is off) and a non-matching session SHALL stay hidden regardless of attention. When a session stops needing attention, its card SHALL leave the unfocused folder on the next render. The filter SHALL apply equally to pinned and unpinned folders.
+
+#### Scenario: Only attention cards
+- **GIVEN** unfocused `/foo` with 5 idle sessions and 1 streaming session
+- **THEN** only the streaming session's card SHALL render in `/foo`
+
+#### Scenario: Hidden stays hidden
+- **GIVEN** a hidden session waiting on `ask_user` in unfocused `/foo` and Show hidden off
+- **THEN** its card SHALL NOT render
+
+#### Scenario: Attention clears
+- **GIVEN** a streaming, read session in unfocused `/foo`
+- **WHEN** it becomes idle
+- **THEN** its card SHALL no longer render in `/foo`
+
+### Requirement: Compact-empty affordance
+
+In accordion mode, a folder rendering `compact empty` SHALL show, below its condensed header, one subdued row reading `N sessions — click to view`, where N counts the folder's sessions after the hidden-session and search filters. Activating the row SHALL focus the folder without changing its collapsed or pinned-open state. When N is zero the row SHALL NOT render.
+
+#### Scenario: Count shown
+- **GIVEN** unfocused `/foo` with 18 visible sessions, none needing attention
+- **THEN** the row SHALL read `18 sessions — click to view`
+
+#### Scenario: Activating focuses
+- **WHEN** the user activates the row of `/foo`, even while a session in another folder is selected
+- **THEN** `/foo` SHALL become the focused folder
+- **AND** its collapsed and pinned-open state SHALL be unchanged
+
+#### Scenario: Empty folder
+- **GIVEN** unfocused `/foo` with zero visible sessions
+- **THEN** only its condensed header SHALL render

@@ -181,13 +181,14 @@ describe("effect-boundary copy (test-plan #F1, #E31)", () => {
     );
   });
 
-  it("the server field states a COLD start and denies the in-place restart", async () => {
+  it("the server field states the next restart, including the in-place one", async () => {
     await renderPanel("Server");
     const copy = screen.getByTestId("server-heap-effect-boundary").textContent ?? "";
-    expect(copy).toMatch(/cold start/i);
-    // The generic banner promises an in-place restart suffices; for this field
-    // it provably does not, so the copy must say so explicitly.
-    expect(copy).toMatch(/will NOT apply/i);
+    // `/api/restart` re-reads and re-stamps the ceiling, so the in-place
+    // restart applies it. See change: guard-server-heap-and-store-coupling (D5).
+    expect(copy).toMatch(/next restart/i);
+    expect(copy).toMatch(/including the in-place restart/i);
+    expect(copy).not.toMatch(/cold start|will NOT apply/i);
   });
 });
 

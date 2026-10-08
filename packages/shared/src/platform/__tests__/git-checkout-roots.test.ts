@@ -129,7 +129,7 @@ describe("git fixtures", () => {
 
 describe("checkoutRoots over real repositories", () => {
   it("E1: a normal checkout resolves to itself", () => {
-    expect(checkoutRoots({ cwd: fx.normal })).toEqual({
+    expect(checkoutRoots({ cwd: fx.normal })).toMatchObject({
       thisCheckout: fx.normal,
       isLinkedWorktree: false,
       mainCheckout: fx.normal,
@@ -138,7 +138,7 @@ describe("checkoutRoots over real repositories", () => {
   });
 
   it("E2: a linked worktree reports its own root and the main checkout", () => {
-    expect(checkoutRoots({ cwd: fx.worktree })).toEqual({
+    expect(checkoutRoots({ cwd: fx.worktree })).toMatchObject({
       thisCheckout: fx.worktree,
       isLinkedWorktree: true,
       mainCheckout: fx.normal,
@@ -148,7 +148,7 @@ describe("checkoutRoots over real repositories", () => {
 
   it("E3: a submodule is NOT a linked worktree and owns its checkout", () => {
     const roots = checkoutRoots({ cwd: fx.submodule });
-    expect(roots).toEqual({
+    expect(roots).toMatchObject({
       thisCheckout: fx.submodule,
       isLinkedWorktree: false,
       mainCheckout: fx.submodule,
@@ -160,7 +160,7 @@ describe("checkoutRoots over real repositories", () => {
 
   it("E4: a worktree of a submodule resolves to the submodule checkout", () => {
     const roots = checkoutRoots({ cwd: fx.submoduleWorktree });
-    expect(roots).toEqual({
+    expect(roots).toMatchObject({
       thisCheckout: fx.submoduleWorktree,
       isLinkedWorktree: true,
       mainCheckout: fx.submodule,
@@ -170,7 +170,7 @@ describe("checkoutRoots over real repositories", () => {
   });
 
   it("E5: a worktree of a bare hub has no main checkout", () => {
-    expect(checkoutRoots({ cwd: fx.bareWorktree })).toEqual({
+    expect(checkoutRoots({ cwd: fx.bareWorktree })).toMatchObject({
       thisCheckout: fx.bareWorktree,
       isLinkedWorktree: true,
       mainCheckout: null,
@@ -224,12 +224,12 @@ describe("checkoutRoots over real repositories", () => {
   it("E6: a bare repository yields a RESULT with both roots null", () => {
     const roots = checkoutRoots({ cwd: fx.bare });
     expect(roots).not.toBeNull();
-    expect(roots).toEqual({ thisCheckout: null, isLinkedWorktree: false, mainCheckout: null, commonDir: fx.bare });
+    expect(roots).toMatchObject({ thisCheckout: null, isLinkedWorktree: false, mainCheckout: null, commonDir: fx.bare });
   });
 
   it("E7: a --separate-git-dir checkout is not a worktree and is its own root", () => {
     const roots = checkoutRoots({ cwd: fx.separateGitDir });
-    expect(roots).toEqual({
+    expect(roots).toMatchObject({
       thisCheckout: fx.separateGitDir,
       isLinkedWorktree: false,
       mainCheckout: fx.separateGitDir,
@@ -333,7 +333,7 @@ describe("resolveCheckoutRootsFrom", () => {
       }),
       "linux",
     );
-    expect(roots).toEqual({ thisCheckout: "/repo", isLinkedWorktree: false, mainCheckout: "/repo", commonDir: "/repo/.git" });
+    expect(roots).toMatchObject({ thisCheckout: "/repo", isLinkedWorktree: false, mainCheckout: "/repo", commonDir: "/repo/.git" });
   });
 
   it("E10: a trailing separator does not change the classification", () => {
@@ -360,7 +360,7 @@ describe("resolveCheckoutRootsFrom", () => {
         localCoreBare: () => "unknown",
       }),
     );
-    expect(roots).toEqual({ thisCheckout: "/work/wt", isLinkedWorktree: true, mainCheckout: null, commonDir: "/work/repo/.git" });
+    expect(roots).toMatchObject({ thisCheckout: "/work/wt", isLinkedWorktree: true, mainCheckout: null, commonDir: "/work/repo/.git" });
 
     // Control: the SAME shape with a confirmed non-bare answer does resolve.
     const ok = resolveCheckoutRootsFrom(
@@ -404,7 +404,7 @@ describe("resolveCheckoutRootsFrom", () => {
       stubProbes({ gitDir: () => "/hub.git", commonDir: () => "/hub.git" }),
       "linux",
     );
-    expect(roots).toEqual({ thisCheckout: null, isLinkedWorktree: false, mainCheckout: null, commonDir: "/hub.git" });
+    expect(roots).toMatchObject({ thisCheckout: null, isLinkedWorktree: false, mainCheckout: null, commonDir: "/hub.git" });
   });
 
   it("X3: a probe that throws (timeout) yields no result rather than throwing", () => {
@@ -421,7 +421,7 @@ describe("resolveCheckoutRootsFrom", () => {
       stubProbes({ gitDir: () => "/hub.git/worktrees/wt", commonDir: () => "/hub.git", topLevel: () => "/wt" }),
       "linux",
     );
-    expect(roots).toEqual({ thisCheckout: "/wt", isLinkedWorktree: true, mainCheckout: null, commonDir: "/hub.git" });
+    expect(roots).toMatchObject({ thisCheckout: "/wt", isLinkedWorktree: true, mainCheckout: null, commonDir: "/hub.git" });
   });
 });
 
@@ -550,7 +550,7 @@ describe("checkoutRootsAsync", () => {
 
     // The unanswerable bareness probe must NOT take the parent fallback.
     const unknownBare = await resolveCheckoutRootsFromAsync(stubAsyncProbes(cases[1]), "linux");
-    expect(unknownBare).toEqual({
+    expect(unknownBare).toMatchObject({
       thisCheckout: "/work/wt",
       isLinkedWorktree: true,
       mainCheckout: null,

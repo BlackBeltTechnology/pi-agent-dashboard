@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-video-transcription",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Full TypeScript port of the video-transcription pi skill. Transcribes local video/audio to speaker-diarized SRT via the Soniox async API (default) or AssemblyAI (opt-in, EU endpoint), with long-recording chunking and idempotent re-runs. ffmpeg/ffprobe are external prerequisites.",
   "type": "module",
   "repository": {
@@ -27,7 +27,8 @@
   "pi": {
     "skills": [
       ".pi/skills/video-transcription",
-      ".pi/skills/speaker-id"
+      ".pi/skills/speaker-id",
+      ".pi/skills/youtube-srt"
     ],
     "tools": [
       {
@@ -69,10 +70,10 @@
     "parity:docker": "parity/run.sh"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.80.10",
+    "@earendil-works/pi-coding-agent": ">=1.0.0",
     "typebox": ">=1.3.6"
   },
   "peerDependenciesMeta": {
@@ -81,7 +82,7 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.80.10",
+    "@earendil-works/pi-coding-agent": "^1.0.0",
     "typebox": ">=1.3.6",
     "vitest": "^2.1.8"
   },

@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-eng-disciplines",
-  "version": "0.8.0",
-  "description": "Cross-cutting engineering-discipline skills for pi sessions — interview-me, doubt-driven-review, code-simplification, security-hardening, performance-optimization, observability-instrumentation, systematic-debugging, node-inspect-debugger, scenario-design (ISTQB test-scenario design). Orthogonal to the openspec pipeline; triggers retargeted to avoid spec/plan/build/ship/review collisions. Adapted from Addy Osmani's agent-skills and NousResearch's hermes-agent (both MIT).",
+  "version": "0.9.0",
+  "description": "Cross-cutting engineering-discipline skills for pi sessions — interview-me, doubt-driven-review, code-simplification, security-hardening, performance-optimization, observability-instrumentation, systematic-debugging, node-inspect-debugger, scenario-design (ISTQB test-scenario design), reverse-spec-for-rebuild (rebuild-grade code characterization: rules, model, quirks, gaps, provenance). Orthogonal to the openspec pipeline; triggers retargeted to avoid spec/plan/build/ship/review collisions. Adapted from Addy Osmani's agent-skills, NousResearch's hermes-agent (both MIT) and greenfield methodology (Apache-2.0).",
   "type": "module",
   "repository": {
     "type": "git",
@@ -11,6 +11,9 @@
   "license": "MIT",
   "publishConfig": {
     "access": "public"
+  },
+  "scripts": {
+    "test": "vitest run"
   },
   "keywords": [
     "pi-package",
@@ -26,7 +29,9 @@
     "root-cause",
     "node-inspect",
     "test-design",
-    "scenario-design"
+    "scenario-design",
+    "reverse-engineering",
+    "rebuild"
   ],
   "pi": {
     "skills": [
@@ -39,11 +44,14 @@
       ".pi/skills/observability-instrumentation",
       ".pi/skills/systematic-debugging",
       ".pi/skills/node-inspect-debugger",
-      ".pi/skills/scenario-design"
+      ".pi/skills/scenario-design",
+      ".pi/skills/reverse-spec-for-rebuild"
     ]
   },
   "files": [
     ".pi/skills/",
+    "agents/",
+    "!.pi/skills/reverse-spec-for-rebuild/eval/**",
     "README.md",
     "NOTICE",
     "!**/AGENTS.md",

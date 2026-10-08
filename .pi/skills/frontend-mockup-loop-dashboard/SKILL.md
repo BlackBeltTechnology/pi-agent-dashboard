@@ -16,7 +16,7 @@ Use when designing or refining any surface in packages/client (or src/client) of
 5. PROMOTE binding: NEVER verify against the live :8000 server — it runs MAIN-repo code; worktree edits never load. Use isolated verification (debug-dashboard skill → references/isolated-verification.md: temp HOME, non-8000 ports, PI_DASHBOARD_NO_MDNS=1, openspec poll enabled:false). Confirm live root via lsof -i:8000 before/after; original PID must be unchanged.
 
 ## Pitfalls
-- Do NOT run pi-dashboard stop in an isolated env — it defaults to port 8000 / pi-port 9999 even under custom HOME and kills the real dashboard via stale-port lsof. Pass explicit --port/--pi-port or kill by pgrep -f 'cli.ts.*--port <N>'.
+- In an isolated env pass explicit `--port/--pi-port` to `pi-dashboard stop` (it honors them and kills only listeners that HOME owns; never use `--force`, never copy `server.pid`/`server.lock*`/`instances/` from the real HOME). Or kill by pgrep -f 'cli.ts.*--port <N>'.
 - Do NOT leave openspec poll enabled during browser QA on this repo (73+ changes) — it starves the WS heartbeat -> blank client + dropped bridge. Set enabled:false in the isolated HOME config first.
 - Do NOT trust agent-browser eval on a file:// static page — it can blank the page and the live session-list timer invalidates @e<N> snapshot refs. Prefer clicking the page's own controls.
 - Do NOT duplicate the generic procedure here — if a rule is not dashboard-specific, it belongs in the frontend-mockup-loop skill, not this adapter.

@@ -20,8 +20,10 @@ import {
   mdiDotsVertical,
   mdiDrag,
 } from "@mdi/js";
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import Icon from "@mdi/react";
 import React, { useEffect, useRef, useState } from "react";
+import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { dropIndicatorProps } from "../../lib/layout/sidebar-dnd.js";
 import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
@@ -51,7 +53,13 @@ export function WorkspaceHeader({
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const dragHandleProps = useWorkspaceDragHandle();
-  const menuRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const { flipUp, maxHeight, anchorRight, maxWidth, triggerRect } = usePopoverFlip(triggerRef, {
+    open: menuOpen,
+    estimatedWidth: 144,
+    minPopoverHeight: 0,
+  });
   // Header-sized append target. `SortableWorkspace`'s own node spans header
   // PLUS folder body, so its center sits mid-body and closestCenter resolves
   // to a folder when the header strip of an expanded workspace is hovered.
@@ -67,7 +75,10 @@ export function WorkspaceHeader({
   useEffect(() => {
     if (!menuOpen) return;
     function onDown(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setMenuOpen(false);
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setMenuOpen(false);
@@ -154,8 +165,9 @@ export function WorkspaceHeader({
       </span>
 
       {!editing && (
-        <div className="relative shrink-0" ref={menuRef}>
+        <div className="relative shrink-0">
           <button
+            ref={triggerRef}
             onClick={() => setMenuOpen((p) => !p)}
             className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-0.5"
             title={i18nT("folders.workspaceActions", undefined, "Workspace actions")}
@@ -166,8 +178,26 @@ export function WorkspaceHeader({
             <Icon path={mdiDotsVertical} size={0.55} />
           </button>
           {menuOpen && (
+            <LayerPortal>
             <div
-              className="absolute right-0 mt-1 w-36 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded shadow-lg z-50 py-1"
+              ref={panelRef}
+              style={{
+                width: 144,
+                maxHeight,
+                maxWidth,
+                visibility: triggerRect ? "visible" : "hidden",
+                ...(triggerRect
+                  ? flipUp
+                    ? { bottom: Math.round(window.innerHeight - triggerRect.top + 4) }
+                    : { top: Math.round(triggerRect.bottom + 4) }
+                  : {}),
+                ...(triggerRect
+                  ? anchorRight
+                    ? { right: Math.max(0, Math.round(window.innerWidth - triggerRect.right)) }
+                    : { left: Math.round(triggerRect.left) }
+                  : {}),
+              }}
+              className="fixed overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded shadow-lg z-popover py-1"
               role="menu"
               data-testid={`workspace-menu-${id}`}
             >
@@ -189,6 +219,7 @@ export function WorkspaceHeader({
                 {i18nT("common.delete", undefined, "Delete")}
               </button>
             </div>
+            </LayerPortal>
           )}
         </div>
       )}

@@ -10,7 +10,7 @@ function makeRegistry(opts: {
   oauthIds?: string[];
   models?: Array<{ provider: string; id: string }>;
   authStatus?: Record<string, { configured: boolean; source?: string }>;
-  registryAuthStatus?: Record<string, { configured: boolean; source?: string }>;
+  registryAuthStatus?: Record<string, { configured: boolean; source?: string; label?: string }>;
   credentials?: Record<string, { type: "oauth" | "api_key"; expires?: number; key?: string }>;
   displayNames?: Record<string, string>;
 }): any {
@@ -211,5 +211,38 @@ describe("_buildProviderCatalogue", () => {
     };
     const cat = _buildProviderCatalogue(reg, {});
     expect(cat[0].displayName).toBe("weird");
+  });
+});
+
+/**
+ * pi >= 0.99.2 labels environment auth; federation has no key variable.
+ * See change: update-pi-core-1-0-adopt-apis (test-plan #E16).
+ */
+describe("_buildProviderCatalogue — authLabel (E16)", () => {
+  it("copies the registry label; federation has no envVar and no ambient", () => {
+    const reg = makeRegistry({
+      oauthIds: ["anthropic"],
+      registryAuthStatus: {
+        anthropic: { configured: true, source: "environment", label: "workload identity federation" },
+      },
+    });
+    const [entry] = _buildProviderCatalogue(reg, { findEnvKeys: () => undefined, getEnvApiKey: () => undefined });
+    expect(entry).toMatchObject({
+      id: "anthropic",
+      configured: true,
+      source: "environment",
+      authLabel: "workload identity federation",
+    });
+    expect(entry.envVar).toBeUndefined();
+    expect(entry.ambient).toBeUndefined();
+  });
+
+  it("no label → no authLabel field", () => {
+    const reg = makeRegistry({
+      oauthIds: ["anthropic"],
+      registryAuthStatus: { anthropic: { configured: true, source: "stored" } },
+    });
+    const [entry] = _buildProviderCatalogue(reg, {});
+    expect("authLabel" in entry && entry.authLabel !== undefined).toBe(false);
   });
 });

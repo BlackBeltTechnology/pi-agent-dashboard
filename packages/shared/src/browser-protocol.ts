@@ -1,7 +1,7 @@
 /**
  * Server ↔ Browser WebSocket protocol messages.
  */
-import type { CardSectionPrefs } from "./card-sections.js";
+import type { CardSectionPrefs, FocusProfile } from "./card-sections.js";
 import type {
   PluginActionMessage,
   PluginEventBroadcast,
@@ -616,6 +616,14 @@ export interface ArchivedSessionSummary {
    * See change: serve-retained-remote-transcripts (task 2.2).
    */
   retainedTranscript?: "complete" | "incomplete" | "absent";
+  /**
+   * Human owner `(iss, sub)` carried through archiving so an archived session
+   * stays owner-gated (§8.1 / D11). Without it an archived session would read
+   * as ownerless and become invisible to its own owner under an active
+   * resolver. Absent ⇒ ownerless (inert-era / automation), same as live.
+   * See change: add-multi-user-identity-plane.
+   */
+  principalOwner?: { iss: string; sub: string };
 }
 
 /**
@@ -700,6 +708,8 @@ export interface WorkspacesUpdatedMessage {
 export interface CollapsedFoldersUpdatedMessage {
   type: "collapsed_folders_updated";
   collapsedFolders: string[];
+  /** Accordion pinned-open folders (mutually exclusive with collapsed). Absent from older servers. */
+  expandedFolders?: string[];
 }
 
 /**
@@ -881,18 +891,6 @@ export interface BootstrapStateSnapshot {
     upgradeDashboard?: boolean;
   };
   bridgeRegistrationError?: string;
-  /**
-   * Legacy `@mariozechner/pi-coding-agent` installs detected on disk.
-   * Surfaced by the client as a one-click cleanup banner. Empty array
-   * means no legacy installs found. Pi was renamed to
-   * `@earendil-works/pi-coding-agent` at v0.74 — the legacy scope can
-   * collide with the new scope's `bin/pi` symlink.
-   */
-  legacyPiInstalls?: Array<{
-    scope: "npm-global" | "npx-cache" | "managed";
-    path: string;
-    version: string | null;
-  }>;
 }
 
 /**
@@ -1077,6 +1075,18 @@ export interface RetrySessionErrorMessage {
   error: string;
 }
 
+/**
+ * Server → browser: a plugin server asked the viewers of `sessionId` to open
+ * (or focus) the plugin tab `path` (`<pathPrefix>:<rest>`, prefix owned by the
+ * calling plugin — enforced by the host). A client acts only while on that
+ * session's chat or editor route. See change: add-browser-editor-pane-tab (D5).
+ */
+export interface EditorTabOpenMessage {
+  type: "editor_tab_open";
+  sessionId: string;
+  path: string;
+}
+
 /** Sent when a plugin's config changes; carries only that plugin's namespace. */
 export interface PluginConfigUpdateMessage {
   type: "plugin_config_update";
@@ -1180,6 +1190,7 @@ export type ServerToBrowserMessage =
   | AutoNameOutcomeBrowserMessage
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
+  | EditorTabOpenMessage
   | PluginActionErrorMessage
   | RetrySessionErrorMessage
   | SessionAddedMessage
@@ -1813,6 +1824,32 @@ export interface SetCardSectionVisibilityMessage {
   visible: boolean | null;
 }
 
+/**
+ * Browser → server: turn Focus mode on/off (overlay; never rewrites normal
+ * prefs). See change: add-focus-mode-and-card-block-toggles.
+ */
+export interface SetFocusModeMessage {
+  type: "set_focus_mode";
+  enabled: boolean;
+}
+
+/**
+ * Browser → server: replace the focus profile (`null` = reset to built-in).
+ * Server validates ids, boolean values, mode enum and the 256-key cap.
+ * See change: add-focus-mode-and-card-block-toggles.
+ */
+export interface SetFocusProfileMessage {
+  type: "set_focus_profile";
+  profile: FocusProfile | null;
+}
+
+/** Browser → server: pin a folder open (accordion) / unpin. See change: add-focus-mode-and-card-block-toggles. */
+export interface SetFolderExpandedMessage {
+  type: "set_folder_expanded";
+  path: string;
+  expanded: boolean;
+}
+
 /** Browser → server: drop every section override for one folder. See change: configurable-session-card-sections. */
 export interface ResetFolderCardSectionsMessage {
   type: "reset_folder_card_sections";
@@ -2113,6 +2150,9 @@ export type BrowserToServerMessage =
   | SetLaneCollapsedMessage
   | SetCardSectionVisibilityMessage
   | ResetFolderCardSectionsMessage
+  | SetFocusModeMessage
+  | SetFocusProfileMessage
+  | SetFolderExpandedMessage
   | AddFolderToWorkspaceMessage
   | RemoveFolderFromWorkspaceMessage
   | ReorderWorkspaceFoldersMessage
@@ -2300,27 +2340,69 @@ export interface BrowserRelayUnsubscribeMessage {
  * are accepted — an unknown kind, or out-of-range coordinates, is dropped and
  * audited, and the viewer never reaches `Runtime.*`.
  */
-export interface BrowserRelayInputMessage {
+interface BrowserRelayInputBase {
   type: "browser_relay_input";
   instanceId: string;
   tabId: number;
-  kind: "mouse" | "key" | "scroll" | "bringToFront";
-  /** mouse/scroll only — normalized `[0,1]` of the frame. */
-  x?: number;
-  y?: number;
-  /** mouse only. */
+}
+
+/** mouse — `x`/`y` normalized `[0,1]` of the frame. */
+export interface BrowserRelayMouseInput extends BrowserRelayInputBase {
+  kind: "mouse";
+  x: number;
+  y: number;
   action?: "click" | "move" | "down" | "up";
   button?: "left" | "middle" | "right";
   clickCount?: number;
-  /** scroll only — raw wheel deltas, not normalized (they are not positions). */
-  deltaX?: number;
-  deltaY?: number;
-  /** key only — a DOM key event, mirrored to `Input.dispatchKeyEvent`. */
+}
+
+/** key — a DOM key event, mirrored to `Input.dispatchKeyEvent`. */
+export interface BrowserRelayKeyInput extends BrowserRelayInputBase {
+  kind: "key";
   keyType?: "keyDown" | "keyUp" | "char";
   key?: string;
   code?: string;
   text?: string;
 }
+
+/** scroll — `x`/`y` normalized; raw wheel deltas (not positions, not normalized). */
+export interface BrowserRelayScrollInput extends BrowserRelayInputBase {
+  kind: "scroll";
+  x: number;
+  y: number;
+  deltaX?: number;
+  deltaY?: number;
+}
+
+export interface BrowserRelayBringToFrontInput extends BrowserRelayInputBase {
+  kind: "bringToFront";
+}
+
+/**
+ * resize — remote viewport size in CSS pixels; the relay clamps it to
+ * 320–3840 × 240–2160 and refuses it while the CDP client holds its own
+ * device-metrics override. See change: add-browser-editor-pane-tab (D8).
+ */
+export interface BrowserRelayResizeInput extends BrowserRelayInputBase {
+  kind: "resize";
+  width: number;
+  height: number;
+}
+
+/**
+ * Browser → server: one viewer input event, a union discriminated on `kind`.
+ * Positions are NORMALIZED to `[0,1]` of the rendered frame (never CSS or
+ * device pixels) so tile scaling cannot mis-target; the relay multiplies by the
+ * last frame's `metadata.deviceWidth/deviceHeight`. Only the kinds below are
+ * accepted — an unknown kind, out-of-range coordinates or a non-numeric resize
+ * is dropped and audited, and the viewer never reaches `Runtime.*`.
+ */
+export type BrowserRelayInputMessage =
+  | BrowserRelayMouseInput
+  | BrowserRelayKeyInput
+  | BrowserRelayScrollInput
+  | BrowserRelayBringToFrontInput
+  | BrowserRelayResizeInput;
 
 /** One frame's device-pixel geometry + capture time. */
 export interface BrowserRelayFrameMetadata {
@@ -2365,6 +2447,12 @@ export interface BrowserRelayTabStatus {
   state: BrowserRelayTabState;
   /** Set when `state === "detached"`. */
   reason?: "devtools" | "no-session";
+  /**
+   * True while the CDP client (the agent) holds a device-metrics override on
+   * this tab — viewer `resize` is refused and the pane falls back to Fit.
+   * See change: add-browser-editor-pane-tab (D8).
+   */
+  agentEmulation?: boolean;
 }
 
 export interface BrowserRelayInstanceStatus {
@@ -2398,6 +2486,12 @@ export interface BrowserRelayStatusMessage {
  * `cwd` is the unknown-working-directory plane.
  */
 export type AccessPlaneId = "filesystem" | "cwd" | "network" | "cors";
+
+/**
+ * Surfaces YOLO answers: the closed plane ids plus the agent path gate (which is
+ * not a registered plane). See change: yolo-covers-agent-path-gate.
+ */
+export type YoloSurfaceId = AccessPlaneId | "agent-path";
 
 /**
  * The three answers an operator may give. `allow-once` releases only the request

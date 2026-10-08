@@ -151,3 +151,28 @@ describe("findOpenSubagents", () => {
     expect(findOpenSubagents(events)).toEqual([]);
   });
 });
+
+// See change: render-nested-tool-calls — test-plan E16.
+describe("findOpenToolCalls — nested calls are never healed (E16)", () => {
+  const nestedStart = (id: string, parent: string) =>
+    ev("tool_execution_start", { toolCallId: id, toolName: "bash", parentToolCallId: parent });
+
+  it("(a) root ended + nested still open → empty", () => {
+    const events = stored([
+      ev("agent_start", {}),
+      start("call_1", "codemode"),
+      nestedStart("call_1/1", "call_1"),
+      end("call_1"),
+    ]);
+    expect(findOpenToolCalls(events)).toEqual([]);
+  });
+
+  it("(b) root and nested both open → only the root", () => {
+    const events = stored([
+      ev("agent_start", {}),
+      start("call_1", "codemode"),
+      nestedStart("call_1/1", "call_1"),
+    ]);
+    expect(findOpenToolCalls(events)).toEqual([{ toolCallId: "call_1", toolName: "codemode" }]);
+  });
+});

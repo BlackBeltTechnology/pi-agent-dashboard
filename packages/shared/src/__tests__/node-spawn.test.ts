@@ -5,7 +5,7 @@
  * See change: fix-windows-entry-script-url.
  */
 import { describe, it, expect, vi } from "vitest";
-import { toFileUrl, spawnNodeScript, isTsxLoader, shouldUrlWrapEntry } from "../platform/node-spawn.js";
+import { toFileUrl, spawnNodeScript, isTsxLoader, isJitiLoader, isNativeTsLoader, shouldUrlWrapEntry } from "../platform/node-spawn.js";
 import * as execModule from "../platform/exec.js";
 
 describe("toFileUrl", () => {
@@ -61,6 +61,27 @@ describe("isTsxLoader", () => {
   });
 });
 
+// E12 — native-loader identity (segment `platform/native-ts-register.mjs`,
+// either separator). See change: fix-appimage-cold-boot-latency.
+describe("isNativeTsLoader (E12)", () => {
+  const nativeUrl = "file:///x/node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs";
+  const nativeWin = "C:\\x\\pi-dashboard-shared\\src\\platform\\native-ts-register.mjs";
+  const otherPkg = "/x/other-pkg/native-ts-register.mjs";
+  const jiti = "file:///a/node_modules/jiti/lib/jiti-register.mjs";
+
+  it("matches the native register by URL and raw Windows path only", () => {
+    expect([nativeUrl, nativeWin, otherPkg, jiti].map(isNativeTsLoader)).toEqual([true, true, false, false]);
+    expect(isNativeTsLoader(undefined)).toBe(false);
+  });
+
+  it("jiti / tsx predicates stay false on the native inputs", () => {
+    for (const l of [nativeUrl, nativeWin]) {
+      expect(isJitiLoader(l)).toBe(false);
+      expect(isTsxLoader(l)).toBe(false);
+    }
+  });
+});
+
 describe("spawnNodeScript", () => {
   it("URL-wraps loader but passes RAW entry when loader is jiti (any platform)", () => {
     const spawnSpy = vi
@@ -109,6 +130,24 @@ describe("spawnNodeScript", () => {
       "/home/u/repo/packages/server/src/cli.ts",  // RAW, not URL
       "start",
     ]);
+    spawnSpy.mockRestore();
+  });
+
+  // spawnNodeScript delegates argv to buildNodeImportArgvParts (test-plan #E5).
+  // See change: cleanup-stale-fork-specs.
+  it("delegates argv construction to buildNodeImportArgvParts", async () => {
+    const { buildNodeImportArgvParts } = await import("../platform/node-spawn.js");
+    const spawnSpy = vi
+      .spyOn(execModule, "spawn")
+      .mockImplementation(() => ({ unref: () => {} } as unknown as ReturnType<typeof execModule.spawn>));
+
+    const loader = "C:\\x\\loader.mjs";
+    const entry = "C:\\srv\\cli.ts";
+    const args = ["start", "--port", "8000"];
+    spawnNodeScript({ loader, entry, args });
+
+    const [, argv] = spawnSpy.mock.calls[0]!;
+    expect(argv).toEqual(buildNodeImportArgvParts({ loader, entry, args }));
     spawnSpy.mockRestore();
   });
 
@@ -226,6 +265,32 @@ describe("buildNodeImportArgvParts", () => {
       platform: "win32",
     });
     expect(parts[2]).toBe("C:\\srv\\cli.ts"); // RAW (tsx rejects file:// entries)
+  });
+
+  // Entry-wrap rule, jiti/tsx arm — full decision table (test-plan #E1).
+  // See change: cleanup-stale-fork-specs.
+  const JITI = "C:\\u\\node_modules\\jiti\\lib\\jiti-register.mjs";
+  const TSX = "/x/tsx/dist/esm/index.mjs";
+  const ENTRY = "C:\\srv\\cli.ts";
+  for (const loader of [JITI, TSX]) {
+    for (const platform of ["win32", "linux", "darwin"] as const) {
+      it(`jiti/tsx arm: ${loader.includes("jiti") ? "jiti" : "tsx"} loader on ${platform} → loader URL, entry RAW`, async () => {
+        const { buildNodeImportArgvParts } = await import("../platform/node-spawn.js");
+        const parts = buildNodeImportArgvParts({ loader, entry: ENTRY, platform });
+        expect(parts[1]).toMatch(/^file:\/\/\//);
+        expect(parts[2]).toBe(ENTRY);
+      });
+    }
+  }
+
+  // Entry-wrap rule, other-loader arm (test-plan #E2).
+  it("other loader: entry URL-wrapped on win32, RAW on linux", async () => {
+    const { buildNodeImportArgvParts } = await import("../platform/node-spawn.js");
+    const loader = "C:\\x\\loader.mjs";
+    expect(buildNodeImportArgvParts({ loader, entry: ENTRY, platform: "win32" })[2]).toBe(
+      "file:///C:/srv/cli.ts",
+    );
+    expect(buildNodeImportArgvParts({ loader, entry: ENTRY, platform: "linux" })[2]).toBe(ENTRY);
   });
 
   it("omits args when none supplied", async () => {

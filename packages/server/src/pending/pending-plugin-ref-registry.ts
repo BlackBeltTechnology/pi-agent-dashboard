@@ -40,12 +40,16 @@ export const CORE_RESERVED_REF_KEYS: ReadonlySet<string> = new Set([
   "endedAt",
   "name",
   "nameSource",
+  // Core-owned container of every plugin's durable refs (session/plugin-refs.ts).
+  "pluginRefs",
 ]);
 
-/** Generic lifecycle declaration; core reads only these two booleans. */
+/** Generic lifecycle declaration; core reads only these booleans. */
 export interface PluginSessionLifecycle {
   recover?: boolean;
   finalizeOnSocketClose?: boolean;
+  /** Hide the owned session on first register. See change: hide-chat-gateway-sessions. */
+  hidden?: boolean;
 }
 
 /** A resolved ownership record handed back on register. */
@@ -135,6 +139,12 @@ export interface PendingPluginRefRegistry {
    * relocate-goal-product-to-plugin (D1-#5).
    */
   sanitize(ref: unknown, ownerId: string): Record<string, unknown>;
+  /**
+   * Rebuild first-writer-wins key ownership from persisted bags
+   * (`session.pluginRefs[ownerId]`) so it survives a restart. Call once after
+   * the boot scan, before plugins write. Already-claimed keys are kept.
+   */
+  claimPersisted(sessions: Iterable<{ pluginRefs?: Record<string, Record<string, unknown>> }>): void;
   /** Idempotent, token-keyed rollback: removes only this token's entry. */
   remove(token: string): void;
   /** Live entry count (post-sweep). For tests/observability. */
@@ -164,6 +174,13 @@ export function createPendingPluginRefRegistry(
     warn(`[pending-plugin-ref-registry] dropped ref key "${key}" (reserved, malformed, or owned by another plugin)`);
   }
 
+  /** Claim unowned, non-reserved keys for `ownerId` (already-claimed keys kept). */
+  function claimKeys(ownerId: string, keys: string[]): void {
+    for (const k of keys) {
+      if (!CORE_RESERVED_REF_KEYS.has(k) && !keyOwners.has(k)) keyOwners.set(k, ownerId);
+    }
+  }
+
   function sweep(): void {
     const cutoff = now() - PENDING_PLUGIN_REF_TTL_MS;
     for (const [token, entry] of store) {
@@ -178,7 +195,9 @@ export function createPendingPluginRefRegistry(
       const sanitized = sanitizePluginRef(ref, ownerId, keyOwners, warnOnceForKey);
       const hasLifecycle =
         lifecycle !== undefined &&
-        (lifecycle.recover !== undefined || lifecycle.finalizeOnSocketClose !== undefined);
+        (lifecycle.recover !== undefined ||
+          lifecycle.finalizeOnSocketClose !== undefined ||
+          lifecycle.hidden !== undefined);
       if (Object.keys(sanitized).length === 0 && !hasLifecycle) {
         // Nothing to own — do not file (register resolves unowned).
         return false;
@@ -209,6 +228,12 @@ export function createPendingPluginRefRegistry(
 
     sanitize(ref, ownerId): Record<string, unknown> {
       return sanitizePluginRef(ref, ownerId, keyOwners, warnOnceForKey);
+    },
+
+    claimPersisted(sessions): void {
+      for (const s of sessions) {
+        for (const [ownerId, bag] of Object.entries(s.pluginRefs ?? {})) claimKeys(ownerId, Object.keys(bag ?? {}));
+      }
     },
 
     remove(token): void {

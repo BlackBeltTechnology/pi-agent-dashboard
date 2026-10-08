@@ -1,13 +1,13 @@
 ---
 name: apple-tools
-description: Reach Apple PIM data (Calendar, Contacts, Reminders, Messages, Location, Maps, Weather) from a pi session via iMCP + pi-mcp-adapter on macOS. Use when the user asks to read/search their Apple Calendar, Contacts, Reminders, iMessages, current Location, Maps, or Weather. Does NOT cover Apple Mail — iMCP exposes no Mail service; use apple-mail-fast-export for email.
+description: Reach Apple PIM data (Calendar, Contacts, Reminders, Messages, Location, Maps, Weather) from a pi session via iMCP + pi's built-in MCP on macOS. Use when the user asks to read/search their Apple Calendar, Contacts, Reminders, iMessages, current Location, Maps, or Weather. Does NOT cover Apple Mail — iMCP exposes no Mail service; use apple-mail-fast-export for email.
 ---
 
 # apple-tools (iMCP)
 
 Access Apple personal-information-management data on **macOS** through
 [iMCP](https://github.com/mattt/iMCP), a menu-bar app that brokers the OS
-permission grants, reached over MCP by `pi-mcp-adapter`.
+permission grants, reached over MCP by pi's built-in MCP (pi ≥ 1.0.0).
 
 ## Reachable services (seven)
 
@@ -27,11 +27,12 @@ If the user asks to read, search, or summarize **Apple Mail / email**:
 "Messages" satisfying an email request is a category error: Messages is
 iMessage/SMS only.
 
-## Access pattern — search then invoke via the adapter
+## Access pattern — search then invoke via built-in MCP
 
-The agent reaches iMCP tools through **`pi-mcp-adapter`**, not by spawning the
-server. Do **not** run `imcp-server` directly. Use the adapter's MCP tool
-surface (search the available tools, then invoke).
+The agent reaches iMCP tools through pi's **built-in MCP**, not by spawning the
+server. Do **not** run `imcp-server` directly. Tools appear as `mcp__iMCP__*`
+(through `codemode`, or `tool_search` when the entry's `exposure` is
+`deferred`). Search the available tools, then invoke.
 
 ## Provisioning check (run at load)
 
@@ -49,7 +50,7 @@ Terminal states mirror the CLI and the dashboard panel:
 `READY_PENDING_GRANTS`.
 
 `READY` is NOT one of them. It is a live-access result — reachable only by a
-successful tool round-trip through the adapter, never by the provisioning
+successful tool round-trip through pi's built-in MCP, never by the provisioning
 traversal, which cannot know whether the TCC grants were given.
 
 If the state is anything other than `READY_PENDING_GRANTS`, do NOT attempt

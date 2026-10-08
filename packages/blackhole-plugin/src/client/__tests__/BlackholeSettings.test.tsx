@@ -602,3 +602,83 @@ describe("Base model and recommended defaults (4.1-4.10)", () => {
     expect(sources.get("plugin:blackhole")?.isDirty).toBe(false);
   });
 });
+
+
+describe("role-bound slots in the draft/payload (add-role-aware-model-refs)", () => {
+  const cfgWith = (extra: Record<string, unknown>, roleBindings: unknown[]) => ({
+    ...allDefaultConfig(extra),
+    rolesAvailable: true,
+    roleBindings,
+  });
+
+  it("marks bound slots from roleBindings and sends them as role slots, never concrete", () => {
+    const cfg = cfgWith(
+      {
+        observerModel: { provider: "anthropic", id: "claude-haiku-4-5", thinking: "low" },
+        observerFallbackModels: [{ provider: "x", id: "y" }, { provider: "a", id: "b", cooldownHours: 2 }],
+      },
+      [
+        { field: "observerModel", ref: "@fast", status: "ok" },
+        { field: "observerFallbackModels[1]", ref: "@fast", status: "dangling" },
+      ],
+    );
+    const draft = toDraft(cfg as never);
+    expect(draft.chains.observer![0]).toMatchObject({ role: "@fast", roleStatus: "ok" });
+    expect(draft.chains.observer![1]!.role).toBeUndefined();
+    expect(draft.chains.observer![2]).toMatchObject({ role: "@fast", roleStatus: "dangling" });
+    // touch both keys (user edits an unbound entry in each) so they are sent
+    draft.chains.observer![1] = { ...draft.chains.observer![1]!, cooldownHours: 9 };
+    draft.chains.observer![0] = { ...draft.chains.observer![0]!, cooldownHours: 3 };
+    const payload = buildPayload(draft);
+    expect(payload.observerModel).toEqual({ role: "@fast", cooldownHours: 3 });
+    expect(payload.observerFallbackModels).toEqual([{ provider: "x", id: "y", cooldownHours: 9 }, { role: "@fast", cooldownHours: 2 }]);
+    // the wire shape is accepted by the server's role-aware validator
+    expect(validateBlackholeConfig(payload, { allowRoleSlots: true }).errors).toEqual([]);
+  });
+
+  it("review B1: an untouched bound key stays out of the PUT — dangling never blocks, detached is never clobbered", () => {
+    const cfg = cfgWith(
+      {
+        observerModel: { provider: "anthropic", id: "claude-haiku-4-5" },
+        observerFallbackModels: [{ provider: "a", id: "b" }],
+        model: { provider: "m", id: "base" },
+      },
+      [
+        { field: "observerModel", ref: "@fast", status: "dangling" },
+        { field: "observerFallbackModels[0]", ref: "@fast", status: "detached" },
+        { field: "model", ref: "@fast", status: "detached" },
+      ],
+    );
+    const draft = toDraft(cfg as never);
+    draft.values.memory = !draft.loaded.memory; // an unrelated edit
+    const payload = buildPayload(draft);
+    expect(payload).not.toHaveProperty("observerModel");
+    expect(payload).not.toHaveProperty("observerFallbackModels");
+    expect(payload).not.toHaveProperty("model");
+    expect(payload.memory).toBe(!draft.loaded.memory);
+  });
+
+  it("review B1: a bound key the user changed IS sent (as role slots); an untouched sibling key is not", () => {
+    const cfg = cfgWith(
+      {
+        observerModel: { provider: "anthropic", id: "claude-haiku-4-5" },
+        observerFallbackModels: [{ provider: "a", id: "b" }],
+      },
+      [
+        { field: "observerModel", ref: "@fast", status: "ok" },
+        { field: "observerFallbackModels[0]", ref: "@fast", status: "ok" },
+      ],
+    );
+    const draft = toDraft(cfg as never);
+    // user swaps the fallback for a concrete model → fallbacks key is touched, primary is not
+    draft.chains.observer![1] = { provider: "x", id: "y" };
+    const payload = buildPayload(draft);
+    expect(payload).not.toHaveProperty("observerModel");
+    expect(payload.observerFallbackModels).toEqual([{ provider: "x", id: "y" }]);
+  });
+
+  it("a config without bindings still round-trips as concrete refs (no role keys)", () => {
+    const cfg = allDefaultConfig({ observerModel: { provider: "openrouter", id: "A" } });
+    expect(buildPayload(toDraft(cfg as never)).observerModel).toEqual({ provider: "openrouter", id: "A" });
+  });
+});

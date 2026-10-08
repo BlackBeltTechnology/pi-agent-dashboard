@@ -39,6 +39,7 @@ import {
   parseRoleConfig,
   type RoleConfig,
   type RolePreset,
+  resolveModelRef,
 } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -196,10 +197,10 @@ export function lookupRole(ref: string): { literal?: string; reason?: string } {
   if (!roleName) return { reason: "empty role name" };
   const cfg = loadRoleConfig();
   currentRoles = cfg.roles;
-  const mapped = cfg.roles[roleName];
-  if (typeof mapped === "string" && mapped.trim() !== "") {
-    return { literal: mapped.trim() };
-  }
+  // Shared resolver decides assigned-ness; `literal` stays the assignment
+  // string verbatim (incl. its `:level`) so model:resolve consumers see no
+  // change. See change: add-role-aware-model-refs.
+  if (!resolveModelRef(`@${roleName}`, cfg).unresolved) return { literal: cfg.roles[roleName]!.trim() };
   return { reason: `role '${roleName}' not configured yet` };
 }
 

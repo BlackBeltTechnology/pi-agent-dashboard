@@ -16,6 +16,7 @@ import {
   redactWriteOnly,
   validatePluginConfig,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { FastifyInstance } from "fastify";
 import type { NetworkGuard } from "./route-deps.js";
@@ -34,9 +35,7 @@ function readRawConfig(): Record<string, unknown> {
 
 function writeRawConfig(merged: Record<string, unknown>): void {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  const tmpFile = `${CONFIG_FILE}.tmp.${process.pid}`;
-  fs.writeFileSync(tmpFile, `${JSON.stringify(merged, null, 2)}\n`);
-  fs.renameSync(tmpFile, CONFIG_FILE);
+  writeConfigFileSecure(CONFIG_FILE, `${JSON.stringify(merged, null, 2)}\n`);
 }
 
 function loadSchemaForPlugin(
@@ -90,7 +89,12 @@ export function registerPluginConfigRoutes(
       const schema = loadSchemaForPlugin(id, repoRoot);
       if (schema) {
         try {
-          validatePluginConfig(id, body as Record<string, unknown>, schema);
+          // Validate a CLONE: Ajv `useDefaults` fills every omitted key with its
+          // schema default in place, and those defaults would then overwrite the
+          // stored values in the merge below — turning a partial write into a
+          // reset. Defaults for never-stored keys are applied after the merge.
+          // See change: fix-plugin-config-partial-write.
+          validatePluginConfig(id, structuredClone(body) as Record<string, unknown>, schema);
         } catch (e: unknown) {
           return reply.status(400).send({
             success: false,

@@ -19,6 +19,7 @@ export type SlotId =
   | "composer-context-group"
   | "composer-panel"
   | "shell-overlay-route"
+  | "login-provider"
   // (session-card-memory and session-card-flows are also react-only; declared below for ordering)
   | "content-inline-footer"
   | "anchored-popover"
@@ -26,6 +27,7 @@ export type SlotId =
   | "tool-renderer"
   | "custom-entry-renderer"
   | "automation-action-editor"
+  | "editor-pane-tab"
   // React-or-descriptor slots
   | "session-card-memory"
   | "session-card-flows"
@@ -70,6 +72,12 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
     multiplicity: "many",
     payloadTier: "react-only",
     description: "Plugin-owned full-screen route mounted at top of the shell (desktop + mobile). Each claim ships a wouter path pattern via `config.path` and a React component receiving { params, onBack, session? }.",
+  },
+  "login-provider": {
+    multiplicity: "one-active",
+    payloadTier: "react-only",
+    description:
+      "Identity plane (D16): a TRUSTED resolver plugin supplies the browser login mechanics (OIDC discovery, PKCE, callback code exchange). Component-only — core renders it pre-shell with { phase: 'start'|'callback', returnTo, onComplete }. Honored ONLY from a plugin in identity.trustedResolverPlugins; manifest priority never selects it. Pre-token /callback route is core-owned; return-to routing is core's.",
   },
   "session-card-badge": {
     multiplicity: "many",
@@ -152,6 +160,12 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
     payloadTier: "react-only",
     description:
       "Custom React payload editor for a specific automation action id (keyed by config.actionId). Rendered by the create-automation dialog additively below the generic ActionPayloadForm; receives { payload, onChange, cwd }.",
+  },
+  "editor-pane-tab": {
+    multiplicity: "many",
+    payloadTier: "react-only",
+    description:
+      "Editor-pane tab owned by a virtual-path prefix (claim.pathPrefix). Tabs at `<pathPrefix>:<rest>` render the claim's component; an optional labelComponent renders in the tab strip and stays mounted for background tabs. See change: add-browser-editor-pane-tab.",
   },
   // Descriptor-only (extension-ui-system)
   "management-modal": {
@@ -264,6 +278,13 @@ export type SlotPredicateInput<S extends SlotId> =
   S extends SessionScopedSlot ? DashboardSession | null | undefined
   : S extends FolderScopedSlot ? FolderDescriptor
   : never;
+
+// `editor-pane-tab` is intentionally unclassified → `never`: a pane tab is
+// addressed by its path prefix, never filtered by predicate.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _AssertEditorPaneTabNever = [SlotPredicateInput<"editor-pane-tab">] extends [never] ? true : never;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _editorPaneTabNever: _AssertEditorPaneTabNever = true;
 
 // Type-level test: assert every SlotId is reachable through SlotPredicateInput,
 // either by mapping to a concrete input or explicitly to `never`. This forces a

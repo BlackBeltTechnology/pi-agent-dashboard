@@ -1,12 +1,13 @@
 /**
- * mcp-client-plugin · JSON-Schema validation for patches.
+ * mcp-client-plugin · JSON-Schema validation for server entries.
  *
  * Uses the plugin's OWN Ajv instance — `strict: true`, `useDefaults: false`,
  * `allErrors: true` — NOT the runtime's `config-validator` (whose
- * `useDefaults: true` would inject schema defaults into a patch, violating
- * merge-only, and whose strict mode rejects the `x-` annotation keywords).
+ * `useDefaults: true` would inject schema defaults into an entry, and whose
+ * strict mode rejects the `x-` annotation keywords). The writer additionally
+ * mirrors pi's own entry rules (`pi-rules.ts`).
  *
- * See change: extract-mcp-client-plugin (design D7).
+ * See change: migrate-mcp-to-pi-builtin; earlier: extract-mcp-client-plugin (D7).
  */
 
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
@@ -22,7 +23,7 @@ function buildAjv(): Ajv {
   // Custom annotation keywords: registration is what makes strict mode accept them.
   ajv.addKeyword({ keyword: "x-secret" });
   ajv.addKeyword({ keyword: "x-transport" });
-  ajv.addKeyword({ keyword: "x-atomic" });
+  ajv.addKeyword({ keyword: "x-global-only" });
   ajv.addSchema(schema, "mcp-config");
   return ajv;
 }
@@ -36,24 +37,16 @@ function compile(ref: string): ValidateFunction {
 }
 
 const validateServer = compile("ServerEntry");
-const validateSettings = compile("McpSettings");
 
-export function validateServerPatch(patch: unknown): PatchValidation {
-  const valid = validateServer(patch) as boolean;
+export function validateServerEntry(entry: unknown): PatchValidation {
+  const valid = validateServer(entry) as boolean;
   return { ok: valid, errors: valid ? [] : (validateServer.errors ?? []) };
-}
-
-export function validateSettingsPatch(patch: unknown): PatchValidation {
-  const valid = validateSettings(patch) as boolean;
-  return { ok: valid, errors: valid ? [] : (validateSettings.errors ?? []) };
 }
 
 /** Field names from Ajv errors (drop the leading slash of `instancePath`). */
 export function errorFields(errors: ErrorObject[]): string[] {
-  return errors
-    .map((e) => e.instancePath.replace(/^\//, "").split("/")[0])
-    .filter((f) => f.length > 0);
+  return errors.map((e) => e.instancePath.replace(/^\//, "").split("/")[0]).filter((f) => f.length > 0);
 }
 
-/** Exposed for the compile-contract test. */
+/** Exposed for the compile-contract test and the schema route. */
 export const mcpConfigSchema = schema;
