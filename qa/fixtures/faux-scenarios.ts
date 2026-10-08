@@ -1372,6 +1372,11 @@ export const SCENARIOS: Record<string, Scenario> = {
           fauxToolCall("Agent", {
             subagent_type: "Explore",
             description: "faux reasoning subagent",
+            // Literal faux model: Explore.md's `@fast` does not resolve to faux in
+            // the harness, so the child would fall back to a credential-less
+            // anthropic default and die in ~300 ms before any scripted step
+            // (reduce-bridge-tick-bandwidth measurement.md). args.model wins.
+            model: "faux/faux-1",
             prompt: "[[faux:subagent-reasoning-inner]] run the reasoning subagent probe",
           }),
         ],
