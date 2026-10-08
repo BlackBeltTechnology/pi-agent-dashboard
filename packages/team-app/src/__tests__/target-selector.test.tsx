@@ -144,7 +144,7 @@ describe("E47/F26: two hosts, one source", () => {
     for (const base of ["/team", "/folder/enc/team", "/apps/team"]) {
       const host = makeHost({ mode: base === "/apps/team" ? "standalone" : "embedded" });
       bootRoutes(host, {}, PROJECTS);
-      host.routes.set("GET /api/plugins/team/agents", () => ({ agents: [{ key: "shared:backend", name: "Backend", description: "", avatar: { kind: "initials" }, role: "member", scope: "shared", tools: "chat", unconfined: false, status: "new", activeCount: 0, personaStale: false, unassigned: false, retired: false }] }));
+      host.routes.set("GET /api/plugins/team/agents", () => ({ agents: [{ key: "shared:backend", name: "Backend", description: "", avatar: { kind: "initials" }, role: "member", scope: "shared", tools: "chat", unconfined: false, status: "new", activeCount: 0, personaStale: false, unassigned: false, retired: false, effectiveSkills: [], skillBlock: null }] }));
       host.routes.set("GET /api/plugins/team/agents/:k/conversations", () => ({ conversations: [] }));
       const { unmount } = render(
         <AppHostProvider host={host}>

@@ -95,6 +95,11 @@ interface Props {
   draft?: string;
   /** Parent callback for every text change (controlled mode). */
   onDraftChange?: (text: string) => void;
+  /**
+   * Marks the field invalid (aria-invalid + error border) — e.g. a team-app
+   * composer pre-check refusing an unavailable `/skill:`. See change: add-team-skill-access.
+   */
+  invalid?: boolean;
   /** Previously sent user prompts for this session, newest-first, pre-deduped. */
   history?: string[];
   /**
@@ -234,7 +239,7 @@ export function shouldWalkFileQuery(query: string): boolean {
 
 type StopState = "idle" | "aborting" | "killing";
 
-export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, onOpenProviderSettings, modelRefreshErrors, contextUsage }: Props) {
+export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, invalid, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, onOpenProviderSettings, modelRefreshErrors, contextUsage }: Props) {
   const { t } = useI18n();
   // Treat retry-sleep as "still working" for Stop/Force-Stop visibility.
   const isWorking = sessionStatus === "streaming" || retrying === true;
@@ -1056,7 +1061,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
            contract); the textarea draws no ring of its own.
            See change: redesign-composer-session-strip (D7). */
         className={`@container min-h-0 overflow-y-auto bg-[var(--bg-tertiary)] border rounded-xl px-2.5 pt-2 pb-1.5 transition-colors ${
-          focused ? "border-[var(--accent)]" : "border-[var(--border-secondary)]"
+          invalid ? "border-[var(--severity-error-border)]" : focused ? "border-[var(--accent)]" : "border-[var(--border-secondary)]"
         }`}
       >
         {/* Pasted-image error banner + thumbnail strip (attachments row). */}
@@ -1068,6 +1073,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
         <textarea
           ref={inputRef}
           value={text}
+          aria-invalid={invalid || undefined}
           onChange={(e) => {
             if (historyIndexRef.current !== null) {
               setHistoryIndex(null);

@@ -23,6 +23,8 @@ export interface AgentCardProps {
   onEdit(a: Agent): void;
   onFork(a: Agent): void;
   onDelete(a: Agent): void;
+  /** Admin fix for a blocked skill (invalid/missing): open the skill in the Skills panel. */
+  onFixSkill(a: Agent): void;
 }
 
 export function StatusEl({ status }: { status: Agent["status"] }) {
@@ -40,7 +42,9 @@ export function AgentCard(p: AgentCardProps) {
   const t = useT();
   const a = p.agent;
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const dim = a.status === "retired" || a.status === "unavailable";
+  // A skill-blocked card is not dimmed: dimming already means "retired" (ui-plan S2).
+  const skillBlocked = !!a.skillBlock && !a.retired;
+  const dim = !skillBlocked && (a.status === "retired" || a.status === "unavailable");
   const reason = a.retired ? "retired" : a.unassigned ? "unassigned" : "full";
   const atLimit = p.agent.activeCount >= p.maxConversations;
   const canWrite = a.scope === "private" || p.admin;
@@ -81,6 +85,12 @@ export function AgentCard(p: AgentCardProps) {
             {t("tools.unconfined")}
           </span>
         ) : null}
+        {a.effectiveSkills.length > 0 ? (
+          <span className="chip" title={a.effectiveSkills.join(", ")}>
+            <Icon name="spark" className="ic sm" />
+            {t("card.skillsN", { n: a.effectiveSkills.length })}
+          </span>
+        ) : null}
       </div>
       <p className="activity-line" data-testid="activity">
         <Icon name="chat" className="ic sm" />
@@ -101,7 +111,29 @@ export function AgentCard(p: AgentCardProps) {
         </div>
       ) : null}
       <div className="card-actions">
-        {dim ? (
+        {skillBlocked && a.skillBlock ? (
+          <div className="card-note-wrap">
+            <div className="callout callout-warning">
+              <Icon name="warning" className="ic sm" />
+              <p>{t(`card.blocked.${a.skillBlock.reason}` as never, { s: a.skillBlock.skill })}</p>
+            </div>
+            {p.admin ? (
+              a.skillBlock.reason === "invalid" || a.skillBlock.reason === "missing" ? (
+                <button type="button" className="btn btn-secondary" data-testid="fix-skill" onClick={() => p.onFixSkill(a)}>
+                  <Icon name="spark" className="ic sm" />
+                  {t("card.blockedFixSkill")}
+                </button>
+              ) : (
+                <button type="button" className="btn btn-secondary" data-testid="fix-persona" onClick={() => p.onEdit(a)}>
+                  <Icon name="edit" className="ic sm" />
+                  {t("card.blockedFix")}
+                </button>
+              )
+            ) : (
+              <p className="card-note">{t("card.blockedAsk")}</p>
+            )}
+          </div>
+        ) : dim ? (
           <div className="card-note-wrap">
             <p className="card-note">{t(`card.${reason}Note` as never)}</p>
             {a.activeCount > 0 ? (

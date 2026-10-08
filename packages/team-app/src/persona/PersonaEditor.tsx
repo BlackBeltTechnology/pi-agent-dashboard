@@ -6,11 +6,12 @@
  */
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError } from "../api/client.js";
-import type { AvatarSpec, Persona, PersonaInput, ToolsPreset } from "../api/types.js";
+import type { AvatarSpec, Persona, PersonaInput, SkillTargets, SkillUsers, ToolsPreset } from "../api/types.js";
 import { WORKSPACE } from "../api/types.js";
 import { GALLERY } from "../i18n/catalog.js";
 import { useT } from "../i18n/index.js";
 import { useNav } from "../shell/nav.js";
+import { targetName } from "../shell/TargetSelector.js";
 import { useEffectiveTarget } from "../state/effective-target.js";
 import { ConfirmDialog } from "../ui/dialogs.js";
 import { Avatar, Icon } from "../ui/icons.js";
@@ -39,8 +40,21 @@ function errKey(field: string, code: string, value: string): string {
   if (field === "description") return "err.description_too_long";
   if (field === "instructions") return "err.instructions_too_large";
   if (field === "projects") return "err.projects_required";
+  if (field === "skills") return "err.skills_not_allowed";
   return code;
 }
+
+/** A catalog skill as the editor offers it (admin rows carry `users` for private-persona checks). */
+interface SkillChoice {
+  name: string;
+  description?: string;
+  targets: SkillTargets;
+  users?: SkillUsers;
+}
+
+/** The skill's targets that are not in the given list. */
+const notAllowedIn = (c: SkillChoice, projects: string[]): string[] =>
+  c.targets === "*" ? [] : projects.filter((x) => !c.targets.includes(x));
 
 export function slugFromName(name: string): string {
   return (
@@ -71,6 +85,8 @@ export function PersonaEditor({ editKey, forkKey }: { editKey?: string; forkKey?
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [skillChoices, setSkillChoices] = useState<SkillChoice[] | null>(null);
+  const [skillNote, setSkillNote] = useState<string | null>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
   const editing = !!editKey;
 
@@ -78,7 +94,39 @@ export function PersonaEditor({ editKey, forkKey }: { editKey?: string; forkKey?
     void api.personas().then(setPersonas);
   }, [api]);
 
+  // Catalog as offered to THIS author: admins get raw rows, members the caller-filtered list.
+  useEffect(() => {
+    if (!me) return;
+    let cancelled = false;
+    const load = admin
+      ? api.skillsAdmin().then((r) => r.skills.filter((s) => s.valid).map((s) => ({ name: s.name, description: s.description, targets: s.targets, users: s.users })))
+      : api.skillsCaller().then((r) => r.skills.map((s) => ({ name: s.name, description: s.description, targets: s.targets })));
+    load.then((rows) => !cancelled && setSkillChoices(rows)).catch(() => !cancelled && setSkillChoices([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [api, admin, me]);
+
   const usable = useMemo(() => new Set([WORKSPACE, ...projects.filter((p) => p.available).map((p) => p.id)]), [projects]);
+
+  // Offered skills: a private persona may only use skills granted to its author (D5).
+  const offered = useMemo(
+    () =>
+      (skillChoices ?? []).filter(
+        (c) => draft?.scope !== "private" || !c.users || c.users === "*" || c.users.some((u) => u.iss === me?.iss && u.sub === me?.sub),
+      ),
+    [skillChoices, draft?.scope, me?.iss, me?.sub],
+  );
+
+  // Auto-untick skills a target change made ineligible (the toggle sets the note).
+  useEffect(() => {
+    if (!draft || !offered.length) return;
+    const bad = draft.skills.filter((s) => {
+      const c = offered.find((x) => x.name === s);
+      return c ? notAllowedIn(c, draft.projects).length > 0 : false;
+    });
+    if (bad.length) setDraft((d) => (d ? { ...d, skills: d.skills.filter((s) => !bad.includes(s)) } : d));
+  }, [draft, offered]);
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
   useEffect(() => {
@@ -139,6 +187,20 @@ export function PersonaEditor({ editKey, forkKey }: { editKey?: string; forkKey?
     ...projects.filter((p) => (draft.scope === "shared" && admin ? true : p.available) && p.available).map((p) => p.id),
   ];
   const srcForFork = forkKey ? personas.find((p) => p.key === forkKey) : undefined;
+
+  const onProjectToggle = (id: string, on: boolean) => {
+    const projects = on ? [...draft.projects, id] : draft.projects.filter((x) => x !== id);
+    const removed = draft.skills.filter((s) => {
+      const c = offered.find((x) => x.name === s);
+      return c ? notAllowedIn(c, projects).length > 0 : false;
+    });
+    if (removed.length > 0) {
+      const c = offered.find((x) => x.name === removed[0]);
+      const bad = c ? notAllowedIn(c, projects) : [];
+      setSkillNote(t("ed.skillRemoved", { name: removed.join(", "), list: bad.map((x) => targetName(x, projects, t("target.ws"))).join(", ") }));
+    } else setSkillNote(null);
+    upd({ projects });
+  };
 
   const validate = (): Record<string, string> => {
     const e: Record<string, string> = {};
@@ -322,7 +384,7 @@ export function PersonaEditor({ editKey, forkKey }: { editKey?: string; forkKey?
                   value={id}
                   id={i === 0 ? "f-projects" : undefined}
                   checked={draft.projects.includes(id)}
-                  onChange={(e) => upd({ projects: e.target.checked ? [...draft.projects, id] : draft.projects.filter((x) => x !== id) })}
+                  onChange={(e) => onProjectToggle(id, e.target.checked)}
                 />
                 <Icon name={id === WORKSPACE ? "home" : "folder"} className="ic sm" />
                 <span>{id === WORKSPACE ? t("target.ws") : (projects.find((p) => p.id === id)?.name ?? id)}</span>
@@ -393,19 +455,69 @@ export function PersonaEditor({ editKey, forkKey }: { editKey?: string; forkKey?
           {!fullAllowed ? <p className="hint">{t(draft.scope === "shared" ? "ed.toolsFullAbsentMulti" : "ed.toolsFullAbsentPrivate")}</p> : null}
         </fieldset>
 
-        {(me.skills ?? []).length > 0 ? (
-          <fieldset className="field">
+        {offered.length > 0 ? (
+          <fieldset className="field" aria-describedby="skills-hint" data-testid="skills-field">
             <legend>{t("ed.skills")}</legend>
-            <p className="hint">{t("ed.skillsHint")}</p>
-            <div className="check-list">
-              {(me.skills ?? []).map((s) => (
-                <label key={s}>
-                  <input type="checkbox" name="skills" value={s} checked={draft.skills.includes(s)} onChange={(e) => upd({ skills: e.target.checked ? [...draft.skills, s] : draft.skills.filter((x) => x !== s) })} />
-                  <span className="mono">{s}</span>
-                </label>
-              ))}
+            <p className="hint" id="skills-hint">{t("ed.skillsHint")}</p>
+            {skillNote ? (
+              <div className="callout callout-info" role="status">
+                <Icon name="info" className="ic sm" />
+                <div className="grow"><p>{skillNote}</p></div>
+              </div>
+            ) : null}
+            <div className="skill-opts">
+              {
+                /* biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (option rendering); splitting would scatter one linear flow */
+                offered.map((c) => {
+                const bad = notAllowedIn(c, draft.projects);
+                const off = bad.length > 0;
+                const whyId = `skill-why-${c.name}`;
+                const why = off
+                  ? t("ed.skillNotHere", { list: bad.map((x) => targetName(x, projects, t("target.ws"))).join(", ") })
+                  : c.targets !== "*"
+                    ? t("ed.skillOnly", { list: (c.targets as string[]).map((x) => targetName(x, projects, t("target.ws"))).join(", ") })
+                    : null;
+                return (
+                  <label className={`skill-opt${off ? " is-off" : ""}`} key={c.name}>
+                    <input
+                      type="checkbox"
+                      name="skills"
+                      value={c.name}
+                      checked={draft.skills.includes(c.name)}
+                      disabled={off}
+                      aria-describedby={why ? whyId : undefined}
+                      onChange={(e) => {
+                        setSkillNote(null);
+                        upd({ skills: e.target.checked ? [...draft.skills, c.name] : draft.skills.filter((x) => x !== c.name) });
+                      }}
+                    />
+                    <span className="o-text">
+                      <span className="o-name">{c.name}</span>
+                      {c.description ? <span className="o-desc">{c.description}</span> : null}
+                      {why ? (
+                        <span className="o-why" id={whyId}>
+                          {off ? <Icon name="lock" className="ic sm" /> : null}
+                          {why}
+                        </span>
+                      ) : null}
+                    </span>
+                  </label>
+                );
+              })}
             </div>
           </fieldset>
+        ) : admin && skillChoices !== null ? (
+          <div className="field" data-testid="skills-empty">
+            <span className="rc-title">{t("ed.skills")}</span>
+            <div className="callout callout-info">
+              <Icon name="info" className="ic sm" />
+              <div className="grow">
+                <p>
+                  {t("ed.skillsEmptyAdmin")} <a href="#skills" onClick={(e) => { e.preventDefault(); nav.toSkills(target); }}>{t("ed.skillsEmptyLink")}</a>
+                </p>
+              </div>
+            </div>
+          </div>
         ) : null}
 
         <div className={`field${errors.instructions ? " has-error" : ""}`}>

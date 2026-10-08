@@ -96,12 +96,12 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 
 ### L1 — team-app (exemplar: `packages/team-app/src/__tests__/persona-editor.test.tsx`, `team-grid.test.tsx`, `chat-session.test.tsx`)
 
-- [ ] 8.40 Test editor auto-untick — input `review` (billing only) ticked · trigger tick `crm` · observable unticked + disabled, reason linked, note announced, focus on `crm` (test-plan #E34).
-- [ ] 8.41 Test empty-catalog editor — input empty catalog × admin/member · trigger open editor · observable admin hint + link, member no field (test-plan #E35).
-- [ ] 8.42 Test composer pre-check — input effective `[review, openspec-propose]`, typed `/skill:memory-x summarise` · trigger Enter · observable no `send_prompt`, text kept, `aria-invalid`, available list shown (test-plan #E36).
-- [ ] 8.43 Test reason-specific card — input `skillBlock.reason` × role · trigger render · observable specific copy, Fix skill / Fix persona / ask admin, no chat button (test-plan #E37).
-- [ ] 8.44 Test Skills panel — input config/managed/invalid/shadowed entries, load error, role, mode · trigger render/add/edit · observable read-only config, reasons, banner, member blocked, single-user hides users, picker gating, impact preview + confirm focus behavior (test-plan #E38).
-- [ ] 8.45 Test i18n parity — input hu + en catalogs · trigger key diff · observable identical new key sets (test-plan #E39).
+- [x] 8.40 Test editor auto-untick — input `review` (billing only) ticked · trigger tick `crm` · observable unticked + disabled, reason linked, note announced, focus on `crm` (test-plan #E34).
+- [x] 8.41 Test empty-catalog editor — input empty catalog × admin/member · trigger open editor · observable admin hint + link, member no field (test-plan #E35).
+- [x] 8.42 Test composer pre-check — input effective `[review, openspec-propose]`, typed `/skill:memory-x summarise` · trigger Enter · observable no `send_prompt`, text kept, `aria-invalid`, available list shown (test-plan #E36).
+- [x] 8.43 Test reason-specific card — input `skillBlock.reason` × role · trigger render · observable specific copy, Fix skill / Fix persona / ask admin, no chat button (test-plan #E37).
+- [x] 8.44 Test Skills panel — input config/managed/invalid/shadowed entries, load error, role, mode · trigger render/add/edit · observable read-only config, reasons, banner, member blocked, single-user hides users, picker gating, impact preview + confirm focus behavior (test-plan #E38).
+- [x] 8.45 Test i18n parity — input hu + en catalogs · trigger key diff · observable identical new key sets (test-plan #E39).
 
 ### L3 — Playwright e2e (exemplar: `tests/e2e/team/team-llm.spec.ts` with `fake-llm.ts`, `team-harness.ts`)
 
@@ -118,11 +118,11 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 
 ## 9. Team app UI
 
-- [ ] 9.1 API client + types for `/skills` routes, impact preview, extended `/me` and `/agents`.
-- [ ] 9.2 PersonaEditor skills fieldset (target filtering, auto-untick, empty-catalog hint).
-- [ ] 9.3 Admin Skills panel (list, add with picker/path, edit/remove, impact preview + confirm, invalid reasons, load-error banner).
-- [ ] 9.4 Skill availability feedback (card chip + reason-specific block, conversation banner, header chips, composer pre-check via `parseSkillCommand`).
-- [ ] 9.5 i18n strings (hu + en).
+- [x] 9.1 API client + types for `/skills` routes, impact preview, extended `/me` and `/agents`.
+- [x] 9.2 PersonaEditor skills fieldset (target filtering, auto-untick, empty-catalog hint).
+- [x] 9.3 Admin Skills panel (list, add with picker/path, edit/remove, impact preview + confirm, invalid reasons, load-error banner).
+- [x] 9.4 Skill availability feedback (card chip + reason-specific block, conversation banner, header chips, composer pre-check via `parseSkillCommand`).
+- [x] 9.5 i18n strings (hu + en).
 
 ## 10. Review, docs, release notes
 

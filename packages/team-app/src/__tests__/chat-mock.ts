@@ -18,8 +18,39 @@ export async function chatEmbedMock() {
         { "data-testid": "chatview" },
         (state.messages ?? []).map((m, i) => createElement("li", { key: m.id ?? i }, typeof m.content === "string" ? m.content : JSON.stringify(m.content))),
       ),
-    CommandInput: ({ onSend, disabled }: { onSend(t: string): void; disabled?: boolean }) =>
-      createElement("button", { type: "button", "data-testid": "send", disabled, onClick: () => onSend("hello") }, "send"),
+    // Composer stand-in: honours the controlled draft + `invalid` the app passes,
+    // so the pre-check tests can type and read `aria-invalid`. See change: add-team-skill-access.
+    CommandInput: ({
+      onSend,
+      disabled,
+      draft,
+      onDraftChange,
+      invalid,
+    }: {
+      onSend(t: string): void;
+      disabled?: boolean;
+      draft?: string;
+      onDraftChange?(t: string): void;
+      invalid?: boolean;
+    }) =>
+      createElement(
+        "div",
+        null,
+        createElement("textarea", {
+          "data-testid": "composer",
+          disabled,
+          "aria-invalid": invalid ? "true" : undefined,
+          value: draft ?? "",
+          onChange: (e: { target: { value: string } }) => onDraftChange?.(e.target.value),
+          onKeyDown: (e: { key: string; preventDefault(): void; target: { value: string } }) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onSend(e.target.value);
+            }
+          },
+        }),
+        createElement("button", { type: "button", "data-testid": "send", disabled, onClick: () => onSend(draft ?? "") }, "send"),
+      ),
     ThemeProvider: passthrough,
     MobileProvider: passthrough,
     SessionAssetsProvider: passthrough,

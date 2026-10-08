@@ -4,13 +4,30 @@
  * See change: add-team-plugin (D9/D16).
  */
 import type { AppHost } from "@blackbelt-technology/pi-dashboard-app-kit/react";
-import type { Agent, Conversation, KnownUser, MatchResult, Me, Persona, PersonaInput, ProjectInfo, Target } from "./types.js";
+import type {
+  AdminSkillRow,
+  Agent,
+  CallerSkill,
+  Conversation,
+  ImpactPreview,
+  KnownUser,
+  MatchResult,
+  Me,
+  OperatorSkill,
+  Persona,
+  PersonaInput,
+  ProjectInfo,
+  SkillWriteBody,
+  Target,
+} from "./types.js";
 
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly code: string,
     public readonly fields?: Record<string, string>,
+    /** Remaining body fields (e.g. the 409 `skill_not_allowed` `{skill, reason}`). */
+    public readonly details?: Record<string, unknown>,
   ) {
     super(code);
   }
@@ -32,8 +49,9 @@ export function createApi(host: Pick<AppHost, "api">) {
       /* empty body */
     }
     if (!res.ok) {
-      const j = (json ?? {}) as { error?: string; fields?: Record<string, string> };
-      throw new ApiError(res.status, j.error ?? "request_failed", j.fields);
+      const j = (json ?? {}) as { error?: string; fields?: Record<string, string> } & Record<string, unknown>;
+      const { error, fields, ...rest } = j;
+      throw new ApiError(res.status, error ?? "request_failed", fields, Object.keys(rest).length ? rest : undefined);
     }
     return json as T;
   }
@@ -51,6 +69,14 @@ export function createApi(host: Pick<AppHost, "api">) {
       call<{ ok: true }>("PATCH", `/projects/${k(id)}`, body),
     disableProject: (id: string) => call<{ ok: true }>("DELETE", `/projects/${k(id)}`),
     users: async () => (await call<{ users: KnownUser[] }>("GET", "/users")).users,
+
+    skillsAdmin: () => call<{ skills: AdminSkillRow[]; managedLoadError?: string }>("GET", "/skills"),
+    skillsCaller: () => call<{ skills: CallerSkill[] }>("GET", "/skills"),
+    availableSkills: async () => (await call<{ skills: OperatorSkill[] }>("GET", "/skills/available")).skills,
+    createSkill: (body: SkillWriteBody) => call<AdminSkillRow>("POST", "/skills", body),
+    updateSkill: (name: string, body: SkillWriteBody) => call<AdminSkillRow>("PATCH", `/skills/${k(name)}`, body),
+    deleteSkill: (name: string) => call<{ ok: true }>("DELETE", `/skills/${k(name)}`),
+    skillImpact: (name: string, body: SkillWriteBody & { remove?: boolean }) => call<ImpactPreview>("POST", `/skills/${k(name)}/impact`, body),
 
     personas: async () => (await call<{ personas: Persona[] }>("GET", "/personas")).personas,
     createPersona: (body: PersonaInput) => call<Persona>("POST", "/personas", body),

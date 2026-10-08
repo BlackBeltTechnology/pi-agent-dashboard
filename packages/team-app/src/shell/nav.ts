@@ -18,5 +18,7 @@ export function useNav() {
       const path = key ? `/personas/${encodeURIComponent(key)}` : "/personas/new";
       navigate(withProject(path, t, fork ? `&fork=${encodeURIComponent(fork)}` : ""));
     }, [navigate]),
+    toSkills: useCallback((t: Target) => navigate(withProject("/skills", t)), [navigate]),
+    toSkill: useCallback((t: Target, name: string) => navigate(withProject(`/skills/${encodeURIComponent(name)}`, t)), [navigate]),
   };
 }

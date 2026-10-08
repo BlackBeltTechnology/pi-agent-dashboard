@@ -112,6 +112,8 @@ export const agent = (key: string, extra: Partial<Agent> = {}): Agent => ({
   personaStale: false,
   unassigned: false,
   retired: false,
+  effectiveSkills: [],
+  skillBlock: null,
   ...extra,
 });
 

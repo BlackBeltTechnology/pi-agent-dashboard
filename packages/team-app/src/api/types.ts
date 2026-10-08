@@ -17,6 +17,53 @@ export interface Me {
   skills: string[];
 }
 
+/** Catalog access scope (same shape as the server's `SkillUsers`/`SkillTargets`). */
+export type SkillUsers = "*" | { iss: string; sub: string }[];
+export type SkillTargets = "*" | string[];
+export type SkillBlockReason = "missing" | "invalid" | "users" | "targets";
+
+/** `GET /skills` row for admins (mirror of the server's `AdminSkillRow`). */
+export interface AdminSkillRow {
+  name: string;
+  source: "config" | "managed";
+  path: string;
+  users: SkillUsers;
+  targets: SkillTargets;
+  valid: boolean;
+  invalidReason?: string;
+  description?: string;
+  usage: { personas: number; liveSessions: number };
+}
+
+/** `GET /skills` row for non-admins: caller-visible targets only. */
+export interface CallerSkill {
+  name: string;
+  description?: string;
+  targets: string[];
+}
+
+/** `GET /skills/available` row: a skill installed on the host (admin picker). */
+export interface OperatorSkill {
+  name: string;
+  description: string;
+  path: string;
+  source: string;
+}
+
+/** `POST /skills/:name/impact`: what a managed write would end or block. */
+export interface ImpactPreview {
+  endSessions: number;
+  blockedPersonas: { key: string; name: string; lostTargets: string[] }[];
+  otherUsersPrivate: number;
+}
+
+export interface SkillWriteBody {
+  name?: string;
+  path?: string;
+  users?: SkillUsers;
+  targets?: SkillTargets;
+}
+
 export interface ProjectInfo {
   id: string;
   name: string;
@@ -73,6 +120,10 @@ export interface Agent {
   personaStale: boolean;
   unassigned: boolean;
   retired: boolean;
+  /** Persona skills the caller may use in the target, in persona order. */
+  effectiveSkills: string[];
+  /** First blocking skill for this caller/target, or null. */
+  skillBlock: { skill: string; reason: SkillBlockReason } | null;
 }
 
 export interface Conversation {

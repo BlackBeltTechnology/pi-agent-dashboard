@@ -5,14 +5,16 @@
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/index.js";
 
-function useModal(onClose: () => void) {
+function useModal(onClose: () => void, initialFocus?: React.RefObject<HTMLButtonElement | null>) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<Element | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only: the dialog opens once and `onClose` is read at event time
   useEffect(() => {
+    // Capture the opener before any focus moves (autoFocus in commit would win otherwise).
     opener.current = document.activeElement;
     const d = ref.current;
     d?.showModal();
+    initialFocus?.current?.focus();
     const handle = () => onClose();
     d?.addEventListener("close", handle);
     d?.addEventListener("cancel", handle);
@@ -41,13 +43,15 @@ export function ConfirmDialog({
   onClose(): void;
 }) {
   const t = useT();
-  const ref = useModal(onClose);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const ref = useModal(onClose, cancelRef);
   return (
     <dialog ref={ref} className="dialog" aria-labelledby="dlg-title">
       <h2 id="dlg-title">{title}</h2>
       <div className="dialog-body">{body}</div>
       <div className="dialog-actions">
-        <button type="button" className="btn btn-secondary" onClick={onClose} data-testid="dlg-cancel">
+        {/* Cancel keeps focus by default: destructive confirms must not fire on Enter (ui-plan H3). */}
+        <button type="button" className="btn btn-secondary" ref={cancelRef} onClick={onClose} data-testid="dlg-cancel">
           {t("dlg.cancel")}
         </button>
         <button
