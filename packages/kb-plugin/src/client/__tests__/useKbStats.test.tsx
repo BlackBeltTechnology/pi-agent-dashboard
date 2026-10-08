@@ -839,4 +839,29 @@ describe("kb stats store — cwd refusal and pin wait", () => {
     expect(store.getSnapshot().stats?.sourceCount).toBe(0);
     un();
   });
+
+  // Review round 1 (B2): a definitive denial from the reindex POST must not be
+  // erased by an OLDER stats GET that resolves afterwards.
+  it("B2: a late 200 from a stats GET started before a POST denial cannot clear denied", async () => {
+    vi.useFakeTimers();
+    const slow = deferred<Response>();
+    let gets = 0;
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") return denied403();
+      gets += 1;
+      return gets === 1 ? json(base({ indexed: true, chunks: 2 })) : slow.promise;
+    });
+    const store = getKbStatsStore("/x");
+    const un = store.subscribe(() => {});
+    await settle();
+    store.refetch(); // GET #2 stays in flight
+    await settle();
+    store.reindex(); // POST → 403 cwd refusal
+    await settle();
+    expect(store.getSnapshot().denied).toBe(true);
+    slow.resolve(json(base({ indexed: true, chunks: 2 }))); // the stale, older answer
+    await settle();
+    expect(store.getSnapshot().denied).toBe(true);
+    un();
+  });
 });

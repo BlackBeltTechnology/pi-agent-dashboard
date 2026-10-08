@@ -233,8 +233,11 @@ export async function reindexAll(cwd: string, log?: { info(m: string): void; war
 }
 
 /** Atomic project-config write (tmp + rename), creating parent dirs. */
-function writeProjectConfig(cwd: string, obj: Partial<KbConfig>): string {
+export function writeProjectConfig(cwd: string, obj: Partial<KbConfig>): string {
   const path = projectConfigPath(cwd);
+  // The authoritative TOCTOU guard: IMMEDIATELY before the recursive mkdir, which
+  // would otherwise recreate a removed folder (design D9).
+  if (!folderExists(cwd)) throw new Error("folder missing");
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(obj, null, 2)}\n`, "utf8");
@@ -244,6 +247,16 @@ function writeProjectConfig(cwd: string, obj: Partial<KbConfig>): string {
 
 type PutResult = { ok: true; projectPath: string } | { ok: false; code: number; error: string };
 
+/** `writeProjectConfig` mapped to a `PutResult`: a vanished folder is the 409, anything else rethrows. */
+function persistProjectConfig(cwd: string, merged: Partial<KbConfig>): PutResult {
+  try {
+    return { ok: true, projectPath: writeProjectConfig(cwd, merged) };
+  } catch (e) {
+    if (e instanceof Error && e.message === "folder missing") return { ok: false, code: 409, error: "folder missing" };
+    throw e;
+  }
+}
+
 /**
  * Merge the edited path fields over the current on-disk project file (so
  * untouched fields round-trip unchanged; empty file for a worktree bootstrap),
@@ -252,8 +265,6 @@ type PutResult = { ok: true; projectPath: string } | { ok: false; code: number; 
  * route maps it to a status code. Writes nothing on a validation failure.
  */
 function applyConfigPatch(cwd: string, body: KbConfigPatch): PutResult {
-  // Never materialize a removed folder: `writeProjectConfig` mkdirs (design D9).
-  if (!folderExists(cwd)) return { ok: false, code: 409, error: "folder missing" };
   const path = projectConfigPath(cwd);
   let current: Partial<KbConfig> = {};
   if (existsSync(path)) {
@@ -274,7 +285,7 @@ function applyConfigPatch(cwd: string, body: KbConfigPatch): PutResult {
   } catch (e) {
     return { ok: false, code: 400, error: e instanceof Error ? e.message : String(e) };
   }
-  return { ok: true, projectPath: writeProjectConfig(cwd, merged) };
+  return persistProjectConfig(cwd, merged);
 }
 
 type GrantResult =
@@ -562,10 +573,13 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
     // Chained reindex honours the same preconditions, re-checked AFTER the patch
     // is written; a refusal keeps the save and reports `reindexSkipped` (design D9).
     let reindexSkipped: KbWritePrecondition | null = null;
-    if (body.reindex && !registry.isRunning(cwd)) {
+    if (body.reindex) {
+      // Evaluated even while a job runs so the response contract holds.
       reindexSkipped = preflightWrite(cwd, { needsSources: true });
       // Fire-and-forget: the row polls `/stats` for completion.
-      if (!reindexSkipped) registry.start(cwd, async () => reindexAll(cwd, fastify.log)).promise.catch(() => {});
+      if (!reindexSkipped && !registry.isRunning(cwd)) {
+        registry.start(cwd, async () => reindexAll(cwd, fastify.log)).promise.catch(() => {});
+      }
     }
     const cfg = loadConfig(cwd);
     return {

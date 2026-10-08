@@ -692,7 +692,7 @@ import {
   SqliteFtsStore,
   sourceHash,
 } from "@blackbelt-technology/pi-dashboard-kb";
-import { applyConfigPatchAndTrust, reindexAll } from "../kb-routes.js";
+import { applyConfigPatchAndTrust, reindexAll, writeProjectConfig } from "../kb-routes.js";
 
 const REMOTE = "https://github.com/example/never";
 const q = (cwd: string) => encodeURIComponent(cwd);
@@ -1337,5 +1337,27 @@ describe("KB read/write preconditions (kb-denied-folder-pin-state)", () => {
     const result = applyConfigPatchAndTrust(cwd, { sources: [{ kind: "filesystem", ref: "docs" }] });
     expect(result).toMatchObject({ ok: false, error: "folder missing" });
     expect(existsSync(cwd)).toBe(false);
+  });
+
+  // Review round 1 (B1): the existence re-check must sit IMMEDIATELY before the
+  // mkdir inside the writer, not earlier in the caller (read + validate lie between).
+  it("B1 writeProjectConfig refuses a vanished folder and never recreates it", () => {
+    const cwd = makeFolder();
+    rmSync(cwd, { recursive: true, force: true });
+    expect(() => writeProjectConfig(cwd, { sources: [] })).toThrow("folder missing");
+    expect(existsSync(cwd)).toBe(false);
+  });
+
+  it("round-1 non-blocking: a zero-source save+reindex reports reindexSkipped even while a job runs", async () => {
+    const cwd = makeFolder({ withConfig: false });
+    const { app, registry } = buildApp([cwd]);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    registry.start(cwd, async () => { await gate; return { changed: 0, chunks: 0 }; });
+    const res = await app.inject({ method: "PUT", url: `/api/kb/config?cwd=${q(cwd)}`, payload: { sources: [], reindex: true } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().reindexSkipped).toBe("no sources configured");
+    release();
+    await app.close();
   });
 });

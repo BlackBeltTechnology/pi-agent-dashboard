@@ -269,6 +269,12 @@ export class KbStatsStore {
 
   /** Cwd refusal: definitive. Clears both error channels + optimism; stops polling. */
   private applyDenied(e: unknown): void {
+    // Invalidate any OLDER stats response still in flight (e.g. a GET started
+    // before a reindex POST established the denial): its late 200 must not clear
+    // `denied` through `onStats`. `onSubscribed` reads `inFlight`, so reset it.
+    this.ac?.abort();
+    this.epoch += 1;
+    this.inFlight = false;
     this.stopPoll();
     this.clearGuard();
     this.clearPinGuard();
