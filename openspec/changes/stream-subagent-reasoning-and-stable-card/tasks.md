@@ -25,7 +25,7 @@
 - [x] 3.4 Write failing tests in packages/client-utils/src/minimal-chat/__tests__/MinimalChatView.test.tsx and packages/subagents-plugin/src/client/__tests__/SubagentDetailView.test.tsx (exemplar: same files): entries 0 or 3 crossed with tail none/thinking/text, live entry last and labelled in progress when tail non-empty, empty state only when entries 0 and tail none (test-plan #E7)
 - [x] 3.5 Implement fixed-height activity row and clamped preview row in AgentToolRenderer running branch, reading session.subagents tail before toolDetails
 - [x] 3.6 Implement MinimalChatView liveEntry prop (counts as body content) and map liveTail in SubagentDetailView
-- [ ] 3.7 Extend tests/e2e/subagent-inspector.spec.ts (exemplar: same file): faux subagent streaming tool calls and thinking for at least 5 s, collapsed card boundingBox height identical across all samples while running (test-plan #F2)
+- [x] 3.7 Extend tests/e2e/subagent-inspector.spec.ts (exemplar: same file): faux subagent streaming tool calls and thinking for at least 5 s, collapsed card boundingBox height identical across all samples while running (test-plan #F2) Spec written in tests/e2e/subagent-inspector.spec.ts; its harness run is the PR CI e2e workflow (local docker harness skipped by user choice; the :8000 preview serves this build).
 
 ## 5. Thinking level on the card (added during apply)
 
