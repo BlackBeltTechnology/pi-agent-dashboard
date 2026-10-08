@@ -49,4 +49,4 @@
 ## 4. Docs + manual
 
 - [x] 4.1 Update AGENTS.md rows for touched files
-- [ ] 4.2 Manual check: running subagent preview reads like main-chat thinking with no jitter (test-plan: manual-only, #F4)
+- [x] 4.2 Manual check: running subagent preview reads like main-chat thinking with no jitter (test-plan: manual-only, #F4)
