@@ -25,6 +25,9 @@ on:
       - "packages/server/src/runtime-overlay/**"
       - "scripts/runtime-e2e-registry.mjs"
       - "scripts/generate-runtime-lock.mjs"
+      - "scripts/lib/runtime-release.mjs"
+      - "scripts/nightly-verdaccio-serve.mjs"
+      - "scripts/nightly-verdaccio-publish.mjs"
 
 concurrency:
   group: ci-e2e-electron-${{ github.ref }}
@@ -106,6 +109,8 @@ jobs:
   # See change: electron-runtime-release-pipeline (tasks 3.1–3.4).
   runtime-overlay-e2e:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 90
     env:
       REGISTRY: http://localhost:4873

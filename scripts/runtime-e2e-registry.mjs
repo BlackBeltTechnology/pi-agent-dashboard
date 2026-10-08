@@ -83,7 +83,7 @@ export function publishOrder(workspaces, names) {
     if (done.has(name)) return;
     done.add(name);
     const ws = workspaces.get(name);
-    for (const field of DEP_FIELDS) for (const dep of Object.keys(ws.manifest[field] ?? {}).sort()) if (set.has(dep)) visit(dep);
+    for (const field of DEP_FIELDS) for (const dep of Object.keys(ws.manifest[field] ?? {}).sort()) if (set.has(dep) && dep !== SERVER_PACKAGE) visit(dep);
     order.push(name);
   };
   for (const n of [...names].sort()) if (n !== SERVER_PACKAGE) visit(n);

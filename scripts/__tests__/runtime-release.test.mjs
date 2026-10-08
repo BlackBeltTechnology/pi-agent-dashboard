@@ -316,6 +316,7 @@ describe("runtime-e2e-registry (task 3.1 fixture)", () => {
     expect(closure).toContain(`${SCOPE}/pi-dashboard-shared`);
     expect(closure).not.toContain(`${SCOPE}/pi-agent-dashboard`);
     const order = publishOrder(ws, closure);
+    expect(order.length).toBe(closure.length);
     expect(order.at(-1)).toBe(SERVER_PACKAGE);
     expect(new Set(order)).toEqual(new Set(closure));
     // Every first-party prod dep precedes its dependent.
@@ -324,6 +325,18 @@ describe("runtime-e2e-registry (task 3.1 fixture)", () => {
         if (closure.includes(dep) && dep !== SERVER_PACKAGE) expect(order.indexOf(dep)).toBeLessThan(i);
       }
     }
+  });
+
+  it("server stays last exactly once even when a closure package depends on it", () => {
+    const ws = new Map(
+      [
+        [SERVER_PACKAGE, {}],
+        [`${SCOPE}/a`, { dependencies: { [SERVER_PACKAGE]: "1" } }],
+        [`${SCOPE}/b`, { peerDependencies: { [`${SCOPE}/a`]: "1" } }],
+      ].map(([name, manifest]) => [name, { name, manifest }]),
+    );
+    const order = publishOrder(ws, [...ws.keys()]);
+    expect(order).toEqual([`${SCOPE}/a`, `${SCOPE}/b`, SERVER_PACKAGE]);
   });
 
   it("rewrites version + first-party specs only, drops pack lifecycle scripts", () => {

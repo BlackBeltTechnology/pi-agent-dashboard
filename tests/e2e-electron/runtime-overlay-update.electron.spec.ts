@@ -88,7 +88,9 @@ function settingsText(home: string): string {
 
 /** A `versions/<v>` path segment (either separator; JSON-escaped backslashes on Windows). */
 function underVersion(v: string): RegExp {
-  return new RegExp(`versions(?:/|\\\\\\\\)${v.replace(/\./g, "\\.")}(?:/|\\\\\\\\)`);
+  // Escape every regex metacharacter (incl. backslash) — semver may carry `+`.
+  const escaped = v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`versions(?:/|\\\\\\\\)${escaped}(?:/|\\\\\\\\)`);
 }
 
 function hasBundledServer(): boolean {

@@ -556,6 +556,8 @@ jobs:
   # glob attaches it. See change: electron-runtime-release-pipeline (R3).
   runtime-asset:
     needs: [resolve, publish]
+    permissions:
+      contents: read
     if: ${{ !cancelled() && needs.publish.result == 'success' }}
     strategy:
       fail-fast: false
