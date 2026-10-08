@@ -6,7 +6,7 @@
  */
 import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React, { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -235,16 +235,16 @@ describe("Focus profile switches the list to accordion", () => {
 });
 
 describe("folder banner safety chip survives compact folders (review B1)", () => {
-  const stubInitStatus = (data: object) =>
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        status: 200,
-        headers: { get: () => "application/json" },
-        json: async () => ({ success: true, data }),
-      })),
-    );
+  const stubInitStatus = (data: object) => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
+      json: async () => ({ success: true, data }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  };
   afterEach(() => vi.unstubAllGlobals());
 
   it.each([
@@ -258,9 +258,11 @@ describe("folder banner safety chip survives compact folders (review B1)", () =>
   });
 
   it("healthy unfocused folder shows neither chip nor banner", async () => {
-    stubInitStatus({ hasHook: false });
+    const fetchMock = stubInitStatus({ hasHook: false });
     render(<Harness selectedId="a1" list={[mk("a1", A), mk("b2", B)]} />);
-    await new Promise((r) => setTimeout(r, 30));
+    // Barrier: the init-status probe for B has been answered (hasHook:false) before we assert absence.
+    await waitFor(() => expect(fetchMock.mock.calls.some((c) => String(c[0]).includes(encodeURIComponent(B)))).toBe(true));
+    await act(async () => {});
     expect(screen.queryByTestId(`folder-banner-chip-${B}`)).toBeNull();
   });
 });
