@@ -35,3 +35,5 @@ Fork-named `legacyPiInstalls?` bootstrap field removed (no producer/consumer). S
 - Browser→server: `set_focus_mode {enabled}`, `set_focus_profile {profile: FocusProfile | null}` (null resets to built-in), `set_folder_expanded {path, expanded}`. Explicit target state, never toggles.
 - Server→browser: `collapsed_folders_updated` carries optional `expandedFolders: string[]` beside `collapsedFolders` — additive, so an older client ignores the accordion half.
 - See change: add-focus-mode-and-card-block-toggles.
+
+See change: add-browser-editor-pane-tab — `EditorTabOpenMessage {type:"editor_tab_open", sessionId, path}` in `ServerToBrowserMessage`; `BrowserRelayInputMessage` is a union on `kind` (mouse/key/scroll/bringToFront/resize; `resize` requires numeric `width`/`height`); `BrowserRelayTabStatus.agentEmulation?`.

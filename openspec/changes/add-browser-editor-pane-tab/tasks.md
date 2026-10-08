@@ -110,9 +110,9 @@
 
 ## 8. Skill, docs
 
-- [ ] 8.1 Update `packages/extension/.pi/skills/browser/references/dashboard-relay.md` (ack-and-drop, `browser_show_in_pane`, `browser_await_human`) and its `.AGENTS.md` sidecar. Verify the browser-skill registration test passes (test-plan #X17).
-- [ ] 8.2 Update the DOX rows for every touched directory (`packages/browser-plugin/**`, `packages/client/src/components/editor-pane/`, `split/`, `lib/layout/`, `packages/dashboard-plugin-runtime/src/`, `packages/extension/src/`). Delegate the `docs/plugin-seams.md` slot and `pluginMeta` prose to DocScribe. Verify `node scripts/check-conventions.mjs` passes.
-- [ ] 8.3 Update `packages/browser-plugin/README.md`: live view in the pane, bridge tools, prerequisites (Chrome plus the Playwright Extension on the server host). Verify by review.
+- [x] 8.1 Update `packages/extension/.pi/skills/browser/references/dashboard-relay.md` (ack-and-drop, `browser_show_in_pane`, `browser_await_human`) and its `.AGENTS.md` sidecar. Verify the browser-skill registration test passes (test-plan #X17).
+- [x] 8.2 Update the DOX rows for every touched directory (`packages/browser-plugin/**`, `packages/client/src/components/editor-pane/`, `split/`, `lib/layout/`, `packages/dashboard-plugin-runtime/src/`, `packages/extension/src/`). Delegate the `docs/plugin-seams.md` slot and `pluginMeta` prose to DocScribe. Verify `node scripts/check-conventions.mjs` passes.
+- [x] 8.3 Update `packages/browser-plugin/README.md`: live view in the pane, bridge tools, prerequisites (Chrome plus the Playwright Extension on the server host). Verify by review.
 
 ## 9. Final gates
 

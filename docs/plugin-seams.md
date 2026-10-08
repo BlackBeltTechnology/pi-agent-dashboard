@@ -1,7 +1,8 @@
 # Plugin Seams
 
-Authoring guide for three seams a dashboard plugin server entry uses: credential
-store, OAuth flow start, and private bridge→server request/reply lane. All three
+Authoring guide for plugin server-entry seams: credential
+store, OAuth flow start, private bridge→server request/reply lane, editor-pane tabs
+(`editor-pane-tab` slot + `ctx.openEditorTab`), and plugin prompt metadata (`pluginMeta`). All
 exposed on `ServerPluginContext` from
 `@blackbelt-technology/dashboard-plugin-runtime/server`. Worked example:
 `packages/demo-plugin` (fixture).
@@ -180,6 +181,58 @@ sequenceDiagram
   S->>X: host sends {type:"plugin_reply",requestId,ok,result|error}
   X->>T: resolve({ok,result|error})
 ```
+
+## Editor-pane tabs (`editor-pane-tab` slot)
+
+React-only slot, multiplicity many, predicate input never. Addressed by path prefix, never filtered by predicate.
+
+Claim fields: `component` (tab body), `pathPrefix`, optional `labelComponent` (tab-strip label).
+
+- `pathPrefix` matches `^[a-z][a-z0-9-]{1,31}$` (`PANE_TAB_PREFIX_RE`). Reserved: `diff|term|url|live` — always built-in viewer, never claimable.
+- Tab path = `<pathPrefix>:<rest>`. Viewer kind `plugin`.
+- Body props `EditorPaneTabProps` `{ path, session, isActive, onClose }`. Label props `{ path, session }`.
+- Label stays mounted for background tabs. Body renders while active.
+- Unclaimed or disabled prefix → `PluginTabUnavailable` placeholder (`"Tab unavailable (<prefix>)"` + Close). Never reaches `/api/file`.
+- Cross-plugin duplicate `pathPrefix` fails registry generation, naming both plugins.
+- Registry hash includes `pathPrefix` / `labelComponent`.
+- Pane hydration drops only unknown-viewer entries per entry (`dropUnknownViewers`). Structure stays all-or-nothing.
+
+See change: `add-browser-editor-pane-tab`.
+
+## Opening plugin tabs
+
+ONE navigation opens one or more tabs: `/session/<id>/editor?tab=<path>[&tab=...]`.
+
+- Helper `openPluginTabRoute(navigate, sessionId, paths[])` (`packages/dashboard-plugin-runtime/src/editor-pane-tab.tsx`). Stamps fresh history-state `openNonce`. Identical re-open after close still re-applies.
+- `SplitRouteSync` bridges `?tab=` into the split via `openPluginTab(path)` (focus-or-add, last path ends active).
+- Virtual paths excluded from file-watch set (`openPathsKey`).
+
+## Server-initiated tab open (`ctx.openEditorTab`)
+
+```ts
+ctx.openEditorTab(sessionId, path); // path under an OWN editor-pane-tab prefix
+```
+
+- Own prefix only. Prefixes derived from manifest claims by host, passed as `ownedPaneTabPrefixes`. Foreign prefix → throws.
+- Broadcasts core WS message `editor_tab_open { sessionId, path }`.
+- Client acts only on current route `/session/<sessionId>` or `/session/<sessionId>/editor`. Other routes ignore, no navigation.
+- Agent session id comes from request-lane meta (socket key), never payload — see "Request/reply lane".
+
+## Plugin prompt metadata (`pluginMeta`)
+
+Plugin-namespaced data on PromptBus dialog requests. Core keys (`message`, `toolCallId`) stay core-owned.
+
+```ts
+ctx.ui.confirm({ message: "Take over browser?", pluginMeta: { pluginId: "browser", kind: "browser-takeover", instanceId } });
+```
+
+- `ctx.ui.*` opts accept `pluginMeta` (`packages/extension/src/prompt-meta.ts`). Plain JSON object, ≤ 2048 UTF-8 bytes serialized.
+- Copied into prompt `metadata.plugin`. Invalid (non-plain, unserializable, oversize) dropped with warning. Prompt still raised.
+- Never overrides `message` / `toolCallId` / `kind`.
+- Client copies into interactive request `params._pluginMeta`. Exposed in plugin context `InteractiveUiRequestSnapshot`.
+- Example: browser takeover `{ pluginId: "browser", kind: "browser-takeover", instanceId }`.
+
+See change: `add-browser-editor-pane-tab`.
 
 ## Trust boundary
 

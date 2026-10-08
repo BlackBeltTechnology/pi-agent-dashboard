@@ -1,0 +1,3 @@
+# followup-buffer.ts — index
+
+Bridge-owned follow-up buffer, extracted from `bridge.ts` so admission is testable + the byte ceiling injectable. Exports `FollowUpEntry` (`{text, images?}`), `FOLLOWUP_QUEUE_CAP` (20), `FOLLOWUP_BUFFER_MAX_BYTES` (32 MiB), `entryBytes`, `createFollowupBuffer({cap?, maxBytes?})`. Two independent bounds (depth + aggregate bytes); total RECOMPUTED from live entries per admission, never accumulated. Refusal not eviction; entries refused whole, images never stripped. Sizes via `imageBlockData` (a direct `.data` read sizes a nested block at zero). Holds no transport — returns decisions; `bridge.ts` owns emission. See change: fix-bridge-followup-image-drop.
