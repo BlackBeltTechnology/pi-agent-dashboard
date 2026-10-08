@@ -83,6 +83,16 @@ describe("subagent tick growth (serialized broadcast payload)", () => {
     expect(ratio).toBeLessThanOrEqual(2.0);
   });
 
+  // See change: stream-subagent-reasoning-and-stable-card (#P1).
+  it("stays ≤ 2x from 10 to 100 entries with a 280-char liveTail present", () => {
+    const withTail = (n: number) => {
+      const f = tick(n);
+      (f.details as Record<string, unknown>).liveTail = { kind: "thinking", text: "t".repeat(280) };
+      return broadcastBytes(stripForForward(f));
+    };
+    expect(withTail(100) / withTail(10)).toBeLessThanOrEqual(2.0);
+  });
+
   it("a TERMINAL tick still carries the full timeline (bytes grow with length)", () => {
     const terminal = (n: number) => {
       const frame = tick(n);

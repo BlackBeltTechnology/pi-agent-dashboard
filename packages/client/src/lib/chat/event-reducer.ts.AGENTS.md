@@ -13,3 +13,6 @@ Heal guard generalized: the `tool_execution_end` arm now breaks on ANY `healedBy
 `stats_update` with `usageKind` other than `turn`: totals + cache only, no `TurnStat`/`turnIndex`/`turnCount`. See change: count-non-message-usage.
 
 Nested tool calls: `tool_execution_*` with `parentToolCallId` short-circuit to `reduceNestedToolEvent` — attach to ROOT row/map `nested` list (root = first id segment, fallback via `parentToolCallId`; unresolved → dropped); no row, no streaming flush, no `currentTool` change. `nestedCalls` record merges from toolResult `message_start`/`message_end` and replay end (`mergeRecordIntoRoot`); root terminal (end/heal/elided via `finalizeBackfillSegment`) closes running nested → `unfinished`. `ChatMessage`/`ToolCallState` gain `nested?`, `nestedComplete?`. See change: render-nested-tool-calls.
+
+- `readLiveTail(raw)` normalizes `details.liveTail` inside `readSubagentDetails`: valid thinking/text kept (text capped 280), any other object → cleared `{kind:"none",text:""}`, non-object ignored. Never rejects. See change: stream-subagent-reasoning-and-stable-card.
+- `readSubagentDetails` reads non-empty string `thinkingLevel`. See change: stream-subagent-reasoning-and-stable-card.

@@ -29,6 +29,10 @@ test.describe("folder accordion", () => {
   });
 
   test("F6: header body focuses without touching collapse; chevron collapses the focused folder", async ({ page }) => {
+    // Start from classic: a previous test leaves the shared container in
+    // accordion mode, where an unfocused fixture folder renders compact and
+    // ensureGitSession cannot find its body.
+    await setFolderListMode(page, "classic");
     await ensureGitSession(page);
     await setFolderListMode(page, "accordion");
     await gotoDashboard(page);
@@ -46,6 +50,10 @@ test.describe("folder accordion", () => {
   });
 
   test("pinned-open folders persist across a reload (server state)", async ({ page }) => {
+    // Start from classic: a previous test leaves the shared container in
+    // accordion mode, where an unfocused fixture folder renders compact and
+    // ensureGitSession cannot find its body.
+    await setFolderListMode(page, "classic");
     await ensureGitSession(page);
     await setFolderListMode(page, "accordion");
     await setExpandedViaBus(FIXTURE_GIT, true);

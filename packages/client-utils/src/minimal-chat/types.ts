@@ -99,4 +99,24 @@ export interface MinimalChatViewProps {
    * See change: improve-flow-ui.
    */
   hideToolStatusIcon?: boolean;
+  /**
+   * Optional in-progress block (e.g. a running subagent's streaming thinking
+   * or text tail). Rendered after `entries` with an "in progress" affordance;
+   * counts as body content, so the empty state is suppressed while present.
+   *
+   * See change: stream-subagent-reasoning-and-stable-card.
+   */
+  liveEntry?: MinimalChatLiveEntry;
+  /**
+   * When true, the newest `thinking` entry mounts expanded (running agents:
+   * a just-finished block stays readable). See change:
+   * stream-subagent-reasoning-and-stable-card.
+   */
+  expandLastThinking?: boolean;
+}
+
+/** In-progress thinking/text block rendered after the finished entries. */
+export interface MinimalChatLiveEntry {
+  kind: "thinking" | "text";
+  text: string;
 }

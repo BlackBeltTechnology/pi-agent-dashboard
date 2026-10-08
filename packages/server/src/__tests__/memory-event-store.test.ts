@@ -2772,3 +2772,43 @@ describe("memory-event-store — nestedCalls record carve-out", () => {
     expect(JSON.stringify(stored.data).length).toBeLessThanOrEqual(CEIL);
   });
 });
+
+// See change: stream-subagent-reasoning-and-stable-card (#X1). Crosses into the
+// client reducer like collapse-replay-equivalence.test.ts does.
+describe("liveTail clear-sentinel subsumption + fold equivalence", () => {
+  it("X1: each tail→clear update subsumes its predecessor; raw ≡ compacted fold with cleared tail", async () => {
+    const { createInitialState, reduceEvent } = await import("../../../client/src/lib/chat/event-reducer.js");
+    const CLEARED = { kind: "none", text: "" };
+    const store = createMemoryEventStore(neverPinnedFn);
+    const raw: DashboardEvent[] = [];
+    const put = (e: DashboardEvent) => {
+      raw.push(e);
+      store.insertEvent("s", e);
+    };
+    const upd = (liveTail: Record<string, unknown>) =>
+      mkUpdate("t1", baseDetails({ status: "running", liveTail }));
+    put({ eventType: "tool_execution_start", timestamp: Date.now(), data: { toolCallId: "t1", toolName: "Agent", args: {} } });
+    put(upd(CLEARED)); // creating tick (pinned)
+    for (let i = 0; i < 3; i++) {
+      put(upd({ kind: "thinking", text: `block ${i}` }));
+      const before = store.getTrimStats().collapsedUpdates;
+      put(upd(CLEARED));
+      expect(store.getTrimStats().collapsedUpdates).toBe(before + 1);
+    }
+    put({
+      eventType: "tool_execution_end",
+      timestamp: Date.now(),
+      data: {
+        toolCallId: "t1",
+        toolName: "Agent",
+        result: { content: [{ type: "text", text: "done" }], details: baseDetails({ status: "completed", liveTail: CLEARED }) },
+        isError: false,
+      },
+    });
+    const fold = (events: DashboardEvent[]) => events.reduce((s, e) => reduceEvent(s, e), createInitialState());
+    const full = fold(raw);
+    const compacted = fold(store.getEvents("s", 1).map((e) => e.event));
+    expect(compacted.subagents.get("a1")).toEqual(full.subagents.get("a1"));
+    expect(full.subagents.get("a1")?.liveTail).toEqual(CLEARED);
+  });
+});

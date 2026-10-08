@@ -1,0 +1,10 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Live tail: compare</title>
+<style>body{font:14px system-ui;background:#111;color:#ddd;margin:24px}h2{margin:28px 0 8px}h3{margin:14px 0 6px;color:#aaa;font-weight:500}img{max-width:100%;border:1px solid #333;border-radius:8px;display:block;margin-bottom:6px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}a{color:#c4b5fd}</style></head><body>
+<h1>Subagent live tail: pick a variant</h1>
+<p>Static captures of the variants while the text is streaming. For the animated version, open <a href="live-tail.html">live-tail.html</a>.</p>
+<script>
+const rows=[["0-before","Before (current build)"],["A","A: side line + fade (my pick)"],["B","B: small bubble"],["C","C: one-line ticker"],["inspector","Opened view: live block"]];
+for(const [k,t] of rows){document.write(`<h2>${t}</h2><div class="grid">`);
+ for(const th of ["dark","light"]) for(const kind of ["thinking","text"]) document.write(`<div><h3>${th} · ${kind}</h3><img src="shots/${th}-${kind}-${k}.png"></div>`);
+ document.write(`</div>`);}
+</script></body></html>

@@ -140,14 +140,17 @@ export interface FocusInfo {
   /** `custom` once a profile is stored; otherwise the built-in profile applies. */
   custom: boolean;
   profile: FocusProfile | undefined;
+  /** The configured (Settings) folder list mode — what a profile without one falls back to. */
+  configuredListMode: FolderListMode;
 }
 
 export function useFocusState(): FocusInfo {
-  const { prefs } = useContext(CardSectionsContext);
+  const { prefs, folderListMode } = useContext(CardSectionsContext);
   return {
     enabled: prefs.focus?.enabled === true,
     custom: prefs.focus?.profile !== undefined,
     profile: prefs.focus?.profile,
+    configuredListMode: folderListMode ?? "classic",
   };
 }
 
