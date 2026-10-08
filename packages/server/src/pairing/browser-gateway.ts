@@ -11,15 +11,15 @@ import type {
 import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { getLastBindReachability } from "../auth/bind-reachability-service.js";
-import { canAccessSession, filterSnapshotForPrincipal, isLocalOperator } from "../identity/session-access.js";
+import { type DirectoryService, hasOpenSpecDir, hasOpenSpecRoot } from "../directory-service.js";
 import { ALLOW_ALL_GRANTS, type BootstrapFamily, type BootstrapGrants, DENY_ALL_GRANTS, FRAME_FAMILY } from "../identity/bootstrap-grants.js";
 import { deliverDomainEvent } from "../identity/domain-fanout.js";
 import type { HostPolicy } from "../identity/host-access.js";
 import { HostActions, hostResource } from "../identity/host-resources.js";
+import { canAccessSession, filterSnapshotForPrincipal, isLocalOperator } from "../identity/session-access.js";
+import { installSocketLifetime, type LifetimeSocket } from "../identity/socket-lifetime.js";
 import { isSessionOwnedMessage, SESSION_LIST_MESSAGES } from "../identity/ws-message-scope.js";
 import { classifyWsRoad } from "../identity/ws-road-classification.js";
-import { installSocketLifetime, type LifetimeSocket } from "../identity/socket-lifetime.js";
-import { type DirectoryService, hasOpenSpecDir, hasOpenSpecRoot } from "../directory-service.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
@@ -150,7 +150,7 @@ export function frameClassOf(
 import { randomUUID } from "node:crypto";
 import type { UpgradeHeaders } from "../access/capability-issuance.js";
 import { issuePromptChannel, releasePromptChannel } from "../access/prompt-channel.js";
-import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleResetFolderCardSections, handleSetCardSectionVisibility, handleSetDefaultGroupBy, handleSetFolderCollapsed, handleSetFolderGroupBy, handleSetLaneCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
+import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleResetFolderCardSections, handleSetCardSectionVisibility, handleSetDefaultGroupBy, handleSetFocusMode, handleSetFocusProfile, handleSetFolderCollapsed, handleSetFolderExpanded, handleSetFolderGroupBy, handleSetLaneCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleArchiveSession, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnarchiveSession } from "../browser-handlers/session-meta-handler.js";
@@ -1731,6 +1731,9 @@ export function createBrowserGateway(
         sendTo(ws, {
           type: "collapsed_folders_updated",
           collapsedFolders: preferencesStore.getCollapsedFolders(),
+          ...(typeof preferencesStore.getExpandedFolders === "function"
+            ? { expandedFolders: preferencesStore.getExpandedFolders() }
+            : {}),
         });
       }
       // Card-section visibility precedes `sessions_snapshot` so cards never
@@ -2167,6 +2170,15 @@ export function createBrowserGateway(
             break;
           case "reset_folder_card_sections":
             handleResetFolderCardSections(msg, ctx);
+            break;
+          case "set_focus_mode":
+            handleSetFocusMode(msg, ctx);
+            break;
+          case "set_focus_profile":
+            handleSetFocusProfile(msg, ctx);
+            break;
+          case "set_folder_expanded":
+            handleSetFolderExpanded(msg, ctx);
             break;
           case "set_folder_group_by":
             handleSetFolderGroupBy(msg, ctx);

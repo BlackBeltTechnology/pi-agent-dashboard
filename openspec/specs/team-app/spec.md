@@ -91,7 +91,7 @@ The app's home view SHALL show one card per persona listed for the selected targ
 
 ### Requirement: Agent conversation
 
-The conversation view SHALL show the selected agent's conversations in the selected target (newest activity first, title, status, last activity; archived ones behind a separate filter), a "New conversation" action that is disabled with its reason at the conversation limit, and the opened conversation. Opening a conversation SHALL ensure its session, connect a ticketed socket for it, render the dashboard chat transcript with the prompt input, and reconnect after a dropped connection without duplicating transcript entries. Each conversation SHALL offer rename, archive or restore, delete (confirmed by a dialog stating the transcript file is kept but cannot be reopened in the app), and restart when stale. On narrow screens the list and the opened conversation SHALL be separate views.
+The conversation view SHALL show the selected agent's conversations in the selected target (newest activity first, title, status, last activity; archived ones behind a separate filter), a "New conversation" action that is disabled with its reason at the conversation limit, and the opened conversation. Opening a conversation SHALL ensure its session, connect a ticketed socket for it, render the dashboard chat transcript with the prompt input, and reconnect after a dropped connection without duplicating transcript entries. Each conversation SHALL offer rename, archive or restore, delete (confirmed by a dialog stating the transcript file is kept but cannot be reopened in the app), and restart when stale. On narrow screens the list and the opened conversation SHALL be separate views. On wide screens (≥ 1024 px) the list and the opened conversation SHALL sit side by side and together fill the height available below the app header; the transcript SHALL take the remaining height and scroll on its own, and the prompt input SHALL stay at the bottom of the conversation pane. The prompt input's height cap SHALL be relative to the conversation pane, so the input, its send button and its toolbar are never clipped. Conversation list entries SHALL span the list width with left-aligned text.
 
 #### Scenario: Conversation persists
 - **WHEN** alice talks to an agent, closes the app, and opens the same conversation the next day
@@ -104,6 +104,14 @@ The conversation view SHALL show the selected agent's conversations in the selec
 #### Scenario: Limit shown
 - **WHEN** alice has the maximum number of active conversations with an agent in a target
 - **THEN** "New conversation" is disabled and says to archive one first
+
+#### Scenario: Wide layout fills the viewport
+- **WHEN** alice opens a conversation in a 1280 × 577 px standalone window with only a short transcript
+- **THEN** the list and conversation panes reach the bottom of the window, and the prompt input sits at the bottom of the conversation pane
+
+#### Scenario: Prompt input not clipped
+- **WHEN** alice types a four-line prompt in an opened conversation
+- **THEN** the input grows, and the send button and the input toolbar remain fully visible
 
 #### Scenario: Reconnect without duplicates
 - **WHEN** the socket drops and reconnects during a conversation

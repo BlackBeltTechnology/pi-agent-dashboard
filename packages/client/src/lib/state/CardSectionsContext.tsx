@@ -9,10 +9,16 @@
  */
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import {
+  builtinProfileFor,
   type CardSectionPrefs,
+  captureFocusProfile,
+  type FocusProfile,
+  type FolderListMode,
   folderKeyForSession,
   getFolderOverride,
   getGlobalValue,
+  isPluginSectionVisible,
+  type PluginSectionKind,
   resolveCardSectionVisible,
 } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -27,6 +33,10 @@ export interface CardSectionsContextValue {
   /** Live socket present. `false` during a reconnect gap disables writes; absent = assume connected. */
   connected?: boolean;
   showToast?: (text: string, variant?: ToastVariant, opts?: { action?: ToastAction }) => void;
+  /** Configured (Focus-off) folder list mode; absent = `classic`. */
+  folderListMode?: FolderListMode;
+  /** Plugin id → display name for per-plugin settings rows (falls back to the id). */
+  pluginNames?: Record<string, string>;
 }
 
 const EMPTY: CardSectionsContextValue = { prefs: {} };
@@ -105,4 +115,76 @@ export function useCardSectionActions(): CardSectionActions {
       },
     };
   }, [prefs, send, connected, showToast]);
+}
+
+/**
+ * Per-plugin visibility predicate for a slot kind in one folder. Plugins whose
+ * derived section id is invalid (`null`) stay visible. The returned function is
+ * stable while prefs/folder are unchanged.
+ * See change: add-focus-mode-and-card-block-toggles (design D3).
+ */
+export function usePluginSectionFilter(kind: PluginSectionKind, folderKey: string | undefined): (pluginId: string) => boolean {
+  const { prefs } = useContext(CardSectionsContext);
+  return useMemo(
+    () => (pluginId: string) => isPluginSectionVisible(prefs, folderKey, kind, pluginId),
+    [prefs, kind, folderKey],
+  );
+}
+
+export function usePluginNames(): Record<string, string> | undefined {
+  return useContext(CardSectionsContext).pluginNames;
+}
+
+export interface FocusInfo {
+  enabled: boolean;
+  /** `custom` once a profile is stored; otherwise the built-in profile applies. */
+  custom: boolean;
+  profile: FocusProfile | undefined;
+  /** The configured (Settings) folder list mode — what a profile without one falls back to. */
+  configuredListMode: FolderListMode;
+}
+
+export function useFocusState(): FocusInfo {
+  const { prefs, folderListMode } = useContext(CardSectionsContext);
+  return {
+    enabled: prefs.focus?.enabled === true,
+    custom: prefs.focus?.profile !== undefined,
+    profile: prefs.focus?.profile,
+    configuredListMode: folderListMode ?? "classic",
+  };
+}
+
+export interface FocusActions {
+  canWrite: boolean;
+  setEnabled(enabled: boolean): void;
+  /** Snapshot the Focus-off global setup as the focus profile. */
+  saveCurrent(offeredIds: readonly string[]): void;
+  /** Edit one profile row (`null` = Not set). First edit copies the built-in profile. */
+  setRow(id: string, value: boolean | null, offeredIds: readonly string[]): void;
+  setFolderListMode(mode: FolderListMode, offeredIds: readonly string[]): void;
+  reset(): void;
+}
+
+export function useFocusActions(): FocusActions {
+  const { prefs, send, connected, folderListMode } = useContext(CardSectionsContext);
+  return useMemo(() => {
+    const current = (ids: readonly string[]): FocusProfile =>
+      prefs.focus?.profile ?? builtinProfileFor(ids);
+    return {
+      canWrite: send !== undefined && connected !== false,
+      setEnabled: (enabled) => send?.({ type: "set_focus_mode", enabled }),
+      saveCurrent: (ids) =>
+        send?.({ type: "set_focus_profile", profile: captureFocusProfile(prefs, ids, folderListMode ?? "classic") }),
+      setRow: (id, value, ids) => {
+        const base = current(ids);
+        const sections = { ...(base.sections ?? {}) };
+        if (value === null) delete sections[id];
+        else sections[id] = value;
+        send?.({ type: "set_focus_profile", profile: { ...base, sections } });
+      },
+      setFolderListMode: (mode, ids) =>
+        send?.({ type: "set_focus_profile", profile: { ...current(ids), folderListMode: mode } }),
+      reset: () => send?.({ type: "set_focus_profile", profile: null }),
+    };
+  }, [prefs, send, connected, folderListMode]);
 }

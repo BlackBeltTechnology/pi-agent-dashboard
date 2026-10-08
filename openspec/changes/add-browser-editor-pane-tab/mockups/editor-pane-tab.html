@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Option A: browser relay as an editor-pane tab (proposed)</title>
+<style>
+  :root{--bg:#0f1115;--bg2:#171a21;--bg3:#1f2430;--bd:#2c3240;--tx:#e6e8ee;--tx2:#a9b0bf;--tx3:#6f7789;--acc:#4f8cff;--warn:#e0a83a;--ok:#3fb950}
+  *{box-sizing:border-box}
+  body{margin:0;font:13px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;background:#0a0b0e;color:var(--tx);padding:24px}
+  h1{font-size:18px;margin:0 0 4px} h2{font-size:14px;margin:28px 0 8px}
+  p.note{color:var(--tx2);margin:0 0 10px;max-width:1000px}
+  code{background:var(--bg3);padding:1px 4px;border-radius:3px;font-size:12px}
+  .frame{border:1px solid var(--bd);border-radius:8px;background:var(--bg);overflow:hidden}
+  .app{display:flex;height:520px}
+  .sidebar{width:210px;border-right:1px solid var(--bd);background:var(--bg2);padding:8px;display:flex;flex-direction:column;gap:6px;flex-shrink:0}
+  .card{border:1px solid var(--bd);border-radius:6px;padding:6px 8px;background:var(--bg);position:relative}
+  .card.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+  .card .t{font-weight:600;font-size:12px} .card .s{color:var(--tx3);font-size:11px}
+  .pill{display:inline-block;margin-top:4px;font-size:10px;padding:1px 7px;border-radius:999px;background:#1d3a6b;color:#bcd3ff;border:1px solid #3462b3}
+  .menu{position:absolute;left:40px;top:62px;z-index:2;width:230px;background:var(--bg3);border:1px solid var(--bd);border-radius:6px;box-shadow:0 8px 24px #000a;font-size:11px}
+  .menu div{padding:6px 8px;border-bottom:1px solid var(--bd)} .menu div:last-child{border:0}
+  .menu .h{color:var(--tx3);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+  .menu .act{color:#bcd3ff}
+  .split{flex:1;display:flex;min-width:0}
+  .chatcol{width:42%;display:flex;flex-direction:column;padding:10px;gap:6px;border-right:4px solid var(--bg3);min-width:0}
+  .msg{background:var(--bg2);border:1px solid var(--bd);border-radius:6px;padding:6px 8px;max-width:90%;color:var(--tx2);font-size:12px}
+  .msg.u{align-self:flex-end;background:#1b2b4a}
+  .tool{font-family:ui-monospace,monospace;font-size:11px;color:var(--tx3);border-left:2px solid var(--bd);padding-left:6px}
+  .link{color:#8fb6ff;text-decoration:underline}
+  .composer{margin-top:auto;border:1px solid var(--bd);border-radius:6px;padding:8px;color:var(--tx3)}
+  .pane{flex:1;display:flex;flex-direction:column;min-width:0}
+  .tabs{display:flex;border-bottom:1px solid var(--bd);background:var(--bg2);font-size:11px;overflow:hidden}
+  .tab{padding:6px 10px;border-right:1px solid var(--bd);color:var(--tx3);white-space:nowrap;display:flex;gap:6px;align-items:center}
+  .tab.on{background:var(--bg);color:var(--tx);box-shadow:0 -2px 0 var(--acc) inset}
+  .tab .x{opacity:.5}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block}
+  .dot.idle{background:var(--tx3)} .dot.warn{background:var(--warn)}
+  .tb{display:flex;gap:6px;align-items:center;padding:6px 8px;border-bottom:1px solid var(--bd);font-size:11px}
+  .url{flex:1;background:var(--bg3);border:1px solid var(--bd);border-radius:4px;padding:3px 8px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .btn{font-size:11px;padding:3px 8px;border:1px solid var(--bd);border-radius:4px;background:transparent;color:var(--tx);white-space:nowrap}
+  .btn.on{background:#1d3a6b;border-color:#3462b3;color:#bcd3ff}
+  .body{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:10px;overflow:auto;background:#00000033;position:relative}
+  .shot{width:100%;max-width:640px;aspect-ratio:16/10;background:#fff;color:#222;display:flex;flex-direction:column;border-radius:3px;box-shadow:0 2px 10px #0008}
+  .shot .bar{height:22px;background:#24292f}
+  .shot .bd{flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px}
+  .shot .lg{font-weight:600;font-size:13px}
+  .shot .in{width:50%;height:18px;border:1px solid #ccc;border-radius:3px}
+  .shot .in.f{border-color:#0969da;box-shadow:0 0 0 2px #0969da33}
+  .shot .go{width:50%;height:20px;background:#2da44e;border-radius:3px}
+  .cursor{position:absolute;width:0;height:0;border-left:7px solid #fff;border-bottom:7px solid transparent;filter:drop-shadow(0 0 1px #000)}
+  .foot{display:flex;justify-content:space-between;padding:4px 8px;border-top:1px solid var(--bd);font-size:10px;color:var(--tx3)}
+  .banner{margin:8px;padding:6px 10px;border:1px solid #6b5520;background:#2a2312;color:#f0d38a;border-radius:6px;font-size:11px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .callout{border-left:3px solid var(--warn);padding:4px 10px;color:var(--tx2);margin:8px 0;max-width:1000px}
+  .row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+  .mini{width:430px}
+  .mini .app{height:300px}
+  .phone{width:300px;height:580px;border:1px solid var(--bd);border-radius:22px;background:var(--bg);padding:10px 8px;display:flex;flex-direction:column}
+  .phone .shot{max-width:none}
+  .seg{display:flex;border:1px solid var(--bd);border-radius:6px;overflow:hidden;font-size:11px;margin-bottom:6px}
+  .seg div{flex:1;text-align:center;padding:4px} .seg .on{background:var(--bg3);color:var(--tx)}
+  .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--tx2);font-size:12px;text-align:center;padding:16px}
+  .tag{font-size:10px;padding:1px 6px;border-radius:3px;background:var(--bg3);color:var(--tx3);margin-left:6px}
+  ol.flow{color:var(--tx2);max-width:1000px;padding-left:18px} ol.flow li{margin:2px 0}
+</style>
+</head>
+<body>
+<h1>Option A: browser relay as an editor-pane tab <span class="tag">PROPOSED · not built</span></h1>
+<p class="note">A new <code>editor-pane-viewer</code> plugin slot. The browser plugin claims the virtual-path prefix <code>browser:&lt;instanceId&gt;:&lt;tabId&gt;</code>, and each relay tab opens as one editor tab next to files, <code>term:</code>, <code>live:</code> and <code>diff:</code> tabs. The existing <code>RelayTile</code> (one subscription per mount) becomes the tab body. The full-content <code>content-view</code> takeover is removed or made optional.</p>
+
+<h2>A1. Desktop split: chat on the left, the browser as a pane tab on the right</h2>
+<div class="frame"><div class="app">
+  <div class="sidebar">
+    <div class="card sel"><div class="t">fix-login-flow</div><div class="s">waiting for you · pi-agent-dashboard</div><span class="pill">🌐 1 browser tab</span></div>
+    <div class="card"><div class="t">docs-refresh</div><div class="s">idle</div></div>
+    <div class="card"><div class="t">kb-eval</div><div class="s">ended</div></div>
+  </div>
+  <div class="split">
+    <div class="chatcol">
+      <div class="msg u">Use the browser, log into GitHub and open my notifications</div>
+      <div class="tool">agent-browser open https://github.com/login</div>
+      <div class="msg">I've hit the GitHub login page. Please sign in. I opened it in the editor pane: <span class="link">🌐 Sign in to GitHub</span>. Click <b>Done</b> when you're finished.</div>
+      <div class="composer">Message pi…</div>
+    </div>
+    <div class="pane">
+      <div class="tabs">
+        <div class="tab">📄 auth.ts <span class="x">×</span></div>
+        <div class="tab">⌨ term 1 <span class="x">×</span></div>
+        <div class="tab on"><span class="dot"></span>🌐 Sign in to GitHub <span class="x">×</span></div>
+      </div>
+      <div class="tb">
+        <div class="url">🔒 https://github.com/login</div>
+        <button class="btn on" title="Input forwarding on/off">⌨ Input on</button>
+        <button class="btn" title="Fit frame to pane / 1:1">Fit</button>
+        <button class="btn">Bring to front</button>
+        <button class="btn" style="border-color:var(--ok);color:var(--ok)">Done ✓</button>
+      </div>
+      <div class="body">
+        <div class="shot"><div class="bar"></div><div class="bd"><div class="lg">Sign in to GitHub</div><div class="in f"></div><div class="in"></div><div class="go"></div></div></div>
+        <div class="cursor" style="left:48%;top:48%"></div>
+      </div>
+      <div class="foot"><span>browser · Default profile · instance a1f3</span><span>1280×800 · live · 0.2 fps idle</span></div>
+    </div>
+  </div>
+</div></div>
+<div class="callout">The tab dot shows the relay tab state: green means <code>live</code>, grey means <code>no-frames</code>, amber means <code>detached</code>. The <b>Done ✓</b> button only appears while the agent is waiting on a login takeover (the research's <code>await_human</code> sent through <code>PromptBus</code>). It is not part of the first version of this slot.</div>
+
+<h2>A2. How a browser tab opens</h2>
+<div class="row">
+  <div class="frame mini"><div class="app">
+    <div class="sidebar" style="width:100%;border:0">
+      <div class="card sel"><div class="t">fix-login-flow</div><div class="s">streaming</div><span class="pill">🌐 2 browser tabs ▾</span>
+        <div class="menu">
+          <div class="h">Browser tabs · Default profile</div>
+          <div><span class="dot"></span> Sign in to GitHub <span class="act" style="float:right">Open in pane</span></div>
+          <div><span class="dot idle"></span> Jira · PI-42 <span class="act" style="float:right">Open in pane</span></div>
+          <div class="act">Open all in pane</div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+  <ol class="flow">
+    <li><b>Badge:</b> the pill becomes a menu of relay tabs. "Open in pane" dispatches <code>openFile(path:"browser:&lt;inst&gt;:&lt;tab&gt;", viewer:"browser")</code>, the same way <code>term:</code> and <code>live:</code> tabs open.</li>
+    <li><b>Chat link:</b> the agent prints a <code>browser:</code> link, which opens like the existing loopback links that open in the split viewer.</li>
+    <li><b>Agent intent</b> ("open in editor view"): a server-to-client open message (out of scope for v1).</li>
+    <li><b>Auto-open</b> when a new relay tab appears is <b>off</b> by default, so the pane is never forced on the user. This is the opposite of today's takeover.</li>
+  </ol>
+</div>
+
+<h2>A3. Tab states inside the pane</h2>
+<div class="row">
+  <div class="frame mini"><div class="pane" style="height:260px">
+    <div class="tabs"><div class="tab on"><span class="dot idle"></span>🌐 Jira · PI-42 ×</div></div>
+    <div class="body"><div class="shot" style="opacity:.35"><div class="bar" style="background:#0052cc"></div><div class="bd"></div></div>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:11px;color:var(--tx2)">No repaints: the tab may be idle or in the background<button class="btn">Bring to front</button></div></div>
+  </div><p class="note" style="padding:0 8px">no-frames: the last frame stays visible, dimmed.</p></div>
+
+  <div class="frame mini"><div class="pane" style="height:260px">
+    <div class="tabs"><div class="tab on"><span class="dot warn"></span>🌐 Sign in to GitHub ×</div></div>
+    <div class="empty">🛠 DevTools is open on this tab. Close it to resume.<br><span style="color:var(--tx3)">Input is blocked and the frame is hidden.</span></div>
+  </div><p class="note" style="padding:0 8px">detached · devtools / no-session</p></div>
+
+  <div class="frame mini"><div class="pane" style="height:260px">
+    <div class="tabs"><div class="tab on"><span class="dot idle" style="background:#555"></span>🌐 Sign in to GitHub ×</div></div>
+    <div class="empty">This browser tab is no longer available.<br><span style="color:var(--tx3)">The relay instance or tab closed after the pane was restored from localStorage.</span><button class="btn">Close tab</button></div>
+  </div><p class="note" style="padding:0 8px">Gone: needed because pane tabs persist across reloads.</p></div>
+</div>
+
+<h2>A4. Mobile: the pane is a full-screen view with a Chat / Pane switch</h2>
+<div class="row">
+  <div class="phone">
+    <div class="seg"><div>💬 Chat</div><div class="on">🗂 Pane (3)</div></div>
+    <div class="tabs" style="border-radius:4px 4px 0 0"><div class="tab">📄 auth.ts</div><div class="tab on"><span class="dot"></span>🌐 GitHub</div></div>
+    <div class="tb"><div class="url">github.com/login</div><button class="btn on">⌨</button><button class="btn">Fit</button></div>
+    <div class="body" style="padding:4px"><div class="shot"><div class="bar"></div><div class="bd"><div class="lg" style="font-size:10px">Sign in to GitHub</div><div class="in f"></div><div class="in"></div><div class="go"></div></div></div></div>
+    <div class="banner" style="margin:6px 0 0">Tap a field, then type here ↓<span class="url" style="flex:0 0 110px">▍</span></div>
+  </div>
+  <div style="max-width:560px">
+    <div class="callout">On mobile, the tab is reached through the pane switch the shell already has, so no new layout is needed.</div>
+    <div class="callout">Today's tile has no touch handlers. The pane tab adds <code>pointer</code> events (tap → click) and a <b>text bridge</b>: a real <code>&lt;input&gt;</code> under the frame that opens the soft keyboard and sends <code>key</code> input. This is new work. It is needed in any placement, not only the pane.</div>
+    <div class="callout">"Fit" scales the frame to the pane width. On a phone, a 1280-px page shown at 280 px is barely readable, so remote viewport resize is a later step (only allowed while input is allowed, per the research §17).</div>
+  </div>
+</div>
+
+<h2>What changes compared with today</h2>
+<div class="callout"><b>Gained:</b> the chat and the browser are visible side by side. The browser sits next to files and terminals. The view is per-pane-tab, so it is effectively per session. Nothing is forced open.</div>
+<div class="callout"><b>Core work:</b> add <code>editor-pane-viewer</code> to <code>SlotId</code>. Change <code>EditorPane</code> so that when a path matches no built-in pseudo-tab prefix, it resolves plugin claims by prefix. Pane persistence needs a "gone" state.</div>
+<div class="callout"><b>Decided (design D4):</b> agent-initiated opens go to the calling session's pane. The session comes from the plugin request lane via the <code>browser_show_in_pane</code> / <code>browser_await_human</code> bridge tools. Manual opens go to the session currently being viewed.</div>
+<p class="note">Today's placement, for comparison: <a href="current-placement.html" style="color:#8fb6ff">index.html</a></p>
+</body>
+</html>

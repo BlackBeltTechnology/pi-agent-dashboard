@@ -10,13 +10,11 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `kb-settings-sources-search.spec.ts` | L3 KB settings sources + search. → see `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
-| `helpers/fake-google.ts` | Fake Google (authorize/token/revoke/Gmail) run in-container + `docker exec` control helpers. → see `helpers/fake-google.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | L3 demo-plugin seams, unmocked: F1 start → auth… → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
 | `preview-denial-remedy.spec.ts` | L3 preview denial remedy (#F1,#F4-#F13,#X1,#X2). → see `preview-denial-remedy.spec.ts.AGENTS.md` |
 | `push-webhook-settings.spec.ts` | L3 #F9 push webhook. → see `push-webhook-settings.spec.ts.AGENTS.md` |
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx… → see `README.md.AGENTS.md` |
-| `helpers/computed-contrast.ts` | In-page probes ported from `mockups/ux-probe.cjs… → see `helpers/computed-contrast.ts.AGENTS.md` |
 | `fixtures/severity-baseline.json` | Severity theme-token baseline. → see `fixtures/severity-baseline.json.AGENTS.md` |
 | `access-grants-revoke.spec.ts` | L3 access-grant remedy journey: denial → grant → admitted… → see `access-grants-revoke.spec.ts.AGENTS.md` |
 | `access-grant-dialog.spec.ts` | L3 for the access-grant prompt dialog + YOLO UI (change… → see `access-grant-dialog.spec.ts.AGENTS.md` |
@@ -89,13 +87,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `global-setup.ts` | Playwright globalSetup. `PW_E2E_USE_RUNNING=1` → only… → see `global-setup.ts.AGENTS.md` |
 | `global-teardown.ts` | Playwright globalTeardown. Managed (marker present, not… → see `global-teardown.ts.AGENTS.md` |
 | `headless-reload-dispatch.spec.ts` | L3 fix-out-of-band-reload #F1–#F3. → see `headless-reload-dispatch.spec.ts.AGENTS.md` |
-| `helpers/__tests__/evidence-path.test.ts` | Unit tests (vitest `tests` project) for… → see `helpers/__tests__/evidence-path.test.ts.AGENTS.md` |
 | `host-gate-allow.spec.ts` | L3 for the Host-gate operator flow (test-plan #F9/#F10… → see `host-gate-allow.spec.ts.AGENTS.md` |
-| `helpers/folder-collapse.ts` | Folder-collapse L3 glue: bus setup/teardown… → see `helpers/folder-collapse.ts.AGENTS.md` |
-| `helpers/evidence-path.ts` | Resolves a change's `measurements.json` WITHOUT creating it. → see `helpers/evidence-path.ts.AGENTS.md` |
-| `helpers/index.ts` | E2E helpers. `gotoDashboard(page)` navigates `/`, waits… → see `helpers/index.ts.AGENTS.md` |
-| `helpers/openspec-board.ts` | OpenSpec-board drop-targeting E2E helpers. Fixture… → see `helpers/openspec-board.ts.AGENTS.md` |
-| `helpers/windowed-session.ts` | Shared glue for L3 specs needing a REAL replay window. → see `helpers/windowed-session.ts.AGENTS.md` |
 | `host-pressure-badge.spec.ts` | L3 for `fix-false-unresponsive-badge` (#F3, #F4).… → see `host-pressure-badge.spec.ts.AGENTS.md` |
 | `history-backfill-gap.spec.ts` | L3 for `fix-lazy-history-backfill-ux` (F1–F6, F8–F11, X3… → see `history-backfill-gap.spec.ts.AGENTS.md` |
 | `history-backfill-perf.spec.ts` | L3 P1/P2 for `fix-lazy-history-backfill-ux`, metric… → see `history-backfill-perf.spec.ts.AGENTS.md` |
@@ -218,3 +210,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `apple-tools-activation.spec.ts` | L3 apple-tools activation. → see `apple-tools-activation.spec.ts.AGENTS.md` |
 | `mcp-tiered-token.spec.ts` | F6/F7 (expand-mcp-tiered-surface): observe token's… → see `mcp-tiered-token.spec.ts.AGENTS.md` |
 | `identity-matrix/` | L3 D21 identity setup matrix. → see `identity-matrix.AGENTS.md` |
+| `card-block-toggles.spec.ts` | L3 per-block card + directory-card toggles, incl. per-plugin badge/action-bar/pill switches. See change: add-focus-mode-and-card-block-toggles. |
+| `card-visual-effects.spec.ts` | L3 card effects: `data-fx-status` / `data-fx-glow` gates follow the global-only `fx-*` switches. See change: add-focus-mode-and-card-block-toggles. |
+| `focus-mode.spec.ts` | L3 focus mode: sidebar toggle, built-in vs saved profile, reset. See change: add-focus-mode-and-card-block-toggles. |
+| `folder-accordion.spec.ts` | L3 accordion folder list: focus follows intent, chevron collapse/pin, compact modes, search forces full. See change: add-focus-mode-and-card-block-toggles. |

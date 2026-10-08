@@ -12,6 +12,25 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Per-block session-card and directory-card toggles.** Every card block is now
+  switchable on its own: the OpenSpec badge is separate from the OpenSpec subcard,
+  and a folder group's git row, action banner, OpenSpec section, Create row and
+  Ended expander each have their own switch (Settings › General › Session card
+  sections, or Directory Settings › Session cards for one folder).
+- **Per-plugin badge, action-bar and pill switches.** Plugin contributions to the
+  card badge row, card action bar and folder pill grid are listed per plugin, so a
+  single noisy plugin can be hidden without turning off the whole row.
+- **Card effect switches.** Status animation and the selected-card glow can be
+  turned off; both are global (no per-folder override).
+- **Focus mode.** A sidebar header toggle collapses the UI to a focused profile.
+  Ships with a built-in profile; `Save current` snapshots the live visibility as a
+  custom profile and `Reset` returns to the built-in one (Settings › Sessions ›
+  Focus). While focus is on, it outranks the per-block switches.
+- **Opt-in accordion folder list.** `folderListMode: "accordion"` renders only the
+  focused folder in full; the others collapse to their attention cards or a
+  `N sessions` row. `folderAttentionPeek` (default `true`) controls that peek, and
+  an active search or filter always forces the full list.
+
 ### Changed
 
 ### Fixed
