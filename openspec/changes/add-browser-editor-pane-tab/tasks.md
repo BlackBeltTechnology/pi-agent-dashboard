@@ -91,22 +91,22 @@
 
 ## 6. Browser pane tab (client)
 
-- [ ] 6.1 Claim `editor-pane-tab` with `pathPrefix: "browser"`, the `BrowserPaneTab` body and the `BrowserTabLabel` label, then regenerate the registry. Verify the registry entry carries both fields.
-- [ ] 6.2 `BrowserPaneTab`: extract the subscribe, frame and input logic from `RelayTile`. Subscribe only while mounted and viewable, re-subscribe on detached→viewable, and render the "no longer available", detached and waiting states. Verify by porting the `LiveViewTile.test.tsx` F5–F9 cases plus the background unsubscribe, re-subscribe and removed-tab tests. (test-plan: #F2, #F3, #F4, #F6)
-- [ ] 6.3 Idle state: the last frame stays unobscured, with a non-blocking idle indicator and Bring to front. Verify with an RTL test (test-plan #F5).
-- [ ] 6.4 Toolbar (redacted URL, Input toggle, Fit/1:1, Bring to front, Done). Verify that Input off sends no input and Bring to front still works (test-plan #F7).
-- [ ] 6.5 Pointer Events (tap = click), `touch-action: none` and `user-select: none`. Verify a centre tap sends `{x: 0.5, y: 0.5}` and a drag leaves no selection (test-plan #F8).
-- [ ] 6.6 Text-entry bridge. Verify `abc` + Enter sends four key inputs in order and the input is cleared (test-plan #F9).
-- [ ] 6.7 Resize-to-pane via ResizeObserver (≤ 2/s, 16 px dead-band, none while Input is off). While status reports `agentEmulation: true`, send nothing and use Fit; resume when the flag clears. Verify with a fake-timer test and agentEmulation on/off tests (test-plan #F10, #P2).
-- [ ] 6.8 Done action: shown for a pending prompt with `metadata.plugin.kind === "browser-takeover"`, a matching `instanceId` and the owning session; it sends the standard prompt response. Verify that one click resolves the prompt once, and Done disappears when the prompt is answered from chat or times out (test-plan #F11).
-- [ ] 6.9 End-to-end agent open: `browser_show_in_pane` → `editor_tab_open` → the pane shows `browser:<inst>:<tab>` for a client on that session. Verify with an integration test covering re-open after close.
-- [ ] 6.10 `BrowserRelayBadge` becomes a menu ("Open in pane", "Open all in pane", keyboard navigable), targeting the card's session via `openPluginTabRoute` (which also selects that session; "Open all" is one navigation with every tab). Verify with RTL click (test-plan #F13) and keyboard tests and the open-all de-duplication case.
-- [ ] 6.11 `BrowserTabLabel`: title (fallback: URL host, then "Browser tab") plus a state dot from the relay store covering `live`, `no-frames`, `detached` and `client-screencast-active`. Verify with an RTL test (test-plan #F12, #F16).
+- [x] 6.1 Claim `editor-pane-tab` with `pathPrefix: "browser"`, the `BrowserPaneTab` body and the `BrowserTabLabel` label, then regenerate the registry. Verify the registry entry carries both fields.
+- [x] 6.2 `BrowserPaneTab`: extract the subscribe, frame and input logic from `RelayTile`. Subscribe only while mounted and viewable, re-subscribe on detached→viewable, and render the "no longer available", detached and waiting states. Verify by porting the `LiveViewTile.test.tsx` F5–F9 cases plus the background unsubscribe, re-subscribe and removed-tab tests. (test-plan: #F2, #F3, #F4, #F6)
+- [x] 6.3 Idle state: the last frame stays unobscured, with a non-blocking idle indicator and Bring to front. Verify with an RTL test (test-plan #F5).
+- [x] 6.4 Toolbar (redacted URL, Input toggle, Fit/1:1, Bring to front, Done). Verify that Input off sends no input and Bring to front still works (test-plan #F7).
+- [x] 6.5 Pointer Events (tap = click), `touch-action: none` and `user-select: none`. Verify a centre tap sends `{x: 0.5, y: 0.5}` and a drag leaves no selection (test-plan #F8).
+- [x] 6.6 Text-entry bridge. Verify `abc` + Enter sends four key inputs in order and the input is cleared (test-plan #F9).
+- [x] 6.7 Resize-to-pane via ResizeObserver (≤ 2/s, 16 px dead-band, none while Input is off). While status reports `agentEmulation: true`, send nothing and use Fit; resume when the flag clears. Verify with a fake-timer test and agentEmulation on/off tests (test-plan #F10, #P2).
+- [x] 6.8 Done action: shown for a pending prompt with `metadata.plugin.kind === "browser-takeover"`, a matching `instanceId` and the owning session; it sends the standard prompt response. Verify that one click resolves the prompt once, and Done disappears when the prompt is answered from chat or times out (test-plan #F11).
+- [x] 6.9 End-to-end agent open: `browser_show_in_pane` → `editor_tab_open` → the pane shows `browser:<inst>:<tab>` for a client on that session. Verify with an integration test covering re-open after close.
+- [x] 6.10 `BrowserRelayBadge` becomes a menu ("Open in pane", "Open all in pane", keyboard navigable), targeting the card's session via `openPluginTabRoute` (which also selects that session; "Open all" is one navigation with every tab). Verify with RTL click (test-plan #F13) and keyboard tests and the open-all de-duplication case.
+- [x] 6.11 `BrowserTabLabel`: title (fallback: URL host, then "Browser tab") plus a state dot from the relay store covering `live`, `no-frames`, `detached` and `client-screencast-active`. Verify with an RTL test (test-plan #F12, #F16).
 
 ## 7. Remove the content-view takeover
 
-- [ ] 7.1 Delete the `content-view` claim, `LiveViewTile.tsx`, `live-view-gate.ts`, `dismissLiveView`/`reopenLiveView` and their tests, then regenerate the registry. Verify no `browser` claim on `content-view` remains and `packages/browser-plugin` tests pass.
-- [ ] 7.2 Verify `SessionContentGate` with a non-browser fixture claim (spec `dashboard-shell-slots` "Content-view gate re-evaluates on slot-claims changes") (test-plan #F18).
+- [x] 7.1 Delete the `content-view` claim, `LiveViewTile.tsx`, `live-view-gate.ts`, `dismissLiveView`/`reopenLiveView` and their tests, then regenerate the registry. Verify no `browser` claim on `content-view` remains and `packages/browser-plugin` tests pass.
+- [x] 7.2 Verify `SessionContentGate` with a non-browser fixture claim (spec `dashboard-shell-slots` "Content-view gate re-evaluates on slot-claims changes") (test-plan #F18).
 
 ## 8. Skill, docs
 

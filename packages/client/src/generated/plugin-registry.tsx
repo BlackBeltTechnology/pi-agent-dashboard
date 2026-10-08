@@ -16,9 +16,10 @@ import { FolderTeamSection, catalog as team_catalog } from "@blackbelt-technolog
 import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDetailView, isPipelineDetailActive, OmEntryCard, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
 import { SystemOneSettings, catalog as system_one_catalog } from "@blackbelt-technology/pi-dashboard-system-one-plugin";
 import { GmailSettings, catalog as gmail_catalog } from "@blackbelt-technology/pi-dashboard-gmail-plugin";
-import { BrowserSettings, BrowserRelayBadge, LiveViewTile, isLiveViewActive, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
+import { BrowserSettings, BrowserRelayBadge, BrowserPaneTab, BrowserTabLabel, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
+import { DemoSettings, DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -602,13 +603,15 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "component": "BrowserRelayBadge"
             },
             {
-                "slot": "content-view",
-                "component": "LiveViewTile",
-                "predicate": "isLiveViewActive"
+                "slot": "editor-pane-tab",
+                "component": "BrowserPaneTab",
+                "pathPrefix": "browser",
+                "labelComponent": "BrowserTabLabel"
             }
         ],
         "client": "./src/client/index.tsx",
         "server": "./src/server/index.ts",
+        "bridge": "./src/bridge/index.ts",
         "configSchema": "./configSchema.json",
         "defaultEnabled": false,
         "i18nCatalog": "catalog"
@@ -616,7 +619,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     claims: [
       { pluginId: "browser", priority: 500, slot: "settings-section", Component: BrowserSettings },
       { pluginId: "browser", priority: 500, slot: "session-card-badge", Component: BrowserRelayBadge },
-      { pluginId: "browser", priority: 500, slot: "content-view", Component: LiveViewTile, predicate: isLiveViewActive },
+      { pluginId: "browser", priority: 500, slot: "editor-pane-tab", pathPrefix: "browser", Component: BrowserPaneTab, labelComponentName: "BrowserTabLabel", LabelComponent: BrowserTabLabel },
     ],
     catalog: browser_catalog,
   },
@@ -670,6 +673,33 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     ],
     catalog: quota_catalog,
   },
+  {
+    manifest: {
+        "id": "demo",
+        "displayName": "Demo Plugin (fixture)",
+        "priority": 1000,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "DemoSettings",
+                "tab": "general"
+            },
+            {
+                "slot": "tool-renderer",
+                "component": "DemoToolRenderer",
+                "toolName": "DashboardDemo"
+            }
+        ],
+        "client": "./src/client.tsx",
+        "server": "./src/server/index.ts",
+        "bridge": "./src/bridge/index.ts",
+        "fixture": true
+    },
+    claims: [
+      { pluginId: "demo", priority: 1000, slot: "settings-section", tab: "general", Component: DemoSettings },
+      { pluginId: "demo", priority: 1000, slot: "tool-renderer", toolName: "DashboardDemo", Component: DemoToolRenderer },
+    ],
+  },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "6c39baf2339f7a190e4aa29d4261b141aad7136261947783bb3df81d31c27ae9";
+export const PLUGIN_REGISTRY_HASH = "d5b0442a527c425df1ba78b8fa8295b787a65289c0e8d5e02836cc1441babfa5";

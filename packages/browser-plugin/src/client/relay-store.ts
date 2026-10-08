@@ -1,65 +1,30 @@
 /**
- * Module-level relay store (change: add-browser-relay, task 4.3 / design D3).
+ * Module-level relay store (change: add-browser-relay, task 4.3 / design D3;
+ * simplified by add-browser-editor-pane-tab D10).
  *
- * The relay protocol is GLOBAL — `browser_relay_status` carries every live
- * instance and is not tied to a pi session. The `content-view` slot's
- * predicate (`isLiveViewActive`) is a PURE function with no hook access, so it
- * cannot subscribe to the shell WebSocket itself. This store is the bridge:
+ * `browser_relay_status` is GLOBAL — every live instance, not tied to a pi
+ * session. The badge, the pane-tab body and the pane-tab LABEL (mounted for
+ * background tabs too) all read the same latest snapshot from here, fed by
+ * whichever of them is mounted (`useRelayStatusFeed`, idempotent).
  *
- *  1. an always-mounted claim (`BrowserRelayBadge`, one per sidebar session
- *     card) is the WebSocket subscriber — it feeds every `browser_relay_status`
- *     here via `setRelayStatus`;
- *  2. `isLiveViewActive()` reads `hasLiveInstance()` synchronously;
- *  3. when the instance/tab set MATERIALly changes, `setRelayStatus` calls
- *     `bumpSlotClaimsVersion()`, which re-renders the content-view slot's gate
- *     wrapper so the predicate is re-evaluated without any session broadcast.
- *
- * The store also backs the React read path (`useRelayStatus`) for the tile
- * list and the badge pill.
- *
- * See change: add-browser-relay (task 4.3).
+ * There is no `content-view` gate any more: nothing in this store opens or
+ * replaces anything — opening is always an explicit user/agent action.
  */
-import { bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { BrowserRelayStatusMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { useSyncExternalStore } from "react";
+import { usePluginMessage } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type {
+  BrowserRelayInstanceStatus,
+  BrowserRelayStatusMessage,
+  BrowserRelayTabStatus,
+} from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { useEffect, useSyncExternalStore } from "react";
+import { getBrowserProfiles } from "./browser-api.js";
 
 let status: BrowserRelayStatusMessage | null = null;
 const subscribers = new Set<() => void>();
-/**
- * Set when the user dismisses the live view. The `content-view` predicate reads
- * it via `hasLiveInstance()`, so the shell's no-op `onClose` is complemented by
- * the CLAIM clearing its own state (the shell contract: "Plugin claim clears its
- * own UI state on dismiss"). Cleared by the next MATERIAL change, so a new
- * instance/tab brings the view back.
- */
-let dismissed = false;
 
-/**
- * The material shape of a status snapshot — which instances exist, which tabs
- * each has, and each tab's state/reason. `auditSeq` is deliberately EXCLUDED:
- * an audit append must not invalidate the content-view gate.
- */
-function signature(msg: BrowserRelayStatusMessage | null): string {
-  if (!msg) return "";
-  return msg.instances
-    .map(
-      (instance) =>
-        `${instance.instanceId}:${instance.tabs
-          .map((tab) => `${tab.tabId}/${tab.state}/${tab.reason ?? ""}`)
-          .join(",")}`,
-    )
-    .join("|");
-}
-
-/** Store the latest snapshot; bump the slot-claims gate on a material change. */
+/** Store the latest snapshot and notify readers. */
 export function setRelayStatus(msg: BrowserRelayStatusMessage): void {
-  const previous = signature(status);
   status = msg;
-  if (signature(msg) !== previous) {
-    // A material change (new/removed instance or tab) re-arms the live view.
-    dismissed = false;
-    bumpSlotClaimsVersion();
-  }
   for (const listener of subscribers) listener();
 }
 
@@ -68,32 +33,6 @@ export function getRelayStatus(): BrowserRelayStatusMessage | null {
   return status;
 }
 
-/** True when ≥1 live instance has ≥1 tab AND the user has not dismissed it. */
-export function hasLiveInstance(): boolean {
-  if (dismissed) return false;
-  return (status?.instances ?? []).some((instance) => instance.tabs.length > 0);
-}
-
-/** Dismiss the live view (the tile's Close button); re-armed by a material change. */
-export function dismissLiveView(): void {
-  if (dismissed) return;
-  dismissed = true;
-  bumpSlotClaimsVersion();
-  for (const listener of subscribers) listener();
-}
-
-/**
- * Re-open a dismissed live view (the badge button). No-op when not dismissed.
- * See change: fix-browser-live-view-subscribe-and-reopen (D5).
- */
-export function reopenLiveView(): void {
-  if (!dismissed) return;
-  dismissed = false;
-  bumpSlotClaimsVersion();
-  for (const listener of subscribers) listener();
-}
-
-/** Subscribe to store changes. Returns the unsubscribe fn. */
 function subscribeRelayStore(listener: () => void): () => void {
   subscribers.add(listener);
   return () => {
@@ -101,14 +40,51 @@ function subscribeRelayStore(listener: () => void): () => void {
   };
 }
 
-/** Reactive read of the whole snapshot (tile list / badge). */
+/** Reactive read of the whole snapshot. */
 export function useRelayStatus(): BrowserRelayStatusMessage | null {
   return useSyncExternalStore(subscribeRelayStore, getRelayStatus, getRelayStatus);
+}
+
+/** One relay tab (and its instance) from the current snapshot, or `undefined` when gone. */
+export function findRelayTab(
+  snapshot: BrowserRelayStatusMessage | null,
+  instanceId: string,
+  tabId: number,
+): { instance: BrowserRelayInstanceStatus; tab: BrowserRelayTabStatus } | undefined {
+  const instance = snapshot?.instances.find((i) => i.instanceId === instanceId);
+  const tab = instance?.tabs.find((t) => t.tabId === tabId);
+  return instance && tab ? { instance, tab } : undefined;
+}
+
+/**
+ * Keep the store fed while the calling component is mounted: the WS change
+ * stream, plus ONE REST seed on mount (`browser_relay_status` has no on-connect
+ * replay, so a fresh page load would otherwise see an empty store until the next
+ * change). A WS snapshot that landed first is never clobbered by the older seed.
+ */
+export function useRelayStatusFeed(): void {
+  usePluginMessage<BrowserRelayStatusMessage>("browser_relay_status", setRelayStatus);
+  useEffect(() => {
+    let alive = true;
+    getBrowserProfiles()
+      .then((res) => {
+        if (!alive || getRelayStatus() !== null) return;
+        const instances: BrowserRelayInstanceStatus[] = Object.entries(res.profiles).flatMap(([profileDirectory, profile]) =>
+          profile.instances.map((inst) => ({ ...inst, profileDirectory })),
+        );
+        setRelayStatus({ type: "browser_relay_status", instances, auditSeq: 0 });
+      })
+      .catch(() => {
+        /* plugin disabled / offline: the WS path stays authoritative */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 }
 
 /** Test-only: reset the store between cases. */
 export function __resetRelayStoreForTests(): void {
   status = null;
-  dismissed = false;
   subscribers.clear();
 }
