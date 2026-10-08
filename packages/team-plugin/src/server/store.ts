@@ -57,6 +57,22 @@ export class PersonaStore {
     return this.readDir(this.paths.privatePersonasDir(uk));
   }
 
+  /** Every private persona across users, with owner uk (admin usage counts, impact preview). */
+  allPrivate(): { uk: string; persona: Persona }[] {
+    let uks: string[];
+    try {
+      uks = fs.readdirSync(this.paths.usersRoot());
+    } catch {
+      return [];
+    }
+    const out: { uk: string; persona: Persona }[] = [];
+    for (const uk of uks) {
+      if (!/^[0-9a-f]{32}$/.test(uk)) continue;
+      for (const persona of this.readDir(this.paths.privatePersonasDir(uk))) out.push({ uk, persona });
+    }
+    return out;
+  }
+
   /** `private:` keys resolve inside the caller's own folder only. */
   get(key: string, uk: string): Persona | null {
     const p = parsePersonaKey(key);

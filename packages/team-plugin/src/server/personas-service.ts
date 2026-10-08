@@ -6,6 +6,7 @@ import type { Access } from "./access.js";
 import { isSlug, parsePersonaKey } from "./paths.js";
 import { LIMITS, type PersonaRules, suffixedSlug, validatePersonaInput } from "./persona.js";
 import type { ProjectRegistry } from "./projects.js";
+import type { SkillsService } from "./skills-service.js";
 import type { PersonaStore as FsPersonaStore } from "./store.js";
 import { type Caller, type Persona, type PersonaScope, type TeamConfig, TeamError, WORKSPACE_TARGET } from "./types.js";
 
@@ -13,6 +14,7 @@ export interface PersonaServiceDeps {
   store: FsPersonaStore;
   projects: ProjectRegistry;
   access: Access;
+  skills: SkillsService;
   config: () => TeamConfig;
   now?: () => Date;
 }
@@ -37,11 +39,13 @@ export class PersonaService {
   }
 
   private rules(caller: Caller, scope: PersonaScope): PersonaRules {
+    // One catalog snapshot per save (D14), shared by every skillRule call.
+    const snap = this.d.skills.snapshot();
     return {
       mode: this.d.access.mode(),
       scope,
       caller,
-      skillCatalog: this.d.config().skillCatalog ?? {},
+      skillRule: (name, target) => this.d.skills.checkSave(name, caller, target, scope, snap),
       assignableTargets: this.assignable(caller, scope),
     };
   }
@@ -152,6 +156,10 @@ export class PersonaService {
     this.capCheck("private", caller);
     const usable = this.assignable(caller, "private");
     const kept = src.projects.filter((id) => usable.has(id));
+    const forkProjects = kept.length > 0 ? kept : [WORKSPACE_TARGET];
+    // D5: the fork keeps only skills allowed for the forking user on every kept project.
+    const snap = this.d.skills.snapshot();
+    const keptSkills = src.skills?.filter((n) => forkProjects.every((t) => this.d.skills.checkSave(n, caller, t, "private", snap) === "ok"));
     const stamp = this.now();
     const fork: Persona = {
       schemaVersion: 1,
@@ -166,7 +174,7 @@ export class PersonaService {
       instructions: src.instructions,
       tools: src.tools === "full" ? "files" : src.tools,
       projects: kept.length > 0 ? kept : [WORKSPACE_TARGET],
-      ...(src.skills ? { skills: src.skills } : {}),
+      ...(src.skills ? { skills: keptSkills } : {}),
       forkedFrom: src.key,
       createdAt: stamp,
       updatedAt: stamp,

@@ -15,6 +15,7 @@ import { cpLength } from "./persona.js";
 import type { ProjectRegistry } from "./projects.js";
 import type { LocatedRecord, Locator, RecordStore } from "./records.js";
 import { collectContextFiles } from "./render.js";
+import type { SkillBlockReason, SkillSnapshot, SkillsService } from "./skills-service.js";
 import type { PersonaStore } from "./store-types.js";
 import {
   type AvatarSpec,
@@ -65,6 +66,8 @@ export interface ServiceDeps {
   records: RecordStore;
   config: () => TeamConfig;
   logger: Logger;
+  /** Skill catalog: start check (D6), listing state (D14), spawn resolver (D7). */
+  skills: SkillsService;
   /** Absolute path of the team guard extension (`-e`). */
   guardExtensionPath: string;
   /** Renders persona.md for (persona, uk) and returns its absolute path. */
@@ -112,6 +115,10 @@ export interface AgentView {
   personaStale: boolean;
   unassigned: boolean;
   retired: boolean;
+  /** Persona skills the caller may use in this target (persona order). */
+  effectiveSkills: string[];
+  /** Spawn-check state (D6/D14): the first skill that would refuse the start. */
+  skillBlock: { skill: string; reason: SkillBlockReason } | null;
 }
 
 interface Pending {
@@ -360,6 +367,12 @@ export class ConversationService {
     );
   }
 
+  /** D6 refusal: log without paths/skill text, answer 409 {skill, reason}. */
+  private skillBlocked(caller: Caller, personaKey: string, t: string, b: { skill: string; reason: string }): TeamError {
+    this.d.logger.info(`team.skill_not_allowed name=${b.skill} uk=${caller.uk} target=${t} reason=${b.reason}`);
+    return new TeamError(409, "skill_not_allowed", { skill: b.skill, reason: b.reason });
+  }
+
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
   private async launch(
     caller: Caller,
@@ -380,8 +393,11 @@ export class ConversationService {
     const contextFiles = root.project?.contextFiles ? collectContextFiles(root.dir) : [];
     const runId = randomUUID();
     const spawnToken = randomUUID();
-    const catalog = this.d.config().skillCatalog ?? {};
-    const skills = (persona.skills ?? []).map((n) => catalog[n]).filter((p): p is string => typeof p === "string");
+    const snap = this.d.skills.snapshot();
+    const skills = (persona.skills ?? []).flatMap((n) => {
+      const r = this.d.skills.resolveSkillRoot(n, caller, t, snap);
+      return r ? [r.root] : [];
+    });
     const ownerStamp = this.owner(caller);
 
     let settleFn: () => void = () => {};
@@ -487,6 +503,8 @@ export class ConversationService {
   async createConversation(caller: Caller, personaKey: string, t: string): Promise<{ id: string; sessionId: string }> {
     const persona = this.persona(caller, personaKey);
     const root = this.target(caller, persona, t);
+    const blocked = this.d.skills.firstBlockedSkill(persona.skills ?? [], caller, t);
+    if (blocked) throw this.skillBlocked(caller, personaKey, t, blocked);
     const lockKey = `${caller.uk}|${personaKey}|${t}`;
     const prev = this.createLocks.get(lockKey) ?? Promise.resolve();
     let release: () => void = () => {};
@@ -560,6 +578,17 @@ export class ConversationService {
     if (!rec) throw new TeamError(404, "conversation_not_found");
     const persona = this.persona(caller, personaKey);
     const root = this.target(caller, persona, t, true);
+
+    // 2. Start check on EVERY path (D6): before reuse, so a revoked skill also
+    // ends the live session instead of handing it back out.
+    const blocked = this.d.skills.firstBlockedSkill(persona.skills ?? [], caller, t);
+    if (blocked) {
+      const live = this.ownLive(rec, c);
+      if (live && live.status !== "ended" && this.ownerMatches(live, caller)) {
+        await this.d.host.abortSpawnedRun({ sessionId: rec.sessionId, graceful: true });
+      }
+      throw this.skillBlocked(caller, personaKey, t, blocked);
+    }
 
     // 3. reuse
     const live = this.ownLive(rec, c);
@@ -710,6 +739,8 @@ export class ConversationService {
     const personas = [...this.d.personas.listShared(), ...this.d.personas.listPrivate(caller.uk)];
     // Computed ONCE per request (each call re-validates every project path on disk).
     const usable = new Set(this.d.projects.usableBy(caller, mode).map((x) => x.id));
+    // Catalog validated once per request (D14).
+    const snap = this.d.skills.snapshot();
     const out: AgentView[] = [];
     const seen = new Set<string>();
 
@@ -719,7 +750,7 @@ export class ConversationService {
       const active = recs.filter((r) => !r.record.archived);
       if (!assigned && active.length === 0) continue;
       seen.add(p.key);
-      out.push(this.card(p, recs, assigned, mode));
+      out.push(this.card(p, recs, assigned, mode, caller, t, snap));
     }
     // Retired: records whose persona no longer exists.
     for (const [key, recs] of byPersona) {
@@ -745,6 +776,8 @@ export class ConversationService {
         personaStale: false,
         unassigned: false,
         retired: true,
+        effectiveSkills: [],
+        skillBlock: null,
       });
     }
     return out;
@@ -761,11 +794,21 @@ export class ConversationService {
     };
   }
 
-  private card(p: Persona, recs: LocatedRecord[], assigned: boolean, mode: "single" | "multi"): AgentView {
+  private card(
+    p: Persona,
+    recs: LocatedRecord[],
+    assigned: boolean,
+    mode: "single" | "multi",
+    caller: Caller,
+    t: string,
+    snap: SkillSnapshot,
+  ): AgentView {
     const active = recs.filter((r) => !r.record.archived);
     const fullBlocked = p.tools === "full" && mode === "multi";
+    const skillBlock = this.d.skills.firstBlockedSkill(p.skills ?? [], caller, t, snap);
+    const effectiveSkills = skillBlock ? this.d.skills.effectiveSkills(p.skills ?? [], caller, t, snap) : [...(p.skills ?? [])];
     let status: AgentStatus;
-    if (!assigned || fullBlocked) status = "unavailable";
+    if (!assigned || fullBlocked || skillBlock) status = "unavailable";
     else if (active.length === 0) status = "new";
     else {
       const statuses = active.map((r) => this.statusOf(r.record, r.c));
@@ -787,6 +830,8 @@ export class ConversationService {
       personaStale: active.some((r) => this.isStale(r.record, r.c, p)),
       unassigned: !assigned,
       retired: false,
+      effectiveSkills,
+      skillBlock,
     };
   }
 

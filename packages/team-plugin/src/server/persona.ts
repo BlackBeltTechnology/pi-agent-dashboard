@@ -21,7 +21,8 @@ export interface PersonaRules {
   mode: Mode;
   scope: PersonaScope;
   caller: Caller;
-  skillCatalog: Record<string, string>;
+  /** Per skill × target: `ok`, `unknown` (not in catalog) or `not_allowed` (D5). */
+  skillRule: (name: string, target: string) => "ok" | "unknown" | "not_allowed";
   /** Targets the author may assign (always includes `_ws`). */
   assignableTargets: ReadonlySet<string>;
 }
@@ -135,9 +136,27 @@ export function validatePersonaInput(body: unknown, rules: PersonaRules, opts: {
   let skills: string[] | undefined;
   if (b.skills !== undefined) {
     const s = b.skills;
-    if (!Array.isArray(s) || s.length > LIMITS.skillsMax || new Set(s).size !== s.length) fields.skills = "invalid_skills";
-    else if (!s.every((x) => typeof x === "string" && Object.hasOwn(rules.skillCatalog, x))) fields.skills = "unknown_skill";
-    else skills = s as string[];
+    if (!Array.isArray(s) || s.length > LIMITS.skillsMax || new Set(s).size !== s.length || !s.every((x) => typeof x === "string")) {
+      fields.skills = "invalid_skills";
+    } else {
+      // D5: every listed skill must exist and be allowed for EVERY target (owner
+      // binds via the private-scope rule in `skillRule`).
+      let unknown = false;
+      let notAllowed = false;
+      loop: for (const name of s as string[]) {
+        for (const t of projects) {
+          const r = rules.skillRule(name, t);
+          if (r === "unknown") {
+            unknown = true;
+            break loop;
+          }
+          if (r === "not_allowed") notAllowed = true;
+        }
+      }
+      if (unknown) fields.skills = "unknown_skill";
+      else if (notAllowed) fields.skills = "skill_not_allowed";
+      else skills = s as string[];
+    }
   }
 
   if (Object.keys(fields).length > 0) return { ok: false, fields };

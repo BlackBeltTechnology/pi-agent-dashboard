@@ -78,6 +78,13 @@ export interface ProjectConfigEntry {
   contextFiles?: boolean;
 }
 
+/** `skillCatalog` value: absolute skill dir, with optional access scope. */
+export interface SkillCatalogEntry {
+  path: string;
+  users?: "*" | { iss: string; sub: string }[];
+  targets?: "*" | string[];
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -102,7 +109,7 @@ export class TeamError extends Error {
 
 export interface TeamConfig {
   admins?: { iss: string; sub: string }[];
-  skillCatalog?: Record<string, string>;
+  skillCatalog?: Record<string, string | SkillCatalogEntry>;
   idleMinutes?: number;
   maxConversations?: number;
   /** Live pi processes per user (default 10). */

@@ -107,6 +107,9 @@ export class TeamPaths {
   privatePersonasDir(uk: string): string {
     return this.under("users", this.ukSeg(uk), "personas");
   }
+  usersRoot(): string {
+    return this.under("users");
+  }
   conversationsDir(uk: string, t: string, personaKey: string): string {
     if (!isTargetId(t)) throw new TeamError(400, "invalid_target");
     return this.under("users", this.ukSeg(uk), "conversations", t, personaDirName(personaKey));

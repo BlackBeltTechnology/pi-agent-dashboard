@@ -13,15 +13,15 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 
 ## 3. Catalog service (team-plugin server)
 
-- [ ] 3.1 `skills-service.ts`: normalisation (legacy string, defaults), pi-name rule + `name_mismatch`, path validation (absolute, ≤ 512 bytes, realpath dir with `SKILL.md`, bidirectional exclusion of team home, project roots, agent dir, sessions root, dashboard home), config-wins precedence, `skills.json` load (`schemaVersion: 1`, `managedLoadError`), in-process write mutex, catalog epoch.
-- [ ] 3.2 `allowed()` predicate (exact principal match, single-user ignores users) and `firstBlockedSkill(personaSkills, caller, target)` (design D14).
-- [ ] 3.3 `configSchema.json`: `skillCatalog` values `string | {path, users?, targets?}`; update `types.ts`.
-- [ ] 3.4 Routes: `GET|POST /skills`, `PATCH|DELETE /skills/:name`, `POST /skills/:name/impact`, `GET /skills/available`; `GET /me.skills` caller-visible; `GET /agents` items gain `effectiveSkills` + `skillBlock`; description memo by `SKILL.md` `(realpath, mtimeMs, size)`; admin usage counts.
-- [ ] 3.5 Observability: `team.skill_write`, `team.skill_not_allowed`, `team.skill_invalidated`, `team.skills_narrowed`; no paths or skill text.
+- [x] 3.1 `skills-service.ts`: normalisation (legacy string, defaults), pi-name rule + `name_mismatch`, path validation (absolute, ≤ 512 bytes, realpath dir with `SKILL.md`, bidirectional exclusion of team home, project roots, agent dir, sessions root, dashboard home), config-wins precedence, `skills.json` load (`schemaVersion: 1`, `managedLoadError`), in-process write mutex, catalog epoch.
+- [x] 3.2 `allowed()` predicate (exact principal match, single-user ignores users) and `firstBlockedSkill(personaSkills, caller, target)` (design D14).
+- [x] 3.3 `configSchema.json`: `skillCatalog` values `string | {path, users?, targets?}`; update `types.ts`.
+- [x] 3.4 Routes: `GET|POST /skills`, `PATCH|DELETE /skills/:name`, `POST /skills/:name/impact`, `GET /skills/available`; `GET /me.skills` caller-visible; `GET /agents` items gain `effectiveSkills` + `skillBlock`; description memo by `SKILL.md` `(realpath, mtimeMs, size)`; admin usage counts.
+- [ ] 3.5 Observability (`team.skills_narrowed` emits from the slice-C composition refusal, task 5.1; the other three lines land here): `team.skill_write`, `team.skill_not_allowed`, `team.skill_invalidated`, `team.skills_narrowed`; no paths or skill text.
 
 ## 4. Persona validation
 
-- [ ] 4.1 `persona.ts` `PersonaRules` + `personas-service.ts`: skills allowed for every target (+ owner on private), `fields.skills="skill_not_allowed"`; fork keeps only allowed skills.
+- [x] 4.1 `persona.ts` `PersonaRules` + `personas-service.ts`: skills allowed for every target (+ owner on private), `fields.skills="skill_not_allowed"`; fork keeps only allowed skills.
 
 ## 5. Spawn + invalidation (team-plugin server)
 
@@ -42,34 +42,34 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 
 ### L1 — team-plugin server (exemplar: `packages/team-plugin/src/server/__tests__/personas.test.ts`, `conversations.test.ts`, `harness.ts`)
 
-- [ ] 8.1 Test legacy string normalisation — input config `{review: "/opt/skills/review"}` · trigger normalise · observable `{path, users:"*", targets:"*"}` (test-plan #E1).
-- [ ] 8.2 Test default users/targets — input `{review:{path}}` · trigger normalise · observable `users:"*"`, `targets:"*"` (test-plan #E2).
-- [ ] 8.3 Test the `allowed` decision table — input mode × users × targets (12 combos) · trigger `allowed()` · observable true only for (single or users-match) ∧ targets-match (test-plan #E3).
-- [ ] 8.4 Test exact principal match — input `sub:"Alice"` entry vs caller `sub:"alice"` · trigger `allowed()` · observable false (test-plan #E4).
-- [ ] 8.5 Test name mismatch — input `POST {name:"review"}` at a `code-review` skill · trigger create · observable `400 invalid_skill fields.name="name_mismatch"`, file unchanged (test-plan #E5).
-- [ ] 8.6 Test directory-name fallback — input skill dir `review/` without frontmatter name · trigger create · observable `201` (test-plan #E6).
-- [ ] 8.7 Test pi name BVA — input names `a`, 64×a, 65×a, `-a`, `a-`, `a--b`, `A`, `a:b` · trigger create · observable first two `201`, rest `400` (test-plan #E7).
-- [ ] 8.8 Test path length/absolute BVA — input 512-byte, 513-byte, relative paths · trigger create · observable 512 passes, others `400` (test-plan #E8).
-- [ ] 8.9 Test non-directory skill paths — input single `.md`, dir without `SKILL.md`, `SKILL.md` that is a dir · trigger create · observable each `400 invalid_skill` (test-plan #E9).
-- [ ] 8.10 Test bidirectional path exclusion — input paths inside team home / inside project / equal to project / ancestor `/data` / `~/.pi` / `~/.pi/dashboard` / `~/.pi/agent/skills/review` · trigger create · observable six `400`, last `201` (test-plan #E10).
-- [ ] 8.11 Test path turned invalid after grant — input granted dir re-pointed by symlink to `/etc` · trigger next ensure · observable `409 reason:"invalid"`, log without path (test-plan #E11).
-- [ ] 8.12 Test config vs managed decision table — input name source × caller role · trigger POST/PATCH/DELETE · observable `403` / `409 skill_readonly` / `409 skill_exists` / config wins with `shadowed_by_config` (test-plan #E12).
-- [ ] 8.13 Test bad `skills.json` — input `schemaVersion: 2` and truncated JSON · trigger load + GET + POST · observable plugin runs, `managedLoadError`, POST `503 skill_store_unavailable`, file bytes unchanged (test-plan #E13).
-- [ ] 8.14 Test caller-scoped listing — input `review` targets `[crm]`, alice on billing only · trigger alice GET `/skills` + `/me` · observable `review` absent; admin listing has source/valid/usage (test-plan #E14).
-- [ ] 8.15 Test available list without host service — input host lacking `host.listOperatorSkills` · trigger admin and non-admin `GET /skills/available` · observable `200 []` and `403` (test-plan #E16).
-- [ ] 8.16 Test impact preview — input narrowing/remove/widening bodies with 2 live sessions · trigger `POST /skills/review/impact` · observable `endSessions`, `blockedPersonas.lostTargets`, `otherUsersPrivate` as in the manifest; nothing written or ended (test-plan #E17).
-- [ ] 8.17 Test `effectiveSkills` + `skillBlock` in `GET /agents` — input persona `[review, legacy]` across four failure reasons · trigger list agents · observable matching `skillBlock`, status `unavailable`, no path (test-plan #E18).
-- [ ] 8.18 Test listing/ensure parity — input E18 fixtures · trigger ensure and list · observable `409 {skill, reason}` equals `skillBlock` (test-plan #E19).
-- [ ] 8.19 Test shared persona skills vs targets — input `projects:[billing,crm]`, review targets variants · trigger admin save · observable `400 skill_not_allowed` only when not allowed in crm (test-plan #E20).
-- [ ] 8.20 Test private persona owner check — input review users `[bob]`, alice saves, mode multi/single · trigger save · observable multi `400`, single `200` (test-plan #E21).
-- [ ] 8.21 Test fork filtering — input shared persona `[review, all-ok]`, review users `[bob]` · trigger alice fork · observable fork skills `["all-ok"]` (test-plan #E22).
+- [x] 8.1 Test legacy string normalisation — input config `{review: "/opt/skills/review"}` · trigger normalise · observable `{path, users:"*", targets:"*"}` (test-plan #E1).
+- [x] 8.2 Test default users/targets — input `{review:{path}}` · trigger normalise · observable `users:"*"`, `targets:"*"` (test-plan #E2).
+- [x] 8.3 Test the `allowed` decision table — input mode × users × targets (12 combos) · trigger `allowed()` · observable true only for (single or users-match) ∧ targets-match (test-plan #E3).
+- [x] 8.4 Test exact principal match — input `sub:"Alice"` entry vs caller `sub:"alice"` · trigger `allowed()` · observable false (test-plan #E4).
+- [x] 8.5 Test name mismatch — input `POST {name:"review"}` at a `code-review` skill · trigger create · observable `400 invalid_skill fields.name="name_mismatch"`, file unchanged (test-plan #E5).
+- [x] 8.6 Test directory-name fallback — input skill dir `review/` without frontmatter name · trigger create · observable `201` (test-plan #E6).
+- [x] 8.7 Test pi name BVA — input names `a`, 64×a, 65×a, `-a`, `a-`, `a--b`, `A`, `a:b` · trigger create · observable first two `201`, rest `400` (test-plan #E7).
+- [x] 8.8 Test path length/absolute BVA — input 512-byte, 513-byte, relative paths · trigger create · observable 512 passes, others `400` (test-plan #E8).
+- [x] 8.9 Test non-directory skill paths — input single `.md`, dir without `SKILL.md`, `SKILL.md` that is a dir · trigger create · observable each `400 invalid_skill` (test-plan #E9).
+- [x] 8.10 Test bidirectional path exclusion — input paths inside team home / inside project / equal to project / ancestor `/data` / `~/.pi` / `~/.pi/dashboard` / `~/.pi/agent/skills/review` · trigger create · observable six `400`, last `201` (test-plan #E10).
+- [x] 8.11 Test path turned invalid after grant — input granted dir re-pointed by symlink to `/etc` · trigger next ensure · observable `409 reason:"invalid"`, log without path (test-plan #E11).
+- [x] 8.12 Test config vs managed decision table — input name source × caller role · trigger POST/PATCH/DELETE · observable `403` / `409 skill_readonly` / `409 skill_exists` / config wins with `shadowed_by_config` (test-plan #E12).
+- [x] 8.13 Test bad `skills.json` — input `schemaVersion: 2` and truncated JSON · trigger load + GET + POST · observable plugin runs, `managedLoadError`, POST `503 skill_store_unavailable`, file bytes unchanged (test-plan #E13).
+- [x] 8.14 Test caller-scoped listing — input `review` targets `[crm]`, alice on billing only · trigger alice GET `/skills` + `/me` · observable `review` absent; admin listing has source/valid/usage (test-plan #E14).
+- [x] 8.15 Test available list without host service — input host lacking `host.listOperatorSkills` · trigger admin and non-admin `GET /skills/available` · observable `200 []` and `403` (test-plan #E16).
+- [x] 8.16 Test impact preview — input narrowing/remove/widening bodies with 2 live sessions · trigger `POST /skills/review/impact` · observable `endSessions`, `blockedPersonas.lostTargets`, `otherUsersPrivate` as in the manifest; nothing written or ended (test-plan #E17).
+- [x] 8.17 Test `effectiveSkills` + `skillBlock` in `GET /agents` — input persona `[review, legacy]` across four failure reasons · trigger list agents · observable matching `skillBlock`, status `unavailable`, no path (test-plan #E18).
+- [x] 8.18 Test listing/ensure parity — input E18 fixtures · trigger ensure and list · observable `409 {skill, reason}` equals `skillBlock` (test-plan #E19).
+- [x] 8.19 Test shared persona skills vs targets — input `projects:[billing,crm]`, review targets variants · trigger admin save · observable `400 skill_not_allowed` only when not allowed in crm (test-plan #E20).
+- [x] 8.20 Test private persona owner check — input review users `[bob]`, alice saves, mode multi/single · trigger save · observable multi `400`, single `200` (test-plan #E21).
+- [x] 8.21 Test fork filtering — input shared persona `[review, all-ok]`, review users `[bob]` · trigger alice fork · observable fork skills `["all-ok"]` (test-plan #E22).
 - [ ] 8.22 Test spawn argv + env — input persona skills `[]` and `[review]` · trigger ensure create · observable `--no-skills` (+ `--skill <realpath>`), `PI_EXT_TEAM_SKILLS` `"[]"` / JSON (test-plan #E23).
 - [ ] 8.23 Test start check on reuse/resume/create — input config-narrowed catalog with a live session · trigger each ensure path · observable reuse ends session + `409`, others `409`, nothing spawned, record unchanged (test-plan #E24).
 - [ ] 8.24 Test composition narrowing — input stub cwd-policy intersecting skills to `[]` · trigger ensure · observable `409 reason:"invalid"`, `team.skills_narrowed` (test-plan #E25).
-- [ ] 8.25 Test concurrent create — input two same-tick `POST {name:"review"}` · trigger await both · observable one `201`, one `409`, one entry (test-plan #X3).
+- [x] 8.25 Test concurrent create — input two same-tick `POST {name:"review"}` · trigger await both · observable one `201`, one `409`, one entry (test-plan #X3).
 - [ ] 8.26 Test check-then-act epoch — input managed revocation between D6 check and correlation · trigger correlation · observable abort, `409`, no record (test-plan #X4).
 - [ ] 8.27 Test cross-user authority — input bob ensure/restart/PATCH against alice's conversation or skill · trigger requests · observable `404`/`403`, alice untouched; invalidation pass only after admin 2xx and skips owner-mismatched records (test-plan #X5).
-- [ ] 8.28 Test observability lines — input a refused spawn, a catalog write, an invalidation of 2 sessions · trigger capture logger · observable the three lines, no path or skill text (test-plan #X6).
+- [x] 8.28 Test observability lines — input a refused spawn, a catalog write, an invalidation of 2 sessions · trigger capture logger · observable the three lines, no path or skill text (test-plan #X6).
 
 ### L1 — host scanner (exemplar: `packages/server/src/__tests__/pi-resource-scanner.test.ts`)
 

@@ -24,9 +24,70 @@
     },
     "skillCatalog": {
       "type": "object",
-      "description": "Admin skill catalog: name -> absolute skill path. Personas pick names only.",
+      "description": "Admin skill catalog: name -> absolute skill dir or {path, users, targets}. The name must equal the skill's own pi name. Personas pick names only.",
       "additionalProperties": {
-        "type": "string"
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Absolute skill directory (users/targets default to all)."
+          },
+          {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Absolute skill directory containing SKILL.md."
+              },
+              "users": {
+                "description": "Allowed principals, or * for everyone.",
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "const": "*"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "iss",
+                        "sub"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "iss": {
+                          "type": "string"
+                        },
+                        "sub": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "targets": {
+                "description": "Allowed project ids (and _ws), or * for all.",
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "const": "*"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
       }
     },
     "idleMinutes": {

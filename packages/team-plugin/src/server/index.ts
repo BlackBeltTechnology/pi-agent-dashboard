@@ -30,6 +30,9 @@ async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     logger: ctx.logger,
     guardExtensionPath: path.resolve(HERE, "../extension/index.ts"),
     distAppDir: path.resolve(HERE, "../../dist/app"),
+    // D11: operator's global skills for the admin picker; absent on older hosts → [].
+    listOperatorSkills:
+      ctx.consume<() => Promise<{ name: string; description: string; path: string; source: string }[]>>("host.listOperatorSkills") ?? undefined,
   });
   await team.start();
   ctx.onShutdown(() => team.stop());

@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { realFs } from "../paths.js";
+import type { TeamConfig } from "../types.js";
 import { API, type Harness, makeHarness, persona } from "./harness.js";
 
 let h: Harness;
@@ -216,14 +217,18 @@ describe("fork (E15, E16, E42)", () => {
 });
 
 describe("skills catalog (E17)", () => {
-  it("only catalog names are accepted; spawn scope carries the resolved path", async () => {
-    h = await makeHarness({ config: { skillCatalog: { review: "/s/review" } } });
+  it("only valid catalog skills are accepted; spawn scope carries the resolved root", async () => {
+    const config: TeamConfig = { admins: [ADMIN] };
+    h = await makeHarness({ config });
+    const dir = h.dir("skills/review");
+    fs.writeFileSync(path.join(dir, "SKILL.md"), "---\nname: review\n---\nbody\n");
+    config.skillCatalog = { review: dir };
     expect((await post("alice", persona("s1", { skills: ["review"] }))).status).toBe(201);
     expect((await post("alice", persona("s2", { skills: ["/tmp/evil"] }))).status).toBe(400);
     expect((await post("alice", persona("s3", { skills: ["nope"] }))).status).toBe(400);
     const c = await h.call("POST", `${API}/agents/${encodeURIComponent("private:s1")}/conversations?project=_ws`, { user: "alice" });
     expect(c.status).toBe(201);
-    expect(h.host.spawns[0].scope?.skills).toEqual(["/s/review"]);
+    expect(h.host.spawns[0].scope?.skills).toEqual([fs.realpathSync(dir)]);
   });
 });
 

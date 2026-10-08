@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { getDashboardConfigDir, resolvePiSessionsDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import type { FastifyInstance } from "fastify";
 import { type Access, createAccess, type IdentityLike } from "./access.js";
 import { ConversationService, type HostPort, type Logger } from "./conversations.js";
@@ -14,6 +15,7 @@ import { ProjectRegistry } from "./projects.js";
 import { RecordStore } from "./records.js";
 import { writePersonaFile } from "./render.js";
 import { mountTeamRoutes } from "./routes.js";
+import { type SkillEntry, SkillsService } from "./skills-service.js";
 import { mountAppRoutes } from "./static.js";
 import { PersonaStore } from "./store.js";
 import type { Persona, TeamConfig } from "./types.js";
@@ -34,6 +36,10 @@ export interface TeamDeps {
   now?: () => number;
   renderPersona?: (persona: Persona, uk: string) => string;
   sweepEveryMs?: number;
+  /** `host.listOperatorSkills` service (D11); absent on older hosts. */
+  listOperatorSkills?: () => Promise<{ name: string; description: string; path: string; source: string }[]>;
+  /** D8 seam: called after a successful managed skill update/delete; returns sessions ended. */
+  onManagedWrite?: (name: string, before: SkillEntry | null, after: SkillEntry | null) => number | Promise<number>;
 }
 
 export interface Team {
@@ -42,6 +48,7 @@ export interface Team {
   conversations: ConversationService;
   personas: PersonaService;
   projects: ProjectRegistry;
+  skills: SkillsService;
   start(): Promise<void>;
   stop(): void;
 }
@@ -60,6 +67,24 @@ export function createTeam(d: TeamDeps): Team {
   });
   const records = new RecordStore(paths, ops);
   const users = new UsersStore(paths, ops);
+  const nowDate = d.now ? () => new Date(d.now?.() ?? Date.now()) : undefined;
+  const skills = new SkillsService({
+    paths,
+    projects,
+    access,
+    config: d.config,
+    logger: d.logger,
+    personas: store,
+    records,
+    getSession: (id) => d.host.getSession(id),
+    agentDir: process.env.PI_CODING_AGENT_DIR ? path.resolve(process.env.PI_CODING_AGENT_DIR) : path.join(os.homedir(), ".pi", "agent"),
+    sessionsRoot: resolvePiSessionsDir(),
+    dashboardHome: getDashboardConfigDir(),
+    listOperatorSkills: d.listOperatorSkills,
+    onManagedWrite: d.onManagedWrite,
+    ops,
+    now: nowDate,
+  });
   const conversations = new ConversationService({
     host: d.host,
     access,
@@ -67,6 +92,7 @@ export function createTeam(d: TeamDeps): Team {
     personas: store,
     projects,
     records,
+    skills,
     config: d.config,
     logger: d.logger,
     guardExtensionPath: d.guardExtensionPath,
@@ -74,7 +100,7 @@ export function createTeam(d: TeamDeps): Team {
     spawnTimeoutMs: d.spawnTimeoutMs,
     now: d.now,
   });
-  const personas = new PersonaService({ store, projects, access, config: d.config });
+  const personas = new PersonaService({ store, projects, access, skills, config: d.config, now: nowDate });
 
   return {
     paths,
@@ -82,6 +108,7 @@ export function createTeam(d: TeamDeps): Team {
     conversations,
     personas,
     projects,
+    skills,
     async start() {
       if (!fs.existsSync(d.guardExtensionPath)) {
         d.logger.error("team.guard_missing: starting a conversation will answer 503 guard_unavailable");
@@ -92,7 +119,7 @@ export function createTeam(d: TeamDeps): Team {
         projects,
         conversations,
         users,
-        skills: () => Object.keys(d.config().skillCatalog ?? {}),
+        skills,
         logger: d.logger,
       });
       mountAppRoutes(d.fastify, d.distAppDir, d.logger);

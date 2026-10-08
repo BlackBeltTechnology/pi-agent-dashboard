@@ -9,6 +9,7 @@ import type { ConversationService } from "./conversations.js";
 import { isTargetId } from "./paths.js";
 import type { PersonaService } from "./personas-service.js";
 import type { ProjectRegistry } from "./projects.js";
+import type { SkillsService } from "./skills-service.js";
 import { type Caller, TeamError, WORKSPACE_TARGET } from "./types.js";
 import type { UsersStore } from "./users.js";
 
@@ -20,8 +21,8 @@ export interface RouteDeps {
   projects: ProjectRegistry;
   conversations: ConversationService;
   users: UsersStore;
-  /** Admin skill catalog names (personas pick names only). */
-  skills: () => string[];
+  /** Skill catalog: listings, managed CRUD, impact preview, available (D2/D14). */
+  skills: SkillsService;
   logger: { warn(msg: string): void; error(msg: string): void };
 }
 
@@ -89,6 +90,7 @@ export async function mountTeamRoutes(fastify: FastifyInstance, d: RouteDeps): P
       return t;
     };
     const P = (path: string) => `${API_PREFIX}${path}`;
+    const usable = (c: Caller): string[] => [WORKSPACE_TARGET, ...d.projects.usableBy(c, d.access.mode()).map((p) => p.id)];
     const wrap =
       (fn: (req: FastifyRequest, reply: FastifyReply, c: Caller) => unknown) =>
       async (req: FastifyRequest, reply: FastifyReply) =>
@@ -99,7 +101,7 @@ export async function mountTeamRoutes(fastify: FastifyInstance, d: RouteDeps): P
       P("/me"),
       wrap((_req, _reply, c) => {
         if (d.access.mode() === "multi") d.users.record(c);
-        return { uk: c.uk, iss: c.iss, sub: c.sub, admin: c.admin, mode: d.access.mode(), maxConversations: d.conversations.limit(), skills: d.skills() };
+        return { uk: c.uk, iss: c.iss, sub: c.sub, admin: c.admin, mode: d.access.mode(), maxConversations: d.conversations.limit(), skills: d.skills.visibleNames(c, usable(c)) };
       }),
     );
 
@@ -158,6 +160,35 @@ export async function mountTeamRoutes(fastify: FastifyInstance, d: RouteDeps): P
         return { users: d.users.list() };
       }),
     );
+
+    // ── skill catalog ─────────────────────────────────────────────────────
+    scope.get(
+      P("/skills/available"),
+      wrap(async (_req, _reply, c) => {
+        if (!c.admin) throw new TeamError(403, "admin_required");
+        return { skills: await d.skills.available() };
+      }),
+    );
+    scope.get(
+      P("/skills"),
+      wrap((_req, _reply, c) => (c.admin ? d.skills.adminList() : d.skills.callerList(c, usable(c)))),
+    );
+    scope.post(
+      P("/skills"),
+      wrap(async (req, reply, c) => reply.code(201).send(await d.skills.create(c, req.body))),
+    );
+    scope.post(
+      P("/skills/:name/impact"),
+      wrap(async (req, _reply, c) => d.skills.impact(c, (req.params as { name: string }).name, req.body)),
+    );
+    scope.patch(
+      P("/skills/:name"),
+      wrap(async (req, _reply, c) => d.skills.update(c, (req.params as { name: string }).name, req.body)),
+    );
+    scope.delete(P("/skills/:name"), wrap(async (req, _reply, c) => {
+      await d.skills.remove(c, (req.params as { name: string }).name);
+      return { ok: true };
+    }));
 
     // ── personas ────────────────────────────────────────────────────────────
     scope.get(P("/personas"), wrap((_req, _reply, c) => ({ personas: d.personas.list(c) })));
