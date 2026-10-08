@@ -23,3 +23,5 @@ See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustP
 `PUT /api/config` no longer forwards `coldStartRequired` (removed; `serverHeap` reports `restartRequired`). See change: guard-server-heap-and-store-coupling.
 
 `GET /api/config` adds computed `agentPathGateEnvOverride` (`off|on|null`) so Settings renders the toggle inert under `PI_DASHBOARD_AGENT_PATH_GATE`. See change: ask-agent-file-access-in-chat.
+
+`PUT /api/config` broadcasts `config_updated {section:"sessions"}` when `folderListMode` or `folderAttentionPeek` changes — the sidebar list mode is live, never restart-gated. See change: add-focus-mode-and-card-block-toggles.

@@ -27,3 +27,5 @@ Adds `PluginRequestMessage` (`plugin_request`: `requestId`,`pluginId`,`messageTy
 `UsageRecordedMessage` (`usage_recorded`: kind, usage, provider?/model?, entryId?) joins `ExtensionToServerMessage` — top-level, never `event_forward`. `SessionRegisterMessage.usageSeed?: UsageTotals` — bridge baseline totals, applied server-side only for an unknown id. See change: count-non-message-usage.
 
 Frames `PathGrantRequestMessage` (`path_grant_request`, ext→server), `PathGrantResultMessage` (`path_grant_result`) and `DashboardIdentityMessage` (`dashboard_identity {grantStoreId}`) (server→ext). See change: ask-agent-file-access-in-chat.
+
+- Adds `PathYoloRequestMessage` (`path_yolo_request`), `PathYoloResultMessage` (`path_yolo_result`, verdict auto-allow/refused/decline), `PathGateRefusalMessage` (`path_gate_refusal`); `DashboardIdentityMessage.grantStoreId` optional + `features?: string[]`. See change: yolo-covers-agent-path-gate.

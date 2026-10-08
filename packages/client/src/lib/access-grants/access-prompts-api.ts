@@ -17,6 +17,7 @@
  */
 import type {
   AccessPlaneId,
+  YoloSurfaceId,
   GrantVerdict,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { getApiBase } from "../api/api-context.js";
@@ -55,7 +56,7 @@ export function answerPendingPrompt(
   return call("POST", `/api/access/prompts/${encodeURIComponent(promptId)}`, answer);
 }
 
-export function clearRefusal(plane: AccessPlaneId, subject: string): Promise<ApiResult> {
+export function clearRefusal(plane: YoloSurfaceId, subject: string): Promise<ApiResult> {
   const q = new URLSearchParams({ plane, subject });
   return call("DELETE", `/api/access/refusals?${q.toString()}`);
 }

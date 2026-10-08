@@ -19,8 +19,12 @@ import {
   CARD_SECTIONS_MAX_KEYS,
   type CardSectionPrefs,
   cardSectionFolderKey,
+  type FocusProfile,
+  type FocusState,
   isValidFolderPath,
   isValidSectionId,
+  sanitizeFocusProfile,
+  validateFocusProfile,
 } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import { CONFIG_DIR } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
@@ -137,6 +141,12 @@ interface PreferencesData {
    */
   collapsedFolders?: string[];
   /**
+   * Accordion pinned-open folders; same canonical key + never-pruned rule as
+   * `collapsedFolders`, mutually exclusive with it. Absent/corrupt → `[]`.
+   * See change: add-focus-mode-and-card-block-toggles.
+   */
+  expandedFolders?: string[];
+  /**
    * Session-list grouping (change: session-list-group-by). All optional.
    * `defaultGroupBy` absent ⇒ `none`. `folderGroupBy` keys and the folder
    * half of `collapsedLanes` (`<pathKey>::<laneId>`) are `pathKey`-folded like
@@ -175,6 +185,13 @@ export interface PreferencesStore {
    * so the gateway broadcasts only on change.
    */
   setFolderCollapsed(dirPath: string, collapsed: boolean): boolean;
+  /** Pinned-open folders (accordion). Pinning clears collapsed and vice versa. */
+  getExpandedFolders(): string[];
+  setExpandedFolder(dirPath: string, expanded: boolean): boolean;
+  // ── focus mode (add-focus-mode-and-card-block-toggles) ───────────
+  setFocusEnabled(enabled: boolean): boolean;
+  /** `null` resets to the built-in profile. Invalid/over-cap → false, no mutation. */
+  setFocusProfile(profile: FocusProfile | null): boolean;
   // ── session-list grouping (session-list-group-by) ────────────────
   /** Aggregate snapshot (copies). */
   getGroupByPrefs(): GroupByPrefs;
@@ -434,11 +451,21 @@ function loadCardSections(raw: unknown): { global: SectionMap; folders: Map<stri
   return { global: sanitizeSectionMap(raw.global), folders };
 }
 
-function cardSectionsSnapshot(global: SectionMap, folders: Map<string, SectionMap>): CardSectionPrefs {
+function cardSectionsSnapshot(
+  global: SectionMap,
+  folders: Map<string, SectionMap>,
+  focus?: FocusState,
+): CardSectionPrefs {
   const out: CardSectionPrefs = {};
   if (global.size > 0) out.global = Object.fromEntries(global);
   if (folders.size > 0) {
     out.folders = Object.fromEntries([...folders].map(([k, m]) => [k, Object.fromEntries(m)]));
+  }
+  if (focus && (focus.enabled || focus.profile)) {
+    const f: FocusState = {};
+    if (focus.enabled) f.enabled = true;
+    if (focus.profile) f.profile = structuredClone(focus.profile);
+    out.focus = f;
   }
   return out;
 }
@@ -566,12 +593,22 @@ export function createPreferencesStore(
   }
   // Session-card section visibility (configurable-session-card-sections).
   const loadedCardSections = loadCardSections(data.cardSections);
+  const rawFocus = isPlainObject(data.cardSections) ? data.cardSections.focus : undefined;
+  let focusState: FocusState = isPlainObject(rawFocus)
+    ? { enabled: rawFocus.enabled === true, profile: sanitizeFocusProfile(rawFocus.profile) }
+    : { enabled: false };
+  const rawExpanded = Array.isArray(data.expandedFolders)
+    ? data.expandedFolders.filter((p): p is string => typeof p === "string")
+    : [];
+  const expandedFolders: string[] = dedupePreserveOrder(
+    rawExpanded.map((p) => pathKey(p, inferPlatform(rawExpanded))),
+  ).filter((k) => !collapsedFolders.includes(k));
   const cardSectionsGlobal = loadedCardSections.global;
   const cardSectionsFolders = loadedCardSections.folders;
   const cardSectionsChangedOnLoad =
     data.cardSections !== undefined &&
     JSON.stringify(data.cardSections) !==
-      JSON.stringify(cardSectionsSnapshot(cardSectionsGlobal, cardSectionsFolders));
+      JSON.stringify(cardSectionsSnapshot(cardSectionsGlobal, cardSectionsFolders, focusState));
   // Favorite model labels — deduped, insertion-ordered. Default [] for legacy files.
   let favoriteModels: string[] = dedupePreserveOrder(
     Array.isArray(data.favoriteModels) ? data.favoriteModels.filter((l) => typeof l === "string") : [],
@@ -582,6 +619,7 @@ let dirty =
     // reach disk on THIS load — see the prefsChangedOnLoad comment above.
     prefsChangedOnLoad ||
     cardSectionsChangedOnLoad ||
+    expandedFolders.length !== rawExpanded.length ||
     data.pinSeeded !== true ||
     pinnedDirectories.length !== rawPinned.length ||
     pinnedDirectories.some((p, i) => p !== rawPinned[i]) ||
@@ -619,8 +657,8 @@ let dirty =
   }
 
   function cardSectionsForDisk(): CardSectionPrefs | undefined {
-    const snap = cardSectionsSnapshot(cardSectionsGlobal, cardSectionsFolders);
-    return snap.global || snap.folders ? snap : undefined;
+    const snap = cardSectionsSnapshot(cardSectionsGlobal, cardSectionsFolders, focusState);
+    return snap.global || snap.folders || snap.focus ? snap : undefined;
   }
 
   function scheduleSave(): void {
@@ -630,7 +668,7 @@ let dirty =
       debounceTimer = null;
       if (dirty) {
         dirty = false;
-        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders, defaultGroupBy, folderGroupBy, collapsedLanes, cardSections: cardSectionsForDisk() } satisfies PreferencesData);
+        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders, expandedFolders, defaultGroupBy, folderGroupBy, collapsedLanes, cardSections: cardSectionsForDisk() } satisfies PreferencesData);
       }
     }, DEBOUNCE_MS);
   }
@@ -642,7 +680,7 @@ let dirty =
     }
     if (dirty) {
       dirty = false;
-      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders, defaultGroupBy, folderGroupBy, collapsedLanes, cardSections: cardSectionsForDisk() } satisfies PreferencesData);
+      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders, expandedFolders, defaultGroupBy, folderGroupBy, collapsedLanes, cardSections: cardSectionsForDisk() } satisfies PreferencesData);
     }
   }
 
@@ -726,6 +764,9 @@ let dirty =
       if (collapsed) {
         if (idx !== -1) return false;
         collapsedFolders.push(key);
+        // Collapse un-pins (never both lists). See change: add-focus-mode-and-card-block-toggles.
+        const ei = expandedFolders.indexOf(key);
+        if (ei !== -1) expandedFolders.splice(ei, 1);
         scheduleSave();
         return true;
       }
@@ -735,10 +776,51 @@ let dirty =
       return true;
     },
 
+    getExpandedFolders(): string[] {
+      return [...expandedFolders];
+    },
+
+    setExpandedFolder(dirPath: string, expanded: boolean): boolean {
+      if (typeof dirPath !== "string" || dirPath.length === 0 || typeof expanded !== "boolean") return false;
+      const key = pathKey(dirPath, inferPlatform([dirPath, ...expandedFolders, ...collapsedFolders]));
+      const idx = expandedFolders.indexOf(key);
+      if (expanded) {
+        const ci = collapsedFolders.indexOf(key);
+        if (ci !== -1) collapsedFolders.splice(ci, 1);
+        if (idx !== -1 && ci === -1) return false;
+        if (idx === -1) expandedFolders.push(key);
+        scheduleSave();
+        return true;
+      }
+      if (idx === -1) return false;
+      expandedFolders.splice(idx, 1);
+      scheduleSave();
+      return true;
+    },
+
+    // ── focus mode (add-focus-mode-and-card-block-toggles) ──
+
+    setFocusEnabled(enabled: boolean): boolean {
+      if (typeof enabled !== "boolean" || (focusState.enabled === true) === enabled) return false;
+      focusState = { ...focusState, enabled };
+      scheduleSave();
+      return true;
+    },
+
+    setFocusProfile(profile: FocusProfile | null): boolean {
+      const validated = profile === null ? undefined : validateFocusProfile(profile);
+      if (profile !== null && !validated) return false;
+      const next = validated ?? undefined;
+      if (JSON.stringify(next) === JSON.stringify(focusState.profile)) return false;
+      focusState = { ...focusState, profile: next };
+      scheduleSave();
+      return true;
+    },
+
     // ── card sections (configurable-session-card-sections) ──
 
     getCardSections(): CardSectionPrefs {
-      return cardSectionsSnapshot(cardSectionsGlobal, cardSectionsFolders);
+      return cardSectionsSnapshot(cardSectionsGlobal, cardSectionsFolders, focusState);
     },
 
     setCardSectionVisibility(dirPath: string | undefined, section: string, visible: boolean | null): boolean {

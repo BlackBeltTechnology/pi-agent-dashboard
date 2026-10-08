@@ -187,6 +187,52 @@ describe("OpenSpec activity badge follows the openspec section", () => {
   });
 });
 
+describe("OpenSpec phase shown once (add-focus-mode-and-card-block-toggles #E14)", () => {
+  const phased = { openspecPhase: "apply", openspecChange: "feat-xyz" } as Partial<DashboardSession>;
+  const badgeCount = () => screen.queryAllByText("Applying").length;
+  const rawChipCount = () => screen.queryAllByText("apply").length;
+
+  it.each([false, true])("desktop/mobile=%s: phase exactly once with badge on, tags strip has only user tags", async (mobile) => {
+    const { useMobile } = await import("../../hooks/useMobile.js");
+    (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(mobile);
+    renderCard({}, { session: { ...phased, tags: [] } });
+    expect(badgeCount()).toBe(1);
+    expect(rawChipCount()).toBe(0);
+    cleanup();
+    renderCard({}, { session: { ...phased, tags: ["x"] } });
+    expect(badgeCount()).toBe(1);
+    expect(rawChipCount()).toBe(0);
+    expect(screen.queryByText("#x")).not.toBeNull();
+  });
+
+  it("badge off → zero phase mentions even with openspec + tags visible", () => {
+    renderCard({ global: { "openspec-badge": false } }, { session: { ...phased, tags: ["x"] } });
+    expect(badgeCount()).toBe(0);
+    expect(rawChipCount()).toBe(0);
+    expect(screen.queryByText("#x")).not.toBeNull();
+    expect(hasTitle("OPENSPEC")).toBe(true);
+  });
+
+  it("openspec off, openspec-badge on → badge line without the subcard", () => {
+    renderCard({ global: { openspec: false, "openspec-badge": true } }, { session: phased });
+    expect(screen.queryByText(/feat-xyz/)).not.toBeNull();
+    expect(hasTitle("OPENSPEC")).toBe(false);
+  });
+});
+
+describe("per-plugin badge / action-bar switches (#E15)", () => {
+  it("hiding the only badge plugin removes the STATUS frame; others unaffected", () => {
+    renderCard({ global: { "badge-status-claim": false } });
+    expect(hasTitle("STATUS")).toBe(false);
+    expect(screen.queryByTestId("status-claim")).toBeNull();
+    expect(hasTitle("FLOWS")).toBe(true);
+  });
+  it("legacy status parent still hides every badge", () => {
+    renderCard({ global: { status: false } });
+    expect(hasTitle("STATUS")).toBe(false);
+  });
+});
+
 describe("PROCESS safety chip", () => {
   it("hidden PROCESS + 1 background process → chip, no subcard", () => {
     renderCard({ folders: { [CWD]: { process: false } } }, { processes: [PROC] });

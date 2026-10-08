@@ -129,3 +129,55 @@ describe("CardSectionsPage", () => {
     expect(screen.getByTestId("card-sections-preview-tags")).toBeTruthy();
   });
 });
+
+describe("CardSectionsPage — card blocks (add-focus-mode-and-card-block-toggles #E19)", () => {
+  function renderWith(prefs: CardSectionPrefs, claims: [string, string][], ctx: Record<string, unknown> = {}) {
+    const send = vi.fn();
+    const registry = createSlotRegistry();
+    for (const [pluginId, slot] of claims) registry.addClaim({ pluginId, priority: 100, slot: slot as never, Component: () => null });
+    const { hook } = memoryLocation({ path: "/", record: true });
+    render(
+      <Router hook={hook}>
+        <PluginContextProvider registry={registry}>
+          <CardSectionsProvider value={{ prefs, send, showToast: vi.fn(), pluginNames: { automation: "Automations" }, ...ctx }}>
+            <CardSectionsPage cwd={CWD} />
+          </CardSectionsProvider>
+        </PluginContextProvider>
+      </Router>,
+    );
+    return { send };
+  }
+
+  it("lists the directory-card group with built-in rows and an Automations pill row; no MEMORY, no Effects", () => {
+    renderWith({}, [["automation", "sidebar-folder-section"], ["goal", "session-card-badge"], ["goal", "session-card-action-bar"]]);
+    const dir = screen.getByTestId("card-sections-group-directory");
+    for (const id of ["folder-git", "folder-banner", "folder-openspec", "folder-create", "folder-ended", "pill-automation"]) {
+      expect(dir.querySelector(`[data-testid="card-section-row-${id}"]`)).not.toBeNull();
+    }
+    expect(dir.textContent).toContain("Automations pill");
+    expect(screen.queryByTestId("card-section-row-badge-goal")).not.toBeNull();
+    expect(screen.queryByTestId("card-section-row-actionbar-goal")).not.toBeNull();
+    expect(screen.queryByTestId("card-section-row-memory")).toBeNull();
+    expect(screen.queryByTestId("card-sections-group-effects")).toBeNull();
+    expect(screen.queryByTestId("card-section-row-fx-status-animation")).toBeNull();
+  });
+
+  it("openspec-badge inherits a hidden legacy parent as Default (Hide) and a folder write targets the child", () => {
+    const { send } = renderWith({ global: { openspec: false } }, []);
+    expect(screen.getByTestId("card-section-openspec-badge-inherit").textContent).toBe("Default (Hide)");
+    fireEvent.click(screen.getByTestId("card-section-openspec-badge-show"));
+    expect(send).toHaveBeenLastCalledWith({ type: "set_card_section_visibility", path: CWD, section: "openspec-badge", visible: true });
+  });
+
+  it("shows the Focus notice only while Focus is on and Turn off Focus sends the toggle (#E23)", () => {
+    const off = renderWith({}, []);
+    expect(screen.queryByTestId("focus-notice")).toBeNull();
+    cleanup();
+    const on = renderWith({ focus: { enabled: true } }, []);
+    expect(screen.getByTestId("focus-notice")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("focus-notice-off"));
+    expect(on.send).toHaveBeenLastCalledWith({ type: "set_focus_mode", enabled: false });
+    expect(off.send).not.toHaveBeenCalled();
+  });
+});
+

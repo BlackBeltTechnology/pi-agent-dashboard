@@ -1,7 +1,7 @@
 /**
  * Server ↔ Browser WebSocket protocol messages.
  */
-import type { CardSectionPrefs } from "./card-sections.js";
+import type { CardSectionPrefs, FocusProfile } from "./card-sections.js";
 import type {
   PluginActionMessage,
   PluginEventBroadcast,
@@ -708,6 +708,8 @@ export interface WorkspacesUpdatedMessage {
 export interface CollapsedFoldersUpdatedMessage {
   type: "collapsed_folders_updated";
   collapsedFolders: string[];
+  /** Accordion pinned-open folders (mutually exclusive with collapsed). Absent from older servers. */
+  expandedFolders?: string[];
 }
 
 /**
@@ -1809,6 +1811,32 @@ export interface SetCardSectionVisibilityMessage {
   visible: boolean | null;
 }
 
+/**
+ * Browser → server: turn Focus mode on/off (overlay; never rewrites normal
+ * prefs). See change: add-focus-mode-and-card-block-toggles.
+ */
+export interface SetFocusModeMessage {
+  type: "set_focus_mode";
+  enabled: boolean;
+}
+
+/**
+ * Browser → server: replace the focus profile (`null` = reset to built-in).
+ * Server validates ids, boolean values, mode enum and the 256-key cap.
+ * See change: add-focus-mode-and-card-block-toggles.
+ */
+export interface SetFocusProfileMessage {
+  type: "set_focus_profile";
+  profile: FocusProfile | null;
+}
+
+/** Browser → server: pin a folder open (accordion) / unpin. See change: add-focus-mode-and-card-block-toggles. */
+export interface SetFolderExpandedMessage {
+  type: "set_folder_expanded";
+  path: string;
+  expanded: boolean;
+}
+
 /** Browser → server: drop every section override for one folder. See change: configurable-session-card-sections. */
 export interface ResetFolderCardSectionsMessage {
   type: "reset_folder_card_sections";
@@ -2109,6 +2137,9 @@ export type BrowserToServerMessage =
   | SetLaneCollapsedMessage
   | SetCardSectionVisibilityMessage
   | ResetFolderCardSectionsMessage
+  | SetFocusModeMessage
+  | SetFocusProfileMessage
+  | SetFolderExpandedMessage
   | AddFolderToWorkspaceMessage
   | RemoveFolderFromWorkspaceMessage
   | ReorderWorkspaceFoldersMessage
@@ -2394,6 +2425,12 @@ export interface BrowserRelayStatusMessage {
  * `cwd` is the unknown-working-directory plane.
  */
 export type AccessPlaneId = "filesystem" | "cwd" | "network" | "cors";
+
+/**
+ * Surfaces YOLO answers: the closed plane ids plus the agent path gate (which is
+ * not a registered plane). See change: yolo-covers-agent-path-gate.
+ */
+export type YoloSurfaceId = AccessPlaneId | "agent-path";
 
 /**
  * The three answers an operator may give. `allow-once` releases only the request
