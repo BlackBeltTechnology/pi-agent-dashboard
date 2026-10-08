@@ -6,7 +6,6 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { HostGateMode } from "./host-admission.js";
 import {
   DEFAULT_SERVER_HEAP,
   DEFAULT_SESSION_HEAP,
@@ -14,6 +13,7 @@ import {
   type ServerHeapConfig,
   type SessionHeapConfig,
 } from "./heap-limits.js";
+import type { HostGateMode } from "./host-admission.js";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
@@ -151,20 +151,6 @@ export interface AuthConfig {
   admin?: string;
 }
 
-/**
- * Memory-limit types + defaults live in a BROWSER-SAFE module and are
- * re-exported here so existing `config.js` importers are unaffected. The client
- * settings panel needs `DEFAULT_MEMORY_LIMITS` as a VALUE, and a value import of
- * THIS module would drag `node:fs`/`node:os`/`node:path` into the browser
- * bundle — a blank page at boot, not a build error.
- * See change: fix-lazy-history-backfill-ux (D7).
- */
-export {
-  DEFAULT_MEMORY_LIMITS,
-  type MemoryLimitsConfig,
-  MIN_REPLAY_WINDOW,
-  type ReplayWindowMode,
-} from "./memory-limits.js";
 
 /**
  * V8 heap-sizing types + defaults follow the same browser-safe split, for the
@@ -182,6 +168,20 @@ export {
   SUBAGENT_HEAP_GUIDANCE_MB,
   subagentHeapBudget,
 } from "./heap-limits.js";
+/**
+ * Memory-limit types + defaults live in a BROWSER-SAFE module and are
+ * re-exported here so existing `config.js` importers are unaffected. The client
+ * settings panel needs `DEFAULT_MEMORY_LIMITS` as a VALUE, and a value import of
+ * THIS module would drag `node:fs`/`node:os`/`node:path` into the browser
+ * bundle — a blank page at boot, not a build error.
+ * See change: fix-lazy-history-backfill-ux (D7).
+ */
+export {
+  DEFAULT_MEMORY_LIMITS,
+  type MemoryLimitsConfig,
+  MIN_REPLAY_WINDOW,
+  type ReplayWindowMode,
+} from "./memory-limits.js";
 
 /**
  * Server push notifications (Web Push / FCM / webhook). Opt-in: a missing or
@@ -890,6 +890,14 @@ export interface DashboardConfig {
    * See change: simplify-session-card-ordering.
    */
   questionFirst: boolean;
+  /**
+   * Sidebar folder list behavior. `classic` = today; `accordion` = focused folder
+   * full, others compact. Unknown values fall back to `classic`.
+   * See change: add-focus-mode-and-card-block-toggles.
+   */
+  folderListMode: "classic" | "accordion";
+  /** Accordion: unfocused folders with sessions demanding attention peek open. Default `true`. */
+  folderAttentionPeek: boolean;
   /** Persisted list of known remote servers */
   knownServers: KnownServer[];
   /**
@@ -1323,6 +1331,8 @@ const DEFAULTS: DashboardConfig = {
   reopenSessionsAfterShutdown: DEFAULT_REOPEN_SESSIONS_AFTER_SHUTDOWN,
   completedFirst: false,
   questionFirst: false,
+  folderListMode: "classic",
+  folderAttentionPeek: true,
   spawnRegisterTimeoutMs: 30000,
   gitWorktreeEnabled: true,
   windowsGitSource: "auto",
@@ -2104,6 +2114,8 @@ export function loadConfig(): DashboardConfig {
       reopenSessionsAfterShutdown: parseReopenSessionsAfterShutdown(parsed.reopenSessionsAfterShutdown),
       completedFirst: typeof parsed.completedFirst === "boolean" ? parsed.completedFirst : defaults.completedFirst,
       questionFirst: typeof parsed.questionFirst === "boolean" ? parsed.questionFirst : defaults.questionFirst,
+      folderListMode: parsed.folderListMode === "accordion" ? "accordion" : "classic",
+      folderAttentionPeek: typeof parsed.folderAttentionPeek === "boolean" ? parsed.folderAttentionPeek : defaults.folderAttentionPeek,
       plugins: parsePluginsConfig(parsed.plugins),
       askUserPromptTimeoutSeconds: typeof parsed.askUserPromptTimeoutSeconds === "number"
         ? parsed.askUserPromptTimeoutSeconds

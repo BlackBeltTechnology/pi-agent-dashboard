@@ -17,8 +17,8 @@ import { IntentRenderer } from "./intent-renderer.js";
 import { useSlotIntents } from "./intent-store.js";
 import { sendPluginAction } from "./plugin-action-bridge.js";
 import { CurrentPluginLayer, useSlotRegistryOrNull } from "./plugin-context.js";
-import { useSlotClaimsVersion } from "./slot-claims-invalidation.js";
 import { useShellSessionOrNull } from "./shell-sessions-context.js";
+import { useSlotClaimsVersion } from "./slot-claims-invalidation.js";
 import { SlotErrorBoundary } from "./slot-error-boundary.js";
 import type { FolderDescriptor } from "./slot-registry.js";
 import { forActionId, forFolder, forSession, forSessionRendered, forToolName, type SlotRegistry } from "./slot-registry.js";
@@ -59,6 +59,37 @@ export function useSlotHasAnyClaims(slotId: SlotId): boolean {
   const registry = useSlotRegistryOrNull();
   if (!registry) return false;
   return registry.getClaims(slotId).length > 0;
+}
+
+/**
+ * Like `useSlotHasClaimsForSession` but honours a host-supplied per-plugin
+ * visibility filter, so a parent wrapper (e.g. the STATUS subcard) hides when
+ * every contributing plugin is switched off. `isPluginVisible` absent = no
+ * filtering. See change: add-focus-mode-and-card-block-toggles.
+ */
+export function useSlotHasVisibleClaimsForSession(
+  slotId: SlotId,
+  session: DashboardSession,
+  isPluginVisible?: (pluginId: string) => boolean,
+): boolean {
+  useSlotClaimsVersion();
+  const registry = useSlotRegistryOrNull();
+  if (!registry) return false;
+  return forSessionRendered(registry.getClaims(slotId), session).some(
+    (c) => !isPluginVisible || isPluginVisible(c.pluginId),
+  );
+}
+
+/**
+ * Sorted, de-duplicated ids of plugins claiming `slotId` (session-agnostic).
+ * Drives the generated per-plugin rows in the card-sections settings.
+ * See change: add-focus-mode-and-card-block-toggles (design D3).
+ */
+export function useSlotPluginIds(slotId: SlotId): string[] {
+  useSlotClaimsVersion();
+  const registry = useSlotRegistryOrNull();
+  if (!registry) return [];
+  return [...new Set(registry.getClaims(slotId).map((c) => c.pluginId))].sort();
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -106,10 +137,19 @@ function renderIntent(
 
 // ── Slot consumers ────────────────────────────────────────────────────────────
 
-export function SidebarFolderSectionSlot({ folder }: { folder: FolderDescriptor }) {
+export function SidebarFolderSectionSlot({
+  folder,
+  isPluginVisible,
+}: {
+  folder: FolderDescriptor;
+  /** Host per-plugin visibility filter; absent = render all. */
+  isPluginVisible?: (pluginId: string) => boolean;
+}) {
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
-  const claims = forFolder(registry.getClaims("sidebar-folder-section"), folder);
+  const claims = forFolder(registry.getClaims("sidebar-folder-section"), folder).filter(
+    (c) => !isPluginVisible || isPluginVisible(c.pluginId),
+  );
   if (!claims.length) return null;
   return (
     <>
@@ -142,13 +182,24 @@ export function WorktreeCardSectionSlot({ folder }: { folder: FolderDescriptor }
   );
 }
 
-export function SessionCardBadgeSlot({ session }: { session: DashboardSession }) {
+export function SessionCardBadgeSlot({
+  session,
+  isPluginVisible,
+}: {
+  session: DashboardSession;
+  /** Host per-plugin visibility filter (legacy claims + intents); absent = render all. */
+  isPluginVisible?: (pluginId: string) => boolean;
+}) {
   useSlotClaimsVersion();
   const registry = useSlotRegistryOrNull();
-  const intents = useSlotIntents("session-card-badge", session.id);
-  const legacyClaims = registry
+  const allIntents = useSlotIntents("session-card-badge", session.id);
+  const intents = isPluginVisible
+    ? new Map(Array.from(allIntents).filter(([id]) => isPluginVisible(id)))
+    : allIntents;
+  const legacyClaims = (registry
     ? forSessionRendered(registry.getClaims("session-card-badge"), session)
-    : [];
+    : []
+  ).filter((c) => !isPluginVisible || isPluginVisible(c.pluginId));
   if (!legacyClaims.length && intents.size === 0) return null;
   return (
     <>
@@ -162,13 +213,24 @@ export function SessionCardBadgeSlot({ session }: { session: DashboardSession })
   );
 }
 
-export function SessionCardActionBarSlot({ session }: { session: DashboardSession }) {
+export function SessionCardActionBarSlot({
+  session,
+  isPluginVisible,
+}: {
+  session: DashboardSession;
+  /** Host per-plugin visibility filter (legacy claims + intents); absent = render all. */
+  isPluginVisible?: (pluginId: string) => boolean;
+}) {
   useSlotClaimsVersion();
   const registry = useSlotRegistryOrNull();
-  const intents = useSlotIntents("session-card-action-bar", session.id);
-  const legacyClaims = registry
+  const allIntents = useSlotIntents("session-card-action-bar", session.id);
+  const intents = isPluginVisible
+    ? new Map(Array.from(allIntents).filter(([id]) => isPluginVisible(id)))
+    : allIntents;
+  const legacyClaims = (registry
     ? forSessionRendered(registry.getClaims("session-card-action-bar"), session)
-    : [];
+    : []
+  ).filter((c) => !isPluginVisible || isPluginVisible(c.pluginId));
   if (!legacyClaims.length && intents.size === 0) return null;
   return (
     <>

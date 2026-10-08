@@ -623,6 +623,34 @@ body {
   .card-stripes-fx::before { animation: none; }
 }
 
+/* ── Card effects off (Focus / Effects settings) ──────────────
+   `<html data-fx-status="off">` freezes the status sweep to the flat state tint
+   (the static cue: yellow running / cyan unread / purple ask_user). State
+   classes and DOM are unchanged, so sidebar cards and board rows stay
+   identical. `<html data-fx-glow="off">` drops the animated selected rim +
+   glow; the static blue selected border underneath stays. The
+   `prefers-reduced-motion` blocks above/below are intentionally untouched.
+   See change: add-focus-mode-and-card-block-toggles (design D5). */
+[data-fx-status="off"] .card-stripes-fx::before {
+  animation: none;
+  left: 0;
+  right: 0;
+}
+[data-fx-status="off"] .card-stripes-running::before {
+  background-image: linear-gradient(rgba(234, 179, 8, 0.12), rgba(234, 179, 8, 0.12));
+}
+[data-fx-status="off"] .card-stripes-unread::before {
+  background-image: linear-gradient(color-mix(in srgb, var(--status-unread) 12%, transparent), color-mix(in srgb, var(--status-unread) 12%, transparent));
+}
+[data-fx-status="off"] .card-stripes-input::before {
+  background-image: linear-gradient(rgba(168, 85, 247, 0.12), rgba(168, 85, 247, 0.12));
+}
+[data-fx-glow="off"] .card-ring-fx,
+[data-fx-glow="off"] .card-glow-mask,
+[data-fx-glow="off"] .card-glow-mask-outer {
+  display: none;
+}
+
 /* ── Transcript off-screen render skipping (Phase 2, Step A) ──────────────
    `content-visibility: auto` lets the browser skip layout + paint for message
    rows that are outside the viewport, bounding per-pass layout work to the

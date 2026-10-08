@@ -569,6 +569,11 @@ export function registerSystemRoutes(
       if (partial.questionFirst !== undefined) {
         config.questionFirst = reloaded.questionFirst;
       }
+      // Sidebar folder list mode / attention peek: every open browser re-reads
+      // /api/config. See change: add-focus-mode-and-card-block-toggles.
+      if (partial.folderListMode !== undefined || partial.folderAttentionPeek !== undefined) {
+        browserGateway?.broadcastToAll({ type: "config_updated", section: "sessions" });
+      }
       // Live-reload tunnel watchdog when its config changes (no restart needed).
       // We always restart the watchdog when partial.tunnel is present and a
       // tunnel is currently active — covers both watchdog flag changes and

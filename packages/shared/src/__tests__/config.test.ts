@@ -657,6 +657,36 @@ describe("loadConfig completedFirst / questionFirst", () => {
   });
 });
 
+describe("loadConfig folderListMode / folderAttentionPeek", () => {
+  let testDir: string;
+  let origHome: string;
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-config-flm-${Date.now()}-${Math.random()}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+  afterEach(() => {
+    process.env.HOME = origHome;
+    fs.rmSync(testDir, { recursive: true, force: true });
+  });
+  const load = (obj: unknown) => {
+    fs.writeFileSync(path.join(testDir, ".pi", "dashboard", "config.json"), JSON.stringify(obj));
+    return loadConfig();
+  };
+  it("parses mode, unknown/absent -> classic", () => {
+    expect(load({ folderListMode: "classic" }).folderListMode).toBe("classic");
+    expect(load({ folderListMode: "accordion" }).folderListMode).toBe("accordion");
+    expect(load({ folderListMode: "grid" }).folderListMode).toBe("classic");
+    expect(load({}).folderListMode).toBe("classic");
+  });
+  it("peek defaults true, honours booleans only", () => {
+    expect(load({}).folderAttentionPeek).toBe(true);
+    expect(load({ folderAttentionPeek: false }).folderAttentionPeek).toBe(false);
+    expect(load({ folderAttentionPeek: "no" }).folderAttentionPeek).toBe(true);
+  });
+});
+
 describe("loadConfig spawnRegisterTimeoutMs", () => {
   let testDir: string;
   let configFile: string;
