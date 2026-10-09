@@ -1,14 +1,14 @@
 ## 1. Shared contract
 
-- [ ] 1.1 Add `packages/shared/src/event-forward-declaration.ts`: `EventForwardDeclaration`, `EventForwardChannelSpec` (`as?`, `delivery: "live"|"latest"|"stream"`, `key?`), channel constants `REGISTER_EVENT_FORWARD_CHANNEL = "dashboard:register-event-forward"`, `BRIDGE_READY_CHANNEL = "dashboard:bridge-ready"`, and pure `validateDeclaration()` per design D3 (name regexes, reserved core types, per-plugin 32 / total 256 caps)
-- [ ] 1.2 Export from the shared barrel; add the row to `packages/shared/src/AGENTS.md`
+- [x] 1.1 Add `packages/shared/src/event-forward-declaration.ts`: `EventForwardDeclaration`, `EventForwardChannelSpec` (`as?`, `delivery: "live"|"latest"|"stream"`, `key?`), channel constants `REGISTER_EVENT_FORWARD_CHANNEL = "dashboard:register-event-forward"`, `BRIDGE_READY_CHANNEL = "dashboard:bridge-ready"`, and pure `validateDeclaration()` per design D3 (name regexes, reserved core types, per-plugin 32 / total 256 caps)
+- [x] 1.2 Export from the shared barrel; add the row to `packages/shared/src/AGENTS.md`
 
 ## 2. Core bridge registry
 
-- [ ] 2.1 Generalise `packages/extension/src/flow-event-wiring.ts`: a forwarding registry holding core maps + accepted plugin channels; `declare(decl)` subscribes each new channel once via `events.on`, first-wins on conflict, counts rejections/conflicts; dispose releases all
-- [ ] 2.2 Add `packages/extension/src/stream-forward-buffer.ts`: `latest` (per channel+key) and `stream` retention in ONE buffer keyed by `(pluginId, key value)` preserving cross-channel emission order (stream bound 2000 msgs / 2 MiB per key; ONE 64-key budget shared by latest+stream, drop-oldest, counters), key-value validation (string or finite number, max 128 chars), `Map` storage, ordered `drain()`; wire into `forwardBusEvent` for plugin-declared channels (core subagent channels keep `SubagentFrameBuffer`)
-- [ ] 2.3 In `bridge.ts` `initBridge`: attach the `dashboard:register-event-forward` listener next to `registerEventBusForwarding` (bridge.ts:3066), then emit `dashboard:bridge-ready`; flush the stream buffer where subagent frames are flushed on ready
-- [ ] 2.4 Report registry/buffer counters in the bridge health payload and surface them in `/api/health`
+- [x] 2.1 Generalise `packages/extension/src/flow-event-wiring.ts`: a forwarding registry holding core maps + accepted plugin channels; `declare(decl)` subscribes each new channel once via `events.on`, first-wins on conflict, counts rejections/conflicts; dispose releases all
+- [x] 2.2 Add `packages/extension/src/stream-forward-buffer.ts`: `latest` (per channel+key) and `stream` retention in ONE buffer keyed by `(pluginId, key value)` preserving cross-channel emission order (stream bound 2000 msgs / 2 MiB per key; ONE 64-key budget shared by latest+stream, drop-oldest, counters), key-value validation (string or finite number, max 128 chars), `Map` storage, ordered `drain()`; wire into `forwardBusEvent` for plugin-declared channels (core subagent channels keep `SubagentFrameBuffer`)
+- [x] 2.3 In `bridge.ts` `initBridge`: attach the `dashboard:register-event-forward` listener next to `registerEventBusForwarding` (bridge.ts:3066), then emit `dashboard:bridge-ready`; flush the stream buffer where subagent frames are flushed on ready
+- [x] 2.4 Report registry/buffer counters in the bridge health payload and surface them in `/api/health`
 
 ## 3. Plugin bridges
 
@@ -46,19 +46,19 @@
 
 ### 8a. Bridge registry — L1 `packages/extension/src/__tests__/plugin-event-forwarding.test.ts` (exemplar: `packages/extension/src/__tests__/eventbus-foreign-emit-forwarding.test.ts`)
 
-- [ ] 8.1 Declared channel forwarded: declaration `subagents:entry → subagent_entry, stream, key agentId`, ready+connected · fake bus emits `subagents:entry {agentId:"a"}` · exactly one `sendEventForward("subagent_entry", payload)` (test-plan #E1)
-- [ ] 8.2 Idempotent declaration: same declaration twice · one emission · `events.on` called once for the channel and one forward (test-plan #E2)
-- [ ] 8.3 Conflict first-wins: core `subagents:started` re-declared by a plugin as `x_y` · emission · forwarded as `subagent_started`, conflict counter 1, no throw (test-plan #E3)
-- [ ] 8.4 Validation: `Bad Name`, 64- vs 65-char names, no-colon name, `as: "message_update"`, stream without key, pluginId `Bad!` · declare · only valid entries subscribed, rejection counter equals invalid count, bad pluginId rejects whole declaration (test-plan #E4)
-- [ ] 8.5 Caps: 32 vs 33 channels per plugin, 256 vs 257 total · declare · 33rd and 257th rejected and counted (test-plan #E5)
-- [ ] 8.6 Key value validation: stream channel not forwardable, `agentId` object / 129-char / `"__proto__"` / 7 · emit then flush · object and 129-char not retained (counted), `__proto__` and 7 flushed, `Object.prototype` unchanged (test-plan #E6)
-- [ ] 8.7 Latest per key: latest channel disconnected · 3× key a, 1× key b, reconnect · newest a and b only, in order (test-plan #E7)
-- [ ] 8.8 Stream order across channels: two stream channels, not ready · delta, delta, entry, delta for agent a, then ready · flushed in exactly that order (test-plan #E8)
-- [ ] 8.9 Stream and key bounds: 2,500 messages for one key; 10,000 distinct latest keys, not forwardable · flush · ≤ 2000 msgs and ≤ 2 MiB per key, ≤ 64 keys, drop counters equal the excess (test-plan #P1)
-- [ ] 8.10 Handshake late bridge: plugin activates before the main bridge listener · main bridge init emits `dashboard:bridge-ready` · plugin re-declares, channel forwarded, one subscription (test-plan #X1)
-- [ ] 8.11 Bridge reload: registry disposed and recreated · new instance emits ready · channels forwarded again, no duplicate forward per emission, old subscriptions released (test-plan #X2)
-- [ ] 8.12 Disconnect gap: connection down during 50 stream messages · reconnect · all 50 forwarded in order, none duplicated (test-plan #X3)
-- [ ] 8.13 Health counters: 2 declared channels, 1 rejected, 3 stream drops · read bridge health payload and `/api/health` (exemplar `packages/server/src/__tests__/health-compatibility.test.ts`) · declared 2, rejected 1, dropped 3 (test-plan #X6)
+- [x] 8.1 Declared channel forwarded: declaration `subagents:entry → subagent_entry, stream, key agentId`, ready+connected · fake bus emits `subagents:entry {agentId:"a"}` · exactly one `sendEventForward("subagent_entry", payload)` (test-plan #E1)
+- [x] 8.2 Idempotent declaration: same declaration twice · one emission · `events.on` called once for the channel and one forward (test-plan #E2)
+- [x] 8.3 Conflict first-wins: core `subagents:started` re-declared by a plugin as `x_y` · emission · forwarded as `subagent_started`, conflict counter 1, no throw (test-plan #E3)
+- [x] 8.4 Validation: `Bad Name`, 64- vs 65-char names, no-colon name, `as: "message_update"`, stream without key, pluginId `Bad!` · declare · only valid entries subscribed, rejection counter equals invalid count, bad pluginId rejects whole declaration (test-plan #E4)
+- [x] 8.5 Caps: 32 vs 33 channels per plugin, 256 vs 257 total · declare · 33rd and 257th rejected and counted (test-plan #E5)
+- [x] 8.6 Key value validation: stream channel not forwardable, `agentId` object / 129-char / `"__proto__"` / 7 · emit then flush · object and 129-char not retained (counted), `__proto__` and 7 flushed, `Object.prototype` unchanged (test-plan #E6)
+- [x] 8.7 Latest per key: latest channel disconnected · 3× key a, 1× key b, reconnect · newest a and b only, in order (test-plan #E7)
+- [x] 8.8 Stream order across channels: two stream channels, not ready · delta, delta, entry, delta for agent a, then ready · flushed in exactly that order (test-plan #E8)
+- [x] 8.9 Stream and key bounds: 2,500 messages for one key; 10,000 distinct latest keys, not forwardable · flush · ≤ 2000 msgs and ≤ 2 MiB per key, ≤ 64 keys, drop counters equal the excess (test-plan #P1)
+- [x] 8.10 Handshake late bridge: plugin activates before the main bridge listener · main bridge init emits `dashboard:bridge-ready` · plugin re-declares, channel forwarded, one subscription (test-plan #X1)
+- [x] 8.11 Bridge reload: registry disposed and recreated · new instance emits ready · channels forwarded again, no duplicate forward per emission, old subscriptions released (test-plan #X2)
+- [x] 8.12 Disconnect gap: connection down during 50 stream messages · reconnect · all 50 forwarded in order, none duplicated (test-plan #X3)
+- [x] 8.13 Health counters: 2 declared channels, 1 rejected, 3 stream drops · read bridge health payload and `/api/health` (exemplar `packages/server/src/__tests__/health-compatibility.test.ts`) · declared 2, rejected 1, dropped 3 (test-plan #X6)
 
 ### 8b. Plugin bridge entries — L1 (exemplar: `packages/context-mode-settings-plugin/src/bridge/__tests__/bridge-entry.test.ts`)
 

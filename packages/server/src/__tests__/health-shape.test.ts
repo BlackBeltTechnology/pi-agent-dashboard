@@ -281,6 +281,21 @@ describe("GET /api/health — shape", () => {
     expect(Array.isArray(body.agents)).toBe(true);
   });
 
+  // Plugin event-forward registry roll-up is additive on the same response
+  // (all-zero with no bridge). See change: add-plugin-bridge-contributions
+  // (test-plan #X6).
+  it("gains the plugin event-forward counters additively", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const pef = body.pluginEventForward as Record<string, unknown>;
+    expect(pef).toBeDefined();
+    expect(Object.keys(pef).sort()).toEqual(["conflicts", "declared", "dropped", "rejected", "retained"]);
+    for (const v of Object.values(pef)) expect(v).toBe(0);
+    expect(typeof body.subagentTickThrottle).toBe("object");
+  });
+
   // X6: the `??` fallback the route takes when no event store is wired. It is
   // the store's explicitly-typed EMPTY_TRIM_STATS, not an inline literal —
   // `a ?? b` does not check `b` against `A`, so an inline literal could silently
