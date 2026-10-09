@@ -280,3 +280,44 @@ describe("MinimalChatView liveEntry", () => {
     }
   });
 });
+
+// Tool output envelopes are shown as text, not raw JSON.
+// See change: add-plugin-bridge-contributions (D11, test-plan #E21).
+describe("formatToolOutput", () => {
+  it("unwraps a text content envelope, keeps strings, stringifies the rest", async () => {
+    const { formatToolOutput } = await import("../MinimalChatView.js");
+    expect(formatToolOutput({ content: [{ type: "text", text: "a\nb" }], structuredContent: "x" })).toBe("a\nb");
+    expect(formatToolOutput({ content: [{ type: "text", text: "a" }, { type: "text", text: "b" }] })).toBe("a\nb");
+    expect(formatToolOutput("plain")).toBe("plain");
+    expect(formatToolOutput({ foo: 1 })).toBe(JSON.stringify({ foo: 1 }, null, 2));
+    expect(formatToolOutput({ content: [{ type: "image", data: "…" }] })).toContain('"image"');
+    expect(formatToolOutput(undefined)).toBeUndefined();
+  });
+
+  it("renders the unwrapped text in the fallback tool entry", () => {
+    renderView(
+      <MinimalChatView
+        title="t"
+        status="completed"
+        entries={[{ kind: "tool", toolName: "Read", input: { path: "f" }, output: { content: [{ type: "text", text: "line 1\nline 2" }] } } as MinimalChatEntry]}
+      />,
+    );
+    fireEvent.click(screen.getByText("▸"));
+    expect(document.body.textContent).toContain("line 1");
+    expect(document.body.textContent).not.toContain('"content"');
+  });
+
+  it("a growing live entry renders the whole block without the fading window", () => {
+    renderView(
+      <MinimalChatView
+        title="t"
+        status="running"
+        entries={[]}
+        liveEntry={{ kind: "thinking", text: "x".repeat(1500), growing: true }}
+      />,
+    );
+    const live = screen.getByTestId("minimal-live-entry");
+    expect(live.textContent).toContain("x".repeat(1500));
+    expect(live.innerHTML).not.toContain("max-h-36");
+  });
+});

@@ -20,16 +20,16 @@
 
 - [x] 4.1 `memory-event-store.ts`: remove `reduceSubagentEvent` / head+tail path and its constants; over-ceiling subagent carrier only: scan the session's resident buffer for that agent's `subagent_entry` indices; `details.entryCount` safe integer `>= 0` AND one pass finds distinct valid indices in `[0, entryCount)` equal to `entryCount` → clone with `entries: []`, then generic path; else generic path
 - [x] 4.2 `memory-event-store.ts`: exempt `subagent_delta.text` from the per-string cap (per-event ceiling still applies, no fragmentation); an over-ceiling delta is stored as its envelope with `text: ""` + `omittedLength` (bypassing the generic path); on insert of `subagent_entry` with `blockId`, drop stored `subagent_delta` of the same `(agentId, blockId)`; on `subagent_completed`/`subagent_failed`, drop that agent's remaining deltas; update `buf.bytes` + `globalBytes`, never renumber `seq`, count in `storeTrim`
-- [ ] 4.3 `packages/server/src/session/replay-compaction.ts`: keep raw-vs-replay reducer equivalence for `subagent_entry` / `subagent_delta` (pass-through unless proven equivalent)
+- [x] 4.3 `packages/server/src/session/replay-compaction.ts`: keep raw-vs-replay reducer equivalence for `subagent_entry` / `subagent_delta` (pass-through unless proven equivalent)
 
 ## 5. Client
 
-- [ ] 5.1 `event-reducer.ts`: `subagent_entry` arm (place at `index`, dedupe), `subagent_delta` arm (per-agent live block: append/ignore-covered/gap, new `blockId` replaces, entry with same `blockId` or terminal clears; tombstones `closedBlockMax` + terminal ignore late deltas); terminal/tick `entries` never shrink the streamed list; neither type reaches the `default` raw-row arm
-- [ ] 5.2 Subagent state type (`packages/subagents-plugin/src/client/types.ts`): add `liveBlock?: { blockId; kind; text; gap }`
-- [ ] 5.3 `SubagentDetailView.tsx`: pass `liveBlock` (full text) as `liveEntry` when present, else `liveTail` fallback with the existing held-tail logic; `MinimalChatView.tsx` live entry renders growing text (main-chat thinking/text styling, gap marker)
-- [ ] 5.4 `MinimalChatView.tsx:121-125`: unwrap `{content:[{type:"text",text}]}` tool output to joined text
-- [ ] 5.5 `event-reducer.ts` `tool_execution_end` arm (~2551-2561): stamp any synthesized `healedBy` (`superseded`, `session_ended`) onto `toolDetails.healedBy`, clear only on a real end. `AgentToolRenderer.tsx`: when the row is healed (`toolDetails.healedBy` set: superseded or session_ended) and `sub?.result`, render `sub.result` (keep recovered badge)
-- [ ] 5.6 `useSubagentResyncCadence.ts`: stop re-firing once `entries.length >= entryCount` for a streamed producer
+- [x] 5.1 `event-reducer.ts`: `subagent_entry` arm (place at `index`, dedupe), `subagent_delta` arm (per-agent live block: append/ignore-covered/gap, new `blockId` replaces, entry with same `blockId` or terminal clears; tombstones `closedBlockMax` + terminal ignore late deltas); terminal/tick `entries` never shrink the streamed list; neither type reaches the `default` raw-row arm
+- [x] 5.2 Subagent state type (`packages/subagents-plugin/src/client/types.ts`): add `liveBlock?: { blockId; kind; text; gap }`
+- [x] 5.3 `SubagentDetailView.tsx`: pass `liveBlock` (full text) as `liveEntry` when present, else `liveTail` fallback with the existing held-tail logic; `MinimalChatView.tsx` live entry renders growing text (main-chat thinking/text styling, gap marker)
+- [x] 5.4 `MinimalChatView.tsx:121-125`: unwrap `{content:[{type:"text",text}]}` tool output to joined text
+- [x] 5.5 `event-reducer.ts` `tool_execution_end` arm (~2551-2561): stamp any synthesized `healedBy` (`superseded`, `session_ended`) onto `toolDetails.healedBy`, clear only on a real end. `AgentToolRenderer.tsx`: when the row is healed (`toolDetails.healedBy` set: superseded or session_ended) and `sub?.result`, render `sub.result` (keep recovered badge)
+- [x] 5.6 `useSubagentResyncCadence.ts`: stop re-firing once `entries.length >= entryCount` for a streamed producer
 
 ## 6. Docs and records
 
@@ -78,18 +78,18 @@
 - [x] 8.24 Delta storage: `subagent_delta` text 100,000 chars; text > 256 KiB · insert + replay reduce · 100k stored verbatim; oversized stored as envelope `text:""` + `omittedLength`, replay shows gap until the entry (test-plan #E19)
 - [x] 8.25 Delta collapse + accounting: 5 deltas block 2, 3 deltas block 3 · insert entry blockId 2, then `subagent_completed` · block-2 deltas removed then all removed; `buf.bytes`/`globalBytes` drop by their bytes; other seqs unchanged; `storeTrim` counts (test-plan #E20)
 - [x] 8.26 Resident scan cost: session buffer 50,000 events, over-ceiling terminal frame · insert · elision decision < 50 ms (test-plan #P3)
-- [ ] 8.27 Raw vs compacted replay (`collapse-replay-equivalence.test.ts`): stored run with entries + open-block deltas · replay raw and via replay-compaction · identical subagent state (entries, liveBlock) (test-plan #X5)
+- [x] 8.27 Raw vs compacted replay (`collapse-replay-equivalence.test.ts`): stored run with entries + open-block deltas · replay raw and via replay-compaction · identical subagent state (entries, liveBlock) (test-plan #X5)
 
 ### 8d. Client — L1 (reducer exemplar: `packages/client/src/__tests__/event-reducer.test.ts`; heal exemplar: `packages/client/src/lib/__tests__/event-reducer.superseded-heal.test.ts`)
 
-- [ ] 8.28 Entry placement (`packages/client/src/lib/__tests__/event-reducer.subagent-stream.test.ts`): entries index 0, 2, then 1, duplicate 1 · reduce · entries [0,1,2] once each, no raw rows (test-plan #E9)
-- [ ] 8.29 Terminal does not shrink (same file): 10 streamed entries · terminal `entries: []` + `entryCount: 10`; frame with 3 entries; legacy frame with 12 · reduce · 10 remain for the first two, 12 replace for legacy (test-plan #E10)
-- [ ] 8.30 Delta assembly (same file): pieces offset 0 "Let me ", 7 "check", covered 3 "me", gap 20 "x" · reduce · `Let me check`, dup ignored, gap flag before `x` (test-plan #E11)
-- [ ] 8.31 Tombstones (same file): block 4 closed by entry; agent terminal · delta blockId 4; delta blockId 5 after terminal · no liveBlock (test-plan #E12)
-- [ ] 8.32 Entry before final piece (same file): liveBlock 2 · entry blockId 2, then final piece blockId 2 · entry shown, liveBlock absent (test-plan #E13)
-- [ ] 8.33 Legacy producer (same file): recorded producer 0.2.x stream · reduce · timeline equals current behaviour, liveTail fallback used (test-plan #X4)
-- [ ] 8.34 Healed card (`packages/client/src/components/tool-renderers/__tests__/AgentToolRenderer.test.tsx`, exemplar same file): healedBy superseded / session_ended / real end × sub.result set / empty · render collapsed · healed+result → sub.result + recovered badge; healed+empty → sentinel; real end → tool result (test-plan #E22)
-- [ ] 8.35 Output unwrap (`packages/client-utils/src/minimal-chat/__tests__/MinimalChatView.test.tsx`, exemplar same file): output string; `{content:[{type:"text",text:"a\nb"}],structuredContent}`; `{foo:1}` · render expanded · envelope → `a`/`b` lines, string as-is, other → JSON (test-plan #E21)
+- [x] 8.28 Entry placement (`packages/client/src/lib/__tests__/event-reducer.subagent-stream.test.ts`): entries index 0, 2, then 1, duplicate 1 · reduce · entries [0,1,2] once each, no raw rows (test-plan #E9)
+- [x] 8.29 Terminal does not shrink (same file): 10 streamed entries · terminal `entries: []` + `entryCount: 10`; frame with 3 entries; legacy frame with 12 · reduce · 10 remain for the first two, 12 replace for legacy (test-plan #E10)
+- [x] 8.30 Delta assembly (same file): pieces offset 0 "Let me ", 7 "check", covered 3 "me", gap 20 "x" · reduce · `Let me check`, dup ignored, gap flag before `x` (test-plan #E11)
+- [x] 8.31 Tombstones (same file): block 4 closed by entry; agent terminal · delta blockId 4; delta blockId 5 after terminal · no liveBlock (test-plan #E12)
+- [x] 8.32 Entry before final piece (same file): liveBlock 2 · entry blockId 2, then final piece blockId 2 · entry shown, liveBlock absent (test-plan #E13)
+- [x] 8.33 Legacy producer (same file): recorded producer 0.2.x stream · reduce · timeline equals current behaviour, liveTail fallback used (test-plan #X4)
+- [x] 8.34 Healed card (`packages/client/src/components/tool-renderers/__tests__/AgentToolRenderer.test.tsx`, exemplar same file): healedBy superseded / session_ended / real end × sub.result set / empty · render collapsed · healed+result → sub.result + recovered badge; healed+empty → sentinel; real end → tool result (test-plan #E22)
+- [x] 8.35 Output unwrap (`packages/client-utils/src/minimal-chat/__tests__/MinimalChatView.test.tsx`, exemplar same file): output string; `{content:[{type:"text",text:"a\nb"}],structuredContent}`; `{foo:1}` · render expanded · envelope → `a`/`b` lines, string as-is, other → JSON (test-plan #E21)
 
 ### 8e. E2E — L3 `tests/e2e/subagent-live-timeline.spec.ts` (exemplar: `tests/e2e/subagent-inspector.spec.ts`)
 
