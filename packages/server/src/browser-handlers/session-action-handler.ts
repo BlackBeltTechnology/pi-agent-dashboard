@@ -963,6 +963,12 @@ export async function shutdownSession(
   if (shutdownFile && metaPersistence) {
     metaPersistence.setLiveness(shutdownFile, { live: false, closedReason: "manual" });
   }
+  // Stamp the reason IN MEMORY before signalling pi: the bridge answers
+  // `shutdown` with its own `session_unregister`, which can land while we await
+  // the process exit below; `unregister()` keeps a pre-set reason, so the close
+  // stays `manual` instead of `unknown` (which would also make it look like a
+  // host-shutdown end). See change: fix-recovery-pi-signal-unregister (D2).
+  if (session) sessionManager.update(msg.sessionId, { closedReason: "manual" });
   piGateway.sendToSession(msg.sessionId, { type: "shutdown", sessionId: msg.sessionId });
   // Escalates SIGTERM → 2 s → SIGKILL via shared killProcess ladder.
   // See change: fix-keeper-kill-escalation.
@@ -1240,6 +1246,9 @@ export async function forceKillSession(
   if (session.sessionFile && metaPersistence) {
     metaPersistence.setLiveness(session.sessionFile, { live: false, closedReason: "manual" });
   }
+  // In-memory `manual` before any signal, so no racing bridge unregister can
+  // relabel it. See change: fix-recovery-pi-signal-unregister (D2).
+  sessionManager.update(sessionId, { closedReason: "manual" });
 
   // Force-close the bridge WebSocket regardless of PID availability.
   piGateway.closeSession(sessionId);

@@ -31,7 +31,7 @@ import {
   deregisterPluginBridge,
   syncPluginBridges,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
-import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
+import { RECOVERY_REATTACH_GRACE_MS, RECOVERY_SHUTDOWN_WINDOW_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import {
   deriveEffectiveSource,
   deriveLocalIdentity,
@@ -39,7 +39,7 @@ import {
   readRuntimeRequest,
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
-import { isRecoveryCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { isRecoveryCandidate, isShutdownWindowCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import compress from "@fastify/compress";
@@ -196,7 +196,7 @@ import { createPendingPrincipalOwnerRegistry } from "./pending/pending-principal
 import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
-import { recordExitIntent, resolveExitIntent, stampBootStart } from "./persistence/boot-state.js";
+import { recordExitIntent, resolveExitIntent, resolveExitRecord, stampBootStart } from "./persistence/boot-state.js";
 import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, DEFAULT_MAX_STRING_SIZE, type EventStore } from "./persistence/memory-event-store.js";
 import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
@@ -711,7 +711,25 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       closedReason: session.closedReason,
       recover: session.recover,
     });
-    const candidate = diskCandidate && isRecoveryAllowed(ownerIntent);
+    // Shutdown-window path: on a host shutdown pi exits gracefully and its
+    // bridge unregisters BEFORE this server is signalled, so the session is
+    // `live:false` on disk and the path above cannot see it. Evaluated on the
+    // scanned (pre-normalization) session; its evidence is consumed right
+    // here in EVERY mode, so it qualifies on at most one cold start.
+    // See change: fix-recovery-pi-signal-unregister (D3, D5, D6).
+    const ownerBoot = session.live === true ? undefined : resolveExitRecord(session.liveEpoch);
+    const windowMatch = isShutdownWindowCandidate(session, ownerBoot, RECOVERY_SHUTDOWN_WINDOW_MS);
+    if (windowMatch && session.sessionFile) {
+      metaPersistence.setLiveness(session.sessionFile, { live: false, closedReason: session.closedReason });
+    }
+    const windowCandidate = windowMatch && recoveryMode !== "off";
+    if (windowCandidate && ownerBoot && session.endedAt !== undefined) {
+      console.info(
+        `[recovery] ${session.id}: shutdown-window (ended ${((ownerBoot.at - session.endedAt) / 1000).toFixed(1)}s ` +
+          `before boot ${ownerBoot.bootId} exit via ${ownerBoot.exitIntent})`,
+      );
+    }
+    const candidate = (diskCandidate && isRecoveryAllowed(ownerIntent)) || windowCandidate;
     if (diskCandidate && !candidate) {
       console.info(
         `[recovery] ${session.id}: suppressed-by-intent (boot ${session.liveEpoch} exited via ${ownerIntent})`,

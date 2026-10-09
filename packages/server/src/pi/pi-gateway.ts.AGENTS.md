@@ -15,3 +15,5 @@ Forwards `session_register.usageSeed` to `register` via `normalizeUsageSeed` (fi
 - `start(port, host, {kind})` → `kind` `tcp|loopback` recorded in `tcpKind`; `bridgeListeners()` → `{listeners:["unix"|"tcp"|"loopback"|"loopback-fallback"], fallbackReason?}` feeds `/api/health` `gateway`.
 - Failed `startOnSocket` tears down the `wss` it created; `transport()` is guarded against `noServer`.
 - See change: fix-gateway-socket-stale-owner.
+
+Explicit `session_unregister` handler passes `{ endSource: "bridge_unregister" }` — the one seam a graceful pi exit reaches (quit, OS signal, reload, session replacement). See change: fix-recovery-pi-signal-unregister.

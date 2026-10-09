@@ -50,3 +50,4 @@ Calls `ensureGrantStoreId()` before `wireEvents` (grant-store token for `dashboa
 See change: add-browser-editor-pane-tab — `createServerPluginContext` gets the plugin's own `editor-pane-tab` prefixes (from manifest claims) so `ctx.openEditorTab` enforces own-prefix ownership.
 
 Boot plugin-bridge registration goes through `syncPluginBridges` with resolved enablement. See change: add-plugin-bridge-contributions.
+Cold-start loop adds shutdown-window path: `resolveExitRecord(session.liveEpoch)` + `isShutdownWindowCandidate` on the pre-normalization session; match consumes evidence (`setLiveness({live:false, closedReason})`, drops `liveEpoch`) in every mode; candidate unless mode `off`; logs `[recovery] <id>: shutdown-window (...)`. Window candidates join retract/grace/offer/auto pipeline unchanged. See change: fix-recovery-pi-signal-unregister.
