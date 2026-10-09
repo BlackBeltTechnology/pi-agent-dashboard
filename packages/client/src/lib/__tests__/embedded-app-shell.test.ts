@@ -38,7 +38,7 @@ describe("embedded app shell transport (#E12)", () => {
     const d = deps({ getApiBearer: vi.fn(() => "T") });
     await createEmbeddedAppShell(d).fetch("/api/x");
     expect(d.fetch).toHaveBeenCalledTimes(1);
-    const [url, init] = d.fetch.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = vi.mocked(d.fetch).mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("/api/x");
     expect(new Headers(init.headers).get("Authorization")).toBe("Bearer T");
   });
@@ -46,7 +46,7 @@ describe("embedded app shell transport (#E12)", () => {
   it("fetch without a bearer sends no Authorization header (cookie/loopback)", async () => {
     const d = deps();
     await createEmbeddedAppShell(d).fetch("/api/x");
-    const [, init] = d.fetch.mock.calls[0] as unknown as [string, RequestInit];
+    const [, init] = vi.mocked(d.fetch).mock.calls[0] as unknown as [string, RequestInit];
     expect(new Headers(init.headers).has("Authorization")).toBe(false);
     expect(init.credentials).toBe("same-origin");
   });
@@ -60,5 +60,10 @@ describe("embedded app shell transport (#E12)", () => {
     const url = await createEmbeddedAppShell(d).wsUrl("/ws");
     expect(url).toBe(ticketed ? "ws://dash.local:8000/ws?ticket=TICKET" : "ws://dash.local:8000/ws");
     expect(d.mintWsTicket).toHaveBeenCalledTimes(ticketed ? 1 : 0);
+  });
+
+  it("a failed ticket mint degrades to the unticketed URL (useWebSocket parity)", async () => {
+    const d = deps({ getApiBearer: vi.fn(() => "T"), mintWsTicket: vi.fn(async () => Promise.reject(new Error("x"))) });
+    await expect(createEmbeddedAppShell(d).wsUrl("/ws")).resolves.toBe("ws://dash.local:8000/ws");
   });
 });

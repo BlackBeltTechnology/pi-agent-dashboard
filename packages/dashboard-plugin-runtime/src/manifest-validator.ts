@@ -215,7 +215,7 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     ) {
       throw new ManifestValidationError(
         pluginId,
-        `claims[${index}] slot "shell-overlay-route" presentation must be "page", "dialog" or "content" if provided`,
+        `claims[${index}] slot "shell-overlay-route" presentation must be "page" or "dialog" or "content" if provided`,
       );
     }
   }

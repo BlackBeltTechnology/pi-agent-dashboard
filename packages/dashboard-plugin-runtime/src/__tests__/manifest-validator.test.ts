@@ -280,7 +280,7 @@ describe("validateManifest — shell-overlay-route presentation (add-route-backe
     expect(() => validateManifest(overlay({ presentation: "modal" }))).toThrow(
       ManifestValidationError,
     );
-    expect(() => validateManifest(overlay({ presentation: "modal" }))).toThrow(/"page", "dialog" or "content"/);
+    expect(() => validateManifest(overlay({ presentation: "modal" }))).toThrow(/"page" or "dialog"/);
   });
 
   // test-plan #E3 — see change: add-plugin-app-host.

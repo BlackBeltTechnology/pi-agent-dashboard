@@ -49,7 +49,8 @@ export function createEmbeddedAppShell(deps: EmbeddedAppShellDeps): EmbeddedAppS
       if (!isSafeDashboardPath(path, { allowApps: true })) return null;
       const url = `${deps.wsBase()}${path}`;
       if (!(deps.getApiBearer() || deps.isDevicePaired())) return url;
-      const ticket = await deps.mintWsTicket("browser");
+      // Same fallback as `useWebSocket`: a failed mint opens without a ticket.
+      const ticket = await deps.mintWsTicket("browser").catch(() => null);
       return ticket ? deps.appendWsTicket(url, ticket) : url;
     },
     encodeFolder: deps.encodeFolder,

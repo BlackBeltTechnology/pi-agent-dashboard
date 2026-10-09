@@ -325,7 +325,7 @@ function TopBar({
           </button>
         ))}
       </div>
-      {overflow.length > 0 || actions.length > 0 || standaloneUrl ? (
+      {actions.length > 0 ? (
         <div className="relative">
           <button
             type="button"

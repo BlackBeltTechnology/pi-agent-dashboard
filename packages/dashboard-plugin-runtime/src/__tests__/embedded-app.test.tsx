@@ -189,6 +189,12 @@ describe("top bar zones and action overflow (#E14)", () => {
     expect([...overflow].map((b) => b.textContent)).toEqual(["Act 2"]);
   });
 
+  it("no actions: no overflow trigger, even with a standalone URL", () => {
+    mount(<EmbeddedApp app={app()} basePath={BASE} folderParam={ENC} standaloneUrl="/apps/wall/" onBack={() => {}} />);
+    expect(screen.queryByTestId("embedded-app-overflow")).toBeNull();
+    expect(screen.getByTestId("embedded-app-open-standalone")).toBeTruthy();
+  });
+
   it("global app: breadcrumb shows only the title", () => {
     mount(<EmbeddedApp app={app()} basePath="/team" onBack={() => {}} />, { path: "/team" });
     expect(screen.getByTestId("embedded-app-breadcrumb").textContent).toBe("Wall");

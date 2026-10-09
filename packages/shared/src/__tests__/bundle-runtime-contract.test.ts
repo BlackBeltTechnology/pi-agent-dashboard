@@ -58,6 +58,9 @@ describe("bundled server ships the pi runtime (E10)", () => {
       "shared",
       "extension",
       "dashboard-plugin-runtime",
+      // dashboard-plugin-runtime depends on app-kit (`./embedded-app`).
+      // See change: add-plugin-app-host.
+      "app-kit",
       "mcp-client-plugin",
       "bus-client",
       "client-utils",
