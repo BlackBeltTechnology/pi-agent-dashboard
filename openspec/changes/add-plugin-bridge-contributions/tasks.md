@@ -18,8 +18,8 @@
 
 ## 4. Server storage
 
-- [ ] 4.1 `memory-event-store.ts`: remove `reduceSubagentEvent` / head+tail path and its constants; over-ceiling subagent carrier only: scan the session's resident buffer for that agent's `subagent_entry` indices; `details.entryCount` safe integer `>= 0` AND one pass finds distinct valid indices in `[0, entryCount)` equal to `entryCount` → clone with `entries: []`, then generic path; else generic path
-- [ ] 4.2 `memory-event-store.ts`: exempt `subagent_delta.text` from the per-string cap (per-event ceiling still applies, no fragmentation); an over-ceiling delta is stored as its envelope with `text: ""` + `omittedLength` (bypassing the generic path); on insert of `subagent_entry` with `blockId`, drop stored `subagent_delta` of the same `(agentId, blockId)`; on `subagent_completed`/`subagent_failed`, drop that agent's remaining deltas; update `buf.bytes` + `globalBytes`, never renumber `seq`, count in `storeTrim`
+- [x] 4.1 `memory-event-store.ts`: remove `reduceSubagentEvent` / head+tail path and its constants; over-ceiling subagent carrier only: scan the session's resident buffer for that agent's `subagent_entry` indices; `details.entryCount` safe integer `>= 0` AND one pass finds distinct valid indices in `[0, entryCount)` equal to `entryCount` → clone with `entries: []`, then generic path; else generic path
+- [x] 4.2 `memory-event-store.ts`: exempt `subagent_delta.text` from the per-string cap (per-event ceiling still applies, no fragmentation); an over-ceiling delta is stored as its envelope with `text: ""` + `omittedLength` (bypassing the generic path); on insert of `subagent_entry` with `blockId`, drop stored `subagent_delta` of the same `(agentId, blockId)`; on `subagent_completed`/`subagent_failed`, drop that agent's remaining deltas; update `buf.bytes` + `globalBytes`, never renumber `seq`, count in `storeTrim`
 - [ ] 4.3 `packages/server/src/session/replay-compaction.ts`: keep raw-vs-replay reducer equivalence for `subagent_entry` / `subagent_delta` (pass-through unless proven equivalent)
 
 ## 5. Client
@@ -70,14 +70,14 @@
 
 ### 8c. Server store — L1 `packages/server/src/__tests__/memory-event-store.test.ts` (exemplar: same file; replay rows exemplar `packages/server/src/__tests__/collapse-replay-equivalence.test.ts`)
 
-- [ ] 8.19 Elision with complete set: over-ceiling `subagent_completed` entryCount 300 with resident entries 0..299 · insert · stored `entries: []`, `entryCount: 300`, size ≤ ceiling+const, no `steps hidden` text (test-plan #E14)
-- [ ] 8.20 Missing step blocks elision: same with index 150 absent · insert · entries not `[]`, generic path bound, no sentinel (test-plan #E15)
-- [ ] 8.21 Invalid entryCount: -1, 2.5, NaN, 1e9 · insert over-ceiling · no elision, generic path (test-plan #E16)
-- [ ] 8.22 No false positive: over-ceiling non-subagent event with `details.entries` + numeric entryCount · insert · not elided, generic path (test-plan #E17)
-- [ ] 8.23 No mutation: over-ceiling streamed frame shared with caller · insert · caller `details.entries` unchanged, returned event is a new object (test-plan #E18)
-- [ ] 8.24 Delta storage: `subagent_delta` text 100,000 chars; text > 256 KiB · insert + replay reduce · 100k stored verbatim; oversized stored as envelope `text:""` + `omittedLength`, replay shows gap until the entry (test-plan #E19)
-- [ ] 8.25 Delta collapse + accounting: 5 deltas block 2, 3 deltas block 3 · insert entry blockId 2, then `subagent_completed` · block-2 deltas removed then all removed; `buf.bytes`/`globalBytes` drop by their bytes; other seqs unchanged; `storeTrim` counts (test-plan #E20)
-- [ ] 8.26 Resident scan cost: session buffer 50,000 events, over-ceiling terminal frame · insert · elision decision < 50 ms (test-plan #P3)
+- [x] 8.19 Elision with complete set: over-ceiling `subagent_completed` entryCount 300 with resident entries 0..299 · insert · stored `entries: []`, `entryCount: 300`, size ≤ ceiling+const, no `steps hidden` text (test-plan #E14)
+- [x] 8.20 Missing step blocks elision: same with index 150 absent · insert · entries not `[]`, generic path bound, no sentinel (test-plan #E15)
+- [x] 8.21 Invalid entryCount: -1, 2.5, NaN, 1e9 · insert over-ceiling · no elision, generic path (test-plan #E16)
+- [x] 8.22 No false positive: over-ceiling non-subagent event with `details.entries` + numeric entryCount · insert · not elided, generic path (test-plan #E17)
+- [x] 8.23 No mutation: over-ceiling streamed frame shared with caller · insert · caller `details.entries` unchanged, returned event is a new object (test-plan #E18)
+- [x] 8.24 Delta storage: `subagent_delta` text 100,000 chars; text > 256 KiB · insert + replay reduce · 100k stored verbatim; oversized stored as envelope `text:""` + `omittedLength`, replay shows gap until the entry (test-plan #E19)
+- [x] 8.25 Delta collapse + accounting: 5 deltas block 2, 3 deltas block 3 · insert entry blockId 2, then `subagent_completed` · block-2 deltas removed then all removed; `buf.bytes`/`globalBytes` drop by their bytes; other seqs unchanged; `storeTrim` counts (test-plan #E20)
+- [x] 8.26 Resident scan cost: session buffer 50,000 events, over-ceiling terminal frame · insert · elision decision < 50 ms (test-plan #P3)
 - [ ] 8.27 Raw vs compacted replay (`collapse-replay-equivalence.test.ts`): stored run with entries + open-block deltas · replay raw and via replay-compaction · identical subagent state (entries, liveBlock) (test-plan #X5)
 
 ### 8d. Client — L1 (reducer exemplar: `packages/client/src/__tests__/event-reducer.test.ts`; heal exemplar: `packages/client/src/lib/__tests__/event-reducer.superseded-heal.test.ts`)

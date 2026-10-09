@@ -12,8 +12,6 @@ import {
   globalTrimSlack,
   MEASURE_CEILING_FALLBACK,
   measureBytes,
-  reduceSubagentEvent,
-  shrinkEntryToBudget,
 } from "../persistence/memory-event-store.js";
 
 function makeEvent(type: string = "test"): DashboardEvent {
@@ -719,6 +717,7 @@ describe("memory-event-store", () => {
         subagentTickBytes: 0,
         subagentFatTicks: 0,
         subagentTickFatBytes: 0,
+        collapsedDeltas: 0,
       });
     });
 
@@ -789,7 +788,7 @@ describe("memory-event-store", () => {
   });
 
   // See change: head-tail-truncate-subagent-event-timeline.
-  describe("subagent-timeline head+tail reduction", () => {
+  describe("subagent-timeline bounding (no head+tail reduction)", () => {
     // Pinned explicitly rather than mirroring DEFAULT_MAX_EVENT_DATA_SIZE: these
     // tests characterise the REDUCTION mechanism, so the ceiling must be small
     // enough that the fixtures trip it. Every store below is built with this
@@ -870,47 +869,6 @@ describe("memory-event-store", () => {
       expect(out.length).toBeLessThan(env.length);
     });
 
-    // --- reduction via insertEvent (E4..E9, E12..E15) ---
-    it("E4: keeps first + last entries + a text sentinel, not {__truncated}", () => {
-      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
-      const entries = Array.from({ length: 30 }, (_, i) => toolEntry(i, 1500));
-      store.insertEvent("s1", subagentEvent({ entries }));
-      const stored = store.getEvent("s1", 1) as any;
-      expect(stored.data.__truncated).toBeUndefined();
-      const kept = stored.data.partialResult.details.entries as any[];
-      expect(kept[0].input.file_path).toBe("/src/file-0.ts"); // head
-      const sentinel = kept.find((e) => e.kind === "text" && /steps hidden/.test(e.text));
-      expect(sentinel).toBeTruthy();
-      const last = kept[kept.length - 1];
-      expect(last.input.file_path).toBe("/src/file-29.ts"); // final entry retained
-      expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
-    });
-
-    it("E5: a large prompt does not starve the timeline", () => {
-      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
-      const entries = Array.from({ length: 10 }, (_, i) => toolEntry(i, 1500));
-      store.insertEvent("s1", subagentEvent({ entries, prompt: "P".repeat(16_000) }));
-      const stored = store.getEvent("s1", 1) as any;
-      expect(stored.data.__truncated).toBeUndefined();
-      expect(stored.data.args.prompt.length).toBeLessThanOrEqual(2_000 + 40);
-      const kept = stored.data.partialResult.details.entries as any[];
-      expect(kept[0].input.file_path).toBe("/src/file-0.ts");
-      expect(kept[kept.length - 1].input.file_path).toBe("/src/file-9.ts");
-      expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
-    });
-
-    it("E6: large content text does not starve the timeline", () => {
-      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
-      const entries = Array.from({ length: 10 }, (_, i) => toolEntry(i, 1500));
-      store.insertEvent("s1", subagentEvent({ entries, contentText: "C".repeat(16_000) }));
-      const stored = store.getEvent("s1", 1) as any;
-      expect(stored.data.__truncated).toBeUndefined();
-      expect(stored.data.partialResult.content[0].text.length).toBeLessThanOrEqual(1_500 + 40);
-      const kept = stored.data.partialResult.details.entries as any[];
-      expect(kept[kept.length - 1].input.file_path).toBe("/src/file-9.ts");
-      expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
-    });
-
     it("E7: byte-accurate bound holds under escape/CJK-heavy entries", () => {
       const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
       // "\" and CJK expand under JSON/UTF-8: code-unit count < ceiling, bytes >>.
@@ -925,53 +883,6 @@ describe("memory-event-store", () => {
       store.insertEvent("s1", subagentEvent({ entries }));
       const stored = store.getEvent("s1", 1) as any;
       expect(Buffer.byteLength(JSON.stringify(stored.data))).toBeLessThanOrEqual(CEIL);
-    });
-
-    it("E8: shape-only match (no toolName/agentId) is NOT reduced", () => {
-      // Production config disables the per-field string pass (maxStringFieldSize
-      // = 0), so the ceiling is the bound. A shape-only array must NOT get the
-      // subagent head+tail reducer — it gets the blunt {__truncated} placeholder.
-      const store = createMemoryEventStore(neverPinned, 100, 20000, 0, 20000);
-      const event: DashboardEvent = {
-        eventType: "some_other_event",
-        timestamp: Date.now(),
-        data: {
-          details: { entries: Array.from({ length: 30 }, (_, i) => toolEntry(i, 1500)) },
-        },
-      };
-      store.insertEvent("s1", event);
-      const stored = store.getEvent("s1", 1) as any;
-      expect(stored.data.__truncated).toBe(true);
-      expect(Array.isArray(stored.data.details)).toBe(false);
-    });
-
-    it("E9: a >20-entry timeline is not clobbered to a string (maxStringFieldSize>0)", () => {
-      // maxStringFieldSize = 4000 (default) so the generic array clobber WOULD
-      // fire for a >20 array on the generic path.
-      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
-      const entries = Array.from({ length: 25 }, (_, i) => toolEntry(i, 1500));
-      store.insertEvent("s1", subagentEvent({ entries }));
-      const stored = store.getEvent("s1", 1) as any;
-      expect(Array.isArray(stored.data.partialResult.details.entries)).toBe(true);
-      expect(stored.data.partialResult.details.entries).not.toBe("[array truncated]");
-    });
-
-    it("E10: shrinkEntryToBudget bounds a many-leaf object entry (not leafCount×cap)", () => {
-      // leafCount×cap would be 10×2000 = 20000; the entry-level bound holds it
-      // far under B while the per-leaf floor (256) + markers set the achievable
-      // minimum for 11 leaves at ~2.9 KB, so B=4000 is a real entry-level bound.
-      const B = 4_000;
-      const input: Record<string, string> = {};
-      for (let i = 0; i < 10; i++) input[`leaf${i}`] = "L".repeat(2_000);
-      const entry = {
-        kind: "tool",
-        toolName: "Big",
-        input,
-        output: "O".repeat(5_000),
-        ts: 1,
-      };
-      shrinkEntryToBudget(entry, B);
-      expect(Buffer.byteLength(JSON.stringify(entry))).toBeLessThanOrEqual(B);
     });
 
     it("E11: image-bearing NON-subagent event keeps the message, strips the image bytes", () => {
@@ -1031,31 +942,6 @@ describe("memory-event-store", () => {
       expect(stored.data.eventType).toBe("subagent_end");
     });
 
-    it("E14: pathological single huge final entry stays bounded", () => {
-      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
-      // Many entries so the middle elides; final entry alone is 40 KB.
-      const entries = Array.from({ length: 25 }, (_, i) => toolEntry(i, 1000));
-      entries[entries.length - 1] = toolEntry(24, 40_000);
-      store.insertEvent("s1", subagentEvent({ entries }));
-      const stored = store.getEvent("s1", 1) as any;
-      expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
-    });
-
-    it("E15: reducer returns a NEW event and does not mutate the input", () => {
-      const entries = Array.from({ length: 30 }, (_, i) => toolEntry(i, 1500));
-      const event = subagentEvent({ entries, prompt: "P".repeat(16_000) });
-      const origPrompt = (event.data as any).args.prompt;
-      const origEntriesRef = (event.data as any).partialResult.details.entries;
-      const origLen = origEntriesRef.length;
-      const reduced = reduceSubagentEvent(event, CEIL);
-      expect(reduced).not.toBe(event);
-      expect((event.data as any).args.prompt).toBe(origPrompt); // unchanged
-      expect((event.data as any).partialResult.details.entries).toBe(origEntriesRef);
-      expect(origEntriesRef.length).toBe(origLen);
-      expect((origEntriesRef[0] as any).output.length).toBe(1500); // leaf untouched
-    });
-
-    // --- performance (P1, P2) ---
     it("P1: size measurement is bounded and never full-stringifies oversized data", () => {
       const spy = vi.spyOn(JSON, "stringify");
       const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
@@ -1077,57 +963,6 @@ describe("memory-event-store", () => {
       }
       expect(elapsed).toBeLessThan(50);
       spy.mockRestore();
-    });
-
-    it("P2: the shrink loop terminates on a pathological entry", () => {
-      const input: Record<string, unknown> = { big: "S".repeat(5_000_000) };
-      for (let i = 0; i < 500; i++) input[`n${i}`] = i;
-      const entries = [
-        toolEntry(0, 500),
-        { kind: "tool", toolName: "Big", input, output: "", ts: 2 },
-      ];
-      const event = subagentEvent({ entries });
-      const reduced = reduceSubagentEvent(event, CEIL);
-      expect(Buffer.byteLength(JSON.stringify(reduced.data))).toBeLessThanOrEqual(CEIL);
-    });
-
-    // --- error-handling (X1, X2) ---
-    it("X1: a 5MB base64 image in a subagent event does not OOM", () => {
-      const spy = vi.spyOn(JSON, "stringify");
-      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
-      const entries = Array.from({ length: 6 }, (_, i) => toolEntry(i, 800));
-      store.insertEvent(
-        "s1",
-        subagentEvent({ entries, contentImage: "A".repeat(5_000_000) }),
-      );
-      const stored = store.getEvent("s1", 1) as any;
-      expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
-      for (const call of spy.mock.calls) {
-        const arg = call[0];
-        const asStr = typeof arg === "string" ? arg : "";
-        expect(asStr.length).toBeLessThan(1_000_000);
-      }
-      spy.mockRestore();
-    });
-
-    it("X2: an unreducible empty-entries subagent event falls back to {__truncated}", () => {
-      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
-      // Empty entries + an oversized envelope the caps cannot shrink below ceiling:
-      // a huge prompt beyond PROMPT_CAP still caps, so instead give a huge
-      // non-capped envelope field (extra) that stays over ceiling.
-      const event: DashboardEvent = {
-        eventType: "tool_execution_update",
-        timestamp: Date.now(),
-        data: {
-          toolName: "Agent",
-          extra: "Z".repeat(60_000), // not a capped field → envelope stays huge
-          partialResult: { details: { agentId: "ag1", entries: [] } },
-        },
-      };
-      store.insertEvent("s1", event);
-      const stored = store.getEvent("s1", 1) as any;
-      expect(stored.data.__truncated).toBe(true);
-      expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
     });
 
     it("measureBytes never undercounts and stays bounded", () => {
@@ -1202,20 +1037,6 @@ describe("memory-event-store", () => {
       expect(kept).toHaveLength(21);
     });
 
-    it("E3: over-ceiling entries reduce to head + sentinel + tail, still an Array", () => {
-      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
-      const entries = Array.from({ length: 30 }, (_, i) => toolEntry(i, 1500));
-      store.insertEvent("s1", startedEvent(entries));
-      const stored = (store.getEvent("s1", 1) as any).data;
-      expect(stored.__truncated).toBeUndefined();
-      const kept = stored.details.entries as any[];
-      expect(Array.isArray(kept)).toBe(true);
-      expect(kept[0].input.file_path).toBe("/src/file-0.ts"); // head kept
-      expect(kept[kept.length - 1].input.file_path).toBe("/src/file-29.ts"); // tail kept
-      expect(kept.some((e) => e.kind === "text" && /steps hidden/.test(e.text))).toBe(true);
-      expect(Buffer.byteLength(JSON.stringify(stored))).toBeLessThanOrEqual(CEIL);
-    });
-
     it("D6: counts subagent ticks, splitting fat from thin", () => {
       const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
       // A thin tick: the strip landed, no timeline on the wire.
@@ -1244,6 +1065,128 @@ describe("memory-event-store", () => {
       store.insertEvent("s1", startedEvent(Array.from({ length: 25 }, (_, i) => toolEntry(i, 20)), "some_other_event"));
       const kept = (store.getEvent("s1", 1) as any).data.details.entries;
       expect(kept).toBe("[array truncated]");
+    });
+  });
+
+  // Streamed subagent timelines: terminal-frame elision + delta storage.
+  // See change: add-plugin-bridge-contributions (D5/D6, test-plan E14–E20, P3).
+  describe("streamed subagent timeline (subagent_entry / subagent_delta)", () => {
+    const CEIL = 20_000;
+    const big = (i: number) => ({ kind: "tool", toolName: "Read", input: { i }, output: "X".repeat(400), ts: i });
+    const entryEv = (agentId: string, index: number, blockId?: number): DashboardEvent => ({
+      eventType: "subagent_entry",
+      timestamp: 1,
+      data: { v: 1, agentId, toolCallId: "tc", index, entry: big(index), ...(blockId !== undefined ? { blockId } : {}) },
+    });
+    const deltaEv = (agentId: string, blockId: number, offset: number, text: string, final = false): DashboardEvent => ({
+      eventType: "subagent_delta",
+      timestamp: 1,
+      data: { v: 1, agentId, toolCallId: "tc", blockId, kind: "thinking", offset, text, final },
+    });
+    const completed = (agentId: string, n: number, entryCount: unknown = n): DashboardEvent => ({
+      eventType: "subagent_completed",
+      timestamp: 1,
+      data: {
+        id: agentId,
+        result: "done",
+        details: { agentId, status: "completed", entryCount, entries: Array.from({ length: n }, (_, i) => big(i)) },
+      },
+    });
+    const allText = (store: ReturnType<typeof createMemoryEventStore>) =>
+      JSON.stringify(store.getEvents("s1", 0).map((e) => e.event.data));
+
+    it("E14: over-ceiling terminal frame with every step resident elides entries", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      for (let i = 0; i < 300; i++) store.insertEvent("s1", entryEv("a", i));
+      const seq = store.insertEvent("s1", completed("a", 300));
+      const d = (store.getEvent("s1", seq) as any).data;
+      expect(d.details.entries).toEqual([]);
+      expect(d.details.entryCount).toBe(300);
+      expect(d.result).toBe("done");
+      expect(Buffer.byteLength(JSON.stringify(d))).toBeLessThanOrEqual(CEIL);
+      expect(allText(store)).not.toMatch(/steps hidden/);
+    });
+
+    it("E15: a missing resident step blocks elision (generic path, no sentinel)", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      for (let i = 0; i < 300; i++) if (i !== 150) store.insertEvent("s1", entryEv("a", i));
+      const seq = store.insertEvent("s1", completed("a", 300));
+      const d = (store.getEvent("s1", seq) as any).data;
+      expect(d.details?.entries).not.toEqual([]);
+      expect(allText(store)).not.toMatch(/steps hidden/);
+    });
+
+    it("E16: invalid entryCount never authorizes elision", () => {
+      for (const bad of [-1, 2.5, Number.NaN, 1e9]) {
+        const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+        for (let i = 0; i < 30; i++) store.insertEvent("s1", entryEv("a", i));
+        const seq = store.insertEvent("s1", completed("a", 60, bad));
+        const d = (store.getEvent("s1", seq) as any).data;
+        expect(d.details?.entries).not.toEqual([]);
+      }
+    });
+
+    it("E17: a non-subagent event with entries + entryCount is not elided", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      const seq = store.insertEvent("s1", {
+        eventType: "some_other_event",
+        timestamp: 1,
+        data: { details: { entryCount: 0, entries: Array.from({ length: 60 }, (_, i) => big(i)) } },
+      });
+      expect((store.getEvent("s1", seq) as any).data.details.entries).toBe("[array truncated]");
+    });
+
+    it("E18: elision returns a new event and leaves the caller's entries intact", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      for (let i = 0; i < 100; i++) store.insertEvent("s1", entryEv("a", i));
+      const ev = completed("a", 100);
+      const before = (ev.data as any).details.entries;
+      const seq = store.insertEvent("s1", ev);
+      expect((ev.data as any).details.entries).toBe(before);
+      expect((ev.data as any).details.entries).toHaveLength(100);
+      expect((store.getEvent("s1", seq) as any).data).not.toBe(ev.data);
+    });
+
+    it("E19: delta text is exempt from the per-string cap; an over-ceiling piece keeps its envelope", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, 4_000, 262_144);
+      const seq1 = store.insertEvent("s1", deltaEv("a", 0, 0, "y".repeat(100_000)));
+      expect((store.getEvent("s1", seq1) as any).data.text).toHaveLength(100_000);
+      const seq2 = store.insertEvent("s1", deltaEv("a", 0, 100_000, "z".repeat(300_000)));
+      const d2 = (store.getEvent("s1", seq2) as any).data;
+      expect(d2).toMatchObject({ text: "", omittedLength: 300_000, blockId: 0, offset: 100_000, agentId: "a" });
+    });
+
+    it("E20: finished block and terminal agent drop their deltas with byte accounting", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      const keep = store.insertEvent("s1", makeEvent("user_marker"));
+      for (let k = 0; k < 5; k++) store.insertEvent("s1", deltaEv("a", 2, k * 3, "abc"));
+      for (let k = 0; k < 3; k++) store.insertEvent("s1", deltaEv("a", 3, k * 3, "def"));
+      store.insertEvent("s1", deltaEv("b", 2, 0, "other agent"));
+      const bytesBefore = store.getBufferBytes("s1");
+      store.insertEvent("s1", entryEv("a", 0, 2));
+      const types = () => store.getEvents("s1", 0).map((e) => `${e.event.eventType}:${(e.event.data as any).agentId ?? ""}:${(e.event.data as any).blockId ?? ""}`);
+      expect(types().filter((t) => t === "subagent_delta:a:2")).toHaveLength(0);
+      expect(types().filter((t) => t === "subagent_delta:a:3")).toHaveLength(3);
+      expect(store.getTrimStats().collapsedDeltas).toBe(5);
+      store.insertEvent("s1", completed("a", 1));
+      expect(types().filter((t) => t.startsWith("subagent_delta:a:"))).toHaveLength(0);
+      expect(types()).toContain("subagent_delta:b:2");
+      expect(store.getTrimStats().collapsedDeltas).toBe(8);
+      expect(store.getEvent("s1", keep)).toBeDefined();
+      const resident = store.getEvents("s1", 0).reduce((n, e) => n + e.bytes, 0);
+      expect(store.getBufferBytes("s1")).toBe(resident);
+      expect(store.getBufferBytes("s1")).toBeLessThan(bytesBefore + 100_000);
+      const seqs = store.getEvents("s1", 0).map((e) => e.seq);
+      expect([...seqs].sort((x, y) => x - y)).toEqual(seqs);
+    });
+
+    it("P3: the resident completeness scan over 50k events stays under 50 ms", () => {
+      const store = createMemoryEventStore(neverPinned, 100, 60_000, undefined, CEIL);
+      for (let i = 0; i < 50_000; i++) store.insertEvent("s1", makeEvent("noise"));
+      for (let i = 0; i < 60; i++) store.insertEvent("s1", entryEv("a", i));
+      const t0 = performance.now();
+      store.insertEvent("s1", completed("a", 60));
+      expect(performance.now() - t0).toBeLessThan(50);
     });
   });
 });
