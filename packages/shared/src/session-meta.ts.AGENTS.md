@@ -5,3 +5,5 @@
 `SessionMeta.statsExtractorVersion?` — absent/older than `STATS_EXTRACTOR_VERSION` ⇒ non-archived sidecar re-extracts on discovery regardless of mtime. See change: count-non-message-usage.
 
 - `SessionMeta.pluginHidden?` persisted hide intent. See change: fix-plugin-hidden-across-restart.
+
+`isShutdownWindowCandidate(s, ownerBoot, windowMs)` + `ShutdownWindowInput`: second cold-start recovery path. True iff `live!==true`, `liveEpoch`+`endedAt` set, `closedReason==='unknown'` (allowlist), `recover!==false`, `ownerBoot.bootId===liveEpoch`, intent ∈ {signal, user-quit}, |endedAt − at| ≤ windowMs. No `status` check. See change: fix-recovery-pi-signal-unregister.

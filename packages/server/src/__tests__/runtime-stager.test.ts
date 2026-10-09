@@ -119,6 +119,10 @@ describe("stageRuntime — npm (E8)", () => {
     expect(deps.calls).toHaveLength(1);
     expect(deps.calls[0][0]).toBe("ci");
     expect(deps.calls[0]).toContain("--omit=dev");
+    // npm 12 defaults allow-remote=none; a release dep resolved from a URL
+    // tarball (xlsx from cdn.sheetjs.com, integrity-pinned in the lock) must
+    // still install. See change: electron-runtime-release-pipeline.
+    expect(deps.calls[0]).toContain("--allow-remote=all");
     expect(deps.calls.flat()).not.toContain("install");
 
     const root = path.join(dir, "versions", X);

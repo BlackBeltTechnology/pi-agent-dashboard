@@ -129,7 +129,7 @@ ARG PI_ANTHROPIC_MESSAGES_VERSION=0.3.4
 # `progress.schedule(details)` into the tool's `onProgress` callback. Without it
 # the collapse scenarios (P2/F4) have no workload and pass vacuously.
 # See change: collapse-superseded-tool-execution-updates.
-ARG PI_DASHBOARD_SUBAGENTS_VERSION=0.2.4
+ARG PI_DASHBOARD_SUBAGENTS_VERSION=0.4.0
 RUN npm install -g \
       "@blackbelt-technology/pi-flows@${PI_FLOWS_VERSION}" \
       "@blackbelt-technology/pi-anthropic-messages@${PI_ANTHROPIC_MESSAGES_VERSION}" \

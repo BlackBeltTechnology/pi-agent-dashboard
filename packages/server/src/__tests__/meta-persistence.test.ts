@@ -208,6 +208,31 @@ describe("meta-persistence", () => {
     mp.dispose();
   });
 
+  // test-plan #E16 — shutdown-window evidence: `endedAt` rides the eager write,
+  // is retained when omitted, and a debounced overwrite keeps `liveEpoch`.
+  // See change: fix-recovery-pi-signal-unregister (D2).
+  it("setLiveness persists endedAt eagerly and retains it when omitted", () => {
+    const mp = createMetaPersistence();
+    const sf = sessionFile("ended-at");
+    mp.setLiveness(sf, { live: false, liveEpoch: 500, closedReason: "unknown", endedAt: 1234 });
+    expect(readSessionMeta(sf)).toMatchObject({ live: false, liveEpoch: 500, endedAt: 1234 });
+    mp.setLiveness(sf, { live: false });
+    const meta = readSessionMeta(sf);
+    expect(meta?.endedAt).toBe(1234);
+    expect(meta?.liveEpoch).toBeUndefined();
+    mp.dispose();
+  });
+
+  it("a debounced stats write keeps the shutdown-window liveEpoch and endedAt", () => {
+    const mp = createMetaPersistence();
+    const sf = sessionFile("ended-debounce");
+    mp.setLiveness(sf, { live: false, liveEpoch: 500, closedReason: "unknown", endedAt: 1234 });
+    mp.save(sf, { source: "dashboard", cost: 3, endedAt: 1234 });
+    vi.advanceTimersByTime(1500);
+    expect(readSessionMeta(sf)).toMatchObject({ cost: 3, live: false, liveEpoch: 500, endedAt: 1234 });
+    mp.dispose();
+  });
+
   it("setLiveness clears a stale liveEpoch when omitted", () => {
     const mp = createMetaPersistence();
     const sf = sessionFile("epoch-clear");

@@ -923,7 +923,11 @@ export function createPiGateway(
 
             if (msg.type === "session_unregister" && msg.sessionId) {
               console.error(`[gateway] session unregistered: ${msg.sessionId} (explicit)`);
-              sessionManager.unregister(msg.sessionId);
+              // The one seam a graceful pi exit reaches (quit, OS signal,
+              // reload, session replacement): tag it so the end write may
+              // carry shutdown-window evidence.
+              // See change: fix-recovery-pi-signal-unregister (D2).
+              sessionManager.unregister(msg.sessionId, { endSource: "bridge_unregister" });
               connections.delete(msg.sessionId);
               hostPressure.clear(msg.sessionId);
               // Session end is one of the four D4 clearing triggers.

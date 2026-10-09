@@ -25,8 +25,8 @@
  * skips the `packages[]` write (rollback parity with pre-change behavior).
  */
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 import type { BridgeLoadSource } from "./dashboard-plugin/plugin-status.js";
 
 export interface PluginBridgeRegisterOptions {
@@ -284,6 +284,29 @@ export function registerAllPluginBridges(
     results[pluginId] = registerPluginBridge(pluginId, bridgePath, opts);
   }
   return results;
+}
+
+/**
+ * Make the registered bridges follow plugin enablement (spec
+ * dashboard-plugin-loader "Disable removes managed entries from both
+ * registries"): register every `enabled` plugin's bridge, deregister every
+ * disabled one (both `dashboardPluginBridges` and its ownership-marked
+ * `packages[]` entry; user-owned entries are never touched). `enabled` is the
+ * caller-resolved predicate (`resolvePluginEnabled(cfg, manifest.defaultEnabled)`).
+ * Returns register results for the enabled plugins only.
+ * See change: add-plugin-bridge-contributions (D13).
+ */
+export function syncPluginBridges(
+  plugins: Array<{ pluginId: string; bridgePath: string; enabled: boolean }>,
+  opts: PluginBridgeRegisterOptions = {},
+): Record<string, PluginBridgeConflict> {
+  for (const p of plugins) {
+    if (!p.enabled) deregisterPluginBridge(p.pluginId, opts);
+  }
+  return registerAllPluginBridges(
+    plugins.filter((p) => p.enabled).map(({ pluginId, bridgePath }) => ({ pluginId, bridgePath })),
+    opts,
+  );
 }
 
 /**

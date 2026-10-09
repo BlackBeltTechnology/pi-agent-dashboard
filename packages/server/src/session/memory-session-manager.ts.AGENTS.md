@@ -11,3 +11,5 @@ See change: fix-spawn-correlation-ttl-coupling (D3). `RegisterSessionParams.dash
 `register` applies `params.usageSeed` (all five totals + current `statsExtractorVersion`) ONLY for an unknown id; known id carries totals + version over; no seed ⇒ all five totals 0 (cache pinned too). Exports `normalizeUsageSeed`. See change: count-non-message-usage.
 
 - `register` hidden decision: reattach → keep `existing.hidden`; else `visibilityIntent`; else `existing.pluginHidden === true` → hidden (restart RESPAWN re-registers as "spawn", no token); else headless heuristic. Carries `pluginHidden` over. See change: fix-plugin-hidden-across-restart.
+
+`UnregisterOptions.endSource?: "bridge_unregister"`; manager-private `bridgeUnregistered` set, written in `unregister()` before `onEnded` (new endings only), cleared by `register`/`remove`; read via `wasEndedByBridgeUnregister(id)`. Never on `DashboardSession`. See change: fix-recovery-pi-signal-unregister.

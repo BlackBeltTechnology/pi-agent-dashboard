@@ -119,6 +119,23 @@ export function resolveExitIntent(liveEpoch: number | undefined): ExitIntent | n
   return state.ring.find((r) => r.bootId === liveEpoch)?.exitIntent ?? null;
 }
 
+/**
+ * The whole boot record (`{ bootId, exitIntent, at }`) for `bootId` — the
+ * current entry or a ring entry — or `undefined` when unresolvable. The
+ * shutdown-window classifier needs `at` (the exit time) as well as the intent.
+ * Positional lookup by id, so a replacement boot that died during startup
+ * cannot hide the boot that actually went down with the host.
+ * See change: fix-recovery-pi-signal-unregister (D4).
+ */
+export function resolveExitRecord(bootId: number | undefined): BootRecord | undefined {
+  if (bootId === undefined) return undefined;
+  const state = cached ?? readBootState();
+  if (!state) return undefined;
+  if (state.bootId === bootId) return { bootId: state.bootId, exitIntent: state.exitIntent, at: state.at };
+  const hit = state.ring.find((r) => r.bootId === bootId);
+  return hit ? { bootId: hit.bootId, exitIntent: hit.exitIntent ?? null, at: hit.at } : undefined;
+}
+
 /** Test seam: drop the in-process boot latch + cache. */
 export function _resetBootStateForTests(): void {
   currentBootId = undefined;
