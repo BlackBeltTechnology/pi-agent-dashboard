@@ -147,7 +147,7 @@ describe("reloadProviders", () => {
       reloadProviders: async () => { await mod.reloadProviders(pi); },
     });
     let answered = false;
-    const resync = handler.handle({ type: "request_models", sessionId: "sess-1" } as any)
+    const resync = Promise.resolve(handler.handle({ type: "request_models", sessionId: "sess-1" } as any))
       .then((r: any) => { answered = true; return r; });
     await new Promise((r) => setTimeout(r, 20));
     expect(answered).toBe(false); // no models_list while re-enrichment is mid-discovery
