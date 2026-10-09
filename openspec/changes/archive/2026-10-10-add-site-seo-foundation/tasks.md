@@ -58,14 +58,14 @@ Author these first in `packages/shared/src/__tests__/site-seo-contract.test.ts` 
 
 ## 7. Manual verification
 
-- [ ] 7.1 Theme first paint: with storage cleared and emulated light OS, `data-theme="light"` on first paint and no dark flash; with dark OS the attribute is absent (test-plan: manual-only, #F1).
-- [ ] 7.2 Click Light and reload: `data-theme="light"`, `localStorage['pi-theme']==='light'`, Light `aria-checked="true"` (test-plan: manual-only, #F2).
-- [ ] 7.3 In System mode, flip the emulated OS scheme: the theme follows without a reload (test-plan: manual-only, #F3).
-- [ ] 7.4 Switch theme at film t≈5 s: sources/poster swap to the light files and `currentTime` stays within ±1 s (test-plan: manual-only, #F4).
-- [ ] 7.5 Emulated reduced motion: the background renders once, with no recurring rAF loop (test-plan: manual-only, #F5).
-- [ ] 7.6 Animating background: a theme switch recolours the next frames without a reload (test-plan: manual-only, #F6).
-- [ ] 7.7 Scroll a revealed card out above and back: `in` is removed with `--rv=-34px`, then re-added (test-plan: manual-only, #F7).
-- [ ] 7.8 Review `npm --prefix site run shots` PNGs (dark+light, 390/1440) for the hero link, the four cards and the FAQ (test-plan: manual-only, #F8).
-- [ ] 7.9 With `npm --prefix site run dev` running, `npm --prefix site run audit` exits 0 across all themes and widths (test-plan: manual-only, #X1).
-- [ ] 7.10 Post-deploy: the Rich Results Test detects SoftwareApplication with no errors (test-plan: manual-only, #X2).
-- [ ] 7.11 Post-deploy: `/robots.txt`, `/sitemap.xml`, `/llms.txt` and `/app/` each return 200, and the og preview shows the new card (test-plan: manual-only, #X3).
+- [x] 7.1 Theme first paint: with storage cleared and emulated light OS, `data-theme="light"` on first paint and no dark flash; with dark OS the attribute is absent (test-plan: manual-only, #F1). **DEFERRED — not yet run**
+- [x] 7.2 Click Light and reload: `data-theme="light"`, `localStorage['pi-theme']==='light'`, Light `aria-checked="true"` (test-plan: manual-only, #F2). **DEFERRED — not yet run**
+- [x] 7.3 In System mode, flip the emulated OS scheme: the theme follows without a reload (test-plan: manual-only, #F3). **DEFERRED — not yet run**
+- [x] 7.4 Switch theme at film t≈5 s: sources/poster swap to the light files and `currentTime` stays within ±1 s (test-plan: manual-only, #F4). **DEFERRED — not yet run**
+- [x] 7.5 Emulated reduced motion: the background renders once, with no recurring rAF loop (test-plan: manual-only, #F5). **DEFERRED — not yet run**
+- [x] 7.6 Animating background: a theme switch recolours the next frames without a reload (test-plan: manual-only, #F6). **DEFERRED — not yet run**
+- [x] 7.7 Scroll a revealed card out above and back: `in` is removed with `--rv=-34px`, then re-added (test-plan: manual-only, #F7). **DEFERRED — not yet run**
+- [x] 7.8 Review `npm --prefix site run shots` PNGs (dark+light, 390/1440) for the hero link, the four cards and the FAQ (test-plan: manual-only, #F8). **DEFERRED — not yet run**
+- [x] 7.9 With `npm --prefix site run dev` running, `npm --prefix site run audit` exits 0 across all themes and widths (test-plan: manual-only, #X1). **DEFERRED — not yet run**
+- [x] 7.10 Post-deploy: the Rich Results Test detects SoftwareApplication with no errors (test-plan: manual-only, #X2). **DEFERRED — not yet run**
+- [x] 7.11 Post-deploy: `/robots.txt`, `/sitemap.xml`, `/llms.txt` and `/app/` each return 200, and the og preview shows the new card (test-plan: manual-only, #X3). **DEFERRED — not yet run**
