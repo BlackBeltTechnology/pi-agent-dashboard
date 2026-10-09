@@ -615,9 +615,23 @@ export function wireEvents(deps: EventWiringDeps): void {
     // routine `onChange` save is a full `.meta.json` overwrite that does not
     // enumerate the field. See change: stop-discarding-known-session-state.
     if (metaPersistence && session?.sessionFile) {
+      const closedReason = session.closedReason ?? "unknown";
+      // Shutdown-window evidence: an explicit bridge unregister (pi exited
+      // gracefully — possibly because the host is shutting down) records the
+      // boot it ENDED in plus `endedAt`, atomically, so cold start can match it
+      // against that boot's exit. Any other ending (heartbeat, history,
+      // manual, spawn failure, relocation) or a refined reason writes no
+      // `liveEpoch`. See change: fix-recovery-pi-signal-unregister (D2).
+      const evidence =
+        liveEpoch !== undefined &&
+        closedReason === "unknown" &&
+        session.movedTo === undefined &&
+        session.endedAt !== undefined &&
+        sessionManager.wasEndedByBridgeUnregister(sessionId);
       metaPersistence.setLiveness(session.sessionFile, {
         live: false,
-        closedReason: session.closedReason ?? "unknown",
+        closedReason,
+        ...(evidence ? { liveEpoch, endedAt: session.endedAt } : {}),
       });
     }
 

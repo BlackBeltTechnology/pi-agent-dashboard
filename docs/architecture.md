@@ -1523,6 +1523,32 @@ Offer sessions for recovery after server restart. Distinguish crashes (sessions 
 
 **Observability.** Logs: `[recovery] <id>: suppressed-by-intent (boot <epoch> exited via <intent>)`, `[recovery] N candidate(s) after exit-intent gate; awaiting liveness`, `[recovery] grace window closed; offering N candidate(s)`, `[recovery] retracted candidate <id> (<reason>)`, `[recovery] refused reopen of <id>: keeper still alive`, `[boot-state] exit intent recorded: <intent> (boot <id>)`.
 
+**Shutdown-window recovery (signal / user-quit).** Host shutdown signals pi + server together. pi graceful shutdown emits `session_shutdown{reason:"quit"}`; bridge sends `session_unregister`; server ends session `live:false`/`ended` ~23 s BEFORE own SIGTERM records `exitIntent:"signal"`. Old path `isRecoveryCandidate` requires `live:true`, never sees this. New path recovers the shutdown window. See change: fix-recovery-pi-signal-unregister.
+
+**Evidence write.** Explicit `session_unregister` handler in `packages/server/src/pi/pi-gateway.ts` calls `sessionManager.unregister(id, { endSource: "bridge_unregister" })`. `memory-session-manager.ts` keeps manager-private set; read via `wasEndedByBridgeUnregister(id)`; cleared by `register`/`remove`. Never stored on `DashboardSession`.
+
+**Eager marker.** `event-wiring.ts` `onEnded` writes `{ liveEpoch: <current boot>, endedAt }` iff `wasEndedByBridgeUnregister(id)` AND `closedReason === "unknown"` AND no `movedTo`. Every other ending — heartbeat/grace expiry, history cleanup, manual, spawn_failed, relocation — writes no `liveEpoch`. `meta-persistence.ts` `setLiveness` takes optional `endedAt` (writes when present, keeps when absent). `liveEpoch` on a `live:false` sidecar = boot the session ended in.
+
+**Manual ends stay manual.** `shutdownSession`/`forceKillSession` (`browser-handlers/session-action-handler.ts`) stamp in-memory `closedReason:"manual"` BEFORE signalling pi; racing bridge unregister keeps `manual`.
+
+**Cold-start classification.** `packages/server/src/server.ts` loop runs `resolveExitRecord(session.liveEpoch)` (`packages/server/src/persistence/boot-state.ts` — returns `{bootId, exitIntent, at}` from current entry or ring, by id) + `isShutdownWindowCandidate(s, ownerBoot, RECOVERY_SHUTDOWN_WINDOW_MS)` (`packages/shared/src/session-meta.ts`). True iff:
+- `live !== true`
+- `liveEpoch` + `endedAt` present
+- `closedReason === "unknown"`
+- `recover !== false`
+- owner intent ∈ {`signal`, `user-quit`}
+- `|endedAt − at| ≤ 60_000` ms (`RECOVERY_SHUTDOWN_WINDOW_MS`, `packages/shared/src/recovery-timing.ts`)
+
+No `status` check — debounced `ended` write can be lost.
+
+**One-shot.** On match, evidence consumed immediately (`setLiveness({ live:false, closedReason })` drops `liveEpoch`) in every mode, including `off`. Candidate unless mode `off`. Joins existing retract/grace/offer/auto pipeline unchanged. Log: `[recovery] <id>: shutdown-window (ended Δs before boot <id> exit via <intent>)`.
+
+**Unchanged.** Exits `restart`/`shutdown`/`ephemeral`/`idle`/null never qualify via window. Dashboard restart/quit with pi + keeper surviving → no unregister → picked back up silently.
+
+**Platform coverage.** macOS/Linux standalone → `signal` → window path. Electron → `user-quit` → window path. Windows + power loss → pi hard-killed, never unregisters → existing `live:true` path.
+
+**Accepted limits.** `/quit`, `/reload`, `/new`, `/resume`, `/fork` < 60 s before shutdown also qualify (auto mode resumes them). Server SIGKILLed after pi unregistered (intent null) → not offered. Terminal-hosted server SIGHUP → unrecorded → not offered. Measured macOS spacing 2026-10-09: 22.9–23.1 s.
+
 ### Ephemeral Server Lifecycle (change: fix-autostart-discovery-precedence)
 
 A server started with `--ephemeral` exists only to serve the pi agent that booted it. When that boot parent dies, the server exits and reclaims its ports + memory instead of leaking them. Target: isolated-verification instances. Standalone + Electron-hosted servers excluded by construction — nothing passes the flag for them.

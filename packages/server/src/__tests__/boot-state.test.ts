@@ -12,6 +12,7 @@ import {
   readBootState,
   recordExitIntent,
   resolveExitIntent,
+  resolveExitRecord,
   stampBootStart,
 } from "../persistence/boot-state.js";
 
@@ -128,5 +129,26 @@ describe("boot record", () => {
     const raw = readRaw();
     expect(raw.exitIntent).toBe("ephemeral");
     expect(isRecoveryAllowed(resolveExitIntent(raw.bootId as number))).toBe(false);
+  });
+
+  // test-plan #E5 — owner-boot lookup returns the whole record, current or ring.
+  // See change: fix-recovery-pi-signal-unregister (D4).
+  it("resolveExitRecord returns the current entry, a ring entry, or undefined", () => {
+    stampBootStart(100); // A
+    recordExitIntent("restart");
+    _resetBootStateForTests();
+    stampBootStart(200); // B
+    recordExitIntent("signal");
+    _resetBootStateForTests();
+    stampBootStart(300); // C — died during startup, no intent
+    _resetBootStateForTests();
+    stampBootStart(400); // D (current)
+
+    const b = resolveExitRecord(200);
+    expect(b).toEqual({ bootId: 200, exitIntent: "signal", at: expect.any(Number) });
+    expect(resolveExitRecord(400)).toEqual({ bootId: 400, exitIntent: null, at: expect.any(Number) });
+    expect(resolveExitRecord(100)?.exitIntent).toBe("restart");
+    expect(resolveExitRecord(999)).toBeUndefined();
+    expect(resolveExitRecord(undefined)).toBeUndefined();
   });
 });

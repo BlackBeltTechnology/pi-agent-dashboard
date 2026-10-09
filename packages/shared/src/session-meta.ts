@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
+import type { BootRecord } from "./boot-state.js";
 import type { AutoNamerPersistedState, ClosedReason, NotifyLogEntry } from "./types.js";
 
 /**
@@ -285,6 +286,38 @@ export function isRecoveryCandidate(meta: SessionMeta | undefined): boolean {
     meta.closedReason !== "manual" &&
     meta.recover !== false
   );
+}
+
+/** Fields the shutdown-window classifier reads (satisfied by `SessionMeta` and `DashboardSession`). */
+export interface ShutdownWindowInput {
+  live?: boolean;
+  liveEpoch?: number;
+  endedAt?: number;
+  closedReason?: ClosedReason;
+  recover?: boolean;
+}
+
+/**
+ * Second cold-start recovery path: on a host shutdown pi exits gracefully and
+ * its bridge unregisters BEFORE the server is signalled, so the session is on
+ * disk as `live:false` + `liveEpoch` (the boot it ended in) + `endedAt`. It is
+ * a candidate when that boot exited via `signal` / `user-quit` within
+ * `windowMs` of the end (absolute: a `user-quit` exit can precede the last
+ * unregister). Only `closedReason:"unknown"` (the explicit-unregister reason)
+ * qualifies — an allowlist, so a future reason is excluded until reviewed.
+ * No `status` check: the debounced `status:"ended"` write can be lost.
+ * See change: fix-recovery-pi-signal-unregister (D3).
+ */
+export function isShutdownWindowCandidate(
+  s: ShutdownWindowInput,
+  ownerBoot: BootRecord | undefined,
+  windowMs: number,
+): boolean {
+  if (s.live === true || s.liveEpoch === undefined || s.endedAt === undefined) return false;
+  if (s.closedReason !== "unknown" || s.recover === false) return false;
+  if (!ownerBoot || ownerBoot.bootId !== s.liveEpoch) return false;
+  if (ownerBoot.exitIntent !== "signal" && ownerBoot.exitIntent !== "user-quit") return false;
+  return Math.abs(s.endedAt - ownerBoot.at) <= windowMs;
 }
 
 /**
