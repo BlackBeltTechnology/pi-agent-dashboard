@@ -1,36 +1,60 @@
-> Land after `extract-standalone-app-kit` carries the `AppHost` contract (design D3). Consumers: `add-voice-wall-plugin`, `add-team-plugin`, `add-voice-assistant-dashboard-plugin`.
+> The `AppHost` contract and standalone host already ship in `packages/app-kit/src/react/app-host.tsx` (archived `extract-standalone-app-kit`); this change consumes them unchanged. Consumers: `add-voice-wall-plugin`, the team plugin (`openspec/specs/team-app`), `add-voice-assistant-dashboard-plugin`. Scenario ids refer to `test-plan.md`.
 
-## 1. Contract (in `app-kit`, coordinated with `extract-standalone-app-kit`)
+## 1. `presentation: "content"` + trailing `/*?`
 
-- [ ] 1.1 `AppHost`, `AppAction`, `DashboardAppDefinition`, `defineDashboardApp`, `AppHostProvider`, `useAppHost` (D3).
-- [ ] 1.2 `createStandaloneHost` on the kit's endpoint config, identity and `authedFetch`; `capabilities.dashboard = false`; navigation no-ops.
-- [ ] 1.3 `<StandaloneBar>`: title, `HeaderContext`, actions, sign-in, language.
+- [ ] 1.1 Widen `presentation` to `"page" | "dialog" | "content"` in `PluginClaim` (`packages/shared/src/dashboard-plugin/manifest-types.ts`), `ShellOverlayRouteClaim` (`slot-registry.ts`) and `useShellOverlayRoutePresentation` (`slot-consumers.tsx`).
+- [ ] 1.2 `manifest-validator.ts`: accept `"content"` in the check (`:193-199`) and the normalisation copy (`:314-315`); `"content"` without `depth` is fatal; fatal message lists all three values; accept only a literal trailing `/*?` in `path`, any other `*` fatal.
+- [ ] 1.3 Vite generator emits `presentation: "content"` top-level.
+- [ ] 1.4 One shared trailing-`/*?` matcher in `slot-consumers.tsx` for `useShellOverlayRouteMatched`, `useShellOverlayRoutePresentation` and the sync params path; normalise an absent wildcard to `params["*"] = ""` (also for probe params); raise `dashboard-plugin-runtime` wouter peer range to `^3.9.0`.
+- [ ] 1.5 `packages/client/src/lib/nav/back-target.ts`: `matchPattern` treats `*?` as ≥ 0 rest segments; `literalSegmentCount` excludes `*?`.
+- [ ] 1.6 `App.tsx`: extract pure `isPluginDialog` / `shouldCaptureBackground` predicates; `pluginOverlayAsDialog` = `presentation === "dialog"`; skip `captureBackground` for dialog and content, keep it for page.
+- [ ] 1.7 Mobile: `getMobileDepth` gains `overlayDepth?: 1 | 2`; `App.tsx` passes the matched claim's depth only for `"content"` claims.
 
-## 2. `presentation: "content"`
+## 2. `<EmbeddedApp>` + shell services
 
-- [ ] 2.1 Shared types + `manifest-validator.ts`: accept `"content"`; `depth` required.
-- [ ] 2.2 Vite generator emits `presentation: "content"`.
-- [ ] 2.3 `App.tsx` / `ShellContent`: render matched `"content"` claims in the OpenSpec-board branch position (live only, never in a frozen underlay); `useShellOverlayRoutePresentation` returns `"content"`.
-- [ ] 2.4 Mobile: `MobileShell` detail panel at the claim's `depth`; back via `parentPath`.
+- [ ] 2.1 Runtime context `EmbeddedAppShell = { fetch, wsUrl, encodeFolder, decodeFolder, returnTarget }`; client provider in `App.tsx` using `getApiBearer` / `isDevicePaired` / `mintWsTicket` (`useWebSocket.ts:266-275` predicate) and `lib/util/folder-encoding.ts`; root-relative scheme-free paths only.
+- [ ] 2.2 `<EmbeddedApp app basePath folderParam? standaloneUrl? onBack pluginContext?>` building the embedded `AppHost` (D4): folder `{cwd, name}`, `setTitle` → shell title, `setActions`, fullscreen.
+- [ ] 2.3 Board-style top bar (Back · breadcrumb · `HeaderContext` · ≤ 2 actions + overflow · Open standalone when `standaloneUrl`); narrow fold with 44 px targets.
+- [ ] 2.4 Router at `basePath`; error boundary (Reload app, Back); `Suspense`; "Folder not found" and "no shell provider" states; slot consumer wraps `"content"` claims in `Suspense`.
+- [ ] 2.5 Navigation: `openSession` / `openFolder` encoded; `navigateDashboard` validation + `console.warn`; `openStandalone` (`appPath` validation, window name `pi-app-<appId>`); `requestFullscreen`.
+- [ ] 2.6 Return pill: in-memory return target (context = last `setTitle` → folder name → omitted); shell renders `← <title> · <context>` while location = destination; activation pushes app path; cleared on other navigation.
+- [ ] 2.7 Dev-mode embedding-rule warnings (D7).
+- [ ] 2.8 Demo fixture (`packages/demo-plugin`): `"content"` claim `/folder/:encodedCwd/demo-app/*?` (depth 2, parentPath `/folder/:encodedCwd`), lazy route component (`React.lazy`) rendering a fixture app via `<EmbeddedApp>` with views `/` and `/sub`, an "open session" button, `setTitle("Demo ctx")`.
 
-## 3. `<EmbeddedApp>`
+## 3. Tests (folded from `test-plan.md`)
 
-- [ ] 3.1 Embedded host: `api` via dashboard transport, identity/theme/i18n from dashboard contexts, `folder` from `folderParam`, `setTitle`, `setActions`.
-- [ ] 3.2 Board-style top bar (Back · breadcrumb · `HeaderContext` · ≤ 2 actions + overflow · Open standalone); narrow fold with 44 px targets.
-- [ ] 3.3 Router based at `basePath`; error boundary (Reload app, Back); `Suspense`.
-- [ ] 3.4 Navigation: `openSession`, `openFolder`, `navigateDashboard` validation, return pill (`history.state.fromApp`), `openStandalone` named window, `requestFullscreen`.
-- [ ] 3.5 Dev-mode embedding-rule warnings (D7).
+- [ ] 3.1 Validator accepts and normalises `"content"` — extend `packages/dashboard-plugin-runtime/src/__tests__/manifest-validator.test.ts` (copy harness from its existing presentation cases). Triple: claim `{path:"/folder/:encodedCwd/x", depth:2, parentPath:"/folder/:encodedCwd", presentation:"content"}` · `validateManifest` · no throw, normalised `presentation === "content"` (test-plan #E1).
+- [ ] 3.2 `"content"` without `depth` is fatal — same file, see `manifest-validator.test.ts`. Triple: E1 claim minus `depth` · `validateManifest` · throws `ManifestValidationError` mentioning `depth` (test-plan #E2).
+- [ ] 3.3 Unknown presentation message lists three values — same file, see `manifest-validator.test.ts`. Triple: `presentation:"modal"` · `validateManifest` · throws naming claim index and `"page"`, `"dialog"`, `"content"` (test-plan #E3).
+- [ ] 3.4 Wildcard position rules — same file, see `manifest-validator.test.ts`. Triple: paths `/folder/:encodedCwd/wall/*?`, `/folder/:encodedCwd/wall/*`, `/folder/*/wall`, `/*?` · `validateManifest` · first and last valid, middle two throw referencing the path (test-plan #E4).
+- [ ] 3.5 Generator emits `"content"` — extend `packages/dashboard-plugin-runtime/src/__tests__/vite-plugin.test.ts`. Triple: manifest with a `"content"` claim · generator run · emitted `ClaimEntry` has top-level `presentation: "content"` (test-plan #E5).
+- [ ] 3.6 Shared matcher + agreement with wouter — extend `packages/dashboard-plugin-runtime/src/__tests__/shell-overlay-route-match.test.tsx`. Triple: claim `/folder/:e/wall/*?`, URLs `/folder/x/wall`, `/folder/x/wall/`, `/folder/x/wall/graph/node-1`, `/folder/x/walls`, `/folder/x` · matched hook, presentation hook, sync params, `useRoute` probe · first three match with `params["*"]` `""`/`""`/`"graph/node-1"`, last two none, all mechanisms agree (test-plan #E6).
+- [ ] 3.7 Back-target descriptor for `*?` — extend `packages/client/src/lib/nav/__tests__/overlay-claim-back-targets.test.ts` (see also `packages/client/src/lib/__tests__/back-target.test.ts`). Triple: core descriptors + claim `/folder/:e/wall/*?` depth 2 parent `/folder/:e` · `resolveDescriptor`/`routeDepth` on `/folder/x/wall`, `/folder/x/wall/graph/node-1`, `/folder/x/openspec` · wall URLs depth 2 parent `/folder/x`; openspec keeps its core descriptor (test-plan #E7).
+- [ ] 3.8 Mobile depth decision table — extend `packages/client/src/lib/__tests__/mobile-depth.test.ts`. Triple: `{hasOverlayRoute:true, overlayDepth:1}`, `{…, overlayDepth:2}`, `{hasOverlayRoute:true}`, `{hasFolderRoute:true}` · `getMobileDepth` · 1, 2, 2, 1 (test-plan #E8).
+- [ ] 3.9 Presentation hook returns `"content"` — extend `packages/dashboard-plugin-runtime/src/__tests__/shell-overlay-presentation-hook.test.tsx`. Triple: registry with `"content"` claim `/x/*?`, location `/x/a` then `/y` · `useShellOverlayRoutePresentation` · `"content"` then `null` (test-plan #E9).
+- [ ] 3.10 `navigateDashboard` validation — new `packages/dashboard-plugin-runtime/src/__tests__/embedded-app.test.tsx` (copy render/registry harness from `slot-consumers.test.tsx`). Triple: valid `/session/x`, `/folder/abc`; invalid `//evil.example/x`, `/\evil.example/x`, `javascript:alert(1)`, `https://a.b`, `/apps/wall`, `/a/../apps/x`, `/a%2F..%2F..`, `/a b`, `/a\u0000`, `""` · call on embedded host · valid → `navigate` once with path; invalid → no `navigate`, one `console.warn` naming the app (test-plan #E10).
+- [ ] 3.11 `openSession`/`openFolder` encoding — `embedded-app.test.tsx`, see `slot-consumers.test.tsx`. Triple: `openSession("a/../../apps/x")`, `openFolder("/home/u/acme erp")` · call · `navigate("/session/a%2F..%2F..%2Fapps%2Fx")`, `navigate("/folder/" + encodeFolder(cwd))` (test-plan #E11).
+- [ ] 3.12 Shell transport off-origin refusal + auth parity — new `packages/client/src/lib/__tests__/embedded-app-shell.test.ts` (copy stub style from `packages/app-kit/src/__tests__/transport.test.ts`). Triple: stubbed `fetch`/`getApiBearer`/`isDevicePaired`/`mintWsTicket` · `api.fetch("https://evil.example/x")`, `api.wsUrl("//evil.example/ws")`, `api.fetch("/api/x")` with bearer `T`, `api.wsUrl("/ws")` for (bearer,–),(–,paired),(–,–) · off-origin rejects/`null` with stub uncalled; `Authorization: Bearer T`; ticket appended for first two only (test-plan #E12).
+- [ ] 3.13 Embedded host fields + standaloneUrl prop — `embedded-app.test.tsx`, see `slot-consumers.test.tsx`. Triple: `<EmbeddedApp basePath folderParam=<enc /home/u/acme-erp> standaloneUrl="/apps/wall/">` and a variant without both · read `useAppHost()` · `mode "embedded"`, `dashboard true`, folder `{cwd, name:"acme-erp"}`, standalone button present; variant: no folder, no button (test-plan #E13).
+- [ ] 3.14 Top bar zones and action overflow — `embedded-app.test.tsx`, see `slot-consumers.test.tsx`. Triple: `HeaderContext` chip, `setActions` 2 then 3, folder and global variants · render · breadcrumb `acme-erp › <title>` / `<title>`; chip between breadcrumb and actions; 2 inline no overflow; 3 → 2 inline + overflow with the 3rd (test-plan #E14).
+- [ ] 3.15 `openStandalone` — `embedded-app.test.tsx`, see `slot-consumers.test.tsx`. Triple: at `/folder/<enc>/wall/graph`, `standaloneUrl "/apps/wall/"`, `window.open` stub · `openStandalone()` ×2, `openStandalone("#/s/tok")`, `openStandalone("javascript:x")` · `("/apps/wall/graph","pi-app-wall")` ×2, `("/apps/wall/#/s/tok","pi-app-wall")`, invalid → no call + warn (test-plan #E15).
+- [ ] 3.16 Standalone host navigation no-ops — extend `packages/app-kit/src/__tests__/app-host.test.tsx`. Triple: `createStandaloneHost({appId:"wall", basePath:"/apps/wall"})` · `openSession`, `openFolder`, `navigateDashboard("/x")` · `capabilities.dashboard === false`, no history change, no throw (test-plan #E16).
+- [ ] 3.17 Return pill context + lifecycle — `embedded-app.test.tsx`, see `slot-consumers.test.tsx`. Triple: `setTitle("Q3 sync")` app; untitled folder app `acme-erp`; untitled global app · `openSession("abc")` then location `/session/abc`, activate / go to `/settings` / second app navigation · labels `← Wall · Q3 sync`, `← Wall · acme-erp`, `← Team`; activation pushes app path and clears; `/settings` clears; second navigation replaces (test-plan #E17).
+- [ ] 3.18 Dialog/capture predicates — extend `packages/client/src/lib/nav/__tests__/overlay-background.test.ts`. Triple: presentation ∈ {dialog, page, content, null} · `isPluginDialog` / `shouldCaptureBackground` · dialog true/false; page false/true; content false/false; null false/true (test-plan #E18).
+- [ ] 3.19 App code reached only by dynamic import — new `packages/demo-plugin/src/__tests__/lazy-route.test.ts` (copy setup from `packages/demo-plugin/src/__tests__/bridge-gate.test.ts`). Triple: demo client entry + generated registry · inspect exports/imports · registry imports the entry statically; route component is `React.lazy`; fixture app module only via `import()` (test-plan #E19).
+- [ ] 3.20 Crash boundary — `embedded-app.test.tsx`, see `slot-consumers.test.tsx`. Triple: app throws on render · render `<EmbeddedApp>` · boundary text + `Reload app` + `Back`; Back calls `onBack`; Reload remounts (render count +1) (test-plan #X1).
+- [ ] 3.21 Folder not found — `embedded-app.test.tsx`, see `slot-consumers.test.tsx`. Triple: `folderParam="%%%not-base64"` · render · "Folder not found" + Back, app not rendered (test-plan #X2).
+- [ ] 3.22 Missing shell provider — `embedded-app.test.tsx`, see `slot-consumers.test.tsx`. Triple: no `EmbeddedAppShell` provider · render · error state, nothing thrown past it (test-plan #X3).
+- [ ] 3.23 Plugin disabled falls through — extend `packages/dashboard-plugin-runtime/src/__tests__/shell-overlay-route-match.test.tsx`. Triple: registry without the demo claim, location `/folder/x/demo-app` · matched + presentation hooks · `false` and `null` (test-plan #X4).
+- [ ] 3.24 Desktop content placement — new `tests/e2e/plugin-embedded-app.spec.ts` (copy harness from `tests/e2e/route-backed-overlay.spec.ts`; demo fixture usage per `tests/e2e/plugin-oauth-flow.spec.ts`). Triple: 1440×900, FIXTURE_GIT folder · open `/folder/<enc>/demo-app` · URL kept, fixture app visible, sidebar session list visible + clickable, no `[role=dialog]`/scrim, breadcrumb shows folder name and `Demo` (test-plan #F1).
+- [ ] 3.25 Deep-link reload — `plugin-embedded-app.spec.ts`, see `route-backed-overlay.spec.ts`. Triple: cold `page.goto("/folder/<enc>/demo-app/sub")` · load · `/sub` view in content area, sidebar visible (test-plan #F2).
+- [ ] 3.26 Esc ignored, Back to folder — `plugin-embedded-app.spec.ts`, see `route-backed-overlay.spec.ts`. Triple: on `/folder/<enc>/demo-app` · `Escape` then top-bar Back · URL unchanged after Esc; `/folder/<enc>` after Back (test-plan #F3).
+- [ ] 3.27 Return pill round trip — `plugin-embedded-app.spec.ts`, see `route-backed-overlay.spec.ts`. Triple: on `/folder/<enc>/demo-app/sub` with live session · click "open session", click pill; repeat then `/settings` · pill `← Demo · Demo ctx` on `/session/<id>`; click → `/folder/<enc>/demo-app/sub`; no pill on `/settings` (test-plan #F4).
+- [ ] 3.28 Mobile detail panel — `plugin-embedded-app.spec.ts` (mobile setup per `tests/e2e/mobile-viewport-bound.spec.ts`). Triple: 390×844 · goto `/folder/<enc>/demo-app`, tap Back · app in `MobileShell` detail panel at depth 2; Back → `/folder/<enc>`; Back control ≥ 44×44 px (test-plan #F5).
+- [ ] 3.29 Manual: measure client initial entry chunk gzip on `develop` vs this branch with the demo fixture app; delta ≤ +5 KB and fixture app absent from initial chunks; record in the PR (test-plan: manual-only, #P1).
+- [ ] 3.30 Manual: inspect the embedded top bar at 390 px and 1440 px against the OpenSpec board styling and tokens (test-plan: manual-only, #F6).
 
-## 4. Tests
+## 4. Docs
 
-- [ ] 4.1 [L1] Validator: `"content"` accepted; `"content"` without `depth` rejected; unknown value still fatal.
-- [ ] 4.2 [L1] Shell: `"content"` claim renders in the content area with the sidebar mounted; no Dialog/scrim/underlay; not rendered in a frozen underlay.
-- [ ] 4.3 [L1] `<EmbeddedApp>`: host fields; top bar zones; `HeaderContext` placement; ≤ 2 inline actions; crash boundary.
-- [ ] 4.4 [L1] `navigateDashboard` accepts `/session/x`, rejects `//x`, `javascript:`, `https://…`, `/apps/…`.
-- [ ] 4.5 [L1] Standalone host: `capabilities.dashboard` false; navigation no-ops.
-- [ ] 4.6 [L3] Fixture plugin: folder entry → content-area app with sidebar visible; deep-link reload; Back to folder; return pill round trip; mobile detail panel.
-
-## 5. Docs
-
-- [ ] 5.1 DocScribe: `docs/plugin-apps.md` (slots recipe, contract, two builds, embedding rules); `shell-overlay-route` presentation table in architecture docs.
-- [ ] 5.2 DOX rows for touched runtime/client files.
+- [ ] 4.1 DocScribe: `docs/plugin-apps.md` (slots recipe incl. `/*?` and depth-1 global apps, `EmbeddedApp` props, shell services, two builds + lazy route, embedding rules); `shell-overlay-route` presentation table in architecture docs.
+- [ ] 4.2 DOX rows for touched runtime/client/demo-plugin files.
