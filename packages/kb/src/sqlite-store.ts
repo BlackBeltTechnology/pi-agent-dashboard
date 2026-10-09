@@ -82,7 +82,7 @@ function buildFilterClauses(filters: Filter[] | undefined, outer: string): { cla
 // FTS5 query builder: OR the alphanumeric terms (recall + BM25 ranks).
 function toMatch(q: string): string {
   const terms = tokenize(q);
-  const kept = terms.length ? terms : (q.toLowerCase().match(/[a-z0-9]{2,}/g) ?? []);
+  const kept = terms.length ? terms : rawTokens(q);
   return kept.map((t) => `"${t}"`).join(" OR ");
 }
 
@@ -691,8 +691,44 @@ export class SqliteFtsStore implements KbStore {
 const MIN_FEEDBACK_DOCS = 5;
 
 const STOP = new Set("the for and how what with you your does can from that this are into use using get set all a an of to in on is be as it or by at do".split(" "));
-function tokenize(s: string): string[] {
-  return (s.toLowerCase().match(/[a-z0-9]{2,}/g) ?? []).filter((t) => !STOP.has(t));
+/** Case/compat folds `unicode61` performs that `toLowerCase` does not (design D1 rule 1). */
+const FOLD_EXCEPTIONS: Record<string, string> = {
+  "\u017f": "s", "\u1e9b": "s", "\u03c2": "\u03c3", "\u00b5": "\u03bc", "\u03d0": "\u03b2", "\u03d1": "\u03b8",
+  "\u03d5": "\u03c6", "\u03d6": "\u03c0", "\u03f0": "\u03ba", "\u03f1": "\u03c1", "\u03f5": "\u03b5", "\u1fbe": "\u03b9",
+};
+const ASCII_ONLY = /^[\x00-\x7f]*$/;
+const ASCII_LETTER = /^[A-Za-z]$/;
+const NONSPACING_MARK = /^\p{Mn}$/u;
+const COMBINING_MARK = /^\p{M}$/u;
+
+/** Fold one non-ASCII code point as `unicode61` remove_diacritics=1 does (D1 rules 1–3). */
+function foldChar(ch: string): string {
+  const ex = FOLD_EXCEPTIONS[ch];
+  if (ex !== undefined) return ex;
+  if (NONSPACING_MARK.test(ch)) return "";
+  const d = ch.normalize("NFD");
+  if (d.length === 2 && ASCII_LETTER.test(d[0]) && COMBINING_MARK.test(d[1])) return d[0];
+  return ch;
+}
+
+/** Case + diacritic fold mirroring the index's `unicode61` normalization (pre-stemming).
+ *  Fold first, lowercase last (so `İ` folds before toLowerCase expands it); the
+ *  final-sigma fixup undoes toLowerCase's context-sensitive `Σ→ς`. */
+function fold(s: string): string {
+  if (ASCII_ONLY.test(s)) return s.toLowerCase();
+  return s.replace(/[^\x00-\x7f]/gu, foldChar).toLowerCase().replace(/\u03c2/g, "\u03c3");
+}
+
+/** Folded runs of ≥2 Unicode letters/digits, no stopword filter (design D2).
+ *  Tokens are PRE-stemming: look them up in the FTS vocab only via `stems()`/MATCH.
+ *  @internal */
+export function rawTokens(s: string): string[] {
+  return fold(s).match(/[\p{L}\p{N}]{2,}/gu) ?? [];
+}
+
+/** Stopword-filtered `rawTokens()`. @internal */
+export function tokenize(s: string): string[] {
+  return rawTokens(s).filter((t) => !STOP.has(t));
 }
 
 function rowToChunk(r: any): Chunk {
@@ -772,7 +808,7 @@ function interleaveLanes(main: KbHit[], reserved: KbHit[], share: number, limit:
  *  = better). bm25 is asc (lower=better), so a good proximity lowers the score. */
 function proximityDelta(queryTerms: string[], body: string): number {
   if (queryTerms.length < 2) return 0;
-  const tokens = body.toLowerCase().match(/[a-z0-9]{2,}/g) ?? [];
+  const tokens = rawTokens(body);
   const pos: Record<string, number[]> = Object.create(null);
   tokens.forEach((t, i) => { (pos[t] ??= []).push(i); });
   // smallest window containing all query terms in order
