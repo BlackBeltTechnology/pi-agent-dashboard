@@ -1,7 +1,7 @@
 # plugin-event-forwarding Specification
 
 ## Purpose
-TBD - created by archiving change add-plugin-bridge-contributions. Update Purpose after archive.
+Plugin-declared EventBus forwarding. A plugin bridge entry declares the bus channels it wants forwarded (`dashboard:register-event-forward`) with a delivery mode (`live`, `latest`, `stream`), so the core bridge forwards plugin events without naming plugin channels. Declarations are validated, capped and re-collected on `dashboard:bridge-ready`; retained messages are bounded.
 
 ## Requirements
 

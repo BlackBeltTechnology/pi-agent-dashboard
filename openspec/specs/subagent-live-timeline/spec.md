@@ -1,7 +1,7 @@
 # subagent-live-timeline Specification
 
 ## Purpose
-TBD - created by archiving change add-plugin-bridge-contributions. Update Purpose after archive.
+Live subagent timeline from the producer's per-step (`subagents:entry`) and append-only reasoning (`subagents:delta`) streams: the server stores and collapses them, the client assembles steps by index and growing blocks by offset, so the expanded inspector shows tool calls and reasoning while a subagent runs.
 
 ## Requirements
 

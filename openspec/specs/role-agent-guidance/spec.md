@@ -1,7 +1,7 @@
 # role-agent-guidance Specification
 
 ## Purpose
-TBD - created by archiving change add-plugin-bridge-contributions. Update Purpose after archive.
+Agent tool role guidance contributed by the roles plugin bridge: when the Roles plugin is enabled and the Agent tool is selected, one system-prompt guideline tells the model to prefer `model: "@role"` refs and lists the configured roles.
 
 ## Requirements
 
