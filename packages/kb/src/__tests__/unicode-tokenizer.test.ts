@@ -170,6 +170,9 @@ describe("rawTokens: exception map and kept-as-is letters (vs unicode61)", () =>
     expect(rawTokens("ſong")).toEqual(["song"]);
     expect(rawTokens("Σίσυφος")).toEqual(["σίσυφοσ"]);
     expect(rawTokens("x\u1FBEx")).toEqual(["x\u03b9x"]);
+    // toLowerCase turns word-final Σ into ς; unicode61 yields σ (final-sigma fixup).
+    expect(diff(["ΟΔΟΣ", "ΣΙΣΥΦΟΣ ΟΔΟΣ"])).toEqual([]);
+    expect(rawTokens("ΟΔΟΣ")).toEqual(["οδοσ"]);
   });
 
   it("letters without an ASCII single-mark decomposition are kept (E12)", () => {
@@ -242,6 +245,7 @@ describe("kb search: query edge cases and ranking stages", () => {
   it("proximity boost works on accented bodies (E16)", () => {
     const paths = store.search("árfolyam riasztás", { limit: 5, proximityBoost: true }).map((h) => h.path);
     expect(paths.indexOf("near.md")).toBeGreaterThanOrEqual(0);
+    expect(paths.indexOf("far.md")).toBeGreaterThanOrEqual(0);
     expect(paths.indexOf("far.md")).toBeGreaterThan(paths.indexOf("near.md"));
   });
 
