@@ -1,6 +1,6 @@
 ---
 name: anti-slop-redesign
-description: "Redesign an existing UI without breaking it: declare a mode (greenfield / preserve / overhaul), audit the current surface before any edit, apply modernisation levers in priority order, and never silently change routes, nav labels, form fields, shortcuts or data-testid hooks. Triggers: \"redesign this page\", \"modernise this UI\", \"refresh the look\", \"make this less templated\"."
+description: "Redesign an existing UI without breaking it: declare a mode (greenfield / preserve / overhaul), audit the current surface before any edit, apply modernisation levers in priority order, and never silently change routes, nav labels, form fields, shortcuts or data-testid hooks. Triggers: \"redesign this page\", \"modernise this UI\", \"refresh the look\", \"mockup an existing surface\"."
 license: MIT
 metadata:
   author: blackbelt-technology

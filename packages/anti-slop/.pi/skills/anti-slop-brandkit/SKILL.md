@@ -59,7 +59,9 @@ how to resolve `$NB`).
 
 ### 2. Generate
 
-One board image, a 3×3 panel layout in a single image:
+One board image per confirmed count (default 1), each a 3×3 panel layout in a
+single image, each written to its own numbered file so variants never
+overwrite each other:
 
 | | | |
 |---|---|---|
@@ -68,7 +70,7 @@ One board image, a 3×3 panel layout in a single image:
 | physical application | image direction | system detail |
 
 ```bash
-$NB "<board prompt>" --output <mockupDir>/brand/board.png
+$NB "<board prompt>" --output <mockupDir>/brand/board-<nn>.png   # nn = 01..count
 ```
 
 The prompt carries the strategy lines, the Part A bans (no purple/violet glow,
@@ -108,6 +110,7 @@ text-only `brand.md`.
 
 - Profile `new-site`, no existing brand, explicit request.
 - The confirmation (count, backend, paid) precedes the board.
+- `brand/` holds exactly the confirmed number of `board-<nn>.png` files.
 - `brand.md` has palette hex with contrast notes, type pairing, logo concept
   rationale and image direction.
 - Project tokens and UI contracts are unchanged.

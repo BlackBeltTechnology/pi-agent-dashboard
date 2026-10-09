@@ -44,11 +44,14 @@ a global `npm` / `pi install` copy does **not** run as a plain command
 
 | Where | Runner (`$NB`) |
 |---|---|
-| pi-agent-dashboard monorepo | `npx tsx packages/nano-banana/src/bin/nano-banana.ts` |
-| after `pi install npm:@blackbelt-technology/pi-dashboard-nano-banana` | `npx tsx ~/.pi/agent/npm/node_modules/@blackbelt-technology/pi-dashboard-nano-banana/src/bin/nano-banana.ts` |
+| pi-agent-dashboard monorepo | `npx --no-install tsx packages/nano-banana/src/bin/nano-banana.ts` (the repo's locked `tsx`) |
+| after `pi install npm:@blackbelt-technology/pi-dashboard-nano-banana` | `npx --yes tsx@4.23.12 ~/.pi/agent/npm/node_modules/@blackbelt-technology/pi-dashboard-nano-banana/src/bin/nano-banana.ts` (exact pinned `tsx`) |
 
 Probe: run `$NB` with no arguments; it prints a `usage: pi-nano-banana ...`
 line. No usage line → the backend is unavailable → Fallback.
+
+Never run an unpinned `npx tsx` outside the monorepo: `npx` would fetch
+whatever `tsx` the registry serves and execute it with your permissions.
 
 Backends: `gemini` (default, needs `GEMINI_API_KEY` in the environment or a
 `.env`) or `pi` (`--backend pi`, an OpenRouter credential inside pi; a

@@ -19,10 +19,16 @@ const SKILL_DIR = path.join(PKG, ".pi/skills/dashboard-plugin-scaffold");
 const HOST_DESIGN = path.join(SKILL_DIR, "references/host-design.md");
 const INDEX_CSS = path.join(REPO, "packages/client/src/index.css");
 
-/** Concrete `--token` code spans; placeholders like `--accent-<hue>` are skipped. */
+/**
+ * Every concrete `--token` named anywhere inside an inline code span, including
+ * `var(--x)` and `text-[var(--x)]` examples. Placeholders like `--accent-<hue>`
+ * or `--severity-<level>-{bg,fg}` are skipped: a name directly followed by `-`,
+ * `<` or `{` is a template, not a token.
+ */
 function namedTokens(md: string): string[] {
-  const spans = [...md.matchAll(/`([^`\n]+)`/g)].map((m) => m[1].trim());
-  return [...new Set(spans.filter((s) => /^--[a-z0-9-]+$/.test(s)))];
+  const spans = [...md.matchAll(/`([^`\n]+)`/g)].map((m) => m[1]);
+  const tokens = spans.flatMap((s) => [...s.matchAll(/--[a-z0-9]+(?:-[a-z0-9]+)*(?![a-z0-9<{-])/g)].map((m) => m[0]));
+  return [...new Set(tokens)];
 }
 
 function declaredTokens(css: string): Set<string> {
@@ -71,6 +77,11 @@ describe("host-design token drift (E18)", () => {
 
   it("flags an undeclared token and skips placeholders", () => {
     const md = "use `--bg-primary`, `--accent-<hue>-text`, and `--not-a-real-token`";
+    expect(undeclared(md, declared)).toEqual(["--not-a-real-token"]);
+  });
+
+  it("flags an undeclared token inside var(...) and utility examples", () => {
+    const md = "`color: var(--text-primary)`, `text-[var(--not-a-real-token)]`, `--severity-<level>-{bg,fg}`";
     expect(undeclared(md, declared)).toEqual(["--not-a-real-token"]);
   });
 });

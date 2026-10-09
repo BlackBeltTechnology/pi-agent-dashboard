@@ -69,12 +69,13 @@ export GEMINI_API_KEY=...                                       # or use the pi/
 **Images are experimental; the text brief is the primary path.** The
 `pi-nano-banana` bin is a TypeScript entry and does not run as a plain command
 from an npm / `pi install` copy (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`).
-Run it through `tsx`:
+Run it through a pinned `tsx` (never an unpinned `npx tsx`, which executes
+whatever version the registry serves):
 
 ```bash
-npx tsx ~/.pi/agent/npm/node_modules/@blackbelt-technology/pi-dashboard-nano-banana/src/bin/nano-banana.ts "<prompt>" --output out.png
-# inside the pi-agent-dashboard monorepo:
-npx tsx packages/nano-banana/src/bin/nano-banana.ts "<prompt>" --output out.png
+npx --yes tsx@4.23.12 ~/.pi/agent/npm/node_modules/@blackbelt-technology/pi-dashboard-nano-banana/src/bin/nano-banana.ts "<prompt>" --output out.png
+# inside the pi-agent-dashboard monorepo (uses the repo's locked tsx):
+npx --no-install tsx packages/nano-banana/src/bin/nano-banana.ts "<prompt>" --output out.png
 ```
 
 ## Relationship to `frontend-mockup-loop`
