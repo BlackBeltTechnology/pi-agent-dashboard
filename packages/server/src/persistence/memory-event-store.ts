@@ -222,6 +222,12 @@ export interface TrimStats {
   subagentTickBytes: number;
   subagentFatTicks: number;
   subagentTickFatBytes: number;
+  /**
+   * Cumulative `subagent_delta` events dropped once their block finished (an
+   * entry with the same `blockId`) or their agent reached a terminal state.
+   * ADDITIVE `/api/health` field. See change: add-plugin-bridge-contributions (D5).
+   */
+  collapsedDeltas: number;
 }
 
 /**
@@ -243,6 +249,7 @@ export const EMPTY_TRIM_STATS: TrimStats = {
   subagentTickBytes: 0,
   subagentFatTicks: 0,
   subagentTickFatBytes: 0,
+  collapsedDeltas: 0,
 };
 
 export interface CollapseProbe {
@@ -942,24 +949,12 @@ export function measureBytes(value: unknown, cap: number): number {
   return Math.min(w.total, cap + 1);
 }
 
-// ---- Subagent-timeline head+tail reduction ----
-// See change: head-tail-truncate-subagent-event-timeline.
-
-/** Non-`entries` string caps (D3/D7). */
-const PROMPT_CAP = 2_000;
-const DESC_CAP = 1_500;
-const CONTENT_CAP = 1_500;
-/** Head/tail entry retention + per-ENTRY byte-budget floors (D3). */
-const K_HEAD = 1;
-const K_TAIL = 4;
-const MID_FLOOR = 800;
-const ENTRY_FLOOR = 256;
-/** Reserve for the sentinel entry + per-field `…hidden…` markers (D3). */
-const MARKER_RESERVE = 300;
-
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, n));
-}
+// ---- Subagent-timeline handling ----
+// The head+tail timeline reduction (`⋯ N steps hidden ⋯`) is removed: a producer
+// that streams its steps (`subagent_entry`) has the full timeline resident as
+// small step events, so an over-ceiling terminal frame elides its redundant
+// `entries` instead; any other over-ceiling event takes the generic path.
+// See change: add-plugin-bridge-contributions (D5/D6).
 
 interface SubagentTimeline {
   /** The resolved `details` object carrying `entries[]` (+ `description`). */
@@ -1007,93 +1002,6 @@ function locateSubagentTimeline(event: DashboardEvent): SubagentTimeline | undef
   return { details, entries: details.entries as unknown[], underPartialResult };
 }
 
-/** Head+tail-cap every string reachable inside `content[*]`, recursing container blocks. */
-function capContentBlocks(blocks: unknown[], cap: number): void {
-  for (const b of blocks) {
-    if (!b || typeof b !== "object") continue;
-    const block = b as Record<string, unknown>;
-    if (typeof block.text === "string") block.text = capString(block.text, cap);
-    // Base64 image `data` is capped too — no image preservation on this path.
-    if (typeof block.data === "string") block.data = capString(block.data, cap);
-    if (Array.isArray(block.content)) capContentBlocks(block.content, cap);
-  }
-}
-
-/**
- * Step 0 (D3): head+tail-cap ALL big non-`entries` strings on the CLONE —
- * `args.prompt`, `details.description`, and every string inside
- * `partialResult.content[*]` (both `.text` and image `.data`). After this no
- * non-`entries` string exceeds its cap, so the envelope is provably bounded.
- */
-function capLargeStrings(data: Record<string, unknown>, details: Record<string, unknown>): void {
-  const args = data.args as Record<string, unknown> | undefined;
-  if (args && typeof args.prompt === "string") args.prompt = capString(args.prompt, PROMPT_CAP);
-  if (typeof details.description === "string") {
-    details.description = capString(details.description, DESC_CAP);
-  }
-  const pr = data.partialResult as Record<string, unknown> | undefined;
-  if (pr && Array.isArray(pr.content)) capContentBlocks(pr.content, CONTENT_CAP);
-}
-
-interface LeafRef {
-  parent: Record<string, unknown> | unknown[];
-  key: string | number;
-  value: string;
-}
-
-/** One bounded walk returning the entry's CURRENTLY-largest string leaf, if any. */
-function findLargestStringLeaf(root: unknown): LeafRef | undefined {
-  let best: LeafRef | undefined;
-  const seen = new WeakSet<object>();
-  const stack: unknown[] = [root];
-  while (stack.length) {
-    const node = stack.pop();
-    if (!node || typeof node !== "object") continue;
-    if (seen.has(node)) continue;
-    seen.add(node);
-    if (Array.isArray(node)) {
-      for (let i = 0; i < node.length; i++) {
-        const v = node[i];
-        if (typeof v === "string") {
-          if (!best || v.length > best.value.length) best = { parent: node, key: i, value: v };
-        } else if (v && typeof v === "object") {
-          stack.push(v);
-        }
-      }
-    } else {
-      const obj = node as Record<string, unknown>;
-      for (const k of Object.keys(obj)) {
-        const v = obj[k];
-        if (typeof v === "string") {
-          if (!best || v.length > best.value.length) best = { parent: obj, key: k, value: v };
-        } else if (v && typeof v === "object") {
-          stack.push(v);
-        }
-      }
-    }
-  }
-  return best;
-}
-
-/**
- * D3a: shrink one entry to a byte budget `B` by repeatedly head+tail-capping its
- * CURRENTLY-largest string leaf at a shrinking cap, down to `ENTRY_FLOOR`. Bounds
- * the ENTRY total regardless of leaf count and caps base64 leaves inside entries
- * — never relies on a per-leaf `maxSize`. Mutates the (already-cloned) entry.
- */
-export function shrinkEntryToBudget(entry: unknown, B: number): unknown {
-  if (!entry || typeof entry !== "object") return entry;
-  let guard = 0;
-  while (measureBytes(entry, B) > B && guard < 100_000) {
-    guard++;
-    const leaf = findLargestStringLeaf(entry);
-    if (!leaf || leaf.value.length <= ENTRY_FLOOR) break;
-    const newCap = Math.max(ENTRY_FLOOR, Math.floor(leaf.value.length / 2));
-    (leaf.parent as Record<string | number, unknown>)[leaf.key] = capString(leaf.value, newCap);
-  }
-  return entry;
-}
-
 /** Byte-bounded `{ __truncated }` placeholder built WITHOUT stringifying the original. */
 function truncatedPlaceholder(event: DashboardEvent, maxEventDataSize: number): DashboardEvent {
   return {
@@ -1107,115 +1015,58 @@ function truncatedPlaceholder(event: DashboardEvent, maxEventDataSize: number): 
   };
 }
 
-function entryTs(entry: unknown): number {
-  if (entry && typeof entry === "object" && typeof (entry as Record<string, unknown>).ts === "number") {
-    return (entry as Record<string, unknown>).ts as number;
+/** Resident-completeness check for a streamed timeline: `(agentId, entryCount)`. */
+export type TimelineCompleteCheck = (agentId: string, entryCount: number) => boolean;
+
+/**
+ * D6: clone an over-ceiling subagent frame with `details.entries` replaced by
+ * `[]` (keeping `entryCount`) ONLY when `entryCount` is a safe integer `>= 0`
+ * and every step `0..entryCount-1` is resident as a `subagent_entry`.
+ * Returns undefined otherwise (legacy producer, step trimmed, no check wired).
+ * Never mutates the in-flight event.
+ */
+function elideStreamedEntries(
+  event: DashboardEvent,
+  loc: SubagentTimeline,
+  isTimelineComplete: TimelineCompleteCheck | undefined,
+): DashboardEvent | undefined {
+  if (!isTimelineComplete) return undefined;
+  const entryCount = loc.details.entryCount;
+  if (typeof entryCount !== "number" || !Number.isSafeInteger(entryCount) || entryCount < 0) return undefined;
+  const origData = event.data as Record<string, unknown>;
+  const agentId =
+    typeof loc.details.agentId === "string"
+      ? loc.details.agentId
+      : typeof origData.id === "string"
+        ? origData.id
+        : undefined;
+  if (!agentId || !isTimelineComplete(agentId, entryCount)) return undefined;
+  const details = { ...loc.details, entries: [] };
+  const data: Record<string, unknown> = { ...origData };
+  if (loc.underPartialResult) {
+    data.partialResult = { ...(origData.partialResult as Record<string, unknown>), details };
+  } else {
+    data.details = details;
   }
-  return Date.now();
+  return { ...event, data };
 }
 
 /**
- * D3: reduce an over-ceiling subagent-timeline event, tail-weighted and
- * final-protected, to `≤ ceiling` ACTUAL bytes. Returns a NEW event with the
- * touched spine (`data`, `data.args`, resolved `details`, `details.entries`)
- * cloned — NEVER mutates the in-flight `event`. Falls back to `{ __truncated }`
- * when the event is unreducible (e.g. empty `entries[]` + oversized envelope).
- * No `JSON.stringify` anywhere — all measurement is via `measureBytes`.
+ * D5: `subagent_delta` text carries offsets, so it is EXEMPT from the
+ * per-string cap. Over the per-event ceiling it keeps its envelope with
+ * `text: ""` + `omittedLength`; the client's offset rule then marks the gap.
  */
-export function reduceSubagentEvent(event: DashboardEvent, ceiling: number): DashboardEvent {
-  const origData = event.data as Record<string, unknown>;
-  const data: Record<string, unknown> = { ...origData };
-  if (data.args && typeof data.args === "object") data.args = { ...(data.args as object) };
-
-  // Resolve + clone the details spine on the CLONE.
-  const loc = locateSubagentTimeline(event);
-  if (!loc) return event; // defensive — caller only routes detected events
-  let details: Record<string, unknown>;
-  if (loc.underPartialResult) {
-    const prClone = { ...(data.partialResult as Record<string, unknown>) };
-    if (Array.isArray(prClone.content)) prClone.content = structuredClone(prClone.content);
-    details = { ...(prClone.details as object) } as Record<string, unknown>;
-    prClone.details = details;
-    data.partialResult = prClone;
-  } else {
-    details = { ...(data.details as object) } as Record<string, unknown>;
-    data.details = details;
+function boundStreamDelta(event: DashboardEvent, maxEventDataSize: number): DashboardEvent {
+  const data = event.data as Record<string, unknown>;
+  if (maxEventDataSize <= 0 || !exceedsSerializedSize(data, maxEventDataSize)) return event;
+  const text = typeof data.text === "string" ? data.text : "";
+  const envelope: Record<string, unknown> = { text: "", omittedLength: text.length };
+  for (const k of ["v", "agentId", "toolCallId", "blockId", "kind", "offset", "final"]) {
+    if (k in data) envelope[k] = data[k];
   }
-  const origEntries = loc.entries;
-
-  // Step 0: cap all big non-`entries` strings.
-  capLargeStrings(data, details);
-
-  // Compute the envelope budget with entries removed.
-  details.entries = [];
-  const envBytes = measureBytes(data, ceiling);
-  const E = ceiling - envBytes - MARKER_RESERVE;
-  const ENTRY_FINAL = clamp(Math.round(E * 0.45), 1_500, 6_000);
-
-  const n = origEntries.length;
-  const kHead = Math.min(K_HEAD, n);
-  let kTail = Math.min(K_TAIL, n - kHead);
-
-  // Decrement K_TAIL while the intermediate per-entry budget underflows MID_FLOOR.
-  while (kHead + kTail > 1) {
-    const kept = kHead + kTail;
-    const entryMid = (E - ENTRY_FINAL) / (kept - 1);
-    if (entryMid >= MID_FLOOR) break;
-    if (kTail > 1) kTail--;
-    else break;
-  }
-  const kept = kHead + kTail;
-  const ENTRY_MID = kept > 1 ? Math.max(ENTRY_FLOOR, Math.floor((E - ENTRY_FINAL) / (kept - 1))) : E;
-
-  // Build kept real entries (cloned) + a text sentinel for the dropped middle.
-  const head = origEntries.slice(0, kHead).map((e) => structuredClone(e));
-  const tail = kTail > 0 ? origEntries.slice(n - kTail).map((e) => structuredClone(e)) : [];
-  const keptReal = [...head, ...tail];
-  const hiddenCount = n - kHead - kTail;
-  const display: unknown[] = [...head];
-  if (hiddenCount > 0) {
-    display.push({
-      kind: "text",
-      text: `⋯ ${hiddenCount} steps hidden ⋯`,
-      ts: entryTs(origEntries[kHead]),
-    });
-  }
-  display.push(...tail);
-
-  // Shrink intermediate entries to ENTRY_MID, then the final entry to ENTRY_FINAL.
-  for (let i = 0; i < keptReal.length - 1; i++) shrinkEntryToBudget(keptReal[i], ENTRY_MID);
-  if (keptReal.length > 0) shrinkEntryToBudget(keptReal[keptReal.length - 1], ENTRY_FINAL);
-
-  details.entries = display;
-
-  // Terminal proof (byte-accurate, bounded). Shrink the largest kept entry
-  // toward ENTRY_FLOOR; if all are at the floor and still over, drop a tail
-  // entry; if nothing remains to shrink, fall back to the placeholder.
-  let guard = 0;
-  while (measureBytes(data, ceiling) > ceiling && guard < 200) {
-    guard++;
-    if (keptReal.length === 0) return truncatedPlaceholder(event, ceiling);
-    let largest = keptReal[0];
-    let largestBytes = measureBytes(largest, ceiling);
-    for (const e of keptReal) {
-      const b = measureBytes(e, ceiling);
-      if (b > largestBytes) {
-        largest = e;
-        largestBytes = b;
-      }
-    }
-    if (largestBytes <= ENTRY_FLOOR + 64) {
-      // Everything is already at the floor — drop the oldest kept entry.
-      const dropped = keptReal.shift();
-      const di = display.indexOf(dropped);
-      if (di !== -1) display.splice(di, 1);
-      if (keptReal.length === 0) return truncatedPlaceholder(event, ceiling);
-    } else {
-      shrinkEntryToBudget(largest, Math.max(ENTRY_FLOOR, Math.floor(largestBytes / 2)));
-    }
-  }
-  if (measureBytes(data, ceiling) > ceiling) return truncatedPlaceholder(event, ceiling);
-  return { ...event, data };
+  return exceedsSerializedSize(envelope, maxEventDataSize)
+    ? truncatedPlaceholder(event, maxEventDataSize)
+    : { ...event, data: envelope };
 }
 
 /**
@@ -1227,20 +1078,9 @@ export function reduceSubagentEvent(event: DashboardEvent, ceiling: number): Das
 function createTruncator(maxStringSize: number, maxEventDataSize: number) {
   const stringPass = maxStringSize > 0;
   const sizePass = maxEventDataSize > 0;
-  if (!stringPass && !sizePass) return (event: DashboardEvent) => event; // disabled
-  return (event: DashboardEvent): DashboardEvent => {
-    const data = event.data;
-    if (!data || typeof data !== "object") return event;
-    // Detect subagent-timeline events on the ORIGINAL event BEFORE the generic
-    // per-field pass, so the generic `obj.length > 20` array clobber can NEVER
-    // reach a detected `entries[]` regardless of `maxStringSize`. Over-ceiling
-    // → head+tail reduce; under-ceiling → store unchanged (skip generic pass).
-    // See change: head-tail-truncate-subagent-event-timeline (D1/D4).
-    if (sizePass && locateSubagentTimeline(event)) {
-      return exceedsSerializedSize(data, maxEventDataSize)
-        ? reduceSubagentEvent(event, maxEventDataSize)
-        : event;
-    }
+  /** Generic bound: image rescue → per-string cap → ceiling placeholder. */
+  const genericBound = (event: DashboardEvent, original: DashboardEvent): DashboardEvent => {
+    const data = event.data as Record<string, unknown>;
     // Rescue a chat message that only busts the per-event ceiling because of
     // inline image bytes: strip the base64 out of its image blocks (both the
     // flat pi shape `{data,mimeType}` and the nested Anthropic shape
@@ -1262,9 +1102,27 @@ function createTruncator(maxStringSize: number, maxEventDataSize: number) {
     if (sizePass && exceedsSerializedSize(truncated, maxEventDataSize)) {
       // Non-image content alone still busts the ceiling (e.g. a huge text
       // block) — fall through to the whole-event placeholder.
-      return truncatedPlaceholder(event, maxEventDataSize);
+      return truncatedPlaceholder(original, maxEventDataSize);
     }
-    return truncated !== data ? { ...rescued, data: truncated } : rescued;
+    return truncated !== rescuedData ? { ...rescued, data: truncated } : rescued;
+  };
+  if (!stringPass && !sizePass) return (event: DashboardEvent, _c?: TimelineCompleteCheck) => event; // disabled
+  return (event: DashboardEvent, isTimelineComplete?: TimelineCompleteCheck): DashboardEvent => {
+    const data = event.data;
+    if (!data || typeof data !== "object") return event;
+    if (event.eventType === "subagent_delta") return boundStreamDelta(event, maxEventDataSize);
+    // Subagent-timeline events: under the ceiling they are stored UNCHANGED (the
+    // generic `obj.length > 20` array clobber must never reach `entries[]`).
+    // Over it, a streamed producer's complete timeline lets the frame drop its
+    // redundant `entries`; anything else takes the generic path. No head+tail
+    // reduction. See change: add-plugin-bridge-contributions (D6).
+    const loc = sizePass ? locateSubagentTimeline(event) : undefined;
+    if (loc) {
+      if (!exceedsSerializedSize(data, maxEventDataSize)) return event;
+      const elided = elideStreamedEntries(event, loc, isTimelineComplete);
+      return genericBound(elided ?? event, event);
+    }
+    return genericBound(event, event);
   };
 }
 
@@ -1326,6 +1184,7 @@ export function createMemoryEventStore(
   let evictedSessionsTotal = 0;
   let evictedBytesTotal = 0;
   let collapsedUpdatesTotal = 0;
+  let collapsedDeltasTotal = 0;
   // Cumulative bytes released by byte-triggered trims (D4). A pass the byte
   // bound triggered (alone or with the count bound) adds its released bytes; a
   // count-only pass does NOT, so the counter answers "did the byte bound ever
@@ -1722,6 +1581,64 @@ export function createMemoryEventStore(
     }
   }
 
+  /**
+   * D6: true when every step `0..entryCount-1` of `agentId` is resident as a
+   * `subagent_entry`. One pass over the resident buffer (O(resident events));
+   * only reached for an OVER-ceiling subagent frame, so the cost is rare.
+   */
+  function residentTimelineComplete(buf: SessionBuffer, agentId: string, entryCount: number): boolean {
+    if (entryCount === 0) return true;
+    if (entryCount > buf.events.length) return false;
+    const seen = new Set<number>();
+    for (const e of buf.events) {
+      if (e.event.eventType !== "subagent_entry") continue;
+      const d = e.event.data as Record<string, unknown> | undefined;
+      if (!d || d.agentId !== agentId) continue;
+      const i = d.index;
+      if (typeof i === "number" && Number.isInteger(i) && i >= 0 && i < entryCount) seen.add(i);
+    }
+    return seen.size === entryCount;
+  }
+
+  /**
+   * D5: drop `subagent_delta` rows made redundant by `stored` — the pieces of
+   * the block a `subagent_entry` (with `blockId`) finishes, or every piece of
+   * an agent that reached `subagent_completed` / `subagent_failed`. Same
+   * accounting as every other middle removal: `buf.bytes` + `globalBytes`
+   * decremented, seqs never renumbered.
+   */
+  function collapseStreamDeltas(buf: SessionBuffer, stored: StoredEvent): void {
+    const t = stored.event.eventType;
+    const d = stored.event.data as Record<string, unknown> | undefined;
+    if (!d) return;
+    let agentId: unknown;
+    let blockId: number | undefined;
+    if (t === "subagent_entry") {
+      if (typeof d.blockId !== "number") return;
+      agentId = d.agentId;
+      blockId = d.blockId;
+    } else if (t === "subagent_completed" || t === "subagent_failed") {
+      const det = d.details as Record<string, unknown> | undefined;
+      agentId = typeof d.id === "string" ? d.id : det?.agentId;
+    } else {
+      return;
+    }
+    if (typeof agentId !== "string") return;
+    // Scan the whole resident buffer: a retransmitted (reconnect flush) or
+    // replayed piece can sit before the block's offset-0 piece.
+    for (let i = buf.events.length - 2; i >= 0; i--) {
+      const e = buf.events[i];
+      if (e.event.eventType !== "subagent_delta") continue;
+      const ed = e.event.data as Record<string, unknown> | undefined;
+      if (!ed || ed.agentId !== agentId) continue;
+      if (blockId !== undefined && ed.blockId !== blockId) continue;
+      buf.events.splice(i, 1);
+      buf.bytes -= e.bytes;
+      globalBytes -= e.bytes;
+      collapsedDeltasTotal++;
+    }
+  }
+
   /** D3 resident-pin guard: refuse an Agent-shaped tail when no pin is resident. */
   function endSubsumesUnlessAgentTail(tail: DashboardEvent, end: DashboardEvent): boolean {
     const pd = resolveUpdateDetails(tail);
@@ -1734,7 +1651,9 @@ export function createMemoryEventStore(
       const buf = getOrCreate(sessionId);
       const seq = buf.nextSeq++;
       lastEntriesExamined = 0;
-      const truncated = truncateEventData(event);
+      const truncated = truncateEventData(event, (agentId, entryCount) =>
+        residentTimelineComplete(buf, agentId, entryCount),
+      );
       const stored: StoredEvent = {
         seq,
         event: truncated,
@@ -1754,6 +1673,9 @@ export function createMemoryEventStore(
       // pre-trim so shed policies see the collapsed buffer).
       // See change: drop-final-update-on-tool-execution-end (D3).
       collapseOnEnd(buf, stored);
+      // Drop the streamed pieces of a block once its finished step is stored,
+      // and all of an agent's pieces once it is terminal (D5).
+      collapseStreamDeltas(buf, stored);
       // Trim over the per-session limit (0 = unlimited). Hysteresis: only
       // reclaim once the buffer overshoots the cap by TRIM_SLACK, then trim
       // back to the cap in one O(n) pass. This amortizes the trim cost to O(1)
@@ -1950,6 +1872,7 @@ export function createMemoryEventStore(
         subagentTickBytes: subagentTickBytesTotal,
         subagentFatTicks: subagentFatTicksTotal,
         subagentTickFatBytes: subagentTickFatBytesTotal,
+        collapsedDeltas: collapsedDeltasTotal,
       };
     },
 

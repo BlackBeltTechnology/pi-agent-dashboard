@@ -15,7 +15,9 @@ export default defineConfig({
   testMatch: /.*\.electron\.spec\.ts/,
   // App launch + packaged-binary boot is slow; keep generous.
   timeout: 90_000,
-  globalTimeout: 15 * 60_000,
+  // Env override: the runtime-overlay job stages two npm runtimes (change:
+  // electron-runtime-release-pipeline).
+  globalTimeout: Number(process.env.PW_ELECTRON_GLOBAL_TIMEOUT_MS) || 15 * 60_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

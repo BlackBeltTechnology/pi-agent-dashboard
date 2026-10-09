@@ -25,3 +25,5 @@ See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustP
 `GET /api/config` adds computed `agentPathGateEnvOverride` (`off|on|null`) so Settings renders the toggle inert under `PI_DASHBOARD_AGENT_PATH_GATE`. See change: ask-agent-file-access-in-chat.
 
 `PUT /api/config` broadcasts `config_updated {section:"sessions"}` when `folderListMode` or `folderAttentionPeek` changes — the sidebar list mode is live, never restart-gated. See change: add-focus-mode-and-card-block-toggles.
+
+`/api/health` gains `pluginEventForward {declared,rejected,conflicts,retained,dropped}` roll-up. See change: add-plugin-bridge-contributions.

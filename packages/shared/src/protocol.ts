@@ -290,6 +290,17 @@ export interface ProcessMetrics {
   tickDiscardedAtTerminal?: number;
   tickDroppedNotReady?: number;
   /**
+   * Plugin event-forward registry counters (change:
+   * add-plugin-bridge-contributions, D3/D4). `pluginForwardDeclared` is a gauge
+   * of accepted plugin channels; the rest are cumulative. `pluginForwardDropped`
+   * counts stream/latest messages lost to the retention bounds.
+   */
+  pluginForwardDeclared?: number;
+  pluginForwardRejected?: number;
+  pluginForwardConflicts?: number;
+  pluginForwardRetained?: number;
+  pluginForwardDropped?: number;
+  /**
    * Subagent fan-out admission counters (change:
    * bound-subagent-fanout-under-host-pressure, D7). Cumulative for the bridge's
    * lifetime. `fanoutAdmitted` are calls the gate admitted; `fanoutRefused` are

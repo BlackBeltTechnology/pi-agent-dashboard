@@ -47,6 +47,9 @@ function makeDeps(broadcast: (m: ServerToBrowserMessage) => void): ShutdownSessi
   return {
     sessionManager: {
       get: () => ({ id: "orphan-session", pid: SURVIVING_PID, sessionFile: undefined }),
+      // shutdownSession pre-stamps `closedReason:"manual"` in memory before
+      // signalling pi. See change: fix-recovery-pi-signal-unregister.
+      update: vi.fn(),
       unregister,
     } as unknown as ShutdownSessionDeps["sessionManager"],
     piGateway: {
@@ -97,6 +100,7 @@ describe("a process that outlives the ladder is announced, not just logged (C2)"
     // Any pid but the surviving one reads as gone through the stub.
     deps.sessionManager = {
       get: () => ({ id: "clean-session", pid: 999, sessionFile: undefined }),
+      update: vi.fn(),
       unregister: vi.fn(),
     } as unknown as ShutdownSessionDeps["sessionManager"];
 

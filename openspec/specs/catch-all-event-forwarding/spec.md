@@ -97,7 +97,7 @@ Forwarding SHALL apply a rename mapping for known channels:
 - `subagents:completed` → `subagent_completed`
 - `subagents:failed` → `subagent_failed`
 
-A subscribed channel that has no mapping entry SHALL be forwarded using the channel name directly as the `eventType`. The former blanket rule — that ANY unknown channel emitted by ANY extension is forwarded under its own name — SHALL NOT apply: the host's event bus offers no wildcard subscription, so only declared channels are observable. That blanket rule was in any case never satisfied for a channel emitted by another extension, so no working behavior is withdrawn. A plugin needing its own channel forwarded SHALL declare it in the channel mapping (identity entry when no rename is wanted). An emission made by the bridge ITSELF SHALL be treated exactly like any other emitter's: forwarded exactly once when its channel is declared, and NOT forwarded when it is not. There SHALL be no separate self-emit path. Consequence of retiring the wildcard: bridge-emitted control channels that are absent from the mapping (for example `flow:run`, `flow:list-flows`, `roles:*`, `ui:*`) are no longer forwarded as `event_forward`; any consumer that needs one SHALL declare that channel in the mapping.
+A subscribed channel that has no mapping entry SHALL be forwarded using the channel name directly as the `eventType`. The former blanket rule — that ANY unknown channel emitted by ANY extension is forwarded under its own name — SHALL NOT apply: the host's event bus offers no wildcard subscription, so only declared channels are observable. That blanket rule was in any case never satisfied for a channel emitted by another extension, so no working behavior is withdrawn. A plugin needing its own channel forwarded SHALL declare it at runtime through `dashboard:register-event-forward` (see `plugin-event-forwarding`); the core mapping above is not extended for plugin channels. An emission made by the bridge ITSELF SHALL be treated exactly like any other emitter's: forwarded exactly once when its channel is declared, and NOT forwarded when it is not. There SHALL be no separate self-emit path. Consequence of retiring the wildcard: bridge-emitted control channels that are absent from the mapping (for example `flow:run`, `flow:list-flows`, `roles:*`, `ui:*`) are no longer forwarded as `event_forward`; any consumer that needs one SHALL declare that channel in the mapping.
 
 NOTE: the scenario titles `Unknown custom extension event forwarded with channel name` and `Original emit always called` are retained verbatim because a MODIFIED requirement cannot retire a scenario name; their bodies below are normative and supersede the titles' wording.
 
@@ -120,8 +120,10 @@ NOTE: the scenario titles `Unknown custom extension event forwarded with channel
 
 #### Scenario: Events not forwarded before session is ready
 
-- **WHEN** a NON-subagent EventBus emission occurs before the session is ready
+- **WHEN** a NON-subagent EventBus emission occurs before the session is ready on a core-mapped channel or a plugin channel declared with delivery `live`
 - **THEN** the bridge SHALL NOT forward it and SHALL NOT retain it, and the emission SHALL still reach every other subscriber unaffected
+- **AND WHEN** the emission is on a plugin channel declared with delivery `latest` or `stream`
+- **THEN** it SHALL be retained per that delivery mode and flushed once the session is ready
 - **AND WHEN** the emission is on a subagent channel
 - **THEN** it SHALL NOT be forwarded live but SHALL be retained latest-wins per agent and flushed once the session is ready (reconcilable state, not a drop)
 
@@ -137,21 +139,26 @@ NOTE: the scenario titles `Unknown custom extension event forwarded with channel
 
 ### Requirement: EventBus subscriptions established once at extension init
 
-EventBus forwarding subscriptions SHALL be established once per bridge instance and SHALL survive until that bridge instance is superseded or torn down. The not-ready guard SHALL prevent premature forwarding, so subscriptions MAY be established before the session is ready.
+EventBus forwarding subscriptions for core-declared channels SHALL be established once per bridge instance at extension init, and a subscription for a plugin-declared channel SHALL be established once when that channel is first declared to that bridge instance. Subscriptions SHALL survive until that bridge instance is superseded or torn down. The not-ready guard SHALL prevent premature forwarding, so subscriptions MAY be established before the session is ready.
 
-On teardown or reload the bridge SHALL release its own subscriptions, and SHALL NOT restore or otherwise write back any host emit function — it never replaced one.
+On teardown or reload the bridge SHALL release its own subscriptions, including plugin-declared ones, and SHALL NOT restore or otherwise write back any host emit function — it never replaced one.
 
 NOTE: the scenario titles `Intercept installed at init` and `Cleanup restores original emit` are retained verbatim because a MODIFIED requirement cannot retire a scenario name; their bodies below are normative and describe subscriptions, not an intercept.
 
 #### Scenario: Intercept installed at init
 
 - **WHEN** the bridge extension loads
-- **THEN** it SHALL subscribe to each declared channel exactly once, and a second wiring pass SHALL NOT produce duplicate `event_forward` messages for a single emission
+- **THEN** it SHALL subscribe to each core-declared channel exactly once, and a second wiring pass SHALL NOT produce duplicate `event_forward` messages for a single emission
+
+#### Scenario: Plugin-declared channel subscribed once on declaration
+
+- **WHEN** a plugin declares a channel and later re-declares it after a `dashboard:bridge-ready`
+- **THEN** the bridge SHALL hold exactly one subscription for that channel
 
 #### Scenario: Cleanup restores original emit
 
 - **WHEN** the bridge extension reloads or shuts down
-- **THEN** its EventBus subscriptions SHALL be released
+- **THEN** its EventBus subscriptions, core and plugin-declared, SHALL be released
 - **AND** no host emit function SHALL be reassigned as part of cleanup — there is nothing to restore, because nothing was replaced
 
 ### Requirement: Foreign-extension EventBus events are forwarded live
@@ -182,7 +189,7 @@ Forwarding SHALL NOT depend on the bridge being the emitter, and SHALL NOT depen
 
 ### Requirement: Forwarded EventBus channels are an explicit declared set
 
-The set of EventBus channels the bridge forwards SHALL be an explicit declared list. Every channel present in the bridge's channel rename mapping SHALL be subscribed, so no mapped channel can be silently unforwarded. A channel that is not declared SHALL NOT be forwarded.
+The set of EventBus channels the bridge forwards SHALL be an explicit declared list: the core channel rename mapping plus channels declared at runtime by plugin bridges through `dashboard:register-event-forward`. Every channel present in the core mapping SHALL be subscribed, and every accepted plugin declaration SHALL be subscribed, so no declared channel can be silently unforwarded. A channel that is not declared SHALL NOT be forwarded.
 
 #### Scenario: Every mapped channel is subscribed
 
@@ -194,9 +201,14 @@ The set of EventBus channels the bridge forwards SHALL be an explicit declared l
 - **WHEN** a new channel/event-type pair is added to the rename mapping
 - **THEN** that channel SHALL be forwarded with the mapped event type, with no additional per-channel wiring required.
 
+#### Scenario: A plugin-declared channel is forwarded without core edits
+
+- **WHEN** a plugin bridge declares a channel that is not in the core mapping
+- **THEN** that channel SHALL be forwarded with its declared event type, and no core source file SHALL name the channel.
+
 #### Scenario: An undeclared channel is not forwarded
 
-- **WHEN** an extension emits a channel that is not in the declared set
+- **WHEN** an extension emits a channel that is neither in the core mapping nor declared by a plugin
 - **THEN** the bridge SHALL NOT forward it and SHALL NOT error.
 
 ### Requirement: pi 0.86 system-role messages are not forwarded

@@ -35,7 +35,7 @@ describe("session-action liveness clearing", () => {
     metaPersistence.setLiveness(sf, { live: true, liveEpoch: 1 });
 
     const ctx = {
-      sessionManager: { get: () => ({ id: "s1", sessionFile: sf }), unregister: () => {} },
+      sessionManager: { get: () => ({ id: "s1", sessionFile: sf }), update: () => {}, unregister: () => {} },
       piGateway: { sendToSession: () => {} },
       headlessPidRegistry: { killBySessionId: async () => false },
       broadcast: () => {},

@@ -17,8 +17,9 @@
  *
  * See change: extract-minimal-chat-view.
  */
-import React from "react";
-import { Icon } from "@mdi/react";
+
+import { useUiPrimitive, useUiPrimitiveOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import {
   mdiAlertCircle,
   mdiArrowLeft,
@@ -29,15 +30,15 @@ import {
   mdiHeadLightbulb,
   mdiPencil,
 } from "@mdi/js";
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { useUiPrimitive, useUiPrimitiveOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { Icon } from "@mdi/react";
+import React from "react";
+import { plainTail } from "./live-tail-text.js";
 import type {
   MinimalChatEntry,
   MinimalChatLiveEntry,
   MinimalChatStatus,
   MinimalChatViewProps,
 } from "./types.js";
-import { plainTail } from "./live-tail-text.js";
 
 // ---- Status visuals ----
 
@@ -117,12 +118,7 @@ function ToolCallEntry({
     entry.input && typeof entry.input === "object" && !Array.isArray(entry.input)
       ? (entry.input as Record<string, unknown>)
       : { value: entry.input };
-  const result =
-    entry.output === undefined
-      ? undefined
-      : typeof entry.output === "string"
-        ? entry.output
-        : JSON.stringify(entry.output, null, 2);
+  const result = formatToolOutput(entry.output);
   if (ToolCallStepImpl) {
     const toolCallId = `minimal-${index}`;
     const status = entry.isError ? "error" : entry.output !== undefined ? "complete" : "running";
@@ -265,7 +261,13 @@ function LiveEntry({ entry }: { entry: MinimalChatLiveEntry }) {
           isThinking ? "bg-purple-500/5 border-purple-500/10" : "bg-[var(--bg-tertiary)] border-[var(--border-subtle)]"
         }`}
       >
-        <div className="max-h-36 overflow-hidden flex flex-col justify-end px-3 py-2 [mask-image:linear-gradient(to_bottom,transparent_0,#000_22%)]">
+        <div
+          className={
+            entry.growing
+              ? "px-3 py-2"
+              : "max-h-36 overflow-hidden flex flex-col justify-end px-3 py-2 [mask-image:linear-gradient(to_bottom,transparent_0,#000_22%)]"
+          }
+        >
           <div className="text-[13px] leading-5 text-[var(--text-secondary)] whitespace-pre-line break-words">
             {body}
             <span
@@ -278,6 +280,27 @@ function LiveEntry({ entry }: { entry: MinimalChatLiveEntry }) {
       </div>
     </div>
   );
+}
+
+/**
+ * Tool output as text: a string as-is; a `{ content: [{ type: "text", text }] }`
+ * result envelope as its texts joined by newlines; anything else as JSON.
+ * See change: add-plugin-bridge-contributions (D11).
+ */
+export function formatToolOutput(output: unknown): string | undefined {
+  if (output === undefined) return undefined;
+  if (typeof output === "string") return output;
+  if (output && typeof output === "object" && !Array.isArray(output)) {
+    const content = (output as { content?: unknown }).content;
+    if (Array.isArray(content) && content.length > 0) {
+      const texts = content.filter(
+        (b): b is { type: "text"; text: string } =>
+          !!b && typeof b === "object" && (b as { type?: unknown }).type === "text" && typeof (b as { text?: unknown }).text === "string",
+      );
+      if (texts.length === content.length) return texts.map((b) => b.text).join("\n");
+    }
+  }
+  return JSON.stringify(output, null, 2);
 }
 
 function ErrorEntry({ text }: { text: string }) {

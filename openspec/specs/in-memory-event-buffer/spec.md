@@ -174,34 +174,21 @@ smaller values such as 20 000 appear only in tests, `0` = disabled). If an event
 ceiling, the store SHALL bound the event as follows:
 
 - **Subagent-timeline events** — an event is a subagent-timeline event ONLY when
-  it is TYPE-scoped as one (`data.toolName === "Agent"`, or an event type of
-  `tool_execution_update`/`tool_execution_end` carrying a `details.agentId`) AND
-  an `entries[]` array is reachable at `data.partialResult.details.entries` or
-  `data.details.entries`. A bare array at those paths on an unrelated event SHALL
-  NOT qualify. Such an event SHALL be DETECTED on the original event BEFORE the
-  generic per-string-field pass, and the generic pass SHALL be SKIPPED for it (so
-  the generic "array longer than the array-length limit collapses to a string"
-  rule can NEVER clobber `entries[]`, independent of the per-string-field cap
-  value). It SHALL be reduced by a **head+tail** strategy rather than replaced
-  wholesale: keep the first-K + last-K entries, splice the removed middle into a
-  single `text` **sentinel** entry (e.g. `{ kind: "text", text: "⋯ N steps hidden ⋯", ts }`)
-  — NOT a new wire kind, so every client version renders it as plain text — and
-  shrink oversized kept entries by a **per-ENTRY** budget enforced at the ENTRY
-  level (each kept entry's total serialized bytes ≤ its budget), NOT by a
-  per-string-leaf cap (so a `tool` entry whose `input` is an object with many
-  string leaves cannot exceed its budget). Because large strings OUTSIDE
-  `entries[]` would otherwise consume the whole ceiling and starve the timeline —
-  the subagent task `data.args.prompt`, `details.description`, AND every string
-  inside `data.partialResult.content[*]` (both `.text` AND base64 image `.data`,
-  recursing container blocks) — the reduction SHALL first head+tail-cap ALL of
-  them to bounded caps (NO image preservation on this path), then derive the
-  per-entry budget from the MEASURED post-cap envelope. The reduction SHALL return
-  a NEW event object with the touched paths cloned; it SHALL NOT mutate the
-  in-flight `event`. All non-timeline `data` fields (other than the capped
-  strings) SHALL be left intact. If the event cannot be brought under the ceiling
-  this way (e.g. an empty `entries[]` with an already-capped but still-oversized
-  envelope), the store SHALL fall back to the bounded `{ __truncated }`
-  placeholder.
+  it is TYPE-scoped as one (`data.toolName === "Agent"`, an event type of
+  `tool_execution_update`/`tool_execution_end` carrying a `details.agentId`, or an
+  event type starting with `subagent_`) AND an `entries[]` array is reachable at
+  `data.partialResult.details.entries` or `data.details.entries`. A bare array at
+  those paths on an unrelated event SHALL NOT qualify. When such an event's
+  `details.entryCount` is a safe integer `>= 0` (the producer streams its steps as separate
+  `subagent_entry` events) AND the session's resident events include a
+  `subagent_entry` for that agent at EVERY index `0..entryCount-1`, the store
+  SHALL replace that `entries[]` with an empty
+  array, keep `entryCount`, and then apply the generic path to the rest of the
+  event; the timeline is rebuilt from the stored step events, so no head+tail
+  reduction and no `steps hidden` sentinel SHALL be produced. Otherwise (a producer
+  without step events, or any step no longer resident) the event SHALL be bounded by the generic path like any
+  other event. The elision SHALL return a NEW event object with the touched paths
+  cloned and SHALL NOT mutate the in-flight `event`.
 - **Chat-message events carrying inline image bytes** — when the over-ceiling
   event's `data.message.content` is an array containing at least one INLINE image
   block (a block recognized by the shared `inline-image-block-shapes` detector as
@@ -256,65 +243,6 @@ running total crosses the ceiling. The store SHALL NOT materialize a full
 any terminal bound check). The ceiling SHALL be enforced at ingest so both
 persistence (`insertEvent`) and broadcast (`broadcastEvent`) operate on the
 already-bounded event.
-
-#### Scenario: Oversized subagent event is bounded before storage
-- **GIVEN** an event whose `data` embeds a subagent's full timeline and exceeds
-  `MAX_EVENT_DATA_SIZE` after per-field truncation
-- **WHEN** the event is inserted
-- **THEN** the stored event's serialized size SHALL be ≤ `MAX_EVENT_DATA_SIZE`
-  plus a small constant — achieved by the head+tail reduction (keeping the first
-  and last entries + a `text` sentinel) or, when the event is unreducible, the
-  bounded `{ __truncated }` placeholder
-
-#### Scenario: Oversized subagent event keeps first and last entries
-- **GIVEN** an event whose `data` embeds a subagent's full timeline of many
-  entries and exceeds `MAX_EVENT_DATA_SIZE` after per-field truncation
-- **WHEN** the event is inserted
-- **THEN** the stored event's `data` SHALL still carry an `entries[]` array
-  containing the first entries, a `text` sentinel entry whose text names the hidden
-  count, and the last entries (including the final result), NOT a scalar
-  `{ __truncated }` placeholder
-- **AND** the stored event's ACTUAL serialized byte size SHALL be
-  ≤ `MAX_EVENT_DATA_SIZE` plus a small constant
-
-#### Scenario: Large non-entries string does not starve the timeline
-- **GIVEN** an over-ceiling subagent event where any of `data.args.prompt`,
-  `details.description`, or `data.partialResult.content[*].text` is large enough
-  that, uncapped, it would leave no room for `entries[]`
-- **WHEN** the event is inserted
-- **THEN** each of those strings SHALL be head+tail-capped to its bounded cap, the
-  reduced `entries[]` SHALL still retain the first and last entries (the timeline
-  is not starved), and the serialized `data` SHALL be ≤ `MAX_EVENT_DATA_SIZE` plus
-  a small constant
-
-#### Scenario: Shape-only match does not trigger reduction (no false positive)
-- **GIVEN** an over-ceiling event that is NOT a subagent tool event (no
-  `toolName === "Agent"`, no `details.agentId`) but happens to carry an array at
-  `data.details.entries`
-- **WHEN** the event is inserted
-- **THEN** the store SHALL NOT head+tail-reduce that array or cap its strings, and
-  SHALL bound the event via the `{ __truncated }` placeholder like any other
-  non-subagent event
-
-#### Scenario: Byte-accurate bound holds for escape/multi-byte-heavy input
-- **GIVEN** an over-ceiling subagent event whose entries/strings are dominated by
-  characters that expand under JSON serialization (quotes, backslashes, control
-  chars) or UTF-8 multi-byte characters (CJK, emoji)
-- **WHEN** the event is inserted
-- **THEN** the stored event's ACTUAL serialized byte size
-  (`Buffer.byteLength(JSON.stringify(data))`, computed by the TEST) SHALL be
-  ≤ `MAX_EVENT_DATA_SIZE` plus a small constant — a code-unit-only estimate SHALL
-  NOT be relied on as the bound
-
-#### Scenario: Base64 image does not OOM the reduction or broadcast
-- **GIVEN** an over-ceiling subagent event carrying a multi-megabyte base64 image
-  (an `{ data, mimeType }` block) inside `data.partialResult.content[*]` or inside
-  a kept entry
-- **WHEN** the event is inserted
-- **THEN** the image `data` string SHALL be head+tail-capped (or the event SHALL
-  fall back to `{ __truncated }`), the store SHALL NOT materialize a full
-  `JSON.stringify` of the multi-megabyte payload, and the stored event's actual
-  serialized byte size SHALL be ≤ `MAX_EVENT_DATA_SIZE` plus a small constant
 
 #### Scenario: Image-bearing chat message is bounded by stripping only the image bytes
 - **GIVEN** a non-subagent `message_start` whose `data.message.content` holds a
@@ -381,28 +309,6 @@ already-bounded event.
 - **THEN** the store SHALL replace `data` with the `{ __truncated }` placeholder
   and the stored event SHALL be within the ceiling
 
-#### Scenario: Unreducible subagent event falls back to the placeholder
-- **GIVEN** an over-ceiling subagent-timeline event with an empty `entries[]` and
-  an envelope that remains over the ceiling even after all non-entries strings are
-  capped
-- **WHEN** the event is inserted
-- **THEN** the store SHALL replace `data` with the bounded `{ __truncated }`
-  placeholder and the stored serialized size SHALL be ≤ `MAX_EVENT_DATA_SIZE` plus
-  a small constant
-
-#### Scenario: Reduction does not mutate the in-flight event
-- **GIVEN** an over-ceiling subagent event whose `data` object is also referenced
-  by another observer (bridge / logger)
-- **WHEN** the store reduces it at ingest
-- **THEN** the store SHALL return a NEW event object and the caller's original
-  `event.data` (its `args`, `details`, and `entries`) SHALL be unchanged
-
-#### Scenario: Timeline array longer than the array-length limit is not clobbered
-- **GIVEN** a subagent timeline event whose `entries[]` has more than 20 entries
-- **WHEN** the event is truncated at ingest
-- **THEN** `entries[]` SHALL be reduced head+tail (kept entries + `text` sentinel),
-  and SHALL NOT be replaced with the string `"[array truncated]"`
-
 #### Scenario: Per-field truncation keeps head and tail
 - **GIVEN** a kept timeline entry whose stringified tool output exceeds the
   per-field cap
@@ -419,14 +325,6 @@ already-bounded event.
   intact so the client's skill-block parser still parses it — the head+tail change
   SHALL NOT sever the envelope
 
-#### Scenario: An entry whose input is a many-leaf object stays within its per-ENTRY budget
-- **GIVEN** a kept `tool` entry whose `input` is an OBJECT with many large string
-  leaves (plus a large `output`)
-- **WHEN** the entry is shrunk to its per-entry budget
-- **THEN** the entry's TOTAL serialized bytes SHALL be bounded by its per-entry
-  budget (the budget is enforced at the entry level, NOT as an independent
-  per-string-leaf cap that would sum to leafCount × cap)
-
 #### Scenario: Non-subagent oversized event is bounded by placeholder
 - **GIVEN** an over-ceiling event whose `data` does NOT carry a subagent
   `entries[]` timeline
@@ -434,14 +332,6 @@ already-bounded event.
 - **THEN** the stored event's `data` SHALL be replaced with a bounded placeholder
   (e.g. `{ __truncated: true, reason, approxBytes, eventType }`) and the stored
   event's serialized size SHALL be ≤ `MAX_EVENT_DATA_SIZE` plus a small constant
-
-#### Scenario: Pathological single huge final entry still bounded
-- **GIVEN** a subagent timeline whose reduction floor is reached (`K_TAIL` at its
-  minimum) and the single kept final entry's stringified form is still large
-- **WHEN** the event is inserted
-- **THEN** the per-entry head+tail floor SHALL apply to that entry so the stored
-  event's byte-accurate serialized size SHALL be ≤ `MAX_EVENT_DATA_SIZE` plus a
-  small constant (falling back to the placeholder if even that is insufficient)
 
 #### Scenario: Broadcast of an oversized event serializes a bounded message
 - **GIVEN** an over-ceiling event arriving via `event_forward`
@@ -463,6 +353,113 @@ already-bounded event.
   truncation
 - **WHEN** the event is inserted
 - **THEN** the event SHALL be stored without any reduction or placeholder
+
+#### Scenario: Oversized streamed subagent frame elides its entries
+- **GIVEN** an over-ceiling `subagent_completed` whose `details.entries` holds 300
+  entries and whose `details.entryCount` is 300
+- **WHEN** the event is inserted
+- **THEN** the stored `details.entries` SHALL be `[]`, `details.entryCount` SHALL
+  be 300, the stored size SHALL be ≤ `MAX_EVENT_DATA_SIZE` plus a small constant,
+  and no entry with text `⋯ N steps hidden ⋯` SHALL exist
+
+#### Scenario: Oversized legacy subagent frame takes the generic path
+- **GIVEN** an over-ceiling subagent event with more than 20 `entries` and no
+  `entryCount`
+- **WHEN** the event is inserted
+- **THEN** it SHALL be bounded by the generic path and no `steps hidden` sentinel
+  SHALL be produced
+
+#### Scenario: Oversized subagent event is bounded before storage
+- **GIVEN** an event whose `data` embeds a subagent's full timeline and exceeds
+  `MAX_EVENT_DATA_SIZE`
+- **WHEN** the event is inserted
+- **THEN** the stored event's serialized size SHALL be ≤ `MAX_EVENT_DATA_SIZE`
+  plus a small constant — achieved by entries elision (streamed producer) or the
+  generic path (legacy producer)
+
+#### Scenario: Oversized subagent event keeps first and last entries
+- **GIVEN** an over-ceiling subagent event of a streamed producer (`entryCount` present)
+- **WHEN** the event is inserted
+- **THEN** the stored `entries[]` SHALL be empty with `entryCount` kept — first and
+  last entries are NOT kept in the frame because every step is stored as its own
+  `subagent_entry` event
+
+#### Scenario: Large non-entries string does not starve the timeline
+- **GIVEN** an over-ceiling streamed subagent event with a large `data.args.prompt`
+- **WHEN** the event is inserted
+- **THEN** the prompt SHALL be capped by the generic per-string-field rule and the
+  timeline SHALL remain fully available from the stored step events
+
+#### Scenario: Shape-only match does not trigger reduction (no false positive)
+- **GIVEN** an over-ceiling event that is NOT a subagent event (no
+  `toolName === "Agent"`, no `details.agentId`, type not `subagent_*`) but carries an
+  array at `data.details.entries` and a numeric `entryCount`
+- **WHEN** the event is inserted
+- **THEN** the store SHALL NOT elide that array and SHALL bound the event via the
+  generic path
+
+#### Scenario: Base64 image does not OOM the reduction or broadcast
+- **GIVEN** an over-ceiling subagent event carrying a multi-megabyte base64 image
+  inside `data.partialResult.content[*]` or inside an entry
+- **WHEN** the event is inserted
+- **THEN** the store SHALL NOT materialize a full `JSON.stringify` of the payload,
+  and the stored event's actual serialized byte size SHALL be ≤
+  `MAX_EVENT_DATA_SIZE` plus a small constant
+
+#### Scenario: Unreducible subagent event falls back to the placeholder
+- **GIVEN** an over-ceiling subagent event whose envelope remains over the ceiling
+  after entries elision and generic capping
+- **WHEN** the event is inserted
+- **THEN** the store SHALL replace `data` with the bounded `{ __truncated }`
+  placeholder
+
+#### Scenario: Reduction does not mutate the in-flight event
+- **GIVEN** an over-ceiling streamed subagent event whose `data` object is also
+  referenced by another observer (bridge / logger)
+- **WHEN** the store elides its entries at ingest
+- **THEN** the store SHALL return a NEW event object and the caller's original
+  `event.data.details.entries` SHALL be unchanged
+
+#### Scenario: Timeline array longer than the array-length limit is not clobbered
+- **GIVEN** a streamed subagent event whose `entries[]` has more than 20 entries
+- **WHEN** the event is truncated at ingest
+- **THEN** `entries[]` SHALL be elided to `[]` with `entryCount` kept, and SHALL NOT
+  be replaced with the string `"[array truncated]"`
+
+#### Scenario: An entry whose input is a many-leaf object stays within its per-ENTRY budget
+- **GIVEN** a stored `subagent_entry` whose `entry.input` is an object with many
+  large string leaves
+- **WHEN** the event is inserted
+- **THEN** each string leaf SHALL be bounded by the generic per-string-field cap and
+  the event by the per-event ceiling
+
+#### Scenario: Pathological single huge final entry still bounded
+- **GIVEN** a single `subagent_entry` whose entry alone exceeds the ceiling after
+  per-field capping
+- **WHEN** the event is inserted
+- **THEN** the store SHALL fall back to the bounded `{ __truncated }` placeholder
+  and the stored size SHALL be ≤ `MAX_EVENT_DATA_SIZE` plus a small constant
+
+#### Scenario: Byte-accurate bound holds for escape/multi-byte-heavy input
+- **GIVEN** an over-ceiling event whose strings are dominated by characters that
+  expand under JSON serialization or UTF-8 multi-byte characters
+- **WHEN** the event is inserted
+- **THEN** the stored event's ACTUAL serialized byte size SHALL be
+  ≤ `MAX_EVENT_DATA_SIZE` plus a small constant
+
+#### Scenario: A missing resident step blocks elision
+- **GIVEN** an over-ceiling `subagent_completed` with `entryCount` 300 while the
+  store holds `subagent_entry` rows for indices 0..298 only (one trimmed)
+- **WHEN** the event is inserted
+- **THEN** the store SHALL NOT replace `entries` with `[]` and SHALL bound the event
+  via the generic path
+
+#### Scenario: Invalid entryCount never authorizes elision
+- **GIVEN** an over-ceiling subagent event whose `details.entryCount` is negative,
+  fractional, `NaN`, or larger than the number of resident events
+- **WHEN** the event is inserted
+- **THEN** the store SHALL NOT elide `entries` and SHALL bound the event via the
+  generic path
 
 ### Requirement: Depth-limited truncation does not return deep sub-trees raw
 The event store string truncation SHALL NOT return a value untruncated solely
