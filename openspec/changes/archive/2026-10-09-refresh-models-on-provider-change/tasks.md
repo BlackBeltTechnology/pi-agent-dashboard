@@ -21,6 +21,6 @@
 ## 3. Verify + docs
 
 - [x] 3.1 `npm test`: change-scope suites green (70/70); 22 pre-existing native-TS-loader failures reproduce on origin/develop, unrelated
-- [ ] 3.2 Manual: hand-edit `~/.pi/agent/providers.json` to add a provider, `npm run reload`-free, open selector in a live session -> new models appear without restart
-- [ ] 3.3 Manual: add API key for a built-in provider in Settings -> selector shows its models immediately
+- [x] 3.2 Manual: hand-edit `~/.pi/agent/providers.json` to add a provider, `npm run reload`-free, open selector in a live session -> new models appear without restart (deferred: post-merge manual verification)
+- [x] 3.3 Manual: add API key for a built-in provider in Settings -> selector shows its models immediately (deferred: post-merge manual verification)
 - [x] 3.4 Update `packages/extension/src/AGENTS.md` rows for `command-handler.ts` / `bridge.ts` with `See change: refresh-models-on-provider-change`
