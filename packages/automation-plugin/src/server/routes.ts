@@ -225,11 +225,15 @@ export function mountAutomationRoutes(
     if (!q.runId && q.sessionId) {
       const scopes: AutomationScope[] = q.scope ? [q.scope] : ["folder", "global"];
       for (const scope of scopes) {
-        const rec = findRunBySessionId(scopeBaseFor(scope, q.cwd), q.sessionId);
+        const base = scopeBaseFor(scope, q.cwd);
+        const rec = findRunBySessionId(base, q.sessionId);
         if (!rec) continue;
+        // Resolve the dir from the (validated) run id under the scope base —
+        // never trust the record's own `dir` field (file content).
+        const dir = resolveRunDir(base, rec.runId);
         let result: string | undefined;
         try {
-          result = fs.readFileSync(path.join(rec.dir, "result.md"), "utf-8");
+          if (dir) result = fs.readFileSync(path.join(dir, "result.md"), "utf-8");
         } catch { /* not finished yet */ }
         return { status: rec.status, runId: rec.runId, name: rec.name, ...(result !== undefined ? { result } : {}) };
       }

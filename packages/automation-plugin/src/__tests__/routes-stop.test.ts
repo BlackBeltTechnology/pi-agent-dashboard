@@ -176,6 +176,26 @@ describe("GET /api/plugins/automation/result?sessionId=", () => {
     await app.close();
   });
 
+  it("reads result.md from the resolved run dir, never from a record's own `dir` field", async () => {
+    const parent = startParentRun(base, "nightly", { runId: "p2" });
+    const child = startChildRun(base, parent.runId, "nightly", { runId: "r2", sessionId: "s2" });
+    finishRun(base, "r2", { status: "done", result: "- real" });
+    // A tampered record points `dir` outside the run store.
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "auto-outside-"));
+    fs.writeFileSync(path.join(outside, "result.md"), "SECRET");
+    const recPath = path.join(child.dir, "run.json");
+    fs.writeFileSync(recPath, JSON.stringify({ ...JSON.parse(fs.readFileSync(recPath, "utf-8")), dir: outside }));
+    const app = await appWith({});
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/plugins/automation/result?cwd=${encodeURIComponent(base)}&sessionId=s2`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().result).toBe("- real\n");
+    fs.rmSync(outside, { recursive: true, force: true });
+    await app.close();
+  });
+
   it("400 when neither runId nor sessionId is given", async () => {
     const app = await appWith({});
     const res = await app.inject({ method: "GET", url: `/api/plugins/automation/result?cwd=${encodeURIComponent(base)}` });
