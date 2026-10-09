@@ -118,6 +118,14 @@ describe("shutdown-window evidence wiring", () => {
     const first = readSessionMeta(sf);
     expect(first?.liveEpoch).toBe(currentBoot);
 
+    // (a) a re-fire with the reason still `unknown` rewrites the same evidence.
+    // `update()` only re-fires on a reason CHANGE, so invoke the wired callback.
+    server.sessionManager.onEnded?.(SID);
+    await wait(150);
+    const again = readSessionMeta(sf);
+    expect(again?.liveEpoch).toBe(currentBoot);
+    expect(again?.endedAt).toBe(first?.endedAt);
+
     // (b) a refined reason re-fires onEnded: evidence dropped, never re-dated.
     server.sessionManager.update(SID, { closedReason: "process_gone" });
     await wait(150);
