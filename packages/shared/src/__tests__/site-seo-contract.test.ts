@@ -31,7 +31,20 @@ const NPM_PKG = "https://www.npmjs.com/package/@blackbelt-technology/pi-agent-da
 
 const html = read("site/index.html");
 const head = html.slice(0, html.indexOf("</head>"));
-const stripComments = (s: string) => s.replace(/<!--[\s\S]*?-->/g, "");
+/** Drop every `<!-- … -->` span. Index-based, not a regex replace, so no
+ *  partial `<!--` can survive a single pass (CodeQL js/incomplete-multi-character-sanitization). */
+function stripComments(s: string): string {
+  let out = "";
+  let i = 0;
+  for (;;) {
+    const open = s.indexOf("<!--", i);
+    if (open === -1) return out + s.slice(i);
+    out += s.slice(i, open);
+    const close = s.indexOf("-->", open + 4);
+    if (close === -1) return out; // unterminated comment: drop the tail
+    i = close + 3;
+  }
+}
 const stripTags = (s: string) =>
   stripComments(s)
     .replace(/<[^>]+>/g, " ")
@@ -47,10 +60,13 @@ function section(id: string): string {
   return html.slice(m.index, end + "</section>".length);
 }
 
-function meta(attr: "name" | "property", key: string): string | undefined {
-  const re = new RegExp(`<meta\\s+${attr}="${key.replace(/[:]/g, "\\:")}"\\s+content="([^"]*)"`);
-  return head.match(re)?.[1];
-}
+/** `<meta name|property="k" content="v">` → Map keyed `"<attr>:<k>"`. */
+const metaTags = new Map(
+  [...head.matchAll(/<meta\s+(name|property)="([^"]+)"\s+content="([^"]*)"/g)].map(
+    (m) => [`${m[1]}:${m[2]}`, m[3]] as const,
+  ),
+);
+const meta = (attr: "name" | "property", key: string) => metaTags.get(`${attr}:${key}`);
 
 const titleText = () => stripTags(head.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? "");
 
