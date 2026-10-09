@@ -130,8 +130,11 @@ describe("liveness-stamp wiring", () => {
     // A terminal transition with no better information stamps `unknown`
     // explicitly (design D1): a death whose cause was never examined is not
     // the same fact as one we know was clean. `isRecoveryCandidate` still
-    // excludes this session because `status` is `ended` and `live` is false.
-    // See change: stop-discarding-known-session-state.
+    // excludes this session because `status` is `ended` and `live` is false;
+    // it can only return via the shutdown-window path, when this boot then
+    // exits via `signal`/`user-quit` within 60 s of the unregister.
+    // See change: stop-discarding-known-session-state,
+    // fix-recovery-pi-signal-unregister.
     expect(afterQuit?.closedReason).toBe("unknown");
 
     // 3. Same-boot resume of the SAME session id: the register-side guard

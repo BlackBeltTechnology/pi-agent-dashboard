@@ -315,3 +315,50 @@ describe("AgentToolRenderer — ticker hold, expanded, no early resync", () => {
     expect(send.mock.calls.length).toBe(before);
   });
 });
+
+// Healed Agent rows show the subagent's real result instead of the heal
+// placeholder (superseded + session_ended); a real end keeps the tool result.
+// See change: add-plugin-bridge-contributions (D10, test-plan #E22).
+describe("AgentToolRenderer — healed card shows the subagent result", () => {
+  const healedCtx = (subResult?: string): ToolContext => ({
+    cwd: "/r",
+    sessionId: "s1",
+    session: {
+      subagents: new Map([
+        [
+          "ag1",
+          { id: "ag1", type: "Explore", description: "d", status: "completed", ...(subResult ? { result: subResult } : {}) },
+        ],
+      ]),
+    },
+  });
+  const card = (healedBy: string | undefined, ctxValue: ToolContext, result = "result unavailable — recovered by supersede heal") => (
+    <AgentToolRenderer
+      toolName="Agent"
+      args={{ subagent_type: "Explore", description: "find the thing", prompt: "go" }}
+      status="complete"
+      result={result}
+      toolDetails={{ status: "completed", agentId: "ag1", displayName: "Explore", ...(healedBy ? { healedBy } : {}) }}
+      context={ctxValue}
+    />
+  );
+
+  for (const healedBy of ["superseded", "session_ended"]) {
+    it(`${healedBy} heal + subagent result → renders the subagent result`, () => {
+      const { queryByText, getByText } = renderAgent(card(healedBy, healedCtx("Done. Wrote x.md")));
+      expect(getByText(/Done\. Wrote x\.md/)).toBeTruthy();
+      expect(queryByText(/recovered by supersede heal/)).toBeNull();
+    });
+  }
+
+  it("heal without a subagent result keeps the placeholder", () => {
+    const { getByText } = renderAgent(card("superseded", healedCtx()));
+    expect(getByText(/recovered by supersede heal/)).toBeTruthy();
+  });
+
+  it("a real end keeps the tool result even when the subagent has one", () => {
+    const { getByText, queryByText } = renderAgent(card(undefined, healedCtx("from subagent"), "from tool"));
+    expect(getByText(/from tool/)).toBeTruthy();
+    expect(queryByText(/from subagent/)).toBeNull();
+  });
+});

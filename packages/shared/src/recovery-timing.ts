@@ -10,6 +10,10 @@
  * liveness channel was arithmetically unreachable on the restart path.
  *
  * See change: fix-recovery-exit-intent (D5).
+ *
+ * Also owns the (unrelated) shutdown window used to recognise sessions whose
+ * pi exited gracefully during a host shutdown, just before the server itself
+ * was signalled. See change: fix-recovery-pi-signal-unregister (D3).
  */
 
 /**
@@ -32,3 +36,11 @@ export const RECONNECT_HEADROOM_MS = 2000;
  * told not to reconnect.
  */
 export const RECOVERY_REATTACH_GRACE_MS = RESTART_QUIESCE_MS + RECONNECT_HEADROOM_MS;
+
+/**
+ * Max |endedAt − boot exit time| for a session that ended by an explicit
+ * bridge unregister to count as "went down with the host". Measured macOS
+ * spacing between pi's graceful exit and the server's SIGTERM: ~23 s.
+ * See change: fix-recovery-pi-signal-unregister (D3).
+ */
+export const RECOVERY_SHUTDOWN_WINDOW_MS = 60_000;

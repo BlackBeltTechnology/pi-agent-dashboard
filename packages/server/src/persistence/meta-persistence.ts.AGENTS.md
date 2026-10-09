@@ -1,3 +1,5 @@
 # meta-persistence.ts — index
 
 Per-session debounced `.meta.json` writer. Exports `MetaPersistence`, `createMetaPersistence`. Each session gets own 1s debounce timer; `save`, `flushAll`, `dispose`. Synchronous bypass methods `setDisplayPrefsOverride` (set/delete via read-modify-write) and `setProcessDrawerCollapsed` write immediately. `setLiveness` eagerly (atomic, non-debounced) stamps `{live,liveEpoch,closedReason}`; debounced `save()` carries forward on-disk liveness fields so a routine stats write never clobbers them. See change: reopen-sessions-after-shutdown. `setLiveness` is the ONLY durable path for `closedReason` — `session-to-meta.ts` is a full overwrite that does not enumerate the field, so a terminal reason written to the session record alone is wiped by the next routine save. See change: stop-discarding-known-session-state (design D2, task 4.8).
+
+`setLiveness` accepts optional `endedAt` (written when present, base value kept when absent — not a liveness field). `writeNow` read-back of `live/liveEpoch/closedReason` is load-bearing for shutdown-window evidence; `sessionToMeta` must not enumerate them. See change: fix-recovery-pi-signal-unregister.

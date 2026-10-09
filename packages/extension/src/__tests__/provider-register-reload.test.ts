@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCommandHandler } from "../command-handler.js";
-import { refreshFullySucceeded, reportRefresh } from "../model-refresh.js";
+import { refreshAfterCredentialsReload, refreshFullySucceeded, reportRefresh } from "../model-refresh.js";
 
 // We re-import the module fresh in each test so module-level `lastRegistered`
 // state starts empty.
@@ -83,6 +83,105 @@ describe("reloadProviders", () => {
       api: "openai-completions",
     }));
     expect(unregisterProvider).not.toHaveBeenCalled();
+  });
+
+  // See change: refresh-models-on-provider-change (D4, review B1).
+  it("overlapping reloads: the second resolves only after the first's registration completed", async () => {
+    const mod = await importFresh();
+    const { pi, registerProvider } = makeMockPi();
+    let releaseDiscovery!: () => void;
+    globalThis.fetch = vi.fn(
+      () => new Promise<Response>((res) => {
+        releaseDiscovery = () => res(new Response(JSON.stringify({ data: [{ id: "m1" }] }), { status: 200 }));
+      }),
+    ) as any;
+    writeProvidersJson(tmpHome, { "my-llm": { baseUrl: "https://api.example.com/v1", apiKey: "k" } });
+
+    const first = mod.reloadProviders(pi);
+    let secondDone = false;
+    const second = mod.reloadProviders(pi).then((d) => { secondDone = true; return d; });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(registerProvider).not.toHaveBeenCalled();
+    expect(secondDone).toBe(false); // must not report "no diff" while my-llm is still registering
+
+    releaseDiscovery();
+    await first;
+    await second;
+    expect(registerProvider).toHaveBeenCalledTimes(1);
+  });
+
+  // See change: refresh-models-on-provider-change (D4, review r2 B1).
+  it("a re-sync overlapping session_start re-enrichment waits for it to finish", async () => {
+    const mod = await importFresh();
+    const { pi, registerProvider } = makeMockPi();
+    const handlers = new Map<string, (e: any, c: any) => any>();
+    pi.on = vi.fn((ev: string, h: any) => { handlers.set(ev, h); });
+    writeProvidersJson(tmpHome, { "my-llm": { baseUrl: "https://api.example.com/v1", apiKey: "k" } });
+
+    mod.activate(pi);
+    await mod.reloadProviders(pi); // startup discovery (instant stub) drained via the chain
+    const before = registerProvider.mock.calls.length;
+
+    let releaseDiscovery!: () => void;
+    globalThis.fetch = vi.fn(
+      () => new Promise<Response>((res) => {
+        releaseDiscovery = () => res(new Response(JSON.stringify({ data: [{ id: "m1" }] }), { status: 200 }));
+      }),
+    ) as any;
+    const sessionStart = handlers.get("session_start")!({}, { modelRegistry: { find: () => null } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Selector open through the production handler; the registry reflects
+    // whatever pi.registerProvider has applied so far.
+    const registry = {
+      authStorage: { reload: vi.fn() },
+      getAvailable: vi.fn(() =>
+        registerProvider.mock.calls.length > before
+          ? [{ provider: "my-llm", id: "m1", name: "m1" }]
+          : [],
+      ),
+      refresh: vi.fn(async () => ({ aborted: false, errors: new Map() })),
+    };
+    const handler = createCommandHandler({ setSessionName: vi.fn(), getSessionName: () => "s" } as any, "sess-1", {
+      getModelRegistry: () => registry,
+      reloadProviders: async () => { await mod.reloadProviders(pi); },
+    });
+    let answered = false;
+    const resync = Promise.resolve(handler.handle({ type: "request_models", sessionId: "sess-1" } as any))
+      .then((r: any) => { answered = true; return r; });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(answered).toBe(false); // no models_list while re-enrichment is mid-discovery
+
+    releaseDiscovery();
+    await sessionStart;
+    const res: any = await resync;
+    expect(res.type).toBe("models_list");
+    expect(res.models.map((m: any) => m.id)).toEqual(["m1"]);
+  });
+
+  // See change: refresh-models-on-provider-change (D3/D5, review B3).
+  it("selector open through the real re-sync: unchanged providers.json makes no network request", async () => {
+    const mod = await importFresh();
+    const { pi } = makeMockPi();
+    writeProvidersJson(tmpHome, { "my-llm": { baseUrl: "https://api.example.com/v1", apiKey: "k" } });
+    await mod.reloadProviders(pi); // initial registration (discovery allowed: real diff)
+    (globalThis.fetch as any).mockClear();
+
+    const seen: any[] = [];
+    const registry = {
+      authStorage: { reload: vi.fn() },
+      getAvailable: vi.fn(() => []),
+      refresh: vi.fn(async (o: any) => { seen.push(o); return { aborted: false, errors: new Map() }; }),
+    };
+    const handler = createCommandHandler({ setSessionName: vi.fn(), getSessionName: () => "s" } as any, "sess-1", {
+      getModelRegistry: () => registry,
+      reloadProviders: async () => { await mod.reloadProviders(pi); },
+    });
+    const res: any = await handler.handle({ type: "request_models", sessionId: "sess-1" } as any);
+
+    expect(res.type).toBe("models_list");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(seen).toEqual([{ allowNetwork: false }]);
   });
 
   // ── auth pre-registration race fix (see change: fix-flow-agent-model-resolution) ──
@@ -605,6 +704,43 @@ describe("model registry refresh — 0.84.x options/result contract", () => {
     expect(order).toEqual(["refresh:start", "refresh:end", "getAvailable"]);
   });
 
+  it("request_models re-syncs providers.json BEFORE refreshing (heals a missed credentials_updated)", async () => {
+    // See change: refresh-models-on-provider-change (D1).
+    const order: string[] = [];
+    const { registry } = makeRegistry({});
+    registry.refresh.mockImplementationOnce(async () => {
+      order.push("refresh");
+      return { aborted: false, errors: new Map() };
+    });
+    const handler = createCommandHandler(makePi(), "sess-1", {
+      getModelRegistry: () => registry,
+      reloadProviders: async () => { order.push("reloadProviders"); },
+    });
+    await handler.handle({ type: "request_models", sessionId: "sess-1" } as any);
+    expect(order).toEqual(["reloadProviders", "refresh"]);
+  });
+
+  it("request_models still answers when the providers re-sync throws (degraded, not broken)", async () => {
+    const { registry } = makeRegistry({ models: [{ provider: "openai", id: "gpt-5", name: "gpt-5" }] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const handler = createCommandHandler(makePi(), "sess-1", {
+      getModelRegistry: () => registry,
+      reloadProviders: async () => { throw new Error("providers.json unreadable"); },
+    });
+    const res: any = await handler.handle({ type: "request_models", sessionId: "sess-1" } as any);
+    expect(res.type).toBe("models_list");
+    expect(res.models).toHaveLength(1);
+    expect(registry.refresh).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+
+  it("request_models (selector open) refreshes locally, never via remote catalogues", async () => {
+    // See change: refresh-models-on-provider-change (D3).
+    const { registry, seenOptions } = makeRegistry({});
+    await requestModels(registry);
+    expect(seenOptions[0]).toEqual({ allowNetwork: false });
+  });
+
   it("E13: refresh is passed a ModelsRefreshOptions object", async () => {
     const { registry, seenOptions } = makeRegistry({});
     await requestModels(registry);
@@ -620,23 +756,25 @@ describe("model registry refresh — 0.84.x options/result contract", () => {
     const { registry, seenOptions } = makeRegistry({});
     const diff = { added: ["openai"], removed: ["dead"], changed: ["anthropic"] };
 
-    const touched = [...new Set([...diff.added, ...diff.changed])];
-    await reportRefresh(registry.refresh({ providers: touched }));
+    await refreshAfterCredentialsReload(registry, diff);
 
     expect(seenOptions[0].providers).toEqual(["openai", "anthropic"]);
     // A removed provider has no catalogue to refresh.
     expect(seenOptions[0].providers).not.toContain("dead");
   });
 
-  it("E13: a removal-only reload refreshes nothing at all", async () => {
+  it("an empty providers.json diff still runs a local full refresh (credential-only change)", async () => {
+    // auth.json changes (OAuth login, built-in provider key) leave the diff
+    // empty; the changed provider is unknown, so availability must be
+    // recomputed for all — locally, never via remote catalogues.
+    // See change: refresh-models-on-provider-change (D2).
     const { registry, seenOptions } = makeRegistry({});
     const diff = { added: [] as string[], removed: ["dead"], changed: [] as string[] };
 
-    const touched = [...new Set([...diff.added, ...diff.changed])];
-    if (touched.length > 0) await reportRefresh(registry.refresh({ providers: touched }));
+    await refreshAfterCredentialsReload(registry, diff);
 
-    expect(registry.refresh).not.toHaveBeenCalled();
-    expect(seenOptions).toHaveLength(0);
+    expect(seenOptions).toHaveLength(1);
+    expect(seenOptions[0]).toEqual({ allowNetwork: false });
   });
 
   it("X2: a throwing refresh does not crash the handler and is reported", async () => {

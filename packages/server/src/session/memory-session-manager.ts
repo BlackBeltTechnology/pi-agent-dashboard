@@ -70,6 +70,13 @@ export interface UnregisterOptions {
    * See change: stop-discarding-known-session-state.
    */
   closedReason?: ClosedReason;
+  /**
+   * Set ONLY by the bridge's explicit `session_unregister` handler: pi exited
+   * gracefully (quit, an OS signal, reload, or session replacement). Recorded
+   * manager-privately — never on `DashboardSession` — and read via
+   * `wasEndedByBridgeUnregister`. See change: fix-recovery-pi-signal-unregister (D2).
+   */
+  endSource?: "bridge_unregister";
 }
 
 export interface RegisterSessionParams {
@@ -180,6 +187,13 @@ export interface SessionManager {
    */
   remove(sessionId: string): void;
   unregister(sessionId: string, opts?: UnregisterOptions): void;
+  /**
+   * True when the session's most recent ending in this process came from an
+   * explicit bridge unregister (`endSource:"bridge_unregister"`). Cleared by
+   * `register` and `remove`. Gates the shutdown-window evidence write.
+   * See change: fix-recovery-pi-signal-unregister (D2).
+   */
+  wasEndedByBridgeUnregister(sessionId: string): boolean;
   update(sessionId: string, updates: Partial<DashboardSession>): void;
   get(sessionId: string): DashboardSession | undefined;
   listActive(): DashboardSession[];
@@ -224,6 +238,10 @@ export function createMemorySessionManager(
   orders?: SnapshotOrders,
 ): SessionManager {
   const sessions = new Map<string, DashboardSession>();
+  // Ids whose latest ending was an explicit bridge unregister. Private: never
+  // on the session record, so it cannot reach the wire or the sidecar.
+  // See change: fix-recovery-pi-signal-unregister (D2).
+  const bridgeUnregistered = new Set<string>();
 
   /**
    * The invariant: a session in the map with `status: "ended"` always carries
@@ -336,6 +354,7 @@ export function createMemorySessionManager(
       // longer exists, so it is carried over for a same-cwd reattach (below).
       const existing = sessions.get(params.id);
       const priorStatus = existing?.status;
+      bridgeUnregistered.delete(params.id);
 
       const session: DashboardSession = {
         // Plugin-owned refs survive a reattach (projection first: core wins).
@@ -450,6 +469,11 @@ export function createMemorySessionManager(
 
     remove(sessionId: string): void {
       sessions.delete(sessionId);
+      bridgeUnregistered.delete(sessionId);
+    },
+
+    wasEndedByBridgeUnregister(sessionId: string): boolean {
+      return bridgeUnregistered.has(sessionId);
     },
 
     unregister(sessionId: string, opts?: UnregisterOptions): void {
@@ -488,6 +512,10 @@ export function createMemorySessionManager(
         if (session.endedAt === undefined) {
           session.endedAt = opts?.witnessed === false ? derive(session) : Date.now();
         }
+        // Tag a NEW ending's source before `onEnded` reads it; a duplicate
+        // termination for an already-ended session does not re-attribute it.
+        // See change: fix-recovery-pi-signal-unregister (D2).
+        if (!wasEnded && opts?.endSource === "bridge_unregister") bridgeUnregistered.add(sessionId);
         if (!wasEnded) mgr.onEnded?.(sessionId);
         mgr.onChange?.(sessionId);
         mgr.onUnregister?.(sessionId);

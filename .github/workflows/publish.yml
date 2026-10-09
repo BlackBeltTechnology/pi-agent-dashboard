@@ -304,14 +304,17 @@ jobs:
           # Ordering invariant: a package MUST appear AFTER every
           # @blackbelt-technology/* package it depends on, so the registry
           # already serves the matching version when the consumer publishes.
-          # The root metapackage is published LAST. See contract test
+          # The root metapackage is published LAST; the server second-to-last
+          # (design R2): only meta depends on it, and runtime-lock.json (which
+          # rides in its tarball) can only be generated once every other
+          # runtime package is on the registry. See change:
+          # electron-runtime-release-pipeline. See contract test
           # packages/shared/src/__tests__/publish-allowlist-complete.test.ts
           # which enforces every non-private workspace appears here.
           PACKAGES=(
             "@blackbelt-technology/pi-dashboard-shared"
             "@blackbelt-technology/pi-dashboard-bus-client"
             "@blackbelt-technology/pi-dashboard-extension"
-            "@blackbelt-technology/pi-dashboard-server"
             "@blackbelt-technology/pi-dashboard-web"
             "@blackbelt-technology/dashboard-plugin-runtime"
             "@blackbelt-technology/pi-dashboard-client-utils"
@@ -361,16 +364,19 @@ jobs:
             "@blackbelt-technology/pi-dashboard-cost-estimator"
             "@blackbelt-technology/pi-dashboard-forms-bpmn"
             "@blackbelt-technology/pi-dashboard-context-budget"
+            "@blackbelt-technology/pi-dashboard-server"
             "@blackbelt-technology/pi-agent-dashboard"
           )
           VERSION="${{ needs.resolve.outputs.version }}"
           PRERELEASE="${{ needs.resolve.outputs.is_prerelease }}"
-          # Prereleases publish to the `next` dist-tag so consumers running
-          # plain `npm install <pkg>` keep getting the last stable release.
-          # Stable releases use the default `latest` dist-tag (no override).
-          # See change: eliminate-bash-on-windows-runners (D6).
+          # Prereleases publish to the `beta` dist-tag so consumers running
+          # plain `npm install <pkg>` keep getting the last stable release,
+          # and the Electron runtime overlay's beta channel (which reads the
+          # server's `beta` tag) finds them. Stable releases use the default
+          # `latest` dist-tag (no override). See changes:
+          # eliminate-bash-on-windows-runners (D6), electron-runtime-release-pipeline (R4).
           TAG_ARG=""
-          if [ "$PRERELEASE" = "true" ]; then TAG_ARG="--tag next"; fi
+          if [ "$PRERELEASE" = "true" ]; then TAG_ARG="--tag beta"; fi
           FAIL=0
           FAILED_TP=()     # failures whose signature = missing trusted-publisher / OIDC config
           FAILED_OTHER=()  # failures for any other reason
@@ -384,6 +390,16 @@ jobs:
             if npm view "$pkg@$VERSION" version >/dev/null 2>&1; then
               echo "::notice::$pkg@$VERSION already published — skip"
               continue
+            fi
+            # design R2: before server@X exists, every bundled plugin (+ web,
+            # extension, plugin-runtime) MUST resolve at X, then
+            # runtime-lock.json is generated into packages/server (`files`).
+            # A miss stops the loop: no server@X, no meta@X, the server's
+            # dist-tags never move, and publish fails → no runtime asset /
+            # GitHub Release. See change: electron-runtime-release-pipeline.
+            if [ "$pkg" = "@blackbelt-technology/pi-dashboard-server" ]; then
+              node scripts/assert-bundled-plugins-published.mjs --version "$VERSION" || { FAIL=1; echo "::error::bundled-plugin registry gate failed — server + meta NOT published"; break; }
+              node scripts/generate-runtime-lock.mjs --version "$VERSION" || { FAIL=1; echo "::error::runtime-lock.json generation failed — server + meta NOT published"; break; }
             fi
             echo "::group::Publishing $pkg@$VERSION (is_prerelease=$PRERELEASE)"
             if [ "$pkg" = "@blackbelt-technology/pi-agent-dashboard" ]; then
@@ -528,10 +544,62 @@ jobs:
       source_only_bundle:      false
       artifact_retention_days: 90
 
+  # ── Runtime overlay assets (per platform, after publish) ──────
+  # Builds `pi-dashboard-runtime-<X>-<platform>-<arch>.tgz` + `.sha512` by
+  # running the consumer's own install path (stageRuntime, npm source) against
+  # the just-published server@X + its runtime-lock.json. Native runners only:
+  # npm installs host-only native optionals (spike 1.1), so win32-arm64 (no
+  # native runner) ships no asset and GitHub-source updates there fall back to
+  # npm. Matrix MUST equal RUNTIME_ASSET_TARGETS in
+  # scripts/lib/runtime-release.mjs (scripts/__tests__/runtime-release.test.mjs).
+  # Uploaded as `electron-runtime-*` so github-release's `electron-*/**/*`
+  # glob attaches it. See change: electron-runtime-release-pipeline (R3).
+  runtime-asset:
+    needs: [resolve, publish]
+    permissions:
+      contents: read
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14,         platform: darwin, arch: arm64 }
+          - { os: macos-15-intel,   platform: darwin, arch: x64 }
+          - { os: ubuntu-latest,    platform: linux,  arch: x64 }
+          - { os: ubuntu-24.04-arm, platform: linux,  arch: arm64 }
+          - { os: windows-latest,   platform: win32,  arch: x64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Bundled Electron Node major (packages/electron/scripts/_node-version.sh):
+          # the consumer installs the runtime under that Node.
+          node-version: 24
+          cache: pnpm
+
+      # Only tsx + the stager's imports (semver, shared) are needed.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build runtime asset (${{ matrix.platform }}-${{ matrix.arch }})
+        run: node --import tsx scripts/build-runtime-asset.mjs --version ${{ needs.resolve.outputs.version }} --out dist-runtime
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: electron-runtime-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist-runtime/*
+          retention-days: 90
+          if-no-files-found: error
+
   # ── GitHub Release (waits for all builds) ─────────────────────
   github-release:
-    if: ${{ always() && needs.electron.result == 'success' }}
-    needs: [resolve, publish, electron]
+    if: ${{ always() && needs.electron.result == 'success' && needs.runtime-asset.result == 'success' }}
+    needs: [resolve, publish, electron, runtime-asset]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -684,6 +752,34 @@ jobs:
           # Actions stringifies job outputs. See change:
           # eliminate-bash-on-windows-runners (D6).
           prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
+
+  # ── Runtime release shape assertion (test-plan #X16) ──────────
+  # Every RUNTIME_ASSET_TARGETS asset + `.sha512` is attached (drafts too —
+  # hence contents: write), the server's `beta` (prerelease) / `latest`
+  # (stable) dist-tag = X, and the linux-x64 asset's runtime-manifest.json
+  # version = X. See change: electron-runtime-release-pipeline (task 2.4).
+  runtime-release-assert:
+    needs: [resolve, github-release]
+    if: ${{ !cancelled() && needs.github-release.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Assert published runtime release shape
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          node scripts/assert-runtime-release.mjs
+          --version ${{ needs.resolve.outputs.version }}
+          --tag ${{ needs.resolve.outputs.tag }}
+          --prerelease ${{ needs.resolve.outputs.is_prerelease }}
 
   # ── Site redeploy (dispatched — release events cannot start runs) ─────
   # publish.yml creates the GitHub Release with the default Actions token,
