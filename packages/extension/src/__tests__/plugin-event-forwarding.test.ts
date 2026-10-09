@@ -217,6 +217,17 @@ describe("PluginForwardRegistry", () => {
     expect(sent).toEqual([]);
   });
 
+  it("drops live-delivery messages while disconnected (never buffered for reconnect)", () => {
+    const state = { ready: true, active: true, connected: false };
+    const { bus, sent, registry } = makeRegistry(makeBus(), state);
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, { pluginId: "p", channels: { "p:l": { delivery: "live" } } });
+    bus.emit("p:l", { x: 1 });
+    state.connected = true;
+    registry.flush();
+    expect(sent).toEqual([]);
+  });
+
   it("recovers a declaration emitted before attach via the ready handshake (X1)", () => {
     const bus = makeBus();
     // Plugin bridge: declares on activate and on every bridge-ready.

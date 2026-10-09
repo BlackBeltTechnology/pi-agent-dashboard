@@ -1180,6 +1180,17 @@ describe("memory-event-store", () => {
       expect([...seqs].sort((x, y) => x - y)).toEqual(seqs);
     });
 
+    it("E20b: a retransmitted piece stored before the offset-0 piece is still collapsed", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      store.insertEvent("s1", deltaEv("a", 2, 3, "def")); // retransmit after reconnect flush
+      store.insertEvent("s1", deltaEv("a", 2, 0, "abc"));
+      store.insertEvent("s1", deltaEv("a", 2, 3, "def"));
+      store.insertEvent("s1", entryEv("a", 0, 2));
+      const left = store.getEvents("s1", 0).filter((e) => e.event.eventType === "subagent_delta");
+      expect(left).toHaveLength(0);
+      expect(store.getTrimStats().collapsedDeltas).toBe(3);
+    });
+
     it("P3: the resident completeness scan over 50k events stays under 50 ms", () => {
       const store = createMemoryEventStore(neverPinned, 100, 60_000, undefined, CEIL);
       for (let i = 0; i < 50_000; i++) store.insertEvent("s1", makeEvent("noise"));

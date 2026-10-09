@@ -1624,8 +1624,8 @@ export function createMemoryEventStore(
       return;
     }
     if (typeof agentId !== "string") return;
-    // Scan newest-first; a block's pieces are recent, so stop at its offset-0
-    // piece. A terminal sweep scans the whole buffer (once per agent).
+    // Scan the whole resident buffer: a retransmitted (reconnect flush) or
+    // replayed piece can sit before the block's offset-0 piece.
     for (let i = buf.events.length - 2; i >= 0; i--) {
       const e = buf.events[i];
       if (e.event.eventType !== "subagent_delta") continue;
@@ -1636,7 +1636,6 @@ export function createMemoryEventStore(
       buf.bytes -= e.bytes;
       globalBytes -= e.bytes;
       collapsedDeltasTotal++;
-      if (blockId !== undefined && ed.offset === 0) break;
     }
   }
 

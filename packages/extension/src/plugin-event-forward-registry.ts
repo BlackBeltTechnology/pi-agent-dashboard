@@ -135,7 +135,8 @@ export class PluginForwardRegistry {
       const data = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
       const ready = this.deps.isSessionReady() && this.deps.isActive();
       if (ch.delivery === "live") {
-        if (ready) this.forward(ch.as, data);
+        // Not forwardable → drop; `send` would otherwise queue it for reconnect.
+        if (ready && this.deps.isConnected()) this.forward(ch.as, data);
         return;
       }
       if (ready && this.deps.isConnected() && this.buffer.size === 0) {
