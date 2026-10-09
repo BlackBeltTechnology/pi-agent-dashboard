@@ -33,9 +33,9 @@
 
 ## 6. Docs and records
 
-- [ ] 6.1 Update `AGENTS.md` rows for every touched/new file (extension, shared, server persistence, client, subagents-plugin, roles-plugin)
-- [ ] 6.2 Delegate `docs/architecture.md` EventBus Forwarding section + plugin authoring note (`dashboard:register-event-forward`, delivery modes, handshake) to DocScribe
-- [ ] 6.3 CHANGELOG `## [Unreleased]` entry
+- [x] 6.1 Update `AGENTS.md` rows for every touched/new file (extension, shared, server persistence, client, subagents-plugin, roles-plugin)
+- [x] 6.2 Delegate `docs/architecture.md` EventBus Forwarding section + plugin authoring note (`dashboard:register-event-forward`, delivery modes, handshake) to DocScribe
+- [x] 6.3 CHANGELOG `## [Unreleased]` entry
 
 ## 7. Verification
 

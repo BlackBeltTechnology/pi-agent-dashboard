@@ -322,6 +322,58 @@ TypeScript type definitions shared across all components:
 - Removes only the bridge's own subscriptions.
 - Restores nothing. Bridge never replaces a host function.
 
+### Plugin-declared event forwarding (change: add-plugin-bridge-contributions)
+
+**Declaration.**
+- Core no longer names plugin channels. Plugin declares forwarded bus channels from own bridge entry (`src/bridge/index.ts`, manifest `pi-dashboard-plugin.bridge`).
+- Plugin emits `dashboard:register-event-forward` `{ pluginId, channels: { "<channel>": { as?, delivery: "live"|"latest"|"stream", key? } } }`.
+- Constants `REGISTER_EVENT_FORWARD_CHANNEL`, `BRIDGE_READY_CHANNEL` — `packages/shared/src/event-forward-declaration.ts`.
+
+**Load order.** pi bus has no replay.
+- `PluginForwardRegistry.attach()` (`packages/extension/src/plugin-event-forward-registry.ts`) — called in `initBridge` after `registerEventBusForwarding`.
+- `attach()` registers listener, then emits `dashboard:bridge-ready`.
+- Plugin re-declares on every bridge-ready. Idempotent.
+
+**Validation.** `validateDeclaration` — untrusted input.
+- Channel regex requires `:`. Caps: 32 channels/plugin, 256 total.
+- Rejected: `RESERVED_EVENT_TYPES`, channel already in core `EVENT_BUS_MAP`. First owner wins on conflict (counted).
+- `pluginId`/key regex-validated. Key value string or finite number ≤128 chars, else delivered live-only.
+
+**Delivery.**
+- `live` — forward only while session ready+active, else drop.
+- `latest` — keep newest per key until ready.
+- `stream` — keep all, in order, never coalesced.
+
+**Retention.** `StreamForwardBuffer` (`packages/extension/src/stream-forward-buffer.ts`).
+- One buffer keyed by (pluginId, key value) — cross-channel order (delta vs entry) survives.
+- ≤2000 msgs or 2MiB per key; 64-key budget shared by latest+stream across plugins, drop-oldest, counted.
+- Flushed in `flushPendingSubagentFrames` when ready+active+connected; disposed on shutdown.
+
+**Observability.**
+- Heartbeat metrics `pluginForwardDeclared/Rejected/Conflicts/Retained/Dropped`.
+- `/api/health` → `pluginEventForward { declared, rejected, conflicts, retained, dropped }`.
+
+**Enablement.**
+- Server boot calls `syncPluginBridges` (`packages/shared/src/plugin-bridge-register.ts`) with `resolvePluginEnabled(cfg, manifest.defaultEnabled)`; disabled bridges deregistered.
+- Toggle route returns `restartRequired: true`; no toggle-time write.
+
+**Example consumer.** `packages/subagents-plugin/src/bridge/index.ts`.
+- Declares `subagents:entry`→`subagent_entry`, `subagents:delta`→`subagent_delta`; both `stream`, key `agentId`.
+- Needs producer `pi-dashboard-subagents` ≥0.4.0.
+
+**Server store.** `packages/server/src/persistence/memory-event-store.ts`.
+- Head+tail timeline truncation removed (no "steps hidden"); `subagent_delta` text exempt from per-string cap.
+- Over-ceiling delta stored as envelope `text: ''` + `omittedLength`.
+- `collapseStreamDeltas` drops delta rows once block's entry or terminal event arrives (`storeTrim.collapsedDeltas`).
+- Over-ceiling terminal frame elides `entries` to `[]` only when all indices `0..entryCount-1` resident.
+
+**Client.** `packages/client/src/lib/chat/event-reducer.ts`.
+- Arm `subagent_entry` by index; arm `subagent_delta` assembles by blockId/offset, gap marker, late deltas tombstoned via `closedBlockMax`.
+- Inspector in-progress block grows (`SubagentState.liveBlock`); card ticker keeps 280-char `liveTail`.
+
+**Second consumer.** `packages/roles-plugin/src/bridge/index.ts`.
+- `before_agent_start` appends one `toolGuidelines.Agent` bullet. Prefer `model:"@role"`, ≤12 configured roles. Only when Agent tool selected.
+
 ### Subagent Timeline Push/Pull Split (change: reduce-subagent-details-payload)
 
 **Why thin ticks.**

@@ -48,3 +48,5 @@ Calls `ensureGrantStoreId()` before `wireEvents` (grant-store token for `dashboa
 - Plugin ctx `shutdownSession`: trust gate (priority ≤ 100), unknown session ⇒ false, else `await browserGateway.shutdownSession(id)` (single shutdown body, no parallel `{type:"shutdown"}`). See change: chat-gateway-close-command.
 
 See change: add-browser-editor-pane-tab — `createServerPluginContext` gets the plugin's own `editor-pane-tab` prefixes (from manifest claims) so `ctx.openEditorTab` enforces own-prefix ownership.
+
+Boot plugin-bridge registration goes through `syncPluginBridges` with resolved enablement. See change: add-plugin-bridge-contributions.
