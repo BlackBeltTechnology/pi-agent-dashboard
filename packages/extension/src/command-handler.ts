@@ -1090,8 +1090,11 @@ export function createCommandHandler(
               // Heal a missed credentials_updated broadcast: re-diff
               // providers.json before refreshing. Failure is degraded, not
               // fatal. See change: refresh-models-on-provider-change (D1).
-              await options?.reloadProviders?.().catch((err: unknown) =>
-                console.warn("[dashboard] request_models providers re-sync failed:", errText(err)));
+              try {
+                await options?.reloadProviders?.();
+              } catch (err) {
+                console.warn("[dashboard] request_models providers re-sync failed:", errText(err));
+              }
               registry.authStorage?.reload?.();
               // pi 0.84.0: refresh() is async and returns { aborted, errors }.
               // Await it -- the pre-0.84 fire-and-forget read the catalogue
