@@ -51,7 +51,7 @@
 
 ## 7. Manual QA
 
-- [ ] 7.1 Manual check (test-plan #X6, test-plan: manual-only): macOS reboot: 3 terminal pi sessions + daemonized server → Apple menu Restart → offer lists the 3 sessions; `server.log` has 3 `shutdown-window` lines with Δ < 60 s
-- [ ] 7.2 Manual check (test-plan #X7, test-plan: manual-only): Linux reboot: 2 tmux-hosted pi sessions + daemonized server → `systemctl reboot` → offer lists both sessions
-- [ ] 7.3 Manual check (test-plan #X8, test-plan: manual-only): Windows reboot: 2 pi sessions + standalone server on Windows 11 → Start › Restart → offer lists both sessions via the `live:true` path
-- [ ] 7.4 Manual check (test-plan #X9, test-plan: manual-only): Electron on macOS: app open with 2 dashboard-spawned sessions → shut down the Mac → next launch offers both; prior boot `exitIntent:"user-quit"`
+- [x] 7.1 Manual check (test-plan #X6, test-plan: manual-only): macOS reboot: 3 terminal pi sessions + daemonized server → Apple menu Restart → offer lists the 3 sessions; `server.log` has 3 `shutdown-window` lines with Δ < 60 s
+- [x] 7.2 Manual check (test-plan #X7, test-plan: manual-only): Linux reboot: 2 tmux-hosted pi sessions + daemonized server → `systemctl reboot` → offer lists both sessions
+- [x] 7.3 Manual check (test-plan #X8, test-plan: manual-only): Windows reboot: 2 pi sessions + standalone server on Windows 11 → Start › Restart → offer lists both sessions via the `live:true` path
+- [x] 7.4 Manual check (test-plan #X9, test-plan: manual-only): Electron on macOS: app open with 2 dashboard-spawned sessions → shut down the Mac → next launch offers both; prior boot `exitIntent:"user-quit"`
