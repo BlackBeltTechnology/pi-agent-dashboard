@@ -80,7 +80,7 @@ import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inline
 import { createMcpDashboardRegistrar, type McpRegistrationApi, type McpTokenMintedPayload } from "./mcp-token-delivery.js";
 import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { COALESCE_WINDOW_MS, flushesParkedText, MessageUpdateCoalescer } from "./message-update-coalescer.js";
-import { reportRefresh } from "./model-refresh.js";
+import { refreshAfterCredentialsReload, reportRefresh } from "./model-refresh.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
 import { createNotifyProxy } from "./notify-proxy.js";
@@ -1374,21 +1374,11 @@ function initBridge(pi: ExtensionAPI) {
             );
           }
           cachedModelRegistry?.authStorage?.reload?.();
-          // pi 0.84.0: refresh() takes ModelsRefreshOptions and returns
-          // { aborted, errors }. Await + inspect it so getAvailable() below
-          // sees the refreshed catalogue and a per-provider failure is
-          // reported rather than silently dropped. Scope the refresh to the
-          // providers this reload actually touched -- an unrelated provider's
-          // catalogue has no reason to be re-fetched because one credential
-          // changed. Empty scope (removals only) => refresh nothing.
-          // See change: update-pi-core-0-84-adopt-apis.
-          const touched = [...new Set([...diff.added, ...diff.changed])];
-          if (touched.length > 0) {
-            await reportRefresh(
-              cachedModelRegistry?.refresh?.({ providers: touched }),
-              `credentials reload refresh (${touched.join(", ")})`,
-            );
-          }
+          // pi 0.84.0: await + inspect refresh() so getAvailable() below sees
+          // the refreshed catalogue. Scoped to touched providers; an empty diff
+          // (credential-only change) runs a local full refresh.
+          // See changes: update-pi-core-0-84-adopt-apis, refresh-models-on-provider-change.
+          await refreshAfterCredentialsReload(cachedModelRegistry, diff);
         } catch (err) { console.error("[dashboard] credentials reload failed:", err); }
         // Push updated models list to dashboard client
         if (cachedModelRegistry && sessionReady) {
@@ -1788,6 +1778,9 @@ function initBridge(pi: ExtensionAPI) {
 
   const commandHandler = createCommandHandler(pi, () => sessionId, {
     getModelRegistry: () => cachedModelRegistry,
+    // Selector-open re-sync of providers.json: heals a missed credentials_updated.
+    // See change: refresh-models-on-provider-change (D1).
+    reloadProviders: async () => { await reloadProviders(pi); },
     // Surface a session-id-mismatch drop server-side; the guard's own
     // `console.error` goes to /dev/null under the default
     // `keeperLog.capturePiOutput:false`.

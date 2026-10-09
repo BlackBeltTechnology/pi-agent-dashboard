@@ -442,6 +442,10 @@ export function createCommandHandler(
   sessionIdOrGetter: string | (() => string),
   options?: {
     getModelRegistry?: () => any;
+    /** Re-sync dashboard-registered providers from providers.json (bridge wires
+     *  `reloadProviders(pi)`). Awaited by `request_models` before the registry
+     *  refresh. See change: refresh-models-on-provider-change (D1). */
+    reloadProviders?: () => Promise<void>;
     /**
      * Ephemeral fork-subagent driver for AI-drafted commit messages: run one
      * throwaway in-memory agent turn on `seed` and resolve with the assistant
@@ -1083,6 +1087,11 @@ export function createCommandHandler(
           const registry = options?.getModelRegistry?.();
           if (registry) {
             try {
+              // Heal a missed credentials_updated broadcast: re-diff
+              // providers.json before refreshing. Failure is degraded, not
+              // fatal. See change: refresh-models-on-provider-change (D1).
+              await options?.reloadProviders?.().catch((err: unknown) =>
+                console.warn("[dashboard] request_models providers re-sync failed:", errText(err)));
               registry.authStorage?.reload?.();
               // pi 0.84.0: refresh() is async and returns { aborted, errors }.
               // Await it -- the pre-0.84 fire-and-forget read the catalogue
@@ -1090,7 +1099,9 @@ export function createCommandHandler(
               // discarding it: a partly-failed refresh still yields a usable
               // (stale) catalogue, so we log and continue rather than throw.
               // See change: update-pi-core-0-84-adopt-apis.
-              const refreshResult = await reportRefresh(registry.refresh({}));
+              // Local only: selector open must never fetch remote catalogues on the
+              // serialized pump. See change: refresh-models-on-provider-change (D3).
+              const refreshResult = await reportRefresh(registry.refresh({ allowNetwork: false }));
               const models = filterByEnabledModels(registry.getAvailable().map(toModelInfo));
               // Per-provider failures travel to the browser so the dropdown can
               // say WHY a model is missing. Omitted (never `[]`) on success so

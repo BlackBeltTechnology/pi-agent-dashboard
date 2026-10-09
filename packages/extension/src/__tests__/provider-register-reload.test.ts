@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCommandHandler } from "../command-handler.js";
-import { refreshFullySucceeded, reportRefresh } from "../model-refresh.js";
+import { refreshAfterCredentialsReload, refreshFullySucceeded, reportRefresh } from "../model-refresh.js";
 
 // We re-import the module fresh in each test so module-level `lastRegistered`
 // state starts empty.
@@ -605,6 +605,43 @@ describe("model registry refresh — 0.84.x options/result contract", () => {
     expect(order).toEqual(["refresh:start", "refresh:end", "getAvailable"]);
   });
 
+  it("request_models re-syncs providers.json BEFORE refreshing (heals a missed credentials_updated)", async () => {
+    // See change: refresh-models-on-provider-change (D1).
+    const order: string[] = [];
+    const { registry } = makeRegistry({});
+    registry.refresh.mockImplementationOnce(async () => {
+      order.push("refresh");
+      return { aborted: false, errors: new Map() };
+    });
+    const handler = createCommandHandler(makePi(), "sess-1", {
+      getModelRegistry: () => registry,
+      reloadProviders: async () => { order.push("reloadProviders"); },
+    });
+    await handler.handle({ type: "request_models", sessionId: "sess-1" } as any);
+    expect(order).toEqual(["reloadProviders", "refresh"]);
+  });
+
+  it("request_models still answers when the providers re-sync throws (degraded, not broken)", async () => {
+    const { registry } = makeRegistry({ models: [{ provider: "openai", id: "gpt-5", name: "gpt-5" }] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const handler = createCommandHandler(makePi(), "sess-1", {
+      getModelRegistry: () => registry,
+      reloadProviders: async () => { throw new Error("providers.json unreadable"); },
+    });
+    const res: any = await handler.handle({ type: "request_models", sessionId: "sess-1" } as any);
+    expect(res.type).toBe("models_list");
+    expect(res.models).toHaveLength(1);
+    expect(registry.refresh).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+
+  it("request_models (selector open) refreshes locally, never via remote catalogues", async () => {
+    // See change: refresh-models-on-provider-change (D3).
+    const { registry, seenOptions } = makeRegistry({});
+    await requestModels(registry);
+    expect(seenOptions[0]).toEqual({ allowNetwork: false });
+  });
+
   it("E13: refresh is passed a ModelsRefreshOptions object", async () => {
     const { registry, seenOptions } = makeRegistry({});
     await requestModels(registry);
@@ -620,23 +657,25 @@ describe("model registry refresh — 0.84.x options/result contract", () => {
     const { registry, seenOptions } = makeRegistry({});
     const diff = { added: ["openai"], removed: ["dead"], changed: ["anthropic"] };
 
-    const touched = [...new Set([...diff.added, ...diff.changed])];
-    await reportRefresh(registry.refresh({ providers: touched }));
+    await refreshAfterCredentialsReload(registry, diff);
 
     expect(seenOptions[0].providers).toEqual(["openai", "anthropic"]);
     // A removed provider has no catalogue to refresh.
     expect(seenOptions[0].providers).not.toContain("dead");
   });
 
-  it("E13: a removal-only reload refreshes nothing at all", async () => {
+  it("an empty providers.json diff still runs a local full refresh (credential-only change)", async () => {
+    // auth.json changes (OAuth login, built-in provider key) leave the diff
+    // empty; the changed provider is unknown, so availability must be
+    // recomputed for all — locally, never via remote catalogues.
+    // See change: refresh-models-on-provider-change (D2).
     const { registry, seenOptions } = makeRegistry({});
     const diff = { added: [] as string[], removed: ["dead"], changed: [] as string[] };
 
-    const touched = [...new Set([...diff.added, ...diff.changed])];
-    if (touched.length > 0) await reportRefresh(registry.refresh({ providers: touched }));
+    await refreshAfterCredentialsReload(registry, diff);
 
-    expect(registry.refresh).not.toHaveBeenCalled();
-    expect(seenOptions).toHaveLength(0);
+    expect(seenOptions).toHaveLength(1);
+    expect(seenOptions[0]).toEqual({ allowNetwork: false });
   });
 
   it("X2: a throwing refresh does not crash the handler and is reported", async () => {
