@@ -124,9 +124,19 @@ describe('Pinned upstream provenance (E1-E3)', () => {
     expect(badTargets([{ source: 'x', target: '' }]).length).toBe(1);
   });
 
+  /** Upstream skill(s) each package skill must name (beyond the repo prefix). */
+  const EXPECTED_UPSTREAM = {
+    'anti-slop-frontend': ['design-taste-frontend'],
+    'anti-slop-redesign': ['redesign-skill'],
+    'anti-slop-image-direction': ['image-to-code-skill', 'imagegen-frontend-web'],
+    'anti-slop-brandkit': ['brandkit'],
+  };
+
   it.each(SUITE)('E3: %s adapted_from names an upstream skill + pinned SHA prefix', (name) => {
     const af = String(frontmatter(skillText(name)).metadata?.adapted_from ?? '');
-    expect(UPSTREAM_SKILLS.some((u) => af.includes(u)), af).toBe(true);
+    // Strip the repo slug so `Leonxlnx/taste-skill@...` alone cannot satisfy the check.
+    const named = af.replace(/Leonxlnx\/taste-skill@[0-9a-f]+/g, '');
+    for (const u of EXPECTED_UPSTREAM[name]) expect(named, af).toContain(u);
     expect(carriesShaPrefix(af, pin.sha), af).toBe(true);
   });
 
