@@ -93,12 +93,12 @@
 
 ### 8e. E2E — L3 `tests/e2e/subagent-live-timeline.spec.ts` (exemplar: `tests/e2e/subagent-inspector.spec.ts`)
 
-- [ ] 8.36 Steps visible during run: `[[faux:subagent-spawn]]` multi-step run · open inspector while running · ≥ 1 tool row and ≥ 1 finished step visible while the card is running (test-plan #F1)
-- [ ] 8.37 Block grows past tail: `[[faux:subagent-reasoning]]` with > 280-char thinking · sample live block every 250 ms · length non-decreasing within a block and > 280; first prefix still present at block end (test-plan #F2)
-- [ ] 8.38 Reload mid-run: running faux subagent with ≥ 2 steps · page reload + reopen inspector · same steps restored, open block present if open (test-plan #F3)
-- [ ] 8.39 No steps-hidden in UI: faux subagent with > 20 steps completed · expand inspector · no text matching `steps hidden` (test-plan #F4)
-- [ ] 8.40 Stored deltas after completion: `[[faux:subagent-reasoning]]` to completion · read `/api/health` (port from `baseURL`) · zero retained `subagent_delta` for the agent (collapse counter covers all emitted deltas) (test-plan #P2)
-- [ ] 8.41 Card ticker regression: existing F2 row in `tests/e2e/subagent-inspector.spec.ts` · run · card height constant stays green (test-plan #F5)
+- [x] 8.36 Steps visible during run: `[[faux:subagent-spawn]]` multi-step run · open inspector while running · ≥ 1 tool row and ≥ 1 finished step visible while the card is running (test-plan #F1)
+- [x] 8.37 Block grows past tail: `[[faux:subagent-reasoning]]` with > 280-char thinking · sample live block every 250 ms · length non-decreasing within a block and > 280; first prefix still present at block end (test-plan #F2)
+- [x] 8.38 Reload mid-run: running faux subagent with ≥ 2 steps · page reload + reopen inspector · same steps restored, open block present if open (test-plan #F3)
+- [x] 8.39 No steps-hidden in UI: faux subagent with > 20 steps completed · expand inspector · no text matching `steps hidden` (test-plan #F4)
+- [x] 8.40 Stored deltas after completion: `[[faux:subagent-reasoning]]` to completion · read `/api/health` (port from `baseURL`) · zero retained `subagent_delta` for the agent (collapse counter covers all emitted deltas) (test-plan #P2)
+- [x] 8.41 Card ticker regression: existing F2 row in `tests/e2e/subagent-inspector.spec.ts` · run · card height constant stays green (test-plan #F5)
 
 ### 8f. Manual
 
