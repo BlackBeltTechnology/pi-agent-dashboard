@@ -30,7 +30,7 @@ import {
   type RouteClaimLike,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
 import { PLUGIN_REGISTRY } from "../../../generated/plugin-registry.js";
-import { computeBackTarget, registerPluginRouteDescriptors } from "../back-target.js";
+import { computeBackTarget, registerPluginRouteDescriptors, routeDepth } from "../back-target.js";
 import { goBack } from "../history-back.js";
 import { popNav, predecessor, recordNavigation, resetNavStack } from "../nav-tracker.js";
 
@@ -123,4 +123,44 @@ describe("plugin overlay claims return to their owning parent", () => {
       }
     },
   );
+});
+
+// test-plan #E7 — trailing optional wildcard `/*?` in a claim path resolves the
+// same back target for the app base and every sub-route, and never outranks a
+// core descriptor. See change: add-plugin-app-host.
+describe("wildcard /*? claim descriptor", () => {
+  beforeEach(() => {
+    registerPluginRouteDescriptors(
+      claimsToRouteDescriptors([
+        { slot: "shell-overlay-route", path: "/folder/:e/wall/*?", depth: 2, parentPath: "/folder/:e" },
+      ]),
+    );
+  });
+  afterEach(() => {
+    registerPluginRouteDescriptors([]);
+    resetNavStack();
+  });
+
+  it.each(["/folder/x/wall", "/folder/x/wall/graph/node-1"])(
+    "%s → depth 2, back target /folder/x",
+    (url) => {
+      resetNavStack(url);
+      expect(routeDepth(url)).toBe(2);
+      expect(computeBackTarget(url)).toBe("/folder/x");
+    },
+  );
+
+  it("does not capture the core /folder/:encodedCwd/openspec descriptor", () => {
+    resetNavStack("/folder/x/openspec");
+    registerPluginRouteDescriptors([]);
+    const coreDepth = routeDepth("/folder/x/openspec");
+    const coreBack = computeBackTarget("/folder/x/openspec");
+    registerPluginRouteDescriptors(
+      claimsToRouteDescriptors([
+        { slot: "shell-overlay-route", path: "/folder/:e/wall/*?", depth: 2, parentPath: "/folder/:e" },
+      ]),
+    );
+    expect(routeDepth("/folder/x/openspec")).toBe(coreDepth);
+    expect(computeBackTarget("/folder/x/openspec")).toBe(coreBack);
+  });
 });

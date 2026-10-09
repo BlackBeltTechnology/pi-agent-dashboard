@@ -33,6 +33,23 @@ describe("createStandaloneHost", () => {
     }).not.toThrow();
   });
 
+  // test-plan #E16 - see change: add-plugin-app-host.
+  it("standalone wall host: dashboard navigation leaves history untouched", async () => {
+    const host = await createStandaloneHost({ appId: "wall", basePath: "/apps/wall", config: cfg });
+    expect(host.capabilities.dashboard).toBe(false);
+    const before = { len: window.history.length, href: window.location.href };
+    const push = vi.spyOn(window.history, "pushState");
+    const replace = vi.spyOn(window.history, "replaceState");
+    expect(() => {
+      host.openSession("abc");
+      host.openFolder("/home/u/acme-erp");
+      host.navigateDashboard("/x");
+    }).not.toThrow();
+    expect(push).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+    expect({ len: window.history.length, href: window.location.href }).toEqual(before);
+  });
+
   it("language and theme persist under the <appId>: key prefix and notify subscribers", async () => {
     const host = await createStandaloneHost({ appId: "team", basePath: "/apps/team", config: cfg, defaultLanguage: "hu" });
     expect(host.i18n.language()).toBe("hu");

@@ -33,6 +33,10 @@
       "types": "./src/vite-plugin/index.ts",
       "default": "./src/vite-plugin/index.ts"
     },
+    "./embedded-app": {
+      "types": "./src/embedded-app.tsx",
+      "default": "./src/embedded-app.tsx"
+    },
     "./manifest-validator": {
       "types": "./src/manifest-validator.ts",
       "default": "./src/manifest-validator.ts"
@@ -54,9 +58,10 @@
     "fastify": "^5.0.0",
     "react": ">=18.0.0",
     "vite": "^6.0.0",
-    "wouter": "^3.0.0"
+    "wouter": "^3.9.0"
   },
   "dependencies": {
+    "@blackbelt-technology/pi-dashboard-app-kit": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
     "@mdi/react": "^1.6.1",
     "ajv": "^8.17.1"

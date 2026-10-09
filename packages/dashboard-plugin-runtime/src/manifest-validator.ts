@@ -145,6 +145,16 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
         `claims[${index}] slot "shell-overlay-route" requires top-level "path" (a string starting with "/")`,
       );
     }
+    // Wildcards: only a literal trailing `/*?` (optional rest) is accepted, so
+    // one claim covers an embedded app's sub-routes. Any other `*` — inner, or
+    // a trailing `/*` (mandatory rest) — is fatal. See change: add-plugin-app-host.
+    const starIdx = pathVal.indexOf("*");
+    if (starIdx !== -1 && !(pathVal.endsWith("/*?") && starIdx === pathVal.length - 2)) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "shell-overlay-route" path "${pathVal}" may only use a wildcard as a literal trailing "/*?"`,
+      );
+    }
     const sessionParamVal =
       typeof c.sessionParam === "string"
         ? c.sessionParam
@@ -170,6 +180,14 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
         `claims[${index}] slot "shell-overlay-route" depth must be 1 or 2 if provided`,
       );
     }
+    // A "content" claim has no dismissal gesture: its back action and mobile
+    // depth come only from the declared depth. See change: add-plugin-app-host.
+    if (c.depth === undefined && c.presentation === "content") {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "shell-overlay-route" presentation "content" requires "depth" (1 or 2)`,
+      );
+    }
     if (c.depth === undefined) {
       console.warn(
         `[plugin:${pluginId}] claims[${index}] shell-overlay-route claim omits "depth"; defaulting to 2 (overlay → cards). Declare "depth" (1 or 2) for correct back navigation.`,
@@ -192,11 +210,12 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     if (
       c.presentation !== undefined &&
       c.presentation !== "page" &&
-      c.presentation !== "dialog"
+      c.presentation !== "dialog" &&
+      c.presentation !== "content"
     ) {
       throw new ManifestValidationError(
         pluginId,
-        `claims[${index}] slot "shell-overlay-route" presentation must be "page" or "dialog" if provided`,
+        `claims[${index}] slot "shell-overlay-route" presentation must be "page", "dialog" or "content" if provided`,
       );
     }
   }
@@ -311,7 +330,7 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     ...(typeof c.sessionParam === "string" ? { sessionParam: c.sessionParam } : {}),
     ...(c.depth === 1 || c.depth === 2 ? { depth: c.depth } : {}),
     ...(typeof c.parentPath === "string" ? { parentPath: c.parentPath } : {}),
-    ...(c.presentation === "page" || c.presentation === "dialog"
+    ...(c.presentation === "page" || c.presentation === "dialog" || c.presentation === "content"
       ? { presentation: c.presentation }
       : {}),
     ...(typeof c.tab === "string" ? { tab: c.tab as SettingsTab } : {}),

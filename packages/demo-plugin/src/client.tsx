@@ -7,7 +7,7 @@
 import { oauthFlowClient, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, useCallback, useEffect, useRef, useState } from "react";
 
 export interface DemoConfig {
   greeting: string;
@@ -213,3 +213,11 @@ export function DemoToolRenderer({
     </div>
   );
 }
+
+/**
+ * Embedded fixture app route (`shell-overlay-route`, `presentation: "content"`).
+ * `React.lazy` keeps the app module out of the statically-imported client
+ * entry's chunk (the generated registry imports this file eagerly).
+ * See change: add-plugin-app-host (task 2.8, D8).
+ */
+export const DemoAppRoute = lazy(() => import("./demo-app/DemoAppRoute.js"));

@@ -40,6 +40,16 @@ export default defineConfig({
         __dirname,
         "../dashboard-plugin-runtime/src/plugin-context.tsx",
       ),
+      "@blackbelt-technology/dashboard-plugin-runtime/embedded-app": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/embedded-app.tsx",
+      ),
+      // app-kit ships dist-only exports; `<EmbeddedApp>` (runtime
+      // `./embedded-app`) imports its React half, so resolve it to source
+      // (no prebuilt dist needed). `/react` MUST precede the bare key (alias
+      // matches by prefix). See change: add-plugin-app-host.
+      "@blackbelt-technology/pi-dashboard-app-kit/react": path.resolve(__dirname, "../app-kit/src/react/index.ts"),
+      "@blackbelt-technology/pi-dashboard-app-kit": path.resolve(__dirname, "../app-kit/src/index.ts"),
       "@blackbelt-technology/dashboard-plugin-runtime/test-support": path.resolve(
         __dirname,
         "../dashboard-plugin-runtime/src/test-support/index.ts",

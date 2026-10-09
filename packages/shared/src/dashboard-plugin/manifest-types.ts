@@ -131,9 +131,13 @@ export interface PluginClaim {
    * default `/` — ejecting the user from the folder or session it was opened
    * from. Declare `depth: 2` plus a `parentPath` naming that parent.
    *
-   * See change: add-route-backed-overlay-dialogs.
+   * `"content"` renders the claim in the shell content area beside the
+   * sidebar (like the OpenSpec board) and in the mobile detail panel at its
+   * declared `depth`; `depth` is REQUIRED for it.
+   *
+   * See change: add-route-backed-overlay-dialogs, add-plugin-app-host.
    */
-  presentation?: "page" | "dialog";
+  presentation?: "page" | "dialog" | "content";
   /** Slot-specific extra config (escape hatch — prefer first-class fields). */
   config?: Record<string, unknown>;
   /**

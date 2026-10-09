@@ -280,7 +280,14 @@ describe("validateManifest — shell-overlay-route presentation (add-route-backe
     expect(() => validateManifest(overlay({ presentation: "modal" }))).toThrow(
       ManifestValidationError,
     );
-    expect(() => validateManifest(overlay({ presentation: "modal" }))).toThrow(/"page" or "dialog"/);
+    expect(() => validateManifest(overlay({ presentation: "modal" }))).toThrow(/"page", "dialog" or "content"/);
+  });
+
+  // test-plan #E3 — see change: add-plugin-app-host.
+  it("unknown presentation message names the claim index and all three values", () => {
+    expect(() => validateManifest(overlay({ presentation: "modal" }))).toThrow(
+      /claims\[0\].*"page".*"dialog".*"content"/,
+    );
   });
 
   it("REJECTS a non-string presentation rather than coercing", () => {
@@ -465,5 +472,48 @@ describe("validateManifest — settings-section nav hint", () => {
     const { m, warnings } = run({ group: "future-group", label: "X" });
     expect(warnings).toEqual([]);
     expect(m.claims[0].nav?.group).toBe("future-group");
+  });
+});
+
+describe("validateManifest — presentation \"content\" + trailing /*? (add-plugin-app-host)", () => {
+  const contentClaim = {
+    slot: "shell-overlay-route",
+    component: "WallRoute",
+    path: "/folder/:encodedCwd/x",
+    depth: 2,
+    parentPath: "/folder/:encodedCwd",
+    presentation: "content",
+  };
+  const withClaim = (claim: Record<string, unknown>) => ({ ...validManifest, claims: [claim] });
+
+  // test-plan #E1
+  it("accepts and normalises presentation: \"content\"", () => {
+    const out = validateManifest(withClaim(contentClaim));
+    expect(out.claims[0].presentation).toBe("content");
+    expect(out.claims[0].depth).toBe(2);
+  });
+
+  // test-plan #E2
+  it("\"content\" without depth is fatal and mentions depth", () => {
+    const { depth: _omit, ...noDepth } = contentClaim;
+    expect(() => validateManifest(withClaim(noDepth))).toThrow(ManifestValidationError);
+    expect(() => validateManifest(withClaim(noDepth))).toThrow(/depth/);
+  });
+
+  // test-plan #E4
+  it("accepts only a literal trailing /*? wildcard", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const at = (path: string) => () => validateManifest(withClaim({ ...contentClaim, path }));
+    expect(at("/folder/:encodedCwd/wall/*?")).not.toThrow();
+    expect(validateManifest(withClaim({ ...contentClaim, path: "/folder/:encodedCwd/wall/*?" })).claims[0].path).toBe(
+      "/folder/:encodedCwd/wall/*?",
+    );
+    expect(at("/folder/:encodedCwd/wall/*")).toThrow(ManifestValidationError);
+    expect(at("/folder/:encodedCwd/wall/*")).toThrow(/\/folder\/:encodedCwd\/wall\/\*/);
+    expect(at("/folder/*/wall")).toThrow(ManifestValidationError);
+    expect(at("/folder/*/wall")).toThrow(/\/folder\/\*\/wall/);
+    expect(() =>
+      validateManifest(withClaim({ slot: "shell-overlay-route", component: "T", path: "/*?", depth: 1, presentation: "content" })),
+    ).not.toThrow();
   });
 });

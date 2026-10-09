@@ -4,7 +4,18 @@
     "jsx": "react-jsx",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "outDir": "dist",
-    "rootDir": "."
+    "rootDir": ".",
+    // `paths` replaces (never merges with) the base's map, so the base entries
+    // are repeated. app-kit ships dist-only exports; the runtime's
+    // `./embedded-app` imports its React half from source.
+    // See change: add-plugin-app-host.
+    "paths": {
+      "@earendil-works/pi-coding-agent": ["./node_modules/@earendil-works/pi-coding-agent"],
+      "@earendil-works/pi-ai": ["./node_modules/@earendil-works/pi-ai"],
+      "@earendil-works/pi-tui": ["./node_modules/@earendil-works/pi-tui"],
+      "@blackbelt-technology/pi-dashboard-app-kit/react": ["./packages/app-kit/src/react/index.ts"],
+      "@blackbelt-technology/pi-dashboard-app-kit": ["./packages/app-kit/src/index.ts"]
+    }
   },
   "include": ["packages/*/src"],
   "exclude": ["node_modules", "dist", "packages/*/dist", "packages/team-app"]

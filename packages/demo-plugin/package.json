@@ -36,11 +36,21 @@
         "slot": "tool-renderer",
         "component": "DemoToolRenderer",
         "toolName": "DashboardDemo"
+      },
+      {
+        "slot": "shell-overlay-route",
+        "component": "DemoAppRoute",
+        "path": "/folder/:encodedCwd/demo-app/*?",
+        "depth": 2,
+        "parentPath": "/folder/:encodedCwd",
+        "presentation": "content"
       }
     ]
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0"
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-app-kit": "^0.9.0",
+    "wouter": "^3.9.0"
   },
   "devDependencies": {
     "react": "^19.0.0"

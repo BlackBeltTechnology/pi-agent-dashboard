@@ -51,3 +51,16 @@ describe("getMobileDepth", () => {
     expect(getMobileDepth(input({ hasSessionRoute: true, hasOverlayRoute: true }))).toBe(2);
   });
 });
+
+// test-plan #E8 — a "content" claim's declared depth overrides the overlay
+// depth 2. See change: add-plugin-app-host.
+describe("getMobileDepth — content claim overlayDepth", () => {
+  it.each([
+    [{ hasOverlayRoute: true, overlayDepth: 1 as const }, 1],
+    [{ hasOverlayRoute: true, overlayDepth: 2 as const }, 2],
+    [{ hasOverlayRoute: true }, 2],
+    [{ hasFolderRoute: true }, 1],
+  ])("%j → %i", (over, expected) => {
+    expect(getMobileDepth(input(over))).toBe(expected);
+  });
+});
