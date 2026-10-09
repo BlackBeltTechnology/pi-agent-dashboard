@@ -1523,7 +1523,7 @@ Each gateway URL row on the Gateway page and in the setup guide SHALL show an in
 - **THEN** the row SHALL show `Host admitted`
 
 ### Requirement: Sessions page exposes archive threshold and sweep interval
-The Sessions page SHALL render, in its "Session list" section, a numeric field for `sessionList.archiveAfterDays` (min 0, default 30, unit "days", hint that 0 disables auto-archive) and a numeric field for `sessionList.archiveSweepIntervalMinutes` (min 1, default 60, unit "min"). Both SHALL buffer into the settings draft and persist through the config write endpoint with the shared Save bar.
+The Sessions page SHALL render, in its "Session list" section, a numeric field for `sessionList.archiveAfterDays` (min 0, default 30, unit "days", hint that 0 disables age-based auto-archive — sessions their plugin declares disposable are still archived when they end) and a numeric field for `sessionList.archiveSweepIntervalMinutes` (min 1, default 60, unit "min"). Both SHALL buffer into the settings draft and persist through the config write endpoint with the shared Save bar.
 
 #### Scenario: Fields render with defaults
 - **WHEN** the Sessions page opens with no `sessionList` config present
@@ -1536,6 +1536,10 @@ The Sessions page SHALL render, in its "Session list" section, a numeric field f
 #### Scenario: Validation
 - **WHEN** the user enters `-1` for archive-after or `0` for sweep-interval
 - **THEN** the field SHALL show a validation error and Save SHALL be disabled
+
+#### Scenario: Hint scopes zero to age-based archiving
+- **WHEN** the Sessions page renders the archive-after field
+- **THEN** its hint SHALL state that `0` disables age-based auto-archive, not all automatic archiving
 
 ### Requirement: Memory Limits section exposes `maxBytesPerSession`
 
