@@ -25,8 +25,8 @@
  * skips the `packages[]` write (rollback parity with pre-change behavior).
  */
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 import type { BridgeLoadSource } from "./dashboard-plugin/plugin-status.js";
 
 export interface PluginBridgeRegisterOptions {

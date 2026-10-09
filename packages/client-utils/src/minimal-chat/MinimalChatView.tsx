@@ -17,8 +17,9 @@
  *
  * See change: extract-minimal-chat-view.
  */
-import React from "react";
-import { Icon } from "@mdi/react";
+
+import { useUiPrimitive, useUiPrimitiveOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import {
   mdiAlertCircle,
   mdiArrowLeft,
@@ -29,15 +30,15 @@ import {
   mdiHeadLightbulb,
   mdiPencil,
 } from "@mdi/js";
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { useUiPrimitive, useUiPrimitiveOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { Icon } from "@mdi/react";
+import React from "react";
+import { plainTail } from "./live-tail-text.js";
 import type {
   MinimalChatEntry,
   MinimalChatLiveEntry,
   MinimalChatStatus,
   MinimalChatViewProps,
 } from "./types.js";
-import { plainTail } from "./live-tail-text.js";
 
 // ---- Status visuals ----
 

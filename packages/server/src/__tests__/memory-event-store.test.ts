@@ -1,13 +1,13 @@
-import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it, vi } from "vitest";
 import {
-  __testEndSubsumes as endSubsumes,
   byteTrimSlack,
   capString,
   createMemoryEventStore,
   DEFAULT_MAX_CACHED_SESSIONS,
   DEFAULT_MAX_EVENT_DATA_SIZE,
+  __testEndSubsumes as endSubsumes,
   exceedsSerializedSize,
   globalTrimSlack,
   MEASURE_CEILING_FALLBACK,

@@ -7,10 +7,11 @@
  *
  * See change: extract-minimal-chat-view.
  */
-import React from "react";
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type React from "react";
+import { afterEach, describe, expect, it } from "vitest";
 import { MinimalChatView } from "../MinimalChatView.js";
 import type { MinimalChatEntry, MinimalChatStatus } from "../types.js";
 

@@ -2,11 +2,12 @@
  * subagents-plugin bridge entry declares the step + delta streams (test-plan #E26).
  * See change: add-plugin-bridge-contributions.
  */
-import { describe, expect, it } from "vitest";
+
 import {
   BRIDGE_READY_CHANNEL,
   REGISTER_EVENT_FORWARD_CHANNEL,
 } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
+import { describe, expect, it } from "vitest";
 import activate, { SUBAGENTS_FORWARD_DECLARATION } from "../index.js";
 
 function fakePi() {

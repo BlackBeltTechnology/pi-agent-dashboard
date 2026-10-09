@@ -100,6 +100,41 @@ function own(obj: object, k: string): unknown {
     : undefined;
 }
 
+function isDelivery(v: unknown): v is EventForwardDelivery {
+  return v === "live" || v === "latest" || v === "stream";
+}
+
+/** Optional string field: `undefined` when absent, `false` when present but invalid. */
+function optionalMatch(v: unknown, re: RegExp): string | undefined | false {
+  if (v === undefined) return undefined;
+  return typeof v === "string" && re.test(v) ? v : false;
+}
+
+/** Shape-check one channel entry; returns the accepted spec or the rejection reason. */
+function checkChannelSpec(channel: string, spec: unknown): AcceptedChannelSpec | RejectionReason {
+  if (!CHANNEL_RE.test(channel) || !channel.includes(":")) return "channel-name";
+  if (!spec || typeof spec !== "object") return "spec-shape";
+  const delivery = own(spec, "delivery");
+  if (!isDelivery(delivery)) return "delivery";
+  const asField = optionalMatch(own(spec, "as"), AS_RE);
+  if (asField === false) return "as";
+  const as = asField ?? channel;
+  if (RESERVED_EVENT_TYPES.has(as)) return "reserved-as";
+  const key = optionalMatch(own(spec, "key"), KEY_RE);
+  if (key === false || (delivery !== "live" && key === undefined)) return "key";
+  return { channel, as, delivery, ...(key !== undefined ? { key } : {}) };
+}
+
+/** Parse the declaration header; `undefined` when the envelope is malformed. */
+function parseHeader(raw: unknown): { pluginId: string; channels: object } | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const pluginId = own(raw, "pluginId");
+  const channels = own(raw, "channels");
+  if (typeof pluginId !== "string" || !PLUGIN_ID_RE.test(pluginId)) return undefined;
+  if (!channels || typeof channels !== "object" || Array.isArray(channels)) return undefined;
+  return { pluginId, channels };
+}
+
 /**
  * Validate an untrusted declaration (D3). `existingForPlugin` / `existingTotal`
  * are the counts ALREADY accepted (so caps apply across repeated declarations);
@@ -115,45 +150,31 @@ export function validateDeclaration(
   } = {},
 ): ValidationResult {
   const result: ValidationResult = { ok: false, accepted: [], rejected: [] };
-  if (!raw || typeof raw !== "object") return result;
-  const pluginId = own(raw, "pluginId");
-  if (typeof pluginId !== "string" || !PLUGIN_ID_RE.test(pluginId)) return result;
-  const channels = own(raw, "channels");
-  if (!channels || typeof channels !== "object" || Array.isArray(channels)) return result;
+  const header = parseHeader(raw);
+  if (!header) return result;
   result.ok = true;
-  result.pluginId = pluginId;
+  result.pluginId = header.pluginId;
 
   let perPlugin = opts.existingForPlugin ?? 0;
   let total = opts.existingTotal ?? 0;
-  for (const channel of Object.keys(channels)) {
-    const reject = (reason: RejectionReason) => result.rejected.push({ channel, reason });
-    if (!CHANNEL_RE.test(channel) || !channel.includes(":")) { reject("channel-name"); continue; }
-    const spec = own(channels, channel);
-    if (!spec || typeof spec !== "object") { reject("spec-shape"); continue; }
-    const delivery = own(spec, "delivery");
-    if (delivery !== "live" && delivery !== "latest" && delivery !== "stream") { reject("delivery"); continue; }
-    const asRaw = own(spec, "as");
-    let as = channel;
-    if (asRaw !== undefined) {
-      if (typeof asRaw !== "string" || !AS_RE.test(asRaw)) { reject("as"); continue; }
-      as = asRaw;
+  const capReason = (): RejectionReason | undefined => {
+    if (perPlugin >= MAX_CHANNELS_PER_PLUGIN) return "per-plugin-cap";
+    if (total >= MAX_PLUGIN_CHANNELS_TOTAL) return "total-cap";
+    return undefined;
+  };
+  for (const channel of Object.keys(header.channels)) {
+    const checked = checkChannelSpec(channel, own(header.channels, channel));
+    const known = typeof checked !== "string" && (opts.isKnown?.(channel) ?? false);
+    const reason = typeof checked === "string" ? checked : known ? undefined : capReason();
+    if (reason) {
+      result.rejected.push({ channel, reason });
+      continue;
     }
-    if (RESERVED_EVENT_TYPES.has(as)) { reject("reserved-as"); continue; }
-    const keyRaw = own(spec, "key");
-    let key: string | undefined;
-    if (keyRaw !== undefined) {
-      if (typeof keyRaw !== "string" || !KEY_RE.test(keyRaw)) { reject("key"); continue; }
-      key = keyRaw;
-    }
-    if (delivery !== "live" && key === undefined) { reject("key"); continue; }
-    const known = opts.isKnown?.(channel) ?? false;
     if (!known) {
-      if (perPlugin >= MAX_CHANNELS_PER_PLUGIN) { reject("per-plugin-cap"); continue; }
-      if (total >= MAX_PLUGIN_CHANNELS_TOTAL) { reject("total-cap"); continue; }
       perPlugin++;
       total++;
     }
-    result.accepted.push({ channel, as, delivery, ...(key !== undefined ? { key } : {}) });
+    result.accepted.push(checked as AcceptedChannelSpec);
   }
   return result;
 }

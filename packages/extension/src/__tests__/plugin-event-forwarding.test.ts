@@ -2,11 +2,12 @@
  * Plugin event-forward registry (L1). Folded from test-plan.md E1–E8, P1, X1–X3.
  * See change: add-plugin-bridge-contributions.
  */
-import { describe, expect, it } from "vitest";
+
 import {
   BRIDGE_READY_CHANNEL,
   REGISTER_EVENT_FORWARD_CHANNEL,
 } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
+import { describe, expect, it } from "vitest";
 import { PluginForwardRegistry } from "../plugin-event-forward-registry.js";
 
 type Handler = (data: unknown) => void;

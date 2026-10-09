@@ -13,14 +13,15 @@
  * of truth for arm-aware client gating (e.g. hiding pi-core update UI
  * under Electron, since bundled node_modules/ is read-only there).
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createMemoryEventStore,
   EMPTY_TRIM_STATS,
 } from "../persistence/memory-event-store.js";
-import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 import { effectiveServerMaxOldSpaceMb } from "../server-heap-telemetry.js";
+import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 let handle: TestServerHandle | undefined;
 let savedStarter: string | undefined;
