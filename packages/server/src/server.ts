@@ -277,7 +277,7 @@ import { registerSessionApi } from "./session/session-api.js";
 import { createSessionArchive } from "./session/session-archive.js";
 import { discoverAndBroadcastSessions } from "./session/session-bootstrap.js";
 import { createSessionOrderManager, type SessionOrderManager } from "./session/session-order-manager.js";
-import { scanAllSessions } from "./session/session-scanner.js";
+import { bootScanAllSessions } from "./session/session-scanner.js";
 import { sessionToMeta } from "./session/session-to-meta.js";
 import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
@@ -672,7 +672,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   // Restore sessions from per-session .meta.json files (scans ~/.pi/agent/sessions/)
   const scanStartedAt = Date.now();
-  const scanResult = scanAllSessions();
+  // Boot scan + the service-session backfill (declared leg every boot,
+  // one-shot legacy leg stamped in boot-state.json).
+  // See change: archive-service-sessions-on-end.
+  const scanResult = bootScanAllSessions();
   const scanMs = Date.now() - scanStartedAt;
   // Seed the archive index from the boot scan: migrated + already-archived
   // rows are indexed, never restored. The one-shot ended+hidden migration and
@@ -684,6 +687,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       `[dashboard] archive: ${scanResult.archived.length} indexed, ` +
         `${scanResult.migrated} migrated, ${scanResult.agedOut} aged-out (${scanMs} ms)`,
     );
+  }
+  if (scanResult.serviceArchived > 0) {
+    console.info(`[archive] service-end-backfill archived ${scanResult.serviceArchived} session(s)`);
   }
   // Interrupted-session recovery candidates discovered on cold start. A
   // candidate (`live===true && status!=="ended"`, see isRecoveryCandidate)
@@ -1573,6 +1579,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     customEventGroupResolver,
     sessionArchive,
     pendingArchiveIntents,
+    // On-end archive of declared-disposable sessions. See change: archive-service-sessions-on-end.
+    archiveSweeper,
   });
 
   // Auto-shutdown idle timer
@@ -2886,6 +2894,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           // captured zombie held. `stop()` also clears `pingTimer`, which is
           // what actually lets the process exit.
           try { piGateway.stop(); } catch { /* ignore */ }
+          // After the gateway: bridge teardown ends sessions (→ schedule);
+          // stop() clears pending grace timers and latches the sweeper.
+          // See change: archive-service-sessions-on-end.
+          archiveSweeper.stop();
           if (secondFastify) {
             try { await secondFastify.close(); } catch { /* ignore */ }
             secondFastify = null;
@@ -4326,6 +4338,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
       homeRendezvous = null;
       piGateway.stop();
+      // Clears pending on-end archive timers + latches the sweeper; after the
+      // gateway so sessions it ends cannot re-arm one.
+      // See change: archive-service-sessions-on-end.
+      archiveSweeper.stop();
       for (const client of browserGateway.wss.clients) {
         client.terminate();
       }

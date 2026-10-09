@@ -1332,6 +1332,7 @@ describe("sessionList config BVA (E14)", () => {
     expect(parseSessionListConfig({ archiveAfterDays: -1 })).toEqual({
       archiveAfterDays: 30,
       archiveSweepIntervalMinutes: 60,
+      archiveServiceSessionsOnEnd: true,
     });
     expect(parseSessionListConfig({ archiveSweepIntervalMinutes: 0 }).archiveSweepIntervalMinutes).toBe(60);
   });
@@ -1344,6 +1345,27 @@ describe("sessionList config BVA (E14)", () => {
     const cfg = loadConfig();
     expect(cfg.sessionList.archiveAfterDays).toBe(0);
     expect(cfg.sessionList.archiveSweepIntervalMinutes).toBe(1);
+  });
+});
+
+// ── archiveServiceSessionsOnEnd flag (test-plan #E24) ─────────────────────
+// See change: archive-service-sessions-on-end.
+describe("sessionList.archiveServiceSessionsOnEnd (E24)", () => {
+  it("defaults to true when the section or key is absent", () => {
+    expect(parseSessionListConfig(undefined).archiveServiceSessionsOnEnd).toBe(true);
+    expect(parseSessionListConfig({}).archiveServiceSessionsOnEnd).toBe(true);
+  });
+
+  it("preserves an explicit false", () => {
+    expect(parseSessionListConfig({ archiveServiceSessionsOnEnd: false }).archiveServiceSessionsOnEnd).toBe(false);
+    expect(validateSessionListConfig({ archiveServiceSessionsOnEnd: false })).toEqual({ ok: true, errors: [] });
+  });
+
+  it("a non-boolean parses to the default and fails validation", () => {
+    expect(parseSessionListConfig({ archiveServiceSessionsOnEnd: "yes" }).archiveServiceSessionsOnEnd).toBe(true);
+    const result = validateSessionListConfig({ archiveServiceSessionsOnEnd: "yes" });
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual(["sessionList.archiveServiceSessionsOnEnd must be a boolean"]);
   });
 });
 

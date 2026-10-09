@@ -313,6 +313,14 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
       partial.agentPathGate = { ...existing.agentPathGate, ...partial.agentPathGate };
     }
 
+    // Merge sessionList sub-object: the Settings panel sends only the CHANGED
+    // keys, so a replace would drop a sibling (e.g. an
+    // `archiveServiceSessionsOnEnd: false` opt-out set in the config file).
+    // See change: archive-service-sessions-on-end.
+    if (partial.sessionList) {
+      partial.sessionList = { ...existing.sessionList, ...partial.sessionList };
+    }
+
     // Merge kroki sub-object
     if (partial.kroki) {
       partial.kroki = { ...existing.kroki, ...partial.kroki };

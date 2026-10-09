@@ -23,3 +23,5 @@ Adds `GitPrState`, `GitPrChecks`; `DashboardSession.gitPrNumber|Url` `| null` + 
 `DashboardSession.awaitingFileAccess?: boolean` — server-derived from pending-prompt `kind` `agent-path-gate`/`-confirm`; `currentTool` untouched. See change: ask-agent-file-access-in-chat.
 
 - `DashboardSession.pluginHidden?` — core-owned plugin hide intent. See change: fix-plugin-hidden-across-restart.
+
+- `DashboardSession.archiveOnEnd?: boolean` — distinct from `lifecyclePolicy`. See change: archive-service-sessions-on-end.

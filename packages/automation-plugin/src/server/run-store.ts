@@ -278,6 +278,23 @@ export function readChildRuns(scopeBase: string, parent: RunRecord): RunRecord[]
   return out;
 }
 
+/**
+ * Find the run record (child or legacy flat) that spawned `sessionId`, or
+ * `null`. Lets the run monitor resolve a run whose session was archived (no
+ * longer resident). See change: archive-service-sessions-on-end.
+ */
+export function findRunBySessionId(scopeBase: string, sessionId: string): RunRecord | null {
+  if (!sessionId) return null;
+  for (const rec of listRuns(scopeBase)) {
+    if (rec.sessionId === sessionId) return rec;
+    if (rec.children) {
+      const child = readChildRuns(scopeBase, rec).find((c) => c.sessionId === sessionId);
+      if (child) return child;
+    }
+  }
+  return null;
+}
+
 /** List run records for one automation, oldest-first by startedAt. */
 export function listRuns(scopeBase: string, name?: string): RunRecord[] {
   const root = runsRootFor(scopeBase);

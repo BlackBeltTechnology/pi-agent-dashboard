@@ -12,6 +12,7 @@ import { hasGitPathSegment } from "@blackbelt-technology/pi-dashboard-shared/pla
 import { mergeSessionMeta, metaPath, readSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { condenseForFirstMessage } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import type { DashboardSession, SessionSource } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { readServiceArchiveBackfillAt, stampServiceArchiveBackfill } from "../persistence/boot-state.js";
 import { readJsonlMtime } from "./derive-ended-at.js";
 import { projectPluginRefs, sanitizePersistedBags } from "./plugin-refs.js";
 import { STATS_EXTRACTOR_VERSION } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
@@ -249,6 +250,10 @@ export function sessionFromMeta(
     // Plugin-declared hide intent, honoured by the register decision on a
     // non-reattach re-register after restart. See change: fix-plugin-hidden-across-restart.
     pluginHidden: meta.pluginHidden,
+    // Disposability declaration, so a run reattaching after a restart (the
+    // register lifecycle block does not re-run) still archives on end.
+    // See change: archive-service-sessions-on-end.
+    archiveOnEnd: meta.archiveOnEnd,
     // Reconstruct worktree parentage from the persisted grouping subset so
     // cold-start grouping (no live bridge) collapses this session under its
     // parent repo via `resolveSessionGroupPath`, matching live-bridge grouping.
@@ -290,6 +295,12 @@ export interface ScanResult {
   migrated: number;
   /** Non-hidden sidecars past `archiveAfterDays` archived at scan time. */
   agedOut: number;
+  /**
+   * Service sessions archived at scan time by the backfill (declared
+   * `archiveOnEnd` leg + one-shot legacy ephemeral leg).
+   * See change: archive-service-sessions-on-end.
+   */
+  serviceArchived: number;
   /** Session files whose .meta.json was created or updated (for logging) */
   cacheUpdates: number;
 }
@@ -299,6 +310,17 @@ export interface ScanOptions {
   archiveAfterDays?: number;
   /** Injectable clock (tests). */
   now?: number;
+  /**
+   * Effective `sessionList.archiveServiceSessionsOnEnd`; `false` disables both
+   * backfill legs. Defaults to `loadConfig()`.
+   */
+  archiveServiceSessionsOnEnd?: boolean;
+  /**
+   * Run the one-shot legacy leg (undeclared `lifecyclePolicy: "ephemeral"`
+   * sidecars). Default `false`; `bootScanAllSessions` sets it from boot-state.
+   * See change: archive-service-sessions-on-end.
+   */
+  legacyPass?: boolean;
 }
 
 /** Build a `(endedAt, id)`-sortable index row from an archived sidecar. */
@@ -341,16 +363,20 @@ function archivedRowFromMeta(
  */
 export function scanAllSessions(sessionsDir?: string, opts: ScanOptions = {}): ScanResult {
   const dir = sessionsDir ?? getSessionsDir();
-  if (!existsSync(dir)) return { sessions: [], archived: [], migrated: 0, agedOut: 0, cacheUpdates: 0 };
+  if (!existsSync(dir)) return { sessions: [], archived: [], migrated: 0, agedOut: 0, serviceArchived: 0, cacheUpdates: 0 };
 
   const sessions: DashboardSession[] = [];
   const archived: ArchivedSessionSummary[] = [];
   let migrated = 0;
   let agedOut = 0;
+  let serviceArchived = 0;
   let cacheUpdates = 0;
   const now = opts.now ?? Date.now();
   const archiveAfterDays = opts.archiveAfterDays ?? loadConfig().sessionList.archiveAfterDays;
   const ageCutoff = archiveAfterDays > 0 ? now - archiveAfterDays * 86_400_000 : Number.NEGATIVE_INFINITY;
+  const serviceArchiveOn =
+    opts.archiveServiceSessionsOnEnd ?? loadConfig().sessionList.archiveServiceSessionsOnEnd;
+  const legacyPass = opts.legacyPass === true;
 
   let cwdDirs: string[];
   try {
@@ -358,7 +384,7 @@ export function scanAllSessions(sessionsDir?: string, opts: ScanOptions = {}): S
       try { return statSync(join(dir, d)).isDirectory(); } catch { return false; }
     });
   } catch {
-    return { sessions: [], archived: [], migrated: 0, agedOut: 0, cacheUpdates: 0 };
+    return { sessions: [], archived: [], migrated: 0, agedOut: 0, serviceArchived: 0, cacheUpdates: 0 };
   }
 
   for (const cwdDir of cwdDirs) {
@@ -404,6 +430,26 @@ export function scanAllSessions(sessionsDir?: string, opts: ScanOptions = {}): S
             cacheUpdates++;
             if (isHiddenMigration) migrated++;
             else agedOut++;
+            archived.push(archivedRowFromMeta(sessionId, sessionFile, { ...meta, archived: true, archivedAt }, jsonlMtime, startedAt));
+            continue;
+          }
+          // Service-session backfill, regardless of age, on the age rule's
+          // gate (`live !== true` — `/api/restart` leaves runs live to
+          // reattach; `archived === undefined` — a user restore writes
+          // `archived:false`). Declared leg every boot (a grace timer died
+          // with the server); legacy leg only on the one-shot pass, for
+          // sidecars written before the declaration existed.
+          // See change: archive-service-sessions-on-end.
+          const isServiceSession =
+            serviceArchiveOn &&
+            (meta.archiveOnEnd === true ||
+              (legacyPass && meta.lifecyclePolicy === "ephemeral" && meta.archiveOnEnd === undefined));
+          if (isServiceSession) {
+            const archivedAt = meta.endedAt ?? jsonlMtime ?? startedAt;
+            mergeSessionMeta(sessionFile, { archived: true, archivedAt });
+            cacheUpdates++;
+            serviceArchived++;
+            console.info(`[archive] service-end-backfill archived ${sessionId}`);
             archived.push(archivedRowFromMeta(sessionId, sessionFile, { ...meta, archived: true, archivedAt }, jsonlMtime, startedAt));
             continue;
           }
@@ -501,7 +547,22 @@ export function scanAllSessions(sessionsDir?: string, opts: ScanOptions = {}): S
     }
   }
 
-  return { sessions, archived, migrated, agedOut, cacheUpdates };
+  return { sessions, archived, migrated, agedOut, serviceArchived, cacheUpdates };
+}
+
+/**
+ * The server's boot scan: `scanAllSessions` with the one-shot legacy backfill
+ * leg decided from `boot-state.json` (`serviceArchiveBackfillAt` absent ⇒ run
+ * it), then stamped after the scan — only while the setting is on, so enabling
+ * it later still gets one legacy pass.
+ * See change: archive-service-sessions-on-end.
+ */
+export function bootScanAllSessions(sessionsDir?: string, opts: ScanOptions = {}): ScanResult {
+  const enabled = opts.archiveServiceSessionsOnEnd ?? loadConfig().sessionList.archiveServiceSessionsOnEnd;
+  const legacyPass = enabled && readServiceArchiveBackfillAt() === undefined;
+  const result = scanAllSessions(sessionsDir, { ...opts, archiveServiceSessionsOnEnd: enabled, legacyPass });
+  if (legacyPass) stampServiceArchiveBackfill();
+  return result;
 }
 
 /** Synchronous JSONL header reader (used during scan) */

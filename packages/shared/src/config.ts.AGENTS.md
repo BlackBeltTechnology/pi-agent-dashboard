@@ -22,3 +22,5 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 `BridgeActivationConfig {enabled}` + `DEFAULT_BRIDGE_ACTIVATION` (`enabled:true`), `parseBridgeActivation` (non-boolean → true), `bridgeEnvOverride(env)` (`PI_DASHBOARD_BRIDGE` off/0/false/no | on/1/true/yes, trimmed, case-insensitive; else `undefined`), `resolveBridgeEnabled(cfg, env)` (env > config). `DashboardConfig.bridge` always set by `loadConfig`/`DEFAULTS`; NOT seeded by `ensureConfig`. See change: add-bridge-env-opt-out.
 
 `DashboardConfig` gains `folderListMode` (`"classic" | "accordion"`, default `classic`; unknown value → `classic`) and `folderAttentionPeek` (boolean, default `true`). Both are sidebar session-list defaults the client reads through `resolveFolderListMode`; a focus profile overrides `folderListMode` while focus is enabled. See change: add-focus-mode-and-card-block-toggles.
+
+- `SessionListConfig.archiveServiceSessionsOnEnd` (default `true`); parse non-boolean → default; validate non-boolean → error. `archiveAfterDays = 0` disables age-based archiving only. See change: archive-service-sessions-on-end.

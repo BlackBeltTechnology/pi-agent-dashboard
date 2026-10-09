@@ -5,3 +5,5 @@ Exports `sessionToMeta(session)` — the EXPLICIT `.meta.json` field enumeration
 Enumerates `statsExtractorVersion` (full-overwrite save must keep it). See change: count-non-message-usage.
 
 - Persists `pluginHidden` (undefined on user sessions → no key). See change: fix-plugin-hidden-across-restart.
+
+- Enumerates `archiveOnEnd` (pass-through; undeclared → no key). See change: archive-service-sessions-on-end.

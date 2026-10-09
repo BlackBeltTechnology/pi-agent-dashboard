@@ -34,6 +34,9 @@ export const CORE_RESERVED_REF_KEYS: ReadonlySet<string> = new Set([
   "liveEpoch",
   "recover",
   "finalizeOnSocketClose",
+  // Settable only through the lifecycle declaration, never a ref body.
+  // See change: archive-service-sessions-on-end.
+  "archiveOnEnd",
   "spawnToken",
   "sessionFile",
   "startedAt",
@@ -50,6 +53,8 @@ export interface PluginSessionLifecycle {
   finalizeOnSocketClose?: boolean;
   /** Hide the owned session on first register. See change: hide-chat-gateway-sessions. */
   hidden?: boolean;
+  /** Archive the owned session shortly after it ends. See change: archive-service-sessions-on-end. */
+  archiveOnEnd?: boolean;
 }
 
 /** A resolved ownership record handed back on register. */
@@ -197,7 +202,8 @@ export function createPendingPluginRefRegistry(
         lifecycle !== undefined &&
         (lifecycle.recover !== undefined ||
           lifecycle.finalizeOnSocketClose !== undefined ||
-          lifecycle.hidden !== undefined);
+          lifecycle.hidden !== undefined ||
+          lifecycle.archiveOnEnd !== undefined);
       if (Object.keys(sanitized).length === 0 && !hasLifecycle) {
         // Nothing to own — do not file (register resolves unowned).
         return false;

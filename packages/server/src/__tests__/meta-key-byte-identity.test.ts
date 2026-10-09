@@ -19,7 +19,7 @@ import {
   writeSessionMeta,
 } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { sessionFromMeta } from "../session/session-scanner.js";
 import { sessionToMeta } from "../session/session-to-meta.js";
 
@@ -131,5 +131,46 @@ describe("automation identity durability", () => {
     const json = JSON.stringify(sessionToMeta(baseSession({})));
     expect(json).not.toContain('"kind"');
     expect(json).not.toContain('"automationRun"');
+  });
+});
+
+/**
+ * Disposability declaration durability (test-plan #E1–#E3).
+ *
+ * `archiveOnEnd` is persisted only when declared: `sessionToMeta` passes it
+ * through, `sessionFromMeta` restores it, and an undeclared session (plain or
+ * ephemeral-only) serializes no key at all.
+ * See change: archive-service-sessions-on-end.
+ */
+describe("archiveOnEnd durability", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("#E1 a declared session survives an unrelated full-overwrite save + rebuild", () => {
+    const file = tmpMeta();
+    writeSessionMeta(file, { cwd: "/w", status: "ended" } as SessionMeta);
+    mergeSessionMeta(file, { archiveOnEnd: true });
+    writeSessionMeta(file, sessionToMeta(baseSession({ archiveOnEnd: true, unread: true })));
+    const meta = readSessionMeta(file);
+    expect(meta?.archiveOnEnd).toBe(true);
+    const rebuilt = sessionFromMeta("s1", "/nonexistent/s1.jsonl", "/w", meta!, 1);
+    expect(rebuilt.archiveOnEnd).toBe(true);
+  });
+
+  it("#E2 a plain user session's bytes equal the pre-change fixture", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_791_578_489_464);
+    const json = JSON.stringify(sessionToMeta(baseSession({})));
+    expect(json).not.toContain("archiveOnEnd");
+    expect(json).toBe('{"source":"dashboard","cwd":"/w","status":"ended","startedAt":1,"cachedAt":1791578489464}');
+  });
+
+  it("#E3 an undeclared ephemeral session gains no archiveOnEnd key", () => {
+    const projected = sessionToMeta(baseSession({ lifecyclePolicy: "ephemeral" }));
+    expect("archiveOnEnd" in projected && projected.archiveOnEnd !== undefined).toBe(false);
+    expect(JSON.stringify(projected)).not.toContain("archiveOnEnd");
+    const rebuilt = sessionFromMeta("s1", "/nonexistent/s1.jsonl", "/w", projected, 1);
+    expect(rebuilt.archiveOnEnd).toBeUndefined();
   });
 });

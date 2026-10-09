@@ -286,7 +286,7 @@ export const DEFAULT_SESSIONS: SessionsConfig = {
 /**
  * Session-list archival policy. Drives the boot scan's ended+hidden migration
  * and the runtime auto-archive sweeper. `archiveAfterDays = 0` disables
- * auto-archive; values are read live (no restart). See change:
+ * age-based auto-archive; values are read live (no restart). See change:
  * archive-sessions-lazy-load.
  */
 export interface SessionListConfig {
@@ -294,11 +294,18 @@ export interface SessionListConfig {
   archiveAfterDays: number;
   /** Runtime sweep cadence in minutes. */
   archiveSweepIntervalMinutes: number;
+  /**
+   * Archive a session declared `archiveOnEnd` (plugin service sessions) shortly
+   * after it ends, plus the boot backfill. Orthogonal to `archiveAfterDays`.
+   * See change: archive-service-sessions-on-end.
+   */
+  archiveServiceSessionsOnEnd: boolean;
 }
 
 export const DEFAULT_SESSION_LIST: SessionListConfig = {
   archiveAfterDays: 30,
   archiveSweepIntervalMinutes: 60,
+  archiveServiceSessionsOnEnd: true,
 };
 
 export const SESSION_LIST_LIMITS = {
@@ -1467,6 +1474,10 @@ export function parseSessionListConfig(raw: any): SessionListConfig {
       interval <= SESSION_LIST_LIMITS.archiveSweepIntervalMinutes.max
         ? interval
         : DEFAULT_SESSION_LIST.archiveSweepIntervalMinutes,
+    archiveServiceSessionsOnEnd:
+      typeof raw.archiveServiceSessionsOnEnd === "boolean"
+        ? raw.archiveServiceSessionsOnEnd
+        : DEFAULT_SESSION_LIST.archiveServiceSessionsOnEnd,
   };
 }
 
@@ -1480,7 +1491,7 @@ export function validateSessionListConfig(raw: unknown): { ok: boolean; errors: 
   if (raw === undefined || raw === null) return { ok: true, errors: [] };
   if (typeof raw !== "object") return { ok: false, errors: ["sessionList must be an object"] };
   const errors: string[] = [];
-  const { archiveAfterDays, archiveSweepIntervalMinutes } = raw as Record<string, unknown>;
+  const { archiveAfterDays, archiveSweepIntervalMinutes, archiveServiceSessionsOnEnd } = raw as Record<string, unknown>;
   if (archiveAfterDays !== undefined) {
     const { min, max } = SESSION_LIST_LIMITS.archiveAfterDays;
     if (!Number.isInteger(archiveAfterDays) || (archiveAfterDays as number) < min || (archiveAfterDays as number) > max) {
@@ -1496,6 +1507,9 @@ export function validateSessionListConfig(raw: unknown): { ok: boolean; errors: 
     ) {
       errors.push(`sessionList.archiveSweepIntervalMinutes must be an integer between ${min} and ${max}`);
     }
+  }
+  if (archiveServiceSessionsOnEnd !== undefined && typeof archiveServiceSessionsOnEnd !== "boolean") {
+    errors.push("sessionList.archiveServiceSessionsOnEnd must be a boolean");
   }
   return { ok: errors.length === 0, errors };
 }

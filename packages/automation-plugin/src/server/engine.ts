@@ -172,8 +172,8 @@ export interface SpawnLike {
      * parses the interior. See change: detach-automation-goal-from-core.
      */
     pluginRef?: Record<string, unknown>;
-    /** Core-owned lifecycle declaration (recover / finalize-on-socket-close). */
-    lifecycle?: { recover?: boolean; finalizeOnSocketClose?: boolean };
+    /** Core-owned lifecycle declaration (recover / finalize-on-socket-close / archive-on-end). */
+    lifecycle?: { recover?: boolean; finalizeOnSocketClose?: boolean; archiveOnEnd?: boolean };
   }): Promise<{ success: boolean; spawnToken?: string; message?: string }>;
 }
 
@@ -723,7 +723,10 @@ export function createEngine(deps: EngineDeps): Engine {
         },
         // Machine-fronted, one-shot: opt out of recovery + finalize on WS close
         // (replaces core's former `kind==="automation"` lifecycle branches).
-        lifecycle: { recover: false, finalizeOnSocketClose: true },
+        // `archiveOnEnd`: disposable once ended, hidden or shown — the run's
+        // durable output is its run record + result.md, which the Automation
+        // view reads. See change: archive-service-sessions-on-end.
+        lifecycle: { recover: false, finalizeOnSocketClose: true, archiveOnEnd: true },
       })
       .then((res) => {
         if (!res.success) {

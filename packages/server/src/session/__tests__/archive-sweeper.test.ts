@@ -41,8 +41,12 @@ function session(over: Partial<DashboardSession> & { id: string }): DashboardSes
 function makeRig(sessions: DashboardSession[]) {
   const live = new Map(sessions.map((s) => [s.id, s]));
   const archivedIds: string[] = [];
+  const archiveCalls: Array<[string, string]> = [];
   const viewed = new Set<string>();
-  const config = { sessionList: { archiveAfterDays: 30, archiveSweepIntervalMinutes: 60 } };
+  const config = {
+    sessionList: { archiveAfterDays: 30, archiveSweepIntervalMinutes: 60, archiveServiceSessionsOnEnd: true },
+  };
+  const faults = { failArchive: false };
 
   const sessionManager = {
     listAll: () => [...live.values()],
@@ -51,7 +55,9 @@ function makeRig(sessions: DashboardSession[]) {
   } as unknown as SessionManager;
 
   const sessionArchive = {
-    archiveSession(id: string) {
+    archiveSession(id: string, reason: string) {
+      archiveCalls.push([id, reason]);
+      if (faults.failArchive) return { ok: false, error: "disk full" };
       if (!live.has(id)) return { ok: false, error: "session not found" };
       live.delete(id);
       archivedIds.push(id);
@@ -69,6 +75,9 @@ function makeRig(sessions: DashboardSession[]) {
   return {
     sweeper,
     archivedIds,
+    archiveCalls,
+    faults,
+    live,
     viewed,
     config,
     residentIds: () => [...live.keys()],
@@ -221,5 +230,201 @@ describe("archive sweeper zero disables (E19)", () => {
     for (const file of files) {
       expect(readSessionMeta(file)?.archived).toBeUndefined();
     }
+  });
+});
+
+// ── On-end graced archive of declared-disposable sessions ─────────────────
+// test-plan #E6–#E17, #X3, #X4, #X6. Sessions are ended at T0; the
+// `sessionManager.onEnded` owner calls `scheduleServiceArchive` (simulated).
+// See change: archive-service-sessions-on-end.
+
+const GRACE = 30_000;
+
+function declared(id: string, over: Partial<DashboardSession> = {}): DashboardSession {
+  return session({ id, endedAt: T0, archiveOnEnd: true, ...over });
+}
+
+describe("service archive: declared session archived after the grace (E6, E7)", () => {
+  it("archives once with reason service-end and logs the id", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const rig = makeRig([declared("svc")]);
+    rig.sweeper.scheduleServiceArchive("svc");
+    vi.advanceTimersByTime(GRACE);
+    expect(rig.archiveCalls).toEqual([["svc", "service-end"]]);
+    expect(rig.isResident("svc")).toBe(false);
+    expect(info.mock.calls.map((c) => String(c[0]))).toContain("[archive] service-end archived svc");
+  });
+
+  it("is resident at 29 999 ms and archived at 30 000 ms", () => {
+    const rig = makeRig([declared("svc")]);
+    rig.sweeper.scheduleServiceArchive("svc");
+    vi.advanceTimersByTime(GRACE - 1);
+    expect(rig.isResident("svc")).toBe(true);
+    expect(rig.archivedIds).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(rig.archivedIds).toEqual(["svc"]);
+  });
+});
+
+describe("service archive: who is NOT scheduled (E8, E9, E16, E17)", () => {
+  it.each<[string, Partial<DashboardSession>]>([
+    ["undeclared", { archiveOnEnd: undefined }],
+    ["ephemeral only", { archiveOnEnd: undefined, lifecyclePolicy: "ephemeral" }],
+  ])("%s: no timer, stays resident", (_label, over) => {
+    const rig = makeRig([declared("s", over)]);
+    rig.sweeper.scheduleServiceArchive("s");
+    expect(rig.sweeper.pendingServiceArchiveCount()).toBe(0);
+    vi.advanceTimersByTime(2 * GRACE);
+    expect(rig.isResident("s")).toBe(true);
+    expect(rig.archiveCalls).toEqual([]);
+  });
+
+  it("setting off at end: not archived", () => {
+    const rig = makeRig([declared("s")]);
+    rig.config.sessionList.archiveServiceSessionsOnEnd = false;
+    rig.sweeper.scheduleServiceArchive("s");
+    vi.advanceTimersByTime(2 * GRACE);
+    expect(rig.isResident("s")).toBe(true);
+    expect(rig.archiveCalls).toEqual([]);
+  });
+
+  it("not retroactive: enabling the setting later does not archive", () => {
+    const rig = makeRig([declared("s")]);
+    rig.config.sessionList.archiveServiceSessionsOnEnd = false;
+    rig.sweeper.scheduleServiceArchive("s");
+    rig.config.sessionList.archiveServiceSessionsOnEnd = true;
+    vi.advanceTimersByTime(2 * GRACE);
+    expect(rig.isResident("s")).toBe(true);
+    expect(rig.archiveCalls).toEqual([]);
+  });
+
+  it("restored session re-notified as ended: no timer", () => {
+    const rig = makeRig([declared("s", { endedAt: T0 - DAY, restoredAt: T0 - HOUR })]);
+    rig.sweeper.scheduleServiceArchive("s");
+    expect(rig.sweeper.pendingServiceArchiveCount()).toBe(0);
+    vi.advanceTimersByTime(2 * GRACE);
+    expect(rig.isResident("s")).toBe(true);
+  });
+});
+
+describe("service archive: independent of the age threshold (E10)", () => {
+  it("archives with archiveAfterDays = 0", () => {
+    const rig = makeRig([declared("s")]);
+    rig.config.sessionList.archiveAfterDays = 0;
+    rig.sweeper.scheduleServiceArchive("s");
+    vi.advanceTimersByTime(GRACE);
+    expect(rig.archivedIds).toEqual(["s"]);
+  });
+});
+
+describe("service archive: fire-time re-validation (E11)", () => {
+  it.each<[string, (rig: ReturnType<typeof makeRig>) => void]>([
+    ["removed", (rig) => { rig.live.delete("s"); }],
+    ["status back to idle", (rig) => { rig.live.get("s")!.status = "idle"; }],
+    ["declaration cleared", (rig) => { rig.live.get("s")!.archiveOnEnd = undefined; }],
+    ["live:true", (rig) => { rig.live.get("s")!.live = true; }],
+    ["setting flipped off", (rig) => { rig.config.sessionList.archiveServiceSessionsOnEnd = false; }],
+  ])("%s: not archived, timer dropped, no re-arm", (_label, mutate) => {
+    const rig = makeRig([declared("s")]);
+    rig.sweeper.scheduleServiceArchive("s");
+    mutate(rig);
+    vi.advanceTimersByTime(GRACE);
+    expect(rig.archiveCalls).toEqual([]);
+    expect(rig.sweeper.pendingServiceArchiveCount()).toBe(0);
+    vi.advanceTimersByTime(10 * GRACE);
+    expect(rig.archiveCalls).toEqual([]);
+  });
+});
+
+describe("service archive: idempotent per id (E12)", () => {
+  it("a re-notified end inside the window archives exactly once", () => {
+    const rig = makeRig([declared("s")]);
+    rig.sweeper.scheduleServiceArchive("s");
+    vi.advanceTimersByTime(10_000);
+    rig.sweeper.scheduleServiceArchive("s");
+    expect(rig.sweeper.pendingServiceArchiveCount()).toBe(1);
+    vi.advanceTimersByTime(2 * GRACE);
+    expect(rig.archiveCalls).toEqual([["s", "service-end"]]);
+  });
+});
+
+describe("service archive: viewed re-arms (E13)", () => {
+  it("is deferred while viewed and archived one grace after unview", () => {
+    const rig = makeRig([declared("s")]);
+    rig.viewed.add("s");
+    rig.sweeper.scheduleServiceArchive("s");
+    vi.advanceTimersByTime(GRACE);
+    expect(rig.isResident("s")).toBe(true);
+    expect(rig.sweeper.pendingServiceArchiveCount()).toBe(1);
+    rig.viewed.delete("s");
+    vi.advanceTimersByTime(GRACE);
+    expect(rig.archivedIds).toEqual(["s"]);
+  });
+});
+
+describe("service archive: restore inside the grace (E14, E15)", () => {
+  function archiveThenRestore(rig: ReturnType<typeof makeRig>) {
+    vi.advanceTimersByTime(5_000);
+    const s = rig.live.get("s")!;
+    rig.live.delete("s"); // manual archive evicts
+    vi.advanceTimersByTime(5_000);
+    rig.live.set("s", { ...s, restoredAt: Date.now(), archived: false }); // unarchive
+  }
+
+  it("a manual archive → unarchive is not followed by an automatic re-archive", () => {
+    const rig = makeRig([declared("s")]);
+    rig.sweeper.scheduleServiceArchive("s");
+    archiveThenRestore(rig);
+    vi.advanceTimersByTime(25_000);
+    expect(rig.isResident("s")).toBe(true);
+    expect(rig.archiveCalls).toEqual([]);
+  });
+
+  it("restore beats view: dropped, not re-armed", () => {
+    const rig = makeRig([declared("s")]);
+    rig.sweeper.scheduleServiceArchive("s");
+    archiveThenRestore(rig);
+    rig.viewed.add("s");
+    vi.advanceTimersByTime(25_000);
+    expect(rig.sweeper.pendingServiceArchiveCount()).toBe(0);
+    vi.advanceTimersByTime(60_000);
+    expect(rig.isResident("s")).toBe(true);
+    expect(rig.archiveCalls).toEqual([]);
+  });
+});
+
+describe("service archive: stop() (X3, X4)", () => {
+  it("cancels every pending timer", () => {
+    const rig = makeRig([declared("a"), declared("b"), declared("c")]);
+    for (const id of ["a", "b", "c"]) rig.sweeper.scheduleServiceArchive(id);
+    expect(rig.sweeper.pendingServiceArchiveCount()).toBe(3);
+    rig.sweeper.stop();
+    expect(rig.sweeper.pendingServiceArchiveCount()).toBe(0);
+    vi.advanceTimersByTime(2 * GRACE);
+    expect(rig.archiveCalls).toEqual([]);
+  });
+
+  it("latches: no scheduling and no interval after stop()", () => {
+    const rig = makeRig([declared("s", { endedAt: T0 - 90 * DAY })]);
+    rig.sweeper.stop();
+    rig.sweeper.scheduleServiceArchive("s");
+    rig.sweeper.start();
+    expect(rig.sweeper.pendingServiceArchiveCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(2 * HOUR);
+    expect(rig.archiveCalls).toEqual([]);
+  });
+});
+
+describe("service archive: archive failure at fire (X6)", () => {
+  it("does not throw, drops the timer, logs no success", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const rig = makeRig([declared("s")]);
+    rig.faults.failArchive = true;
+    rig.sweeper.scheduleServiceArchive("s");
+    expect(() => vi.advanceTimersByTime(GRACE)).not.toThrow();
+    expect(rig.archiveCalls).toEqual([["s", "service-end"]]);
+    expect(rig.sweeper.pendingServiceArchiveCount()).toBe(0);
+    expect(info.mock.calls.some((c) => String(c[0]).includes("service-end archived"))).toBe(false);
   });
 });

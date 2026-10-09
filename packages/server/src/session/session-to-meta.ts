@@ -100,6 +100,10 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // Plugin-declared hide intent; same full-overwrite hazard as `recover`.
     // Undefined on user sessions → no key. See change: fix-plugin-hidden-across-restart.
     pluginHidden: session.pluginHidden,
+    // Plugin-declared disposability; same full-overwrite hazard as `recover`.
+    // Pass-through: undeclared sessions serialize no key (byte-identity holds).
+    // See change: archive-service-sessions-on-end.
+    archiveOnEnd: session.archiveOnEnd,
     // Session classification + automation-run identity. MUST be enumerated here
     // because this save is a FULL overwrite (not a merge) — the spawn seam
     // merges them onto the sidecar, and omitting them here wipes both on the

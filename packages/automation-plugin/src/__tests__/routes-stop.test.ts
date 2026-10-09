@@ -140,3 +140,46 @@ describe("engine stopRun cascade", () => {
     expect(parentOf("single", r.runId).status).toBe("running");
   });
 });
+
+// ── GET /result?sessionId= (test-plan #F4) ──────────────────────────────────
+// The run monitor resolves an ARCHIVED run session (no longer resident) from
+// the run store by session id. See change: archive-service-sessions-on-end.
+import { finishRun, startChildRun, startParentRun } from "../server/run-store.js";
+
+describe("GET /api/plugins/automation/result?sessionId=", () => {
+  let base: string;
+  beforeEach(() => {
+    base = fs.mkdtempSync(path.join(os.tmpdir(), "auto-result-sid-"));
+  });
+  afterEach(() => {
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+
+  it("returns 200 with the child's result + status; an unknown session id is 404", async () => {
+    const parent = startParentRun(base, "nightly", { runId: "p1" });
+    startChildRun(base, parent.runId, "nightly", { runId: "r1", sessionId: "s1" });
+    finishRun(base, "r1", { status: "done", result: "# findings\n- one" });
+    const app = await appWith({});
+
+    const hit = await app.inject({
+      method: "GET",
+      url: `/api/plugins/automation/result?cwd=${encodeURIComponent(base)}&sessionId=s1`,
+    });
+    expect(hit.statusCode).toBe(200);
+    expect(hit.json()).toMatchObject({ status: "done", runId: "r1", name: "nightly", result: "# findings\n- one\n" });
+
+    const miss = await app.inject({
+      method: "GET",
+      url: `/api/plugins/automation/result?cwd=${encodeURIComponent(base)}&sessionId=nope`,
+    });
+    expect(miss.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("400 when neither runId nor sessionId is given", async () => {
+    const app = await appWith({});
+    const res = await app.inject({ method: "GET", url: `/api/plugins/automation/result?cwd=${encodeURIComponent(base)}` });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+});

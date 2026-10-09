@@ -9,3 +9,5 @@ Adds `migrateSubagentTickThrottle()` — the one-shot boot rewrite of a material
 `serverHeap` value change now sets `restartRequired` (`/api/restart` re-reads + re-stamps the ceiling); `coldStartRequired` REMOVED from `WriteConfigResult` and the PUT response. See change: guard-server-heap-and-store-coupling (D5).
 
 `writeConfigPartial` shallow-merges `agentPathGate` over the raw file; drops computed `agentPathGateEnvOverride`. See change: ask-agent-file-access-in-chat.
+
+- `writeConfigPartial` shallow-merges `sessionList` (Settings sends only changed keys; keeps `archiveServiceSessionsOnEnd` opt-out). See change: archive-service-sessions-on-end.

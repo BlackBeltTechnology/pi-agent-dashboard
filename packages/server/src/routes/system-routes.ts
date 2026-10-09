@@ -518,6 +518,15 @@ export function registerSystemRoutes(
       if (!partial || typeof partial !== "object") {
         return reply.code(400).send({ success: false, error: "Invalid body" });
       }
+      // Reject an invalid sessionList patch before it is persisted.
+      // See change: archive-service-sessions-on-end.
+      if (partial.sessionList !== undefined) {
+        const { validateSessionListConfig } = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+        const check = validateSessionListConfig(partial.sessionList);
+        if (!check.ok) {
+          return reply.code(400).send({ success: false, error: check.errors.join("; ") });
+        }
+      }
       const result = writeConfigPartial(partial);
       if (!result.success) {
         return reply.code(500).send({ success: false, error: result.error });

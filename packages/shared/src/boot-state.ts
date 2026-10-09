@@ -33,6 +33,12 @@ export interface BootRecord {
  */
 export interface BootState extends BootRecord {
   ring: BootRecord[];
+  /**
+   * When the one-shot legacy leg of the service-session boot backfill ran
+   * (epoch ms). Absent ⇒ not yet run. Carried forward by every rewrite.
+   * See change: archive-service-sessions-on-end.
+   */
+  serviceArchiveBackfillAt?: number;
 }
 
 /** Prior boots retained beside the current one. */

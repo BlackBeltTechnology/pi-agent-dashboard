@@ -1981,11 +1981,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     </div>
                     {archiveDaysInvalid && (
                       <p className="mt-1 text-xs text-red-400" data-testid="archive-after-days-error">
-                        {i18nT("settings.archiveDaysInvalid", undefined, "Must be 0 or greater (0 disables auto-archive).")}
+                        {i18nT("settings.archiveDaysInvalid", undefined, "Must be 0 or greater (0 disables age-based auto-archive).")}
                       </p>
                     )}
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("settings.archiveAfterDaysHint", undefined, "Ended sessions older than this are archived automatically out of the live list. 0 disables auto-archive.")}
+                      {i18nT("settings.archiveAfterDaysHint", undefined, "Ended sessions older than this are archived automatically out of the live list. 0 disables age-based auto-archive; sessions a plugin declares disposable are still archived when they end.")}
                     </p>
                   </div>
                   <div>

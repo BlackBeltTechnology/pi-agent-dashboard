@@ -1,3 +1,5 @@
 # boot-state.ts — index
 
 Exit-intent vocabulary for the server boot record. Exports `ExitIntent` (`restart`/`shutdown`/`user-quit`/`idle`/`signal`/`ephemeral`), `BootRecord`, `BootState`, `BOOT_RING_SIZE` (8), `isRecoveryAllowed(intent)`. Suppresses recovery for `restart`+`shutdown`+`ephemeral` — exits that leave sessions running AND are deliberate (an ephemeral self-exit drained spawned pi via `server.stop`; fix-autostart-discovery-precedence task 5.5) or announce a bridge quiesce longer than the reattach grace window; everything else defers to the liveness gate. See change: fix-recovery-exit-intent.
+
+- `BootState.serviceArchiveBackfillAt?` — one-shot legacy service backfill stamp. See change: archive-service-sessions-on-end.

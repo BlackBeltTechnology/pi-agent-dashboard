@@ -1494,6 +1494,7 @@ Symptom:
 Explanation (change: `archive-sessions-lazy-load`):
 - Ended sessions past `sessionList.archiveAfterDays` (default 30) auto-archive.
 - Legacy hidden-ended sessions migrate to archived at boot.
+- Finished automation run sessions (plugin-declared disposable) archive ~30 s after they end. (change: archive-service-sessions-on-end)
 - Archived != deleted. Sidecar + transcript stay on disk.
 - Archived sessions leave the live set: not in `GET /api/sessions`, not in the connect snapshot, no RAM cost.
 
@@ -1504,8 +1505,9 @@ Restore one:
 
 ## How do I stop sessions being auto-archived?
 
-Settings -> Sessions -> `Archive after` -> `0`. Disables auto-archive. Or raise the day count.
-- Config key `sessionList.archiveAfterDays` (days, min 0).
+Settings -> Sessions -> `Archive after` -> `0`. Disables age-based auto-archive only. Or raise the day count.
+- Config key `sessionList.archiveAfterDays` (days, min 0). `0` = no age-based archive.
+- Stop service-session on-end archive (automation runs): set `sessionList.archiveServiceSessionsOnEnd: false` in config file or `PUT /api/config`. No Settings UI control. Not retroactive; unarchive affected sessions to restore. (change: archive-service-sessions-on-end)
 - Sweeper cadence `sessionList.archiveSweepIntervalMinutes` (min 1, default 60).
 - Sweep skips live, viewed, running sessions. Cap 200 oldest per tick.
 - Manual archive button still works with auto-archive off.

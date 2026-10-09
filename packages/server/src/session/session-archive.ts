@@ -23,7 +23,12 @@ import type { MetaPersistence } from "../persistence/meta-persistence.js";
 import type { SessionManager } from "./memory-session-manager.js";
 import { sessionFromMeta } from "./session-scanner.js";
 
-type ArchiveReason = "manual" | "sweep" | "migration";
+/**
+ * Why a session was archived. `service-end` = the on-end archive of a session
+ * declared disposable (logged at the sweeper call site).
+ * See change: archive-service-sessions-on-end.
+ */
+type ArchiveReason = "manual" | "sweep" | "migration" | "service-end";
 
 /** Broadcast port, late-bound after the browser gateway exists. */
 interface SessionArchiveEmitter {

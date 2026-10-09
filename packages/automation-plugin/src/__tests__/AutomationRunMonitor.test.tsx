@@ -2,17 +2,21 @@
  * AutomationRunMonitor render: live status while running, result.md on end.
  * api + markdown primitive mocked. See change: add-automation-plugin.
  */
-import React from "react";
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, cleanup, waitFor } from "@testing-library/react";
+
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, render, waitFor } from "@testing-library/react";
+import type React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../client/api.js", () => ({
   getRunResult: vi.fn(async () => "Found 1 regression."),
+  getRunBySessionId: vi.fn(async () => ({ status: "done", runId: "r1", name: "nightly", result: "# findings" })),
 }));
 
 import { AutomationRunMonitor } from "../client/AutomationRunMonitor.js";
+import { getRunBySessionId } from "../client/api.js";
+import { encodeFolderPath } from "../client/folder-encoding.js";
 
 const MockMarkdown: React.FC<{ content: string }> = ({ content }) => <div data-testid="md">{content}</div>;
 const wrap = (ui: React.ReactElement) => render(withUiPrimitiveProvider({ "ui:markdown-content": MockMarkdown }, ui));
@@ -41,5 +45,29 @@ describe("AutomationRunMonitor", () => {
     const { getByTestId } = wrap(<AutomationRunMonitor session={run("ended")} />);
     expect(getByTestId("run-status").textContent).toBe("completed");
     await waitFor(() => expect(getByTestId("md").textContent).toContain("Found 1 regression"));
+  });
+
+  // test-plan #F3: a resident running session keeps today's behaviour.
+  it("a resident running session shows the live hint and no archived link", () => {
+    const { getByTestId, queryByTestId } = wrap(
+      <AutomationRunMonitor session={run("active")} params={{ sid: "run-sess", encodedCwd: encodeFolderPath("/r") }} />,
+    );
+    expect(getByTestId("run-live-hint")).toBeTruthy();
+    expect(queryByTestId("run-archived-transcript")).toBeNull();
+    expect(vi.mocked(getRunBySessionId)).not.toHaveBeenCalled();
+  });
+
+  // test-plan #F2: the run session was archived (not resident) → resolve the
+  // run from the run store by session id. See change: archive-service-sessions-on-end.
+  it("an archived (non-resident) run session renders the run-store status, result and an archived transcript link", async () => {
+    const { getByTestId, queryByTestId } = wrap(
+      <AutomationRunMonitor params={{ sid: "run-sess", encodedCwd: encodeFolderPath("/r") }} />,
+    );
+    await waitFor(() => expect(getByTestId("md").textContent).toBe("# findings"));
+    expect(vi.mocked(getRunBySessionId)).toHaveBeenCalledWith("/r", "run-sess");
+    expect(getByTestId("run-status").textContent).toBe("done");
+    expect(queryByTestId("run-live-hint")).toBeNull();
+    const link = getByTestId("run-archived-transcript") as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/session/run-sess?archived=1");
   });
 });

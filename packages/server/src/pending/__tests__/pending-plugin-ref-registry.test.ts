@@ -52,6 +52,24 @@ describe("pending-plugin-ref-registry", () => {
     expect(reg.size()).toBe(0);
   });
 
+  // test-plan #E4 / #E5 of archive-service-sessions-on-end.
+  it("archiveOnEnd: a declaration-only filing (empty ref) is filed and resolves the declaration", () => {
+    const reg = createPendingPluginRefRegistry();
+    expect(reg.file("t-decl", {}, "automation", { archiveOnEnd: true })).toBe(true);
+    expect(reg.resolve("t-decl")?.lifecycle).toEqual({ archiveOnEnd: true });
+  });
+
+  it("archiveOnEnd: a ref body cannot set it (core-reserved, warned once)", () => {
+    const warn = vi.fn();
+    const reg = createPendingPluginRefRegistry({ warn });
+    expect(reg.file("t-ref", { archiveOnEnd: true, foo: 1 }, "pX")).toBe(true);
+    const r = reg.resolve("t-ref");
+    expect(r?.ref).toEqual({ foo: 1 });
+    expect(r?.lifecycle).toBeUndefined();
+    reg.file("t-ref2", { archiveOnEnd: true }, "pX");
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes("archiveOnEnd"))).toHaveLength(1);
+  });
+
   it("X1: a malformed ref is dropped fail-open, warns once per key, never throws", () => {
     const warn = vi.fn();
     const reg = createPendingPluginRefRegistry({ warn });
