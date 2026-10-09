@@ -1273,6 +1273,18 @@ function initBridge(pi: ExtensionAPI) {
     onOpen: () => {
       if (!isActive() || connection !== primaryConnection) return;
       pluginLaneUp();
+      // `onReconnect` skips the FIRST open, so plugin latest/stream messages
+      // retained before it would wait for the next emission. Drain after the
+      // manager flushes its buffered register frame (microtask).
+      // See change: add-plugin-bridge-contributions.
+      queueMicrotask(() => {
+        if (!isActive() || connection !== primaryConnection) return;
+        try {
+          pluginForwardRegistry.flush();
+        } catch {
+          /* registry not yet initialised (declared later in initBridge) */
+        }
+      });
     },
     onClose: () => {
       if (connection !== primaryConnection) return;

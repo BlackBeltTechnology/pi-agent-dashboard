@@ -1,3 +1,4 @@
+import fs from "node:fs";
 /**
  * Plugin event-forward registry (L1). Folded from test-plan.md E1–E8, P1, X1–X3.
  * See change: add-plugin-bridge-contributions.
@@ -284,5 +285,18 @@ describe("PluginForwardRegistry", () => {
     registry.flush();
     registry.flush();
     expect(sent.map((s) => s.data.i)).toEqual(Array.from({ length: 50 }, (_, i) => i));
+  });
+});
+
+// CodeRabbit (PR #838): `onReconnect` skips the first open, so the primary
+// connection's `onOpen` must drain retained plugin messages (source pin: the
+// bridge wiring has no isolated harness for the open callback).
+describe("bridge wiring: first-open drain", () => {
+  it("primary onOpen schedules a registry flush after the lane comes up", () => {
+    const src = fs.readFileSync(new URL("../bridge.ts", import.meta.url), "utf8");
+    const open = src.indexOf("onOpen: () => {\n      if (!isActive() || connection !== primaryConnection) return;");
+    expect(open).toBeGreaterThan(-1);
+    const body = src.slice(open, src.indexOf("onClose:", open));
+    expect(body).toMatch(/queueMicrotask\([\s\S]*pluginForwardRegistry\.flush\(\)/);
   });
 });

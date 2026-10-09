@@ -940,6 +940,7 @@ describe("memory-event-store", () => {
       expect(stored.data.__truncated).toBe(true);
       expect(stored.data.reason).toBeTruthy();
       expect(stored.data.eventType).toBe("subagent_end");
+      expect(JSON.stringify(stored.data).length).toBeLessThanOrEqual(20_000);
     });
 
     it("P1: size measurement is bounded and never full-stringifies oversized data", () => {
