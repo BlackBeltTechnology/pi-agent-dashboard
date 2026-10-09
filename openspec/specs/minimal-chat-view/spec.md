@@ -69,7 +69,7 @@ The view SHALL derive a short preview string from a tool call's input, selecting
 
 ### Requirement: Tool-call rendering and output disclosure
 
-The view SHALL prefer a registered rich tool-call renderer, and SHALL provide a fallback renderer whose output is collapsed by default and expandable only when output exists.
+The view SHALL prefer a registered rich tool-call renderer, and SHALL provide a fallback renderer whose output is collapsed by default and expandable only when output exists. Tool output SHALL be presented as text: a string as-is; an object carrying a `content` array of `{ type: "text", text }` blocks as those texts joined by newlines; any other value as pretty-printed JSON.
 
 #### Scenario: Rich renderer available
 - **WHEN** the tool-call step primitive is registered
@@ -86,6 +86,10 @@ The view SHALL prefer a registered rich tool-call renderer, and SHALL provide a 
 #### Scenario: No output to expand
 - **WHEN** the fallback tool entry has no output
 - **THEN** no expansion affordance toggles content
+
+#### Scenario: Text result envelope is unwrapped
+- **WHEN** a tool entry's output is `{ content: [{ type: "text", text: "line 1\nline 2" }], structuredContent: "…" }`
+- **THEN** the output shown is `line 1` and `line 2` on separate lines, not the JSON envelope
 
 ### Requirement: Layout modes
 

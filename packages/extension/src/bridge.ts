@@ -109,6 +109,7 @@ import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { UsageDrain, drainUsageAndSend, makeCacheWarmingDecisionHandler, sendShutdownUsageThenUnregister } from "./usage-drain.js";
 import { detectSessionSource } from "./source-detector.js";
 import { flushBufferedSubagentFrames, serveSubagentResync } from "./subagent-forward-sites.js";
+import { PluginForwardRegistry } from "./plugin-event-forward-registry.js";
 import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
 import { stripForForward } from "./subagent-frame-strip.js";
 import { FanoutAdmissionGate, resolveAdmissionConfig } from "./subagent-fanout-admission.js";
@@ -1272,6 +1273,18 @@ function initBridge(pi: ExtensionAPI) {
     onOpen: () => {
       if (!isActive() || connection !== primaryConnection) return;
       pluginLaneUp();
+      // `onReconnect` skips the FIRST open, so plugin latest/stream messages
+      // retained before it would wait for the next emission. Drain after the
+      // manager flushes its buffered register frame (microtask).
+      // See change: add-plugin-bridge-contributions.
+      queueMicrotask(() => {
+        if (!isActive() || connection !== primaryConnection) return;
+        try {
+          pluginForwardRegistry.flush();
+        } catch {
+          /* registry not yet initialised (declared later in initBridge) */
+        }
+      });
     },
     onClose: () => {
       if (connection !== primaryConnection) return;
@@ -3041,6 +3054,9 @@ function initBridge(pi: ExtensionAPI) {
     // `sendEventForward` directly, so a bus-path-only strip would leak every
     // buffered frame fat. See change: reduce-subagent-details-payload (X5).
     const flushed = flushBufferedSubagentFrames(subagentFrameBuffer, sendEventForward);
+    // Plugin-declared latest/stream channels retained over the same gap flush
+    // here too, in emission order. See change: add-plugin-bridge-contributions.
+    pluginForwardRegistry.flush();
     if (flushed === 0) return;
     console.log(
       `[dashboard] flushed ${flushed} buffered subagent frame(s) on re-register` +
@@ -3071,6 +3087,25 @@ function initBridge(pi: ExtensionAPI) {
       },
     },
   );
+
+  // Plugin-declared bus channels: plugin bridges emit
+  // `dashboard:register-event-forward`; `attach()` subscribes the listener and
+  // then emits `dashboard:bridge-ready` so plugins that activated first
+  // re-declare. Core names no plugin channel. See change:
+  // add-plugin-bridge-contributions (D1/D2/D4).
+  const pluginForwardRegistry = new PluginForwardRegistry(pi.events, {
+    send: (eventType, data) =>
+      connection.send({
+        type: "event_forward",
+        sessionId,
+        event: { eventType, timestamp: Date.now(), data },
+      }),
+    isSessionReady: () => sessionReady,
+    isActive,
+    isConnected: () => connection.isConnected,
+    isCoreChannel: (channel) => channel in EVENT_BUS_MAP,
+  });
+  pluginForwardRegistry.attach();
 
   pi.on("session_start", safe(async (_event: any, ctx: any) => {
 
@@ -3893,6 +3928,15 @@ function initBridge(pi: ExtensionAPI) {
           // throttle's two information-loss modes are observable in production
           // instead of only at L1. See change: reduce-bridge-tick-bandwidth (D6).
           ...subagentTickThrottle.stats,
+          // Plugin event-forward registry counters. See change:
+          // add-plugin-bridge-contributions.
+          pluginForwardDeclared: pluginForwardRegistry.stats.declared,
+          pluginForwardRejected:
+            pluginForwardRegistry.stats.rejected + pluginForwardRegistry.stats.rejectedDeclarations,
+          pluginForwardConflicts: pluginForwardRegistry.stats.conflicts,
+          pluginForwardRetained: pluginForwardRegistry.stats.buffer.retained,
+          pluginForwardDropped:
+            pluginForwardRegistry.stats.buffer.dropped + pluginForwardRegistry.stats.buffer.keyRejected,
           // Subagent fan-out admission counters ride the same transport, so a
           // narrowed fan-out is observable instead of looking like a model that
           // chose not to parallelize. See change:
@@ -4175,6 +4219,7 @@ function initBridge(pi: ExtensionAPI) {
     // Release our EventBus subscriptions. Nothing to "restore": the bridge no
     // longer replaces any host function. See change: fix-automation-run-lifecycle.
     disposeEventBusForwarding();
+    pluginForwardRegistry.dispose();
     connection.disconnect();
   };
 

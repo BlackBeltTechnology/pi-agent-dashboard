@@ -29,7 +29,7 @@ import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-s
 import {
   reconcilePluginBridgePackages,
   deregisterPluginBridge,
-  registerAllPluginBridges,
+  syncPluginBridges,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RECOVERY_REATTACH_GRACE_MS, RECOVERY_SHUTDOWN_WINDOW_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import {
@@ -4084,9 +4084,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // or they would land in every pi session's tool list.
         // See change: expose-plugin-credential-and-oauth-seams (D8).
         .filter(p => fixtureEntryAllowed(p.manifest))
-        .map(p => ({ pluginId: p.manifest.id, bridgePath: p.bridgeEntryPath! }));
+        // A disabled plugin's bridge is deregistered (both registries) and an
+        // enabled one registered — same predicate as the server-entry loader.
+        // The toggle route answers `restartRequired`, so this boot pass is
+        // where a toggle lands. See change: add-plugin-bridge-contributions (D13).
+        .map(p => ({
+          pluginId: p.manifest.id,
+          bridgePath: p.bridgeEntryPath!,
+          enabled: resolvePluginEnabled(
+            getPluginConfigFromFile(loadConfig(), p.manifest.id) as Record<string, unknown>,
+            p.manifest.defaultEnabled,
+          ),
+        }));
       if (pluginsWithBridges.length) {
-        const results = registerAllPluginBridges(pluginsWithBridges);
+        const results = syncPluginBridges(pluginsWithBridges);
         for (const [id, result] of Object.entries(results)) {
           if (result.type === 'conflict') {
             const store = getPluginStatusStore();

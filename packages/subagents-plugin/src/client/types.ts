@@ -23,6 +23,15 @@ export type SubagentTimelineEntry =
  */
 export type SubagentLiveTail = { kind: "thinking" | "text" | "none"; text: string };
 
+/** In-progress block from the delta stream. See change: add-plugin-bridge-contributions. */
+export type SubagentLiveBlock = {
+  blockId: number;
+  kind: "thinking" | "text";
+  text: string;
+  end: number;
+  gap: boolean;
+};
+
 /** Per-subagent state held in SessionState.subagents. */
 export interface SubagentState {
   id: string;
@@ -47,6 +56,18 @@ export interface SubagentState {
   activity?: string;
   /** Live tail of the streaming thinking/text block (producer ≥ 0.2.7). */
   liveTail?: SubagentLiveTail;
+  /**
+   * In-progress block assembled from `subagent_delta` pieces (producer ≥ 0.4.0).
+   * `text` is the display text (may carry gap markers); `end` is the LOGICAL
+   * block offset reached, so offsets stay exact across gaps. Cleared by the
+   * block's `subagent_entry` (same `blockId`) or a terminal state.
+   * See change: add-plugin-bridge-contributions (D7).
+   */
+  liveBlock?: SubagentLiveBlock;
+  /** Highest `blockId` already finished — later pieces of it are ignored (D7 tombstone). */
+  closedBlockMax?: number;
+  /** Producer step count (`details.entryCount`, ≥ 0.3.0); stream-complete when filled steps reach it. */
+  entryCount?: number;
   /** Display name for the agent (e.g. "code-reviewer"). Falls back to `type`. */
   displayName?: string;
   /** Short model name if different from parent. */
