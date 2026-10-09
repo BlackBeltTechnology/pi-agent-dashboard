@@ -112,6 +112,7 @@ function makeSessionMgr(sessions: DashboardSession[] = []): SessionManager {
     register: vi.fn(),
     restore: vi.fn(),
     remove: vi.fn(),
+    wasEndedByBridgeUnregister: () => false,
     unregister: vi.fn(),
     update: vi.fn(),
     get: (id: string) => map.get(id),
