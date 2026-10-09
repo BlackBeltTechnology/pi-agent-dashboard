@@ -42,7 +42,8 @@ for (const entry of ENTRIES) {
 }
 
 // public/ is copied to the root, as Astro did: CNAME (the pi-dashboard.dev
-// apex binding — losing it takes the custom domain down), favicon, og-card.
+// apex binding — losing it takes the custom domain down), favicon, og-card.jpg,
+// and the crawler files (robots.txt, sitemap.xml, llms.txt).
 for (const name of await readdir(join(HERE, "public"))) {
   await cp(join(HERE, "public", name), join(DIST, name), { recursive: true });
 }

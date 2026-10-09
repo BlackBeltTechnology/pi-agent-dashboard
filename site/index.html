@@ -39,20 +39,48 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 
-<title>PI Dashboard — your coding agents, visible from anywhere</title>
-<meta name="description" content="Every pi session mirrored to the browser as it runs. Read the transcript, answer the prompt, kill the runaway, resume it from your phone. Open source, self-hosted.">
+<title>PI Dashboard: Web &amp; Mobile UI for the pi Coding Agent</title>
+<meta name="description" content="Open-source, self-hosted dashboard for the pi coding agent. Watch sessions live, answer prompts, run agents in parallel and take over from your phone.">
 <link rel="canonical" href="https://pi-dashboard.dev/">
 <link rel="icon" type="image/png" href="favicon.png">
 
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://pi-dashboard.dev/">
-<meta property="og:title" content="PI Dashboard — your coding agents, visible from anywhere">
-<meta property="og:description" content="Every pi session mirrored to the browser as it runs. Open source, self-hosted.">
-<meta property="og:image" content="https://pi-dashboard.dev/og-card.png">
+<meta property="og:title" content="PI Dashboard: Web &amp; Mobile UI for the pi Coding Agent">
+<meta property="og:description" content="Open-source, self-hosted dashboard for the pi coding agent. Watch sessions live, answer prompts, run agents in parallel and take over from your phone.">
+<meta property="og:image" content="https://pi-dashboard.dev/og-card.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="PI Dashboard logo: the pi symbol above the words pi-dashboard, Your pi agents, in the browser.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="PI Dashboard — your coding agents, visible from anywhere">
-<meta name="twitter:description" content="Every pi session mirrored to the browser as it runs. Open source, self-hosted.">
-<meta name="twitter:image" content="https://pi-dashboard.dev/og-card.png">
+<meta name="twitter:title" content="PI Dashboard: Web &amp; Mobile UI for the pi Coding Agent">
+<meta name="twitter:description" content="Open-source, self-hosted dashboard for the pi coding agent. Watch sessions live, answer prompts, run agents in parallel and take over from your phone.">
+<meta name="twitter:image" content="https://pi-dashboard.dev/og-card.jpg">
+<!-- Structured data. Deliberately NO release-specific values (softwareVersion,
+     versioned download URLs): sync-release.mjs only rewrites the
+     data-asset / data-rel-tag markers, so anything versioned here would go
+     stale on the next release. downloadUrl is the releases index. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "PI Dashboard",
+  "description": "Open-source, self-hosted dashboard for the pi coding agent. Watch sessions live, answer prompts, run agents in parallel and take over from your phone.",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "macOS, Windows, Linux",
+  "url": "https://pi-dashboard.dev/",
+  "downloadUrl": "https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases",
+  "license": "https://github.com/BlackBeltTechnology/pi-agent-dashboard/blob/develop/LICENSE",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Organization", "name": "BlackBelt Technology", "url": "https://blackbelt.hu" },
+  "sameAs": [
+    "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "https://www.npmjs.com/package/@blackbelt-technology/pi-agent-dashboard",
+    "https://github.com/badlogic/pi-mono"
+  ]
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -497,6 +525,29 @@ h2 em{font-style:normal;color:var(--accent-text)}
   background:var(--bg-secondary);border:1px solid var(--code-border);
   font-family:var(--mono);font-size:11.5px;color:var(--text-secondary)}
 
+/* Hero subhead entity link: same colour as the sentence, marked by a quiet
+   underline so the phrase reads as prose first and as a link second. */
+.lede a{color:inherit;text-decoration:underline;text-underline-offset:3px;
+  text-decoration-thickness:1px;text-decoration-color:color-mix(in srgb,var(--text-secondary) 45%,transparent)}
+.lede a:hover{color:var(--text-primary);text-decoration-color:currentColor}
+
+/* ---------------- FAQ ----------------
+   Native <details>/<summary>: no JS, every answer in the DOM from first paint
+   (indexable, readable with script off). Tokens only, no colour literals --
+   site-seo-contract.test.ts E15 guards this block. */
+.faq-list{max-width:72ch;border-top:1px solid var(--border)}
+.faq-item{border-bottom:1px solid var(--border)}
+.faq-item summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;
+  align-items:baseline;gap:18px;padding:18px 0;font-size:16px;color:var(--text-primary)}
+.faq-item summary::-webkit-details-marker{display:none}
+.faq-item summary::after{content:"+";font-family:var(--mono);color:var(--label);flex:none}
+.faq-item[open] summary::after{content:"\2212"}
+.faq-item summary:hover{color:var(--accent-text)}
+.faq-item summary:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:2px}
+.faq-item p{margin:0 0 18px;color:var(--text-secondary);font-size:14.5px;line-height:1.7}
+.faq-item a{color:var(--accent-text)}
+.faq-item code{font-family:var(--mono);font-size:12.5px;color:var(--text-primary)}
+
 /* closing CTA */
 
 footer{border-top:1px solid var(--border);padding-block:30px}
@@ -613,7 +664,7 @@ footer{border-top:1px solid var(--border);padding-block:30px}
       <p class="eyebrow">Open source · self hosted</p>
       <h1>Your coding agents, <em>visible</em> from anywhere.</h1>
       <p class="lede">
-        Every pi session mirrored to the browser as it runs. Read the transcript, answer the
+        Every <a href="https://github.com/badlogic/pi-mono">pi coding agent</a> session mirrored to the browser as it runs. Read the transcript, answer the
         prompt, kill the runaway, resume it from your phone. No screen sharing, no tmux gymnastics.
       </p>
       <div class="cta">
@@ -726,7 +777,7 @@ footer{border-top:1px solid var(--border);padding-block:30px}
         </svg>
         <span class="stat-k">02 / Git</span>
         <h3>Branches and worktrees</h3>
-        <p>Switch branch from the card. Spin up a worktree per change. Review the diff and commit without leaving.</p>
+        <p>Spin up a git worktree per OpenSpec change. Switch branch from the card. Review the diff and commit without leaving.</p>
       </div>
       <div class="cell">
         <!-- One parent agent fanning out to three subagents; one is running. -->
@@ -741,7 +792,7 @@ footer{border-top:1px solid var(--border);padding-block:30px}
         </svg>
         <span class="stat-k">03 / Flows</span>
         <h3>Watch multi-agent runs</h3>
-        <p>Agent cards, live graph, budget draw-down. Pop a subagent out and read its full timeline.</p>
+        <p>Run agents in parallel and watch every one: agent cards, live graph, budget draw-down. Pop a subagent out and read its full timeline.</p>
       </div>
       <div class="cell">
         <!-- A schedule firing, arrow spawning a session card. -->
@@ -756,7 +807,7 @@ footer{border-top:1px solid var(--border);padding-block:30px}
         </svg>
         <span class="stat-k">04 / Automation</span>
         <h3>Cron and file triggers</h3>
-        <p>Start a session on a schedule, or when a file lands. Set a goal with success criteria and let the supervisor drive.</p>
+        <p>Schedule agent sessions with cron, or start one when a file lands. Set a goal with success criteria and let the supervisor drive.</p>
       </div>
       <div class="cell">
         <!-- Four provider chips converging on one proxy endpoint. -->
@@ -788,7 +839,7 @@ footer{border-top:1px solid var(--border);padding-block:30px}
         </svg>
         <span class="stat-k">06 / Access</span>
         <h3>Phone in 10 seconds</h3>
-        <p>Scan a QR to pair. Share over a zrok tunnel with OAuth and an allowlist. Install it as a PWA.</p>
+        <p>Take over from your phone: scan a QR to pair. Share over a zrok tunnel with OAuth and an allowlist. Install it as a PWA.</p>
       </div>
 
       <div class="cell">
@@ -1003,6 +1054,67 @@ pi-dashboard start
 pi-dashboard start --dev</pre>
       </div>
       <p class="note">Requires Node.js 20+ and a working pi installation.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ FAQ ============================
+     Questions a searcher actually types, answered only with facts already on
+     this page or in the README. Each <details> names its source so the next
+     editor can re-check an answer against the place it came from. -->
+<section id="faq" data-field="close">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow mono">FAQ</p>
+      <h2>Questions, <em>answered</em>.</h2>
+    </div>
+
+    <div class="faq-list">
+      <details class="faq-item">
+        <!-- source: README.md "This dashboard only works with pi. Oh My Pi is not supported."; providers: #features "Every provider, one place" -->
+        <summary>Does it work with Claude Code or other coding agents?</summary>
+        <p>No. PI Dashboard works only with the <a href="https://github.com/badlogic/pi-mono">pi coding agent</a>;
+          Oh My Pi isn't supported either. Your models still work through pi: sign in to Anthropic,
+          Codex, Copilot or Gemini and pick the model per session.</p>
+      </details>
+
+      <details class="faq-item">
+        <!-- source: #download "Bundles Node.js and auto-installs pi + OpenSpec"; #install pi package panel "Already using pi?"; #install npm panel "Requires Node.js 20+ and a working pi installation." -->
+        <summary>Do I need to install pi first?</summary>
+        <p>It depends on the route. The desktop app bundles Node.js and installs pi for you. The pi package
+          route runs inside pi, so pi is already there. The npm route needs Node.js 20+ and a working pi
+          installation. All three are under <a href="#install">Get started</a>.</p>
+      </details>
+
+      <details class="faq-item">
+        <!-- source: README.md MIT licence badge; spec strip "MIT · self-hosted"; hero eyebrow "Open source · self hosted" -->
+        <summary>Is it free, and where does my data go?</summary>
+        <p>It is open source under the MIT licence and self-hosted: the dashboard runs on your own
+          machine, next to your pi sessions.</p>
+      </details>
+
+      <details class="faq-item">
+        <!-- source: #features "Phone in 10 seconds" (QR pairing, zrok tunnel with OAuth and an allowlist, PWA); README.md "from your laptop or phone" -->
+        <summary>Can I check on my agents from my phone?</summary>
+        <p>Yes. Scan a QR code to pair your phone, or share the dashboard over a zrok tunnel protected by
+          OAuth and an allowlist. You can install it as a PWA.</p>
+      </details>
+
+      <details class="faq-item">
+        <!-- source: #features "Every provider, one place"; README.md "Custom LLM providers" (OpenAI-compatible, Anthropic-compatible, Google Generative AI endpoints) -->
+        <summary>Which model providers can I use?</summary>
+        <p>Sign in to Anthropic, Codex, Copilot and Gemini, and swap the model mid-session. You can also
+          add OpenAI-compatible, Anthropic-compatible or Google Generative AI endpoints as custom providers.</p>
+      </details>
+
+      <details class="faq-item">
+        <!-- source: #install Electron panel "First-run unblocking" (SmartScreen, notarization, xattr -cr) -->
+        <summary>macOS or Windows blocks the app on first launch. What do I do?</summary>
+        <p>The builds are not yet code-signed. On Windows, SmartScreen warns on first launch: choose
+          <i>More info → Run anyway</i>. On macOS, right-click the app and choose <i>Open</i>, or run
+          <code>xattr -cr /Applications/PI-Dashboard.app</code>. Full steps are in the
+          <a href="#install">install notes</a>.</p>
+      </details>
     </div>
   </div>
 </section>

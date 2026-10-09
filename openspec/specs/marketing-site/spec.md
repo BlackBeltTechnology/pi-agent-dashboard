@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines the public marketing site: its source location, theming with no flash of unstyled content, the hero and storytelling animations, the argument sections (TUI versus GUI, remote delegation, a newcomer-friendly introduction), the features grid, a latest-release surface that auto-syncs, GitHub Pages deployment, a Playwright screenshot pipeline, and the performance and accessibility budgets it must meet.
+Defines the public marketing site at pi-dashboard.dev: a single hand-written static page in `site/` (no framework, no bundler), its System / Light / Dark theming with no flash of unstyled content, the hero product film, the ambient WebGL background, the Why section, the static features grid, the on-page FAQ, the search metadata, structured data and crawler files that tie it to the pi coding agent, the latest-release surface that auto-syncs, GitHub Pages deployment, the static-site screenshot and audit driver, and the performance and accessibility budgets it must meet.
 
 ## Requirements
 

@@ -93,7 +93,7 @@
     "site:dev": "npm --prefix site run dev",
     "site:build": "npm --prefix site run build",
     "site:preview": "npm --prefix site run preview",
-    "screenshots": "npm --prefix site run screenshots",
+    "screenshots": "npm --prefix site run shots",
     "pretest:e2e": "node -e \"process.env.PW_CHANNEL||require('child_process').execSync('playwright install chromium',{stdio:'inherit'})\"",
     "test:e2e": "playwright test",
     "pretest:e2e:ui": "node -e \"process.env.PW_CHANNEL||require('child_process').execSync('playwright install chromium',{stdio:'inherit'})\"",

@@ -1,0 +1,19 @@
+# PI Dashboard
+
+> Open-source, self-hosted web and mobile dashboard for the pi coding agent. It mirrors every pi session to the browser as it runs: read the transcript, answer the prompt, abort a runaway, run agents in parallel, and take over from your phone. MIT licensed.
+
+PI Dashboard works only with the pi coding agent (https://github.com/badlogic/pi-mono). It is not a front-end for other coding agents.
+
+## Links
+
+- [Website](https://pi-dashboard.dev/): overview, downloads and install routes
+- [GitHub repository](https://github.com/BlackBeltTechnology/pi-agent-dashboard): source, README and documentation
+- [Releases](https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases): desktop installers for macOS, Linux and Windows
+- [npm package](https://www.npmjs.com/package/@blackbelt-technology/pi-agent-dashboard): `npm install -g @blackbelt-technology/pi-agent-dashboard`
+- [pi coding agent](https://github.com/badlogic/pi-mono): the upstream agent the dashboard controls
+
+## Install
+
+- Desktop app: download an installer from the releases page; it bundles Node.js and installs pi.
+- pi package: inside a pi session, run `/packages add @blackbelt-technology/pi-agent-dashboard`.
+- npm: `npm install -g @blackbelt-technology/pi-agent-dashboard`, then `pi-dashboard start` (needs Node.js 20+ and a working pi).
