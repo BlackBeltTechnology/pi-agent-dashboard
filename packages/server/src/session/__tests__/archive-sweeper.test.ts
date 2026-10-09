@@ -348,6 +348,24 @@ describe("service archive: idempotent per id (E12)", () => {
   });
 });
 
+// CodeRabbit PR #843: a session resumed and ended AGAIN inside the window
+// must get a full grace from its latest end (its end handlers run again).
+describe("service archive: a new end transition restarts the grace", () => {
+  it("archives 30 s after the latest end, not the first", () => {
+    const rig = makeRig([declared("s")]);
+    rig.sweeper.scheduleServiceArchive("s");
+    vi.advanceTimersByTime(20_000);
+    const s = rig.live.get("s")!;
+    s.endedAt = Date.now(); // resumed + ended again at t=20 s
+    rig.sweeper.scheduleServiceArchive("s");
+    expect(rig.sweeper.pendingServiceArchiveCount()).toBe(1);
+    vi.advanceTimersByTime(GRACE - 20_000);
+    expect(rig.isResident("s")).toBe(true);
+    vi.advanceTimersByTime(20_000);
+    expect(rig.archiveCalls).toEqual([["s", "service-end"]]);
+  });
+});
+
 describe("service archive: viewed re-arms (E13)", () => {
   it("is deferred while viewed and archived one grace after unview", () => {
     const rig = makeRig([declared("s")]);

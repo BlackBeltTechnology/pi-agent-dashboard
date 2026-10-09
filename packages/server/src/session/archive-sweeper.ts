@@ -81,15 +81,16 @@ export function createArchiveSweeper(deps: ArchiveSweeperDeps): ArchiveSweeper {
   // Per-instance stopped latch: bridge teardown during shutdown ends sessions
   // (→ onEnded → schedule) and `start()` runs in an async discovery `.then`.
   let stopped = false;
-  const pending = new Map<string, ReturnType<typeof setTimeout>>();
+  // id → timer + the `endedAt` it was armed for (a NEW end restarts the grace).
+  const pending = new Map<string, { timer: ReturnType<typeof setTimeout>; endedAt: number | undefined }>();
 
   const serviceArchiveEnabled = (): boolean =>
     getConfig().sessionList.archiveServiceSessionsOnEnd !== false;
 
-  function arm(sessionId: string, scheduledAt: number): void {
+  function arm(sessionId: string, scheduledAt: number, endedAt: number | undefined): void {
     const timer = setTimeout(() => fireServiceArchive(sessionId, scheduledAt), SERVICE_ARCHIVE_GRACE_MS);
     timer.unref?.();
-    pending.set(sessionId, timer);
+    pending.set(sessionId, { timer, endedAt });
   }
 
   /**
@@ -104,11 +105,23 @@ export function createArchiveSweeper(deps: ArchiveSweeperDeps): ArchiveSweeper {
     return isViewed(session.id) ? "rearm" : "archive";
   }
 
+  /**
+   * Schedule-time eligibility: declared, ended, not a re-notified end of a
+   * session restored from the archive (only a genuine end AFTER the restore
+   * re-arms), setting on (not retroactive).
+   */
+  function scheduleEligible(session: DashboardSession): boolean {
+    if (session.archiveOnEnd !== true || session.status !== "ended") return false;
+    if (session.restoredAt !== undefined && session.restoredAt >= (session.endedAt ?? 0)) return false;
+    return serviceArchiveEnabled();
+  }
+
   function fireServiceArchive(sessionId: string, scheduledAt: number): void {
     pending.delete(sessionId);
     if (stopped) return;
-    const verdict = fireVerdict(sessionManager.get(sessionId), scheduledAt);
-    if (verdict === "rearm") arm(sessionId, scheduledAt);
+    const session = sessionManager.get(sessionId);
+    const verdict = fireVerdict(session, scheduledAt);
+    if (verdict === "rearm") arm(sessionId, scheduledAt, session?.endedAt);
     if (verdict !== "archive") return;
     const result = sessionArchive.archiveSession(sessionId, "service-end");
     if (result.ok) console.info(`[archive] service-end archived ${sessionId}`);
@@ -168,19 +181,20 @@ export function createArchiveSweeper(deps: ArchiveSweeperDeps): ArchiveSweeper {
       if (handle !== null) clearIntervalFn(handle);
       handle = null;
       armedIntervalMs = null;
-      for (const timer of pending.values()) clearTimeout(timer);
+      for (const { timer } of pending.values()) clearTimeout(timer);
       pending.clear();
     },
     tick,
     scheduleServiceArchive(sessionId) {
-      if (stopped || pending.has(sessionId)) return;
+      if (stopped) return;
       const session = sessionManager.get(sessionId);
-      if (session?.archiveOnEnd !== true || session.status !== "ended") return;
-      // A re-notified end of a session restored from the archive: only a
-      // genuine end AFTER the restore re-arms the rule.
-      if (session.restoredAt !== undefined && session.restoredAt >= (session.endedAt ?? 0)) return;
-      if (!serviceArchiveEnabled()) return;
-      arm(sessionId, now());
+      // Idempotent per end transition: a `closedReason` re-fire of the SAME
+      // end is a no-op; a new end (resumed, ended again) restarts the grace.
+      const entry = pending.get(sessionId);
+      if (entry && entry.endedAt === session?.endedAt) return;
+      if (!session || !scheduleEligible(session)) return;
+      if (entry) clearTimeout(entry.timer);
+      arm(sessionId, now(), session.endedAt);
     },
     pendingServiceArchiveCount: () => pending.size,
   };

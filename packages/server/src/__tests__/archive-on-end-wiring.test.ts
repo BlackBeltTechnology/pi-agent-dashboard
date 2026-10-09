@@ -116,6 +116,19 @@ describe("archiveOnEnd register seam + ended routing", () => {
     expect(readSessionMeta(file)?.archiveOnEnd).toBeUndefined();
   });
 
+  // CodeRabbit PR #843: a same-id re-register (bridge reattach after
+  // /api/restart) rebuilds the session; the declaration must survive it, or
+  // the run is never archived on end and the next full save wipes the key.
+  it("a same-id re-register (reattach) keeps archiveOnEnd and still schedules on end", () => {
+    const { sessionManager, scheduleSpy } = setup();
+    sessionManager.register({ id: "s4", cwd: "/repo", source: "dashboard", startedAt: 1 } as any);
+    sessionManager.update("s4", { archiveOnEnd: true });
+    sessionManager.register({ id: "s4", cwd: "/repo", source: "dashboard", startedAt: 1, registerReason: "reattach" } as any);
+    expect(sessionManager.get("s4")?.archiveOnEnd).toBe(true);
+    sessionManager.unregister("s4");
+    expect(scheduleSpy).toHaveBeenCalledWith("s4");
+  });
+
   it("the onEnded owner schedules the service archive on the ended transition", () => {
     const { sessionManager, scheduleSpy } = setup();
     sessionManager.register({ id: "s3", cwd: "/repo", source: "dashboard", startedAt: 1 } as any);

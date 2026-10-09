@@ -70,4 +70,16 @@ describe("AutomationRunMonitor", () => {
     const link = getByTestId("run-archived-transcript") as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/session/run-sess?archived=1");
   });
+
+  // CodeRabbit PR #843: an archived run the run store cannot resolve (pruned
+  // retention, fetch error) must not look live.
+  it("an unresolvable archived run shows 'run not found', never 'running'", async () => {
+    vi.mocked(getRunBySessionId).mockResolvedValueOnce(null);
+    const { getByTestId, queryByTestId } = wrap(
+      <AutomationRunMonitor params={{ sid: "gone-sess", encodedCwd: encodeFolderPath("/r") }} />,
+    );
+    await waitFor(() => expect(getByTestId("run-status").textContent).toBe("run not found"));
+    expect(queryByTestId("run-live-hint")).toBeNull();
+    expect(getByTestId("run-archived-transcript")).toBeTruthy();
+  });
 });

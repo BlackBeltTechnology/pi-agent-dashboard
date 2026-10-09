@@ -36,6 +36,18 @@ export interface AutomationRunMonitorProps {
   onBack?: () => void;
 }
 
+/** Status line: run-store status, else a missed lookup, else live/ended. */
+function statusLabel(
+  t: ReturnType<typeof useT>,
+  stored: RunBySession | null,
+  lookupMissed: boolean,
+  ended: boolean,
+): string {
+  if (stored) return stored.status;
+  if (lookupMissed) return t("runNotFound", undefined, "run not found");
+  return ended ? t("completed", undefined, "completed") : t("running", undefined, "running");
+}
+
 export function AutomationRunMonitor({
   params,
   session,
@@ -45,6 +57,8 @@ export function AutomationRunMonitor({
   const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
   const [result, setResult] = useState<string | null>(null);
   const [stored, setStored] = useState<RunBySession | null>(null);
+  // The run-store lookup for a non-resident session came back empty.
+  const [lookupMissed, setLookupMissed] = useState(false);
 
   // The run session is archived on end (evicted from the live set), so a
   // missing `session` with a route `sid` means "resolve from the run store".
@@ -55,7 +69,11 @@ export function AutomationRunMonitor({
     if (!archivedSid) return;
     void getRunBySessionId(archivedCwd, archivedSid)
       .then((r) => {
-        if (cancelled || !r) return;
+        if (cancelled) return;
+        if (!r) {
+          setLookupMissed(true);
+          return;
+        }
         setStored(r);
         setResult(r.result ?? null);
       })
@@ -104,7 +122,7 @@ export function AutomationRunMonitor({
 
       <div className="text-xs text-[var(--text-secondary)]">
         <span data-testid="run-status">
-          {stored ? stored.status : ended ? t("completed", undefined, "completed") : t("running", undefined, "running")}
+          {statusLabel(t, stored, lookupMissed, ended)}
         </span>
         {run?.runId && <span className="ml-2 font-mono">{run.runId}</span>}
       </div>

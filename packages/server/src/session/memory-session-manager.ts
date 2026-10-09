@@ -386,6 +386,11 @@ export function createMemorySessionManager(
           // Plugin-declared hide intent: re-asserted by the `hidden` decision
           // below and kept for the next save. See change: fix-plugin-hidden-across-restart.
           pluginHidden: existing.pluginHidden,
+          // Plugin-declared disposability: the register lifecycle block does
+          // not re-run on reattach, so dropping it here loses the on-end
+          // archive and wipes it from disk on the next full save.
+          // See change: archive-service-sessions-on-end.
+          archiveOnEnd: existing.archiveOnEnd,
           // Preserve context usage until bridge sends fresh data
           contextTokens: existing.contextTokens,
           contextWindow: existing.contextWindow,
