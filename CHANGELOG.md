@@ -56,6 +56,9 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **kb search: queries with accented letters (Hungarian, German, French, …) no longer
+  split into ASCII fragments; Greek and Vietnamese accents are preserved like the index.**
+  `közzétételek` now finds its own document instead of one about a *telek*. No reindex.
 - **No more "N steps hidden" in subagent timelines.** The head+tail truncation is
   gone; finished streamed reasoning pieces are dropped from the store instead.
 - **Healed subagent cards show the real result** instead of "result unavailable".
