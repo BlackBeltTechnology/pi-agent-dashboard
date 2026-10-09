@@ -85,6 +85,56 @@ describe("reloadProviders", () => {
     expect(unregisterProvider).not.toHaveBeenCalled();
   });
 
+  // See change: refresh-models-on-provider-change (D4, review B1).
+  it("overlapping reloads: the second resolves only after the first's registration completed", async () => {
+    const mod = await importFresh();
+    const { pi, registerProvider } = makeMockPi();
+    let releaseDiscovery!: () => void;
+    globalThis.fetch = vi.fn(
+      () => new Promise<Response>((res) => {
+        releaseDiscovery = () => res(new Response(JSON.stringify({ data: [{ id: "m1" }] }), { status: 200 }));
+      }),
+    ) as any;
+    writeProvidersJson(tmpHome, { "my-llm": { baseUrl: "https://api.example.com/v1", apiKey: "k" } });
+
+    const first = mod.reloadProviders(pi);
+    let secondDone = false;
+    const second = mod.reloadProviders(pi).then((d) => { secondDone = true; return d; });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(registerProvider).not.toHaveBeenCalled();
+    expect(secondDone).toBe(false); // must not report "no diff" while my-llm is still registering
+
+    releaseDiscovery();
+    await first;
+    await second;
+    expect(registerProvider).toHaveBeenCalledTimes(1);
+  });
+
+  // See change: refresh-models-on-provider-change (D3/D5, review B3).
+  it("selector open through the real re-sync: unchanged providers.json makes no network request", async () => {
+    const mod = await importFresh();
+    const { pi } = makeMockPi();
+    writeProvidersJson(tmpHome, { "my-llm": { baseUrl: "https://api.example.com/v1", apiKey: "k" } });
+    await mod.reloadProviders(pi); // initial registration (discovery allowed: real diff)
+    (globalThis.fetch as any).mockClear();
+
+    const seen: any[] = [];
+    const registry = {
+      authStorage: { reload: vi.fn() },
+      getAvailable: vi.fn(() => []),
+      refresh: vi.fn(async (o: any) => { seen.push(o); return { aborted: false, errors: new Map() }; }),
+    };
+    const handler = createCommandHandler({ setSessionName: vi.fn(), getSessionName: () => "s" } as any, "sess-1", {
+      getModelRegistry: () => registry,
+      reloadProviders: async () => { await mod.reloadProviders(pi); },
+    });
+    const res: any = await handler.handle({ type: "request_models", sessionId: "sess-1" } as any);
+
+    expect(res.type).toBe("models_list");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(seen).toEqual([{ allowNetwork: false }]);
+  });
+
   // ── auth pre-registration race fix (see change: fix-flow-agent-model-resolution) ──
   it("preRegisterProviderAuth registers the apiKey synchronously with NO models", async () => {
     const mod = await importFresh();

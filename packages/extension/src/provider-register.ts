@@ -902,8 +902,23 @@ async function registerEntry(pi: ExtensionAPI, name: string, entry: ProviderEntr
  * Malformed providers.json or IO errors produce an empty diff and do not
  * throw, so the caller can still run `modelRegistry.refresh()` for other
  * credential updates.
+ *
+ * Serialized: each call runs after the previous one completed. Callers race
+ * (`request_models` bypasses the inbound pump), and `registerEntry` records
+ * `lastRegistered` before awaiting discovery -- an overlapping call would see
+ * "no diff" and push a list missing the in-flight provider.
+ * See change: refresh-models-on-provider-change (D4).
  */
-export async function reloadProviders(
+let reloadChain: Promise<unknown> = Promise.resolve();
+export function reloadProviders(
+  pi: ExtensionAPI,
+): Promise<{ added: string[]; removed: string[]; changed: string[] }> {
+  const run = reloadChain.then(() => reloadProvidersNow(pi));
+  reloadChain = run.catch(() => {});
+  return run;
+}
+
+async function reloadProvidersNow(
   pi: ExtensionAPI,
 ): Promise<{ added: string[]; removed: string[]; changed: string[] }> {
   piRef = pi;
@@ -1055,6 +1070,10 @@ export function activate(pi: ExtensionAPI) {
   const providers = loadProviders();
 
   // Register providers (async discovery, fire-and-forget at startup).
+  // Startup registrations join `reloadChain` so a re-sync arriving during
+  // discovery waits instead of seeing "no diff". See change:
+  // refresh-models-on-provider-change (D4).
+  const startup: Promise<unknown>[] = [];
   for (const [name, entry] of Object.entries(providers)) {
     // Register the auth config SYNCHRONOUSLY, before kicking off the async
     // registerEntry() (which awaits a up-to-10s /v1/models discovery). This
@@ -1069,12 +1088,13 @@ export function activate(pi: ExtensionAPI) {
     // models.length > 0). registerEntry() below then adds the discovered
     // models via a full re-registration. See change: fix-flow-agent-model-resolution.
     preRegisterProviderAuth(pi, name, entry);
-    registerEntry(pi, name, entry).catch((err: any) => {
+    startup.push(registerEntry(pi, name, entry).catch((err: any) => {
       console.error(
         `[dashboard] registerEntry("${name}") failed during activate(): ${err?.message ?? String(err)}`,
       );
-    });
+    }));
   }
+  reloadChain = reloadChain.then(() => Promise.all(startup));
 
   // ── Event API: Model Resolution ─────────────────────────────────────
   //

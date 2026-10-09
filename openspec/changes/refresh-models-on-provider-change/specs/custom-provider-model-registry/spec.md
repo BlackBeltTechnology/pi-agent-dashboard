@@ -2,7 +2,7 @@
 
 ### Requirement: Provider and credential changes SHALL reach the session model list without restart
 
-A live session's model list SHALL reflect the current provider configuration (`providers.json`, `models.json`) and stored credentials (`auth.json`) without restarting the pi session. Opening the model selector SHALL be sufficient to resynchronize, even when the dashboard's change notification never reached the session. Opening the selector SHALL NOT fetch remote model catalogues.
+A live session's model list SHALL reflect the current provider configuration (`providers.json`, `models.json`) and stored credentials (`auth.json`) without restarting the pi session. Opening the model selector SHALL be sufficient to resynchronize, even when the dashboard's change notification never reached the session. Opening the selector SHALL NOT fetch pi's remote model catalogues. Discovering the model list of a custom provider is permitted only when the re-sync detects that provider as added or changed. Concurrent re-syncs SHALL NOT return a model list before an in-flight provider registration completes.
 
 #### Scenario: Provider added while notification was missed
 
@@ -27,4 +27,11 @@ A live session's model list SHALL reflect the current provider configuration (`p
 #### Scenario: Selector open stays local
 
 - **WHEN** the user opens the model selector
-- **THEN** the resulting registry refresh SHALL NOT request remote model catalogues
+- **THEN** the resulting registry refresh SHALL NOT request pi's remote model catalogues
+- **AND** when `providers.json` is unchanged, no provider model-discovery request SHALL be made
+
+#### Scenario: Concurrent re-syncs wait for in-flight registration
+
+- **WHEN** a provider re-sync is registering a newly added provider
+- **AND** a second re-sync starts before that registration completes
+- **THEN** the second re-sync SHALL complete only after the first registration completed
