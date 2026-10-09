@@ -298,7 +298,7 @@ describe("formatToolOutput", () => {
     renderView(
       <MinimalChatView
         title="t"
-        status="completed"
+        status="complete"
         entries={[{ kind: "tool", toolName: "Read", input: { path: "f" }, output: { content: [{ type: "text", text: "line 1\nline 2" }] } } as MinimalChatEntry]}
       />,
     );
