@@ -287,6 +287,29 @@ export function registerAllPluginBridges(
 }
 
 /**
+ * Make the registered bridges follow plugin enablement (spec
+ * dashboard-plugin-loader "Disable removes managed entries from both
+ * registries"): register every `enabled` plugin's bridge, deregister every
+ * disabled one (both `dashboardPluginBridges` and its ownership-marked
+ * `packages[]` entry; user-owned entries are never touched). `enabled` is the
+ * caller-resolved predicate (`resolvePluginEnabled(cfg, manifest.defaultEnabled)`).
+ * Returns register results for the enabled plugins only.
+ * See change: add-plugin-bridge-contributions (D13).
+ */
+export function syncPluginBridges(
+  plugins: Array<{ pluginId: string; bridgePath: string; enabled: boolean }>,
+  opts: PluginBridgeRegisterOptions = {},
+): Record<string, PluginBridgeConflict> {
+  for (const p of plugins) {
+    if (!p.enabled) deregisterPluginBridge(p.pluginId, opts);
+  }
+  return registerAllPluginBridges(
+    plugins.filter((p) => p.enabled).map(({ pluginId, bridgePath }) => ({ pluginId, bridgePath })),
+    opts,
+  );
+}
+
+/**
  * One-shot reconciliation (Task 1.4): for each entry in
  * `dashboardPluginBridges`, ensure a matching `packages[]` entry exists with
  * the same ownership marker. Heals installs that pre-date the dual-write.

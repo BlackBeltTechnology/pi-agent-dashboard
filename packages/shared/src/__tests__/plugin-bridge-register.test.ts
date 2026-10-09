@@ -6,6 +6,7 @@ import {
   registerPluginBridge,
   deregisterPluginBridge,
   listManagedBridges,
+  syncPluginBridges,
 } from "../plugin-bridge-register.js";
 
 let tmpDir: string;
@@ -119,5 +120,38 @@ describe("listManagedBridges", () => {
   it("returns empty object when no plugins registered", () => {
     const managed = listManagedBridges({ homedir });
     expect(managed).toEqual({});
+  });
+});
+
+// Bridges follow plugin enablement: registered only when enabled, removed from
+// BOTH registries when disabled. `enabled` is the caller-resolved predicate
+// (`resolvePluginEnabled(cfg, manifest.defaultEnabled)`), so the four config
+// cases collapse to the boolean here. See change: add-plugin-bridge-contributions
+// (D13, test-plan #E25).
+describe("syncPluginBridges", () => {
+  it("registers enabled bridges and deregisters disabled ones (E25)", () => {
+    registerPluginBridge("off", "/off/bridge.js", { homedir });
+    const results = syncPluginBridges(
+      [
+        { pluginId: "on", bridgePath: "/on/bridge.js", enabled: true },
+        { pluginId: "off", bridgePath: "/off/bridge.js", enabled: false },
+        { pluginId: "never", bridgePath: "/never/bridge.js", enabled: false },
+      ],
+      { homedir },
+    );
+    expect(Object.keys(results)).toEqual(["on"]);
+    const managed = listManagedBridges({ homedir });
+    expect(managed).toEqual({ "dashboard-on": "/on/bridge.js" });
+    const pkgs = (readSettings().packages ?? []) as string[];
+    expect(pkgs).toContain("/on/bridge.js");
+    expect(pkgs).not.toContain("/off/bridge.js");
+    expect(pkgs).not.toContain("/never/bridge.js");
+  });
+
+  it("leaves user-owned packages[] entries untouched when disabling", () => {
+    fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
+    fs.writeFileSync(settingsPath(), JSON.stringify({ packages: ["/user/own.js"] }));
+    syncPluginBridges([{ pluginId: "x", bridgePath: "/user/own.js", enabled: false }], { homedir });
+    expect(readSettings().packages).toEqual(["/user/own.js"]);
   });
 });

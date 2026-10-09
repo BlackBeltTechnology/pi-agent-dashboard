@@ -40,7 +40,7 @@
 
 **D12. Role guidance.** New `packages/roles-plugin/src/bridge/index.ts`: on `before_agent_start`, emit `roles:get-all` probe (answered synchronously by `role-manager.ts:271-284`; it overlays built-in role NAMES with empty values, so the map is filtered to entries whose value is a non-empty `provider/model[:level]` ref); if any remain, append to `systemPromptOptions.toolGuidelines["Agent"]` one bullet: prefer `model: "@<role>"` over literal ids, listing `@name → provider/model` (≤ 12 roles, sorted). No-op when the Agent tool is not registered or the probe has no listener. Guideline is per run, so role edits apply next turn. Existence of the bridge = plugin enabled (D13).
 
-**D13. Bridges honor enablement.** `server.ts` registers a plugin bridge only when `resolvePluginEnabled(pluginCfg, manifest.defaultEnabled)` is true (the same predicate the loader uses, `server.ts:3009,3020`), so default-disabled plugins are not registered; enabled→disabled deregisters it (both registries, per existing spec) at next server start and at toggle time; pi picks it up at next session start.
+**D13. Bridges honor enablement.** `server.ts` registers a plugin bridge only when `resolvePluginEnabled(pluginCfg, manifest.defaultEnabled)` is true (the same predicate the loader uses, `server.ts:3009,3020`), so default-disabled plugins are not registered; a disabled plugin's bridge is deregistered (both registries, per existing spec) by the same boot pass via `syncPluginBridges` (`packages/shared/src/plugin-bridge-register.ts`). The toggle route already answers `restartRequired: true` (`packages/server/src/routes/plugin-activation-routes.ts`), so a toggle lands at that restart; no toggle-time write. pi picks it up at next session start.
 
 ## Risks / Trade-offs
 

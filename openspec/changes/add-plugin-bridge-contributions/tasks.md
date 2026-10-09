@@ -12,9 +12,9 @@
 
 ## 3. Plugin bridges
 
-- [ ] 3.1 Add `packages/subagents-plugin/src/bridge/index.ts`: declare `subagents:entry` → `subagent_entry` and `subagents:delta` → `subagent_delta` (`stream`, key `agentId`) on activate and on every `dashboard:bridge-ready`; add manifest `bridge` field
-- [ ] 3.2 Add `packages/roles-plugin/src/bridge/index.ts`: on `before_agent_start`, probe `roles:get-all`; filter to roles with a non-empty `provider/model[:level]` value; when any remain and `Agent` tool is present, append one bullet to `systemPromptOptions.toolGuidelines["Agent"]` (≤ 12 roles, sorted, `@name → provider/model`); add manifest `bridge` field
-- [ ] 3.3 `packages/server/src/server.ts` (~4064-4071) + `plugin-bridge-register.ts`: register bridges only when `resolvePluginEnabled(pluginCfg, manifest.defaultEnabled)`; deregister (both registries) for disabled ones at startup and from the plugin toggle route
+- [x] 3.1 Add `packages/subagents-plugin/src/bridge/index.ts`: declare `subagents:entry` → `subagent_entry` and `subagents:delta` → `subagent_delta` (`stream`, key `agentId`) on activate and on every `dashboard:bridge-ready`; add manifest `bridge` field
+- [x] 3.2 Add `packages/roles-plugin/src/bridge/index.ts`: on `before_agent_start`, probe `roles:get-all`; filter to roles with a non-empty `provider/model[:level]` value; when any remain and `Agent` tool is present, append one bullet to `systemPromptOptions.toolGuidelines["Agent"]` (≤ 12 roles, sorted, `@name → provider/model`); add manifest `bridge` field
+- [x] 3.3 `packages/server/src/server.ts` (~4064-4071) + `plugin-bridge-register.ts`: register bridges only when `resolvePluginEnabled(pluginCfg, manifest.defaultEnabled)`; deregister (both registries) for disabled ones at startup via `syncPluginBridges` (toggle route already returns `restartRequired`)
 
 ## 4. Server storage
 
@@ -62,11 +62,11 @@
 
 ### 8b. Plugin bridge entries — L1 (exemplar: `packages/context-mode-settings-plugin/src/bridge/__tests__/bridge-entry.test.ts`)
 
-- [ ] 8.14 subagents-plugin bridge (`packages/subagents-plugin/src/bridge/__tests__/bridge-entry.test.ts`): fake pi events · `activate()` then emit `dashboard:bridge-ready` · two declarations with the exact channel specs, re-declared on ready (test-plan #E26)
-- [ ] 8.15 roles-plugin guideline content (`packages/roles-plugin/src/bridge/__tests__/bridge-entry.test.ts`): roles {fast, review}; 14 roles; built-ins with "" values · fire `before_agent_start` with Agent tool · one bullet listing @fast/@review sorted; 14 → first 12 sorted; empty-valued → no bullet (test-plan #E23)
-- [ ] 8.16 roles-plugin no Agent tool / no listener: Agent tool absent; no `roles:get-all` listener · `before_agent_start` · `toolGuidelines` unchanged (test-plan #E24)
-- [ ] 8.17 roles-plugin probe throws: `roles:get-all` listener throws · `before_agent_start` · no guideline, no throw, run continues (test-plan #X7)
-- [ ] 8.18 Bridge registration follows enablement (`packages/shared/src/__tests__/plugin-bridge-register.test.ts`, exemplar same file): enabled true / false / unset+defaultEnabled false / unset+defaultEnabled true · registerAllPluginBridges path · registered only for true and unset+defaultEnabled true; disabled removes both registry entries (test-plan #E25)
+- [x] 8.14 subagents-plugin bridge (`packages/subagents-plugin/src/bridge/__tests__/bridge-entry.test.ts`): fake pi events · `activate()` then emit `dashboard:bridge-ready` · two declarations with the exact channel specs, re-declared on ready (test-plan #E26)
+- [x] 8.15 roles-plugin guideline content (`packages/roles-plugin/src/bridge/__tests__/bridge-entry.test.ts`): roles {fast, review}; 14 roles; built-ins with "" values · fire `before_agent_start` with Agent tool · one bullet listing @fast/@review sorted; 14 → first 12 sorted; empty-valued → no bullet (test-plan #E23)
+- [x] 8.16 roles-plugin no Agent tool / no listener: Agent tool absent; no `roles:get-all` listener · `before_agent_start` · `toolGuidelines` unchanged (test-plan #E24)
+- [x] 8.17 roles-plugin probe throws: `roles:get-all` listener throws · `before_agent_start` · no guideline, no throw, run continues (test-plan #X7)
+- [x] 8.18 Bridge registration follows enablement (`packages/shared/src/__tests__/plugin-bridge-register.test.ts`, exemplar same file): enabled true / false / unset+defaultEnabled false / unset+defaultEnabled true · registerAllPluginBridges path · registered only for true and unset+defaultEnabled true; disabled removes both registry entries (test-plan #E25)
 
 ### 8c. Server store — L1 `packages/server/src/__tests__/memory-event-store.test.ts` (exemplar: same file; replay rows exemplar `packages/server/src/__tests__/collapse-replay-equivalence.test.ts`)
 
