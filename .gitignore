@@ -91,3 +91,6 @@ SHIP_IT_BLOCKED.md
 # HTML. See change: deck3d-cinematic-worlds.
 packages/deck3d/fixtures/*/deck.html
 presentations/*/deck.html
+
+# Generated at release time by scripts/generate-runtime-lock.mjs (change: electron-runtime-release-pipeline)
+packages/server/runtime-lock.json

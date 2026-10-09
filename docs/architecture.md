@@ -322,6 +322,58 @@ TypeScript type definitions shared across all components:
 - Removes only the bridge's own subscriptions.
 - Restores nothing. Bridge never replaces a host function.
 
+### Plugin-declared event forwarding (change: add-plugin-bridge-contributions)
+
+**Declaration.**
+- Core no longer names plugin channels. Plugin declares forwarded bus channels from own bridge entry (`src/bridge/index.ts`, manifest `pi-dashboard-plugin.bridge`).
+- Plugin emits `dashboard:register-event-forward` `{ pluginId, channels: { "<channel>": { as?, delivery: "live"|"latest"|"stream", key? } } }`.
+- Constants `REGISTER_EVENT_FORWARD_CHANNEL`, `BRIDGE_READY_CHANNEL` — `packages/shared/src/event-forward-declaration.ts`.
+
+**Load order.** pi bus has no replay.
+- `PluginForwardRegistry.attach()` (`packages/extension/src/plugin-event-forward-registry.ts`) — called in `initBridge` after `registerEventBusForwarding`.
+- `attach()` registers listener, then emits `dashboard:bridge-ready`.
+- Plugin re-declares on every bridge-ready. Idempotent.
+
+**Validation.** `validateDeclaration` — untrusted input.
+- Channel regex requires `:`. Caps: 32 channels/plugin, 256 total.
+- Rejected: `RESERVED_EVENT_TYPES`, channel already in core `EVENT_BUS_MAP`. First owner wins on conflict (counted).
+- `pluginId`/key regex-validated. Key value string or finite number ≤128 chars, else delivered live-only.
+
+**Delivery.**
+- `live` — forward only while session ready+active, else drop.
+- `latest` — keep newest per key until ready.
+- `stream` — keep all, in order, never coalesced.
+
+**Retention.** `StreamForwardBuffer` (`packages/extension/src/stream-forward-buffer.ts`).
+- One buffer keyed by (pluginId, key value) — cross-channel order (delta vs entry) survives.
+- ≤2000 msgs or 2MiB per key; 64-key budget shared by latest+stream across plugins, drop-oldest, counted.
+- Flushed in `flushPendingSubagentFrames` when ready+active+connected; disposed on shutdown.
+
+**Observability.**
+- Heartbeat metrics `pluginForwardDeclared/Rejected/Conflicts/Retained/Dropped`.
+- `/api/health` → `pluginEventForward { declared, rejected, conflicts, retained, dropped }`.
+
+**Enablement.**
+- Server boot calls `syncPluginBridges` (`packages/shared/src/plugin-bridge-register.ts`) with `resolvePluginEnabled(cfg, manifest.defaultEnabled)`; disabled bridges deregistered.
+- Toggle route returns `restartRequired: true`; no toggle-time write.
+
+**Example consumer.** `packages/subagents-plugin/src/bridge/index.ts`.
+- Declares `subagents:entry`→`subagent_entry`, `subagents:delta`→`subagent_delta`; both `stream`, key `agentId`.
+- Needs producer `pi-dashboard-subagents` ≥0.4.0.
+
+**Server store.** `packages/server/src/persistence/memory-event-store.ts`.
+- Head+tail timeline truncation removed (no "steps hidden"); `subagent_delta` text exempt from per-string cap.
+- Over-ceiling delta stored as envelope `text: ''` + `omittedLength`.
+- `collapseStreamDeltas` drops delta rows once block's entry or terminal event arrives (`storeTrim.collapsedDeltas`).
+- Over-ceiling terminal frame elides `entries` to `[]` only when all indices `0..entryCount-1` resident.
+
+**Client.** `packages/client/src/lib/chat/event-reducer.ts`.
+- Arm `subagent_entry` by index; arm `subagent_delta` assembles by blockId/offset, gap marker, late deltas tombstoned via `closedBlockMax`.
+- Inspector in-progress block grows (`SubagentState.liveBlock`); card ticker keeps 280-char `liveTail`.
+
+**Second consumer.** `packages/roles-plugin/src/bridge/index.ts`.
+- `before_agent_start` appends one `toolGuidelines.Agent` bullet. Prefer `model:"@role"`, ≤12 configured roles. Only when Agent tool selected.
+
 ### Subagent Timeline Push/Pull Split (change: reduce-subagent-details-payload)
 
 **Why thin ticks.**
@@ -1522,6 +1574,32 @@ Offer sessions for recovery after server restart. Distinguish crashes (sessions 
 **Resume gate.** `resume_session` `mode:"continue"` probes keeper sidecar: `KeeperManager.isKeeperAlive(sessionId)` reads `<sid>.rpc.sock.pid`, checks keeper PID + pi PID. Refuses with `code:"resume.already_active"` when alive, so stale offer never double-spawns one sessionId.
 
 **Observability.** Logs: `[recovery] <id>: suppressed-by-intent (boot <epoch> exited via <intent>)`, `[recovery] N candidate(s) after exit-intent gate; awaiting liveness`, `[recovery] grace window closed; offering N candidate(s)`, `[recovery] retracted candidate <id> (<reason>)`, `[recovery] refused reopen of <id>: keeper still alive`, `[boot-state] exit intent recorded: <intent> (boot <id>)`.
+
+**Shutdown-window recovery (signal / user-quit).** Host shutdown signals pi + server together. pi graceful shutdown emits `session_shutdown{reason:"quit"}`; bridge sends `session_unregister`; server ends session `live:false`/`ended` ~23 s BEFORE own SIGTERM records `exitIntent:"signal"`. Old path `isRecoveryCandidate` requires `live:true`, never sees this. New path recovers the shutdown window. See change: fix-recovery-pi-signal-unregister.
+
+**Evidence write.** Explicit `session_unregister` handler in `packages/server/src/pi/pi-gateway.ts` calls `sessionManager.unregister(id, { endSource: "bridge_unregister" })`. `memory-session-manager.ts` keeps manager-private set; read via `wasEndedByBridgeUnregister(id)`; cleared by `register`/`remove`. Never stored on `DashboardSession`.
+
+**Eager marker.** `event-wiring.ts` `onEnded` writes `{ liveEpoch: <current boot>, endedAt }` iff `wasEndedByBridgeUnregister(id)` AND `closedReason === "unknown"` AND no `movedTo`. Every other ending — heartbeat/grace expiry, history cleanup, manual, spawn_failed, relocation — writes no `liveEpoch`. `meta-persistence.ts` `setLiveness` takes optional `endedAt` (writes when present, keeps when absent). `liveEpoch` on a `live:false` sidecar = boot the session ended in.
+
+**Manual ends stay manual.** `shutdownSession`/`forceKillSession` (`browser-handlers/session-action-handler.ts`) stamp in-memory `closedReason:"manual"` BEFORE signalling pi; racing bridge unregister keeps `manual`.
+
+**Cold-start classification.** `packages/server/src/server.ts` loop runs `resolveExitRecord(session.liveEpoch)` (`packages/server/src/persistence/boot-state.ts` — returns `{bootId, exitIntent, at}` from current entry or ring, by id) + `isShutdownWindowCandidate(s, ownerBoot, RECOVERY_SHUTDOWN_WINDOW_MS)` (`packages/shared/src/session-meta.ts`). True iff:
+- `live !== true`
+- `liveEpoch` + `endedAt` present
+- `closedReason === "unknown"`
+- `recover !== false`
+- owner intent ∈ {`signal`, `user-quit`}
+- `|endedAt − at| ≤ 60_000` ms (`RECOVERY_SHUTDOWN_WINDOW_MS`, `packages/shared/src/recovery-timing.ts`)
+
+No `status` check — debounced `ended` write can be lost.
+
+**One-shot.** On match, evidence consumed immediately (`setLiveness({ live:false, closedReason })` drops `liveEpoch`) in every mode, including `off`. Candidate unless mode `off`. Joins existing retract/grace/offer/auto pipeline unchanged. Log: `[recovery] <id>: shutdown-window (ended Δs before boot <id> exit via <intent>)`.
+
+**Unchanged.** Exits `restart`/`shutdown`/`ephemeral`/`idle`/null never qualify via window. Dashboard restart/quit with pi + keeper surviving → no unregister → picked back up silently.
+
+**Platform coverage.** macOS/Linux standalone → `signal` → window path. Electron → `user-quit` → window path. Windows + power loss → pi hard-killed, never unregisters → existing `live:true` path.
+
+**Accepted limits.** `/quit`, `/reload`, `/new`, `/resume`, `/fork` < 60 s before shutdown also qualify (auto mode resumes them). Server SIGKILLed after pi unregistered (intent null) → not offered. Terminal-hosted server SIGHUP → unrecorded → not offered. Measured macOS spacing 2026-10-09: 22.9–23.1 s.
 
 ### Ephemeral Server Lifecycle (change: fix-autostart-discovery-precedence)
 

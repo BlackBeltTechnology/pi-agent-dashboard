@@ -29,7 +29,7 @@ import { Icon } from "@mdi/react";
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSubagentResyncCadence } from "../../hooks/useSubagentResyncCadence.js";
-import { readLiveTail } from "../../lib/chat/event-reducer.js";
+import { countSteps, readLiveTail } from "../../lib/chat/event-reducer.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import {
   noteSubagentRunning,
@@ -344,8 +344,18 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
   // subagent, so inline + popout mounted together do not double-fire.
   // See change: reduce-subagent-details-payload (F1, F3, F4).
   const sub = agentId ? session?.subagents.get(agentId) : undefined;
+  // A healed row (superseded / session_ended) carries a placeholder result; the
+  // subagent's own `subagent_completed` result is the real one, so prefer it.
+  // See change: add-plugin-bridge-contributions (D10).
+  const healedBy = (toolDetails as Record<string, unknown> | undefined)?.healedBy;
+  const shownResult = typeof healedBy === "string" && healedBy && sub?.result ? sub.result : result;
+  // A streamed producer (≥ 0.3.0) delivers every step on `subagent_entry`; once
+  // the filled steps reach `entryCount` a pull would only re-send what is
+  // already here. See change: add-plugin-bridge-contributions (D9).
+  const streamComplete = sub?.entryCount !== undefined && countSteps(sub.entries) >= sub.entryCount;
   useSubagentResyncCadence({
-    key: agentId && sessionId && (expanded || detailOpen) ? `${sessionId}:${agentId}` : undefined,
+    key:
+      agentId && sessionId && (expanded || detailOpen) && !streamComplete ? `${sessionId}:${agentId}` : undefined,
     running: details?.status === "running" || details?.status === "queued" || sub?.status === "running",
     entryCount: sub?.entries?.length ?? 0,
     onResync: () => {
@@ -430,7 +440,7 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
           </div>
         )}
         {!expanded && promptText && <PromptBlock text={promptText} />}
-        {!expanded && result && <ResultBlock text={result} />}
+        {!expanded && shownResult && <ResultBlock text={shownResult} />}
         {expandedBody}
         {detailDialog}
       </AgentCardShell>
@@ -497,7 +507,7 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
           <div className="text-[11px] text-orange-400 mt-0.5">{i18nT("session.wrappedUpTurnLimit", undefined, "Wrapped up (turn limit)")}</div>
         )}
         {!expanded && promptText && <PromptBlock text={promptText} />}
-        {!expanded && result && <ResultBlock text={result} />}
+        {!expanded && shownResult && <ResultBlock text={shownResult} />}
         {expandedBody}
         {detailDialog}
       </AgentCardShell>
@@ -529,7 +539,7 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
         <div className="text-[11px] text-[var(--text-muted)] mt-1">{i18nT("status.stopped", undefined, "Stopped")}</div>
       )}
       {!expanded && promptText && <PromptBlock text={promptText} />}
-      {!expanded && result && <ResultBlock text={result} />}
+      {!expanded && shownResult && <ResultBlock text={shownResult} />}
       {expandedBody}
       {detailDialog}
     </AgentCardShell>

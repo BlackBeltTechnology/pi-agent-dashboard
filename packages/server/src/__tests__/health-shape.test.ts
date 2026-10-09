@@ -13,14 +13,15 @@
  * of truth for arm-aware client gating (e.g. hiding pi-core update UI
  * under Electron, since bundled node_modules/ is read-only there).
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createMemoryEventStore,
   EMPTY_TRIM_STATS,
 } from "../persistence/memory-event-store.js";
-import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 import { effectiveServerMaxOldSpaceMb } from "../server-heap-telemetry.js";
+import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 let handle: TestServerHandle | undefined;
 let savedStarter: string | undefined;
@@ -279,6 +280,21 @@ describe("GET /api/health — shape", () => {
     expect(typeof body.storeTrim).toBe("object");
     expect(typeof body.droppedFrames).toBe("object");
     expect(Array.isArray(body.agents)).toBe(true);
+  });
+
+  // Plugin event-forward registry roll-up is additive on the same response
+  // (all-zero with no bridge). See change: add-plugin-bridge-contributions
+  // (test-plan #X6).
+  it("gains the plugin event-forward counters additively", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const pef = body.pluginEventForward as Record<string, unknown>;
+    expect(pef).toBeDefined();
+    expect(Object.keys(pef).sort()).toEqual(["conflicts", "declared", "dropped", "rejected", "retained"]);
+    for (const v of Object.values(pef)) expect(v).toBe(0);
+    expect(typeof body.subagentTickThrottle).toBe("object");
   });
 
   // X6: the `??` fallback the route takes when no event store is wired. It is

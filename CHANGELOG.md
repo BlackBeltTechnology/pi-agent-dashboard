@@ -12,6 +12,15 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Plugins declare which bus events the bridge forwards.** A plugin's bridge entry
+  emits `dashboard:register-event-forward` with its channels and a delivery mode
+  (`live`, `latest` or `stream`); core no longer hardcodes plugin channel names.
+  `/api/health` reports a `pluginEventForward` roll-up.
+- **Live subagent inspector.** With `pi-dashboard-subagents` 0.4.0, tool calls and
+  steps appear in the expanded inspector while the subagent runs, and the
+  in-progress reasoning block grows like the main chat instead of a 280-char window.
+- **Agent tool role guidance.** When the Roles plugin is enabled, the Agent tool
+  guidance tells the model to prefer `model: "@role"` and lists configured roles.
 - **Team skill access.** Admins manage a skill catalog in a new Skills panel of the
   team app (config entries plus managed entries stored in `skills.json`), with per-skill
   users and targets. Personas get skills from that catalog only; the editor disables
@@ -46,6 +55,12 @@ see [`docs/release-process.md`](docs/release-process.md).
   works in the team chat for granted skills only.
 
 ### Fixed
+
+- **No more "N steps hidden" in subagent timelines.** The head+tail truncation is
+  gone; finished streamed reasoning pieces are dropped from the store instead.
+- **Healed subagent cards show the real result** instead of "result unavailable".
+- **Read and other tool output in the inspector** shows the text, not raw JSON.
+- **Disabled plugins no longer register their bridge** at server start.
 
 ## [0.9.0] - 2026-10-06
 

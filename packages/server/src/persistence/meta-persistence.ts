@@ -34,10 +34,15 @@ export interface MetaPersistence {
    * durable on disk before an unclean host shutdown. Merges onto any pending
    * debounced write so an in-flight stats update is not lost.
    * See change: reopen-sessions-after-shutdown.
+   *
+   * Optional `endedAt` is written in the same atomic write when present (the
+   * shutdown-window evidence pairs it with the ending boot's `liveEpoch`). It
+   * is NOT a liveness field: when omitted, the base's value is kept.
+   * See change: fix-recovery-pi-signal-unregister (D2).
    */
   setLiveness(
     sessionFile: string,
-    liveness: { live: boolean; liveEpoch?: number; closedReason?: ClosedReason },
+    liveness: { live: boolean; liveEpoch?: number; closedReason?: ClosedReason; endedAt?: number },
   ): void;
   /** Flush all pending writes immediately. */
   flushAll(): void;
@@ -72,6 +77,11 @@ export function createMetaPersistence(): MetaPersistence {
     // performs a full overwrite, so carry forward any on-disk liveness
     // fields the caller did not explicitly set — otherwise a routine stats
     // write would clobber `live`/`liveEpoch`/`closedReason`.
+    // Load-bearing for the shutdown-window evidence too: a `live:false`
+    // sidecar's `liveEpoch` survives routine stats writes ONLY because
+    // `sessionToMeta` enumerates none of these three fields. Adding one of
+    // them there silently defeats this read-back.
+    // See change: fix-recovery-pi-signal-unregister (D2).
     const meta = { ...entry.meta };
     if (meta.live === undefined && meta.liveEpoch === undefined && meta.closedReason === undefined) {
       const onDisk = readSessionMeta(sessionFile);
@@ -127,6 +137,7 @@ export function createMetaPersistence(): MetaPersistence {
       else delete next.liveEpoch;
       if (liveness.closedReason !== undefined) next.closedReason = liveness.closedReason;
       else delete next.closedReason;
+      if (liveness.endedAt !== undefined) next.endedAt = liveness.endedAt;
       writeSessionMeta(sessionFile, next);
     },
 
