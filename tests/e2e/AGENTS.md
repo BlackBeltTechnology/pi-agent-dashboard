@@ -178,6 +178,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `split-composer-overflow.spec.ts` | Browser E2E gate for `fix-split-composer-overflow`. Opens… → see `split-composer-overflow.spec.ts.AGENTS.md` |
 | `subagent-detail-dialog.spec.ts` | Playwright spec (change: fix-subagent-live-detail-reliabili… → see `subagent-detail-dialog.spec.ts.AGENTS.md` |
 | `subagent-inspector.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Drives… → see `subagent-inspector.spec.ts.AGENTS.md` |
+| `subagent-live-timeline.spec.ts` | L3 live subagent timeline (`[[faux:subagent-reasoning]]`, producer ≥0.4.0): F1 steps visible while running, F2 in-progress block grows past 280 chars from block start, F3 reload mid-run restores steps, F4/P2 no `steps hidden` + `collapsedDeltas` moves. See change: add-plugin-bridge-contributions. |
 | `subagent-pull-measurements.spec.ts` | RECORDED-EVIDENCE measurement rows for the subagent pull… → see `subagent-pull-measurements.spec.ts.AGENTS.md` |
 | `subagent-pull-under-load.spec.ts` | L3 open-inspector PULL path (verify-subagent-pull-under-loa… → see `subagent-pull-under-load.spec.ts.AGENTS.md` |
 | `subagent-thin-tick-liveness.spec.ts` | L3 subagent push/pull split: terminal fidelity after… → see `subagent-thin-tick-liveness.spec.ts.AGENTS.md` |

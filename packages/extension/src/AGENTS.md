@@ -53,6 +53,7 @@ Files in this directory. One row per source file.
 | `openspec-cli-shim.ts` | Provision bare `openspec` in-session: shim pinned CLI onto `process.env.PATH` at bridge init (fail-soft). Exports `provisionOpenspecCli`,… → see `openspec-cli-shim.ts.AGENTS.md` |
 | `pi-env.d.ts` | Ambient fallback declarations for current `@earendil-works/pi-*` hosts (fork aliases removed — → see `pi-env.d.ts.AGENTS.md` |
 | `pi-retry-settings.ts` | READ-ONLY reader for pi's own retry policy. Exports… → see `pi-retry-settings.ts.AGENTS.md` |
+| `plugin-event-forward-registry.ts` | Plugin-declared bus forwarding. `PluginForwardRegistry(bus, deps{send,isSessionReady,isActive,isConnected,isCoreChannel})`: `attach()` listens on `dashboard:register-event-forward` then emits `dashboard:bridge-ready`; `declare`, `flush`, `declaredChannels`, `stats`, `dispose`. Delivery `live` (ready+active) / `latest` / `stream` (retained in `StreamForwardBuffer` until ready+active+connected). First owner wins; core-channel + cross-plugin conflicts counted. See change: add-plugin-bridge-contributions. |
 | `plugin-request-client.ts` | Bridge half of the private plugin request lane (no pi dep). → see `plugin-request-client.ts.AGENTS.md` |
 | `poll-cost.ts` | Cumulative poll-cost counters spread into heartbeat metrics. → see `poll-cost.ts.AGENTS.md` |
 | `pr-status.ts` | Per-bridge async PR-status scheduler (`gh pr view` off the tick). Exports `createPrStatusScheduler`, `handleGitInfoRefresh`,… → see `pr-status.ts.AGENTS.md` |
@@ -66,6 +67,7 @@ Files in this directory. One row per source file.
 | `prompt-meta.ts` | `buildPromptMeta(opts, explicitMessage?)` — dialog `metadata`: `message`, `toolCallId`, plus validated… → see `prompt-meta.ts.AGENTS.md` |
 | `provider-register.ts` | Register custom LLM providers + auto-discovered models from `~/.pi/agent/providers.json`. → see `provider-register.ts.AGENTS.md` |
 | `session-move.ts` | `createMoveCoordinator()` + `MOVE_TIMEOUT` — two-connection move handover; forwards path-gate frames via `onServerMessage`. → see `session-move.ts.AGENTS.md` |
+| `stream-forward-buffer.ts` | Bounded retention for `latest`/`stream` plugin channels. `StreamForwardBuffer`: one buffer keyed by (pluginId, key value) preserving cross-channel order; 2000 msgs / 2MiB per key; 64-key shared budget, drop-oldest counted; `keyCount` getter. See change: add-plugin-bridge-contributions. |
 | `subagent-fanout-admission.ts` | Pure `decideAdmission` (in-flight count + resolved config + saturated → `admit` / `refuse{cause,reason}`) +… → see `subagent-fanout-admission.ts.AGENTS.md` |
 | `subagent-forward-sites.ts` | The two subagent forward paths that call `sendEventForward` directly, extracted so strip PLACEMENT is… → see `subagent-forward-sites.ts.AGENTS.md` |
 | `subagent-frame-buffer.ts` | Pure class `SubagentFrameBuffer` + `SUBAGENT_CHANNELS` set. Makes running-subagent timeline reconcilable. → see `subagent-frame-buffer.ts.AGENTS.md` |

@@ -20,7 +20,6 @@ import { GmailSettings, catalog as gmail_catalog } from "@blackbelt-technology/p
 import { BrowserSettings, BrowserRelayBadge, BrowserPaneTab, BrowserTabLabel, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
-import { DemoSettings, DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -452,6 +451,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         ],
         "client": "./src/index.tsx",
         "server": "./src/server/index.ts",
+        "bridge": "./src/bridge/index.ts",
         "i18nCatalog": "catalog"
     },
     claims: [
@@ -481,6 +481,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         ],
         "client": "./src/client/index.tsx",
         "server": "./src/server/index.ts",
+        "bridge": "./src/bridge/index.ts",
         "configSchema": "./src/configSchema.json",
         "i18nCatalog": "catalog",
         "requires": {
@@ -702,33 +703,6 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     ],
     catalog: quota_catalog,
   },
-  {
-    manifest: {
-        "id": "demo",
-        "displayName": "Demo Plugin (fixture)",
-        "priority": 1000,
-        "claims": [
-            {
-                "slot": "settings-section",
-                "component": "DemoSettings",
-                "tab": "general"
-            },
-            {
-                "slot": "tool-renderer",
-                "component": "DemoToolRenderer",
-                "toolName": "DashboardDemo"
-            }
-        ],
-        "client": "./src/client.tsx",
-        "server": "./src/server/index.ts",
-        "bridge": "./src/bridge/index.ts",
-        "fixture": true
-    },
-    claims: [
-      { pluginId: "demo", priority: 1000, slot: "settings-section", tab: "general", Component: DemoSettings },
-      { pluginId: "demo", priority: 1000, slot: "tool-renderer", toolName: "DashboardDemo", Component: DemoToolRenderer },
-    ],
-  },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "98b6e5eae327a6411c95d9ebe59b5c6bbe63741383612128def9ad524c369d6b";
+export const PLUGIN_REGISTRY_HASH = "534c85b94c0ae72d10d90530b57c964502e7de8dbdae97a03172e6864cd5a5b6";

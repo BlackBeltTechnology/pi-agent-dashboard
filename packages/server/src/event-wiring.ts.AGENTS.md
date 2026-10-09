@@ -30,3 +30,5 @@ Carries the one-release `dispatch_extension_command` TOMBSTONE: on receipt it `c
 - `lifecycle.hidden` apply now writes `{ hidden: true, pluginHidden: true }` (intent survives restart respawn). See change: fix-plugin-hidden-across-restart.
 
 - Identity frame always sent with `features:["path-yolo"]` (`grantStoreId` only when announceable); `path_yolo_request`/`path_gate_refusal` handled via `access/agent-yolo.ts`; select `agent-path-gate` prompts observed (kind `select`); lazy dep `decideAgentPath`. See change: yolo-covers-agent-path-gate.
+
+`onEnded` eager write adds shutdown-window evidence `{ liveEpoch: <current boot>, endedAt }` iff `wasEndedByBridgeUnregister(id)` ∧ `closedReason==='unknown'` ∧ no `movedTo`; every other ending writes no `liveEpoch`. See change: fix-recovery-pi-signal-unregister.

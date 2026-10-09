@@ -62,7 +62,8 @@
       "piExtensions": [
         "@blackbelt-technology/pi-dashboard-subagents"
       ]
-    }
+    },
+    "bridge": "./src/bridge/index.ts"
   },
   "peerDependencies": {
     "fastify": "^5.0.0",

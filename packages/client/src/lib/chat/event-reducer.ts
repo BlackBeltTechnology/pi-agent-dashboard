@@ -409,7 +409,7 @@ export interface InteractiveUiRequest {
 // See change: add-subagent-inspector.
 export type { SubagentState, SubagentTimelineEntry } from "@blackbelt-technology/pi-dashboard-subagents-plugin/client";
 
-import type { SubagentLiveTail, SubagentState, SubagentTimelineEntry } from "@blackbelt-technology/pi-dashboard-subagents-plugin/client";
+import type { SubagentLiveBlock, SubagentLiveTail, SubagentState, SubagentTimelineEntry } from "@blackbelt-technology/pi-dashboard-subagents-plugin/client";
 
 export interface SessionState {
   messages: ChatMessage[];
@@ -560,6 +560,9 @@ function readSubagentDetails(
   if (Array.isArray(details.entries) && details.entries.length > 0) {
     out.entries = details.entries as SubagentTimelineEntry[];
   }
+  if (typeof details.entryCount === "number" && Number.isSafeInteger(details.entryCount) && details.entryCount >= 0) {
+    out.entryCount = details.entryCount;
+  }
   if (typeof details.activity === "string") out.activity = details.activity;
   const liveTail = readLiveTail(details.liveTail);
   if (liveTail) out.liveTail = liveTail;
@@ -578,6 +581,41 @@ function readSubagentDetails(
   return out;
 }
 
+/** Filled step count of a (possibly sparse) streamed timeline. */
+export function countSteps(entries: SubagentTimelineEntry[] | undefined): number {
+  if (!entries) return 0;
+  let n = 0;
+  for (const e of entries) if (e) n++;
+  return n;
+}
+
+/** Display marker inserted where a streamed block lost a piece. */
+export const LIVE_BLOCK_GAP_MARKER = " … ";
+
+/**
+ * Apply one `subagent_delta` piece to the in-progress block (D7): append when
+ * contiguous, ignore a fully covered duplicate, append the uncovered tail of a
+ * partial overlap, and mark a gap when the piece starts past the logical end.
+ * Returns undefined when the piece must be ignored (closed block / stale id).
+ */
+export function applyLiveBlockPiece(
+  prev: SubagentState | undefined,
+  piece: { blockId: number; kind: "thinking" | "text"; offset: number; text: string },
+): SubagentLiveBlock | undefined {
+  if (prev?.status === "completed" || prev?.status === "failed") return undefined;
+  if (prev?.closedBlockMax !== undefined && piece.blockId <= prev.closedBlockMax) return undefined;
+  let lb = prev?.liveBlock;
+  if (lb && piece.blockId < lb.blockId) return undefined;
+  if (!lb || lb.blockId !== piece.blockId) lb = { blockId: piece.blockId, kind: piece.kind, text: "", end: 0, gap: false };
+  const { offset, text } = piece;
+  const pieceEnd = offset + text.length;
+  if (pieceEnd <= lb.end) return lb; // covered duplicate
+  if (offset > lb.end) {
+    return { ...lb, text: lb.text + (lb.text ? LIVE_BLOCK_GAP_MARKER : "") + text, end: pieceEnd, gap: true };
+  }
+  return { ...lb, text: lb.text + text.slice(lb.end - offset), end: pieceEnd };
+}
+
 /**
  * Dual-index a subagent state into the `subagents` map. Always sets the
  * canonical `state.id` (v4 agentId) key; when `state.agentSessionId` (v7) is
@@ -589,6 +627,14 @@ function readSubagentDetails(
  * See change: resolve-subagent-inspector-by-session-id (D2).
  */
 function setSubagentState(map: Map<string, SubagentState>, state: SubagentState): void {
+  // A streamed timeline (subagent_entry) never shrinks: a later tick or terminal
+  // frame whose `entries` is empty or holds fewer steps keeps the resident list.
+  // A legacy frame with at least as many steps still replaces it.
+  // See change: add-plugin-bridge-contributions (D7).
+  const prev = map.get(state.id);
+  if (prev?.entries && prev.entries !== state.entries && countSteps(state.entries) < countSteps(prev.entries)) {
+    state = { ...state, entries: prev.entries };
+  }
   map.set(state.id, state);
   if (state.agentSessionId) map.set(state.agentSessionId, state);
 }
@@ -2553,8 +2599,11 @@ export function reduceEvent(
         // placeholder, so the recovered badge disappears with the real body.
         // See change: fix-stuck-tool-card-superseded-heal.
         let finalDetails = mergedDetails;
-        if (healedBy === "superseded") {
-          finalDetails = { ...(finalDetails ?? {}), healedBy: "superseded" };
+        // Any synthesized heal (`superseded`, `session_ended`) is stamped so the
+        // card can prefer the subagent's real result. See change:
+        // add-plugin-bridge-contributions (D10).
+        if (typeof healedBy === "string" && healedBy) {
+          finalDetails = { ...(finalDetails ?? {}), healedBy };
         } else if (finalDetails && "healedBy" in finalDetails) {
           const { healedBy: _dropped, ...rest } = finalDetails;
           finalDetails = rest;
@@ -2964,6 +3013,61 @@ export function reduceEvent(
         tokens: data.tokens as SubagentState["tokens"],
         toolUses: data.toolUses as number | undefined,
         ...readSubagentDetails(details),
+        liveBlock: undefined,
+      });
+      break;
+    }
+
+    // One finished timeline step from the producer's entry stream (≥ 0.3.0),
+    // forwarded by the subagents plugin's bridge declaration. Placed at its
+    // stable `index` (duplicate index ignored); a `blockId` closes that
+    // in-progress block. See change: add-plugin-bridge-contributions (D7).
+    case "subagent_entry": {
+      const agentId = data.agentId;
+      const index = data.index;
+      const entry = data.entry;
+      if (typeof agentId !== "string" || typeof index !== "number" || !Number.isInteger(index) || index < 0) break;
+      if (!entry || typeof entry !== "object") break;
+      const existing = next.subagents.get(agentId);
+      const blockId = typeof data.blockId === "number" ? data.blockId : undefined;
+      if (existing?.entries?.[index] && blockId === undefined) break; // duplicate
+      next.subagents = new Map(next.subagents);
+      const entries = existing?.entries ? [...existing.entries] : [];
+      if (!entries[index]) entries[index] = entry as SubagentTimelineEntry;
+      let liveBlock = existing?.liveBlock;
+      let closedBlockMax = existing?.closedBlockMax;
+      if (blockId !== undefined) {
+        closedBlockMax = Math.max(closedBlockMax ?? -1, blockId);
+        if (liveBlock && liveBlock.blockId <= blockId) liveBlock = undefined;
+      }
+      setSubagentState(next.subagents, {
+        ...(existing ?? { id: agentId, type: "unknown", description: "", status: "running" }),
+        entries,
+        liveBlock,
+        closedBlockMax,
+      });
+      break;
+    }
+
+    // One append-only piece of the subagent's in-progress block (producer
+    // ≥ 0.4.0). See change: add-plugin-bridge-contributions (D7).
+    case "subagent_delta": {
+      const agentId = data.agentId;
+      const blockId = data.blockId;
+      const offset = data.offset;
+      const kind = data.kind;
+      if (typeof agentId !== "string") break;
+      if (typeof blockId !== "number" || !Number.isInteger(blockId) || blockId < 0) break;
+      if (typeof offset !== "number" || !Number.isInteger(offset) || offset < 0) break;
+      if (kind !== "thinking" && kind !== "text") break;
+      const text = typeof data.text === "string" ? data.text : "";
+      const existing = next.subagents.get(agentId);
+      const liveBlock = applyLiveBlockPiece(existing, { blockId, kind, offset, text });
+      if (!liveBlock || liveBlock === existing?.liveBlock) break;
+      next.subagents = new Map(next.subagents);
+      setSubagentState(next.subagents, {
+        ...(existing ?? { id: agentId, type: "unknown", description: "", status: "running" }),
+        liveBlock,
       });
       break;
     }

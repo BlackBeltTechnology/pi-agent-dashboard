@@ -598,6 +598,7 @@
       "entry": [
         "src/index.tsx",
         "src/server/index.ts",
+        "src/bridge/index.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -648,6 +649,7 @@
       "entry": [
         "src/client/index.tsx",
         "src/server/index.ts",
+        "src/bridge/index.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],

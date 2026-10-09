@@ -71,7 +71,9 @@ function mapSubagentStatus(status: SubagentState["status"]): MinimalChatStatus {
 
 function mapSubagentEntries(entries?: SubagentTimelineEntry[]): MinimalChatEntry[] {
   if (!entries) return [];
-  return entries.map((e) => {
+  // A streamed timeline can be sparse until every step has arrived (steps are
+  // placed by index). See change: add-plugin-bridge-contributions (D7).
+  return entries.filter(Boolean).map((e) => {
     switch (e.kind) {
       case "tool":
         return {
@@ -171,7 +173,14 @@ export function SubagentDetailView({
   // tail clears at block end. Hold the last tail until the timeline grows so
   // the block never blinks out. Held per mounted view (ref keyed by agent id);
   // dropped on completion or once the timeline grows.
-  const liveEntry = heldLiveEntry(sub, isComplete, heldTail);
+  // Delta stream (producer ≥ 0.4.0): the FULL in-progress block, growing like
+  // the main chat; its finished entry arrives right after its final piece, so
+  // no hold is needed. Otherwise fall back to the bounded tail.
+  // See change: add-plugin-bridge-contributions (D8).
+  const liveEntry =
+    sub.liveBlock && !isComplete
+      ? { kind: sub.liveBlock.kind, text: sub.liveBlock.text, growing: true }
+      : heldLiveEntry(sub, isComplete, heldTail);
 
   // Tier resolution — pick entries / synthesized fallback / empty placeholder.
   let entries: MinimalChatEntry[];

@@ -93,3 +93,22 @@ export async function reportRefresh(
 export function refreshFullySucceeded(result: ModelsRefreshResultLike | undefined): boolean {
   return !!result && !result.aborted && result.errors.size === 0;
 }
+
+/**
+ * Refresh after a `credentials_updated` reload of providers.json.
+ *
+ * Diff touched providers (added/changed) -> scoped refresh of exactly those.
+ * Empty touched set -> the change was credential-only (auth.json: OAuth login,
+ * built-in provider key) or removal-only; the affected provider is unknown, so
+ * recompute availability for all, locally (`allowNetwork:false`, ~6 ms).
+ * See change: refresh-models-on-provider-change (D2).
+ */
+export async function refreshAfterCredentialsReload(
+  registry: { refresh?: (opts: object) => Promise<ModelsRefreshResultLike | undefined> } | undefined,
+  diff: { added: string[]; changed: string[] },
+): Promise<ModelsRefreshResultLike | undefined> {
+  const touched = [...new Set([...diff.added, ...diff.changed])];
+  return touched.length > 0
+    ? reportRefresh(registry?.refresh?.({ providers: touched }), `credentials reload refresh (${touched.join(", ")})`)
+    : reportRefresh(registry?.refresh?.({ allowNetwork: false }), "credentials reload refresh (full, local)");
+}

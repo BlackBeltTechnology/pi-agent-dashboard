@@ -119,4 +119,10 @@ export interface MinimalChatViewProps {
 export interface MinimalChatLiveEntry {
   kind: "thinking" | "text";
   text: string;
+  /**
+   * The FULL block so far (delta stream), rendered growing like the main
+   * chat's live block. Absent = a bounded tail, rendered as the fading window.
+   * See change: add-plugin-bridge-contributions (D8).
+   */
+  growing?: boolean;
 }

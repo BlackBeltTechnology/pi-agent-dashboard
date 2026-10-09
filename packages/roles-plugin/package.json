@@ -65,6 +65,7 @@
           "description": "Pick which model answers each @role. Agents, flows and skills ask for a role, not a model — changing it here re-routes them everywhere."
         }
       }
-    ]
+    ],
+    "bridge": "./src/bridge/index.ts"
   }
 }

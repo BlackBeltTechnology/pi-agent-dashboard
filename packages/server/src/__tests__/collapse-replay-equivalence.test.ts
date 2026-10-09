@@ -526,3 +526,38 @@ describe("collapse ↔ client-reducer replay equivalence — end-triggered drop"
     }
   });
 });
+
+// Streamed subagent timeline: the store drops finished-block deltas and replay
+// compaction runs over the retained buffer; folding raw, retained, and
+// compacted streams must yield the same subagent state (entries + open block).
+// See change: add-plugin-bridge-contributions (D5, test-plan #X5).
+describe("streamed subagent timeline survives collapse + replay compaction", () => {
+  it("raw ≡ retained ≡ compacted for entries and the open block", async () => {
+    const { compactEventsForReplay } = await import("../session/replay-compaction.js");
+    const e = (eventType: string, data: Record<string, unknown>): DashboardEvent => ({ eventType, timestamp: 5, data });
+    const step = (i: number) => ({ kind: i % 2 ? "tool" : "thinking", toolName: "Read", input: { i }, output: `o${i}`, text: `t${i}`, ts: i });
+    const raw: DashboardEvent[] = [
+      e("subagent_started", { id: AGENT_ID, type: "Explore", description: "d", details: { agentId: AGENT_ID, entryCount: 0 } }),
+      e("subagent_delta", { agentId: AGENT_ID, blockId: 0, kind: "thinking", offset: 0, text: "first ", final: false }),
+      e("subagent_delta", { agentId: AGENT_ID, blockId: 0, kind: "thinking", offset: 6, text: "block", final: true }),
+      e("subagent_entry", { agentId: AGENT_ID, index: 0, entry: step(0), blockId: 0 }),
+      e("subagent_entry", { agentId: AGENT_ID, index: 1, entry: step(1) }),
+      e("subagent_delta", { agentId: AGENT_ID, blockId: 1, kind: "thinking", offset: 0, text: "open ", final: false }),
+      e("subagent_delta", { agentId: AGENT_ID, blockId: 1, kind: "thinking", offset: 5, text: "block", final: false }),
+    ];
+    const store = createMemoryEventStore(() => false);
+    for (const ev of raw) store.insertEvent("s1", ev);
+    const retained = store.getEvents("s1", 0);
+    const pick = (s: SessionState) => {
+      const sub = s.subagents.get(AGENT_ID)!;
+      return { entries: sub.entries, liveBlock: sub.liveBlock, closedBlockMax: sub.closedBlockMax, status: sub.status };
+    };
+    const fromRaw = pick(fold(raw));
+    const fromRetained = pick(fold(retained.map((r) => r.event)));
+    const fromCompacted = pick(fold(compactEventsForReplay(retained).map((r) => r.event)));
+    expect(retained.filter((r) => r.event.eventType === "subagent_delta" && (r.event.data as any).blockId === 0)).toHaveLength(0);
+    expect(fromRaw.liveBlock).toMatchObject({ blockId: 1, text: "open block" });
+    expect(fromRetained).toEqual(fromRaw);
+    expect(fromCompacted).toEqual(fromRaw);
+  });
+});

@@ -9,6 +9,7 @@ block, or the cleared form `{ kind: "none", text: "" }`) on every snapshot plus
 the effective `details.thinkingLevel`; the dashboard renders it as a one-line
 ticker on the card and an in-progress block in the inspector. Producers without
 `liveTail` render as before.
+
 ## Requirements
 
 ### Requirement: A running subagent SHALL expose a bounded live tail of its streaming block
@@ -69,15 +70,20 @@ The collapsed card of a running subagent SHALL always render one fixed-height ac
 
 ### Requirement: The expanded inspector SHALL show the in-progress block
 
-The expanded and popout subagent views SHALL render the current `liveTail` as a trailing in-progress entry after the finished timeline entries, and SHALL replace it with the finished entry once the block ends.
+The expanded and popout subagent views SHALL render the in-progress block as a trailing entry after the finished timeline entries, styled like the main chat's live thinking or text block, and SHALL replace it with the finished entry once the block ends. When the producer streams block deltas, the entry SHALL show the full block assembled so far and grow as pieces arrive. Otherwise it SHALL show the current `liveTail`. The collapsed card's one-line ticker SHALL keep using `liveTail`.
 
 #### Scenario: In-progress entry visible before resync
 - **WHEN** the inspector is open and a tick carries `liveTail`, but no resync has delivered new entries
 - **THEN** the trailing in-progress entry shows the tail text
 
 #### Scenario: Live entry suppresses the empty state
-- **WHEN** a running subagent has no finished entries and a non-empty `liveTail`
+- **WHEN** a running subagent has no finished entries and a non-empty in-progress block
 - **THEN** the inspector shows the in-progress entry and does not show "No detail available yet"
+
+#### Scenario: Block grows beyond the tail length
+- **GIVEN** a producer streaming block deltas
+- **WHEN** a thinking block reaches 1,500 characters
+- **THEN** the inspector's in-progress entry shows all 1,500 characters from the block start, not a 280-character window
 
 ### Requirement: A running subagent SHALL show its effective thinking level
 

@@ -7,10 +7,11 @@
  *
  * See change: extract-minimal-chat-view.
  */
-import React from "react";
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type React from "react";
+import { afterEach, describe, expect, it } from "vitest";
 import { MinimalChatView } from "../MinimalChatView.js";
 import type { MinimalChatEntry, MinimalChatStatus } from "../types.js";
 
@@ -278,5 +279,46 @@ describe("MinimalChatView liveEntry", () => {
     for (const cls of pulsing) {
       expect(cls.split(/\s+/).filter((c) => c.includes("animate-")).every((c) => c.startsWith("motion-safe:"))).toBe(true);
     }
+  });
+});
+
+// Tool output envelopes are shown as text, not raw JSON.
+// See change: add-plugin-bridge-contributions (D11, test-plan #E21).
+describe("formatToolOutput", () => {
+  it("unwraps a text content envelope, keeps strings, stringifies the rest", async () => {
+    const { formatToolOutput } = await import("../MinimalChatView.js");
+    expect(formatToolOutput({ content: [{ type: "text", text: "a\nb" }], structuredContent: "x" })).toBe("a\nb");
+    expect(formatToolOutput({ content: [{ type: "text", text: "a" }, { type: "text", text: "b" }] })).toBe("a\nb");
+    expect(formatToolOutput("plain")).toBe("plain");
+    expect(formatToolOutput({ foo: 1 })).toBe(JSON.stringify({ foo: 1 }, null, 2));
+    expect(formatToolOutput({ content: [{ type: "image", data: "…" }] })).toContain('"image"');
+    expect(formatToolOutput(undefined)).toBeUndefined();
+  });
+
+  it("renders the unwrapped text in the fallback tool entry", () => {
+    renderView(
+      <MinimalChatView
+        title="t"
+        status="complete"
+        entries={[{ kind: "tool", toolName: "Read", input: { path: "f" }, output: { content: [{ type: "text", text: "line 1\nline 2" }] } } as MinimalChatEntry]}
+      />,
+    );
+    fireEvent.click(screen.getByText("▸"));
+    expect(document.body.textContent).toContain("line 1");
+    expect(document.body.textContent).not.toContain('"content"');
+  });
+
+  it("a growing live entry renders the whole block without the fading window", () => {
+    renderView(
+      <MinimalChatView
+        title="t"
+        status="running"
+        entries={[]}
+        liveEntry={{ kind: "thinking", text: "x".repeat(1500), growing: true }}
+      />,
+    );
+    const live = screen.getByTestId("minimal-live-entry");
+    expect(live.textContent).toContain("x".repeat(1500));
+    expect(live.innerHTML).not.toContain("max-h-36");
   });
 });

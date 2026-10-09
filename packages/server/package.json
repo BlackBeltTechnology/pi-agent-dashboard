@@ -55,6 +55,7 @@
     "bin/",
     "src/",
     "scripts/",
+    "runtime-lock.json",
     "!**/AGENTS.md",
     "!**/*.AGENTS.md",
     "!**/__tests__",

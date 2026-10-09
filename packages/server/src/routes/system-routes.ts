@@ -1234,6 +1234,21 @@ export function registerSystemRoutes(
         },
         { tickForwarded: 0, tickCoalesced: 0, tickDiscardedAtTerminal: 0, tickDroppedNotReady: 0 },
       ),
+      // Plugin event-forward registry counters summed across active bridges
+      // (declared channels, rejected declaration entries, conflicts, retained +
+      // dropped stream/latest messages). See change: add-plugin-bridge-contributions.
+      pluginEventForward: activeSessions.reduce(
+        (acc, s) => {
+          const m = s.processMetrics as Record<string, number | undefined> | undefined;
+          acc.declared += m?.pluginForwardDeclared ?? 0;
+          acc.rejected += m?.pluginForwardRejected ?? 0;
+          acc.conflicts += m?.pluginForwardConflicts ?? 0;
+          acc.retained += m?.pluginForwardRetained ?? 0;
+          acc.dropped += m?.pluginForwardDropped ?? 0;
+          return acc;
+        },
+        { declared: 0, rejected: 0, conflicts: 0, retained: 0, dropped: 0 },
+      ),
       // Poll-cost counters (SUM across live sessions, not max).
       // See change: optimize-polling-hot-paths.
       pollCost: activeSessions.reduce(

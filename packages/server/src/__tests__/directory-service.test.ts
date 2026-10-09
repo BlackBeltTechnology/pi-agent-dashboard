@@ -115,6 +115,7 @@ function createMockSessionManager(sessions: DashboardSession[] = []): SessionMan
     }),
     restore: vi.fn(),
     remove: vi.fn(),
+    wasEndedByBridgeUnregister: () => false,
     unregister: vi.fn((id) => {
       const s = map.get(id);
       if (s) { s.status = "ended"; s.endedAt = Date.now(); }
