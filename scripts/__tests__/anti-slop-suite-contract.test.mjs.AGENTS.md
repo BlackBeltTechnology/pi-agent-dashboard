@@ -1,0 +1,3 @@
+# __tests__/anti-slop-suite-contract.test.mjs — index
+
+Static L1 contract over `packages/anti-slop`: `UPSTREAM.md` pin (one 40-hex SHA, date, MIT; 39/41-hex negative), section map per upstream skill (no TBD/empty/reasonless `dropped:`), `adapted_from` SHA prefix, `pi.skills` == dirs == 4 suite skills, `files` ships `UPSTREAM.md`, new descriptions ≤ 400 + not exempt, `anti-slop-frontend` digest `829c144c`, profile table, pre-flight rule ids, theme parity, redesign/image/brandkit normative sentences, advisory authority, dashboard adapter bindings. Asserts sentences exist, not agent compliance. See change: anti-slop-taste-v2.
