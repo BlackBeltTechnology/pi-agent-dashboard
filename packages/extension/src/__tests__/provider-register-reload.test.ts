@@ -131,15 +131,32 @@ describe("reloadProviders", () => {
     const sessionStart = handlers.get("session_start")!({}, { modelRegistry: { find: () => null } });
     await new Promise((r) => setTimeout(r, 10));
 
-    let resyncDone = false;
-    const resync = mod.reloadProviders(pi).then(() => { resyncDone = true; });
+    // Selector open through the production handler; the registry reflects
+    // whatever pi.registerProvider has applied so far.
+    const registry = {
+      authStorage: { reload: vi.fn() },
+      getAvailable: vi.fn(() =>
+        registerProvider.mock.calls.length > before
+          ? [{ provider: "my-llm", id: "m1", name: "m1" }]
+          : [],
+      ),
+      refresh: vi.fn(async () => ({ aborted: false, errors: new Map() })),
+    };
+    const handler = createCommandHandler({ setSessionName: vi.fn(), getSessionName: () => "s" } as any, "sess-1", {
+      getModelRegistry: () => registry,
+      reloadProviders: async () => { await mod.reloadProviders(pi); },
+    });
+    let answered = false;
+    const resync = handler.handle({ type: "request_models", sessionId: "sess-1" } as any)
+      .then((r: any) => { answered = true; return r; });
     await new Promise((r) => setTimeout(r, 20));
-    expect(resyncDone).toBe(false); // must not answer while re-enrichment is mid-discovery
+    expect(answered).toBe(false); // no models_list while re-enrichment is mid-discovery
 
     releaseDiscovery();
     await sessionStart;
-    await resync;
-    expect(registerProvider.mock.calls.length).toBeGreaterThan(before);
+    const res: any = await resync;
+    expect(res.type).toBe("models_list");
+    expect(res.models.map((m: any) => m.id)).toEqual(["m1"]);
   });
 
   // See change: refresh-models-on-provider-change (D3/D5, review B3).
