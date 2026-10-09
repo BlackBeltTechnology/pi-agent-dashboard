@@ -229,4 +229,3 @@ shutdown-window candidate on at most one cold start.
 - **WHEN** boot `C` classifies sessions on cold start
 - **THEN** the session from boot `A` SHALL still be a recovery candidate, because `A` is
   retained in the boot-record ring and resolves to a recovery-allowing intent
-

@@ -99,3 +99,32 @@ describe("manual close vs racing bridge unregister", () => {
     browser.close();
   });
 });
+
+// Review B1 (round 1): force-kill closes the bridge socket itself, so the WS
+// case above never delivers a racing unregister. Model the real interleaving
+// deterministically: an unregister already queued on the socket is drained as
+// `closeSession` closes it. Without the in-memory `manual` pre-stamp, that
+// unregister ends the session `unknown` + bridge-tagged — the exact state the
+// end write turns into shutdown-window evidence, durable until the final
+// `update` lands (a crash in between leaves it on disk).
+describe("force-kill vs a bridge unregister drained at socket close", () => {
+  it("no ending is ever observed as an evidence-eligible bridge unregister", async () => {
+    const { createMemorySessionManager } = await import("../session/memory-session-manager.js");
+    const { forceKillSession } = await import("../browser-handlers/session-action-handler.js");
+    const sm = createMemorySessionManager();
+    sm.register({ id: "fk", cwd: "/w", source: "cli", sessionFile: "/w/fk.jsonl" } as unknown as Parameters<typeof sm.register>[0]);
+    const endings: Array<{ reason: string | undefined; bridgeTagged: boolean }> = [];
+    sm.onEnded = (id) => endings.push({ reason: sm.get(id)?.closedReason, bridgeTagged: sm.wasEndedByBridgeUnregister(id) });
+
+    await forceKillSession("fk", {
+      sessionManager: sm,
+      piGateway: { closeSession: (id: string) => sm.unregister(id, { endSource: "bridge_unregister" }) },
+      headlessPidRegistry: { killBySessionId: async () => false },
+      broadcast: () => {},
+    } as unknown as Parameters<typeof forceKillSession>[1]);
+
+    expect(endings.length).toBeGreaterThan(0);
+    expect(endings.filter((e) => e.bridgeTagged && e.reason === "unknown")).toEqual([]);
+    expect(sm.get("fk")?.closedReason).toBe("manual");
+  });
+});
