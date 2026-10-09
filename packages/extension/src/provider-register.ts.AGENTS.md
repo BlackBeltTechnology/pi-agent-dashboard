@@ -5,3 +5,5 @@ Register custom LLM providers + auto-discovered models from `~/.pi/agent/provide
 `_buildProviderCatalogue` copies `getProviderAuthStatus(id).label` → `authLabel` when present (pi labels every env credential; federation has no envVar). See change: update-pi-core-1-0-adopt-apis.
 
 `reloadProviders` serialized via module `reloadChain` (each call runs after prior completed); `activate()` startup registrations join the chain. Prevents overlapping re-sync seeing "no diff" mid-discovery. See change: refresh-models-on-provider-change.
+
+`session_start` re-enrichment loop also runs on `reloadChain` (waits for startup discovery first). See change: refresh-models-on-provider-change.

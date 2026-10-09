@@ -16,6 +16,8 @@
 - [x] 2b.1 (B1) Test: two overlapping `reloadProviders` calls -- second resolves only after first's registration completed; then serialize `reloadProviders` via module promise chain; verify test passes
 - [x] 2b.2 (B3) Test: `request_models` with real `reloadProviders` callback + fetch spy -- unchanged providers.json makes no fetch; registry refresh `allowNetwork:false`; verify test passes
 
+- [x] 2b.3 (r2 B1) Test: re-sync overlapping session_start re-enrichment waits for it; chain the session_start re-registration loop on `reloadChain`; verify test passes
+
 ## 3. Verify + docs
 
 - [x] 3.1 `npm test`: change-scope suites green (70/70); 22 pre-existing native-TS-loader failures reproduce on origin/develop, unrelated

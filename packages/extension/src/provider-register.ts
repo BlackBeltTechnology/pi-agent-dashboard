@@ -1157,17 +1157,24 @@ export function activate(pi: ExtensionAPI) {
         // Force re-registration: clear snapshot so reloadProviders re-adds all
         // entries (which will now probe the captured registry).
         const names = Array.from(lastRegistered.keys());
-        lastRegistered.clear();
-        for (const name of names) {
-          const entry = providers[name];
-          if (entry) {
-            try {
-              await registerEntry(pi, name, entry);
-            } catch (err: any) {
-              console.error(`[dashboard] re-registerProvider("${name}") failed: ${err?.message ?? String(err)}`);
+        // Runs on `reloadChain` so an overlapping re-sync (selector open)
+        // waits instead of reading the cleared-then-restored snapshot as
+        // "no diff". See change: refresh-models-on-provider-change (D4).
+        const reenrich = reloadChain.then(async () => {
+          lastRegistered.clear();
+          for (const name of names) {
+            const entry = providers[name];
+            if (entry) {
+              try {
+                await registerEntry(pi, name, entry);
+              } catch (err: any) {
+                console.error(`[dashboard] re-registerProvider("${name}") failed: ${err?.message ?? String(err)}`);
+              }
             }
           }
-        }
+        });
+        reloadChain = reenrich;
+        await reenrich;
 
         // If the session's currently-selected model belongs to one of the
         // providers we just re-registered, re-apply it via pi.setModel() so

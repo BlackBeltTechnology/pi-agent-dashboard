@@ -110,6 +110,38 @@ describe("reloadProviders", () => {
     expect(registerProvider).toHaveBeenCalledTimes(1);
   });
 
+  // See change: refresh-models-on-provider-change (D4, review r2 B1).
+  it("a re-sync overlapping session_start re-enrichment waits for it to finish", async () => {
+    const mod = await importFresh();
+    const { pi, registerProvider } = makeMockPi();
+    const handlers = new Map<string, (e: any, c: any) => any>();
+    pi.on = vi.fn((ev: string, h: any) => { handlers.set(ev, h); });
+    writeProvidersJson(tmpHome, { "my-llm": { baseUrl: "https://api.example.com/v1", apiKey: "k" } });
+
+    mod.activate(pi);
+    await mod.reloadProviders(pi); // startup discovery (instant stub) drained via the chain
+    const before = registerProvider.mock.calls.length;
+
+    let releaseDiscovery!: () => void;
+    globalThis.fetch = vi.fn(
+      () => new Promise<Response>((res) => {
+        releaseDiscovery = () => res(new Response(JSON.stringify({ data: [{ id: "m1" }] }), { status: 200 }));
+      }),
+    ) as any;
+    const sessionStart = handlers.get("session_start")!({}, { modelRegistry: { find: () => null } });
+    await new Promise((r) => setTimeout(r, 10));
+
+    let resyncDone = false;
+    const resync = mod.reloadProviders(pi).then(() => { resyncDone = true; });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(resyncDone).toBe(false); // must not answer while re-enrichment is mid-discovery
+
+    releaseDiscovery();
+    await sessionStart;
+    await resync;
+    expect(registerProvider.mock.calls.length).toBeGreaterThan(before);
+  });
+
   // See change: refresh-models-on-provider-change (D3/D5, review B3).
   it("selector open through the real re-sync: unchanged providers.json makes no network request", async () => {
     const mod = await importFresh();
