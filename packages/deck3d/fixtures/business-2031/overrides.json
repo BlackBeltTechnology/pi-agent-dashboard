@@ -139,7 +139,8 @@
             80
           ]
         }
-      }
+      },
+      "transition": "fade"
     },
     "agentgap": {
       "effects": [
@@ -756,7 +757,8 @@
             "Renewal"
           ]
         }
-      }
+      },
+      "transition": "iris"
     },
     "support": {
       "effects": [
@@ -804,12 +806,16 @@
             85
           ]
         }
-      }
+      },
+      "transition": "flythrough"
     },
     "partners": {
       "effects": [
         {
           "id": "starfield"
+        },
+        {
+          "id": "swing"
         }
       ],
       "diagram": {
@@ -822,7 +828,8 @@
             "Evidence"
           ]
         }
-      }
+      },
+      "transition": "swing"
     },
     "smb": {
       "effects": [
@@ -831,6 +838,9 @@
         },
         {
           "id": "pixelate"
+        },
+        {
+          "id": "path"
         }
       ],
       "diagram": {
@@ -843,12 +853,41 @@
             "Self-serve"
           ]
         }
+      },
+      "transition": "path",
+      "cameraPath": {
+        "ease": "inOut",
+        "keys": [
+          {
+            "t": 0.3,
+            "offset": [
+              0.15,
+              0.2,
+              0
+            ],
+            "look": 0.2,
+            "roll": 6
+          },
+          {
+            "t": 0.65,
+            "offset": [
+              -0.1,
+              0.12,
+              0.05
+            ],
+            "look": 0.9,
+            "fov": 50
+          }
+        ]
       }
     },
     "metrics": {
       "effects": [
         {
           "id": "volume-perlin"
+        },
+        {
+          "id": "revolve"
         }
       ],
       "diagram": {
@@ -861,12 +900,16 @@
             "Stop test"
           ]
         }
-      }
+      },
+      "transition": "revolve"
     },
     "risks": {
       "effects": [
         {
           "id": "aurora"
+        },
+        {
+          "id": "crane"
         }
       ],
       "diagram": {
@@ -879,12 +922,16 @@
             "Trust"
           ]
         }
-      }
+      },
+      "transition": "crane"
     },
     "close": {
       "effects": [
         {
           "id": "horizon-gates"
+        },
+        {
+          "id": "bank"
         }
       ],
       "diagram": {
@@ -897,7 +944,8 @@
             "One account"
           ]
         }
-      }
+      },
+      "transition": "bank"
     }
   }
 }

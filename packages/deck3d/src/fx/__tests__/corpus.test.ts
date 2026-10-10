@@ -20,6 +20,7 @@ const REQUIRED = [
   "float", "orbit", "stagger-reveal", "trail", "camera-drift",
   "dashed-flow", "glow-tube", "particle-stream",
   "fade", "iris", "flythrough",
+  "swing", "revolve", "crane", "bank", "path",
 ];
 
 describe("effect corpus (E27/E28)", () => {

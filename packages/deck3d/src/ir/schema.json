@@ -176,8 +176,35 @@
         },
         "transition": {
           "type": "string",
+          "enum": [
+            "dolly",
+            "swing",
+            "revolve",
+            "crane",
+            "bank",
+            "flythrough",
+            "fade",
+            "iris",
+            "path",
+            "cut"
+          ],
           "default": "dolly",
-          "description": "Transition effect id (from the `transition` kind of the fx corpus) played on slide change."
+          "description": "Camera move played on slide change (a `transition` card id, or `cut`). `path` needs the slide's `cameraPath`."
+        },
+        "transitionCycle": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/defaults/properties/transition"
+          },
+          "description": "Deck-level: slides without their own `transition` take `transitionCycle[slideIndex % length]`."
+        },
+        "transitionAmount": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2,
+          "default": 1,
+          "description": "Scales the built-in camera move (offsets, roll, fov swing); 1 = stock, 0 = straight dolly."
         },
         "durationSec": {
           "type": "number",
@@ -919,6 +946,9 @@
                   }
                 }
               },
+              "cameraPath": {
+                "$ref": "#/definitions/cameraPath"
+              },
               "cardOffset": {
                 "$ref": "#/definitions/cardOffset"
               },
@@ -1092,8 +1122,11 @@
                 "description": "Override the title contour for this slide."
               },
               "transition": {
-                "type": "string",
-                "description": "Override the transition effect id for entering this slide."
+                "$ref": "#/definitions/defaults/properties/transition",
+                "description": "Override the camera move for entering this slide."
+              },
+              "transitionAmount": {
+                "$ref": "#/definitions/defaults/properties/transitionAmount"
               }
             }
           }
@@ -1201,6 +1234,75 @@
                   "matte"
                 ],
                 "description": "Override the edge material family."
+              }
+            }
+          }
+        }
+      }
+    },
+    "cameraPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keys"
+      ],
+      "description": "Keyframed camera move into this slide (requires `transition: \"path\"`). Keys sit in the travel frame from the leaving camera to this slide's camera; the end points are implied and pinned.",
+      "properties": {
+        "ease": {
+          "type": "string",
+          "enum": [
+            "inOut",
+            "in",
+            "out",
+            "linear"
+          ],
+          "default": "inOut",
+          "description": "Time easing along the path."
+        },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "description": "Path keys, `t` strictly increasing.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "t"
+            ],
+            "properties": {
+              "t": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "exclusiveMaximum": 1,
+                "description": "Normalised path time."
+              },
+              "offset": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3,
+                "description": "[right, up, forward] offset as fractions of the travel length."
+              },
+              "look": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "0 = look at the leaving slide, 1 = at this slide."
+              },
+              "roll": {
+                "type": "number",
+                "minimum": -45,
+                "maximum": 45,
+                "description": "Camera roll in degrees."
+              },
+              "fov": {
+                "type": "number",
+                "minimum": 20,
+                "maximum": 90,
+                "description": "Vertical field of view in degrees."
               }
             }
           }
