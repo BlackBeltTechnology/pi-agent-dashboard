@@ -1,6 +1,6 @@
 ## Why
 
-`bpmn-package-explorer`'s `generate-cli.mjs <packageDir>` with a relative package dir (e.g. `.`) assembles a render root whose artifact symlinks point at themselves (`main.bpmn -> main.bpmn`): `assembleRenderRoot` passes `join(pkgDir, rel)` — a relative path — as the symlink target, and a relative target resolves against the link's own directory. The viewer then fails with "Failed to load package: HTTP 404 for <entry>.bpmn". Found while building Plantifier use-case flows (`add-rebuild-package-diagrams`); the workaround was passing `"$PWD"`.
+`bpmn-package-explorer`'s `generate-cli.mjs <packageDir>` with a relative package dir (e.g. `.`) assembles a render root whose artifact symlinks point at themselves (`main.bpmn -> main.bpmn`): `assembleRenderRoot` passes `join(pkgDir, rel)` — a relative path — as the symlink target, and a relative target resolves against the link's own directory. The viewer then fails with "Failed to load package: HTTP 404 for <entry>.bpmn". Found while building the pilot app use-case flows (`add-rebuild-package-diagrams`); the workaround was passing `"$PWD"`.
 
 ## What Changes
 
