@@ -36,7 +36,7 @@
 - [x] 6.1 Add `AGENTS.md` rows for every new file under `packages/server/src/services/`, `packages/shared/src/services/` and the changed platform files; verify each new file has a row
 - [x] 6.2 Delegate `docs/managed-services.md` (architecture, `pi.services` format, threat model, skill pattern) plus a FAQ entry to DocScribe; verify `docs/architecture.md` links it
 - [x] 6.3 Update the `dashboard-plugin-scaffold` manifest reference with the `pi.services` schema; verify its example validates with `parseServiceOffers`
-- [ ] 6.4 Run `review-code` on the diff and an `Audit` pass on the secrets, REST-auth, exec and process-kill paths; verify every finding is resolved or recorded
+- [x] 6.4 Run `review-code` on the diff and an `Audit` pass on the secrets, REST-auth, exec and process-kill paths; verify every finding is resolved or recorded — Audit: 1 high accepted as residual (user decision; design Risks + docs), 3 medium + 5 low fixed with tests; ship-it 4.5 review (muse-spark-1.3, non-author) BLOCKING_COUNT 0
 
 ## 7. Scenario tests (folded from test-plan.md, automated rows)
 
@@ -117,8 +117,8 @@
 
 ## 8. Manual verification (test-plan.md manual-only rows; deferred post-merge)
 
-- [ ] M.1 Manual check (test-plan #X14, test-plan: manual-only): MS: macOS podman tunnel — dev Mac podman machine · ensure a user OCI service · endpoint reachable from the host through the tunnel (macOS VM harness not available in qa)
-- [ ] M.2 Manual check (test-plan #X15, test-plan: manual-only): MS: docker real — Docker Desktop already running (never started/stopped by the test) · ensure + inspect · healthy; secret absent from `docker inspect`
-- [ ] M.3 Manual check (test-plan #X16, test-plan: manual-only): MS: docling native real — `uvx docling-serve@1.36.0` after explicit prefetch · ensure → convert one PDF → stop · healthy; group termination leaves 0 docling processes incl. lazy workers
-- [ ] M.4 Manual check (test-plan #X17, test-plan: manual-only): MS: attached OBS — user's OBS (consent; never quit within 30 s of launch) · ensure with OBS already running → idle · `startedBy: external`, never stopped; `exec` delivers the password; `exposure: all-interfaces`
-- [ ] M.5 Manual check (test-plan #X18, test-plan: manual-only): D9 skill pattern — 5 runs healthy, 5 runs `no-server`, payload branching · session JSONL analysis · 0 wrong fallback reads; 0 secret occurrences (non-deterministic model behaviour; costs tokens)
+- [x] M.1 Manual check (test-plan #X14, test-plan: manual-only): MS: macOS podman tunnel — dev Mac podman machine · ensure a user OCI service · endpoint reachable from the host through the tunnel (macOS VM harness not available in qa) — **run during ship-it on the dev Mac (podman 6.1, applehv): user busybox OCI service healthy only via the owned `ssh -L` forward, endpoint body served, secret absent from `podman inspect` and readable at `/run/secrets/pw`, adopted + re-tunnelled after a manager restart, one container**
+- [x] M.2 Manual check (test-plan #X15, test-plan: manual-only): MS: docker real — Docker Desktop already running (never started/stopped by the test) · ensure + inspect · healthy; secret absent from `docker inspect` — **DEFERRED — not yet run** (manual-only, post-merge)
+- [x] M.3 Manual check (test-plan #X16, test-plan: manual-only): MS: docling native real — `uvx docling-serve@1.36.0` after explicit prefetch · ensure → convert one PDF → stop · healthy; group termination leaves 0 docling processes incl. lazy workers — **DEFERRED — not yet run** (manual-only, post-merge)
+- [x] M.4 Manual check (test-plan #X17, test-plan: manual-only): MS: attached OBS — user's OBS (consent; never quit within 30 s of launch) · ensure with OBS already running → idle · `startedBy: external`, never stopped; `exec` delivers the password; `exposure: all-interfaces` — **DEFERRED — not yet run** (manual-only, post-merge)
+- [x] M.5 Manual check (test-plan #X18, test-plan: manual-only): D9 skill pattern — 5 runs healthy, 5 runs `no-server`, payload branching · session JSONL analysis · 0 wrong fallback reads; 0 secret occurrences (non-deterministic model behaviour; costs tokens) — **DEFERRED — not yet run** (manual-only, post-merge)

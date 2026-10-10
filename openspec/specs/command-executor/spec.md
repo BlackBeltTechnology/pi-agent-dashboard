@@ -156,7 +156,7 @@ The `packages/shared/src/platform/npm.ts` module SHALL expose typed functions fo
 - **THEN** the error discriminant SHALL be available as a typed string union
 
 ### Requirement: Single-source process-termination module
-All code in `packages/server/src`, `packages/extension/src`, `packages/electron/src`, and `packages/shared/src` (excluding `packages/shared/src/platform/process.ts` and `packages/shared/src/platform/exec.ts`) SHALL terminate processes exclusively via helpers exported from `@blackbelt-technology/pi-dashboard-shared/platform/process.js` (`isProcessAlive`, `killProcess`, `killPidWithGroup`). Direct calls to `process.kill(pid, …)` outside the platform module are prohibited. A repo-level test SHALL enforce this invariant.
+All code in `packages/server/src`, `packages/extension/src`, `packages/electron/src`, and `packages/shared/src` (excluding `packages/shared/src/platform/process.ts` and `packages/shared/src/platform/exec.ts`) SHALL terminate processes exclusively via helpers exported from `@blackbelt-technology/pi-dashboard-shared/platform/process.js` (`isProcessAlive`, `killProcess`, `killPidWithGroup`, `killProcessGroup`). Direct calls to `process.kill(pid, …)` outside the platform module are prohibited. A repo-level test SHALL enforce this invariant.
 
 #### Scenario: No direct process.kill outside the platform module
 - **WHEN** the test suite scans every `.ts` file under `packages/*/src/` (excluding `__tests__/` and `packages/shared/src/platform/`)
@@ -165,7 +165,7 @@ All code in `packages/server/src`, `packages/extension/src`, `packages/electron/
 
 #### Scenario: Adding a new termination site
 - **WHEN** a developer needs to terminate a PID, check liveness, or kill a process group
-- **THEN** they SHALL import the appropriate helper (`isProcessAlive`, `killProcess`, or `killPidWithGroup`) from `@blackbelt-technology/pi-dashboard-shared/platform/process.js`
+- **THEN** they SHALL import the appropriate helper (`isProcessAlive`, `killProcess`, `killPidWithGroup`, or `killProcessGroup`) from `@blackbelt-technology/pi-dashboard-shared/platform/process.js`
 - **AND** the enforcement test SHALL pass without modification
 
 #### Scenario: Platform module is exempt
@@ -175,6 +175,8 @@ All code in `packages/server/src`, `packages/extension/src`, `packages/electron/
 
 ### Requirement: Cross-platform tree termination uses killProcess
 Code that needs to terminate a spawned session, editor, tunnel, or any process whose descendants MUST also be terminated SHALL use `killProcess(pid, opts)` from the platform module. On Windows this SHALL invoke `taskkill /F /T /PID <pid>`; on POSIX this SHALL send SIGTERM, wait up to `timeoutMs` (default 5000), then SIGKILL if the process is still alive.
+
+Code that spawned a process as the leader of its own process group (detached on POSIX) and must also terminate descendants that were not reparented away from that group SHALL use `killProcessGroup(pid, opts)` from the platform module. On POSIX it SHALL send SIGTERM to the group (`-pid`), poll every 200ms until no member of the group is alive or `timeoutMs` (default 5000) elapses, re-check that the group still exists before escalating, and then send SIGKILL to the group. On Windows it SHALL delegate to `killProcess(pid, opts)` (`taskkill /F /T`).
 
 #### Scenario: Windows tree kill
 - **WHEN** `killProcess(pid)` is invoked with `platform: "win32"`
@@ -191,3 +193,17 @@ Code that needs to terminate a spawned session, editor, tunnel, or any process w
 #### Scenario: Already-dead process
 - **WHEN** `killProcess(pid)` is invoked for a PID that is not alive
 - **THEN** the platform SHALL return `{ ok: false, forced: false }` without sending any signal
+
+#### Scenario: POSIX group escalation reaches workers
+- **WHEN** `killProcessGroup(pid, { timeoutMs: 2000 })` is invoked on a group leader whose worker child ignores SIGTERM
+- **THEN** the platform SHALL send `SIGTERM` to `-pid`, wait up to `timeoutMs`, and send `SIGKILL` to `-pid`
+- **AND** no member of the group SHALL be alive afterwards
+- **AND** return `{ ok: true, forced: true }`
+
+#### Scenario: Group already gone before escalation
+- **WHEN** every member of the group exits during the SIGTERM wait
+- **THEN** no SIGKILL SHALL be sent
+
+#### Scenario: Windows group kill delegates
+- **WHEN** `killProcessGroup(pid)` is invoked with `platform: "win32"`
+- **THEN** it SHALL behave exactly as `killProcess(pid)`
