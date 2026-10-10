@@ -210,6 +210,61 @@ the repository. Never derive the slug by hand).
     say so and ask for another destination. On exit 0 MOVE (not copy) `PKG` to
     the destination. Never promote without explicit confirmation. Finally `G unlock "$SLUG" "$RUN_ID"` (also when the user declines promotion).
 
+## Frontend UI model (optional, after step 13)
+
+For a target with a user interface, after the package gate and before promotion
+(the UI model cites the package's BR/QUIRK/GAP ids, so the catalogs must be
+final). Full commands, adapter contract and rules: `references/ui-extraction.md`;
+record format: `references/ui-model.md`. Programs: `scripts/ui-extract/`
+(dependency-free); stack specifics in an adapter (built-in
+`scripts/ui-extract/adapters/angularjs.mjs`, or a project adapter by path). Application
+knowledge (config layering, string tables, toolbar conventions, code page, template
+helpers) goes in a **project-owned profile** with `parent: "<built-in>"` — never into the skill.
+
+1. **Inventory + effective config + forms** (deterministic): `inventory.mjs`,
+   `config.mjs` per customer variant, `forms.mjs` / `screen-form.mjs`.
+2. **Screen records.** One subagent per screen or dialog, in a SINGLE message,
+   with `prompts/ui-screen-generator.md` filled by `fill.mjs` from a screen job;
+   each writes only `PKG/ui/screens/<ID>.json`.
+3. **Gate.** `gate.mjs APP PKG` until PASS; route a failing record back to its
+   generator with the gate lines. Never hand-edit a record to pass.
+4. **Style kit + screen plans** (deterministic): `style-kit.mjs` (kit job maps
+   components to real selectors), then `screen-plan.mjs` per screen and dialog;
+   an unlinked control (exit 1) means the record misses an action, field or
+   `unmapped` reason — fix the record (step 2-3), or the adapter.
+5. **Flows from code** per use case: `flow.mjs` → layout → `check-trace`;
+   `compare.mjs` against the prose flow, and report the differences.
+6. **Behaviour models** (optional): per key user action, a `rebuild-package-diagrams`
+   `sequence-from-ui` draft deepened by one subagent with `prompts/sequence-generator.md`;
+   per stateful entity field (a `model.md` field with `allowed:` values or a lock/report
+   flag), one subagent with `prompts/state-machine-generator.md`. Each record is accepted
+   only when `check-sequences` / `check-states` with `--app` pass; route gate lines back as
+   findings. Candidate quirks the generators report go to the merge as findings, never
+   straight into `quirks.md`.
+7. **Use-case UI links** (optional, before CRUD): per use-case batch one subagent with
+   `prompts/uc-linker.md` links BPMN steps to UI actions with evidence (shared ref or a cite
+   inside the action's code), or records `noUi`; accepted only when `check-uc-links` passes;
+   finish with `check-uc-links PKG --complete`. Links extend each use case's screens and UI
+   actions (CRUD columns, IFML scope, flows).
+7a. **Customer variability** (optional, configurable apps): `config-reads.mjs APP <adapter> PKG`
+   (adapter hooks `configReads`, `variantInfo`) → `ui/_config-reads.json`; one subagent with
+   `prompts/variability-classifier.md` writes `diagrams/variability/features.json`; accepted only
+   when `check-variability PKG APP --complete` passes. Route findings (dead everywhere,
+   single-customer, constant) to the merge as gaps/questions.
+7c. **Usage evidence** (optional, when the app keeps its own logs and a snapshot is available):
+   a project job describes the log sources per customer; one subagent with
+   `prompts/usage-mapper.md` maps log types to code, UI actions and use cases
+   (`diagrams/usage/mapping.json`, shared); accepted only when `check-usage PKG APP JOB --complete`
+   passes. Counts are aggregated **locally only** (`usage`, then the `check-usage-output` privacy
+   gate) — never into the shared package.
+7b. **CRUD matrix** (optional): per screen batch one subagent with `prompts/crud-classifier.md`
+   classifies every data effect (from `rebuild-package-diagrams` `crud-draft`) as entity + C/R/U/D
+   or unmapped; accepted only when `check-crud` passes; finish with `check-crud PKG --complete`.
+   Route its findings (never written / never read / created never deleted / untouched) and
+   tables with no model entity to the merge as gaps or questions.
+8. **Render**: the `rebuild-package-diagrams` skill's `render.sh PKG APP` (all
+   its gates, catalog with screen plans, style kit, IFML, flows and behaviour diagrams).
+
 ## Subagent routing
 
 | Role | `subagent_type` | Prompt | Model | Access | Parallel |
@@ -218,6 +273,13 @@ the repository. Never derive the slug by hand).
 | generator | `rsfr-generator` | `prompts/generator-rebuild.md` | `@fast` | writes its spec + fragment | one per capability, single message |
 | auditor | `rsfr-auditor` | `prompts/auditor-rebuild.md` | `@research` | read-only | one per capability, single message; then 1 cross-cutting |
 | completeness | `rsfr-completeness` | `prompts/completeness.md` | `@fast` | writes `completeness.md` | 1 |
+| UI screen generator (optional) | `rsfr-ui-screen-generator` | `prompts/ui-screen-generator.md` | `@fast` | writes its `ui/screens/<ID>.json` | one per screen/dialog, single message |
+| sequence generator (optional) | `rsfr-sequence-generator` | `prompts/sequence-generator.md` | `@fast` | writes its `diagrams/sequences/<ID>.json` | one per user action |
+| state-machine generator (optional) | `rsfr-state-machine-generator` | `prompts/state-machine-generator.md` | `@fast` | writes its `diagrams/state-machines/<ID>.json` | one per entity field |
+| use-case linker (optional) | `rsfr-uc-linker` | `prompts/uc-linker.md` | `@fast` | writes `diagrams/uc-links/<UC>.json` per use case | one per use-case batch |
+| variability classifier (optional) | `rsfr-variability-classifier` | `prompts/variability-classifier.md` | `@fast` | writes `diagrams/variability/features.json` | 1 |
+| usage mapper (optional) | `rsfr-usage-mapper` | `prompts/usage-mapper.md` | `@fast` | writes `diagrams/usage/mapping.json` (no customer data) | 1 |
+| CRUD classifier (optional) | `rsfr-crud-classifier` | `prompts/crud-classifier.md` | `@fast` | writes `diagrams/crud/<SCR>.json` per screen | one per screen batch (~30 effects) |
 
 Use these exact `subagent_type` names: the package ships matching
 `agents/<type>.md` files whose frontmatter pins the model, so an omitted
@@ -237,6 +299,8 @@ PKG/_manifest.json                 discovery manifest (checked by `G check-manif
 PKG/capabilities/<cap>/spec.md     OpenSpec full form, inline cite comments (rendered by the merge)
 PKG/_fragments/<cap>.spec.md       unmerged spec with local refs (merge input)
 PKG/_fragments/<cap>.json          merge input, kept for re-runs
+PKG/ui/                            optional UI model: _inventory.json, _effective/, forms/, screens/,
+                                   style-kit.{json,css}, plans/<ID>.html
 ```
 
 Citation format and confidence levels: `references/provenance.md`. Templates:
@@ -276,6 +340,13 @@ Citation format and confidence levels: `references/provenance.md`. Templates:
   `.reverse-spec-scratch` as NOT ignored even when `.reverse-spec-scratch/` is in
   an ignore file; always query `.reverse-spec-scratch/`.
 - **Quirks are not fixes** — the spec stays faithful; the rebuilder decides.
+- **Subagent concurrency cap** — the host may admit only a few subagents at once
+  (pi-dashboard: 2) and refuses the rest of a single-message batch. A refused
+  spawn is not a failed generator: re-issue it when a running one finishes.
+- **UI sources** may be UTF-16 or a legacy code page (profile `encoding`) and carry commented-out code: read
+  through `scripts/ui-extract/lib.mjs`, which decodes and strips comments
+  keeping line numbers. Input validations are effects, never guards (the gate
+  refuses them).
 
 ## Verification
 
@@ -304,5 +375,13 @@ Citation format and confidence levels: `references/provenance.md`. Templates:
   shown. *(Grounding audit and revise loop)*
 - Re-run with the previous package kept surviving ids and reused none.
   *(Business rule catalog)*
+- Optional UI model: `gate.mjs` PASS, every `screen-plan.mjs` run 0 unlinked,
+  every flow from code passed `check-trace`. *(Frontend UI-model extraction)*
+- Optional behaviour models: `check-sequences` and `check-states` with `--app` exit 0.
+- Optional use-case links: `check-uc-links PKG --complete` exits 0. *(use-case linking step)*
+- Optional variability: `check-variability PKG APP --complete` exits 0. *(variability step)*
+- Optional usage: `check-usage PKG APP JOB --complete` and `check-usage-output` exit 0. *(usage step)*
+- Optional CRUD matrix: `check-crud PKG --complete` exits 0. *(CRUD classification step)*
+  *(Behaviour-model generation)*
 - Promotion happened only after `ask_user` confirmation and `G check-dest`
   exit 0, by move. *(Rebuild package layout and promotion)*

@@ -1,0 +1,1044 @@
+{
+ "source": "https://www.omg.org/spec/IFML/20140301/IFML-Metamodel.xmi (OMG ptc/14-03-16, IFML 1.0)",
+ "nsURI": "http://www.omg.org/spec/IFML/20140301",
+ "extraction": "references/ifml-mapping.md#metamodel-reference",
+ "classes": {
+  "Action": {
+   "abstract": false,
+   "supers": [
+    "InteractionFlowElement",
+    "NamedElement"
+   ],
+   "features": {
+    "actionEvents": {
+     "type": "ActionEvent",
+     "many": true,
+     "composite": true
+    },
+    "dynamicBehavior": {
+     "type": "DynamicBehavior",
+     "many": false,
+     "composite": false
+    },
+    "viewContainer": {
+     "type": "ViewContainer",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "ActionEvent": {
+   "abstract": false,
+   "supers": [
+    "CatchingEvent"
+   ],
+   "features": {}
+  },
+  "ActivationExpression": {
+   "abstract": false,
+   "supers": [
+    "BooleanExpression"
+   ],
+   "features": {}
+  },
+  "ActivityConcept": {
+   "abstract": false,
+   "supers": [
+    "NamedElement"
+   ],
+   "features": {
+    "moduleDefinition": {
+     "type": "ModuleDefinition",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "Annotation": {
+   "abstract": false,
+   "supers": [],
+   "features": {
+    "text": {
+     "type": "String",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "BPMNActivityConcept": {
+   "abstract": false,
+   "supers": [
+    "ActivityConcept"
+   ],
+   "features": {
+    "activity": {
+     "type": "Activity",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "BehaviorConcept": {
+   "abstract": false,
+   "supers": [
+    "DomainElement"
+   ],
+   "features": {
+    "dynamicBehavior": {
+     "type": "DynamicBehavior",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "BehavioralFeatureConcept": {
+   "abstract": false,
+   "supers": [
+    "DomainElement"
+   ],
+   "features": {
+    "dynamicBehavior": {
+     "type": "DynamicBehavior",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "BooleanExpression": {
+   "abstract": false,
+   "supers": [
+    "Expression"
+   ],
+   "features": {}
+  },
+  "CatchingEvent": {
+   "abstract": false,
+   "supers": [
+    "Event"
+   ],
+   "features": {}
+  },
+  "ConditionalExpression": {
+   "abstract": false,
+   "supers": [
+    "Expression",
+    "ViewComponentPart"
+   ],
+   "features": {}
+  },
+  "Constraint": {
+   "abstract": false,
+   "supers": [
+    "BooleanExpression"
+   ],
+   "features": {}
+  },
+  "ContentBinding": {
+   "abstract": true,
+   "supers": [
+    "ViewComponentPart"
+   ],
+   "features": {
+    "uniformResourceIdentifier": {
+     "type": "String",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "Context": {
+   "abstract": false,
+   "supers": [
+    "Element"
+   ],
+   "features": {
+    "contextDimensions": {
+     "type": "ContextDimension",
+     "many": true,
+     "composite": true
+    },
+    "contextVariables": {
+     "type": "ContextVariable",
+     "many": true,
+     "composite": true
+    }
+   }
+  },
+  "ContextDimension": {
+   "abstract": false,
+   "supers": [
+    "NamedElement"
+   ],
+   "features": {}
+  },
+  "ContextVariable": {
+   "abstract": false,
+   "supers": [
+    "NamedElement"
+   ],
+   "features": {
+    "context": {
+     "type": "Context",
+     "many": false,
+     "composite": false
+    },
+    "scope": {
+     "type": "ContextVariableScope",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "DataBinding": {
+   "abstract": false,
+   "supers": [
+    "ContentBinding"
+   ],
+   "features": {
+    "conditionalExpression": {
+     "type": "ConditionalExpression",
+     "many": true,
+     "composite": true
+    },
+    "visualizationAttribute": {
+     "type": "VisualizationAttribute",
+     "many": true,
+     "composite": true
+    },
+    "dataContextVariables": {
+     "type": "DataContextVariable",
+     "many": true,
+     "composite": false
+    },
+    "domainConcept": {
+     "type": "DomainConcept",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "DataContextVariable": {
+   "abstract": false,
+   "supers": [
+    "ContextVariable"
+   ],
+   "features": {
+    "dataBinding": {
+     "type": "DataBinding",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "DataFlow": {
+   "abstract": false,
+   "supers": [
+    "InteractionFlow"
+   ],
+   "features": {}
+  },
+  "Details": {
+   "abstract": false,
+   "supers": [
+    "ViewComponent"
+   ],
+   "features": {}
+  },
+  "Device": {
+   "abstract": false,
+   "supers": [
+    "ContextDimension"
+   ],
+   "features": {}
+  },
+  "DomainConcept": {
+   "abstract": false,
+   "supers": [
+    "DomainElement"
+   ],
+   "features": {
+    "dataBinding": {
+     "type": "DataBinding",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "DomainElement": {
+   "abstract": false,
+   "supers": [
+    "NamedElement"
+   ],
+   "features": {}
+  },
+  "DomainModel": {
+   "abstract": false,
+   "supers": [
+    "NamedElement"
+   ],
+   "features": {
+    "domainElements": {
+     "type": "DomainElement",
+     "many": true,
+     "composite": false
+    }
+   }
+  },
+  "DynamicBehavior": {
+   "abstract": false,
+   "supers": [
+    "ContentBinding"
+   ],
+   "features": {
+    "behavioralFeatureConcept": {
+     "type": "BehavioralFeatureConcept",
+     "many": false,
+     "composite": false
+    },
+    "behaviorConcept": {
+     "type": "BehaviorConcept",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "Element": {
+   "abstract": true,
+   "supers": [],
+   "features": {
+    "id": {
+     "type": "String",
+     "many": false,
+     "composite": false
+    },
+    "constraints": {
+     "type": "Constraint",
+     "many": true,
+     "composite": true
+    },
+    "annotations": {
+     "type": "Annotation",
+     "many": true,
+     "composite": true
+    }
+   }
+  },
+  "Event": {
+   "abstract": false,
+   "supers": [
+    "InteractionFlowElement"
+   ],
+   "features": {
+    "activationExpression": {
+     "type": "ActivationExpression",
+     "many": false,
+     "composite": false
+    },
+    "interactionFlowExpression": {
+     "type": "InteractionFlowExpression",
+     "many": false,
+     "composite": true
+    }
+   }
+  },
+  "Expression": {
+   "abstract": true,
+   "supers": [
+    "InteractionFlowModelElement"
+   ],
+   "features": {
+    "language": {
+     "type": "String",
+     "many": false,
+     "composite": false
+    },
+    "body": {
+     "type": "String",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "FeatureConcept": {
+   "abstract": false,
+   "supers": [
+    "DomainElement"
+   ],
+   "features": {
+    "visualizationAttribute": {
+     "type": "VisualizationAttribute",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "Field": {
+   "abstract": true,
+   "supers": [
+    "ViewComponentPart",
+    "Parameter"
+   ],
+   "features": {}
+  },
+  "Form": {
+   "abstract": false,
+   "supers": [
+    "ViewComponent"
+   ],
+   "features": {}
+  },
+  "IFMLModel": {
+   "abstract": false,
+   "supers": [
+    "NamedElement"
+   ],
+   "features": {
+    "interactionFlowModel": {
+     "type": "InteractionFlowModel",
+     "many": false,
+     "composite": true
+    },
+    "domainModel": {
+     "type": "DomainModel",
+     "many": false,
+     "composite": true
+    },
+    "interactionFlowModelViewpoint": {
+     "type": "Viewpoint",
+     "many": true,
+     "composite": true
+    }
+   }
+  },
+  "InteractionFlow": {
+   "abstract": true,
+   "supers": [
+    "InteractionFlowModelElement"
+   ],
+   "features": {
+    "parameterBindingGroup": {
+     "type": "ParameterBindingGroup",
+     "many": false,
+     "composite": true
+    },
+    "sourceInteractionFlowElement": {
+     "type": "InteractionFlowElement",
+     "many": false,
+     "composite": false
+    },
+    "targetInteractionFlowElement": {
+     "type": "InteractionFlowElement",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "InteractionFlowElement": {
+   "abstract": true,
+   "supers": [
+    "NamedElement",
+    "InteractionFlowModelElement",
+    "TemplateableElement"
+   ],
+   "features": {
+    "parameters": {
+     "type": "Parameter",
+     "many": true,
+     "composite": true
+    },
+    "outInteractionFlows": {
+     "type": "InteractionFlow",
+     "many": true,
+     "composite": true
+    },
+    "inInteractionFlows": {
+     "type": "InteractionFlow",
+     "many": true,
+     "composite": false
+    }
+   }
+  },
+  "InteractionFlowExpression": {
+   "abstract": false,
+   "supers": [
+    "Expression"
+   ],
+   "features": {
+    "interactionFlow": {
+     "type": "InteractionFlow",
+     "many": true,
+     "composite": false
+    }
+   }
+  },
+  "InteractionFlowModel": {
+   "abstract": false,
+   "supers": [
+    "NamedElement"
+   ],
+   "features": {
+    "interactionFlowModelElements": {
+     "type": "InteractionFlowModelElement",
+     "many": true,
+     "composite": true
+    }
+   }
+  },
+  "InteractionFlowModelElement": {
+   "abstract": true,
+   "supers": [
+    "Element"
+   ],
+   "features": {}
+  },
+  "JumpEvent": {
+   "abstract": false,
+   "supers": [
+    "ThrowingEvent"
+   ],
+   "features": {
+    "landingEvent": {
+     "type": "LandingEvent",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "LandingEvent": {
+   "abstract": false,
+   "supers": [
+    "CatchingEvent"
+   ],
+   "features": {
+    "jumpingEvents": {
+     "type": "JumpEvent",
+     "many": true,
+     "composite": false
+    }
+   }
+  },
+  "List": {
+   "abstract": false,
+   "supers": [
+    "ViewComponent"
+   ],
+   "features": {
+    "selectEvent": {
+     "type": "OnSelectEvent",
+     "many": true,
+     "composite": true
+    }
+   }
+  },
+  "Menu": {
+   "abstract": false,
+   "supers": [
+    "ViewContainer"
+   ],
+   "features": {}
+  },
+  "ModularizationElement": {
+   "abstract": false,
+   "supers": [
+    "NamedElement",
+    "InteractionFlowModelElement"
+   ],
+   "features": {
+    "modulePackage": {
+     "type": "ModulePackage",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "Module": {
+   "abstract": false,
+   "supers": [
+    "NamedElement",
+    "InteractionFlowElement"
+   ],
+   "features": {
+    "moduleDefinition": {
+     "type": "ModuleDefinition",
+     "many": false,
+     "composite": false
+    },
+    "ports": {
+     "type": "Port",
+     "many": true,
+     "composite": false
+    }
+   }
+  },
+  "ModuleDefinition": {
+   "abstract": false,
+   "supers": [
+    "ModularizationElement"
+   ],
+   "features": {
+    "inputPorts": {
+     "type": "PortDefinition",
+     "many": true,
+     "composite": true
+    },
+    "outputPorts": {
+     "type": "PortDefinition",
+     "many": true,
+     "composite": true
+    },
+    "interactionFlowModelElement": {
+     "type": "InteractionFlowModelElement",
+     "many": true,
+     "composite": true
+    },
+    "modules": {
+     "type": "Module",
+     "many": true,
+     "composite": false
+    },
+    "activityConcept": {
+     "type": "ActivityConcept",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "ModulePackage": {
+   "abstract": false,
+   "supers": [
+    "ModularizationElement"
+   ],
+   "features": {
+    "modularizationElements": {
+     "type": "ModularizationElement",
+     "many": true,
+     "composite": true
+    }
+   }
+  },
+  "NamedElement": {
+   "abstract": true,
+   "supers": [
+    "Element"
+   ],
+   "features": {
+    "name": {
+     "type": "String",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "NavigationFlow": {
+   "abstract": false,
+   "supers": [
+    "InteractionFlow"
+   ],
+   "features": {}
+  },
+  "OnLoadEvent": {
+   "abstract": false,
+   "supers": [
+    "SystemEvent"
+   ],
+   "features": {}
+  },
+  "OnSelectEvent": {
+   "abstract": false,
+   "supers": [
+    "ViewElementEvent"
+   ],
+   "features": {}
+  },
+  "OnSubmitEvent": {
+   "abstract": false,
+   "supers": [
+    "ViewElementEvent"
+   ],
+   "features": {}
+  },
+  "Parameter": {
+   "abstract": false,
+   "supers": [
+    "TypedElement",
+    "MultiplicityElement",
+    "InteractionFlowModelElement",
+    "NamedElement"
+   ],
+   "features": {
+    "direction": {
+     "type": "Direction",
+     "many": false,
+     "composite": false
+    },
+    "defaultValue": {
+     "type": "Expression",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "ParameterBinding": {
+   "abstract": false,
+   "supers": [
+    "InteractionFlowModelElement"
+   ],
+   "features": {
+    "sourceParameter": {
+     "type": "Parameter",
+     "many": false,
+     "composite": false
+    },
+    "targetParameter": {
+     "type": "Parameter",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "ParameterBindingGroup": {
+   "abstract": false,
+   "supers": [
+    "InteractionFlowModelElement"
+   ],
+   "features": {
+    "parameterBindings": {
+     "type": "ParameterBinding",
+     "many": true,
+     "composite": true
+    }
+   }
+  },
+  "Port": {
+   "abstract": false,
+   "supers": [
+    "InteractionFlowElement"
+   ],
+   "features": {
+    "portDefinition": {
+     "type": "PortDefinition",
+     "many": false,
+     "composite": false
+    },
+    "module": {
+     "type": "Module",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "PortDefinition": {
+   "abstract": false,
+   "supers": [
+    "InteractionFlowElement"
+   ],
+   "features": {
+    "ports": {
+     "type": "Port",
+     "many": true,
+     "composite": false
+    }
+   }
+  },
+  "Position": {
+   "abstract": false,
+   "supers": [
+    "ContextDimension"
+   ],
+   "features": {}
+  },
+  "SelectionField": {
+   "abstract": false,
+   "supers": [
+    "Field"
+   ],
+   "features": {
+    "isMultiSelection": {
+     "type": "Boolean",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "SetContextEvent": {
+   "abstract": false,
+   "supers": [
+    "ThrowingEvent"
+   ],
+   "features": {}
+  },
+  "SimpleContextVariable": {
+   "abstract": false,
+   "supers": [
+    "ContextVariable",
+    "ValueSpecification"
+   ],
+   "features": {}
+  },
+  "SimpleField": {
+   "abstract": false,
+   "supers": [
+    "Field"
+   ],
+   "features": {}
+  },
+  "Slot": {
+   "abstract": false,
+   "supers": [
+    "ViewComponentPart",
+    "Parameter"
+   ],
+   "features": {}
+  },
+  "SystemEvent": {
+   "abstract": false,
+   "supers": [
+    "CatchingEvent"
+   ],
+   "features": {
+    "triggeringExpressions": {
+     "type": "Expression",
+     "many": true,
+     "composite": true
+    },
+    "type": {
+     "type": "SystemEventType",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "ThrowingEvent": {
+   "abstract": false,
+   "supers": [
+    "Event"
+   ],
+   "features": {}
+  },
+  "UMLBehavior": {
+   "abstract": false,
+   "supers": [
+    "BehaviorConcept"
+   ],
+   "features": {
+    "behavior": {
+     "type": "Behavior",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "UMLBehavioralFeature": {
+   "abstract": false,
+   "supers": [
+    "BehavioralFeatureConcept"
+   ],
+   "features": {
+    "behavioralFeature": {
+     "type": "BehavioralFeature",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "UMLDomainConcept": {
+   "abstract": false,
+   "supers": [
+    "DomainConcept"
+   ],
+   "features": {
+    "classifier": {
+     "type": "Classifier",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "UMLStructuralFeature": {
+   "abstract": false,
+   "supers": [
+    "FeatureConcept"
+   ],
+   "features": {
+    "structuralFeature": {
+     "type": "StructuralFeature",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "UserRole": {
+   "abstract": false,
+   "supers": [
+    "ContextDimension"
+   ],
+   "features": {}
+  },
+  "ValidationRule": {
+   "abstract": false,
+   "supers": [
+    "Constraint"
+   ],
+   "features": {}
+  },
+  "ViewComponent": {
+   "abstract": false,
+   "supers": [
+    "ViewElement"
+   ],
+   "features": {
+    "viewComponentParts": {
+     "type": "ViewComponentPart",
+     "many": true,
+     "composite": true
+    }
+   }
+  },
+  "ViewComponentPart": {
+   "abstract": false,
+   "supers": [
+    "InteractionFlowElement"
+   ],
+   "features": {
+    "viewElementEvents": {
+     "type": "ViewElementEvent",
+     "many": true,
+     "composite": true
+    },
+    "activationExpression": {
+     "type": "ActivationExpression",
+     "many": false,
+     "composite": false
+    },
+    "parentViewComponentPart": {
+     "type": "ViewComponentPart",
+     "many": false,
+     "composite": false
+    },
+    "subViewComponentParts": {
+     "type": "ViewComponentPart",
+     "many": true,
+     "composite": true
+    }
+   }
+  },
+  "ViewContainer": {
+   "abstract": false,
+   "supers": [
+    "ViewElement"
+   ],
+   "features": {
+    "isLandmark": {
+     "type": "Boolean",
+     "many": false,
+     "composite": false
+    },
+    "isDefault": {
+     "type": "Boolean",
+     "many": false,
+     "composite": false
+    },
+    "isXOR": {
+     "type": "Boolean",
+     "many": false,
+     "composite": false
+    },
+    "viewElements": {
+     "type": "ViewElement",
+     "many": true,
+     "composite": true
+    },
+    "actions": {
+     "type": "Action",
+     "many": true,
+     "composite": true
+    }
+   }
+  },
+  "ViewElement": {
+   "abstract": false,
+   "supers": [
+    "InteractionFlowElement"
+   ],
+   "features": {
+    "viewElementEvents": {
+     "type": "ViewElementEvent",
+     "many": true,
+     "composite": true
+    },
+    "activationExpression": {
+     "type": "ActivationExpression",
+     "many": false,
+     "composite": false
+    },
+    "viewContainer": {
+     "type": "ViewContainer",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "ViewElementEvent": {
+   "abstract": false,
+   "supers": [
+    "CatchingEvent"
+   ],
+   "features": {
+    "viewElement": {
+     "type": "ViewElement",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "Viewpoint": {
+   "abstract": false,
+   "supers": [
+    "NamedElement"
+   ],
+   "features": {
+    "interactionFlowModelElements": {
+     "type": "InteractionFlowModelElement",
+     "many": true,
+     "composite": false
+    },
+    "context": {
+     "type": "Context",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "VisualizationAttribute": {
+   "abstract": false,
+   "supers": [
+    "ViewComponentPart"
+   ],
+   "features": {
+    "featureConcept": {
+     "type": "FeatureConcept",
+     "many": false,
+     "composite": false
+    }
+   }
+  },
+  "Window": {
+   "abstract": false,
+   "supers": [
+    "ViewContainer"
+   ],
+   "features": {
+    "isModal": {
+     "type": "Boolean",
+     "many": false,
+     "composite": false
+    },
+    "isNewWindow": {
+     "type": "Boolean",
+     "many": false,
+     "composite": false
+    }
+   }
+  }
+ }
+}
