@@ -5,7 +5,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | File | Purpose |
 |------|---------|
 | `agent-path-gate.spec.ts` | L3 path gate. → see `agent-path-gate.spec.ts.AGENTS.md` |
-| `archive-service-sessions-on-end.spec.ts` | L3 #F1/#F5 archive-on-end run session. → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
+| `archive-service-sessions-on-end.spec.ts` | L3 #F1/#F5 service-session archive on end. → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | L3 F8/F11 archived attachment. → see `archived-attachment.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
@@ -14,7 +14,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
-| `plugin-embedded-app.spec.ts` | Demo `"content"` claim F1–F5. → see `plugin-embedded-app.spec.ts.AGENTS.md` |
+| `plugin-embedded-app.spec.ts` | L3 demo `"content"` embedded app (F1/F2). → see `plugin-embedded-app.spec.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | L3 demo-plugin seams, unmocked: F1 start → auth… → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
 | `preview-denial-remedy.spec.ts` | L3 preview denial remedy (#F1,#F4-#F13,#X1,#X2). → see `preview-denial-remedy.spec.ts.AGENTS.md` |
 | `push-webhook-settings.spec.ts` | L3 #F9 push webhook. → see `push-webhook-settings.spec.ts.AGENTS.md` |
@@ -180,7 +180,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `split-composer-overflow.spec.ts` | Browser E2E gate for `fix-split-composer-overflow`. Opens… → see `split-composer-overflow.spec.ts.AGENTS.md` |
 | `subagent-detail-dialog.spec.ts` | Playwright spec (change: fix-subagent-live-detail-reliabili… → see `subagent-detail-dialog.spec.ts.AGENTS.md` |
 | `subagent-inspector.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Drives… → see `subagent-inspector.spec.ts.AGENTS.md` |
-| `subagent-live-timeline.spec.ts` | L3 live subagent timeline F1–F4. → see `subagent-live-timeline.spec.ts.AGENTS.md` |
+| `subagent-live-timeline.spec.ts` | L3 live subagent timeline. → see `subagent-live-timeline.spec.ts.AGENTS.md` |
 | `subagent-pull-measurements.spec.ts` | RECORDED-EVIDENCE measurement rows for the subagent pull… → see `subagent-pull-measurements.spec.ts.AGENTS.md` |
 | `subagent-pull-under-load.spec.ts` | L3 open-inspector PULL path (verify-subagent-pull-under-loa… → see `subagent-pull-under-load.spec.ts.AGENTS.md` |
 | `subagent-thin-tick-liveness.spec.ts` | L3 subagent push/pull split: terminal fidelity after… → see `subagent-thin-tick-liveness.spec.ts.AGENTS.md` |

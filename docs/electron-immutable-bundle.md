@@ -71,6 +71,8 @@ The server never selects `local`. No `/api/runtime/*` route sets a local path; `
 
 Stager installs X into `versions/X.partial/`, lockstep-checks every `@blackbelt-technology/*` package == X, materializes first-party plugins into `resources/plugins/`, writes `runtime-manifest.json`, renames to `versions/X/`, sets `pending`. Never activates. Any failure removes `.partial`; `request.json` untouched.
 
+After plugin set check, `findUnresolvedPluginDeps` against staged root. Failure → `RuntimeStageError` code `plugin_deps_unresolved` (`.partial` removed, request untouched).
+
 Activation is Electron-owned. Server writes `activateNonce`; Electron watcher stops old server, gates, re-points extension, spawns X, health-gates, commits or rolls back. Full sequence: [electron-bootstrap-flow.md](./electron-bootstrap-flow.md).
 
 ### runtime-manifest.json
@@ -99,11 +101,28 @@ Keep `current` + `previous`. `pruneVersions()` deletes every other `versions/*` 
 
 Pre-R3 builds installed pi/openspec/tsx into `~/.pi-dashboard/node_modules/` at runtime. R3 leaves that dir untouched. `detectLegacyManagedDir({ homedir })` in `packages/shared/src/legacy-managed-dir.ts` returns `{present:true, path, pkgCount, sizeMb}` when detected; Doctor surfaces a warning-severity advisory ("Legacy install directory"). Server CLI logs the path once at startup. Safe to delete manually (`rm -rf ~/.pi-dashboard`).
 
+## Bundled plugin dependencies
+
+Bundled plugins ship to `resources/server/resources/plugins/<id>/` WITHOUT `node_modules`. `materializeBundledPlugins` (`packages/shared/src/runtime-overlay/materialize-plugins.mjs`) excludes nested `node_modules`. Plugins resolve modules only via `resources/server/node_modules`.
+
+Third-party plugin deps hoist to root `node_modules` at build. `bundle-server.mjs` writes synthetic root `package.json` with `dependencies: pluginRuntimeDeps` = `collectPluginRuntimeDeps({ids, resolveSource, workspaceManifests})`: union of bundled plugins' third-party `dependencies`. Excludes `@blackbelt-technology/*`, `peerDependencies`, `devDependencies`, `optionalDependencies`. `npm install --omit=dev` places them at root `node_modules` slot. pi/openspec/tsx still arrive only through the server workspace.
+
+Specifier rules (build fails, `✗` + exit 1): every declaration of a collected name across bundled plugins AND `BUNDLED_WORKSPACE_PKGS` manifests must be identical string. Plugin specifier with `:` or `/` (`file:`, `workspace:`, `link:`, `git+`, `npm:` alias, `user/repo`) rejected. Fix = align declarations.
+
+`findUnresolvedPluginDeps({pluginsDir, rootDir})`: fs-existence check of `node_modules/<dep>/package.json` from plugin dir up to and including `rootDir`, never above. Monorepo/`~` node_modules cannot mask missing dep. A dep npm nested under the plugin package fails.
+
+Motivating failure: gmail plugin `Cannot find module 'oauth4webapi'` in extracted AppImage. Old build-time gate stayed green — booted bundle inside repo, Node walked up into monorepo `node_modules`.
+
+See change: bundle-plugin-third-party-deps
+
 ## Bundle guardrails
 
 - `packages/electron/scripts/bundle-server.mjs` Phase 1 GO/NO-GO: asserts `node-pty/prebuilds/{darwin-arm64,darwin-x64,linux-x64,win32-x64}/` exist after `npm install --omit=dev`. Build fails loudly on missing prebuilds.
 - `scripts/verify-release-deps.mjs` blocks release if pi/openspec/tsx/node-pty/jiti regress below pinned floor.
 - Repo-lint `packages/shared/src/__tests__/no-managed-dir-reference.test.ts` walks `packages/electron/src/lib/`, `packages/server/src/`, `packages/shared/src/`. Fails when a file references `.pi-dashboard` outside the explicit allowlist (detector + read-only probes + standalone-arm-only pi-core update writes).
+- Gate 1 `packages/electron/scripts/assert-bundled-plugins-complete.mjs`: presence check then resolvability. Failure lists `plugin → dep`; success prints `<dep>@<installedVersion>`. Env `BUNDLE_ROOT_DIR` (default `dirname(dirname(BUNDLE_PLUGINS_DIR))` = `resources/server`). Runs on every CI electron leg and from `build-installer.sh` after a rebundle.
+- Gate 2 `packages/electron/scripts/assert-bundled-server-plugin-load.mjs`: enables every bundled server-entry plugin (temp-HOME `config.json`), requires `Loaded plugin "<id>"` for each, zero `Failed to load plugin` / `Skipping plugin`. `VERDICT_TIMEOUT_MS` (120000) idle budget, restarts on each new verdict.
+- `build-installer.sh` freshness watch list derived by `packages/electron/scripts/bundle-watch-paths.mjs`: bundle workspaces + bundled plugins `src` + `package.json`, server manifest, built client, bundler.
 
 ## What broke before R3
 
