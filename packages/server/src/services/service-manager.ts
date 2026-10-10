@@ -845,7 +845,16 @@ export class ServiceManager {
             }
             for (const d of this.driversOf(def)) await d.remove(def, instanceId, { purgeData: opts.purgeData === true });
           }
-          await this.secrets.deleteService(id);
+          // Keep slots another definition still references (`store:<id>/<n>`).
+          const keep = new Set<string>();
+          for (const other of r.entries) {
+            if (other.id === id || !other.def) continue;
+            for (const n of Object.keys(other.def.secrets ?? {})) {
+              const slot = storeSlotOf(other.def, n);
+              if (slot?.id === id) keep.add(`${slot.id}/${slot.name}`);
+            }
+          }
+          await this.secrets.deleteService(id, keep);
           removeSecretMounts(this.deps.paths.secretsDir(id));
           fs.rmSync(this.deps.paths.runDir(id), { recursive: true, force: true });
           await this.definitions.mutate((file) => {

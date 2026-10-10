@@ -3939,10 +3939,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // started (a created-but-never-started server touches nothing). Boot is
       // adoption only and a no-op without services.json; never blocks startup.
       // See change: add-service-registry-core.
+      // The scheduler starts whether or not adoption succeeded: lease sweeps,
+      // leased re-probes and idle-stop must run regardless.
       serviceManager
         .boot()
-        .then(() => serviceManager.startScheduler())
-        .catch((err: unknown) => console.warn(`[services] boot adoption failed: ${(err as Error).message}`));
+        .catch((err: unknown) => console.warn(`[services] boot adoption failed: ${(err as Error).message}`))
+        .finally(() => serviceManager.startScheduler());
 
       // Bind-vs-trust reachability. A loopback or specific-NIC bind silently
       // voids a trusted network outside its range: the TCP connection is

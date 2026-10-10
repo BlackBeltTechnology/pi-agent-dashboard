@@ -115,11 +115,15 @@ export class SecretsStore {
     });
   }
 
-  /** Remove every `<id>/*` key. A missing file is a no-op (never created). */
-  async deleteService(id: string): Promise<void> {
+  /**
+   * Remove every `<id>/*` key except `keep` (`<id>/<name>` slots another
+   * definition still references through a `store:` ref). A missing file is a
+   * no-op (never created).
+   */
+  async deleteService(id: string, keep: ReadonlySet<string> = new Set()): Promise<void> {
     if (!fs.existsSync(this.file)) return;
     await this.mutate((bag) => {
-      for (const k of Object.keys(bag)) if (k.startsWith(`${id}/`)) delete bag[k];
+      for (const k of Object.keys(bag)) if (k.startsWith(`${id}/`) && !keep.has(k)) delete bag[k];
     });
   }
 }

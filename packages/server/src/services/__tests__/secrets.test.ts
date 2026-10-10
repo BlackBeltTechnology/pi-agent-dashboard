@@ -108,6 +108,20 @@ describe("store slot follows a store: ref on every path", () => {
     expect((await manager.list()).services[0].secrets).toEqual({ password: { configured: true } });
     expect((await manager.ensure("obs")).state).toBe("healthy");
   });
+  it("removing a service keeps its slots another definition still references", async () => {
+    writeDefinitions(root, [
+      { ...obsDef(), id: "neo4j", secrets: { password: {}, admin: {} } },
+      { ...obsDef(), id: "app", secrets: { db: { ref: "store:neo4j/password" } } },
+    ]);
+    const { manager } = makeManager(root, { drivers: { external: new FakeDriver("external") } });
+    await manager.setSecret("neo4j", "password", "shared");
+    await manager.setSecret("neo4j", "admin", "private");
+    await manager.remove("neo4j");
+    const store = new SecretsStore(secretsFile());
+    expect(store.get("neo4j", "password")).toBe("shared");
+    expect(store.get("neo4j", "admin")).toBeUndefined();
+    expect((await manager.ensure("app")).state).toBe("healthy");
+  });
   it("a malformed store ref is secret-unavailable, not a lookup of a truncated key", async () => {
     const r = await resolveSecretRef("store:noslash", resolverDeps());
     expect(r).toMatchObject({ ok: false, reason: "secret-unavailable" });
