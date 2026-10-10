@@ -17,6 +17,7 @@ const SEQ_KEYWORDS = new Set([
   "critical", "break", "box", "activate", "deactivate", "autonumber", "title", "create", "destroy",
 ]);
 const SEQ_OPEN = new Set(["alt", "loop", "opt", "par", "critical", "rect", "break", "box"]);
+const SEQ_HEADER = new Set([...SEQ_OPEN, "else", "and", "option"]);
 
 /** Index of the first body line after a leading `---` frontmatter block. */
 function bodyStart(lines: string[]): number {
@@ -105,7 +106,13 @@ function r2SeqAlias(code: string): string {
     lines = lines.map((line) => {
       // A line consisting solely of a keyword (e.g. the block terminator `end`) is syntax, not an alias.
       if (SEQ_KEYWORDS.has(line.trim().toLowerCase())) return line;
-      return line.replace(decl, `$1${name}`).replace(use, name);
+      const declared = line.replace(decl, `$1${name}`);
+      // Block headers (`loop until end`, `else end`) carry free text, not endpoints.
+      if (SEQ_HEADER.has(declared.trim().split(/\s+/)[0].toLowerCase())) return declared;
+      // Only the endpoint part before the first `:` names participants; the rest is message text.
+      const colon = declared.indexOf(":");
+      if (colon < 0) return declared.replace(use, name);
+      return declared.slice(0, colon).replace(use, name) + declared.slice(colon);
     });
   }
   return lines.join("\n");

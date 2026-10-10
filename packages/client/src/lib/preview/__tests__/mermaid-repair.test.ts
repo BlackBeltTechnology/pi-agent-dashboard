@@ -32,6 +32,20 @@ describe("repairMermaid — R2 keyword aliases", () => {
     expect(lines).toEqual(["sequenceDiagram", "participant p_end", "alt ok", "p_end->>Alice: y", "end"]);
   });
 
+  it("renames only endpoints: message text and block headers keep the keyword", () => {
+    const r = repairMermaid(
+      "sequenceDiagram\nparticipant end\nloop until end\nAlice->>end: see end-of-year\nNote over end: end\nend",
+    );
+    expect(r.code.split("\n")).toEqual([
+      "sequenceDiagram",
+      "participant p_end",
+      "loop until end",
+      "Alice->>p_end: see end-of-year",
+      "Note over p_end: end",
+      "end",
+    ]);
+  });
+
   it("picks a collision-free alias (E4)", () => {
     const r = repairMermaid("sequenceDiagram\nparticipant end\nparticipant p_end\nend->>p_end: hi");
     expect(r.code).toContain("participant p_end_2");
