@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-flow-agent-popout. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: `shell-overlay-route` slot in the frozen taxonomy
 
 The frozen slot taxonomy in `@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types` SHALL include a slot id `"shell-overlay-route"` with `multiplicity: "many"` and `payloadTier: "react-only"`. Adding this slot is a minor (additive) change to the v0.x taxonomy.
@@ -12,13 +14,13 @@ fields on the `PluginClaim`, NOT inside the generic `config` bag — the
 slot consumer reads them via the typed `ClaimEntry` contract):
 
 - `component: string` — exported component name from the plugin's client entry.
-- `path: string` — wouter path pattern (e.g. `/session/:sid/flow/:flowId/agent/:agentId`), MUST start with `/`.
+- `path: string` — wouter path pattern (e.g. `/session/:sid/flow/:flowId/agent/:agentId`), MUST start with `/`. The pattern MAY end in the optional trailing wildcard `/*?`: it then matches the base path and any deeper path, and the remainder is exposed as `params["*"]`, normalised to `""` at the base. Only that literal trailing `/*?` is accepted; any other `*` (including a trailing `/*`) SHALL be a fatal `ManifestValidationError`. Every match decision for a claim (aggregate matched flag, effective presentation, params, back-target descriptor) SHALL agree for the same URL.
 - `sessionParam: string` (optional, default `"sid"`) — name of the URL parameter that holds the parent session id; used by the slot consumer to resolve `DashboardSession` metadata for the claim.
 - `depth: 1 | 2` (optional) — the shell navigation depth this route occupies for the depth-aware back action (`1` = detail, `2` = overlay-on-detail). When omitted, the route SHALL be treated as `depth: 2` (overlay → cards) and the validator SHALL emit a non-fatal warning advising the author to declare `depth`.
-- `parentPath: string` (optional) — for `depth: 2` routes, the wouter path pattern of the route the back action returns to; `:params` in `parentPath` SHALL be interpolated from the current route match. When omitted, a `depth: 2` route's back target defaults to `/` (cards).
-- `presentation: "page" | "dialog"` (optional, default `"dialog"`) — the container the shell renders the claim in. `"dialog"` SHALL render a route-backed overlay: a `Dialog` over a scrim over the pinned background underlay on desktop, and the `MobileShell` depth slide on mobile. The underlay SHALL be rendered from the frozen background path captured at navigation time (or, on a cold load, synthesized from the claim's back target), NOT from the current location. `"page"` SHALL render the claim full-viewport on **both** desktop and mobile, outside the `MobileShell` detail panel. An unrecognised value SHALL be a fatal `ManifestValidationError`, NOT a warn-and-default, so a typo cannot silently restore the behaviour the author opted out of.
+- `parentPath: string` (optional) — for `depth: 2` routes, the wouter path pattern of the route the back action returns to; `:params` in `parentPath` SHALL be interpolated from the current route match. When omitted, a `depth: 2` route's back target defaults to `/` (cards). A `depth: 1` route's back target is `/`.
+- `presentation: "page" | "dialog" | "content"` (optional, default `"dialog"`) — the container the shell renders the claim in. `"dialog"` SHALL render a route-backed overlay: a `Dialog` over a scrim over the pinned background underlay on desktop, and the `MobileShell` depth slide on mobile. The underlay SHALL be rendered from the frozen background path captured at navigation time (or, on a cold load, synthesized from the claim's back target), NOT from the current location. `"page"` SHALL render the claim full-viewport on **both** desktop and mobile, outside the `MobileShell` detail panel. `"content"` SHALL render the claim in the shell content area beside the sidebar, exactly where the OpenSpec board renders (`/folder/:encodedCwd/openspec`), and in the `MobileShell` detail panel at its declared `depth` on mobile (for `"content"` only, the declared depth overrides the overlay-route depth 2; `"dialog"` claims keep depth 2); a `"content"` claim has no dismissal gesture — its back action is the descriptor's back target. An unrecognised value SHALL be a fatal `ManifestValidationError`, NOT a warn-and-default, so a typo cannot silently restore the behaviour the author opted out of.
 
-Each `shell-overlay-route` claim SHALL contribute one route descriptor (`{ pattern: path, depth, computeParent }`) consumed by the back-target route classifier, so the global depth-aware back action resolves plugin routes without any core-shell edit. `depth` remains REQUIRED for `presentation: "page"` claims, because a page has no dialog dismissal and the descriptor table is the only thing driving its back action. `parentPath` is required under exactly the same rule as any other claim — whenever `depth: 2` — and NOT as an extra condition of `"page"`, which would be unsatisfiable for a `depth: 1` claim.
+Each `shell-overlay-route` claim SHALL contribute one route descriptor (`{ pattern: path, depth, computeParent }`) consumed by the back-target route classifier, so the global depth-aware back action resolves plugin routes without any core-shell edit. `depth` remains REQUIRED for `presentation: "page"` and `"content"` claims, because neither has dialog dismissal and the descriptor table is the only thing driving its back action. `parentPath` is required under exactly the same rule as any other claim — whenever `depth: 2` — and NOT as an extra condition of `"page"`, which would be unsatisfiable for a `depth: 1` claim.
 
 For backward compatibility, `config.path` / `config.sessionParam` are
 recognised by the validator and lifted to the top-level normalised
@@ -67,13 +69,30 @@ claim, but new manifests SHALL use the top-level fields directly.
 #### Scenario: Unrecognised presentation is fatal
 
 - **WHEN** the manifest validator processes a `shell-overlay-route` claim with `presentation: "modal"`
-- **THEN** validation SHALL throw `ManifestValidationError` naming the claim index and the accepted values `"page"` and `"dialog"`
+- **THEN** validation SHALL throw `ManifestValidationError` naming the claim index and the accepted values `"page"`, `"dialog"` and `"content"`
 - **AND** the claim SHALL NOT be silently defaulted to `"dialog"`
 
 #### Scenario: Build-time generator emits presentation
 
 - **WHEN** the Vite plugin generates the static plugin registry for a claim declaring `presentation: "page"`
 - **THEN** the emitted runtime `ClaimEntry` SHALL carry `presentation: "page"` as a top-level field
+
+#### Scenario: Content presentation requires depth
+
+- **WHEN** the manifest validator processes a claim with `presentation: "content"` and no `depth`
+- **THEN** validation SHALL throw `ManifestValidationError` referencing the missing `depth`
+
+#### Scenario: Trailing wildcard accepted, inner wildcard rejected
+
+- **WHEN** the manifest validator processes claims with `path: "/folder/:encodedCwd/wall/*?"` and `path: "/folder/*/wall"`
+- **THEN** the first SHALL validate
+- **AND** the second SHALL throw `ManifestValidationError` referencing the invalid path
+- **AND** `path: "/folder/:encodedCwd/wall/*"` SHALL also throw
+
+#### Scenario: Content presentation survives normalisation
+
+- **WHEN** the manifest validator normalises a claim declaring `presentation: "content"` and `depth: 2`
+- **THEN** the normalised claim SHALL carry `presentation: "content"`
 
 ### Requirement: `<ShellOverlayRouteSlot>` consumer renders the first matching claim
 
@@ -98,6 +117,7 @@ The consumer SHALL select the matched claim's container from its effective `pres
 
 - `"dialog"` (default) — on desktop the claim SHALL render inside a `Dialog` over a scrim over the pinned background underlay. On mobile the claim SHALL render inside the `MobileShell` detail panel at its declared `depth`.
 - `"page"` — the claim SHALL render full-viewport on desktop AND mobile, outside the `MobileShell` detail panel.
+- `"content"` — on desktop the claim SHALL render in the shell content area with the sidebar (and its header) visible and interactive, with no scrim and no underlay, exactly like the OpenSpec board. On mobile the claim SHALL render inside the `MobileShell` detail panel at its declared `depth`.
 
 A matched slot claim SHALL NOT render any lower-priority branch of the shell chain **derived from the current location**. The pinned background underlay is not such a branch: it is rendered from a frozen path through a location source independent of `window.location`, so exactly one branch is ever derived from the URL. The underlay SHALL be `aria-hidden`, outside the overlay's focus trap, and non-interactive while the claim is open.
 
@@ -169,6 +189,29 @@ Dismissing a `"dialog"` claim (backdrop click, `Esc`, or the close affordance) S
 - **WHEN** the claim's path matches on a desktop viewport
 - **THEN** the claim SHALL render full-viewport and SHALL NOT be wrapped in a `Dialog`
 - **AND** when the same path matches on a mobile viewport the claim SHALL render full-viewport outside the `MobileShell` detail panel
+
+#### Scenario: Trailing wildcard claim matches sub-routes
+
+- **GIVEN** a claim with `path: "/folder/:encodedCwd/wall/*?"`
+- **WHEN** the URL is `/folder/<encodedCwd>/wall` or `/folder/<encodedCwd>/wall/graph/node-1`
+- **THEN** the claim SHALL match in both cases, with `params["*"]` equal to `""` and `"graph/node-1"` respectively
+- **AND** its route descriptor SHALL resolve the same back target for both URLs
+
+#### Scenario: `presentation: "content"` renders beside the sidebar like the OpenSpec board
+
+- **GIVEN** a claim declaring `path: "/folder/:encodedCwd/wall"`, `depth: 2`, `parentPath: "/folder/:encodedCwd"`, `presentation: "content"`
+- **WHEN** the user navigates to `/folder/<encodedCwd>/wall` on a desktop viewport
+- **THEN** the claim SHALL render in the content area, the sidebar SHALL stay visible and interactive, and no `Dialog`, scrim or underlay SHALL render
+- **AND** pressing `Esc` SHALL NOT navigate away from the claim
+- **AND** on a mobile viewport the claim SHALL render in the `MobileShell` detail panel and Back SHALL return to `/folder/<encodedCwd>`
+
+#### Scenario: Mobile content claim uses its declared depth
+
+- **GIVEN** a claim declaring `path: "/team/*?"`, `depth: 1`, `presentation: "content"`
+- **WHEN** the user opens `/team/` on a mobile viewport
+- **THEN** `MobileShell` SHALL show the claim at depth 1, not depth 2
+- **AND** Back SHALL return to `/`
+- **AND** a `"dialog"` claim declaring `depth: 1` SHALL still render at mobile depth 2
 
 ### Requirement: `useShellOverlayRouteMatched` hook for aggregate gating
 
@@ -349,4 +392,3 @@ Verification SHALL run in a real browser against every overlay route.
 - **WHEN** a new route-backed overlay route is added
 - **THEN** it SHALL be covered by the same reachability assertions as the
   existing routes, so a newly converted surface cannot regress silently
-

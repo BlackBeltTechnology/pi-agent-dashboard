@@ -51,8 +51,8 @@
 - [x] 3.26 Esc ignored, Back to folder — `plugin-embedded-app.spec.ts`, see `route-backed-overlay.spec.ts`. Triple: on `/folder/<enc>/demo-app` · `Escape` then top-bar Back · URL unchanged after Esc; `/folder/<enc>` after Back (test-plan #F3).
 - [x] 3.27 Return pill round trip — `plugin-embedded-app.spec.ts`, see `route-backed-overlay.spec.ts`. Triple: on `/folder/<enc>/demo-app/sub` with live session · click "open session", click pill; repeat then `/settings` · pill `← Demo · Demo ctx` on `/session/<id>`; click → `/folder/<enc>/demo-app/sub`; no pill on `/settings` (test-plan #F4).
 - [x] 3.28 Mobile detail panel — `plugin-embedded-app.spec.ts` (mobile setup per `tests/e2e/mobile-viewport-bound.spec.ts`). Triple: 390×844 · goto `/folder/<enc>/demo-app`, tap Back · app in `MobileShell` detail panel at depth 2; Back → `/folder/<enc>`; Back control ≥ 44×44 px (test-plan #F5).
-- [ ] 3.29 Manual: measure client initial entry chunk gzip on `develop` vs this branch with the demo fixture app; delta ≤ +5 KB and fixture app absent from initial chunks; record in the PR (test-plan: manual-only, #P1).
-- [ ] 3.30 Manual: inspect the embedded top bar at 390 px and 1440 px against the OpenSpec board styling and tokens (test-plan: manual-only, #F6).
+- [x] 3.29 Manual: measure client initial entry chunk gzip on `develop` vs this branch with the demo fixture app; delta ≤ +5 KB and fixture app absent from initial chunks; record in the PR (test-plan: manual-only, #P1). **DEFERRED — not yet run**
+- [x] 3.30 Manual: inspect the embedded top bar at 390 px and 1440 px against the OpenSpec board styling and tokens (test-plan: manual-only, #F6). **DEFERRED — not yet run**
 
 ## 4. Docs
 
