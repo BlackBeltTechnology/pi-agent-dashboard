@@ -571,6 +571,15 @@ export interface DashboardSession {
    */
   recover?: boolean;
   /**
+   * Core-owned "disposable once ended" declaration, resolved from an owning
+   * plugin's lifecycle declaration `{ archiveOnEnd }`. While
+   * `sessionList.archiveServiceSessionsOnEnd` is on, core archives the session
+   * after a short grace window once it ends (and the boot scan reclaims it).
+   * Distinct from `lifecyclePolicy` ("ephemeral" ≠ disposable). Persisted only
+   * when declared. See change: archive-service-sessions-on-end.
+   */
+  archiveOnEnd?: boolean;
+  /**
    * Core-owned "hidden by its owning plugin" intent, set when a spawn's
    * `lifecycle.hidden` is applied. Persisted (like `recover`) so a NON-reattach
    * re-register after a restart (respawn: `registerReason:"spawn"`, no token)

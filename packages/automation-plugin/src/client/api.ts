@@ -119,6 +119,31 @@ export async function getRunResult(
   }
 }
 
+/** A run resolved from the run store by its session id. */
+export interface RunBySession {
+  status: string;
+  runId: string;
+  name: string;
+  result?: string;
+}
+
+/**
+ * Resolve a run from the run store by the session id it spawned — the run
+ * monitor's fallback once the run session is archived (not resident).
+ * `null` when not found or on error. See change: archive-service-sessions-on-end.
+ */
+export async function getRunBySessionId(cwd: string | undefined, sessionId: string): Promise<RunBySession | null> {
+  const params = new URLSearchParams({ sessionId });
+  if (cwd) params.set("cwd", cwd);
+  try {
+    const res = await fetch(`${BASE}/result?${params.toString()}`);
+    if (!res.ok) return null;
+    return (await res.json()) as RunBySession;
+  } catch {
+    return null;
+  }
+}
+
 export interface CreateAutomationBody {
   scope: AutomationScope;
   cwd?: string;

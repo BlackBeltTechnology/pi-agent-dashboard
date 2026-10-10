@@ -5,6 +5,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | File | Purpose |
 |------|---------|
 | `agent-path-gate.spec.ts` | L3 path gate. → see `agent-path-gate.spec.ts.AGENTS.md` |
+| `archive-service-sessions-on-end.spec.ts` | L3 #F1/#F5: declared run session reclaimed into folder Archive; run monitor archived fallback. → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | L3 F8/F11 archived attachment. → see `archived-attachment.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |

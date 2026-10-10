@@ -4,7 +4,8 @@ import path from "node:path";
 import { metaPath, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { STATS_EXTRACTOR_VERSION } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { scanAllSessions } from "../session/session-scanner.js";
+import { _resetBootStateForTests, readServiceArchiveBackfillAt } from "../persistence/boot-state.js";
+import { bootScanAllSessions, scanAllSessions } from "../session/session-scanner.js";
 import { extractSessionStats } from "../session/session-stats-reader.js";
 
 // Mock extractSessionStats to avoid needing real JSONL content with usage data
@@ -596,6 +597,127 @@ describe("boot archive decision table (E10, E20)", () => {
     const rebuilt = JSON.parse(fs.readFileSync(metaPath(file), "utf-8"));
     expect(rebuilt.cwd).toBe("/repo");
     expect(rebuilt.archived).toBeUndefined();
+  });
+});
+
+// ── Service-session boot backfill (test-plan #E18–#E23, #X7) ─────────────────
+// Declared leg every boot; legacy (ephemeral, undeclared) leg once, gated by
+// the `serviceArchiveBackfillAt` stamp in boot-state.json.
+// See change: archive-service-sessions-on-end.
+describe("service-session boot backfill", () => {
+  let root: string;
+  let dir: string;
+  const bootStatePath = () => path.join(os.homedir(), ".pi", "dashboard", "boot-state.json");
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "scanner-svc-"));
+    dir = path.join(root, "--repo--");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.rmSync(bootStatePath(), { force: true });
+    _resetBootStateForTests();
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(bootStatePath(), { force: true });
+    vi.restoreAllMocks();
+  });
+
+  function seed(id: string, meta: Record<string, unknown>): string {
+    const file = path.join(dir, `2026-03-30T21-39-43-034Z_${id}.jsonl`);
+    fs.writeFileSync(file, `${JSON.stringify({ type: "session", id, cwd: "/repo" })}\n`);
+    writeSessionMeta(file, {
+      cwd: "/repo",
+      statsExtractorVersion: STATS_EXTRACTOR_VERSION,
+      cachedAt: Date.now() + 10 * DAY,
+      ...meta,
+    } as never);
+    return file;
+  }
+  const readMeta = (file: string) => JSON.parse(fs.readFileSync(metaPath(file), "utf-8"));
+  const ids = (rows: { id: string }[]) => rows.map((r) => r.id).sort();
+
+  it("#E18 declared, not live, status idle, 1 h old → archived at scan, not in sessions", () => {
+    const now = Date.now();
+    const f = seed("decl", { archiveOnEnd: true, live: false, status: "idle", lifecyclePolicy: "ephemeral", endedAt: now - 3_600_000 });
+    const result = scanAllSessions(root, { archiveAfterDays: 30, archiveServiceSessionsOnEnd: true, now });
+    expect(ids(result.archived)).toEqual(["decl"]);
+    expect(result.sessions.find((s) => s.id === "decl")).toBeUndefined();
+    expect(readMeta(f)).toMatchObject({ archived: true });
+    expect(result.serviceArchived).toBe(1);
+  });
+
+  it("#E19 declared without lifecyclePolicy → archived at scan", () => {
+    const now = Date.now();
+    seed("decl-durable", { archiveOnEnd: true, live: false, status: "ended", endedAt: now - 3_600_000 });
+    const result = scanAllSessions(root, { archiveAfterDays: 30, archiveServiceSessionsOnEnd: true, now });
+    expect(ids(result.archived)).toEqual(["decl-durable"]);
+  });
+
+  it("#E20 legacy pass archives undeclared ephemeral sidecars younger than the age threshold, logged per id", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const now = Date.now();
+    for (const id of ["l1", "l2", "l3"]) {
+      seed(id, { lifecyclePolicy: "ephemeral", live: false, status: "ended", endedAt: now - 21 * DAY });
+    }
+    seed("user", { live: false, status: "ended", endedAt: now - 21 * DAY });
+    const result = scanAllSessions(root, { archiveAfterDays: 30, archiveServiceSessionsOnEnd: true, legacyPass: true, now });
+    expect(ids(result.archived)).toEqual(["l1", "l2", "l3"]);
+    expect(result.sessions.map((s) => s.id)).toEqual(["user"]);
+    const lines = info.mock.calls.map((c) => String(c[0]));
+    for (const id of ["l1", "l2", "l3"]) {
+      expect(lines).toContain(`[archive] service-end-backfill archived ${id}`);
+    }
+  });
+
+  it("#E23 gate exclusions: archived:false, live:true (declared + ephemeral), setting off", () => {
+    const now = Date.now();
+    seed("restored", { lifecyclePolicy: "ephemeral", archived: false, live: false, status: "ended", endedAt: now - DAY });
+    seed("live-decl", { archiveOnEnd: true, live: true, status: "running", endedAt: now - DAY });
+    seed("live-eph", { lifecyclePolicy: "ephemeral", live: true, status: "running" });
+    const on = scanAllSessions(root, { archiveAfterDays: 30, archiveServiceSessionsOnEnd: true, legacyPass: true, now });
+    expect(on.archived).toEqual([]);
+
+    seed("decl-off", { archiveOnEnd: true, live: false, status: "ended", endedAt: now - DAY });
+    const off = scanAllSessions(root, { archiveAfterDays: 30, archiveServiceSessionsOnEnd: false, legacyPass: true, now });
+    expect(off.archived).toEqual([]);
+    expect(off.serviceArchived).toBe(0);
+  });
+
+  it("#E21 boot #1 runs the legacy pass and stamps; boot #2 keeps a new ephemeral sidecar", () => {
+    const now = Date.now();
+    seed("old-run", { lifecyclePolicy: "ephemeral", live: false, status: "ended", endedAt: now - 21 * DAY });
+    const first = bootScanAllSessions(root, { archiveAfterDays: 30, archiveServiceSessionsOnEnd: true, now });
+    expect(ids(first.archived)).toEqual(["old-run"]);
+    expect(readServiceArchiveBackfillAt()).toEqual(expect.any(Number));
+
+    seed("embed-chat", { lifecyclePolicy: "ephemeral", live: false, status: "ended", endedAt: now - DAY });
+    const second = bootScanAllSessions(root, { archiveAfterDays: 30, archiveServiceSessionsOnEnd: true, now });
+    expect(second.sessions.map((s) => s.id)).toEqual(["embed-chat"]);
+    expect(ids(second.archived)).toEqual(["old-run"]); // already-archived row, indexed only
+  });
+
+  it("#E22 the legacy pass is deferred while the setting is off", () => {
+    const now = Date.now();
+    seed("old-run", { lifecyclePolicy: "ephemeral", live: false, status: "ended", endedAt: now - 21 * DAY });
+    const off = bootScanAllSessions(root, { archiveAfterDays: 30, archiveServiceSessionsOnEnd: false, now });
+    expect(off.archived).toEqual([]);
+    expect(readServiceArchiveBackfillAt()).toBeUndefined();
+
+    const on = bootScanAllSessions(root, { archiveAfterDays: 30, archiveServiceSessionsOnEnd: true, now });
+    expect(ids(on.archived)).toEqual(["old-run"]);
+    expect(readServiceArchiveBackfillAt()).toEqual(expect.any(Number));
+  });
+
+  it("#X7 a corrupt boot-state.json reads as no stamp: the legacy pass runs and the stamp is written", () => {
+    fs.mkdirSync(path.dirname(bootStatePath()), { recursive: true });
+    fs.writeFileSync(bootStatePath(), "{corrupt");
+    const now = Date.now();
+    seed("old-run", { lifecyclePolicy: "ephemeral", live: false, status: "ended", endedAt: now - 21 * DAY });
+    const result = bootScanAllSessions(root, { archiveAfterDays: 30, archiveServiceSessionsOnEnd: true, now });
+    expect(ids(result.archived)).toEqual(["old-run"]);
+    expect(readServiceArchiveBackfillAt()).toEqual(expect.any(Number));
+    expect(fs.existsSync(`${bootStatePath()}.tmp`)).toBe(false);
   });
 });
 

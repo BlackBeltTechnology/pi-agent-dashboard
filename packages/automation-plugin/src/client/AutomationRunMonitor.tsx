@@ -14,7 +14,11 @@
  * The transcript itself is the shell's ChatView for `session.id` — this
  * overlay adds the automation framing + result findings around it.
  *
- * See change: add-automation-plugin.
+ * Non-resident session (archived on end): resolves the run from the run store
+ * by `params.sid`, renders its status + `result.md`, and links the read-only
+ * archived transcript `/session/:sid?archived=1`.
+ *
+ * See change: add-automation-plugin, archive-service-sessions-on-end.
  */
 
 import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -22,7 +26,8 @@ import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/das
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
 import { useEffect, useState } from "react";
-import { getRunResult } from "./api.js";
+import { getRunBySessionId, getRunResult, type RunBySession } from "./api.js";
+import { decodeFolderPath } from "./folder-encoding.js";
 
 export interface AutomationRunMonitorProps {
   params?: Record<string, string>;
@@ -31,20 +36,62 @@ export interface AutomationRunMonitorProps {
   onBack?: () => void;
 }
 
+/** Status line: run-store status, else a missed lookup, else live/ended. */
+function statusLabel(
+  t: ReturnType<typeof useT>,
+  stored: RunBySession | null,
+  lookupMissed: boolean,
+  ended: boolean,
+): string {
+  if (stored) return stored.status;
+  if (lookupMissed) return t("runNotFound", undefined, "run not found");
+  return ended ? t("completed", undefined, "completed") : t("running", undefined, "running");
+}
+
 export function AutomationRunMonitor({
+  params,
   session,
   onBack,
 }: AutomationRunMonitorProps): React.ReactElement {
   const t = useT();
   const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
-  const run = session?.automationRun;
   const [result, setResult] = useState<string | null>(null);
+  const [stored, setStored] = useState<RunBySession | null>(null);
+  // The run-store lookup for a non-resident session came back empty.
+  const [lookupMissed, setLookupMissed] = useState(false);
 
-  const ended = session?.status === "ended";
+  // The run session is archived on end (evicted from the live set), so a
+  // missing `session` with a route `sid` means "resolve from the run store".
+  const archivedSid = !session ? params?.sid : undefined;
+  const archivedCwd = params?.encodedCwd ? (decodeFolderPath(params.encodedCwd) ?? undefined) : undefined;
+  useEffect(() => {
+    let cancelled = false;
+    if (!archivedSid) return;
+    void getRunBySessionId(archivedCwd, archivedSid)
+      .then((r) => {
+        if (cancelled) return;
+        if (!r) {
+          setLookupMissed(true);
+          return;
+        }
+        setStored(r);
+        setResult(r.result ?? null);
+      })
+      .catch((err: unknown) => {
+        console.error("[automation-plugin] failed to resolve archived automation run:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [archivedSid, archivedCwd]);
+
+  const resident = session !== undefined;
+  const run = session?.automationRun ?? (stored ? { name: stored.name, runId: stored.runId } : undefined);
+  const ended = session ? session.status === "ended" : stored !== null && stored.status !== "running";
 
   useEffect(() => {
     let cancelled = false;
-    if (!ended || !run?.runId) return;
+    if (!resident || !ended || !run?.runId) return;
     // Discard with a stated handler — a failed result fetch leaves the panel in
     // its loading state, so the reason must be observable.
     // See change: cleanup-client-plugin-promises.
@@ -58,7 +105,7 @@ export function AutomationRunMonitor({
     return () => {
       cancelled = true;
     };
-  }, [ended, run?.runId, session?.cwd]);
+  }, [resident, ended, run?.runId, session?.cwd]);
 
   return (
     <div data-testid="automation-run-monitor" className="flex flex-col gap-3 p-3 text-sm">
@@ -74,11 +121,23 @@ export function AutomationRunMonitor({
       </div>
 
       <div className="text-xs text-[var(--text-secondary)]">
-        <span data-testid="run-status">{ended ? t("completed", undefined, "completed") : t("running", undefined, "running")}</span>
+        <span data-testid="run-status">
+          {statusLabel(t, stored, lookupMissed, ended)}
+        </span>
         {run?.runId && <span className="ml-2 font-mono">{run.runId}</span>}
       </div>
 
-      {!ended && (
+      {archivedSid && (
+        <a
+          href={`/session/${encodeURIComponent(archivedSid)}?archived=1`}
+          data-testid="run-archived-transcript"
+          className="text-xs text-[var(--accent-primary)] hover:underline"
+        >
+          {t("openArchivedTranscript", undefined, "Open archived transcript")}
+        </a>
+      )}
+
+      {session && !ended && (
         <p className="text-xs text-[var(--text-muted)]" data-testid="run-live-hint">
           {t("runLiveHint", undefined, "This run is live — its tool calls and messages stream in the standard chat view for this session.")}
         </p>

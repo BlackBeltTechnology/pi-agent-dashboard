@@ -7,3 +7,5 @@
 - `SessionMeta.pluginHidden?` persisted hide intent. See change: fix-plugin-hidden-across-restart.
 
 `isShutdownWindowCandidate(s, ownerBoot, windowMs)` + `ShutdownWindowInput`: second cold-start recovery path. True iff `live!==true`, `liveEpoch`+`endedAt` set, `closedReason==='unknown'` (allowlist), `recover!==false`, `ownerBoot.bootId===liveEpoch`, intent ∈ {signal, user-quit}, |endedAt − at| ≤ windowMs. No `status` check. See change: fix-recovery-pi-signal-unregister.
+
+- `SessionMeta.archiveOnEnd?: boolean` — plugin disposability declaration, persisted only when declared. See change: archive-service-sessions-on-end.

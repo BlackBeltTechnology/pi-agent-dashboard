@@ -221,6 +221,63 @@ describe("effectiveVisibility", () => {
 });
 
 describe("engine run lifecycle", () => {
+  // test-plan #E26 (archive-service-sessions-on-end): every run declares
+  // itself disposable-on-end, hidden or shown. (The goal plugin's spawn keeps
+  // `lifecycle: { recover: false }` exactly — asserted with toEqual in
+  // goal-plugin plugin-action-handler.test.ts.)
+  it("declares archiveOnEnd on every run spawn, hidden and shown", () => {
+    const calls: any[] = [];
+    const engine = makeEngine(calls);
+    engine.startRunFor(promptAutomation("hidden-run", "x"));
+    engine.startRunFor(skillAutomation("shown-run"));
+    expect(calls).toHaveLength(2);
+    expect(calls[0].pluginRef.automationRun.visibility).toBe("hidden");
+    expect(calls[1].pluginRef.automationRun.visibility).toBe("shown");
+    for (const call of calls) {
+      expect(call.lifecycle).toEqual({ recover: false, finalizeOnSocketClose: true, archiveOnEnd: true });
+    }
+  });
+
+  // test-plan #X2: once the run session is archived (evicted from the live
+  // set) a late terminal / death event for it is a no-op.
+  it("a late agent_end / death for an already-finalized (archived) run session is a no-op", () => {
+    const calls: any[] = [];
+    const warnings: string[] = [];
+    const engine = createEngine({
+      spawnSession: async (opts) => {
+        calls.push(opts);
+        return { success: true, spawnToken: `tok-${calls.length}` };
+      },
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: () => ({
+        defaultVisibility: "hidden",
+        retention: 100,
+        defaultModel: "anthropic/claude-sonnet-4-5",
+        scanFolder: true,
+        scanGlobal: false,
+        maxRunAgeMs: 30 * 60 * 1000,
+      }),
+      readRoles: () => ({ fast: "anthropic/claude-haiku-4-5" }),
+      warn: (m: string) => { warnings.push(m); },
+    });
+    const { runId } = engine.startRunFor(promptAutomation("nightly", "Find regressions."))!;
+    engine.onSessionRegistered("sess-1", repo);
+    engine.onSessionEnded("sess-1", "Found 1 regression in auth.");
+    const parent = parentRun(repo, "nightly", runId);
+    const childBefore = JSON.stringify(readChildRuns(repo, parent));
+    const resultBefore = fs.readFileSync(path.join(readChildRuns(repo, parent)[0]!.dir, "result.md"), "utf-8");
+
+    expect(() => {
+      engine.onSessionEnded("sess-1", "late duplicate");
+      engine.onSessionDeath("sess-1");
+    }).not.toThrow();
+
+    expect(parentRun(repo, "nightly", runId).status).toBe("done");
+    expect(JSON.stringify(readChildRuns(repo, parent))).toBe(childBefore);
+    expect(fs.readFileSync(path.join(readChildRuns(repo, parent)[0]!.dir, "result.md"), "utf-8")).toBe(resultBefore);
+    expect(warnings).toEqual([]);
+  });
+
   it("prompt path: spawns with resolved model + hidden stamp, writes running record", () => {
     const calls: any[] = [];
     const engine = makeEngine(calls);

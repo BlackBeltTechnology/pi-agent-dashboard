@@ -22,6 +22,7 @@ const CORE_RESERVED_REF_KEYS: ReadonlySet<string> = new Set([
   "liveEpoch",
   "recover",
   "finalizeOnSocketClose",
+  "archiveOnEnd",
   "spawnToken",
   "sessionFile",
   "startedAt",

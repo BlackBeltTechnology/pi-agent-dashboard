@@ -13,7 +13,15 @@
  * sessions are deferred to a later tick; `live === true` recovery candidates
  * are never archived.
  *
- * See change: archive-sessions-lazy-load.
+ * Also owns the on-end archive of sessions DECLARED disposable
+ * (`archiveOnEnd`, set from a plugin's spawn lifecycle declaration):
+ * `scheduleServiceArchive(id)` arms one `SERVICE_ARCHIVE_GRACE_MS` timer per
+ * id; the fire re-validates eligibility (resident → ended → declared →
+ * not live → not restored since scheduling → setting on → viewed ⇒ re-arm)
+ * so plugin end-handlers that read the ended session finish first. `stop()`
+ * clears every timer and latches the instance (no scheduling, no `start()`).
+ *
+ * See change: archive-sessions-lazy-load, archive-service-sessions-on-end.
  */
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { getConfigSnapshot } from "../config-snapshot.js";
@@ -23,13 +31,23 @@ import type { SessionArchive } from "./session-archive.js";
 /** Max sessions archived in a single tick (oldest first). */
 const SWEEP_BATCH_CAP = 200;
 
+/** Delay between a declared-disposable session's end and its archive. */
+export const SERVICE_ARCHIVE_GRACE_MS = 30_000;
+
 export interface ArchiveSweeperDeps {
   sessionManager: SessionManager;
   sessionArchive: SessionArchive;
   /** True while at least one connected browser is viewing the session. */
   isViewed: (sessionId: string) => boolean;
   /** Live config read. Defaults to `getConfigSnapshot`. */
-  getConfig?: () => { sessionList: { archiveAfterDays: number; archiveSweepIntervalMinutes: number } };
+  getConfig?: () => {
+    sessionList: {
+      archiveAfterDays: number;
+      archiveSweepIntervalMinutes: number;
+      /** Absent ⇒ enabled (the config default). */
+      archiveServiceSessionsOnEnd?: boolean;
+    };
+  };
   now?: () => number;
   /** Injectable timer facade for tests. */
   setIntervalFn?: (fn: () => void, ms: number) => ReturnType<typeof setInterval>;
@@ -41,6 +59,14 @@ export interface ArchiveSweeper {
   stop(): void;
   /** Run one tick synchronously (tests / diagnostics). */
   tick(): number;
+  /**
+   * Arm the graced on-end archive for a declared-disposable ended session.
+   * Idempotent per id; no-op once stopped, when undeclared, not ended,
+   * restored after its end, or the setting is off (not retroactive).
+   */
+  scheduleServiceArchive(sessionId: string): void;
+  /** Pending on-end archive timers (tests / diagnostics). */
+  pendingServiceArchiveCount(): number;
 }
 
 export function createArchiveSweeper(deps: ArchiveSweeperDeps): ArchiveSweeper {
@@ -52,6 +78,54 @@ export function createArchiveSweeper(deps: ArchiveSweeperDeps): ArchiveSweeper {
 
   let handle: ReturnType<typeof setInterval> | null = null;
   let armedIntervalMs: number | null = null;
+  // Per-instance stopped latch: bridge teardown during shutdown ends sessions
+  // (→ onEnded → schedule) and `start()` runs in an async discovery `.then`.
+  let stopped = false;
+  // id → timer + the `endedAt` it was armed for (a NEW end restarts the grace).
+  const pending = new Map<string, { timer: ReturnType<typeof setTimeout>; endedAt: number | undefined }>();
+
+  const serviceArchiveEnabled = (): boolean =>
+    getConfig().sessionList.archiveServiceSessionsOnEnd !== false;
+
+  function arm(sessionId: string, scheduledAt: number, endedAt: number | undefined): void {
+    const timer = setTimeout(() => fireServiceArchive(sessionId, scheduledAt), SERVICE_ARCHIVE_GRACE_MS);
+    timer.unref?.();
+    pending.set(sessionId, { timer, endedAt });
+  }
+
+  /**
+   * Fire-time verdict, checks in order: resident → ended → declared → not
+   * live → not restored since scheduling → setting on → viewed ⇒ re-arm.
+   * Restore precedes view, so a restored + viewed session is dropped.
+   */
+  function fireVerdict(session: DashboardSession | undefined, scheduledAt: number): "drop" | "rearm" | "archive" {
+    if (session?.status !== "ended" || session.archiveOnEnd !== true || session.live === true) return "drop";
+    if (session.restoredAt !== undefined && session.restoredAt >= scheduledAt) return "drop";
+    if (!serviceArchiveEnabled()) return "drop";
+    return isViewed(session.id) ? "rearm" : "archive";
+  }
+
+  /**
+   * Schedule-time eligibility: declared, ended, not a re-notified end of a
+   * session restored from the archive (only a genuine end AFTER the restore
+   * re-arms), setting on (not retroactive).
+   */
+  function scheduleEligible(session: DashboardSession): boolean {
+    if (session.archiveOnEnd !== true || session.status !== "ended") return false;
+    if (session.restoredAt !== undefined && session.restoredAt >= (session.endedAt ?? 0)) return false;
+    return serviceArchiveEnabled();
+  }
+
+  function fireServiceArchive(sessionId: string, scheduledAt: number): void {
+    pending.delete(sessionId);
+    if (stopped) return;
+    const session = sessionManager.get(sessionId);
+    const verdict = fireVerdict(session, scheduledAt);
+    if (verdict === "rearm") arm(sessionId, scheduledAt, session?.endedAt);
+    if (verdict !== "archive") return;
+    const result = sessionArchive.archiveSession(sessionId, "service-end");
+    if (result.ok) console.info(`[archive] service-end archived ${sessionId}`);
+  }
 
   function tick(): number {
     const config = getConfig();
@@ -96,17 +170,32 @@ export function createArchiveSweeper(deps: ArchiveSweeperDeps): ArchiveSweeper {
 
   return {
     start() {
-      if (handle !== null) return;
+      if (stopped || handle !== null) return;
       const config = getConfig();
       const intervalMs = Math.max(1, config.sessionList.archiveSweepIntervalMinutes) * 60_000;
       armedIntervalMs = intervalMs;
       handle = setIntervalFn(() => { tick(); }, intervalMs);
     },
     stop() {
+      stopped = true;
       if (handle !== null) clearIntervalFn(handle);
       handle = null;
       armedIntervalMs = null;
+      for (const { timer } of pending.values()) clearTimeout(timer);
+      pending.clear();
     },
     tick,
+    scheduleServiceArchive(sessionId) {
+      if (stopped) return;
+      const session = sessionManager.get(sessionId);
+      // Idempotent per end transition: a `closedReason` re-fire of the SAME
+      // end is a no-op; a new end (resumed, ended again) restarts the grace.
+      const entry = pending.get(sessionId);
+      if (entry && entry.endedAt === session?.endedAt) return;
+      if (!session || !scheduleEligible(session)) return;
+      if (entry) clearTimeout(entry.timer);
+      arm(sessionId, now(), session.endedAt);
+    },
+    pendingServiceArchiveCount: () => pending.size,
   };
 }

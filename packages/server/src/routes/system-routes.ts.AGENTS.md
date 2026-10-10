@@ -27,3 +27,5 @@ See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustP
 `PUT /api/config` broadcasts `config_updated {section:"sessions"}` when `folderListMode` or `folderAttentionPeek` changes — the sidebar list mode is live, never restart-gated. See change: add-focus-mode-and-card-block-toggles.
 
 `/api/health` gains `pluginEventForward {declared,rejected,conflicts,retained,dropped}` roll-up. See change: add-plugin-bridge-contributions.
+
+- `PUT /api/config`: invalid `sessionList` → 400 via `validateSessionListConfig`, nothing persisted. See change: archive-service-sessions-on-end.

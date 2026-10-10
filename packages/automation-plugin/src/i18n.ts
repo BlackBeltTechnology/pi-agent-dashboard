@@ -44,6 +44,8 @@ export const catalog = {
     runLiveHint: "此运行正在进行 — 其工具调用和消息会在此会话的标准聊天视图中实时显示。",
     findings: "发现",
     noFindings: "无发现（已自动归档）。",
+    openArchivedTranscript: "打开已归档的记录",
+    runNotFound: "未找到运行记录",
     // Settings
     settingsGlobalNote: "插件设置在所有仓库中全局生效。",
     defaultVisibilityLabel: "默认运行可见性",
@@ -161,6 +163,8 @@ export const catalog = {
       "Ez a futás élő — eszközhívásai és üzenetei a munkamenet normál csevegőnézetében jelennek meg.",
     findings: "Eredmények",
     noFindings: "Nincs eredmény (automatikusan archiválva).",
+    openArchivedTranscript: "Archivált átirat megnyitása",
+    runNotFound: "a futás nem található",
     // Settings
     settingsGlobalNote: "A bővítmény beállításai globálisan érvényesek minden repóra.",
     defaultVisibilityLabel: "Alapértelmezett futásláthatóság",

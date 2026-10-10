@@ -7,6 +7,7 @@
  *   GET    /api/plugins/automation/list?cwd=<repo>          → automations (folder+global)
  *   GET    /api/plugins/automation/runs?cwd=&scope=&name=   → run records
  *   GET    /api/plugins/automation/result?cwd=&scope=&runId= → result.md text
+ *   GET    /api/plugins/automation/result?cwd=&scope=&sessionId= → { status, runId, name, result? } (run-store lookup)
  *   GET    /api/plugins/automation/trigger-kinds            → trigger taxonomy descriptors
  *   POST   /api/plugins/automation/create                   → write automation.yaml (+prompt.md), reject collision
  *   POST   /api/plugins/automation/update                   → overwrite an existing automation in place
@@ -214,14 +215,35 @@ export function mountAutomationRoutes(
   });
 
   fastify.get("/api/plugins/automation/result", async (req, reply) => {
-    const q = (req.query ?? {}) as { cwd?: string; scope?: AutomationScope; runId?: string };
-    if (!q.runId) {
-      reply.code(400);
-      return { error: "runId required" };
-    }
+    const q = (req.query ?? {}) as { cwd?: string; scope?: AutomationScope; runId?: string; sessionId?: string };
     const fs = await import("node:fs");
     const path = await import("node:path");
-    const { resolveRunDir } = await import("./run-store.js");
+    const { findRunBySessionId, resolveRunDir } = await import("./run-store.js");
+    // By session id: the run monitor's fallback once the run session is
+    // archived (not resident). Searches the given scope, else folder then
+    // global. See change: archive-service-sessions-on-end.
+    if (!q.runId && q.sessionId) {
+      const scopes: AutomationScope[] = q.scope ? [q.scope] : ["folder", "global"];
+      for (const scope of scopes) {
+        const base = scopeBaseFor(scope, q.cwd);
+        const rec = findRunBySessionId(base, q.sessionId);
+        if (!rec) continue;
+        // Resolve the dir from the (validated) run id under the scope base —
+        // never trust the record's own `dir` field (file content).
+        const dir = resolveRunDir(base, rec.runId);
+        let result: string | undefined;
+        try {
+          if (dir) result = fs.readFileSync(path.join(dir, "result.md"), "utf-8");
+        } catch { /* not finished yet */ }
+        return { status: rec.status, runId: rec.runId, name: rec.name, ...(result !== undefined ? { result } : {}) };
+      }
+      reply.code(404);
+      return { error: "run not found" };
+    }
+    if (!q.runId) {
+      reply.code(400);
+      return { error: "runId or sessionId required" };
+    }
     const base = scopeBaseFor(q.scope ?? "folder", q.cwd);
     // Resolve a parent OR child run id to its on-disk dir (decision 1a).
     const dir = resolveRunDir(base, q.runId);

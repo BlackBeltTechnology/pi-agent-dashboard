@@ -1405,6 +1405,18 @@ describe("SettingsPanel — archive fields (archive-sessions-lazy-load)", () => 
     expect(screen.getByDisplayValue("60")).toBeTruthy();
   });
 
+  // test-plan #E27: `0` disables AGE-BASED archiving only — sessions declared
+  // disposable still archive on end. See change: archive-service-sessions-on-end.
+  it("E27: the archive-after hint scopes 0 to age-based auto-archive", async () => {
+    global.fetch = mockFetchConfig();
+    setPath("/settings/sessions");
+
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Archive after"));
+
+    expect(screen.getByText(/0 disables age-based auto-archive/)).toBeTruthy();
+  });
+
   it("E33: archiveAfterDays -1 shows an error and disables Save; 0 and 14 are valid", async () => {
     global.fetch = mockFetchConfig();
     setPath("/settings/sessions");

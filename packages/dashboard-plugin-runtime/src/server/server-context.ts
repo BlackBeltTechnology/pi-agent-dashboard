@@ -175,6 +175,13 @@ export interface PluginSessionLifecycle {
    * Never re-applied on reattach. See change: hide-chat-gateway-sessions.
    */
   hidden?: boolean;
+  /**
+   * `true` declares the owned session disposable once it ends: core archives
+   * it after a short grace window (gated by
+   * `sessionList.archiveServiceSessionsOnEnd`). Persisted; distinct from the
+   * ephemeral `lifecyclePolicy` marker. See change: archive-service-sessions-on-end.
+   */
+  archiveOnEnd?: boolean;
 }
 
 /**

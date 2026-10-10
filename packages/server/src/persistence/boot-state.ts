@@ -56,7 +56,17 @@ export function readBootState(): BootState | undefined {
     exitIntent: state.exitIntent ?? null,
     at: typeof state.at === "number" ? state.at : 0,
     ring: Array.isArray(state.ring) ? state.ring.filter(isBootRecord).slice(0, BOOT_RING_SIZE) : [],
+    ...(typeof state.serviceArchiveBackfillAt === "number"
+      ? { serviceArchiveBackfillAt: state.serviceArchiveBackfillAt }
+      : {}),
   };
+}
+
+/** Carry the one-shot backfill stamp across a full-record rewrite. */
+function backfillStampOf(state: BootState | undefined): Pick<BootState, "serviceArchiveBackfillAt"> {
+  return state?.serviceArchiveBackfillAt !== undefined
+    ? { serviceArchiveBackfillAt: state.serviceArchiveBackfillAt }
+    : {};
 }
 
 function write(state: BootState): void {
@@ -83,7 +93,7 @@ export function stampBootStart(bootId: number): void {
     ? [{ bootId: prior.bootId, exitIntent: prior.exitIntent, at: prior.at }, ...prior.ring]
       .slice(0, BOOT_RING_SIZE)
     : [];
-  write({ bootId, exitIntent: null, at: Date.now(), ring });
+  write({ bootId, exitIntent: null, at: Date.now(), ring, ...backfillStampOf(prior) });
 }
 
 /**
@@ -102,6 +112,7 @@ export function recordExitIntent(intent: ExitIntent): void {
     exitIntent: intent,
     at: Date.now(),
     ring: onDisk?.ring ?? cached?.ring ?? [],
+    ...backfillStampOf(onDisk ?? cached),
   });
   console.info(`[boot-state] exit intent recorded: ${intent} (boot ${currentBootId})`);
 }
@@ -134,6 +145,25 @@ export function resolveExitRecord(bootId: number | undefined): BootRecord | unde
   if (state.bootId === bootId) return { bootId: state.bootId, exitIntent: state.exitIntent, at: state.at };
   const hit = state.ring.find((r) => r.bootId === bootId);
   return hit ? { bootId: hit.bootId, exitIntent: hit.exitIntent ?? null, at: hit.at } : undefined;
+}
+
+/**
+ * When the one-shot legacy leg of the service-session boot backfill ran, or
+ * `undefined` (never / missing / corrupt file ⇒ the legacy pass still owed).
+ * See change: archive-service-sessions-on-end.
+ */
+export function readServiceArchiveBackfillAt(): number | undefined {
+  return readBootState()?.serviceArchiveBackfillAt;
+}
+
+/**
+ * Stamp the legacy backfill as done (atomic write; preserves the boot record).
+ * A corrupt / missing record is replaced by a minimal one carrying the stamp.
+ * See change: archive-service-sessions-on-end.
+ */
+export function stampServiceArchiveBackfill(at: number = Date.now()): void {
+  const state = readBootState() ?? { bootId: currentBootId ?? at, exitIntent: null, at, ring: [] };
+  write({ ...state, serviceArchiveBackfillAt: at });
 }
 
 /** Test seam: drop the in-process boot latch + cache. */

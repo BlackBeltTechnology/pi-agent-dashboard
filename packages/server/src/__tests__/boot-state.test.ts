@@ -10,10 +10,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   _resetBootStateForTests,
   readBootState,
+  readServiceArchiveBackfillAt,
   recordExitIntent,
   resolveExitIntent,
   resolveExitRecord,
   stampBootStart,
+  stampServiceArchiveBackfill,
 } from "../persistence/boot-state.js";
 
 const BOOT_STATE_PATH = path.join(os.homedir(), ".pi", "dashboard", "boot-state.json");
@@ -150,5 +152,29 @@ describe("boot record", () => {
     expect(resolveExitRecord(100)?.exitIntent).toBe("restart");
     expect(resolveExitRecord(999)).toBeUndefined();
     expect(resolveExitRecord(undefined)).toBeUndefined();
+  });
+
+  // test-plan #E21 / #X7 (archive-service-sessions-on-end): the one-shot
+  // legacy-backfill stamp. Missing / corrupt file ⇒ no stamp; the stamp
+  // survives later boot-start and exit-intent writes (both rewrite the file).
+  it("serviceArchiveBackfillAt: absent until stamped, then survives later boots and exit intents", () => {
+    expect(readServiceArchiveBackfillAt()).toBeUndefined();
+    stampBootStart(1);
+    expect(readServiceArchiveBackfillAt()).toBeUndefined();
+    stampServiceArchiveBackfill(12345);
+    expect(readServiceArchiveBackfillAt()).toBe(12345);
+    expect(existsSync(`${BOOT_STATE_PATH}.tmp`)).toBe(false);
+    recordExitIntent("restart");
+    _resetBootStateForTests();
+    stampBootStart(2);
+    expect(readRaw().serviceArchiveBackfillAt).toBe(12345);
+    expect(readServiceArchiveBackfillAt()).toBe(12345);
+  });
+
+  it("serviceArchiveBackfillAt: a corrupt boot-state.json reads as no stamp; the stamp still writes", () => {
+    writeFileSync(BOOT_STATE_PATH, "{not json");
+    expect(readServiceArchiveBackfillAt()).toBeUndefined();
+    stampServiceArchiveBackfill(777);
+    expect(readServiceArchiveBackfillAt()).toBe(777);
   });
 });

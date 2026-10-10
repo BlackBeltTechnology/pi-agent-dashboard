@@ -13,3 +13,5 @@ See change: fix-spawn-correlation-ttl-coupling (D3). `RegisterSessionParams.dash
 - `register` hidden decision: reattach → keep `existing.hidden`; else `visibilityIntent`; else `existing.pluginHidden === true` → hidden (restart RESPAWN re-registers as "spawn", no token); else headless heuristic. Carries `pluginHidden` over. See change: fix-plugin-hidden-across-restart.
 
 `UnregisterOptions.endSource?: "bridge_unregister"`; manager-private `bridgeUnregistered` set, written in `unregister()` before `onEnded` (new endings only), cleared by `register`/`remove`; read via `wasEndedByBridgeUnregister(id)`. Never on `DashboardSession`. See change: fix-recovery-pi-signal-unregister.
+
+- `register()` carries `archiveOnEnd` across a same-id re-register (reattach). See change: archive-service-sessions-on-end.

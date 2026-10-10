@@ -62,3 +62,34 @@ describe("server.start() is wired to runBoundedStartup", () => {
     expect(second).toBeLessThan(main);
   });
 });
+
+// test-plan #X5 (archive-service-sessions-on-end): pending on-end archive
+// timers must not outlive the server, and bridge teardown (which ends sessions
+// → schedules) must happen BEFORE the sweeper latches. Asserted statically for
+// the same reason as above. See change: archive-service-sessions-on-end.
+describe("archiveSweeper.stop() runs after piGateway.stop() on both teardown paths", () => {
+  it("start() failure teardown", () => {
+    const teardown = SERVER_TS.slice(
+      SERVER_TS.indexOf("teardown: async () => {"),
+      SERVER_TS.indexOf("async _startCore()"),
+    );
+    const gateway = teardown.indexOf("piGateway.stop()");
+    const sweeper = teardown.indexOf("archiveSweeper.stop()");
+    expect(gateway).toBeGreaterThan(-1);
+    expect(sweeper).toBeGreaterThan(gateway);
+  });
+
+  it("server stop()", () => {
+    const stopStart = SERVER_TS.indexOf("homeRendezvous = null;\n      piGateway.stop();");
+    expect(stopStart).toBeGreaterThan(-1);
+    const stopBody = SERVER_TS.slice(stopStart, stopStart + 600);
+    const gateway = stopBody.indexOf("piGateway.stop()");
+    const sweeper = stopBody.indexOf("archiveSweeper.stop()");
+    expect(sweeper).toBeGreaterThan(gateway);
+  });
+
+  it("wireEvents receives the sweeper", () => {
+    const wire = SERVER_TS.slice(SERVER_TS.indexOf("  wireEvents({"));
+    expect(wire.slice(0, wire.indexOf("\n  });")).includes("archiveSweeper,")).toBe(true);
+  });
+});

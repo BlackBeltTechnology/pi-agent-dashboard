@@ -51,3 +51,5 @@ See change: add-browser-editor-pane-tab — `createServerPluginContext` gets the
 
 Boot plugin-bridge registration goes through `syncPluginBridges` with resolved enablement. See change: add-plugin-bridge-contributions.
 Cold-start loop adds shutdown-window path: `resolveExitRecord(session.liveEpoch)` + `isShutdownWindowCandidate` on the pre-normalization session; match consumes evidence (`setLiveness({live:false, closedReason})`, drops `liveEpoch`) in every mode; candidate unless mode `off`; logs `[recovery] <id>: shutdown-window (...)`. Window candidates join retract/grace/offer/auto pipeline unchanged. See change: fix-recovery-pi-signal-unregister.
+
+- Boot scan = `bootScanAllSessions()`; logs `[archive] service-end-backfill archived N session(s)`. `wireEvents({ archiveSweeper })`. `archiveSweeper.stop()` after `piGateway.stop()` in `stop()` + `start()` failure teardown. See change: archive-service-sessions-on-end.

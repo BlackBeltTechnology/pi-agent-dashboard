@@ -55,3 +55,5 @@ Packages tab renders `ElectronRuntimeUpdates` → lazy `RuntimeUpdatesSection` (
 Adds `StoreHeapCouplingWarning` (non-blocking, `role="status"`) beside BOTH the server heap field (`server-heap-store-heap-warning`) and Max Total Event Bytes (`memory-limits-store-heap-warning`), driven by shared `serverHeapStoreCoupling`; keys `settings.heap.storeUnbounded` / `settings.heap.storeCoupling`. Server-heap copy now says next restart incl. in-place; cold-start save branch + `settings.coldStartRequired` removed. See change: guard-server-heap-and-store-coupling.
 
 Security tab mounts `AgentPathGateSection`; `computeConfigPartial` diffs `agentPathGate`; `CONFIG_FIELD_PAGE.agentPathGate = security`. See change: ask-agent-file-access-in-chat.
+
+- Archive-after hint + invalid text: `0` disables age-based auto-archive; disposable sessions still archive on end. See change: archive-service-sessions-on-end.

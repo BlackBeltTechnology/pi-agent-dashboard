@@ -567,4 +567,18 @@ describe("writeConfigPartial — openspec readiness keys (add-openspec-init-affo
     expect(cfg.kroki.allowRemote).toBe(true);
     expect(cfg.autoShutdown).toBe(false);
   });
+
+  // test-plan #E25: the opt-out is writable through the config endpoint's
+  // writer and survives a later Settings save, which sends only the CHANGED
+  // sessionList keys. See change: archive-service-sessions-on-end.
+  it("E25: archiveServiceSessionsOnEnd=false persists and survives a partial sessionList save", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
+    expect(writeConfigPartial({ sessionList: { archiveServiceSessionsOnEnd: false } }).success).toBe(true);
+    expect(loadConfig().sessionList.archiveServiceSessionsOnEnd).toBe(false);
+
+    expect(writeConfigPartial({ sessionList: { archiveAfterDays: 14 } }).success).toBe(true);
+    const cfg = loadConfig();
+    expect(cfg.sessionList.archiveAfterDays).toBe(14);
+    expect(cfg.sessionList.archiveServiceSessionsOnEnd).toBe(false);
+  });
 });

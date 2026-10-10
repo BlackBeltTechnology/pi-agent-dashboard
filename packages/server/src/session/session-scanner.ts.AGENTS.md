@@ -9,3 +9,5 @@ Module-private `isPlausibleWorktreeMainPath(mainPath)` — load-time repair of p
 Non-archived sidecar with `statsExtractorVersion` absent/older than `STATS_EXTRACTOR_VERSION` re-extracts through the same merge as the mtime trigger (persisted `contextWindow` kept); both re-extract arms stamp the version; archived sidecars stay unopened. See change: count-non-message-usage.
 
 - `sessionFromMeta` restores `pluginHidden`. See change: fix-plugin-hidden-across-restart.
+
+- `ScanOptions.archiveServiceSessionsOnEnd` (default `loadConfig()`) + `legacyPass` (default false). Service backfill branch beside age rule, gate `live !== true && archived === undefined`: declared `archiveOnEnd === true` every boot; legacy `lifecyclePolicy:"ephemeral"` + undeclared only on `legacyPass`. Logs `[archive] service-end-backfill archived <id>`. `ScanResult.serviceArchived`. `bootScanAllSessions()` = scan + one-shot legacy pass from `boot-state.json` stamp, stamped only while setting on. `sessionFromMeta` restores `archiveOnEnd`. See change: archive-service-sessions-on-end.

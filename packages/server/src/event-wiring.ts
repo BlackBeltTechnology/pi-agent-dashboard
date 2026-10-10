@@ -275,6 +275,12 @@ export interface EventWiringDeps {
   /** One-shot idle-alive archive intents. See change: archive-sessions-lazy-load. */
   pendingArchiveIntents?: import("./pending/pending-archive-intent-registry.js").PendingArchiveIntentRegistry;
   /**
+   * Auto-archive sweeper. The `onEnded` owner hands every ended transition to
+   * `scheduleServiceArchive` (graced on-end archive of `archiveOnEnd`
+   * sessions). See change: archive-service-sessions-on-end.
+   */
+  archiveSweeper?: Pick<import("./session/archive-sweeper.js").ArchiveSweeper, "scheduleServiceArchive">;
+  /**
    * Every bridge (re-)register with its reported extension identity — the D8
    * convergent-reload guard. See change: electron-runtime-overlay-updates.
    */
@@ -329,6 +335,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     commitDraftRelay,
     sessionArchive,
     pendingArchiveIntents,
+    archiveSweeper,
     customEventGroupResolver,
   } = deps;
 
@@ -658,6 +665,11 @@ export function wireEvents(deps: EventWiringDeps): void {
         }
       }
     }
+
+    // Graced on-end archive of a session its plugin declared disposable. The
+    // sweeper re-validates at fire time and is idempotent per id, so a
+    // `closedReason` re-fire is harmless. See change: archive-service-sessions-on-end.
+    archiveSweeper?.scheduleServiceArchive(sessionId);
   };
 
   sessionManager.onUnregister = (sessionId) => {
@@ -1647,7 +1659,9 @@ export function wireEvents(deps: EventWiringDeps): void {
         const reg = browserGateway.headlessPidRegistry;
         let ref: Record<string, unknown> | undefined;
         let ownerId: string | undefined;
-        let lifecycle: { recover?: boolean; finalizeOnSocketClose?: boolean; hidden?: boolean } | undefined;
+        let lifecycle:
+          | { recover?: boolean; finalizeOnSocketClose?: boolean; hidden?: boolean; archiveOnEnd?: boolean }
+          | undefined;
         const resolved = msg.spawnToken ? pendingPluginRefRegistry?.resolve(msg.spawnToken) : null;
         if (resolved) {
           // First register: consumed from the token store. Promote onto the
@@ -1725,6 +1739,19 @@ export function wireEvents(deps: EventWiringDeps): void {
             if (session?.sessionFile) {
               try {
                 mergeSessionMeta(session.sessionFile, { recover: false });
+              } catch { /* best-effort */ }
+            }
+          }
+          // Disposable-on-end declaration: memory + its OWN sidecar write (the
+          // ref merge above is skipped for an empty ref, so a declaration-only
+          // filing would otherwise never reach disk before a routine save).
+          // See change: archive-service-sessions-on-end.
+          if (lifecycle.archiveOnEnd !== undefined) {
+            sessionManager.update(sessionId, { archiveOnEnd: lifecycle.archiveOnEnd });
+            const file = sessionManager.get(sessionId)?.sessionFile ?? msg.sessionFile;
+            if (file) {
+              try {
+                mergeSessionMeta(file, { archiveOnEnd: lifecycle.archiveOnEnd });
               } catch { /* best-effort */ }
             }
           }
