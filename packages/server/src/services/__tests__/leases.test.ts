@@ -134,6 +134,23 @@ describe("E22 — blocked recovery resets the idle clock", () => {
   });
 });
 
+describe("scheduler lifecycle", () => {
+  it("a boot settling after dispose() never starts a scheduler", async () => {
+    const r = tmpRoot("svc-sched-");
+    roots.push(r);
+    writeDefinitions(r, [ociDef()]);
+    const { manager } = makeManager(r, { drivers: { "oci:docker": new FakeDriver("oci:docker") }, tickMs: 5 });
+    let ticks = 0;
+    manager.tick = async () => {
+      ticks++;
+    };
+    manager.dispose(); // server.stop() while boot() is still in flight
+    manager.startScheduler(); // the boot chain's finally
+    await new Promise((res) => setTimeout(res, 40));
+    expect(ticks).toBe(0);
+  });
+});
+
 describe("E23 — no lease unless healthy", () => {
   it.each([
     ["unavailable", (d: FakeDriver) => { d.presenceResult = { ok: false, reason: "runtime-missing" }; }],

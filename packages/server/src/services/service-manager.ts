@@ -194,6 +194,8 @@ export class ServiceManager {
   /** port → exposure, 30 s: reads (observe tier) must not drive a subprocess per call. */
   private readonly exposureCache = new Map<number, { at: number; value: Exposure }>();
   private timer?: ReturnType<typeof setInterval>;
+  /** Set by `dispose()`: a boot settling after shutdown must not start a scheduler. */
+  private disposed = false;
   private pins = new Set<string>();
 
   constructor(private readonly deps: ServiceManagerDeps) {
@@ -1116,7 +1118,7 @@ export class ServiceManager {
   }
 
   startScheduler(): void {
-    if (this.timer) return;
+    if (this.timer || this.disposed) return;
     this.timer = setInterval(() => {
       this.tick().catch((err: unknown) => this.log(`[services] tick error: ${(err as Error).message}`));
     }, this.deps.tickMs ?? REPROBE_INTERVAL_MS);
@@ -1124,6 +1126,7 @@ export class ServiceManager {
   }
 
   dispose(): void {
+    this.disposed = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
   }
