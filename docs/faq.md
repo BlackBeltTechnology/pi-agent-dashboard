@@ -3389,4 +3389,72 @@ Cross-refs:
 - packages/client/src/lib/chat/event-reducer.ts
 - openspec/changes/heal-orphaned-tool-cards-on-session-end/
 
+## Why are the passkey buttons disabled on the login page?
 
+Cause: origin unstable. Passkeys need stable RP ID origin.
+
+Stable = all of:
+
+- `https`.
+- Not IP, not `localhost`.
+- Source = `auth.redirectBaseUrl` override, OR Tailscale primary, OR zrok primary with reserved name (`tunnel.zrok.reservedName` + `persistent: true`, actually served).
+
+Unstable (ngrok, zerotier, ephemeral zrok) → ceremony routes + invite mint return `409 unstable_origin`. Login page + Settings show buttons DISABLED with reason.
+
+Fix: set `auth.redirectBaseUrl` to stable https host, or use Tailscale / reserved zrok primary. Read reason in Settings ▸ Security ▸ Users.
+
+See change: add-passkey-user-auth.
+
+Cross-refs:
+- docs/passkey-users.md §RP ID + stable origin
+- packages/server/src/auth/passkey/rp-context.ts
+
+## How do I add the first user?
+
+Empty `~/.pi/dashboard/users.json` → only genuine-local caller creates first user (loopback, no forwarding headers, or `X-Pi-Local-Token`). First user always `operate`. Remote caller → `403 bootstrap_local_only`.
+
+Steps:
+
+1. Open dashboard on host machine (loopback).
+2. Settings ▸ Security ▸ Users → add user, tier `operate`.
+3. "Invite QR" → open `https://<primary>/auth/invite#<token>` on phone. Default 24 h, single use.
+
+See change: add-passkey-user-auth.
+
+Cross-refs:
+- docs/passkey-users.md §First operator bootstrap
+
+## Switched primary tunnel, passkeys stopped working?
+
+Cause: RP ID = primary hostname. Credentials bound to RP ID they were created under. New primary → credentials orphaned (not deleted).
+
+Check: "Make primary" / `auth.redirectBaseUrl` shows `N passkey(s) for M user(s) will stop working`. Source: `GET /api/users/credentials/impact?url=`.
+
+Fix, pick one:
+
+- Switch primary back → credentials revive.
+- Re-invite user under new primary (Invite QR).
+- Sign in with phone using passkey still valid under current RP ID.
+
+See change: add-passkey-user-auth.
+
+Cross-refs:
+- docs/passkey-users.md §Primary switch impact
+
+## Observe user can't send prompts?
+
+Cause: tier gate. `observe` < `control` < `operate`. Prompt send needs `control`+.
+
+- REST below route tier → `403 insufficient_scope`.
+- WS message above socket tier → dropped, logged once per socket+type as `auth.tier_refused {"via":"ws",...}`.
+
+Fix: re-tier user (Settings ▸ Security ▸ Users), or map group to higher tier via `auth.groupTiers`. Passkey users: tier applies next request. OIDC: tier fixed until JWT expiry (7 d).
+
+Known limit: UI may show controls the tier cannot use.
+
+See change: add-passkey-user-auth.
+
+Cross-refs:
+- docs/passkey-users.md §Tiers
+- packages/shared/src/ws-message-tiers.ts
+- packages/server/src/auth/route-tier-gate.ts

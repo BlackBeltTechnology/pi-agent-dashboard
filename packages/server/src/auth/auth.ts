@@ -6,6 +6,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import type { AuthConfig, AuthProviderConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_FILE, writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { isTier, rank, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import jwt from "jsonwebtoken";
 import { getTunnelUrl } from "../tunnel/tunnel.js";
 
@@ -23,10 +24,16 @@ export interface ResolvedProvider {
 }
 
 export interface AuthUser {
-  sub: string; // email
+  sub: string; // email (OAuth) or directory user id (passkey)
   name: string;
   username: string;
   provider: string;
+  /**
+   * Session tier. Optional: a JWT issued before this claim existed has none
+   * and is treated as `operate` on validation.
+   * See change: add-passkey-user-auth (D4).
+   */
+  tier?: Tier;
 }
 
 export interface TokenPayload extends AuthUser {
@@ -157,7 +164,13 @@ export const COOKIE_NAME = "pi_dash_token";
 
 export function signToken(user: AuthUser, secret: string): string {
   return jwt.sign(
-    { sub: user.sub, name: user.name, username: user.username, provider: user.provider },
+    {
+      sub: user.sub,
+      name: user.name,
+      username: user.username,
+      provider: user.provider,
+      ...(user.tier ? { tier: user.tier } : {}),
+    },
     secret,
     { expiresIn: TOKEN_EXPIRY },
   );
@@ -166,10 +179,33 @@ export function signToken(user: AuthUser, secret: string): string {
 export function verifyToken(token: string, secret: string): TokenPayload | null {
   try {
     const payload = jwt.verify(token, secret) as TokenPayload;
+    // A present-but-unknown tier is never widened to `operate`: reject the
+    // token outright (fail closed). See change: add-passkey-user-auth (D4).
+    if (payload.tier !== undefined && !isTier(payload.tier)) return null;
     return payload;
   } catch {
     return null;
   }
+}
+
+/**
+ * Map an OIDC `groups` claim to a session tier (D4).
+ *
+ * - `groupTiers` unconfigured/empty → `operate` (legacy behaviour).
+ * - configured → the HIGHEST tier among matching groups; no match → `null`
+ *   (login refused — fail closed).
+ */
+export function resolveGroupTier(
+  groups: readonly string[] | undefined,
+  groupTiers: Record<string, Tier> | undefined,
+): Tier | null {
+  if (!groupTiers || Object.keys(groupTiers).length === 0) return "operate";
+  let best: Tier | null = null;
+  for (const g of groups ?? []) {
+    const t = Object.hasOwn(groupTiers, g) ? groupTiers[g] : undefined;
+    if (t && (best === null || rank(t) > rank(best))) best = t;
+  }
+  return best;
 }
 
 // ─── Cookie Parsing ─────────────────────────────────────────────────────────
@@ -408,7 +444,7 @@ export async function exchangeCode(
 export async function fetchUserInfo(
   provider: ResolvedProvider,
   accessToken: string,
-): Promise<{ email: string; name: string; username: string } | null> {
+): Promise<{ email: string; name: string; username: string; groups?: string[] } | null> {
   try {
     const res = await fetch(provider.userInfoUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -440,7 +476,11 @@ export async function fetchUserInfo(
     const email = data.email;
     const name = data.name || data.preferred_username || data.sub || "Unknown";
     const username = data.preferred_username || data.sub || "";
-    return email ? { email, name, username } : null;
+    // `groups` (userinfo) feeds `auth.groupTiers`. Non-string entries dropped.
+    const groups = Array.isArray(data.groups)
+      ? (data.groups as unknown[]).filter((g): g is string => typeof g === "string")
+      : undefined;
+    return email ? { email, name, username, ...(groups ? { groups } : {}) } : null;
   } catch {
     return null;
   }

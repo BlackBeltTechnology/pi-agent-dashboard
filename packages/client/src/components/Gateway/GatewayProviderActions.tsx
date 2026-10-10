@@ -39,6 +39,7 @@ import {
   primarySwitchConsequence,
 } from "../../lib/gateway/primary-switch.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { PasskeyImpactNote } from "../connectivity/PasskeyImpactNote.js";
 
 const MODE_LABEL: Record<GatewayAuthMode, string> = {
   "trusted-network": "Trusted network",
@@ -190,6 +191,12 @@ export function GatewayProviderActions({
           <p className="text-[11px] text-[var(--severity-warning-fg)]">
             {primarySwitchConsequence(readiness.provider, isPrimaryLabel(config))}
           </p>
+          {/* The passkey RP ID follows the primary unless auth.redirectBaseUrl
+              pins it — so only an unpinned switch can orphan passkeys (D3).
+              See change: add-passkey-user-auth. */}
+          {!hasRedirectOverride(config) && (
+            <PasskeyImpactNote url={url} testId={`gateway-make-primary-passkey-impact-${readiness.provider}`} />
+          )}
           <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
@@ -259,6 +266,12 @@ export function GatewayProviderActions({
       )}
     </div>
   );
+}
+
+/** `auth.redirectBaseUrl` pins the OAuth/passkey origin regardless of the primary. */
+function hasRedirectOverride(config: GatewayConfigShape): boolean {
+  const auth = (config as { auth?: { redirectBaseUrl?: string } }).auth;
+  return !!auth?.redirectBaseUrl?.trim();
 }
 
 /** The provider currently holding `tunnel.provider`, for the consequence copy. */

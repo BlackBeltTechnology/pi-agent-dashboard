@@ -8,11 +8,12 @@
  *
  * The gate's scope is deliberately narrow, and each exclusion is a decision:
  *
- *  - It applies ONLY when admission rested on the device bearer
- *    (`request.authVia === "device"`). A browser cookie session, a local-token
- *    caller, or an undecorated request is left to the existing rules — the tier
- *    is a boundary for the compact inter-machine credential, not a new
- *    permission model for same-host browsers.
+ *  - It applies when admission rested on the device bearer
+ *    (`request.authVia === "device"`) or on a login session
+ *    (`authVia === "session"`, tier from the JWT `tier` claim; a claim-less
+ *    legacy JWT is `operate`, so it is never refused — add-passkey-user-auth
+ *    D4). A local-token caller or an undecorated request is left to the
+ *    existing rules.
  *  - A genuinely-local caller (loopback, no forwarding headers) or a
  *    trusted-network caller is exempt, exactly as `networkGuard` treats it:
  *    same-machine processes are trusted via `~/.pi` and the local token
@@ -61,13 +62,22 @@ function scopeChallenge(scope: Tier): string {
  * (`POST /api/session/:id/lifecycle` for `force_kill`/`kill_process`), because
  * the network exemptions must apply identically in both places.
  */
+/**
+ * Credentials the tier applies to: a paired-device bearer and (since
+ * add-passkey-user-auth, D4) a login session carrying a `tier` claim.
+ */
+function isTieredCredential(request: FastifyRequest): boolean {
+  const via = (request as any).authVia;
+  return via === "device" || via === "session";
+}
+
 export function tierRefusalFor(
   request: FastifyRequest,
   requiredTier: Tier,
   getTrustedNetworks: () => string[],
   localTrust?: LocalTrustContext,
 ): { scope: Tier; deviceId?: string } | null {
-  if ((request as any).authVia !== "device") return null;
+  if (!isTieredCredential(request)) return null;
   const headers = request.headers as Record<string, unknown>;
   if (isLocallyTrusted({ ip: request.ip, headers }, localTrust)) return null;
   if (isTrustedSource(request.ip, headers, getTrustedNetworks(), localTrust)) return null;
@@ -102,7 +112,7 @@ export function createRouteTierGate(deps: RouteTierGateDeps) {
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<void> {
-    if ((request as any).authVia !== "device") return;
+    if (!isTieredCredential(request)) return;
 
     // `onRequest` runs AFTER routing, so this is the normalized route PATTERN
     // (never the raw URL — path tricks either 404 or resolve to the pattern).

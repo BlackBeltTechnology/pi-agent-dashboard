@@ -32,6 +32,12 @@ confirmModulesPurge: false
 # packages/shared/src/mdns-discovery.ts. See change: adopt-pnpm-for-dev-ci.
 overrides:
   bonjour-service: 1.4.2
+  # ONE asn1-schema copy: its schema registry is a module singleton, and
+  # @simplewebauthn/server resolved a nested 2.9.4 while @peculiar/asn1-ecc
+  # registered ECDSASigValue in the hoisted 2.10.0 — every ES256 passkey
+  # assertion then failed "Cannot get schema for 'ECDSASigValue'".
+  # See change: add-passkey-user-auth.
+  "@peculiar/asn1-schema": 2.10.0
   # ONE pi version in the tree — a deterministic single copy. Under
   # `nodeLinker: hoisted` two declared pi ranges can resolve TWO copies (one
   # nested for the server, another hoisted to the root); `/api/health`'s

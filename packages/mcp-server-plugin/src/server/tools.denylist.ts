@@ -39,6 +39,11 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // binding from the denial body it can already read, which is precisely the
   // limit D15 states rather than widens.
   { pattern: "/api/access/", reason: "operator-only grant review; trust-widening action" },
+  // add-passkey-user-auth: people + passkey invites. Creating users and
+  // minting invites widens who can sign in — an operator UI action, never an
+  // LLM tool.
+  { pattern: "/api/users", reason: "user directory + passkey invites; operator-only, trust-widening" },
+  { pattern: "/api/users/", reason: "user directory + passkey invites; operator-only, trust-widening" },
   { pattern: "/api/cost-estimator/", reason: "billing telemetry UI" },
   { pattern: "/api/flows-anthropic-bridge/", reason: "bridge diagnostics" },
   { pattern: "/api/plugins/blackhole/", reason: "plugin-internal" },

@@ -371,6 +371,38 @@ describe("loadConfig", () => {
     expect(config.auth!.bypassUrls).toEqual(["/valid", "/also-valid"]);
   });
 
+  // See change: add-passkey-user-auth (D4, Migration Plan).
+  it("parses auth.groupTiers keeping only valid tiers", () => {
+    fs.writeFileSync(configFile, JSON.stringify({
+      auth: {
+        providers: { github: { clientId: "id1", clientSecret: "s1" } },
+        groupTiers: { "dash-view": "observe", "dash-ops": "operate", bad: "root", n: 3 },
+      },
+    }));
+    expect(loadConfig().auth!.groupTiers).toEqual({ "dash-view": "observe", "dash-ops": "operate" });
+  });
+
+  it("omits auth.groupTiers when absent and keeps passkeys disabled by default", () => {
+    fs.writeFileSync(configFile, JSON.stringify({
+      auth: { providers: { github: { clientId: "id1", clientSecret: "s1" } } },
+    }));
+    const auth = loadConfig().auth!;
+    expect(auth.groupTiers).toBeUndefined();
+    expect(auth.passkeys).toBeUndefined();
+  });
+
+  it("treats auth.passkeys.enabled alone as an auth-relevant block", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ auth: { passkeys: { enabled: true } } }));
+    const auth = loadConfig().auth!;
+    expect(auth.passkeys).toEqual({ enabled: true });
+    expect(auth.providers).toEqual({});
+  });
+
+  it("ignores auth.passkeys.enabled=false as the only content", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ auth: { passkeys: { enabled: false } } }));
+    expect(loadConfig().auth).toBeUndefined();
+  });
+
   it("should parse auth.redirectBaseUrl when set", () => {
     fs.writeFileSync(configFile, JSON.stringify({
       auth: {
