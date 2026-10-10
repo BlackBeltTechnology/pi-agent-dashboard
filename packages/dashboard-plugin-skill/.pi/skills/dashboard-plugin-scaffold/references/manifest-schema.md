@@ -156,12 +156,14 @@ a diff; it is never applied silently. Validated strictly by
   `external`, or `attached` **without** `lifecycle` (commands are user-authored only).
 - OCI images MUST be digest-pinned (`@sha256:`); ports are
   `{ container, protocol? }` and always publish on `127.0.0.1`; `volumes` are
-  NAMED volumes only. No `binds`, `privileged`, host network, or `hostIp`.
+  NAMED volumes only, named `<id>-…` (volumes are runtime-global). No `binds`,
+  `privileged`, host network, or `hostIp`; the image may not start with `-`.
 - Native recipes: `runner` ∈ `uvx | npx`, `package` = `<name>@<exact version>`,
   `args` literal except `${port.<name>}` placeholders.
 - `health` is required (`http` | `tcp` | `ws-first-message` | `oci-healthcheck`).
-- `secrets`: `generate: { bytes }` or user-entered; offers may not reference
-  `env:` / `keychain:` refs. Values reach the container as `:ro` files under
+- `secrets`: `generate: { bytes }` or user-entered; a `ref`, if any, must be the
+  offer's own slot `store:<id>/<name>` (no `env:`, `keychain:`, or another
+  service's secret); names may not differ only by case. Values reach the container as `:ro` files under
   `/run/secrets/<name>`; `env` names a var that holds that PATH, never the value.
 
 ```json

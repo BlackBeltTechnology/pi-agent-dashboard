@@ -13,4 +13,6 @@
 - `tick()`: sweep leases → healthy with 0 leases → idle (`idleSince = max(lastLeaseEnd, idleResetAt)`); leased healthy/blocked re-probed (cap 4); `shouldIdleStop` → stop under mutex + lock. `startScheduler()` every 30 s (unref'd), `dispose()`.
 - `definitionHash(def)` = runtime-relevant fields → `pi.def-hash`; definition change clears backoff + resets idle clock.
 
+- Audit hardening: `AddReview.secretSources`; `remove` refuses 409 before teardown on a corrupt secrets store and never force-signals (`stopLocked({removing:true})`); exposure cached per port 30 s; `status` carries `tried` when unavailable.
+
 Tests: `__tests__/state-machine.test.ts`, `leases.test.ts`, `adoption.test.ts`, `definitions-store.test.ts`, `oci-driver.test.ts`, `routes.test.ts`, `secrets.test.ts`. See change: add-service-registry-core.

@@ -370,7 +370,8 @@ stateDiagram-v2
   (`parseSkillTools` style) and `schemaVersion: 1`. Offers may not contain
   `lifecycle`, bind mounts, `privileged`, host network or non-loopback ports.
   The image must be `@sha256:`-pinned, and native packages must pin an exact
-  version.
+  version. Package templates may reference only their own store slot for
+  secrets and must prefix named volumes with `<id>-` (ship-it audit).
 - **Add:** `POST /api/services` with `{ offer: "<pkg>#<id>", dryRun: true }`
   returns the review (image or recipe, ports, volumes, secrets,
   `templateHash`). The same call with `dryRun: false` writes it. The CLI
@@ -530,6 +531,18 @@ explicit `unavailable` reasons when their binary is missing.
   `secret-unavailable` with a hint.
 - [More than one container matches the labels] → Kept, surfaced, never
   auto-deleted.
+- [Default (non-strict) mode admits any genuinely-local loopback caller to the
+  mutation routes, so another OS user on the same host can create an
+  argv-carrying `attached` entry] → **Accepted residual** (user decision
+  during ship-it audit): it is the dashboard-wide loopback posture (terminals
+  and other operate routes share it); `requireLocalProof` strict mode closes
+  it, and the spec keeps `isLocallyTrusted`. Documented in
+  `docs/managed-services.md`.
+- [Package templates reaching outside their namespace] → Closed in the
+  validator: a package template may reference only its own store slot
+  (`store:<id>/<name>`), its named volumes must start with `<id>-` (volumes are
+  runtime-global; `--purge-data` must never delete a stranger's), and an image
+  may not start with `-`. The add review lists each secret's source.
 
 ## Migration Plan
 

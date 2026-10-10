@@ -111,6 +111,8 @@ stateDiagram-v2
 - Native: adopt only if pid alive AND argv contains `package` token AND pid holds recorded port (`findPortHolders`).
   - Dead pid → discard `instance.json`.
   - Alive but unverifiable (incl. port check impossible) → `unavailable` `adoption-uncertain`. No spawn until `stop --force` / `remove`.
+  - pid known only from `instance.json` (no live instance) → signal only if command line still carries recorded package. Else drop record (PID-reuse safety).
+  - `service stop <id> --force` overrides the argv check.
 - `instanceId` never regenerated while `services.json` exists.
 - Boot adoption: no health probe, no network I/O.
 
@@ -122,10 +124,14 @@ stateDiagram-v2
   - `schemaVersion: 1`; unknown keys rejected and named.
   - No `lifecycle`, binds, `privileged`, host network, non-loopback ports.
   - OCI image `@sha256:` pinned. Native `package` exact version.
-  - Offers may not reference `env:` / `keychain:`.
+  - Package templates reference only own store slot: `store:<id>/<name>`. No `env:`, `keychain:`, or other service's secret.
+  - Named volumes start with `<id>-`. Volumes runtime-global; `--purge-data` removes only declared volumes.
+  - `image` may not start with `-`.
+  - Secret names may not differ only by case.
 - Add:
   - `POST /api/services { offer, dryRun: true }` → review (image or recipe, ports, volumes, secrets, `templateHash`).
   - `dryRun: false` writes.
+  - `AddReview.secretSources` per secret: `store:<id>/<name> (generated, N bytes)` | `(user-entered)` | ref.
   - CLI `service add` = review → confirm → write.
   - `--yes` skips confirm only. Never implies prefetch.
   - `--prefetch` or separate confirm required for fetch.
@@ -137,6 +143,8 @@ stateDiagram-v2
   - Stops owned service; removes container/instance files, secrets, `services-run/<id>/`.
   - Named volumes retained unless `--purge-data`.
   - `service remove --all` = every service.
+  - `service remove` never force-signals.
+  - Refuses 409 before any teardown while `services-secrets.json` corrupt.
 - User entries: `definition` body or hand-edit `services.json` (picked up next `ensure` / `list`).
 - Offered but not added → `state: "not-added"` + hint.
 - Corrupt `services.json` → quarantined byte-exact. Every write refused. All services `unavailable` `invalid-definition`. `list` reports `definitionsCorrupt` + backup path.
@@ -179,6 +187,11 @@ stateDiagram-v2
   - same-uid code (can read 0600 files and `/proc/<pid>/environ`).
   - `service exec` child (receives secrets by design; may print them).
 - Accepted: `ensure --json` exit 0 diverges from measured exit-code form (see Consumer contract).
+- Accepted residual (user decision):
+  - Default (non-strict) mode: any genuinely-local loopback caller, incl. another OS user on same host, passes `isLocallyTrusted`.
+  - Such caller can create argv-carrying `attached` entry.
+  - Same dashboard-wide loopback posture as terminals.
+  - Strict mode: `requireLocalProof` → requires local token / proof cookie.
 
 ## REST routes
 
@@ -267,6 +280,7 @@ Exit rule:
 - Fields: `installed`, `version`, `reachable`, `hostVm`, `capabilities`.
 - `capabilities` ∈ `ok` | `ok-destructive` | `cli-present` | `needs-secret` | `unavailable` | `unsupported-platform`.
 - Cache 30 s.
+- `exposure` field cached per port for 30 s.
 - Detection on demand only (ensure, runtimes route, list with OCI). Never at boot.
 - Host VMs (Docker Desktop, podman machine): reported only. Never started or stopped.
 - Hypervisors (report only): qemu, VirtualBox, VMware.
@@ -277,7 +291,8 @@ Exit rule:
 - Action: `ssh -N -L 127.0.0.1:<h>:127.0.0.1:<p>`. No in-container precondition.
 - Identity + port from `podman system connection list --format json` (`URI: ssh://…:<port>/…`, `Identity`).
 - Wait for bind, re-probe through tunnel, then `healthy` or `blocked`.
-- pid in `services-run/<id>/tunnel.json`. Stale forward (still `ssh -L`) killed on restart.
+- `services-run/<id>/tunnel.json` = `{ pid, forwards }`.
+- Stale forward from previous server killed only when argv still contains every recorded `-L` spec.
 - Terminated via `killProcess` with the service.
 - Linux rootless podman: no tunnel expected (QA item).
 
@@ -286,6 +301,7 @@ Exit rule:
 - OCI: `stop -t <stopTimeout>`, poll `inspect State.Running` until false. Still running → `stop-failed`.
 - Native: `killProcessGroup(pid, { timeoutMs })` (POSIX: SIGTERM `-pid`, poll, SIGKILL `-pid`; win32: `taskkill /F /T`). Known limit: `setsid` workers not reached on POSIX.
 - Attached: judged only by exact-executable matcher gone within `stopTimeout`. Never by rc.
+  - Matcher scans current user's processes only on POSIX (`ps -U <uid>`). Windows `tasklist` unfiltered.
 - No direct `process.kill`. Must go through `packages/shared/src/platform/process.ts`.
 
 ## Rollback
