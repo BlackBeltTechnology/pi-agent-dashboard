@@ -24,3 +24,7 @@ Card sections: routes `set_card_section_visibility` / `reset_folder_card_section
 `hasPendingPromptOtherThan(sessionId, excludeKinds)` — any pending prompt not of the given kinds; drives the `ask_user` fold so a file-access prompt never overwrites the in-flight tool. `hasPendingPromptRequests` unchanged (reaper). See change: ask-agent-file-access-in-chat.
 
 Routes `set_focus_mode` → `handleSetFocusMode`, `set_focus_profile` → `handleSetFocusProfile`, `set_folder_expanded` → `handleSetFolderExpanded`. The connect-burst `collapsed_folders_updated` now carries `expandedFolders` alongside `collapsedFolders`, so the accordion mounts at its persisted state in the same frame that materializes folder groups. See change: add-focus-mode-and-card-block-toggles.
+
+## add-passkey-user-auth
+
+Message handler runs `decideWsTier` BEFORE the owner gate: close 4401 on revoked passkey session, silent drop below tier, one `auth.tier_refused {"via":"ws",type,principalTier,requiredTier}` line per (socket, type), ≤64 types per socket (`tierRefusalsLogged` WeakMap). See change: add-passkey-user-auth.

@@ -63,6 +63,8 @@ import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { PairedDevicesSection } from "../connectivity/PairedDevicesSection.js";
+import { PasskeyImpactNote } from "../connectivity/PasskeyImpactNote.js";
+import { UsersSection } from "../connectivity/UsersSection.js";
 import { InstructionsPage } from "../DirectorySettings/InstructionsPage.js";
 import { GatewayPage } from "../Gateway/GatewayPage.js";
 import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";
@@ -2311,6 +2313,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                         });
                       }}
                     />
+                    {/* Passkeys are bound to this origin's hostname (D3). See
+                        change: add-passkey-user-auth. */}
+                    <PasskeyImpactNote
+                      query={{ redirectBaseUrl: config.auth?.redirectBaseUrl ?? "" }}
+                      testId="redirect-base-url-passkey-impact"
+                      debounceMs={400}
+                    />
                   </div>
                   <div className="mt-3">
                     <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
@@ -2393,6 +2402,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                 </Section>
                 <Section title={t("settings.pairedDevices", undefined, "Paired Devices")}>
                   <PairedDevicesSection />
+                </Section>
+                <Section title={t("settings.users", undefined, "Users")}>
+                  <UsersSection />
                 </Section>
               </>
             )}

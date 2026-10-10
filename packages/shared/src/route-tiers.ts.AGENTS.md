@@ -16,3 +16,7 @@ Removes `GET /api/mcp-client/adapter`, `PUT /api/mcp-client/disabled`, `PUT /api
 KB routes (observe: GET /api/kb/search, GET /api/kb/sources; operate: POST /api/kb/source-trust). See change: improve-kb-settings-sources-and-search.
 
 `/api/plugins/team/*` routes (19) tiered `operate`; MCP denylisted as per-user, owner-gated app API. See change: add-team-plugin.
+
+## add-passkey-user-auth
+
+Rows for `/api/users`, `/api/users/:id`, `/api/users/:id/revoke`, `/api/users/:id/invites`, `/api/users/invites/:inviteId`, `/api/users/credentials/impact` — all `operate`. See change: add-passkey-user-auth.

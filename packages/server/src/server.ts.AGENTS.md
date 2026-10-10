@@ -53,3 +53,7 @@ Boot plugin-bridge registration goes through `syncPluginBridges` with resolved e
 Cold-start loop adds shutdown-window path: `resolveExitRecord(session.liveEpoch)` + `isShutdownWindowCandidate` on the pre-normalization session; match consumes evidence (`setLiveness({live:false, closedReason})`, drops `liveEpoch`) in every mode; candidate unless mode `off`; logs `[recovery] <id>: shutdown-window (...)`. Window candidates join retract/grace/offer/auto pipeline unchanged. See change: fix-recovery-pi-signal-unregister.
 
 - Boot scan = `bootScanAllSessions()`; logs `[archive] service-end-backfill archived N session(s)`. `wireEvents({ archiveSweeper })`. `archiveSweeper.stop()` after `piGateway.stop()` in `stop()` + `start()` failure teardown. See change: archive-service-sessions-on-end.
+
+## add-passkey-user-auth
+
+Constructs `PasskeyService` (directory `~/.pi/dashboard/users.json`, `resolveRpContext`) always; passes to `registerAuthPlugin`; `registerUserRoutes` after pairing routes. WS upgrade: `isSessionLive` via `effectiveSessionTier`; cookie-session sockets get `sessionTier()` (`TieredSocket`); terminal upgrade needs operate, live needs control (403). See change: add-passkey-user-auth.

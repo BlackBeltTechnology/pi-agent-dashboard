@@ -160,6 +160,10 @@ import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pend
 import { createViewedSessionTracker, type ViewedSessionTracker } from "../session/viewed-session-tracker.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
 import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
+import { decideWsTier, type TieredSocket, WS_CLOSE_SESSION_REVOKED } from "./ws-tier-gate.js";
+
+/** Per-socket set of message types already logged as tier-refused (bounded by the type count). */
+const tierRefusalsLogged = new WeakMap<object, Set<string>>();
 
 
 
@@ -1934,6 +1938,28 @@ export function createBrowserGateway(
             }
           },
         };
+
+        // Session-tier gate (change: add-passkey-user-auth): a cookie-session
+        // socket may only send messages at or below its LIVE tier
+        // (`WS_MESSAGE_TIERS`; unlisted ⇒ operate). A revoked passkey user's
+        // socket is closed on its next frame. Other sockets carry no tier.
+        const tierDecision = decideWsTier(ws as TieredSocket, msg.type);
+        if (tierDecision.kind === "close") {
+          ws.close(WS_CLOSE_SESSION_REVOKED, "session revoked");
+          return;
+        }
+        if (tierDecision.kind === "drop") {
+          // One line per (socket, type) — same event name as the REST gate.
+          const seen = tierRefusalsLogged.get(ws) ?? new Set<string>();
+          if (!seen.has(msg.type) && seen.size < 64) {
+            seen.add(msg.type);
+            tierRefusalsLogged.set(ws, seen);
+            console.warn(
+              `auth.tier_refused ${JSON.stringify({ via: "ws", type: String(msg.type).slice(0, 64), principalTier: tierDecision.principalTier, requiredTier: tierDecision.required })}`,
+            );
+          }
+          return;
+        }
 
         // §8.3 owner-equality choke point: a single gate for EVERY session-owned
         // command (classification in `ws-message-scope.ts`; coverage-tested so a
