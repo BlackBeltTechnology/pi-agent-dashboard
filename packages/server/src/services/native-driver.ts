@@ -167,9 +167,26 @@ export class NativeDriver implements ServiceDriver {
     return inst.pid !== undefined && this.alive(inst.pid);
   }
 
-  async stop(def: ServiceDefinition, inst: DriverInstance | undefined, stopTimeoutMs: number): Promise<StopOutcome> {
-    const pid = inst?.pid ?? this.readInstance(def.id)?.pid;
+  async stop(
+    def: ServiceDefinition,
+    inst: DriverInstance | undefined,
+    stopTimeoutMs: number,
+    opts: { force?: boolean } = {},
+  ): Promise<StopOutcome> {
+    const rec = inst?.pid === undefined ? this.readInstance(def.id) : null;
+    const pid = inst?.pid ?? rec?.pid;
     if (pid === undefined) return "stopped";
+    if (rec && !opts.force && this.alive(pid)) {
+      // A pid known only from the record (no live instance) may have been
+      // reused by an unrelated group: signal it only when its command line
+      // still carries the recorded package; otherwise drop the record. An
+      // explicit `stop --force` is the user's override.
+      const cmd = await (this.deps.readCommandLine ?? ((p) => readProcessCommandLine(p, { platform: this.platform })))(pid);
+      if (!cmd?.includes(rec.package)) {
+        fs.rmSync(this.deps.paths.instanceFile(def.id), { force: true });
+        return "stopped";
+      }
+    }
     if (this.alive(pid)) {
       await (this.deps.killProcessGroup ?? killProcessGroup)(pid, { timeoutMs: stopTimeoutMs, platform: this.platform });
     }

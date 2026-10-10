@@ -120,6 +120,7 @@ describe("E7 — dry-run review writes nothing", () => {
       volumes: ["docling-cache"],
       secrets: ["apikey"],
       templateHash: templateHash(doclingOffer()),
+      secretSources: { apikey: "store:docling/apikey (generated, 32 bytes)" },
     });
     expect(sha(file())).toBe(before);
   });

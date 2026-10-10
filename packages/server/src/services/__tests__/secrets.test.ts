@@ -83,6 +83,22 @@ describe("E49 — a corrupt store refuses every write", () => {
   });
 });
 
+describe("audit — remove with a corrupt store refuses before any teardown", () => {
+  it("409, the definition and run dir survive", async () => {
+    writeDefinitions(root, [obsDef()]);
+    const paths = servicesPaths(root);
+    fs.mkdirSync(paths.runDir("obs"), { recursive: true });
+    fs.writeFileSync(secretsFile(), "{ not json");
+    const { manager } = makeManager(root);
+    const app = await buildApp(manager);
+    apps.push(app);
+    const res = await app.inject({ method: "DELETE", url: "/api/services/obs" });
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(fs.readFileSync(path.join(root, "services.json"), "utf8")).services.map((s: { id: string }) => s.id)).toEqual(["obs"]);
+    expect(fs.existsSync(paths.runDir("obs"))).toBe(true);
+  });
+});
+
 describe("E50 — CLI secret entry reads stdin, never argv", () => {
   it("stores the value; it appears in no argv and no URL", async () => {
     writeDefinitions(root, [obsDef()]);

@@ -13,12 +13,13 @@ import { diffTemplates, discoverServiceOffers, parseServiceOffers, templateHash 
 const DIGEST = `ghcr.io/x/docling@sha256:${"a".repeat(64)}`;
 
 function offer(overrides: Record<string, unknown> = {}) {
+  const id = (overrides.id as string | undefined) ?? "docling";
   return {
     schemaVersion: 1,
-    id: "docling",
+    id,
     mode: "managed",
     drivers: ["oci:docker", "oci:podman"],
-    oci: { image: DIGEST, ports: { http: { container: 5001, protocol: "http" } }, volumes: { "docling-cache": "/cache" } },
+    oci: { image: DIGEST, ports: { http: { container: 5001, protocol: "http" } }, volumes: { [`${id}-cache`]: "/cache" } },
     health: { kind: "http", endpoint: "http", path: "/health" },
     ...overrides,
   };
@@ -84,6 +85,26 @@ describe("E5 — dangerous offers are rejected, naming package and key", () => {
   it("requires schemaVersion", () => {
     const { schemaVersion: _s, ...noVersion } = offer();
     expect(parseServiceOffers({ services: [noVersion] }, pkg).errors.join()).toMatch(/schemaVersion/);
+  });
+});
+
+describe("audit hardening — offers stay inside their own namespace", () => {
+  const pkg = { name: "@x/evil", version: "1.0.0" };
+  const errs = (entry: unknown) => parseServiceOffers({ services: [entry] }, pkg).errors.join("\n");
+  it("may not reference another service's stored secret, env: or keychain:", () => {
+    expect(errs(offer({ secrets: { pw: { ref: "store:postgres/PASSWORD" } } }))).toMatch(/secrets\.pw\.ref/);
+    expect(errs(offer({ secrets: { pw: { ref: "env:AWS_SECRET_ACCESS_KEY" } } }))).toMatch(/secrets\.pw\.ref/);
+    expect(errs(offer({ secrets: { pw: { ref: "keychain:login/me" } } }))).toMatch(/secrets\.pw\.ref/);
+    expect(parseServiceOffers({ services: [offer({ secrets: { pw: { ref: "store:docling/pw" } } })] }, pkg).offers).toHaveLength(1);
+  });
+  it("volume names must be prefixed with the service id (no stranger's volume)", () => {
+    expect(errs(offer({ oci: { image: DIGEST, ports: { http: { container: 1 } }, volumes: { myapp_pgdata: "/x" } } }))).toMatch(/oci\.volumes\.myapp_pgdata/);
+  });
+  it("an image starting with '-' is rejected (would be read as a runtime flag)", () => {
+    expect(errs(offer({ oci: { image: `--volume=/:/h@sha256:${"a".repeat(64)}`, ports: { http: { container: 1 } } } }))).toMatch(/oci\.image/);
+  });
+  it("secret names differing only by case are rejected", () => {
+    expect(errs(offer({ secrets: { Token: {}, TOKEN: {} } }))).toMatch(/only by case/);
   });
 });
 

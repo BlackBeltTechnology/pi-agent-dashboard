@@ -181,3 +181,44 @@ describe("stop — killProcessGroup, confirmed by the group being gone", () => {
     expect(await d.stop(nativeDef(), { driver: "native", startedBy: "dashboard", endpoints: {}, pid: 77 }, 2_000)).toBe("stop-failed");
   });
 });
+
+describe("audit — a recorded pid is re-verified before any signal", () => {
+  function withRecord(cmd: string) {
+    const r = root();
+    const paths = servicesPaths(r);
+    fs.mkdirSync(paths.runDir("docling"), { recursive: true });
+    fs.writeFileSync(paths.instanceFile("docling"), JSON.stringify({ pid: 777, argv: [], ports: { http: 41231 }, package: "docling-serve@1.36.0", defHash: "h", startedAt: "" }));
+    const kpg = vi.fn(async () => ({ ok: true, forced: false }));
+    const d = new NativeDriver({
+      run: recordingRunner().run,
+      resolveBinary: (n) => `/usr/bin/${n}`,
+      paths,
+      killProcessGroup: kpg,
+      isAlive: () => true,
+      readCommandLine: async () => cmd,
+    });
+    return { r, d, kpg, paths };
+  }
+  it("pid reused by an unrelated group → record dropped, nothing signalled", async () => {
+    const { d, kpg, paths } = withRecord("-zsh");
+    expect(await d.stop(nativeDef(), undefined, 2_000)).toBe("stopped");
+    expect(kpg).not.toHaveBeenCalled();
+    expect(fs.existsSync(paths.instanceFile("docling"))).toBe(false);
+  });
+  it("explicit --force signals the recorded group", async () => {
+    const { d, kpg } = withRecord("-zsh");
+    await d.stop(nativeDef(), undefined, 2_000, { force: true });
+    expect(kpg).toHaveBeenCalledWith(777, expect.anything());
+  });
+  it("manager remove of an adoption-uncertain service never force-signals", async () => {
+    const { r, d, kpg } = withRecord("-zsh");
+    writeDefinitions(r, [bareNativeDef()]);
+    (d as unknown as { deps: { portHolders: () => Promise<number[]> } }).deps.portHolders = async () => [];
+    const { manager } = makeManager(r, { drivers: { native: d } });
+    await manager.boot();
+    expect((await manager.list()).services[0].reason).toBe("adoption-uncertain");
+    expect((await manager.remove("docling")).ok).toBe(true);
+    expect(kpg).not.toHaveBeenCalled();
+  });
+});
+

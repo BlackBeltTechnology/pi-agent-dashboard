@@ -279,7 +279,7 @@ export function endpointNames(def: Pick<ServiceDefinition, "mode" | "oci" | "nat
   return [...new Set([...Object.keys(def.oci?.ports ?? {}), ...Object.keys(def.native?.ports ?? {})])];
 }
 
-function validateOci(oci: unknown, isUser: boolean, errors: string[]): void {
+function validateOci(oci: unknown, isUser: boolean, id: unknown, errors: string[]): void {
   if (!isPlainObject(oci)) {
     errors.push("oci: must be an object");
     return;
@@ -287,6 +287,8 @@ function validateOci(oci: unknown, isUser: boolean, errors: string[]): void {
   rejectKeys("oci", oci, OCI_KEYS, errors);
   if (typeof oci.image !== "string" || oci.image.trim() === "") {
     errors.push("oci.image: must be a non-empty string");
+  } else if (oci.image.startsWith("-")) {
+    errors.push("oci.image: must not start with '-' (it would be read as a runtime flag)");
   } else if (!isUser && !/@sha256:[0-9a-f]{64}$/.test(oci.image)) {
     errors.push(`oci.image: offer images must be digest-pinned (@sha256:…), got ${JSON.stringify(oci.image)}`);
   }
@@ -315,6 +317,10 @@ function validateOci(oci: unknown, isUser: boolean, errors: string[]): void {
       for (const [vol, target] of Object.entries(oci.volumes)) {
         if (!VOLUME_NAME_PATTERN.test(vol)) {
           errors.push(`oci.volumes.${vol}: bind mounts are not allowed here — a volume must be a named volume`);
+        } else if (!isUser && typeof id === "string" && !vol.startsWith(`${id}-`)) {
+          // Volume names are runtime-global: a package template may only own
+          // volumes in its own namespace, never mount (or purge) a stranger's.
+          errors.push(`oci.volumes.${vol}: a package template's volume names must start with "${id}-"`);
         }
         if (typeof target !== "string" || !target.startsWith("/")) {
           errors.push(`oci.volumes.${vol}: container path must be absolute`);
@@ -393,6 +399,8 @@ function validateNative(native: unknown, errors: string[]): void {
   if (native.env !== undefined) {
     if (!isPlainObject(native.env) || !Object.values(native.env).every((v) => typeof v === "string")) {
       errors.push("native.env: must map names to strings");
+    } else {
+      for (const k of Object.keys(native.env)) if (!ENV_NAME_PATTERN.test(k)) errors.push(`native.env.${k}: invalid env name`);
     }
   }
 }
@@ -441,13 +449,18 @@ function validateHealth(health: unknown, def: Record<string, unknown>, opts: Val
   if (health.timeoutMs !== undefined && !isPositiveNumber(health.timeoutMs)) errors.push("health.timeoutMs: must be positive");
 }
 
-function validateSecrets(secrets: unknown, isOffer: boolean, errors: string[]): void {
+function validateSecrets(secrets: unknown, isPackage: boolean, id: unknown, errors: string[]): void {
   if (!isPlainObject(secrets)) {
     errors.push("secrets: must be an object");
     return;
   }
+  const seen = new Set<string>();
   for (const [name, spec] of Object.entries(secrets)) {
     if (!NAME_PATTERN.test(name)) errors.push(`secrets.${name}: invalid secret name`);
+    // Names become files under secrets/ and SVC_<ID>_<NAME> env vars: a
+    // case-only difference would collide on case-insensitive volumes.
+    if (seen.has(name.toLowerCase())) errors.push(`secrets.${name}: differs from another secret name only by case`);
+    seen.add(name.toLowerCase());
     if (!isPlainObject(spec)) {
       errors.push(`secrets.${name}: must be an object`);
       continue;
@@ -456,8 +469,10 @@ function validateSecrets(secrets: unknown, isOffer: boolean, errors: string[]): 
     if (spec.ref !== undefined) {
       if (typeof spec.ref !== "string" || !SECRET_REF_PATTERN.test(spec.ref)) {
         errors.push(`secrets.${name}.ref: must be store:<id>/<name>, env:<NAME> or keychain:<service>/<account>`);
-      } else if (isOffer && !spec.ref.startsWith("store:")) {
-        errors.push(`secrets.${name}.ref: a package offer may not reference env: or keychain: secrets`);
+      } else if (isPackage && spec.ref !== `store:${String(id)}/${name}`) {
+        // A package template may only use its OWN store slot: never env:,
+        // keychain:, or another service's stored secret.
+        errors.push(`secrets.${name}.ref: a package template may only reference store:${String(id)}/${name}`);
       }
     }
     if (spec.generate !== undefined) {
@@ -533,7 +548,7 @@ export function validateDefinition(input: unknown, opts: ValidateOptions = {}): 
       if (drivers.some((d) => String(d).startsWith("oci:")) && def.oci === undefined) errors.push("oci: required by an oci driver");
       if (drivers.includes("native") && def.native === undefined) errors.push("native: required by the native driver");
     }
-    if (def.oci !== undefined) validateOci(def.oci, isUser, errors);
+    if (def.oci !== undefined) validateOci(def.oci, isUser, def.id, errors);
     if (def.native !== undefined) validateNative(def.native, errors);
     for (const k of ["endpoints", "lifecycle", "process"] as const) {
       if (def[k] !== undefined) errors.push(`${k}: not allowed for a managed service`);
@@ -583,7 +598,7 @@ export function validateDefinition(input: unknown, opts: ValidateOptions = {}): 
   }
 
   validateHealth(def.health, def, opts, errors);
-  if (def.secrets !== undefined) validateSecrets(def.secrets, isOffer, errors);
+  if (def.secrets !== undefined) validateSecrets(def.secrets, !isUser, def.id, errors);
   for (const k of ["startTimeoutSec", "stopTimeoutSec"] as const) {
     if (def[k] !== undefined && !isPositiveNumber(def[k])) errors.push(`${k}: must be a positive number`);
   }

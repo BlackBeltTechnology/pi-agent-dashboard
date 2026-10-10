@@ -387,12 +387,16 @@ export class OciDriver implements ServiceDriver {
    */
   async closeTunnel(def: ServiceDefinition, livePid?: number): Promise<void> {
     const file = this.deps.paths.tunnelFile(def.id);
-    const recorded = readJsonFile<{ pid?: number }>(file)?.pid;
+    const record = readJsonFile<{ pid?: number; forwards?: string[] }>(file);
+    const recorded = record?.pid;
     for (const pid of new Set([livePid, recorded].filter((p): p is number => Number.isInteger(p)))) {
       if (!(this.deps.isProcessAlive ?? isProcessAlive)(pid)) continue;
       if (pid !== livePid) {
+        // Exact match only: every recorded `-L` spec must still be in this
+        // pid's argv, so a reused pid (or the user's own ssh -L) is spared.
+        const forwards = record?.forwards ?? [];
         const cmd = await (this.deps.readCommandLine ?? ((p) => readProcessCommandLine(p)))(pid);
-        if (!cmd || !/\bssh\b/.test(cmd) || !cmd.includes("-L")) continue;
+        if (!cmd || !/\bssh\b/.test(cmd) || forwards.length === 0 || !forwards.every((f) => cmd.includes(f))) continue;
       }
       await (this.deps.killProcess ?? killProcess)(pid, { timeoutMs: 2_000 });
     }
@@ -430,7 +434,8 @@ export class OciDriver implements ServiceDriver {
     child.on("error", () => {});
     child.unref();
     if (!child.pid) return null;
-    writePrivateFile(this.deps.paths.tunnelFile(def.id), `${JSON.stringify({ pid: child.pid })}\n`);
+    const specs = forwards.filter((_x, i) => i % 2 === 1);
+    writePrivateFile(this.deps.paths.tunnelFile(def.id), `${JSON.stringify({ pid: child.pid, forwards: specs })}\n`);
     // Re-probe only once the forward is up: ssh needs a moment to bind it.
     const first = Number(new URL(Object.values(endpoints)[0]).port);
     await (this.deps.waitForForward ?? defaultWaitForForward)(first);

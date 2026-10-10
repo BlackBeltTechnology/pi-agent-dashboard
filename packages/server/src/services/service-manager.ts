@@ -68,6 +68,7 @@ const STICKY_REASONS = new Set<UnavailableReason>(["adoption-uncertain", "owner-
 
 const REPROBE_INTERVAL_MS = 30_000;
 const OFFERS_CACHE_MS = 10_000;
+const EXPOSURE_CACHE_MS = 30_000;
 const MAX_SECRET_BYTES = 64 * 1024;
 
 export interface ServiceManagerDeps {
@@ -135,6 +136,8 @@ export interface AddReview {
   volumes: string[];
   binds: string[];
   secrets: string[];
+  /** Where each secret comes from (ref or store slot) — shown so a cross-reference cannot hide. */
+  secretSources: Record<string, string>;
   templateHash?: string;
   diff?: TemplateDiffEntry[];
   /** Native packages are fetched only by an explicit prefetch. */
@@ -188,6 +191,8 @@ export class ServiceManager {
   private readonly driverMap = new Map<DriverName, ServiceDriver>();
   private readonly detector: RuntimeDetector;
   private offersCache?: { at: number; value: ParsedServiceOffers };
+  /** port → exposure, 30 s: reads (observe tier) must not drive a subprocess per call. */
+  private readonly exposureCache = new Map<number, { at: number; value: Exposure }>();
   private timer?: ReturnType<typeof setInterval>;
   private pins = new Set<string>();
 
@@ -620,11 +625,14 @@ export class ServiceManager {
     );
   }
 
-  private async stopLocked(def: ServiceDefinition, opts: { force?: boolean; why?: string }): Promise<{ ok: boolean; state: string; hint?: string }> {
+  private async stopLocked(
+    def: ServiceDefinition,
+    opts: { force?: boolean; why?: string; removing?: boolean },
+  ): Promise<{ ok: boolean; state: string; hint?: string }> {
     const rec = this.rec(def.id);
     if (def.mode === "external") return { ok: true, state: rec.cell.state, hint: "an external service has no lifecycle" };
     const sticky = rec.cell.state === "unavailable" && rec.cell.reason && STICKY_REASONS.has(rec.cell.reason);
-    if (rec.cell.reason === "adoption-uncertain" && !opts.force) {
+    if (rec.cell.reason === "adoption-uncertain" && !opts.force && !opts.removing) {
       return { ok: false, state: "unavailable", hint: "adoption is uncertain; re-run with --force to signal the recorded pid group" };
     }
     if (rec.instance?.startedBy === "external" && !opts.force) {
@@ -640,7 +648,9 @@ export class ServiceManager {
     let outcome: "stopped" | "stop-failed" = "stopped";
     for (const d of drivers) {
       if (!d.canStop(def)) continue;
-      const r = await d.stop(def, rec.instance?.driver === d.name ? rec.instance : undefined, stopTimeoutMs, { force: opts.force });
+      // `remove` never force-signals: a recorded pid that no longer verifies is
+      // dropped, not killed (it may have been reused by an unrelated group).
+      const r = await d.stop(def, rec.instance?.driver === d.name ? rec.instance : undefined, stopTimeoutMs, { force: opts.force === true });
       if (r === "stop-failed") outcome = "stop-failed";
     }
     if (outcome === "stopped") {
@@ -728,6 +738,12 @@ export class ServiceManager {
       volumes: Object.keys(def.oci?.volumes ?? {}),
       binds: Object.keys(def.oci?.binds ?? {}),
       secrets: Object.keys(def.secrets ?? {}),
+      secretSources: Object.fromEntries(
+        Object.entries(def.secrets ?? {}).map(([n, sp]) => [
+          n,
+          `${sp.ref ?? `store:${def.id}/${n}`}${sp.generate ? ` (generated, ${sp.generate.bytes} bytes)` : sp.ref ? "" : " (user-entered)"}`,
+        ]),
+      ),
       ...(def.origin !== "user" ? { templateHash: def.origin.templateHash } : {}),
       ...(diff ? { diff } : {}),
       ...(def.drivers?.includes("native") ? { needsPrefetch: true } : {}),
@@ -799,6 +815,12 @@ export class ServiceManager {
     if (!r.ok) throw new ServiceError(409, "definitions-corrupt", new DefinitionsCorruptError(this.definitions.file, r.backupPath).message);
     const entry = r.entries.find((e) => e.id === id);
     if (!entry) throw new ServiceError(404, "not-found", `no service "${id}"`);
+    // Check BEFORE any teardown: a corrupt store would otherwise fail the
+    // secret deletion half-way, leaving a removed container but a live entry.
+    const sec = this.secrets.status();
+    if (sec.corrupt) {
+      throw new ServiceError(409, "secrets-corrupt", new SecretsCorruptError(this.secrets.file, sec.backupPath).message);
+    }
     const instanceId = r.instanceId ?? "";
     return this.mutex.run(id, () =>
       withLifecycleLock(
@@ -809,7 +831,7 @@ export class ServiceManager {
           if (def) {
             const owned = rec.instance ? rec.instance.startedBy === "dashboard" : def.mode === "managed";
             if (owned && def.mode !== "external") {
-              const res = await this.stopLocked(def, { force: true, why: "remove" });
+              const res = await this.stopLocked(def, { removing: true, why: "remove" });
               if (!res.ok && res.state === "stop-failed") return { ok: false, hint: res.hint };
             }
             for (const d of this.driversOf(def)) await d.remove(def, instanceId, { purgeData: opts.purgeData === true });
@@ -845,7 +867,14 @@ export class ServiceManager {
       }
       const host = u.hostname.replace(/^\[|\]$/g, "");
       if (!["127.0.0.1", "localhost", "::1"].includes(host) || !u.port) continue;
-      const e = await (this.deps.exposure ?? ((p) => findListenAddresses(p, { platform: this.deps.platform })))(Number(u.port));
+      const port = Number(u.port);
+      const cached = this.exposureCache.get(port);
+      let e: Exposure;
+      if (cached && this.now() - cached.at < EXPOSURE_CACHE_MS) e = cached.value;
+      else {
+        e = await (this.deps.exposure ?? ((p) => findListenAddresses(p, { platform: this.deps.platform })))(port);
+        this.exposureCache.set(port, { at: this.now(), value: e });
+      }
       if (e === "all-interfaces") return e;
       if (e === "loopback" || worst === undefined) worst = e;
     }

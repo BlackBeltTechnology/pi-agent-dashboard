@@ -243,15 +243,24 @@ export function matchesExecutable(exe: string, name: string, platform: NodeJS.Pl
   return norm(base) === norm(name);
 }
 
-/** PIDs whose executable basename is exactly `name` (see {@link matchesExecutable}). Failure → []. */
-export async function findProcessesByExecutable(name: string, opts: ProcessScanAsyncOpts = {}): Promise<number[]> {
+/**
+ * PIDs whose executable basename is exactly `name` (see {@link matchesExecutable}),
+ * owned by the CURRENT user on POSIX (`ps -U <uid>`): another user's same-named
+ * process must neither suppress a start nor fail a stop. Failure → [].
+ */
+export async function findProcessesByExecutable(
+  name: string,
+  opts: ProcessScanAsyncOpts & { uid?: number } = {},
+): Promise<number[]> {
   const platform = opts.platform ?? process.platform;
   const run = opts.run ?? defaultRun;
+  const uid = opts.uid ?? process.getuid?.();
+  const owner = uid === undefined ? ["-A"] : ["-U", String(uid)];
   let output: string;
   try {
     if (platform === "win32") output = await run("tasklist", ["/FO", "CSV", "/NH"]);
-    else if (platform === "darwin") output = await run("ps", ["-axo", "pid=,comm="]);
-    else output = await run("ps", ["-eo", "pid=,args="]);
+    else if (platform === "darwin") output = await run("ps", [...owner, "-o", "pid=,comm="]);
+    else output = await run("ps", [...owner, "-o", "pid=,args="]);
   } catch {
     return [];
   }

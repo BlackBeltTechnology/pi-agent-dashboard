@@ -116,6 +116,15 @@ describe("findProcessesByExecutable — exact basename, never substring", () => 
   it("tool failure → []", async () => {
     expect(await findProcessesByExecutable("x", { platform: "linux", run: fakeRun({}) })).toEqual([]);
   });
+  it("POSIX scans only the current user's processes (ps -U <uid>)", async () => {
+    const run = fakeRun({ ps: "" });
+    await findProcessesByExecutable("OBS", { platform: "darwin", run, uid: 501 });
+    await findProcessesByExecutable("OBS", { platform: "linux", run, uid: 1000 });
+    expect(run.mock.calls.map((c) => c[1])).toEqual([
+      ["-U", "501", "-o", "pid=,comm="],
+      ["-U", "1000", "-o", "pid=,args="],
+    ]);
+  });
   it("matchesExecutable per platform", () => {
     expect(matchesExecutable("C:\\Program Files\\obs\\obs64.EXE", "obs64", "win32")).toBe(true);
     expect(matchesExecutable("/usr/bin/obs-studio", "obs", "linux")).toBe(false);

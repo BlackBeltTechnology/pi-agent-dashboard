@@ -116,4 +116,22 @@ describe("exposure — a port bound on all interfaces is flagged", () => {
     const s = (await app.inject({ method: "GET", url: "/api/services" })).json().data.services[0];
     expect(s.exposure).toBe("all-interfaces");
   });
+
+  it("exposure is cached per port for 30 s (reads never drive a scan per call)", async () => {
+    writeDefinitions(root, [ociDef()]);
+    let scans = 0;
+    const { manager, clock } = makeManager(root, {
+      drivers: { "oci:docker": new FakeDriver("oci:docker") },
+      exposure: async () => {
+        scans++;
+        return "loopback";
+      },
+    });
+    await manager.ensure("docling");
+    for (let i = 0; i < 5; i++) await manager.list();
+    expect(scans).toBe(1);
+    clock.advance(31_000);
+    await manager.list();
+    expect(scans).toBe(2);
+  });
 });

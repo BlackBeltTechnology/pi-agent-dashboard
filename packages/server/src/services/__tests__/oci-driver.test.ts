@@ -331,21 +331,24 @@ describe("X8 follow-up — a previous server's tunnel never leaks", () => {
 
   it("kills a recorded stale ssh forward before opening a new one, records the new pid, waits for the forward", async () => {
     const r = root();
-    const { d, kill, waits, paths } = driverFor(r, () => "ssh -N -L 127.0.0.1:56577:127.0.0.1:40521 core@127.0.0.1");
+    const { d, kill, waits, paths } = driverFor(r, () => "/usr/bin/ssh -N -L 127.0.0.1:56577:127.0.0.1:40521 -i k core@127.0.0.1");
     fs.mkdirSync(paths.runDir("docling"), { recursive: true });
-    fs.writeFileSync(paths.tunnelFile("docling"), JSON.stringify({ pid: 7777 }));
+    fs.writeFileSync(paths.tunnelFile("docling"), JSON.stringify({ pid: 7777, forwards: ["127.0.0.1:56577:127.0.0.1:40521"] }));
     const next = await d.onProbeFailed(ociDef({ drivers: ["oci:podman"] }), inst);
     expect(kill).toHaveBeenCalledWith(7777, expect.anything());
     expect(next?.tunnelPid).toBe(6000);
-    expect(JSON.parse(fs.readFileSync(paths.tunnelFile("docling"), "utf8"))).toEqual({ pid: 6000 });
+    expect(JSON.parse(fs.readFileSync(paths.tunnelFile("docling"), "utf8"))).toEqual({ pid: 6000, forwards: ["127.0.0.1:47002:127.0.0.1:40521"] });
     expect(waits).toEqual([47002]);
   });
 
-  it("never signals a recorded pid that is no longer an ssh forward (pid reuse)", async () => {
+  it.each([
+    ["pid reused by another program", "/usr/bin/vim notes.txt"],
+    ["the user's own unrelated ssh -L", "ssh -N -L 8080:db.internal:5432 me@bastion"],
+  ])("never signals a recorded pid that is not that exact forward: %s", async (_l, cmd) => {
     const r = root();
-    const { d, kill, paths } = driverFor(r, () => "/usr/bin/vim notes.txt");
+    const { d, kill, paths } = driverFor(r, () => cmd);
     fs.mkdirSync(paths.runDir("docling"), { recursive: true });
-    fs.writeFileSync(paths.tunnelFile("docling"), JSON.stringify({ pid: 7777 }));
+    fs.writeFileSync(paths.tunnelFile("docling"), JSON.stringify({ pid: 7777, forwards: ["127.0.0.1:56577:127.0.0.1:40521"] }));
     await d.onProbeFailed(ociDef({ drivers: ["oci:podman"] }), inst);
     expect(kill).not.toHaveBeenCalledWith(7777, expect.anything());
   });
