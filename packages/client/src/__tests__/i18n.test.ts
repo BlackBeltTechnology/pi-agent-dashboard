@@ -136,3 +136,33 @@ describe("collapse-pairing-into-gateway — i18n sweep (E11)", () => {
     }
   });
 });
+
+describe("add-mermaid-auto-repair — i18n sweep (X4)", () => {
+  function findClientRoot(start: string): string {
+    const marker = join("src", "lib", "i18n", "i18n.tsx");
+    let dir = start;
+    for (let i = 0; i < 8; i++) {
+      if (existsSync(join(dir, marker))) return dir;
+      if (existsSync(join(dir, "packages", "client", marker))) return join(dir, "packages", "client");
+      const up = dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+    return start;
+  }
+  const root = findClientRoot(process.cwd());
+  const zh = readFileSync(join(root, "src/lib/i18n/i18n.tsx"), "utf8");
+  const hu = readFileSync(join(root, "src/lib/i18n/i18n-hu.ts"), "utf8");
+
+  it("badge, toggle, copy and all seven rule-description keys are in both catalogues", () => {
+    for (const key of [
+      "preview.mermaid.autoFixed",
+      "preview.mermaid.showOriginal",
+      "preview.mermaid.copyFixed",
+      ...["R1", "R2", "R3", "R4", "R5", "R6", "R7"].map((r) => `preview.mermaid.rule.${r}`),
+    ]) {
+      expect(zh, `zh-CN: ${key}`).toContain(`"${key}":`);
+      expect(hu, `hu: ${key}`).toContain(`"${key}":`);
+    }
+  });
+});
