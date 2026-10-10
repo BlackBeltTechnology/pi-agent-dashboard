@@ -52,11 +52,11 @@ const PLAN = {
   evals: ["dynamic-instances", "iris"],
   support: ["shader-particles", "mirror-floor"],
   talent: ["city-grid", "flythrough"],
-  partners: ["starfield"],
-  smb: ["particles", "pixelate"],
-  metrics: ["volume-perlin"],
-  risks: ["aurora"],
-  close: ["horizon-gates"],
+  partners: ["starfield", "swing"],
+  smb: ["particles", "pixelate", "path"],
+  metrics: ["volume-perlin", "revolve"],
+  risks: ["aurora", "crane"],
+  close: ["horizon-gates", "bank"],
 };
 
 /**
@@ -125,6 +125,17 @@ const known = new Set(
     .map((f) => JSON.parse(readFileSync(join(fxDir, f), "utf8")).id),
 );
 
+/** Camera-move cards; `dolly` stays the deck default, so its slide needs no override. */
+const TRANSITION_CARDS = new Set(["swing", "revolve", "crane", "bank", "flythrough", "fade", "iris", "path"]);
+/** Rise and drift right, roll into the turn, settle looking at the slide early. */
+const DEMO_PATH = {
+  ease: "inOut",
+  keys: [
+    { t: 0.3, offset: [0.15, 0.2, 0], look: 0.2, roll: 6 },
+    { t: 0.65, offset: [-0.1, 0.12, 0.05], look: 0.9, fov: 50 },
+  ],
+};
+
 const planned = Object.values(PLAN).flat();
 const dupes = planned.filter((id, i) => planned.indexOf(id) !== i);
 if (dupes.length) throw new Error(`card used on more than one slide: ${[...new Set(dupes)].join(", ")}`);
@@ -145,6 +156,13 @@ for (const [slide, ids] of Object.entries(PLAN)) {
     return ref;
   });
   slides[slide] = DIAGRAMS[slide] ? { effects, diagram: DIAGRAMS[slide] } : { effects };
+  // A transition card only shows when the slide is ENTERED with it, so the
+  // slide presenting it also flies in with it (`path` with a demo cameraPath).
+  const move = ids.find((id) => TRANSITION_CARDS.has(id));
+  if (move) {
+    slides[slide].transition = move;
+    if (move === "path") slides[slide].cameraPath = DEMO_PATH;
+  }
 }
 
 writeFileSync(

@@ -1,8 +1,8 @@
 # deck3d effect catalogue
 
-GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `10333189e0e3cacccfc104435657d03531cc69d24a1d06769ee8923db896194d`.
+GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `b4cd8fff4eb02ea8eef09609a788bea6dd77016f44291c10b49eb2202efa925d`.
 
-81 effects.
+86 effects.
 
 ## accent-cycle
 
@@ -62,6 +62,20 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | speed | number | 0..2 | 0.5 |
+
+## bank
+
+- kind: `transition`
+- cost: 2
+- modes: `both`
+- tags: mood=[cinematic, energetic] content=[motion]
+- source: https://threejs.org/examples/
+- licence: MIT
+- preview: `fx/previews/bank.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| intensity | number | 0..2 | 1 |
 
 ## billboards
 
@@ -200,6 +214,20 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | speed | number | 0..3 | 1 |
 | linkDistance | number | 1..8 | 3.2 |
 | nodeShape | string | — | point |
+
+## crane
+
+- kind: `transition`
+- cost: 2
+- modes: `both`
+- tags: mood=[cinematic, calm] content=[motion]
+- source: https://threejs.org/examples/
+- licence: MIT
+- preview: `fx/previews/crane.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| intensity | number | 0..2 | 1 |
 
 ## curve-flow
 
@@ -780,6 +808,20 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## path
+
+- kind: `transition`
+- cost: 2
+- modes: `both`
+- tags: mood=[cinematic] content=[motion]
+- source: https://threejs.org/examples/
+- licence: MIT
+- preview: `fx/previews/path.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| intensity | number | 0..2 | 1 |
+
 ## pixelate
 
 - kind: `post`
@@ -826,6 +868,20 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | density | number | 0.2..3 | 1 |
+
+## revolve
+
+- kind: `transition`
+- cost: 2
+- modes: `both`
+- tags: mood=[cinematic, dramatic] content=[motion]
+- source: https://threejs.org/examples/
+- licence: MIT
+- preview: `fx/previews/revolve.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| intensity | number | 0..2 | 1 |
 
 ## rings
 
@@ -1040,6 +1096,20 @@ No parameters.
 - source: https://threejs.org/examples/
 - licence: MIT
 - preview: `fx/previews/swarm.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| intensity | number | 0..2 | 1 |
+
+## swing
+
+- kind: `transition`
+- cost: 1
+- modes: `both`
+- tags: mood=[cinematic, energetic] content=[motion]
+- source: https://threejs.org/examples/
+- licence: MIT
+- preview: `fx/previews/swing.png`
 
 | Param | Type | Range | Default |
 |---|---|---|---|

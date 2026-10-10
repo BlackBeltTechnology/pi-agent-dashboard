@@ -30,7 +30,10 @@
 | `defaults.rimLight` | boolean | `true` | Enable the rim light that outlines silhouettes. |
 | `defaults.fog` | boolean | `true` | Enable depth fog so distant slides fade into the background. |
 | `defaults.backgroundIntensity` | number | `0.7` | Opacity of the animated background scene (0 = hidden, 1 = full). |
-| `defaults.transition` | string | `"dolly"` | Transition effect id (from the `transition` kind of the fx corpus) played on slide change. |
+| `defaults.transition` | dolly \| swing \| revolve \| crane \| bank \| flythrough \| fade \| iris \| path \| cut | `"dolly"` | Camera move played on slide change (a `transition` card id, or `cut`). `path` needs the slide's `cameraPath`. |
+| `defaults.transitionCycle` | array |  | Deck-level: slides without their own `transition` take `transitionCycle[slideIndex % length]`. |
+| `defaults.transitionCycle[]` | any |  |  |
+| `defaults.transitionAmount` | number | `1` | Scales the built-in camera move (offsets, roll, fov swing); 1 = stock, 0 = straight dolly. |
 | `defaults.durationSec` | number | `1.4` | Transition duration in seconds. |
 | `defaults.depthRelief` | number | `0.7` | Depth offset (world units) applied per diagram rank so a 2D layout reads as a 3D staircase. Higher = more relief. |
 | `defaults.quality` | low \| medium \| high | `"high"` | Quality tier: scales bloom, reflections, shadow resolution and particle count, and sets the effect cost budget (low 6 / medium 12 / high 20). |
@@ -142,7 +145,10 @@
 | `overrides.deck.rimLight` | boolean | `true` | Enable the rim light that outlines silhouettes. |
 | `overrides.deck.fog` | boolean | `true` | Enable depth fog so distant slides fade into the background. |
 | `overrides.deck.backgroundIntensity` | number | `0.7` | Opacity of the animated background scene (0 = hidden, 1 = full). |
-| `overrides.deck.transition` | string | `"dolly"` | Transition effect id (from the `transition` kind of the fx corpus) played on slide change. |
+| `overrides.deck.transition` | dolly \| swing \| revolve \| crane \| bank \| flythrough \| fade \| iris \| path \| cut | `"dolly"` | Camera move played on slide change (a `transition` card id, or `cut`). `path` needs the slide's `cameraPath`. |
+| `overrides.deck.transitionCycle` | array |  | Deck-level: slides without their own `transition` take `transitionCycle[slideIndex % length]`. |
+| `overrides.deck.transitionCycle[]` | any |  |  |
+| `overrides.deck.transitionAmount` | number | `1` | Scales the built-in camera move (offsets, roll, fov swing); 1 = stock, 0 = straight dolly. |
 | `overrides.deck.durationSec` | number | `1.4` | Transition duration in seconds. |
 | `overrides.deck.depthRelief` | number | `0.7` | Depth offset (world units) applied per diagram rank so a 2D layout reads as a 3D staircase. Higher = more relief. |
 | `overrides.deck.quality` | low \| medium \| high | `"high"` | Quality tier: scales bloom, reflections, shadow resolution and particle count, and sets the effect cost budget (low 6 / medium 12 / high 20). |
@@ -183,6 +189,16 @@
 | `overrides.slides["<key>"].bloom` | any |  |  |
 | `overrides.slides["<key>"].camera` | object |  | Camera framing override. |
 | `overrides.slides["<key>"].camera.distance` | number |  | Pull the camera closer/further to fix fit or label size. |
+| `overrides.slides["<key>"].cameraPath` | object |  | Keyframed camera move into this slide (requires `transition: "path"`). Keys sit in the travel frame from the leaving camera to this slide's camera; the end points are implied and pinned. |
+| `overrides.slides["<key>"].cameraPath.ease` | inOut \| in \| out \| linear | `"inOut"` | Time easing along the path. |
+| `overrides.slides["<key>"].cameraPath.keys` | array |  | Path keys, `t` strictly increasing. |
+| `overrides.slides["<key>"].cameraPath.keys[]` | object |  |  |
+| `overrides.slides["<key>"].cameraPath.keys[].t` | number |  | Normalised path time. |
+| `overrides.slides["<key>"].cameraPath.keys[].offset` | array |  | [right, up, forward] offset as fractions of the travel length. |
+| `overrides.slides["<key>"].cameraPath.keys[].offset[]` | number |  |  |
+| `overrides.slides["<key>"].cameraPath.keys[].look` | number |  | 0 = look at the leaving slide, 1 = at this slide. |
+| `overrides.slides["<key>"].cameraPath.keys[].roll` | number |  | Camera roll in degrees. |
+| `overrides.slides["<key>"].cameraPath.keys[].fov` | number |  | Vertical field of view in degrees. |
 | `overrides.slides["<key>"].cardOffset` | object |  | World-unit nudge applied to the text card AFTER the layout preset places it. Leaves the title, diagram and background where they are. |
 | `overrides.slides["<key>"].cardOffset.x` | number |  | Horizontal nudge, positive = right. |
 | `overrides.slides["<key>"].cardOffset.y` | number |  | Vertical nudge, positive = up. |
@@ -227,7 +243,8 @@
 | `overrides.slides["<key>"].scene` | string |  | Override the background scene id. |
 | `overrides.slides["<key>"].softShadows` | any |  |  |
 | `overrides.slides["<key>"].titleEdge` | none \| contrast |  | Override the title contour for this slide. |
-| `overrides.slides["<key>"].transition` | string |  | Override the transition effect id for entering this slide. |
+| `overrides.slides["<key>"].transition` | any |  | Override the camera move for entering this slide. |
+| `overrides.slides["<key>"].transitionAmount` | any |  |  |
 | `overrides.nodes` | object |  | Per-node overrides keyed by `<slideId>/<nodeId>`. |
 | `overrides.nodes["<key>"]` | object |  |  |
 | `overrides.nodes["<key>"].shape` | rect \| stadium \| round \| hexagon \| circle \| doublecircle \| diamond \| cylinder |  | Change the node's 3D primitive. |

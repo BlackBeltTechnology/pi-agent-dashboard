@@ -159,6 +159,28 @@ function validateProps(deck: DeckIR, opts: ValidateOptions): ValidationIssue[] {
   return warnings;
 }
 
+/**
+ * Camera-path coherence the schema cannot express: keys strictly ordered, and
+ * `cameraPath` ⇔ the slide's RESOLVED transition is `path` (own > cycle > default).
+ */
+function validateCameraPaths(deck: DeckIR): ValidationIssue[] {
+  const errors: ValidationIssue[] = [];
+  const fallback = deck.overrides.deck?.transition ?? deck.defaults.transition;
+  const cycle = deck.overrides.deck?.transitionCycle ?? deck.defaults.transitionCycle;
+  deck.slides.forEach((slide, i) => {
+    const ov = deck.overrides.slides?.[slide.id];
+    const at = `overrides.slides["${slide.id}"]`;
+    const kind = ov?.transition ?? (cycle?.length ? cycle[i % cycle.length] : (fallback ?? "dolly"));
+    const keys = ov?.cameraPath?.keys ?? [];
+    for (let k = 1; k < keys.length; k++) {
+      if (!(keys[k].t > keys[k - 1].t)) errors.push({ path: `${at}.cameraPath.keys[${k}].t`, message: `must be greater than keys[${k - 1}].t (${keys[k - 1].t})` });
+    }
+    if (ov?.cameraPath && kind !== "path") errors.push({ path: `${at}.cameraPath`, message: `ignored unless the slide's transition is "path" (resolved: "${kind}")` });
+    if (!ov?.cameraPath && kind === "path") errors.push({ path: `${at}.transition`, message: `"path" needs overrides.slides["${slide.id}"].cameraPath` });
+  });
+  return errors;
+}
+
 export function validate(ir: unknown, opts: ValidateOptions = {}): ValidationResult {
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
@@ -173,6 +195,7 @@ export function validate(ir: unknown, opts: ValidateOptions = {}): ValidationRes
 
   const deck = ir as DeckIR;
   errors.push(...validateDerived(deck));
+  errors.push(...validateCameraPaths(deck));
   if (opts.deckDir !== undefined) errors.push(...validateLocalEffects(deck, opts.deckDir));
   warnings.push(...validateProps(deck, opts));
 

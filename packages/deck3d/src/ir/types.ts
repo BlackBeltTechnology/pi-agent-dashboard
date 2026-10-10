@@ -118,6 +118,10 @@ export interface Defaults extends CameraKnobs, LabelKnobs, CheckKnobs {
   fog?: boolean;
   backgroundIntensity?: number;
   transition?: string;
+  /** Deck-level: slides without their own `transition` cycle through this list. */
+  transitionCycle?: string[];
+  /** Scales the canned camera motion (offsets, roll); 1 = stock. */
+  transitionAmount?: number;
   durationSec?: number;
   depthRelief?: number;
   quality?: Quality;
@@ -239,6 +243,9 @@ export interface SlideOverride {
   material?: Material;
   titleEdge?: TitleEdge;
   transition?: string;
+  transitionAmount?: number;
+  /** Keyframed camera move INTO this slide; requires `transition: "path"`. */
+  cameraPath?: CameraPath;
   quality?: Quality;
   scene?: string;
   backgroundIntensity?: number;
@@ -312,6 +319,32 @@ export interface MergedDiagram extends Omit<Diagram, "nodes"> {
 /** A slide with overrides applied. Render-only. */
 export interface MergedSlide extends Omit<Slide, "diagram"> {
   diagram: MergedDiagram;
+  /** Folded in from `overrides.slides[id]` by `applyOverrides`. */
+  transition?: string;
+  transitionAmount?: number;
+  cameraPath?: CameraPath;
+}
+
+export type PathEase = "inOut" | "in" | "out" | "linear";
+
+/** One camera key in the travel frame (from-camera → to-camera). */
+export interface PathKey {
+  /** Normalised path time, strictly inside (0, 1). */
+  t: number;
+  /** `[right, up, forward]` offset as fractions of the travel length. */
+  offset?: [number, number, number];
+  /** 0 = look at the leaving slide, 1 = at the arriving slide. */
+  look?: number;
+  /** Camera roll, degrees. */
+  roll?: number;
+  /** Vertical field of view, degrees. */
+  fov?: number;
+}
+
+/** Keyframed camera move into a slide; end points are implied and pinned. */
+export interface CameraPath {
+  keys: PathKey[];
+  ease?: PathEase;
 }
 
 /** A fully merged view: derived values with overrides applied. Render-only. */

@@ -24,6 +24,8 @@ import { type QualityProfile, qualityProfile } from "./quality.js";
 import { makeRng } from "./rng.js";
 import { createSceneRig, markBackdrop, sortAboveVeil } from "./scene.js";
 import { buildTitle, bulletTexture, loadFont } from "./text.js";
+import { createFader, fadeWindow } from "./fade.js";
+import { easeInOut, makeMotion, type Motion, resolveTransition, reversed, type Sample } from "./transition.js";
 import "./types.js";
 import type { Deck3dApi, Measurement, RuntimeDeck, SlideConfig } from "./types.js";
 
@@ -313,6 +315,9 @@ function buildSlideGroup(
   patch?: SlideConfig,
 ): SlideBuild {
   const cfg = patch ? { ...effective(deck.defaults, slide), ...patch } : effective(deck.defaults, slide);
+  // Own override > deck `transitionCycle` > deck default — recorded so the HUD
+  // and `debug` see the move that will actually play.
+  cfg.transition = resolveTransition(patch?.transition ?? slide.transition, index, deck.defaults.transitionCycle, deck.defaults.transition);
   const P = resolvePalette(cfg);
   const g = new THREE.Group();
   const anchor = anchorFor(index, cfg.camera?.distance, cfg.spacing, cfg.rail, deck.slides.length);
@@ -363,6 +368,12 @@ async function boot(): Promise<void> {
   // (even at `quality: low`) is honoured per slide by the post stack.
   const rig = createSceneRig(qualityProfile(deck.defaults.quality));
   document.body.appendChild(rig.renderer.domElement);
+  const baseFov = rig.camera.fov;
+  // Screen cover for `fade` / `iris`: a DOM layer over the canvas (under the
+  // HUD, appended later), so it covers bloom and post passes alike.
+  const cover = document.createElement("div");
+  cover.style.cssText = "position:fixed;inset:0;pointer-events:none;display:none";
+  document.body.appendChild(cover);
 
   const propModels = await loadPropModels(deck);
   const propMaterials = createPropMaterials(resolvePalette(deck.defaults), deck.defaults);
@@ -372,7 +383,7 @@ async function boot(): Promise<void> {
     g.userData.index = i;
   });
 
-  const camState = { pos: new THREE.Vector3(), target: new THREE.Vector3() };
+  const camState = { pos: new THREE.Vector3(), target: new THREE.Vector3(), roll: 0, fov: 0, cover: 0, overlay: "none" as Sample["overlay"] };
   let cur = 0;
   let frozen: number | null = null;
   const clock = new THREE.Clock();
@@ -382,7 +393,16 @@ async function boot(): Promise<void> {
     t: number;
     mode: string;
     dur: number;
-    mid: THREE.Vector3;
+    /** Pose at normalised time, built once in `goTo` (deterministic). */
+    motion: Motion;
+    /** Slide being left; kept visible for the whole move. */
+    leaving: number;
+    /**
+     * Cross-fade: `whole` = the entire slide group fades (it was culled before
+     * / will be culled after the move); otherwise only its local fx do (they
+     * are created at the start and disposed at landing — the pop-in / flash).
+     */
+    fade: { inWhole: boolean; outWhole: boolean };
     /** Set only when the two slides differ in palette; drives the look morph. */
     look?: { from: PaletteColors; to: PaletteColors; cfg: SlideConfig };
   };
@@ -430,12 +450,24 @@ async function boot(): Promise<void> {
     for (let i = 0; i < builds.length; i++) builds[i]?.background?.setActive?.(i === active);
   }
 
+  /** Back to a still lens: no roll, deck fov, no screen cover. */
+  function resetLens(): void {
+    camState.roll = 0;
+    camState.fov = baseFov;
+    camState.cover = 0;
+    camState.overlay = "none";
+  }
+
+  const fader = createFader();
+
   function snapTo(i: number): void {
+    fader.clear();
     cur = i;
     settle(i);
     const a = builds[i].anchor;
     camState.pos.copy(a.cam);
     camState.target.copy(a.target);
+    resetLens();
     anim = null;
     rig.camera.position.copy(camState.pos);
     rig.camera.lookAt(camState.target);
@@ -443,25 +475,17 @@ async function boot(): Promise<void> {
     syncPost();
   }
 
-  const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
-
   function stepAnim(dt: number): void {
     if (!anim) return;
     anim.t = Math.min(1, anim.t + dt / anim.dur);
-    const k = ease(anim.t);
-    if (anim.mode === "fade") {
-      if (anim.t >= 0.5) {
-        camState.pos.copy(anim.to.cam);
-        camState.target.copy(anim.to.target);
-      }
-    } else {
-      camState.pos.lerpVectors(anim.from.pos, anim.to.cam, k);
-      camState.target.lerpVectors(anim.from.target, anim.to.target, k);
-      if (anim.mode === "swing") {
-        const out = camState.pos.clone().sub(anim.mid).normalize();
-        camState.pos.addScaledVector(out, Math.sin(anim.t * Math.PI) * 6);
-      }
-    }
+    const k = easeInOut(anim.t);
+    const s = anim.motion(anim.t);
+    camState.pos.copy(s.pos);
+    camState.target.copy(s.target);
+    camState.roll = s.roll;
+    camState.fov = s.fov;
+    camState.cover = s.cover;
+    camState.overlay = s.overlay;
     if (anim.look) {
       const l = anim.look;
       rig.applyLook(anim.t >= 1 ? l.to : mixPalette(l.from, l.to, k), l.cfg, qualityProfile(l.cfg.quality));
@@ -544,7 +568,11 @@ async function boot(): Promise<void> {
   function goTo(i: number): void {
     const target = ((i % builds.length) + builds.length) % builds.length;
     reviveLocalFx(target);
-    const mode = builds[target].cfg.transition ?? "dolly";
+    // Back navigation plays the LEAVING slide's move reversed, so back and
+    // forward are mirror images (wrap-around from the first slide counts as back).
+    const back = i < cur;
+    const owner = back ? cur : target;
+    const mode = builds[owner].cfg.transition ?? "dolly";
     // A cut leaves the old slide instantly, so its fx can go now. A fly does
     // NOT: the outgoing slide stays in frame for the whole move, and disposing
     // here stripped its backdrop the moment the camera started rolling while
@@ -561,15 +589,25 @@ async function boot(): Promise<void> {
     // Same palette ⇒ nothing to morph, so the look is applied once as before.
     const morph = JSON.stringify(fromPalette) !== JSON.stringify(toPalette);
     settle(null); // camera about to fly: freeze time-based media
+    const toPose = { pos: builds[target].anchor.cam.clone(), target: builds[target].anchor.target.clone() };
+    const opts = { amount: builds[owner].cfg.transitionAmount ?? 1, path: deck.slides[owner].cameraPath, baseFov };
+    const motion = back ? reversed(makeMotion(mode, toPose, from, opts)) : makeMotion(mode, from, toPose, opts);
     anim = {
       from,
       to: builds[target].anchor,
       t: 0,
       mode,
-      dur: builds[target].cfg.durationSec ?? 1.4,
-      mid: from.target.clone().add(builds[target].anchor.target).multiplyScalar(0.5),
+      dur: builds[owner].cfg.durationSec ?? 1.4,
+      motion,
+      leaving: cur,
+      fade: {
+        inWhole: !builds[target].group.visible,
+        outWhole: builds[cur].group.position.distanceTo(toPose.pos) >= cullRadius(railState.spacing, railState.rail),
+      },
       look: morph ? { from: fromPalette, to: toPalette, cfg: builds[target].cfg } : undefined,
     };
+    builds[anim.leaving].group.visible = true;
+    builds[target].group.visible = true;
     cur = target;
     if (!morph) rig.applyLook(toPalette, builds[target].cfg, qualityProfile(builds[target].cfg.quality));
     syncPost();
@@ -593,7 +631,11 @@ async function boot(): Promise<void> {
   function cullNeighbours(): void {
     const cp = rig.camera.position;
     rig.world.children.forEach((g) => {
-      g.visible = g.position.distanceTo(cp) < cullRadius(railState.spacing, railState.rail);
+      // Both ends of an in-flight move stay up: a wide path (revolve, crane)
+      // can carry the camera past the cull radius of either slide.
+      // The fader owns their visibility while the move runs.
+      const held = anim !== null && (g.userData.index === cur || g.userData.index === anim.leaving);
+      if (!held) g.visible = g.position.distanceTo(cp) < cullRadius(railState.spacing, railState.rail);
     });
   }
 
@@ -635,6 +677,8 @@ async function boot(): Promise<void> {
    */
   function poseAt(t: number): void {
     anim = null; // a deterministic time cancels any in-flight transition
+    fader.clear();
+    resetLens();
     const a = builds[cur].anchor;
     camState.pos.copy(a.cam);
     camState.target.copy(a.target);
@@ -647,6 +691,59 @@ async function boot(): Promise<void> {
   function applyTime(t: number): void {
     frozen = t;
     poseAt(t);
+  }
+
+  /** Roll, field of view and screen cover from the current motion sample. */
+  function applyLens(): void {
+    if (camState.roll !== 0) rig.camera.rotateZ(camState.roll);
+    const fov = camState.fov || baseFov;
+    if (rig.camera.fov !== fov) {
+      rig.camera.fov = fov;
+      rig.camera.updateProjectionMatrix();
+    }
+    if (camState.overlay === "none" || camState.cover <= 0) {
+      cover.style.display = "none";
+      return;
+    }
+    const bg = builds[cur].palette.bg;
+    cover.style.display = "block";
+    if (camState.overlay === "fade") {
+      cover.style.background = bg;
+      cover.style.opacity = String(camState.cover);
+    } else {
+      // Iris: an opening circle; radius reaches the far corner when open.
+      const r = (1 - camState.cover) * Math.hypot(window.innerWidth, window.innerHeight) * 0.5;
+      cover.style.opacity = "1";
+      cover.style.background = `radial-gradient(circle at 50% 50%, transparent ${r.toFixed(1)}px, ${bg} ${(r + 1).toFixed(1)}px)`;
+    }
+  }
+
+  /** Roots of slide `i` to fade: the whole group, or its backdrop (local fx + background) still inside it. */
+  function fadeRoots(i: number, whole: boolean): THREE.Object3D[] {
+    const g = builds[i]?.group;
+    if (!g) return [];
+    if (whole) return [g];
+    // A camera-pinned overlay re-parents itself to the scene and runs its own
+    // out/in animation; leave it alone.
+    const inside = (o: THREE.Object3D) => {
+      for (let p = o.parent; p; p = p.parent) if (p === g) return true;
+      return false;
+    };
+    const fx = (builds[i].localFx ?? []).map((h) => h.object as THREE.Object3D | undefined).filter((o): o is THREE.Object3D => !!o && inside(o));
+    // Registry backgrounds too: fading only the local fx left e.g. a
+    // `video-screen` bezel standing alone while its fx frame faded.
+    return [...new Set([...fx, ...g.children.filter((c) => c.userData.backdrop)])];
+  }
+
+  /** Arriving slide fades in over 10–70 % of the move, the leaving one out over 5–60 %. */
+  function fadeWeights(): Map<THREE.Object3D, number> {
+    const w = new Map<THREE.Object3D, number>();
+    if (!anim) return w;
+    const out = 1 - fadeWindow(anim.t, 0.05, 0.6);
+    const inn = fadeWindow(anim.t, 0.1, 0.7);
+    if (anim.leaving !== cur) for (const r of fadeRoots(anim.leaving, anim.fade.outWhole)) w.set(r, out);
+    for (const r of fadeRoots(cur, anim.fade.inWhole)) w.set(r, inn);
+    return w;
   }
 
   const tmp = new THREE.Vector3();
@@ -662,7 +759,7 @@ async function boot(): Promise<void> {
     // backdrop stayed on screen well after the move was "done".
     rig.camera.position.lerp(tmp, frozen === null && anim === null ? 0.2 : 1);
     rig.camera.lookAt(camState.target);
-    cullNeighbours();
+    applyLens();
     rig.followTarget(camState.target);
     builds[cur].diagram?.tick(t);
     builds[cur].background?.tick(t * 0.7);
@@ -674,6 +771,9 @@ async function boot(): Promise<void> {
       for (const handle of builds[pendingDispose]?.localFx ?? []) handle.tick(t);
       builds[pendingDispose]?.background?.tick(t * 0.7);
     }
+    // After the ticks (effects write their own opacity there), before culling.
+    fader.apply(fadeWeights());
+    cullNeighbours();
     billboardLabels();
     rig.render(t);
     if (document.hidden) setTimeout(frame, 66);
@@ -806,6 +906,7 @@ async function boot(): Promise<void> {
       // a value the view never honours.
       camState.pos.copy(rebuilt.anchor.cam);
       camState.target.copy(rebuilt.anchor.target);
+      resetLens();
       anim = null;
       rig.camera.position.copy(camState.pos);
       rig.camera.lookAt(camState.target);

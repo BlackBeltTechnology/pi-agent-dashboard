@@ -91,6 +91,16 @@ import { create as depth_of_field } from "./depth-of-field.js";
 import depth_of_fieldCard from "./depth-of-field.meta.json";
 import { create as dolly } from "./dolly.js";
 import dollyCard from "./dolly.meta.json";
+import { create as tr_swing } from "./swing.js";
+import tr_swingCard from "./swing.meta.json";
+import { create as tr_revolve } from "./revolve.js";
+import tr_revolveCard from "./revolve.meta.json";
+import { create as tr_crane } from "./crane.js";
+import tr_craneCard from "./crane.meta.json";
+import { create as tr_bank } from "./bank.js";
+import tr_bankCard from "./bank.meta.json";
+import { create as tr_path } from "./path.js";
+import tr_pathCard from "./path.meta.json";
 import { create as emissive } from "./emissive.js";
 import emissiveCard from "./emissive.meta.json";
 import { create as fade } from "./fade.js";
@@ -184,6 +194,11 @@ export const REGISTRY: Record<string, FxEntry> = {
   "room-ibl": { card: room_iblCard as FxCard, create: room_ibl },
   "signal-pulse": { card: signal_pulseCard as FxCard, create: signal_pulse },
   "dolly": { card: dollyCard as FxCard, create: dolly },
+  "swing": { card: tr_swingCard as FxCard, create: tr_swing },
+  "revolve": { card: tr_revolveCard as FxCard, create: tr_revolve },
+  "crane": { card: tr_craneCard as FxCard, create: tr_crane },
+  "bank": { card: tr_bankCard as FxCard, create: tr_bank },
+  "path": { card: tr_pathCard as FxCard, create: tr_path },
   "starfield": { card: starfieldCard as FxCard, create: starfield },
   "aurora": { card: auroraCard as FxCard, create: aurora },
   "grid-horizon": { card: grid_horizonCard as FxCard, create: grid_horizon },

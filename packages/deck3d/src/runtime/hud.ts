@@ -6,6 +6,7 @@
  * embedded IR stays the record of what was rendered, and the panel's state
  * lives in memory plus `localStorage["deck3d:" + derivedHash]`.
  */
+import { TRANSITION_IDS } from "./transition.js";
 import type { BuiltDiagramKind, CardOffset, Defaults, EffectRef, Layout, Material, Mode, Palette, Quality, Rail, TitleEdge } from "../ir/types.js";
 
 export interface HudSlide {
@@ -93,7 +94,8 @@ const MATERIALS: Material[] = ["glass", "metal", "matte"];
 const LAYOUTS: Layout[] = ["split", "split-reverse"];
 const RAILS: Rail[] = ["line", "orbit", "tunnel", "helix", "grid"];
 const DIAGRAM_KINDS: BuiltDiagramKind[] = ["none", "brain", "loop", "swarm", "bars", "funnel", "timeline-rail", "globe", "orbit-cluster", "stack"];
-const TRANSITIONS = ["dolly", "fade", "iris", "flythrough", "cut"];
+/** Every camera move the runtime plays (corpus `transition` cards + `cut`). */
+const TRANSITIONS: string[] = [...TRANSITION_IDS];
 
 /** How one control is rendered. `enum` carries its own option list. */
 type ControlSpec =

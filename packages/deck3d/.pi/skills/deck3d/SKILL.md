@@ -203,6 +203,47 @@ last `credits` slide at render. Never fetch a model whose licence you cannot nam
   slides in space, `defaults.spacing` sets the gap, `layout` (`split`
   `split-reverse`) composes one slide, `cardOffset` nudges the card. Every rail
   frames a slide identically, so a rail switch never needs a per-slide re-tune.
+- Transitions = how the camera ENTERS a slide. Set `defaults.transition`, per
+  slide `overrides.slides["<key>"].transition`, or deck-level
+  `defaults.transitionCycle: ["dolly","crane",...]` (slides without their own
+  transition take `cycle[index % length]`). `durationSec` and
+  `transitionAmount` (0–2, scales offsets/roll/lens; 0 ≈ dolly) per deck/slide.
+  Motions live in `runtime/transition.ts` (`makeMotion`), validated as an enum:
+  | id | move |
+  |---|---|
+  | `dolly` (default) | straight eased move to the anchor |
+  | `swing` | dolly + sideways arc away from the mid-point |
+  | `revolve` | swings wide to travel-right, locks on early, arcs in around the slide |
+  | `crane` | rises over the gap (~0.3 × travel length), descends onto the slide |
+  | `bank` | dolly with roll into the move and back out (≤ 8°) |
+  | `flythrough` | low pass through the gap, slight bank, wider lens |
+  | `fade` | screen covers with the palette bg, camera switches, uncovers |
+  | `iris` | circular mask closes to centre, camera switches, reopens |
+  | `cut` | instant snap; old slide's local fx disposed at once |
+  | `path` | author keyframes from the slide's `cameraPath` |
+  `cameraPath` (needs `transition: "path"`, else validate fails):
+  ```json
+  "ertek": { "transition": "path", "durationSec": 2.2, "cameraPath": { "ease": "inOut", "keys": [
+    { "t": 0.3,  "offset": [0.18, 0.22, 0], "look": 0.25, "roll": 6 },
+    { "t": 0.68, "offset": [-0.08, 0.1, 0.04], "look": 0.9, "fov": 48 } ] } }
+  ```
+  Keys (1–8, `t` strictly increasing in (0,1)) sit in the TRAVEL FRAME:
+  `offset = [right, up, forward]` as fractions of the from→to camera distance,
+  so a path reads the same on every rail/spacing; start and end are implied and
+  pinned (always lands exactly). `look` 0 = leaving slide, 1 = arriving; `roll`
+  ±45°; `fov` 20–90°. Back navigation plays the LEAVING slide's move reversed
+  (mirror image). Both slides stay un-culled for the whole move. Camera-pinned
+  local fx (overlays parented via `onBeforeRender`) tilt with `roll` — keep
+  roll small on decks with HUD-like overlays. `rail` stays deck-wide.
+  Every flying move cross-fades: the leaving slide's backdrop (local fx +
+  background) fades out over 5–60 % of the move, the arriving one fades in over
+  10–70 % (whole group when it was culled). Local fx that set their own
+  opacity still compose (fader re-bases); custom shaders without an
+  `opacity` uniform only pop at the ends — expose `uniforms.opacity`.
+- During a fly both slides tick, the arriving slide's local fx are re-created
+  at the START of the fly, and `cullNeighbours()` hides whole slide groups by
+  distance — a camera-pinned overlay that must survive the fly has to reparent
+  itself into the scene (keep shared state in `THREE.Cache.files`).
 - The mermaid engine is pinned exactly; a bump is a deliberate change and the
   harvest fixtures will fail if the rendered id scheme moves.
 - Headless/background tabs stall `requestAnimationFrame`; the loop falls back to
