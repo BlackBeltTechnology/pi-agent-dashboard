@@ -45,3 +45,5 @@ Archive routes via `useArchiveRoute`, preview match guarded `changeName !== "arc
 Calls `useFileAccessToasts(sessions, selectedId, {showToast, dismissToastByKey}, handleSelect)`. See change: ask-agent-file-access-in-chat.
 
 See change: add-browser-editor-pane-tab — parses repeatable `?tab=` into `SplitRouteSync tabs`; `navigate` wrapper passes history `state` (openNonce); `useEditorTabOpenListener(overlayLocation, navigate)` acts on `editor_tab_open` only on that session's chat/editor route.
+
+Embedded plugin apps: `pluginOverlayAsDialog = matched && isPluginDialog(presentation)` (`"content"` renders in desktop content-area mount beside sidebar); `captureBackground` gated by `shouldCaptureBackground`; mobile `getMobileDepth` gets `overlayDepth` from `useShellOverlayRouteDepth` for `"content"` claims; `EmbeddedAppShellProvider` (from `createEmbeddedAppShell`) inside `PluginContextProvider`; `EmbeddedAppReturnPill` mounted next to `FileAccessToastHost` (both layouts). See change: add-plugin-app-host.

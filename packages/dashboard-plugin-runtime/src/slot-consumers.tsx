@@ -770,7 +770,7 @@ interface ShellOverlayRouteClaim {
   /** Container selection: route-backed dialog (default) or full-viewport page.
    *  First-class only — unlike `path`/`sessionParam` there are no legacy
    *  manifests carrying it under `config`. See change: add-route-backed-overlay-dialogs. */
-  presentation?: "page" | "dialog";
+  presentation?: "page" | "dialog" | "content";
   /** Legacy fallback: some older manifests put `path` / `sessionParam` under `config`. */
   config?: Record<string, unknown>;
   Component?: React.ComponentType<Record<string, unknown>>;
@@ -880,7 +880,7 @@ export function useShellOverlayRouteMatched(registry?: SlotRegistry | null): boo
  */
 export function useShellOverlayRoutePresentation(
   registry?: SlotRegistry | null,
-): "page" | "dialog" | null {
+): "page" | "dialog" | "content" | null {
   const ctxRegistry = useSlotRegistryOrNull();
   const effective = registry ?? ctxRegistry;
   const claims = (effective?.getClaims("shell-overlay-route") ?? []) as ShellOverlayRouteClaim[];
@@ -889,6 +889,28 @@ export function useShellOverlayRoutePresentation(
     const path = overlayPath(c);
     if (!path) continue;
     if (matchWouterPattern(path, location)) return c.presentation ?? "dialog";
+  }
+  return null;
+}
+
+/**
+ * Declared `depth` of the matched `shell-overlay-route` claim, or `null` when
+ * no claim matches or the matched claim declares none. The shell passes it to
+ * `getMobileDepth` for `presentation: "content"` claims, whose declared depth
+ * overrides the overlay depth 2. Same registry-argument rules and the same
+ * shared matcher as `useShellOverlayRoutePresentation`.
+ *
+ * See change: add-plugin-app-host.
+ */
+export function useShellOverlayRouteDepth(registry?: SlotRegistry | null): 1 | 2 | null {
+  const ctxRegistry = useSlotRegistryOrNull();
+  const effective = registry ?? ctxRegistry;
+  const claims = (effective?.getClaims("shell-overlay-route") ?? []) as ShellOverlayRouteClaim[];
+  const [location] = useLocation();
+  for (const c of claims) {
+    const path = overlayPath(c);
+    if (!path) continue;
+    if (matchWouterPattern(path, location)) return c.depth ?? null;
   }
   return null;
 }
@@ -909,14 +931,24 @@ function matchWouterPattern(pattern: string, location: string): boolean {
  * as `{param: decoded-value}` on match, `null` on miss. Used for the
  * synchronous first-render path so the slot consumer doesn't have to
  * wait for `<ShellOverlayRouteProbe>`'s useEffect to fire.
+ *
+ * The ONE shared matcher for the matched hook, the presentation hook and the
+ * sync params path. A pattern ending in the literal optional wildcard `/*?`
+ * matches its base and any deeper path; the rest is exposed (raw, like
+ * wouter's `useRoute`) as `params["*"]`, normalised to `""` at the base.
+ * See change: add-plugin-app-host.
  */
 function matchWouterPatternWithParams(
   pattern: string,
   location: string,
 ): Record<string, string> | null {
-  const patternParts = pattern.split("/").filter(Boolean);
+  const wildcard = pattern.endsWith("/*?");
+  const base = wildcard ? pattern.slice(0, -3) : pattern;
+  const patternParts = base.split("/").filter(Boolean);
   const locParts = location.split("/").filter(Boolean);
-  if (patternParts.length !== locParts.length) return null;
+  if (wildcard ? locParts.length < patternParts.length : patternParts.length !== locParts.length) {
+    return null;
+  }
   const params: Record<string, string> = {};
   for (let i = 0; i < patternParts.length; i++) {
     const p = patternParts[i]!;
@@ -931,7 +963,19 @@ function matchWouterPatternWithParams(
     }
     if (p !== l) return null;
   }
+  if (wildcard) params["*"] = locParts.slice(patternParts.length).join("/");
   return params;
+}
+
+/** Normalise wouter probe params for an optional trailing wildcard: an absent
+ *  capture (`undefined`) becomes `""`, matching the shared matcher. */
+function normaliseWildcardParams(
+  path: string | null,
+  params: Record<string, string> | null | undefined,
+): Record<string, string> {
+  const out = { ...(params ?? {}) };
+  if (path?.endsWith("/*?") && out["*"] === undefined) out["*"] = "";
+  return out;
 }
 
 /**
@@ -1006,6 +1050,16 @@ function ShellOverlayRouteSwitch({
     />
   ));
 
+  // Params are re-derived from the CURRENT location through the shared matcher
+  // (decoded, `*` normalised), so navigation inside the same claim — a new
+  // `/*?` sub-route or `:param` value — reaches the component. The probe only
+  // reports a claim-index CHANGE. See change: add-plugin-app-host.
+  const matchedPath = matchedClaimIndex !== null ? overlayPath(claims[matchedClaimIndex]!) : null;
+  const liveParams = React.useMemo(
+    () => (matchedPath ? matchWouterPatternWithParams(matchedPath, location) : null),
+    [matchedPath, location],
+  );
+
   if (matchedClaimIndex === null) return <>{probes}</>;
   const claim = claims[matchedClaimIndex]!;
 
@@ -1016,7 +1070,7 @@ function ShellOverlayRouteSwitch({
     <div className="flex-1 min-h-0 relative">
       <ShellOverlayRouteRender
         claim={claim}
-        params={matchedParams}
+        params={liveParams ?? matchedParams}
         onBack={onBack}
       />
     </div>
@@ -1051,9 +1105,9 @@ function ShellOverlayRouteProbe({
   // order is stable per probe across renders.
   const [matched, params] = useRoute(path ?? "/__shell_overlay_no_match__");
   React.useEffect(() => {
-    if (matched) onMatch(claimIndex, (params as Record<string, string>) ?? {});
+    if (matched) onMatch(claimIndex, normaliseWildcardParams(path, params as Record<string, string>));
     else onUnmatch(claimIndex);
-  }, [matched, params, claimIndex, onMatch, onUnmatch]);
+  }, [matched, params, path, claimIndex, onMatch, onUnmatch]);
   return null;
 }
 
@@ -1069,13 +1123,31 @@ function ShellOverlayRouteRender({
   const sessionParam = overlaySessionParam(claim);
   const sessionId = params[sessionParam];
   const session = useShellSessionOrNull(sessionId ?? "");
+  const rendered = renderClaim(claim as Parameters<typeof renderClaim>[0], "shell-overlay-route", {
+    params,
+    session,
+    onBack,
+  });
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden">
-      {renderClaim(claim as Parameters<typeof renderClaim>[0], "shell-overlay-route", {
-        params,
-        session,
-        onBack,
-      })}
+      {claim.presentation === "content" ? (
+        // A "content" claim usually exports a `React.lazy` route component so
+        // the app's code stays out of the initial bundle (D8). The skeleton
+        // keeps the top-bar shape while the chunk loads. See change:
+        // add-plugin-app-host.
+        <React.Suspense fallback={<ContentClaimSkeleton />}>{rendered}</React.Suspense>
+      ) : (
+        rendered
+      )}
+    </div>
+  );
+}
+
+function ContentClaimSkeleton() {
+  return (
+    <div className="flex flex-col h-full" data-testid="content-claim-loading" aria-busy="true">
+      <div className="h-12 shrink-0 border-b border-[var(--border-secondary)]" />
+      <div className="flex-1" />
     </div>
   );
 }

@@ -36,11 +36,11 @@ interface PluginClaim {
   command?: string;              // for "command-route" slot
   trigger?: string;              // for "anchored-popover" slot
   toolName?: string;             // for "tool-renderer" slot
-  path?: string;                 // for "shell-overlay-route"; wouter path pattern, must start with "/"
+  path?: string;                 // for "shell-overlay-route"; wouter path pattern, must start with "/"; may end in "/*?"
   sessionParam?: string;         // for "shell-overlay-route"; URL param holding session id; default "sid"
   depth?: 1 | 2;                 // for "shell-overlay-route"; shell nav depth; 1 = detail, 2 = overlay-on-detail
   parentPath?: string;           // for "shell-overlay-route" depth 2; back target pattern; :params interpolated
-  presentation?: "dialog" | "page"; // for "shell-overlay-route"; default "dialog"
+  presentation?: "dialog" | "page" | "content"; // for "shell-overlay-route"; default "dialog"
   config?: Record<string, unknown>; // slot-specific config (e.g. { tab: "general" })
   predicate?: string;            // optional name of an exported predicate function
 }
@@ -54,6 +54,9 @@ Route-backed overlay claim. Component receives `{ params, onBack, session? }`.
 
 - `"dialog"` — route-backed overlay. Desktop: `Dialog` over scrim over pinned background underlay. Mobile: inside `MobileShell` detail panel at declared `depth`.
 - `"page"` — full-viewport on desktop AND mobile, outside `MobileShell` detail panel. Opt-out. Use for width-hungry surfaces (boards, wide tables).
+- `"content"` — shell content area beside the sidebar (OpenSpec-board placement); no scrim, no underlay, no `Esc` dismissal. Mobile: `MobileShell` detail panel at the DECLARED `depth`. `depth` REQUIRED (missing → FATAL). Use for embedded apps (`<EmbeddedApp>` from `@blackbelt-technology/dashboard-plugin-runtime/embedded-app`).
+
+`path` may end in the literal optional wildcard `/*?` → one claim covers base + every sub-route; rest in `params["*"]` (`""` at base). Any other `*` (inner, or trailing `/*`) → FATAL. See change: add-plugin-app-host; recipe: `docs/plugin-apps.md`.
 
 Unknown `presentation` value → FATAL `ManifestValidationError`. NOT warn-and-default. Typo like `"modal"` would silently restore the behaviour the author opted out of. Validator: `packages/dashboard-plugin-runtime/src/manifest-validator.ts`.
 

@@ -11,11 +11,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   captureBackground,
   isOverlayRoute,
+  isPluginDialog,
   recordLauncher,
   resolveDismissTarget,
   clearBackground,
   peekBackground,
   resolveBackground,
+  shouldCaptureBackground,
   splitLocation,
 } from "../overlay-background.js";
 import { computeBackTarget, routeDepth } from "../back-target.js";
@@ -323,5 +325,18 @@ describe("launcher stack — dismissing back into a launching overlay", () => {
     expect(resolveDismissTarget("/tunnel-setup")).toBe("/settings/gateway");
     move("/tunnel-setup", "/settings/gateway");
     expect(resolveDismissTarget("/settings/gateway")).toBe("/session/abc");
+  });
+});
+
+// test-plan #E18 — see change: add-plugin-app-host.
+describe("isPluginDialog / shouldCaptureBackground", () => {
+  it.each([
+    ["dialog", true, false],
+    ["page", false, true],
+    ["content", false, false],
+    [null, false, true],
+  ] as const)("presentation %s → dialog %s, capture %s", (p, dialog, capture) => {
+    expect(isPluginDialog(p)).toBe(dialog);
+    expect(shouldCaptureBackground(p)).toBe(capture);
   });
 });

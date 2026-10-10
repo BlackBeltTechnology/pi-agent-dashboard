@@ -105,9 +105,11 @@ import {
   captureBackground,
   clearBackground,
   isOverlayRoute,
+  isPluginDialog,
   recordLauncher,
   resolveBackground,
   resolveDismissTarget,
+  shouldCaptureBackground,
   splitLocation,
 } from "./lib/nav/overlay-background.js";
 import {
@@ -135,7 +137,9 @@ import { createReplayPersister } from "./lib/replay/replay-persist.js";
 import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storage.js";
 import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
-import { decodeFolderPath } from "./lib/util/folder-encoding.js";
+import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
+import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
+import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
 
 // Stable tracker facade for the depth-aware back action
 // (change: fix-mobile-back-depth-aware).
@@ -208,9 +212,12 @@ import {
   ContentHeaderStickySlot,
   ContentInlineFooterSlot,
   ContentViewSlot,createSlotRegistry, 
+  EmbeddedAppReturnPill,
+  EmbeddedAppShellProvider,
   FolderMenuProvider,
   ShellOverlayRouteSlot,
   ShellSessionsProvider,
+  useShellOverlayRouteDepth,
   useShellOverlayRouteMatched,
   useShellOverlayRoutePresentation
 } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -457,6 +464,28 @@ export default function App() {
     setGlobalApiBase(base);
     return base;
   }, [wsUrl]);
+  // Shell services for embedded plugin apps (`<EmbeddedApp>`): authenticated
+  // root-relative transport + folder codec. Created once; the bases are read at
+  // call time so a server switch is honoured. See change: add-plugin-app-host.
+  const apiBaseRef = useRef(apiBase);
+  apiBaseRef.current = apiBase;
+  const wsUrlRef = useRef(wsUrl);
+  wsUrlRef.current = wsUrl;
+  const embeddedAppShell = useMemo(
+    () =>
+      createEmbeddedAppShell({
+        fetch: (input, init) => window.fetch(input, init),
+        getApiBearer,
+        isDevicePaired,
+        mintWsTicket,
+        appendWsTicket,
+        apiBase: () => apiBaseRef.current,
+        wsBase: () => wsUrlRef.current.match(/^wss?:\/\/[^/?#]+/)?.[0] ?? `${wsProtocol}//${window.location.host}`,
+        encodeFolder: encodeFolderPath,
+        decodeFolder: decodeFolderPath,
+      }),
+    [],
+  );
   const [overlayLocation, rawNavigate] = useLocation();
   // D24: sign-in lost mid-page (expiry, restart…) ⇒ the dashboard is replaced
   // by the core login page `/login?returnTo=<this page>`; nothing of it stays.
@@ -586,6 +615,9 @@ export default function App() {
   // the desktop dialog (D3a) — it renders full-viewport on both. Read here in
   // App's body for the same reason as `pluginOverlayMatched` above.
   const pluginOverlayPresentation = useShellOverlayRoutePresentation(_pluginRegistry);
+  // A `presentation: "content"` claim's declared depth drives the mobile depth
+  // (overrides the overlay depth 2). See change: add-plugin-app-host.
+  const pluginOverlayDepth = useShellOverlayRouteDepth(_pluginRegistry);
   const hasShellOverlayRoute =
     !!openspecPreviewMatch || !!openspecBoardMatch || !!archiveMatch || !!specsMatch ||
     !!piResourcesMatch || !!diffMatch || !!editorMatch ||
@@ -2179,17 +2211,22 @@ export default function App() {
     if (from !== fullLocation) recordLauncher(from, fullLocation);
     // Plugin claim routes are overlay routes too, but `isOverlayRoute` only
     // knows the static list — the registry is dynamic. Skipping the capture
-    // here stops a plugin overlay freezing ITSELF as its own underlay.
-    if (!pluginOverlayAsDialogRef.current) captureBackground(fullLocation);
+    // here stops a plugin overlay freezing ITSELF as its own underlay; a
+    // "content" claim skips it too so it never becomes a dialog's underlay.
+    // See change: add-plugin-app-host.
+    if (shouldCaptureBackground(pluginOverlayPresentationRef.current)) captureBackground(fullLocation);
   }, [fullLocation]);
   const overlayBackground = resolveBackground(fullLocation);
   // A plugin claim renders as a DIALOG unless it opted out with
   // `presentation: "page"` (D2/D3a). Only the dialog case is lifted out of the
   // content region; a page claim keeps rendering in place.
   // See change: add-route-backed-overlay-dialogs (task 4.7 wiring).
-  const pluginOverlayAsDialog = pluginOverlayMatched && pluginOverlayPresentation !== "page";
-  const pluginOverlayAsDialogRef = useRef(pluginOverlayAsDialog);
-  pluginOverlayAsDialogRef.current = pluginOverlayAsDialog;
+  // `presentation: "content"` renders in the content area beside the sidebar
+  // like the OpenSpec board, so it is NOT lifted either. See change:
+  // add-plugin-app-host.
+  const pluginOverlayAsDialog = pluginOverlayMatched && isPluginDialog(pluginOverlayPresentation);
+  const pluginOverlayPresentationRef = useRef(pluginOverlayMatched ? pluginOverlayPresentation : null);
+  pluginOverlayPresentationRef.current = pluginOverlayMatched ? pluginOverlayPresentation : null;
   // Memoised: it flows into the overlay's dismiss-guard context value, so a
   // fresh identity each render would re-render every consumer under the overlay.
   // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
@@ -2899,6 +2936,7 @@ export default function App() {
         t={t}
         language={language}
       >
+      <EmbeddedAppShellProvider shell={embeddedAppShell}>
       <FolderMenuProvider>
       <ShellSessionsProvider value={sessions}>
         <ErrorBoundary fallback={
@@ -2942,6 +2980,8 @@ export default function App() {
               {/* Non-modal "waiting for file access" toast (own tray, both layouts).
                   See change: ask-agent-file-access-in-chat. */}
               <FileAccessToastHost sessions={sessions} selectedId={selectedId} onOpen={handleSelect} />
+              {/* Return pill for embedded plugin apps (both layouts). See change: add-plugin-app-host. */}
+              <EmbeddedAppReturnPill />
               {/* D22 sign-in dialog: ONE instance for every layout branch (it is
                   `fixed inset-0`, so it need not sit inside the banner slots,
                   which a session route renders twice). */}
@@ -2950,6 +2990,7 @@ export default function App() {
         </ErrorBoundary>
       </ShellSessionsProvider>
       </FolderMenuProvider>
+      </EmbeddedAppShellProvider>
       </PluginContextProvider>
       </ModelConfigProvider>
       </CommitDialogProvider>
@@ -2980,6 +3021,9 @@ export default function App() {
       hasTunnelRoute: !!tunnelSetupMatch,
       hasOverlayRoute: hasShellOverlayRoute,
       hasPiResourceRoute: hasPiResourceRouteFlag,
+      ...(pluginOverlayMatched && pluginOverlayPresentation === "content" && pluginOverlayDepth
+        ? { overlayDepth: pluginOverlayDepth }
+        : {}),
     });
     return apiProvider(
       /* Viewport-bounded root: the in-flow banners below stack ABOVE the shell,

@@ -172,6 +172,26 @@ export function resolveBackground(currentRoute: string): ResolvedBackground {
   return { ...fallback, source: "synthesized" };
 }
 
+/** Effective presentation of the matched plugin `shell-overlay-route` claim
+ *  (`null` = no claim matched). */
+export type PluginOverlayPresentation = "page" | "dialog" | "content" | null;
+
+/** Only a `"dialog"` claim is lifted out of the content region into the
+ *  route-backed dialog; `"page"` and `"content"` render in place.
+ *  See change: add-plugin-app-host. */
+export function isPluginDialog(presentation: PluginOverlayPresentation): boolean {
+  return presentation === "dialog";
+}
+
+/** Whether the current location may become the pinned overlay background. A
+ *  `"dialog"` claim would freeze itself as its own underlay, and a `"content"`
+ *  page must neither freeze itself nor reset launchers — so both skip the
+ *  capture; `"page"` claims and non-plugin routes keep it.
+ *  See change: add-plugin-app-host. */
+export function shouldCaptureBackground(presentation: PluginOverlayPresentation): boolean {
+  return presentation !== "dialog" && presentation !== "content";
+}
+
 /**
  * Routes that are themselves route-backed overlays and so can never serve as a
  * background — the seven surfaces the `url-routing` spec lists as converted.

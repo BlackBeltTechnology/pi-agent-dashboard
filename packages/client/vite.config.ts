@@ -75,6 +75,12 @@ export default defineConfig({
     alias: {
       "@blackbelt-technology/pi-dashboard-shared": path.resolve(__dirname, "../shared/src"),
       "@blackbelt-technology/pi-dashboard-client-utils": path.resolve(__dirname, "../client-utils/src"),
+      // app-kit ships dist-only exports; `<EmbeddedApp>` (runtime
+      // `./embedded-app`) imports its React half, so resolve it to source
+      // (no prebuilt dist needed). `/react` MUST precede the bare key (alias
+      // matches by prefix). See change: add-plugin-app-host.
+      "@blackbelt-technology/pi-dashboard-app-kit/react": path.resolve(__dirname, "../app-kit/src/react/index.ts"),
+      "@blackbelt-technology/pi-dashboard-app-kit": path.resolve(__dirname, "../app-kit/src/index.ts"),
     },
   },
   build: {

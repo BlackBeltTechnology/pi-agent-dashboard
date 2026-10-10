@@ -99,6 +99,17 @@ export {
   subscribeSlotClaimsVersion,
   useSlotClaimsVersion,
 } from "./slot-claims-invalidation.js";
+export {
+  createReturnTargetStore,
+  EmbeddedAppReturnPill,
+  type EmbeddedAppShell,
+  EmbeddedAppShellProvider,
+  isSafeDashboardPath,
+  type ReturnTarget,
+  type ReturnTargetStore,
+  returnPillLabel,
+  useEmbeddedAppShell,
+} from "./embedded-app-shell.js";
 export * from "./slot-consumers.js";
 export * from "./slot-error-boundary.js";
 export * from "./slot-registry.js";

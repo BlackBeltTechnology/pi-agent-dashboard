@@ -57,7 +57,7 @@ export interface ClaimEntry<S extends SlotId = SlotId> {
   parentPath?: string;
   /** Presentation for `shell-overlay-route` claims: route-backed dialog (default)
    *  or full-viewport page on desktop AND mobile. See change: add-route-backed-overlay-dialogs. */
-  presentation?: "page" | "dialog";
+  presentation?: "page" | "dialog" | "content";
   tab?: string;
   /** Slot-specific extra config (escape hatch — prefer first-class fields). */
   config?: Record<string, unknown>;

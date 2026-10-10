@@ -624,6 +624,9 @@ importers:
 
   packages/dashboard-plugin-runtime:
     dependencies:
+      '@blackbelt-technology/pi-dashboard-app-kit':
+        specifier: ^0.9.0
+        version: link:../app-kit
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.9.0
         version: link:../shared
@@ -637,7 +640,7 @@ importers:
         specifier: ^5.0.0
         version: 5.12.1
       wouter:
-        specifier: ^3.0.0
+        specifier: ^3.9.0
         version: 3.10.0(react@19.2.8)
     devDependencies:
       '@testing-library/jest-dom':
@@ -714,6 +717,12 @@ importers:
       '@blackbelt-technology/dashboard-plugin-runtime':
         specifier: ^0.9.0
         version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-app-kit':
+        specifier: ^0.9.0
+        version: link:../app-kit
+      wouter:
+        specifier: ^3.9.0
+        version: 3.10.0(react@19.2.8)
     devDependencies:
       react:
         specifier: ^19.0.0

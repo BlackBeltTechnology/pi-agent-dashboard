@@ -115,6 +115,7 @@ const BUNDLED_WORKSPACE_PKGS = [
   "shared",
   "extension",
   "dashboard-plugin-runtime",
+  "app-kit", // dashboard-plugin-runtime (./embedded-app; client-side only)
   "mcp-client-plugin",
   "bus-client", // extension
   "client-utils", // automation / flows / keycloak-resolver / subagents plugins

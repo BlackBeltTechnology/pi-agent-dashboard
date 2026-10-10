@@ -224,6 +224,26 @@ export function useCurrentPluginId(): string | null {
   return useContext(CurrentPluginContext)?.pluginId ?? null;
 }
 
+/**
+ * Unscoped translator for RUNTIME-owned chrome (e.g. `<EmbeddedApp>`'s top bar)
+ * — keys are NOT prefixed with `plugin.<id>.`. Same fallback rules as
+ * {@link useT}. Internal to the runtime; plugins use `useT`.
+ * See change: add-plugin-app-host.
+ */
+export function useRuntimeT(): (
+  key: string,
+  vars?: Record<string, string | number>,
+  fallback?: string,
+) => string {
+  const outer = useContext(PluginReactContext);
+  return (key, vars, fallback) => {
+    if (outer?.t) return outer.t(key, vars, fallback);
+    const template = fallback ?? key;
+    if (!vars) return template;
+    return template.replace(/\{(\w+)\}/g, (_, name) => String(vars[name] ?? ""));
+  };
+}
+
 /** @public — the active UI language code, or "en" when unwired. */
 export function useLanguage(): string {
   const outer = useContext(PluginReactContext);

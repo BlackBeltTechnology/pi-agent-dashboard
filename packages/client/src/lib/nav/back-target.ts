@@ -112,20 +112,21 @@ function literalSegmentCount(pattern: string): number {
   return pattern
     .split("/")
     .filter(Boolean)
-    .filter((s) => !s.startsWith(":") && s !== "*").length;
+    .filter((s) => !s.startsWith(":") && s !== "*" && s !== "*?").length;
 }
 
 /**
  * Match a wouter-style `pattern` against path segments. Supports `:param`
- * (captures one decoded segment) and a trailing `*` (matches zero or more
- * remaining segments). Returns captured params on match, `null` on miss.
+ * (captures one decoded segment) and a trailing `*` or `*?` (matches zero or
+ * more remaining segments — `*?` is the plugin claim form, see change:
+ * add-plugin-app-host). Returns captured params on match, `null` on miss.
  */
 function matchPattern(pattern: string, segs: string[]): Record<string, string> | null {
   const pat = pattern.split("/").filter(Boolean);
   const params: Record<string, string> = {};
   for (let i = 0; i < pat.length; i++) {
     const p = pat[i]!;
-    if (p === "*") return params; // trailing wildcard — rest matches
+    if (p === "*" || p === "*?") return params; // trailing wildcard — rest matches
     if (i >= segs.length) return null;
     const s = segs[i]!;
     if (p.startsWith(":")) {

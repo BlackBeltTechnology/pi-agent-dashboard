@@ -17,7 +17,7 @@ import {
 
 afterEach(cleanup);
 
-function claim(path: string, presentation?: "page" | "dialog"): ClaimEntry {
+function claim(path: string, presentation?: "page" | "dialog" | "content"): ClaimEntry {
   return {
     pluginId: "p",
     slot: "shell-overlay-route",
@@ -28,7 +28,7 @@ function claim(path: string, presentation?: "page" | "dialog"): ClaimEntry {
 }
 
 function presentationAt(location: string, claims: ClaimEntry[]) {
-  let result: "page" | "dialog" | null = null;
+  let result: "page" | "dialog" | "content" | null = null;
   const registry = createSlotRegistry();
   for (const c of claims) registry.addClaim(c);
   const { hook } = memoryLocation({ path: location });
@@ -68,5 +68,12 @@ describe("useShellOverlayRoutePresentation", () => {
 
   it("resolves :param patterns", () => {
     expect(presentationAt("/folder/Zm9v/goals", [claim("/folder/:cwd/goals", "page")])).toBe("page");
+  });
+
+  // test-plan #E9 — see change: add-plugin-app-host.
+  it("returns 'content' for a matched wildcard content claim and null elsewhere", () => {
+    const claims = [claim("/x/*?", "content")];
+    expect(presentationAt("/x/a", claims)).toBe("content");
+    expect(presentationAt("/y", claims)).toBeNull();
   });
 });

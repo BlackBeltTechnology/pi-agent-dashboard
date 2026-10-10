@@ -25,6 +25,10 @@ export interface MobileDepthInput {
   hasOverlayRoute: boolean;
   /** /pi-resource cross-folder route (counted as an overlay for depth). */
   hasPiResourceRoute: boolean;
+  /** Declared depth of the matched `shell-overlay-route` claim — passed ONLY
+   *  for `presentation: "content"` claims, whose declared depth overrides the
+   *  overlay-route depth 2. See change: add-plugin-app-host. */
+  overlayDepth?: 1 | 2;
 }
 
 /**
@@ -36,6 +40,7 @@ export interface MobileDepthInput {
  *  - depth 0 otherwise
  */
 export function getMobileDepth(input: MobileDepthInput): number {
+  if (input.hasOverlayRoute && input.overlayDepth !== undefined) return input.overlayDepth;
   if (input.hasOverlayRoute || input.hasPiResourceRoute) return 2;
   if (
     input.hasSessionRoute ||

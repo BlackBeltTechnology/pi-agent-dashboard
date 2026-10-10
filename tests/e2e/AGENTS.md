@@ -13,6 +13,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
+| `plugin-embedded-app.spec.ts` | Demo `"content"` claim `/folder/<enc>/demo-app/*?`: F1 content area + live sidebar, no dialog; F2 deep link… → see `plugin-embedded-app.spec.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | L3 demo-plugin seams, unmocked: F1 start → auth… → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
 | `preview-denial-remedy.spec.ts` | L3 preview denial remedy (#F1,#F4-#F13,#X1,#X2). → see `preview-denial-remedy.spec.ts.AGENTS.md` |
 | `push-webhook-settings.spec.ts` | L3 #F9 push webhook. → see `push-webhook-settings.spec.ts.AGENTS.md` |
@@ -178,7 +179,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `split-composer-overflow.spec.ts` | Browser E2E gate for `fix-split-composer-overflow`. Opens… → see `split-composer-overflow.spec.ts.AGENTS.md` |
 | `subagent-detail-dialog.spec.ts` | Playwright spec (change: fix-subagent-live-detail-reliabili… → see `subagent-detail-dialog.spec.ts.AGENTS.md` |
 | `subagent-inspector.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Drives… → see `subagent-inspector.spec.ts.AGENTS.md` |
-| `subagent-live-timeline.spec.ts` | L3 live subagent timeline (`[[faux:subagent-reasoning]]`, producer ≥0.4.0): F1 steps visible while running, F2 in-progress block grows past 280 chars from block start, F3 reload mid-run restores steps, F4/P2 no `steps hidden` + `collapsedDeltas` moves. See change: add-plugin-bridge-contributions. |
+| `subagent-live-timeline.spec.ts` | L3 live subagent timeline (`[[faux:subagent-reasoning]]`, producer ≥0.4.0): F1 steps visible while running,… → see `subagent-live-timeline.spec.ts.AGENTS.md` |
 | `subagent-pull-measurements.spec.ts` | RECORDED-EVIDENCE measurement rows for the subagent pull… → see `subagent-pull-measurements.spec.ts.AGENTS.md` |
 | `subagent-pull-under-load.spec.ts` | L3 open-inspector PULL path (verify-subagent-pull-under-loa… → see `subagent-pull-under-load.spec.ts.AGENTS.md` |
 | `subagent-thin-tick-liveness.spec.ts` | L3 subagent push/pull split: terminal fidelity after… → see `subagent-thin-tick-liveness.spec.ts.AGENTS.md` |

@@ -73,6 +73,33 @@ describe("viteDashboardPluginsPlugin", () => {
     expect(content).toContain('"openspec"');
   });
 
+  // test-plan #E5 — see change: add-plugin-app-host.
+  it("emits presentation: \"content\" as a top-level ClaimEntry field", async () => {
+    writePlugin("wall-plugin", {
+      id: "wall",
+      displayName: "Wall",
+      priority: 100,
+      client: "./dist/client/index.js",
+      claims: [
+        {
+          slot: "shell-overlay-route",
+          component: "WallRoute",
+          path: "/folder/:encodedCwd/wall/*?",
+          depth: 2,
+          parentPath: "/folder/:encodedCwd",
+          presentation: "content",
+        },
+      ],
+    });
+
+    const content = await invokePlugin();
+    const line = content.split("\n").find((l) => l.includes('slot: "shell-overlay-route"'));
+    expect(line).toBeDefined();
+    expect(line).toContain('presentation: "content"');
+    expect(line).toContain('path: "/folder/:encodedCwd/wall/*?"');
+    expect(line).not.toMatch(/config:[^}]*presentation/);
+  });
+
   it("skips fixture plugins in production", async () => {
     writePlugin("demo-plugin", {
       id: "demo",

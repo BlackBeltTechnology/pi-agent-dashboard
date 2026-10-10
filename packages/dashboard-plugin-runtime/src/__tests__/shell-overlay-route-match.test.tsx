@@ -12,13 +12,15 @@ import { describe, it, expect } from "vitest";
 // by registering a claim and exercising the hook through render.
 
 import React from "react";
-import { render } from "@testing-library/react";
-import { Router } from "wouter";
+import { act, render } from "@testing-library/react";
+import { Router, useRoute } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import {
   PluginContextProvider,
+  ShellOverlayRouteSlot,
   createSlotRegistry,
   useShellOverlayRouteMatched,
+  useShellOverlayRoutePresentation,
   type ClaimEntry,
 } from "../index.js";
 
@@ -174,5 +176,133 @@ describe("useShellOverlayRouteMatched", () => {
   it("returns false outside provider with explicit registry when no claim matches", () => {
     const result = setupOutsideProvider("/", [subagentClaim]);
     expect(result.matched).toBe(false);
+  });
+});
+
+// ── trailing optional wildcard `/*?` — see change: add-plugin-app-host ──────
+
+interface MechanismResult {
+  matched: boolean;
+  presentation: string | null;
+  /** params the slot component received on its FIRST render (sync path), or null when not rendered. */
+  slotParams: Record<string, string> | null;
+  /** wouter `useRoute` probe on the same pattern, with an absent `*` normalised to "". */
+  probe: { matched: boolean; star: string | null };
+}
+
+function allMechanisms(location: string, pattern: string, claims?: ClaimEntry[]): MechanismResult {
+  const out: MechanismResult = { matched: false, presentation: null, slotParams: null, probe: { matched: false, star: null } };
+  const SlotComp = ({ params }: { params: Record<string, string> }) => {
+    if (out.slotParams === null) out.slotParams = { ...params };
+    return null;
+  };
+  const registry = createSlotRegistry();
+  const list = claims ?? [
+    {
+      pluginId: "wall",
+      priority: 100,
+      slot: "shell-overlay-route",
+      path: pattern,
+      depth: 2,
+      parentPath: "/folder/:e",
+      presentation: "content",
+      Component: SlotComp as unknown as React.ComponentType<Record<string, unknown>>,
+    } as ClaimEntry,
+  ];
+  for (const c of list) registry.addClaim(c);
+  const { hook } = memoryLocation({ path: location });
+  function Hooks() {
+    out.matched = useShellOverlayRouteMatched(registry);
+    out.presentation = useShellOverlayRoutePresentation(registry);
+    const [m, params] = useRoute(pattern);
+    const star = m ? ((params as Record<string, string | undefined>)["*"] ?? "") : null;
+    out.probe = { matched: m, star };
+    return null;
+  }
+  render(
+    <Router hook={hook}>
+      <PluginContextProvider registry={registry}>
+        <Hooks />
+        <ShellOverlayRouteSlot onBack={() => {}} registry={registry} />
+      </PluginContextProvider>
+    </Router>,
+  );
+  return out;
+}
+
+describe("shared matcher — trailing /*? wildcard (test-plan #E6)", () => {
+  const pattern = "/folder/:e/wall/*?";
+  const cases: Array<[string, string | null]> = [
+    ["/folder/x/wall", ""],
+    ["/folder/x/wall/", ""],
+    ["/folder/x/wall/graph/node-1", "graph/node-1"],
+    ["/folder/x/walls", null],
+    ["/folder/x", null],
+  ];
+  for (const [url, star] of cases) {
+    it(`${url} → ${star === null ? "no match" : `params["*"] = ${JSON.stringify(star)}`}; all mechanisms agree`, () => {
+      const r = allMechanisms(url, pattern);
+      const expectMatch = star !== null;
+      expect(r.matched).toBe(expectMatch);
+      expect(r.presentation).toBe(expectMatch ? "content" : null);
+      expect(r.probe.matched).toBe(expectMatch);
+      if (expectMatch) {
+        expect(r.slotParams).not.toBeNull();
+        expect(r.slotParams!["*"]).toBe(star);
+        expect(r.slotParams!.e).toBe("x");
+        expect(r.probe.star).toBe(star);
+      } else {
+        expect(r.slotParams).toBeNull();
+        expect(r.probe.star).toBeNull();
+      }
+    });
+  }
+});
+
+describe("plugin disabled — claim absent falls through (test-plan #X4)", () => {
+  it("matched=false and presentation=null when the demo claim is not registered", () => {
+    const other: ClaimEntry = {
+      pluginId: "other",
+      priority: 100,
+      slot: "shell-overlay-route",
+      path: "/folder/:e/goals",
+      Component: () => null,
+    };
+    const r = allMechanisms("/folder/x/demo-app", "/folder/:e/demo-app/*?", [other]);
+    expect(r.matched).toBe(false);
+    expect(r.presentation).toBeNull();
+    expect(r.slotParams).toBeNull();
+  });
+});
+
+describe("params follow in-claim navigation (CodeRabbit #845)", () => {
+  it("a wildcard claim receives the new params['*'] after navigating to a sub-route", async () => {
+    const seen: string[] = [];
+    const Comp = ({ params }: { params: Record<string, string> }) => {
+      seen.push(params["*"] ?? "<undef>");
+      return null;
+    };
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "wall",
+      priority: 100,
+      slot: "shell-overlay-route",
+      path: "/folder/:e/wall/*?",
+      depth: 2,
+      parentPath: "/folder/:e",
+      presentation: "content",
+      Component: Comp as unknown as React.ComponentType<Record<string, unknown>>,
+    } as ClaimEntry);
+    const mem = memoryLocation({ path: "/folder/x/wall" });
+    render(
+      <Router hook={mem.hook}>
+        <PluginContextProvider registry={registry}>
+          <ShellOverlayRouteSlot onBack={() => {}} registry={registry} />
+        </PluginContextProvider>
+      </Router>,
+    );
+    expect(seen.at(-1)).toBe("");
+    await act(async () => mem.navigate("/folder/x/wall/graph/node-1"));
+    expect(seen.at(-1)).toBe("graph/node-1");
   });
 });
