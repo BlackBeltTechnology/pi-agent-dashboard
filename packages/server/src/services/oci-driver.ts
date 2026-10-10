@@ -28,7 +28,7 @@ import { ensurePrivateDir, readJsonFile, type ServicesPaths, writePrivateFile } 
 import { allocateLoopbackPort, loopbackEndpoint, type PortAllocator } from "./ports.js";
 import { secretPathEnv, writeSecretMounts } from "./secret-delivery.js";
 
-export type OciRuntime = "docker" | "podman";
+type OciRuntime = "docker" | "podman";
 
 export interface OciDriverDeps {
   runtime: OciRuntime;
@@ -76,9 +76,9 @@ export interface ContainerInspect {
   NetworkSettings?: { Ports?: Record<string, Array<{ HostIp?: string; HostPort?: string }> | null> | null };
 }
 
-export const LABEL_SERVICE = "pi.service";
-export const LABEL_OWNER = "pi.owner";
-export const LABEL_DEF_HASH = "pi.def-hash";
+const LABEL_SERVICE = "pi.service";
+const LABEL_OWNER = "pi.owner";
+const LABEL_DEF_HASH = "pi.def-hash";
 const STOP_CONFIRM_MARGIN_MS = 5_000;
 
 export class OciDriver implements ServiceDriver {

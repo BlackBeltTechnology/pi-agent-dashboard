@@ -6,7 +6,7 @@
  */
 import type { CommandRunner } from "./command-runner.js";
 
-export type Capability = "ok" | "ok-destructive" | "cli-present" | "needs-secret" | "unavailable" | "unsupported";
+type Capability = "ok" | "ok-destructive" | "cli-present" | "needs-secret" | "unavailable" | "unsupported";
 
 export interface RuntimeReport {
   id: "docker" | "podman" | "qemu" | "virtualbox" | "vmware";

@@ -29,7 +29,7 @@
 - [x] 5.1 Implement `service-manager.ts` (ensure payload incl. `tried`/`restartRequired`, boot adoption without probes, add/update/remove/prefetch/retry); verify the T-tasks for #E7–#E10, #E25–#E27, #P2 pass
 - [x] 5.2 Implement `routes.ts` (reads behind the network guard; mutations require an `operate` bearer or `isLocallyTrusted`; route tiers + MCP denylist entries) and register it in the server bootstrap; verify the T-tasks for #E46, #E47 pass
 - [x] 5.3 Add the `service` subcommand group to `packages/server/src/cli.ts` (all verbs, `--json` exit-0 rule, stdin secret entry, 30 s heartbeat, `lease-unknown` re-ensure); verify the T-tasks for #E43–#E45, #X6 pass
-- [ ] 5.4 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and verify `grep -nE 'Tests +[0-9]+ failed' /tmp/pi-test.log` is empty
+- [x] 5.4 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and verify `grep -nE 'Tests +[0-9]+ failed' /tmp/pi-test.log` is empty — parallel 30655 passed / 1 failed (`repo-hygiene` byte cap on `tests/e2e/AGENTS.md`, inherited: 30148 B on origin/develop), real-process 158 passed
 
 ## 6. Docs and closeout
 

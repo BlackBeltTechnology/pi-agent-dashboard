@@ -7,7 +7,7 @@
  */
 import { buildSafeArgv, spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 
-export interface RunOptions {
+interface RunOptions {
   env?: NodeJS.ProcessEnv;
   /** Hard deadline; the child is killed and `timedOut` set. Default 30 s. */
   timeoutMs?: number;

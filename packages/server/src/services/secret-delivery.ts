@@ -16,7 +16,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/services/schema.js";
 import { ensurePrivateDir } from "./paths.js";
 
-export const CONTAINER_SECRETS_DIR = "/run/secrets";
+const CONTAINER_SECRETS_DIR = "/run/secrets";
 
 /** Write the mounted secret files; returns `-v host:/run/secrets/<n>:ro` pairs. */
 export function writeSecretMounts(secretsDir: string, values: Record<string, string>): Array<{ host: string; container: string }> {

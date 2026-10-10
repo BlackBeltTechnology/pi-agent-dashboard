@@ -28,7 +28,7 @@ export interface ServicesFile {
 }
 
 /** One raw entry and its validation verdict. */
-export interface DefinitionEntry {
+interface DefinitionEntry {
   id: string;
   raw: unknown;
   def?: ServiceDefinition;

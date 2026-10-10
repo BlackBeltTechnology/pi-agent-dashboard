@@ -34,7 +34,7 @@ export interface ServiceRoutesDeps {
 }
 
 /** May this request mutate services? (Stricter than the network guard.) */
-export function canMutateServices(request: FastifyRequest, localTrust?: LocalTrustContext): boolean {
+function canMutateServices(request: FastifyRequest, localTrust?: LocalTrustContext): boolean {
   const via = (request as { authVia?: string }).authVia;
   if (via === "device") return (request as { principalTier?: string }).principalTier === "operate";
   if (via === "session" || via === "principal") return true;

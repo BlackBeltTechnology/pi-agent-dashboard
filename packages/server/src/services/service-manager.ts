@@ -66,7 +66,7 @@ import {
 /** `unavailable` reasons that persist until an explicit stop / remove. */
 const STICKY_REASONS = new Set<UnavailableReason>(["adoption-uncertain", "owner-conflict", "duplicate-instances"]);
 
-export const REPROBE_INTERVAL_MS = 30_000;
+const REPROBE_INTERVAL_MS = 30_000;
 const OFFERS_CACHE_MS = 10_000;
 const MAX_SECRET_BYTES = 64 * 1024;
 
@@ -165,7 +165,7 @@ interface Rec {
 }
 
 /** Hash of the runtime-relevant definition fields (`pi.def-hash`). */
-export function definitionHash(def: ServiceDefinition): string {
+function definitionHash(def: ServiceDefinition): string {
   const { mode, drivers, oci, native, lifecycle, process: proc, secrets } = def;
   const secretShape = Object.fromEntries(Object.entries(secrets ?? {}).map(([n, s]) => [n, { env: s.env ?? null }]));
   return createHash("sha256")

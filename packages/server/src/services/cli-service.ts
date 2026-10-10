@@ -27,7 +27,7 @@ import { execSecretEnv } from "./secret-delivery.js";
 import { resolveServiceSecrets } from "./secrets-resolver.js";
 import { SecretsStore } from "./secrets-store.js";
 
-export const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_INTERVAL_MS = 30_000;
 
 export type ExecSecrets = { ok: true; values: Record<string, string> } | { ok: false; hint: string };
 
@@ -47,10 +47,6 @@ export interface ServiceCliDeps {
   env?: NodeJS.ProcessEnv;
 }
 
-const VERBS = [
-  "ensure", "heartbeat", "release", "exec", "list", "status", "start", "stop", "retry",
-  "pin", "unpin", "add", "remove", "prefetch", "secret",
-] as const;
 
 interface Parsed {
   verb: string;
@@ -68,7 +64,7 @@ interface Parsed {
   childArgv: string[];
 }
 
-export function parseServiceArgs(args: string[]): Parsed {
+function parseServiceArgs(args: string[]): Parsed {
   const dash = args.indexOf("--");
   const head = dash >= 0 ? args.slice(0, dash) : args;
   const p: Parsed = {
@@ -407,7 +403,6 @@ async function defaultConfirm(question: string): Promise<boolean> {
   }
 }
 
-export { VERBS as SERVICE_VERBS };
 
 /**
  * `exec`'s local secret resolution: same OS user, same files, so no REST

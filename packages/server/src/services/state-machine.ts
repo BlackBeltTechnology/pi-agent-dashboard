@@ -45,7 +45,7 @@ export const DIAGRAM_EDGES: ReadonlyArray<readonly [ServiceState, ServiceState]>
  * - `unavailable` is derived and re-evaluated on every ensure, so any state may
  *   enter it and it may resolve to any re-evaluated state.
  */
-export const EXTRA_EDGES: ReadonlyArray<readonly [ServiceState, ServiceState]> = [
+const EXTRA_EDGES: ReadonlyArray<readonly [ServiceState, ServiceState]> = [
   ["healthy", "stopping"],
   ["blocked", "stopping"],
   ["starting", "stopping"],
@@ -56,9 +56,6 @@ export const EXTRA_EDGES: ReadonlyArray<readonly [ServiceState, ServiceState]> =
   ["stop-failed", "stopped"],
 ];
 
-const ALL_STATES: readonly ServiceState[] = [
-  "stopped", "starting", "healthy", "idle", "stopping", "stop-failed", "blocked", "failed", "unavailable",
-];
 
 export function isLegalEdge(from: ServiceState, to: ServiceState): boolean {
   if (from === to) return false;
@@ -102,12 +99,11 @@ export class StateCell {
   }
 }
 
-export { ALL_STATES };
 
 // ── Pure decisions ──────────────────────────────────────────────────────────
 
-export const BACKOFF_BASE_MS = 5_000;
-export const BACKOFF_CAP_MS = 300_000;
+const BACKOFF_BASE_MS = 5_000;
+const BACKOFF_CAP_MS = 300_000;
 
 /** Delay before retry after the `failures`-th consecutive failed start (1-based). */
 export function backoffMs(failures: number): number {

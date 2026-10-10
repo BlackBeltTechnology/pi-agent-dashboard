@@ -59,7 +59,7 @@ export interface NativeDriverDeps {
 }
 
 /** The executable a recipe runs: `bin`, else the package name sans scope/version. */
-export function recipeBin(r: NativeRecipe): string {
+function recipeBin(r: NativeRecipe): string {
   if (r.bin) return r.bin;
   const at = r.package.lastIndexOf("@");
   const name = at > 0 ? r.package.slice(0, at) : r.package;
@@ -67,12 +67,12 @@ export function recipeBin(r: NativeRecipe): string {
 }
 
 /** Substitute `${port.<name>}` placeholders. */
-export function composeArgs(args: readonly string[], ports: Record<string, number>): string[] {
+function composeArgs(args: readonly string[], ports: Record<string, number>): string[] {
   return args.map((a) => a.replace(/\$\{port\.([A-Za-z][A-Za-z0-9_]*)\}/g, (_m, n: string) => String(ports[n])));
 }
 
 /** Runner argv (without the runner binary). `offline` = never fetch. */
-export function runnerArgs(r: NativeRecipe, rest: readonly string[], mode: "offline" | "prefetch"): string[] {
+function runnerArgs(r: NativeRecipe, rest: readonly string[], mode: "offline" | "prefetch"): string[] {
   const bin = recipeBin(r);
   if (r.runner === "uvx") {
     return mode === "offline" ? ["--offline", "--from", r.package, bin, ...rest] : ["--from", r.package, bin, ...rest];
@@ -206,7 +206,7 @@ export class NativeDriver implements ServiceDriver {
     const uncertain = (why: string): AdoptResult => ({
       kind: "unavailable",
       reason: "adoption-uncertain",
-      hint: `pid ${rec.pid} is alive but ${why}; nothing is spawned until: pi-dashboard service stop ${def.id} --force (or remove)`,
+      hint: `pid ${rec.pid} is alive but ${why}; nothing new is started until: pi-dashboard service stop ${def.id} --force (or remove)`,
     });
     const cmdline = await (this.deps.readCommandLine ?? ((p) => readProcessCommandLine(p, { platform: this.platform })))(rec.pid);
     if (!cmdline?.includes(rec.package)) return uncertain("its command line does not carry the recorded package");

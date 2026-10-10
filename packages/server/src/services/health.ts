@@ -10,7 +10,7 @@ import net from "node:net";
 import WebSocket from "ws";
 
 export const PROBE_CONCURRENCY = 4;
-export const DEFAULT_PROBE_TIMEOUT_MS = 3_000;
+const DEFAULT_PROBE_TIMEOUT_MS = 3_000;
 
 export async function probeHttp(url: string, timeoutMs = DEFAULT_PROBE_TIMEOUT_MS): Promise<boolean> {
   try {
