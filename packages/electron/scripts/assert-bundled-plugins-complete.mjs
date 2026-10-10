@@ -23,6 +23,15 @@
  *   PACKAGES_DIR       — source workspaces root      (default <repo>/packages)
  *   BUNDLE_PLUGINS_DIR — built bundle plugins dir     (default
  *                        <repo>/packages/electron/resources/server/resources/plugins)
+ *   BUNDLE_ROOT_DIR    — bundle root bounding dependency resolution (default
+ *                        dirname(dirname(BUNDLE_PLUGINS_DIR)) = resources/server)
+ *
+ * Resolvability: after the presence check, every declared `dependencies` key
+ * of every bundled plugin must have a `node_modules/<dep>/package.json` between
+ * the plugin dir and BUNDLE_ROOT_DIR (never above — the monorepo's own
+ * node_modules would otherwise mask a dep missing from the shipped bundle).
+ * On success prints `<dep>@<installedVersion>` per resolved third-party dep.
+ * See change: bundle-plugin-third-party-deps (design D4).
  *
  * Exit non-zero listing any missing plugin. See change:
  * add-nightly-verdaccio-build.
@@ -31,6 +40,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { findUnresolvedPluginDeps } from "../../shared/src/runtime-overlay/materialize-plugins.mjs";
 
 const ELECTRON_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = resolve(ELECTRON_DIR, "..", "..");
@@ -104,6 +114,47 @@ function main() {
     process.exit(1);
   }
   console.log(`✓ Bundle contains all ${expected.length} runtime plugin(s).`);
+
+  const bundleRootDir = process.env.BUNDLE_ROOT_DIR || dirname(dirname(bundlePluginsDir));
+  const unresolved = findUnresolvedPluginDeps({ pluginsDir: bundlePluginsDir, rootDir: bundleRootDir });
+  if (unresolved.length > 0) {
+    console.error(
+      `::error::${unresolved.length} bundled plugin dependency(ies) do not resolve inside '${bundleRootDir}': ` +
+        unresolved.map((u) => `${u.plugin} → ${u.dep}`).join(", ") +
+        `. Plugins ship without node_modules; their deps must be installed in the bundle root ` +
+        `(bundle-server.mjs unions plugin dependencies into the synthetic package.json).`,
+    );
+    process.exit(1);
+  }
+  const resolved = installedThirdPartyPluginDeps(bundlePluginsDir, bundleRootDir);
+  console.log(`✓ Every bundled plugin dependency resolves. Third-party: ${resolved.join(", ") || "(none)"}`);
+}
+
+/** Sorted `<dep>@<version>` for every third-party plugin dep installed at the bundle root. */
+function installedThirdPartyPluginDeps(bundlePluginsDir, bundleRootDir) {
+  const out = new Set();
+  for (const id of readBundledPlugins(bundlePluginsDir)) {
+    let deps;
+    try {
+      deps = JSON.parse(readFileSync(join(bundlePluginsDir, id, "package.json"), "utf8")).dependencies ?? {};
+    } catch {
+      continue;
+    }
+    for (const dep of Object.keys(deps)) {
+      if (dep.startsWith("@blackbelt-technology/")) continue;
+      for (const base of [join(bundlePluginsDir, id), bundleRootDir]) {
+        const pj = join(base, "node_modules", ...dep.split("/"), "package.json");
+        if (!existsSync(pj)) continue;
+        try {
+          out.add(`${dep}@${JSON.parse(readFileSync(pj, "utf8")).version}`);
+        } catch {
+          out.add(`${dep}@?`);
+        }
+        break;
+      }
+    }
+  }
+  return [...out].sort();
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

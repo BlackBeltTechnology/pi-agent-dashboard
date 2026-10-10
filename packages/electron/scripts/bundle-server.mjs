@@ -42,6 +42,7 @@ import { fileURLToPath } from "node:url";
 // See change: electron-runtime-overlay-updates (D1, E22).
 import { writeRuntimeManifest } from "../../shared/src/runtime-overlay/manifest.mjs";
 import {
+  collectPluginRuntimeDeps,
   materializeBundledPlugins,
   readBundledPluginIds,
 } from "../../shared/src/runtime-overlay/materialize-plugins.mjs";
@@ -219,10 +220,33 @@ if (clientSrc) {
 // upgrade path is removed in Phase 3; the bundle is now the single source
 // of truth for pi/openspec/tsx versions, refreshed via electron-updater
 // whole-.app replacement.
+//
+// Root `dependencies` = the bundled plugins' third-party `dependencies` union.
+// Plugins ship under resources/plugins/<id>/ WITHOUT node_modules and resolve
+// only via resources/server/node_modules; root deps take the root slot there
+// (a workspace's dep may be nested out of reach). A specifier conflict with a
+// bundle workspace or another plugin, or a non-registry specifier, throws and
+// fails the build. Workspace manifests are read from repo SOURCE (pre-strip).
+// See change: bundle-plugin-third-party-deps (design D1, D3).
+let pluginRuntimeDeps;
+try {
+  pluginRuntimeDeps = collectPluginRuntimeDeps({
+    ids: readBundledPluginIds(SERVER_PKG_JSON),
+    resolveSource: (id) => path.join(PROJECT_DIR, "packages", id),
+    workspaceManifests: BUNDLED_WORKSPACE_PKGS.map((p) =>
+      JSON.parse(readFileSync(path.join(PROJECT_DIR, "packages", p, "package.json"), "utf8")),
+    ),
+  });
+} catch (err) {
+  console.error(`✗ ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+}
+console.log(`  Plugin runtime deps → bundle root: ${Object.keys(pluginRuntimeDeps).join(", ") || "(none)"}`);
 const bundlePkg = {
   name: "pi-dashboard-bundled-server",
   private: true,
   workspaces: BUNDLED_WORKSPACE_PKGS.map((p) => `packages/${p}`),
+  dependencies: pluginRuntimeDeps,
 };
 writeFileSync(
   path.join(SERVER_BUNDLE, "package.json"),
