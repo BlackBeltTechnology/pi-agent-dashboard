@@ -90,17 +90,17 @@ The renderer writes:
 
 ```
 packages/<id>-plugin/
-├─ package.json                    (with pi-dashboard-plugin manifest)
-├─ tsconfig.json
-├─ vitest.config.ts
-├─ README.md
-├─ configSchema.json               (only if user opted in)
-├─ src/
-│  ├─ client.tsx                   (one section per claimed slot)
-│  ├─ server/index.ts              (only if user opted in)
-│  └─ bridge/index.ts              (only if user opted in)
-└─ test/
-   └─ index.test.ts
+  package.json                     (with pi-dashboard-plugin manifest)
+  tsconfig.json
+  vitest.config.ts
+  README.md
+  configSchema.json                (only if user opted in)
+  src/
+    client.tsx                     (one section per claimed slot)
+    server/index.ts                (only if user opted in)
+    bridge/index.ts                (only if user opted in)
+  test/
+    index.test.ts
 ```
 
 ### 3a.3 Register the workspace
@@ -120,6 +120,8 @@ Next steps:
   3. curl -X POST http://localhost:8000/api/restart   # restart dashboard server
   4. npm run reload                # reload all connected pi sessions
   5. Open the dashboard, navigate to your slot, see the scaffold render.
+  6. Style plugin UI with host tokens only: read references/host-design.md
+     (surfaces, severity/status, accent-text, both modes, no own theme/fonts).
 ```
 
 Done with mode `new`.
@@ -218,7 +220,9 @@ Next steps:
   4. Test in dashboard: until node_modules scan ships, link into the dashboard
      monorepo: cd <dashboard-repo> && npm link <your-package-path>
      OR clone your project into <dashboard-repo>/packages/ as a workspace.
-  5. When ready: npm publish
+  5. Style plugin UI with host tokens only: read references/host-design.md
+     (surfaces, severity/status, accent-text, both modes, no own theme/fonts).
+  6. When ready: npm publish
      (a future dashboard release will discover your package via node_modules)
 ```
 
@@ -244,3 +248,4 @@ Done with mode `augment`.
 - [`references/server-context-api.md`](references/server-context-api.md) — `ServerPluginContext`
 - [`references/tui-to-dashboard-mapping.md`](references/tui-to-dashboard-mapping.md) — canonical TUI → dashboard mapping
 - [`references/build-integration.md`](references/build-integration.md) — Vite plugin behavior, dev vs prod, tree-shaking
+- [`references/host-design.md`](references/host-design.md) — host design tokens, severity/status, coloured text, both modes, no own theme/fonts, `product-ui` anti-slop profile

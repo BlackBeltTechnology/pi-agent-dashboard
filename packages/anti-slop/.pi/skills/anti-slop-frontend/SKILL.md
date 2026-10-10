@@ -4,8 +4,8 @@ description: "A mechanical, countable anti-slop checklist for AI-generated front
 license: MIT
 metadata:
   author: blackbelt-technology
-  version: "0.1"
-  adapted_from: "Leonxlnx/taste-skill (design-taste-frontend, MIT) - countable rules distilled, stack-coupling removed, scoped universal vs marketing-only."
+  version: "0.2"
+  adapted_from: "Leonxlnx/taste-skill@18dfc92 (taste-skill / design-taste-frontend, MIT) - countable rules distilled, stack-coupling removed, scoped by surface profile. Section map: packages/anti-slop/UPSTREAM.md."
 ---
 
 # anti-slop-frontend
@@ -37,10 +37,54 @@ When both are present: the loop's a11y floor and cite-a-source rule **win**.
 This skill feeds concrete failing items into the loop's FIX step. It never
 overrides a gate, and a tell here is never a reason to violate a cited rule.
 
+**Authority: advisory.** Findings feed the frontend-mockup-loop FIX step and
+never override a WCAG-AA or severity gate. When a recommendation conflicts
+with a gate result, the gate result stands and the recommendation is recorded
+as overridden.
+
+### The suite
+
+| Skill | Use for |
+|---|---|
+| `anti-slop-frontend` (this) | review or generate any surface; the tell catalog |
+| `anti-slop-redesign` | change an existing surface (mode, audit, levers, protected list) |
+| `anti-slop-image-direction` | opt-in reference images for `marketing` / `new-site` |
+| `anti-slop-brandkit` | opt-in brand board for a `new-site` with no brand |
+
 > **Honesty note:** these rules are curated *taste*, hardened into countable
 > form. They are good defaults, not laws of nature. Every rule has an **override
 > path**: when the brief explicitly asks for the "banned" thing, it is allowed -
 > execute it with intent, not by accident.
+
+---
+
+## Design Read and surface profile (declare first)
+
+Before reviewing or generating, state ONE line:
+
+```
+Design Read: <profile> · <audience> · <mood> · VARIANCE <n> / MOTION <n> / DENSITY <n>
+```
+
+Example: `Design Read: marketing · technical buyers · calm, precise · VARIANCE 4 / MOTION 3 / DENSITY 5`.
+
+Audience and mood are declared context, not checks. The **profile** is the
+switch that decides which rule groups fire:
+
+| Profile | Part A | Part B | Layout discipline (B7) | Redesign default | Image direction |
+|---|---|---|---|---|---|
+| `product-ui` | ✓ | ✗ | ✗ | `preserve` | forbidden |
+| `marketing` | ✓ | ✓ | ✓ | `preserve` | opt-in |
+| `new-site` | ✓ | ✓ | ✓ | `greenfield` | opt-in |
+
+- `product-ui`: dashboards, admin panels, data tables, editors, wizards, any
+  app screen.
+- `marketing`: an existing landing / portfolio / about / docs-home page.
+- `new-site`: a site with no shipped design yet.
+
+Never infer the profile silently. An undeclared profile is how marketing rules
+leak into dense UI. If the brief is ambiguous, ask exactly one question. A
+review or generation reported without a Design Read fails Verification.
 
 ---
 
@@ -134,6 +178,19 @@ AI-purple and Inter-everywhere as a landing page.
   library's scroll primitives.
 - **Reduced-motion honored** for anything above `MOTION 3`.
 
+### A8. Layering and DOM cost
+- **No arbitrary z-index.** Every `z-*` / `z-index` value comes from one
+  documented layer scale (e.g. base, sticky, dropdown, overlay, modal, toast).
+  Mechanical check: count distinct z-index values in the diff; any value not in
+  the project's scale = fail. `z-[9999]` / `z-50` sprinkled to "win" a stacking
+  fight is the tell.
+- **Grain / noise / blur filters only on fixed, `pointer-events-none` layers**,
+  never on a scrolling container (continuous repaint).
+- **Animate only `transform` and `opacity`.** Animating `top` / `left` /
+  `width` / `height` = fail.
+- **No wrapper-div towers.** A component that nests > 4 layout-only `<div>`s to
+  place one element is flagged; flatten with grid/flex on the parent.
+
 ---
 
 ## PART B - Marketing-surface tells (landing / portfolio / about ONLY)
@@ -205,6 +262,50 @@ templating habits live.
   unclear referents, cute-but-wrong wordplay, fake-craftsman micro-meta. Plain
   functional copy beats AI-cute copy.
 
+### B7. Layout discipline (`marketing` / `new-site` only)
+- **Nav renders on one line at desktop** (≥ 1024px). Two lines = fail; condense
+  labels, drop secondary items, or collapse to a menu.
+- **Nav height ≤ 80px at desktop** (default 64-72px).
+- **Hero CTA visible without scrolling** at 1440×900 and 1024×768 (see B1).
+- **Every multi-column section declares its < 768px fallback** in the same
+  component.
+
+---
+
+## Theme parity (T)
+
+A change must hold in every theme the project ships, not only the default.
+Each item is pass/fail. Human visual judgment of the screenshots is a
+**non-gating** note: record it, it never fails the review.
+
+### T1. Zero added raw colour literals (all profiles)
+- Count `#hex`, `rgb(`, `rgba(`, `hsl(`, `hsla(` on **added** lines only (the
+  `+` lines of the change's diff) in shipped UI source
+  (`*.tsx|*.jsx|*.css|*.html|*.vue|*.svelte`). Any hit = fail; use a theme
+  token instead.
+- Excluded: tests, fixtures, stories, `*.svg`, and the token-definition files
+  themselves (the files that declare the tokens).
+- Diff-scoped command (adjust the base ref):
+
+  ```bash
+  git diff -U0 origin/main...HEAD -- '*.tsx' '*.jsx' '*.css' '*.html' '*.vue' '*.svelte' \
+    ':!**/__tests__/**' ':!**/*.test.*' ':!**/*.spec.*' ':!**/fixtures/**' ':!**/*.stories.*' \
+    | grep -E '^\+[^+]' | grep -nE '#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\('
+  ```
+
+  Also exclude your token-definition files with extra `':!<path>'` entries.
+
+### T2. Token guard clean (`product-ui`)
+- If the project has a theme-token guard (a script that flags undeclared or
+  misused tokens), it reports no **new** violation. No guard = item N/A.
+
+### T3. Screenshot set per profile
+- `product-ui`: three screenshots: the default theme in dark, the default
+  theme in light, and one non-default palette. A missing non-default palette
+  screenshot = fail.
+- `marketing`: screenshots in light and dark, both recorded in the review.
+- `new-site`: one screenshot per shipped mode.
+
 ---
 
 ## Mechanical pre-flight (the grep-able subset)
@@ -224,6 +325,13 @@ The rules below can be checked by string-search, not judgment. Run them last.
 - [ ] *(marketing only)* **Zigzag** ≤ 2 consecutive splits; ≥ 4 layout families (B3).
 - [ ] *(marketing only)* **CTA intent** not duplicated; no CTA wrap at desktop (B4).
 - [ ] *(marketing only)* no decoration/locale/scroll-cue/version strips (B5).
+- [ ] *(marketing only)* **Layout discipline:** nav on one line, nav ≤ 80px,
+      hero CTA visible without scroll (B7).
+- [ ] **Z-index:** every z-index value is on the documented layer scale; no
+      animated layout properties (A8).
+- [ ] **Theme parity:** zero added raw colour literals in shipped UI source (T1).
+- [ ] **Theme parity:** token guard reports no new violation, if one exists (T2).
+- [ ] **Theme parity:** profile screenshot set exists (T3).
 
 If a box can't be honestly ticked, it's a flagged item - feed it to the fix step.
 
@@ -241,16 +349,20 @@ If a box can't be honestly ticked, it's a flagged item - feed it to the fix step
 
 ## Verification
 
-- The three dials were declared and reasoned from the brief, not defaulted.
+- A one-line Design Read (profile, audience, mood, dials) was declared before
+  the review or generation; the dials were reasoned from the brief, not defaulted.
+- Only the rule groups the profile enables were applied.
 - The grep-able pre-flight subset was run; every hit is either fixed or has a
   documented brief-driven override.
 - Part B was applied only to marketing surfaces; skipped for product UI.
+- Theme parity items T1-T3 were recorded for the declared profile.
 - No advisory tell was used to override a WCAG-AA or severity-4 gate.
 
 ---
 
 *Adapted from [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill)
-(`design-taste-frontend`, MIT). This is a distillation of its countable rules:
+(`design-taste-frontend`, MIT) at commit `18dfc92` (2026-10-08); the
+per-section map lives in `packages/anti-slop/UPSTREAM.md`. This is a distillation of its countable rules:
 stack-coupling (Next RSC / Motion / GSAP / next/font) removed, rules re-scoped
 into universal vs marketing-only, and reframed as an advisory catalog that pairs
 with - never overrides - frontend-mockup-loop's cite-a-source loop and hard

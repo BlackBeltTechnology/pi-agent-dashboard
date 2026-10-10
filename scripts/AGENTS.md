@@ -4,6 +4,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 
 | File | Purpose |
 |------|---------|
+| `__tests__/anti-slop-suite-contract.test.mjs` | Static L1 contract over `packages/anti-slop` skill suite + dashboard adapter. → see `__tests__/anti-slop-suite-contract.test.mjs.AGENTS.md` |
 | `__tests__/assert-bundled-plugins-complete.test.mjs` | Vitest unit tests for packages/electron/scripts/assert-bundled-plugins-complete.mjs (subprocess-driven with… → see `__tests__/assert-bundled-plugins-complete.test.mjs.AGENTS.md` |
 | `__tests__/assert-bundled-server-plugin-load.test.mjs` | Tests for packages/electron/scripts/assert-bundled-server-plugin-load.mjs (X13): the bundle layout contract (SERVER_BUNDLE_DIR override, win32 `node.exe`, missing-file reporting) and the log verdict (loaded / present-but-dead / vacuous-green), and `logTail` (last-N lines, empty-log marker). See change: fix-browser-plugin-vendor-specifier-resolution. E31: selected-loader layout + `bootArgv`. See change: fix-appimage-cold-boot-latency. |
 | `__tests__/check-kb-dist-fresh.test.mjs` | C1 (fix-kb-eval-measurement-integrity): fault-injection via `--pkg` sandbox — clean fingerprint → exit 0; src/tsconfig edited after committed build or fingerprint missing → non-zero + mandated message. |

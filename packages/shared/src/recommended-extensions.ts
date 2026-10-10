@@ -409,12 +409,12 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		source: "npm:@blackbelt-technology/anti-slop-frontend",
 		displayName: "anti-slop-frontend",
 		fallbackDescription:
-			"Pi skill: a mechanical, countable anti-slop checklist for " +
-			"AI-generated frontend. Catches the specific tells an undirected " +
-			"model defaults to (AI-purple, Inter-everywhere, em-dashes, " +
-			"div-based fake screenshots, Jane Doe / Acme data). Advisory; " +
-			"pairs with frontend-mockup-loop. Works in any React/Tailwind/HTML " +
-			"project.",
+			"Pi skills: a mechanical, countable anti-slop suite for " +
+			"AI-generated frontend. AI-tell checklist with surface profiles " +
+			"(product UI, marketing, new site) and theme parity, a redesign " +
+			"protocol, plus opt-in image-direction and brand-kit skills. " +
+			"Advisory; pairs with frontend-mockup-loop. Works in any " +
+			"React/Tailwind/HTML project.",
 		status: "optional",
 		unlocks: [
 			"anti-slop-frontend skill (countable AI-tell checklist for frontend)",

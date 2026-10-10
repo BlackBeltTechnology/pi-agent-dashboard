@@ -9,10 +9,25 @@ a value not listed, add the token to the theme layer first, then cite it here.
 Token definitions live in **`packages/client/src/index.css`**. This file
 references them by name and never redefines them.
 
-Theme mechanism: `:root` is the **dark** theme (the default), and
-`[data-theme="light"]` overrides a 44-token subset. **Two themes ship today** —
-`dark` and `light`. Any doc claiming four themes (studio / earth / athlete /
-gradient) is stale; no such selectors exist in `index.css`.
+Theme mechanism, two layers:
+
+- **CSS layer (the `base` theme).** `:root` is base **dark** (the default) and
+  `[data-theme="light"]` overrides a 44-token subset for base **light**. This
+  is the only theme `index.css` declares, and the layer this file describes.
+- **Runtime palette layer.** `packages/client/src/lib/theme/themes.ts`
+  (`THEMES`) ships 8 further palettes (dracula, nord, github, catppuccin,
+  tokyo-night, rose-pine, solarized, gruvbox), each in dark and light. For any
+  theme other than `base`, `applyThemeVars`
+  (`packages/client/src/hooks/useTheme.ts`) writes that palette's values as
+  inline overrides of the **same token names** on `<html>`. 9 themes × 2 modes
+  = 18 palettes; the `theme-gallery` spec sets their contrast floor.
+
+Consequence: always paint through the tokens below and every palette follows.
+A raw literal is correct in at most one of the 18.
+
+`packages/dashboard-plugin-skill/.pi/skills/dashboard-plugin-scaffold/references/host-design.md`
+is a derived subset of this file for third-party plugin authors. Update the two
+together.
 
 Light overrides the surface, text, and border ramps plus `--accent-primary`
 and the six `--accent-<hue>-text` tokens, but deliberately does **not** override
