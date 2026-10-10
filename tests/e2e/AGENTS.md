@@ -108,6 +108,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `mcp-client-settings-a11y.spec.ts` | L3 accessibility floor for the mcp-client settings section… → see `mcp-client-settings-a11y.spec.ts.AGENTS.md` |
 | `mcp-token-settings.spec.ts` | L3 for the Settings → Paired Devices MCP-client token flow… → see `mcp-token-settings.spec.ts.AGENTS.md` |
 | `mermaid-colorize.spec.ts` | Playwright spec. Mermaid default-node colorization… → see `mermaid-colorize.spec.ts.AGENTS.md` |
+| `mermaid-repair.spec.ts` | L3 F9 mermaid auto-repair → see `mermaid-repair.spec.ts.AGENTS.md` |
 | `model-proxy-oauth-filter.spec.ts` | Playwright spec (`request` fixture, no page). Model-proxy… → see `model-proxy-oauth-filter.spec.ts.AGENTS.md` |
 | `navigation.spec.ts` | Scenario 5.6 spec. Registers `page.on(pageerror)`.… → see `navigation.spec.ts.AGENTS.md` |
 | `network-guard.spec.ts` | L3 flagship refusal (test-plan #S20, change… → see `network-guard.spec.ts.AGENTS.md` |
@@ -215,7 +216,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `apple-tools-activation.spec.ts` | L3 apple-tools activation. → see `apple-tools-activation.spec.ts.AGENTS.md` |
 | `mcp-tiered-token.spec.ts` | F6/F7 (expand-mcp-tiered-surface): observe token's… → see `mcp-tiered-token.spec.ts.AGENTS.md` |
 | `identity-matrix/` | L3 D21 identity setup matrix. → see `identity-matrix.AGENTS.md` |
-| `card-block-toggles.spec.ts` | L3 per-block card + directory-card toggles, incl. per-plugin badge/action-bar/pill switches. See change: add-focus-mode-and-card-block-toggles. |
-| `card-visual-effects.spec.ts` | L3 card effects: `data-fx-status` / `data-fx-glow` gates follow the global-only `fx-*` switches. See change: add-focus-mode-and-card-block-toggles. |
-| `focus-mode.spec.ts` | L3 focus mode: sidebar toggle, built-in vs saved profile, reset. See change: add-focus-mode-and-card-block-toggles. |
-| `folder-accordion.spec.ts` | L3 accordion folder list: focus follows intent, chevron collapse/pin, compact modes, search forces full. See change: add-focus-mode-and-card-block-toggles. |
+| `card-block-toggles.spec.ts` | L3 card block toggles → see `card-block-toggles.spec.ts.AGENTS.md` |
+| `card-visual-effects.spec.ts` | L3 card visual effects → see `card-visual-effects.spec.ts.AGENTS.md` |
+| `focus-mode.spec.ts` | L3 focus mode → see `focus-mode.spec.ts.AGENTS.md` |
+| `folder-accordion.spec.ts` | L3 accordion folder list → see `folder-accordion.spec.ts.AGENTS.md` |
