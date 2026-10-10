@@ -1050,6 +1050,16 @@ function ShellOverlayRouteSwitch({
     />
   ));
 
+  // Params are re-derived from the CURRENT location through the shared matcher
+  // (decoded, `*` normalised), so navigation inside the same claim — a new
+  // `/*?` sub-route or `:param` value — reaches the component. The probe only
+  // reports a claim-index CHANGE. See change: add-plugin-app-host.
+  const matchedPath = matchedClaimIndex !== null ? overlayPath(claims[matchedClaimIndex]!) : null;
+  const liveParams = React.useMemo(
+    () => (matchedPath ? matchWouterPatternWithParams(matchedPath, location) : null),
+    [matchedPath, location],
+  );
+
   if (matchedClaimIndex === null) return <>{probes}</>;
   const claim = claims[matchedClaimIndex]!;
 
@@ -1060,7 +1070,7 @@ function ShellOverlayRouteSwitch({
     <div className="flex-1 min-h-0 relative">
       <ShellOverlayRouteRender
         claim={claim}
-        params={matchedParams}
+        params={liveParams ?? matchedParams}
         onBack={onBack}
       />
     </div>

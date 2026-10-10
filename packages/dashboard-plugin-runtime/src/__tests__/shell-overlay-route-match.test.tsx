@@ -12,7 +12,7 @@ import { describe, it, expect } from "vitest";
 // by registering a claim and exercising the hook through render.
 
 import React from "react";
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { Router, useRoute } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import {
@@ -272,5 +272,37 @@ describe("plugin disabled — claim absent falls through (test-plan #X4)", () =>
     expect(r.matched).toBe(false);
     expect(r.presentation).toBeNull();
     expect(r.slotParams).toBeNull();
+  });
+});
+
+describe("params follow in-claim navigation (CodeRabbit #845)", () => {
+  it("a wildcard claim receives the new params['*'] after navigating to a sub-route", async () => {
+    const seen: string[] = [];
+    const Comp = ({ params }: { params: Record<string, string> }) => {
+      seen.push(params["*"] ?? "<undef>");
+      return null;
+    };
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "wall",
+      priority: 100,
+      slot: "shell-overlay-route",
+      path: "/folder/:e/wall/*?",
+      depth: 2,
+      parentPath: "/folder/:e",
+      presentation: "content",
+      Component: Comp as unknown as React.ComponentType<Record<string, unknown>>,
+    } as ClaimEntry);
+    const mem = memoryLocation({ path: "/folder/x/wall" });
+    render(
+      <Router hook={mem.hook}>
+        <PluginContextProvider registry={registry}>
+          <ShellOverlayRouteSlot onBack={() => {}} registry={registry} />
+        </PluginContextProvider>
+      </Router>,
+    );
+    expect(seen.at(-1)).toBe("");
+    await act(async () => mem.navigate("/folder/x/wall/graph/node-1"));
+    expect(seen.at(-1)).toBe("graph/node-1");
   });
 });
