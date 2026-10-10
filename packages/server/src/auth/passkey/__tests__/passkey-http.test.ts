@@ -326,6 +326,24 @@ describe("sign in with phone over HTTP", () => {
     expect(cookieOf(poll)).toBeUndefined();
   });
 
+  it("ceremonies started while stable cannot complete once the origin turns unstable", async () => {
+    const anna = await addUser("Anna", "observe");
+    const o = await remote("POST", "/auth/passkey/login/options");
+    const start = await remote("POST", "/auth/passkey/phone/start");
+    const token = (await remote("POST", "/auth/passkey/phone/lookup", undefined, { code: start.json().shortCode })).json().approvalToken;
+    // Same rpOrigin, but no longer stable (e.g. reserved name dropped).
+    rp = { ...rp, stable: false, reason: "ephemeral_tunnel" };
+    const login = await remote("POST", "/auth/passkey/login/verify", undefined, { challengeId: o.json().challengeId, response: getAssertion(anna.credential, o.json().options, ORIGIN) });
+    expect(login.statusCode).toBe(409);
+    expect(login.json().error).toBe("unstable_origin");
+    expect(cookieOf(login)).toBeUndefined();
+    const approve = await remote("POST", "/auth/passkey/phone/approve", undefined, { token, challengeId: o.json().challengeId, response: getAssertion(anna.credential, o.json().options, ORIGIN) });
+    expect(approve.statusCode).toBe(409);
+    const poll = await remote("GET", `/auth/passkey/phone/poll/${start.json().requestId}`);
+    expect(poll.statusCode).toBe(409);
+    expect(cookieOf(poll)).toBeUndefined();
+  });
+
   it("phone start is 409 on an unstable origin", async () => {
     rp = { rpOrigin: "https://x.share.zrok.io", rpId: "x.share.zrok.io", stable: false, reason: "ephemeral_tunnel" };
     expect((await remote("POST", "/auth/passkey/phone/start")).statusCode).toBe(409);

@@ -6,7 +6,8 @@
  * the plugin's `onRequest` hook already skips `/auth/`. Authorization is the
  * ceremony itself: an invite token, a WebAuthn assertion, or a phone request's
  * approval token. Every route is inert (`404 passkeys_disabled`) unless
- * `auth.passkeys.enabled`.
+ * `auth.passkeys.enabled`, and refuses `409 unstable_origin` at EVERY step
+ * while the RP context is unstable.
  *
  * Cross-site defence: a POST carrying an `Origin` header must come from the RP
  * origin (`403 origin_mismatch`), closing login-CSRF with a self-made
@@ -72,14 +73,24 @@ export function registerPasskeyRoutes(fastify: FastifyInstance, deps: PasskeyRou
   const { service, issueSession } = deps;
   const { phone } = service;
 
-  /** Inert unless enabled; cross-site POSTs refused. Returns false when it replied. */
+  /**
+   * Inert unless enabled; refused on an UNSTABLE origin at every step (not
+   * only at options time — a challenge issued while stable must not complete
+   * after the origin turned unstable); cross-site POSTs refused. Returns false
+   * when it replied.
+   */
   const admit = (request: FastifyRequest, reply: FastifyReply): boolean => {
     if (!service.isEnabled()) {
       reply.code(404).send({ success: false, error: "passkeys_disabled" });
       return false;
     }
+    const rp = service.rpContext();
+    if (!rp.stable) {
+      reply.code(409).send({ success: false, error: "unstable_origin" });
+      return false;
+    }
     const origin = headerString(request.headers.origin);
-    if (request.method === "POST" && origin && origin !== service.rpContext().rpOrigin) {
+    if (request.method === "POST" && origin && origin !== rp.rpOrigin) {
       reply.code(403).send({ success: false, error: "origin_mismatch" });
       return false;
     }
