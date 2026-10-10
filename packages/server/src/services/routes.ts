@@ -52,7 +52,9 @@ function sendError(reply: FastifyReply, err: unknown): FastifyReply {
   if (err instanceof ServiceError) {
     return reply.code(err.status).send({ success: false, error: err.code, message: err.message });
   }
-  return reply.code(500).send({ success: false, error: "internal", message: (err as Error)?.message ?? "error" });
+  // Unexpected errors can carry home-dir paths: log them, return a generic body.
+  console.warn(`[services] route error: ${(err as Error)?.stack ?? String(err)}`);
+  return reply.code(500).send({ success: false, error: "internal", message: "internal error (see server.log)" });
 }
 
 export function registerServiceRoutes(fastify: FastifyInstance, deps: ServiceRoutesDeps): void {

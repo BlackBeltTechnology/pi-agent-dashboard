@@ -99,6 +99,21 @@ describe("audit — remove with a corrupt store refuses before any teardown", ()
   });
 });
 
+describe("store slot follows a store: ref on every path", () => {
+  it("write, configured and ensure all use the ref's slot", async () => {
+    writeDefinitions(root, [{ ...obsDef(), secrets: { password: { ref: "store:shared/obs_pw" } } }]);
+    const { manager } = makeManager(root, { drivers: { external: new FakeDriver("external") } });
+    await manager.setSecret("obs", "password", "v1");
+    expect(new SecretsStore(secretsFile()).get("shared", "obs_pw")).toBe("v1");
+    expect((await manager.list()).services[0].secrets).toEqual({ password: { configured: true } });
+    expect((await manager.ensure("obs")).state).toBe("healthy");
+  });
+  it("a malformed store ref is secret-unavailable, not a lookup of a truncated key", async () => {
+    const r = await resolveSecretRef("store:noslash", resolverDeps());
+    expect(r).toMatchObject({ ok: false, reason: "secret-unavailable" });
+  });
+});
+
 describe("E50 — CLI secret entry reads stdin, never argv", () => {
   it("stores the value; it appears in no argv and no URL", async () => {
     writeDefinitions(root, [obsDef()]);

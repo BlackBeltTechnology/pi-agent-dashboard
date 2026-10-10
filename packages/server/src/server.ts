@@ -2330,10 +2330,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     discoverOffers: () => discoverServiceOffers(resolveInstallRoot(fileURLToPath(import.meta.url))),
   });
   registerServiceRoutes(fastify, { manager: serviceManager, networkGuard, localTrust });
-  serviceManager
-    .boot()
-    .then(() => serviceManager.startScheduler())
-    .catch((err: unknown) => console.warn(`[services] boot adoption failed: ${(err as Error).message}`));
   // Pi runtime discovery + atomic dual selection. See change: select-pi-runtime-install.
   registerPiRuntimeRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
   // Node family discovery + atomic triple selection (node+npm+npx).
@@ -3938,6 +3934,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       await fastify.listen({ port: config.port, host: config.host });
       writePid(process.pid);
       console.log(`Dashboard server running at http://${config.host}:${config.port}`);
+
+      // Managed services: adoption + scheduler only once the server really
+      // started (a created-but-never-started server touches nothing). Boot is
+      // adoption only and a no-op without services.json; never blocks startup.
+      // See change: add-service-registry-core.
+      serviceManager
+        .boot()
+        .then(() => serviceManager.startScheduler())
+        .catch((err: unknown) => console.warn(`[services] boot adoption failed: ${(err as Error).message}`));
 
       // Bind-vs-trust reachability. A loopback or specific-NIC bind silently
       // voids a trusted network outside its range: the TCP connection is

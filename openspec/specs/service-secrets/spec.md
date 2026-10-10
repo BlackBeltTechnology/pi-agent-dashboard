@@ -74,8 +74,10 @@ and SHALL NOT fall back to another backend.
 No secret value SHALL appear in any `ensure` payload, REST response, CLI output,
 log line, error message, process argv, or container `inspect` output. REST and
 CLI SHALL report only `configured: boolean` per secret name. Secret write and
-import routes SHALL accept only authenticated or locally trusted callers
-(honouring strict local-proof mode), and SHALL NOT echo the value. A child
+import routes SHALL accept only a caller with `operate` authority (an
+`observe`- or `control`-tier bearer SHALL be refused) or a locally trusted
+caller (honouring strict local-proof mode), as for every mutating
+`/api/services` route, and SHALL NOT echo the value. A child
 process launched through `service exec` receives secret values by design. Its
 own output is outside this requirement.
 

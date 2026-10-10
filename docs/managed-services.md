@@ -1,6 +1,6 @@
 # Managed services
 
-Dashboard-run long-lived processes (containers, native runners, user commands) behind one consumer contract. Change: add-service-registry-core. Design: `openspec/changes/add-service-registry-core/design.md`.
+Dashboard-run long-lived processes (containers, native runners, user commands) behind one consumer contract. Change: add-service-registry-core. Design: `openspec/changes/archive/2026-10-10-add-service-registry-core/design.md`.
 
 ## Purpose
 
@@ -115,11 +115,14 @@ stateDiagram-v2
   - `service stop <id> --force` overrides the argv check.
 - `instanceId` never regenerated while `services.json` exists.
 - Boot adoption: no health probe, no network I/O.
+- Boot adoption + scheduler start after HTTP listener up (`start()`, `serviceManager.boot()` → `startScheduler()`), not at `createServer`.
 
 ## Offers and add/update/remove
 
 - Offer format + validated example: [manifest-schema.md](../packages/dashboard-plugin-skill/.pi/skills/dashboard-plugin-scaffold/references/manifest-schema.md) section `pi.services`. Do not duplicate JSON here.
 - Validator: `parseServiceOffers` (`packages/shared/src/services/offers.ts`).
+- Discovery: same scopes as `pi.tools` — `node_modules/@blackbelt-technology/*`, monorepo `packages/*` (`scanPiManifests`, `packages/shared/src/tool-registry/pi-tools.ts`). Packages outside scopes not discovered.
+- Offer list cached 10 s (`OFFERS_CACHE_MS`). `updateAvailable` may lag a package upgrade by ≤10 s.
 - Rules (summary):
   - `schemaVersion: 1`; unknown keys rejected and named.
   - No `lifecycle`, binds, `privileged`, host network, non-loopback ports.
@@ -167,6 +170,8 @@ stateDiagram-v2
   - `generate: { bytes }` at add time (sync `randomBytes` inside lock).
   - User value via `PUT /api/services/:id/secrets/:name` or `service secret set <id> <name>` (value from **stdin**, never argv).
   - `service secret import <id> <name> <file>`.
+- Store-backed secret `store:<id>/<name>` → slot `<id>/<name>` for write (`service secret set`), generation, `configured` (`storeSlotOf`, `secrets-resolver.ts`).
+- `configured` reported only for store-backed secrets.
 - Refs (read-only):
   - `store:<id>/<name>`
   - `env:<NAME>`
@@ -175,7 +180,10 @@ stateDiagram-v2
   - Keychain writes not supported.
 - Delivery:
   - OCI: `~/.pi/dashboard/services-run/<id>/secrets/<name>` mounted `:ro` at `/run/secrets/<name>`. Never `-e` / `--env-file`.
+    - Declared `env` var holds mount path `/run/secrets/<name>` (`secretPathEnv`).
   - native / attached: env into spawned child only.
+    - Declared `env` var holds VALUE in child env (`startCommandSecretEnv`).
+  - Definition mixing oci + native/attached → value driver-dependent. Read `/run/secrets/<name>` only inside a container.
   - `service exec <id> -- <argv…>`: child env `SVC_<ID>_<NAME>`. Parent env untouched.
 - No reveal surface. No REST route returns a value.
 
@@ -200,7 +208,7 @@ Source: `packages/server/src/services/routes.ts` (top comment).
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/services` | list (+ `updateAvailable`, diff) |
-| GET | `/api/services/offers` | discovered `pi.services` |
+| GET | `/api/services/offers` | discovered `pi.services` (cached 10 s) |
 | GET | `/api/services/runtimes` | runtime detection report |
 | GET | `/api/services/:id` | status (re-probes running instance) |
 | POST | `/api/services` | add `{ offer \| definition, dryRun?, update? }` |
@@ -212,6 +220,7 @@ Source: `packages/server/src/services/routes.ts` (top comment).
 | PUT | `/api/services/:id/secrets/:name` | `{ value }` → `{ configured }`. Never echoed. |
 
 Auth:
+- Unexpected server error → 500 `{ error: "internal", message: "internal error (see server.log)" }`. Details only in `server.log` (`sendError`, `routes.ts`).
 - Reads: network guard (`createNetworkGuard`).
 - Mutations: `canMutateServices` →
   - device bearer tier `operate`, OR

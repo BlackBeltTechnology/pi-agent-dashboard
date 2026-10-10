@@ -30,6 +30,12 @@ export class SecretsCorruptError extends Error {
 
 type Bag = Record<string, string>;
 
+/** A `<serviceId>/<name>` key in the store. */
+export interface StoreSlot {
+  id: string;
+  name: string;
+}
+
 export interface SecretsStatus {
   corrupt: boolean;
   backupPath?: string;
@@ -62,10 +68,15 @@ export class SecretsStore {
     return bag[`${id}/${name}`];
   }
 
-  /** `configured` per name — the ONLY view a REST/CLI surface ever gets. */
-  configured(id: string, names: readonly string[]): Record<string, { configured: boolean }> {
+  /**
+   * `configured` per secret name — the ONLY view a REST/CLI surface ever gets.
+   * `slots` maps each declared name to the store slot its ref resolves to.
+   */
+  configured(slots: Record<string, StoreSlot>): Record<string, { configured: boolean }> {
     const { bag } = this.readBag();
-    return Object.fromEntries(names.map((n) => [n, { configured: typeof bag[`${id}/${n}`] === "string" }]));
+    return Object.fromEntries(
+      Object.entries(slots).map(([n, s]) => [n, { configured: typeof bag[`${s.id}/${s.name}`] === "string" }]),
+    );
   }
 
   private async mutate(fn: (bag: Bag) => void): Promise<void> {
@@ -94,10 +105,10 @@ export class SecretsStore {
    * (synchronous `randomBytes`), so there is no second lock and no lost update.
    * An existing value is kept.
    */
-  async generate(id: string, specs: Record<string, number>): Promise<void> {
-    if (Object.keys(specs).length === 0) return;
+  async generate(specs: ReadonlyArray<StoreSlot & { bytes: number }>): Promise<void> {
+    if (specs.length === 0) return;
     await this.mutate((bag) => {
-      for (const [name, bytes] of Object.entries(specs)) {
+      for (const { id, name, bytes } of specs) {
         const key = `${id}/${name}`;
         if (typeof bag[key] !== "string") bag[key] = randomBytes(bytes).toString("base64url");
       }

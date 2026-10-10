@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBearerAuth } from "../../auth/bearer-auth.js";
 import { createLocalTrustContext } from "../../auth/local-proof.js";
 import { createNetworkGuard } from "../../auth/localhost-guard.js";
@@ -102,6 +102,23 @@ describe("E46 — who may create an attached (argv-carrying) service", () => {
     const res = await app.inject({ method: "PUT", url: "/api/services/docling/secrets/password", remoteAddress: "198.51.100.7", payload: { value: "x" } });
     expect(res.statusCode).toBe(403);
     expect(fs.existsSync(path.join(root, "services-secrets.json"))).toBe(false);
+  });
+});
+
+describe("unexpected errors never echo internals", () => {
+  it("500 with a generic body; the path stays in the server log", async () => {
+    const { manager } = makeManager(root);
+    manager.list = async () => {
+      throw new Error(`EACCES: permission denied, open '${root}/services.json'`);
+    };
+    const app = await buildApp(manager);
+    apps.push(app);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const res = await app.inject({ method: "GET", url: "/api/services" });
+    expect(res.statusCode).toBe(500);
+    expect(res.body).not.toContain(root);
+    expect(warn.mock.calls.join(" ")).toContain("EACCES");
+    warn.mockRestore();
   });
 });
 

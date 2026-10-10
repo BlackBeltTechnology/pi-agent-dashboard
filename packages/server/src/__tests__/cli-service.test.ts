@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import net from "node:net";
 import type { FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp, FakeDriver, injectFetch, makeManager, ociDef, tmpRoot, writeDefinitions } from "../services/__tests__/helpers.js";
 import { cmdService } from "../services/cli-service.js";
 
@@ -71,6 +71,15 @@ describe("E43 — `--json` always exits 0; plain exits 0 only when healthy", () 
       expect(JSON.parse(j.out[0])).toMatchObject({ ok: false, state: "no-server" });
       expect((await run(verb, { port })).code, verb.join(" ")).not.toBe(0);
     }
+  });
+});
+
+describe("flag operands", () => {
+  it.each([["add", "--file"], ["ensure", "docling", "--holder", "--json"]])("%s … without a value is a usage error, no request", async (...argv) => {
+    const fetchSpy = vi.fn();
+    const r = await run(argv as string[], { fetch: fetchSpy as never });
+    expect(r.code).toBe(2);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 

@@ -61,6 +61,8 @@ interface Parsed {
   loop: boolean;
   holder?: string;
   file?: string;
+  /** Flag given without a valid operand. */
+  badOperand?: string;
   childArgv: string[];
 }
 
@@ -83,8 +85,14 @@ function parseServiceArgs(args: string[]): Parsed {
     else if (a === "--all") p.all = true;
     else if (a === "--force") p.force = true;
     else if (a === "--loop") p.loop = true;
-    else if (a === "--holder") p.holder = head[++i];
-    else if (a === "--file") p.file = head[++i];
+    else if (a === "--holder" || a === "--file") {
+      // A missing or flag-shaped operand is a usage error, never silently
+      // swallowed (`--file` alone must not turn into an offer add).
+      const v = head[i + 1];
+      if (v === undefined || v.startsWith("-")) p.badOperand = a;
+      else if (a === "--holder") p.holder = head[++i];
+      else p.file = head[++i];
+    }
     else if (a === "--port") i++; // consumed by the outer CLI
     else p.positional.push(a);
   }
@@ -169,6 +177,10 @@ export async function cmdService(args: string[], deps: ServiceCliDeps): Promise<
 
   const confirm = deps.confirm ?? defaultConfirm;
   const id = p.positional[0];
+  if (p.badOperand) {
+    err(`${p.badOperand} needs a value`);
+    return usage(err);
+  }
 
   switch (p.verb) {
     case "ensure": {
@@ -360,6 +372,9 @@ export async function cmdService(args: string[], deps: ServiceCliDeps): Promise<
           const again = await ensure(id);
           if ((again as EnsurePayload).leaseId) leaseId = (again as EnsurePayload).leaseId as string;
         }
+      } catch {
+        // A failed beat is retried on the next tick; it must never become an
+        // unhandled rejection while the child runs.
       } finally {
         beating = false;
       }

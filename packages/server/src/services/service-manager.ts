@@ -51,7 +51,7 @@ import { OciDriver } from "./oci-driver.js";
 import { ensurePrivateDir, type ServicesPaths } from "./paths.js";
 import { RuntimeDetector as Detector, type RuntimeDetector, type RuntimeReport } from "./runtime-detect.js";
 import { removeSecretMounts } from "./secret-delivery.js";
-import { resolveServiceSecrets } from "./secrets-resolver.js";
+import { resolveServiceSecrets, storeSlotOf } from "./secrets-resolver.js";
 import { SecretsCorruptError, SecretsStore } from "./secrets-store.js";
 import {
   backoffMs,
@@ -700,18 +700,28 @@ export class ServiceManager {
     const def = this.lookup(id).def;
     if (!def) throw new ServiceError(404, "not-found", `no service "${id}"`);
     if (!def.secrets || !(name in def.secrets)) throw new ServiceError(404, "unknown-secret", `${id} declares no secret "${name}"`);
-    const ref = def.secrets[name].ref;
-    if (ref && !ref.startsWith("store:")) throw new ServiceError(409, "not-store", `${id}/${name} is resolved from ${ref.split(":")[0]}:, not the store`);
+    const slot = storeSlotOf(def, name);
+    if (!slot) throw new ServiceError(409, "not-store", `${id}/${name} is resolved from ${String(def.secrets[name].ref).split(":")[0]}:, not the store`);
     if (typeof value !== "string" || value.length === 0 || Buffer.byteLength(value) > MAX_SECRET_BYTES) {
       throw new ServiceError(400, "invalid-value", "the secret value must be a non-empty string up to 64 KiB");
     }
     try {
-      await this.secrets.set(id, name, value);
+      await this.secrets.set(slot.id, slot.name, value);
     } catch (err) {
       if (err instanceof SecretsCorruptError) throw new ServiceError(409, "secrets-corrupt", err.message);
       throw err;
     }
     return { configured: true };
+  }
+
+  /** Store-backed secrets of `def` → their slots (env:/keychain: refs are not store-backed). */
+  private slotsOf(def: ServiceDefinition): Record<string, { id: string; name: string }> {
+    return Object.fromEntries(
+      Object.keys(def.secrets ?? {}).flatMap((n) => {
+        const slot = storeSlotOf(def, n);
+        return slot ? [[n, slot] as const] : [];
+      }),
+    );
   }
 
   // ── add / remove ──────────────────────────────────────────────────────────
@@ -796,18 +806,17 @@ export class ServiceManager {
       if (err instanceof DefinitionsCorruptError) throw new ServiceError(409, "definitions-corrupt", err.message);
       throw err;
     }
-    const gen = Object.fromEntries(
-      Object.entries(def.secrets ?? {})
-        .filter(([, s]) => s.generate)
-        .map(([n, s]) => [n, s.generate!.bytes]),
-    );
+    const gen = Object.entries(def.secrets ?? {}).flatMap(([n, s]) => {
+      const slot = storeSlotOf(def, n);
+      return s.generate && slot ? [{ ...slot, bytes: s.generate.bytes }] : [];
+    });
     try {
-      await this.secrets.generate(def.id, gen);
+      await this.secrets.generate(gen);
     } catch (err) {
       if (!(err instanceof SecretsCorruptError)) throw err;
     }
     this.log(`[services] ${def.id} ${diff ? "updated" : "added"} (${def.origin === "user" ? "user" : def.origin.package})`);
-    return { dryRun: false, review, secrets: this.secrets.configured(def.id, Object.keys(def.secrets ?? {})) };
+    return { dryRun: false, review, secrets: this.secrets.configured(this.slotsOf(def)) };
   }
 
   async remove(id: string, opts: { purgeData?: boolean } = {}): Promise<{ ok: boolean; hint?: string }> {
@@ -889,7 +898,7 @@ export class ServiceManager {
       state: rec?.cell.state ?? "stopped",
       pinned: this.pins.has(id),
       leases: this.leases.live(id, now),
-      secrets: def ? this.secrets.configured(id, Object.keys(def.secrets ?? {})) : {},
+      secrets: def ? this.secrets.configured(this.slotsOf(def)) : {},
     };
     if (def) {
       s.mode = def.mode;

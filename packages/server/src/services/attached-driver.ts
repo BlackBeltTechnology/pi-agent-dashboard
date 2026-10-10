@@ -110,7 +110,8 @@ export class AttachedDriver implements ServiceDriver {
     if (!argv || !def.process) return "stop-failed";
     const deadline = this.now() + stopTimeoutMs;
     // The rc is deliberately ignored: osascript `quit` returned 1 on a real quit.
-    await this.deps.run(argv[0], argv.slice(1), { timeoutMs: stopTimeoutMs });
+    // `verbatim`: user argv never meets a shell — no cmd.exe wrapper on win32.
+    await this.deps.run(argv[0], argv.slice(1), { timeoutMs: stopTimeoutMs, verbatim: true });
     for (;;) {
       if ((await this.matches(def)).length === 0) return "stopped";
       if (this.now() >= deadline) return "stop-failed";

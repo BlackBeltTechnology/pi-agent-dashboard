@@ -164,11 +164,16 @@ a diff; it is never applied silently. Validated strictly by
 - `secrets`: `generate: { bytes }` or user-entered; a `ref`, if any, must be the
   offer's own slot `store:<id>/<name>` (no `env:`, `keychain:`, or another
   service's secret); names may not differ only by case. Values reach the container as `:ro` files under
-  `/run/secrets/<name>`; `env` names a var that holds that PATH, never the value.
+  `/run/secrets/<name>`; under OCI, `env` names a var that holds that PATH. Under
+  `native` / `attached` the same `env` var receives the VALUE (child env only), so
+  a definition listing both kinds of driver should read the secret from
+  `/run/secrets/<name>` only when it runs in a container.
+- Discovery walks the same package scopes as `pi.tools`:
+  `node_modules/@blackbelt-technology/*` and monorepo `packages/*`.
 
 ```json
 {
-  "name": "@acme/docling-skill",
+  "name": "@blackbelt-technology/pi-docling-skill",
   "version": "1.0.0",
   "pi": {
     "services": [
@@ -190,7 +195,7 @@ a diff; it is never applied silently. Validated strictly by
           "ports": { "http": { "protocol": "http" } }
         },
         "health": { "kind": "http", "endpoint": "http", "path": "/health" },
-        "secrets": { "apikey": { "generate": { "bytes": 32 }, "env": "DOCLING_API_KEY_FILE" } },
+        "secrets": { "apikey": { "generate": { "bytes": 32 } } },
         "startTimeoutSec": 120,
         "idleStopMinutes": 15
       }

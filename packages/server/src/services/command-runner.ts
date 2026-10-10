@@ -13,6 +13,11 @@ interface RunOptions {
   timeoutMs?: number;
   /** Written to stdin, then stdin is closed. */
   input?: string;
+  /**
+   * Spawn `file args` exactly as given — never wrapped in `cmd.exe` on win32.
+   * For user-authored argv that must not meet any shell (attached stop).
+   */
+  verbatim?: boolean;
 }
 
 export interface RunResult {
@@ -31,7 +36,9 @@ const MAX_OUTPUT = 4 * 1024 * 1024;
 
 export const defaultCommandRunner: CommandRunner = (file, args, opts = {}) =>
   new Promise((resolve) => {
-    const { argv, spawnOptions } = buildSafeArgv(file, args);
+    const { argv, spawnOptions } = opts.verbatim
+      ? { argv: [file, ...args], spawnOptions: { shell: false as const, windowsHide: true as const } }
+      : buildSafeArgv(file, args);
     let stdout = "";
     let stderr = "";
     let settled = false;

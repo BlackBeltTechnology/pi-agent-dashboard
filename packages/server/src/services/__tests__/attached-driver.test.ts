@@ -74,6 +74,20 @@ describe("X3/X5 — stop is judged by the matcher, never by rc or probe", () => 
     });
     return d;
   }
+  it("the stop argv runs verbatim — never wrapped in cmd.exe on win32", async () => {
+    const calls: Array<{ file: string; args: readonly string[]; verbatim?: boolean }> = [];
+    const d = new AttachedDriver({
+      run: async (file, args, opts) => {
+        calls.push({ file, args, verbatim: opts?.verbatim });
+        return { code: 0, stdout: "", stderr: "", timedOut: false };
+      },
+      platform: "win32",
+      findProcesses: async () => [],
+    });
+    const def = obsDef({ lifecycle: { stop: { win32: ["taskkill", "/IM", "obs64.exe & calc"] } }, process: { name: "obs64" } });
+    await d.stop(def, undefined, 1_000);
+    expect(calls).toEqual([{ file: "taskkill", args: ["/IM", "obs64.exe & calc"], verbatim: true }]);
+  });
   it("rc 1 but the process exits within stopTimeout → stopped", async () => {
     const clock = new FakeClock();
     expect(await driverWith(clock, 1, 5_000).stop(obsDef(), undefined, 15_000)).toBe("stopped");

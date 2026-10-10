@@ -35,6 +35,19 @@ export function defaultSecretRef(id: string, name: string): string {
   return `store:${id}/${name}`;
 }
 
+/**
+ * The store slot a declared secret lives in: the slot its `store:` ref names,
+ * else `<id>/<name>`; null for `env:` / `keychain:` refs. Writes, generation,
+ * `configured` and resolution all use this ONE mapping.
+ */
+export function storeSlotOf(def: ServiceDefinition, name: string): { id: string; name: string } | null {
+  const ref = def.secrets?.[name]?.ref ?? defaultSecretRef(def.id, name);
+  if (!ref.startsWith("store:")) return null;
+  const rest = ref.slice("store:".length);
+  const slash = rest.indexOf("/");
+  return slash > 0 ? { id: rest.slice(0, slash), name: rest.slice(slash + 1) } : null;
+}
+
 /** Build the read-only keychain argv for `platform`, or null when unsupported. */
 export function keychainArgv(
   platform: NodeJS.Platform,
@@ -52,6 +65,7 @@ export async function resolveSecretRef(ref: string, deps: SecretResolverDeps): P
   const rest = ref.slice(colon + 1);
   if (scheme === "store") {
     const slash = rest.indexOf("/");
+    if (slash <= 0) return unavailable(`malformed store ref ${JSON.stringify(ref)}`);
     try {
       const v = deps.store.get(rest.slice(0, slash), rest.slice(slash + 1));
       return v === undefined ? unavailable(`secret ${rest} is not set (pi-dashboard service secret set …)`) : { ok: true, value: v };
@@ -68,6 +82,7 @@ export async function resolveSecretRef(ref: string, deps: SecretResolverDeps): P
   }
   if (scheme === "keychain") {
     const slash = rest.indexOf("/");
+    if (slash <= 0) return unavailable("malformed keychain ref (expected keychain:<service>/<account>)");
     const argv = keychainArgv(deps.platform, rest.slice(0, slash), rest.slice(slash + 1));
     if (!argv) return unavailable(`keychain refs are not supported on ${deps.platform}`);
     const bin = deps.resolveBinary(argv.tool);
