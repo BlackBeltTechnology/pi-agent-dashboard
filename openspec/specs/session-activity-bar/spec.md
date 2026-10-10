@@ -54,7 +54,8 @@ The stop button SHALL expose a tooltip distinguishing its action from the backgr
 #### Scenario: Stop button tooltip
 - **GIVEN** an activity bar row
 - **WHEN** the user hovers the stop button
-- **THEN** the tooltip SHALL contain text indicating the action stops the tool while letting the agent continue (literal copy in design.md: `"Stop this tool (lets the agent continue)"`)
+- **THEN** the tooltip SHALL state that the click stops the agent and aborts the whole turn (literal copy: `"Stop the agent (aborts the whole turn)"`)
+- **AND** the tooltip SHALL NOT claim the agent continues
 
 ### Requirement: Accessibility — activity bar is live status
 The activity bar container SHALL expose `role="status"` and `aria-live="polite"` so assistive tech announces when a bash tool starts or stops.
