@@ -95,6 +95,7 @@ See change: warn-unreachable-trusted-networks.
 - `session-bootstrap.ts` — Startup session discovery and OpenSpec polling init
 - `extension-register.ts` — Auto-registers bundled bridge extension in pi's global settings (`~/.pi/agent/settings.json`) on startup; no-op in dev mode
 - `browser-handlers/` — Browser WebSocket message handlers by domain (subscription, session-actions, session-meta, terminal, directory)
+- `services/` — Managed services (long-lived endpoints, lifecycle, leases). → see `docs/managed-services.md`
 
 ### 3. Web Client (`src/client/`)
 React-based responsive web UI that:

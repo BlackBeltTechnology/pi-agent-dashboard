@@ -141,3 +141,70 @@ The skill enforces these at scaffold time so augmented external extensions Just 
   }
 }
 ```
+
+## `pi.services` — offering a managed-service template
+
+A package MAY offer service templates in `package.json` under `pi.services`
+(sibling of `pi.tools`; same package walk). An offer is **inert**: nothing is
+pulled, fetched or started until the user adds it (`pi-dashboard service add
+<id>` → review → confirm). A newer template surfaces as `updateAvailable` with
+a diff; it is never applied silently. Validated strictly by
+`parseServiceOffers` (`@blackbelt-technology/pi-dashboard-shared/services/offers.js`):
+
+- `schemaVersion: 1` required; unknown keys rejected and named.
+- `mode`: `managed` (with `drivers` ⊆ `oci:docker`, `oci:podman`, `native`),
+  `external`, or `attached` **without** `lifecycle` (commands are user-authored only).
+- OCI images MUST be digest-pinned (`@sha256:`); ports are
+  `{ container, protocol? }` and always publish on `127.0.0.1`; `volumes` are
+  NAMED volumes only, named `<id>-…` (volumes are runtime-global). No `binds`,
+  `privileged`, host network, or `hostIp`; the image may not start with `-`.
+- Native recipes: `runner` ∈ `uvx | npx`, `package` = `<name>@<exact version>`,
+  `args` literal except `${port.<name>}` placeholders.
+- `health` is required (`http` | `tcp` | `ws-first-message` | `oci-healthcheck`).
+- `secrets`: `generate: { bytes }` or user-entered; a `ref`, if any, must be the
+  offer's own slot `store:<id>/<name>` (no `env:`, `keychain:`, or another
+  service's secret); names may not differ only by case. Values reach the container as `:ro` files under
+  `/run/secrets/<name>`; under OCI, `env` names a var that holds that PATH. Under
+  `native` / `attached` the same `env` var receives the VALUE (child env only), so
+  a definition listing both kinds of driver should read the secret from
+  `/run/secrets/<name>` only when it runs in a container.
+- Discovery walks the same package scopes as `pi.tools`:
+  `node_modules/@blackbelt-technology/*` and monorepo `packages/*`.
+
+```json
+{
+  "name": "@blackbelt-technology/pi-docling-skill",
+  "version": "1.0.0",
+  "pi": {
+    "services": [
+      {
+        "schemaVersion": 1,
+        "id": "docling",
+        "mode": "managed",
+        "description": "docling-serve document conversion",
+        "drivers": ["oci:podman", "oci:docker", "native"],
+        "oci": {
+          "image": "ghcr.io/docling-project/docling-serve@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "ports": { "http": { "container": 5001, "protocol": "http" } },
+          "volumes": { "docling-cache": "/opt/app-root/src/.cache" }
+        },
+        "native": {
+          "runner": "uvx",
+          "package": "docling-serve@1.36.0",
+          "args": ["--host", "127.0.0.1", "--port", "${port.http}"],
+          "ports": { "http": { "protocol": "http" } }
+        },
+        "health": { "kind": "http", "endpoint": "http", "path": "/health" },
+        "secrets": { "apikey": { "generate": { "bytes": 32 } } },
+        "startTimeoutSec": 120,
+        "idleStopMinutes": 15
+      }
+    ]
+  }
+}
+```
+
+Skill pattern: `pi-dashboard service ensure docling --json` always exits 0;
+branch on `state === "healthy"` (use `endpoints.http`), otherwise follow the
+skill's standalone fallback. `pi-dashboard service exec docling -- <cmd>` holds
+a lease for the command's lifetime and passes secrets as `SVC_DOCLING_<NAME>`.

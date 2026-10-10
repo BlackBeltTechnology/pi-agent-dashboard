@@ -70,6 +70,10 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // outbound-request primitive and the list reveals receiver origins.
   { method: "DELETE", path: "/api/push/register/:tokenId", tier: "operate" },
   { method: "DELETE", path: "/api/sessions/archived/:id", tier: "control" },
+  // add-service-registry-core: reads observe; every mutation operate (an
+  // attached entry carries argv). The route ALSO refuses trusted-network and
+  // below-operate callers itself (canMutateServices).
+  { method: "DELETE", path: "/api/services/:id", tier: "operate" },
   { method: "DELETE", path: "/api/tools/:name", tier: "control" },
   { method: "GET", path: "/api/apple-tools/status", tier: "observe" },
   { method: "GET", path: "/api/auth/diagnostics", tier: "operate" },
@@ -197,6 +201,10 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/session-change/:sessionId/:toolCallId", tier: "observe" },
   { method: "GET", path: "/api/session-diff", tier: "observe" },
   { method: "GET", path: "/api/session-file", tier: "observe" },
+  { method: "GET", path: "/api/services", tier: "observe" },
+  { method: "GET", path: "/api/services/:id", tier: "observe" },
+  { method: "GET", path: "/api/services/offers", tier: "observe" },
+  { method: "GET", path: "/api/services/runtimes", tier: "observe" },
   { method: "GET", path: "/api/sessions", tier: "observe" },
   { method: "GET", path: "/api/sessions/:sessionId/attachments/:attachmentId", tier: "observe" },
   { method: "GET", path: "/api/sessions/:sessionId/entry/:entryId", tier: "observe" },
@@ -339,6 +347,16 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/session/:id/shutdown", tier: "control" },
   { method: "POST", path: "/api/session/:id/thinking-level", tier: "control" },
   { method: "POST", path: "/api/session/:id/unarchive", tier: "control" },
+  { method: "POST", path: "/api/services", tier: "operate" },
+  { method: "POST", path: "/api/services/:id/ensure", tier: "operate" },
+  { method: "POST", path: "/api/services/:id/heartbeat", tier: "operate" },
+  { method: "POST", path: "/api/services/:id/pin", tier: "operate" },
+  { method: "POST", path: "/api/services/:id/prefetch", tier: "operate" },
+  { method: "POST", path: "/api/services/:id/release", tier: "operate" },
+  { method: "POST", path: "/api/services/:id/retry", tier: "operate" },
+  { method: "POST", path: "/api/services/:id/start", tier: "operate" },
+  { method: "POST", path: "/api/services/:id/stop", tier: "operate" },
+  { method: "POST", path: "/api/services/:id/unpin", tier: "operate" },
   { method: "POST", path: "/api/session/spawn", tier: "control" },
   { method: "POST", path: "/api/shutdown", tier: "operate" },
   { method: "POST", path: "/api/system-one/calibration", tier: "operate" },
@@ -368,6 +386,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PUT", path: "/api/provider-auth/api-key", tier: "operate" },
   { method: "PUT", path: "/api/providers", tier: "operate" },
   { method: "PUT", path: "/api/system-one/config", tier: "operate" },
+  { method: "PUT", path: "/api/services/:id/secrets/:name", tier: "operate" },
   { method: "PUT", path: "/api/tools/:name", tier: "operate" },
 ];
 

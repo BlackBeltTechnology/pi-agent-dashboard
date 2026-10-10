@@ -249,7 +249,16 @@ stateDiagram-v2
   through the tunnel, and only then declares the service healthy or
   `blocked`. The tunnel uses  (the `ssh -L` workaround was measured on macOS in `F:S1.1`). Identity
   and port are read from `podman system connection list --format json`; that
-  source is **unmeasured** and verified in task 5.4. The tunnel is a child owned by the service and is terminated
+  source is **unmeasured** and verified in task 5.4.
+  **Observed (podman 6.1.0, applehv, task 4.1):** an array of
+  `{ Name, URI: "ssh://core@127.0.0.1:<port>/run/user/<uid>/podman/podman.sock",
+  Identity, IsMachine, Default, ReadWrite }` (fixture in
+  `oci-driver.test.ts`). A real-runtime smoke confirmed the host cannot reach
+  the published port directly and the `ssh -L` forward can; the forward needs
+  a moment to bind, so the driver waits for it before re-probing, and records
+  its pid in `services-run/<id>/tunnel.json` so a forward left by a previous
+  server is terminated (after re-checking it is still an `ssh -L`) instead of
+  leaking. The tunnel is a child owned by the service and is terminated
   via `killProcess` with it. On Linux rootless podman, no tunnel is expected;
   this is a QA item.
 - **Host VM:** reported only. The dashboard never starts or stops Docker Desktop
@@ -264,6 +273,14 @@ stateDiagram-v2
   - The presence probe runs the composed command with the runner's offline flag
     (`uvx --offline …  --help`, `npx --no-install …`). Their exact behaviour is
     verified in task 5.6.
+  - **Observed (dev Mac, task 4.2):** `uvx 0.8.18 --offline --from
+    docling-serve@1.36.0 docling-serve --help` exits 1 in ~1.2 s with
+    "docling-serve was not found in the cache" — no network, reliable, so uvx
+    presence = offline probe OR marker. `npx --no --package=cowsay@1.6.0 --
+    cowsay --help` exits 1 ("npx canceled due to missing packages and no YES
+    option") but may still resolve the spec against the registry, so npx
+    presence = the prefetch marker ALONE (no invocation). `start` also runs
+    with the offline flag (`uvx --offline`, `npx --no`).
   - On failure the state is `unavailable` with reason `package-absent`.
   - A successful explicit prefetch also writes
     `services-run/<id>/prefetched.json` (package@version). If a runner's
@@ -353,7 +370,8 @@ stateDiagram-v2
   (`parseSkillTools` style) and `schemaVersion: 1`. Offers may not contain
   `lifecycle`, bind mounts, `privileged`, host network or non-loopback ports.
   The image must be `@sha256:`-pinned, and native packages must pin an exact
-  version.
+  version. Package templates may reference only their own store slot for
+  secrets and must prefix named volumes with `<id>-` (ship-it audit).
 - **Add:** `POST /api/services` with `{ offer: "<pkg>#<id>", dryRun: true }`
   returns the review (image or recipe, ports, volumes, secrets,
   `templateHash`). The same call with `dryRun: false` writes it. The CLI
@@ -513,6 +531,18 @@ explicit `unavailable` reasons when their binary is missing.
   `secret-unavailable` with a hint.
 - [More than one container matches the labels] → Kept, surfaced, never
   auto-deleted.
+- [Default (non-strict) mode admits any genuinely-local loopback caller to the
+  mutation routes, so another OS user on the same host can create an
+  argv-carrying `attached` entry] → **Accepted residual** (user decision
+  during ship-it audit): it is the dashboard-wide loopback posture (terminals
+  and other operate routes share it); `requireLocalProof` strict mode closes
+  it, and the spec keeps `isLocallyTrusted`. Documented in
+  `docs/managed-services.md`.
+- [Package templates reaching outside their namespace] → Closed in the
+  validator: a package template may reference only its own store slot
+  (`store:<id>/<name>`), its named volumes must start with `<id>-` (volumes are
+  runtime-global; `--purge-data` must never delete a stranger's), and an image
+  may not start with `-`. The add review lists each secret's source.
 
 ## Migration Plan
 

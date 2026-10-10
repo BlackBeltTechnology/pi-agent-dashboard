@@ -16,3 +16,5 @@ Removes `GET /api/mcp-client/adapter`, `PUT /api/mcp-client/disabled`, `PUT /api
 KB routes (observe: GET /api/kb/search, GET /api/kb/sources; operate: POST /api/kb/source-trust). See change: improve-kb-settings-sources-and-search.
 
 `/api/plugins/team/*` routes (19) tiered `operate`; MCP denylisted as per-user, owner-gated app API. See change: add-team-plugin.
+
+`/api/services/*` (17 routes): GETs `observe`; every mutation (POST/PUT/DELETE incl. ensure/heartbeat/release) `operate`; MCP denylisted. Route itself also refuses trusted-network + observe/control callers (`canMutateServices`). See change: add-service-registry-core.

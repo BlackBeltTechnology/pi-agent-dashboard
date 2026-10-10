@@ -174,7 +174,29 @@ const SCAN_SCOPE_PKG = "@blackbelt-technology" as const;
  * Unreadable files are skipped — a doc bug must never break startup.
  */
 export function discoverSkillManifests(root: string): DiscoveredSkillManifest[] {
-  const found: DiscoveredSkillManifest[] = [];
+  return scanPiManifests(
+    root,
+    (pi) => Boolean((pi as { tools?: unknown }).tools),
+  ).map(({ pkgDir, pi }) => ({ pkgDir, pi }));
+}
+
+/** One {@link scanPiManifests} hit: the manifest plus the package's name/version. */
+export interface ScannedPiManifest extends DiscoveredSkillManifest {
+  name?: string;
+  version?: string;
+}
+
+/**
+ * The package walk shared by `pi.tools` and `pi.services` discovery: every
+ * package under the {@link discoverSkillManifests} scopes whose `pi` object
+ * satisfies `predicate`. Unreadable files are skipped.
+ * See change: add-service-registry-core (D7).
+ */
+export function scanPiManifests(
+  root: string,
+  predicate: (pi: object) => boolean,
+): ScannedPiManifest[] {
+  const found: ScannedPiManifest[] = [];
   for (const scope of SCAN_SCOPES) {
     const scopeDir = path.join(root, scope);
     let entries: string[] = [];
@@ -192,9 +214,16 @@ export function discoverSkillManifests(root: string): DiscoveredSkillManifest[] 
       try {
         const pkg = JSON.parse(readFileSync(path.join(pkgDir, "package.json"), "utf8")) as {
           pi?: unknown;
+          name?: unknown;
+          version?: unknown;
         };
-        if (pkg.pi && typeof pkg.pi === "object" && (pkg.pi as { tools?: unknown }).tools) {
-          found.push({ pkgDir, pi: pkg.pi });
+        if (pkg.pi && typeof pkg.pi === "object" && predicate(pkg.pi)) {
+          found.push({
+            pkgDir,
+            pi: pkg.pi,
+            ...(typeof pkg.name === "string" ? { name: pkg.name } : {}),
+            ...(typeof pkg.version === "string" ? { version: pkg.version } : {}),
+          });
         }
       } catch {
         // no package.json / unreadable — skip

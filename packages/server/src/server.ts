@@ -40,7 +40,8 @@ import {
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import { isRecoveryCandidate, isShutdownWindowCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
-import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { getDefaultRegistry, resolveInstallRoot } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { discoverServiceOffers } from "@blackbelt-technology/pi-dashboard-shared/services/offers.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import compress from "@fastify/compress";
 import cors from "@fastify/cors";
@@ -252,6 +253,10 @@ import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
+import { defaultCommandRunner } from "./services/command-runner.js";
+import { servicesPaths } from "./services/paths.js";
+import { registerServiceRoutes } from "./services/routes.js";
+import { ServiceManager } from "./services/service-manager.js";
 import {
   dispatchReload as dispatchReloadRaw,
   reloadTargetSessionIds,
@@ -2308,6 +2313,23 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   registerPushRoutes(fastify, { getPush: () => pushService });
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
+  // Managed services: definitions + offers + lifecycle + secrets. Boot is
+  // adoption only (no probes, no network I/O), and a no-op without
+  // services.json. See change: add-service-registry-core.
+  const serviceManager = new ServiceManager({
+    paths: servicesPaths(),
+    run: defaultCommandRunner,
+    resolveBinary: (name) => {
+      try {
+        const r = getDefaultRegistry().resolve(name);
+        return r.ok ? r.path : null;
+      } catch {
+        return null;
+      }
+    },
+    discoverOffers: () => discoverServiceOffers(resolveInstallRoot(fileURLToPath(import.meta.url))),
+  });
+  registerServiceRoutes(fastify, { manager: serviceManager, networkGuard, localTrust });
   // Pi runtime discovery + atomic dual selection. See change: select-pi-runtime-install.
   registerPiRuntimeRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
   // Node family discovery + atomic triple selection (node+npm+npx).
@@ -3913,6 +3935,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       writePid(process.pid);
       console.log(`Dashboard server running at http://${config.host}:${config.port}`);
 
+      // Managed services: adoption + scheduler only once the server really
+      // started (a created-but-never-started server touches nothing). Boot is
+      // adoption only and a no-op without services.json; never blocks startup.
+      // See change: add-service-registry-core.
+      serviceManager
+        .boot()
+        .then(() => serviceManager.startScheduler())
+        .catch((err: unknown) => console.warn(`[services] boot adoption failed: ${(err as Error).message}`));
+
       // Bind-vs-trust reachability. A loopback or specific-NIC bind silently
       // voids a trusted network outside its range: the TCP connection is
       // refused before any handler runs, so no block event is ever recorded and
@@ -4342,6 +4373,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // gateway so sessions it ends cannot re-arm one.
       // See change: archive-service-sessions-on-end.
       archiveSweeper.stop();
+      serviceManager.dispose();
       for (const client of browserGateway.wss.clients) {
         client.terminate();
       }
