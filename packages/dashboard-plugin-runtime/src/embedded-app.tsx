@@ -45,8 +45,9 @@ export interface EmbeddedAppProps {
 const INLINE_ACTIONS = 2;
 
 function basename(cwd: string): string {
-  const parts = cwd.replace(/[\\/]+$/, "").split(/[\\/]/);
-  return parts[parts.length - 1] || cwd;
+  // split + filter, not a `[\\/]+$` trim: that regex is polynomial on
+  // untrusted input with many trailing separators (CodeQL js/polynomial-redos).
+  return cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd;
 }
 
 function warnRejected(appId: string, what: string, value: unknown): void {

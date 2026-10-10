@@ -142,6 +142,11 @@ describe("embedded host fields + standaloneUrl (#E13)", () => {
     expect(screen.getByTestId("embedded-app-open-standalone")).toBeTruthy();
   });
 
+  it("folder name ignores trailing separators", () => {
+    mount(<EmbeddedApp app={app()} basePath={BASE} folderParam={encodeFolder("/home/u/acme-erp//")} onBack={() => {}} />);
+    expect(captured!.folder).toEqual({ cwd: "/home/u/acme-erp//", name: "acme-erp" });
+  });
+
   it("without folderParam and standaloneUrl: no folder, no button", () => {
     mount(<EmbeddedApp app={app()} basePath="/team" onBack={() => {}} />, { path: "/team" });
     expect(captured!.folder).toBeUndefined();
