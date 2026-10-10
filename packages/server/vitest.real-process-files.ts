@@ -19,6 +19,9 @@
  * See change: isolate-real-process-tests.
  */
 export const REAL_PROCESS_TESTS: readonly string[] = [
+  // exec — `service exec` spawns a real node child; X6 times heartbeats against it.
+  // See change: add-service-registry-core.
+  "src/__tests__/cli-service.test.ts",
   // signal — SIGTERMs a real wrapper → jiti-loaded server, reads boot-state.
   "src/__tests__/cli-signal-forwarding.test.ts",
   "src/__tests__/cli-stop-real.test.ts",
@@ -46,4 +49,6 @@ export const REAL_PROCESS_TESTS: readonly string[] = [
   "src/rpc-keeper/__tests__/keeper-shutdown-kills-pi.test.ts",
   // keeper — real keeper + mock-pi; E5 polls the rotated child log file.
   "src/rpc-keeper/__tests__/keeper.test.ts",
+  // exec — E54 spawns a real node child and reads its env through a file.
+  "src/services/__tests__/secrets.test.ts",
 ];

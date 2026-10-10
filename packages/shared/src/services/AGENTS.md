@@ -1,0 +1,8 @@
+# DOX — packages/shared/src/services
+
+Managed-services shared contract: definition schema + `pi.services` offers. Consumed by `packages/server/src/services/`.
+
+| File | Purpose |
+|------|---------|
+| `offers.ts` | `pi.services` offers: `parseServiceOffers(pi, {name,version})` (per-entry strict validation, errors name package + key, dup ids rejected), `discoverServiceOffers(root)` (via `scanPiManifests`, inert — no exec/pull/fetch), `templateHash` (`sha256:` of canonical JSON), `diffTemplates` (`[{path,from,to}]`, dotted paths), `definitionFromOffer`, `templateOfDefinition`. Tests: `__tests__/offers.test.ts` (E4–E6, manifest-schema example). See change: add-service-registry-core. |
+| `schema.ts` | Definition types (`ServiceDefinition`, `ServiceTemplate`, `OciSpec`, `NativeRecipe`, `HealthProbe`, `SecretSpec`, `EnsurePayload`), closed sets `UNAVAILABLE_REASONS`/`SERVICE_STATES`, defaults (start 120 s, stop 15 s, idle 15 min / null for attached, lease 300 s) via `effectiveTimings`. `validateDefinition(input,{kind,imageHasHealthcheck})`: exact key sets; `mode:"native"` rejected; offers need digest-pinned image, no binds/lifecycle/env:/keychain:; native runner ∈ uvx\|npx, exact `name@x.y.z`, args only `${port.<name>}`; attached stop needs `process` matcher, no stop ⇒ `idleStopMinutes` null; privileged/host network/hostIp named. `canonicalJson`, `execSecretEnvName` (`SVC_<ID>_<NAME>`). Tests: `__tests__/schema.test.ts` (E11, E24, E35, E37, E41). See change: add-service-registry-core. |

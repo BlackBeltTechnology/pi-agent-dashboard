@@ -50,6 +50,10 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/plugins/context-mode-settings/", reason: "plugin-internal config; writes a file under ~/.pi and alters session env" },
   { pattern: "/api/plugins/flows/", reason: "plugin-internal" },
   { pattern: "/api/tools/", reason: "tool-registry UI" },
+  // add-service-registry-core: service mutations start processes and write
+  // secrets; core keeps the whole surface out of MCP (skills use the CLI).
+  { pattern: "/api/services/", reason: "managed services: lifecycle + secrets; CLI/REST only in core" },
+  { pattern: "/api/services", reason: "managed services: lifecycle + secrets; CLI/REST only in core" },
   { pattern: "/api/ws-ticket", reason: "transport credential" },
   { pattern: "/api/local-proof", reason: "mints a one-time local-proof bootstrap code; host-local credential" },
   { pattern: "/api/device-session", reason: "exchanges the device bearer for an httpOnly cookie; browser credential plumbing" },

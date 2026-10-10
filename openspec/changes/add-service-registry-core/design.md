@@ -249,7 +249,16 @@ stateDiagram-v2
   through the tunnel, and only then declares the service healthy or
   `blocked`. The tunnel uses  (the `ssh -L` workaround was measured on macOS in `F:S1.1`). Identity
   and port are read from `podman system connection list --format json`; that
-  source is **unmeasured** and verified in task 5.4. The tunnel is a child owned by the service and is terminated
+  source is **unmeasured** and verified in task 5.4.
+  **Observed (podman 6.1.0, applehv, task 4.1):** an array of
+  `{ Name, URI: "ssh://core@127.0.0.1:<port>/run/user/<uid>/podman/podman.sock",
+  Identity, IsMachine, Default, ReadWrite }` (fixture in
+  `oci-driver.test.ts`). A real-runtime smoke confirmed the host cannot reach
+  the published port directly and the `ssh -L` forward can; the forward needs
+  a moment to bind, so the driver waits for it before re-probing, and records
+  its pid in `services-run/<id>/tunnel.json` so a forward left by a previous
+  server is terminated (after re-checking it is still an `ssh -L`) instead of
+  leaking. The tunnel is a child owned by the service and is terminated
   via `killProcess` with it. On Linux rootless podman, no tunnel is expected;
   this is a QA item.
 - **Host VM:** reported only. The dashboard never starts or stops Docker Desktop
@@ -264,6 +273,14 @@ stateDiagram-v2
   - The presence probe runs the composed command with the runner's offline flag
     (`uvx --offline …  --help`, `npx --no-install …`). Their exact behaviour is
     verified in task 5.6.
+  - **Observed (dev Mac, task 4.2):** `uvx 0.8.18 --offline --from
+    docling-serve@1.36.0 docling-serve --help` exits 1 in ~1.2 s with
+    "docling-serve was not found in the cache" — no network, reliable, so uvx
+    presence = offline probe OR marker. `npx --no --package=cowsay@1.6.0 --
+    cowsay --help` exits 1 ("npx canceled due to missing packages and no YES
+    option") but may still resolve the spec against the registry, so npx
+    presence = the prefetch marker ALONE (no invocation). `start` also runs
+    with the offline flag (`uvx --offline`, `npx --no`).
   - On failure the state is `unavailable` with reason `package-absent`.
   - A successful explicit prefetch also writes
     `services-run/<id>/prefetched.json` (package@version). If a runner's

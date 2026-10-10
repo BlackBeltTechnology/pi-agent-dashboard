@@ -79,6 +79,9 @@ import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/se
 import { getDefaultRegistry, ingestInstalledSkillTools, resolveInstallRoot } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { assertNodeVersionSupported } from "./auth/node-guard.js";
+import { cmdService, localExecSecretsResolver } from "./services/cli-service.js";
+import { defaultCommandRunner } from "./services/command-runner.js";
+import { servicesPaths } from "./services/paths.js";
 import { recordExitIntent } from "./persistence/boot-state.js";
 import { publishResolvedRuntime, readPublishedRuntimeBlock } from "./runtime-publication.js";
 import { resolveLiveSpawnRuntime } from "./runtime-resolution.js";
@@ -991,6 +994,27 @@ async function main() {
     const { flags } = parseArgs(rawArgs.slice(1));
     const config = buildConfig(flags);
     process.exit(await cmdTokenCreate(rawArgs.slice(1), { port: config.port }));
+  }
+
+  if (rawArgs[0] === "service") {
+    // Managed services consumer contract. See change: add-service-registry-core.
+    const { flags } = parseArgs(rawArgs.slice(1));
+    const config = buildConfig(flags, () => {});
+    const resolveBinary = (name: string) => {
+      try {
+        const r = getDefaultRegistry().resolve(name);
+        return r.ok ? r.path : null;
+      } catch {
+        return null;
+      }
+    };
+    process.exit(
+      await cmdService(rawArgs.slice(1), {
+        port: config.port,
+        authHeaders: localTokenHeader,
+        resolveExecSecrets: localExecSecretsResolver({ paths: servicesPaths(), run: defaultCommandRunner, resolveBinary }),
+      }),
+    );
   }
 
   if (rawArgs[0] === "login") {

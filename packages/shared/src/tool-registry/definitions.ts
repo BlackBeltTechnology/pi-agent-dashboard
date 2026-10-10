@@ -1034,6 +1034,30 @@ export function registerDefaultTools(registry: ToolRegistry, deps?: StrategyDeps
     classify,
     installHints: INSTALL_HINTS["agent-browser"],
   });
+  // ── Managed-services runtimes and helpers (report/resolve only — the
+  // service layer never installs them). Additive under the tool-registry
+  // "Registered tool set … at minimum" rule. Platform-conditional entries
+  // follow the process-inspection precedent above: a tool the code never
+  // calls on this platform is not registered there.
+  // See change: add-service-registry-core (task 1.1).
+  for (const name of [
+    "docker",
+    "podman",
+    "uvx",
+    "ssh",
+    "netstat",
+    "VBoxManage",
+    "vmrun",
+    "qemu-system-aarch64",
+    "qemu-system-x86_64",
+  ]) {
+    registry.register(binaryDef(name, deps));
+  }
+  if (registry.getPlatform() !== "win32") registry.register(binaryDef("lsof", deps));
+  // Read-only keychain readers: `security` (macOS), `secret-tool` (Linux).
+  if (registry.getPlatform() === "darwin") registry.register(binaryDef("security", deps));
+  if (registry.getPlatform() === "linux") registry.register(binaryDef("secret-tool", deps));
+
   // pi-doc-engine — document-converter's docker-quarantined engine. The
   // build hint is a network+exec command → requiresConfirm.
   // See change: add-skill-tool-provisioning (task 4.3).
