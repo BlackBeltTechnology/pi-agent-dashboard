@@ -35,6 +35,7 @@ cover**, with every `description` retargeted so it never fires on
 | `node-inspect-debugger` | runtime state a `console.log` can't reach; jiti-verified breakpoints | "set a breakpoint", "inspect runtime state", "console.log isn't enough" |
 | `scenario-design` | test-scenario design (ISTQB) before the bug exists (≠ post-bug `systematic-debugging`) | "design test scenarios", "find edge cases", "is this spec testable" |
 | `reverse-spec-for-rebuild` | rebuild-grade code characterization: `BR-NNN` rules (explicit/implicit), domain model, quirks, gaps, entry-point completeness, per-claim `file:line` provenance + confidence | "reverse-engineer this for a rebuild", "extract the business rules", "reimplement X without the original code" |
+| `rebuild-package-diagrams` | ER diagram (Mermaid) of a rebuild package's domain entities + use cases as BPMN processes; every edge/node evidence- or ref-checked by `scripts/diagrams.mjs` | "ER diagram from the entities", "show the use cases as BPMN", "draw the data model" |
 
 > **On `review-code` vs the cloud gate.** The openspec pipeline does not own a
 > reviewer *discipline* — it delegates post-hoc review to a cloud tool

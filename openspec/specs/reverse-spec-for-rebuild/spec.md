@@ -204,3 +204,91 @@ The skill SHALL audit each capability spec and the cross-cutting files against t
 #### Scenario: Gate summary before promotion
 - **WHEN** the skill offers promotion
 - **THEN** it reports per capability the audit verdict, format-gate result (structural check, plus `openspec validate` when it ran), and counts of rules (explicit/implicit), quirks and gaps, plus the completeness verdict and the citation-check result
+
+### Requirement: Frontend UI-model extraction
+
+The skill SHALL ship dependency-free programs that turn a legacy frontend into a gated UI model inside the rebuild package: a behavioural inventory with `file:line`, effective per-variant configuration, form records, screen records written by a subagent from a shipped prompt and accepted only when the gate passes, flows from code, a style kit extracted from the application's own stylesheets, and screen plans that keep the original layout and link every control to an action, a field, a recorded unmapped reason or the application shell. Stack specifics SHALL live in an adapter loaded by built-in name or file path; the screen-plan toolbar convention SHALL be an optional adapter hook.
+
+#### Scenario: Project adapter by path
+- **WHEN** `style-kit.mjs` or `screen-plan.mjs` is given a path to an adapter file instead of a built-in name
+- **THEN** it loads that adapter and produces the same outputs as for a built-in adapter
+
+#### Scenario: No toolbar hook
+- **WHEN** the adapter declares no `toolbar` hook
+- **THEN** the screen plan keeps every toolbar control and filters none by toolbar key
+
+#### Scenario: Unlinked control refused
+- **WHEN** a plan control links to no action, field, unmapped reason or shell
+- **THEN** `screen-plan.mjs` exits 1 naming the control's number, cite and label
+
+### Requirement: Behaviour-model generation
+
+The skill SHALL ship generator prompts for sequence records (deepening a `sequence-from-ui` draft past the data-layer boundary) and state-machine records (one entity field), run one subagent per record, and accept a record only when `rebuild-package-diagrams` `check-sequences` / `check-states` pass with `--app`.
+
+#### Scenario: Gate failure routed back
+- **WHEN** a generated state machine fails `check-states`
+- **THEN** the record is regenerated with the gate lines as findings and is not rendered until it passes
+
+### Requirement: CRUD classification step
+
+The skill SHALL provide a CRUD classifier prompt that a subagent fills per screen batch from the
+`crud-draft` output, choosing for each effect the entity it persists or reads (from the
+candidates or `model.md`) and the op from the cited code, and SHALL accept a record only when
+`check-crud` passes for it.
+
+#### Scenario: Record accepted only when gated
+- **WHEN** a classifier writes an entity that `model.md` does not define
+- **THEN** `check-crud` refuses the record and the classifier fixes it before reporting
+
+### Requirement: Application-neutral skill
+The skill's scripts, prompts and references SHALL contain no knowledge of a particular analysed application or customer; application knowledge SHALL live in a project-owned adapter profile.
+
+#### Scenario: Generality gate
+- **WHEN** a skill file outside `adapters/` names a pilot application or customer, or uses an application convention such as a config global or toolbar object name
+- **THEN** the package test suite fails naming the file and token
+
+#### Scenario: Built-in adapters are stack-level
+- **WHEN** a built-in adapter references an application file path
+- **THEN** the generality gate fails
+
+### Requirement: Adapter profiles
+An adapter MAY declare `parent: "<built-in name>"`; the loader SHALL merge the profile over the built-in adapter, merging `dialect` key-wise, and SHALL pass `parseLiteralAt` with the other helpers to hooks.
+
+#### Scenario: Profile overrides one dialect key
+- **WHEN** a profile has `parent: "angularjs"` and sets only `dialect.exprText`
+- **THEN** the merged adapter keeps the built-in AngularJS attributes and uses the profile's expression rendering
+
+### Requirement: Template dialect
+`screen-plan.mjs` SHALL take every template-language rule (interpolation, control/drop/select tags, event/model/change/bind attributes, conditions, repeats, switch values, expression text, conjunct decisions, CSS classes, language) from `adapter.dialect`; without a dialect it SHALL plan plain HTML.
+
+#### Scenario: Plain HTML
+- **WHEN** the adapter has no dialect
+- **THEN** buttons, inputs, selects and textareas are numbered controls and no template-language attribute is interpreted
+
+### Requirement: Legacy encoding parameter
+Source decoding SHALL use UTF-16 by BOM, then UTF-8 when valid, then the adapter's `encoding` (default `windows-1252`).
+
+#### Scenario: Profile code page
+- **WHEN** a profile sets `encoding: "windows-1250"` and a source is neither UTF-16 nor valid UTF-8
+- **THEN** it is decoded as windows-1250
+
+### Requirement: Use-case linker step
+The UI phase SHALL include an optional linker step: one `rsfr-uc-linker` subagent per use-case batch fills `prompts/uc-linker.md`, writes only `diagrams/uc-links/<UC-id>.json`, and is accepted only when `check-uc-links` passes.
+
+#### Scenario: Gate loop
+- **WHEN** the linker's record fails `check-uc-links`
+- **THEN** the failing lines go back to the same linker and the record is never hand-edited to pass
+
+### Requirement: Variability classifier step
+The UI phase SHALL include an optional variability step: `rsfr-variability-classifier` subagents, one per config-key batch, fill `prompts/variability-classifier.md`, write only `diagrams/variability/` records, and are accepted only when `check-variability` passes.
+
+#### Scenario: Gate loop
+- **WHEN** the record fails `check-variability`
+- **THEN** the failing lines go back to the classifier and the record is never hand-edited to pass
+
+### Requirement: Usage mapper step
+The UI phase SHALL include an optional usage step: an `rsfr-usage-mapper` subagent fills `prompts/usage-mapper.md`, writes only `diagrams/usage/mapping.json`, never reads more of a snapshot than the draft's type list, and is accepted only when `check-usage` passes.
+
+#### Scenario: Gate loop
+- **WHEN** the mapping fails `check-usage`
+- **THEN** the failing lines go back to the mapper and the record is never hand-edited to pass
