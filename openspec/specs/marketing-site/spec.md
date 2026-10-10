@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines the public marketing site: its source location, theming with no flash of unstyled content, the hero and storytelling animations, the argument sections (TUI versus GUI, remote delegation, a newcomer-friendly introduction), the features grid, a latest-release surface that auto-syncs, GitHub Pages deployment, a Playwright screenshot pipeline, and the performance and accessibility budgets it must meet.
+Defines the public marketing site at pi-dashboard.dev: a single hand-written static page in `site/` (no framework, no bundler), its System / Light / Dark theming with no flash of unstyled content, the hero product film, the ambient WebGL background, the Why section, the static features grid, the on-page FAQ, the search metadata, structured data and crawler files that tie it to the pi coding agent, the latest-release surface that auto-syncs, GitHub Pages deployment, the static-site screenshot and audit driver, and the performance and accessibility budgets it must meet.
 
 ## Requirements
 
@@ -34,23 +34,24 @@ The repository SHALL contain a self-contained marketing site at `/site/`: a hand
 ### Requirement: Theme selector with System / Light / Dark and no FOUC
 
 The site SHALL support a System / Light / Dark theme selector with
-pre-paint resolution of the initial theme.
+pre-paint resolution of the initial theme. Dark is the default token set;
+light is signalled by `data-theme="light"` on `<html>`.
 
 #### Scenario: First paint matches the resolved theme
 
 - **GIVEN** a visitor with `localStorage.pi-theme` unset and an OS set to
-  dark mode
+  light mode
 - **WHEN** they load the site for the first time
-- **THEN** an inlined script in `<head>` resolves the theme to "dark" and
-  sets `class="dark"` on `<html>` before any stylesheet parses, so no
-  flash of light content appears
+- **THEN** an inline script, first in `<head>` before any stylesheet, sets
+  `data-theme="light"` on `<html>`, so no flash of dark content appears
+- **AND** with the OS in dark mode the attribute is absent
 
 #### Scenario: Explicit choice is persisted across reloads
 
-- **GIVEN** a visitor who clicks the Light option in the theme toggle
+- **GIVEN** a visitor who clicks the Light option in the theme selector
 - **WHEN** they reload the page
-- **THEN** `<html>` does not carry the `dark` class and
-  `localStorage.pi-theme` is `"light"`
+- **THEN** `<html>` carries `data-theme="light"`, `localStorage.pi-theme`
+  is `"light"`, and the Light option has `aria-checked="true"`
 
 #### Scenario: System mode tracks OS changes live
 
@@ -62,258 +63,10 @@ pre-paint resolution of the initial theme.
 #### Scenario: Hero and feature mockups swap per theme
 
 - **GIVEN** a visitor switches between light and dark modes
-- **WHEN** the hero animation and feature bento grid re-render
-- **THEN** each dashboard mockup image flips between a dark-themed PNG
-  (under `site/public/screenshots/desktop/`) and a light-themed PNG
-  (under `site/public/screenshots/desktop-light/`) via CSS-driven
-  visibility (`dark:block` / `dark:hidden`) so the mockups always match
-  the active theme
-
-### Requirement: Storytelling hero animation
-
-The site SHALL render an animated hero that crossfades through multiple dashboard states to showcase the product visually.
-
-#### Scenario: Hero cycles through 4 states
-
-- **GIVEN** a user visits the site on a device that does not set `prefers-reduced-motion: reduce`
-- **WHEN** the page loads
-- **THEN** the hero mockup displays one of four dashboard states (sessions, chat, flows, mobile) and transitions to the next state every 6 seconds with a crossfade, slight scale, and translateY motion
-
-#### Scenario: Hero respects reduced motion
-
-- **GIVEN** a user with `prefers-reduced-motion: reduce` set
-- **WHEN** the page loads
-- **THEN** the hero freezes on the first state, the background hue does not shift, and card pulse animations are disabled
-
-#### Scenario: Hero pauses on hover
-
-- **GIVEN** the hero animation is cycling
-- **WHEN** the user hovers the mockup on a pointer device, or touches it on a touch device
-- **THEN** the state-cycle timer pauses until the pointer leaves or the touch ends
-
-### Requirement: Why section articulates TUI-vs-GUI and remote-delegation arguments
-
-The site SHALL include a "Why" section with two dedicated cards, one for each of the two core arguments the project makes against a pure-TUI workflow.
-
-#### Scenario: Information-density card is present
-
-- **GIVEN** a user scrolls to the Why section
-- **WHEN** the section renders
-- **THEN** one card explicitly argues that a graphical interface increases information density compared to a TUI and that the size of information can reflect its importance
-
-#### Scenario: Remote-delegation card is present
-
-- **GIVEN** a user scrolls to the Why section
-- **WHEN** the section renders
-- **THEN** the second card explicitly argues that pi sessions can run on a remote server and be controlled from mobile devices, without requiring SSH, tmux, or a laptop
-
-### Requirement: Features bento grid
-
-The site SHALL present the product's features as a bento-style grid with
-asymmetric sizing that covers all of the dashboard's headline features.
-
-#### Scenario: Features rendered from data
-
-- **GIVEN** a feature list declared in `site/src/content/features.ts`
-- **WHEN** the Features section renders
-- **THEN** the `BentoGrid` component reads that list and renders a responsive 12-column grid where each card's column/row span is driven by the data entry
-
-#### Scenario: Grid rows have no gaps
-
-- **GIVEN** the bento grid's feature entries
-- **WHEN** the sum of `col-span` values per grid row is computed
-- **THEN** every row's declared spans total exactly 12 so that CSS grid
-  auto-placement leaves no empty cells
-
-#### Scenario: Embedded code-server / VS Code feature is included
-
-- **GIVEN** the features list
-- **WHEN** it is rendered
-- **THEN** there is a dedicated card for the embedded editor / code-server
-  integration, with its own screenshot and copy describing lazy-start and
-  per-workspace behavior
-
-#### Scenario: Every feature card has accessible imagery
-
-- **GIVEN** any feature card that embeds a screenshot
-- **WHEN** the card is rendered
-- **THEN** the `<img>` has a descriptive `alt` attribute that names the feature
-
-### Requirement: Newcomer-friendly "What is pi?" introduction
-
-The site SHALL include an introductory section between the hero and the
-big-idea section that explains what pi is for visitors unfamiliar with it.
-
-#### Scenario: Hero subhead links to the explainer
-
-- **GIVEN** the rendered hero
-- **WHEN** a visitor reads the subhead
-- **THEN** the word "pi" is an in-page link that jumps to the explainer
-  section
-
-#### Scenario: Explainer covers CLI, session, and non-replacement of TUI
-
-- **GIVEN** the "What is pi?" section
-- **WHEN** it renders
-- **THEN** it describes pi as an open-source coding-agent CLI, introduces
-  the term "session", and explicitly states that the dashboard does not
-  replace the TUI but runs alongside it
-
-### Requirement: Ambient mission-graph background
-
-The site SHALL render an ambient, non-figurative animated background that
-visually encodes the project's mission (many agents → bridged events → any
-device).
-
-#### Scenario: Graph is pure SVG and respects reduced motion
-
-- **GIVEN** the rendered site
-- **WHEN** the MissionGraph component is inspected
-- **THEN** it is a single inline SVG styled by CSS (no additional JS
-  shipped) and, under `prefers-reduced-motion: reduce`, all of its
-  animations (edge flow, node twinkle, ping rings) are disabled
-
-#### Scenario: Graph retints with the theme
-
-- **GIVEN** a visitor switches between light and dark mode
-- **WHEN** the MissionGraph re-renders
-- **THEN** its node, edge, and ping colors follow the `--pi-accent` /
-  `--pi-accent2` CSS variables so the graph reads correctly on both
-  backgrounds
-
-### Requirement: Kraken-brain animated backdrop on the hero
-
-The hero section SHALL render an animated canvas backdrop layer composed
-of a glowing brain core, eight undulating tentacles, marching dashed
-bezier curves, and binary data streams. The backdrop SHALL be tinted
-from the site's `--pi-accent` / `--pi-accent2` tokens so it reads
-correctly in both light and dark themes, SHALL be subtle enough that
-foreground copy stays readable, and SHALL NOT obscure the body-level
-MissionGraph or the page's atmospheric backdrop.
-
-#### Scenario: Backdrop adopts the site's indigo/violet palette
-
-- **GIVEN** the hero is rendered
-- **WHEN** the kraken backdrop's CSS custom properties are inspected
-- **THEN** every `--kb-*` token is derived from `--pi-accent`,
-  `--pi-accent2`, or `--pi-bg`, and switching `<html class="dark">`
-  on/off retints the canvas (brain colormap, tentacle hues, halo,
-  stream digits) without a page reload via a `MutationObserver`
-
-#### Scenario: Backdrop sits behind copy without blocking MissionGraph
-
-- **GIVEN** a visitor on the hero
-- **WHEN** the layer stack is inspected
-- **THEN** the kraken canvas mounts inside `<section class="isolate">`
-  at `-z-20`, has no opaque background scrim, has
-  `pointer-events: none`, and its bottom edge fades out via
-  `mask-image: linear-gradient(...)` so the body's MissionGraph SVG and
-  page bg show through smoothly with no visible horizontal cut
-
-#### Scenario: Brain heartbeat pulse with zoom and alpha
-
-- **GIVEN** the kraken canvas is animating
-- **WHEN** the brain layer is observed across one 1.5 s period
-- **THEN** it scales and fades following a lub-DUB Gaussian heartbeat
-  waveform (two pulses per period, the second roughly twice as strong)
-  layered over a slow ~3.7 s breath sine, producing organic "alive"
-  motion rather than a simple sine fade
-
-#### Scenario: Tentacle tips reach toward the cursor
-
-- **GIVEN** a visitor moves the cursor inside the hero
-- **WHEN** each tentacle is updated per frame
-- **THEN** the tip displaces toward the smoothed cursor position with
-  a `u³` falloff (anchor end immobile, tip flexes most), capped at
-  ~75 × scale px, with the effect easing in/out as the cursor
-  enters/leaves the canvas bounds
-
-#### Scenario: Tip-vs-dashed-line collisions emit electric sparks
-
-- **GIVEN** a tentacle tip is reaching for the cursor
-- **WHEN** the tip enters proximity (≤ 14 × scale px) of any sampled
-  point on a dashed bezier curve
-- **THEN** a spark particle is spawned at the contact midpoint (subject
-  to a 0.5 s per-(tentacle, path) cooldown), drawn additively with a
-  hot-white core, an indigo halo expanding from 4 to 20 px, and 4–5
-  deterministic crackle filaments, fading to nothing within 360–600 ms
-
-#### Scenario: Backdrop adapts to performance via dynamic DPR
-
-- **GIVEN** the kraken canvas is animating
-- **WHEN** the rolling 60-frame FPS average drops below 30
-- **THEN** the device-pixel-ratio is reduced by 0.25 (down to a 0.5
-  floor), the offscreen layers are rebuilt at the new resolution, and a
-  3-second cooldown prevents oscillation; window resize resets the DPR
-  to its initial value
-
-#### Scenario: Reduced-motion users see no canvas animation
-
-- **GIVEN** a visitor with `prefers-reduced-motion: reduce`
-- **WHEN** the kraken canvas is rendered
-- **THEN** the canvas opacity is forced to 0 via CSS (`@media
-  (prefers-reduced-motion: reduce) { .kraken-backdrop canvas {
-  opacity: 0 !important; } }`) and no `requestAnimationFrame` loop is
-  scheduled
-
-#### Scenario: Brain image is host-resolved and luminance-keyed
-
-- **GIVEN** the kraken backdrop initialises
-- **WHEN** the brain PNG (`<BASE_URL>/kraken-brain.png`) loads
-- **THEN** the renderer walks the pixel buffer once setting
-  `r=g=b=alpha=max(r,g,b)` so the brain is a pure greyscale silhouette,
-  and a radial colormap from `--kb-brain-1` → `--kb-brain-2` →
-  `--kb-brain-3` is composited via `source-in` so the brain colour is
-  100 % theme-token-driven
-
-### Requirement: Scroll-triggered reveal animations
-
-Cards, section headings, and key content blocks SHALL animate into view
-when they enter the viewport, with staggered timing and reduced-motion
-support.
-
-#### Scenario: Elements reveal on first intersection
-
-- **GIVEN** any element tagged with `data-reveal`
-- **WHEN** the user scrolls and the element crosses into the viewport
-- **THEN** the `.is-visible` class is added and a 700 ms CSS transition
-  runs (opacity, translate, scale, blur) to bring it in
-
-#### Scenario: Reveals do not re-fire on scroll-back
-
-- **GIVEN** an element that has already been revealed
-- **WHEN** the user scrolls it out of and back into the viewport
-- **THEN** the observer does not re-observe the element and the element
-  remains statically visible
-
-#### Scenario: Reduced-motion users see no animation
-
-- **GIVEN** a visitor with `prefers-reduced-motion: reduce`
-- **WHEN** the page loads
-- **THEN** every `[data-reveal]` element is visible immediately with no
-  transform, blur, or transition
-
-### Requirement: Playwright screenshot pipeline
-
-The repository SHALL provide a scripted, re-runnable screenshot pipeline that captures every feature panel at desktop and mobile viewports.
-
-#### Scenario: Pipeline runs end-to-end from a single command
-
-- **GIVEN** a developer has installed dependencies in `/site`
-- **WHEN** they run `npm run screenshots` from the repo root
-- **THEN** the script starts a temporary dashboard server with a temp HOME, seeds it with demo fixtures, opens every route at each viewport with Playwright, writes PNGs to `site/public/screenshots/{desktop,mobile}/`, and shuts down the server
-
-#### Scenario: Demo data is injected via existing REST or on-disk session files
-
-- **GIVEN** the seeding step of the pipeline
-- **WHEN** fixtures are applied
-- **THEN** no new server-only flag or code path is required; all seeding uses existing REST endpoints or direct writes to `~/.pi/agent/sessions/` within the temp HOME
-
-#### Scenario: Screenshots cover all named routes
-
-- **GIVEN** the routes listed in `design.md`'s screenshot table
-- **WHEN** the pipeline finishes
-- **THEN** every listed route has a PNG at the expected path under `site/public/screenshots/`, at the declared viewport dimensions
+- **WHEN** the theme changes
+- **THEN** the hero film's poster and sources swap to the matching
+  `media/hero-<theme>-*` files and playback seeks back to the timestamp it
+  was at before the swap
 
 ### Requirement: Latest-release surface with auto-sync
 
@@ -425,7 +178,8 @@ mechanism in the same change — a budget with no checker is decoration.
 
 #### Scenario: Layout and anchor audit guards the rendered page
 
-- **GIVEN** the audit driver (`npm run audit -w site`)
+- **GIVEN** the audit driver (`npm --prefix site run audit`) against the
+  page served by `npm --prefix site run dev`
 - **WHEN** it sweeps the declared themes across the declared viewports
 - **THEN** it reports no document overflow and no dead in-page anchors,
   and exits non-zero on a violation
@@ -449,3 +203,268 @@ A release published by hand from a draft SHALL be followed by **two** manual `wo
 #### Scenario: Manual dispatch still works
 - **WHEN** a maintainer dispatches `sync-release-version` from the Actions UI
 - **THEN** the run SHALL rewrite the download block and commit to `develop` as before
+
+### Requirement: pi entity is named and linked
+
+Because "pi" collides with unrelated products, the page SHALL name the
+upstream project as "the pi coding agent" and SHALL link its repository
+`https://github.com/badlogic/pi-mono` from visible copy.
+
+#### Scenario: Hero subhead names and links the pi coding agent
+
+- **GIVEN** the hero subhead in `site/index.html`
+- **WHEN** it is inspected
+- **THEN** it contains a link to `https://github.com/badlogic/pi-mono`
+  whose text is the full phrase "pi coding agent" (case-insensitive), not
+  the bare word "pi"
+
+#### Scenario: FAQ restates the pi-only scope with the upstream link
+
+- **GIVEN** the `#faq` section
+- **WHEN** the coding-agent compatibility item is inspected
+- **THEN** it links to `https://github.com/badlogic/pi-mono`
+
+### Requirement: Search-engine metadata and structured data
+
+`site/index.html` SHALL declare search and social metadata that name the
+product together with the pi coding agent, and SHALL embed one JSON-LD
+`SoftwareApplication` description that contains no release-specific values.
+
+#### Scenario: Title and description carry the entity
+
+- **GIVEN** the `<head>` of `site/index.html`
+- **WHEN** it is inspected
+- **THEN** `<title>` is at most 60 characters and contains "PI Dashboard"
+  and "pi Coding Agent" (case-insensitive)
+- **AND** `meta[name=description]` is at most 155 characters and contains
+  "pi coding agent" (case-insensitive)
+- **AND** a canonical link points to `https://pi-dashboard.dev/`
+
+#### Scenario: Social card is declared completely and stays light
+
+- **GIVEN** the head and `site/public/`
+- **WHEN** the og metadata is inspected
+- **THEN** `og:image` and `twitter:image` are absolute
+  `https://pi-dashboard.dev/<file>` URLs whose `<file>` exists in
+  `site/public/` and is no larger than 300 KB
+- **AND** `og:image:width`, `og:image:height` and `og:image:alt` are declared
+
+#### Scenario: Structured data parses and names the upstream entity
+
+- **GIVEN** the single `script[type="application/ld+json"]` block
+- **WHEN** it is parsed as JSON
+- **THEN** it is one object with `@context` `https://schema.org`, `@type`
+  `SoftwareApplication`, non-empty `name`, `description`, `operatingSystem`
+  and `applicationCategory`, an `offers` object with `price` `"0"` and `priceCurrency` `"USD"`, and a
+  `license` URL
+- **AND** its `sameAs` includes the GitHub repository URL, the npm package
+  URL and `https://github.com/badlogic/pi-mono`
+- **AND** it has no `softwareVersion` key and no URL containing
+  `/releases/download/`, so a release never makes it stale
+
+### Requirement: Crawler directive files
+
+The deployed site root SHALL serve `robots.txt`, `sitemap.xml` and
+`llms.txt`, sourced from `site/public/`. The pairing shell under `/app/`
+SHALL be excluded from crawling.
+
+#### Scenario: robots.txt points at the sitemap and excludes the shell
+
+- **GIVEN** `site/public/robots.txt`
+- **WHEN** it is read
+- **THEN** it contains `User-agent: *`, `Disallow: /app/` and
+  `Sitemap: https://pi-dashboard.dev/sitemap.xml`, and no `Disallow: /`
+  line that blocks the whole site
+
+#### Scenario: sitemap lists only the canonical page
+
+- **GIVEN** `site/public/sitemap.xml`
+- **WHEN** it is read
+- **THEN** its root element is `urlset` with
+  `xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"` and it contains
+  exactly one `<loc>`, equal to `https://pi-dashboard.dev/`
+
+#### Scenario: llms.txt summarizes the product in plain text
+
+- **GIVEN** `site/public/llms.txt`
+- **WHEN** it is read
+- **THEN** its first line is `# PI Dashboard`, it contains the phrase
+  "pi coding agent", and it links `https://pi-dashboard.dev/`, the GitHub
+  repository and `https://github.com/badlogic/pi-mono`
+
+#### Scenario: Build ships the crawler files
+
+- **GIVEN** `npm --prefix site run build` has run
+- **WHEN** `site/dist/` is listed
+- **THEN** `robots.txt`, `sitemap.xml` and `llms.txt` exist at its root
+
+### Requirement: On-page FAQ
+
+`site/index.html` SHALL include a `#faq` section of question/answer pairs,
+placed after the `#install` section, covering: coding-agent compatibility
+(asked as "Does it work with Claude Code or other coding agents?" and
+answered: only the pi coding agent, Oh My Pi not supported, model providers
+still usable through pi), whether pi must be installed first (per install
+route), license and self-hosting, phone access, model providers, and
+first-run unblocking of unsigned builds. Each answer SHALL restate only
+facts already stated on the page or in the repository README, and SHALL
+carry a source comment naming where that fact is stated.
+
+#### Scenario: FAQ items are present and readable without JavaScript
+
+- **GIVEN** the `#faq` section
+- **WHEN** the static markup is inspected
+- **THEN** it appears after `#install` in document order and contains at
+  least six `<details>` elements, each with a `<summary>` question and
+  answer text in the markup
+- **AND** the section text contains each topic keyword: "Claude Code",
+  "Oh My Pi", "install", "MIT", "phone", "Anthropic", "SmartScreen"
+- **AND** every `<details>` element contains a `<!-- source:` comment
+
+#### Scenario: FAQ in-page links resolve
+
+- **GIVEN** every `href="#<id>"` inside `#faq`
+- **WHEN** the static markup is inspected
+- **THEN** an element with `id="<id>"` exists in `site/index.html`
+- **AND** the unsigned-build item links to `#install`
+
+#### Scenario: FAQ styling uses tokens only
+
+- **GIVEN** the `#faq` markup and any CSS rule whose selector targets it
+- **WHEN** they are inspected
+- **THEN** they contain no hex colour literal and no `rgb(`/`hsl(` literal
+
+### Requirement: Static features grid
+
+The site SHALL present the product's headline features in a `#features`
+section as a grid of cards. Each card has a short `<h3>` title and a body
+that names its capability in the words a searcher would use.
+
+#### Scenario: Feature cards carry titles and bodies
+
+- **GIVEN** the `#features` section of `site/index.html`
+- **WHEN** it is inspected
+- **THEN** it contains at least nine cards, each with an `<h3>` and body text
+
+#### Scenario: Capability phrases are bound to their cards
+
+- **GIVEN** the feature cards
+- **WHEN** each card's body text is inspected (case-insensitive)
+- **THEN** "Branches and worktrees" contains "git worktree" and "OpenSpec",
+  "Watch multi-agent runs" contains "in parallel", "Cron and file triggers"
+  contains "schedule", and "Phone in 10 seconds" contains "from your phone"
+
+### Requirement: Why section frames the waiting problem
+
+The site SHALL include a `#control` section after the hero that argues
+long agent runs are mostly waiting, and shows a glanceable session list
+distinguishing working, blocked-on-you and idle sessions.
+
+#### Scenario: Section states the argument and shows statuses
+
+- **GIVEN** the `#control` section
+- **WHEN** it renders
+- **THEN** its `<h2>` text (tags stripped) is "Agents run for hours. You
+  should not have to sit there.", and its sample session list shows at
+  least the statuses "Working", "Needs you" and "Idle"
+
+### Requirement: Hero product film
+
+The hero SHALL show a looping screen recording of the real dashboard UI,
+rendered for both themes (theme switching: see "Theme selector with System
+/ Light / Dark and no FOUC").
+
+#### Scenario: Film is muted, inline and described
+
+- **GIVEN** the hero `<video id="film">`
+- **WHEN** it is inspected
+- **THEN** it has `autoplay`, `muted`, `loop`, `playsinline`, a `poster`,
+  WebM and MP4 sources, and an `aria-label` describing what it shows
+
+### Requirement: Ambient WebGL background
+
+The page SHALL render decorative background canvases (`#field`, driven by
+`site/field.js`, and `#life`, driven by `site/gol.js`) that follow the
+theme while animating and show a single still frame for reduced-motion
+users.
+
+#### Scenario: Canvases are decorative
+
+- **GIVEN** the `#field` and `#life` canvases
+- **WHEN** they are inspected
+- **THEN** each has `aria-hidden="true"`
+
+#### Scenario: Animated background follows the theme
+
+- **GIVEN** the background is animating (reduced motion not requested)
+- **WHEN** the `data-theme` attribute on `<html>` changes
+- **THEN** both renderers re-apply their palette via a `MutationObserver`
+  on `data-theme`, and the next animated frame uses it, without a page
+  reload
+
+#### Scenario: Reduced-motion users get a still frame
+
+- **GIVEN** a visitor with `prefers-reduced-motion: reduce`
+- **WHEN** the page loads, or the preference changes while it is open
+- **THEN** each renderer composes a single still frame and schedules no
+  animation loop
+
+### Requirement: Script-applied scroll reveal
+
+Cards, section headings, and key content blocks SHALL animate into view
+when they enter the viewport, with staggered timing and reduced-motion
+support. The hidden state SHALL only ever be applied by script, so that
+content is visible when script or `IntersectionObserver` is unavailable.
+
+#### Scenario: Elements reveal on intersection
+
+- **GIVEN** an element the reveal script tagged with the `.reveal` class
+- **WHEN** it crosses into the viewport
+- **THEN** the `.in` class is added and an opacity/transform transition
+  brings it in, with a per-parent stagger capped at 5 × 70 ms
+
+#### Scenario: Reveals reverse on exit in the direction of travel
+
+- **GIVEN** a revealed element
+- **WHEN** it leaves the viewport
+- **THEN** `.in` is removed and its offset is set to the side it left
+  through, so it re-reveals when scrolled back
+
+#### Scenario: Reduced motion or missing observer leaves content visible
+
+- **GIVEN** a visitor with `prefers-reduced-motion: reduce`, or a browser
+  without `IntersectionObserver`
+- **WHEN** the page loads
+- **THEN** no element receives the `.reveal` class, and all content is
+  visible from first paint
+
+### Requirement: Static-site screenshot and audit driver
+
+The repository SHALL provide a scripted, re-runnable screenshot and
+layout-audit driver for the static site (`site/design-scratch/scripts/shoot.mjs`),
+bound to the repository root's Playwright install.
+
+#### Scenario: Screenshots run from a single command
+
+- **GIVEN** the repository root with Playwright installed and the static
+  page served by `npm --prefix site run dev` (default `http://localhost:8791`)
+- **WHEN** a developer runs `npm --prefix site run shots`
+- **THEN** the driver captures the sections `hero`, `control`, `features`,
+  `download`, `install` and `faq` by default, across the declared themes
+  and viewports, and writes PNGs, with no dashboard server or seeded
+  session data
+
+#### Scenario: Audit runs without screenshots
+
+- **GIVEN** the same setup
+- **WHEN** a developer runs `npm --prefix site run audit`
+- **THEN** the driver writes no PNGs, reports document and nav overflow,
+  dead in-page anchors, broken images, page errors and a non-sticky header,
+  and exits non-zero on any of them
+
+#### Scenario: Root script points at the live driver
+
+- **GIVEN** the root `package.json`
+- **WHEN** its `screenshots` script is run
+- **THEN** it invokes the site's `shots` script rather than a script name
+  that `site/package.json` does not define

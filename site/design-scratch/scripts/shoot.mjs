@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Screenshot + layout-audit driver for the mockup.
+ * Screenshot + layout-audit driver for the static site.
  *
- *   node site/design-scratch/mockup/scripts/shoot.mjs                       # default matrix
+ *   node site/design-scratch/scripts/shoot.mjs                             # default matrix
  *   node .../shoot.mjs --themes dark --widths 390 --sections hero,download
  *   node .../shoot.mjs --audit                                             # no PNGs, numbers only
  *   node .../shoot.mjs --page bg3d.html --widths 1440                      # the physics lab
@@ -58,7 +58,7 @@ const PAGE = arg("page", "index.html");
 const OUT = arg("out", "/tmp/mockup-shots");
 const THEMES = list("themes", "dark,light");
 const WIDTHS = list("widths", "390,1440").map(Number);
-const SECTIONS = list("sections", "hero,control,features,download,install");
+const SECTIONS = list("sections", "hero,control,features,download,install,faq");
 const AUDIT_ONLY = has("audit");
 const CHECK_LINKS = has("links");
 const SETTLE = Number(arg("settle", 1400)); // 3D field needs time to spin up

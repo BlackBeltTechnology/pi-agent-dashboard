@@ -14,7 +14,7 @@ site/
 ├── field.js          the 3D slab field behind the page (three.js)
 ├── vendor/           three.module.min.js, vendored so the page needs no install
 ├── media/            hero film (dark + light) and posters
-├── public/           copied to the site root: CNAME, favicon.png, og-card.png
+├── public/           copied to the site root: CNAME, favicon, og-card.jpg, robots.txt, sitemap.xml, llms.txt
 ├── build.mjs         assembles dist/ from an allowlist
 └── design-scratch/   design source — NOT deployed (see below)
 ```
