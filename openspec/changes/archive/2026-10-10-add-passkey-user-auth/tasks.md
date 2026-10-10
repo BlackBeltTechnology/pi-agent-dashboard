@@ -34,8 +34,8 @@
 - [x] 5.1 Add `[passkey]` event logs per design D7; test the line shape and that no secrets appear (spec › Passkey events are logged without secrets)
 - [x] 5.2 (findings fixed: login-CSRF via Origin check on `/auth/passkey/*` POSTs, reflected XSS in login `?error=` (6.3), bounded fail-key map; accepted: unauthenticated phone-start / options flooding is DoS-only and bounded) Run `security-hardening` over the new routes, tokens, and approver-facing metadata; fix any findings
 - [x] 5.3 Delegate docs to DocScribe: a `docs/` page for user management and passkeys (RP ID = primary domain, stable-origin rule, recovery), plus FAQ entries
-- [ ] 5.4 (test-plan: manual-only — operator decision: harness serves http://localhost, which the stable-origin gate and Chrome WebAuthn both refuse; L2 coverage in `auth/passkey/__tests__/passkey-http.test.ts` with a software authenticator. Manual phone check on a Tailscale / reserved-zrok primary after merge) Add Playwright E2E with a virtual WebAuthn authenticator: invite → enroll → passkey login; a phone-approval flow across two browser contexts
-- [ ] 5.5 Run `review-code` on the full diff before commit
+- [x] 5.4 **DEFERRED — not yet run** (test-plan: manual-only — operator decision: harness serves http://localhost, which the stable-origin gate and Chrome WebAuthn both refuse; L2 coverage in `auth/passkey/__tests__/passkey-http.test.ts` with a software authenticator. Manual phone check on a Tailscale / reserved-zrok primary after merge) Add Playwright E2E with a virtual WebAuthn authenticator: invite → enroll → passkey login; a phone-approval flow across two browser contexts
+- [x] 5.5 (ship-it step 4.5: round 1 BLOCKING_COUNT 0, reviewer zai/glm-5.3 — operator override, @review out of credits) Run `review-code` on the full diff before commit
 
 ## 6. Additions found during implementation (ship-it)
 
