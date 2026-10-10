@@ -57,8 +57,10 @@
 
 ## 7. Integration + suite
 
-- [ ] 7.1 Test (test-plan #X4), electron level (exemplar: existing `_electron-build.yml` steps invoking both gates — no workflow change expected): input this branch · trigger `ci-electron.yml` dispatch (all legs) · observable both gates exit 0, gate log lists `oauth4webapi@<ver>`, server log has `Loaded plugin "<id>"` for every server-entry bundled plugin (incl. `gmail`, `browser`, `chat-gateway`) and zero `Failed to load plugin` / `Skipping plugin`. A plugin failing activation in a clean HOME is fixed in-plugin, not exempted
-- [ ] 7.2 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` green; record before/after `✓ Server bundled (<size>)` in the PR description
+- [x] 7.1 Test (test-plan #X4), electron level (exemplar: existing `_electron-build.yml` steps invoking both gates — no workflow change expected): input this branch · trigger `ci-electron.yml` dispatch (all legs) · observable both gates exit 0, gate log lists `oauth4webapi@<ver>`, server log has `Loaded plugin "<id>"` for every server-entry bundled plugin (incl. `gmail`, `browser`, `chat-gateway`) and zero `Failed to load plugin` / `Skipping plugin`. A plugin failing activation in a clean HOME is fixed in-plugin, not exempted
+  - Evidence: `ci-electron.yml` run 38033713311 (all 6 legs green; macos-15-intel launch-smoke `/api/health` 120s timeout flaked once, green on rerun — gates were green in both attempts). Every leg: `✓ Every bundled plugin dependency resolves` incl. `oauth4webapi@3.8.8`; `✓ bundled server: all 22 plugin(s) loaded` (incl. gmail, browser, chat-gateway), zero `Failed to load plugin` / `Skipping plugin`.
+- [x] 7.2 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` green; record before/after `✓ Server bundled (<size>)` in the PR description
+  - Evidence: full suite 29 failed / 30306 passed; all failures except one are pre-existing on base `8793f2a0c` (same 15 files fail there, worktree env: missing hoisted `typescript`, sockets, pi pin, openspec CLI) or flaky (`role-bindings` P3 timing — 3/3 green in isolation). Branch-caused AGENTS.md byte-cap overflow fixed via sidecars; remaining `tests/e2e/AGENTS.md` overflow pre-exists on develop. Bundle size (develop run 37419815837 → this branch): linux-x64 365.8M→377.1M, linux-arm64 360.7M→372.0M, darwin-arm64 360.6M→372.0M, darwin-x64 364.4M→375.7M, win32 347.2M→358.6M (≈+11.3M, the plugins' third-party deps).
 
 ## 8. Docs
 
