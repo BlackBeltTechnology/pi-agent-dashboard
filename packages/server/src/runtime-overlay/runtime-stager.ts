@@ -18,6 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { readRuntimeManifest, writeRuntimeManifest } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/manifest.mjs";
 import {
+  findUnresolvedPluginDeps,
   materializeBundledPlugins,
   readBundledPluginIds,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/materialize-plugins.mjs";
@@ -141,6 +142,13 @@ function materializeOverlayPlugins(root: string): void {
   const expected = [...declared].sort();
   if (actual.join("\n") !== expected.join("\n")) {
     throw new RuntimeStageError("plugin_set_mismatch", `resources/plugins has [${actual.join(", ")}], release declares [${expected.join(", ")}]`);
+  }
+  // Materialization drops each plugin's nested node_modules, so every declared
+  // plugin dep must resolve from the staged root — never from above it.
+  // See change: bundle-plugin-third-party-deps (design D4).
+  const unresolved = findUnresolvedPluginDeps({ pluginsDir: destDir, rootDir: root });
+  if (unresolved.length > 0) {
+    throw new RuntimeStageError("plugin_deps_unresolved", unresolved.map((u) => `${u.plugin} → ${u.dep}`).join(", "));
   }
 }
 

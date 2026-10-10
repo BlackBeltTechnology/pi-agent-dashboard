@@ -211,6 +211,49 @@ describe("lockstep (E7)", () => {
   });
 });
 
+// A staged plugin's deps must resolve from the staged root; npm may nest a
+// plugin-only dep under the plugin package, which materialization drops.
+// See change: bundle-plugin-third-party-deps (design D4; test-plan X1–X3).
+describe("stageRuntime — plugin dependency resolvability", () => {
+  /** fakeInstalledTree + the roles plugin declaring `yaml`, placed by `where`. */
+  const withYaml = (where: "nested" | "above" | "root") =>
+    npmDeps({
+      runNpm: async (_args, cwd) => {
+        fakeInstalledTree(cwd);
+        const pluginRel = `node_modules/${SCOPE}/pi-dashboard-roles-plugin`;
+        const manifest = JSON.parse(fs.readFileSync(path.join(cwd, pluginRel, "package.json"), "utf8"));
+        manifest.dependencies = { yaml: "^2.9.0" };
+        fs.writeFileSync(path.join(cwd, pluginRel, "package.json"), JSON.stringify(manifest));
+        const yamlPkg = { name: "yaml", version: "2.9.1" };
+        if (where === "nested") writePkg(cwd, `${pluginRel}/node_modules/yaml`, yamlPkg);
+        if (where === "above") writePkg(dir, "node_modules/yaml", yamlPkg);
+        if (where === "root") writePkg(cwd, "node_modules/yaml", yamlPkg);
+      },
+    });
+
+  it("a dep present only under the plugin's nested node_modules fails with plugin_deps_unresolved (test-plan #X1)", async () => {
+    const before = readRuntimeRequest(dir)?.pending;
+    await expect(stageRuntime({ dir, version: X, source: "npm", deps: withYaml("nested") })).rejects.toThrow(
+      /plugin_deps_unresolved.*roles-plugin → yaml/,
+    );
+    expect(fs.existsSync(path.join(dir, "versions", `${X}.partial`))).toBe(false);
+    expect(fs.existsSync(path.join(dir, "versions", X))).toBe(false);
+    expect(readRuntimeRequest(dir)?.pending).toBe(before);
+  });
+
+  it("a dep only above the staged root does not count (test-plan #X2)", async () => {
+    await expect(stageRuntime({ dir, version: X, source: "npm", deps: withYaml("above") })).rejects.toThrow(
+      /plugin_deps_unresolved/,
+    );
+  });
+
+  it("a dep at the staged root resolves and the stage succeeds (test-plan #X3)", async () => {
+    await stageRuntime({ dir, version: X, source: "npm", deps: withYaml("root") });
+    expect(fs.existsSync(path.join(dir, "versions", X))).toBe(true);
+    expect(readRuntimeRequest(dir)?.pending).toBe(X);
+  });
+});
+
 describe("stageRuntime — github (X1)", () => {
   function githubDeps(assetBytes: Buffer, published: string): StagerDeps {
     return {
