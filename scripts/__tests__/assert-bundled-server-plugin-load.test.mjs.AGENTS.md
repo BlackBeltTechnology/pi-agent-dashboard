@@ -1,0 +1,3 @@
+# __tests__/assert-bundled-server-plugin-load.test.mjs — index
+
+Tests for packages/electron/scripts/assert-bundled-server-plugin-load.mjs (X13): the bundle layout contract (SERVER_BUNDLE_DIR override, win32 `node.exe`, missing-file reporting) and the log verdict (loaded / present-but-dead / vacuous-green), and `logTail` (last-N lines, empty-log marker). See change: fix-browser-plugin-vendor-specifier-resolution. All-plugins gate (E19–E22, P1–P2): `expectedServerPluginIds`, `gateConfig`, `pluginLoadProblems({plugins})` + `pluginVerdicts`, `waitForVerdicts` idle budget on a fake clock. See change: bundle-plugin-third-party-deps. E31: selected-loader layout + `bootArgv`. See change: fix-appimage-cold-boot-latency.
