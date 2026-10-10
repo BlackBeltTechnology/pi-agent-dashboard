@@ -41,6 +41,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import { isRecoveryCandidate, isShutdownWindowCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { rank } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import { LIVE_PREVIEW_TIER, TERMINAL_TIER } from "@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import compress from "@fastify/compress";
@@ -3795,7 +3796,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // See change: add-passkey-user-auth.
         const sessionPayload = upgradeAuth.ok ? upgradeAuth.session : undefined;
         const sessionTierOf = sessionPayload ? () => effectiveSessionTier(sessionPayload, passkeyService) : undefined;
-        const roadTier = scope === "terminal" ? "operate" : scope === "live" ? "control" : undefined;
+        const roadTier = scope === "terminal" ? TERMINAL_TIER : scope === "live" ? LIVE_PREVIEW_TIER : undefined;
         if (sessionTierOf && roadTier) {
           const t = sessionTierOf();
           if (t === null || rank(t) < rank(roadTier)) {

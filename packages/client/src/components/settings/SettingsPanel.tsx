@@ -2315,7 +2315,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     />
                     {/* Passkeys are bound to this origin's hostname (D3). See
                         change: add-passkey-user-auth. */}
-                    <PasskeyImpactNote url={config.auth?.redirectBaseUrl} testId="redirect-base-url-passkey-impact" debounceMs={400} />
+                    <PasskeyImpactNote
+                      query={{ redirectBaseUrl: config.auth?.redirectBaseUrl ?? "" }}
+                      testId="redirect-base-url-passkey-impact"
+                      debounceMs={400}
+                    />
                   </div>
                   <div className="mt-3">
                     <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">

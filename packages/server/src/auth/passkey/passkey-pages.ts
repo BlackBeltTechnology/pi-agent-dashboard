@@ -125,7 +125,7 @@ opts=o.d;go.disabled=false;var n=o.d.options&&o.d.options.user&&o.d.options.user
 if(!token){m.textContent=msg("invite_invalid");}else{prefetch();}
 go.onclick=async function(){m.textContent="";if(!opts)return;var o=opts;opts=null;go.disabled=true;
 try{var resp=await SimpleWebAuthnBrowser.startRegistration({optionsJSON:o.options});}catch(e){m.textContent="Passkey creation was cancelled.";prefetch();return;}
-var v=await post("/auth/passkey/register/verify",{challengeId:o.challengeId,response:resp});
+var v=await post("/auth/passkey/register/verify",{challengeId:o.challengeId,token:token,response:resp});
 if(v.ok){m.className="muted";m.textContent="Your passkey is ready. You can now sign in to the dashboard with it, or approve sign-ins from this phone.";document.getElementById("open").hidden=false;}
 else{m.textContent=msg(v.d.error);if(v.d.error==="challenge_invalid")prefetch();}};
 })();</script>`,

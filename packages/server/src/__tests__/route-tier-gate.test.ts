@@ -87,6 +87,9 @@ async function mkApp(opts: { trusted?: string[] } = {}): Promise<App> {
   });
   app.post("/api/ws-ticket", async () => ({ success: true }));
   app.post("/api/fixture", async () => ({ success: true }));
+  // Live-preview HTTP proxy patterns (live-server-proxy.ts). See change: add-passkey-user-auth.
+  app.all("/live/:id/*", async () => ({ ok: true }));
+  app.all("/live/:id", async () => ({ ok: true }));
   await app.ready();
 
   return { app, tokens, restartCalls: () => restart, promptCalls: () => prompt, refusals };
@@ -182,6 +185,31 @@ describe("E23 — tier gate decision table", () => {
       url: "/api/sessions",
       remoteAddress: "203.0.113.5",
       headers: { "x-test-cookie": "1", "x-test-tier": "observe" },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("observe session off-host is refused on the /live/ HTTP proxy (needs control)", async () => {
+    const { app } = await mkApp();
+    for (const url of ["/live/abc", "/live/abc/index.html"]) {
+      const res = await app.inject({
+        method: "GET",
+        url,
+        remoteAddress: "203.0.113.5",
+        headers: { "x-test-cookie": "1", "x-test-tier": "observe" },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ error: "insufficient_scope", scope: "control" });
+    }
+  });
+
+  it("control session off-host reaches the /live/ HTTP proxy", async () => {
+    const { app } = await mkApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/live/abc/app.js",
+      remoteAddress: "203.0.113.5",
+      headers: { "x-test-cookie": "1", "x-test-tier": "control" },
     });
     expect(res.statusCode).toBe(200);
   });

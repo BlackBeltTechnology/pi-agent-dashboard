@@ -118,6 +118,11 @@ export const WS_MESSAGE_TIERS: Readonly<Record<string, Tier>> = {
   role_set: "operate",
 };
 
+/** Live dev-server preview (`/live/*` HTTP proxy + WS upgrade). */
+export const LIVE_PREVIEW_TIER: Tier = "control";
+/** Terminal PTY WebSocket (shell I/O). */
+export const TERMINAL_TIER: Tier = "operate";
+
 /** Required tier for a browser→server message type. Unlisted → `operate`. */
 export function wsMessageTier(type: string): Tier {
   return Object.hasOwn(WS_MESSAGE_TIERS, type) ? WS_MESSAGE_TIERS[type]! : "operate";

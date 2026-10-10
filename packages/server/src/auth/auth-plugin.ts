@@ -18,6 +18,7 @@ import {
   ensureAuthSecret,
   exchangeCode,
   fetchUserInfo,
+  idTokenGroups,
   isUserAllowed,
   parseAuthCookie,
   resolveGroupTier,
@@ -358,12 +359,12 @@ export async function registerAuthPlugin(
     }
 
     const redirectUri = buildRedirectUri(providerKey, port, authState.redirectBaseUrl);
-    const accessToken = await exchangeCode(provider, code, redirectUri);
-    if (!accessToken) {
+    const tokens = await exchangeCode(provider, code, redirectUri);
+    if (!tokens) {
       return reply.redirect("/auth/login?error=Token+exchange+failed");
     }
 
-    const userInfo = await fetchUserInfo(provider, accessToken);
+    const userInfo = await fetchUserInfo(provider, tokens.accessToken);
     if (!userInfo) {
       return reply.redirect("/auth/login?error=Failed+to+fetch+user+info");
     }
@@ -375,7 +376,10 @@ export async function registerAuthPlugin(
     // `auth.groupTiers` configured ⇒ highest matching group's tier; no match ⇒
     // refused (fail closed). Unconfigured ⇒ `operate`. See change:
     // add-passkey-user-auth (D4).
-    const tier = resolveGroupTier(userInfo.groups, authState.groupTiers);
+    // Groups from the ID token (e.g. Keycloak's default mapper) ∪ userinfo.
+    const idGroups = idTokenGroups(tokens.idToken, provider.clientId);
+    const groups = idGroups || userInfo.groups ? [...(idGroups ?? []), ...(userInfo.groups ?? [])] : undefined;
+    const tier = resolveGroupTier(groups, authState.groupTiers);
     if (!tier) {
       return reply.code(403).type("text/html").send(renderDeniedPage(userInfo.email));
     }

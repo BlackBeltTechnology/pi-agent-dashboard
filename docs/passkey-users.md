@@ -16,7 +16,9 @@ Config `~/.pi/dashboard/config.json`:
   - Configured → highest matching group tier wins.
   - Configured, no match → login refused (fail closed).
   - Unconfigured → legacy: `allowedUsers`, tier `operate`.
-- Groups read from OIDC userinfo `groups` claim.
+- OIDC groups = `id_token` `groups` claim UNION userinfo `groups` claim.
+  - `id_token`: read only if `aud` includes client id. Back-channel token; claims only.
+  - Source: `idTokenGroups` (`packages/server/src/auth/auth.ts`); merged in `auth-plugin.ts` callback.
 - OIDC tier fixed until JWT expiry (7 d).
 
 ## Tiers
@@ -24,6 +26,7 @@ Config `~/.pi/dashboard/config.json`:
 - Order: `observe` < `control` < `operate`.
 - JWT `pi_dash_token` carries `tier`. Claim-less legacy JWT = `operate`.
 - REST: `packages/server/src/auth/route-tier-gate.ts` refuses session below route tier (`ROUTE_TIERS`).
+  - `/live/*` live-preview HTTP proxy gated at `LIVE_PREVIEW_TIER` (`control`), matching live WS upgrade.
   - Refusal: `403 insufficient_scope`.
 - WS: cookie-admitted browser socket gated per message.
   - Map: `packages/shared/src/ws-message-tiers.ts` (`WS_MESSAGE_TIERS`). Unlisted → `operate`.
@@ -45,7 +48,8 @@ File `~/.pi/dashboard/users.json` (0600, locked atomic writes). Source: `package
 ## First operator bootstrap
 
 - Empty directory → only genuine-local caller may create first user:
-  - loopback, no forwarding headers, or `X-Pi-Local-Token`.
+  - loopback with no proxy-forwarding headers, or valid `X-Pi-Local-Token`.
+  - `requireLocalProof` on → loopback path also needs local proof (`isLocallyTrusted(..., localTrust)` in `packages/server/src/routes/user-routes.ts` `isGenuineLocal`).
 - First user always `operate`.
 - Remote caller → `403 bootstrap_local_only`.
 - Then mint invite for that user (Settings ▸ Security ▸ Users).
@@ -57,7 +61,8 @@ Source: `packages/client/src/components/connectivity/UsersSection.tsx`.
 - Add user + tier.
 - Re-tier.
 - Revoke (two-click confirm).
-- "Invite QR" → QR + copy link `https://<primary>/auth/invite#<token>`.
+- "Invite QR" → QR + copy link `<resolved auth base>/auth/invite#<token>`.
+  - Resolved auth base = `auth.redirectBaseUrl` when set, else primary tunnel URL (`rp.rpOrigin`, `user-routes.ts`).
   - Token in URL fragment (never sent to server on GET).
   - Default TTL 24 h, single use.
   - API: `ttlHours` 1..168, `maxUses` 1..10.
@@ -73,8 +78,18 @@ Source: `packages/client/src/components/connectivity/UsersSection.tsx`.
   4. Phone approves with its passkey, or denies.
   5. Desktop poll receives cookie. Single use.
 - Limits:
-  - Code guessing: 5 fails/min per client, 50/min global.
-  - Max 100 pending requests.
+  - Client key = `rateKeyOf` = LAST `X-Forwarded-For` hop (proxy-appended), else socket IP.
+  - Pending: ≤3 per client key, ≤1000 overall (`phone-signin.ts`).
+  - Code lookup fails: 5/min per client key, 50/min global. Same client key.
+
+## Anonymous ceremony DoS resistance
+
+- Challenges stateless HMAC-signed ids (`SignedChallenges`, `packages/server/src/auth/passkey/challenge-store.ts`).
+  - Per-process key. TTL 5 min.
+  - Consumed only on successful verification. Replay refused.
+  - Options flood: no memory growth, no eviction of user's challenge.
+- Registration verify body: `{challengeId, token, response}`.
+  - Challenge bound to `sha256(invite token)`.
 
 ## RP ID + stable origin
 
@@ -85,8 +100,13 @@ Source: `packages/client/src/components/connectivity/UsersSection.tsx`.
 - Stable origin rule. All must hold:
   - `https`.
   - Not IP, not `localhost`.
-  - Source is one of: override, Tailscale primary, zrok primary with reserved name (`tunnel.zrok.reservedName` + `persistent: true`, actually served).
-- Unstable (ngrok, zerotier, ephemeral zrok):
+  - Source is one of:
+    - `auth.redirectBaseUrl` override.
+    - Tailscale primary.
+    - zrok primary serving its configured persistent reserved name (`tunnel.zrok.reservedName` + `persistent: true`).
+- Unstable: ngrok, zerotier, ephemeral zrok.
+  - Other providers never stable.
+  - Rule above, not provider self-report, decides stability.
   - Ceremony routes + invite mint → `409 unstable_origin`.
   - Login page + Settings show options DISABLED with reason. Not hidden.
 
@@ -107,7 +127,12 @@ flowchart TD
 
 - "Make primary" confirmation and `auth.redirectBaseUrl` field show:
   `N passkey(s) for M user(s) will stop working`.
-- Source: `GET /api/users/credentials/impact?url=`.
+- Source: `GET /api/users/credentials/impact`, one of:
+  - `?url=` provider switch.
+  - `?rpId=`.
+  - `?redirectBaseUrl=` draft override.
+    - EMPTY = cleared → falls back to primary → can orphan passkeys.
+- Settings `auth.redirectBaseUrl` field warns on clearing too (`PasskeyImpactNote`, query `{redirectBaseUrl}`).
 - Nothing deleted. Switching back revives credentials.
 - Recovery:
   - Re-invite user, or
@@ -120,7 +145,7 @@ flowchart TD
 | `GET /auth/passkey/status` | public | feature + stability state |
 | `GET /auth/passkey/webauthn.js` | public | client WebAuthn helper |
 | `POST /auth/passkey/register/options` | invite token | |
-| `POST /auth/passkey/register/verify` | invite token | sets `pi_dash_token` |
+| `POST /auth/passkey/register/verify` | invite token | body `{challengeId, token, response}`; sets `pi_dash_token` |
 | `POST /auth/passkey/login/options` | public | |
 | `POST /auth/passkey/login/verify` | WebAuthn assertion | sets `pi_dash_token` |
 | `POST /auth/passkey/phone/start` | public | returns code + QR |
@@ -137,7 +162,7 @@ flowchart TD
 | `POST /api/users/:id/revoke` | `operate` | |
 | `POST /api/users/:id/invites` | `operate` | mint invite |
 | `DELETE /api/users/invites/:inviteId` | `operate` | |
-| `GET /api/users/credentials/impact` | `operate` | `?url=` |
+| `GET /api/users/credentials/impact` | `operate` | `?url=`, `?rpId=`, or `?redirectBaseUrl=` |
 
 - `/api/users*`: `operate` in `ROUTE_TIERS`, `operatorGuard` (device bearer refused), MCP-denylisted.
 - Source: `packages/server/src/routes/user-routes.ts`, `packages/server/src/auth/passkey/passkey-routes.ts`.

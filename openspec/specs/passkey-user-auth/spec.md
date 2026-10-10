@@ -35,7 +35,9 @@ SHALL invalidate that user's sessions at their next request.
 ### Requirement: Invite by QR enrolls a passkey
 An operator SHALL be able to mint an invite for a user, with an expiry and a
 usage limit (default: single use, 24 h). The dashboard SHALL render the invite
-as a QR code and a copyable link on the primary domain. Opening the invite
+as a QR code and a copyable link on the resolved auth base (the
+`auth.redirectBaseUrl` override when set, otherwise the primary tunnel URL —
+the same origin the RP ID derives from). Opening the invite
 SHALL let the invitee enroll a passkey with user verification required. After
 a successful enrollment, the user SHALL become `active` and the invite usage
 SHALL be counted. Expired or exhausted invites SHALL be rejected.
@@ -99,6 +101,23 @@ single-use, and short-code attempts SHALL be rate-limited.
 - **WHEN** the requester sends a User-Agent containing control characters or more than 256 characters
 - **THEN** the approval screen SHALL show a bounded, sanitised description
 
+### Requirement: Anonymous ceremony routes resist exhaustion
+Unauthenticated ceremony entry points SHALL NOT let one anonymous client
+deny sign-in to others. Issuing passkey challenges SHALL keep no per-request
+server state (a challenge stays verifiable however many others are issued),
+and a challenge SHALL be consumed only by a successful ceremony. Pending
+sign-in-with-phone requests SHALL be capped per client as well as overall.
+
+#### Scenario: Options flood does not evict a real challenge
+- **GIVEN** a user has fetched passkey login options
+- **WHEN** an anonymous client requests thousands more options
+- **THEN** the user's assertion against the original challenge SHALL still verify
+
+#### Scenario: One client cannot exhaust phone sign-in
+- **GIVEN** one client holds its maximum number of pending phone requests
+- **WHEN** another client starts a phone sign-in
+- **THEN** that request SHALL be created
+
 ### Requirement: Relying-party ID is the primary domain
 The passkey RP ID SHALL be the hostname of the resolved auth base: the
 `auth.redirectBaseUrl` override if set, otherwise the primary tunnel provider's
@@ -127,8 +146,8 @@ be listed as orphaned.
 Passkey login, sign in with phone, and invite minting SHALL be available only
 when the resolved auth base is a stable origin: an `https` URL whose hostname
 is neither an IP literal nor `localhost`, and whose source is the override, a
-Tailscale primary, a zrok primary with a reserved name, or a provider reporting
-itself stable. Otherwise these routes SHALL respond `409` with reason
+Tailscale primary, or a zrok primary serving its configured persistent reserved
+name. Any other tunnel provider is treated as unstable. Otherwise these routes SHALL respond `409` with reason
 `unstable_origin`, and the login page and Settings ▸ Users SHALL show the
 options disabled with that reason, not hidden.
 

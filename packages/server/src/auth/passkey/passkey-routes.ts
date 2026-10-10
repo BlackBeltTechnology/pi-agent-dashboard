@@ -21,7 +21,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import QRCode from "qrcode";
 import { renderInvitePage, renderPhonePage } from "./passkey-pages.js";
 import { PasskeyError, type PasskeyService } from "./passkey-service.js";
-import { describeRequester } from "./requester.js";
+import { describeRequester, rateKeyOf } from "./requester.js";
 import type { DirectoryUser } from "./user-directory.js";
 
 export interface PasskeyRouteDeps {
@@ -48,6 +48,10 @@ export async function qrDataUrl(url: string): Promise<string> {
 
 function headerString(v: unknown): string | undefined {
   return typeof v === "string" ? v : Array.isArray(v) && typeof v[0] === "string" ? v[0] : undefined;
+}
+
+function rateKeyFor(request: FastifyRequest): string {
+  return rateKeyOf({ ip: request.ip, forwardedFor: headerString(request.headers["x-forwarded-for"]) });
 }
 
 function requesterOf(request: FastifyRequest) {
@@ -110,7 +114,7 @@ export function registerPasskeyRoutes(fastify: FastifyInstance, deps: PasskeyRou
     if (!admit(request, reply)) return reply;
     const b = body(request);
     try {
-      const user = await service.verifyRegistration(b.challengeId, b.response);
+      const user = await service.verifyRegistration(b.challengeId, b.token, b.response);
       issueSession(reply, user);
       return { success: true, user: { name: user.name, tier: user.tier } };
     } catch (err) {
@@ -145,7 +149,7 @@ export function registerPasskeyRoutes(fastify: FastifyInstance, deps: PasskeyRou
     if (!admit(request, reply)) return reply;
     try {
       const rp = service.requireStable();
-      const started = phone.start(requesterOf(request));
+      const started = phone.start(requesterOf(request), rateKeyFor(request));
       if (!started) return reply.code(429).send({ success: false, error: "too_many_requests" });
       const url = `${rp.rpOrigin}/auth/phone#${started.approvalToken}`;
       return {
@@ -174,7 +178,7 @@ export function registerPasskeyRoutes(fastify: FastifyInstance, deps: PasskeyRou
 
   fastify.post("/auth/passkey/phone/lookup", async (request, reply) => {
     if (!admit(request, reply)) return reply;
-    const r = phone.lookupCode(body(request).code, requesterOf(request).ip);
+    const r = phone.lookupCode(body(request).code, rateKeyFor(request));
     if (!r.ok) return reply.code(r.error === "rate_limited" ? 429 : 404).send({ success: false, error: r.error });
     return { success: true, approvalToken: r.approvalToken };
   });

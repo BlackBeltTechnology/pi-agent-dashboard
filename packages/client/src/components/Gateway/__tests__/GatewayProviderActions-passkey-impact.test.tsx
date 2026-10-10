@@ -34,7 +34,7 @@ describe("primary switch passkey impact", () => {
     const note = await screen.findByTestId("gateway-make-primary-passkey-impact-tailscale");
     expect(note.textContent).toContain("3 passkey");
     expect(note.textContent).toContain("2 user");
-    expect(credentialImpact).toHaveBeenCalledWith("https://ts.example.com");
+    expect(credentialImpact).toHaveBeenCalledWith({ url: "https://ts.example.com" });
   });
 
   it("says nothing when no passkey would be orphaned", async () => {

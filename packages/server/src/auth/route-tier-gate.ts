@@ -18,8 +18,9 @@
  *    trusted-network caller is exempt, exactly as `networkGuard` treats it:
  *    same-machine processes are trusted via `~/.pi` and the local token
  *    regardless, so there is nothing to narrow.
- *  - `/api/*` only. `/mcp`, `/auth/*` and `/v1/*` have their own admission and
- *    sit outside the route→tier map.
+ *  - `/api/*` (via the route→tier map) and `/live/*` (live-preview proxy,
+ *    `LIVE_PREVIEW_TIER`). `/mcp`, `/auth/*` and `/v1/*` have their own
+ *    admission and sit outside the map.
  *
  * The gate only ever REFUSES. A request with no resolvable principal is left
  * untouched, so the pre-change 401/403 path is unchanged (E24).
@@ -28,6 +29,7 @@
  */
 import { rank, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
+import { LIVE_PREVIEW_TIER } from "@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { LocalTrustContext } from "./local-proof.js";
 import { isLocallyTrusted, isTrustedSource } from "./localhost-guard.js";
@@ -117,9 +119,13 @@ export function createRouteTierGate(deps: RouteTierGateDeps) {
     // `onRequest` runs AFTER routing, so this is the normalized route PATTERN
     // (never the raw URL — path tricks either 404 or resolve to the pattern).
     const route = request.routeOptions?.url ?? "";
-    if (!route.startsWith("/api/")) return;
+    // `/api/*` → ROUTE_TIERS; `/live/*` (live-preview HTTP proxy) → the same
+    // tier its WS upgrade needs. See change: add-passkey-user-auth.
+    let requiredTier: Tier;
+    if (route.startsWith("/api/")) requiredTier = routeTier(request.method, route);
+    else if (route.startsWith("/live/")) requiredTier = LIVE_PREVIEW_TIER;
+    else return;
 
-    const requiredTier = routeTier(request.method, route);
     const refusal = tierRefusalFor(request, requiredTier, deps.getTrustedNetworks, deps.localTrust);
     if (!refusal) return;
 

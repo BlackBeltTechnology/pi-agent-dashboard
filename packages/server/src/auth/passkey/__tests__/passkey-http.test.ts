@@ -15,7 +15,7 @@ import { verifyToken } from "../../auth.js";
 import { createRouteTierGate } from "../../route-tier-gate.js";
 import { registerUserRoutes } from "../../../routes/user-routes.js";
 import { PASSKEY_PROVIDER, PasskeyService } from "../passkey-service.js";
-import type { RpContext } from "../rp-context.js";
+import { computeRpContext, type RpContext } from "../rp-context.js";
 import { UserDirectory } from "../user-directory.js";
 import { createCredential, getAssertion, type SoftCredential } from "./soft-authenticator.js";
 
@@ -35,7 +35,9 @@ async function build(auth: Partial<AuthConfig> = {}) {
   await app?.close();
   service = new PasskeyService({
     directory: new UserDirectory(path.join(dir, "users.json")),
-    getRpContext: () => rp,
+    // Honour an override like resolveRpContext does; else the test's primary.
+    getRpContext: (override) =>
+      override ? computeRpContext({ base: override, source: "auth.redirectBaseUrl", primary: "tailscale" }) : rp,
     log: (l) => logs.push(l),
   });
   app = Fastify();
@@ -84,9 +86,10 @@ async function addUser(name: string, tier: "observe" | "control" | "operate") {
   const inv = await local("POST", `/api/users/${id}/invites`, {});
   expect(inv.statusCode).toBe(200);
   const token = new URL(inv.json().data.url).hash.slice(1);
-  const opts = await remote("POST", "/auth/passkey/register/options", undefined, { token });
-  const { response, credential } = createCredential(opts.json().options, ORIGIN);
-  const verify = await remote("POST", "/auth/passkey/register/verify", undefined, { challengeId: opts.json().challengeId, response });
+  const origin = service.rpContext().rpOrigin;
+  const opts = await remote("POST", "/auth/passkey/register/options", undefined, { token }, { origin });
+  const { response, credential } = createCredential(opts.json().options, origin);
+  const verify = await remote("POST", "/auth/passkey/register/verify", undefined, { challengeId: opts.json().challengeId, token, response }, { origin });
   expect(verify.statusCode).toBe(200);
   return { id, credential, cookie: cookieOf(verify)! };
 }
@@ -250,7 +253,9 @@ describe("login page", () => {
     ];
     let scripts = 0;
     for (const html of pages) {
-      for (const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+      // Case-insensitive, attribute/whitespace tolerant; `src=` tags have no body.
+      for (const m of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script[^>]*>/gi)) {
+        if (!m[1]!.trim()) continue;
         scripts++;
         // Function() parses without executing: a syntax error throws here.
         expect(() => new Function(m[1]!)).not.toThrow();
@@ -335,6 +340,15 @@ describe("primary switch impact (3.2/3.5)", () => {
     expect(diff.json().data).toMatchObject({ currentRpId: HOST, nextRpId: "new.example.com", orphaned: 2, users: 2 });
     const same = await local("GET", `/api/users/credentials/impact?rpId=${HOST}`);
     expect(same.json().data).toMatchObject({ orphaned: 0, users: 0 });
+  });
+
+  it("clearing auth.redirectBaseUrl reports what falling back to the primary would orphan", async () => {
+    await build({ redirectBaseUrl: "https://dash.example.com" });
+    await addUser("A", "observe"); // enrolled under dash.example.com
+    const cleared = await local("GET", "/api/users/credentials/impact?redirectBaseUrl=");
+    expect(cleared.json().data).toMatchObject({ currentRpId: "dash.example.com", nextRpId: HOST, orphaned: 1, users: 1 });
+    const unchanged = await local("GET", `/api/users/credentials/impact?redirectBaseUrl=${encodeURIComponent("https://dash.example.com")}`);
+    expect(unchanged.json().data).toMatchObject({ orphaned: 0 });
   });
 
   it("listing marks credentials under another RP ID as orphaned", async () => {

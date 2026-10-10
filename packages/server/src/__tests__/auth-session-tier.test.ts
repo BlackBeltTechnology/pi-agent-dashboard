@@ -6,16 +6,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const userInfo = vi.fn(async () => ({ email: "u@example.com", name: "U", username: "u", groups: [] as string[] }));
+const tokens = vi.fn(async (): Promise<{ accessToken: string; idToken?: string }> => ({ accessToken: "access-token" }));
 vi.mock("../auth/auth.js", async (orig) => ({
   ...(await orig<typeof import("../auth/auth.js")>()),
-  exchangeCode: async () => "access-token",
+  exchangeCode: (...a: unknown[]) => (tokens as any)(...a),
   fetchUserInfo: (...a: unknown[]) => (userInfo as any)(...a),
 }));
 
 import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
-import { resolveGroupTier, signToken, verifyToken } from "../auth/auth.js";
+import { idTokenGroups, resolveGroupTier, signToken, verifyToken } from "../auth/auth.js";
 import { registerAuthPlugin } from "../auth/auth-plugin.js";
 import { createRouteTierGate } from "../auth/route-tier-gate.js";
 
@@ -28,7 +29,13 @@ afterEach(async () => {
   await app?.close();
   app = null;
   userInfo.mockReset();
+  tokens.mockReset();
+  tokens.mockResolvedValue({ accessToken: "access-token" });
 });
+
+/** Unsigned-looking JWT (back-channel id_token; claims only are read). */
+const idToken = (claims: Record<string, unknown>) =>
+  `e30.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.sig`;
 
 async function makeApp(extra: Partial<AuthConfig> = {}): Promise<FastifyInstance> {
   const a = Fastify();
@@ -103,6 +110,19 @@ describe("resolveGroupTier (2.5)", () => {
   });
 });
 
+describe("idTokenGroups", () => {
+  it("reads groups when aud matches the client (string or array aud)", () => {
+    expect(idTokenGroups(idToken({ aud: "cid", groups: ["a", 1, "b"] }), "cid")).toEqual(["a", "b"]);
+    expect(idTokenGroups(idToken({ aud: ["x", "cid"], groups: ["a"] }), "cid")).toEqual(["a"]);
+  });
+  it("ignores a token for another audience, malformed tokens, and absent groups", () => {
+    expect(idTokenGroups(idToken({ aud: "other", groups: ["a"] }), "cid")).toBeUndefined();
+    expect(idTokenGroups("not-a-jwt", "cid")).toBeUndefined();
+    expect(idTokenGroups(idToken({ aud: "cid" }), "cid")).toBeUndefined();
+    expect(idTokenGroups(undefined, "cid")).toBeUndefined();
+  });
+});
+
 describe("OIDC callback group mapping (2.5)", () => {
   async function login(a: FastifyInstance) {
     const start = await a.inject({ method: "GET", url: "/auth/login" });
@@ -130,6 +150,22 @@ describe("OIDC callback group mapping (2.5)", () => {
     expect(res.statusCode).toBe(403);
     expect(res.body).toContain("Access Denied");
     expect(tokenOf(res)).toBeNull();
+  });
+
+  it("groups carried only in the ID token are honoured (e.g. Keycloak default mapper)", async () => {
+    tokens.mockResolvedValue({ accessToken: "access-token", idToken: idToken({ aud: "cid", groups: ["dash-ops"] }) });
+    userInfo.mockResolvedValue({ email: "u@example.com", name: "U", username: "u" } as any);
+    app = await makeApp({ groupTiers: { "dash-ops": "operate" } });
+    const res = await login(app);
+    expect(res.statusCode).toBe(302);
+    expect(tokenOf(res)?.tier).toBe("operate");
+  });
+
+  it("ID-token and userinfo groups are merged; highest wins", async () => {
+    tokens.mockResolvedValue({ accessToken: "access-token", idToken: idToken({ aud: "cid", groups: ["dash-view"] }) });
+    userInfo.mockResolvedValue({ email: "u@example.com", name: "U", username: "u", groups: ["dash-ctl"] });
+    app = await makeApp({ groupTiers: { "dash-view": "observe", "dash-ctl": "control" } });
+    expect(tokenOf(await login(app))?.tier).toBe("control");
   });
 
   it("unconfigured map keeps legacy behaviour with tier operate", async () => {

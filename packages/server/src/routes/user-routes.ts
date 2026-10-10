@@ -171,8 +171,13 @@ export function registerUserRoutes(fastify: FastifyInstance, deps: UserRouteDeps
   });
 
   fastify.get("/api/users/credentials/impact", { preHandler: operatorGuard }, async (request, reply) => {
-    const q = request.query as { rpId?: unknown; url?: unknown };
+    const q = request.query as { rpId?: unknown; url?: unknown; redirectBaseUrl?: unknown };
     let next = typeof q.rpId === "string" ? q.rpId.trim().toLowerCase() : "";
+    // A draft `auth.redirectBaseUrl` — empty means "cleared", which falls back
+    // to the primary tunnel and can therefore orphan passkeys too.
+    if (!next && typeof q.redirectBaseUrl === "string" && q.redirectBaseUrl.length <= 2048) {
+      next = service.rpContextFor(q.redirectBaseUrl).rpId;
+    }
     if (!next && typeof q.url === "string") {
       try {
         next = new URL(q.url).hostname;
@@ -180,7 +185,7 @@ export function registerUserRoutes(fastify: FastifyInstance, deps: UserRouteDeps
         next = "";
       }
     }
-    if (!next || next.length > 253) return reply.code(400).send({ success: false, error: "rpId or url required" });
+    if (!next || next.length > 253) return reply.code(400).send({ success: false, error: "rpId, url or redirectBaseUrl required" });
     const current = service.rpContext().rpId;
     return { success: true, data: { currentRpId: current, nextRpId: next, ...directory.impact(current, next) } };
   });

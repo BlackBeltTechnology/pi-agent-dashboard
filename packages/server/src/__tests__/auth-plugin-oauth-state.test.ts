@@ -5,7 +5,7 @@
 import crypto from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const exchange = vi.fn(async () => "access-token");
+const exchange = vi.fn(async () => ({ accessToken: "access-token" }));
 vi.mock("../auth/auth.js", async (orig) => ({
   ...(await orig<typeof import("../auth/auth.js")>()),
   exchangeCode: (...a: unknown[]) => (exchange as any)(...a),

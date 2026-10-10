@@ -5,7 +5,8 @@
  * module owns only policy:
  *  - every ceremony needs a STABLE RP context (`409 unstable_origin`),
  *  - user verification is required on registration and assertion,
- *  - challenges are single-use and TTL-bound (`ChallengeStore`),
+ *  - challenges are stateless HMAC-signed, TTL-bound and single-use
+ *    (`SignedChallenges`; consumed only on success — a flood cannot evict them),
  *  - registration only through a live invite, re-validated atomically at
  *    enrollment (`UserDirectory.enrollWithInvite`),
  *  - assertion only with an ACTIVE user's credential under the CURRENT RP ID;
@@ -26,7 +27,8 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
-import { ChallengeStore } from "./challenge-store.js";
+import crypto from "node:crypto";
+import { SignedChallenges } from "./challenge-store.js";
 import { logPasskey } from "./passkey-log.js";
 import { PhoneSigninManager } from "./phone-signin.js";
 import type { RpContext } from "./rp-context.js";
@@ -42,7 +44,8 @@ export class PasskeyError extends Error {
 }
 
 interface RegisterSlot {
-  token: string;
+  /** sha256(invite token): binds the challenge to its invite without exposing it (slot data is client-visible). */
+  tokenHash: string;
   challenge: string;
   rpId: string;
   origin: string;
@@ -62,6 +65,7 @@ export interface PasskeyServiceDeps {
 }
 
 const RP_NAME = "PI Dashboard";
+const sha256 = (v: string) => crypto.createHash("sha256").update(v).digest("hex");
 /** `provider` claim of a passkey-issued session JWT. */
 export const PASSKEY_PROVIDER = "passkey";
 
@@ -72,13 +76,13 @@ export class PasskeyService {
   private enabled = false;
   private redirectBaseUrl: string | undefined;
   private readonly log: (line: string) => void;
-  private readonly challenges: ChallengeStore<RegisterSlot | AuthSlot>;
+  private readonly challenges: SignedChallenges<RegisterSlot | AuthSlot>;
 
   constructor(deps: PasskeyServiceDeps) {
     this.directory = deps.directory;
     this.getRpContext = deps.getRpContext;
     this.log = deps.log ?? ((l) => console.log(l));
-    this.challenges = new ChallengeStore(deps.now ?? Date.now);
+    this.challenges = new SignedChallenges(deps.now ?? Date.now);
     this.phone = new PhoneSigninManager({ now: deps.now, log: this.log });
   }
 
@@ -112,6 +116,11 @@ export class PasskeyService {
     return this.getRpContext(this.redirectBaseUrl);
   }
 
+  /** RP context a DRAFT `auth.redirectBaseUrl` would produce (empty ⇒ fall back to the primary). */
+  rpContextFor(redirectBaseUrl: string | undefined): RpContext {
+    return this.getRpContext(redirectBaseUrl?.trim() || undefined);
+  }
+
   /** Throws `409 unstable_origin` unless the RP context is stable. */
   requireStable(): RpContext {
     const ctx = this.rpContext();
@@ -136,7 +145,7 @@ export class PasskeyService {
       authenticatorSelection: { residentKey: "required", userVerification: "required" },
     });
     const challengeId = this.challenges.issue("register", {
-      token: token as string,
+      tokenHash: sha256(token as string),
       challenge: options.challenge,
       rpId: ctx.rpId,
       origin: ctx.rpOrigin,
@@ -144,9 +153,9 @@ export class PasskeyService {
     return { challengeId, options };
   }
 
-  async verifyRegistration(challengeId: unknown, response: unknown): Promise<DirectoryUser> {
-    const slot = this.challenges.take(challengeId, "register") as RegisterSlot | null;
-    if (!slot) throw new PasskeyError("challenge_invalid", 400);
+  async verifyRegistration(challengeId: unknown, token: unknown, response: unknown): Promise<DirectoryUser> {
+    const slot = this.challenges.open(challengeId, "register") as RegisterSlot | null;
+    if (!slot || typeof token !== "string" || sha256(token) !== slot.tokenHash) throw new PasskeyError("challenge_invalid", 400);
     let verification: Awaited<ReturnType<typeof verifyRegistrationResponse>>;
     try {
       verification = await verifyRegistrationResponse({
@@ -160,8 +169,9 @@ export class PasskeyService {
       throw new PasskeyError("verification_failed", 401);
     }
     if (!verification.verified) throw new PasskeyError("verification_failed", 401);
+    if (!this.challenges.consume(challengeId as string)) throw new PasskeyError("challenge_invalid", 400);
     const { credential } = verification.registrationInfo;
-    const out = await this.directory.enrollWithInvite(slot.token, {
+    const out = await this.directory.enrollWithInvite(token, {
       id: credential.id,
       publicKey: Buffer.from(credential.publicKey).toString("base64url"),
       counter: credential.counter,
@@ -186,7 +196,7 @@ export class PasskeyService {
 
   /** Verify an assertion; returns the ACTIVE user. Does not log `login` when `quiet`. */
   async verifyAuthentication(challengeId: unknown, response: unknown, opts: { quiet?: boolean } = {}): Promise<DirectoryUser> {
-    const slot = this.challenges.take(challengeId, "auth") as AuthSlot | null;
+    const slot = this.challenges.open(challengeId, "auth") as AuthSlot | null;
     if (!slot) throw new PasskeyError("challenge_invalid", 400);
     const resp = response as AuthenticationResponseJSON;
     const credId = typeof resp?.id === "string" ? resp.id : "";
@@ -221,6 +231,9 @@ export class PasskeyService {
       throw new PasskeyError("verification_failed", 401);
     }
     if (!verification.verified) throw new PasskeyError("verification_failed", 401);
+    // Single use: consumed only after success, synchronously re-checked so two
+    // concurrent submissions of one assertion cannot both pass.
+    if (!this.challenges.consume(challengeId as string)) throw new PasskeyError("challenge_invalid", 400);
     await this.directory.touchCredential(found.user.id, found.credential.id, verification.authenticationInfo.newCounter);
     if (!opts.quiet) logPasskey("login", found.user.id, this.log);
     return found.user;

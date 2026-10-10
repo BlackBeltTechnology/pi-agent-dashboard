@@ -77,6 +77,13 @@ export const revokeUser = (id: string) => call<DirectoryUserView>(`/api/users/${
 export const mintInvite = (id: string, opts: { ttlHours?: number; maxUses?: number } = {}) =>
   call<MintedInvite>(`/api/users/${encodeURIComponent(id)}/invites`, json("POST", opts));
 
-/** Orphan impact of moving the primary to `url` (D3). */
-export const credentialImpact = (url: string) =>
-  call<CredentialImpact>(`/api/users/credentials/impact?url=${encodeURIComponent(url)}`);
+/**
+ * Orphan impact (D3) of moving the RP origin: to a provider `url` (primary
+ * switch), or to whatever a draft `redirectBaseUrl` resolves to (empty ⇒ the
+ * primary — clearing the override can orphan passkeys too).
+ */
+export type ImpactQuery = { url: string } | { redirectBaseUrl: string };
+export const credentialImpact = (q: ImpactQuery) =>
+  call<CredentialImpact>(
+    `/api/users/credentials/impact?${"url" in q ? `url=${encodeURIComponent(q.url)}` : `redirectBaseUrl=${encodeURIComponent(q.redirectBaseUrl)}`}`,
+  );

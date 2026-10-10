@@ -195,7 +195,7 @@ export function GatewayProviderActions({
               pins it — so only an unpinned switch can orphan passkeys (D3).
               See change: add-passkey-user-auth. */}
           {!hasRedirectOverride(config) && (
-            <PasskeyImpactNote url={url} testId={`gateway-make-primary-passkey-impact-${readiness.provider}`} />
+            <PasskeyImpactNote query={url ? { url } : undefined} testId={`gateway-make-primary-passkey-impact-${readiness.provider}`} />
           )}
           <div className="mt-2 flex items-center gap-2">
             <button

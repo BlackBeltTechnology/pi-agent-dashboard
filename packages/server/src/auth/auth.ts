@@ -189,6 +189,31 @@ export function verifyToken(token: string, secret: string): TokenPayload | null 
 }
 
 /**
+ * `groups` claim of an OIDC `id_token`, or undefined.
+ *
+ * The token comes straight from the provider's token endpoint over the
+ * back-channel (TLS), so per OIDC Core §3.1.3.7 its signature need not be
+ * re-validated here; the `aud` claim must still name this client, so a token
+ * minted for another relying party is never trusted. Only `groups` is read.
+ * Non-string entries are dropped. See change: add-passkey-user-auth (D4).
+ */
+export function idTokenGroups(idToken: string | undefined, clientId: string): string[] | undefined {
+  if (!idToken) return undefined;
+  const part = idToken.split(".")[1];
+  if (!part) return undefined;
+  let claims: { aud?: unknown; groups?: unknown };
+  try {
+    claims = JSON.parse(Buffer.from(part, "base64url").toString("utf8"));
+  } catch {
+    return undefined;
+  }
+  const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!aud.includes(clientId)) return undefined;
+  if (!Array.isArray(claims.groups)) return undefined;
+  return (claims.groups as unknown[]).filter((g): g is string => typeof g === "string");
+}
+
+/**
  * Map an OIDC `groups` claim to a session tier (D4).
  *
  * - `groupTiers` unconfigured/empty → `operate` (legacy behaviour).
@@ -398,13 +423,15 @@ export function buildAuthorizeUrl(
 }
 
 /**
- * Exchange an authorization code for an access token.
+ * Exchange an authorization code for tokens: the access token plus, for OIDC
+ * providers, the `id_token` (read for its `groups` claim — see
+ * `idTokenGroups`). See change: add-passkey-user-auth (D4).
  */
 export async function exchangeCode(
   provider: ResolvedProvider,
   code: string,
   redirectUri: string,
-): Promise<string | null> {
+): Promise<{ accessToken: string; idToken?: string } | null> {
   try {
     const body = new URLSearchParams({
       client_id: provider.clientId,
@@ -431,7 +458,11 @@ export async function exchangeCode(
     if (!res.ok) return null;
 
     const data = await res.json();
-    return data.access_token ?? null;
+    if (typeof data.access_token !== "string" || !data.access_token) return null;
+    return {
+      accessToken: data.access_token,
+      ...(typeof data.id_token === "string" ? { idToken: data.id_token } : {}),
+    };
   } catch {
     return null;
   }

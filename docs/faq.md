@@ -3417,7 +3417,7 @@ Steps:
 
 1. Open dashboard on host machine (loopback).
 2. Settings ▸ Security ▸ Users → add user, tier `operate`.
-3. "Invite QR" → open `https://<primary>/auth/invite#<token>` on phone. Default 24 h, single use.
+3. "Invite QR" → open `<resolved auth base>/auth/invite#<token>` on phone (`auth.redirectBaseUrl` if set, else primary). Default 24 h, single use.
 
 See change: add-passkey-user-auth.
 
@@ -3428,7 +3428,7 @@ Cross-refs:
 
 Cause: RP ID = primary hostname. Credentials bound to RP ID they were created under. New primary → credentials orphaned (not deleted).
 
-Check: "Make primary" / `auth.redirectBaseUrl` shows `N passkey(s) for M user(s) will stop working`. Source: `GET /api/users/credentials/impact?url=`.
+Check: "Make primary" / `auth.redirectBaseUrl` shows `N passkey(s) for M user(s) will stop working`. Source: `GET /api/users/credentials/impact` with `?url=`, `?rpId=`, or `?redirectBaseUrl=`. Clearing `redirectBaseUrl` (empty) falls back to primary and can orphan passkeys.
 
 Fix, pick one:
 

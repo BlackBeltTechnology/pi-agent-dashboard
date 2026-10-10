@@ -10,7 +10,8 @@
  *
  * States: pending → approved{sub} | rejected | expired. Approval is
  * single-use: the first successful desktop poll consumes the request.
- * TTL 5 min. Outstanding requests are bounded (unauthenticated `start`).
+ * TTL 5 min. Outstanding requests are bounded (unauthenticated `start`):
+ * ≤3 pending per client key, ≤1000 overall.
  *
  * In-memory only: a restart drops pending requests (they are 5-min, cheap to
  * restart). See change: add-passkey-user-auth.
@@ -20,7 +21,9 @@ import { logPasskey } from "./passkey-log.js";
 import type { RequesterView } from "./requester.js";
 
 const PHONE_REQUEST_TTL_MS = 5 * 60_000;
-const DEFAULT_MAX_PENDING = 100;
+const DEFAULT_MAX_PENDING = 1000;
+/** Pending requests per client key — one flooder cannot exhaust the global cap for everyone. */
+const MAX_PENDING_PER_CLIENT = 3;
 /** Failed short-code lookups per client key per window. */
 const MAX_FAILS_PER_CLIENT = 5;
 /** Failed short-code lookups across all clients per window. */
@@ -43,6 +46,8 @@ interface PhoneRequest {
   expiresAt: number;
   state: State;
   sub?: string;
+  /** Rate-limit key of the requesting desktop. */
+  clientKey: string;
 }
 
 export type PollResult =
@@ -98,10 +103,11 @@ export class PhoneSigninManager {
     }
   }
 
-  start(requester: RequesterView): { requestId: string; approvalToken: string; shortCode: string; expiresAt: number } | null {
+  start(requester: RequesterView, clientKey: string): { requestId: string; approvalToken: string; shortCode: string; expiresAt: number } | null {
     this.sweep();
-    const pending = [...this.byRequest.values()].filter((r) => r.state === "pending").length;
-    if (pending >= this.maxPending) return null;
+    const pending = [...this.byRequest.values()].filter((r) => r.state === "pending");
+    if (pending.length >= this.maxPending) return null;
+    if (pending.filter((r) => r.clientKey === clientKey).length >= MAX_PENDING_PER_CLIENT) return null;
     let shortCode = makeShortCode();
     while (this.byCode.has(shortCode)) shortCode = makeShortCode();
     const createdAt = this.now();
@@ -113,6 +119,7 @@ export class PhoneSigninManager {
       createdAt,
       expiresAt: createdAt + PHONE_REQUEST_TTL_MS,
       state: "pending",
+      clientKey,
     };
     this.byRequest.set(r.requestId, r);
     this.byToken.set(r.approvalToken, r);

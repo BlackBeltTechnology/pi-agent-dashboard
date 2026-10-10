@@ -36,7 +36,7 @@ async function enroll(name = "Anna", tier: "observe" | "control" | "operate" = "
   const { token } = await directory.mintInvite(user.id);
   const { challengeId, options } = await svc.registrationOptions(token);
   const { response, credential } = createCredential(options, ORIGIN);
-  const enrolled = await svc.verifyRegistration(challengeId, response);
+  const enrolled = await svc.verifyRegistration(challengeId, token, response);
   return { user: enrolled, credential, token };
 }
 
@@ -76,8 +76,8 @@ describe("invite enrollment", () => {
     const { token } = await directory.mintInvite(u.id);
     const a = await svc.registrationOptions(token);
     const b = await svc.registrationOptions(token);
-    await svc.verifyRegistration(a.challengeId, createCredential(a.options, ORIGIN).response);
-    expect(await code(svc.verifyRegistration(b.challengeId, createCredential(b.options, ORIGIN).response))).toBe("410:invite_exhausted");
+    await svc.verifyRegistration(a.challengeId, token, createCredential(a.options, ORIGIN).response);
+    expect(await code(svc.verifyRegistration(b.challengeId, token, createCredential(b.options, ORIGIN).response))).toBe("410:invite_exhausted");
     expect(directory.get(u.id)!.credentials).toHaveLength(1);
   });
 
@@ -90,17 +90,30 @@ describe("invite enrollment", () => {
 
   it("registration without user verification is refused", async () => {
     const u = await directory.create({ name: "A", tier: "observe" });
-    const { challengeId, options } = await svc.registrationOptions((await directory.mintInvite(u.id)).token);
+    const { token } = await directory.mintInvite(u.id);
+    const { challengeId, options } = await svc.registrationOptions(token);
     const { response } = createCredential(options, ORIGIN, { uv: false });
-    expect(await code(svc.verifyRegistration(challengeId, response))).toBe("401:verification_failed");
+    expect(await code(svc.verifyRegistration(challengeId, token, response))).toBe("401:verification_failed");
     expect(directory.get(u.id)!.status).toBe("invited");
   });
 
   it("registration from a foreign origin is refused", async () => {
     const u = await directory.create({ name: "A", tier: "observe" });
-    const { challengeId, options } = await svc.registrationOptions((await directory.mintInvite(u.id)).token);
+    const { token } = await directory.mintInvite(u.id);
+    const { challengeId, options } = await svc.registrationOptions(token);
     const { response } = createCredential(options, "https://evil.example");
-    expect(await code(svc.verifyRegistration(challengeId, response))).toBe("401:verification_failed");
+    expect(await code(svc.verifyRegistration(challengeId, token, response))).toBe("401:verification_failed");
+  });
+
+  it("a registration challenge is bound to its invite token", async () => {
+    const u = await directory.create({ name: "A", tier: "observe" });
+    const v = await directory.create({ name: "V", tier: "operate" });
+    const { token } = await directory.mintInvite(u.id);
+    const { token: other } = await directory.mintInvite(v.id);
+    const { challengeId, options } = await svc.registrationOptions(token);
+    const { response } = createCredential(options, ORIGIN);
+    expect(await code(svc.verifyRegistration(challengeId, other, response))).toBe("400:challenge_invalid");
+    expect(directory.get(v.id)!.credentials).toHaveLength(0);
   });
 });
 
@@ -112,6 +125,21 @@ describe("passkey login", () => {
     const out = await svc.verifyAuthentication(challengeId, getAssertion(credential, options, ORIGIN));
     expect(out).toMatchObject({ id: user.id, tier: "observe" });
     expect(logs).toContain(`[passkey] login id=${user.id.slice(0, 8)}`);
+  });
+
+  it("an anonymous options flood does not invalidate a real user's challenge (DoS)", async () => {
+    const { user, credential } = await enroll();
+    const mine = await svc.authenticationOptions();
+    for (let i = 0; i < 3000; i++) await svc.authenticationOptions();
+    await expect(svc.verifyAuthentication(mine.challengeId, getAssertion(credential, mine.options, ORIGIN))).resolves.toMatchObject({ id: user.id });
+  });
+
+  it("a failed verification does not burn the challenge; a success does", async () => {
+    const { user, credential } = await enroll();
+    const { challengeId, options } = await svc.authenticationOptions();
+    expect(await code(svc.verifyAuthentication(challengeId, getAssertion(credential, options, ORIGIN, { uv: false })))).toBe("401:verification_failed");
+    await expect(svc.verifyAuthentication(challengeId, getAssertion(credential, options, ORIGIN))).resolves.toMatchObject({ id: user.id });
+    expect(await code(svc.verifyAuthentication(challengeId, getAssertion(credential, options, ORIGIN)))).toBe("400:challenge_invalid");
   });
 
   it("replayed assertion for the same challenge is refused", async () => {

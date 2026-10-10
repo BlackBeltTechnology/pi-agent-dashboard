@@ -5,10 +5,10 @@
  * phone, › Passkey events are logged without secrets; task 5.1).
  */
 import { describe, expect, it } from "vitest";
-import { ChallengeStore } from "../challenge-store.js";
+import { SignedChallenges } from "../challenge-store.js";
 import { PASSKEY_EVENTS, passkeyLogLine } from "../passkey-log.js";
 import { PhoneSigninManager } from "../phone-signin.js";
-import { describeRequester } from "../requester.js";
+import { describeRequester, rateKeyOf } from "../requester.js";
 
 const LINE = /^\[passkey\] [a-z_]+ id=[0-9a-f]{8}$/;
 
@@ -55,27 +55,48 @@ describe("describeRequester", () => {
   });
 });
 
-describe("ChallengeStore", () => {
-  it("is single-use and kind-bound", () => {
+describe("SignedChallenges", () => {
+  it("opens only for its kind; consume is single-use", () => {
     let t = 0;
-    const s = new ChallengeStore<{ c: string }>(() => t);
+    const s = new SignedChallenges<{ c: string }>(() => t);
     const id = s.issue("auth", { c: "x" });
-    expect(s.take(id, "register")).toBeNull();
-    expect(s.take(id, "auth")).toEqual({ c: "x" });
-    expect(s.take(id, "auth")).toBeNull();
+    expect(s.open(id, "register")).toBeNull();
+    expect(s.open(id, "auth")).toEqual({ c: "x" });
+    expect(s.consume(id)).toBe(true);
+    expect(s.consume(id)).toBe(false);
+    expect(s.open(id, "auth")).toBeNull();
   });
   it("expires after its TTL", () => {
     let t = 0;
-    const s = new ChallengeStore<number>(() => t, 1000);
+    const s = new SignedChallenges<number>(() => t, 1000);
     const id = s.issue("auth", 1);
     t = 1001;
-    expect(s.take(id, "auth")).toBeNull();
+    expect(s.open(id, "auth")).toBeNull();
   });
-  it("is bounded", () => {
-    const s = new ChallengeStore<number>(() => 0, 1000, 3);
-    const ids = [1, 2, 3, 4].map((n) => s.issue("auth", n));
-    expect(s.take(ids[0]!, "auth")).toBeNull(); // evicted oldest
-    expect(s.take(ids[3]!, "auth")).toBe(4);
+  it("rejects a tampered or foreign-key id", () => {
+    const s = new SignedChallenges<{ c: string }>(() => 0);
+    const id = s.issue("auth", { c: "x" });
+    const [body, mac] = id.split(".");
+    const forged = `${Buffer.from(JSON.stringify({ k: "auth", d: { c: "y" }, e: 9e15 })).toString("base64url")}.${mac}`;
+    expect(s.open(forged, "auth")).toBeNull();
+    expect(new SignedChallenges(() => 0).open(id, "auth")).toBeNull();
+    expect(s.open(`${body}.`, "auth")).toBeNull();
+    expect(s.open(42, "auth")).toBeNull();
+  });
+  it("an anonymous flood of issues keeps no state and evicts nothing (DoS)", () => {
+    const s = new SignedChallenges<number>(() => 0);
+    const early = s.issue("auth", 1);
+    for (let i = 0; i < 20_000; i++) s.issue("auth", i);
+    expect(s.open(early, "auth")).toBe(1);
+    expect(s.usedCount()).toBe(0);
+  });
+});
+
+describe("rateKeyOf", () => {
+  it("prefers the LAST (proxy-appended) forwarded hop, else the socket ip", () => {
+    expect(rateKeyOf({ ip: "127.0.0.1", forwardedFor: "1.1.1.1, 198.51.100.7" })).toBe("198.51.100.7");
+    expect(rateKeyOf({ ip: "127.0.0.1", forwardedFor: "junk" })).toBe("127.0.0.1");
+    expect(rateKeyOf({ ip: "203.0.113.5" })).toBe("203.0.113.5");
   });
 });
 
@@ -90,7 +111,7 @@ describe("PhoneSigninManager", () => {
 
   it("approve → desktop poll gets the user once (single-use)", () => {
     const { m, logs } = mk();
-    const r = m.start(who)!;
+    const r = m.start(who, "k1")!;
     expect(r.shortCode).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/);
     expect(m.poll(r.requestId)).toEqual({ status: "pending" });
     expect(m.view(r.approvalToken)).toMatchObject({ requester: who });
@@ -104,7 +125,7 @@ describe("PhoneSigninManager", () => {
 
   it("deny → declined, no approval possible", () => {
     const { m } = mk();
-    const r = m.start(who)!;
+    const r = m.start(who, "k1")!;
     expect(m.deny(r.approvalToken)).toEqual({ ok: true });
     expect(m.poll(r.requestId)).toEqual({ status: "rejected" });
     expect(m.approve(r.approvalToken, "u")).toEqual({ ok: false, error: "invalid" });
@@ -112,7 +133,7 @@ describe("PhoneSigninManager", () => {
 
   it("expires after 5 minutes; a later approval is refused", () => {
     const { m, clock, logs } = mk();
-    const r = m.start(who)!;
+    const r = m.start(who, "k1")!;
     clock.t = 5 * 60_000 + 1;
     expect(m.approve(r.approvalToken, "u")).toEqual({ ok: false, error: "expired" });
     expect(m.poll(r.requestId)).toEqual({ status: "expired" });
@@ -121,14 +142,14 @@ describe("PhoneSigninManager", () => {
 
   it("short code resolves to the approval token; case/format tolerant", () => {
     const { m } = mk();
-    const r = m.start(who)!;
+    const r = m.start(who, "k1")!;
     const loose = r.shortCode.replace("-", "").toLowerCase();
     expect(m.lookupCode(loose, "k")).toEqual({ ok: true, approvalToken: r.approvalToken });
   });
 
   it("short-code guessing is rate-limited per client and globally", () => {
     const { m, clock } = mk();
-    const r = m.start(who)!;
+    const r = m.start(who, "k1")!;
     for (let i = 0; i < 5; i++) expect(m.lookupCode("ZZZZ-ZZZZ", "attacker")).toEqual({ ok: false, error: "invalid" });
     expect(m.lookupCode(r.shortCode, "attacker")).toEqual({ ok: false, error: "rate_limited" });
     // another client still works
@@ -137,16 +158,23 @@ describe("PhoneSigninManager", () => {
     expect(m.lookupCode(r.shortCode, "attacker")).toMatchObject({ ok: true });
   });
 
-  it("bounds outstanding requests", () => {
+  it("bounds outstanding requests globally", () => {
     const m = new PhoneSigninManager({ now: () => 0, log: () => {}, maxPending: 2 });
-    expect(m.start(who)).not.toBeNull();
-    expect(m.start(who)).not.toBeNull();
-    expect(m.start(who)).toBeNull();
+    expect(m.start(who, "a")).toMatchObject({ requestId: expect.stringMatching(/^[0-9a-f]{32}$/) });
+    expect(m.start(who, "b")).toMatchObject({ requestId: expect.stringMatching(/^[0-9a-f]{32}$/) });
+    expect(m.start(who, "c")).toBeNull();
+  });
+
+  it("caps pending requests per client so one flooder cannot lock everyone out (DoS)", () => {
+    const m = new PhoneSigninManager({ now: () => 0, log: () => {} });
+    for (let i = 0; i < 3; i++) expect(m.start(who, "flooder")).toMatchObject({ requestId: expect.stringMatching(/^[0-9a-f]{32}$/) });
+    expect(m.start(who, "flooder")).toBeNull();
+    expect(m.start(who, "legit-desktop")).toMatchObject({ requestId: expect.stringMatching(/^[0-9a-f]{32}$/) });
   });
 
   it("request id and approval token are distinct and unguessable", () => {
     const { m } = mk();
-    const r = m.start(who)!;
+    const r = m.start(who, "k1")!;
     expect(r.requestId).not.toBe(r.approvalToken);
     expect(r.requestId).toMatch(/^[0-9a-f]{32}$/);
     expect(r.approvalToken.length).toBeGreaterThanOrEqual(32);

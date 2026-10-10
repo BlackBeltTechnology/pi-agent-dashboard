@@ -391,7 +391,9 @@ A browser WebSocket admitted by a login-session cookie SHALL carry the
 session's live tier. Each browser-to-server message type SHALL map to a
 required tier (unlisted types SHALL require `operate`), and a message above the
 socket's tier SHALL be dropped without being dispatched. A terminal socket SHALL
-require `operate` and a live-preview socket SHALL require `control`. A passkey
+require `operate` and a live-preview socket SHALL require `control`; the
+live-preview HTTP proxy (`/live/*`) SHALL require `control` for a tiered
+session as well. A passkey
 user who is revoked SHALL have their open socket closed on its next message.
 Sockets admitted by genuine-local, trusted-network, or ticket paths SHALL NOT
 be tier-gated.

@@ -5,3 +5,5 @@ OAuth2 core: providers (GitHub, Google, Keycloak, generic OIDC via `.well-known`
 ## add-passkey-user-auth
 
 `AuthUser.tier?`; `signToken` adds `tier` when set; `verifyToken` rejects a present-but-invalid tier; `resolveGroupTier(groups, groupTiers)` (unconfigured ⇒ operate, highest match, none ⇒ null); `fetchUserInfo` returns OIDC `groups`. See change: add-passkey-user-auth.
+
+`exchangeCode` now returns `{accessToken, idToken?} | null`; `idTokenGroups(idToken, clientId)` reads the back-channel id_token `groups` claim (aud must include the client id; claims only). Callback merges id_token ∪ userinfo groups before `resolveGroupTier`. See change: add-passkey-user-auth.

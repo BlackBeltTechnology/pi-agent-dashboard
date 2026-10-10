@@ -65,3 +65,19 @@ export function describeRequester(input: {
     ip: firstHop ?? direct ?? "unknown",
   };
 }
+
+/**
+ * Rate-limit key for an unauthenticated caller: the LAST `X-Forwarded-For`
+ * hop (the one the nearest proxy — the tunnel agent — appended, so not
+ * client-chosen when a proxy is present), else the socket address. Never used
+ * for display (`describeRequester` shows the first hop) or for any trust
+ * decision. See change: add-passkey-user-auth.
+ */
+export function rateKeyOf(input: { ip?: unknown; forwardedFor?: unknown }): string {
+  if (typeof input.forwardedFor === "string") {
+    const hops = input.forwardedFor.split(",");
+    const last = validIp(hops[hops.length - 1] ?? "");
+    if (last) return last;
+  }
+  return (typeof input.ip === "string" && validIp(input.ip)) || "unknown";
+}

@@ -8,19 +8,30 @@
  * See change: add-passkey-user-auth.
  */
 import { useEffect, useState } from "react";
-import { type CredentialImpact, credentialImpact } from "../../lib/users/users-api.js";
+import { type CredentialImpact, credentialImpact, type ImpactQuery } from "../../lib/users/users-api.js";
 import { impactConsequence } from "../../lib/users/users-text.js";
 
-export function PasskeyImpactNote({ url, testId, debounceMs = 0 }: { url: string | undefined; testId: string; debounceMs?: number }) {
+const isHttpUrl = (v: string) => /^https?:\/\//i.test(v);
+
+/** Askable: a provider URL, or a redirect draft that is empty (cleared) or a URL. */
+function askable(q: ImpactQuery | undefined): ImpactQuery | null {
+  if (!q) return null;
+  if ("url" in q) return isHttpUrl(q.url.trim()) ? { url: q.url.trim() } : null;
+  const v = q.redirectBaseUrl.trim();
+  return v === "" || isHttpUrl(v) ? { redirectBaseUrl: v } : null;
+}
+
+export function PasskeyImpactNote({ query, testId, debounceMs = 0 }: { query: ImpactQuery | undefined; testId: string; debounceMs?: number }) {
   const [impact, setImpact] = useState<CredentialImpact | null>(null);
+  const q = askable(query);
+  const key = q ? JSON.stringify(q) : "";
 
   useEffect(() => {
     setImpact(null);
-    const target = url?.trim();
-    if (!target || !/^https?:\/\//i.test(target)) return;
+    if (!key) return;
     let cancelled = false;
     const timer = setTimeout(() => {
-      credentialImpact(target)
+      credentialImpact(JSON.parse(key) as ImpactQuery)
         .then((r) => {
           if (!cancelled) setImpact(r);
         })
@@ -33,7 +44,7 @@ export function PasskeyImpactNote({ url, testId, debounceMs = 0 }: { url: string
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [url, debounceMs]);
+  }, [key, debounceMs]);
 
   const text = impactConsequence(impact);
   if (!text) return null;
