@@ -5,7 +5,51 @@
     "rail": "tunnel",
     "titleEdge": "contrast"
   },
-  "effects": [],
+  "effects": [
+    {
+      "id": "frame-chrome",
+      "params": {
+        "layers": [
+          {
+            "asset": "stub-chrome",
+            "anchor": "tl",
+            "size": 0.2
+          },
+          {
+            "asset": "stub-chrome",
+            "anchor": "br",
+            "size": 0.2
+          }
+        ]
+      }
+    }
+  ],
+  "assets": [
+    {
+      "id": "stub-chrome",
+      "path": "assets/stub-chrome.png",
+      "sha256": "18e31b20ccff3e15d4a4f14a6919eb66b3a36633767d020979b96f1fcd120f70",
+      "mime": "image/png"
+    },
+    {
+      "id": "stub-icon",
+      "path": "assets/stub-icon.json",
+      "sha256": "a786d8b3958bb5b7bf6356c92912851e07194681f6eb635652e4c8f473c2b160",
+      "mime": "application/json"
+    },
+    {
+      "id": "stub-layout",
+      "path": "assets/stub-layout.json",
+      "sha256": "a37d0f9cb722c7d7741d96cc9a24e5b1392b2eccde2bca9002546aa3f3375f74",
+      "mime": "application/json"
+    },
+    {
+      "id": "stub-outline",
+      "path": "assets/stub-outline.json",
+      "sha256": "d9590f9a1d9dd462416cee0b6d61250d4dbfa7b43eb71b2ae11ed76f9a405615",
+      "mime": "application/json"
+    }
+  ],
   "slides": {
     "how-business-changes-by-2031": {
       "effects": [
@@ -586,6 +630,14 @@
         },
         {
           "id": "trail"
+        },
+        {
+          "id": "slide-layer",
+          "params": {
+            "layout": "stub-layout",
+            "slide": "s01",
+            "mode": "free"
+          }
         }
       ],
       "diagram": {
@@ -613,6 +665,16 @@
         },
         {
           "id": "orbit"
+        },
+        {
+          "id": "icon3d",
+          "params": {
+            "asset": "stub-icon",
+            "layout": "stub-layout",
+            "slide": "s01",
+            "item": "s01-i005",
+            "card": true
+          }
         }
       ],
       "diagram": {
@@ -634,6 +696,18 @@
         },
         {
           "id": "sao"
+        },
+        {
+          "id": "art3d",
+          "params": {
+            "outline": "stub-outline",
+            "scale": 1.6,
+            "x": 4.5,
+            "y": 2.2,
+            "z": 1.2,
+            "sway": 0.3,
+            "sweep": true
+          }
         }
       ],
       "diagram": {
@@ -661,6 +735,9 @@
         },
         {
           "id": "volumetric-spot"
+        },
+        {
+          "id": "haze"
         }
       ],
       "diagram": {

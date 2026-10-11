@@ -162,4 +162,4 @@ Additive. Ship as a deck3d minor version. Decks using new features require it, a
 
 ## Open Questions
 
-- `compare` default threshold (0.85) and asset budget numbers: calibrate on the synthetic fixtures and the acceptance run.
+- ~~`compare` default threshold (0.85) and asset budget numbers~~ **Calibrated on the generated fixtures (task 6.4):** a faithful `slide-layer` rendition scores 0.907 against an independently drawn reference (plain HTML/CSS of the same layout); a mismatched slide scores < 0.85 (checker reference) and unrelated content < 0.3. The default stays **0.85**. The deck's output tone mapping dims pure white to ≈ 221 (mean RGB difference ≈ 20), which is why a faithful match lands near 0.9 rather than 0.99 — the skill says so. Asset budgets (25 MB warn / 200 MB error) held on the 4 MB and 200 MB fixtures. The real-deck acceptance run (#M1) is manual and stays open.

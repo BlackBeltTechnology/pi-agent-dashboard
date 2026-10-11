@@ -6,8 +6,9 @@
  * embedded IR stays the record of what was rendered, and the panel's state
  * lives in memory plus `localStorage["deck3d:" + derivedHash]`.
  */
-import { TRANSITION_IDS } from "./transition.js";
+
 import type { BuiltDiagramKind, CardOffset, Defaults, EffectRef, Layout, Material, Mode, Palette, Quality, Rail, TitleEdge } from "../ir/types.js";
+import { TRANSITION_IDS } from "./transition.js";
 
 export interface HudSlide {
   id: string;
@@ -18,9 +19,11 @@ export interface HudSlide {
 export interface HudHost {
   slides: HudSlide[];
   /** Every effect the deck can instantiate (corpus + embedded `local:` cards). */
-  catalogue: Array<{ id: string; kind: string }>;
+  catalogue: Array<{ id: string; kind: string; persistent?: boolean }>;
   /** Deck-level effect ids, PREPENDED to every slide — shown as inherited slots. */
   deckEffects: string[];
+  /** Live deck-scope persistent effect ids (deck-wide singletons). */
+  persistentEffects?: () => string[];
   /** Deck defaults as embedded (read-only). */
   defaults: Defaults;
   /** Keys already overridden, for the `●` markers. */
@@ -33,7 +36,8 @@ export interface HudHost {
   /** Same, for EVERY slide — a deck-scope value is not a property of one slide. */
   applyDeck: (patchFor: (slideId: string) => SlidePatch) => void;
   /** Recompose the current slide's effects from this list. */
-  applyEffects: (ids: string[]) => void;
+  /** `scope` decides persistent cards: only a deck-scope list may carry them. */
+  applyEffects: (ids: string[], scope: "deck" | "slide") => void;
   /** Declared knobs of the current slide's effects, with values in force. */
   effectParams: () => Array<{ id: string; schema: Record<string, unknown>; values: Record<string, unknown> }>;
   /** Rebuild one effect of the current slide under edited params. */
@@ -434,14 +438,19 @@ export function createHud(host: HudHost): Hud {
       state.slides[slideId].effects = next;
     }
     persist();
-    host.applyEffects(next);
+    host.applyEffects(next, scope);
     // The list itself changed shape — rows and the picker's options with it.
     render();
   }
 
   /** Effect ids of one kind, sorted — the stepper's ring. */
+  /** What the active scope may add: persistent cards are deck-scope only. */
+  function offered(): Array<{ id: string; kind: string; persistent?: boolean }> {
+    return scope === "slide" ? host.catalogue.filter((c) => !c.persistent) : host.catalogue;
+  }
+
   function idsOfKind(kind: string): string[] {
-    return host.catalogue
+    return offered()
       .filter((c) => c.kind === kind)
       .map((c) => c.id)
       .sort();
@@ -449,7 +458,7 @@ export function createHud(host: HudHost): Hud {
 
   /** Kinds the catalogue actually carries (background, post, light, …). */
   function kinds(): string[] {
-    return [...new Set(host.catalogue.map((c) => c.kind))].sort();
+    return [...new Set(offered().map((c) => c.kind))].sort();
   }
 
   function kindOf(id: string): string {
@@ -524,7 +533,10 @@ export function createHud(host: HudHost): Hud {
     const list = el("div", { class: "deck3d-hud-effects" });
     const composed = host.slides[host.current() - 1]?.effects ?? [];
     const staged = (scope === "deck" ? state.deck.effects : state.slides[slideId]?.effects) as string[] | undefined;
-    const active = staged ?? composed.map((e) => e.id);
+    const composedIds = composed.map((e) => e.id);
+    // Persistent cards never sit in a slide's list; deck scope shows them.
+    const persistentIds = scope === "deck" ? (host.persistentEffects?.() ?? []).filter((id) => !composedIds.includes(id)) : [];
+    const active = staged ?? [...composedIds, ...persistentIds];
     const fromDeck = new Set(host.deckEffects);
     for (let i = 0; i < active.length; i++) {
       list.appendChild(slotRow(slideId, active, i, scope === "slide" && fromDeck.has(active[i])));
@@ -539,7 +551,7 @@ export function createHud(host: HudHost): Hud {
     button.textContent = "+ add slot";
     button.addEventListener("click", () => {
       const taken = new Set(active);
-      const seed = idsOfKind("background").find((id) => !taken.has(id)) ?? host.catalogue.map((c) => c.id).find((id) => !taken.has(id));
+      const seed = idsOfKind("background").find((id) => !taken.has(id)) ?? offered().map((c) => c.id).find((id) => !taken.has(id));
       if (seed) commitEffects(slideId, [...active, seed]);
     });
     return button;
@@ -556,6 +568,9 @@ export function createHud(host: HudHost): Hud {
     const box = el("div", { class: "deck3d-hud-fxparams" });
     for (const [key, rawSpec] of Object.entries(decl.schema)) {
       const spec = rawSpec as { type?: string; minimum?: number; maximum?: number; default?: unknown; enum?: string[] };
+      // Structured params (layer lists, id maps) have no scalar control; they
+      // are edited in deck.json or picked as a variant.
+      if (spec.type === "array" || spec.type === "object" || (spec.type === "string" && !spec.enum)) continue;
       const current = decl.values[key] ?? spec.default;
       const line = el("label", { class: "deck3d-hud-fxparam" });
       const tag = el("span");
@@ -802,8 +817,15 @@ export function createHud(host: HudHost): Hud {
       body.appendChild(box);
     }
 
+    // `serve ?variant=` renders a candidate in memory: it must never reach disk
+    // through this panel, so Save/Apply are disabled and the notice says how
+    // to choose it properly.
+    const variantPreview = (window as { __DECK3D_VARIANT?: { step: string; name: string } }).__DECK3D_VARIANT;
+
     const notice = el("div", { class: "deck3d-hud-note" });
-    notice.textContent = served
+    notice.textContent = variantPreview
+      ? `Previewing variant ${variantPreview.step}:${variantPreview.name}. Save and Apply are disabled; choose a variant with \`deck3d variants pick ${variantPreview.step} ${variantPreview.name}\`.`
+      : served
       ? "Save writes overrides.json beside the deck. Apply merges into deck.json and rebuilds. Markdown inline overrides win over the file, and a saved effects list pins that scope's effects."
       : "Tuning here is remembered in this browser only. Export writes overrides.json; make it permanent with `deck3d overrides apply deck.json overrides.json`, then rebuild. Markdown inline overrides win over this file, and an exported effects list pins that scope's effects.";
     body.appendChild(notice);
@@ -818,6 +840,10 @@ export function createHud(host: HudHost): Hud {
       apply.textContent = "Apply to deck.json";
       apply.addEventListener("click", () => void postPayload("/__apply", apply));
       body.appendChild(apply);
+      if (variantPreview) {
+        save.disabled = true;
+        apply.disabled = true;
+      }
     }
 
     const exportButton = el("button", { type: "button", id: "deck3d-hud-export" });

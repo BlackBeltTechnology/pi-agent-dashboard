@@ -12,7 +12,7 @@ Controls SHALL be grouped into collapsible blocks, each independently openable a
 
 Within the **Effects** block, each composed effect SHALL render a control per parameter DECLARED IN ITS CARD — generated from the declaration, never hand-written per effect, so corpus and `local:` effects alike gain controls by declaring params. A declared `minimum`/`maximum` SHALL render a slider bounded by them, a `boolean` a checkbox, and an `enum` a select. Editing a parameter SHALL re-instantiate that effect on the current slide immediately, SHALL NOT mutate the authored deck, and SHALL be written into an export as `effects[].params`.
 
-The **Effects** block SHALL also offer an **add** control listing every effect the deck can instantiate — the whole corpus plus the deck's `local:` cards — grouped by `kind`, excluding the ids already on the slide. Picking one SHALL append it to that scope's list and rebuild the current slide so the addition is visible without a reload; the added effect SHALL gain its declared parameter controls like any composed effect. Adding and removing SHALL NOT mutate the embedded IR, and the resulting list SHALL be what an export pins for that scope.
+The **Effects** block SHALL also offer an **add** control listing every effect the deck can instantiate — the whole corpus plus the deck's `local:` cards — grouped by `kind`, excluding the ids already on the slide, and excluding cards with `persistent: true` at slide scope (they are offered only at deck scope). Adding, removing or editing a parameter of a persistent card SHALL dispose and re-create its single deck-wide instance, never a per-slide copy. Picking one SHALL append it to that scope's list and rebuild the current slide so the addition is visible without a reload; the added effect SHALL gain its declared parameter controls like any composed effect. Adding and removing SHALL NOT mutate the embedded IR, and the resulting list SHALL be what an export pins for that scope.
 
 #### Scenario: Add an effect from the catalogue
 - **WHEN** the presenter picks `pixelate` from the add control on a slide that does not list it
@@ -45,6 +45,14 @@ The **Effects** block SHALL also offer an **add** control listing every effect t
 #### Scenario: Scope-specific blocks
 - **WHEN** the panel is in deck scope
 - **THEN** the **Layout** block offers `layout`, `rail` and `spacing` and no `diagram.*` or `cardOffset.*` control; in slide scope it offers `layout`, `diagram.*` and `cardOffset.*` and neither `rail` nor `spacing`
+
+#### Scenario: Persistent card not offered per slide
+- **WHEN** the presenter opens the add control in slide scope
+- **THEN** `frame-chrome` is not listed, and it is listed when the scope is switched to deck
+
+#### Scenario: Editing a persistent card
+- **WHEN** the presenter changes a `frame-chrome` parameter at deck scope
+- **THEN** exactly one `frame-chrome` instance exists afterwards, outside every slide group, showing the new value
 
 ### Requirement: Live application without IR mutation
 Changing a control SHALL apply to the rendered scene immediately (look, camera, labels, effects composition) and SHALL persist only in memory and browser local storage keyed by the deck's derived hash; the embedded IR object SHALL be unchanged afterwards. Unchecking an effect SHALL remove it from that scope's composed list while preserving the order of the rest. While a panel input has focus, slide navigation keys and the `C` toggle SHALL not fire, and clicks inside the panel SHALL not advance the slide.

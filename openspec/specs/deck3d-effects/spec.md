@@ -6,7 +6,7 @@ A curated, licence-clean corpus of named visual effects (backgrounds, post-proce
 ## Requirements
 
 ### Requirement: Effect corpus with metadata cards
-The package SHALL ship an effects corpus under `src/fx/<id>.ts` + `src/fx/<id>.meta.json`. Each module SHALL implement one interface (`create(ctx, params) → { object?, pass?, material?, tick?(t), dispose() }`, where `ctx` is `{ THREE, palette, mode, quality, rng, slide: { id, title, kind } }` — `rng` a seeded per-slide generator, `slide` read-only metadata) and each card SHALL declare: `id`, `kind` (`background` | `post` | `material` | `light` | `motion` | `edge` | `transition`), `tags.mood[]`, `tags.content[]`, optional `tags.topic[]` drawn from `ai`, `agents`, `geo`, `trust`, `security`, `compute`, `data`, `money`, `work`, `timeline`, `sales`, `process`, `cost` (1–5), `modes` (`dark` | `light` | `both`), `params` (JSON Schema with defaults and ranges), `conflicts[]` (effect ids), `source` (URL, or the literal `local` for a deck-local card) and `licence` (SPDX id). Only permissive licences (MIT, Zlib, BSD, CC0, Apache-2.0) are admitted; a card whose `licence` is missing or non-permissive SHALL fail the corpus test, as SHALL a corpus card whose `source` is `local` or whose `tags.topic` contains a value outside the vocabulary.
+The package SHALL ship an effects corpus under `src/fx/<id>.ts` + `src/fx/<id>.meta.json`. Each module SHALL implement one interface (`create(ctx, params) → { object?, pass?, material?, tick?(t), dispose() }`, where `ctx` is `{ THREE, palette, mode, quality, rng, slide: { id, title, kind }, assets }` — `rng` a seeded per-slide generator, `slide` read-only metadata, `assets` the read-only deck asset accessor whose `get(id)` throws for an unknown id) and each card SHALL declare: `id`, `kind` (`background` | `post` | `material` | `light` | `motion` | `edge` | `transition` | `layer` — `layer` effects draw slide content on the content layer, above the backdrop pass), optional `replacesContent` (boolean, default false; when any effect composed on a slide declares it, the runtime does not build that slide's native title, subtitle, bullet card or diagram, and `measure()` reports none of them), optional `persistent` (boolean, default false; a persistent effect is deck-scope only, created once per deck load, kept outside slide groups and given a per-frame `transition({ from, to, p })` hook — see deck3d-slide-layers), `tags.mood[]`, `tags.content[]`, optional `tags.topic[]` drawn from `ai`, `agents`, `geo`, `trust`, `security`, `compute`, `data`, `money`, `work`, `timeline`, `sales`, `process`, `cost` (1–5), `modes` (`dark` | `light` | `both`), `params` (JSON Schema with defaults and ranges), `conflicts[]` (effect ids), `source` (URL, or the literal `local` for a deck-local card) and `licence` (SPDX id). Only permissive licences (MIT, Zlib, BSD, CC0, Apache-2.0) are admitted; a card whose `licence` is missing or non-permissive SHALL fail the corpus test, as SHALL a corpus card whose `source` is `local` or whose `tags.topic` contains a value outside the vocabulary.
 
 #### Scenario: Card drives validation
 - **WHEN** `overrides.slides["<slideId>"].effects` contains `{ id: "aurora", params: { speed: 9 } }` and the `aurora` card bounds `speed` to `0..2`
@@ -23,6 +23,14 @@ The package SHALL ship an effects corpus under `src/fx/<id>.ts` + `src/fx/<id>.m
 #### Scenario: Existing effects unaffected by the wider context
 - **WHEN** the corpus test constructs every effect with the extended `ctx`
 - **THEN** every existing effect constructs and disposes without error
+
+#### Scenario: Built-in effect reads a deck asset
+- **WHEN** a slide lists `{ id: "slide-layer", params: { layout: "layout", slide: "s03" } }` and `overrides.assets` contains an entry with id `layout`
+- **THEN** the effect constructs by reading the layout through `ctx.assets.get("layout")`, and no network request is made
+
+#### Scenario: Layer kind is not a backdrop
+- **WHEN** a slide composes `slide-layer` (kind `layer`)
+- **THEN** its objects draw on the content layer and `check` reports no `fx-content-layer` finding for it
 
 ### Requirement: v1 corpus content
 The v1 corpus SHALL contain at least the effects present in the strategy-lab mockup (`tokens`, `rings`, `swarm`, `particles` backgrounds; `bloom`, `film` post; `glass`, `metal`, `emissive` materials; `mirror-floor`, `fog`, `soft-shadows`, `room-ibl` staging; `signal-pulse` edge; `dolly` transition) plus permissively-licensed additions ported from three.js examples (MIT), `pmndrs/postprocessing` (Zlib — the runtime's single `EffectComposer`; `bloom`/`film` are re-expressed as its `BloomEffect`/`NoiseEffect`), `@pmndrs/drei-vanilla` (MIT) and `n8ao` (CC0): `starfield`, `aurora`, `grid-horizon`, `hex-grid`, `data-columns`, `glyph-rain`, `constellation` backgrounds; `vignette`, `chromatic-aberration`, `depth-of-field`, `god-rays`, `n8ao`, `selective-bloom`, `smaa` post; `holo-fresnel`, `wireframe-overlay`, `iridescent`, `matcap` materials; `lightformers`, `accent-cycle`, `volumetric-spot` lights; `float`, `orbit`, `stagger-reveal`, `trail`, `camera-drift` motion; `dashed-flow`, `glow-tube`, `particle-stream` edges; `fade`, `iris`, `flythrough` transitions. The corpus SHALL further contain topic-world backgrounds built from 3D scenery (not only points and cubes), each with `tags.topic`: `globe-arcs` (geo), `city-grid` (work, sales), `neural-mesh` (ai), `vault-glyphs` (trust, security), `server-racks` (compute), `market-tape` (money, data), `orbit-agents` (agents), `paper-stack` (process); and the existing `hex-grid`, `grid-horizon`, `constellation`, `data-columns`, `glyph-rain` SHALL carry at least one `tags.topic`. Every topic in the vocabulary SHALL be covered by at least one background card. Each topic-world background SHALL expose `density` and `speed` params, use the seeded generator (never `Math.random`) and scale instance counts with `quality`.
@@ -159,12 +167,12 @@ The corpus SHALL provide `background` cards ported from the three.js WebGL examp
 - **THEN** the extruded geometry has a non-zero triangle count and no console error is raised
 
 ### Requirement: The reference deck presents the whole corpus
-The `business-2031` fixture SHALL present every corpus card on exactly one slide: no card left unpresented, no card on two slides, and nothing parked at deck scope (deck-scope effects prepend to every slide, which is duplication by construction). A card the fixture cannot place SHALL fail the build of the corpus, not be silently skipped — the fixture is the corpus's only end-to-end demonstration.
+The `business-2031` fixture SHALL present every corpus card on exactly one slide: no card left unpresented, no card on two slides, and nothing parked at deck scope (deck-scope effects prepend to every slide, which is duplication by construction). The single exception is a card with `persistent: true`: it is never prepended to slides, so the fixture SHALL present each persistent card exactly once in deck-scope `overrides.effects`, and `overrides.effects` SHALL contain nothing else. A card the fixture cannot place SHALL fail the build of the corpus, not be silently skipped — the fixture is the corpus's only end-to-end demonstration.
 
 #### Scenario: Every card is presented exactly once
 - **GIVEN** the built `business-2031` IR after `applyOverrides`
 - **WHEN** the per-slide effect lists are collected
-- **THEN** every `src/fx/*.meta.json` id appears in exactly one slide's list, `overrides.effects` is empty, and `check` reports clean
+- **THEN** every non-persistent `src/fx/*.meta.json` id appears in exactly one slide's list, every persistent id appears exactly once in `overrides.effects`, `overrides.effects` holds only persistent ids, and `check` reports clean
 
 #### Scenario: A new card must be placed
 - **GIVEN** a card added to `src/fx/` and not placed on a fixture slide
@@ -175,6 +183,11 @@ The `business-2031` fixture SHALL present every corpus card on exactly one slide
 - **GIVEN** the fixture after its local modules were promoted into the corpus
 - **WHEN** its `fx/` directory is read
 - **THEN** exactly one local module remains, referenced as `local:` with a matching `sha256` pin
+
+#### Scenario: Persistent card placed at deck scope
+- **GIVEN** `frame-chrome` (persistent) listed once in the fixture's `overrides.effects`
+- **WHEN** the corpus-coverage test runs
+- **THEN** it passes, and no slide's composed effect list contains `frame-chrome`
 
 ### Requirement: Video plays on a screen in the scene
 The corpus SHALL provide a `video-screen` background card that plays a looping clip on a framed screen standing in the slide's scene, positioned by `width`/`x`/`y`/`z`/`tilt`.

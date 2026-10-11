@@ -62,3 +62,43 @@ describe("parseMarkdown", () => {
     }
   });
 });
+
+// deck3d-pptx-import D10: override comments never become subtitle/bullet text.
+describe("inline override spans", () => {
+  const noComment = (s: string | undefined) => expect(s ?? "").not.toContain("<!--");
+
+  it("single-line override directly under the heading is not the subtitle (E1)", () => {
+    const deck = parseMarkdown('# {#s02}\n<!-- deck3d: {"mode":"light"} -->\n');
+    const s = deck.slides[0];
+    expect(s.id).toBe("s02");
+    expect(s.subtitle).toBeUndefined();
+    expect(s.inlineOverrides).toEqual({ mode: "light" });
+  });
+
+  it("multi-line override is recorded; the next paragraph is the subtitle (E2)", () => {
+    const deck = parseMarkdown('# Intro\n\n<!-- deck3d: {\n  "mode": "light"\n} -->\n\nHello\n');
+    const s = deck.slides[0];
+    expect(s.inlineOverrides).toEqual({ mode: "light" });
+    expect(s.subtitle).toBe("Hello");
+    noComment(s.subtitle);
+    for (const b of s.bullets) noComment(b);
+  });
+
+  it("bullet-form override is dropped from bullets and recorded (E3)", () => {
+    const deck = parseMarkdown('# Intro\n\n- a\n- <!-- deck3d: {"mode":"dark"} -->\n- b\n');
+    const s = deck.slides[0];
+    expect(s.bullets).toEqual(["a", "b"]);
+    expect(s.inlineOverrides).toEqual({ mode: "dark" });
+  });
+
+  it("multi-line override with invalid JSON names the slide and the JSON error (E4)", () => {
+    const bad = "# Intro\n\n<!-- deck3d: {\n  mode: light\n} -->\n";
+    expect(() => parseMarkdown(bad)).toThrowError(MarkdownParseError);
+    try {
+      parseMarkdown(bad);
+    } catch (err) {
+      expect((err as Error).message).toContain('slide "intro"');
+      expect((err as Error).message).toMatch(/invalid inline JSON.*JSON|Expected|Unexpected/);
+    }
+  });
+});

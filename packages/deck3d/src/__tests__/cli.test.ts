@@ -69,3 +69,33 @@ describe("E43 help lists every new command and flag", () => {
     expect(r.stdout).toContain(token);
   });
 });
+
+// test-plan #E58 — `--help` names every command the spec lists (deck3d-skill).
+describe("deck3d --help lists every command (E58)", () => {
+  const help = spawnSync(BIN, ["--help"], { encoding: "utf8" });
+  const names = [
+    "fx scaffold",
+    "fx hash",
+    "fx promote",
+    "overrides apply",
+    "check <deck.html> [--style]",
+    "props search",
+    "--role",
+    "props generate",
+    "--prompt",
+    "pptx import",
+    "art trace",
+    "art icon",
+    "art cutout",
+    "variants render",
+    "variants pick",
+    "variants note",
+    "variants replay",
+    "compare <deck.html>",
+  ];
+  it("exits 0 and contains each command name", () => {
+    expect(help.status).toBe(0);
+    for (const name of names) expect(help.stdout, name).toContain(name);
+  });
+});
+

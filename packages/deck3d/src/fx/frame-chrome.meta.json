@@ -1,0 +1,17 @@
+{
+  "id": "frame-chrome",
+  "kind": "layer",
+  "tags": { "mood": ["branded", "framed"], "content": ["master", "corner-art", "persistent"] },
+  "cost": 1,
+  "modes": "both",
+  "persistent": true,
+  "params": {
+    "opacity": { "type": "number", "default": 1, "minimum": 0, "maximum": 1 },
+    "scale": { "type": "number", "default": 1, "minimum": 0.2, "maximum": 3 },
+    "layers": { "type": "array", "default": [] },
+    "suppress": { "type": "array", "default": [] }
+  },
+  "conflicts": [],
+  "source": "https://github.com/BlackBeltTechnology/pi-agent-dashboard/tree/develop/packages/deck3d/src/fx/frame-chrome.ts",
+  "licence": "MIT"
+}

@@ -12,6 +12,8 @@ by writing `overrides` in `deck.json`**, never by editing the HTML.
 
 ## When to use
 
+- The user has an existing **`.pptx`**: follow [`deck3d-from-pptx`](../deck3d-from-pptx/SKILL.md)
+  (import, reference renders, then a variant-and-ask step per styling decision).
 - The user has a Markdown outline (headings + bullets + ```mermaid blocks) and
   wants a presentation they can open offline in a browser.
 - You need to tune placement, legibility, mode, effects or props of an existing
@@ -26,6 +28,8 @@ by writing `overrides` in `deck.json`**, never by editing the HTML.
 - A fenced ```mermaid `flowchart` / `sequenceDiagram` block becomes the slide's
   diagram (harvested in headless chromium). Any other diagram type ⇒ warn + no diagram.
 - `<!-- deck3d: {...} -->` inline overrides win over `deck.json` and warn on clobber.
+  The comment may span several lines or be written as a bullet (`- <!-- deck3d: {...} -->`);
+  in every form it is read as an override and is **never** the subtitle or a bullet.
 - Pin a slide id with `# Final {#outro}` so renames never orphan tuning.
 
 ## The tune loop
@@ -166,6 +170,27 @@ attempts shows up as `local-fx-network`. Promote a good one with
 - Conflicts fail `render`; mode-incompatible effects are skipped with a warning;
   the summed `cost` warns over the quality budget (`low` 6 / `medium` 12 / `high` 20).
 
+## Deck assets, layer effects and the pptx pipeline
+
+- **`overrides.assets[]`** — `{ id, path, sha256, mime }` pins files (PNG/JPEG/GIF/WebP/SVG,
+  JSON, text, `font/ttf|otf`) that `render` embeds once as `data:` URIs, so the HTML stays
+  one offline file. `path` must stay inside the deck directory; a stale `sha256` fails
+  `validate`/`render`. Effects read them with `ctx.assets.get(id)` (decoded bitmap, parsed
+  JSON, text, or a font family name) — also **local effects**, whose 64 KiB code cap is
+  unchanged. Font assets use ids `font-<name>`. Budget: warn above 25 MB, fail above 200 MB.
+- **Card kind `layer`** draws slide *content* above the backdrop pass. `replacesContent`
+  cards (`slide-layer`) drop the slide's native title/card/bullets/diagram; **`persistent`**
+  cards (`frame-chrome`) are **deck-scope only** (`overrides.effects`), created once outside
+  every slide group, driven by `transition({from,to,p})`.
+- **Built-ins:** `slide-layer`, `frame-chrome`, `art3d`, `icon3d`, `haze` (see
+  [`reference/effects.md`](reference/effects.md)); `deck3d fx preview <id>` renders each
+  against a packaged stub bundle.
+- **Commands:** `deck3d pptx import|art trace|art icon|art cutout|variants render|pick|note|replay|compare`
+  — `deck3d --help` lists them; the end-to-end procedure is `deck3d-from-pptx`.
+- **`style.json`** beside `deck.json` records the picks (`steps[].variants[]`, `picked`,
+  `note`, `round`); `validate` checks it. `serve` previews a candidate at
+  `?variant=<step>:<name>` (`V` cycles) without writing anything.
+
 ## Props (content illustrations)
 
 `deck3d props search <keywords>` → candidate table (vendored first, then Poly Pizza).
@@ -243,7 +268,9 @@ last `credits` slide at render. Never fetch a model whose licence you cannot nam
 - During a fly both slides tick, the arriving slide's local fx are re-created
   at the START of the fly, and `cullNeighbours()` hides whole slide groups by
   distance — a camera-pinned overlay that must survive the fly has to reparent
-  itself into the scene (keep shared state in `THREE.Cache.files`).
+  itself into the scene (keep shared state in `THREE.Cache.files`) — or, for deck-wide
+  camera-pinned art, use a **persistent** card (`frame-chrome`), which the runtime creates
+  once outside every slide group and drives with `transition({from,to,p})`.
 - The mermaid engine is pinned exactly; a bump is a deliberate change and the
   harvest fixtures will fail if the rendered id scheme moves.
 - Headless/background tabs stall `requestAnimationFrame`; the loop falls back to

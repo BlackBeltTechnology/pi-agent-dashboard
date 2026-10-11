@@ -38,6 +38,8 @@ export class MarkdownParseError extends Error {
 }
 
 const OVERRIDE_RE = /^<!--\s*deck3d:\s*([\s\S]*?)\s*-->\s*$/;
+/** Start of an override comment, optionally in bullet form (`- <!-- deck3d:`). */
+const OVERRIDE_OPEN_RE = /^(?:[-*]\s+)?<!--\s*deck3d:/;
 const BULLET_RE = /^\s*[-*]\s+(.*)$/;
 
 interface RawSlide {
@@ -142,10 +144,11 @@ export function parseMarkdown(source: string): ParsedDeck {
   const slides: ParsedSlide[] = raws.map((raw, i) => {
     const heading = parseHeading(raw.heading);
     const id = ids[i];
-    const content = stripNonContent(raw.body);
+    const { lines: body, overrides } = collapseOverrideSpans(raw.body);
+    const content = stripNonContent(body);
     const subtitle = extractSubtitle(content);
     const bullets = extractBullets(content);
-    const inlineOverrides = extractInlineOverride(content, id);
+    const inlineOverrides = extractInlineOverride(overrides, id);
     const mermaid = extractMermaid(raw.body);
     const slide: ParsedSlide = { index: i + 1, id, title: heading.title, bullets };
     if (heading.pin) slide.pin = heading.pin;
@@ -158,6 +161,31 @@ export function parseMarkdown(source: string): ParsedDeck {
   return { defaults, slides };
 }
 
+/**
+ * Lift every `<!-- deck3d: … -->` span (single-line, multi-line, or bullet
+ * form `- <!-- deck3d: … -->`) out of the slide body into an override record,
+ * so an override can never be read as subtitle or bullet text. Fenced code is
+ * left untouched. An unterminated span runs to the end of the body.
+ */
+function collapseOverrideSpans(body: string[]): { lines: string[]; overrides: string[] } {
+  const lines: string[] = [];
+  const overrides: string[] = [];
+  let inFence = false;
+  for (let i = 0; i < body.length; i++) {
+    const line = body[i];
+    const t = line.trim();
+    if (t.startsWith("```")) inFence = !inFence;
+    if (inFence || !OVERRIDE_OPEN_RE.test(t)) {
+      lines.push(line);
+      continue;
+    }
+    const span = [t.replace(/^[-*]\s+/, "")];
+    while (!span[span.length - 1].includes("-->") && i + 1 < body.length) span.push(body[++i]);
+    overrides.push(span.join("\n"));
+  }
+  return { lines, overrides };
+}
+
 /** Lines that contribute to subtitle/bullets (drops fences and comments). */
 function stripNonContent(body: string[]): string[] {
   const out: string[] = [];
@@ -168,7 +196,7 @@ function stripNonContent(body: string[]): string[] {
       continue;
     }
     if (inFence) continue;
-    if (line.trim().startsWith("<!--") && !OVERRIDE_RE.test(line.trim())) continue;
+    if (line.trim().startsWith("<!--")) continue;
     out.push(line);
   }
   return out;
@@ -198,9 +226,9 @@ function extractBullets(content: string[]): string[] {
   return bullets;
 }
 
-function extractInlineOverride(content: string[], slideId: string): SlideOverride | undefined {
-  for (const line of content) {
-    const m = OVERRIDE_RE.exec(line.trim());
+function extractInlineOverride(spans: string[], slideId: string): SlideOverride | undefined {
+  for (const span of spans) {
+    const m = OVERRIDE_RE.exec(span.trim());
     if (!m) continue;
     try {
       return JSON.parse(m[1]) as SlideOverride;

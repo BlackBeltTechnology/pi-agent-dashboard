@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "deck3d style.json",
+  "description": "The recorded creative decisions of a deck: ordered steps, each with 2-4 candidate override fragments, the pick, and the rounds taken.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "steps"],
+  "properties": {
+    "version": { "const": 1 },
+    "source": { "type": "string", "description": "The pptx or brief the deck was built from." },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "question", "slides", "round", "variants"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+          "title": { "type": "string" },
+          "question": { "type": "string" },
+          "slides": { "type": "array", "items": { "type": "string" }, "description": "Sample slide ids shown on the contact sheet." },
+          "round": { "type": "integer", "minimum": 1 },
+          "variants": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "label", "overrides"],
+              "properties": {
+                "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$" },
+                "label": { "type": "string" },
+                "overrides": { "type": "object", "description": "Fragment in the deck overrides grammar (validated against it)." }
+              }
+            }
+          },
+          "picked": { "type": ["string", "null"], "description": "Chosen variant name, or null when the answer was free text." },
+          "note": { "type": "string" },
+          "pickedAt": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T" },
+          "pending": { "type": "boolean", "description": "True while a pick is half-written; any variants command then asks for a re-run." },
+          "drop": { "type": "array", "items": { "type": "string" }, "description": "Effect/prop ids the pick was allowed to remove (--drop), kept so `variants replay` repeats it." },
+          "replaceStep": { "type": "string", "description": "Earlier step whose effects the pick replaced (--replace-step), kept for replay." }
+        }
+      }
+    }
+  }
+}
