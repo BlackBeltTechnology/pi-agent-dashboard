@@ -47,3 +47,7 @@ extensions:
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[admitCwd].Argument[0]", "path-injection"]
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[issueHeldAdmission].Argument[1]", "path-injection"]
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[issueHeldAdmission].Argument[1]", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[issueHeldAdmission].Parameter[1]", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[issueHeldAdmission].Parameter[1]", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[admitCwd].Parameter[0]", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[admitCwd].Parameter[0]", "path-injection"]
