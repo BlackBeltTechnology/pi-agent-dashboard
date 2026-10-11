@@ -22,12 +22,27 @@ import type { SessionLoadWorkerPool } from "../session/session-load-worker-pool.
 import { originOf } from "../session/session-origin.js";
 import type { NetworkGuard } from "./route-deps.js";
 
+/**
+ * Cumulative answers of the tool-result route that distinguished a still-running
+ * call (`202`) from a recorded eviction (`410`). Surfaced as `toolResult` in
+ * `/api/health`. See change: distinguish-tool-result-pending-vs-gone (D6).
+ */
+export interface ToolResultStats {
+  pending: number;
+  gone: number;
+}
+
 export function registerSessionRoutes(
   fastify: FastifyInstance,
   deps: {
     sessionManager: SessionManager;
     eventStore: EventStore;
     networkGuard: NetworkGuard;
+    /** Live-only in-flight hint: picks `202` over `404` for `?pending=1`.
+     *  See change: distinguish-tool-result-pending-vs-gone (D2). */
+    isToolInFlight?: (sessionId: string, toolCallId: string) => boolean;
+    /** Counter sink read by `/api/health` (`toolResult`). */
+    toolResultStats?: ToolResultStats;
     /** Archive index backing the on-demand listing/search/delete endpoints.
      *  See change: archive-sessions-lazy-load. */
     sessionArchive?: SessionArchive;
@@ -58,6 +73,8 @@ export function registerSessionRoutes(
     remoteTranscriptStore,
     loadWorkerPool,
     maxStringSize,
+    isToolInFlight,
+    toolResultStats,
   } = deps;
   const active = () => deps.isResolverActive?.() ?? false;
   /** Owner of a live-or-archived session, for the HTTP owner gate. */
@@ -193,10 +210,14 @@ export function registerSessionRoutes(
 
   // Full tool result lookup (localhost-only). The client renders only the
   // last N lines of large tool output; this returns the full stored result
-  // for the "Show full output" affordance. 404 when the tool call is still
-  // in flight or its event was evicted. See change:
-  // adopt-pi-071-072-073-features.
-  fastify.get<{ Params: { sessionId: string; toolCallId: string } }>(
+  // for the "Show full output" affordance. Order (design D5): owner gate →
+  // stored end `200` → recorded eviction `410` → in-flight hint with the exact
+  // opt-in `?pending=1` `202` → `404`. See change:
+  // adopt-pi-071-072-073-features, distinguish-tool-result-pending-vs-gone.
+  fastify.get<{
+    Params: { sessionId: string; toolCallId: string };
+    Querystring: { pending?: string | string[] };
+  }>(
     "/api/sessions/:sessionId/tool-result/:toolCallId",
     { preHandler: networkGuard },
     async (request, reply) => {
@@ -206,6 +227,19 @@ export function registerSessionRoutes(
       }
       const event = eventStore.findToolEndEvent(sessionId, toolCallId);
       if (!event) {
+        // `410` is non-2xx, so an old client needs no opt-in. It is vouched by
+        // the store's record of a trimmed REAL end, never by "not in flight".
+        if (eventStore.wasToolEndEvicted(sessionId, toolCallId)) {
+          if (toolResultStats) toolResultStats.gone++;
+          reply.code(410);
+          return { error: "result no longer available" };
+        }
+        // `202` is opt-in: an old client treats any 2xx as a finished result.
+        if (request.query.pending === "1" && isToolInFlight?.(sessionId, toolCallId)) {
+          if (toolResultStats) toolResultStats.pending++;
+          reply.code(202);
+          return { pending: true };
+        }
         reply.code(404);
         return { error: "tool call still in flight or unknown" };
       }

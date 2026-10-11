@@ -18,7 +18,7 @@ Every `DoctorCheck` SHALL carry a `section` field whose value is one of `runtime
 - **THEN** each of those checks SHALL have `section: "pi-tooling"`
 
 #### Scenario: Server-related checks are tagged server
-- **WHEN** the doctor produces checks named `Dashboard server code`, `Offline packages bundle`, `TypeScript loader (tsx)`, `Dashboard server`, `Server log (~/.pi-dashboard/server.log)`, or `Server launch test`
+- **WHEN** the doctor produces checks named `Dashboard server code`, `Offline packages bundle`, `TypeScript loader`, `Dashboard server`, `Server log (~/.pi-dashboard/server.log)`, or `Server launch test`
 - **THEN** each of those checks SHALL have `section: "server"`
 
 #### Scenario: Tunnel checks are tagged tunnel

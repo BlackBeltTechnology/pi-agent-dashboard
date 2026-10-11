@@ -86,7 +86,7 @@ The legacy monolithic `prepare` job SHALL be split into `resolve` (pure version 
 
 #### Scenario: Electron job consumes reusable workflow
 - **WHEN** the publish workflow reaches the electron build phase
-- **THEN** it SHALL invoke `_electron-build.yml` via `uses:` with `needs: [resolve, publish]` and `with: { version: <resolved>, ref: <tag>, legs: all, source_only_bundle: false, artifact_retention_days: 90 }`
+- **THEN** it SHALL invoke `_electron-build.yml` via `uses:` with `needs: [resolve, publish]` and `with: { version: <resolved>, ref: <tag>, legs: all, source_only_bundle: false, artifact_retention_days: 90, use_dependency_cache: false }`
 
 #### Scenario: CI failure prevents publish
 - **WHEN** any sub-job of the gate (`ci-checks` lint/test/build, or any leg of the `smoke` matrix) fails during the publish workflow
@@ -98,15 +98,21 @@ The legacy monolithic `prepare` job SHALL be split into `resolve` (pure version 
 - **THEN** every step SHALL execute via `cmd.exe` (default), `pwsh`, or directly via `node` — no step SHALL execute via `bash`
 
 ### Requirement: Reusable Electron build workflow
-The project SHALL provide a reusable workflow `.github/workflows/_electron-build.yml` with `on: workflow_call` that encapsulates the full 6-leg Electron matrix (darwin arm64/x64, linux x64/arm64, win32 x64/arm64). The workflow SHALL accept inputs: `version` (string, required), `ref` (string, required), `legs` (string, default `all`), `source_only_bundle` (boolean, default `false`), and `artifact_retention_days` (number, default `14`). The workflow SHALL be the sole definition of the Electron build matrix in the repo; `publish.yml` SHALL consume it via `uses:` rather than inlining the matrix.
+The project SHALL provide a reusable workflow `.github/workflows/_electron-build.yml` with `on: workflow_call` that encapsulates the full 6-leg Electron matrix (darwin arm64/x64, linux x64/arm64, win32 x64/arm64). The workflow SHALL accept these inputs: `version` (string, required), `ref` (string, required), `legs` (string, default `all`), `source_only_bundle` (boolean, default `false`), `artifact_retention_days` (number, default `14`), `artifact_name_suffix` (string, default empty), `registry_url` (string, default empty), and `use_dependency_cache` (boolean, default `false`). Unless `use_dependency_cache` is `true`, no build leg SHALL restore the pnpm dependency cache. The workflow SHALL be the sole definition of the Electron build matrix in the repo; `publish.yml` SHALL consume it via `uses:` rather than inlining the matrix.
 
 #### Scenario: Release pipeline consumes reusable workflow
 - **WHEN** `publish.yml` runs on a `v*` tag push
-- **THEN** its `electron` job SHALL be a `uses: ./.github/workflows/_electron-build.yml` reference with `version` = resolved tag version, `ref` = resolved tag, `legs: all`, `source_only_bundle: false`, `artifact_retention_days: 90`
+- **THEN** its `electron` job SHALL be a `uses: ./.github/workflows/_electron-build.yml` reference with `version` = resolved tag version, `ref` = resolved tag, `legs: all`, `source_only_bundle: false`, `artifact_retention_days: 90`, `use_dependency_cache: false`
 
 #### Scenario: On-demand pipeline consumes the same reusable workflow
 - **WHEN** `ci-electron.yml` runs on `workflow_dispatch`
-- **THEN** its build job SHALL be a `uses: ./.github/workflows/_electron-build.yml` reference with `source_only_bundle: true`, `ref: ${{ github.sha }}`, `artifact_retention_days: 14`
+- **THEN** its build job SHALL be a `uses: ./.github/workflows/_electron-build.yml` reference with `source_only_bundle: false`, `ref: ${{ github.sha }}`, `artifact_retention_days: 14`, `use_dependency_cache: true`
+
+#### Scenario: Dependency cache is opt-out per caller
+- **WHEN** `_electron-build.yml` is called with `use_dependency_cache: false`
+- **THEN** no build leg SHALL restore or save the pnpm dependency cache
+- **AND** when the input is omitted, no leg SHALL restore or save it either (fail-closed default)
+- **AND** when a caller passes `use_dependency_cache: true` (`ci-electron.yml`, `nightly.yml`), the legs SHALL restore the `pnpm` cache
 
 #### Scenario: Release artifact set unchanged after refactor
 - **WHEN** a release tag is cut after the refactor
@@ -237,28 +243,6 @@ The release-pipeline `tag-and-push` job in `.github/workflows/publish.yml` SHALL
 - **WHEN** a maintainer cuts a release manually (not via `workflow_dispatch`)
 - **THEN** the `release-cut` skill in `.pi/skills/release-cut/SKILL.md` SHALL document running `pnpm install --lockfile-only` between `sync-versions.js` and the commit step
 - **AND** `scripts/sync-versions.js` SHALL print a console hint pointing the maintainer at the right command
-
-### Requirement: Build tools referenced by workflows MUST be declared dependencies
-
-Every external Node.js package referenced from `.github/workflows/*.yml` — including but not limited to packages loaded via `node --import <pkg>`, `node --loader <pkg>`, `NODE_OPTIONS='--import <pkg>'`, or `npx <pkg>` — SHALL be declared in a workspace `package.json` (root or sub-package) so that `npm ci` resolves it. The publish workflow SHALL NOT rely on globally-installed packages on the GitHub Actions runner, except for the runner's preinstalled toolchain (Node.js, npm, git).
-
-This requirement closes a class of "works on my machine" CI failures where a developer has the tool installed globally but the runner does not.
-
-#### Scenario: tsx loader referenced by bundle script
-- **WHEN** `.github/workflows/publish.yml` invokes `node --import tsx/esm packages/electron/scripts/bundle-recommended-extensions.mjs`
-- **THEN** `tsx` SHALL be declared as a `devDependency` in the workspace root `package.json`
-- **AND** `package-lock.json` SHALL pin a specific resolved version
-- **AND** the step SHALL succeed without an `ERR_MODULE_NOT_FOUND` for `tsx`
-
-#### Scenario: New build-tool added in a future change
-- **WHEN** a future workflow step is added that invokes `node --import <new-pkg>` or `npx <new-pkg>`
-- **THEN** the change proposal SHALL also add `<new-pkg>` to a workspace `package.json`
-- **AND** the change SHALL regenerate `package-lock.json` in the same commit
-
-#### Scenario: Repo-lint enforcement (optional, future)
-- **WHEN** a maintainer wants to enforce this requirement automatically
-- **THEN** a repo-lint test MAY be added under `packages/shared/src/__tests__/` that greps `.github/workflows/*.yml` for `--import <pkg>` / `npx <pkg>` tokens and asserts each `<pkg>` resolves from the workspace root
-- **AND** absence of such a lint SHALL NOT be a blocker for this change
 
 ### Requirement: Reusable standalone-install-smoke workflow
 The project SHALL provide a reusable workflow `.github/workflows/_smoke.yml` with `on: workflow_call` that encapsulates the full standalone-install-smoke matrix (Linux × 6: Node 22/24/25 × bookworm-slim/alpine, plus Windows × 1: Node 22). The workflow SHALL accept input `ref` (string, required) — the git ref to check out before packing tarballs and running the install smoke. The workflow SHALL be the sole definition of the smoke matrix in the repo; both `ci-smoke.yml` (manual dispatch) and `publish.yml` (release gate) SHALL consume it via `uses:` rather than inlining the matrix.
@@ -584,3 +568,103 @@ A repo-lint test SHALL assert that `ci-e2e-browser.yml` declares the three trigg
 #### Scenario: Removing the always-teardown step fails lint
 - **WHEN** the `if: always()` teardown step is removed
 - **THEN** the repo-lint test SHALL fail naming the workflow
+
+### Requirement: Workflow build tools are declared dependencies
+
+Every external Node.js package referenced from `.github/workflows/*.yml` — including but not limited to packages loaded via `node --import <pkg>`, `node --loader <pkg>`, `NODE_OPTIONS='--import <pkg>'`, or `npx <pkg>` — SHALL be declared in a workspace `package.json` (root or sub-package) so that `npm ci` resolves it. The publish workflow SHALL NOT rely on globally-installed packages on the GitHub Actions runner, except for the runner's preinstalled toolchain (Node.js, npm, git).
+
+This requirement closes a class of "works on my machine" CI failures where a developer has the tool installed globally but the runner does not.
+
+#### Scenario: New build-tool added in a future change
+- **WHEN** a future workflow step is added that invokes `node --import <new-pkg>` or `npx <new-pkg>`
+- **THEN** the change proposal SHALL also add `<new-pkg>` to a workspace `package.json`
+- **AND** the change SHALL regenerate `package-lock.json` in the same commit
+
+#### Scenario: Repo-lint enforcement (optional, future)
+- **WHEN** a maintainer wants to enforce this requirement automatically
+- **THEN** a repo-lint test MAY be added under `packages/shared/src/__tests__/` that greps `.github/workflows/*.yml` for `--import <pkg>` / `npx <pkg>` tokens and asserts each `<pkg>` resolves from the workspace root
+- **AND** absence of such a lint SHALL NOT be a blocker for this change
+
+### Requirement: Workflows declare explicit least-privilege token permissions
+
+Every workflow under `.github/workflows/` SHALL declare the `GITHUB_TOKEN` permissions of every job explicitly. Either the workflow declares a top-level `permissions:` block, or every job in it declares a job-level `permissions:` block. No job SHALL run on the repository-default token scope.
+
+The workflows that had no top-level `permissions:` block (`publish.yml`, `_electron-build.yml`, `_smoke.yml`, `ci-electron.yml`, `ci-smoke.yml`, `ci-e2e-electron.yml`, `ci-gateway-platform.yml`) SHALL each declare a top-level `permissions: contents: read`. Their existing job-level blocks SHALL remain unchanged, and a job that needs more than read SHALL declare it in a job-level block.
+
+#### Scenario: Job on the default token fails repo-lint
+
+- **WHEN** a workflow file has no top-level `permissions:` and at least one of its jobs has no job-level `permissions:`
+- **THEN** the workflow-token-cache contract test SHALL fail, naming the workflow file and the job
+
+#### Scenario: Newly scoped workflows default to read
+
+- **WHEN** the contract test parses any of the seven listed workflows
+- **THEN** its top-level `permissions` SHALL equal exactly `{contents: read}`, or the test SHALL fail naming the workflow
+
+#### Scenario: Jobs that need write keep it via a job-level block
+
+- **WHEN** `publish.yml` runs with a top-level `permissions: contents: read`
+- **THEN** `tag-and-push`, `publish`, `github-release` and `runtime-release-assert` SHALL still run with `contents: write` from their job-level blocks
+- **AND** `publish` SHALL still hold `id-token: write`, and `site-redeploy` SHALL still hold `actions: write`
+
+### Requirement: Release-privileged jobs do not restore a dependency cache
+
+A job's **effective permissions** are its job-level `permissions:`, else the workflow's top-level block; `write-all` counts as write on every scope. For a reusable callee they are the calling job's, evaluated per call site.
+
+A job in any workflow, reusable callees included, is **release-privileged** when any of the following holds:
+
+- its effective permissions grant `write` on any scope, or `id-token: write`;
+- it can see a non-`GITHUB_TOKEN` secret: it references such a secret, it is a reusable-workflow call that passes `secrets:` (a mapping or `inherit`), or it declares an `environment:`;
+- its output is attached to a release. Today: `publish.yml` `runtime-asset` and `publish.yml` `electron`.
+
+Today this classifies these `publish.yml` jobs: `tag-and-push`, `publish`, `github-release`, `runtime-release-assert`, `site-redeploy`, `discord-announce`, `runtime-asset` and `electron`.
+
+A release-privileged job SHALL NOT restore a cache. It SHALL NOT use any `actions/cache` action (cache, restore or save). None of its steps SHALL carry a non-empty value under a cache-enabling key — `cache`, `enable-cache`, `bundler-cache`, `cache-from`, `cache-to` — and expressions count as non-empty. Its dependency installs SHALL resolve from the registry; lockfile-only regeneration, which imports nothing from a store, remains allowed.
+
+`_electron-build.yml` is the single exception. Every step there that carries a non-empty `cache` SHALL gate it on the `use_dependency_cache` input, so that caching is disabled unless the input is `true`. Such a gated step is exempt from the no-cache rule. In exchange:
+
+- every release-privileged caller of `_electron-build.yml` SHALL pass the boolean `use_dependency_cache: false`;
+- the input's default SHALL be `false`;
+- `ci-electron.yml` and `nightly.yml` SHALL pass the boolean `true`.
+
+In `publish.yml`, no job outside the ships-in-release list, and no reusable workflow called by one, SHALL upload an artifact whose name starts with `electron-`.
+
+#### Scenario: Release job re-enabling the pnpm cache fails repo-lint
+
+- **WHEN** `publish.yml` `publish`, `tag-and-push` or `runtime-asset` has an `actions/setup-node` step with a non-empty `with.cache`
+- **THEN** the workflow-token-cache contract test SHALL fail, naming the workflow, the job and the step
+
+#### Scenario: A new write-scoped job with actions/cache fails repo-lint
+
+- **WHEN** any workflow gains a job whose effective permissions include a `write` scope (including `write-all`), and that job uses `actions/cache`
+- **THEN** the workflow-token-cache contract test SHALL fail
+
+#### Scenario: Secrets in a cached job fail repo-lint
+
+- **WHEN** a job references a non-`GITHUB_TOKEN` secret, or declares an `environment:`, and also restores a cache outside the `_electron-build.yml` gated exception
+- **THEN** the workflow-token-cache contract test SHALL fail
+
+#### Scenario: Release electron build must opt out of the dependency cache
+
+- **WHEN** a release-privileged caller of `_electron-build.yml` (for example `publish.yml` `electron`, or any caller passing `secrets:`) omits `use_dependency_cache`, or passes anything other than the boolean `false`
+- **THEN** the workflow-token-cache contract test SHALL fail
+
+#### Scenario: Callee cache must stay input-gated and default closed
+
+- **WHEN** a step in `_electron-build.yml` carries a non-empty `cache` not gated on `inputs.use_dependency_cache` (for example a literal `cache: pnpm`), or the input's default is not `false`
+- **THEN** the workflow-token-cache contract test SHALL fail
+
+#### Scenario: Dev callers keep the cache path exercised
+
+- **WHEN** `ci-electron.yml` `build` or `nightly.yml` `electron` stops passing the boolean `use_dependency_cache: true`
+- **THEN** the workflow-token-cache contract test SHALL fail
+
+#### Scenario: Non-shipping job uploading a release-glob artifact fails repo-lint
+
+- **WHEN** a `publish.yml` job outside the ships-in-release list, or `_smoke.yml`, uploads an artifact whose name starts with `electron-`
+- **THEN** the workflow-token-cache contract test SHALL fail, naming the job and the ships-in-release list
+
+#### Scenario: Unprivileged non-release jobs keep their cache
+
+- **WHEN** read-only jobs restore the pnpm cache: `publish.yml` `ci-checks`, `publish.yml` `smoke` (`_smoke.yml`), `ci.yml` jobs, or the `ci-electron.yml` / `nightly.yml` calls to `_electron-build.yml` with `use_dependency_cache: true`
+- **THEN** the workflow-token-cache contract test SHALL pass

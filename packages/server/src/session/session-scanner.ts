@@ -166,6 +166,8 @@ export function sessionFromMeta(
     // Restore name provenance so the auto-naming lockout survives restarts.
     // See change: add-auto-session-naming.
     nameSource: meta.nameSource,
+    // See change: investigate-auto-name-provenance-relabel.
+    nameSourceFor: meta.nameSourceFor,
     // Restore the auto-namer stop state so a permanent stop survives a PROCESS
     // restart, not only an extension reload — otherwise a cold start re-spends
     // a full attempt budget and re-emits the error.

@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Defines a discriminated `LaunchSource` resolver that the Electron app uses to decide, on every launch, where to find the dashboard server (running, dev monorepo, pi extension, npm global, or extracted bundle), with deterministic per-source probes and a single uniform spawn primitive.
+Defines a discriminated `LaunchSource` resolver that the Electron app uses to decide, on every launch, where to find the dashboard server (a running server, the dev monorepo, a local link, a staged runtime overlay, or the bundled server), with deterministic per-source probes and a single uniform spawn primitive.
 
 ## Requirements
 
 ### Requirement: Discriminated launch-source resolution
 
-The Electron app SHALL resolve a single `LaunchSource` per launch via a pure resolver `selectLaunchSource()`. The resolver SHALL classify the launch as exactly one of `attach`, `devMonorepo`, `piExtension`, `npmGlobal`, or `extracted`, with each non-`attach` kind carrying a resolved `cliPath` and `cwd`.
+The Electron app SHALL resolve a single `LaunchSource` per launch via a pure resolver `selectLaunchSource()`. The resolver SHALL classify the launch as exactly one of `attach`, `devMonorepo`, `localLink`, `overlay`, or `bundled`, with each non-`attach` kind carrying a resolved `cliPath` and `cwd`.
 
 #### Scenario: Server already running
 
@@ -19,8 +19,9 @@ The Electron app SHALL resolve a single `LaunchSource` per launch via a pure res
 #### Scenario: Default precedence with no override
 
 - **WHEN** `DASHBOARD_PREFER_SOURCE` is unset AND the health probe fails
-- **THEN** the resolver SHALL evaluate sources in order `devMonorepo > piExtension > npmGlobal > extracted`
+- **THEN** the resolver SHALL evaluate sources in order `devMonorepo > localLink > overlay > bundled`
 - **AND** SHALL return the first source whose probe succeeds
+- **AND** when no source succeeds it SHALL throw a typed `BundledServerMissingError` carrying the expected bundled server entry path
 
 #### Scenario: Pinned override succeeds
 
@@ -31,118 +32,17 @@ The Electron app SHALL resolve a single `LaunchSource` per launch via a pure res
 #### Scenario: Pinned override unavailable
 
 - **WHEN** `DASHBOARD_PREFER_SOURCE` is set to a valid source name AND that source's probe fails
-- **THEN** the resolver SHALL throw a typed `PinnedSourceUnavailable` error carrying the requested source kind
+- **THEN** the resolver SHALL throw a typed `PinnedSourceUnavailableError` carrying the requested source kind
 - **AND** SHALL NOT silently fall back to default precedence
 
 #### Scenario: Invalid override value
 
-- **WHEN** `DASHBOARD_PREFER_SOURCE` is set to a value outside the source-kind enum
+- **WHEN** `DASHBOARD_PREFER_SOURCE` is set to a value outside the source-kind enum (including the retired names `piExtension`, `npmGlobal` and `extracted`)
 - **THEN** the resolver SHALL log a warning AND ignore the override AND proceed with default precedence
-
-### Requirement: Per-source probe contracts
-
-Each non-`attach` source SHALL have a deterministic probe that returns `true` only when the source can produce a working `cli.ts` path. Probes SHALL be timeout-bounded. Probe diagnostics — including "would-succeed-but-rejected-because-X" reasons and any error caught during the probe — SHALL be appended to `~/.pi/dashboard/server.log` (the dashboard log file resolved by `launchDashboardServer`'s log-file policy) with a `[<ISO-ts>] [launch-source] ...` prefix, NOT emitted only to Electron stderr. This is required because packaged-Electron stderr on `.desktop` launches (Linux/macOS/Windows) is discarded by the host shell and silent probe failures otherwise cannot be diagnosed by users or developers.
-
-#### Scenario: devMonorepo probe
-
-- **WHEN** the resolver evaluates the `devMonorepo` source
-- **THEN** the probe SHALL succeed iff `!app.isPackaged` AND `existsSync(<cwd>/packages/server/src/cli.ts)` AND `existsSync(<cwd>/packages/extension/src/bridge.ts)`
-
-#### Scenario: piExtension probe
-
-- **WHEN** the resolver evaluates the `piExtension` source
-- **THEN** the probe SHALL iterate every package returned by `listPiPackages({ scope: "user" })` from `packages/shared/src/pi-package-resolver.ts` (which walks `~/.pi/agent/settings.json#packages[]` for `npm:<name>` / `git+<url>` / `https://...` / absolute-path / relative-path entries and returns the resolved install directory for each one whose computed install path exists on disk)
-- **AND** for each resolved package the probe SHALL succeed iff `existsSync(<packageDir>/bridge.ts)` OR `existsSync(<packageDir>/src/bridge.ts)` AND `require.resolve("@blackbelt-technology/pi-dashboard-server/package.json", { paths: [packageDir, parentNodeModules] })` succeeds AND the resolved server's `package.json#version` is `>=` the bundled minimum AND `pi --version` returns a version `>=` bundled minimum
-- **AND** the probe SHALL return the first valid match
-- **AND** when the probe rejects a package, the rejection reason (which check failed) SHALL be appended to the dashboard log file with the `[launch-source]` prefix
-- **AND** the probe SHALL complete within 1 second of wall-clock time
-
-#### Scenario: piExtension probe ignores absent or legacy settings field
-
-- **WHEN** `~/.pi/agent/settings.json` parses successfully but does NOT contain a top-level `packages` key (older pi versions; malformed config; hand-edited file)
-- **THEN** the piExtension probe SHALL return null without throwing
-- **AND** SHALL NOT read or evaluate any other top-level field (in particular SHALL NOT read `settings.extensions[]`, which is not part of pi's current schema)
-
-#### Scenario: npmGlobal probe
-
-- **WHEN** the resolver evaluates the `npmGlobal` source
-- **THEN** the probe SHALL succeed iff `which pi-dashboard` returns a path AND `realpathSync(path)` is NOT under `process.resourcesPath` AND `pi-dashboard --version` returns a non-empty version string `>=` bundled minimum on stdout AND exit code 0
-- **AND** the probe SHALL complete within 1 second
-- **AND** when `pi-dashboard --version` fails (non-zero exit, empty stdout, timeout), the probe SHALL append the captured exit code and stderr first line to the dashboard log file with the `[launch-source]` prefix before returning null
-
-#### Scenario: extracted probe
-
-- **WHEN** the resolver evaluates the `extracted` source
-- **THEN** the probe SHALL always succeed (fallback)
-- **AND** every diagnostic emitted by `buildExtractedSource` (extracted source unhealthy; bundle extraction failed; stash failed; install failed; merge failed) SHALL be appended to the dashboard log file with the `[launch-source]` prefix
-
-### Requirement: Extracted self-heal performs real-fs destructive operations
-
-When `buildExtractedSource` invokes `extractBundle` to re-extract from the bundled `<resourcesPath>/server/` into `~/.pi-dashboard/`, the destructive filesystem operations inside `extractBundle` (the selective-wipe step that removes non-SURVIVE entries from `managedDir`, the directory creation, the recursive copy) SHALL run against real `node:fs` defaults, NOT against caller-supplied no-op stubs. This is required because stale absolute symlinks under `<managedDir>/node_modules/` from prior partial extractions, npm bin-shim creation, or prior-version installs, MUST be deleted before `cpSync` walks them — otherwise `cpSync` follows the symlinks back into `<resourcesPath>/server/`, trips `ERR_FS_CP_EINVAL: cannot copy <bundle-path> to a subdirectory of self <same-bundle-path>`, and aborts the entire self-heal block.
-
-#### Scenario: selective wipe runs before re-extract
-
-- **WHEN** `buildExtractedSource` invokes `extractBundle(managedDir, bundleSource, version, migrateDir, extractFs)`
-- **THEN** `extractFs` SHALL be a `Partial<ExtractFs>` containing only the file-content probes required for `migrateConfigs` and `installable-defaults` seeding (`existsSync`, `readFileSync`, `writeFileSync`, `renameSync`)
-- **AND** the destructive operations (`mkdirSync`, `readdirSync`, `rmSync`, `statSync`, `cpSync`) SHALL default to `node:fs` real-fs implementations via `buildFs`
-- **AND** the selective-wipe step inside `extractBundle` SHALL therefore actually iterate `managedDir` entries and `rmSync` each non-SURVIVE entry before `cpSync` writes the fresh bundle
-
-#### Scenario: stale symlink in destination does not trip cpSync EINVAL
-
-- **WHEN** `~/.pi-dashboard/node_modules/<some-pkg>/node_modules/.bin/<shim>` exists as a symlink pointing to a path under `<resourcesPath>/server/...` (left over from a prior partial extraction)
-- **AND** `buildExtractedSource` enters its extract+install block
-- **THEN** the selective-wipe step SHALL delete `node_modules/` (and every other non-SURVIVE entry) before `cpSync` runs
-- **AND** `cpSync` SHALL write the fresh bundle to a destination with no surviving stale symlinks
-- **AND** `cpSync` SHALL NOT throw `ERR_FS_CP_EINVAL`
-
-### Requirement: Uniform spawn primitive
-
-The Electron app SHALL spawn the server via a single primitive `spawnFromSource(source, config)` that uses identical argv structure across `devMonorepo`, `piExtension`, `npmGlobal`, and `extracted` sources, differing only in `cliPath` and `cwd`. The primitive SHALL stamp `DASHBOARD_STARTER=Electron` on the spawned process env. The primitive SHALL select the Node binary used to run the server via `pickNodeForServer(input)` (bundled-first, system-fallback, `process.execPath`-with-`ELECTRON_RUN_AS_NODE=1` as last resort) and SHALL pass the result as `nodeBin` to `launchDashboardServer`. The primitive SHALL NOT rely on `launchDashboardServer`'s `process.execPath` default.
-
-#### Scenario: All non-attach sources spawn identically
-
-- **WHEN** `spawnFromSource(source, config)` is invoked for any non-`attach` source kind
-- **THEN** the spawn argv SHALL be `[<resolved-node-bin>, "--import", <selected-ts-loader>, <cliPath-maybe-url-wrapped>, "--port", <port>, "--pi-port", <piPort>]`
-- **AND** `<selected-ts-loader>` SHALL be the Node-native register module by default, or the jiti register hook when `PI_DASHBOARD_TS_LOADER=jiti` (see `server-launch`)
-- **AND** `<resolved-node-bin>` SHALL be the `nodeBin` returned by `pickNodeForServer`
-- **AND** the env SHALL include `DASHBOARD_STARTER: "Electron"`
-- **AND** the cwd SHALL be `source.cwd`
-- **AND** the spawn SHALL be detached with stdio piped to the dashboard log file
-
-#### Scenario: Spawn primitive returns started pid
-
-- **WHEN** `spawnFromSource(source, config)` succeeds
-- **THEN** the primitive SHALL return `{ pid: <number> }`
-- **AND** Electron SHALL store this pid for later lifecycle ownership comparison
-
-#### Scenario: Bundled Node preferred
-
-- **WHEN** `spawnFromSource` is invoked AND the bundled Node executable at `<bundledNodeDir>/bin/node` (POSIX) or `<bundledNodeDir>\node.exe` (Windows) exists and is executable
-- **THEN** `pickNodeForServer` SHALL return `{ kind: "bundled", nodeBin: <bundled-path> }`
-- **AND** the spawn SHALL NOT set `ELECTRON_RUN_AS_NODE` in the child env
-
-#### Scenario: System Node fallback when bundled missing
-
-- **WHEN** `spawnFromSource` is invoked AND no bundled Node executable is present AND `detectSystemNode()` returns `{ found: true, path, version }`
-- **THEN** `pickNodeForServer` SHALL return `{ kind: "system", nodeBin: path, version }`
-- **AND** the spawn SHALL NOT set `ELECTRON_RUN_AS_NODE` in the child env
-
-#### Scenario: execPath fallback when neither bundled nor system Node available
-
-- **WHEN** `spawnFromSource` is invoked AND no bundled Node is present AND no system Node is detected
-- **THEN** `pickNodeForServer` SHALL return `{ kind: "execpath-fallback", nodeBin: process.execPath, needsElectronRunAsNode: true }`
-- **AND** `spawnFromSource` SHALL stamp `ELECTRON_RUN_AS_NODE = "1"` in the child env
-- **AND** a warning SHALL be logged identifying the fallback path
-
-#### Scenario: Legacy V1 launcher applies the same picker
-
-- **WHEN** `launchServer()` in `packages/electron/src/lib/server-lifecycle.ts` is reached (with `LAUNCH_SOURCE_V2=false`)
-- **THEN** it SHALL call `pickNodeForServer` and pass the result as `nodeBin` into `launchDashboardServer`
-- **AND** SHALL apply the same `ELECTRON_RUN_AS_NODE` stamping rule as `spawnFromSource`
 
 ### Requirement: pi-dashboard CLI wrapper answers metadata queries without a TypeScript loader
 
-The `pi-dashboard` CLI wrapper (`packages/server/bin/pi-dashboard.mjs`) SHALL answer `--version` / `-v` / `version` invocations without requiring jiti or any other TypeScript loader to be resolvable from the wrapper's own tree. This is required so `probeNpmGlobal`, `doctor`, and every user diagnostic can determine the installed dashboard version even on installs where the wrapper sits in a tree without a top-level jiti (workspace-managed installs; npm-global installs where jiti is hoisted only under `pi-coding-agent`).
+The `pi-dashboard` CLI wrapper (`packages/server/bin/pi-dashboard.mjs`) SHALL answer `--version` / `-v` / `version` invocations without requiring jiti or any other TypeScript loader to be resolvable from the wrapper's own tree. This is required so `doctor` and every user diagnostic can determine the installed dashboard version even on installs where the wrapper sits in a tree without a top-level jiti (workspace-managed installs; npm-global installs where jiti is hoisted only under `pi-coding-agent`).
 
 #### Scenario: --version short-circuits before jiti resolution
 
@@ -236,3 +136,57 @@ The launch-source resolver SHALL support two additional kinds: `localLink` (a us
 
 - **WHEN** the app is unpackaged AND the working directory is the monorepo
 - **THEN** the resolver SHALL return `devMonorepo` regardless of runtime source
+
+### Requirement: Launch-source probe contracts
+
+The `devMonorepo` and `bundled` probes SHALL be deterministic, side-effect-free existence checks that return a source only when the server entry (`cli.ts`) exists. The `localLink` and `overlay` candidates follow "Overlay and local-link launch sources". Launch-source diagnostics SHALL be appended to `~/.pi/dashboard/server.log` with a `[<ISO-ts>] [launch-source] ...` prefix, NOT emitted only to Electron stderr, because packaged-Electron stderr is discarded on desktop launches.
+
+#### Scenario: devMonorepo probe
+
+- **WHEN** the resolver evaluates the `devMonorepo` source
+- **THEN** the probe SHALL succeed iff `!app.isPackaged` AND `existsSync(<cwd>/packages/server/src/cli.ts)` AND `existsSync(<cwd>/packages/extension/src/bridge.ts)`
+
+#### Scenario: bundled probe
+
+- **WHEN** the resolver evaluates the `bundled` source
+- **THEN** the probe SHALL succeed iff `resourcesPath` is set AND `<resourcesPath>/server/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts` exists
+- **AND** the returned `cwd` SHALL be `<resourcesPath>/server`
+- **AND** the probe SHALL NOT write, extract, or install anything
+
+#### Scenario: Invalid override is logged to the dashboard log
+
+- **WHEN** `DASHBOARD_PREFER_SOURCE` holds an unknown value
+- **THEN** the warning SHALL be appended to the dashboard log file with the `[launch-source]` prefix
+
+### Requirement: Uniform spawn primitive across launch sources
+
+The Electron app SHALL spawn the server via a single primitive `spawnFromSource(source, config)` that uses identical argv structure across `devMonorepo`, `localLink`, `overlay`, and `bundled` sources, differing only in `cliPath` and `cwd`. The primitive SHALL stamp `DASHBOARD_STARTER=Electron` on the spawned process env. The primitive SHALL select the Node binary used to run the server via `pickNodeForServer(input)` (the bundled Node binary, else `process.execPath` with `ELECTRON_RUN_AS_NODE=1`; no system-Node rung) and SHALL pass the result as `nodeBin` to `launchDashboardServer`. The primitive SHALL NOT rely on `launchDashboardServer`'s `process.execPath` default. Within the Electron app, `spawnFromSource` SHALL be the only path that launches the server; no legacy Electron launcher SHALL remain. (The bridge extension's own launcher is a separate starter and is out of scope.)
+
+#### Scenario: All non-attach sources spawn identically
+
+- **WHEN** `spawnFromSource(source, config)` is invoked for any non-`attach` source kind
+- **THEN** the spawn argv SHALL be `[<resolved-node-bin>, "--import", <selected-ts-loader>, <cliPath-maybe-url-wrapped>, "--port", <port>, "--pi-port", <piPort>]`
+- **AND** `<selected-ts-loader>` SHALL be the Node-native register module by default, or the jiti register hook when `PI_DASHBOARD_TS_LOADER=jiti` (see `server-launch`)
+- **AND** `<resolved-node-bin>` SHALL be the `nodeBin` returned by `pickNodeForServer`
+- **AND** the env SHALL include `DASHBOARD_STARTER: "Electron"`
+- **AND** the cwd SHALL be `source.cwd`
+- **AND** the spawn SHALL NOT detach (`detach: false`, so the server's lifetime is owned by the Electron app) and its stdio SHALL be piped to the dashboard log file
+
+#### Scenario: Spawn primitive returns started pid
+
+- **WHEN** `spawnFromSource(source, config)` succeeds
+- **THEN** the primitive SHALL return `{ pid: <number> }`
+- **AND** Electron SHALL store this pid for later lifecycle ownership comparison
+
+#### Scenario: Bundled Node preferred
+
+- **WHEN** `spawnFromSource` is invoked AND the bundled Node executable at `<bundledNodeDir>/bin/node` (POSIX) or `<bundledNodeDir>\node.exe` (Windows) exists and is executable
+- **THEN** `pickNodeForServer` SHALL return `{ kind: "bundled", nodeBin: <bundled-path> }`
+- **AND** the spawn SHALL NOT set `ELECTRON_RUN_AS_NODE` in the child env
+
+#### Scenario: execPath fallback when bundled Node is missing
+
+- **WHEN** `spawnFromSource` is invoked AND no bundled Node executable is present
+- **THEN** `pickNodeForServer` SHALL return `{ kind: "execpath-fallback", nodeBin: process.execPath, needsElectronRunAsNode: true }`
+- **AND** `spawnFromSource` SHALL stamp `ELECTRON_RUN_AS_NODE = "1"` in the child env
+- **AND** a warning SHALL be logged identifying the fallback path

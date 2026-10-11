@@ -856,6 +856,57 @@ flowchart LR
 
 See change: `add-server-push-notifications`.
 
+### Tool-result route: pending vs gone (change: distinguish-tool-result-pending-vs-gone)
+
+Route `GET /api/sessions/:sessionId/tool-result/:toolCallId[?pending=1]` (`packages/server/src/routes/session-routes.ts`). `preHandler: networkGuard`.
+
+Check order:
+1. Owner gate `gateHttpSession` — reject → `404`.
+2. Stored end (real or synthesized) → `200 {result, isError}`.
+3. Recorded eviction → `410 {error:"result no longer available"}`.
+4. In-flight hint AND query `pending === "1"` → `202 {pending:true}`.
+5. Else → `404 {error:"tool call still in flight or unknown"}`.
+
+**`410` source.** `memory-event-store` `SessionBuffer.evictedToolEnds`: bounded set (512, insertion-ordered) of `toolCallId`s whose REAL `tool_execution_end` was trimmed. Written by both `trimBufferToLimit` passes + `dropNonEssentials`.
+- Synthesized ends (`healedBy` set) never recorded.
+- IDs >256 chars never recorded.
+- Freed with buffer (LRU eviction, `deleteEventsForSession`).
+- Live top-level `tool_execution_start` for id → `forgetEvictedToolEnd`.
+- Store API: `wasToolEndEvicted(sessionId, toolCallId)`, `forgetEvictedToolEnd`.
+- Set overflow degrades to old `404`.
+
+**`202` source.** `packages/server/src/session/in-flight-tool-calls.ts` (`createInFlightToolCalls`: `observeLive`, `isInFlight`, `clear`).
+- Live-only: fed from event-wiring live (non-replaying) forward branch.
+- Cleared on: live `agent_settled`, every `session_register`, session end, session removal (`sessionManager.onRemoved`).
+- Cap 256 ids/session.
+- Cosmetic hint only. Never vouches "gone".
+- Opt-in (`?pending=1`): old clients treat any 2xx as finished result.
+
+**No "not in flight ⇒ gone" inference.** Not in flight does not mean gone:
+- Reconnect replay orphan-closes running calls.
+- Status stays `active` until synthetic `agent_start` after `replay_complete`.
+- Heartbeat reconcile can flip streaming → idle mid-turn.
+- `agent_end` is not terminal; `agent_settled` is.
+- User `!` bash runs outside a turn.
+
+**Client (`useStaleToolReconcile`, `packages/client/src/hooks/useStaleToolReconcile.ts`).**
+- Probe sends `?pending=1`.
+- `410` → `synthesizeEvictedEnd` (`healedBy:"result_evicted"`, body `result no longer available`, `isError:false`) finalizes at once.
+- `ToolCallStep` renders eviction badge (`data-testid="tool-evicted-badge"`).
+- Later real end overwrites synthesized end.
+- `202` counts like `404` toward superseded heal (needs ≥2 probes + later assistant inference). Stale hint cannot finalize running tool.
+
+**`useToolFullResult`.** Maps `404` and `410` → `t("tool.resultEvicted")`. Does not send `pending=1`.
+
+**Health.** `/api/health` gains `toolResult: { pending, gone }` — cumulative route counters, beside `storeTrim`.
+
+**Compat.**
+- Old client + new server: fine. `410` non-2xx; `202` opt-in.
+- New client + old server: sees only `200`/`404`.
+- No persisted state. Rollback = revert.
+
+See change: distinguish-tool-result-pending-vs-gone.
+
 ### Command Flow (browser → pi)
 1. User types prompt or command in browser
 2. Browser sends `send_prompt` via WebSocket

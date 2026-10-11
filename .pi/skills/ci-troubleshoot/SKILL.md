@@ -189,6 +189,26 @@ gh run cancel <run-id>
 
 **Rerun gotcha (tag-push releases):** `gh run rerun <id> --failed` does NOT re-dispatch skipped downstream reusable-workflow jobs (e.g. `electron`) even after `publish` flips green — they stay `skipped`. After a smoke-**gate** flake on a tag-push release, re-push the tag for a clean single-pass run instead: `git push --delete origin vX.Y.Z && git push origin vX.Y.Z`. `publish` is idempotent (skips already-published packages), so re-pushing the tag is safe.
 
+## CodeQL `actions/cache-poisoning` / `missing-workflow-permissions` triage
+
+Pinned by `packages/shared/src/__tests__/workflow-token-cache-contract.test.ts` (header = rule source of truth). See change: harden-ci-cache-poisoning.
+
+**Release-privileged job** = effective permissions grant any `write` / `write-all` / `id-token: write`, OR it can see a non-`GITHUB_TOKEN` secret (`secrets.X`, `secrets:` on a `uses:` job, `environment:`), OR it is in `SHIPS_IN_RELEASE` (top of that test file; update it when a new job's output is attached to a release). Such a job must not restore a cache. A `missing-workflow-permissions` alert means a job runs on the repo-default (write) token: add a top-level `permissions: contents: read`.
+
+**Expected residual `poisonable-step` alerts** (CodeQL cannot evaluate the input / sees read-only unreleased jobs). Dismiss only these, and only AFTER the post-merge CodeQL scan shows exactly this set still open (`_smoke.yml` ×4, `publish.yml` `ci-checks` ×4, `_electron-build.yml` ×10) — on any mismatch, stop and re-read design.md D4/D5:
+
+```bash
+gh api repos/{owner}/{repo}/code-scanning/alerts?state=open --paginate -q '.[]|select(.rule.id|test("cache-poisoning"))|[.number,.most_recent_instance.location.path]|@tsv'
+gh api -X PATCH repos/{owner}/{repo}/code-scanning/alerts/<n> \
+  -f state=dismissed -f "dismissed_reason=won't fix" -f dismissed_comment="<canonical comment>"
+```
+
+Canonical comments:
+- `_smoke.yml` / `publish.yml` `ci-checks` → "Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
+- `_electron-build.yml` → "Release caller passes `use_dependency_cache: false` (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. Dev/nightly artifacts; attached to no release. design.md D4; pinned by workflow-token-cache-contract.test.ts."
+
+Trial the command on ONE alert first. Record every dismissed alert number in the PR description. If this change is ever reverted, **re-open them** (`-f state=open`) — otherwise reintroduced poisonable steps stay suppressed with no contract test left.
+
 ## When the failure is repo-lint
 
 Repo-lint tests fail the `ci` job specifically. They're listed in `debug-dashboard/references/test-failure-triage.md` → "Repo-lint tests". Fix the file that violated the rule. **Don't loosen the lint** — each one exists because of a real regression.

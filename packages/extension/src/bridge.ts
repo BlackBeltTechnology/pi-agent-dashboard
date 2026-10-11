@@ -31,7 +31,7 @@ import {
   persistAttachment,
 } from "./ask-user-attachments.js";
 import { registerAskUserTool } from "./ask-user-tool.js";
-import { type AutoNamer, adoptRestoredNamerState, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
+import { type AutoNamer, applyAutoNameRestore, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstMessage, extractLatestTurnWindow, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession, safeCwd } from "./bridge-context.js";
 import { hasExplicitModelArg, shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
@@ -1412,17 +1412,17 @@ function initBridge(pi: ExtensionAPI) {
         }
         return;
       }
-      // Persisted stop state pushed at register, so a permanent stop survives a
-      // PROCESS restart. Only the STOP fields are adopted. `nameSource`,
-      // `lastSelfApplied` and `hasAutoName` are deliberately NOT restored:
-      // reinstating them would change the behaviour of the separate auto→`user`
-      // relabel bug, which has a different root cause and is tracked on its own
-      // (design D8b, change: investigate-auto-name-provenance-relabel). They are
-      // still carried across an in-process RELOAD via `prev.namerState`.
-      // See change: fix-auto-naming-reasoning-model (design D7).
+      // Persisted stop state + session-owned provenance pushed at register, so a
+      // permanent stop AND the `auto`/`system`/`user` provenance survive a
+      // PROCESS restart / session resume. With no namer yet the adopted state
+      // seeds it; a namer that an observation already created gets the
+      // provenance via `restoreProvenance` (it replaces a live `user` only when
+      // the live name equals the restored witness).
+      // See change: fix-auto-naming-reasoning-model (design D7);
+      // investigate-auto-name-provenance-relabel (D4).
       if (msg.type === "auto_name_state_restore") {
-        const adopted = adoptRestoredNamerState((msg as any).state);
-        if (adopted && !autoNamer) {
+        const adopted = applyAutoNameRestore(msg as any, autoNamer, pi.getSessionName());
+        if (adopted) {
           namerState = adopted;
           prev.namerState = adopted;
         }
@@ -1808,6 +1808,21 @@ function initBridge(pi: ExtensionAPI) {
     // Mirror server attach/detach pushes into BridgeContext.attachedChange so
     // the before_agent_start injector exposes it. See change:
     // inject-session-context-into-agent.
+    // Dashboard system renames reach the namer BEFORE pi echoes them, so the
+    // echo is not latched `user`. See change: investigate-auto-name-provenance-relabel (D3).
+    onSystemRename: (name: string) => {
+      const prevName = lastSessionName;
+      const rollbackNamer = getAutoNamer().noteSystemRename(name);
+      lastSessionName = name; // suppress the redundant plain name poll
+      return () => {
+        rollbackNamer();
+        lastSessionName = prevName;
+      };
+    },
+    onUserRename: () => {
+      // Only matters once a namer exists; never create one for a user rename.
+      autoNamer?.noteUserRename();
+    },
     onAttachProposalChanged: (next: string | null) => {
       attachedChange = next;
       const s = getBridgeState();

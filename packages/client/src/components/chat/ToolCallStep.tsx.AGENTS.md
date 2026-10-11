@@ -7,3 +7,5 @@ Renders tool-call card. Adds `showResultBody?: boolean` prop (default `true`); w
 Stop UI delegated to `<ToolStopControl>` rendered as sibling AFTER the toggle `<button>` (header wrapped in flex div; no nested interactive). Optional `stopController` prop (burst-owned) wins; else own `useToolStopState({active: status==="running" && !stopController})`. Inline `<span role=button>` stop + `severity-exempt` red literal removed. See change: fix-chat-burst-tool-stop.
 
 Props `nested?`, `nestedComplete?` → renders `NestedToolCallList` under the header (independent of `showResultBody`). Passed by `ChatView`, `ToolBurstGroup`, `CollapsedToolGroup`. See change: render-nested-tool-calls.
+
+`healedBy === "result_evicted"` renders `data-testid="tool-evicted-badge"` (distinct from superseded badge). See change: distinguish-tool-result-pending-vs-gone.

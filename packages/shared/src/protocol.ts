@@ -541,7 +541,7 @@ export interface SessionNameUpdateMessage {
    * an in-pi rename the bridge did not originate. Absent = unattributed
    * (server keeps existing provenance). See change: add-auto-session-naming.
    */
-  nameSource?: "auto" | "user";
+  nameSource?: "auto" | "user" | "system";
 }
 
 /**
@@ -1219,6 +1219,8 @@ export interface RenameSessionExtensionMessage {
   type: "rename_session";
   sessionId: string;
   name: string;
+  /** `"system"` = dashboard programmatic rename (attach/detach/plugin); absent = user. */
+  origin?: "system";
 }
 
 export interface RequestModelsMessage {
@@ -1555,10 +1557,10 @@ export interface PreferencesUpdateExtensionMessage {
  * `.meta.json`, pushed on register so a permanent stop survives a PROCESS
  * restart and not merely an extension reload.
  *
- * Carries the STOP state only — never `nameSource` / `hasAutoName`. Restoring
- * provenance would also change the behaviour of the separate auto→`user`
- * relabel bug, which has a different root cause and is tracked on its own.
- * See change: fix-auto-naming-reasoning-model (design D7, D8b).
+ * Carries the STOP state plus the session-owned provenance (`nameSource` +
+ * witness `nameSourceFor`); never the bridge-persisted `hasAutoName`.
+ * See change: fix-auto-naming-reasoning-model (design D7, D8b);
+ * investigate-auto-name-provenance-relabel (D4).
  */
 export interface AutoNameStateRestoreMessage {
   type: "auto_name_state_restore";
@@ -1568,6 +1570,10 @@ export interface AutoNameStateRestoreMessage {
    * sender would still ship whatever extra properties the object carries.
    */
   state: AutoNamerStopState;
+  /** Session-owned provenance (server authoritative). */
+  nameSource?: "auto" | "user" | "system";
+  /** Witness name the provenance was recorded for. */
+  nameSourceFor?: string;
 }
 
 /** The restore-only projection: everything describing the STOP, no provenance. */

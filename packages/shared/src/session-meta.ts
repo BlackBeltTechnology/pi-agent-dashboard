@@ -22,7 +22,9 @@ export interface SessionMeta {
    * drives the auto-naming lockout — once `"user"`, auto-naming never runs
    * again for that session. See change: add-auto-session-naming.
    */
-  nameSource?: "auto" | "user";
+  nameSource?: "auto" | "user" | "system";
+  /** Witness name the `auto`/`system` provenance was recorded for. */
+  nameSourceFor?: string;
   /**
    * The auto-namer's durable stop state. Persisted — a narrowly-scoped
    * exception to "no new persisted field" — because a process restart would

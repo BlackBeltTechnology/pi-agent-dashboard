@@ -29,7 +29,7 @@ import { type ResolvedRuntime, resolvedFamilyEntries } from "./platform/spawn-ru
 import { resolveNativeTsLoader, selectTsLoader } from "./platform/ts-loader-select.mjs";
 import { readZrokEnvironment } from "./zrok-env.js";
 
-// Used by the TypeScript-loader check to locate bundled jiti/tsx via
+// Used by the TypeScript-loader check to locate bundled jiti via
 // Node's standard module resolution — finds copies under
 // `Resources/server/node_modules/` in the Electron bundle. See change:
 // fix-doctor-bundled-tool-detection.
@@ -539,7 +539,7 @@ export const SUGGESTIONS: Record<string, SuggestionFn> = {
   "TypeScript loader": (status) =>
     status === "ok"
       ? undefined
-      : "No TypeScript loader (jiti or tsx) found. Required to run the dashboard server. Run the setup wizard (Help → Setup).",
+      : "No TypeScript loader (jiti) found. Required to run the dashboard server. Run the setup wizard (Help → Setup).",
   "Dashboard server": (status) =>
     status === "ok"
       ? undefined
@@ -837,6 +837,12 @@ export interface SharedChecksDeps {
   managedDir: string;
   /** Detector for system Node ({path, found}). */
   detectSystemNode: () => { found: boolean; path?: string };
+  /**
+   * Test seam for the bundled-jiti lookup in the `TypeScript loader` check.
+   * Returns the resolved `<name>/package.json` path or `null`. Defaults to
+   * Node module resolution from this package.
+   */
+  resolvePackageJson?: (name: string) => string | null;
   /**
    * Resolver for the zrok binary. When omitted, the `zrok binary` check is
    * skipped entirely. The server wires this to the same `ToolResolver`
@@ -1253,7 +1259,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
   // TypeScript loader. The server boots on the Node-native loader by default
   // (`platform/native-ts-register.mjs`, shipped in this package), so the row
   // is OK without any jiti. Only under the PI_DASHBOARD_TS_LOADER=jiti opt-in
-  // does it look for jiti (tsx still accepted as the legacy fallback).
+  // does it look for jiti. tsx is never probed: the server cannot boot on it.
   // See change: fix-appimage-cold-boot-latency (design D4).
   checks.push(
     await safeCheck("TypeScript loader", "server", () => {
@@ -1266,7 +1272,6 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
         };
       }
       const managedJitiPkg = path.join(managedDir, "node_modules", "jiti", "package.json");
-      const managedTsxPkg = path.join(managedDir, "node_modules", "tsx", "package.json");
 
       function readVersion(pkgPath: string): string | null {
         try {
@@ -1278,24 +1283,14 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
         }
       }
       const jitiVersion = readVersion(managedJitiPkg);
-      const tsxVersion = readVersion(managedTsxPkg);
 
-      // Bundled fallback: look up jiti/tsx via Node module resolution
+      // Bundled fallback: look up jiti via Node module resolution
       // so copies inside the Electron bundle's `Resources/server/node_modules/`
       // satisfy the check. Without this, Electron-launched servers
       // falsely reported the loader as missing even though they were
       // running on it.
-      const bundledJitiPkg = jitiVersion ? null : tryResolvePkg("jiti");
-      const bundledTsxPkg = tsxVersion ? null : tryResolvePkg("tsx");
+      const bundledJitiPkg = jitiVersion ? null : (deps.resolvePackageJson ?? tryResolvePkg)("jiti");
       const bundledJitiVersion = bundledJitiPkg ? readVersion(bundledJitiPkg) : null;
-      const bundledTsxVersion = bundledTsxPkg ? readVersion(bundledTsxPkg) : null;
-
-      let systemTsx: string | null = null;
-      const lookupCmd = process.platform === "win32" ? "where tsx" : "which tsx"; // platform-branch-ok: localised PATH-lookup primitive
-      const lookup = safeExec(lookupCmd, { timeoutMs: 5000 });
-      if (lookup.ok) {
-        systemTsx = lookup.stdout.trim().split("\n")[0] || null;
-      }
 
       if (jitiVersion) {
         return {
@@ -1303,14 +1298,6 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           section: "server",
           status: "ok",
           message: `jiti v${jitiVersion} (managed) at ${path.dirname(managedJitiPkg)}`,
-        };
-      }
-      if (tsxVersion) {
-        return {
-          name: "TypeScript loader",
-          section: "server",
-          status: "ok",
-          message: `tsx v${tsxVersion} (managed) at ${path.dirname(managedTsxPkg)}`,
         };
       }
       if (bundledJitiVersion && bundledJitiPkg) {
@@ -1321,29 +1308,13 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           message: `jiti v${bundledJitiVersion} (bundled) at ${path.dirname(bundledJitiPkg)}`,
         };
       }
-      if (bundledTsxVersion && bundledTsxPkg) {
-        return {
-          name: "TypeScript loader",
-          section: "server",
-          status: "ok",
-          message: `tsx v${bundledTsxVersion} (bundled) at ${path.dirname(bundledTsxPkg)}`,
-        };
-      }
-      if (systemTsx) {
-        return {
-          name: "TypeScript loader",
-          section: "server",
-          status: "ok",
-          message: `tsx (system) at ${systemTsx}`,
-        };
-      }
       return {
         name: "TypeScript loader",
         section: "server",
         status: "error",
         message: "Not found — required to run the dashboard server",
         code: "doctor.ts_loader_not_found",
-        detail: `Looked under ${managedJitiPkg}, ${managedTsxPkg}, bundled (server/node_modules), and on PATH`,
+        detail: `Looked under ${managedJitiPkg} and bundled (server/node_modules)`,
         fixable: true,
       };
     }),

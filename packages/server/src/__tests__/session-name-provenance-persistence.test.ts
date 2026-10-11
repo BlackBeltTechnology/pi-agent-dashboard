@@ -119,4 +119,20 @@ describe("session name provenance persistence", () => {
       attemptsUsed: 3,
     });
   });
+
+  // E15: the witness rides the same full-overwrite save + scanner.
+  // See change: investigate-auto-name-provenance-relabel.
+  it("E15: keeps nameSource=system + nameSourceFor across an unrelated save and a rescan", () => {
+    mgr.update("name-id", { name: "add-x", nameSource: "system", nameSourceFor: "add-x" });
+    mgr.update("name-id", { processDrawerCollapsed: true });
+    metaPersistence.flushAll();
+
+    const onDisk = readSessionMeta(sessionFile);
+    expect(onDisk?.nameSource).toBe("system");
+    expect(onDisk?.nameSourceFor).toBe("add-x");
+
+    const scanned = scanAllSessions(tmpDir).sessions.find((x) => x.id === "name-id");
+    expect(scanned?.nameSource).toBe("system");
+    expect(scanned?.nameSourceFor).toBe("add-x");
+  });
 });

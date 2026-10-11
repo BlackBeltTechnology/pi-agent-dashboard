@@ -79,8 +79,7 @@ export function isTsxLoader(loader: string | null | undefined): boolean {
  *
  * Handles Windows-style input (drive letter + backslash) regardless of
  * host OS, so unit tests on Linux/macOS can exercise the Windows path
- * contract. Mirrors the pattern in
- * `packages/shared/src/resolve-jiti.ts::buildJitiRegisterUrl`.
+ * contract.
  */
 export function toFileUrl(pathOrUrl: string): string {
   if (pathOrUrl.startsWith("file:")) return pathOrUrl;

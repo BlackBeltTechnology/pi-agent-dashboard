@@ -152,6 +152,26 @@ describe("enrichInstalledRow", () => {
 		expect(out.displayName).toBe("pi-flows");
 	});
 
+	// E15: with the DEFAULT (empty) bundled manifest an existing
+	// <res>/bundled-extensions/<id> dir never makes a row "bundled".
+	// See change: cleanup-post-r3-spec-drift.
+	it("E15: default bundled manifest is empty, so a present bundled dir is not reported as bundled", () => {
+		const row: RawInstalledRow = {
+			source: "https://github.com/BlackBeltTechnology/pi-flows.git",
+			scope: "user",
+			filtered: false,
+			installedPath: "/cache/pi-flows",
+		};
+		const out = enrichInstalledRow(row, {
+			manifest: FAKE_MANIFEST,
+			readMeta: () => ({ version: "0.1.0", description: "from package.json" }),
+			existsFn: (p) => p === "/res/bundled-extensions/pi-flows",
+			resourcesPath: "/res",
+		});
+		expect(out.isRecommended).toBe(true);
+		expect(out.isBundled).toBe(false);
+	});
+
 	it("enriches a non-recommended row using basename + package.json", () => {
 		const row: RawInstalledRow = {
 			source: "/home/dev/pi-mystery",

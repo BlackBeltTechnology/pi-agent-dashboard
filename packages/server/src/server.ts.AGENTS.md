@@ -61,3 +61,5 @@ Constructs `PasskeyService` (directory `~/.pi/dashboard/users.json`, `resolveRpC
 - Managed services: constructs `ServiceManager` (paths `servicesPaths()`, `defaultCommandRunner`, registry `resolveBinary`, offers from `resolveInstallRoot`), `registerServiceRoutes` (network guard + `localTrust`), `boot()` (adoption only, no-op without `services.json`) → `startScheduler()`; `serviceManager.dispose()` in `stop()`. See change: add-service-registry-core.
 
 Per-plugin `holdCwdDenial: createCwdHold(...)` beside `registerCwdPolicy` (`priority <= 100` gate); publishes `host.cwdAdmissionOnIndeterminate` (throttled `[cwd-admission] indeterminate` logger). See change: harden-plugin-cwd-admission.
+
+Creates `inFlightToolCalls` + `toolResultStats`; passes to `wireEvents`, `registerSessionRoutes`, `registerSystemRoutes`. See change: distinguish-tool-result-pending-vs-gone.

@@ -15,7 +15,13 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/server-launcher.js", async (o
   launchDashboardServer,
 }));
 
+vi.mock("../pick-node.js", async (orig) => {
+  const actual = await orig<typeof import("../pick-node.js")>();
+  return { ...actual, pickNodeForServer: vi.fn(actual.pickNodeForServer) };
+});
+
 import { spawnFromSource } from "../launch-source.js";
+import { pickNodeForServer } from "../pick-node.js";
 
 describe("spawnFromSource → shared launch primitive (E14)", () => {
   it("calls launchDashboardServer with source.cliPath and no tsx binary", async () => {
@@ -31,6 +37,44 @@ describe("spawnFromSource → shared launch primitive (E14)", () => {
     const nonEnv = { ...arg, env: undefined };
     expect(JSON.stringify(nonEnv)).not.toMatch(/\btsx\b/);
     expect(arg).not.toHaveProperty("cmd");
+  });
+});
+
+/**
+ * E10/E11 — uniform spawn primitive: every non-attach source spawns the same
+ * way (attached `detach: false`, `DASHBOARD_STARTER=Electron`, cwd = source
+ * cwd); a missing bundled Node falls back to execPath + ELECTRON_RUN_AS_NODE.
+ * See change: cleanup-post-r3-spec-drift.
+ */
+describe("spawnFromSource uniform spawn options (E10, E11)", () => {
+  const source = { kind: "bundled" as const, cliPath: "/r/server/src/cli.ts", cwd: "/r/server" };
+  const lastArg = () => {
+    const calls = launchDashboardServer.mock.calls as unknown[][];
+    return calls[calls.length - 1]![0] as Record<string, unknown> & { env: Record<string, string> };
+  };
+
+  it("E10: spawns attached, stamped as Electron, in the source cwd", async () => {
+    await spawnFromSource(source, { port: 8000, piPort: 9999 }, { logFile: "/tmp/e10-server.log" });
+    const arg = lastArg();
+    expect(arg.detach).toBe(false);
+    expect(arg.env.DASHBOARD_STARTER).toBe("Electron");
+    expect(arg.cwd).toBe(source.cwd);
+  });
+
+  it("E11: missing bundled Node → execPath fallback with ELECTRON_RUN_AS_NODE=1 and a [pick-node] warning", async () => {
+    vi.mocked(pickNodeForServer).mockReturnValueOnce({
+      kind: "execpath-fallback",
+      nodeBin: "/Applications/App/electron",
+      needsElectronRunAsNode: true,
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await spawnFromSource(source, { port: 8000, piPort: 9999 }, { logFile: "/tmp/e11-server.log" });
+      expect(lastArg().env.ELECTRON_RUN_AS_NODE).toBe("1");
+      expect(warnSpy.mock.calls.some((c) => String(c[0]).includes("[pick-node]"))).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 

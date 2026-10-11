@@ -2767,3 +2767,82 @@ describe("liveTail clear-sentinel subsumption + fold equivalence", () => {
     expect(full.subagents.get("a1")?.liveTail).toEqual(CLEARED);
   });
 });
+
+// See change: distinguish-tool-result-pending-vs-gone (D1).
+describe("memory-event-store — evicted tool-end record", () => {
+  const never = () => false;
+  const endOf = (id: string, extra: Record<string, unknown> = {}): DashboardEvent => ({
+    eventType: "tool_execution_end",
+    timestamp: Date.now(),
+    data: { toolCallId: id, result: "ok", ...extra },
+  });
+
+  it("E1: records dropped real ends; skips healed, over-long and never-stored ids", () => {
+    const store = createMemoryEventStore(never, 100, 3);
+    const longId = "L".repeat(300);
+    store.insertEvent("s", endOf("a"));
+    store.insertEvent("s", endOf("b"));
+    store.insertEvent("s", endOf("c", { healedBy: "session_ended" }));
+    store.insertEvent("s", endOf(longId));
+    for (let i = 0; i < 10; i++) store.insertEvent("s", makeEvent("stats_update"));
+    expect(store.findToolEndEvent("s", "a")).toBeUndefined();
+    expect(store.wasToolEndEvicted("s", "a")).toBe(true);
+    expect(store.wasToolEndEvicted("s", "b")).toBe(true);
+    expect(store.wasToolEndEvicted("s", "c")).toBe(false);
+    expect(store.wasToolEndEvicted("s", longId)).toBe(false);
+    expect(store.wasToolEndEvicted("s", "never")).toBe(false);
+    expect(store.wasToolEndEvicted("other", "a")).toBe(false);
+  });
+
+  it("E2: the all-pinned global fallback records dropped ends in their own session", () => {
+    const store = createMemoryEventStore(() => true, 100, 1_000_000, 0, 262_144, 0, 2 * 1024 * 1024);
+    store.insertEvent("a", mkSized("message_start", 1024));
+    for (let i = 0; i < 20; i++) {
+      store.insertEvent("a", {
+        eventType: "tool_execution_end",
+        timestamp: Date.now(),
+        data: { toolCallId: `t${i}`, p: "x".repeat(200 * 1024) },
+      });
+    }
+    expect(store.getTrimPassProbe().fallback).toBeGreaterThan(0);
+    expect(store.wasToolEndEvicted("a", "t0")).toBe(true);
+    expect(store.wasToolEndEvicted("b", "t0")).toBe(false);
+  });
+
+  it("E3: the record is bounded at 512, oldest first", () => {
+    const store = createMemoryEventStore(never, 100, 1);
+    // cap 1, slack 0: each insert past the first drops the previous end.
+    for (let i = 0; i < 514; i++) store.insertEvent("s", endOf(`id${i}`));
+    // id0..id512 were dropped (513 drops); capacity 512 → id0 gone, id512 present.
+    expect(store.wasToolEndEvicted("s", "id0")).toBe(false);
+    expect(store.wasToolEndEvicted("s", "id1")).toBe(true);
+    expect(store.wasToolEndEvicted("s", "id512")).toBe(true);
+  });
+
+  it("E4: freed with the buffer on delete and on LRU eviction", () => {
+    const store = createMemoryEventStore(never, 2, 1);
+    store.insertEvent("s", endOf("a"));
+    store.insertEvent("s", endOf("b"));
+    expect(store.wasToolEndEvicted("s", "a")).toBe(true);
+    store.deleteEventsForSession("s");
+    expect(store.wasToolEndEvicted("s", "a")).toBe(false);
+
+    store.insertEvent("t", endOf("a"));
+    store.insertEvent("t", endOf("b"));
+    expect(store.wasToolEndEvicted("t", "a")).toBe(true);
+    store.insertEvent("u", makeEvent());
+    store.insertEvent("v", makeEvent()); // evicts t (LRU)
+    expect(store.hasEvents("t")).toBe(false);
+    expect(store.wasToolEndEvicted("t", "a")).toBe(false);
+  });
+
+  it("E1b: forgetEvictedToolEnd removes a recorded id", () => {
+    const store = createMemoryEventStore(never, 100, 1);
+    store.insertEvent("s", endOf("a"));
+    store.insertEvent("s", endOf("b"));
+    expect(store.wasToolEndEvicted("s", "a")).toBe(true);
+    store.forgetEvictedToolEnd("s", "a");
+    expect(store.wasToolEndEvicted("s", "a")).toBe(false);
+    store.forgetEvictedToolEnd("nope", "a"); // no throw on an unknown session
+  });
+});
