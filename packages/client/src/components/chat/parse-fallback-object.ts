@@ -12,7 +12,7 @@
 import { CUSTOM_BODY_MAX_CHARS } from "../../lib/chat/event-reducer.js";
 
 /** Keys shown before the "N more keys" notice. */
-export const MAX_FALLBACK_KEYS = 50;
+const MAX_FALLBACK_KEYS = 50;
 
 /** Marker `truncateOutputForDisplay` prefixes when it drops earlier lines. */
 const LINE_TRUNCATION_MARKER = /^«\d+ earlier lines hidden»\n/;

@@ -62,13 +62,13 @@ export function summarizeBody(body: string): BodySummary {
   }
 }
 
-export interface ResultView {
+interface ResultView {
   title: string;
   url: string;
   snippet: string;
 }
 
-export interface QueryView {
+interface QueryView {
   query: string;
   /** Joined `providers[]`, else `provider`, else "". */
   providers: string;
@@ -86,7 +86,7 @@ export interface SearchView {
   skipped: number;
 }
 
-export interface FetchItem {
+interface FetchItem {
   url: string;
   title: string;
   size: number | null;

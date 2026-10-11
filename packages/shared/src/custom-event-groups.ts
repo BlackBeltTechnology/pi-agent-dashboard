@@ -45,8 +45,8 @@ export const RESERVED_OTHER_GROUP_ID = "other";
 /**
  * Shipped default groups, covering the emitters inventoried in the proposal
  * (12 distinct `customType` values across 3901 gated rows; `om.*` alone is
- * 74%, plus `subagent-admission-refused`). `memory` and `diagnostics` default to HIDDEN — the observable behavior change called
- * out in the CHANGELOG.
+ * 74%, plus `subagent-admission-refused`). `memory` and `diagnostics` default
+ * to HIDDEN — the observable behavior change called out in the CHANGELOG.
  *
  * Order matters: resolution is first-match-wins, and upgrade-merge appends
  * newly shipped groups AFTER user-authored entries, so a later-shipped group

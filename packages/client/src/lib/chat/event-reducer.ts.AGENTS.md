@@ -20,3 +20,5 @@ Nested tool calls: `tool_execution_*` with `parentToolCallId` short-circuit to `
 Arms `subagent_entry` (place by index, dedupe; `blockId` closes `liveBlock`, raises `closedBlockMax`) and `subagent_delta` (`applyLiveBlockPiece`, gap marker `LIVE_BLOCK_GAP_MARKER`, late deltas tombstoned). `setSubagentState` never shrinks filled entries; reads `details.entryCount`; exports `countSteps`. Heal stamping keeps any string `healedBy` (superseded / session_ended). See change: add-plugin-bridge-contributions.
 
 `EVICTED_SENTINEL_BODY`, `synthesizeEvictedEnd(id, now)` (`healedBy:"result_evicted"`, `isError:false`); same running-only guard as superseded heal. See change: distinguish-tool-result-pending-vs-gone.
+
+`CUSTOM_BODY_MAX_CHARS` is now `export`ed (only change) so `parse-fallback-object.ts` can detect tail-sliced bodies. See change: render-unclaimed-custom-entries.

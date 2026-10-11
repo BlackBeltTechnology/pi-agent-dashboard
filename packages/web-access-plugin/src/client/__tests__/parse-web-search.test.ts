@@ -1,6 +1,8 @@
 /**
  * L1 — pure parsing for the web-access card (change: render-unclaimed-custom-entries;
  * test-plan E8–E14, X5). Counts must never be partial; the parser must be total.
+ *
+ * @structural-pin drift guard: `body-limits.ts` mirrors the client reducer's CUSTOM_BODY_MAX_CHARS, which a plugin cannot import; the value is a code-shape fact
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
