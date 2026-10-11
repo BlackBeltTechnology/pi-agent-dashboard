@@ -16,6 +16,21 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     globalSetup: ["./scripts/mutation-journal-global-setup.mjs"],
+    // Coverage is enabled ONLY by `npm run test:coverage` (`vitest run --coverage`).
+    // The explicit `include` is what makes vitest 4 report source files no test
+    // loads (at 0%); without it the report covers loaded files only and an
+    // untested entry point (packages/extension/src/bridge.ts) is invisible.
+    // `reportOnFailure` keeps the report when a test is red.
+    // Out of scope, by design: packages/electron (own config, orphaned tests),
+    // scripts/, tests/ (Playwright), .pi/ (skills). Not a CI threshold — report first.
+    // See change: test-trust-audit (design D1).
+    coverage: {
+      provider: "v8",
+      include: ["packages/*/src/**/*.{ts,tsx}"],
+      exclude: ["**/__tests__/**", "**/test-support/**", "**/*.d.ts", "packages/electron/**"],
+      reportOnFailure: true,
+      reporter: ["text-summary", "json-summary"],
+    },
     // Under CI the run also emits a machine-readable report, uploaded by
     // ci.yml as an artifact on success AND failure. A test that passed on
     // retry is attributable from it (`status: passed` + a retained

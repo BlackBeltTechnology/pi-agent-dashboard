@@ -47,3 +47,22 @@ Non-goals: changing bridge behaviour; coverage thresholds in CI; touching Playwr
 - **`isolate: false` is slower before hygiene.** 2025-10-11: 221s vs 57s isolated, because leaked state stalls files (`AddFoldersDialog` 210s). The gate (D6, task 4.15) therefore also requires the shared-state run's wall time ≤ the isolated baseline, on top of the correctness conditions.
 - **Spec churn**: 14 requirement blocks across 10 specs re-stated to remove `bridge.ts` file pins. Each MODIFIED block is generated from the current main text; if main changes before archive, regenerate (a stale MODIFIED block silently reverts shipped behaviour — the 2025-10-11 recheck caught a `command-routing` delta that would have undone in-process slash dispatch). Accepted once; specs should not name files, so this prevents the same churn on the next extraction.
 - **One change, four slices** (user decision). Mitigation: strict slice order coverage → triage → extraction → hygiene; each slice green before the next; `SHIP_IT_BLOCKED.md` on any red slice rather than pushing through.
+
+## Measurements
+
+### Slice A baseline — `npm run test:coverage` (full run, 2025-10-11, task 1.8)
+
+Line coverage, unloaded files included (explicit `coverage.include`):
+
+| Scope | Files | Lines covered / total | % |
+|---|---|---|---|
+| extension | 106 | 5294 / 6947 | 76.21 |
+| server | 415 | 23788 / 27469 | 86.60 |
+| shared | 147 | 5689 / 6182 | 92.03 |
+| all `packages/*/src` | 2132 | 84660 / 103683 | 81.65 |
+
+Before: the extension project alone reported 93.82% over 5639 loaded lines. `bridge.ts` is now visible at 0 / 1300 lines. `session-api.ts` (85.1%) and `tool-registry/definitions.ts` (98.6%) turned out to be tested, so only `bridge.ts` is a true 0% entry point.
+
+Finding: with `vitest run --coverage --project <name>` the `coverage.include` glob is resolved against that project's root, so unloaded files outside it are NOT discovered (extension-only run: 104 files, no `bridge.ts`). Use a path filter (`vitest run --coverage packages/extension/src/`) or the full run. The E2 scenario (`scripts/__tests__/coverage-report.test.mjs`) uses the path filter.
+
+Full run wall time: 1140s under v8 instrumentation, 15 files / 33 tests red. The same 14 files (32 tests) are red WITHOUT coverage on this worktree before any code change (pre-existing, environmental: no built client `dist`, deep worktree socket paths, global-resource activation). `scan-perf` is the only coverage-induced failure (timing). Pre-existing red list kept for the ship gate.
