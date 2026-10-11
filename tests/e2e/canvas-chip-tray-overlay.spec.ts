@@ -76,19 +76,26 @@ async function openSessionWithServerChip(page: Page, scenario = "canvas-declare-
 }
 
 test.describe("canvas chip tray — floats out of layout flow", () => {
-  test("#E1: a chip appearing leaves header/chat/composer boxes unchanged; tray is portaled to body", async ({
+  test("#E1: the tray takes no layout space (boxes identical with it hidden) and is portaled to body", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1200, height: 800 });
     const card = await spawnFreshGitSession(page);
     await card.click();
     await expect(byTestId(page, "sendButton")).toBeVisible({ timeout: 30_000 });
-    const before = await layoutBoxes(page);
 
     await sendPrompt(page, "[[faux:canvas-declare-server]] go");
     await expect(chip(page)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("status-bar")).toHaveCount(0, { timeout: 60_000 });
 
-    expectSameBoxes(await layoutBoxes(page), before);
+    // Same state, tray rendered vs hidden: no layout probe may move. (A
+    // before/after-prompt baseline would also capture the usage row a turn adds
+    // above the chat pane, which is unrelated to the chip.)
+    const withTray = await layoutBoxes(page);
+    await tray(page).evaluate((el) => ((el as HTMLElement).style.display = "none"));
+    const withoutTray = await layoutBoxes(page);
+    await tray(page).evaluate((el) => ((el as HTMLElement).style.display = ""));
+    expectSameBoxes(withTray, withoutTray);
     const parentIsBody = await tray(page).evaluate((el) => el.parentElement === document.body);
     expect(parentIsBody, "tray portaled to document.body").toBe(true);
   });
@@ -206,10 +213,14 @@ test.describe("canvas chip tray — layering and pointer input", () => {
     expect(hitsTray).toBe(false);
   });
 
-  test("#F5: a dialog paints above the tray; closing it restores the anchor", async ({ page }) => {
+  test("#F5: a dialog paints above the tray; closing it restores the invariant", async ({ page }) => {
+    // NOT Settings: that route deselects the session, so the canvas state (and
+    // the chip) is empty there — the premise of test-plan #F5 was wrong. The
+    // commit dialog opens over a still-selected session, which is what the
+    // layering requirement is about.
     await openSessionWithServerChip(page);
-    await byTestId(page, "settingsBtn").click();
-    await expect(byTestId(page, "settingsContent")).toBeVisible({ timeout: 20_000 });
+    await byTestId(page, "gitDirtyPill").first().click();
+    await expect(byTestId(page, "commitDialog")).toBeVisible({ timeout: 10_000 });
 
     const hitsTray = await chip(page).evaluate((el) => {
       const r = el.getBoundingClientRect();
@@ -219,7 +230,7 @@ test.describe("canvas chip tray — layering and pointer input", () => {
     expect(hitsTray, "dialog/backdrop, not the chip, receives the point").toBe(false);
 
     await page.keyboard.press("Escape");
-    await expect(byTestId(page, "settingsContent")).toHaveCount(0, { timeout: 15_000 });
+    await expect(byTestId(page, "commitDialog")).toHaveCount(0, { timeout: 15_000 });
     await expect(page.getByTestId("composer-stack-anchor")).toHaveCount(1);
     await expect
       .poll(async () => (await chipBottom(page)) <= (await composerStackTop(page)) + 0.5, { timeout: 10_000 })
@@ -235,17 +246,24 @@ test.describe("canvas chip tray — mobile file chip", () => {
     await card.click();
     await page.setViewportSize({ width: 767, height: 800 });
     await expect(byTestId(page, "sendButton")).toBeVisible({ timeout: 30_000 });
-    const before = await page.getByTestId("split-chat-pane").boundingBox();
 
     await sendPrompt(page, "[[faux:canvas-write-md]] go");
     const fileChip = page.getByTestId("canvas-file-chip");
     await expect(fileChip).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("status-bar")).toHaveCount(0, { timeout: 60_000 });
+    await expect(page.getByTestId("split-chat-pane")).toBeVisible();
 
-    const after = await page.getByTestId("split-chat-pane").boundingBox();
-    expect(after).not.toBeNull();
-    expect(before).not.toBeNull();
+    // Same state, tray present vs removed from rendering: the chat pane must not
+    // move. (Comparing against a pre-prompt baseline would also capture the
+    // unrelated mobile header rows that a first turn adds.)
+    const withTray = await page.getByTestId("split-chat-pane").boundingBox();
+    await tray(page).evaluate((el) => ((el as HTMLElement).style.display = "none"));
+    const withoutTray = await page.getByTestId("split-chat-pane").boundingBox();
+    await tray(page).evaluate((el) => ((el as HTMLElement).style.display = ""));
+    expect(withTray).not.toBeNull();
+    expect(withoutTray).not.toBeNull();
     for (const k of ["x", "y", "width", "height"] as const) {
-      expect(Math.abs((after?.[k] ?? 0) - (before?.[k] ?? 0)), `split-chat-pane.${k} moved`).toBeLessThanOrEqual(0.5);
+      expect(Math.abs((withTray?.[k] ?? 0) - (withoutTray?.[k] ?? 0)), `split-chat-pane.${k} depends on tray`).toBeLessThanOrEqual(0.5);
     }
 
     await fileChip.click();
