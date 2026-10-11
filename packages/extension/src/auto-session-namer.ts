@@ -762,6 +762,14 @@ export function createAutoNamer(hooks: AutoNamerHooks, restored?: PersistedNamer
       const maxTokens = sawStarved ? TITLE_MAX_TOKENS_ESCALATED : TITLE_MAX_TOKENS_BASE;
       const res = await generateTitle({ registry, streamSimple, modelRef: literal, transcript, maxTokens });
 
+      // A dashboard system rename that landed mid-flight owns the name: the old
+      // attempt must neither spend budget nor set a stop on ANY verdict (a later
+      // detach clearing the name would otherwise find a stale stop).
+      if ((nameSource as NameSource | undefined) === "system") {
+        report("already-named", "the session name was set by a dashboard rename while the naming call was in flight", literal);
+        return;
+      }
+
       if (!res.ok) {
         if (res.hardError) {
           const cause: StopCause = /credential|authenticate/i.test(res.reason)
@@ -789,10 +797,6 @@ export function createAutoNamer(hooks: AutoNamerHooks, restored?: PersistedNamer
       // Re-check eligibility AFTER the await: an external rename can land
       // mid-stream and latch provenance `user`, and applying now would
       // overwrite both the user's name and its provenance (design D8).
-      if ((nameSource as NameSource | undefined) === "system") {
-        report("already-named", "the session name was set by a dashboard rename while the naming call was in flight", literal);
-        return;
-      }
       if (hardStopped || !isEligible({ autoNameSessions: hooks.getAutoNameSessions(), nameSource, hasAutoName })) {
         report("locked-out", "the session changed while the naming call was in flight", literal);
         return;

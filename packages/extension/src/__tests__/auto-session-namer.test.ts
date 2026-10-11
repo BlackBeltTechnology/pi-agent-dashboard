@@ -1246,6 +1246,33 @@ describe("system provenance blocks naming (E3, E4)", () => {
   });
 });
 
+describe("system rename mid-flight spends no budget on any verdict (E4b)", () => {
+  it.each([
+    ["a NULL (waiting) verdict", () => nullStream()],
+    ["a starved verdict", () => starvedStream()],
+  ])("%s", async (_n, mk) => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const inner = mk();
+    const slow: StreamSimpleFn = (m, c, o) => (async function* () {
+      await gate;
+      yield* inner(m, c, o);
+    })();
+    const hooks = makeHooks({ loadStreamSimple: async () => slow });
+    const namer = createAutoNamer(hooks);
+    const p = namer.maybeName();
+    await Promise.resolve();
+    namer.noteSystemRename("add-x");
+    release();
+    await p;
+    expect(namer.exportState()).toMatchObject({ attemptsUsed: 0, hardStopped: false });
+    const outcomes = (hooks.reportOutcome as any).mock.calls.map((c: any[]) => c[0].outcome);
+    expect(outcomes).toContain("already-named");
+    expect(outcomes).not.toContain("waiting");
+    expect(outcomes).not.toContain("starved");
+  });
+});
+
 describe("adoptRestoredNamerState provenance (E5, E9)", () => {
   it.each([
     ["auto", "A"], ["auto", undefined], ["auto", 7],
