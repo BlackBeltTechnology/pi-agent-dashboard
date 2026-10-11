@@ -13,7 +13,7 @@ license: MIT
 # canvas-webapp — show a web app on the dashboard canvas
 
 The dashboard opens a loopback `canvas(kind:"url")` target inside a
-`sandbox="allow-scripts"` iframe with **no `allow-same-origin`** (opaque origin),
+`sandbox="allow-scripts allow-forms allow-popups allow-downloads"` iframe with **no `allow-same-origin`** (opaque origin),
 proxied under `/live/<id>/` (`LiveServerViewer.tsx` → `live-server-proxy`). That
 sandbox breaks two common serving strategies; this skill is the fix.
 
@@ -45,7 +45,7 @@ blank white, an empty surface, or a `/live/<id>` 500 ECONNREFUSED.
    url:'http://127.0.0.1:<port>/'}, mode:'replace')`. Loopback is required (SSRF
    gate); `127.0.0.1` is safest.
 6. **Self-verify** by iframing your own harness before touching the canvas:
-   serve an HTML with `<iframe sandbox="allow-scripts allow-forms allow-popups"
+   serve an HTML with `<iframe sandbox="allow-scripts allow-forms allow-popups allow-downloads"
    src="http://127.0.0.1:<port>/">` on another port, open it in the browser tool,
    and screenshot — this reproduces the exact dashboard sandbox.
 
@@ -98,7 +98,7 @@ createServer(async (req, res) => {
 
 1. The static server responds 200 with header `Access-Control-Allow-Origin: *`
    (`curl -D - -o /dev/null`).
-2. An `<iframe sandbox="allow-scripts">` pointed at the server renders the app
+2. An `<iframe sandbox="allow-scripts allow-forms allow-popups allow-downloads">` pointed at the server renders the app
    (browser-tool screenshot), matching the dashboard's opaque-origin sandbox.
 3. After `canvas(kind:'url')`, the user confirms the app is visible on the canvas
    (not blank, no 500).

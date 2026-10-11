@@ -48,6 +48,20 @@ describe("LiveServerViewer", () => {
     expect(iframe.getAttribute("src")).toBe("/live/abc12345/");
   });
 
+  it("sandbox token set is exactly scripts/forms/popups/downloads (no same-origin, no without-user-activation)", async () => {
+    render(<LiveServerViewer />);
+    fireEvent.change(screen.getByTestId("live-url"), { target: { value: "http://localhost:5173" } });
+    fireEvent.click(screen.getByTestId("live-confirm"));
+    const iframe = await screen.findByTestId("live-iframe");
+    const tokens = (iframe.getAttribute("sandbox") ?? "").split(/\s+/).filter(Boolean);
+    // Exact set + no duplicates. See change: live-viewer-allow-downloads (test-plan #E1).
+    expect([...tokens].sort()).toEqual(
+      ["allow-downloads", "allow-forms", "allow-popups", "allow-scripts"],
+    );
+    expect(tokens).not.toContain("allow-same-origin");
+    expect(tokens).not.toContain("allow-downloads-without-user-activation");
+  });
+
   it("auto-launches a preset live:<url> target, skipping the picker, deep path preserved", async () => {
     const fetchSpy = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     render(<LiveServerViewer path="live:http://localhost:5173/report.html?x=1" />);
