@@ -10,15 +10,17 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/check-kb-dist-fresh.test.mjs` | C1 (fix-kb-eval-measurement-integrity): fault-injection via `--pkg` sandbox — clean fingerprint → exit 0; src/tsconfig edited after committed build or fingerprint missing → non-zero + mandated message. |
 | `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations` directly (12 cases) so detection is pinned independently of what `.pi/settings.json` currently holds. Negative cases carry the weight: `npm:`/`git:`/`https://`/`ssh://` sources and the bare-string package form must NOT be flagged, else the guard is unusable. See issue #371. |
 | `__tests__/biome-undeclared-dependencies.test.mjs` | Guardrails for the `noUndeclaredDependencies` config in `biome.json`. → see `__tests__/biome-undeclared-dependencies.test.mjs.AGENTS.md` |
-| `__tests__/coverage-config.test.mjs` | Root `test.coverage` + `test:coverage` wrapper shape (E1, E3). See change: test-trust-audit. |
-| `__tests__/coverage-report.test.mjs` | Live `test:coverage` runs (E2, X1), `RUN_CI_SCENARIOS`. See change: test-trust-audit. |
+| `__tests__/client-isolate-gate.test.mjs` | `isolate:false` gate, client project. |
+| `__tests__/coverage-config.test.mjs` | Root `test.coverage` + wrapper shape (E1, E3). |
+| `__tests__/coverage-report.test.mjs` | Live `test:coverage` runs (E2, X1). |
 | `__tests__/dependency-declarations.test.mjs` | Set-based manifest guarantees over ALL 32 non-private workspaces (not a sample). → see `__tests__/dependency-declarations.test.mjs.AGENTS.md` |
-| `__tests__/fixtures/coverage-failing/` | Always-red fixture + config for coverage X1. |
+| `__tests__/fixtures/coverage-failing/` | Always-red fixture + config (X1). |
 | `__tests__/fixtures/mutation-journal-child.mjs` | Child-process fixture for the mutation-journal crash-safety tests. → see `__tests__/fixtures/mutation-journal-child.mjs.AGENTS.md` |
 | `__tests__/fixtures/npm-view-stub.mjs` | Gate CLI npm-view stub. → see `__tests__/fixtures/npm-view-stub.mjs.AGENTS.md` |
 | `__tests__/merge-latest-mac.test.mjs` | Covers test-plan U6 for `merge-latest-mac.py`: the `minimumSystemVersion` update gate survives the arm64 + x64 merge, every arch DMG stays in `files[]`, extra legs are consumed, and a LEG-ASYMMETRIC injection (or a value disagreement) is REJECTED in both glob orders rather than silently inheriting from whichever file the glob yielded first. Skips when python3/pyyaml is absent. See change: upgrade-electron-runtime. |
 | `__tests__/seed-settings-compaction.test.mjs` | Unit tests for the e2e-only `compaction.keepRecentTokens` seed (change: replay-compaction-boundary): merge decision-table (fresh write, sibling-key preservation, no-clobber, unrelated top-level keys kept) + the file wrapper's corrupt-file / absent-path / idempotent cases. |
 | `__tests__/nightly-report.test.mjs` | Nightly report (X9–X11). → see `__tests__/nightly-report.test.mjs.AGENTS.md` |
+| `__tests__/shared-heavy-files.test.mjs` | Heavy shared groups <10 s/file (E14). |
 | `__tests__/select-affected-tests.test.mjs` | Selector layers (E1–E27). → see `__tests__/select-affected-tests.test.mjs.AGENTS.md` |
 | `__tests__/select-affected-tests-cli.test.mjs` | Selector CLI (X2–X8). → see `__tests__/select-affected-tests-cli.test.mjs.AGENTS.md` |
 | `__tests__/select-affected-tests-graph.test.mjs` | Real-tree graph build (X1, P1). → see `__tests__/select-affected-tests-graph.test.mjs.AGENTS.md` |

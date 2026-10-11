@@ -67,3 +67,27 @@ Before: the extension project alone reported 93.82% over 5639 loaded lines. `bri
 Finding: with `vitest run --coverage --project <name>` the `coverage.include` glob is resolved against that project's root, so unloaded files outside it are NOT discovered (extension-only run: 104 files, no `bridge.ts`). Use a path filter (`vitest run --coverage packages/extension/src/`) or the full run. The E2 scenario (`scripts/__tests__/coverage-report.test.mjs`) uses the path filter.
 
 Full run wall time: 1140s under v8 instrumentation, 15 files / 33 tests red. The same 14 files (32 tests) are red WITHOUT coverage on this worktree before any code change (pre-existing, environmental: no built client `dist`, deep worktree socket paths, global-resource activation). `scan-perf` is the only coverage-induced failure (timing). Pre-existing red list kept for the ship gate.
+
+### Slice D — client suite (tasks 4.1, 4.8, 4.15, 4.18)
+
+Reference machine: this worktree (macOS, 639 client files / 8,228 tests at slice start). Wall time with `HOME=$(mktemp -d)`, one full run of the `…-web` project.
+
+| Run | Files failed | Tests failed | Wall | transform / setup / import / tests / environment |
+|---|---|---|---|---|
+| isolated, before (task 4.1) | 0 | 0 | 48.4 s | 10.8 / 29.4 / 88.7 / 93.1 / 179.2 s |
+| `--no-isolate`, before hygiene (4.1) | 65 | 253 | 218.9 s | 8.2 / 1.1 / 17.3 / 911.9 / 183.3 s |
+| `--no-isolate`, with `restore-globals.ts` (4.8) | 72 | 231 | 169.9 s | 7.8 / 1.4 / 16.7 / 832.0 / 188.4 s |
+| isolated, after node split (jsdom project, 509 files) | 0 | 0 | 44.6 s | 9.2 / 25.7 / 89.9 / 97.0 / 150.7 s |
+| node project (130 files / 1,658 tests) | 0 | 0 | 1.4 s | 1.4 / 0 / 2.7 / 1.0 / 0.006 s |
+
+Three consecutive runs of the three affected projects together (`web`, `web-node`, `shared`; 881 files), 4.18: 52.6 s, 66.1 s, 68.1 s wall. The five red tests in every run are environmental in this worktree and identical before the change (`rendezvous` ×4: a long per-instance socket path under the deep worktree directory; plus one run-to-run flake, `ProviderAddDialog` AUTH-006, which passes alone 3/3 and fails only under load).
+
+**Isolate gate (4.15): NOT adopted — `isolate` stays `true`.** Measured on the conditions, not guessed:
+1. Correctness — `--no-isolate` still fails 65–72 files / 231–253 tests. The shared DOM / timer / storage hygiene does not move that number: the leak is module-level state (a component cached with the FIRST file's `vi.mock`s is reused by every later file in the worker; `vi.resetModules()` in setup hands a file a second React copy and breaks 870 tests even in isolated mode).
+2. Order independence — not attempted (a precondition that already fails).
+3. Wall time — the un-isolated run is 3.5–4.5× SLOWER than isolated (170–219 s vs 48 s), because leaked state stalls files; the gate requires median wall ≤ baseline.
+What landed instead: the node-environment split (130 files, 1.4 s, off the jsdom workers), `restore-globals.ts` (DOM cleanup, real timers, and file-level restore of storage / `getBoundingClientRect` / `matchMedia` — harmless isolated, and the precondition for a future attempt), `renderWithProviders`, and `scripts/__tests__/client-isolate-gate.test.mjs`, which makes `isolate: false` impossible to set without the shuffled and repeated green runs. A flaky assertion fixed on the way: `ProviderAuthSection.peer-hint` F9 asserted `expires in 2d` for a 3 d expiry, which only floors to `2d` once a millisecond has passed.
+
+### Slice D — shared heavy files (tasks 4.16, 4.17)
+
+Per-file durations in a full parallel `shared` run: `git-checkout-roots` 9.8 s (43 tests, fixture-bound), `openspec-poller-parity` 7.7 s (ONE test — a scenario matrix, not splittable by group), `ensure-cli` 5.6 s. All three were already under the 10 s ceiling; `git-checkout-roots` had the least headroom, so it was split in two halves (`git-checkout-roots.test.ts` + `.bound.test.ts`, same 43 assertions) to run on two workers. `scripts/__tests__/shared-heavy-files.test.mjs` pins the ceiling and the assertion counts.

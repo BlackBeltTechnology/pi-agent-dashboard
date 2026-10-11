@@ -27,6 +27,9 @@ function reachesEntryPoint(spec: string): boolean {
   return /^(?:\.\.\/|\.\/)+bridge(?:\.[jt]s)?$/.test(spec) && resolve(DIR, spec).replace(/\.[jt]s$/, "").endsWith(`${resolve(DIR, "..")}/bridge`);
 }
 
+/**
+ * @structural-pin import boundary of the extracted modules: whether one imports the entry point is a code-shape fact, not behaviour
+ */
 describe("bridge-handlers never import the entry point (E6)", () => {
   const files = readdirSync(DIR).filter((f) => f.endsWith(".ts"));
 

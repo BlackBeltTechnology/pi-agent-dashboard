@@ -75,6 +75,8 @@ export default defineConfig({
       "packages/deck3d",
       "packages/video-transcription",
       "packages/client",
+      // DOM-free client tests under the node environment (change: test-trust-audit).
+      "packages/client/vitest.node.config.ts",
       "packages/client-utils",
       // Standalone-SPA client plumbing (OIDC, transport, WS ticket, socket).
       // See change: extract-standalone-app-kit.

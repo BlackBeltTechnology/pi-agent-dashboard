@@ -301,7 +301,9 @@ describe("anthropic peer hint — reactivity", () => {
   });
 
   it("F9 is non-blocking — Sign Out, the Connected marker and the expiry stay intact", async () => {
-    const expires = Date.now() + 3 * 86_400_000;
+    // 2.5 days out renders "2d" for any render delay; exactly 3d floors to "2d" only once a
+    // millisecond has elapsed, which made this assertion race the clock.
+    const expires = Date.now() + 2.5 * 86_400_000;
     stubFetch([{ ...ANTHROPIC_CONNECTED, expires }]);
     const c = render(<ProviderAuthSection />);
     await waitFor(() => expect(hint(c)).toBeTruthy());

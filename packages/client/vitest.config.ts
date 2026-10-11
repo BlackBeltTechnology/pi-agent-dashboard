@@ -1,13 +1,22 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import path from "node:path";
 import { PARALLEL_MAX_WORKERS } from "../../vitest.workers";
+import { NODE_ENV_TESTS } from "./vitest.node-tests";
 
 export default defineConfig({
   test: {
     include: ["src/**/__tests__/**/*.test.{ts,tsx}"],
+    // Pure tests run under node in the sibling project (vitest.node.config.ts); never in both.
+    exclude: [...configDefaults.exclude, ...NODE_ENV_TESTS],
     environment: "jsdom",
     pool: "forks",
     maxWorkers: PARALLEL_MAX_WORKERS,
+    // isolate gate (change: test-trust-audit): `isolate` stays at its default `true`. Measured on
+    // 639 files: isolated 48s wall, 0 failing; `--no-isolate` 170-220s wall and 65-72 failing files
+    // (231-253 tests), even with shared DOM/storage/timer hygiene (`restore-globals.ts`) — the
+    // leak is module-level state (mocks and components cached across files), not the DOM.
+    // `isolate: false` may only be set when `scripts/__tests__/client-isolate-gate.test.mjs`
+    // (shuffled order, three green runs) passes under RUN_CI_SCENARIOS.
     // Headroom for `waitFor`-based assertions (asyncUtilTimeout raised to 10s
     // in the setup) so a slow-under-contention poll finishes inside the test
     // budget instead of tripping Testing-Library's 1s default. The 5s margin
@@ -19,7 +28,7 @@ export default defineConfig({
     // jsdom has no layout/ResizeObserver → TanStack Virtual renders 0 rows.
     // This shim gives the ChatView scroll container a tall viewport so windowed
     // rows mount for content assertions. See change: virtualize-chat-transcript-tanstack.
-    setupFiles: ["./src/test-support/virtualizer-jsdom.ts", "./src/test-support/eager-lazy-dialogs.ts"],
+    setupFiles: ["./src/test-support/virtualizer-jsdom.ts", "./src/test-support/eager-lazy-dialogs.ts", "./src/test-support/restore-globals.ts"],
   },
   resolve: {
     // Mirror vite.config alias — worktree-local source wins over the

@@ -393,6 +393,7 @@ If `--write` marks rule FIXABLE but leaves it, fix unsafe.
 | `quality:report` | `biome lint . --reporter=github` |
 | `lint` | `tsc --noEmit` (unchanged) |
 | `test:parallel` | `vitest run` (concurrent root projects) |
+| `test:coverage` | `vitest run --coverage` under isolated-HOME wrapper; writes `coverage/coverage-summary.json` (gitignored); full run only for unloaded-file accuracy; not a CI threshold |
 | `test:real-process` | `vitest run --config packages/server/vitest.real-process.config.ts` |
 
 ## CI
