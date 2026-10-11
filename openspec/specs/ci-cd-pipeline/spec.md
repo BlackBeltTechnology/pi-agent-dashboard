@@ -238,28 +238,6 @@ The release-pipeline `tag-and-push` job in `.github/workflows/publish.yml` SHALL
 - **THEN** the `release-cut` skill in `.pi/skills/release-cut/SKILL.md` SHALL document running `pnpm install --lockfile-only` between `sync-versions.js` and the commit step
 - **AND** `scripts/sync-versions.js` SHALL print a console hint pointing the maintainer at the right command
 
-### Requirement: Build tools referenced by workflows MUST be declared dependencies
-
-Every external Node.js package referenced from `.github/workflows/*.yml` — including but not limited to packages loaded via `node --import <pkg>`, `node --loader <pkg>`, `NODE_OPTIONS='--import <pkg>'`, or `npx <pkg>` — SHALL be declared in a workspace `package.json` (root or sub-package) so that `npm ci` resolves it. The publish workflow SHALL NOT rely on globally-installed packages on the GitHub Actions runner, except for the runner's preinstalled toolchain (Node.js, npm, git).
-
-This requirement closes a class of "works on my machine" CI failures where a developer has the tool installed globally but the runner does not.
-
-#### Scenario: tsx loader referenced by bundle script
-- **WHEN** `.github/workflows/publish.yml` invokes `node --import tsx/esm packages/electron/scripts/bundle-recommended-extensions.mjs`
-- **THEN** `tsx` SHALL be declared as a `devDependency` in the workspace root `package.json`
-- **AND** `package-lock.json` SHALL pin a specific resolved version
-- **AND** the step SHALL succeed without an `ERR_MODULE_NOT_FOUND` for `tsx`
-
-#### Scenario: New build-tool added in a future change
-- **WHEN** a future workflow step is added that invokes `node --import <new-pkg>` or `npx <new-pkg>`
-- **THEN** the change proposal SHALL also add `<new-pkg>` to a workspace `package.json`
-- **AND** the change SHALL regenerate `package-lock.json` in the same commit
-
-#### Scenario: Repo-lint enforcement (optional, future)
-- **WHEN** a maintainer wants to enforce this requirement automatically
-- **THEN** a repo-lint test MAY be added under `packages/shared/src/__tests__/` that greps `.github/workflows/*.yml` for `--import <pkg>` / `npx <pkg>` tokens and asserts each `<pkg>` resolves from the workspace root
-- **AND** absence of such a lint SHALL NOT be a blocker for this change
-
 ### Requirement: Reusable standalone-install-smoke workflow
 The project SHALL provide a reusable workflow `.github/workflows/_smoke.yml` with `on: workflow_call` that encapsulates the full standalone-install-smoke matrix (Linux × 6: Node 22/24/25 × bookworm-slim/alpine, plus Windows × 1: Node 22). The workflow SHALL accept input `ref` (string, required) — the git ref to check out before packing tarballs and running the install smoke. The workflow SHALL be the sole definition of the smoke matrix in the repo; both `ci-smoke.yml` (manual dispatch) and `publish.yml` (release gate) SHALL consume it via `uses:` rather than inlining the matrix.
 
@@ -584,3 +562,19 @@ A repo-lint test SHALL assert that `ci-e2e-browser.yml` declares the three trigg
 #### Scenario: Removing the always-teardown step fails lint
 - **WHEN** the `if: always()` teardown step is removed
 - **THEN** the repo-lint test SHALL fail naming the workflow
+
+### Requirement: Workflow build tools are declared dependencies
+
+Every external Node.js package referenced from `.github/workflows/*.yml` — including but not limited to packages loaded via `node --import <pkg>`, `node --loader <pkg>`, `NODE_OPTIONS='--import <pkg>'`, or `npx <pkg>` — SHALL be declared in a workspace `package.json` (root or sub-package) so that `npm ci` resolves it. The publish workflow SHALL NOT rely on globally-installed packages on the GitHub Actions runner, except for the runner's preinstalled toolchain (Node.js, npm, git).
+
+This requirement closes a class of "works on my machine" CI failures where a developer has the tool installed globally but the runner does not.
+
+#### Scenario: New build-tool added in a future change
+- **WHEN** a future workflow step is added that invokes `node --import <new-pkg>` or `npx <new-pkg>`
+- **THEN** the change proposal SHALL also add `<new-pkg>` to a workspace `package.json`
+- **AND** the change SHALL regenerate `package-lock.json` in the same commit
+
+#### Scenario: Repo-lint enforcement (optional, future)
+- **WHEN** a maintainer wants to enforce this requirement automatically
+- **THEN** a repo-lint test MAY be added under `packages/shared/src/__tests__/` that greps `.github/workflows/*.yml` for `--import <pkg>` / `npx <pkg>` tokens and asserts each `<pkg>` resolves from the workspace root
+- **AND** absence of such a lint SHALL NOT be a blocker for this change

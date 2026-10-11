@@ -2,20 +2,8 @@
 
 ## Purpose
 Defines the QA coverage required to catch Electron-bootstrap regressions — particularly the failure modes observed in v0.4.6 (invisible server logs, and lack of a real Electron-launch smoke test on Linux). These requirements pin specific QA stages and tests so production regressions are caught by the CI/VM test suite before release.
+
 ## Requirements
-### Requirement: QA simulates degraded managed-dir recovery
-The Linux Docker installer test (`packages/electron/scripts/test-electron-install-inner.sh`) SHALL include a "degraded re-extract recovery" stage that runs after the happy-path installation and health check succeed. This stage SHALL prove that the bootstrap auto-recovers when the `.version` marker says "no extraction needed" but the actual managed `node_modules` tree is degraded — the failure mode that produced the user-visible "FATAL: Cannot find pi's TypeScript loader (jiti)" in v0.4.6.
-
-#### Scenario: Stage 9 wipes critical subtree and re-runs install
-- **WHEN** Stage 9 of `test-electron-install-inner.sh` runs
-- **THEN** the script SHALL stop the previously-spawned server, wipe `$MANAGED_DIR/node_modules/@mariozechner` (which contains jiti), and assert that subtree is gone (precondition: degraded state)
-- **AND** the script SHALL re-invoke the installation logic that mirrors `installStandalone` (`npm install --prefix --cache <offline>` + node_modules merge)
-- **AND** SHALL assert `$MANAGED_DIR/node_modules/@mariozechner/jiti` exists post-recovery (recovery succeeded)
-- **AND** SHALL re-spawn the server and re-assert `/api/health` returns 200
-
-#### Scenario: Stage 9 fails when production fix is reverted
-- **WHEN** the production code is regressed by removing `extractedSourceIsHealthy` wiring (or its bash-script counterpart)
-- **THEN** Stage 9 SHALL fail with a clear message identifying the missing recovery (`jiti not restored after re-install attempt` or similar)
 
 ### Requirement: QA asserts server-log non-empty after a successful spawn
 Every QA test that successfully spawns the dashboard server and confirms `/api/health` SHALL also assert that the server's persistent log file (`~/.pi/dashboard/server.log` for the Electron-managed path; per-test stdout file for non-Electron paths) is non-empty. A 0-byte log after a healthy spawn indicates the kind of stdio-routing bug that produced the v0.4.6 invisible-server-log regression and SHALL be treated as a test failure.
@@ -131,4 +119,3 @@ The suite MAY remain `workflow_dispatch`-only OR be promoted to an automatic tri
 - **GIVEN** `ci-e2e-electron.yml` is present on the repository default branch
 - **WHEN** the workflow is dispatched (`workflow_dispatch`) or triggered by the chosen cadence
 - **THEN** both matrix legs SHALL run (a feature-branch-only workflow returns HTTP 404 on dispatch and cannot run)
-
