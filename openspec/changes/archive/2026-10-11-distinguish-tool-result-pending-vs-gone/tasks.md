@@ -98,7 +98,7 @@
   - the records for `memory-event-store.ts`, `event-wiring.ts`, `session-routes.ts`, `system-routes.ts`, `useStaleToolReconcile.ts`, `useToolFullResult.ts`, `event-reducer.ts` and `ToolCallStep.tsx`.
 
   Delegate the `docs/` route-contract prose to DocScribe. Verify `git grep -l distinguish-tool-result-pending-vs-gone -- '*AGENTS.md' docs/` lists each record and the DocScribe-edited doc.
-- [ ] 5.4 Manual (test-plan: manual-only, #F1), non-gating, after deploy. In the running dashboard, a session runs `sleep 60`. Check:
+- [x] 5.4 Manual (test-plan: manual-only, #F1), non-gating, after deploy. In the running dashboard, a session runs `sleep 60`. Check:
   - DevTools probes answer `202 {pending:true}`;
   - no red tool-result rows;
   - `/api/health` `toolResult.pending` grows.
