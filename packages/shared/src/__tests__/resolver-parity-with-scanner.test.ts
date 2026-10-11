@@ -37,6 +37,9 @@ const scannerPath = path.resolve(
 );
 const resolverPath = path.resolve(__dirname, "..", "pi-package-resolver.ts");
 
+/**
+ * @structural-pin parity lint: shared resolver duplicates source-kind parsing from the server scanner; the two code sites must stay equal
+ */
 describe("pi-package-resolver / pi-resource-scanner parity (structural)", () => {
   it("scanner source recognizes all source-kind prefixes the resolver handles", () => {
     const scannerSrc = fs.readFileSync(scannerPath, "utf-8");

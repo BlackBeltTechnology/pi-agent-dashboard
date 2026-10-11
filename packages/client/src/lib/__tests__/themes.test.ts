@@ -6,6 +6,9 @@ import { CSS_VAR_KEYS, getTheme, THEMES } from "../theme/themes.js";
 // index.css lives two dirs up from this __tests__ folder (src/lib/__tests__ -> src).
 const css = readFileSync(join(import.meta.dirname, "..", "..", "index.css"), "utf8");
 
+/**
+ * @structural-pin scans every client .tsx for token usage against the declared theme tables and index.css; usage in source text is the subject
+ */
 describe("themes", () => {
   it("has 9 themes", () => {
     expect(THEMES.length).toBe(9);

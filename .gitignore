@@ -42,6 +42,7 @@ blob-report/
 # Electron-E2E outputs. See change: electron-attach-ownership-fixes.
 playwright-report-electron/
 test-results/
+coverage/
 .playwright/
 doc-example/
 

@@ -18,6 +18,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * @structural-pin GmailSettings.tsx pulls the full plugin client graph; the entry registration is checked in its text
+ */
 describe("client entry", () => {
   it("exports the catalog eagerly and renders the lazy settings section", async () => {
     expect(Object.keys(catalog.hu).sort()).toEqual(Object.keys(catalog["zh-CN"]).sort());

@@ -20,6 +20,7 @@ import {
   makeCacheWarmingDecisionHandler,
   sendShutdownUsageThenUnregister,
 } from "../usage-drain.js";
+import { readBridgeSource } from "./helpers/bridge-source.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -72,6 +73,9 @@ let tmp: string;
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), "usage-drain-")); });
 afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true }); vi.restoreAllMocks(); });
 
+/**
+ * @structural-pin bridge.ts cannot be instantiated in a test; drain-point call sites and shutdown ordering are pinned in its text
+ */
 describe("#E7 drain allowlist", () => {
   it("forwards usage / compaction / branch_summary with usage only; provider/model only on usage entries", () => {
     const sm = makeSm("A", [{ type: "message", id: "h1", message: { role: "user", content: "x" } }]);
@@ -115,10 +119,10 @@ describe("#E8 baseline + seed share one snapshot (init / reload)", () => {
   });
 
   it("bridge.ts baselines in session_start before any register and sends usageSeed on the init register", () => {
-    const src = fs.readFileSync(path.join(here, "..", "bridge.ts"), "utf8");
+    const src = readBridgeSource("bridge-handlers/lifecycle.ts");
     const start = src.indexOf('pi.on("session_start"');
     const baseline = src.indexOf("usageDrain.baseline(ctx.sessionManager)", start);
-    const change = src.indexOf("handleSessionChange(ctx, usageSeed)", start);
+    const change = src.indexOf("handleSessionChange(inst, ctx, usageSeed)", start);
     const initRegister = src.indexOf('type: "session_register"', start);
     const seedSpread = src.indexOf("...(usageSeed ? { usageSeed } : {})", start);
     expect(baseline).toBeGreaterThan(start);
@@ -240,7 +244,7 @@ describe("#E15 shutdown drain precedes unregister", () => {
   });
 
   it("bridge.ts session_shutdown routes its unregister through the drain-first helper", () => {
-    const src = fs.readFileSync(path.join(here, "..", "bridge.ts"), "utf8");
+    const src = readBridgeSource("bridge-handlers/lifecycle.ts");
     const start = src.indexOf('pi.on("session_shutdown"');
     const end = src.indexOf("connection.disconnect()", start);
     const body = src.slice(start, end);
@@ -276,10 +280,10 @@ describe("#E16 observe-only cache_warming_decision", () => {
     expect(handler({ action: "warm" }, {})).toBeUndefined();
     expect(sent.map((m) => m.type)).toEqual(["usage_recorded"]);
 
-    const src = fs.readFileSync(path.join(here, "..", "bridge.ts"), "utf8");
-    const lists = src.slice(src.indexOf("const enrichedEventTypes = ["), src.indexOf("// Excluded from subscription"));
+    const forwarders = readBridgeSource("bridge-handlers/forwarders.ts");
+    const lists = forwarders.slice(forwarders.indexOf("const enrichedEventTypes = ["), forwarders.indexOf("// Excluded from subscription"));
     expect(lists).not.toContain('"cache_warming_decision"');
-    expect(src).toContain('pi.on("cache_warming_decision", makeCacheWarmingDecisionHandler(');
+    expect(readBridgeSource("bridge.ts")).toContain('pi.on("cache_warming_decision", makeCacheWarmingDecisionHandler(');
   });
 });
 

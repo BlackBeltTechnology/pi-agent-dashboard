@@ -44,6 +44,9 @@ const LITERAL_SEMVER = /^\d+\.\d+\.\d+(-[A-Za-z0-9.-]+)?$/;
 /** The lowest Electron major on a currently-supported release line. */
 const MIN_SUPPORTED_MAJOR = 43;
 
+/**
+ * @structural-pin build-contract pin on forge.config.ts text: the shipped Electron version and macOS floor are source constants
+ */
 describe("E1: the electron devDependency is a literal version, not a range", () => {
   const pinned: string = pkg.devDependencies.electron;
 

@@ -23,23 +23,27 @@
  *
  * See change: coalesce-bridge-message-update-snapshots (tasks 4.1–4.4).
  */
-import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   COALESCE_WINDOW_MS,
   flushesParkedText,
   MessageUpdateCoalescer,
 } from "../message-update-coalescer.js";
+import { readBridgeSource } from "./helpers/bridge-source.js";
 
-const BRIDGE_SOURCE = fs.readFileSync(new URL("../bridge.ts", import.meta.url), "utf8");
+// The enriched / pass-through forwarders moved to bridge-handlers/forwarders.ts; the
+// reconnect handler and the persistence sinks stay in bridge.ts. See change: test-trust-audit.
+const BRIDGE_SOURCE = readBridgeSource("bridge.ts");
+const FORWARDERS_SOURCE = readBridgeSource("bridge-handlers/forwarders.ts");
+const LIFECYCLE_SOURCE = readBridgeSource("bridge-handlers/lifecycle.ts");
 
-/** Slice `from` (inclusive) up to the next `to` (exclusive). */
-function region(from: string, to: string): string {
-  const start = BRIDGE_SOURCE.indexOf(from);
+/** Slice `from` (inclusive) up to the next `to` (exclusive), within `source`. */
+function region(from: string, to: string, source: string = BRIDGE_SOURCE): string {
+  const start = source.indexOf(from);
   expect(start, `missing anchor: ${from}`).toBeGreaterThanOrEqual(0);
-  const end = BRIDGE_SOURCE.indexOf(to, start + from.length);
+  const end = source.indexOf(to, start + from.length);
   expect(end, `missing terminator: ${to}`).toBeGreaterThan(start);
-  return BRIDGE_SOURCE.slice(start, end);
+  return source.slice(start, end);
 }
 
 /** Index of `needle` inside `haystack`, failing loudly when absent. */
@@ -228,6 +232,9 @@ function park(model: BridgeModel, text: string, timestamp: number): void {
   model.mark();
 }
 
+/**
+ * @structural-pin bridge.ts opens sockets and timers at load; the coalescing proximity rule is a placement fact pinned in its text
+ */
 describe("bridge coalescing — choke-point predicate", () => {
   it("every event except message_update flushes parked text", () => {
     expect(flushesParkedText("message_update")).toBe(false);
@@ -523,18 +530,16 @@ describe("bridge coalescing — system-role exclusion + compaction redaction (E1
 describe("bridge coalescing — source contract (placement)", () => {
   const enrichedHandler = region(
     "for (const eventType of enrichedEventTypes) {",
-    "// Pass-through events: forward with no enrichment",
+    "export function registerPassThroughForwarders",
+    FORWARDERS_SOURCE,
   );
-  const passThroughHandler = region(
-    "// Pass-through events: forward with no enrichment",
-    "// ── Subagent fan-out admission",
-  );
+  const passThroughHandler = FORWARDERS_SOURCE.slice(FORWARDERS_SOURCE.indexOf("export function registerPassThroughForwarders"));
   const reconnectHandler = region("onReconnect: safe(() => {", 'connection.send({ type: "replay_complete"');
   const customMessageSink = region("sm.appendCustomMessageEntry = (customType", "const origEntry = sm.appendCustomEntry");
   const customEntrySink = region("sm.appendCustomEntry = (customType", "customWrappedSm = sm;");
   const retrySink = region("const sendSyntheticRetryEvent", "// ── Per-message entry id tracking");
-  const messageStartBranch = region('if (eventType === "message_start") {', "// For message_end: defer the SEND");
-  const messageEndBranch = region('if (eventType === "message_end") {', "// Text snapshots are COALESCED");
+  const messageStartBranch = region('if (eventType === "message_start") {', "// For message_end: defer the SEND", FORWARDERS_SOURCE);
+  const messageEndBranch = region('if (eventType === "message_end") {', "// Text snapshots are COALESCED", FORWARDERS_SOURCE);
 
   it("the enriched loop flushes at ENTRY, ahead of every branch", () => {
     const flush = at(enrichedHandler, "if (flushesParkedText(eventType)) coalescer.flush();");
@@ -577,7 +582,10 @@ describe("bridge coalescing — source contract (placement)", () => {
   });
 
   it("both session boundaries clear the coalescer", () => {
-    const clears = BRIDGE_SOURCE.match(/coalescer\.clear\(\);/g) ?? [];
+    // Both clears live in the lifecycle handlers (session change + shutdown), nowhere else.
+    const clears = LIFECYCLE_SOURCE.match(/coalescer\.clear\(\);/g) ?? [];
+    expect(BRIDGE_SOURCE.match(/coalescer\.clear\(\);/g) ?? []).toHaveLength(0);
+    expect(FORWARDERS_SOURCE.match(/coalescer\.clear\(\);/g) ?? []).toHaveLength(0);
     expect(clears).toHaveLength(2);
   });
 
@@ -602,13 +610,13 @@ describe("bridge coalescing — source contract (placement)", () => {
   it("the session_compact path redacts compactionEntry before mapping", () => {
     expect(enrichedHandler).toContain("redactCompactionEntry(");
     // The redaction must not be applied inside the generic mapper (design D7).
-    expect(BRIDGE_SOURCE).toContain("redactCompactionEntry(event");
+    expect(FORWARDERS_SOURCE).toContain("redactCompactionEntry(event");
   });
 
   it("message_update is routed to the coalescer and returns (never the shared tail)", () => {
     // Scope to the routing block itself: the `message_end` branch legitimately
     // KEEPS its own inliner call (the authoritative final-content replacement).
-    const routing = region("// Text snapshots are COALESCED", "// Pass-through events: forward with no enrichment");
+    const routing = region("// Text snapshots are COALESCED", "export function registerPassThroughForwarders", FORWARDERS_SOURCE);
     // The offer resolves the message's OWN generation (not the counter's current
     // value), so a straggler for a closed message still keys to that identity.
     expect(routing).toContain("coalescer.offer(event, coalescer.generationOf(");
@@ -616,7 +624,7 @@ describe("bridge coalescing — source contract (placement)", () => {
     expect(routing).not.toContain("maybeInlineAssistantImages");
     expect(enrichedHandler).toContain("coalescer.offer(event, coalescer.generationOf(");
     // The inliner now runs once per flushed window, inside the send callback.
-    expect(region("const coalescer = new MessageUpdateCoalescer", "let assistantMessageGen")).toContain(
+    expect(region("coalescer = new MessageUpdateCoalescer", "assistantMessageGen = 0")).toContain(
       "maybeInlineAssistantImages(event);",
     );
   });

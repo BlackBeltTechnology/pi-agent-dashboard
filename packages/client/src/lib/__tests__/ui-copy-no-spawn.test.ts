@@ -123,6 +123,9 @@ function scanJsonCatalogs(): Hit[] {
 
 const key = (h: Hit) => `${h.file}\u0000${h.text}`;
 
+/**
+ * @structural-pin user-facing copy lint over every client string: the word spawn must not reach the UI; a scan over source text is the only way to cover all catalogs
+ */
 describe("user-facing copy — no spawn wording (E7)", () => {
   const sourceHits = readdirSync(PACKAGES).flatMap((pkg) => sourceFiles(join(PACKAGES, pkg, "src")).flatMap(scanSource));
   const hits = [...sourceHits, ...scanJsonCatalogs()];

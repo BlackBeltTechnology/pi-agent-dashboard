@@ -10,7 +10,6 @@
  *
  * test-plan ids: E39 E40 E41 X5 X6 X7.
  */
-import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeContext } from "../bridge-context.js";
 import {
@@ -27,18 +26,27 @@ import { sendModelUpdateIfChanged } from "../model-tracker.js";
 import { __resetPollCostForTests, pollCost } from "../poll-cost.js";
 import { createProcessScanScheduler } from "../process-scan-scheduler.js";
 import { scanChildProcesses } from "../process-scanner.js";
+import { readBridgeSource } from "./helpers/bridge-source.js";
 import { GitFactsCache } from "../vcs-info.js";
 
-const SRC = fs.readFileSync(new URL("../bridge.ts", import.meta.url), "utf8");
+// The handler bodies moved out of bridge.ts; each guard scans the module that now holds its code.
+// See change: test-trust-audit.
+const SRC = readBridgeSource("bridge.ts");
+const LIFECYCLE = readBridgeSource("bridge-handlers/lifecycle.ts");
+const FORWARDERS = readBridgeSource("bridge-handlers/forwarders.ts");
+const DISPATCH = readBridgeSource("bridge-handlers/dispatch.ts");
 
-function region(from: string, to: string): string {
-  const start = SRC.indexOf(from);
+function region(from: string, to: string, source: string = SRC): string {
+  const start = source.indexOf(from);
   expect(start, `missing anchor: ${from}`).toBeGreaterThanOrEqual(0);
-  const end = SRC.indexOf(to, start + from.length);
+  const end = source.indexOf(to, start + from.length);
   expect(end, `missing terminator: ${to}`).toBeGreaterThan(start);
-  return SRC.slice(start, end);
+  return source.slice(start, end);
 }
 
+/**
+ * @structural-pin bridge.ts cannot be instantiated in a test; that it still calls the polling seams, and where, is pinned in its text
+ */
 describe("model_select pushes a model_update (E39/E40)", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
@@ -79,9 +87,10 @@ describe("model_select pushes a model_update (E39/E40)", () => {
   });
 
   it("the bridge's model_select branch uses the seam through the timer registry (no second pi.on)", () => {
-    const branch = region('if (eventType === "model_select") {', "// Pi 0.71+ fires a dedicated thinking_level_select");
+    const branch = region('if (eventType === "model_select") {', "// Pi 0.71+ fires a dedicated thinking_level_select", FORWARDERS);
     expect(branch).toContain("scheduleModelRecheckOnSelect(setRegisteredTimeout, sendModelUpdateIfChanged)");
     expect(SRC.match(/pi\.on\("model_select"/g)).toBeNull();
+    expect(FORWARDERS.match(/pi\.on\("model_select"/g)).toBeNull();
   });
 });
 
@@ -107,7 +116,7 @@ describe("git_info_refresh routing (B1)", () => {
   });
 
   it("the bridge routes inbound messages through the seam", () => {
-    expect(SRC).toContain("routeGitInfoRefresh(msg, { prStatus, gitTracker: polling.gitTracker })");
+    expect(DISPATCH).toContain("routeGitInfoRefresh(msg, { prStatus: prStatus, gitTracker: polling.gitTracker })");
   });
 });
 
@@ -134,7 +143,7 @@ describe("lifecycle events feed the polling machinery", () => {
   });
 
   it("the bridge feeds events AFTER the parked-text flush choke point", () => {
-    const entry = region("if (flushesParkedText(eventType)) coalescer.flush();", "// Track agent streaming state");
+    const entry = region("if (flushesParkedText(eventType)) coalescer.flush();", "// Track agent streaming state", FORWARDERS);
     expect(entry).toContain("feedPollingEvent(eventType, event, polling)");
   });
 });
@@ -153,7 +162,7 @@ describe("poll-cost counters ride the heartbeat (E41)", () => {
         "pollGitSpawns", "pollGitWatchersAttached", "pollProcScanMs", "pollProcScanRuns", "pollProcScanSpawns",
       ].sort(),
     );
-    expect(region("metrics: {", "HEARTBEAT_INTERVAL")).toContain("...pollCost");
+    expect(region("metrics: {", "HEARTBEAT_INTERVAL", LIFECYCLE)).toContain("...pollCost");
   });
 });
 
@@ -316,11 +325,11 @@ describe("polling lifecycle — the bridge's real seams (X5–X7)", () => {
   it("bridge.ts uses these seams: holder for both schedulers, one disposeAll disposable, teardown helper, drain at shutdown/cleanup", () => {
     expect(SRC).toContain("createPollingHolder()");
     expect(SRC).toContain("const disposePolling = () => polling.disposeAll();");
-    expect(SRC.match(/ensurePollingDisposable\(\);/g)!.length).toBeGreaterThanOrEqual(3); // init + renewGitTracker + scan wiring
+    expect((SRC + LIFECYCLE).match(/ensurePollingDisposable\(\);/g)!.length).toBeGreaterThanOrEqual(3); // init + renewGitTracker + scan wiring
     expect(SRC).toContain("teardownPreviousIncarnation(prev, () => isBridgeReentry(prev, pi))");
     expect(region("state.cleanup = () => {", "// Dev build & restart")).toContain("drainDisposables(s)");
-    expect(region('pi.on("session_shutdown"', "sendShutdownUsageThenUnregister(")).toContain("drainDisposables(getBridgeState())");
-    expect(region("const scheduler = createProcessScanScheduler({", "scheduler.start();")).toContain("polling.replaceProcessScan(scheduler)");
+    expect(region('pi.on("session_shutdown"', "sendShutdownUsageThenUnregister(", LIFECYCLE)).toContain("drainDisposables(shared)");
+    expect(region("const scheduler = createProcessScanScheduler({", "scheduler.start();", LIFECYCLE)).toContain("polling.replaceProcessScan(scheduler)");
     expect(SRC).not.toContain("processScanTimer");
   });
 });

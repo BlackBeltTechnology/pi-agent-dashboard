@@ -13,6 +13,9 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * @structural-pin no spawnDetached call in server-lifecycle.ts may bypass buildServerSpawnOptions (would drop detach:false); a call-site scan of source
+ */
 describe("buildServerSpawnOptions", () => {
   it("passes detach: false so the server stays inside Electron's Job Object on Windows", () => {
     const opts = buildServerSpawnOptions({

@@ -119,6 +119,9 @@ function allLiterals(): Lit[] {
 
 const rel = (f: string) => f.slice(PACKAGES.length + 1);
 
+/**
+ * @structural-pin style lint over the aligned action surfaces: no raw colour literal and no --text-muted token; token usage is not observable in jsdom
+ */
 describe("aligned action surfaces — source gates", () => {
   const lits = allLiterals();
 

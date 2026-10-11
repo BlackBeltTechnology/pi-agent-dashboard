@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { scanAllSessions } from "../session/session-scanner.js";
 import { condenseForFirstMessage } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 
 const SESSION_HEADER = {
@@ -60,7 +61,7 @@ describe("condenseForFirstMessage (used by session-scanner / session-discovery)"
 
 // End-to-end against the actual session-scanner path. We touch the same JSONL
 // reader the scanner uses indirectly by importing the module.
-describe("session-scanner readJsonlHeaderSync (firstMessage condensation end-to-end)", () => {
+describe("session-scanner firstMessage condensation (end-to-end via scanAllSessions)", () => {
   let tmpRoot: string;
 
   beforeEach(() => {
@@ -72,24 +73,28 @@ describe("session-scanner readJsonlHeaderSync (firstMessage condensation end-to-
     if (existsSync(tmpRoot)) rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it("end-to-end: a JSONL whose first user message is wrapped emits condensed firstMessage", async () => {
-    // Use the unexported readJsonlHeaderSync via dynamic import of the module's
-    // public listing flow — simplest: just round-trip condenseForFirstMessage
-    // against the same string the scanner extracts. This is what the scanner
-    // does post-extraction (see prior tests in this file).
-    // Heavier integration: call discoverSessionsFromCwd, but that requires the
-    // full ~/.pi/agent/sessions tree layout. The shared helper test above
-    // exercises the actual condensation logic; this test pins the assumption
-    // that scanners DO call condenseForFirstMessage by file inspection.
-    const { readFileSync } = await import("node:fs");
-    const path = await import("node:path");
-    const scannerPath = path.join(__dirname, "..", "session", "session-scanner.ts");
-    const discoveryPath = path.join(__dirname, "..", "session", "session-discovery.ts");
-    const scannerSrc = readFileSync(scannerPath, "utf-8");
-    const discoverySrc = readFileSync(discoveryPath, "utf-8");
-    expect(scannerSrc).toMatch(/condenseForFirstMessage\(\s*msg\.content\s*,\s*200\s*\)/);
-    expect(scannerSrc).toMatch(/condenseForFirstMessage\(\s*part\.text\s*,\s*200\s*\)/);
-    expect(discoverySrc).toMatch(/condenseForFirstMessage\(\s*msg\.content\s*,\s*200\s*\)/);
-    expect(discoverySrc).toMatch(/condenseForFirstMessage\(\s*part\.text\s*,\s*200\s*\)/);
+  // Replaces a source-text pin (`condenseForFirstMessage(...)` present in the scanner
+  // sources) with the behaviour it stood for. See change: test-trust-audit (D4).
+  function writeSession(name: string, text: string): void {
+    const cwdDir = join(tmpRoot, "--some-cwd--");
+    mkdirSync(cwdDir, { recursive: true });
+    const lines = [SESSION_HEADER, userMsgEntry(text)].map((e) => JSON.stringify(e)).join("\n");
+    writeFileSync(join(cwdDir, `2026-05-05T10-00-00-000Z_${name}.jsonl`), `${lines}\n`);
+  }
+
+  function firstMessageOf(id: string): string | undefined {
+    const { sessions } = scanAllSessions(tmpRoot, { archiveAfterDays: 0, archiveServiceSessionsOnEnd: false });
+    return sessions.find((s) => s.id === id)?.firstMessage;
+  }
+
+  it("a JSONL whose first user message is a wrapped <skill> envelope scans to the slash form", () => {
+    const wrapped = `<skill name="openspec-explore" location="/abs/SKILL.md">\nbody\n</skill>\n\ncontinue with X`;
+    writeSession("wrapped-1", wrapped);
+    expect(firstMessageOf("wrapped-1")).toBe("/skill:openspec-explore continue with X");
+  });
+
+  it("a JSONL whose first user message is plain text scans to the raw text", () => {
+    writeSession("plain-1", "Hello world");
+    expect(firstMessageOf("plain-1")).toBe("Hello world");
   });
 });

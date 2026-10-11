@@ -23,6 +23,9 @@ import { describe, expect, it } from "vitest";
 const electronSrc = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const mainSrc = readFileSync(path.join(electronSrc, "main.ts"), "utf8");
 
+/**
+ * @structural-pin main.ts imports electron and cannot be loaded under vitest; the handler registration is checked in its text
+ */
 describe("X2 (static): electron main installs an unhandled-rejection reporter", () => {
   it("registers a process-level unhandledRejection handler", () => {
     expect(mainSrc).toMatch(/process\.on\(\s*["']unhandledRejection["']/);

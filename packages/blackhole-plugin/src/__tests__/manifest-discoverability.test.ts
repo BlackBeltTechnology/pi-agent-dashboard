@@ -28,6 +28,9 @@ function readManifest(path: string): { priority?: number; claims: Array<Record<s
   return pkg["pi-dashboard-plugin"] as { priority?: number; claims: Array<Record<string, unknown>> };
 }
 
+/**
+ * @structural-pin slot-frozen contract: the manifest must stay aligned with shared slot-types.ts, a type-only source with no runtime value to import
+ */
 describe("blackhole session-surface manifest discoverability", () => {
   const manifest = readManifest(PACKAGE_JSON);
 

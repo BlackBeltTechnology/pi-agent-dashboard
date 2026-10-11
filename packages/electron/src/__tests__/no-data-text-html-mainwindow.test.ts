@@ -17,6 +17,9 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MAIN_TS = path.resolve(__dirname, "..", "main.ts");
 
+/**
+ * @structural-pin repo lint on electron main.ts: the loading page must be a real HTML resource so a preload can attach; main.ts imports electron and cannot be loaded
+ */
 describe("no-data-text-html-mainwindow", () => {
   it("main.ts does not load a data:text/html URL into mainWindow", () => {
     const src = readFileSync(MAIN_TS, "utf-8");

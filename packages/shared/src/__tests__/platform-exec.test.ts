@@ -48,12 +48,9 @@ describe("platform/exec wrappers", () => {
 
   // ── windowsHide default ─────────────────────────────────────────────────
 
-  // The key invariant: wrappers set windowsHide: true when caller omits it.
-  // We verify this by inspecting the spawn metadata (spawnargs / opts).
-  // Node doesn't expose the final options object, so we check by spawning
-  // with a non-overridden call and verifying it completes successfully
-  // (a misconfigured windowsHide would not change functional behavior,
-  // so the real assertion is in D10 below via source inspection).
+  // The windowsHide default is asserted behaviourally in
+  // `platform-exec-windowshide.test.ts` (mocked node:child_process captures the
+  // forwarded options); real spawns here cannot observe it.
 
   it("spawn returns a ChildProcess object", async () => {
     const child = spawn(process.execPath, ["--version"]);
@@ -85,28 +82,6 @@ describe("platform/exec wrappers", () => {
       });
     });
     expect(out.trim()).toMatch(/^v\d+\.\d+\.\d+/);
-  });
-});
-
-describe("platform/exec — windowsHide default (source-level assertion)", () => {
-  // Since Node doesn't expose the spawn options after the call, we verify
-  // the windowsHide default by reading the wrapper source and asserting
-  // that every public export merges `windowsHide: true` into its options.
-  //
-  // This catches refactors that accidentally drop the default.
-
-  it("exec.ts source sets windowsHide: true by default", async () => {
-    const fs = await import("node:fs/promises");
-    const path = await import("node:path");
-    const url = await import("node:url");
-    const here = path.dirname(url.fileURLToPath(import.meta.url));
-    const src = await fs.readFile(path.resolve(here, "../platform/exec.ts"), "utf-8");
-
-    // Must define a withHide helper and apply it uniformly.
-    expect(src).toMatch(/windowsHide\??:\s*boolean/);
-    expect(src).toMatch(/windowsHide:\s*hide/);
-    // Default must be true (not false) when caller omits it.
-    expect(src).toMatch(/opts\?\.windowsHide\s*\?\?\s*true/);
   });
 });
 

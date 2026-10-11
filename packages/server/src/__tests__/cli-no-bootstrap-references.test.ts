@@ -46,6 +46,9 @@ const FORBIDDEN_SYMBOLS = [
   "maybeSeedDefaultInstallableList",
 ];
 
+/**
+ * @structural-pin stays-gone guard: cli.ts must carry no bootstrap references after the runtime-install removal; cli.ts starts the daemon on import
+ */
 describe("cli.ts has no bootstrap-install references (Phase 3.0.b)", () => {
   it("does not reference any deleted bootstrap modules or symbols", () => {
     const src = fs.readFileSync(CLI_PATH, "utf-8");

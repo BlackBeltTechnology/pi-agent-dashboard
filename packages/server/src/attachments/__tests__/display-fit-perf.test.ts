@@ -58,6 +58,9 @@ async function photoLikePng(w: number, h: number): Promise<string> {
   return (await img.getBuffer(JimpMime.png)).toString("base64");
 }
 
+/**
+ * @structural-pin one text read of server.ts to keep a perf-test constant aligned with the pool size configured there
+ */
 describe("display-fit perf — event-loop offload (P1/P2)", () => {
   it("P1: fitting one large image keeps event-loop lag within budget", async () => {
     const data = await photoLikePng(2400, 1600);

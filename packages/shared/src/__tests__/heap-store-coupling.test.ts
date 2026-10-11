@@ -25,6 +25,9 @@ import { DEFAULT_MEMORY_LIMITS } from "../memory-limits.js";
 const MIB = 1024 * 1024;
 const CEILING = 1536;
 
+/**
+ * @structural-pin the guard must read the heap constants, not inline their literals; inlining is a code-shape fact
+ */
 describe("shared constants (test-plan #E2)", () => {
   it("exports the three factors with their measured values", () => {
     expect(HEAP_MB_PER_BUDGET_MIB).toBe(1.33);

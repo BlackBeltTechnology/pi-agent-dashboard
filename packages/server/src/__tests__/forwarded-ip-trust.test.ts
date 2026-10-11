@@ -28,6 +28,9 @@ import { createNetworkGuard, isBypassedHost } from "../auth/localhost-guard.js";
 const TRUSTED = ["10.0.0.0/8"];
 const SPOOFED = "10.1.2.3"; // inside TRUSTED — the address an attacker would claim
 
+/**
+ * @structural-pin server.ts boots the whole server on import; that authorization gates read the socket peer and never a forwarding header is checked in text beside the behavioural cases
+ */
 describe("S1: REST gate ignores X-Forwarded-For", () => {
   async function inject(headers: Record<string, string>) {
     const { default: Fastify } = await import("fastify");

@@ -4,6 +4,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseSourceKey, sourcesMatch } from "../source-matching.js";
 
+/**
+ * @structural-pin purity lint: source-matching.ts must import no fs module so the wizard bootstrap and plugin loader can use it; import text is the contract
+ */
 describe("source-matching purity (S1)", () => {
 	it("imports no fs module — stays usable by the wizard bootstrap + plugin loader", () => {
 		const here = path.dirname(fileURLToPath(import.meta.url));

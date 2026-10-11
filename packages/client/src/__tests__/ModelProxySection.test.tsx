@@ -43,6 +43,9 @@ function renderSection(config: ModelProxyConfig = { enabled: true }, onChange = 
 
 // ── Tests ─────────────────────────────────────────────────────────────────
 
+/**
+ * @structural-pin SettingsPanel mount site check; rendering the full panel pulls every settings section, the text pin is the cheap proof it is mounted once
+ */
 describe("ModelProxySection — master toggle (task 13.4)", () => {
   it("clicking toggle calls onChange with enabled flipped to true", async () => {
     const onChange = vi.fn();

@@ -49,6 +49,9 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+/**
+ * @structural-pin stays-gone guard: deleted files must remain absent and their symbols unimported; absence is the contract
+ */
 describe("No duplicate pairing surface / orphaned QR dialog (E12)", () => {
   it("all four deleted files are absent", () => {
     for (const f of DELETED) {

@@ -62,6 +62,9 @@ function containsStandaloneToken(value: string, token: string): boolean {
   return new RegExp(`(^|[^\\p{L}])${token}([^\\p{L}]|$)`, "iu").test(value);
 }
 
+/**
+ * @structural-pin locale parity: zh-CN and hu catalogs must define every mode key and SettingsPanel must use them
+ */
 describe("unit-bearing i18n keys (D5 / C1)", () => {
   it("finds every key in at least one catalog (guards a typo'd key list)", () => {
     for (const key of UNIT_BEARING_KEYS) {

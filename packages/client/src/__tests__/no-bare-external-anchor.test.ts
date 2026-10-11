@@ -48,6 +48,9 @@ async function* walk(dir: string): AsyncGenerator<string> {
 	}
 }
 
+/**
+ * @structural-pin repo-wide JSX lint over client source: a literal-URL anchor without target=_blank strands the Electron window; shape of code, not behaviour
+ */
 describe("no bare external <a> in client components", () => {
 	it("every literal http(s):// <a> carries target=\"_blank\"", async () => {
 		const here = path.dirname(url.fileURLToPath(import.meta.url));

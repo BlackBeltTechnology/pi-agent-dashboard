@@ -31,6 +31,9 @@ const manualFlow: UiOAuthFlowViewProps["flow"] = {
   },
 };
 
+/**
+ * @structural-pin main.tsx renders the whole app on import, so the ui:oauth-flow registration can only be checked in its text
+ */
 describe("ui:oauth-flow primitive (E31)", () => {
   it("renders via useUiPrimitive: auth link + paste field; submit and cancel reach the host", async () => {
     const onSendInput = vi.fn(async () => {});

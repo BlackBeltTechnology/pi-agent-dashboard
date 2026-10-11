@@ -42,7 +42,7 @@ Jobs:
 - `ci` — guards, lint, typecheck, Biome, build. No tests.
 - `unit` — vitest, 4 shards. Matrix `[1, 2, 3, 4]`. `SHARD_COUNT = 4` exported from `scripts/test-selection/decide.mjs`. Matrix length must equal `SHARD_COUNT`.
 - `real-process` — phase `packages/server/vitest.real-process.config.ts`. Own runner — never concurrent with unit shards. `maxWorkers` 2 + one CI retry from config.
-- `ci-scenarios` — packaging scenarios, `RUN_CI_SCENARIOS=1`. Gated files only, never whole `scripts` project. `npm pack` / `npm publish --dry-run` CPU spike starves 5s-timeout tests → held out. Runs `pnpm run test:ci-scenarios <files>`.
+- `ci-scenarios` — packaging scenarios, `RUN_CI_SCENARIOS=1`. Gated files only, never whole `scripts` project. `npm pack` / `npm publish --dry-run` CPU spike starves 5s-timeout tests → held out. Runs `pnpm run test:ci-scenarios <files>`. Gated files in this job: `scripts/__tests__/coverage-report.test.mjs`, `shared-heavy-files.test.mjs`, `client-isolate-gate.test.mjs` (`RUN_CI_SCENARIOS=1`).
 - `docker-plugin-load` — boots image, asserts browser plugin loads (`scripts/verify-docker-plugin-load.mjs`). Required check, every PR + develop push.
 - `music-pytest` — quick-tier pytest: `packages/music-production/tests` + `packages/video-production/tests/redaction`. Deep tier (essentia, beat_this, demucs, torch) self-skips.
 - `ci-result` — aggregate. `needs` all above. Runs `scripts/test-selection/check-result.mjs`.

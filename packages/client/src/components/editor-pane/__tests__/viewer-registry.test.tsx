@@ -60,6 +60,9 @@ function renderKind(kind: keyof typeof viewerRegistry) {
   );
 }
 
+/**
+ * @structural-pin bundle-split guard: the diff viewer must not be statically imported (chunk stays lazy); import text is the only observable under vitest
+ */
 describe("viewerRegistry — preview/* delegation", () => {
   // test-plan #E5 — the D3 split must be TOTAL and DISJOINT across the two
   // halves. Expected keys are derived from the const arrays in `viewer-kinds`

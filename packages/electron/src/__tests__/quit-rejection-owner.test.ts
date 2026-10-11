@@ -78,6 +78,9 @@ function makeRequestQuit(deps: {
 }
 
 // ── E5: runtime — tray Quit click, quit() rejects ───────────────────────────
+/**
+ * @structural-pin main.ts imports electron and cannot be loaded under vitest; the named rejection owner on quit()/main() is checked in its text
+ */
 describe("E5: a rejecting quit() reaches the requestQuit owner (logged + app.quit)", () => {
   it("clicking the tray Quit item routes the rejection to the handler and calls app.quit", async () => {
     const log = vi.fn();

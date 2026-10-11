@@ -67,6 +67,9 @@ function replayNativeRun() {
 	return { frames, state, abortLatch, retryTracker, sessionId };
 }
 
+/**
+ * @structural-pin bridge.ts opens sockets and timers at load and no test instantiates it; the native agent_settled wiring is pinned in text
+ */
 describe("F4: exactly one terminal settle, never synthesized", () => {
 	it("a native run forwards exactly ONE agent_settled, payload-free", () => {
 		const { frames, state } = replayNativeRun();
@@ -102,8 +105,11 @@ describe("X5 / F6: the floor-pi synthesis and its version gate are retired", () 
 		expect(fs.existsSync(path.join(here, "..", "agent-settled.ts"))).toBe(false);
 	});
 
-	it("bridge.ts carries no synthesis or version-gate reference", () => {
-		const src = fs.readFileSync(bridgeSrc, "utf8");
+	it("bridge.ts and the bridge-handlers modules carry no synthesis or version-gate reference", () => {
+		const handlersDir = path.join(here, "..", "bridge-handlers");
+		const files = [bridgeSrc, ...fs.readdirSync(handlersDir).filter((f) => f.endsWith(".ts")).map((f) => path.join(handlersDir, f))];
+		expect(files.length, "bridge-handlers modules found").toBeGreaterThan(1);
+		const src = files.map((f) => fs.readFileSync(f, "utf8")).join("\n");
 		for (const needle of [
 			"./agent-settled",
 			"settleFollowUp",
@@ -114,7 +120,7 @@ describe("X5 / F6: the floor-pi synthesis and its version gate are retired", () 
 			"synthesizeAgentSettledEvent",
 			"NATIVE_AGENT_SETTLED",
 		]) {
-			expect(src, `bridge.ts must not reference ${needle}`).not.toContain(needle);
+			expect(src, `bridge code must not reference ${needle}`).not.toContain(needle);
 		}
 	});
 

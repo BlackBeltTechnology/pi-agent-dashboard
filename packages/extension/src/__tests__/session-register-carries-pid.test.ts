@@ -27,7 +27,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..");
-const FILES = ["bridge.ts", "session-sync.ts"];
+// `session_register` is sent from the lifecycle handlers (moved out of bridge.ts) and session-sync.
+const FILES = ["bridge-handlers/lifecycle.ts", "session-sync.ts"];
 
 /**
  * Extract each object literal that opens with `type: "session_register"`, by

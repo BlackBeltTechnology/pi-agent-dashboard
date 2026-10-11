@@ -69,3 +69,8 @@ Requirement refs: `COV` = specs/test-coverage-reporting; `BD` = specs/bridge-dec
 
 - `ci`: a coverage job (or step) in `ci.yml` that runs `npm run test:coverage --project <one project>` and asserts on `coverage-summary.json` (E2, X1), plus a 3× matrix step for the isolate gate (P2, F1). Existing `ci.yml` has neither; extend it, do not add a workflow file.
 - No new L2/L3 infra. No Playwright scenarios: nothing in this change is rendered-UI.
+
+## Outcome notes (slice D)
+
+- F1, F2, F3, P2 belong to the `isolate: false` gate. The gate was measured and NOT adopted (design.md `## Measurements`), so they are implemented as a conditional guard (`scripts/__tests__/client-isolate-gate.test.mjs`, F1 + P2 under `RUN_CI_SCENARIOS` only when `isolate: false` is set; F2/F3 hold trivially while the client project keeps its default isolation).
+- E12 and E13 are implemented in `packages/client/src/__tests__/client-env-split.test.ts`; X7 as a static scan of the node list there (a runtime `document is not defined` is the failure the node project itself raises).

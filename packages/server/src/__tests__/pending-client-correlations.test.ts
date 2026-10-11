@@ -14,6 +14,9 @@ import {
   RECOVERY_GRACE_MS,
 } from "../spawn-process/spawn-recovery-window.js";
 
+/**
+ * @structural-pin no literal TTL may govern entry expiry in this module (E6); absence of a constant in text is the contract
+ */
 describe("pendingClientCorrelations — TTL derived from the arming timeout", () => {
   beforeEach(() => {
     vi.useFakeTimers();

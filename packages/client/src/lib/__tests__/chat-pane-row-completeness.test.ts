@@ -11,6 +11,8 @@ import { CHAT_PANE_ROW_TABLE } from "../layout/chat-pane-row-class.js";
  * session-banner, composer-context-strip, status-bar, queue-panel, composer-root,
  * content-inline-footer) appears in CHAT_PANE_ROW_TABLE exactly once as
  * either `shrinkable` or `fixed`.
+ *
+ * @structural-pin a row table must cover every row App.tsx renders; App.tsx cannot be mounted in a unit test
  */
 describe("chat-pane row classification completeness (L1, #E2)", () => {
   it("classifies every row rendered in App.tsx chat slot exactly once", () => {

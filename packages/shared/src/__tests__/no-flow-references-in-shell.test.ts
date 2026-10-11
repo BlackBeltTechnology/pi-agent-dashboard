@@ -153,6 +153,9 @@ function scanFile(filePath: string): Violation[] {
   return violations;
 }
 
+/**
+ * @structural-pin repo lint: the dashboard shell files must carry no flow-specific identifiers; absence of text is the contract
+ */
 describe("no-flow-references-in-shell (repo-lint)", () => {
   it("dashboard shell source SHALL NOT contain any reference to flows", () => {
     const allViolations: Violation[] = [];

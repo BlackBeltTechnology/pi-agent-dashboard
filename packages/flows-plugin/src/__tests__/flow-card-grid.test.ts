@@ -36,6 +36,9 @@ function sources(dir: string): Array<[string, string]> {
   return out;
 }
 
+/**
+ * @structural-pin single-geometry-source lint: card grids must import the shared helper rather than restate its constants; a code-shape fact
+ */
 describe("flow-card-grid helper (L1, #E1)", () => {
   it("declares the row-track, column and gap constants", () => {
     expect(FLOW_CARD_ROW_MIN).toBe(124);

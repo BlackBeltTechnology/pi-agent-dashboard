@@ -18,6 +18,9 @@ import { describe, it, expect } from "vitest";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(path.resolve(__dirname, "..", "event-wiring.ts"), "utf8");
 
+/**
+ * @structural-pin event-wiring.ts cannot be loaded standalone; the order of ref resolution before first forward on session_register is a placement fact
+ */
 describe("ref-resolution ordering on session_register (X3)", () => {
   it("resolution + owner-notify precede the moved pending-prompt dispatch", () => {
     // The three landmarks, in the session_register handler.

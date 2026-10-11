@@ -38,6 +38,9 @@ const FORGE_CONFIG_PATH = path.resolve(
   "forge.config.ts",
 );
 
+/**
+ * @structural-pin forge.config.ts evaluates env at load and needs packager internals; the Windows appVersion override is pinned in its text
+ */
 describe("forge.config.ts Windows VERSIONINFO override", () => {
   const source = fs.readFileSync(FORGE_CONFIG_PATH, "utf8");
 

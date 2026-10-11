@@ -14,6 +14,9 @@ import { describe, expect, it } from "vitest";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const serverSrc = readFileSync(path.resolve(here, "..", "server.ts"), "utf8");
 
+/**
+ * @structural-pin server.ts and server-context.ts cannot be wired in a unit test; reuse of browserGateway.shutdownSession is pinned in text
+ */
 describe("plugin shutdownSession hook", () => {
   const block = serverSrc.slice(serverSrc.indexOf("shutdownSession: async (sessionId)"));
 

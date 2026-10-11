@@ -53,6 +53,9 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+/**
+ * @structural-pin exhaustiveness lint: every useVirtualizer call site must be covered by the jsdom shim drain scope; sites are enumerated from source
+ */
 describe("virtualizer jsdom drain scope", () => {
   it("keeps ChatView as the only useVirtualizer call site in the client", () => {
     const sites = walk(CLIENT_SRC)

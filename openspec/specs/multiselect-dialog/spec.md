@@ -86,7 +86,7 @@ This requirement is satisfied today by a single decision: the bridge extension d
 
 ### Requirement: Bridge routes `ctx.ui.multiselect` through PromptBus
 
-The bridge extension SHALL assign a `multiselect` method onto `ctx.ui` immediately after the existing `select` / `input` / `confirm` / `editor` PromptBus patching block in `packages/extension/src/bridge.ts`. The assignment SHALL invoke `bus.request({ pipeline: "command", type: "multiselect", question: title, options, metadata: opts?.message ? { message: opts.message } : undefined })` and decode the resolved `PromptResponse` as follows:
+The bridge extension SHALL assign a `multiselect` method onto `ctx.ui` immediately after the existing `select` / `input` / `confirm` / `editor` PromptBus patching block of the bridge extension. The assignment SHALL invoke `bus.request({ pipeline: "command", type: "multiselect", question: title, options, metadata: opts?.message ? { message: opts.message } : undefined })` and decode the resolved `PromptResponse` as follows:
 
 - `cancelled: true` → resolve to `undefined` (signals user cancellation).
 - `cancelled: false` AND `answer` is a JSON-encoded `string[]` → resolve to the parsed array.

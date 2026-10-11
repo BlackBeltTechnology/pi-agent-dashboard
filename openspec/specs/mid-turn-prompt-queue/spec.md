@@ -3,7 +3,9 @@
 ## Purpose
 
 Surface per-session pending-prompt state typed while the agent is mid-turn. Users compose steering and follow-up prompts during streaming; pi's native queues hold them, the bridge mirrors state via shadow queues, the server caches the snapshot from `queue_update` events, and the client renders the `PromptQueuePanel` above the chat input. Steering drains incrementally at `turn_end` boundaries; follow-up drains incrementally at `agent_end` boundaries — both per-entry by user `message_start` matcher.
+
 ## Requirements
+
 ### Requirement: Typed-during-streaming prompts are forwarded to pi's native queues
 
 When the bridge receives a `send_prompt` message AND `getBridgeState().isAgentStreaming === true` for the target session AND the prompt is not a slash, bash, compact, reload, new, model, or mgmt command, the bridge SHALL route based on `msg.delivery` — follow-up goes to the bridge-owned buffer, steer goes to pi's queue:
@@ -244,8 +246,8 @@ Pi flips `isAgentStreaming` synchronously inside `pi.sendUserMessage` on an idle
 Call sites:
 
 - `command-handler.ts` passthrough branch: capture before `sendUserMessageWithImages`, fire `onSteerSent` / `onFollowupSent` only if captured-true.
-- `bridge.ts` `sessionPrompt` fallback (slash-route follow-up/steer): same pattern.
-- `bridge.ts` `edit_followup_slot` / `edit_followup_entry` handler: same pattern.
+- the bridge's `sessionPrompt` fallback (slash-route follow-up/steer): same pattern.
+- the bridge's `edit_followup_slot` / `edit_followup_entry` handler: same pattern.
 
 The internal gate inside `recordSteerSent` / `recordFollowupSent` SHALL also check `isAgentStreaming` as defense-in-depth.
 
@@ -845,4 +847,3 @@ This guards the window in which an already-loaded browser tab running pre-change
 - **THEN** the chip SHALL render "hello"
 - **AND** `queue-followup-attachments` SHALL NOT be present
 - **AND** no `[object Object]` text SHALL appear
-

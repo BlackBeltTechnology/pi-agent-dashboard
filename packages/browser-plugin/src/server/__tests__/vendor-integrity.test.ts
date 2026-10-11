@@ -124,6 +124,9 @@ function noticePaths(heading: string): string[] {
 
 const prefix = (paths: string[]) => paths.map((p) => `relay/vendor/${p}`).sort();
 
+/**
+ * @structural-pin provenance hash over vendored files: the on-disk bytes ARE the subject, not behaviour
+ */
 describe("vendored relay integrity (X14)", () => {
   it("NOTICE exists and carries the upstream commit SHA", () => {
     const notice = readFileSync(path.join(vendorRoot, "NOTICE"), "utf-8");

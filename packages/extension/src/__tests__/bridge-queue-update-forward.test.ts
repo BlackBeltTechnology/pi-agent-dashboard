@@ -81,7 +81,7 @@ describe("bridge queue_update forwarding (shape contract)", () => {
  * E10 — the subagent tick throttle is scoped to Agent ticks only; every OTHER
  * event type still forwards 1:1 through the enriched loop.
  *
- * Mirrors the bridge's forward site (`bridge.ts`, `tool_execution_update`
+ * Mirrors the bridge's forward site (`bridge-handlers/forwarders.ts`, `tool_execution_update`
  * branch): the throttle is consulted ONLY when `isSubagentTick` matches; any
  * other event type never reaches it. The regression this guards against is a
  * throttle hooked one level too high, where a streaming `message_update` or a
