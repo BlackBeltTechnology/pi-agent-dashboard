@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { type GoldenQuery, loadInstalledSearch } from "../../scripts/regen-hermes-golden.js";
 import { searchSessionsReplica } from "../retrievers/hermes-session-search.js";
+import { createHermesDb } from "./helpers/hermes-db.js";
 
 const FIXTURE = resolve(__dirname, "../../fixtures/hermes-golden");
 const queries: GoldenQuery[] = JSON.parse(readFileSync(join(FIXTURE, "queries.json"), "utf8"));
@@ -34,6 +35,24 @@ describe("hermes replica", () => {
     const search = await loadInstalledSearch(HERMES_DIR);
     for (const q of queries) {
       expect(search(db, q.query, { project: q.project, limit: 10 }).map((r) => r.sessionId), q.query).toEqual(golden.expected[q.query]);
+    }
+  });
+
+  it("B2 (round 3): newest-first orders by instant, not by the raw timestamp string", () => {
+    const dir = mkdtempSync(join(tmpdir(), "order-"));
+    const path = join(dir, "sessions.db");
+    createHermesDb(path, {
+      sessions: [{ id: "s1", project: "synth" }],
+      messages: [
+        { session: "s1", id: "a", content: "kaboom failure alpha", ts: "2026-02-01T14:00:00+05:00" }, // 09:00Z
+        { session: "s1", id: "b", content: "kaboom failure bravo", ts: "2026-02-01T08:59:00-03:00" }, // 11:59Z — newest
+        { session: "s1", id: "c", content: "kaboom failure charlie", ts: "2026-02-01T12:30:00Z" }, // after the bound
+      ],
+    }).close();
+    const db = new DatabaseSync(path, { readOnly: true });
+    for (const query of ["kaboom failure", "ab"]) {
+      const r = searchSessionsReplica(db, query, { project: "synth", asOf: "2026-02-01T12:00:00.000Z", limit: 1 }, "recent");
+      expect(r.rows.map((x) => x.id), query).toEqual(["b"]);
     }
   });
 });

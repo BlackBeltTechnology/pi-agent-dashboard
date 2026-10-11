@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import { describe, expect, it } from "vitest";
 import { main } from "../cli.js";
@@ -156,5 +156,29 @@ describe("snapshot", () => {
     const ids = readdirSync(env.paths.runsDir);
     expect(new Set(ids).size).toBe(3);
     for (const id of ids) expect(existsSync(join(env.paths.runsDir, id, "manifest.json"))).toBe(true);
+  });
+
+  it("B3 (round 3): only a genuinely missing source is `absent`; empty and unreadable ones are not", async () => {
+    const empty = makeEnv();
+    writeCaseSet(empty, [mkCase({ id: "c1", decisionTime: T })]);
+    mkdirSync(dirname(hermesDbPath(empty)), { recursive: true });
+    writeFileSync(hermesDbPath(empty), "");
+    expect(await main(["run", "--retrievers", "hermes.memory_search"], empty.ctx)).toBe(0);
+    expect(manifestOf(empty).snapshots.hermes.status).toBe("ok"); // evaluated, not silently dropped
+    const retrieved = JSON.parse(readFileSync(join(empty.paths.runsDir, latestRunId(empty.paths.runsDir), "retrieved.json"), "utf8"));
+    expect(retrieved.results["hermes.memory_search"].c1.error).toBeTruthy(); // and the missing tables are loud
+
+    if (process.getuid?.() === 0) return; // permissions are not enforced for root
+    const locked = makeEnv();
+    writeCaseSet(locked, [mkCase({ id: "c1", decisionTime: T })]);
+    createHermesDb(hermesDbPath(locked), { sessions: [], messages: [] }).close();
+    const dir = dirname(hermesDbPath(locked));
+    chmodSync(dir, 0o000);
+    try {
+      expect(await main(["run", "--retrievers", "hermes.memory_search"], locked.ctx)).not.toBe(0);
+    } finally {
+      chmodSync(dir, 0o700);
+    }
+    expect(locked.stderr.join("")).toMatch(/EACCES|permission/i);
   });
 });

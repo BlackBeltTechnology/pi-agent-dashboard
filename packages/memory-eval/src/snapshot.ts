@@ -44,8 +44,9 @@ const realSnapshotDeps: SnapshotDeps = {
     try {
       const st = statSync(path);
       return { size: st.size, mtimeMs: st.mtimeMs, salt: path.endsWith("-wal") && st.size >= 24 ? walSalt(path) : "" };
-    } catch {
-      return null;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return null; // only a genuinely missing file is "absent"
+      throw e;
     }
   },
   copyFile(src, dst) {
@@ -122,7 +123,7 @@ function vacuumInto(rawDb: string, out: string, fingerprint: SnapshotOpts["finge
 export function snapshotDb(opts: SnapshotOpts): SnapshotResult {
   const deps: SnapshotDeps = { ...realSnapshotDeps, ...opts.deps };
   const probe = deps.statFile(opts.source, { attempt: 0, phase: "before" });
-  if (!probe || probe.size === 0) return { status: "absent", source: opts.source };
+  if (!probe) return { status: "absent", source: opts.source };
   const rawDir = join(opts.destDir, "raw");
   const rawDb = join(rawDir, opts.name);
   const out = join(opts.destDir, opts.name);

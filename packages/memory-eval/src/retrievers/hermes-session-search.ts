@@ -65,7 +65,7 @@ function likeRows(db: DatabaseSync, terms: string[], o: SessionSearchOpts, limit
   const conds = [`(${terms.map(() => "m.content LIKE ? ESCAPE '\\'").join(" OR ")})`, ...f.sql];
   const params = [...terms.map((t) => `%${escapeLike(t)}%`), ...f.params];
   return db
-    .prepare(`SELECT ${COLS} FROM messages m JOIN sessions s ON s.id = m.session_id WHERE ${conds.join(" AND ")} ORDER BY m.timestamp DESC LIMIT ?`)
+    .prepare(`SELECT ${COLS} FROM messages m JOIN sessions s ON s.id = m.session_id WHERE ${conds.join(" AND ")} ORDER BY julianday(m.timestamp) DESC LIMIT ?`)
     .all(...(params as never[]), limit) as unknown as SessionRow[];
 }
 
@@ -73,7 +73,7 @@ function ftsRecentRows(db: DatabaseSync, q: string, o: SessionSearchOpts, limit:
   const f = filters(o);
   const conds = ["m.rowid IN (SELECT rowid FROM message_fts WHERE message_fts MATCH ?)", ...f.sql];
   return db
-    .prepare(`SELECT ${COLS} FROM messages m JOIN sessions s ON s.id = m.session_id WHERE ${conds.join(" AND ")} ORDER BY m.timestamp DESC LIMIT ?`)
+    .prepare(`SELECT ${COLS} FROM messages m JOIN sessions s ON s.id = m.session_id WHERE ${conds.join(" AND ")} ORDER BY julianday(m.timestamp) DESC LIMIT ?`)
     .all(...([q, ...f.params] as never[]), limit) as unknown as SessionRow[];
 }
 

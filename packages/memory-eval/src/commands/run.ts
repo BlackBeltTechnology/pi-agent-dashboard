@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { loadConfig } from "@blackbelt-technology/pi-dashboard-kb";
+import { DEFAULTS, loadConfig, type SearchOpts, searchOptsFromConfig } from "@blackbelt-technology/pi-dashboard-kb";
 import type { Ctx } from "../ctx.js";
 import { type CaseResult, type Retriever, runOne } from "../retriever.js";
 import { BUILTIN_IDS, hermesRetrievers, kbRetriever } from "../retrievers/builtin.js";
@@ -117,13 +117,18 @@ function unavailable(ids: string[], asOf: "strict" | "none", reason: string): Re
   return ids.map((id) => ({ id, version: "", asOf, status: "unavailable" as const, reason }));
 }
 
-/** `--kb-index`, else the project's kb config (`dbPath`; absent config = the shipped default). An invalid config is an error. */
-function kbIndexPath(ctx: Ctx, args: RunArgs): string {
-  if (args.kbIndex) return resolve(ctx.cwd, args.kbIndex);
+/**
+ * Where the kb index is and how to search it. `--kb-index` is an explicit override: with it a malformed
+ * project config falls back to shipped search defaults; without it a malformed config is an error
+ * (silently evaluating a different index would produce plausible figures for the wrong kb).
+ */
+function resolveKb(ctx: Ctx, args: RunArgs): { indexPath: string; searchOpts: SearchOpts } {
   try {
-    return loadConfig(ctx.cwd).dbAbsPath;
+    const cfg = loadConfig(ctx.cwd);
+    return { indexPath: args.kbIndex ? resolve(ctx.cwd, args.kbIndex) : cfg.dbAbsPath, searchOpts: searchOptsFromConfig(cfg) };
   } catch (e) {
-    throw new CliError(`cannot resolve the kb index: ${e instanceof Error ? e.message : String(e)} (pass --kb-index <path> to override)`);
+    if (!args.kbIndex) throw new CliError(`cannot resolve the kb index: ${e instanceof Error ? e.message : String(e)} (pass --kb-index <path> to override)`);
+    return { indexPath: resolve(ctx.cwd, args.kbIndex), searchOpts: searchOptsFromConfig({ ...DEFAULTS, resolvedSources: [] }) };
   }
 }
 
@@ -140,11 +145,12 @@ function openSources(ctx: Ctx, args: RunArgs, selected: string[], snapDir: strin
     } else out.statuses.push(...unavailable(hermesIds, "strict", "hermes sessions.db absent"));
   }
   if (selected.includes("kb.docs")) {
-    const snap = snapshotDb({ source: kbIndexPath(ctx, args), destDir: snapDir, name: "kb.db", fingerprint: kbFingerprint, deps: ctx.snapshotDeps });
+    const kb = resolveKb(ctx, args);
+    const snap = snapshotDb({ source: kb.indexPath, destDir: snapDir, name: "kb.db", fingerprint: kbFingerprint, deps: ctx.snapshotDeps });
     if (snap.status === "ok") {
       out.snapshots.kb = { status: "ok", attempts: snap.attempts, fingerprint: snap.fingerprint };
       out.kbChunks = snap.fingerprint.chunks ?? ABSENT;
-      out.retrievers.push(kbRetriever(snap.path, ctx.cwd));
+      out.retrievers.push(kbRetriever(snap.path, kb.searchOpts));
     } else out.statuses.push(...unavailable(["kb.docs"], "none", "kb index absent"));
   }
   return out;

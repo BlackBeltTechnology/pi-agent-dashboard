@@ -1,6 +1,6 @@
 /** Old-stack adapters (design M4): hermes session/memory replicas and kb docs. */
 import { DatabaseSync } from "node:sqlite";
-import { loadConfig, SqliteFtsStore, searchOptsFromConfig } from "@blackbelt-technology/pi-dashboard-kb";
+import { type SearchOpts, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import type { Retriever, SearchQuery } from "../retriever.js";
 import { searchMemoriesReplica, searchSessionsReplica } from "./hermes-session-search.js";
 
@@ -34,10 +34,9 @@ export function hermesRetrievers(dbPath: string): Retriever[] {
   ];
 }
 
-/** kb search over the snapshot with shipped defaults. Chunks carry no timestamp: asOf "none". */
-export function kbRetriever(snapshotPath: string, cwd: string): Retriever {
+/** kb search over the snapshot. Chunks carry no timestamp: asOf "none". */
+export function kbRetriever(snapshotPath: string, searchOpts: SearchOpts): Retriever {
   let store: SqliteFtsStore | null | undefined;
-  let opts: ReturnType<typeof searchOptsFromConfig> | undefined;
   return {
     id: "kb.docs",
     version: REPLICA_VERSION,
@@ -45,8 +44,7 @@ export function kbRetriever(snapshotPath: string, cwd: string): Retriever {
     async search(q) {
       if (store === undefined) store = SqliteFtsStore.openExisting(snapshotPath);
       if (!store) return [];
-      opts ??= searchOptsFromConfig(loadConfig(cwd));
-      const hits = store.search(q.query, { ...opts, limit: 10 });
+      const hits = store.search(q.query, { ...searchOpts, limit: 10 });
       return hits.map((h) => ({ ref: `${h.path}#${h.headingPath}`, text: h.snippet }));
     },
   };

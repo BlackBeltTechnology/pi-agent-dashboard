@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
+import { indexSource, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import { describe, expect, it } from "vitest";
 import { main } from "../cli.js";
 import { latestRunId, type RetrievedFile } from "../commands/run.js";
@@ -229,5 +229,27 @@ describe("retrievers", () => {
     expect(code).not.toBe(0);
     expect(stderr).toContain(cfg);
     expect(existsSync(env.paths.runsDir) ? readdirSync(env.paths.runsDir).filter((id) => existsSync(join(env.paths.runsDir, id, "manifest.json"))) : []).toEqual([]);
+  });
+
+  it("B1 (round 3): --kb-index works as an override even when the project kb config is malformed", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "meval-proj-"));
+    const env = makeEnv({ cwd });
+    writeCaseSet(env, [mkCase({ id: "c1", query: "kaboomtool failure", decisionTime: T })]);
+    mkdirSync(join(cwd, ".pi", "dashboard"), { recursive: true });
+    writeFileSync(join(cwd, ".pi", "dashboard", "knowledge_base.json"), "{ not json");
+    const docs = join(cwd, "docs");
+    mkdirSync(docs, { recursive: true });
+    writeFileSync(join(docs, "notes.md"), `# Notes\n\n## kaboomtool failure\n\n${"The kaboomtool failure is fixed by clearing the cache and rebuilding the workspace from scratch. ".repeat(3)}\n`);
+    const index = join(cwd, "explicit", "kb.db");
+    mkdirSync(join(cwd, "explicit"), { recursive: true });
+    const kb = new SqliteFtsStore(index);
+    kb.init();
+    await indexSource(kb, { root: "docs", dir: docs });
+    kb.close();
+    const { code, retrieved } = await doRun(env, ["--retrievers", "kb.docs", "--kb-index", index]);
+    expect(code).toBe(0);
+    const c = retrieved!.results["kb.docs"].c1;
+    expect(c.error).toBeUndefined();
+    expect(c.top5.length).toBeGreaterThan(0);
   });
 });
