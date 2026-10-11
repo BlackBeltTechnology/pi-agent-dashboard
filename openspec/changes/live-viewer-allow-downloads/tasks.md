@@ -7,7 +7,7 @@
 ## 2. Sandbox
 
 - [x] 2.1 Add `allow-downloads` to the `LiveServerViewer` iframe sandbox (`packages/client/src/components/editor-pane/LiveServerViewer.tsx:141`). Leave `allow-same-origin` and `allow-downloads-without-user-activation` absent. Turns 1.1 and 1.2 green
-- [x] 2.2 Update the `LiveServerViewer.tsx` module header (`:7`) and the inline D7 comment (`:139`) to give the 4-token set and to state that `allow-downloads` grants user-initiated downloads, not an origin
+- [x] 2.2 Update the `LiveServerViewer.tsx` module header (`:7`) and the inline D7 comment (`:139`) to give the 4-token set and to state that `allow-downloads` grants the ability to download, not an origin, and that Chrome does not gate it on a user gesture
 
 ## 3. Doc sync
 

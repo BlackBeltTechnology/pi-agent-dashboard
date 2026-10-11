@@ -48,7 +48,7 @@ describe("LiveServerViewer", () => {
     expect(iframe.getAttribute("src")).toBe("/live/abc12345/");
   });
 
-  it("sandbox token set is exactly scripts/forms/popups/downloads (no same-origin)", async () => {
+  it("sandbox token set is exactly scripts/forms/popups/downloads (no same-origin, no without-user-activation)", async () => {
     render(<LiveServerViewer />);
     fireEvent.change(screen.getByTestId("live-url"), { target: { value: "http://localhost:5173" } });
     fireEvent.click(screen.getByTestId("live-confirm"));
