@@ -106,12 +106,15 @@ export async function renderStep(opts: RenderStepOptions): Promise<RenderStepRes
   } catch {
     throw new RenderUnavailableError();
   }
-  const tmp = mkdtempSync(join(tmpdir(), "deck3d-variants-"));
+  let tmp: string | undefined;
   const files: string[] = [];
   const shots = new Map<string, Buffer>();
   try {
+    // Created INSIDE the cleanup scope: a failure here must still close the browser.
+    const scratch = mkdtempSync(join(tmpdir(), "deck3d-variants-"));
+    tmp = scratch;
     for (const variant of step.variants) {
-      const html = join(tmp, `${variant.name}.html`);
+      const html = join(scratch, `${variant.name}.html`);
       writeFileSync(html, await renderWithFragment(opts.deckJson, variant.overrides));
       const page = await openPage(browser, html, vp);
       try {
@@ -156,7 +159,7 @@ export async function renderStep(opts: RenderStepOptions): Promise<RenderStepRes
       .c img{width:100%;height:100%;object-fit:contain}.c i{opacity:.5;font-weight:400}
       .c b{position:absolute;left:6px;top:4px;padding:0 6px;line-height:20px;background:rgba(0,0,0,.65);border-radius:4px;font-size:11px}
     </style><div class="g">${header.map((h) => `<div class="h">${h.replace(/</g, "&lt;")}</div>`).join("")}${rows.join("")}</div>`;
-    const sheetHtml = join(tmp, "contact.html");
+    const sheetHtml = join(scratch, "contact.html");
     writeFileSync(sheetHtml, sheet);
     const page = await browser.newPage({ viewport: { width: cols * CELL_W, height: HEADER_H + samples.length * cellH }, deviceScaleFactor: 1 });
     try {
@@ -171,6 +174,6 @@ export async function renderStep(opts: RenderStepOptions): Promise<RenderStepRes
     }
   } finally {
     await closeQuietly(browser);
-    rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmSync(tmp, { recursive: true, force: true });
   }
 }

@@ -13,7 +13,7 @@
 | `xfrm.ts` | EMU → slide units and `groupFrame` composition (offset/scale/rotation/flip, nested). See change: deck3d-pptx-import. |
 | `text.ts` | `readTextBody`: list-style inheritance chain, STORED `normAutofit` fontScale/lnSpcReduction (never recomputed), anchor/insets/vertical + `textRotation` (90 for `vert`/`eaVert`, 270 for `vert270`), `wordArt` flag. See change: deck3d-pptx-import. |
 | `master.ts` | `MasterChain`: layout/master placeholder geometry + text styles + `txStyles` families. See change: deck3d-pptx-import. |
-| `shapes.ts` | `walkTree`: sp/cxnSp/pic/graphicFrame/grpSp → `Draft` items; supported matrix `rect line ellipse roundRect`, PNG/JPEG/GIF/SVG; everything else → `fallback` with its construct. See change: deck3d-pptx-import. |
+| `shapes.ts` | `walkTree`: sp/cxnSp/pic/graphicFrame/grpSp → `Draft` items (text inside a fallback shape is linked via `coversPrev` → `coveredBy`); supported matrix `rect line ellipse roundRect`, PNG/JPEG/GIF/SVG; everything else → `fallback` with its construct. See change: deck3d-pptx-import. |
 | `media.ts` | `MediaRegistry`: content-hash names `m-<12 hex>.<ext>`, identical bytes stored ONCE as a file, but every part keeps its own stable `pptx-<part slug>` asset id (`assetEntries`). See change: deck3d-pptx-import. |
 | `extract.ts` | `extractPptx` (slides → drafts, backgrounds, master items, fingerprints), `finalizeLayout` (assign `sNN`/`sNN-iMMM`), `stableStringify` (sorted keys → byte-stable JSON). See change: deck3d-pptx-import. |
 | `fallback.ts` | `applyFallbacks`: crop the reference render at the item's rotated bounding rect (or leave a placeholder) + one warning each. See change: deck3d-pptx-import. |

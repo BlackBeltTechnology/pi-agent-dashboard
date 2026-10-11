@@ -101,6 +101,30 @@ function arcCentre(x1: number, y1: number, rxIn: number, ryIn: number, phiDeg: n
   return { cx: Math.cos(phi) * cxp - Math.sin(phi) * cyp + (x1 + x2) / 2, cy: Math.sin(phi) * cxp + Math.cos(phi) * cyp + (y1 + y2) / 2, rx, ry, phi };
 }
 
+describe("sandbox launch cleanup (R5-B2)", () => {
+  it("closes the browser when the context cannot be created, instead of leaking it", async () => {
+    let closed = 0;
+    const browser = {
+      newContext: async () => {
+        throw new Error("context creation failed");
+      },
+      close: async () => {
+        closed++;
+      },
+    };
+    await expect(openSandbox(async () => browser as never)).rejects.toThrow(/context creation failed/);
+    expect(closed, "the only handle to the running browser was lost").toBe(1);
+  });
+
+  it("still reports chromium as unavailable when it cannot be launched at all", async () => {
+    await expect(
+      openSandbox(async () => {
+        throw new Error("no such browser");
+      }),
+    ).rejects.toThrow(/chromium missing/);
+  });
+});
+
 describe("decode limits (R2-B5)", () => {
   /** A PNG whose header claims `w`×`h` but carries no pixel data: compressed size is irrelevant to the limit. */
   const pngHeader = (w: number, h: number): Uint8Array => {

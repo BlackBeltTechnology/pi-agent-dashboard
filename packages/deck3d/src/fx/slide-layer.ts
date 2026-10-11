@@ -152,7 +152,11 @@ export const create: FxFactory = (ctx: FxContext, params: FxParams): FxHandle =>
   // Planes back to front by their depth (a deck may reorder them with `depths`).
   const order = [...LAYERS].sort((a, b) => depths[a] - depths[b] || LAYERS.indexOf(a) - LAYERS.indexOf(b));
   const planeOf = assignLayers(items, order);
-  const textItems = items.filter((i): i is TextItem => i.kind === "text");
+  // A text item inside a shape fallback is hidden while that fallback's crop is drawn:
+  // the crop already contains the text, and painting it again doubles every glyph.
+  const drawnFallbacks = new Set(items.filter((i) => i.kind === "fallback" && i.asset && ctx.assets.has(i.asset)).map((i) => i.id));
+  const underCrop = (i: LayoutItem): boolean => i.kind === "text" && i.coveredBy !== undefined && drawnFallbacks.has(i.coveredBy);
+  const textItems = items.filter((i): i is TextItem => i.kind === "text" && !underCrop(i));
   const haloColor = slide.background?.color ?? ctx.palette.bg;
 
   const root = new THREE.Group();
@@ -420,7 +424,7 @@ export const create: FxFactory = (ctx: FxContext, params: FxParams): FxHandle =>
         if (item.kind === "rect") paintRect(g, item, k);
         else if (item.kind === "img") paintImg(g, item, k);
         else if (item.kind === "fallback") paintFallback(g, item, k);
-        else paintText(g, item, k);
+        else if (!underCrop(item)) paintText(g, item, k);
       }
       const mat = meshes.get(name)?.material as THREE_NS.MeshBasicMaterial;
       if (mat.map) mat.map.needsUpdate = true;

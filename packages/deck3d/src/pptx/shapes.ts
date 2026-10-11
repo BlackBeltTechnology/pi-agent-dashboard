@@ -22,6 +22,8 @@ export interface Draft {
   item: DraftItem;
   /** Plain text the item carries (fingerprint, baseline deck). */
   text: string;
+  /** This text belongs to the fallback item emitted just before it (same shape). */
+  coversPrev?: boolean;
   /** Title / centre-title placeholder. */
   isTitle: boolean;
   placeholder?: string;
@@ -168,7 +170,10 @@ function walkSp(shape: XNode, ctx: WalkCtx, frame: Frame): Draft[] {
       });
     }
   }
-  return [...out, ...textDrafts(shape, p, ph, ctx, style)];
+  const texts = textDrafts(shape, p, ph, ctx, style);
+  // A fallback is a crop of the WHOLE shape, text included: link the text to it.
+  if (out[out.length - 1]?.item.kind === "fallback") for (const t of texts) if (t.item.kind === "text") t.coversPrev = true;
+  return [...out, ...texts];
 }
 
 function walkCxn(shape: XNode, ctx: WalkCtx, frame: Frame): Draft[] {

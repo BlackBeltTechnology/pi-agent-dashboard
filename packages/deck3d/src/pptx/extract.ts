@@ -137,6 +137,7 @@ export function finalizeLayout(ex: Extracted, ids: string[]): { layout: Layout; 
     const id = ids[i];
     const items: LayoutItem[] = s.drafts.map((d, k) => {
       const item = { id: `${id}-i${String(k + 1).padStart(3, "0")}`, ...d.item } as LayoutItem;
+      if (d.coversPrev && item.kind === "text" && k > 0) item.coveredBy = `${id}-i${String(k).padStart(3, "0")}`;
       if (item.kind === "fallback") fallbacks.push({ slide: id, item });
       return item;
     });

@@ -3,7 +3,7 @@
  * a crop of the slide's reference render at the item's rotated bounding
  * rect, or — without a reference — an outlined placeholder. One warning each.
  */
-import { cropRgba, decodePng, encodePng, type RgbaImage } from "../art/png.js";
+import { cropRgba, decodePng, encodePng, PngLimitError, type RgbaImage } from "../art/png.js";
 import type { FallbackRecord } from "./extract.js";
 import type { MediaRegistry } from "./media.js";
 import type { Rect } from "./types.js";
@@ -26,7 +26,9 @@ export function pngDecoder(sandbox?: (bytes: Uint8Array) => Promise<RgbaImage>):
     try {
       return decodePng(png);
     } catch (err) {
-      if (!sandbox) throw err;
+      // A size-limit refusal is final: handing the PNG to the sandbox would only re-reject it
+      // (and, without chromium, replace this precise message with "needs chromium").
+      if (err instanceof PngLimitError || !sandbox) throw err;
       return sandbox(png);
     }
   };

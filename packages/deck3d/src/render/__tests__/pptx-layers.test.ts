@@ -437,6 +437,54 @@ describe.skipIf(!hasChromium)("slide-layer (chromium)", () => {
     }
   }, 180_000);
 
+  it("does not paint a shape's text over its own raster crop, but keeps it readable without a reference (R5-B1)", async () => {
+    const { importPptx } = await import("../../pptx/import.js");
+    const { buildPptx, gradTextShape, solidPng: ref } = await import("../../__tests__/helpers/pptx.js");
+    const k = 1920 / 12192000;
+    const rect = { x: Math.round(914400 * k), y: Math.round(1828800 * k), w: Math.round(4572000 * k), h: Math.round(1371600 * k) };
+    const pptx = buildPptx({ slides: [{ shapes: gradTextShape("COVERED", 914400, 1828800, 4572000, 1371600) }] });
+    const build = async (withRef: boolean) => {
+      const dir = mkdtempSync(join(tmpdir(), "deck3d-covered-"));
+      writeFileSync(join(dir, "in.pptx"), pptx);
+      let refDir: string | undefined;
+      if (withRef) {
+        refDir = join(dir, "ref");
+        mkdirSync(refDir);
+        // The reference render of that shape: a flat blue box, glyphs and all, with NO dark pixels.
+        writeFileSync(join(refDir, "Slide1.png"), ref(1920, 1080, [255, 255, 255, 255], { ...rect, rgba: [48, 96, 200, 255] }));
+      }
+      await importPptx({ input: join(dir, "in.pptx"), out: join(dir, "talk"), ...(refDir ? { ref: refDir } : {}), env: { PATH: "" } });
+      const json = join(dir, "talk", "deck.json");
+      const d = JSON.parse(readFileSync(json, "utf8"));
+      d.overrides.deck = { ...(d.overrides.deck ?? {}), quality: "low", mode: "light" };
+      d.overrides.slides.s01 = { effects: [{ id: "slide-layer", params: { layout: "pptx-layout", slide: "s01", mode: "free" } }] };
+      writeFileSync(json, JSON.stringify(d));
+      const html = join(dir, "talk", "deck.html");
+      const r = await cli(["render", json, "-o", html]);
+      expect(r.code, r.stderr).toBe(0);
+      return html;
+    };
+    for (const [withRef, expectInk] of [[true, false], [false, true]] as const) {
+      const page = await openDeck(browser, await build(withRef));
+      try {
+        await settle(page, 1);
+        const dark = await ink(page, rect);
+        if (expectInk) expect(dark.n, "no reference: the shape's text stays readable").toBeGreaterThan(600);
+        else expect(dark.n, "reference crop already contains the text: it must not be painted again").toBeLessThan(40);
+      } finally {
+        await page.close();
+      }
+    }
+    // The measurement hook agrees: text hidden under its crop is not reported as readable text.
+    const withCrop = await openDeck(browser, await build(true));
+    try {
+      await settle(withCrop, 1);
+      expect(await withCrop.evaluate(() => window.__deck3d?.measure().filter((m) => m.kind === "layer-text").length)).toBe(0);
+    } finally {
+      await withCrop.close();
+    }
+  }, 240_000);
+
   it("keeps the original z-order: a picture UNDER a title does not cover it (B7)", async () => {
     // Pptx order is back-to-front: the red picture first, the black title on top of it.
     const red = encodePng({ width: 8, height: 8, data: new Uint8Array(Array.from({ length: 64 }, () => [200, 30, 30, 255]).flat()) });

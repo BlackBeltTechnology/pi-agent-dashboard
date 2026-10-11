@@ -141,6 +141,11 @@ export function textBox(text: string, o: TextBoxOpts = {}): string {
   return `<p:sp>${nv("TextBox")}<p:spPr>${xfrm(o.x ?? 914400, o.y ?? 914400, o.w ?? 3657600, o.h ?? 914400)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr><p:txBody>${o.bodyPr ?? "<a:bodyPr/>"}<a:lstStyle/><a:p><a:r><a:rPr lang="en-US"${o.runXml ?? "/>"}<a:t>${esc(text)}</a:t></a:r></a:p></p:txBody></p:sp>`;
 }
 
+/** A shape with an UNSUPPORTED gradient fill that also carries text (imports as a fallback + a text item). */
+export function gradTextShape(text: string, x: number, y: number, w: number, h: number, sizeHundredths = 8000): string {
+  return `<p:sp>${nv("Grad")}<p:spPr>${xfrm(x, y, w, h)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="2040C0"/></a:gs><a:gs pos="100000"><a:srgbClr val="6080FF"/></a:gs></a:gsLst></a:gradFill></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US" sz="${sizeHundredths}"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:rPr><a:t>${esc(text)}</a:t></a:r></a:p></p:txBody></p:sp>`;
+}
+
 export function rectShape(x: number, y: number, w: number, h: number, hex: string, prst = "rect"): string {
   return `<p:sp>${nv("Rect")}<p:spPr>${xfrm(x, y, w, h)}<a:prstGeom prst="${prst}"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${hex}"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr></p:sp>`;
 }

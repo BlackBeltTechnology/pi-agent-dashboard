@@ -86,17 +86,28 @@ export function assertDecodable(bytes: Uint8Array, mime: string, svgSize = 1024)
   }
 }
 
-/** Launch one sandbox browser; reuse it for many decodes, then `close()`. */
-export async function openSandbox(): Promise<Sandbox> {
+async function launchChromium(): Promise<Browser> {
+  const { chromium } = await import("playwright");
+  return chromium.launch({ channel: "chromium" });
+}
+
+/** Launch one sandbox browser; reuse it for many decodes, then `close()`. `launch` is a test seam. */
+export async function openSandbox(launch: () => Promise<Browser> = launchChromium): Promise<Sandbox> {
   let browser: Browser;
   try {
-    const { chromium } = await import("playwright");
-    browser = await chromium.launch({ channel: "chromium" });
+    browser = await launch();
   } catch {
     throw new DecodeUnavailableError();
   }
   const blocked: string[] = [];
-  const context: BrowserContext = await browser.newContext({ javaScriptEnabled: false, offline: false });
+  let context: BrowserContext;
+  try {
+    context = await browser.newContext({ javaScriptEnabled: false, offline: false });
+  } catch (err) {
+    // The browser is running and this is the only handle to it: release it, or it leaks.
+    await closeQuietly(browser);
+    throw err;
+  }
   return {
     blocked,
     async decode(bytes, mime, opts = {}) {

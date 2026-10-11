@@ -15,6 +15,14 @@ import { deflateSync, inflateSync } from "node:zlib";
  */
 export const PNG_MAX_PIXELS = 4096 * 4096;
 
+/** A PNG over the decoded-size cap: no other decoder (the sandbox) should be asked to try. */
+export class PngLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PngLimitError";
+  }
+}
+
 export interface RgbaImage {
   width: number;
   height: number;
@@ -119,7 +127,7 @@ export function decodePng(bytes: Uint8Array, maxPixels = PNG_MAX_PIXELS): RgbaIm
   const channels = ({ 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 } as Record<number, number>)[type];
   if (!channels) throw new Error(`unsupported PNG colour type ${type}`);
   if (width * height > maxPixels) {
-    throw new Error(`image is ${width}×${height} (${((width * height) / 1e6).toFixed(1)} megapixels; limit ${(maxPixels / 1e6).toFixed(1)} megapixels)`);
+    throw new PngLimitError(`image is ${width}×${height} (${((width * height) / 1e6).toFixed(1)} megapixels; limit ${(maxPixels / 1e6).toFixed(1)} megapixels)`);
   }
   const total = idat.reduce((a, c) => a + c.length, 0);
   const joined = new Uint8Array(total);

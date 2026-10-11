@@ -65,6 +65,12 @@ export interface TextItem extends ItemBase {
   vertical: boolean;
   /** Direction vertical text reads in: 90 = top to bottom (`vert`), 270 = bottom to top (`vert270`). */
   textRotation?: 90 | 270;
+  /**
+   * Id of the `fallback` item this text lives inside (a shape with an unsupported
+   * fill or preset that also carries text). When that fallback's raster crop is
+   * drawn it already contains the text, so `slide-layer` does not paint it again.
+   */
+  coveredBy?: string;
   autofit: "none" | "norm" | "shape";
   paragraphs: LayoutParagraph[];
 }
