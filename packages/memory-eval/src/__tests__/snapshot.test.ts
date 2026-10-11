@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import { describe, expect, it } from "vitest";
 import { main } from "../cli.js";
@@ -185,5 +186,23 @@ describe("snapshot", () => {
       chmodSync(dir, 0o700);
     }
     expect(locked.stderr.join("")).toMatch(/EACCES|permission/i);
+  });
+
+  it("B1 (round 5): a non-empty database without the required tables fails the run", async () => {
+    const completed = (env: TestEnv) => (existsSync(env.paths.runsDir) ? readdirSync(env.paths.runsDir).filter((id) => existsSync(join(env.paths.runsDir, id, "manifest.json"))) : []);
+    for (const source of ["hermes", "kb"] as const) {
+      const env = makeEnv();
+      writeCaseSet(env, [mkCase({ id: "c1", decisionTime: T })]);
+      const path = source === "hermes" ? hermesDbPath(env) : join(env.home, "kb", "index.db");
+      mkdirSync(dirname(path), { recursive: true });
+      const db = new DatabaseSync(path);
+      db.exec("CREATE TABLE unrelated (x INTEGER); INSERT INTO unrelated VALUES (1)");
+      db.close();
+      const args = source === "hermes" ? ["run", "--retrievers", "hermes.memory_search"] : ["run", "--retrievers", "kb.docs", "--kb-index", path];
+      expect(await main(args, env.ctx), source).not.toBe(0);
+      expect(env.stderr.join(""), source).toContain(path);
+      expect(env.stderr.join(""), source).toMatch(/missing table/i);
+      expect(completed(env), source).toEqual([]);
+    }
   });
 });

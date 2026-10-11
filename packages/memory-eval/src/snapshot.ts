@@ -68,6 +68,8 @@ export interface SnapshotOpts {
   /** Snapshot file name, e.g. `hermes.db`. */
   name: string;
   fingerprint: (db: DatabaseSync) => Record<string, unknown>;
+  /** Tables the evaluation reads; a source missing any of them is not that database. */
+  requiredTables: string[];
   deps?: Partial<SnapshotDeps>;
 }
 
@@ -120,6 +122,17 @@ function vacuumInto(rawDb: string, out: string, fingerprint: SnapshotOpts["finge
   }
 }
 
+/** Names from `requiredTables` that the copy lacks (virtual tables included). */
+function missingTables(rawDb: string, required: string[]): string[] {
+  const db = new DatabaseSync(rawDb);
+  try {
+    const have = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((r) => r.name));
+    return required.filter((t) => !have.has(t));
+  } finally {
+    db.close();
+  }
+}
+
 export function snapshotDb(opts: SnapshotOpts): SnapshotResult {
   const deps: SnapshotDeps = { ...realSnapshotDeps, ...opts.deps };
   const probe = deps.statFile(opts.source, { attempt: 0, phase: "before" });
@@ -140,6 +153,8 @@ export function snapshotDb(opts: SnapshotOpts): SnapshotResult {
         lastReason = r.reason;
         continue;
       }
+      const missing = missingTables(rawDb, opts.requiredTables);
+      if (missing.length) throw new CliError(`snapshot source ${opts.source} is not the expected database: missing table(s) ${missing.join(", ")}`);
       return { status: "ok", source: opts.source, path: out, attempts: attempt, fingerprint: vacuumInto(rawDb, out, opts.fingerprint) };
     }
   } finally {
@@ -176,3 +191,6 @@ export function kbFingerprint(db: DatabaseSync): Record<string, unknown> {
   };
   return { chunks: one("SELECT COUNT(*) FROM chunks"), files: one("SELECT COUNT(*) FROM files") };
 }
+
+export const HERMES_TABLES = ["sessions", "messages", "message_fts", "memories", "memory_fts"];
+export const KB_TABLES = ["chunks", "files"];

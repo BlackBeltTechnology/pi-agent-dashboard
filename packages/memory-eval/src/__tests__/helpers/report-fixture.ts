@@ -13,7 +13,7 @@ export interface RunSpec {
   setName?: string;
   cases: Case[];
   retrievers: Array<{ id: string; version?: string; asOf?: "strict" | "none"; status?: "ok" | "unavailable" }>;
-  judge?: { model: string; promptVersion?: string } | null;
+  judge?: { model: string; promptVersion?: string; promptSha256?: string; scrubSha256?: string } | null;
   results?: (rid: string, c: Case) => Partial<CaseResult>;
   validity?: (c: Case) => "valid" | "invalid" | undefined;
   helpful?: (rid: string, c: Case) => "helpful" | "not_helpful" | undefined;
@@ -57,9 +57,9 @@ export function writeRun(env: TestEnv, spec: RunSpec): { caseSetHash: string } {
   const results = buildResults(spec, retrievers);
   writeFileSync(join(dir, "retrieved.json"), stableJson({ runId: spec.runId, caseSetName: setName, caseSetHash: set.caseSetHash, retrievers, results }));
   const j = spec.judge === null ? null : (spec.judge ?? { model: "judge-1" });
-  const base = { promptVersion: j?.promptVersion ?? "v1", promptSha256: "p", scrubSha256: "s", judgeModel: j?.model ?? "absent" };
+  const base = { promptVersion: j?.promptVersion ?? "v1", promptSha256: j?.promptSha256 ?? "p", scrubSha256: j?.scrubSha256 ?? "s", judgeModel: j?.model ?? "absent" };
   const judge = j
-    ? { role: "absent", model: j.model, promptVersion: base.promptVersion, promptSha256: "p", scrubSha256: "s", validitySetHash: "x" }
+    ? { role: "absent", model: j.model, promptVersion: base.promptVersion, promptSha256: base.promptSha256, scrubSha256: base.scrubSha256, validitySetHash: "x" }
     : { role: "absent", model: "absent", promptVersion: "absent", promptSha256: "absent", scrubSha256: "absent", validitySetHash: "absent" };
   writeFileSync(join(dir, "manifest.json"), stableJson({ runId: spec.runId, caseSet: { name: setName, hash: set.caseSetHash }, judge }));
   if (j) writeVerdicts(env, spec, retrievers, results, base);

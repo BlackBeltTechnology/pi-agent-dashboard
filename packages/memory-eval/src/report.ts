@@ -383,20 +383,32 @@ export interface Comparison {
   promptA: string;
   promptB: string;
   mismatch: boolean;
+  /** Which judge attributes differ (empty when the runs were judged alike). */
+  differs: string[];
   pairs: PairRow[];
 }
 
-function gateComparison(A: RunData, B: RunData, allowJudgeMismatch: boolean | undefined): { ja: JudgeInfo; jb: JudgeInfo; mismatch: boolean } {
+/** What differs between two runs' judges: model, prompt version, prompt file hash, scrub rule hash. */
+function judgeDifferences(a: JudgeInfo, b: JudgeInfo): string[] {
+  const diffs: string[] = [];
+  if (a.model !== b.model) diffs.push("model");
+  if (a.promptVersion !== b.promptVersion) diffs.push("prompt version");
+  if (a.promptSha256 !== b.promptSha256) diffs.push("prompt text (hash)");
+  if (a.scrubSha256 !== b.scrubSha256) diffs.push("scrub rules (hash)");
+  return diffs;
+}
+
+function gateComparison(A: RunData, B: RunData, allowJudgeMismatch: boolean | undefined): { ja: JudgeInfo; jb: JudgeInfo; mismatch: boolean; differs: string[] } {
   if (A.retrieved.caseSetHash !== B.retrieved.caseSetHash) {
     throw new CliError(`cannot compare runs on different case sets: ${A.runId} has ${A.retrieved.caseSetHash}, ${B.runId} has ${B.retrieved.caseSetHash}`);
   }
   const ja = A.manifest.judge ?? {};
   const jb = B.manifest.judge ?? {};
-  const mismatch = ja.model !== jb.model || ja.promptVersion !== jb.promptVersion;
-  if (mismatch && !allowJudgeMismatch) {
-    throw new CliError(`cannot compare runs judged differently: ${A.runId} judge ${ja.model} (prompt ${ja.promptVersion}), ${B.runId} judge ${jb.model} (prompt ${jb.promptVersion}); pass --allow-judge-mismatch to compare anyway`);
+  const differs = judgeDifferences(ja, jb);
+  if (differs.length && !allowJudgeMismatch) {
+    throw new CliError(`cannot compare runs judged differently (${differs.join(", ")}): ${A.runId} judge ${ja.model} (prompt ${ja.promptVersion}), ${B.runId} judge ${jb.model} (prompt ${jb.promptVersion}); pass --allow-judge-mismatch to compare anyway`);
   }
-  return { ja, jb, mismatch };
+  return { ja, jb, mismatch: differs.length > 0, differs };
 }
 
 function pairRow(A: RunData, B: RunData, a: string, b: string, positives: Case[]): PairRow {
@@ -416,16 +428,16 @@ function pairRow(A: RunData, B: RunData, a: string, b: string, positives: Case[]
 }
 
 export function compareRuns(A: RunData, B: RunData, opts: { allowJudgeMismatch?: boolean } = {}): Comparison {
-  const { ja, jb, mismatch } = gateComparison(A, B, opts.allowJudgeMismatch);
+  const { ja, jb, mismatch, differs } = gateComparison(A, B, opts.allowJudgeMismatch);
   const positives = A.cases.filter((c) => (POSITIVE_TYPES as string[]).includes(c.type));
   const okIds = (r: RunData) => r.retrieved.retrievers.filter((x) => x.status === "ok").map((x) => x.id);
   const pairs = okIds(A).flatMap((a) => okIds(B).map((b) => pairRow(A, B, a, b, positives)));
-  return { runA: A.runId, runB: B.runId, caseSetHash: A.retrieved.caseSetHash, judgeA: ja.model ?? "absent", judgeB: jb.model ?? "absent", promptA: ja.promptVersion ?? "absent", promptB: jb.promptVersion ?? "absent", mismatch, pairs };
+  return { runA: A.runId, runB: B.runId, caseSetHash: A.retrieved.caseSetHash, judgeA: ja.model ?? "absent", judgeB: jb.model ?? "absent", promptA: ja.promptVersion ?? "absent", promptB: jb.promptVersion ?? "absent", mismatch, differs, pairs };
 }
 
 export function renderComparison(c: Comparison): string {
   const L = [`# Tier R comparison — ${c.runA} (A) vs ${c.runB} (B)`, "", `- case set hash: ${c.caseSetHash}`, `- judge A: ${c.judgeA} (prompt ${c.promptA}); judge B: ${c.judgeB} (prompt ${c.promptB})`];
-  if (c.mismatch) L.push("", `> **JUDGE MISMATCH** — the runs were judged by different models or prompts (${c.judgeA} vs ${c.judgeB}); differences may reflect the judge, not the retriever.`);
+  if (c.mismatch) L.push("", `> **JUDGE MISMATCH** — the runs were judged differently: ${c.differs.join(", ")} (${c.judgeA} vs ${c.judgeB}); differences may reflect the judge, not the retriever.`);
   L.push("", "Over valid positives judged in both runs. Win = helpful in A only; loss = helpful in B only. p = exact two-sided McNemar.", "", "| A | B | n | wins | losses | ties | p |", "|---|---|---|---|---|---|---|");
   for (const p of c.pairs) L.push(`| ${p.a} | ${p.b} | ${p.n} | ${p.wins} | ${p.losses} | ${p.ties} | ${p.p.toFixed(4)} |`);
   return `${L.join("\n")}\n`;

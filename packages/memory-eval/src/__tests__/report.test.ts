@@ -238,4 +238,18 @@ describe("report", () => {
     expect(a.retrievers[0].gold.recurring_fault).toEqual({ n: 3, hit5: 3, hit10: 3 });
     expect(renderReport(a)).toContain("3/3 / 3/3");
   });
+
+  it("B2 (round 5): comparison also gates on the judge prompt and scrub-rule hashes", async () => {
+    for (const [name, a, b] of [
+      ["prompt text edited without a version bump", { promptSha256: "p1" }, { promptSha256: "p2" }],
+      ["scrub rules changed", { scrubSha256: "s1" }, { scrubSha256: "s2" }],
+    ] as const) {
+      const env = makeEnv();
+      twoRuns(env, { judge: { model: "judge-1", ...a }, results: (_r, c) => ({ top5: [{ ref: "a", text: `a-${c.id}` }] }) }, { judge: { model: "judge-1", ...b }, results: (_r, c) => ({ top5: [{ ref: "b", text: `b-${c.id}` }] }) });
+      expect(await main(["report", "--compare", "rA", "rB"], env.ctx), name).not.toBe(0);
+      expect(env.stderr.join(""), name).toMatch(/prompt|scrub/i);
+      expect(await main(["report", "--compare", "rA", "rB", "--allow-judge-mismatch"], env.ctx), name).toBe(0);
+      expect(env.stdout.join(""), name).toContain("JUDGE MISMATCH");
+    }
+  });
 });
