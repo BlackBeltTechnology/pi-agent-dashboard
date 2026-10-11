@@ -88,6 +88,117 @@ describe("GET /api/sessions/:sessionId/tool-result/:toolCallId", () => {
   });
 });
 
+// See change: distinguish-tool-result-pending-vs-gone (test-plan E7–E12).
+describe("GET tool-result — pending vs gone", () => {
+  let fastify: FastifyInstance;
+  let eventStore: EventStore;
+  let inFlight: Set<string>;
+  let stats: { pending: number; gone: number };
+  let resolverActive = false;
+  let owners: Record<string, { iss: string; sub: string } | undefined> = {};
+
+  /** Trim `id`'s end out of `sid` so the store records the eviction. */
+  function evict(store: EventStore, sid: string, id: string): void {
+    store.insertEvent(sid, { eventType: "tool_execution_end", timestamp: 1, data: { toolCallId: id, result: "x" } });
+    store.insertEvent(sid, { eventType: "stats_update", timestamp: 2, data: {} });
+    store.insertEvent(sid, { eventType: "stats_update", timestamp: 3, data: {} });
+  }
+
+  beforeEach(async () => {
+    // cap 2, no slack: the end is trimmed by the next inserts.
+    eventStore = createMemoryEventStore(() => false, 100, 2);
+    inFlight = new Set();
+    stats = { pending: 0, gone: 0 };
+    resolverActive = false;
+    owners = {};
+    fastify = Fastify();
+    registerSessionRoutes(fastify, {
+      sessionManager: { listAll: () => [], get: (id: string) => (owners[id] ? { id, principalOwner: owners[id] } : undefined) } as any,
+      eventStore,
+      networkGuard: PASSTHRU_GUARD,
+      isResolverActive: () => resolverActive,
+      isToolInFlight: (sid, id) => inFlight.has(`${sid}/${id}`),
+      toolResultStats: stats,
+    });
+    await fastify.ready();
+  });
+
+  afterEach(async () => {
+    if (fastify) await fastify.close();
+  });
+
+  const get = (url: string) => fastify.inject({ method: "GET", url });
+
+  it("E7: a stored end is 200", async () => {
+    eventStore.insertEvent("s", { eventType: "tool_execution_end", timestamp: 1, data: { toolCallId: "abc", result: "out", isError: false } });
+    const res = await get("/api/sessions/s/tool-result/abc");
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.payload)).toEqual({ result: "out", isError: false });
+  });
+
+  it("E8: an evicted end is 410 with or without ?pending=1", async () => {
+    evict(eventStore, "s", "abc");
+    expect(eventStore.findToolEndEvent("s", "abc")).toBeUndefined();
+    for (const url of ["/api/sessions/s/tool-result/abc", "/api/sessions/s/tool-result/abc?pending=1"]) {
+      const res = await get(url);
+      expect(res.statusCode).toBe(410);
+      expect(JSON.parse(res.payload)).toEqual({ error: "result no longer available" });
+    }
+  });
+
+  it("E9: a re-stored end wins over the eviction record", async () => {
+    evict(eventStore, "s", "abc");
+    eventStore.insertEvent("s", { eventType: "tool_execution_end", timestamp: 9, data: { toolCallId: "abc", result: "again" } });
+    const res = await get("/api/sessions/s/tool-result/abc");
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("E10: in-flight answers 202 only for pending=1 exactly", async () => {
+    inFlight.add("s/abc");
+    const ok = await get("/api/sessions/s/tool-result/abc?pending=1");
+    expect(ok.statusCode).toBe(202);
+    expect(JSON.parse(ok.payload)).toEqual({ pending: true });
+    for (const q of ["", "?pending=true", "?pending=0", "?pending=1&pending=1"]) {
+      const res = await get(`/api/sessions/s/tool-result/abc${q}`);
+      expect(res.statusCode, q).toBe(404);
+    }
+  });
+
+  it("E11: in-flight survives a trimmed start", async () => {
+    eventStore.insertEvent("s", { eventType: "tool_execution_start", timestamp: 1, data: { toolCallId: "abc", toolName: "bash" } });
+    eventStore.insertEvent("s", { eventType: "stats_update", timestamp: 2, data: {} });
+    eventStore.insertEvent("s", { eventType: "stats_update", timestamp: 3, data: {} });
+    eventStore.insertEvent("s", { eventType: "stats_update", timestamp: 4, data: {} });
+    inFlight.add("s/abc");
+    const res = await get("/api/sessions/s/tool-result/abc?pending=1");
+    expect(res.statusCode).toBe(202);
+  });
+
+  it("E12: unknown session is 404; an owner-gate rejection never yields 410/202", async () => {
+    const unknown = await get("/api/sessions/ghost/tool-result/abc?pending=1");
+    expect(unknown.statusCode).toBe(404);
+
+    evict(eventStore, "s", "abc");
+    inFlight.add("s/xyz");
+    owners.s = { iss: "i", sub: "anna" };
+    resolverActive = true; // request carries no principal
+    const gone = await get("/api/sessions/s/tool-result/abc");
+    expect(gone.statusCode).toBe(404);
+    const pending = await get("/api/sessions/s/tool-result/xyz?pending=1");
+    expect(pending.statusCode).toBe(404);
+    expect(stats).toEqual({ pending: 0, gone: 0 });
+  });
+
+  it("counts 202 and 410 answers in the stats sink", async () => {
+    evict(eventStore, "s", "abc");
+    inFlight.add("s/run");
+    await get("/api/sessions/s/tool-result/abc");
+    await get("/api/sessions/s/tool-result/run?pending=1");
+    await get("/api/sessions/s/tool-result/nothing?pending=1");
+    expect(stats).toEqual({ pending: 1, gone: 1 });
+  });
+});
+
 // opt-in-out-of-cwd-session-diffs: GET /api/session-change/:sessionId/:toolCallId
 describe("GET /api/session-change/:sessionId/:toolCallId", () => {
   let fastify: FastifyInstance;

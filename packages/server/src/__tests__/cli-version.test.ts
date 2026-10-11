@@ -4,8 +4,8 @@
  * Bug B (see openspec/changes/fix-electron-cold-launch-probe-cascade):
  * The wrapper previously resolved jiti BEFORE parsing argv, exiting 1
  * with "cannot find jiti" even for metadata queries like --version.
- * That killed `probeNpmGlobal` in launch-source.ts, which calls
- * `pi-dashboard --version` and rejects null/empty/non-zero responses.
+ * That killed `probeNpmGlobal` in launch-source.ts (since deleted), which
+ * called `pi-dashboard --version` and rejected null/empty/non-zero responses.
  *
  * Contract enforced by these tests:
  *   - `--version` / `-v` / `version` SHALL print sibling package.json's

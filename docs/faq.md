@@ -3378,9 +3378,15 @@ Cold hydration: `packages/shared/src/state-replay.ts` `replayEntriesAsEvents` cl
 
 Client: reducer heals only `running` row (`packages/client/src/lib/chat/event-reducer.ts`). Payload carrying `healedBy` on existing terminal state ignored.
 
-API: `GET /api/session/:id/tool-result/:toolCallId` returns synthesized end if present. `healedBy:"session_ended"` in payload distinguishes synthesized end from real tool result.
+API: `GET /api/sessions/:sessionId/tool-result/:toolCallId` returns synthesized end if present. `healedBy:"session_ended"` in payload distinguishes synthesized end from real tool result.
+
+Non-finished answers (distinguish):
+- `410 {error:"result no longer available"}` — real end trimmed from event store. Final; client shows eviction badge.
+- `202 {pending:true}` — only with `?pending=1`; still in flight on live server. Hint, never proof of gone.
+- `404` — unknown, not in flight, or overflow of eviction record.
 
 See change: heal-orphaned-tool-cards-on-session-end.
+See change: distinguish-tool-result-pending-vs-gone.
 
 Cross-refs:
 - packages/server/src/event-wiring.ts

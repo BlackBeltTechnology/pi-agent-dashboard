@@ -9,3 +9,5 @@
 `isShutdownWindowCandidate(s, ownerBoot, windowMs)` + `ShutdownWindowInput`: second cold-start recovery path. True iff `live!==true`, `liveEpoch`+`endedAt` set, `closedReason==='unknown'` (allowlist), `recover!==false`, `ownerBoot.bootId===liveEpoch`, intent ∈ {signal, user-quit}, |endedAt − at| ≤ windowMs. No `status` check. See change: fix-recovery-pi-signal-unregister.
 
 - `SessionMeta.archiveOnEnd?: boolean` — plugin disposability declaration, persisted only when declared. See change: archive-service-sessions-on-end.
+
+- `nameSource` widened to `auto|user|system`; adds `nameSourceFor?` (witness the provenance was recorded for). See change: investigate-auto-name-provenance-relabel.

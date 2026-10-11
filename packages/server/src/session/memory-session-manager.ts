@@ -220,6 +220,11 @@ export interface SessionManager {
   buildSnapshot(pinned?: readonly string[]): SnapshotResult;
   /** Called after any mutation (register, unregister, update). Receives the affected session ID and optional context. */
   onChange?: (sessionId: string, ctx?: OnChangeContext) => void;
+  /**
+   * Called after `remove(sessionId)` evicts a session from the live registry
+   * (archive transition). See change: distinguish-tool-result-pending-vs-gone.
+   */
+  onRemoved?: (sessionId: string) => void;
   /** Called after a session is unregistered (status set to ended). */
   onUnregister?: (sessionId: string) => void;
   /**
@@ -475,6 +480,7 @@ export function createMemorySessionManager(
     remove(sessionId: string): void {
       sessions.delete(sessionId);
       bridgeUnregistered.delete(sessionId);
+      mgr.onRemoved?.(sessionId);
     },
 
     wasEndedByBridgeUnregister(sessionId: string): boolean {

@@ -21,6 +21,12 @@ concurrency:
   group: ci-smoke-${{ github.ref }}
   cancel-in-progress: true
 
+# Least-privilege default: jobs that need more declare it at job level.
+# Pinned by packages/shared/src/__tests__/workflow-token-cache-contract.test.ts.
+# See change: harden-ci-cache-poisoning.
+permissions:
+  contents: read
+
 jobs:
   smoke:
     uses: ./.github/workflows/_smoke.yml

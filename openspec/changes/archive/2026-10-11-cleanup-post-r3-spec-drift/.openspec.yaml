@@ -1,0 +1,8 @@
+schema: spec-driven
+# Removes EVERY requirement of `electron-bundle-extract` (extraction into
+# ~/.pi-dashboard/, the .version marker, config migration and the
+# /api/electron/reinstall endpoint were deleted by
+# eliminate-electron-runtime-install), so archiving retires that capability
+# and deletes its spec. Required by `openspec archive`.
+retire_capabilities: true
+created: 2026-10-03

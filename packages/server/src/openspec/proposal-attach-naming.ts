@@ -38,10 +38,12 @@ export function attachRenameTarget(
 
 /**
  * Decide whether detaching from `session` should clear the name.
- * Returns true when the name should be cleared (set to undefined).
+ * Returns true when the name should be cleared (set to undefined). A
+ * user-owned name equal to the slug is never cleared.
+ * See change: investigate-auto-name-provenance-relabel (D2).
  */
 export function detachShouldClearName(
-  session: Pick<DashboardSession, "name" | "attachedProposal"> | undefined,
+  session: Pick<DashboardSession, "name" | "attachedProposal" | "nameSource"> | undefined,
 ): boolean {
-  return isNameAutoSetFromAttachment(session);
+  return isNameAutoSetFromAttachment(session) && session?.nameSource !== "user";
 }

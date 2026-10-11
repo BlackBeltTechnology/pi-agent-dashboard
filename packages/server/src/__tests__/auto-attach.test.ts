@@ -158,6 +158,15 @@ describe("Auto-attach from openspec activity", () => {
     expect(session?.attachedProposal).toBe("add-auth");
   });
 
+  it("E12: auto-attach sends rename_session{origin:system}; provenance system + witness", async () => {
+    const frames: any[] = [];
+    ws.on("message", (raw) => { try { frames.push(JSON.parse(raw.toString())); } catch { /* */ } });
+    sendToolEvent(ws, "s1", { changeName: "prov-feature" });
+    await new Promise((r) => setTimeout(r, 120));
+    expect(frames.find((f) => f.type === "rename_session")).toMatchObject({ name: "prov-feature", origin: "system" });
+    expect(server.sessionManager.get("s1")).toMatchObject({ name: "prov-feature", nameSource: "system", nameSourceFor: "prov-feature" });
+  });
+
   it("auto-names session from changeName when name is blank", async () => {
     sendToolEvent(ws, "s1", { changeName: "cool-feature" });
     await new Promise((r) => setTimeout(r, 80));

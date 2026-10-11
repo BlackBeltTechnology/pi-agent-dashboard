@@ -15,6 +15,8 @@ export const huCatalog: Record<string, string> = {
   "chat.historyGap.sessionStart": "A munkamenet eleje",
   "chat.tool.elided": "eredmény nincs betöltve",
   "chat.tool.elidedHint": "Ennek az eszköznek az eredménye a betöltött előzményeken kívül esik, ezért nem tölthető be.",
+  "chat.tool.evicted": "eredmény eltávolítva",
+  "chat.tool.evictedHint": "Az eredmény nem lett rögzítve — az eszköz befejeződött, de a szerver már nem őrzi a kimenetét.",
   "chat.tool.nested.argsOmitted": "argumentumok kihagyva ({bytes} bájt)",
   "chat.tool.nested.count": "{count} beágyazott hívás",
   "chat.tool.nested.incomplete": "a beágyazott hívások listája hiányos",

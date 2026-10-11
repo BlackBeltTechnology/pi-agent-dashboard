@@ -1,0 +1,50 @@
+[
+  {
+    "query": "kaboom failure",
+    "project": "synth"
+  },
+  {
+    "query": "the and of",
+    "project": "synth"
+  },
+  {
+    "query": "DO NOT USE FIND /",
+    "project": "synth"
+  },
+  {
+    "query": "vitest timeout error",
+    "project": "synth"
+  },
+  {
+    "query": "ab",
+    "project": "synth"
+  },
+  {
+    "query": "\"exact phrase here\"",
+    "project": "synth"
+  },
+  {
+    "query": "zzzzqqq",
+    "project": "synth"
+  },
+  {
+    "query": "pnpm install failed",
+    "project": "synth"
+  },
+  {
+    "query": "megint ugyanaz a hiba",
+    "project": "synth"
+  },
+  {
+    "query": "kaboom OR gadget",
+    "project": "synth"
+  },
+  {
+    "query": "Cannot find module",
+    "project": "synth"
+  },
+  {
+    "query": "worktree branch collision",
+    "project": "synth"
+  }
+]

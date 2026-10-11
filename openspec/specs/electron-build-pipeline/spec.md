@@ -311,17 +311,6 @@ The project SHALL add npm scripts for Electron development and building.
 - **WHEN** `npm run icons` is run from `packages/electron/`
 - **THEN** it SHALL generate `.icns`, `.ico`, and resized PNGs from the master icon
 
-### Requirement: Size budget enforcement in CI
-The CI workflow SHALL report and gate on the size of `resources/bundled-extensions/` after bundling.
-
-#### Scenario: Size reported
-- **WHEN** bundling completes in CI
-- **THEN** the workflow step SHALL print the total bundled size and per-id breakdown to the CI log
-
-#### Scenario: Size exceeds threshold
-- **WHEN** the total bundled size exceeds 15 MB
-- **THEN** the CI workflow SHALL fail before proceeding to `forge make`
-
 ### Requirement: Electron devDependency pinned to literal version
 The `packages/electron/package.json` `devDependencies.electron` field SHALL be a literal semver string (e.g. `"43.4.1"`), NOT a range (`"^43.0.0"`). `app-builder-lib`'s `getElectronVersionFromInstalled` does not walk up the workspace tree to find an electron module hoisted to the root `node_modules/`, so it falls back to reading the version literal from `packages/electron/package.json` and applying a fixed-version regex (`/^\d/`). A range value beginning with `^` or `~` fails the regex and produces `Cannot compute electron version from installed node modules` on Windows NSIS builds (the only consumer of electron-builder under the hood). Pinning the literal value is the workaround electron-builder itself recommends in [issue #3984](https://github.com/electron-userland/electron-builder/issues/3984#issuecomment-504968246).
 

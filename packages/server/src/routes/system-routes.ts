@@ -198,6 +198,9 @@ export function registerSystemRoutes(
     // `trustPosture` health field. Falls back to the boot list when unwired.
     // See change: fix-trusted-network-tunnel-bypass (D3).
     readTrustedNetworks?: () => string[];
+    // Cumulative tool-result route answers (`202` pending / `410` gone) for the
+    // additive `toolResult` health field. See change: distinguish-tool-result-pending-vs-gone (D6).
+    toolResultStats?: { pending: number; gone: number };
     // Push config / transport-init errors. Wired only while push is enabled;
     // served as `push.errors` behind `canDiscloseAccessPosture`.
     // See change: add-server-push-notifications.
@@ -234,7 +237,7 @@ export function registerSystemRoutes(
     clientBuild?: ClientBuildSnapshot;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readTrustedNetworks, readPushErrors } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readTrustedNetworks, readPushErrors } = deps;
 
   // Served-artifact coherence snapshot (design D4): a startup snapshot, never a
   // per-request filesystem read (P1).
@@ -1281,6 +1284,9 @@ export function registerSystemRoutes(
       // a newly-required field while still typechecking.
       // See change: collapse-superseded-tool-execution-updates (D9).
       storeTrim: eventStore?.getTrimStats?.() ?? EMPTY_TRIM_STATS,
+      // Cumulative tool-result route answers: `202` still running, `410`
+      // recorded eviction. See change: distinguish-tool-result-pending-vs-gone (D6).
+      toolResult: { pending: toolResultStats?.pending ?? 0, gone: toolResultStats?.gone ?? 0 },
       // Store-derived retention signals (D4), DELIBERATELY separate from the
       // cumulative `storeTrim` counters: a gauge, a set of configuration
       // constants and a boolean latch all break the "never reset on read"
