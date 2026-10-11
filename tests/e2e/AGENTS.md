@@ -11,7 +11,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
 | `hermes-model-override.spec.ts` | L3 F3 → see `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | L3 KB settings sources + search. → see `kb-settings-sources-search.spec.ts.AGENTS.md` |
-| `live-server-downloads.spec.ts` | L3 live-server iframe sandbox allows a click-driven download, keeps opaque origin (#F1/#X1). Routed `/api/live-server/start` + `/live/**`. See change: live-viewer-allow-downloads. |
+| `live-server-downloads.spec.ts` | L3 #F1/#X1 |
 | `local-credential-proof-nat.spec.ts` | L3 #X9: host proof for the published port → 401 (`binding-mismatch` in server.log only); same request in-container → 200. See change: loopback-credential-proof. |
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
