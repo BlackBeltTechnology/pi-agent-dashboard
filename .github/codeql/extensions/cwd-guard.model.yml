@@ -13,6 +13,9 @@
 #     BARRIER on its own Argument[0]: the argument is the thing being judged, never a
 #     value the decision trusts. This only stops taint at the call-site argument node;
 #     every consumer still has to branch on `admissionAllows` before touching disk.
+#   - `issueHeldAdmission(decision, rawCwd)` mints a token only after canonicalizing
+#     `rawCwd` and requiring it to EQUAL the cwd the host already validated and the
+#     operator approved, so it is a guard on its own Argument[1] for the same reason.
 # See change: harden-plugin-cwd-admission.
 #
 # `isAllowedCwd(cwd, known)` (packages/shared/src/cwd-guard.ts) admits a
@@ -42,3 +45,5 @@ extensions:
     data:
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[admitCwd].Argument[0]", "path-injection"]
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[admitCwd].Argument[0]", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[issueHeldAdmission].Argument[1]", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[issueHeldAdmission].Argument[1]", "path-injection"]

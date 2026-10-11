@@ -173,7 +173,6 @@ function spyRunner(o: SpyOpts = {}) {
   return { runner, spy };
 }
 
-const realCalls = { n: 0 };
 const TIMEOUT_ERR: ExecError = { kind: "timeout", timeoutMs: 1000, binary: "git" };
 
 function kindOf(a: Admission): string {
@@ -418,9 +417,11 @@ describe("admitCwd — canonicalization failures are failures to decide (B3)", (
     const { main, worktree } = makeRepoWithWorktree();
     const real = await import("../platform/git.js");
     const mainReal = realpathSync(main);
+    let mainCalls = 0;
     const r = await admitCwd(worktree, () => [main], {
-      // The first realpaths succeed; the main checkout then fails to canonicalize.
-      realpath: async (p) => (p === mainReal && realCalls.n++ > 0 ? { kind: "error", code: "EACCES" } : real.realpathAsync(p)),
+      // The first realpath of the main checkout (the outer known-set pass) succeeds; the
+      // derivation's own canonicalization of it then fails.
+      realpath: async (p) => (p === mainReal && mainCalls++ > 0 ? { kind: "error", code: "EACCES" } : real.realpathAsync(p)),
     });
     expect(r.kind).toBe("indeterminate");
   });

@@ -189,7 +189,8 @@ test.describe("worktree admission burst under slow git", () => {
       const urls = wts.flatMap((w) =>
         ["mcp-client/effective", "kb/stats"].map((route) => `/api/${route}?cwd=${encodeURIComponent(w)}`),
       );
-      for (const url of urls) await pollUntil200(url);
+      // All at once: the burst of slow derivations is the point.
+      await Promise.all(urls.map(pollUntil200));
       return seen;
     }, [SESSIONLESS] as [string[]]);
     expect(probe).not.toContain(403);

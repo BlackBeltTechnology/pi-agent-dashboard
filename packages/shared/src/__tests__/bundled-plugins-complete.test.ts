@@ -178,6 +178,15 @@ describe("cwd-guard CodeQL barrier model (E41)", () => {
     expect(has(m, "Member[tokenAllows].Argument[1]")).toBe(true);
   });
 
+  it.each(MODULES)("models issueHeldAdmission Argument[1] as a barrier (it canonicalizes then compares to the approved cwd) for %s", (m) => {
+    const rows = (parse(fs.readFileSync(modelPath, "utf8")) as {
+      extensions: Array<{ addsTo: { extensible: string }; data: string[][] }>;
+    }).extensions
+      .filter((e) => e.addsTo.extensible === "barrierModel")
+      .flatMap((e) => e.data);
+    expect(rows.some((r) => r[0] === m && r[1] === "Member[issueHeldAdmission].Argument[1]" && r[2] === "path-injection")).toBe(true);
+  });
+
   it.each(MODULES)("models admitCwd Argument[0] as a barrier (the guard itself canonicalizes the raw cwd) for %s", (m) => {
     const barrierRows = (parse(fs.readFileSync(modelPath, "utf8")) as {
       extensions: Array<{ addsTo: { extensible: string }; data: string[][] }>;
