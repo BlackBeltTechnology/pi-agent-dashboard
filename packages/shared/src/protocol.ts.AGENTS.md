@@ -33,3 +33,11 @@ Frames `PathGrantRequestMessage` (`path_grant_request`, ext→server), `PathGran
 Heartbeat metrics gain optional `pluginForward*` counters. See change: add-plugin-bridge-contributions.
 
 - `RenameSessionExtensionMessage.origin?: "system"`; `AutoNameStateRestoreMessage` carries session-owned `nameSource` + `nameSourceFor`; `session_name_update.nameSource` widened. See change: investigate-auto-name-provenance-relabel.
+
+New `ProviderRefreshError { provider, message }`; `ModelsListMessage.refreshErrors?` — present only when a provider refresh failed, omitted (never `[]`) on success, never set by a bare abort. See change: upgrade-model-selector-primitives.
+
+`ProcessMetrics` gains the subagent-tick throttle counters (`tickForwarded`/`tickCoalesced`/`tickDiscardedAtTerminal`/`tickDroppedNotReady`), riding the existing `session_heartbeat` transport to `/api/health` (per-session + summed). See change: reduce-bridge-tick-bandwidth.
+
+Adds `McpTokenMintedExtensionMessage` (`mcp_token_minted`, carries the plaintext session token + optional `url` = the `/mcp` URL the bridge registers with `pi.registerMcpServer`) to `ServerToExtensionMessage` — rides the session-private bridge lane only, never re-emitted on `pi.events` (D5). See change: wire-mcp-session-token, migrate-mcp-to-pi-builtin.
+
+`DispatchExtensionCommandMessage` is `@deprecated` — the bridge dispatches in-process since change `retire-slash-dispatch-via-expand-prompt-templates`; a one-release server tombstone answers it.

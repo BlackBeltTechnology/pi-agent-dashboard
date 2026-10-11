@@ -22,6 +22,12 @@ on:
         type: string
         required: true
 
+# Least-privilege default: jobs that need more declare it at job level.
+# Pinned by packages/shared/src/__tests__/workflow-token-cache-contract.test.ts.
+# See change: harden-ci-cache-poisoning.
+permissions:
+  contents: read
+
 jobs:
   # Pack the workspace into tarballs, install into a clean HOME, launch
   # pi-dashboard, assert bootstrap reaches ready. Guards against the v0.5.3

@@ -20,10 +20,10 @@ Each client test file SHALL restore, before it finishes, every global it replace
 - **THEN** every test SHALL produce the same result as in the default order
 
 ### Requirement: Disabling per-file isolation is gated on measured safety
-The jsdom client project SHALL run with `isolate: false` only if all of the following hold on the same commit: three consecutive full runs are green; a run with `--sequence.shuffle` is green; each test file still observes its own temporary `HOME`; and no two parallel forks write the same localStorage file. If any condition fails, the project SHALL keep `isolate: true` and the reason SHALL be recorded in the change's design notes.
+The jsdom client project SHALL run with `isolate: false` only if all of the following hold on the same commit: three consecutive full runs are green; a run with `--sequence.shuffle` is green; each test file still observes its own temporary `HOME`; no two parallel forks write the same localStorage file; and the median wall-clock time of the three green runs is no greater than the isolated baseline measured before the hygiene work. If any condition fails, the project SHALL keep `isolate: true` and the reason SHALL be recorded in the change's design notes.
 
 #### Scenario: Gate passes
-- **WHEN** all four conditions are verified on the candidate commit
+- **WHEN** all five conditions are verified on the candidate commit
 - **THEN** `isolate: false` MAY be set on the jsdom client project
 - **AND** the measured wall-clock time before and after SHALL be recorded
 
@@ -31,3 +31,8 @@ The jsdom client project SHALL run with `isolate: false` only if all of the foll
 - **WHEN** any condition fails
 - **THEN** `isolate` SHALL remain `true`
 - **AND** the hygiene and node-environment changes SHALL still land
+
+#### Scenario: Correct but slower
+- **WHEN** the four correctness conditions hold but the shared-state runs are slower than the isolated baseline
+- **THEN** `isolate` SHALL remain `true`
+- **AND** both wall-clock times SHALL be recorded in the change's design notes

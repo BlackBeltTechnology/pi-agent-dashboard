@@ -29,6 +29,12 @@ on:
         type: string
         required: true
 
+# Least-privilege default: jobs that need more declare it at job level.
+# Pinned by packages/shared/src/__tests__/workflow-token-cache-contract.test.ts.
+# See change: harden-ci-cache-poisoning.
+permissions:
+  contents: read
+
 jobs:
   # ── resolve: pure version resolution (no side effects) ────────────────────
   # Splits the legacy monolithic `prepare` job. The bump/commit/tag/push
@@ -147,7 +153,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: pnpm
+          # No dependency cache: release-privileged (harden-ci-cache-poisoning D3)
 
       - name: Install dependencies
         shell: bash
@@ -253,7 +259,7 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-          cache: pnpm
+          # No dependency cache: release-privileged (harden-ci-cache-poisoning D3)
 
       # Trusted Publishing requires npm CLI ≥ 11.5.1 for the OIDC provenance
       # exchange. Dependency installation is now pnpm's job (blockExoticSubdeps
@@ -543,6 +549,7 @@ jobs:
       legs:                    all
       source_only_bundle:      false
       artifact_retention_days: 90
+      use_dependency_cache:    false  # release-privileged: cold install (harden-ci-cache-poisoning D4)
 
   # ── Runtime overlay assets (per platform, after publish) ──────
   # Builds `pi-dashboard-runtime-<X>-<platform>-<arch>.tgz` + `.sha512` by
@@ -581,7 +588,7 @@ jobs:
           # Bundled Electron Node major (packages/electron/scripts/_node-version.sh):
           # the consumer installs the runtime under that Node.
           node-version: 24
-          cache: pnpm
+          # No dependency cache: release-privileged (harden-ci-cache-poisoning D3)
 
       # Only tsx + the stager's imports (semver, shared) are needed.
       - run: pnpm install --frozen-lockfile --ignore-scripts

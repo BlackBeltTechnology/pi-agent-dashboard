@@ -34,6 +34,12 @@ concurrency:
   group: ci-electron-${{ github.ref }}
   cancel-in-progress: true
 
+# Least-privilege default: jobs that need more declare it at job level.
+# Pinned by packages/shared/src/__tests__/workflow-token-cache-contract.test.ts.
+# See change: harden-ci-cache-poisoning.
+permissions:
+  contents: read
+
 jobs:
   # ── resolve: compute the CI version slug + summary ──────────────────────
   # Slug shape: <base>-ci.<UTC-stamp>.<branch-slug>.<sha7>
@@ -118,3 +124,4 @@ jobs:
       source_only_bundle:      false
       artifact_retention_days: 14
       artifact_name_suffix:    -${{ needs.resolve.outputs.sha7 }}
+      use_dependency_cache:    true  # dev/nightly only; see harden-ci-cache-poisoning
