@@ -1,3 +1,7 @@
+// @vitest-environment node
+//
+// `node` is REQUIRED: this suite reaches `packages/kb`'s sqlite store, which vite's
+// client (jsdom) environment refuses to bundle (`node:sqlite`). Same as kb-routes.test.ts.
 /**
  * kb routes · async tri-state cwd admission and the write-route access dialog.
  * Covers test-plan E32 (kb GET half), E35, E36, E38.
