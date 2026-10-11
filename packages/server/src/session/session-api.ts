@@ -35,6 +35,7 @@ import { armSpawnWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import { mintSpawnToken } from "../auth/spawn-token.js";
 import type { NetworkGuard } from "../routes/route-deps.js";
 import type { SessionManager } from "./memory-session-manager.js";
+import { systemRenameUpdates, userRenameUpdates } from "./name-provenance.js";
 import { decideResume } from "./session-origin.js";
 
 export interface SessionApiDeps {
@@ -250,7 +251,9 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         reply.code(404);
         return result.error;
       }
-      const updates = { name: name || undefined };
+      // A REST rename is a user action, like the browser path: tag `user`,
+      // clear the witness. See change: investigate-auto-name-provenance-relabel (D2).
+      const updates = userRenameUpdates(name);
       sessionManager.update(id, updates);
       browserGateway.broadcastSessionUpdated(id, updates);
       piGateway.sendToSession(id, { type: "rename_session", sessionId: id, name });
@@ -660,8 +663,8 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
       // Idempotent auto-rename (see change: fix-mobile-attach-proposal-display).
       const newName = attachRenameTarget(session, changeName);
       if (newName !== undefined) {
-        updates.name = newName;
-        piGateway.sendToSession(id, { type: "rename_session", sessionId: id, name: newName });
+        Object.assign(updates, systemRenameUpdates(session, newName));
+        piGateway.sendToSession(id, { type: "rename_session", sessionId: id, name: newName, origin: "system" });
       }
       sessionManager.update(id, updates);
       browserGateway.broadcastSessionUpdated(id, updates);
@@ -688,8 +691,8 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
       };
       // Idempotent auto-revert (see change: fix-mobile-attach-proposal-display).
       if (detachShouldClearName(session)) {
-        updates.name = undefined;
-        piGateway.sendToSession(id, { type: "rename_session", sessionId: id, name: "" });
+        Object.assign(updates, systemRenameUpdates(session, ""));
+        piGateway.sendToSession(id, { type: "rename_session", sessionId: id, name: "", origin: "system" });
       }
       sessionManager.update(id, updates);
       browserGateway.broadcastSessionUpdated(id, updates);

@@ -25,3 +25,5 @@ Adds `GitPrState`, `GitPrChecks`; `DashboardSession.gitPrNumber|Url` `| null` + 
 - `DashboardSession.pluginHidden?` — core-owned plugin hide intent. See change: fix-plugin-hidden-across-restart.
 
 - `DashboardSession.archiveOnEnd?: boolean` — distinct from `lifecyclePolicy`. See change: archive-service-sessions-on-end.
+
+- `nameSource` widened to include `system`; `DashboardSession.nameSourceFor?` witness; `AutoNamerPersistedState.lastSystemApplied?`. See change: investigate-auto-name-provenance-relabel.

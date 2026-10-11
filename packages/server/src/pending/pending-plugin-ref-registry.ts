@@ -43,6 +43,9 @@ export const CORE_RESERVED_REF_KEYS: ReadonlySet<string> = new Set([
   "endedAt",
   "name",
   "nameSource",
+  // Server-owned provenance witness; a ref body cannot forge it.
+  // See change: investigate-auto-name-provenance-relabel.
+  "nameSourceFor",
   // Core-owned container of every plugin's durable refs (session/plugin-refs.ts).
   "pluginRefs",
 ]);

@@ -27,6 +27,7 @@ import { captureLifecycleTimestamp } from "./embed-lifecycle/lifecycle-event-cap
 import { composeWorktreePayload } from "./git-worktree/git-worktree-compose.js";
 import { decideDashboardSource } from "./lifecycle/dashboard-source-decision.js";
 import { attachRenameTarget, isNameAutoSetFromAttachment } from "./openspec/proposal-attach-naming.js";
+import { buildAutoNameRestore, guardBridgeNameClaim, systemRenameUpdates } from "./session/name-provenance.js";
 import { invalidateCatalogue, setCatalogueForSession } from "./package/provider-catalogue-cache.js";
 import type { BrowserGateway } from "./pairing/browser-gateway.js";
 import { fromLegacyPromptRequest } from "./pairing/notify-log.js";
@@ -570,32 +571,15 @@ export function wireEvents(deps: EventWiringDeps): void {
       });
     }
 
-    // Restore the persisted auto-namer stop state to the bridge, so a session
-    // stopped before a process restart does not re-spend a full attempt budget
-    // and re-emit the error on its first turn back.
-    // See change: fix-auto-naming-reasoning-model (design D7).
-    const restoredNamerState = sessionManager.get(sessionId)?.autoNamerState;
-    if (restoredNamerState) {
-      // Explicit projection, not a spread: provenance (`nameSource`,
-      // `hasAutoName`, `lastSelfApplied`) must not reach the bridge — restoring
-      // it would change the behaviour of the separate auto→`user` relabel bug
-      // (design D8b). Projecting at the SENDER keeps the wire as narrow as the
-      // contract claims, rather than relying on the receiver to drop fields.
-      piGateway.sendToSession(sessionId, {
-        type: "auto_name_state_restore",
-        state: {
-          hardStopped: restoredNamerState.hardStopped,
-          errorEmitted: restoredNamerState.errorEmitted,
-          attemptsUsed: restoredNamerState.attemptsUsed,
-          starvedCount: restoredNamerState.starvedCount,
-          waitingCount: restoredNamerState.waitingCount,
-          sawStarved: restoredNamerState.sawStarved,
-          stoppedModelRef: restoredNamerState.stoppedModelRef,
-          stopCause: restoredNamerState.stopCause,
-          stoppedReason: restoredNamerState.stoppedReason,
-        },
-      });
-    }
+    // Restore the persisted auto-namer stop state AND the session-owned name
+    // provenance to the bridge, so a permanent stop and the auto/system/user
+    // provenance survive a PROCESS restart / session resume. Provenance comes
+    // from the SESSION (never the bridge-persisted state fields), and a stop
+    // without `stopCause` (a `user`-latch artefact) is cleared when provenance
+    // is not `user`. See change: fix-auto-naming-reasoning-model (design D7);
+    // investigate-auto-name-provenance-relabel (D4).
+    const restoreMsg = buildAutoNameRestore(sessionManager.get(sessionId));
+    if (restoreMsg) piGateway.sendToSession(sessionId, restoreMsg);
 
     // NOTE: goal-driver linking moved to the onEvent `session_register` branch
     // (after `linkByToken`) so the strong token→goalId path can run — the
@@ -1324,11 +1308,12 @@ export function wireEvents(deps: EventWiringDeps): void {
                 attachUpdates.attachedProposal = changeName;
                 const newName = attachRenameTarget(updatedSession, changeName);
                 if (newName !== undefined) {
-                  attachUpdates.name = newName;
+                  Object.assign(attachUpdates, systemRenameUpdates(updatedSession, newName));
                   piGateway.sendToSession(sessionId, {
                     type: "rename_session",
                     sessionId,
                     name: newName,
+                    origin: "system",
                   });
                 }
                 sessionManager.update(sessionId, attachUpdates);
@@ -2552,11 +2537,14 @@ export function wireEvents(deps: EventWiringDeps): void {
       // Persist provenance when the bridge attributes the change (auto-name or
       // an in-pi rename it did not originate). Absent → keep existing provenance.
       // See change: add-auto-session-naming.
-      const nameUpdates = msg.nameSource
-        ? { name: msg.name || undefined, nameSource: msg.nameSource }
-        : { name: msg.name || undefined };
-      sessionManager.update(sessionId, nameUpdates);
-      browserGateway.broadcastSessionUpdated(sessionId, nameUpdates);
+      // Guarded against the server-owned witness (D2): a restart relabel / old-bridge
+      // echo cannot downgrade provenance; an `auto` claim racing a server rename is dropped.
+      // See change: investigate-auto-name-provenance-relabel.
+      const nameUpdates = guardBridgeNameClaim(sessionManager.get(sessionId), msg.name, msg.nameSource);
+      if (nameUpdates) {
+        sessionManager.update(sessionId, nameUpdates);
+        browserGateway.broadcastSessionUpdated(sessionId, nameUpdates);
+      }
     }
 
     if (msg.type === "auto_name_outcome") {

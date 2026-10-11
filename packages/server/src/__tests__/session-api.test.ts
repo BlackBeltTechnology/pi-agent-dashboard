@@ -357,6 +357,67 @@ describe("Session Control REST API", () => {
     expect(res.status).toBe(200);
     expect(server.sessionManager.get("detach-me")?.attachedProposal).toBeNull();
   });
+
+  // ── name provenance (see change: investigate-auto-name-provenance-relabel) ──
+  /** A real bridge socket so the `rename_session` frames the server sends are observable. */
+  async function bridgeSession(id: string, fields: Record<string, unknown> = {}) {
+    const { WebSocket } = await import("ws");
+    const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
+    const frames: any[] = [];
+    ws.on("message", (raw) => { try { frames.push(JSON.parse(raw.toString())); } catch { /* */ } });
+    await new Promise<void>((resolve) => ws.on("open", () => {
+      ws.send(JSON.stringify({ type: "session_register", sessionId: id, cwd: "/tmp", source: "cli" }));
+      ws.send(JSON.stringify({ type: "replay_complete", sessionId: id }));
+      setTimeout(resolve, 80);
+    }));
+    if (Object.keys(fields).length) server.sessionManager.update(id, fields as any);
+    frames.length = 0; // drop the register-time frames
+    const renames = async () => { await new Promise((r) => setTimeout(r, 60)); return frames.filter((f) => f.type === "rename_session"); };
+    return { ws, renames };
+  }
+
+  it("E12: REST attach sends rename_session{origin:system}; provenance system + witness; user stays user", async () => {
+    const a = await bridgeSession("prov-attach");
+    await postJson("/api/session/prov-attach/attach-proposal", { changeName: "add-x" });
+    expect(await a.renames()).toEqual([{ type: "rename_session", sessionId: "prov-attach", name: "add-x", origin: "system" }]);
+    expect(server.sessionManager.get("prov-attach")).toMatchObject({ name: "add-x", nameSource: "system", nameSourceFor: "add-x" });
+    a.ws.close();
+
+    // A user-owned (cleared) name is never downgraded by a system rename.
+    const u = await bridgeSession("prov-user", { nameSource: "user" });
+    await postJson("/api/session/prov-user/attach-proposal", { changeName: "add-y" });
+    expect(server.sessionManager.get("prov-user")).toMatchObject({ name: "add-y", nameSource: "user" });
+    u.ws.close();
+  });
+
+  it("E13: REST rename tags user and clears the witness; forwarded rename has no origin", async () => {
+    const b = await bridgeSession("prov-rename", { name: "add-x", nameSource: "system", nameSourceFor: "add-x" });
+    await postJson("/api/session/prov-rename/rename", { name: "mine" });
+    const s = server.sessionManager.get("prov-rename")!;
+    expect(s).toMatchObject({ name: "mine", nameSource: "user" });
+    expect(s.nameSourceFor).toBeUndefined();
+    const frames = await b.renames();
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).not.toHaveProperty("origin");
+    b.ws.close();
+  });
+
+  it("E14: REST detach reverts a non-user attach name (system rename to \"\"); a user-owned name stays", async () => {
+    const d = await bridgeSession("prov-detach", { name: "foo", attachedProposal: "foo", nameSource: "system", nameSourceFor: "foo" });
+    await postJson("/api/session/prov-detach/detach-proposal");
+    const s = server.sessionManager.get("prov-detach")!;
+    expect(s.name).toBeUndefined();
+    expect(s.nameSource).toBeUndefined();
+    expect(s.nameSourceFor).toBeUndefined();
+    expect(await d.renames()).toEqual([{ type: "rename_session", sessionId: "prov-detach", name: "", origin: "system" }]);
+    d.ws.close();
+
+    const u = await bridgeSession("prov-detach-user", { name: "foo", attachedProposal: "foo", nameSource: "user" });
+    await postJson("/api/session/prov-detach-user/detach-proposal");
+    expect(server.sessionManager.get("prov-detach-user")).toMatchObject({ name: "foo", nameSource: "user" });
+    expect(await u.renames()).toHaveLength(0);
+    u.ws.close();
+  });
 });
 
 // ── archived listing / delete REST surface ────────────────────────
