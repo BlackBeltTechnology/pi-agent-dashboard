@@ -226,12 +226,12 @@ All tests in this section are L1 in `packages/server/src/__tests__/local-credent
   - Input: the dashboard holds `127.0.0.1:<piPort>`.
   - Trigger: a second standard user attempts to bind it.
   - Observable: the bind fails (EADDRINUSE/EACCES), recorded from an actual attempt.
-- [ ] 8.5 Live deploy-order check on a dev instance (test-plan: manual-only, #X11): restart the server first (`curl -X POST http://localhost:8000/api/restart`), then `npm run reload`; confirm that spawned sessions stay registered and that no quarantine lines appear.
+- [x] 8.5 Live deploy-order check on a dev instance (test-plan: manual-only, #X11): restart the server first (`curl -X POST http://localhost:8000/api/restart`), then `npm run reload`; confirm that spawned sessions stay registered and that no quarantine lines appear.
 
 ## 9. Integration, review, docs, follow-up
 
 - [x] 9.1 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` shows no failures.
-- [ ] 9.2 Spawn an `Audit` subagent on the diff (auth / untrusted input / secrets); fix the findings; run `review-code` before commit.
+- [x] 9.2 Spawn an `Audit` subagent on the diff (auth / untrusted input / secrets); fix the findings; run `review-code` before commit.
 - [x] 9.3 DocScribe:
   - `docs/architecture.md` Auth model: proof, edge stamp, counter-proof, marker, legacy window, and the rotation owed at 1.0.0;
   - a `docs/faq.md` entry: "spawned session stuck: server-proof-missing" → restart after a downgrade or squatter;
