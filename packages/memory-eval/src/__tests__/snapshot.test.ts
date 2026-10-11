@@ -205,4 +205,26 @@ describe("snapshot", () => {
       expect(completed(env), source).toEqual([]);
     }
   });
+
+  it("B1 (round 6): required table NAMES with the wrong shape (plain tables, missing columns) also fail the run", async () => {
+    const completed = (env: TestEnv) => (existsSync(env.paths.runsDir) ? readdirSync(env.paths.runsDir).filter((id) => existsSync(join(env.paths.runsDir, id, "manifest.json"))) : []);
+    const shapes: Record<"hermes" | "kb", string> = {
+      hermes: "CREATE TABLE sessions (id TEXT); CREATE TABLE messages (id TEXT); CREATE TABLE message_fts (content TEXT); CREATE TABLE memories (id TEXT); CREATE TABLE memory_fts (content TEXT); INSERT INTO messages VALUES ('x')",
+      kb: "CREATE TABLE chunks (id TEXT); CREATE TABLE files (id TEXT); INSERT INTO chunks VALUES ('x')",
+    };
+    for (const source of ["hermes", "kb"] as const) {
+      const env = makeEnv();
+      writeCaseSet(env, [mkCase({ id: "c1", decisionTime: T })]);
+      const path = source === "hermes" ? hermesDbPath(env) : join(env.home, "kb", "index.db");
+      mkdirSync(dirname(path), { recursive: true });
+      const db = new DatabaseSync(path);
+      db.exec(shapes[source]);
+      db.close();
+      const args = source === "hermes" ? ["run", "--retrievers", "hermes.memory_search"] : ["run", "--retrievers", "kb.docs", "--kb-index", path];
+      expect(await main(args, env.ctx), source).not.toBe(0);
+      expect(env.stderr.join(""), source).toContain(path);
+      expect(env.stderr.join(""), source).toMatch(/expected schema/i);
+      expect(completed(env), source).toEqual([]);
+    }
+  });
 });

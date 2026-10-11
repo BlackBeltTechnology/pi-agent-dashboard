@@ -7,6 +7,7 @@
 import { closeSync, copyFileSync, mkdirSync, openSync, readSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import { CliError } from "./util.js";
 
 const MAX_SNAPSHOT_ATTEMPTS = 5;
@@ -70,6 +71,8 @@ export interface SnapshotOpts {
   fingerprint: (db: DatabaseSync) => Record<string, unknown>;
   /** Tables the evaluation reads; a source missing any of them is not that database. */
   requiredTables: string[];
+  /** Runs the queries the adapters rely on against the finished snapshot; throws when the schema is not the expected one. */
+  probe: (snapshotPath: string) => void;
   deps?: Partial<SnapshotDeps>;
 }
 
@@ -155,7 +158,13 @@ export function snapshotDb(opts: SnapshotOpts): SnapshotResult {
       }
       const missing = missingTables(rawDb, opts.requiredTables);
       if (missing.length) throw new CliError(`snapshot source ${opts.source} is not the expected database: missing table(s) ${missing.join(", ")}`);
-      return { status: "ok", source: opts.source, path: out, attempts: attempt, fingerprint: vacuumInto(rawDb, out, opts.fingerprint) };
+      const fingerprint = vacuumInto(rawDb, out, opts.fingerprint);
+      try {
+        opts.probe(out);
+      } catch (e) {
+        throw new CliError(`snapshot source ${opts.source} does not have the expected schema: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      return { status: "ok", source: opts.source, path: out, attempts: attempt, fingerprint };
     }
   } finally {
     rmSync(rawDir, { recursive: true, force: true }); // the transient copy never outlives the call
@@ -194,3 +203,26 @@ export function kbFingerprint(db: DatabaseSync): Record<string, unknown> {
 
 export const HERMES_TABLES = ["sessions", "messages", "message_fts", "memories", "memory_fts"];
 export const KB_TABLES = ["chunks", "files"];
+
+/** The exact query shapes the hermes adapters issue (FTS match + joined columns), on an empty result. */
+export function probeHermes(path: string): void {
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    db.prepare("SELECT m.id, m.session_id, s.project, m.role, m.content, m.timestamp FROM messages m JOIN sessions s ON s.id = m.session_id WHERE m.rowid IN (SELECT rowid FROM message_fts WHERE message_fts MATCH ?) LIMIT 1").all("zzzprobe");
+    db.prepare("SELECT m.id, m.project, m.target, m.content, m.created, bm25(memory_fts) AS r FROM memories m JOIN memory_fts ON memory_fts.rowid = m.id WHERE memory_fts MATCH ? ORDER BY r, m.last_referenced LIMIT 1").all("zzzprobe");
+  } finally {
+    db.close();
+  }
+}
+
+/** kb snapshot must carry the current chunk schema and answer a search. */
+export function probeKb(path: string): void {
+  const store = SqliteFtsStore.openExisting(path);
+  if (!store) throw new Error("empty kb index");
+  try {
+    if (!store.hasCurrentSchema().current) throw new Error("kb index is not at the current chunk schema");
+    store.search("zzzprobe", { limit: 1 });
+  } finally {
+    store.close();
+  }
+}

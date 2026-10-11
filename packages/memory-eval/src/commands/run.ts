@@ -6,7 +6,7 @@ import type { Ctx } from "../ctx.js";
 import { type CaseResult, type Retriever, runOne } from "../retriever.js";
 import { BUILTIN_IDS, hermesRetrievers, kbRetriever } from "../retrievers/builtin.js";
 import { loadRetrieverModule } from "../retrievers/external.js";
-import { HERMES_TABLES, hermesFingerprint, KB_TABLES, kbFingerprint, snapshotDb } from "../snapshot.js";
+import { HERMES_TABLES, hermesFingerprint, KB_TABLES, kbFingerprint, probeHermes, probeKb, snapshotDb } from "../snapshot.js";
 import { CliError, stableJson } from "../util.js";
 import { ensureWorkDir, resolvePaths, writeSecure } from "../workdir.js";
 import { casePath, readCaseSet } from "./cases.js";
@@ -138,7 +138,7 @@ function openSources(ctx: Ctx, args: RunArgs, selected: string[], snapDir: strin
   const hermesIds = selected.filter((id) => id.startsWith("hermes."));
   if (hermesIds.length) {
     const src = join(ctx.home, ".pi", "agent", "pi-hermes-memory", "sessions.db");
-    const snap = snapshotDb({ source: src, destDir: snapDir, name: "hermes.db", fingerprint: hermesFingerprint, requiredTables: HERMES_TABLES, deps: ctx.snapshotDeps });
+    const snap = snapshotDb({ source: src, destDir: snapDir, name: "hermes.db", fingerprint: hermesFingerprint, requiredTables: HERMES_TABLES, probe: probeHermes, deps: ctx.snapshotDeps });
     if (snap.status === "ok") {
       out.snapshots.hermes = { status: "ok", attempts: snap.attempts, fingerprint: snap.fingerprint };
       out.retrievers.push(...hermesRetrievers(snap.path).filter((r) => selected.includes(r.id)));
@@ -146,7 +146,7 @@ function openSources(ctx: Ctx, args: RunArgs, selected: string[], snapDir: strin
   }
   if (selected.includes("kb.docs")) {
     const kb = resolveKb(ctx, args);
-    const snap = snapshotDb({ source: kb.indexPath, destDir: snapDir, name: "kb.db", fingerprint: kbFingerprint, requiredTables: KB_TABLES, deps: ctx.snapshotDeps });
+    const snap = snapshotDb({ source: kb.indexPath, destDir: snapDir, name: "kb.db", fingerprint: kbFingerprint, requiredTables: KB_TABLES, probe: probeKb, deps: ctx.snapshotDeps });
     if (snap.status === "ok") {
       out.snapshots.kb = { status: "ok", attempts: snap.attempts, fingerprint: snap.fingerprint };
       out.kbChunks = snap.fingerprint.chunks ?? ABSENT;
