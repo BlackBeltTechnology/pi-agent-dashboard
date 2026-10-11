@@ -649,7 +649,7 @@ Verdict:
 
 Source: `packages/memory-eval`. CLI: `memory-eval cases build | run | judge | report | status`.
 Data: `~/.pi/dashboard/memory-eval/<project-key>/` (0700). Never committed.
-Full report: `openspec/changes/add-memory-eval-tier-r/measurements.md`.
+Full report: `openspec/changes/archive/2026-10-11-add-memory-eval-tier-r/measurements.md`.
 
 Case set:
 

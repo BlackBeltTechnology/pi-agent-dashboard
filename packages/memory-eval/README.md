@@ -20,4 +20,4 @@ memory-eval status
 - The judge runs `pi -p --no-session --no-extensions --no-skills --no-context-files --no-tools --model <ref>`; `@role` resolves from `~/.pi/agent/providers.json`. `review` is not a default role: configure it or pass `--judge provider/id`.
 - Tests: `npm test -w packages/memory-eval` (synthetic fixtures only). Golden for the hermes replica: `scripts/regen-hermes-golden.ts`.
 
-Design: `openspec/changes/add-memory-eval-tier-r/` (archived on ship). Baseline numbers: `measurements.md` there, and `docs/research/unified-context-manager-exploration.md` §19.
+Design: `openspec/changes/archive/2026-10-11-add-memory-eval-tier-r/`. Baseline numbers: `measurements.md` there, and `docs/research/unified-context-manager-exploration.md` §19.
