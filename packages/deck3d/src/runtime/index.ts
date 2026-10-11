@@ -579,7 +579,7 @@ async function boot(): Promise<void> {
     const mode = (deck.defaults.mode ?? "dark") as "dark" | "light";
     const authored = new Map((deck.effects ?? []).map((e) => [e.id, e]));
     const deckSlide = { id: "deck", title: "", kind: "deck", effects: [] } as unknown as DeckSlide;
-    const view: FxView = { camera: rig.camera, pose: { cam: [0, 0, 0], target: [0, 0, -1], fov: restFov }, viewport };
+    const view: FxView = { camera: rig.camera, pose: { cam: [0, 0, 0], target: [0, 0, -1], fov: restFov }, viewport, deckSlideIds: deck.slides.map((s) => s.id) };
     for (const id of persistentIds) {
       const entry = REGISTRY[id];
       if (!entry) continue;
@@ -1332,7 +1332,13 @@ async function boot(): Promise<void> {
           const o = fx.handle.object as THREE.Object3D | undefined;
           const masks: number[] = [];
           o?.traverse((n) => masks.push(n.layers.mask));
-          return { id: fx.id, parent: o?.parent === rig.scene ? "scene" : o?.parent ? "other" : "none", masks, mirrorMask: rig.mirrorMask() };
+          return {
+            id: fx.id,
+            parent: o?.parent === rig.scene ? "scene" : o?.parent ? "other" : "none",
+            masks,
+            mirrorMask: rig.mirrorMask(),
+            state: (fx.handle as { debug?: () => unknown }).debug?.() ?? null,
+          };
         }),
       /** Layer effects on the current slide, with their optional debug state. */
       layers: () =>

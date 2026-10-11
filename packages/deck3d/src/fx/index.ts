@@ -169,6 +169,14 @@ import { create as tokens } from "./tokens.js";
 import tokensCard from "./tokens.meta.json";
 import { create as trail } from "./trail.js";
 import trailCard from "./trail.meta.json";
+import { create as art3d } from "./art3d.js";
+import art3dCard from "./art3d.meta.json";
+import { create as frame_chrome } from "./frame-chrome.js";
+import frame_chromeCard from "./frame-chrome.meta.json";
+import { create as haze } from "./haze.js";
+import hazeCard from "./haze.meta.json";
+import { create as icon3d } from "./icon3d.js";
+import icon3dCard from "./icon3d.meta.json";
 import { create as slide_layer } from "./slide-layer.js";
 import slide_layerCard from "./slide-layer.meta.json";
 import type { FxCard, FxEntry } from "./types.js";
@@ -267,6 +275,10 @@ export const REGISTRY: Record<string, FxEntry> = {
   "proof-gate": { card: proof_gateCard as FxCard, create: proof_gate },
   "trust-ledger": { card: trust_ledgerCard as FxCard, create: trust_ledger },
   "slide-layer": { card: slide_layerCard as FxCard, create: slide_layer },
+  "art3d": { card: art3dCard as FxCard, create: art3d },
+  "icon3d": { card: icon3dCard as FxCard, create: icon3d },
+  "frame-chrome": { card: frame_chromeCard as FxCard, create: frame_chrome },
+  "haze": { card: hazeCard as FxCard, create: haze },
 };
 
 export const FX_IDS: string[] = Object.keys(REGISTRY);

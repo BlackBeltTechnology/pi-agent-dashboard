@@ -41,7 +41,7 @@ export interface Deck3dApi {
     /** Pin the transition `from → to` (1-based) at progress `p` and draw that frame. */
     transitionAt: (from1: number, to1: number, p: number) => void;
     /** Persistent effects: parent ("scene" = outside every slide group) and layer masks. */
-    persistent: () => Array<{ id: string; parent: "scene" | "other" | "none"; masks: number[]; mirrorMask: number }>;
+    persistent: () => Array<{ id: string; parent: "scene" | "other" | "none"; masks: number[]; mirrorMask: number; state: unknown }>;
     /** Layer effects of the current slide with their optional debug state. */
     layers: () => Array<{ id: string; dead: boolean; state: unknown }>;
     titleGlyphs: () => number;

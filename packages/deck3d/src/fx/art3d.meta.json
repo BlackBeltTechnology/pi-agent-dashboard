@@ -1,0 +1,30 @@
+{
+  "id": "art3d",
+  "kind": "layer",
+  "tags": { "mood": ["bold", "branded"], "content": ["logo", "wordmark", "traced-art"] },
+  "cost": 1,
+  "modes": "both",
+  "params": {
+    "outline": { "type": "string" },
+    "item": { "type": "string" },
+    "layout": { "type": "string", "default": "pptx-layout" },
+    "slide": { "type": "string" },
+    "depth": { "type": "number", "default": 0.25, "minimum": 0.01, "maximum": 2 },
+    "bevel": { "type": "number", "default": 0.03, "minimum": 0, "maximum": 0.5 },
+    "scale": { "type": "number", "default": 4, "minimum": 0.1, "maximum": 20 },
+    "x": { "type": "number", "default": 0, "minimum": -12, "maximum": 12 },
+    "y": { "type": "number", "default": 0, "minimum": -8, "maximum": 8 },
+    "z": { "type": "number", "default": 0.4, "minimum": -4, "maximum": 6 },
+    "depthOffset": { "type": "number", "default": 0.4, "minimum": -2, "maximum": 3 },
+    "sway": { "type": "number", "default": 0, "minimum": 0, "maximum": 1 },
+    "speed": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 4 },
+    "sweep": { "type": "boolean", "default": false },
+    "metalness": { "type": "number", "default": 0.25, "minimum": 0, "maximum": 1 },
+    "roughness": { "type": "number", "default": 0.4, "minimum": 0, "maximum": 1 },
+    "gradient": { "type": "array", "default": [] },
+    "colors": { "type": "object", "default": {} }
+  },
+  "conflicts": [],
+  "source": "https://github.com/BlackBeltTechnology/pi-agent-dashboard/tree/develop/packages/deck3d/src/fx/art3d.ts",
+  "licence": "MIT"
+}

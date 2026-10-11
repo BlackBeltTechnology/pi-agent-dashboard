@@ -1,0 +1,195 @@
+{
+  "version": 1,
+  "size": {
+    "w": 1920,
+    "h": 1080
+  },
+  "theme": {
+    "colors": {
+      "dk1": "#161e23",
+      "lt1": "#ffffff",
+      "accent1": "#f67519",
+      "accent2": "#4472c4"
+    },
+    "fonts": {
+      "major": "Poppins",
+      "minor": "Poppins"
+    }
+  },
+  "slides": [
+    {
+      "id": "s01",
+      "index": 1,
+      "title": "Stub slide",
+      "fingerprint": "stub",
+      "background": {
+        "color": "#ffffff"
+      },
+      "items": [
+        {
+          "id": "s01-i001",
+          "kind": "text",
+          "rect": {
+            "x": 120,
+            "y": 80,
+            "w": 1100,
+            "h": 160
+          },
+          "rotation": 0,
+          "flipH": false,
+          "flipV": false,
+          "placeholder": "title",
+          "anchor": "t",
+          "insets": {
+            "l": 14.4,
+            "t": 7.2,
+            "r": 14.4,
+            "b": 7.2
+          },
+          "vertical": false,
+          "autofit": "none",
+          "paragraphs": [
+            {
+              "align": "l",
+              "lineSpacing": 1,
+              "spaceBefore": 0,
+              "spaceAfter": 12,
+              "level": 0,
+              "runs": [
+                {
+                  "text": "Stub slide",
+                  "size": 88,
+                  "bold": true,
+                  "italic": false,
+                  "underline": false,
+                  "color": "#161e23",
+                  "font": "Poppins"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "s01-i002",
+          "kind": "text",
+          "rect": {
+            "x": 120,
+            "y": 300,
+            "w": 900,
+            "h": 360
+          },
+          "rotation": 0,
+          "flipH": false,
+          "flipV": false,
+          "anchor": "t",
+          "insets": {
+            "l": 14.4,
+            "t": 7.2,
+            "r": 14.4,
+            "b": 7.2
+          },
+          "vertical": false,
+          "autofit": "none",
+          "paragraphs": [
+            {
+              "align": "l",
+              "lineSpacing": 1,
+              "spaceBefore": 0,
+              "spaceAfter": 12,
+              "level": 0,
+              "bullet": "•",
+              "runs": [
+                {
+                  "text": "First point",
+                  "size": 48,
+                  "bold": true,
+                  "italic": false,
+                  "underline": false,
+                  "color": "#161e23",
+                  "font": "Poppins"
+                }
+              ]
+            },
+            {
+              "align": "l",
+              "lineSpacing": 1,
+              "spaceBefore": 0,
+              "spaceAfter": 12,
+              "level": 0,
+              "bullet": "•",
+              "runs": [
+                {
+                  "text": "Second point",
+                  "size": 48,
+                  "bold": true,
+                  "italic": false,
+                  "underline": false,
+                  "color": "#161e23",
+                  "font": "Poppins"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "s01-i003",
+          "kind": "rect",
+          "rect": {
+            "x": 120,
+            "y": 760,
+            "w": 600,
+            "h": 70
+          },
+          "rotation": 0,
+          "flipH": false,
+          "flipV": false,
+          "preset": "roundRect",
+          "fill": "#f67519",
+          "alpha": 1
+        },
+        {
+          "id": "s01-i004",
+          "kind": "img",
+          "rect": {
+            "x": 1300,
+            "y": 300,
+            "w": 400,
+            "h": 400
+          },
+          "rotation": 0,
+          "flipH": false,
+          "flipV": false,
+          "media": "stub-chrome.png",
+          "asset": "stub-chrome",
+          "crop": {
+            "l": 0,
+            "t": 0,
+            "r": 0,
+            "b": 0
+          }
+        },
+        {
+          "id": "s01-i005",
+          "kind": "img",
+          "rect": {
+            "x": 1480,
+            "y": 100,
+            "w": 140,
+            "h": 140
+          },
+          "rotation": 0,
+          "flipH": false,
+          "flipV": false,
+          "media": "stub-chrome.png",
+          "asset": "stub-chrome",
+          "crop": {
+            "l": 0,
+            "t": 0,
+            "r": 0,
+            "b": 0
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -87,6 +87,8 @@ export interface FxView {
   pose: { cam: [number, number, number]; target: [number, number, number]; fov: number };
   /** Current viewport in CSS px. */
   viewport(): { width: number; height: number };
+  /** Persistent (deck-scope) effects only: every slide id, in deck order. */
+  deckSlideIds?: string[];
 }
 
 /** Screen-space text record an effect registers with `measure()` (kind `layer-text`). */

@@ -8,6 +8,7 @@ import { qualityProfile } from "../../runtime/quality.js";
 import { makeRng } from "../../runtime/rng.js";
 import { catalogueHash, renderCatalogue } from "../catalogue.js";
 import { FX_IDS, REGISTRY } from "../index.js";
+import { STUB_PARAMS } from "../stub-assets.js";
 import { FX_TOPICS, PERMISSIVE_LICENCES } from "../types.js";
 
 const REQUIRED = [
@@ -73,7 +74,9 @@ describe("effect corpus (E27/E28)", () => {
       // The extended ctx (deck3d-pptx-import): an empty asset accessor.
       assets: { get: (id: string): unknown => { throw new Error(`unknown asset '${id}'`); }, has: () => false },
     };
-    for (const { card, create } of Object.values(REGISTRY)) {
+    // The imported-pptx built-ins need decoded assets and a canvas (browser);
+    // they are constructed in the chromium suites with the stub bundle.
+    for (const { card, create } of Object.values(REGISTRY).filter((e) => !(e.card.id in STUB_PARAMS))) {
       expect(() => {
         const handle = create(ctx, {});
         handle.tick?.(0);

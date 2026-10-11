@@ -1,0 +1,21 @@
+{
+  "id": "icon3d",
+  "kind": "layer",
+  "tags": { "mood": ["playful", "tactile"], "content": ["icon", "pictogram", "traced-art"] },
+  "cost": 1,
+  "modes": "both",
+  "params": {
+    "asset": { "type": "string" },
+    "item": { "type": "string" },
+    "layout": { "type": "string", "default": "pptx-layout" },
+    "slide": { "type": "string" },
+    "card": { "type": "boolean", "default": false },
+    "color": { "type": "string" },
+    "rim": { "type": "string" },
+    "depth": { "type": "number", "default": 0.6, "minimum": -1, "maximum": 3 },
+    "sway": { "type": "number", "default": 0.12, "minimum": 0, "maximum": 1 }
+  },
+  "conflicts": [],
+  "source": "https://github.com/BlackBeltTechnology/pi-agent-dashboard/tree/develop/packages/deck3d/src/fx/icon3d.ts",
+  "licence": "MIT"
+}

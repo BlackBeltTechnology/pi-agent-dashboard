@@ -32,17 +32,21 @@ export class AssetBudgetError extends Error {
   }
 }
 
-/** Read and encode the deck's assets (paths already validated by `validate`). */
-export function loadAssets(ir: DeckIR, jsonPath: string): AssetBundle {
-  const deckDir = dirname(jsonPath);
-  const entries = [...(ir.overrides.assets ?? [])].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const total = entries.reduce((sum, a) => sum + statSync(resolve(deckDir, a.path)).size, 0);
+/** Embed `entries` (paths relative to `baseDir`), sorted by id, under the size budget. */
+export function embedFiles(entries: Array<{ id: string; path: string; mime: string }>, baseDir: string): AssetBundle {
+  const sorted = [...entries].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const total = sorted.reduce((sum, a) => sum + statSync(resolve(baseDir, a.path)).size, 0);
   if (total > ASSET_MAX_BYTES) throw new AssetBudgetError(total);
   const warnings = total > ASSET_WARN_BYTES ? [`warning overrides.assets total ${total} bytes exceeds ${ASSET_WARN_BYTES / 1024 / 1024} MiB (deck.html grows by ~4/3 of that)`] : [];
-  const assets = entries.map((a) => ({
+  const assets = sorted.map((a) => ({
     id: a.id,
     mime: a.mime,
-    data: `data:${a.mime};base64,${readFileSync(resolve(deckDir, a.path)).toString("base64")}`,
+    data: `data:${a.mime};base64,${readFileSync(resolve(baseDir, a.path)).toString("base64")}`,
   }));
   return { assets, total, warnings };
+}
+
+/** Read and encode the deck's assets (paths already validated by `validate`). */
+export function loadAssets(ir: DeckIR, jsonPath: string): AssetBundle {
+  return embedFiles(ir.overrides.assets ?? [], dirname(jsonPath));
 }

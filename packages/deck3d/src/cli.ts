@@ -384,7 +384,12 @@ async function cmdFx(args: string[], io: CliIO): Promise<number> {
 /** One-slide deck whose only effect is `id` (design D9 / 7d.3 preview). */
 async function previewDeck(id: string, palette?: Palette, sha?: string): Promise<DeckIR> {
   const { resolveDefaults } = await import("./ir/defaults.js");
-  const ref = sha ? { id, sha256: sha } : { id };
+  const { STUB_PARAMS } = await import("./fx/stub-assets.js");
+  const { isPersistentFx } = await import("./fx/persistent.js");
+  // Built-ins that read deck assets preview against the packaged stub bundle.
+  const stub = STUB_PARAMS[id];
+  const ref = sha ? { id, sha256: sha } : stub ? { id, params: stub as Record<string, never> } : { id };
+  const persistent = !!stub && isPersistentFx(id);
   return {
     meta: { engine: VERSION, mermaid: "11.17.2" },
     defaults: resolveDefaults(palette ? { palette } : {}),
@@ -398,12 +403,12 @@ async function previewDeck(id: string, palette?: Palette, sha?: string): Promise
         bullets: [],
         scene: "tokens",
         diagram: { kind: "none" },
-        effects: [ref],
+        effects: persistent ? [] : [ref],
       },
     ],
     // The preview deck is rendered from a temp dir, so the local reference has
     // to live in `overrides` for `loadLocalEffects` to find and embed it.
-    overrides: sha ? { slides: { "fx-preview": { effects: [ref] } } } : {},
+    overrides: sha ? { slides: { "fx-preview": { effects: [ref] } } } : persistent ? { effects: [ref] } : {},
   };
 }
 
@@ -503,7 +508,11 @@ async function fxPreview(flags: Flags, io: CliIO): Promise<number> {
     const deck = await previewDeck(id, palette, local ? sha256(readFileSync(modulePath)) : undefined);
     // Resolve against the deck dir (cwd), then render from a temp dir.
     const localFx = local ? loadLocalEffects(deck, join(process.cwd(), "deck.json")) : {};
-    const html = renderDeck(deck, { runtime: await ensureRuntime(), font: fontBase64(), title: `fx ${id}`, localFx });
+    const { embedFiles } = await import("./render/assets.js");
+    const { STUB_ASSET_META } = await import("./fx/stub-assets.js");
+    const previewDir = join(pkgRoot(), "assets", "preview");
+    const assets = embedFiles(STUB_ASSET_META.map((a) => ({ id: a.id, path: a.file, mime: a.mime })), previewDir).assets;
+    const html = renderDeck(deck, { runtime: await ensureRuntime(), font: fontBase64(), title: `fx ${id}`, localFx, assets });
     const htmlPath = join(mkdtempSync(join(tmpdir(), "deck3d-fx-")), "fx.html");
     writeFileSync(htmlPath, html);
     const { chromium } = await import("playwright");
