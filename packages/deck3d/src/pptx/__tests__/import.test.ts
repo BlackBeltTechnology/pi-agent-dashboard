@@ -328,6 +328,74 @@ describe("pptx import: identical parts keep their own asset ids (R2-B4)", () => 
   });
 });
 
+describe("pptx import: vertical text keeps its orientation (R4-B2)", () => {
+  it("records 90° for vert/eaVert and 270° for vert270, none for horizontal text", async () => {
+    const dir = tmp();
+    const box = (text: string, vert: string, y: number) => textBox(text, { y, bodyPr: vert ? `<a:bodyPr vert="${vert}"/>` : "<a:bodyPr/>" });
+    const input = writeDeck(dir, { slides: [{ shapes: titleShape("Dirs") + box("A", "vert", 1000000) + box("B", "vert270", 2000000) + box("C", "eaVert", 3000000) + box("D", "", 4000000) }] });
+    await importPptx({ input, out: join(dir, "t"), env: NO_PATH });
+    const items = layoutOf(join(dir, "t")).slides[0].items.filter((i): i is TextItem => i.kind === "text");
+    const by = (t: string) => items.find((i) => i.paragraphs[0].runs[0].text === t);
+    expect([by("A")?.vertical, by("A")?.textRotation]).toEqual([true, 90]);
+    expect([by("B")?.vertical, by("B")?.textRotation]).toEqual([true, 270]);
+    expect([by("C")?.vertical, by("C")?.textRotation]).toEqual([true, 90]);
+    expect([by("D")?.vertical, by("D")?.textRotation]).toEqual([false, undefined]);
+  });
+});
+
+describe("pptx import: sandbox cleanup never decides the outcome (R4-B1)", () => {
+  /** A sandbox stand-in: decodes to a 4×4 image, and its `close()` can be made to fail. */
+  function fakeSandbox(opts: { closeFails?: boolean }) {
+    const state = { closed: 0 };
+    const sandbox = {
+      blocked: [] as string[],
+      decode: async () => ({ width: 4, height: 4, data: new Uint8Array(64).fill(200) }),
+      close: async () => {
+        state.closed++;
+        if (opts.closeFails) throw new Error("browser did not close");
+      },
+    };
+    return { state, factory: async () => sandbox };
+  }
+  const refDir = (dir: string) => {
+    mkdirSync(join(dir, "ref"));
+    writeFileSync(join(dir, "ref", "Slide1.jpg"), new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])); // needs the sandbox to convert
+    return join(dir, "ref");
+  };
+
+  it("a close() failure after a successful build is a warning, not a failed import with the deck already committed", async () => {
+    const dir = tmp();
+    const input = writeDeck(dir, basicDeck(2));
+    const { state, factory } = fakeSandbox({ closeFails: true });
+    const r = await importPptx({ input, out: join(dir, "talk"), ref: refDir(dir), env: NO_PATH, sandbox: factory });
+    expect(state.closed).toBe(1);
+    expect(r.warnings.some((w) => /sandbox close failed: browser did not close/.test(w))).toBe(true);
+    expect(existsSync(join(dir, "talk", "deck.json"))).toBe(true);
+    expect(existsSync(join(dir, "talk", "pptx", "ref", "s01.png"))).toBe(true);
+  });
+
+  it("still closes the sandbox when the import fails earlier, and reports the ORIGINAL error", async () => {
+    const dir = tmp();
+    const input = writeDeck(dir, basicDeck(2));
+    const { state, factory } = fakeSandbox({ closeFails: true });
+    await expect(
+      importPptx({
+        input,
+        out: join(dir, "talk"),
+        ref: refDir(dir),
+        env: NO_PATH,
+        sandbox: factory,
+        write: (path, data) => {
+          if (path.endsWith("deck.md")) throw new Error("disk full (injected)");
+          writeFileSync(path, data);
+        },
+      }),
+    ).rejects.toThrow(/disk full/);
+    expect(state.closed).toBe(1);
+    expect(existsSync(join(dir, "talk"))).toBe(false);
+  });
+});
+
 describe("pptx import: untrusted reference renders (R3-B4)", () => {
   it("rejects a valid, highly compressed huge --ref PNG through the import entry point", async () => {
     const { hugePng } = await import("../../__tests__/helpers/huge-png.js");

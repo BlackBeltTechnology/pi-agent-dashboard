@@ -7,6 +7,7 @@
  * `<img>`, where scripts never run and external references never load.
  */
 import type { Browser, BrowserContext } from "playwright";
+import { closeQuietly } from "../util/cleanup.js";
 import { PNG_MAX_PIXELS, type RgbaImage } from "./png.js";
 
 export const DECODE_MAX_BYTES = 20 * 1024 * 1024;
@@ -147,7 +148,7 @@ export async function openSandbox(): Promise<Sandbox> {
         );
         return { width: w, height: h, data: new Uint8Array(Buffer.from(b64, "base64")) };
       } finally {
-        await page.close();
+        await closeQuietly(page);
       }
     },
     async close() {

@@ -12,6 +12,7 @@ import { pathToFileURL } from "node:url";
 import type { DeckIR, Palette } from "./ir/types.js";
 import { formatIssue, validate } from "./ir/validate.js";
 import { type DeriveOptions, parseDeck } from "./parse/derive.js";
+import { closeQuietly } from "./util/cleanup.js";
 import { pkgRoot } from "./util/paths.js";
 
 export const VERSION = "0.1.0";
@@ -975,7 +976,7 @@ async function cmdArt(args: string[], io: CliIO): Promise<number> {
     try {
       img = await sandbox.decode(bytes, sniffMime(bytes), flags.value.size ? { size: Number(flags.value.size) } : {});
     } finally {
-      await sandbox.close();
+      await closeQuietly(sandbox);
     }
     if (sub === "trace") {
       const { traceImage } = await import("./art/trace.js");

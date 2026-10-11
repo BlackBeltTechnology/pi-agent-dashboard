@@ -63,6 +63,8 @@ export interface TextItem extends ItemBase {
   anchor: "t" | "ctr" | "b";
   insets: Insets;
   vertical: boolean;
+  /** Direction vertical text reads in: 90 = top to bottom (`vert`), 270 = bottom to top (`vert270`). */
+  textRotation?: 90 | 270;
   autofit: "none" | "norm" | "shape";
   paragraphs: LayoutParagraph[];
 }

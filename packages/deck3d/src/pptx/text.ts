@@ -34,6 +34,8 @@ export interface TextBody {
   anchor: "t" | "ctr" | "b";
   insets: Insets;
   vertical: boolean;
+  /** Present for vertical text: 90 (`vert`, `eaVert`, …) or 270 (`vert270`). */
+  textRotation?: 90 | 270;
   autofit: "none" | "norm" | "shape";
   /** `a:prstTxWarp` other than `textNoShape` — WordArt, rendered as a fallback. */
   wordArt: boolean;
@@ -193,6 +195,7 @@ export function readTextBody(txBody: XNode, env: TextEnv): TextBody {
     anchor,
     insets: { l: ins("lIns", 91440), t: ins("tIns", 45720), r: ins("rIns", 91440), b: ins("bIns", 45720) },
     vertical: vert !== undefined && vert !== "horz",
+    ...(vert !== undefined && vert !== "horz" ? { textRotation: (vert === "vert270" ? 270 : 90) as 90 | 270 } : {}),
     autofit: fit.mode,
     wordArt: !!warp && warp.attrs.prst !== undefined && warp.attrs.prst !== "textNoShape",
   };

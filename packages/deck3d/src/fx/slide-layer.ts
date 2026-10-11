@@ -343,18 +343,25 @@ export const create: FxFactory = (ctx: FxContext, params: FxParams): FxHandle =>
     const r = item.rect;
     const extra = Number(widen[item.id] ?? 0);
     const ins = item.insets;
-    const boxW = Math.max(1, (r.w + extra - ins.l - ins.r) * k);
-    const boxH = (r.h - ins.t - ins.b) * k;
+    // PowerPoint never mirrors text: `flipH` leaves it alone and `flipV` turns it upside
+    // down (180°). Vertical text reads along the box's HEIGHT, top-down (`vert`) or
+    // bottom-up (`vert270`), so its layout frame has the box's width and height swapped.
+    const vertical = item.vertical ? (item.textRotation ?? 90) : 0;
+    const turn = vertical + (item.flipV ? 180 : 0);
+    const frameW = vertical ? r.h : r.w;
+    const frameH = vertical ? r.w : r.h;
+    const boxW = Math.max(1, (frameW + extra - ins.l - ins.r) * k);
+    const boxH = (frameH - ins.t - ins.b) * k;
     const lines = layoutText(g, item, k, boxW);
     const total = lines.reduce((a, l) => a + l.height, 0);
     const top = item.anchor === "b" ? boxH - total : item.anchor === "ctr" ? (boxH - total) / 2 : 0;
     g.save();
-    g.translate((r.x + ins.l) * k, (r.y + ins.t) * k);
-    if (item.rotation) {
-      g.translate(boxW / 2, boxH / 2);
-      g.rotate((item.rotation * Math.PI) / 180);
-      g.translate(-boxW / 2, -boxH / 2);
-    }
+    // Rotate about the SHAPE's centre by the shape rotation plus the text turn, then
+    // step to the top-left of the text area in the (possibly swapped) frame.
+    g.translate((r.x + r.w / 2) * k, (r.y + r.h / 2) * k);
+    const angle = item.rotation + turn;
+    if (angle) g.rotate((angle * Math.PI) / 180);
+    g.translate((-frameW / 2 + ins.l) * k, (-frameH / 2 + ins.t) * k);
     g.textBaseline = "alphabetic";
     let y = top;
     for (const line of lines) {

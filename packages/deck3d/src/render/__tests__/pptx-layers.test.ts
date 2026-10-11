@@ -343,6 +343,100 @@ describe.skipIf(!hasChromium)("slide-layer (chromium)", () => {
     }
   }, 120_000);
 
+  /** Dark-pixel statistics of the canvas inside a CSS-px rect (text on a white slide, bloom off). */
+  async function ink(page: Awaited<ReturnType<typeof openDeck>>, r: { x: number; y: number; w: number; h: number }) {
+    return page.evaluate((rect) => {
+      const c = document.querySelector("canvas") as HTMLCanvasElement;
+      const k = document.createElement("canvas");
+      k.width = c.width;
+      k.height = c.height;
+      const g = k.getContext("2d") as CanvasRenderingContext2D;
+      g.drawImage(c, 0, 0);
+      const d = g.getImageData(rect.x, rect.y, rect.w, rect.h).data;
+      let n = 0;
+      let sy = 0;
+      let minX = rect.w;
+      let maxX = 0;
+      let minY = rect.h;
+      let maxY = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i] > 100 || d[i + 1] > 100 || d[i + 2] > 100) continue;
+        const px = (i / 4) % rect.w;
+        const py = Math.floor(i / 4 / rect.w);
+        n++;
+        sy += py;
+        minX = Math.min(minX, px);
+        maxX = Math.max(maxX, px);
+        minY = Math.min(minY, py);
+        maxY = Math.max(maxY, py);
+      }
+      return { n, cy: n ? sy / n : -1, w: maxX - minX, h: maxY - minY };
+    }, r);
+  }
+
+  it("turns text upside down for flipV and never mirrors it for flipH, like PowerPoint (R4-B2)", async () => {
+    const mk = (id: string, flip: { flipV?: boolean; flipH?: boolean }) => ({ ...textItem(`${id}-i001`, { x: 200, y: 100, w: 600, h: 700 }, "T", { size: 560 }), ...flip });
+    const deck = await buildLayerDeck({
+      slides: [
+        { id: "s01", items: [mk("s01", {})], background: { color: "#ffffff" } },
+        { id: "s02", items: [mk("s02", { flipV: true })], background: { color: "#ffffff" } },
+        { id: "s03", items: [mk("s03", { flipH: true })], background: { color: "#ffffff" } },
+      ],
+      deck: { quality: "low", mode: "light" },
+      slideOverrides: Object.fromEntries(["s01", "s02", "s03"].map((id) => [id, { effects: [{ id: "slide-layer", params: { layout: "lay", slide: id, mode: "free" } }] }])),
+    });
+    const page = await openDeck(browser, deck.html);
+    try {
+      const box = { x: 200, y: 100, w: 600, h: 700 };
+      await settle(page, 1);
+      const plain = await ink(page, box);
+      await settle(page, 2);
+      const flippedV = await ink(page, box);
+      await settle(page, 3);
+      const flippedH = await ink(page, box);
+      expect(plain.n).toBeGreaterThan(5000);
+      // The bar of a `T` is at the top: its ink sits ABOVE the box centre; upside down it sits below.
+      expect(plain.cy).toBeLessThan(box.h / 2);
+      expect(flippedV.cy, "flipV must turn the text upside down").toBeGreaterThan(box.h / 2);
+      // A mirrored `T` is symmetric, so horizontal flips are checked by "not rotated": same ink rows as plain.
+      expect(Math.abs(flippedH.cy - plain.cy), "flipH must not turn the text over").toBeLessThan(8);
+    } finally {
+      await page.close();
+    }
+  }, 180_000);
+
+  it("lays vertical text out along the box's height, in the recorded direction (R4-B2)", async () => {
+    const mk = (id: string, rot: 90 | 270 | undefined) => ({ ...textItem(`${id}-i001`, { x: 300, y: 100, w: 360, h: 800 }, "VE", { size: 220 }), vertical: rot !== undefined, ...(rot ? { textRotation: rot } : {}) });
+    const deck = await buildLayerDeck({
+      slides: [
+        { id: "s01", items: [mk("s01", 90)], background: { color: "#ffffff" } },
+        { id: "s02", items: [mk("s02", 270)], background: { color: "#ffffff" } },
+        { id: "s03", items: [mk("s03", undefined)], background: { color: "#ffffff" } },
+      ],
+      deck: { quality: "low", mode: "light" },
+      slideOverrides: Object.fromEntries(["s01", "s02", "s03"].map((id) => [id, { effects: [{ id: "slide-layer", params: { layout: "lay", slide: id, mode: "free" } }] }])),
+    });
+    const page = await openDeck(browser, deck.html);
+    try {
+      const box = { x: 300, y: 100, w: 360, h: 800 };
+      await settle(page, 1);
+      const cw = await ink(page, box);
+      await settle(page, 2);
+      const ccw = await ink(page, box);
+      await settle(page, 3);
+      const flat = await ink(page, box);
+      expect(cw.n).toBeGreaterThan(3000);
+      // Text reads along the long axis, from the top (90°) or from the bottom (270°).
+      expect(cw.cy, "vert: the line starts at the top").toBeLessThan(box.h * 0.4);
+      expect(ccw.cy, "vert270: the line starts at the bottom").toBeGreaterThan(box.h * 0.6);
+      // Horizontal text in the same narrow box stays on one row near the top and overflows sideways.
+      expect(flat.w, "horizontal text runs along the WIDTH").toBeGreaterThan(flat.h);
+      expect(cw.h, "vertical text runs along the HEIGHT").toBeGreaterThan(cw.w * 0.8);
+    } finally {
+      await page.close();
+    }
+  }, 180_000);
+
   it("keeps the original z-order: a picture UNDER a title does not cover it (B7)", async () => {
     // Pptx order is back-to-front: the red picture first, the black title on top of it.
     const red = encodePng({ width: 8, height: 8, data: new Uint8Array(Array.from({ length: 64 }, () => [200, 30, 30, 255]).flat()) });

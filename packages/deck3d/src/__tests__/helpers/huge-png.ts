@@ -3,7 +3,7 @@
  * streaming zeros through deflate (a few hundred KB for hundreds of MB of
  * pixels) — the shape of a decompression-bomb reference render. Test helper.
  */
-import { createDeflate, crc32 } from "node:zlib";
+import { crc32, createDeflate } from "node:zlib";
 
 function chunk(type: string, data: Uint8Array): Buffer {
   const out = Buffer.alloc(12 + data.length);

@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { decodePng, type RgbaImage } from "../art/png.js";
+import { closeQuietly } from "../util/cleanup.js";
 import { scoreFrame } from "./ssim.js";
 
 export interface CompareOptions {
@@ -121,10 +122,10 @@ export async function compareDeck(opts: CompareOptions): Promise<CompareReport> 
         }
       }
     } finally {
-      await page.close();
+      await closeQuietly(page);
     }
   } finally {
-    await browser.close();
+    await closeQuietly(browser);
   }
   return { threshold, scores, fallbacks, transitions, unreferenced };
 }

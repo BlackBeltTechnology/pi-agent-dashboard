@@ -16,6 +16,7 @@ import { deepMerge } from "../ir/merge.js";
 import type { DeckIR } from "../ir/types.js";
 import { formatIssue, validate } from "../ir/validate.js";
 import { renderIrToHtml } from "../render/build.js";
+import { closeQuietly } from "../util/cleanup.js";
 import { requireStyle } from "./pick.js";
 
 export const CELL_W = 480;
@@ -133,7 +134,7 @@ export async function renderStep(opts: RenderStepOptions): Promise<RenderStepRes
           shots.set(`${variant.name}|${id}`, png);
         }
       } finally {
-        await page.close();
+        await closeQuietly(page);
       }
     }
 
@@ -166,10 +167,10 @@ export async function renderStep(opts: RenderStepOptions): Promise<RenderStepRes
       files.push(contact);
       return { dir, contact, columns: cols, rows: samples.length, warnings, files };
     } finally {
-      await page.close();
+      await closeQuietly(page);
     }
   } finally {
-    await browser.close();
+    await closeQuietly(browser);
     rmSync(tmp, { recursive: true, force: true });
   }
 }

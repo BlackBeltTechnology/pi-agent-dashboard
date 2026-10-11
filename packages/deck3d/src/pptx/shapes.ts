@@ -129,6 +129,7 @@ function textDrafts(shape: XNode, p: Placed, ph: PhInfo | undefined, ctx: WalkCt
     anchor: body.anchor,
     insets: body.insets,
     vertical: body.vertical,
+    ...(body.textRotation ? { textRotation: body.textRotation } : {}),
     autofit: body.autofit,
     paragraphs: body.paragraphs,
   };

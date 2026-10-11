@@ -168,6 +168,22 @@ async function runImport(opts: ImportOptions, input: string, dir: string): Promi
     }
     return sandbox;
   };
+  /**
+   * Close the browser exactly once. This is cleanup, never part of the outcome:
+   * a failing close is a warning (it must not turn a finished import into a
+   * failed one, nor mask the real error of an earlier failure).
+   */
+  let closed = false;
+  const closeSandbox = async (): Promise<string | undefined> => {
+    if (closed || !sandbox) return undefined;
+    closed = true;
+    try {
+      await sandbox.close();
+    } catch (err) {
+      return `warning sandbox close failed: ${(err as Error).message}`;
+    }
+    return undefined;
+  };
   const stage = new Stage(dir, opts.write ?? defaultWrite, opts.rename);
   try {
     const refs = opts.ref
@@ -225,12 +241,16 @@ async function runImport(opts: ImportOptions, input: string, dir: string): Promi
     if (problems.length) throw new PptxImportError(`generated deck failed validation: ${problems.map((e) => formatIssue("error", e)).join("; ")}`);
     stage.file("deck.json", `${JSON.stringify(ir, null, 2)}\n`);
     if (prevDeckRaw !== undefined) stage.file("deck.json.bak", prevDeckRaw);
+    // Everything that can fail is done; release the browser BEFORE the commit changes the target.
+    const closeWarning = await closeSandbox();
+    if (closeWarning) warnings.push(closeWarning);
     stage.commit(["pptx", "deck.md", "deck.json", "deck.json.bak"]);
   } catch (err) {
     stage.discard();
     throw err;
   } finally {
-    await sandbox?.close();
+    // Earlier failures still release the browser; the outcome is already decided.
+    await closeSandbox();
   }
   return { dir, slides: match.ids, warnings };
 }
