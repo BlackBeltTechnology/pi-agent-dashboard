@@ -1,6 +1,6 @@
 ---
 name: deck3d-from-pptx
-description: 'Turn an existing .pptx into a styled deck3d 3D presentation, tutorial-style: import, reference renders, then nine steps (fidelity, placement, frame, brand-art, icons, hero, worlds, media, transitions) where each step authors 2-4 variants, shows a contact sheet, asks the user, records the pick, then builds and compares. Use on "make a 3D deck from this pptx", "convert my PowerPoint to deck3d", "turn these slides into a 3D presentation", "match the original slides in 3D".'
+description: 'Turn an existing .pptx into a styled deck3d 3D presentation: import, reference renders, then nine steps (fidelity … transitions), each authoring 2-4 variants, showing a contact sheet, asking the user, recording the pick, then build + compare. Use on "make a 3D deck from this pptx", "convert my PowerPoint to deck3d", "match the original slides in 3D".'
 ---
 
 # deck3d-from-pptx
