@@ -208,6 +208,8 @@ export function useStaleToolReconcile(
             next.set(sessionId, reduceEvent(current, synthesizeEvictedEnd(toolCallId, Date.now())));
             return next;
           });
+          // Count only a heal that could apply (row still running when probed).
+          if (statesRef.current.get(sessionId)?.toolCalls.get(toolCallId)?.status !== "running") return;
           evictedHealCountRef.current += 1;
           console.warn(
             `[evicted-heal] finalized stuck tool ${sessionId}:${toolCallId} — server vouched the result was trimmed (total heals: ${evictedHealCountRef.current})`,

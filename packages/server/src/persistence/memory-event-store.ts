@@ -448,9 +448,9 @@ function trimBufferToLimit(
     dropped++;
     bytesDropped += e.bytes;
     if (e.event.eventType === "tool_execution_end") {
-        toolEndDropped++;
-        recordEvictedToolEnd(buf, e.event);
-      }
+      toolEndDropped++;
+      recordEvictedToolEnd(buf, e.event);
+    }
   }
   buf.events = kept;
   buf.bytes -= bytesDropped;
@@ -1342,9 +1342,9 @@ export function createMemoryEventStore(
         dropped++;
         bytesDropped += e.bytes;
         if (e.event.eventType === "tool_execution_end") {
-        toolEndDropped++;
-        recordEvictedToolEnd(buf, e.event);
-      }
+          toolEndDropped++;
+          recordEvictedToolEnd(buf, e.event);
+        }
         continue;
       }
       kept.push(e);
