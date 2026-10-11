@@ -153,6 +153,8 @@ export const ADMISSION_MAX_CONCURRENT = 4;
 export const ADMISSION_PROBE_TIMEOUT_MS = 1000;
 /** Overall decision deadline, counted from entry (includes the semaphore wait). */
 export const ADMISSION_DEADLINE_MS = 3000;
+/** How far the outer whole-decision timer trails the derivation's own deadline (see `admitCwd`). */
+const DEADLINE_GRACE_MS = 50;
 
 /** Module-private liveness registry: only this module can mint or check a token. */
 const tokens = new WeakMap<AdmissionToken, { live: boolean }>();
@@ -324,7 +326,7 @@ function derive(
       }
       slotHeld = true;
       try {
-        settle(await deriveOnce(canon, known, gitOpts));
+        settle(await deriveOnce(canon, known, gitOpts, opts.realpath ?? realpathAsync));
       } catch {
         settle({ kind: "indeterminate", failedProbes: ["derivation"] });
       } finally {
@@ -337,7 +339,12 @@ function derive(
   return promise;
 }
 
-async function deriveOnce(canon: string, known: () => string[], gitOpts: ClassifiedGitOptions): Promise<Derived> {
+async function deriveOnce(
+  canon: string,
+  known: () => string[],
+  gitOpts: ClassifiedGitOptions,
+  realpath: (p: string) => Promise<RealpathOutcome>,
+): Promise<Derived> {
   const rootsResult = await checkoutRootsClassifiedAsync({ cwd: canon }, gitOpts);
   if (rootsResult.kind === "failed") return { kind: "indeterminate", failedProbes: rootsResult.failedProbes };
   if (rootsResult.kind === "none") return { kind: "refuse" };
@@ -346,13 +353,32 @@ async function deriveOnce(canon: string, known: () => string[], gitOpts: Classif
   const bound = await bindCheckoutClassifiedAsync(mainCheckout, commonDir, gitOpts);
   if (bound.kind === "failed") return { kind: "indeterminate", failedProbes: bound.failedProbes };
   if (bound.kind === "unbound") return { kind: "refuse" };
-  const mainCanon = await canonPathAsync(mainCheckout);
-  const knownCanon = await canonKnown(known);
-  return knownCanon.includes(mainCanon) ? { kind: "admit" } : { kind: "refuse" };
+  // The main checkout was just bound, so it exists; a canonicalization failure here is a
+  // failure to DECIDE (indeterminate), not a mismatch.
+  const main = await realpath(resolve(mainCheckout));
+  if (main.kind === "error") return { kind: "indeterminate", failedProbes: ["realpath"] };
+  if (main.kind === "missing") return { kind: "refuse" };
+  const knownCanon = await canonKnown(known, realpath);
+  return knownCanon.includes(main.path) ? { kind: "admit" } : { kind: "refuse" };
 }
 
-async function canonKnown(known: () => string[]): Promise<string[]> {
-  return Promise.all(known().map(canonPathAsync));
+/**
+ * Canonical forms of the known folders. Best-effort PER ENTRY on purpose: a stale or
+ * unreadable pin (`EACCES` on a dead mount) falls back to its lexical form, which can only
+ * narrow the match, whereas failing the whole decision would turn every admission
+ * indeterminate because of one bad pin.
+ */
+async function canonKnown(
+  known: () => string[],
+  realpath: (p: string) => Promise<RealpathOutcome> = realpathAsync,
+): Promise<string[]> {
+  return Promise.all(
+    known().map(async (p) => {
+      const abs = resolve(p);
+      const r = await realpath(abs);
+      return r.kind === "ok" ? r.path : abs;
+    }),
+  );
 }
 
 /**
@@ -367,8 +393,11 @@ async function canonKnown(known: () => string[]): Promise<string[]> {
  */
 export async function admitCwd(cwd: string, known: () => string[], opts: AdmitCwdOptions = {}): Promise<Admission> {
   const enteredAt = Date.now();
+  // Reported cwd: the canonical form once resolved, so symlink aliases of one folder share
+  // a log-throttle key.
+  let loggedCwd = cwd;
   const indeterminate = (failedProbes: string[]): Admission => {
-    const info = { cwd, failedProbes, elapsedMs: Date.now() - enteredAt };
+    const info = { cwd: loggedCwd, failedProbes, elapsedMs: Date.now() - enteredAt };
     try {
       opts.onIndeterminate?.(info);
     } catch {
@@ -377,20 +406,43 @@ export async function admitCwd(cwd: string, known: () => string[], opts: AdmitCw
     return { kind: "indeterminate", failedProbes, elapsedMs: info.elapsedMs };
   };
 
-  const abs = resolve(cwd);
-  const real = await (opts.realpath ?? realpathAsync)(abs);
-  if (real.kind === "error") return indeterminate(["realpath"]);
-  const canon = real.kind === "ok" ? real.path : abs;
-  if (hasGitPathSegment(canon)) return { kind: "refuse" };
+  // The deadline covers the whole decision — the request realpath and the known-folder
+  // canonicalization as well as the derivation. A hung filesystem call cannot hold the
+  // request past it: the decision resolves indeterminate and the late result is ignored.
+  // The derivation owns the same deadline (it must abort git and free its slot), so this
+  // outer one trails it by a small grace: when git is the slow part the derivation's abort
+  // always fires first, and this one only catches the phases before and after it.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<Admission>((resolveExpired) => {
+    timer = setTimeout(
+      () => resolveExpired(indeterminate(["deadline"])),
+      (opts.deadlineMs ?? ADMISSION_DEADLINE_MS) + DEADLINE_GRACE_MS,
+    );
+  });
+  try {
+    return await Promise.race([decide(), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
 
-  const knownCanon = await canonKnown(known);
-  if (knownCanon.includes(canon)) return { kind: "admit", token: mintToken(canon, cwd) };
-  // A deleted worktree (and anything else that does not exist) is refused
-  // without spawning git, which would only surface as a spawn failure.
-  if (real.kind === "missing") return { kind: "refuse" };
+  async function decide(): Promise<Admission> {
+    const realpath = opts.realpath ?? realpathAsync;
+    const abs = resolve(cwd);
+    const real = await realpath(abs);
+    if (real.kind === "error") return indeterminate(["realpath"]);
+    const canon = real.kind === "ok" ? real.path : abs;
+    loggedCwd = canon;
+    if (hasGitPathSegment(canon)) return { kind: "refuse" };
 
-  const derived = await derive(canon, known, opts, enteredAt);
-  if (derived.kind === "indeterminate") return indeterminate(derived.failedProbes);
-  if (derived.kind === "refuse") return { kind: "refuse" };
-  return { kind: "admit", token: mintToken(canon, cwd) };
+    const knownCanon = await canonKnown(known, realpath);
+    if (knownCanon.includes(canon)) return { kind: "admit", token: mintToken(canon, cwd) };
+    // A deleted worktree (and anything else that does not exist) is refused
+    // without spawning git, which would only surface as a spawn failure.
+    if (real.kind === "missing") return { kind: "refuse" };
+
+    const derived = await derive(canon, known, opts, enteredAt);
+    if (derived.kind === "indeterminate") return indeterminate(derived.failedProbes);
+    if (derived.kind === "refuse") return { kind: "refuse" };
+    return { kind: "admit", token: mintToken(canon, cwd) };
+  }
 }

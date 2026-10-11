@@ -3,11 +3,12 @@
  *
  * `resolveCwdVerdict` is the ONE post-verdict rule for every `cwd`-plane hold, core
  * (`file-routes:exists`) or plugin (`holdCwdDenial`): a verdict authorises a
- * RE-EVALUATION, never a skip. The subject's real path is re-resolved NOW,
- * existence and the `.git` / ungrantable rules re-applied, then membership of the
- * live known-folder set (sessions ∪ pins) is compared canonically. An `allow-always`
- * additionally re-runs the full guard when the caller supplies one; an `allow-once`
- * admits the single held request when the real path still equals the verdict subject.
+ * RE-EVALUATION, never a skip. The cwd's real path is re-resolved NOW and must
+ * still equal the verdict subject (any verdict kind: a swapped symlink never rides a
+ * stale answer onto another folder); existence and the `.git` / ungrantable rules are
+ * re-applied; then membership of the live known-folder set (sessions ∪ pins) is compared
+ * canonically. An `allow-always` additionally re-runs the full guard when the caller
+ * supplies one; an `allow-once` admits the single held request.
  *
  * `createCwdHold` builds the per-plugin `ServerPluginContext.holdCwdDenial`:
  * trusted-gated, closed origin set, never prompts for a missing / `.git` /
@@ -55,6 +56,11 @@ export async function resolveCwdVerdict(
   const canon = real.path;
   if (hasGitPathSegment(canon) || isUngrantableSubject(canon)) return { kind: "refuse" };
 
+  // The verdict answered for ONE real path. If the cwd resolves elsewhere now (a
+  // symlink swapped in while the request was held), no verdict kind applies — not even
+  // when the new target happens to be a known folder.
+  if (resolution.subject !== canon) return { kind: "refuse" };
+
   // Canonical membership against sessions ∪ pins, both sides: a session that
   // registered for this cwd while the dialog was open admits too.
   const knownCanon = await Promise.all(deps.known().map(canonPathAsync));
@@ -65,9 +71,8 @@ export async function resolveCwdVerdict(
     const outcome = await deps.rerunAlways(canon);
     return outcome === "admit" ? { kind: "admit", canonCwd: canon } : { kind: outcome };
   }
-  // allow-once: admits only the single held request, and only when the path
-  // still means what the operator answered for (a swapped symlink does not).
-  return resolution.subject === canon ? { kind: "admit", canonCwd: canon } : { kind: "refuse" };
+  // allow-once: admits only the single held request, whose subject was just re-confirmed.
+  return { kind: "admit", canonCwd: canon };
 }
 
 export interface CwdHoldDeps {

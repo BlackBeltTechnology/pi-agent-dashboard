@@ -173,6 +173,7 @@ function spyRunner(o: SpyOpts = {}) {
   return { runner, spy };
 }
 
+const realCalls = { n: 0 };
 const TIMEOUT_ERR: ExecError = { kind: "timeout", timeoutMs: 1000, binary: "git" };
 
 function kindOf(a: Admission): string {
@@ -313,6 +314,44 @@ describe("admitCwd", () => {
     expect((await issueHeldAdmission({ kind: "admit", canonCwd: `${dir}-other` }, dir)).kind).toBe("refuse");
     expect((await issueHeldAdmission({ kind: "indeterminate" }, dir)).kind).toBe("refuse");
     expect((await issueHeldAdmission({ kind: "refuse" }, dir)).kind).toBe("refuse");
+  });
+});
+
+describe("admitCwd — the deadline covers the WHOLE decision (B2)", () => {
+  it("a hung request realpath resolves indeterminate at the deadline, not whenever the filesystem answers", async () => {
+    const dir = makeDir("admit-slowfs-");
+    const t0 = Date.now();
+    const r = await admitCwd(dir, () => [], {
+      deadlineMs: 150,
+      realpath: () => new Promise((resolve) => setTimeout(() => resolve({ kind: "ok", path: dir }), 2000)),
+    });
+    expect(r.kind).toBe("indeterminate");
+    expect(Date.now() - t0).toBeLessThan(1000);
+    if (r.kind === "indeterminate") expect(r.failedProbes).toContain("deadline");
+  });
+});
+
+describe("admitCwd — canonicalization failures are failures to decide (B3)", () => {
+  it("a non-ENOENT realpath error while canonicalizing the derived main checkout is indeterminate, never refuse", async () => {
+    const { main, worktree } = makeRepoWithWorktree();
+    const real = await import("../platform/git.js");
+    const mainReal = realpathSync(main);
+    const r = await admitCwd(worktree, () => [main], {
+      // The first realpaths succeed; the main checkout then fails to canonicalize.
+      realpath: async (p) => (p === mainReal && realCalls.n++ > 0 ? { kind: "error", code: "EACCES" } : real.realpathAsync(p)),
+    });
+    expect(r.kind).toBe("indeterminate");
+  });
+
+  it("a canonicalization error while checking the repository binding is failed, not unbound", async () => {
+    const { main } = makeRepoWithWorktree();
+    const mainReal = realpathSync(main);
+    const { bindCheckoutClassifiedAsync, realpathAsync } = await import("../platform/git.js");
+    const commonDir = join(mainReal, ".git");
+    const r = await bindCheckoutClassifiedAsync(mainReal, commonDir, {
+      realpath: async (p) => (p === commonDir ? { kind: "error", code: "EACCES" } : realpathAsync(p)),
+    });
+    expect(r).toEqual({ kind: "failed", failedProbes: ["realpath"] });
   });
 });
 

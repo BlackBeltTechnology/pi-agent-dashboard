@@ -249,14 +249,28 @@ describe("resolveCwdVerdict (shared re-run)", () => {
     const dir = unknownDir();
     const link = path.join(tmp, "link-to-x");
     fs.symlinkSync(dir, link, "dir");
-    // The held subject string is irrelevant: the live known set already holds the real path.
+    // The request names the cwd through a symlink; the verdict subject is its real path.
+    // The live known set already holds the real path (a session registered meanwhile).
     const out = await resolveCwdVerdict(
       link,
-      { kind: "allow", verdict: "allow-once", subject: "/some/other/string" },
+      { kind: "allow", verdict: "allow-once", subject: dir },
       { known: () => [dir] },
     );
     expect(out).toEqual({ kind: "admit", canonCwd: dir });
   });
+
+  it.each(["allow-once", "allow-always"] as const)(
+    "B1: a %s verdict never admits a DIFFERENT folder that is already known (swapped symlink)",
+    async (verdict) => {
+      const x = unknownDir("x");
+      const y = unknownDir("y"); // a known folder
+      // The operator answered for `x`; while the request was held `x` became a link to `y`.
+      fs.rmSync(x, { recursive: true });
+      fs.symlinkSync(y, x, "dir");
+      const out = await resolveCwdVerdict(x, { kind: "allow", verdict, subject: x }, { known: () => [y] });
+      expect(out).toEqual({ kind: "refuse" });
+    },
+  );
 
   it("refuses a deny / a missing path / an allow-once whose subject no longer matches", async () => {
     const dir = unknownDir();

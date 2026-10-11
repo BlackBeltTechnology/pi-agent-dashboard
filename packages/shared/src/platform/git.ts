@@ -919,6 +919,8 @@ export interface ClassifiedGitOptions {
   onProbeEnd?: () => void;
   /** Injected runner (tests). Defaults to `runAsync`. */
   runner?: GitProbeRunner;
+  /** Injected errno-reporting realpath (tests). Defaults to {@link realpathAsync}. */
+  realpath?: (p: string) => Promise<RealpathOutcome>;
 }
 
 /** Three-way outcome of the classified checkout-root resolution. */
@@ -1026,6 +1028,21 @@ export async function checkoutRootsClassifiedAsync(
 }
 
 /**
+ * Errno-aware canonicalization for a binding compare: follow symlinks, fall back to the
+ * normalized path only when it does not exist, and report `null` for any OTHER failure
+ * (the check cannot be decided — unlike {@link canonicalAsync}, which swallows it).
+ */
+async function canonicalClassified(
+  p: string,
+  platform: NodeJS.Platform,
+  realpath: (p: string) => Promise<RealpathOutcome>,
+): Promise<string | null> {
+  const r = await realpath(p);
+  if (r.kind === "error") return null;
+  return normalizePath(r.kind === "ok" ? r.path : p, platform);
+}
+
+/**
  * Classified twin of {@link isBoundCheckoutAsync}: `bound`, `unbound`, or
  * `failed` when the candidate's re-resolution could not complete. The
  * unclassified twin keeps returning `false` for both unbound and failed.
@@ -1036,7 +1053,8 @@ export async function bindCheckoutClassifiedAsync(
   opts: ClassifiedGitOptions = {},
 ): Promise<ClassifiedBinding> {
   const platform = process.platform;
-  const real = await realpathAsync(candidate);
+  const realpath = opts.realpath ?? realpathAsync;
+  const real = await realpath(candidate);
   if (real.kind === "missing") return { kind: "unbound" };
   if (real.kind === "error") return { kind: "failed", failedProbes: ["realpath"] };
   if (hasGitPathSegment(real.path)) return { kind: "unbound" };
@@ -1045,12 +1063,17 @@ export async function bindCheckoutClassifiedAsync(
   if (re.kind === "none") return { kind: "unbound" };
   const reResolved = re.roots;
   const [candidateCanon, commonCanon, reCommonCanon, reThisCanon] = await Promise.all([
-    canonicalAsync(real.path, platform),
-    canonicalAsync(commonDir, platform),
-    canonicalAsync(reResolved.commonDir, platform),
-    reResolved.thisCheckout ? canonicalAsync(reResolved.thisCheckout, platform) : Promise.resolve(null),
+    canonicalClassified(real.path, platform, realpath),
+    canonicalClassified(commonDir, platform, realpath),
+    canonicalClassified(reResolved.commonDir, platform, realpath),
+    reResolved.thisCheckout ? canonicalClassified(reResolved.thisCheckout, platform, realpath) : Promise.resolve(""),
   ]);
-  return bindDecision(candidateCanon, commonCanon, reResolved, reCommonCanon, reThisCanon, platform)
+  // A needed canonicalization that failed for a reason other than non-existence is a
+  // failure to DECIDE, not an "unbound" answer.
+  if (candidateCanon === null || commonCanon === null || reCommonCanon === null || reThisCanon === null) {
+    return { kind: "failed", failedProbes: ["realpath"] };
+  }
+  return bindDecision(candidateCanon, commonCanon, reResolved, reCommonCanon, reThisCanon || null, platform)
     ? { kind: "bound" }
     : { kind: "unbound" };
 }
