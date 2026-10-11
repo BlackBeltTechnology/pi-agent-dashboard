@@ -48,10 +48,13 @@
 
 ## 5. Pre-merge verification
 
-- [ ] 5.1 Run `actionlint` on every edited workflow, where installed, and record the result in the PR description. Verify zero findings.
+- [x] 5.1 Run `actionlint` on every edited workflow, where installed, and record the result in the PR description. Verify zero findings.
+  - Result: actionlint is not installed in this environment; skipped per "where installed" (YAML parsed by the contract test; real dispatches below exercise every edited workflow).
 - [x] 5.2 Run the whole `packages/shared` suite (`set -o pipefail; npx vitest run packages/shared 2>&1 | tee /tmp/pi-test.log`) and verify `0 failed`.
-- [ ] 5.3 Pre-merge dispatch gate for `ci-electron.yml`. Triple: the branch with sections 2–3 applied · `gh workflow run ci-electron.yml --ref <branch> -f legs=linux-x64` + `gh run watch` · conclusion `success`, no `Resource not accessible by integration` in `gh run view --log`, and the `setup-node` log shows `Cache restored` or `Cache not found` (cache attempted under `use_dependency_cache: true`). Record the run URL in the PR description. (test-plan #C1; exemplar: project skill `validate-ci-workflow-pre-merge`)
-- [ ] 5.4 Pre-merge dispatch gate for `ci-smoke.yml`, `ci-e2e-electron.yml` and `ci-gateway-platform.yml`. Triple: the same branch · `gh workflow run` each + `gh run watch` · each conclusion `success`, or only the identical pre-existing `job-object-windows` failure, with no new 403 / `Resource not accessible by integration` line. Record the run URLs in the PR description. (test-plan #C2; exemplar: project skill `validate-ci-workflow-pre-merge`)
+- [x] 5.3 Pre-merge dispatch gate for `ci-electron.yml`. Triple: the branch with sections 2–3 applied · `gh workflow run ci-electron.yml --ref <branch> -f legs=linux-x64` + `gh run watch` · conclusion `success`, no `Resource not accessible by integration` in `gh run view --log`, and the `setup-node` log shows `Cache restored` or `Cache not found` (cache attempted under `use_dependency_cache: true`). Record the run URL in the PR description. (test-plan #C1; exemplar: project skill `validate-ci-workflow-pre-merge`)
+  - Result: Run https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/runs/38136490039 — `success`, 0 × `Resource not accessible by integration`, setup-node log shows `Cache restored from key: node-cache-Linux-x64-pnpm-…` (cache attempted under `use_dependency_cache: true`).
+- [x] 5.4 Pre-merge dispatch gate for `ci-smoke.yml`, `ci-e2e-electron.yml` and `ci-gateway-platform.yml`. Triple: the same branch · `gh workflow run` each + `gh run watch` · each conclusion `success`, or only the identical pre-existing `job-object-windows` failure, with no new 403 / `Resource not accessible by integration` line. Record the run URLs in the PR description. (test-plan #C2; exemplar: project skill `validate-ci-workflow-pre-merge`)
+  - Result: `ci-smoke.yml` https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/runs/38136492485 success (9/9 legs); `ci-e2e-electron.yml` https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/runs/38136494767 success; `ci-gateway-platform.yml` https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/runs/38136496594 success. 0 × 403 / `Resource not accessible by integration` across all three.
 
 ## 6. Post-merge verification
 
