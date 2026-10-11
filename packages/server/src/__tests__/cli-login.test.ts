@@ -2,6 +2,13 @@
  * D23 break-glass CLI — `pi-dashboard login --local` (task 18.24).
  * See change: add-multi-user-identity-plane.
  */
+
+import {
+  deriveKey,
+  httpPurpose,
+  parseProof,
+  verifyProofMac,
+} from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import { describe, expect, it, vi } from "vitest";
 import { cmdLogin } from "../cli.js";
 
@@ -20,9 +27,15 @@ describe("pi-dashboard login --local", () => {
     const code = await cmdLogin(["--local"], { port: 8123 }, { fetchImpl, localToken: "lt", out: out.fn, err: err.fn });
     expect(code).toBe(0);
     const [url, init] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://localhost:8123/api/identity/local-code");
+    // The request dials the address LITERAL the proof is bound to; the printed link stays `localhost`.
+    expect(url).toBe("http://127.0.0.1:8123/api/identity/local-code");
     expect(init.method).toBe("POST");
-    expect((init.headers as Record<string, string>)["x-pi-local-token"]).toBe("lt");
+    const headers = init.headers as Record<string, string>;
+    expect(headers["X-Pi-Local-Proof"]).toBeTruthy();
+    expect(JSON.stringify(headers).toLowerCase()).not.toContain("x-pi-local-token");
+    // ...and the proof is bound to that literal, the method and the target.
+    const proof = parseProof(headers["X-Pi-Local-Proof"])!;
+    expect(verifyProofMac(deriveKey("lt"), proof, "127.0.0.1:8123", httpPurpose("POST", "/api/identity/local-code"))).toBe(true);
     expect(out.lines.join("\n")).toContain("http://localhost:8123/?pi_local=CODE123");
     expect(out.lines.join("\n")).toMatch(/60 s|60s|single-use/i);
     expect(err.lines).toHaveLength(0);

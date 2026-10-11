@@ -11,20 +11,22 @@
  * (test-plan #E19 companion — the server half)
  * See change: add-pi-gateway-transport-identity.
  */
+
+import { spawn } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import net from "node:net";
 import properLockfile from "proper-lockfile";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { createLocalCredentialVerifier } from "../auth/local-credential.js";
 import { WsTicketStore } from "../auth/ws-ticket.js";
 import { startGatewayListeners } from "../pi/gateway-listeners.js";
 import { probeSocket } from "../pi/gateway-socket-bind.js";
 import { createPiGateway } from "../pi/pi-gateway.js";
-import { buildSpawnEnv, setSpawnDashboardPiPort, setSpawnGatewayTransport } from "../spawn-process/process-manager.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
+import { buildSpawnEnv, setSpawnDashboardPiPort, setSpawnGatewayTransport } from "../spawn-process/process-manager.js";
 
 let tmp: string;
 let sockPath: string;
@@ -322,7 +324,6 @@ describe("unix socket transport alongside an authenticated TCP listener", () => 
         // The container's shape: no ticket, no local token, nothing minted.
         requireTicketOnLoopback: true,
         consumeTicket: () => ({ ok: false, reason: "missing" }) as const,
-        verifyLocalToken: () => false,
         log: () => {
           refusals += 1;
         },
@@ -366,7 +367,6 @@ describe("unix socket transport alongside an authenticated TCP listener", () => 
       bridgeAuth: {
         requireTicketOnLoopback: true,
         consumeTicket: () => ({ ok: false, reason: "missing" }) as const,
-        verifyLocalToken: () => false,
         log: () => {},
       },
     });
@@ -399,7 +399,7 @@ describe("loopback fallback (fix-gateway-socket-stale-owner)", () => {
       bridgeAuth: {
         consumeTicket: (t) => tickets.consumeDetailed(t, "bridge"),
         requireTicketOnLoopback: over.requireTicketOnLoopback ?? false,
-        verifyLocalToken: (h) => h?.["x-pi-local-token"] === TOKEN,
+        verifyCredential: createLocalCredentialVerifier({ token: TOKEN, acceptLegacyToken: true, log: () => {} }),
         log: () => {},
       },
     });

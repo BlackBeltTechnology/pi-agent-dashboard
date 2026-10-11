@@ -33,3 +33,5 @@ Frames `PathGrantRequestMessage` (`path_grant_request`, ext→server), `PathGran
 Heartbeat metrics gain optional `pluginForward*` counters. See change: add-plugin-bridge-contributions.
 
 - `RenameSessionExtensionMessage.origin?: "system"`; `AutoNameStateRestoreMessage` carries session-owned `nameSource` + `nameSourceFor`; `session_name_update.nameSource` widened. See change: investigate-auto-name-provenance-relabel.
+
+`BridgeDiagnosticEvent` gains `server_proof_failed` (a marked bridge aborted on a server that could not prove the credential; delivered only over a later verified connection to the same endpoint). See change: loopback-credential-proof (D8).

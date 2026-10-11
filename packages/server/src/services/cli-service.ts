@@ -18,6 +18,7 @@
  */
 import fs from "node:fs";
 import readline from "node:readline";
+import { localDialHost } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { EnsurePayload } from "@blackbelt-technology/pi-dashboard-shared/services/schema.js";
 import type { CommandRunner } from "./command-runner.js";
@@ -33,11 +34,13 @@ export type ExecSecrets = { ok: true; values: Record<string, string> } | { ok: f
 
 export interface ServiceCliDeps {
   port: number;
+  /** The host the dashboard binds; the call dials `localDialHost(host)` (default `127.0.0.1`). */
+  host?: string;
   fetch?: typeof fetch;
   out?: (s: string) => void;
   err?: (s: string) => void;
-  /** Local-token header for the server call. */
-  authHeaders?: () => Record<string, string>;
+  /** Local-credential headers for ONE server call (a fresh proof per request). */
+  authHeaders?: (method: string, target: string) => Record<string, string>;
   readStdin?: () => Promise<string>;
   confirm?: (question: string) => Promise<boolean>;
   /** Resolve a service's secret values locally (for `exec`). */
@@ -118,7 +121,7 @@ export async function cmdService(args: string[], deps: ServiceCliDeps): Promise<
   const out = deps.out ?? ((s: string) => console.log(s));
   const err = deps.err ?? ((s: string) => console.error(s));
   const f = deps.fetch ?? fetch;
-  const base = `http://127.0.0.1:${deps.port}`;
+  const base = `http://${localDialHost(deps.host)}:${deps.port}`;
   const p = parseServiceArgs(args);
 
   const call = async (method: string, path: string, body?: unknown, timeoutMs = 120_000): Promise<CallResult> => {
@@ -126,7 +129,7 @@ export async function cmdService(args: string[], deps: ServiceCliDeps): Promise<
     try {
       res = await f(`${base}${path}`, {
         method,
-        headers: { ...(body !== undefined ? { "content-type": "application/json" } : {}), ...(deps.authHeaders?.() ?? {}) },
+        headers: { ...(body !== undefined ? { "content-type": "application/json" } : {}), ...(deps.authHeaders?.(method, path) ?? {}) },
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
         signal: AbortSignal.timeout(timeoutMs),
       });

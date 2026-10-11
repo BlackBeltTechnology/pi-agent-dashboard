@@ -14,8 +14,8 @@
  * `done` for backwards compatibility (Doctor / support tooling read it).
  */
 
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { fileURLToPath } from "node:url";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { decideWillNavigate } from "./lib/link-handling.js";
 import { resolveCdpActivation } from "./lib/resolve-cdp-activation.js";
 
@@ -38,9 +38,10 @@ if (_cdp.enabled && _cdp.port !== undefined) {
 if (process.platform === "linux" && !process.env.ELECTRON_OZONE_PLATFORM_HINT) {
   app.commandLine.appendSwitch("ozone-platform-hint", "auto");
 }
-import { mkdirSync, appendFileSync, existsSync, writeFileSync } from "node:fs";
-import path from "node:path";
+
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
 
 // Startup log for debugging
 const _LOG_DIR = process.env.TEMP || process.env.TMP || os.tmpdir();
@@ -73,10 +74,10 @@ log(`platform=${process.platform} arch=${process.arch} pid=${process.pid}`);
 log(`resourcesPath=${(process as any).resourcesPath || "(none)"}`);
 log(`execPath=${process.execPath}`);
 
+import { getFirstRunMarkerPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 // Disable GPU acceleration in VMs (prevents white screen on VMware/VirtualBox).
 import { isVirtualMachine } from "@blackbelt-technology/pi-dashboard-shared/platform/commands.js";
 import { loadWithLocalProof } from "./lib/local-proof-bootstrap.js";
-import { getFirstRunMarkerPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
 const isVM = isVirtualMachine();
 const disableGpu = process.env.ELECTRON_DISABLE_GPU || isVM;
@@ -88,46 +89,47 @@ if (disableGpu) {
   log("GPU disabled");
 }
 log("Importing lib modules...");
-import { readModeFile } from "./lib/wizard-state.js";
-import { normalizeRemoteUrl, probeRemote } from "./lib/remote-probe.js";
-import {
-  stopServerIfNeeded,
-  loadMinimalConfig,
-  setSpawnedPid,
-  requestServerLaunch,
-  readServerLogTail,
-  onLaunchStatus,
-  setGracefulShutdownInProgress,
-  isGracefulShutdownInProgress,
-  makeServerWatchdog,
-  decideOwnership,
-  decideIsZombie,
-  getStoredSpawnedPid,
-  setLocalServerSpawner,
-} from "./lib/server-lifecycle.js";
-import { promptZombieAdoption, stopZombieServer } from "./lib/zombie-adoption-dialog.js";
-import { isDashboardRunning } from "./lib/health-check.js";
-import { showDoctorDialog } from "./lib/app-menu.js";
+
+import fs from "node:fs";
+import { handleCheckForUpdates, setupAppMenu, showDoctorDialog } from "./lib/app-menu.js";
+import { downloadAndInstall, initAutoUpdater, quitAndInstall } from "./lib/app-updater.js";
 import { registerBundledBridgeExtension } from "./lib/bridge-register.js";
-import { loadWindowState, saveWindowState } from "./lib/window-state.js";
+import { isDashboardRunning } from "./lib/health-check.js";
+import {
+  BundledServerMissingError,
+  PinnedSourceUnavailableError,
+  parsePreferOverride,
+} from "./lib/launch-source.js";
+import { installQuitGuard } from "./lib/quit-guard.js";
+import { normalizeRemoteUrl, probeRemote } from "./lib/remote-probe.js";
+import type { SwitchResult } from "./lib/runtime-overlay.js";
+import {
+  type RuntimeSwitchContext,
+  resolveAndSpawnRuntime,
+  startActivationWatcher,
+} from "./lib/runtime-overlay-main.js";
+import {
+  decideIsZombie,
+  decideOwnership,
+  getStoredSpawnedPid,
+  isGracefulShutdownInProgress,
+  loadMinimalConfig,
+  makeServerWatchdog,
+  onLaunchStatus,
+  readServerLogTail,
+  requestServerLaunch,
+  setGracefulShutdownInProgress,
+  setLocalServerSpawner,
+  setSpawnedPid,
+  stopServerIfNeeded,
+} from "./lib/server-lifecycle.js";
 import { createTray, destroyTray, type TrayOwnership } from "./lib/tray.js";
 import { startUpdateChecker } from "./lib/update-checker.js";
 import { notifyUpdatesAvailable } from "./lib/update-notifier.js";
-import { initAutoUpdater, downloadAndInstall, quitAndInstall } from "./lib/app-updater.js";
-import { installQuitGuard } from "./lib/quit-guard.js";
-import { handleCheckForUpdates, setupAppMenu } from "./lib/app-menu.js";
-import {
-  parsePreferOverride,
-  PinnedSourceUnavailableError,
-  BundledServerMissingError,
-} from "./lib/launch-source.js";
-import type { SwitchResult } from "./lib/runtime-overlay.js";
-import {
-  resolveAndSpawnRuntime,
-  startActivationWatcher,
-  type RuntimeSwitchContext,
-} from "./lib/runtime-overlay-main.js";
-import fs from "node:fs";
+import { loadWindowState, saveWindowState } from "./lib/window-state.js";
+import { readModeFile } from "./lib/wizard-state.js";
+import { promptZombieAdoption, stopZombieServer } from "./lib/zombie-adoption-dialog.js";
+
 log("All imports loaded");
 
 let mainWindow: BrowserWindow | null = null;
@@ -334,7 +336,7 @@ async function maybePromptZombieAdoption(): Promise<void> {
       await new Promise((r) => setTimeout(r, 200));
     }
     if (healthy && mainWindow && !mainWindow.isDestroyed()) {
-      loadWithLocalProof(mainWindow, `http://localhost:${config.port}`).catch((e) => log(`[zombie] loadURL failed: ${e?.message || e}`));
+      loadWithLocalProof(mainWindow, `http://localhost:${config.port}`, { host: loadMinimalConfig().host }).catch((e) => log(`[zombie] loadURL failed: ${e?.message || e}`));
     } else if (mainWindow && !mainWindow.isDestroyed()) {
       log("[zombie] respawned server did not become healthy within 15s; leaving current page");
     }
@@ -525,7 +527,7 @@ function createMainWindow(serverUrl: string): BrowserWindow {
   // Bootstrap local proof (cookie) before the dashboard loads: required for pairing
   // approval in every mode and for `requireLocalProof`. Falls back to the plain URL.
   // See change: harden-trust-and-credential-boundaries (D2/D6).
-  loadWithLocalProof(mainWindow, serverUrl).catch((e) => log(`loadURL failed: ${e?.message || e}`));
+  loadWithLocalProof(mainWindow, serverUrl, { host: loadMinimalConfig().host }).catch((e) => log(`loadURL failed: ${e?.message || e}`));
 
   mainWindow.on("resize", () => mainWindow && saveWindowState(mainWindow));
   mainWindow.on("move", () => mainWindow && saveWindowState(mainWindow));

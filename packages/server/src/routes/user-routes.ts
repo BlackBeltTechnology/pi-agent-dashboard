@@ -20,13 +20,13 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { HostAdmissionOptions } from "../auth/host-admission.js";
+import { hasLocalCredential } from "../auth/local-credential.js";
 import type { LocalTrustContext } from "../auth/local-proof.js";
-import { verifyLocalToken } from "../auth/local-token.js";
 import { isLocallyTrusted } from "../auth/localhost-guard.js";
 import { logPasskey } from "../auth/passkey/passkey-log.js";
 import { qrDataUrl } from "../auth/passkey/passkey-routes.js";
 import { PasskeyError, type PasskeyService } from "../auth/passkey/passkey-service.js";
-import { MAX_INVITE_USES, type DirectoryUser } from "../auth/passkey/user-directory.js";
+import { type DirectoryUser, MAX_INVITE_USES } from "../auth/passkey/user-directory.js";
 import { createOperatorGuard } from "./pairing-routes.js";
 
 export interface UserRouteDeps {
@@ -71,7 +71,7 @@ export function registerUserRoutes(fastify: FastifyInstance, deps: UserRouteDeps
   const isGenuineLocal = (request: FastifyRequest): boolean => {
     const headers = request.headers as Record<string, unknown>;
     return (
-      (deps.localToken !== undefined && verifyLocalToken(headers, deps.localToken)) ||
+      (deps.localToken !== undefined && hasLocalCredential(headers)) ||
       isLocallyTrusted({ ip: request.ip, headers }, deps.localTrust)
     );
   };

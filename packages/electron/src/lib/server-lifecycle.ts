@@ -12,16 +12,15 @@ import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { ELECTRON_RESTART_EXIT_CODE } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
 import type { spawnDetached } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
-
 import { isDashboardRunning } from "./health-check.js";
 import {
   BundledServerMissingError,
   PinnedSourceUnavailableError,
   parsePreferOverride,
 } from "./launch-source.js";
-import { ELECTRON_RESTART_EXIT_CODE } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
-import { localTokenHeaders } from "./local-proof-bootstrap.js";
+import { localApiBase, localProofHeaders } from "./local-proof-bootstrap.js";
 import { takeExitOwnership } from "./runtime-switch-ownership.js";
 import { readModeFile } from "./wizard-state.js";
 
@@ -305,6 +304,8 @@ interface KnownServerEntry {
 
 interface MinimalConfig {
   port: number;
+  /** The host the dashboard binds (`config.host`); main-process calls dial `localDialHost(host)`. */
+  host?: string;
   piPort: number;
   knownServers: KnownServerEntry[];
 }
@@ -323,6 +324,7 @@ export function loadMinimalConfig(): MinimalConfig {
       : [];
     return {
       port: typeof parsed.port === "number" ? parsed.port : defaults.port,
+      ...(typeof parsed.host === "string" && parsed.host ? { host: parsed.host } : {}),
       piPort: typeof parsed.piPort === "number" ? parsed.piPort : defaults.piPort,
       knownServers,
     };
@@ -514,7 +516,8 @@ export async function requestServerLaunch(opts: { force?: boolean } = {}): Promi
       if (status.running && opts.force) {
         emitLaunchStatus({ phase: "shutting-down-existing" });
         try {
-          await fetch(`${url}/api/shutdown`, { method: "POST", headers: localTokenHeaders(), signal: AbortSignal.timeout(3000) });
+          const shutdownUrl = `${localApiBase(config)}/api/shutdown`;
+          await fetch(shutdownUrl, { method: "POST", headers: localProofHeaders("POST", shutdownUrl), signal: AbortSignal.timeout(3000) });
         } catch { /* fall through; spawn will report port conflict if anything */ }
         // Wait up to 5s for the port to close.
         const deadline = Date.now() + 5000;
@@ -552,9 +555,10 @@ export async function requestServerLaunch(opts: { force?: boolean } = {}): Promi
  * offer; if they survived, the next boot's liveness gate retracts them.
  * See change: fix-recovery-exit-intent (task 3.6).
  */
-const userQuitShutdownInit = (): RequestInit => ({
+const userQuitShutdownInit = (url: string): RequestInit => ({
   method: "POST",
-  headers: { "content-type": "application/json", ...localTokenHeaders() },
+  // A fresh single-use proof per request, bound to the literal `url` dialled.
+  headers: { "content-type": "application/json", ...localProofHeaders("POST", url) },
   body: JSON.stringify({ userQuit: true }),
 });
 
@@ -578,7 +582,8 @@ export async function stopServerIfNeeded(): Promise<void> {
         });
         if (shouldStop) {
           try {
-            await fetch(`http://localhost:${port}/api/shutdown`, userQuitShutdownInit());
+            const shutdownUrl = `${localApiBase(config)}/api/shutdown`;
+            await fetch(shutdownUrl, userQuitShutdownInit(shutdownUrl));
           } catch { /* already stopped */ }
         }
       }
@@ -589,6 +594,7 @@ export async function stopServerIfNeeded(): Promise<void> {
   // Legacy path: use serverStartedByUs flag.
   if (!serverStartedByUs) return;
   try {
-    await fetch(`http://localhost:${port}/api/shutdown`, userQuitShutdownInit());
+    const shutdownUrl = `${localApiBase(config)}/api/shutdown`;
+    await fetch(shutdownUrl, userQuitShutdownInit(shutdownUrl));
   } catch { /* already stopped */ }
 }

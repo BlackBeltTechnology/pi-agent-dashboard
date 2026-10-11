@@ -21,8 +21,8 @@ import {
   idTokenGroups,
   isUserAllowed,
   parseAuthCookie,
-  resolveGroupTier,
   type ResolvedProvider,
+  resolveGroupTier,
   resolveRedirectBase,
   signToken,
   type TokenPayload,
@@ -30,12 +30,12 @@ import {
   warnOnInvalidRedirectBase,
 } from "./auth.js";
 import { isBypassed } from "./bypass-urls.js";
+import { hasLocalCredential } from "./local-credential.js";
+import type { LocalTrustContext } from "./local-proof.js";
+import { isLocallyTrusted, isObserveApiRequest, isTrustedSource } from "./localhost-guard.js";
 import { renderLoginPasskeySection } from "./passkey/passkey-pages.js";
 import { registerPasskeyRoutes } from "./passkey/passkey-routes.js";
 import { PASSKEY_PROVIDER, type PasskeyService } from "./passkey/passkey-service.js";
-import { verifyLocalToken } from "./local-token.js";
-import type { LocalTrustContext } from "./local-proof.js";
-import { isLocallyTrusted, isObserveApiRequest, isTrustedSource } from "./localhost-guard.js";
 import type { CoreWsRouteScope, TicketConsumption } from "./ws-ticket.js";
 
 // Re-exported so the existing `auth-plugin.js` import surface is unchanged; the
@@ -434,7 +434,7 @@ export async function registerAuthPlugin(
       isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> }) &&
       isObserveApiRequest(request)
     ) return;
-    if (localToken && verifyLocalToken(request.headers as Record<string, unknown>, localToken)) return;
+    if (localToken && hasLocalCredential(request.headers)) return;
 
     // Skip auth routes
     if (request.url.startsWith("/auth/")) return;
@@ -530,7 +530,7 @@ export function validateWsUpgrade(
   // Genuine same-host origin, or a valid local-IPC token. A tunnel presenting
   // as loopback (with a forwarding header) is NOT trusted here (D10, narrowed).
   if (isLocallyTrusted({ ip: remoteAddress, headers: opts?.headers }, opts?.localTrust)) return true;
-  if (opts?.localToken && verifyLocalToken(opts.headers, opts.localToken)) return true;
+  if (opts?.localToken && hasLocalCredential(opts.headers)) return true;
   if (isTrustedSource(remoteAddress, opts?.headers, trustedNetworks, opts?.localTrust)) return true;
   // Cross-origin device auth: a valid single-use ticket minted from an
   // authenticated REST call. The upgrade is refused unless it validates, so no
@@ -625,7 +625,7 @@ export function authorizeWsUpgrade(opts: {
   // any ticket principal so an identity-bearing ticket in inert/mixed mode
   // still binds the socket.
   if (isLocallyTrusted({ ip: remoteAddress, headers }, localTrust)) return { ok: true };
-  if (localToken && verifyLocalToken(headers, localToken)) return { ok: true };
+  if (localToken && hasLocalCredential(headers)) return { ok: true };
   // isTrustedSource (not isBypassedHost): a relayed loopback (tunnel presenting
   // as 127.0.0.1 with forwarding headers) is never trusted by a trusted-network
   // entry. See change: fix-trusted-network-tunnel-bypass.
