@@ -5,6 +5,7 @@
  */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { t } from "../../lib/i18n/i18n.js";
 import { useToolFullResult } from "../useToolFullResult.js";
 
 describe("useToolFullResult (E20)", () => {
@@ -51,5 +52,20 @@ describe("useToolFullResult (E20)", () => {
       await result.current.fetchFull();
     });
     expect(result.current.result).toBe("line 1\nline 2");
+  });
+
+  // See change: distinguish-tool-result-pending-vs-gone (test-plan E21, D7).
+  it.each([
+    [410, { error: "result no longer available" }],
+    [404, { error: "tool call still in flight or unknown" }],
+  ])("E21: %i maps to the localized evicted notice, never the raw body text", async (status, body) => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status, json: async () => body });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useToolFullResult("s1", "toolu_01"));
+    await act(async () => {
+      await result.current.fetchFull();
+    });
+    expect(result.current.error).toBe(t("tool.resultEvicted", undefined, "result evicted"));
+    expect(result.current.error).not.toBe(body.error);
   });
 });

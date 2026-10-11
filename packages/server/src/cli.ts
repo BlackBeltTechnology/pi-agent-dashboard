@@ -31,6 +31,8 @@ import { fileURLToPath } from "node:url";
 // caught and degraded into the recovery HTTP server instead of crashing
 // the process. The type-only import here is fully erased at runtime.
 import { ensureConfig, loadConfig, SERVER_STARTUP_DEADLINE_MS } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { httpProofHeaders, localDialHost } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import {
   findPortHolders as platformFindPortHolders,
   isProcessAlive as platformIsProcessAlive,
@@ -43,17 +45,16 @@ import {
   launchDashboardServer,
   PortConflictError,
 } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
+import { ensureLocalToken } from "./auth/local-token.js";
 import { migrateSubagentTickThrottle } from "./config-api.js";
-import { ensureLocalToken, LOCAL_TOKEN_HEADER } from "./auth/local-token.js";
 import {
   isModuleNotFoundError,
   parseModuleNotFoundError,
   startRecoveryServer,
 } from "./lifecycle/recovery-server.js";
+import { collectOwnedPids, partitionHolders } from "./lifecycle/stop-ownership.js";
 import type { createServer as _CreateServerType, ServerConfig } from "./server.js";
 import { isServerRunning, readPid, removePid } from "./spawn-process/server-pid.js";
-import { collectOwnedPids, partitionHolders } from "./lifecycle/stop-ownership.js";
-import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
 // Re-exports for back-compat — other modules / tests may import these from cli.
 export const parseNetstatListeners = platformParseNetstatListeners;
@@ -70,6 +71,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import { parseDashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import {
   piEntryFromArgv,
   type ResolvedRuntime,
@@ -77,14 +79,13 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { getDefaultRegistry, ingestInstalledSkillTools, resolveInstallRoot } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { assertNodeVersionSupported } from "./auth/node-guard.js";
-import { cmdService, localExecSecretsResolver } from "./services/cli-service.js";
-import { defaultCommandRunner } from "./services/command-runner.js";
-import { servicesPaths } from "./services/paths.js";
 import { recordExitIntent } from "./persistence/boot-state.js";
 import { publishResolvedRuntime, readPublishedRuntimeBlock } from "./runtime-publication.js";
 import { resolveLiveSpawnRuntime } from "./runtime-resolution.js";
+import { cmdService, localExecSecretsResolver } from "./services/cli-service.js";
+import { defaultCommandRunner } from "./services/command-runner.js";
+import { servicesPaths } from "./services/paths.js";
 
 const SUBCOMMANDS = ["start", "stop", "restart", "status", "runtime", "open"] as const;
 type Subcommand = (typeof SUBCOMMANDS)[number];
@@ -588,13 +589,15 @@ async function cmdRestartImpl(
   const status = await probe(config.port);
   if (status.running) {
     console.log(
-      `[restart] dashboard running at http://localhost:${config.port}, delegating to /api/restart`,
+      `[restart] dashboard running at ${localBase(config)}, delegating to /api/restart`,
     );
     try {
-      const res = await fetchFn(`http://localhost:${config.port}/api/restart`, {
+      const restartUrl = `${localBase(config)}/api/restart`;
+      const res = await fetchFn(restartUrl, {
         method: "POST",
-        // The local token proves the caller is on this host (needed under requireLocalProof).
-        headers: { "content-type": "application/json", ...localTokenHeader() },
+        // A per-request proof of the local token proves the caller is on this host
+        // (needed under requireLocalProof); the raw token never leaves this process.
+        headers: { "content-type": "application/json", ...localCredentialHeaders("POST", restartUrl) },
         body: JSON.stringify({ dev: !!config.dev }),
       });
       if (res.ok) {
@@ -646,7 +649,7 @@ function stripTrailingSlashes(u: string): string {
 
 export async function cmdTokenCreate(
   argv: string[],
-  opts: { port: number },
+  opts: { port: number; host?: string },
   deps: TokenCreateDeps = {},
 ): Promise<number> {
   const out = deps.out ?? ((l: string) => console.log(l));
@@ -676,14 +679,17 @@ export async function cmdTokenCreate(
 
   const localToken = deps.localToken !== undefined ? deps.localToken : safeEnsureLocalToken();
   const base = `http://localhost:${opts.port}`;
+  // Requests dial the address LITERAL the proof is bound to; `base` is only printed.
+  const dial = localBase(opts);
 
   let minted: { token: string };
   try {
-    const res = await fetchFn(`${base}/api/paired-devices`, {
+    const mintUrl = `${dial}/api/paired-devices`;
+    const res = await fetchFn(mintUrl, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(localToken ? { [LOCAL_TOKEN_HEADER]: localToken } : {}),
+        ...localCredentialHeaders("POST", mintUrl, localToken),
       },
       body: JSON.stringify({ label, ...(tier ? { tier } : {}) }),
     });
@@ -707,8 +713,9 @@ export async function cmdTokenCreate(
     urls = [stripTrailingSlashes(url)];
   } else {
     try {
-      const res = await fetchFn(`${base}/api/pair/reachable-urls`, {
-        headers: { ...(localToken ? { [LOCAL_TOKEN_HEADER]: localToken } : {}) },
+      const reachableUrl = `${dial}/api/pair/reachable-urls`;
+      const res = await fetchFn(reachableUrl, {
+        headers: { ...localCredentialHeaders("GET", reachableUrl, localToken) },
       });
       const json = (await res.json()) as { success: boolean; data?: string[] };
       urls = (json.success && json.data ? json.data : []).map(stripTrailingSlashes);
@@ -735,7 +742,7 @@ export async function cmdTokenCreate(
  */
 export async function cmdLogin(
   argv: string[],
-  opts: { port: number },
+  opts: { port: number; host?: string },
   deps: TokenCreateDeps = {},
 ): Promise<number> {
   const out = deps.out ?? ((l: string) => console.log(l));
@@ -752,9 +759,10 @@ export async function cmdLogin(
   }
   const base = `http://localhost:${opts.port}`;
   try {
-    const res = await fetchFn(`${base}/api/identity/local-code`, {
+    const codeUrl = `${localBase(opts)}/api/identity/local-code`;
+    const res = await fetchFn(codeUrl, {
       method: "POST",
-      headers: { "content-type": "application/json", [LOCAL_TOKEN_HEADER]: localToken },
+      headers: { "content-type": "application/json", ...localCredentialHeaders("POST", codeUrl, localToken) },
       body: "{}",
       // A server that accepts the connection but never answers must not hang recovery.
       signal: AbortSignal.timeout(deps.timeoutMs ?? 5000),
@@ -777,9 +785,31 @@ export async function cmdLogin(
   }
 }
 
-function localTokenHeader(): Record<string, string> {
-  const t = safeEnsureLocalToken();
-  return t ? { [LOCAL_TOKEN_HEADER]: t } : {};
+/** The dial base for local calls: the address LITERAL the server's bind maps to, never `localhost`. */
+function localBase(c: { host?: string; port: number }): string {
+  return `http://${localDialHost(c.host)}:${c.port}`;
+}
+
+/**
+ * `X-Pi-Local-Proof` for ONE request (a proof is single-use: bound to the dialled
+ * address literal, the method and the request target). The raw token never leaves
+ * this process. No token ⇒ no credential header.
+ * See change: loopback-credential-proof (D10).
+ */
+function localCredentialHeaders(
+  method: string,
+  url: string,
+  token: string | null | undefined = safeEnsureLocalToken(),
+): Record<string, string> {
+  if (!token) return {};
+  try {
+    return httpProofHeaders(token, url, method);
+  } catch (e) {
+    // A proof binds an address LITERAL; a host-name bind (`config.host`) has none.
+    // Send no credential (the server answers 401) rather than crash with a raw error.
+    console.error(`[cli] cannot mint a local credential proof for ${url}: ${(e as Error).message}. Set "host" in config.json to an IP address.`);
+    return {};
+  }
 }
 
 /**
@@ -821,9 +851,10 @@ export async function cmdOpen(
   }
   let code: string | undefined;
   try {
-    const res = await fetchFn(`${base}/api/local-proof`, {
+    const proofUrl = `${localBase(config)}/api/local-proof`;
+    const res = await fetchFn(proofUrl, {
       method: "POST",
-      headers: { [LOCAL_TOKEN_HEADER]: token },
+      headers: localCredentialHeaders("POST", proofUrl, token),
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) {
@@ -993,7 +1024,7 @@ async function main() {
   if (rawArgs[0] === "token") {
     const { flags } = parseArgs(rawArgs.slice(1));
     const config = buildConfig(flags);
-    process.exit(await cmdTokenCreate(rawArgs.slice(1), { port: config.port }));
+    process.exit(await cmdTokenCreate(rawArgs.slice(1), { port: config.port, host: config.host }));
   }
 
   if (rawArgs[0] === "service") {
@@ -1011,7 +1042,8 @@ async function main() {
     process.exit(
       await cmdService(rawArgs.slice(1), {
         port: config.port,
-        authHeaders: localTokenHeader,
+        host: config.host,
+        authHeaders: (method, target) => localCredentialHeaders(method, `${localBase(config)}${target}`),
         resolveExecSecrets: localExecSecretsResolver({ paths: servicesPaths(), run: defaultCommandRunner, resolveBinary }),
       }),
     );
@@ -1020,7 +1052,7 @@ async function main() {
   if (rawArgs[0] === "login") {
     const { flags } = parseArgs(rawArgs.slice(1));
     const config = buildConfig(flags);
-    process.exit(await cmdLogin(rawArgs.slice(1), { port: config.port }));
+    process.exit(await cmdLogin(rawArgs.slice(1), { port: config.port, host: config.host }));
   }
 
   const { subcommand, flags } = parseArgs(rawArgs);

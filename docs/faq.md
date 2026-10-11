@@ -3378,9 +3378,15 @@ Cold hydration: `packages/shared/src/state-replay.ts` `replayEntriesAsEvents` cl
 
 Client: reducer heals only `running` row (`packages/client/src/lib/chat/event-reducer.ts`). Payload carrying `healedBy` on existing terminal state ignored.
 
-API: `GET /api/session/:id/tool-result/:toolCallId` returns synthesized end if present. `healedBy:"session_ended"` in payload distinguishes synthesized end from real tool result.
+API: `GET /api/sessions/:sessionId/tool-result/:toolCallId` returns synthesized end if present. `healedBy:"session_ended"` in payload distinguishes synthesized end from real tool result.
+
+Non-finished answers (distinguish):
+- `410 {error:"result no longer available"}` — real end trimmed from event store. Final; client shows eviction badge.
+- `202 {pending:true}` — only with `?pending=1`; still in flight on live server. Hint, never proof of gone.
+- `404` — unknown, not in flight, or overflow of eviction record.
 
 See change: heal-orphaned-tool-cards-on-session-end.
+See change: distinguish-tool-result-pending-vs-gone.
 
 Cross-refs:
 - packages/server/src/event-wiring.ts
@@ -3471,3 +3477,21 @@ Source: `docs/managed-services.md`. Check reason: `pi-dashboard service status <
 - `adoption-uncertain` → verify pid/container, then `pi-dashboard service stop <id> --force`.
 - `duplicate-instances` / `owner-conflict` → `service stop <id>` / `service remove <id>` acts on all matches; labelled containers never auto-removed.
 - `failed` + `retryAt` → backoff active. Fix cause, then `pi-dashboard service retry <id>`.
+
+## Spawned session stuck / `server-proof-missing` in bridge-identity.log — what now?
+
+Source: `docs/architecture.md` → Auth model → Local credential proof. Change: `loopback-credential-proof`.
+
+- Cause: peer at the marked endpoint (`PI_DASHBOARD_REQUIRE_SERVER_PROOF`, `127.0.0.1:<port>`) did not prove the local credential. Two causes:
+  - Port squatter: another process holds the port and cannot sign the counter-proof.
+  - Server pre-proof (old build) or rolled back.
+- Bridge quarantined: retries at 5 s, then 30 s doubling, cap 300 s. Frames not sent.
+- Check:
+  - `~/.pi/dashboard/local/bridge-identity.log` → `cause` = `server-proof-missing` | `server-proof-invalid`, `endpoint`.
+  - `~/.pi/dashboard/server.log` → `[local-credential]` lines (`invalid:<kind>:<cause>`, `binding-mismatch`, `replay-cache-full`, `DEPRECATED`).
+  - `lsof -nP -iTCP:<port> -sTCP:LISTEN` → unexpected owner = squatter.
+- Recover:
+  - Squatter: stop it.
+  - Pre-proof server: `curl -X POST http://localhost:8000/api/restart` with new build, then `npm run reload`.
+  - Session retries inside 5 min cap. Or restart the session to retry now.
+- Docker / published port: sender sees `401` with `binding-mismatch` → BREAKING for `pi-dashboard login --local|open|token create` through the published port. Run those inside the container, or log in.

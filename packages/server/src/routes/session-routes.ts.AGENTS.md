@@ -10,3 +10,5 @@ The session-file containment site passes `hold: { request, reply }` to `evaluate
 See change: fix-session-diff-heap-retention — `sessionDiffCache = new SessionDiffCache<SessionDiffResult>(2000, 100, {maxBytes: 64 MiB, sizeOf: sessionDiffResultSize})` (byte-budgeted, estimated).
 
 See change: surface-denial-remedy-in-previews — Session-file read passes `disclosure: canDiscloseAccessPosture(request)`.
+
+Tool-result route order: gate → stored `200` → `wasToolEndEvicted` `410 {error:"result no longer available"}` → `isToolInFlight` + `?pending=1` exactly `202 {pending:true}` → `404`. Deps `isToolInFlight?`, `toolResultStats?: ToolResultStats {pending,gone}`. See change: distinguish-tool-result-pending-vs-gone.

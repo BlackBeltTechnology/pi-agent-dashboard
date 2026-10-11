@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ensureLocalToken, LOCAL_TOKEN_HEADER, verifyLocalToken } from "../auth/local-token.js";
+import { ensureLocalToken, LOCAL_TOKEN_HEADER } from "../auth/local-token.js";
 import {
   acquireOrAttach,
   canonicalHomedir,
@@ -668,7 +668,7 @@ describe("stale record, foreign listener (#X16)", () => {
       remoteAddress: "127.0.0.1",
       headers: { [LOCAL_TOKEN_HEADER]: token },
       consumeTicket: () => ({ ok: false as const, reason: "missing" as const }),
-      verifyLocalToken: (h) => verifyLocalToken(h, token),
+      localCredential: "valid",
       requireTicketOnLoopback: true,
     });
     expect(upgrade.allow).toBe(true);

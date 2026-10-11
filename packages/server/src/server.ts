@@ -6,32 +6,31 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { listGlobalSkills } from "./pi/pi-resource-scanner.js";
-import { systemRenameUpdates } from "./session/name-provenance.js";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import {
+  createMcpClientConfigService,
+  createRealConfigIO,
+} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
 import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import type { PackageOperationCompleteMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import fastifyCookie from "@fastify/cookie";
-import * as pluginEventSeam from "./plugin-event-seam.js";
 import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls, writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { createPushService, type PushService } from "./push/push-service.js";
-import { registerPushRoutes } from "./routes/push-routes.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
-import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import {
-  reconcilePluginBridgePackages,
   deregisterPluginBridge,
+  reconcilePluginBridgePackages,
   syncPluginBridges,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
+import type { PluginRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { RECOVERY_REATTACH_GRACE_MS, RECOVERY_SHUTDOWN_WINDOW_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import {
   deriveEffectiveSource,
@@ -40,13 +39,14 @@ import {
   readRuntimeRequest,
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import { discoverServiceOffers } from "@blackbelt-technology/pi-dashboard-shared/services/offers.js";
 import { isRecoveryCandidate, isShutdownWindowCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { rank } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
-import { LIVE_PREVIEW_TIER, TERMINAL_TIER } from "@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js";
 import { getDefaultRegistry, resolveInstallRoot } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import { discoverServiceOffers } from "@blackbelt-technology/pi-dashboard-shared/services/offers.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { LIVE_PREVIEW_TIER, TERMINAL_TIER } from "@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js";
 import compress from "@fastify/compress";
+import fastifyCookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
@@ -68,13 +68,12 @@ import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { resolveRedirectBase } from "./auth/auth.js";
 import { authorizeWsUpgrade, effectiveSessionTier, registerAuthPlugin } from "./auth/auth-plugin.js";
 import { registerBearerAuth, registerDeviceSessionRoutes } from "./auth/bearer-auth.js";
+import { beginFlow, pluginFlowProvider } from "./auth/begin-flow.js";
 import {
   computeBindReachability,
   formatBindReachabilityWarning,
   initBindReachability,
 } from "./auth/bind-reachability-service.js";
-import { registerLocalProofRoutes } from "./routes/local-proof-routes.js";
-import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
 import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
 import {
   CORS_ALLOWED_METHODS,
@@ -95,7 +94,9 @@ import {
   resolveHostGateMode,
 } from "./auth/host-gate.js";
 import { ensureServerIdentity } from "./auth/identity.js";
-import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
+import { createLocalCredentialVerifier, hasLocalCredential } from "./auth/local-credential.js";
+import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
+import { ensureLocalToken } from "./auth/local-token.js";
 import {
   createNetworkGuard,
   createNetworkGuardHook,
@@ -104,18 +105,15 @@ import {
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
-import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js";
-import { readAuthJson } from "./auth/provider-auth-storage.js";
-import { beginFlow, pluginFlowProvider } from "./auth/begin-flow.js";
-import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
-import type { OAuthLoginFlow } from "./auth/pi-oauth-types.js";
-import { createPluginRequestLane } from "./plugin-request-lane.js";
-import type { PluginRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { PasskeyService } from "./auth/passkey/passkey-service.js";
 import { resolveRpContext } from "./auth/passkey/rp-context.js";
 import { UserDirectory } from "./auth/passkey/user-directory.js";
+import type { OAuthLoginFlow } from "./auth/pi-oauth-types.js";
+import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
+import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js";
+import { readAuthJson } from "./auth/provider-auth-storage.js";
+import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
-import type { TieredSocket } from "./pairing/ws-tier-gate.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import {
   type CoreWsRouteScope,
@@ -140,8 +138,8 @@ import {
   liveAllowedHosts,
   liveCorsAllowedOrigins,
   liveHostGateMode,
-  liveRequireLocalProof,
   livePublicBaseUrls,
+  liveRequireLocalProof,
   liveTrustedNetworks,
   rawConfigHasHostGateMode,
 } from "./config-snapshot.js";
@@ -152,25 +150,25 @@ import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
 import { identityDisarmedWarning, isIdentityEnforced } from "./identity/activation.js";
-import { browserLoginAuthStatus } from "./identity/browser-login-auth-status.js";
-import { BrowserLoginConfigRegistry, publicLoginConfig, sanitizeBrowserLoginConfig } from "./identity/browser-login-config-registry.js";
-import { identityFloorAllows } from "./identity/identity-floor.js";
-import { IdentityRegistrationTracker, releaseFailedIdentityRegistrations } from "./identity/identity-registration-tracker.js";
-import { PolicyRegistry } from "./identity/policy-registry.js";
-import { createIdentityRoadGate } from "./identity/identity-road-gate.js";
-import { getRouteOwnerRegistry } from "./identity/route-owner-registry.js";
-import { identityMe } from "./identity/identity-me.js";
-import { registerResolverHook } from "./identity/resolver-hook.js";
-import { ResolverRegistry } from "./identity/resolver-registry.js";
 import { buildAuthContext } from "./identity/auth-context.js";
 import { type BootstrapGrants, DENY_ALL_GRANTS, decideBootstrapGrants } from "./identity/bootstrap-grants.js";
 import { BreakGlass } from "./identity/break-glass.js";
+import { browserLoginAuthStatus } from "./identity/browser-login-auth-status.js";
+import { BrowserLoginConfigRegistry, publicLoginConfig, sanitizeBrowserLoginConfig } from "./identity/browser-login-config-registry.js";
 import { dispatchResolvers } from "./identity/dispatch.js";
+import { HostActions, hostResource } from "./identity/host-resources.js";
+import { identityFloorAllows } from "./identity/identity-floor.js";
+import { identityMe } from "./identity/identity-me.js";
+import { IdentityRegistrationTracker, releaseFailedIdentityRegistrations } from "./identity/identity-registration-tracker.js";
+import { createIdentityRoadGate } from "./identity/identity-road-gate.js";
 import { createPluginIdentity } from "./identity/plugin-identity.js";
+import { PolicyRegistry } from "./identity/policy-registry.js";
+import { registerResolverHook } from "./identity/resolver-hook.js";
+import { ResolverRegistry } from "./identity/resolver-registry.js";
+import { getRouteOwnerRegistry } from "./identity/route-owner-registry.js";
+import { canAccessSession, isLocalOperator, markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
 import { scheduleAtExpiry } from "./identity/socket-lifetime.js";
 import { authorizeRoadUpgrade } from "./identity/upgrade-gate.js";
-import { HostActions, hostResource } from "./identity/host-resources.js";
-import { canAccessSession, isLocalOperator, markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
@@ -195,6 +193,7 @@ import { type OperationResult, PackageManagerWrapper } from "./package/package-m
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
+import type { TieredSocket } from "./pairing/ws-tier-gate.js";
 import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
@@ -215,7 +214,11 @@ import { loadHostProjectTrust } from "./pi/host-project-trust.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
+import { listGlobalSkills } from "./pi/pi-resource-scanner.js";
+import * as pluginEventSeam from "./plugin-event-seam.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
+import { createPluginRequestLane } from "./plugin-request-lane.js";
+import { createPushService, type PushService } from "./push/push-service.js";
 import { registerAccessPromptRoutes } from "./routes/access-prompt-routes.js";
 import { registerAccessRoutes } from "./routes/access-routes.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
@@ -228,6 +231,7 @@ import { registerGrepRoutes } from "./routes/grep-routes.js";
 import { registerHostGateRoutes } from "./routes/host-gate-routes.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
+import { registerLocalProofRoutes } from "./routes/local-proof-routes.js";
 import { registerManifestRoute } from "./routes/manifest-route.js";
 import { registerModelProxyApiKeyRoutes } from "./routes/model-proxy-api-key-routes.js";
 import { registerModelProxyDiagnosticsRoutes } from "./routes/model-proxy-diagnostics-routes.js";
@@ -239,7 +243,6 @@ import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { registerOpenSpecRoutes } from "./routes/openspec-routes.js";
 import { registerPackageRoutes } from "./routes/package-routes.js";
 import { PUBLIC_PAIRING_PREFIXES, registerPairingRoutes } from "./routes/pairing-routes.js";
-import { registerUserRoutes } from "./routes/user-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
@@ -249,39 +252,38 @@ import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
-import {
-  createMcpClientConfigService,
-  createRealConfigIO,
-} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
-import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
+import { registerPushRoutes } from "./routes/push-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
 import { registerResourceActivationRoutes } from "./routes/resource-activation-routes.js";
 import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
-import { registerSessionRoutes } from "./routes/session-routes.js";
+import { registerSessionRoutes, type ToolResultStats } from "./routes/session-routes.js";
+import { createInFlightToolCalls } from "./session/in-flight-tool-calls.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
-import { defaultCommandRunner } from "./services/command-runner.js";
-import { servicesPaths } from "./services/paths.js";
-import { registerServiceRoutes } from "./services/routes.js";
-import { ServiceManager } from "./services/service-manager.js";
+import { registerUserRoutes } from "./routes/user-routes.js";
 import {
   dispatchReload as dispatchReloadRaw,
   reloadTargetSessionIds,
 } from "./rpc-keeper/dispatch-reload.js";
 import { activeExtensionFromEnv, createExtensionReloadGuard } from "./runtime-overlay/extension-reload.js";
-import { bundledFallbackIntact, buildRuntimeDoctorCheck } from "./runtime-overlay/runtime-doctor.js";
+import { buildRuntimeDoctorCheck, bundledFallbackIntact } from "./runtime-overlay/runtime-doctor.js";
 import { buildRuntimeHealth, type RuntimeHealth } from "./runtime-overlay/runtime-health.js";
 import { createStagerDeps, runtimeReleaseFeeds } from "./runtime-overlay/runtime-io.js";
 import { stageRuntime } from "./runtime-overlay/runtime-stager.js";
 import { RuntimeUpdateChecker } from "./runtime-overlay/runtime-update-checker.js";
 import { startServerHeapTelemetry } from "./server-heap-telemetry.js";
+import { defaultCommandRunner } from "./services/command-runner.js";
+import { servicesPaths } from "./services/paths.js";
+import { registerServiceRoutes } from "./services/routes.js";
+import { ServiceManager } from "./services/service-manager.js";
 import { createArchiveSweeper } from "./session/archive-sweeper.js";
 import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
 import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
+import { systemRenameUpdates } from "./session/name-provenance.js";
 import { applyPluginRef } from "./session/plugin-refs.js";
 import { applyReattachPolicy } from "./session/reattach-placement.js";
 import { reconcileSessionOrder } from "./session/reconcile-session-order.js";
@@ -297,8 +299,8 @@ import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
-import { registerSpawnEnvContributorForPlugin, setSpawnEnvPluginEnabledCheck } from "./spawn-process/spawn-env-contributors.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
+import { registerSpawnEnvContributorForPlugin, setSpawnEnvPluginEnabledCheck } from "./spawn-process/spawn-env-contributors.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { createTerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, deriveTranscriptCapBytes } from "./terminal/terminal-manager.js";
@@ -611,6 +613,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Local-IPC allowlist token (D10, narrowed): affirmative genuine-local trust
   // for same-host process callers, independent of the forgeable loopback IP.
   const localToken = ensureLocalToken();
+  // Endpoint-bound proof of possession, verified ONCE per request at the listener
+  // edge; every exemption site reads the stamped verdict via `hasLocalCredential`.
+  // `acceptLegacyToken` keeps the deprecated raw `X-Pi-Local-Token` admitted
+  // until the 1.0.0 horizon shared with the D10b grace. See change:
+  // loopback-credential-proof (D4, D9).
+  const localCredential = createLocalCredentialVerifier({ token: localToken, acceptLegacyToken: true });
+  // Taken immediately BEFORE each successful bind: a proof minted earlier cannot
+  // be for this listener (D3). 0 until `fastify.listen` runs (inject() in tests).
+  let httpBoundAt = 0;
   // Strict local-proof context (`requireLocalProof`, live config read). Threaded to
   // every genuinely-local admission site. See change: harden-trust-and-credential-boundaries (D2).
   const localTrust = createLocalTrustContext(localToken, liveRequireLocalProof);
@@ -1121,7 +1132,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // A loopback bridge that presents the local token is authorised on its
       // own credential rather than on the grace — the only local credential
       // Windows has, since it gets no unix socket (D6, task 5.3).
-      verifyLocalToken: (headers) => verifyLocalToken(headers, localToken),
+      verifyCredential: localCredential,
     },
     // Bridge-silence verdict. The browser cannot observe silence itself — it
     // receives `processMetrics` once, in the connect snapshot, and nothing
@@ -1545,7 +1556,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Name the grant store this dashboard writes (exclusive-create, never overwritten);
   // announced to each bridge on registration. See change: ask-agent-file-access-in-chat.
   ensureGrantStoreId();
+  // Live-only in-flight hint + route answer counters shared by the event wiring,
+  // the tool-result route and `/api/health`. See change:
+  // distinguish-tool-result-pending-vs-gone (D2, D6).
+  const inFlightToolCalls = createInFlightToolCalls();
+  const toolResultStats: ToolResultStats = { pending: 0, gone: 0 };
   wireEvents({
+    inFlightToolCalls,
     // Lazy: `yolo` is constructed further down; a pre-init call throws and the
     // handler declines. See change: yolo-covers-agent-path-gate.
     decideAgentPath: (p) =>
@@ -1629,6 +1646,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     const collect = config.onRoute;
     fastify.addHook("onRoute", (route) => collect({ method: route.method, url: route.url }));
   }
+
+  // Local credential edge stamp: registered BEFORE every other hook (including
+  // the rate limiter) so no later hook can read an unverified request.
+  // See change: loopback-credential-proof (D4).
+  fastify.addHook("onRequest", async (request) => {
+    localCredential.stamp(request.raw, { kind: "http", boundAt: httpBoundAt });
+  });
 
   // Global rate limiter. Two jobs: a real remote-caller ceiling, and making the
   // app recognizable to static analysis (`js/missing-rate-limiting` otherwise
@@ -1944,7 +1968,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   fastify.addHook("onRequest", async (request, reply) => {
     const enforced = identityEnforced();
     const hasPrincipal = (request as { principal?: unknown }).principal != null;
-    const hasLocalToken = verifyLocalToken(request.headers as Record<string, unknown>, localToken);
+    const hasLocalToken = hasLocalCredential(request.headers);
     const allowed = identityFloorAllows({ enforced, path: request.url, method: request.method, hasPrincipal, hasLocalToken });
     if (!allowed) return reply.code(401).send({ success: false, error: "sign_in_required" });
     // D23 break-glass (local-token part): the host-only token with no
@@ -2012,7 +2036,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // prints `http://localhost:<port>/?pi_local=<code>`; the browser exchanges it
   // like `#pi_handoff` and keeps the bearer in memory (no cookies, D22).
   fastify.post("/api/identity/local-code", async (request, reply) => {
-    if (!verifyLocalToken(request.headers as Record<string, unknown>, localToken)) {
+    if (!hasLocalCredential(request.headers)) {
       reply.code(401);
       return { success: false as const, error: "local_token_required" };
     }
@@ -2146,6 +2170,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     sessionManager,
     eventStore,
     networkGuard,
+    isToolInFlight: inFlightToolCalls.isInFlight,
+    toolResultStats,
     sessionArchive,
     remoteTranscriptStore,
     isResolverActive: identityEnforced,
@@ -2313,7 +2339,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     console.log("[dashboard] No client build found — running in API-only mode");
   }
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.
@@ -3002,7 +3028,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // setSpawnDashboardPiPort in process-manager.ts.
       {
         const { setSpawnDashboardPiPort } = await import("./spawn-process/process-manager.js");
-        setSpawnDashboardPiPort(config.piPort);
+        setSpawnDashboardPiPort(config.piPort, config.host);
         // Pin spawned sessions to the transport actually served (read lazily,
         // after the gateway starts) — never to another instance's socket.
         // See change: fix-gateway-socket-stale-owner (D6).
@@ -3668,6 +3694,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
       // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
       fastify.server.on("upgrade", (request, socket, head) => {
+        // Stamp the local-credential verdict FIRST (before the Host/Origin gates):
+        // everything below reads it via `hasLocalCredential(request.headers)`.
+        localCredential.stamp(request, { kind: "http", boundAt: httpBoundAt });
         // Ephemeral single-use ticket (D11) bound to the requested WS route
         // scope. The one cheap read BEFORE the first gate — the host-admission
         // log line names the scope.
@@ -3979,6 +4008,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         }
       }
 
+      httpBoundAt = Date.now();
       await fastify.listen({ port: config.port, host: config.host });
       writePid(process.pid);
       console.log(`Dashboard server running at http://${config.host}:${config.port}`);

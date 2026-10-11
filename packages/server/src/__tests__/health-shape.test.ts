@@ -16,6 +16,7 @@
 
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
 import {
   createMemoryEventStore,
   EMPTY_TRIM_STATS,
@@ -190,6 +191,45 @@ describe("GET /api/health — shape", () => {
     const retention = body.storeRetention as { effective: { maxBytesPerSession: number } };
     expect(retention.effective.maxBytesPerSession).toBe(4 * 262_144);
     expect(retention.effective.maxBytesPerSession).toBeGreaterThan(1000);
+  });
+
+  // E13 — `toolResult` counts the route's `202` and `410` answers; every
+  // pre-existing field is unchanged. See change: distinguish-tool-result-pending-vs-gone (D6).
+  it("toolResult counts one 202 and one 410 additively", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer({ maxEventsPerSession: 2 });
+    const base = `http://localhost:${handle.httpPort}`;
+    const health0 = (await (await fetch(`${base}/api/health`)).json()) as Record<string, unknown>;
+    expect(health0.toolResult).toEqual({ pending: 0, gone: 0 });
+
+    const bridge = new WebSocket(`ws://localhost:${handle.piPort}`);
+    await new Promise<void>((resolve, reject) => {
+      bridge.once("open", () => resolve());
+      bridge.once("error", reject);
+    });
+    const send = (msg: Record<string, unknown>) => bridge.send(JSON.stringify({ sessionId: "s1", ...msg }));
+    const ev = (eventType: string, data: Record<string, unknown>) =>
+      send({ type: "event_forward", event: { eventType, timestamp: Date.now(), data } });
+    send({ type: "session_register", cwd: "/tmp", source: "tui", name: "t" });
+    send({ type: "replay_complete" });
+    await new Promise((r) => setTimeout(r, 150));
+
+    ev("tool_execution_end", { toolCallId: "done", result: "x" });
+    ev("stats_update", {});
+    ev("stats_update", {});
+    ev("stats_update", {});
+    ev("tool_execution_start", { toolCallId: "run", toolName: "bash", args: {} });
+    await new Promise((r) => setTimeout(r, 150));
+
+    const pending = await fetch(`${base}/api/sessions/s1/tool-result/run?pending=1`);
+    expect(pending.status).toBe(202);
+    const gone = await fetch(`${base}/api/sessions/s1/tool-result/done`);
+    expect(gone.status).toBe(410);
+
+    const health = (await (await fetch(`${base}/api/health`)).json()) as Record<string, unknown>;
+    expect(health.toolResult).toEqual({ pending: 1, gone: 1 });
+    expect(typeof (health.storeTrim as Record<string, unknown>).collapsedUpdates).toBe("number");
+    bridge.close();
   });
 
   it("surfaces store-trim counters (instrument-event-store-trim)", async () => {

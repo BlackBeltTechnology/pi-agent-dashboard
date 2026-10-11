@@ -6,3 +6,5 @@ Per-tick bookkeeping prune (fix-long-session-ux-degradation, D3): `selectActiveT
 
 Never probes nested calls by construction (they never enter `toolCalls`); pinned by E17 test. See change: render-nested-tool-calls.
 `synthesizeToolEndEvent` formats structured stored results via `toDisplayString`. See change: render-nested-tool-calls.
+
+Probe sends `?pending=1`. `410` → `synthesizeEvictedEnd` finalizes at once (`[evicted-heal]` warn). `202 {pending:true}` counts like `404` (never finalizes). See change: distinguish-tool-result-pending-vs-gone.

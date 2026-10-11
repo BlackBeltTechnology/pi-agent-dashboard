@@ -87,7 +87,14 @@ export type BridgeDiagnosticEvent =
    * drop or a server reap — all three read as `connection closed` followed by
    * a re-register, so a reconnect storm cannot be attributed.
    */
-  | "watchdog_force_close";
+  | "watchdog_force_close"
+  /**
+   * A MARKED (dashboard-spawned) bridge reached a server at its own endpoint that
+   * could not prove it holds this HOME's local credential, so it aborted before
+   * registering. Delivered only over a later connection to the SAME endpoint
+   * whose proof verified. See change: loopback-credential-proof (D8).
+   */
+  | "server_proof_failed";
 
 /**
  * Bridge -> server: how this bridge chose its endpoint, and every refusal to

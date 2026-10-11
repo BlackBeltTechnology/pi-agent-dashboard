@@ -392,7 +392,8 @@ describe("useStaleToolReconcile hook", () => {
       await vi.advanceTimersByTimeAsync(RECONCILE_POLL_MS + 1);
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/sessions/s1/tool-result/t1");
+    // E14: the probe opts in to the `202` pending answer.
+    expect(fetchMock).toHaveBeenCalledWith("/api/sessions/s1/tool-result/t1?pending=1");
     const tc = result.current.get("s1")!.toolCalls.get("t1")!;
     expect(tc.status).toBe("complete");
     const row = result.current.get("s1")!.messages.find((m) => m.toolCallId === "t1");
@@ -450,6 +451,86 @@ describe("useStaleToolReconcile hook", () => {
     expect(row?.toolStatus).toBe("complete");
     expect(row?.toolDetails?.healedBy).toBe("superseded");
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("[supersede-heal]"));
+  });
+
+  // See change: distinguish-tool-result-pending-vs-gone (test-plan E15–E19).
+  describe("pending (202) and evicted (410) answers", () => {
+    const answer = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+    const cycle = STALE_TOOL_MS + RECONCILE_POLL_MS;
+
+    it("E15: 202 pending ×3 with no later inference leaves the row running", async () => {
+      vi.setSystemTime(STALE_TOOL_MS + 100);
+      const fetchMock = vi.fn().mockResolvedValue(answer(202, { pending: true }));
+      vi.stubGlobal("fetch", fetchMock);
+      const { result } = renderHook(() => useHarness(new Map([["s1", runningToolState("t1", 0)]])));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3 * cycle);
+      });
+      expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+      const state = result.current.get("s1")!;
+      expect(state.toolCalls.get("t1")!.status).toBe("running");
+      // `{pending:true}` is never applied as a result.
+      expect(state.messages.find((m) => m.toolCallId === "t1")?.result).toBeUndefined();
+    });
+
+    it("E16: 410 finalizes the row on the same tick, bumps the heal counter, fetches no more", async () => {
+      vi.setSystemTime(STALE_TOOL_MS + 100);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fetchMock = vi.fn().mockResolvedValue(answer(410, { error: "result no longer available" }));
+      vi.stubGlobal("fetch", fetchMock);
+      const { result } = renderHook(() => useHarness(new Map([["s1", runningToolState("t1", 0)]])));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(RECONCILE_POLL_MS + 1);
+      });
+      const state = result.current.get("s1")!;
+      expect(state.toolCalls.get("t1")!.status).toBe("complete");
+      const row = state.messages.find((m) => m.toolCallId === "t1");
+      expect(row?.toolDetails?.healedBy).toBe("result_evicted");
+      expect(row?.result).toBe("result no longer available");
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/\[evicted-heal\].*total heals: 1/));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3 * cycle);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("E17: 404 ×2 plus a later inference still finalizes as superseded", async () => {
+      vi.setSystemTime(STALE_TOOL_MS + 100);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(404, { error: "x" })));
+      const { result } = renderHook(() => useHarness(new Map([["s1", supersededStuckState("t1")]])));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4 * cycle);
+      });
+      const row = result.current.get("s1")!.messages.find((m) => m.toolCallId === "t1");
+      expect(row?.toolDetails?.healedBy).toBe("superseded");
+    });
+
+    it("E18: 202 ×10 with no later inference never heals", async () => {
+      vi.setSystemTime(STALE_TOOL_MS + 100);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fetchMock = vi.fn().mockResolvedValue(answer(202, { pending: true }));
+      vi.stubGlobal("fetch", fetchMock);
+      const { result } = renderHook(() => useHarness(new Map([["s1", runningToolState("t1", 0)]])));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10 * cycle);
+      });
+      expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(10);
+      expect(result.current.get("s1")!.toolCalls.get("t1")!.status).toBe("running");
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("E19: 202 ×2 plus a later inference heals as superseded", async () => {
+      vi.setSystemTime(STALE_TOOL_MS + 100);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(202, { pending: true })));
+      const { result } = renderHook(() => useHarness(new Map([["s1", supersededStuckState("t1")]])));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4 * cycle);
+      });
+      const row = result.current.get("s1")!.messages.find((m) => m.toolCallId === "t1");
+      expect(row?.toolDetails?.healedBy).toBe("superseded");
+    });
   });
 
   it("re-arms after a 404 rather than probing every tick", async () => {
@@ -692,6 +773,6 @@ describe("useStaleToolReconcile — nested calls (E17)", () => {
     // Only the ROOT is probed; never the nested id.
     for (const call of fetchMock.mock.calls) expect(String(call[0])).not.toContain("call_1/1");
     for (const call of fetchMock.mock.calls) expect(String(call[0])).not.toContain("call_1%2F1");
-    expect(fetchMock).toHaveBeenCalledWith("/api/sessions/s1/tool-result/call_1");
+    expect(fetchMock).toHaveBeenCalledWith("/api/sessions/s1/tool-result/call_1?pending=1");
   });
 });

@@ -1,7 +1,7 @@
 /**
  * Local-proof bootstrap routes (always registered; strict mode or not).
  *
- * `POST /api/local-proof`   — admitted ONLY by `X-Pi-Local-Token`; mints a one-time
+ * `POST /api/local-proof`   — admitted ONLY by a verified local credential (`X-Pi-Local-Proof`, or the legacy raw token); mints a one-time
  *                              code (60 s TTL, single use).
  * `GET  /auth/local-proof`  — redeems the code, sets the httpOnly `pi_dash_local`
  *                              proof cookie, redirects to `/`.
@@ -11,6 +11,7 @@
  * See change: harden-trust-and-credential-boundaries (D2/D6).
  */
 import type { FastifyInstance } from "fastify";
+import { hasLocalCredential } from "../auth/local-credential.js";
 import {
   LOCAL_PROOF_COOKIE,
   LOCAL_PROOF_MAX_AGE_S,
@@ -18,14 +19,13 @@ import {
   type LocalTrustContext,
   signLocalProof,
 } from "../auth/local-proof.js";
-import { verifyLocalToken } from "../auth/local-token.js";
 
 export function registerLocalProofRoutes(
   fastify: FastifyInstance,
   deps: { codes: LocalProofCodeStore; ctx: LocalTrustContext },
 ): void {
   fastify.post("/api/local-proof", async (request, reply) => {
-    if (!verifyLocalToken(request.headers as Record<string, unknown>, deps.ctx.localToken)) {
+    if (!hasLocalCredential(request.headers)) {
       reply.code(401);
       return { success: false as const, error: "local token required" };
     }
