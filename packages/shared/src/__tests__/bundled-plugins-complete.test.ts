@@ -25,11 +25,12 @@
  * If this test fails: add the missing plugin dir to `piDashboard.bundledPlugins`
  * (kb-plugin case), or remove the stale entry (honcho case).
  */
-import { describe, it, expect } from "vitest";
-import { parse } from "yaml";
+
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import { collectPluginRuntimeDeps, readBundledPluginIds } from "../runtime-overlay/materialize-plugins.mjs";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
@@ -155,8 +156,10 @@ describe("piDashboard.bundledPlugins completeness", () => {
 describe("cwd-guard CodeQL barrier model (E41)", () => {
   const modelPath = path.resolve(__dirname, "../../../../.github/codeql/extensions/cwd-guard.model.yml");
   const rows = (parse(fs.readFileSync(modelPath, "utf8")) as {
-    extensions: Array<{ data: string[][] }>;
-  }).extensions.flatMap((e) => e.data);
+    extensions: Array<{ addsTo: { extensible: string }; data: string[][] }>;
+  }).extensions
+    .filter((e) => e.addsTo.extensible === "barrierGuardModel")
+    .flatMap((e) => e.data);
   const has = (module: string, member: string) => rows.some((r) => r[0] === module && r[1] === member && r[2] === "true" && r[3] === "path-injection");
   const MODULES = [
     "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js",
@@ -173,5 +176,13 @@ describe("cwd-guard CodeQL barrier model (E41)", () => {
 
   it.each(MODULES)("models the writer's tokenAllows(token, cwd) check for %s", (m) => {
     expect(has(m, "Member[tokenAllows].Argument[1]")).toBe(true);
+  });
+
+  it.each(MODULES)("models admitCwd Argument[0] as a barrier (the guard itself canonicalizes the raw cwd) for %s", (m) => {
+    const barrierRows = (parse(fs.readFileSync(modelPath, "utf8")) as {
+      extensions: Array<{ addsTo: { extensible: string }; data: string[][] }>;
+    }).extensions.filter((e) => e.addsTo.extensible === "barrierModel");
+    const found = barrierRows.flatMap((e) => e.data).some((r) => r[0] === m && r[1] === "Member[admitCwd].Argument[0]" && r[2] === "path-injection");
+    expect(found).toBe(true);
   });
 });
