@@ -139,7 +139,7 @@ async function admitViaHold(
   if (held.kind === "admit" && admissionAllows(held, cwd)) {
     return { ok: true, scope: { kind: "project", cwd, admission: held.token } };
   }
-  return null;
+  return held.kind === "indeterminate" ? admissionUnavailable(cwd) : null;
 }
 
 /** Admit a project `cwd`: `admit` → token-bearing scope; `indeterminate` → 503; `refuse` → hold (writes) or 403. */

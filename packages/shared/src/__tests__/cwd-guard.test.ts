@@ -331,6 +331,59 @@ describe("admitCwd — the deadline covers the WHOLE decision (B2)", () => {
   });
 });
 
+describe("admitCwd — nothing runs after the deadline (r2 B1)", () => {
+  it("a realpath that settles AFTER the deadline spawns no git and mints no token", async () => {
+    const { main, worktree } = makeRepoWithWorktree();
+    const { runner, spy } = spyRunner();
+    const onIndeterminate = vi.fn();
+    const r = await admitCwd(worktree, () => [main], {
+      deadlineMs: 100,
+      runner,
+      onIndeterminate,
+      realpath: (p) => new Promise((resolve) => setTimeout(() => resolve({ kind: "ok", path: p }), 400)),
+    });
+    expect(r.kind).toBe("indeterminate");
+    await sleep(900); // the late realpath settles; decide() must stop there
+    expect(spy.total).toBe(0);
+    expect(onIndeterminate).toHaveBeenCalledTimes(1); // the late tail does not report a second verdict
+  });
+});
+
+describe("admitCwd — an unresolvable known folder is a failure to decide (r2 B2)", () => {
+  it("no certain match + a known folder that cannot be canonicalized (EACCES) → indeterminate, not refuse", async () => {
+    const dir = makeDir("admit-uncertain-");
+    const pin = makeDir("admit-uncertain-pin-");
+    const real = await import("../platform/git.js");
+    const r = await admitCwd(dir, () => [pin], {
+      realpath: async (p) => (p === pin ? { kind: "error", code: "EACCES" } : real.realpathAsync(p)),
+    });
+    expect(r.kind).toBe("indeterminate");
+    if (r.kind === "indeterminate") expect(r.failedProbes).toEqual(["realpath"]);
+  });
+
+  it("a certain direct match still admits even when another known folder is unresolvable", async () => {
+    const dir = makeDir("admit-certain-");
+    const pin = makeDir("admit-uncertain-pin2-");
+    const real = await import("../platform/git.js");
+    const r = await admitCwd(dir, () => [pin, dir], {
+      realpath: async (p) => (p === pin ? { kind: "error", code: "EACCES" } : real.realpathAsync(p)),
+    });
+    expect(r.kind).toBe("admit");
+  });
+
+  it("a missing (ENOENT) known folder is NOT uncertain: a refusal stays a refusal", async () => {
+    const dir = makeDir("admit-gone-pin-");
+    const r = await admitCwd(dir, () => [join(dir, "..", "no-such-pin")], {});
+    expect(r.kind).toBe("refuse");
+  });
+
+  it("issueHeldAdmission: a realpath error is indeterminate, never a mint or a plain refusal", async () => {
+    const dir = makeDir("admit-held-eacces-");
+    const r = await issueHeldAdmission({ kind: "admit", canonCwd: dir }, dir, async () => ({ kind: "error", code: "EACCES" }));
+    expect(r.kind).toBe("indeterminate");
+  });
+});
+
 describe("admitCwd — canonicalization failures are failures to decide (B3)", () => {
   it("a non-ENOENT realpath error while canonicalizing the derived main checkout is indeterminate, never refuse", async () => {
     const { main, worktree } = makeRepoWithWorktree();
@@ -373,6 +426,7 @@ describe("admitCwd — deadline, abort and slot-on-exit", () => {
     const hungResults = await Promise.all(dirs.map((d) => admitCwd(d, () => [], { runner: hung, deadlineMs: 300 })));
     expect(new Set(hungResults.map(kindOf))).toEqual(new Set(["indeterminate"]));
     expect(Date.now() - t0).toBeLessThan(900);
+    await sleep(50); // the derivation's own deadline (same instant) aborts git
     expect(aborted).toBeGreaterThan(0);
 
     // Children have NOT exited yet → all four slots are still held.

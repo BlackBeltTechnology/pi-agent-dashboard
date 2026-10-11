@@ -8,4 +8,7 @@ Derivation: global cap `ADMISSION_MAX_CONCURRENT`=4, per-probe `ADMISSION_PROBE_
 
 `admissionAllows(admission, cwd)` is the sync branch predicate routes use after `await admitCwd(...)` (CodeQL barrier guard, `cwd` = Argument[1]). `AdmissionToken` is request-scoped, module-private (`WeakMap`): `releaseAdmission`, `isAdmissionLive`, `tokenAllows(token, cwd)` (writer/live reader), `issueHeldAdmission(decision, rawCwd)` (mints from the host's post-verdict DECISION only when its canonical cwd equals the request's). A token never crosses the wire.
 
+
+Whole-decision deadline is fenced (no late derivation or token). Canonicalization is errno-aware: `canonKnownClassified` marks the known set `uncertain` on a non-ENOENT error, so "no match" becomes `indeterminate`; `issueHeldAdmission(decision, rawCwd, realpath?)` returns `indeterminate` on a realpath error.
+
 See change: harden-plugin-cwd-admission.

@@ -283,6 +283,21 @@ describe("resolveCwdVerdict (shared re-run)", () => {
     ).toBe("refuse");
   });
 
+  it("r2 B2: an allow-always with an unresolvable known folder and no match is indeterminate, not refuse", async () => {
+    const dir = unknownDir();
+    const pin = unknownDir("pin");
+    const { realpathAsync } = await import("@blackbelt-technology/pi-dashboard-shared/platform/git.js");
+    const out = await resolveCwdVerdict(
+      dir,
+      { kind: "allow", verdict: "allow-always", subject: dir },
+      {
+        known: () => [pin],
+        realpath: async (p) => (p === pin ? { kind: "error", code: "EACCES" } : realpathAsync(p)),
+      },
+    );
+    expect(out).toEqual({ kind: "indeterminate" });
+  });
+
   it("core site (no rerunAlways): an allow-always that is not in the known set is refused", async () => {
     const dir = unknownDir();
     expect(

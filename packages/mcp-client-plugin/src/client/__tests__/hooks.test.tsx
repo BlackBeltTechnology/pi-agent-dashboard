@@ -181,3 +181,38 @@ describe("transient 503 retry chain is per key (F4)", () => {
     invalidateEffective("/shared-cwd");
   });
 });
+
+
+describe("a superseded 403 never re-poisons the not-tracked cache (r2 B3)", () => {
+  it("out-of-order 403 (old request) after 200 (newer request) leaves the view cached and no refusal recorded", async () => {
+    const forbidden = {
+      ok: false,
+      status: 403,
+      json: async () => ({ error: "not-allowed", message: "cwd not allowed" }),
+    } as unknown as Response;
+    let rejectOld!: (r: Response) => void;
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => (rejectOld = resolve))) // old, still pending
+      .mockImplementationOnce(async () => jsonOk(view())); // newer
+    vi.stubGlobal("fetch", fetchMock);
+
+    const old = loadEffective("/race");
+    const oldSettled = old.then(
+      () => "ok",
+      () => "rejected",
+    );
+    // A pin-list change invalidates the pending request and a fresh load succeeds.
+    invalidateEffective("/race");
+    await loadEffective("/race");
+    // Now the SUPERSEDED request finally answers 403.
+    rejectOld(forbidden);
+    expect(await oldSettled).toBe("rejected");
+
+    // The newer success must still be what the store serves — no `notTracked` re-poisoning.
+    const again = await loadEffective("/race");
+    expect(again).toEqual(view());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    invalidateEffective("/race");
+  });
+});

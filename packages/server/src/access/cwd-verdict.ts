@@ -26,9 +26,13 @@ import {
 import {
   type AdmitCwdOptions,
   admitCwd,
-  canonPathAsync,
+  canonKnownClassified,
 } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
-import { hasGitPathSegment, realpathAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import {
+  hasGitPathSegment,
+  type RealpathOutcome,
+  realpathAsync,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { type HoldTarget, holdDenial } from "./denial-hold.js";
 import { isUngrantableSubject } from "./forbidden-subjects.js";
 import type { Resolution } from "./grant-coordinator.js";
@@ -42,6 +46,8 @@ export interface VerdictDeps {
    * core site, whose guard IS the membership check.
    */
   rerunAlways?(canonCwd: string): Promise<"admit" | "refuse" | "indeterminate">;
+  /** Test seam: injected errno-reporting realpath. */
+  realpath?: (p: string) => Promise<RealpathOutcome>;
 }
 
 /** Re-run the guard that denied `cwd` after the operator answered. See module doc. */
@@ -51,7 +57,7 @@ export async function resolveCwdVerdict(
   deps: VerdictDeps,
 ): Promise<CwdHoldDecision> {
   if (resolution.kind !== "allow") return { kind: "refuse" };
-  const real = await realpathAsync(path.resolve(cwd));
+  const real = await (deps.realpath ?? realpathAsync)(path.resolve(cwd));
   if (real.kind !== "ok") return { kind: "refuse" };
   const canon = real.path;
   if (hasGitPathSegment(canon) || isUngrantableSubject(canon)) return { kind: "refuse" };
@@ -63,11 +69,11 @@ export async function resolveCwdVerdict(
 
   // Canonical membership against sessions ∪ pins, both sides: a session that
   // registered for this cwd while the dialog was open admits too.
-  const knownCanon = await Promise.all(deps.known().map(canonPathAsync));
-  if (knownCanon.includes(canon)) return { kind: "admit", canonCwd: canon };
+  const knownCanon = await canonKnownClassified(deps.known, deps.realpath);
+  if (knownCanon.canon.includes(canon)) return { kind: "admit", canonCwd: canon };
 
   if (resolution.verdict === "allow-always") {
-    if (!deps.rerunAlways) return { kind: "refuse" };
+    if (!deps.rerunAlways) return { kind: knownCanon.uncertain ? "indeterminate" : "refuse" };
     const outcome = await deps.rerunAlways(canon);
     return outcome === "admit" ? { kind: "admit", canonCwd: canon } : { kind: outcome };
   }

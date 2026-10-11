@@ -151,18 +151,20 @@ describe("E23: every route that reaches the writer / live reader passes a live t
     const cwd = dir(hh, "proj");
     hh.known.push(cwd);
     const q = `scope=project&cwd=${encodeURIComponent(cwd)}`;
-    const calls = await Promise.all([
-      put(hh, cwd),
-      hh.app.inject({ method: "DELETE", url: `/api/mcp-client/servers/x?${q}` }),
-      hh.app.inject({
+    // Sequential: the routes act on ONE shared server entry, so concurrent calls would make
+    // each status depend on interleaving (a convert racing the save), not on admission.
+    const calls = [
+      await put(hh, cwd),
+      await hh.app.inject({
         method: "PUT",
         url: "/api/mcp-client/servers/x/enabled",
         payload: { scope: "project", cwd, enabled: false },
       }),
-      hh.app.inject({ method: "POST", url: "/api/mcp-client/servers/x/convert", payload: { scope: "project", cwd } }),
-      hh.app.inject({ method: "GET", url: `/api/mcp-client/live?cwd=${encodeURIComponent(cwd)}` }),
-      hh.app.inject({ method: "GET", url: `/api/mcp-client/effective?cwd=${encodeURIComponent(cwd)}` }),
-    ]);
+      await hh.app.inject({ method: "POST", url: "/api/mcp-client/servers/x/convert", payload: { scope: "project", cwd } }),
+      await hh.app.inject({ method: "GET", url: `/api/mcp-client/live?cwd=${encodeURIComponent(cwd)}` }),
+      await hh.app.inject({ method: "GET", url: `/api/mcp-client/effective?cwd=${encodeURIComponent(cwd)}` }),
+      await hh.app.inject({ method: "DELETE", url: `/api/mcp-client/servers/x?${q}` }),
+    ];
     for (const r of calls) expect([200, 404, 409]).toContain(r.statusCode);
     const methods = new Set(hh.seen.map((s) => s.method));
     for (const m of ["saveServer", "removeServer", "setEnabled", "convertAdapterLeftovers", "getLiveState", "getEffectiveView"]) {

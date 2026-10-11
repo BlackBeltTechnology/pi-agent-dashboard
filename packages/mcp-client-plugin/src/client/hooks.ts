@@ -97,9 +97,14 @@ export function loadEffective(
       return view;
     },
     (err: unknown) => {
-      if (inflight.get(key) === request) inflight.delete(key);
-      // Remember a cwd refusal so a remount / sibling pill does not re-ask.
-      if (err instanceof ApiError && err.isNotAllowed) notTracked.set(key, err);
+      // A SUPERSEDED request (invalidated by a pin-list change, or replaced by a forced
+      // reload) must not write state either way: its late 403 would otherwise shadow the
+      // newer request's success, because `notTracked` is consulted before the view cache.
+      if (inflight.get(key) === request) {
+        inflight.delete(key);
+        // Remember a cwd refusal so a remount / sibling pill does not re-ask.
+        if (err instanceof ApiError && err.isNotAllowed) notTracked.set(key, err);
+      }
       throw err;
     },
   );
