@@ -30,6 +30,7 @@ import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared
 import {
   BRIDGE_PURPOSE,
   canonicalBinding,
+  isLoopbackLiteral,
   LOCAL_PROOF_HEADER,
   LOCAL_PROOF_SERVER_HEADER,
   mintProof,
@@ -37,7 +38,6 @@ import {
   verifyCounterProof,
 } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import type { DialPlan } from "./connection.js";
-import { isRemoteEndpoint } from "./remote-registration-gate.js";
 
 const CONNECT_TIMEOUT_MS = 10_000;
 
@@ -131,10 +131,13 @@ export async function localCredentialPlan(
   deps: LocalCredentialPlanDeps = {},
 ): Promise<DialPlan | undefined> {
   if (endpoint.startsWith("ws+unix:")) return undefined;
-  if (isRemoteEndpoint(endpoint)) return undefined;
   const target = parseEndpoint(endpoint);
-  // `createConnection` hands `ws` a plain socket, so only a cleartext loopback dial qualifies.
-  if (!target || new URL(endpoint).protocol !== "ws:") return undefined;
+  // Loopback means `localhost` or ANY `127/8` / `::1` literal — the same classifier
+  // the spawner uses to mark an endpoint, so a marked `127.0.0.5` dial still gets a
+  // proof and server verification (`isRemoteEndpoint` only knows 127.0.0.1).
+  if (!target || !(target.host === "localhost" || isLoopbackLiteral(target.host))) return undefined;
+  // `createConnection` hands `ws` a plain socket, so only a cleartext dial qualifies.
+  if (new URL(endpoint).protocol !== "ws:") return undefined;
 
   const marker = "marker" in deps ? deps.marker : process.env[REQUIRE_SERVER_PROOF_ENV];
   const enforce = markerEnforces(marker, endpoint);

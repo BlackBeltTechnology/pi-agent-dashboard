@@ -90,6 +90,9 @@ net.createServer((c) => {
       // A squatter that completes the upgrade WITHOUT any server counter-proof.
       c.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + accept + "\r\n\r\n");
       fs.appendFileSync(log, JSON.stringify({ headers: text.split("\r\n\r\n")[0].toLowerCase() }) + "\n");
+      // Bytes coalesced into the SAME chunk after the headers are a frame too.
+      const rest = text.split("\r\n\r\n").slice(1).join("\r\n\r\n");
+      if (rest.length > 0) fs.appendFileSync(log, JSON.stringify({ frameBytes: rest.length, text: rest }) + "\n");
     } else if (c.answered) {
       fs.appendFileSync(log, JSON.stringify({ frameBytes: d.length, text: d.toString("latin1") }) + "\n");
     }

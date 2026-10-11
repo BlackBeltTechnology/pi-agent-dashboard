@@ -29,7 +29,7 @@ if command -v node &>/dev/null && [ -f "$CONFIG_FILE" ]; then
   PORT=$(node -e "try{console.log(require('$CONFIG_FILE').port||$DEFAULT_PORT)}catch{console.log($DEFAULT_PORT)}" 2>/dev/null)
   DEV_BUILD=$(node -e "try{console.log(require('$CONFIG_FILE').devBuildOnReload?'true':'false')}catch{console.log('false')}" 2>/dev/null)
   # The host the server binds: the dial below is an address LITERAL derived from it.
-  BIND_HOST=$(node -e "try{console.log(require('$CONFIG_FILE').host||'')}catch{console.log('')}" 2>/dev/null)
+  BIND_HOST=$(node -e "try{console.log(require('$CONFIG_FILE').bindHost||'')}catch{console.log('')}" 2>/dev/null)
 else
   PORT="$DEFAULT_PORT"
   DEV_BUILD="false"

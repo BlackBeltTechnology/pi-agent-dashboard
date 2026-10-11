@@ -189,6 +189,41 @@ describe("F4 the report slot follows the endpoint, not the connection", () => {
   });
 });
 
+describe("an identity report never travels over another endpoint's verified open", () => {
+  it("a failure recorded at A is not flushed after a verified open at B", async () => {
+    const A = "ws://127.0.0.1:9999";
+    const B = "ws://127.0.0.1:8888";
+    const verifyFor: Record<string, DialPlan["verifyUpgrade"]> = { [A]: verifyBad, [B]: verifyGood };
+    const planDial = async (base: string): Promise<DialPlan> => ({ verifyUpgrade: verifyFor[base] });
+    const { cm, reports } = mk({ planDial, credentialsFor: () => ({ planDial }) });
+    cm.connect();
+    await flush();
+    FakeWs.instances.at(-1)!.respond(); // identity failure at A
+    expect(reports).toHaveLength(1);
+    await cm.retargetTo(B, { trigger: "test" });
+    await vi.advanceTimersByTimeAsync(300_000);
+    const atB = FakeWs.instances.at(-1)!;
+    expect(atB.url).toBe(B);
+    atB.respond(); // verified open at B
+    expect(atB.sent.filter((s) => JSON.parse(s).type === "bridge_diagnostic")).toHaveLength(0);
+  });
+});
+
+describe("a marked dial that opens without ever emitting upgrade is refused", () => {
+  it("never flushes buffered frames to an unverified peer", async () => {
+    const { cm, reports } = mk({ planDial: async () => ({ verifyUpgrade: verifyGood }) });
+    cm.send({ type: "session_register", sessionId: "sess-1" });
+    cm.connect();
+    await flush();
+    const ws = FakeWs.instances[0];
+    ws.readyState = 1;
+    ws.onopen?.(); // `open` with no preceding `upgrade`
+    expect(ws.sent).toHaveLength(0);
+    expect(reports.map((r) => r.cause)).toEqual(["server-proof-missing"]);
+    expect(cm.isConnected).toBe(false);
+  });
+});
+
 describe("F5 pre-connect failure is transient", () => {
   it("a connector rejection uses the normal backoff, with no identity report", async () => {
     const { cm, reports } = mk({

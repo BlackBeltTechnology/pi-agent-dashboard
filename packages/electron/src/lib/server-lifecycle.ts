@@ -304,7 +304,7 @@ interface KnownServerEntry {
 
 interface MinimalConfig {
   port: number;
-  /** The host the dashboard binds (`config.host`); main-process calls dial `localDialHost(host)`. */
+  /** The host the dashboard binds (config.json `bindHost`); main-process calls dial `localDialHost(host)`. */
   host?: string;
   piPort: number;
   knownServers: KnownServerEntry[];
@@ -324,7 +324,8 @@ export function loadMinimalConfig(): MinimalConfig {
       : [];
     return {
       port: typeof parsed.port === "number" ? parsed.port : defaults.port,
-      ...(typeof parsed.host === "string" && parsed.host ? { host: parsed.host } : {}),
+      // The persisted field is `bindHost` (shared `DashboardConfig`), not `host`.
+      ...(typeof parsed.bindHost === "string" && parsed.bindHost ? { host: parsed.bindHost } : {}),
       piPort: typeof parsed.piPort === "number" ? parsed.piPort : defaults.piPort,
       knownServers,
     };

@@ -178,6 +178,30 @@ describe("localCredentialPlan", () => {
     expect(plan!.verifyUpgrade!({ headers: {} })).toMatchObject({ ok: false });
   });
 
+  it("a marked 127/8 endpoint other than 127.0.0.1 still gets a proof and server verification", async () => {
+    const plan = await localCredentialPlan("ws://127.0.0.5:9999", {
+      env: { homedir: home },
+      marker: "ws://127.0.0.5:9999",
+      connect: fakeConnect("127.0.0.5"),
+    });
+    expect(plan?.headers?.["X-Pi-Local-Proof"]).toBeTruthy();
+    expect(plan?.verifyUpgrade).toBeTypeOf("function");
+    const proof = parseProof(plan!.headers!["X-Pi-Local-Proof"])!;
+    expect(verifyProofMac(deriveKey(TOKEN), proof, "127.0.0.5:9999", "bridge")).toBe(true);
+  });
+
+  it("a non-loopback address gets no plan even when it is marked", async () => {
+    const calls: Array<{ host: string; port: number }> = [];
+    expect(
+      await localCredentialPlan("ws://10.1.2.3:9999", {
+        env: { homedir: home },
+        marker: "ws://10.1.2.3:9999",
+        connect: fakeConnect("10.1.2.3", calls),
+      }),
+    ).toBeUndefined();
+    expect(calls).toHaveLength(0);
+  });
+
   it("a marker for another endpoint does not demand a counter-proof here", async () => {
     const plan = await localCredentialPlan("ws://127.0.0.1:7777", {
       env: { homedir: home },

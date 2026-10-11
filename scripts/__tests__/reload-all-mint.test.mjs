@@ -45,6 +45,11 @@ describe("reload-all.sh inline mint (E21)", () => {
     expect(inline).toBe("v1.1760000000000.AAAAAAAAAAAAAAAAAAAAAA.Up8ranWviPNpooRhD_OQ0bmm91V27wk-lxCb07z_HKk");
   });
 
+  it("reads the persisted bind host from config.json `bindHost` (the shared DashboardConfig field), not `host`", () => {
+    expect(SCRIPT).toContain(".bindHost||''");
+    expect(SCRIPT).not.toMatch(/require\('\$CONFIG_FILE'\)\.host\b/);
+  });
+
   it("never sends the raw token header", () => {
     expect(SCRIPT.toLowerCase()).not.toContain("x-pi-local-token");
   });

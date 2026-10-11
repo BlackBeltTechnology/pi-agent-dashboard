@@ -979,6 +979,7 @@ export class ConnectionManager {
     // and nothing is dispatched from — a peer that cannot prove the credential.
     // A WebSocket without an `upgrade` event fails closed.
     // See change: loopback-credential-proof (D6, D8).
+    let failDial: ((cause: ServerProofFailure) => void) | undefined;
     if (plan?.verifyUpgrade) {
       const ws = this.ws;
       const verify = plan.verifyUpgrade;
@@ -1007,6 +1008,7 @@ export class ConnectionManager {
         }
         this.handleDisconnect();
       };
+      failDial = fail;
       if (typeof ws.on !== "function") {
         fail("server-proof-missing");
         return;
@@ -1025,6 +1027,13 @@ export class ConnectionManager {
     }
 
     this.ws.onopen = () => {
+      // A marked dial may open ONLY after its counter-proof verified. Production
+      // `ws` always emits `upgrade` first; an injectable implementation that does
+      // not must not flush buffered frames to an unverified peer.
+      if (failDial && !this.dialVerified) {
+        failDial("server-proof-missing");
+        return;
+      }
       // Reset backoff on successful connection
       this.backoff = 0;
       this.quarantineFailures = 0;
@@ -1148,7 +1157,11 @@ export class ConnectionManager {
     if (!this.dialVerified || this.pendingIdentityReports.length === 0) return;
     const sessionId = this.getSessionIdForReports?.();
     if (!sessionId) return;
-    const pending = this.pendingIdentityReports.splice(0);
+    // Only this endpoint's failures: a malformed marker enforces on EVERY loopback
+    // dial, so the slot can hold failures from another endpoint, which must not
+    // travel over this connection.
+    const pending = this.pendingIdentityReports.filter((r) => r.endpoint === this.url);
+    this.pendingIdentityReports = this.pendingIdentityReports.filter((r) => r.endpoint !== this.url);
     for (const r of pending) {
       try {
         this.ws?.send(
