@@ -40,6 +40,8 @@ import {
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import { isRecoveryCandidate, isShutdownWindowCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { rank } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import { LIVE_PREVIEW_TIER, TERMINAL_TIER } from "@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import compress from "@fastify/compress";
@@ -62,7 +64,7 @@ import { YOLO_ENV } from "./access/yolo-env.js";
 import { YoloController } from "./access/yolo-session.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { resolveRedirectBase } from "./auth/auth.js";
-import { authorizeWsUpgrade, registerAuthPlugin } from "./auth/auth-plugin.js";
+import { authorizeWsUpgrade, effectiveSessionTier, registerAuthPlugin } from "./auth/auth-plugin.js";
 import { registerBearerAuth, registerDeviceSessionRoutes } from "./auth/bearer-auth.js";
 import {
   computeBindReachability,
@@ -106,7 +108,11 @@ import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
 import type { OAuthLoginFlow } from "./auth/pi-oauth-types.js";
 import { createPluginRequestLane } from "./plugin-request-lane.js";
 import type { PluginRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import { PasskeyService } from "./auth/passkey/passkey-service.js";
+import { resolveRpContext } from "./auth/passkey/rp-context.js";
+import { UserDirectory } from "./auth/passkey/user-directory.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
+import type { TieredSocket } from "./pairing/ws-tier-gate.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import {
   type CoreWsRouteScope,
@@ -230,6 +236,7 @@ import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { registerOpenSpecRoutes } from "./routes/openspec-routes.js";
 import { registerPackageRoutes } from "./routes/package-routes.js";
 import { PUBLIC_PAIRING_PREFIXES, registerPairingRoutes } from "./routes/pairing-routes.js";
+import { registerUserRoutes } from "./routes/user-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
@@ -1942,6 +1949,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
     }
   });
+  // Native passkey users (user directory + WebAuthn ceremonies). Always
+  // constructed (cheap: one small file read) so `/api/users` can report
+  // "disabled"; inert until `auth.passkeys.enabled`, which the auth plugin
+  // applies at register and on every reload. The RP context is the SAME
+  // redirect-base resolution OAuth uses. See change: add-passkey-user-auth.
+  const passkeyService = new PasskeyService({
+    directory: new UserDirectory(),
+    getRpContext: (override) => resolveRpContext(config.port, override),
+  });
+  passkeyService.configure(config.authConfig);
   if (config.authConfig) {
     await registerAuthPlugin(fastify, {
       authConfig: config.authConfig,
@@ -1949,6 +1966,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       resolvedTrustedNetworks: config.resolvedTrustedNetworks,
       localToken,
       localTrust,
+      passkeys: passkeyService,
     });
   }
   // `/auth/status` is what the client's WS-refusal handler polls to tell
@@ -2587,6 +2605,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       const addr = fastify.server.address();
       return typeof addr === "object" && addr !== null ? addr.port : config.port;
     },
+  });
+  // Operator user directory (passkeys). See change: add-passkey-user-auth.
+  registerUserRoutes(fastify, {
+    service: passkeyService,
+    localToken,
+    localTrust,
+    hostAdmission: () => getHostGateCtx().admission,
   });
   // Mint a single-use WS ticket (D11). Authenticated (networkGuard: cookie,
   // trusted network, or Authorization: Bearer). The ticket is bound to a WS
@@ -3762,7 +3787,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           localToken,
           localTrust,
           requireIdentityTicket,
+          // A revoked / disabled passkey user's cookie opens no socket (D4).
+          isSessionLive: (p) => effectiveSessionTier(p, passkeyService) !== null,
         });
+        // Cookie-session sockets carry the session's LIVE tier (passkey users
+        // re-read the directory). Terminals need operate, live previews
+        // control; browser messages are gated per type in the gateway.
+        // See change: add-passkey-user-auth.
+        const sessionPayload = upgradeAuth.ok ? upgradeAuth.session : undefined;
+        const sessionTierOf = sessionPayload ? () => effectiveSessionTier(sessionPayload, passkeyService) : undefined;
+        const roadTier = scope === "terminal" ? TERMINAL_TIER : scope === "live" ? LIVE_PREVIEW_TIER : undefined;
+        if (sessionTierOf && roadTier) {
+          const t = sessionTierOf();
+          if (t === null || rank(t) < rank(roadTier)) {
+            socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+            socket.destroy();
+            return;
+          }
+        }
         if (!upgradeAuth.ok) {
           // 401 when an auth secret is configured (cookie realm), else 403 for
           // the no-auth allowances — preserving the prior status semantics.
@@ -3830,6 +3872,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 bound.principalExpiresAt = upgradeAuth.principalExpiresAt;
               }
               if (grants) (ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants = grants;
+              if (sessionTierOf) (ws as TieredSocket).sessionTier = sessionTierOf;
               browserGateway.wss.emit("connection", ws, request);
             });
             if (identityEnforced() && policyRegistry.hasPolicy()) {

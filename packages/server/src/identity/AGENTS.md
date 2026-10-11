@@ -4,6 +4,7 @@ Files in this directory. One row per source file. Multi-user identity plane (See
 
 | File | Purpose |
 |------|---------|
+| `__tests__/ws-message-tiers.test.ts` | `WS_MESSAGE_TIERS` equals SESSION_OWNED ∪ SESSION_LIST ∪ NON_SESSION (total over protocol); unlisted ⇒ operate; REST-parity spot checks. See change: add-passkey-user-auth. |
 | `activation.ts` | D21 self-lockout guard. `isIdentityEnforced` / `identityDisarmedWarning` over `{resolverActive, loginProviderRegistered, legacyConnectorsActive, trustedPolicyPlugin, registeredPolicyCount}`. Armed only when fully configured; never aborts boot. |
 | `auth-context.ts` | `buildAuthContext`: curated bounded `AuthContext` handed to resolvers (never the raw request). |
 | `bootstrap-grants.ts` | Per-socket policy grants for non-session state. `decideBootstrapGrants(principal, policy)` → `{workspace,openspec,branch,terminal}`; `FRAME_FAMILY` maps frame type → family. Decided at WS upgrade, applied synchronously by the gateway. Operator ⇒ all; no principal ⇒ none; policy fault ⇒ deny. See change: add-multi-user-identity-plane (18.37a). |
@@ -14,7 +15,7 @@ Files in this directory. One row per source file. Multi-user identity plane (See
 | `domain-fanout.ts` | `deliverDomainEvent`: policy-driven per-socket send of plugin domain events; operator bypass; no policy ⇒ plain broadcast. |
 | `host-access.ts` | `HostPolicy` interface (`authorize({principal,action,resource,probe?})`) + `gateHttpNonSession`. |
 | `host-resources.ts` | `HostActions` constants + `hostResource` descriptors. Families incl. `editor.write`, `live.read`, `live.write`. |
-| `http-road-classification.ts` | `classifyHttpRoad(method, routePattern)` → identity / session / session-handler / non-session `{action,resource}`. Covers `/api/*`, `/editor/` (`editor.write`), `/live/` (`live.read` / `live.write`). |
+| `http-road-classification.ts` | `classifyHttpRoad(method, routePattern)` → identity / session / session-handler / non-session `{action,resource}`. Covers `/api/*`, `/editor/` (`editor.write`), `/live/` (`live.read` / `live.write`). `users` segment → `access`. See change: add-passkey-user-auth. |
 | `identity-floor.ts` | D24 signed-out floor: enforced + no principal ⇒ `/api/`,`/editor/`,`/live/` 401 except pre-auth GETs and the one break-glass `POST /api/identity/local-exchange`. |
 | `identity-me.ts` | `GET /api/identity/me` payload `{enforced, principal, localOperator, can}`. Uses `probe:true` so UI probes are never audited. |
 | `identity-registration-tracker.ts` | Per-plugin ledger of identity registrations; releases a failed plugin's; `freeze()` latches after boot. |

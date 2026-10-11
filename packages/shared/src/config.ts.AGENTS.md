@@ -24,3 +24,7 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 `DashboardConfig` gains `folderListMode` (`"classic" | "accordion"`, default `classic`; unknown value → `classic`) and `folderAttentionPeek` (boolean, default `true`). Both are sidebar session-list defaults the client reads through `resolveFolderListMode`; a focus profile overrides `folderListMode` while focus is enabled. See change: add-focus-mode-and-card-block-toggles.
 
 - `SessionListConfig.archiveServiceSessionsOnEnd` (default `true`); parse non-boolean → default; validate non-boolean → error. `archiveAfterDays = 0` disables age-based archiving only. See change: archive-service-sessions-on-end.
+
+## add-passkey-user-auth
+
+`AuthConfig.groupTiers?: Record<group, Tier>` (`parseGroupTiers` keeps valid tiers only; none ⇒ unset) + `passkeys?: {enabled}`; `passkeys.enabled` alone is an auth-relevant block. See change: add-passkey-user-auth.

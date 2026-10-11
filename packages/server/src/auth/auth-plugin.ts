@@ -6,6 +6,7 @@
 import crypto from "node:crypto";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
+import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import cookie from "@fastify/cookie";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { PUBLIC_PAIRING_PREFIXES } from "../routes/pairing-routes.js";
@@ -17,8 +18,10 @@ import {
   ensureAuthSecret,
   exchangeCode,
   fetchUserInfo,
+  idTokenGroups,
   isUserAllowed,
   parseAuthCookie,
+  resolveGroupTier,
   type ResolvedProvider,
   resolveRedirectBase,
   signToken,
@@ -27,6 +30,9 @@ import {
   warnOnInvalidRedirectBase,
 } from "./auth.js";
 import { isBypassed } from "./bypass-urls.js";
+import { renderLoginPasskeySection } from "./passkey/passkey-pages.js";
+import { registerPasskeyRoutes } from "./passkey/passkey-routes.js";
+import { PASSKEY_PROVIDER, type PasskeyService } from "./passkey/passkey-service.js";
 import { verifyLocalToken } from "./local-token.js";
 import type { LocalTrustContext } from "./local-proof.js";
 import { isLocallyTrusted, isObserveApiRequest, isTrustedSource } from "./localhost-guard.js";
@@ -58,6 +64,12 @@ export interface AuthPluginOptions {
   localToken?: string;
   /** Strict local-proof context (`requireLocalProof`); absent ⇒ default behaviour. */
   localTrust?: LocalTrustContext;
+  /**
+   * Native passkey service (user directory + ceremonies). Configured from
+   * `auth.passkeys` at register and every reload; inert unless enabled.
+   * See change: add-passkey-user-auth.
+   */
+  passkeys?: PasskeyService;
 }
 
 /**
@@ -126,14 +138,14 @@ function readStateCookie(cookieValue: unknown, secret: string): string | null {
 /**
  * Simple login page HTML with provider links.
  */
-function renderLoginPage(providers: ResolvedProvider[], error?: string, returnUrl = "/"): string {
+function renderLoginPage(providers: ResolvedProvider[], error?: string, returnUrl = "/", passkeySection = ""): string {
   const ret = encodeURIComponent(sanitizeReturnUrl(returnUrl));
   const providerLinks = providers
     .map((p) => `<a href="/auth/start/${p.key}?return=${ret}" style="display:block;margin:10px 0;padding:12px 24px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;text-align:center;font-size:16px;">Sign in with ${p.name}</a>`)
     .join("\n");
 
   const errorHtml = error
-    ? `<div style="color:#ef4444;margin-bottom:16px;">${error}</div>`
+    ? `<div style="color:#ef4444;margin-bottom:16px;">${escapeHtml(String(error))}</div>`
     : "";
 
   return `<!DOCTYPE html>
@@ -142,7 +154,7 @@ function renderLoginPage(providers: ResolvedProvider[], error?: string, returnUr
 <style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f172a;color:#e2e8f0;}
 .card{background:#1e293b;padding:40px;border-radius:12px;max-width:400px;width:100%;text-align:center;}
 h1{margin:0 0 24px;font-size:24px;}</style>
-</head><body><div class="card"><h1>🔐 PI Dashboard</h1>${errorHtml}${providerLinks}</div></body></html>`;
+</head><body><div class="card"><h1>🔐 PI Dashboard</h1>${errorHtml}${providerLinks}${providerLinks && passkeySection ? "<hr>" : ""}${passkeySection}</div></body></html>`;
 }
 
 /**
@@ -176,7 +188,8 @@ export async function registerAuthPlugin(
   fastify: FastifyInstance,
   options: AuthPluginOptions,
 ): Promise<void> {
-  const { authConfig, port, resolvedTrustedNetworks, localToken, localTrust } = options;
+  const { authConfig, port, resolvedTrustedNetworks, localToken, localTrust, passkeys } = options;
+  passkeys?.configure(authConfig);
 
   // Mutable auth state — can be rebuilt at runtime via reloadAuth()
   const authState = {
@@ -186,12 +199,13 @@ export async function registerAuthPlugin(
     bypassUrls: authConfig.bypassUrls ?? [],
     bypassHosts: resolvedTrustedNetworks ?? authConfig.bypassHosts ?? [],
     redirectBaseUrl: authConfig.redirectBaseUrl,
+    groupTiers: authConfig.groupTiers,
   };
 
   warnOnInvalidRedirectBase(authState.redirectBaseUrl);
   logResolvedRedirectBase(port, authState.redirectBaseUrl);
 
-  if (authState.providerRegistry.size === 0) {
+  if (authState.providerRegistry.size === 0 && !passkeys?.isEnabled()) {
     console.warn("Auth configured but no providers resolved — auth disabled");
     return;
   }
@@ -210,6 +224,8 @@ export async function registerAuthPlugin(
     authState.bypassUrls = newConfig.bypassUrls ?? [];
     authState.bypassHosts = fullConfig?.resolvedTrustedNetworks ?? newConfig.bypassHosts ?? [];
     authState.redirectBaseUrl = newConfig.redirectBaseUrl;
+    authState.groupTiers = newConfig.groupTiers;
+    passkeys?.configure(newConfig);
     warnOnInvalidRedirectBase(authState.redirectBaseUrl);
     logResolvedRedirectBase(port, authState.redirectBaseUrl);
     const names = Array.from(authState.providerRegistry.values()).map((p) => p.name);
@@ -240,14 +256,53 @@ export async function registerAuthPlugin(
     return nonce;
   };
 
+  // `request.protocol` is ALWAYS "http" behind a reverse proxy, because
+  // Fastify is deliberately not configured with `trustProxy` — enabling it
+  // would let `X-Forwarded-For` drive `request.ip`, which both authorization
+  // bypasses read (see forwarded-ip-trust.test.ts). So derive the flag from
+  // the resolved public origin, which is operator-stated config that no
+  // request header can influence.
+  // See change: config-override-oauth-redirect-base (design D14).
+  const setSessionCookie = (reply: FastifyReply, token: string): void => {
+    const { base: publicBase } = resolveRedirectBase(port, authState.redirectBaseUrl);
+    reply.setCookie(COOKIE_NAME, token, {
+      path: "/",
+      httpOnly: true,
+      secure: publicBase.startsWith("https:"),
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
+    });
+  };
+
+  /**
+   * Session liveness + effective tier for a verified JWT. A passkey session's
+   * tier is the directory's CURRENT tier (null ⇒ revoked/disabled ⇒ not
+   * authenticated); any other session keeps its claim (`operate` when absent).
+   * See change: add-passkey-user-auth (D4).
+   */
+  const effectiveTier = (payload: TokenPayload): Tier | null => effectiveSessionTier(payload, passkeys);
+
+  if (passkeys) {
+    registerPasskeyRoutes(fastify, {
+      service: passkeys,
+      issueSession: (reply, user) =>
+        setSessionCookie(
+          reply,
+          signToken({ sub: user.id, name: user.name, username: user.name, provider: PASSKEY_PROVIDER, tier: user.tier }, authState.secret),
+        ),
+    });
+  }
+
   // ─── Auth Routes ────────────────────────────────────────────────────────
 
   // GET /auth/login — provider picker or auto-redirect
   fastify.get("/auth/login", async (request, reply) => {
     const providers = Array.from(authState.providerRegistry.values());
     const error = (request.query as any)?.error;
+    const passkeysOn = passkeys?.isEnabled() === true;
 
-    if (providers.length === 1 && !error) {
+    // With passkeys enabled the picker always renders: both options are offered.
+    if (providers.length === 1 && !error && !passkeysOn) {
       // Auto-redirect to single provider
       const p = providers[0];
       const redirectUri = buildRedirectUri(p.key, port, authState.redirectBaseUrl);
@@ -257,7 +312,9 @@ export async function registerAuthPlugin(
       return reply.redirect(url);
     }
 
-    return reply.type("text/html").send(renderLoginPage(providers, error, (request.query as any)?.return));
+    const returnUrl = sanitizeReturnUrl((request.query as any)?.return);
+    const section = passkeysOn && passkeys ? renderLoginPasskeySection(passkeys.rpContext(), returnUrl) : "";
+    return reply.type("text/html").send(renderLoginPage(providers, error, returnUrl, section));
   });
 
   // GET /auth/start/:provider — redirect to provider's authorize URL
@@ -302,12 +359,12 @@ export async function registerAuthPlugin(
     }
 
     const redirectUri = buildRedirectUri(providerKey, port, authState.redirectBaseUrl);
-    const accessToken = await exchangeCode(provider, code, redirectUri);
-    if (!accessToken) {
+    const tokens = await exchangeCode(provider, code, redirectUri);
+    if (!tokens) {
       return reply.redirect("/auth/login?error=Token+exchange+failed");
     }
 
-    const userInfo = await fetchUserInfo(provider, accessToken);
+    const userInfo = await fetchUserInfo(provider, tokens.accessToken);
     if (!userInfo) {
       return reply.redirect("/auth/login?error=Failed+to+fetch+user+info");
     }
@@ -316,28 +373,24 @@ export async function registerAuthPlugin(
       return reply.code(403).type("text/html").send(renderDeniedPage(userInfo.email));
     }
 
+    // `auth.groupTiers` configured ⇒ highest matching group's tier; no match ⇒
+    // refused (fail closed). Unconfigured ⇒ `operate`. See change:
+    // add-passkey-user-auth (D4).
+    // Groups from the ID token (e.g. Keycloak's default mapper) ∪ userinfo.
+    const idGroups = idTokenGroups(tokens.idToken, provider.clientId);
+    const groups = idGroups || userInfo.groups ? [...(idGroups ?? []), ...(userInfo.groups ?? [])] : undefined;
+    const tier = resolveGroupTier(groups, authState.groupTiers);
+    if (!tier) {
+      return reply.code(403).type("text/html").send(renderDeniedPage(userInfo.email));
+    }
+
     const token = signToken(
-      { sub: userInfo.email, name: userInfo.name, username: userInfo.username, provider: providerKey },
+      { sub: userInfo.email, name: userInfo.name, username: userInfo.username, provider: providerKey, tier },
       authState.secret,
     );
 
     const { returnUrl } = decoded;
-
-    // `request.protocol` is ALWAYS "http" behind a reverse proxy, because
-    // Fastify is deliberately not configured with `trustProxy` — enabling it
-    // would let `X-Forwarded-For` drive `request.ip`, which both authorization
-    // bypasses read (see forwarded-ip-trust.test.ts). So derive the flag from
-    // the resolved public origin, which is operator-stated config that no
-    // request header can influence.
-    // See change: config-override-oauth-redirect-base (design D14).
-    const { base: publicBase } = resolveRedirectBase(port, authState.redirectBaseUrl);
-    reply.setCookie(COOKIE_NAME, token, {
-      path: "/",
-      httpOnly: true,
-      secure: publicBase.startsWith("https:"),
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
-    });
+    setSessionCookie(reply, token);
 
     return reply.redirect(returnUrl);
   });
@@ -353,8 +406,12 @@ export async function registerAuthPlugin(
     const cookieToken = (request.cookies as any)?.[COOKIE_NAME];
     if (cookieToken) {
       const payload = verifyToken(cookieToken, authState.secret);
-      if (payload) {
-        return { authenticated: true, user: { name: payload.name, email: payload.sub, provider: payload.provider } };
+      const tier = payload ? effectiveTier(payload) : null;
+      if (payload && tier) {
+        return {
+          authenticated: true,
+          user: { name: payload.name, email: payload.sub, provider: payload.provider, tier },
+        };
       }
     }
     return { authenticated: false };
@@ -409,11 +466,15 @@ export async function registerAuthPlugin(
     const cookieToken = (request.cookies as any)?.[COOKIE_NAME];
     if (cookieToken) {
       const payload = verifyToken(cookieToken, authState.secret);
-      if (payload) {
+      const tier = payload ? effectiveTier(payload) : null;
+      if (payload && tier) {
         (request as any).isAuthenticated = true;
         // Additive marker: a dashboard login session (vs a device bearer).
         // `operatorGuard` on the token-mint route admits exactly this kind.
         (request as any).authVia = "session";
+        // Session tier for the route-tier gate. A JWT without the claim
+        // predates it and keeps full access. See change: add-passkey-user-auth (D4).
+        (request as any).principalTier = tier;
         return;
       }
       // Invalid/expired — clear cookie
@@ -431,6 +492,17 @@ export async function registerAuthPlugin(
 
   const providerNames = Array.from(authState.providerRegistry.values()).map((p) => p.name);
   console.log(`🔐 Auth enabled with providers: ${providerNames.join(", ")}`);
+}
+
+/**
+ * Session liveness + effective tier for a VERIFIED session JWT — the one rule
+ * the REST hook, `/auth/status` and the browser-WS gate share. A passkey
+ * session's tier is the directory's CURRENT tier (null ⇒ revoked / passkeys
+ * disabled ⇒ not authenticated); any other session keeps its claim, `operate`
+ * when absent (pre-claim JWT). See change: add-passkey-user-auth (D4).
+ */
+export function effectiveSessionTier(payload: TokenPayload, passkeys?: PasskeyService): Tier | null {
+  return payload.provider === PASSKEY_PROVIDER ? (passkeys?.sessionTier(payload) ?? null) : (payload.tier ?? "operate");
 }
 
 /**
@@ -479,6 +551,12 @@ export interface WsUpgradeAuthResult {
   principal?: Principal;
   /** The principal's own expiry (ms epoch) — bounds the socket lifetime (§9.4). */
   principalExpiresAt?: number;
+  /**
+   * Set ONLY when the login-session cookie is what admitted the upgrade, so
+   * the socket can be tier-gated (genuine-local / trusted / ticket sockets
+   * are exempt, as on REST). See change: add-passkey-user-auth.
+   */
+  session?: TokenPayload;
 }
 
 /**
@@ -511,6 +589,12 @@ export function authorizeWsUpgrade(opts: {
   localToken?: string;
   localTrust?: LocalTrustContext;
   requireIdentityTicket?: boolean;
+  /**
+   * Extra liveness check for a cookie session (passkey sessions re-read the
+   * directory: a revoked user's cookie opens no socket). Absent ⇒ any valid
+   * JWT. See change: add-passkey-user-auth (D4).
+   */
+  isSessionLive?: (payload: TokenPayload) => boolean;
 }): WsUpgradeAuthResult {
   const {
     cookieHeader,
@@ -524,6 +608,7 @@ export function authorizeWsUpgrade(opts: {
     localToken,
     localTrust,
     requireIdentityTicket,
+    isSessionLive,
   } = opts;
 
   // Identity-ticket-only mode (§9.2): a principal-bearing ticket is the sole
@@ -553,7 +638,8 @@ export function authorizeWsUpgrade(opts: {
   }
   if (secret) {
     const token = parseAuthCookie(cookieHeader);
-    if (token && verifyToken(token, secret) !== null) return { ok: true };
+    const payload = token ? verifyToken(token, secret) : null;
+    if (payload && (isSessionLive?.(payload) ?? true)) return { ok: true, session: payload };
   }
   return { ok: false };
 }

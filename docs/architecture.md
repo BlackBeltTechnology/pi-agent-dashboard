@@ -87,6 +87,10 @@ See change: configurable-bind-host.
 
 See change: warn-unreachable-trusted-networks.
 
+### Passkey users + tiers (`add-passkey-user-auth`)
+
+Native passkey login, user directory (`~/.pi/dashboard/users.json`), tier gates REST + WS, phone sign-in, RP ID stability rule. Full ref: [`passkey-users.md`](passkey-users.md). See change: add-passkey-user-auth.
+
 **Server decomposition:** The server is split into focused modules:
 - `server.ts` — Orchestrator: creates services, composes modules, manages lifecycle
 - `routes/` — REST API routes grouped by domain (session, git, file, openspec, system)

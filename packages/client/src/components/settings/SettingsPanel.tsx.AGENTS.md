@@ -57,3 +57,7 @@ Adds `StoreHeapCouplingWarning` (non-blocking, `role="status"`) beside BOTH the 
 Security tab mounts `AgentPathGateSection`; `computeConfigPartial` diffs `agentPathGate`; `CONFIG_FIELD_PAGE.agentPathGate = security`. See change: ask-agent-file-access-in-chat.
 
 - Archive-after hint + invalid text: `0` disables age-based auto-archive; disposable sessions still archive on end. See change: archive-service-sessions-on-end.
+
+## add-passkey-user-auth
+
+Security tab adds a `Users` section (`UsersSection`) after Paired Devices; the `auth.redirectBaseUrl` field shows `PasskeyImpactNote` (debounced 400 ms) — passkeys are bound to that origin's hostname. See change: add-passkey-user-auth.

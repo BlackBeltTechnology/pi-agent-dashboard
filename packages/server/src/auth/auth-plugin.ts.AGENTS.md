@@ -9,3 +9,7 @@ Fastify plugin registers OAuth routes + `onRequest` JWT gate. Exports `registerA
 `isBypassed` MOVED to the import-free leaf `bypass-urls.ts` and is RE-EXPORTED here, so this file's import surface (`auth-plugin.test.ts` imports it from `auth-plugin.js`) is unchanged. Reason: the universal network guard (change: add-universal-network-guard) needs the same `auth.bypassUrls` predicate, and importing it from this plugin would close a cycle (this plugin already imports `localhost-guard.ts`). One predicate, two callers — they MUST agree.
 
 See change: fix-trusted-network-tunnel-bypass — `onRequest` bypassHosts skip and `validateWsUpgrade` trusted branch use `isTrustedSource` (relayed-loopback peer never skips auth / never admits the WS, even with a loopback entry).
+
+## add-passkey-user-auth
+
+Options gain `passkeys?: PasskeyService` (configured at register + `_reloadAuth`; plugin stays active with zero providers when passkeys enabled; registers `registerPasskeyRoutes`). Callback applies `resolveGroupTier` (no match ⇒ denied page) and signs `tier`. onRequest/`/auth/status` use exported `effectiveSessionTier(payload, passkeys)` (passkey ⇒ live directory tier, null ⇒ unauthenticated; else claim ?? operate) and set `request.principalTier`. `setSessionCookie` helper. Login page: passkey section, no single-provider auto-redirect when passkeys on, `?error=` now `escapeHtml`'d (reflected XSS fix). `authorizeWsUpgrade` gains `isSessionLive` and returns `session` when the cookie admitted. See change: add-passkey-user-auth.

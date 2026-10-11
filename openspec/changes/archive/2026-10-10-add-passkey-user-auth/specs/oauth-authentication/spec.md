@@ -42,3 +42,29 @@ tier). A tier derived from groups SHALL hold until the JWT expires.
 - **GIVEN** `auth.groupTiers` is not configured
 - **WHEN** an allowed user completes OIDC login
 - **THEN** the session SHALL be issued with tier `operate`
+
+### Requirement: Session tier applies to the browser WebSocket
+A browser WebSocket admitted by a login-session cookie SHALL carry the
+session's live tier. Each browser-to-server message type SHALL map to a
+required tier (unlisted types SHALL require `operate`), and a message above the
+socket's tier SHALL be dropped without being dispatched. A terminal socket SHALL
+require `operate` and a live-preview socket SHALL require `control`. A passkey
+user who is revoked SHALL have their open socket closed on its next message.
+Sockets admitted by genuine-local, trusted-network, or ticket paths SHALL NOT
+be tier-gated.
+
+#### Scenario: Observe socket cannot prompt
+- **GIVEN** a browser socket admitted by a session JWT with tier `observe`
+- **WHEN** it sends `send_prompt`
+- **THEN** the message SHALL NOT be dispatched
+
+#### Scenario: Control socket cannot open a terminal
+- **GIVEN** a session with tier `control`
+- **WHEN** it opens a terminal WebSocket
+- **THEN** the upgrade SHALL be refused with 403
+
+#### Scenario: Revoked passkey user's socket closes
+- **GIVEN** a passkey user with an open browser socket
+- **WHEN** an operator revokes the user and the socket sends any message
+- **THEN** the server SHALL close the socket
+

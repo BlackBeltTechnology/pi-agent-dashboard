@@ -77,6 +77,16 @@ via `openspec-update-change`.
 3. The change is sized (A: supervisor + proxy + API client LOC; B: routes +
    store LOC) and its security-sensitive surface is listed.
 
+**D1-result: B — native passkeys (`@simplewebauthn/server`).** Spike
+waived by the operator in the ship-it session. Rationale: B is the
+documented default; it binds the RP ID to the primary host literally on every
+primary kind (same origin), where A needs an `id.` subdomain or a second
+reserved zrok share (different domain), plus a 60–70 MB sidecar, supervisor,
+and extra origin. B reuses the pairing, approval, and tier infrastructure.
+Evidence gap accepted: no live Tailscale/zrok phone run before code; the
+virtual-authenticator E2E (tasks 5.4) and a manual phone check stand in.
+D6 below is retained as the record of the rejected option only.
+
 Default if the spike is inconclusive: **B**, because it satisfies
 "primary domain" without an extra origin. Alternative considered: always
 ship both behind a setting. Rejected: it doubles the security surface for
@@ -193,6 +203,6 @@ unaffected. (A) also stop the sidecar and delete its data dir.
 
 ## Open Questions
 
-- D1-result (filled in after tasks §1).
+- D1-result: **B** (see D1). Resolved.
 - Should the first operator be bootstrapped from genuine-local only (loopback
   UI creates the first user)? The proposed default is yes.
