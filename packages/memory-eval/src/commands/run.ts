@@ -1,16 +1,15 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { DEFAULTS } from "@blackbelt-technology/pi-dashboard-kb";
-import { casePath, readCaseSet } from "./cases.js";
 import type { Ctx } from "../ctx.js";
-import { runOne, type CaseResult, type Retriever } from "../retriever.js";
+import { type CaseResult, type Retriever, runOne } from "../retriever.js";
 import { BUILTIN_IDS, hermesRetrievers, kbRetriever } from "../retrievers/builtin.js";
 import { loadRetrieverModule } from "../retrievers/external.js";
 import { hermesFingerprint, kbFingerprint, snapshotDb } from "../snapshot.js";
 import { CliError, stableJson } from "../util.js";
 import { ensureWorkDir, resolvePaths, writeSecure } from "../workdir.js";
-import { basename } from "node:path";
+import { casePath, readCaseSet } from "./cases.js";
 
 export interface RunArgs {
   set?: string;
@@ -22,7 +21,7 @@ export interface RunArgs {
   kbIndex?: string;
 }
 
-export interface RetrieverStatus {
+interface RetrieverStatus {
   id: string;
   version: string;
   asOf: "strict" | "none";
@@ -39,7 +38,21 @@ export interface RetrievedFile {
   results: Record<string, Record<string, CaseResult>>;
 }
 
-export const ABSENT = "absent";
+const ABSENT = "absent";
+
+export interface JudgeInfo {
+  role?: string;
+  model?: string;
+  promptVersion?: string;
+  promptSha256?: string;
+  scrubSha256?: string;
+  validitySetHash?: string;
+}
+/** `manifest.json`: only the judge block is read back by other commands. */
+export interface RunManifest {
+  judge?: JudgeInfo;
+  [field: string]: unknown;
+}
 
 export function runDir(runsDir: string, runId: string): string {
   return join(runsDir, runId);
@@ -83,55 +96,57 @@ function piVersion(ctx: Ctx): string {
   }
 }
 
+interface Sources {
+  retrievers: Retriever[];
+  statuses: RetrieverStatus[];
+  snapshots: Record<string, unknown>;
+  kbChunks: unknown;
+}
+
+function unavailable(ids: string[], asOf: "strict" | "none", reason: string): RetrieverStatus[] {
+  return ids.map((id) => ({ id, version: "", asOf, status: "unavailable" as const, reason }));
+}
+
+/** Snapshot the sources the selected built-ins need; a missing source marks its adapters unavailable. */
+function openSources(ctx: Ctx, args: RunArgs, selected: string[], snapDir: string): Sources {
+  const out: Sources = { retrievers: [], statuses: [], snapshots: { hermes: ABSENT, kb: ABSENT }, kbChunks: ABSENT };
+  const hermesIds = selected.filter((id) => id.startsWith("hermes."));
+  if (hermesIds.length) {
+    const src = join(ctx.home, ".pi", "agent", "pi-hermes-memory", "sessions.db");
+    const snap = snapshotDb({ source: src, destDir: snapDir, name: "hermes.db", fingerprint: hermesFingerprint, deps: ctx.snapshotDeps });
+    if (snap.status === "ok") {
+      out.snapshots.hermes = { status: "ok", attempts: snap.attempts, fingerprint: snap.fingerprint };
+      out.retrievers.push(...hermesRetrievers(snap.path).filter((r) => selected.includes(r.id)));
+    } else out.statuses.push(...unavailable(hermesIds, "strict", "hermes sessions.db absent"));
+  }
+  if (selected.includes("kb.docs")) {
+    const snap = snapshotDb({ source: args.kbIndex ?? join(ctx.cwd, DEFAULTS.dbPath), destDir: snapDir, name: "kb.db", fingerprint: kbFingerprint, deps: ctx.snapshotDeps });
+    if (snap.status === "ok") {
+      out.snapshots.kb = { status: "ok", attempts: snap.attempts, fingerprint: snap.fingerprint };
+      out.kbChunks = snap.fingerprint.chunks ?? ABSENT;
+      out.retrievers.push(kbRetriever(snap.path, ctx.cwd));
+    } else out.statuses.push(...unavailable(["kb.docs"], "none", "kb index absent"));
+  }
+  return out;
+}
+
 export async function runCommand(ctx: Ctx, args: RunArgs = {}): Promise<number> {
   const p = resolvePaths({ cwd: ctx.cwd, home: ctx.home });
   const set = args.set ?? "baseline";
   const caseSet = readCaseSet(casePath(p.casesDir, set));
 
   const selected = args.retrievers?.length ? args.retrievers : [...BUILTIN_IDS];
-  for (const id of selected) {
-    if (!(BUILTIN_IDS as readonly string[]).includes(id)) throw new CliError(`unknown retriever '${id}' (built-ins: ${BUILTIN_IDS.join(", ")})`);
-  }
+  const unknown = selected.find((id) => !(BUILTIN_IDS as readonly string[]).includes(id));
+  if (unknown) throw new CliError(`unknown retriever '${unknown}' (built-ins: ${BUILTIN_IDS.join(", ")})`);
   // Validate the external module before anything is snapshotted or searched.
   const external = args.retrieverModule ? await loadRetrieverModule(args.retrieverModule, ctx.cwd, BUILTIN_IDS) : null;
 
   ensureWorkDir(p);
   const runId = newRunId(ctx, p.runsDir);
   const dir = runDir(p.runsDir, runId);
-  const snapDir = join(p.snapshotsDir, runId);
-  const statuses: RetrieverStatus[] = [];
-  const active: Retriever[] = [];
-  const snapshots: Record<string, unknown> = {};
-  let kbChunks: unknown = ABSENT;
-
-  const wantHermes = selected.some((id) => id.startsWith("hermes."));
-  if (wantHermes) {
-    const src = join(ctx.home, ".pi", "agent", "pi-hermes-memory", "sessions.db");
-    const snap = snapshotDb({ source: src, destDir: snapDir, name: "hermes.db", fingerprint: hermesFingerprint, deps: ctx.snapshotDeps });
-    if (snap.status === "ok") {
-      snapshots.hermes = { status: "ok", attempts: snap.attempts, fingerprint: snap.fingerprint };
-      for (const r of hermesRetrievers(snap.path)) if (selected.includes(r.id)) active.push(r);
-    } else {
-      snapshots.hermes = ABSENT;
-      for (const id of selected.filter((s) => s.startsWith("hermes."))) statuses.push({ id, version: "", asOf: "strict", status: "unavailable", reason: "hermes sessions.db absent" });
-    }
-  } else snapshots.hermes = ABSENT;
-
-  if (selected.includes("kb.docs")) {
-    const src = args.kbIndex ?? join(ctx.cwd, DEFAULTS.dbPath);
-    const snap = snapshotDb({ source: src, destDir: snapDir, name: "kb.db", fingerprint: kbFingerprint, deps: ctx.snapshotDeps });
-    if (snap.status === "ok") {
-      snapshots.kb = { status: "ok", attempts: snap.attempts, fingerprint: snap.fingerprint };
-      kbChunks = snap.fingerprint.chunks ?? ABSENT;
-      active.push(kbRetriever(snap.path, ctx.cwd));
-    } else {
-      snapshots.kb = ABSENT;
-      statuses.push({ id: "kb.docs", version: "", asOf: "none", status: "unavailable", reason: "kb index absent" });
-    }
-  } else snapshots.kb = ABSENT;
-
-  if (external) active.push(...external.retrievers);
-  for (const r of active) statuses.push({ id: r.id, version: r.version, asOf: r.asOf, status: "ok", ...(r.sessionBacked ? { sessionBacked: true } : {}) });
+  const src = openSources(ctx, args, selected, join(p.snapshotsDir, runId));
+  const active = [...src.retrievers, ...(external?.retrievers ?? [])];
+  const statuses = [...src.statuses, ...active.map((r): RetrieverStatus => ({ id: r.id, version: r.version, asOf: r.asOf, status: "ok", ...(r.sessionBacked ? { sessionBacked: true } : {}) }))];
 
   const project = args.hermesProject ?? basename(ctx.cwd);
   const results: RetrievedFile["results"] = {};
@@ -153,11 +168,12 @@ export async function runCommand(ctx: Ctx, args: RunArgs = {}): Promise<number> 
       retrievers: retrieved.retrievers.map((r) => ({ id: r.id, version: r.version || ABSENT, asOf: r.asOf, status: r.status, module: modOf(r.id) })),
       judge: { role: ABSENT, model: ABSENT, promptVersion: ABSENT, promptSha256: ABSENT, scrubSha256: ABSENT, validitySetHash: ABSENT },
       versions: { pi: piVersion(ctx), hermes: hermesVersion(ctx) },
-      snapshots,
-      kbChunkCount: kbChunks,
+      snapshots: src.snapshots,
+      kbChunkCount: src.kbChunks,
       hermesProject: project,
     }),
   );
-  ctx.out(`run ${runId}: ${active.length} retrievers × ${caseSet.cases.length} cases${statuses.some((s) => s.status === "unavailable") ? ` (unavailable: ${statuses.filter((s) => s.status === "unavailable").map((s) => s.id).join(", ")})` : ""}\n`);
+  const missing = statuses.filter((s) => s.status === "unavailable").map((s) => s.id);
+  ctx.out(`run ${runId}: ${active.length} retrievers × ${caseSet.cases.length} cases${missing.length ? ` (unavailable: ${missing.join(", ")})` : ""}\n`);
   return 0;
 }

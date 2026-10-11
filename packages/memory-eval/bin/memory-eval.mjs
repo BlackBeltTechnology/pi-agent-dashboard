@@ -3,9 +3,9 @@
 // tools do. packages/shared's `./*.js` export map resolves to `.ts` only under
 // tsx. See change: add-memory-eval-tier-r (design M1).
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);

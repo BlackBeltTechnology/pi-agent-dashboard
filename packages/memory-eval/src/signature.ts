@@ -3,8 +3,8 @@
  */
 import type { CallEv, Ev, ResEv } from "./events.js";
 
-export const FIX_WINDOW = 15;
-export const SIGNATURE_MAX = 70;
+const FIX_WINDOW = 15;
+const SIGNATURE_MAX = 70;
 
 const EXIT_CODE = /exited with code (\d+)/g;
 
@@ -19,13 +19,13 @@ export function isErrorResult(r: Pick<ResEv, "isError" | "text">): boolean {
 const ERROR_LIKE = /error|fail|exception|cannot|can't|not found|denied|invalid|unexpected|exited with code|no such|refused|abort|fatal/i;
 
 /** First error-like line of a result text (raw, untrimmed of content), else the first non-empty line. */
-export function errorLine(text: string): string {
+function errorLine(text: string): string {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
   return lines.find((l) => ERROR_LIKE.test(l)) ?? lines[0] ?? "";
 }
 
 /** Mask quoted strings, paths, hex ids and numbers so recurrences compare equal. */
-export function maskLine(line: string): string {
+function maskLine(line: string): string {
   return line
     .replace(/"[^"]*"|'[^']*'|`[^`]*`/g, "Q")
     .replace(/(?:~|\.{0,2})?(?:[A-Za-z]:)?[\\/][^\s:,;()]*|\b[\w.-]+\.(?:[cm]?[jt]sx?|json|md|ya?ml|sh|py|log|db)\b/g, "P")
@@ -54,7 +54,7 @@ export function isGenericSignature(sig: string): boolean {
 const ENV_ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
 /** Command head: skips `cd x &&` and `VAR=` prefixes; two words, unless the 2nd is a flag or path. */
-export function bashHead(command: string): string {
+function bashHead(command: string): string {
   const segments = command.split(/&&|\|\||;|\n/).map((s) => s.trim()).filter(Boolean);
   const seg = segments.find((s) => !/^cd(\s|$)/.test(s)) ?? segments[0] ?? "";
   const toks = seg.split(/\s+/).filter(Boolean);
@@ -65,7 +65,7 @@ export function bashHead(command: string): string {
   return toks[0];
 }
 
-export function headOf(call: Pick<CallEv, "tool" | "args">): string {
+function headOf(call: Pick<CallEv, "tool" | "args">): string {
   if (call.tool === "bash") return bashHead(String(call.args.command ?? ""));
   return call.tool;
 }
@@ -92,6 +92,17 @@ export interface FailureOccurrence {
   fixed: boolean;
 }
 
+/** Soonest same-tool success within FIX_WINDOW events after `from`; null when there is none. */
+function findFix(events: Ev[], from: number, call: CallEv, results: Map<string, ResEv>): CallEv | null {
+  for (let j = from + 1; j <= from + FIX_WINDOW && j < events.length; j++) {
+    const c = events[j];
+    if (c.kind !== "call" || c.tool !== call.tool) continue;
+    const r = results.get(c.id);
+    if (r && !isErrorResult(r)) return c;
+  }
+  return null;
+}
+
 /** Find every failure in one session's ordered events, with its fix classification. */
 export function failuresIn(session: string, events: Ev[]): FailureOccurrence[] {
   const calls = new Map<string, CallEv>();
@@ -101,24 +112,12 @@ export function failuresIn(session: string, events: Ev[]): FailureOccurrence[] {
     else if (e.kind === "res") results.set(e.id, e);
   }
   const out: FailureOccurrence[] = [];
-  for (let i = 0; i < events.length; i++) {
-    const e = events[i];
-    if (e.kind !== "res" || !isErrorResult(e)) continue;
-    const call = calls.get(e.id);
-    if (!call) continue;
+  events.forEach((e, i) => {
+    const call = e.kind === "res" && isErrorResult(e) ? calls.get(e.id) : undefined;
+    if (e.kind !== "res" || !call) return;
     const head = headOf(call);
-    let fixed = false;
-    let fixChanged = false;
-    for (let j = i + 1; j <= i + FIX_WINDOW && j < events.length; j++) {
-      const c = events[j];
-      if (c.kind !== "call" || c.tool !== call.tool) continue;
-      const r = results.get(c.id);
-      if (!r || isErrorResult(r)) continue;
-      fixed = true;
-      fixChanged = headOf(c) !== head;
-      break; // the soonest success decides
-    }
-    out.push({ session, signature: signatureOf(e.tool || call.tool, e.text), resultIdx: i, result: e, call, head, fixChanged, fixed });
-  }
+    const fix = findFix(events, i, call, results);
+    out.push({ session, signature: signatureOf(e.tool || call.tool, e.text), resultIdx: i, result: e, call, head, fixChanged: fix !== null && headOf(fix) !== head, fixed: fix !== null });
+  });
   return out;
 }

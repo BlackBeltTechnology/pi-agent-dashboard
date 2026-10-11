@@ -8,7 +8,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { sha256, toUtcIso } from "./util.js";
 
-export interface BaseEv {
+interface BaseEv {
   ts: string; // UTC ISO
   ms: number;
   session: string;
@@ -34,7 +34,7 @@ export interface ResEv extends BaseEv {
 }
 export type Ev = UserEv | CallEv | ResEv;
 
-export interface SessionFile {
+interface SessionFile {
   file: string; // file name (no dir)
   sha256: string;
 }
@@ -61,41 +61,43 @@ function textOf(content: unknown): string {
   return parts.join("");
 }
 
+type Json = Record<string, unknown>;
+
+function messageEvents(base: Omit<BaseEv, never>, m: Json): Ev[] {
+  if (m.role === "user") return [{ ...base, kind: "user", text: textOf(m.content) }];
+  if (m.role === "toolResult" && typeof m.toolCallId === "string") {
+    return [{ ...base, kind: "res", tool: String(m.toolName ?? ""), id: m.toolCallId, text: textOf(m.content), isError: m.isError === true }];
+  }
+  if (m.role !== "assistant" || !Array.isArray(m.content)) return [];
+  const out: Ev[] = [];
+  for (const c of m.content as Json[]) {
+    if (c?.type === "toolCall" && typeof c.id === "string") out.push({ ...base, kind: "call", tool: String(c.name ?? ""), id: c.id, args: (c.arguments ?? {}) as Record<string, unknown> });
+  }
+  return out;
+}
+
+function parseLine(line: string): Json | null {
+  try {
+    return line.trim() ? (JSON.parse(line) as Json) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Parse one session file's text into events (unsorted). */
 export function parseSessionText(file: string, raw: string): { session: string; events: Ev[] } {
   let session = file.match(UUID_IN_NAME)?.[1] ?? basename(file, ".jsonl");
   const events: Ev[] = [];
-  const lines = raw.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i].trim();
-    if (!l) continue;
-    let d: any;
-    try {
-      d = JSON.parse(l);
-    } catch {
-      continue;
-    }
-    if (d?.type === "session" && typeof d.id === "string") {
+  raw.split("\n").forEach((l, i) => {
+    const d = parseLine(l);
+    if (!d) return;
+    if (d.type === "session" && typeof d.id === "string") {
       session = d.id;
-      continue;
+      return;
     }
-    if (d?.type !== "message" || !d.message) continue;
-    const iso = toUtcIso(d.timestamp);
-    if (!iso) continue;
-    const base = { ts: iso, ms: Date.parse(iso), session, file, line: i + 1 };
-    const m = d.message;
-    if (m.role === "user") {
-      events.push({ ...base, kind: "user", text: textOf(m.content) });
-    } else if (m.role === "assistant" && Array.isArray(m.content)) {
-      for (const c of m.content) {
-        if (c?.type === "toolCall" && typeof c.id === "string") {
-          events.push({ ...base, kind: "call", tool: String(c.name ?? ""), id: c.id, args: (c.arguments ?? {}) as Record<string, unknown> });
-        }
-      }
-    } else if (m.role === "toolResult" && typeof m.toolCallId === "string") {
-      events.push({ ...base, kind: "res", tool: String(m.toolName ?? ""), id: m.toolCallId, text: textOf(m.content), isError: m.isError === true });
-    }
-  }
+    const iso = d.type === "message" && d.message ? toUtcIso(d.timestamp as string) : null;
+    if (iso) events.push(...messageEvents({ ts: iso, ms: Date.parse(iso), session, file, line: i + 1 }, d.message as Json));
+  });
   // The session id is only known after the header; back-fill events parsed before it.
   for (const e of events) e.session = session;
   return { session, events };

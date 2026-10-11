@@ -31,29 +31,26 @@ export function reportCommand(ctx: Ctx, args: ReportArgs = {}): number {
   return 0;
 }
 
+function callOutcomes(path: string): Record<string, number> {
+  const outcomes: Record<string, number> = {};
+  if (!existsSync(path)) return outcomes;
+  for (const l of readFileSync(path, "utf8").split("\n").filter(Boolean)) {
+    const o = (JSON.parse(l) as { outcome?: string }).outcome ?? "unknown";
+    outcomes[o] = (outcomes[o] ?? 0) + 1;
+  }
+  return outcomes;
+}
+
 export function statusCommand(ctx: Ctx): number {
   const p = resolvePaths({ cwd: ctx.cwd, home: ctx.home });
-  const ids = existsSync(p.runsDir) ? readdirSync(p.runsDir).sort() : [];
-  if (!ids.length) {
-    ctx.out(`no runs in ${p.runsDir}\n`);
-    return 0;
-  }
+  const ids = (existsSync(p.runsDir) ? readdirSync(p.runsDir).sort() : []).filter((id) => existsRun(p, id));
+  if (!ids.length) ctx.out(`no runs in ${p.runsDir}\n`);
   for (const id of ids) {
-    if (!existsRun(p, id)) continue;
     const run = loadRun(p, id);
     const cov = run.coverage();
-    const calls = join(runDir(p.runsDir, id), "judge-calls.jsonl");
-    const outcomes: Record<string, number> = {};
-    if (existsSync(calls)) {
-      for (const l of readFileSync(calls, "utf8").split("\n").filter(Boolean)) {
-        const o = (JSON.parse(l) as { outcome?: string }).outcome ?? "unknown";
-        outcomes[o] = (outcomes[o] ?? 0) + 1;
-      }
-    }
-    const j = run.manifest.judge ?? {};
-    ctx.out(
-      `${id}  case-set ${run.retrieved.caseSetHash.slice(0, 16)} (${run.retrieved.caseSetName})  judge ${j.model ?? "absent"}  judged ${cov.judged}  unjudged ${cov.unjudged}  judge-calls: ${Object.keys(outcomes).length ? Object.entries(outcomes).map(([k, v]) => `${k}=${v}`).join(" ") : "none"}\n`,
-    );
+    const outcomes = Object.entries(callOutcomes(join(runDir(p.runsDir, id), "judge-calls.jsonl")));
+    const calls = outcomes.length ? outcomes.map(([k, v]) => `${k}=${v}`).join(" ") : "none";
+    ctx.out(`${id}  case-set ${run.retrieved.caseSetHash.slice(0, 16)} (${run.retrieved.caseSetName})  judge ${run.manifest.judge?.model ?? "absent"}  judged ${cov.judged}  unjudged ${cov.unjudged}  judge-calls: ${calls}\n`);
   }
   return 0;
 }

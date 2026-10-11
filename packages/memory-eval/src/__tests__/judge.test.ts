@@ -5,8 +5,8 @@ import { main } from "../cli.js";
 import { DEFAULT_PROMPT } from "../commands/judge.js";
 import { buildBatchPayload, judgeArgs, validityItem } from "../judge.js";
 import { SCRUB_RULES } from "../scrub.js";
-import { mkCase, writeCaseSet } from "./helpers/run-fixture.js";
 import { itemsIn, judgeEnv, verdictLines } from "./helpers/judge-env.js";
+import { mkCase, writeCaseSet } from "./helpers/run-fixture.js";
 
 const EXPECTED_ARGV = (ref: string) => ["-p", "--no-session", "--no-extensions", "--no-skills", "--no-context-files", "--no-tools", "--model", ref];
 const allItems = (env: ReturnType<typeof judgeEnv>) => env.calls().flatMap((c) => itemsIn(c.stdin));

@@ -1,22 +1,22 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { main } from "../../cli.js";
 import type { Case } from "../../cases.js";
+import { main } from "../../cli.js";
 import { latestRunId } from "../../commands/run.js";
 import type { Ctx } from "../../ctx.js";
 import { makeEnv, type TestEnv } from "./ctx.js";
 import { mkCase, writeCaseSet } from "./run-fixture.js";
 
-export const STUB = resolve(dirname(fileURLToPath(import.meta.url)), "stub-pi.mjs");
+const STUB = resolve(dirname(fileURLToPath(import.meta.url)), "stub-pi.mjs");
 
-export interface StubBehaviour {
+interface StubBehaviour {
   exit?: number;
   stderr?: string;
   delayMs?: number;
   rawStdout?: string;
 }
-export interface StubConfig {
+interface StubConfig {
   calls?: StubBehaviour[];
   default?: StubBehaviour;
   verdicts?: { validity?: string; helpfulness?: string };

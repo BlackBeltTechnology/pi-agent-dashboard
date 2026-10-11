@@ -2,12 +2,11 @@
  * Case builder: a port of the v0 `cases.py` plus its later patches (design M3).
  * Pure over parsed sessions; `buildCasesCommand` (commands/cases.ts) does the I/O.
  */
-import { type Ev, type ParsedSessions } from "./events.js";
-import { failuresIn, faultQuery, isGenericSignature, type FailureOccurrence } from "./signature.js";
+import type { ParsedSessions, UserEv } from "./events.js";
+import { type FailureOccurrence, failuresIn, faultQuery, isGenericSignature } from "./signature.js";
 import { mulberry32, sha256 } from "./util.js";
 
 export type CaseType = "recurring_fault" | "user_flagged" | "explicit_ref" | "negative";
-export const CASE_TYPES: CaseType[] = ["recurring_fault", "user_flagged", "explicit_ref", "negative"];
 export const POSITIVE_TYPES: CaseType[] = ["recurring_fault", "user_flagged", "explicit_ref"];
 
 export interface Case {
@@ -28,7 +27,7 @@ export interface Quotas {
   recurring: number;
   negatives: number;
 }
-export const DEFAULT_QUOTAS: Quotas = { recurring: 60, negatives: 30 };
+const DEFAULT_QUOTAS: Quotas = { recurring: 60, negatives: 30 };
 export const DEFAULT_SEED = 5;
 
 export interface CaseSet {
@@ -49,7 +48,7 @@ const LOG_LINE = /^\s*at .*\(.*:\d+(:\d+)?\)|\bError:|Traceback|\[(INFO|WARN|ERR
 const UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 const OTHER_SESSION = /\b(another|other)\s+sessions?\b/i;
 
-export function looksLikePastedLog(text: string): boolean {
+function looksLikePastedLog(text: string): boolean {
   if (text.includes("```")) return true;
   return text.split("\n").filter((l) => LOG_LINE.test(l)).length >= 2;
 }
@@ -65,7 +64,7 @@ function caseOf(c: Omit<Case, "id" | "contentHash"> & { idKey: string }): Case {
   };
 }
 
-export interface Candidates {
+interface Candidates {
   recurring: Case[];
   negatives: Case[];
   userFlagged: Case[];
@@ -73,23 +72,32 @@ export interface Candidates {
   excludedSignatures: number;
 }
 
+function otherSessionGold(text: string, session: string): string[] | null {
+  const uuids = text.match(UUID) ?? [];
+  if (!OTHER_SESSION.test(text) || !uuids.length) return null;
+  return [...new Set(uuids.map((u) => u.toLowerCase()))].filter((u) => u !== session.toLowerCase());
+}
+
+function userCase(e: UserEv, session: string): Case | null {
+  const text = e.text.trim();
+  if (!text || SKIP_PREFIX.test(text)) return null;
+  const base = { sessionId: session, decisionTime: e.ts, query: text.slice(0, 200), context: text, idKey: text };
+  const gold = otherSessionGold(text, session);
+  if (gold) {
+    // An explicit-reference turn is never also user_flagged; naming only its own session yields no case.
+    return gold.length ? caseOf({ ...base, type: "explicit_ref", goldSessions: gold }) : null;
+  }
+  if (text.length >= 400 || !RECURRENCE.test(text) || looksLikePastedLog(text)) return null;
+  return caseOf({ ...base, type: "user_flagged", goldSessions: [] });
+}
+
 function userCases(parsed: ParsedSessions): { userFlagged: Case[]; explicitRefs: Case[] } {
   const userFlagged: Case[] = [];
   const explicitRefs: Case[] = [];
   for (const session of parsed.sessions) {
     for (const e of parsed.bySession.get(session) ?? []) {
-      if (e.kind !== "user") continue;
-      const text = e.text.trim();
-      if (!text || SKIP_PREFIX.test(text)) continue;
-      if (OTHER_SESSION.test(text) && (text.match(UUID) ?? []).length) {
-        const gold = [...new Set((text.match(UUID) ?? []).map((u) => u.toLowerCase()))].filter((u) => u !== session.toLowerCase());
-        if (gold.length) {
-          explicitRefs.push(caseOf({ type: "explicit_ref", sessionId: session, decisionTime: e.ts, query: text.slice(0, 200), context: text, goldSessions: gold, idKey: text }));
-        }
-        continue; // an explicit-reference turn is never also user_flagged
-      }
-      if (text.length >= 400 || !RECURRENCE.test(text) || looksLikePastedLog(text)) continue;
-      userFlagged.push(caseOf({ type: "user_flagged", sessionId: session, decisionTime: e.ts, query: text.slice(0, 200), context: text, goldSessions: [], idKey: text }));
+      const c = e.kind === "user" ? userCase(e, session) : null;
+      if (c) (c.type === "explicit_ref" ? explicitRefs : userFlagged).push(c);
     }
   }
   return { userFlagged, explicitRefs };
@@ -99,9 +107,11 @@ function faultContext(f: FailureOccurrence): string {
   return `${f.call.tool}: ${f.head}\n${f.result.text.slice(0, 600)}`;
 }
 
-export function buildCandidates(parsed: ParsedSessions): Candidates {
-  // signature -> per-session first failure + whether any failure there had a changed-approach fix
-  const bySig = new Map<string, Map<string, { first: FailureOccurrence; solved: boolean }>>();
+type PerSession = Map<string, { first: FailureOccurrence; solved: boolean }>;
+
+/** signature -> per-session first failure + whether any failure there had a changed-approach fix. */
+function groupBySignature(parsed: ParsedSessions): Map<string, PerSession> {
+  const bySig = new Map<string, PerSession>();
   for (const session of parsed.sessions) {
     for (const f of failuresIn(session, parsed.bySession.get(session) ?? [])) {
       let per = bySig.get(f.signature);
@@ -111,28 +121,37 @@ export function buildCandidates(parsed: ParsedSessions): Candidates {
       else if (f.fixChanged) cur.solved = true;
     }
   }
-  const total = parsed.sessions.length;
-  const frequentAbove = Math.max(3, 0.05 * total);
+  return bySig;
+}
+
+function faultCase(type: "recurring_fault" | "negative", session: string, f: FailureOccurrence, sig: string, gold: string[]): Case {
+  return caseOf({ type, sessionId: session, decisionTime: f.result.ts, query: faultQuery(f.head, f.result.text), context: faultContext(f), goldSessions: gold, signature: sig, idKey: sig });
+}
+
+function casesForSignature(sig: string, per: PerSession): { recurring: Case[]; negatives: Case[] } {
+  const ordered = [...per.entries()].sort((a, b) => a[1].first.result.ms - b[1].first.result.ms || (a[0] < b[0] ? -1 : 1));
+  if (ordered.length === 1) return { recurring: [], negatives: [faultCase("negative", ordered[0][0], ordered[0][1].first, sig, [])] };
+  const recurring: Case[] = [];
+  for (let i = 1; i < ordered.length; i++) {
+    const gold = ordered.slice(0, i).filter(([, v]) => v.solved).map(([s]) => s);
+    if (gold.length) recurring.push(faultCase("recurring_fault", ordered[i][0], ordered[i][1].first, sig, gold));
+  }
+  return { recurring, negatives: [] };
+}
+
+function buildCandidates(parsed: ParsedSessions): Candidates {
+  const frequentAbove = Math.max(3, 0.05 * parsed.sessions.length);
   const recurring: Case[] = [];
   const negatives: Case[] = [];
   let excluded = 0;
-  for (const [sig, per] of [...bySig.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+  for (const [sig, per] of [...groupBySignature(parsed).entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
     if (isGenericSignature(sig) || per.size > frequentAbove) {
       excluded++;
       continue;
     }
-    const ordered = [...per.entries()].sort((a, b) => a[1].first.result.ms - b[1].first.result.ms || (a[0] < b[0] ? -1 : 1));
-    if (ordered.length === 1) {
-      const [session, { first }] = ordered[0];
-      negatives.push(caseOf({ type: "negative", sessionId: session, decisionTime: first.result.ts, query: faultQuery(first.head, first.result.text), context: faultContext(first), goldSessions: [], signature: sig, idKey: sig }));
-      continue;
-    }
-    for (let i = 1; i < ordered.length; i++) {
-      const gold = ordered.slice(0, i).filter(([, v]) => v.solved).map(([s]) => s);
-      if (!gold.length) continue;
-      const [session, { first }] = ordered[i];
-      recurring.push(caseOf({ type: "recurring_fault", sessionId: session, decisionTime: first.result.ts, query: faultQuery(first.head, first.result.text), context: faultContext(first), goldSessions: gold, signature: sig, idKey: sig }));
-    }
+    const c = casesForSignature(sig, per);
+    recurring.push(...c.recurring);
+    negatives.push(...c.negatives);
   }
   return { recurring, negatives, ...userCases(parsed), excludedSignatures: excluded };
 }
@@ -140,7 +159,7 @@ export function buildCandidates(parsed: ParsedSessions): Candidates {
 const byId = (a: Case, b: Case) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /** Seeded sample of `n` from candidates sorted by id (Fisher–Yates over mulberry32). */
-export function sampleCases(cands: Case[], n: number, seed: number): Case[] {
+function sampleCases(cands: Case[], n: number, seed: number): Case[] {
   const sorted = [...cands].sort(byId);
   if (sorted.length <= n) return sorted;
   const rnd = mulberry32(seed);
@@ -156,7 +175,7 @@ export function caseSetHash(cases: Case[]): string {
   return sha256([...cases].sort(byId).map((c) => `${c.id}:${c.contentHash}`).join("\n"));
 }
 
-export function inputFingerprint(files: { file: string; sha256: string }[]): { files: number; sha256: string } {
+function inputFingerprint(files: { file: string; sha256: string }[]): { files: number; sha256: string } {
   const sorted = [...files].sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
   return { files: sorted.length, sha256: sha256(sorted.map((f) => `${f.file}:${f.sha256}`).join("\n")) };
 }
@@ -185,4 +204,3 @@ export function buildCaseSet(parsed: ParsedSessions, opts: { seed?: number; quot
   };
 }
 
-export type { Ev };

@@ -6,7 +6,7 @@
  */
 import { epochMs } from "./util.js";
 
-export interface Hit {
+interface Hit {
   ref: string;
   text: string;
   sessionId?: string;
@@ -22,7 +22,7 @@ export interface SearchQuery {
   excludeSessionId: string;
 }
 
-export type SearchResult = Hit[] | { hits: Hit[]; underFill?: boolean };
+type SearchResult = Hit[] | { hits: Hit[]; underFill?: boolean };
 
 export interface Retriever {
   id: string;
@@ -33,10 +33,10 @@ export interface Retriever {
   search(q: SearchQuery): Promise<SearchResult>;
 }
 
-export const KEEP_TOP = 5;
-export const STORE_TOP = 10;
-export const CLIP_CHARS = 260;
-export const DEFAULT_SEARCH_TIMEOUT_MS = 30_000;
+const KEEP_TOP = 5;
+const STORE_TOP = 10;
+const CLIP_CHARS = 260;
+const DEFAULT_SEARCH_TIMEOUT_MS = 30_000;
 
 export interface KeptHit {
   ref: string;
@@ -71,7 +71,7 @@ function isHit(h: unknown): h is Hit {
   );
 }
 
-export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: NodeJS.Timeout;
   const t = new Promise<never>((_, rej) => {
     timer = setTimeout(() => rej(new Error(`${what} timed out after ${ms} ms`)), ms);
@@ -85,7 +85,7 @@ async function callSearch(r: Retriever, q: SearchQuery, timeoutMs: number): Prom
   return { hits: Array.isArray(res?.hits) ? res.hits : [], underFill: res?.underFill === true };
 }
 
-export function filterHits(r: Pick<Retriever, "asOf">, raw: unknown[], asOf: string, ownSession: string | null) {
+function filterHits(r: Pick<Retriever, "asOf">, raw: unknown[], asOf: string, ownSession: string | null) {
   let invalid = 0;
   let violations = 0;
   let own = 0;

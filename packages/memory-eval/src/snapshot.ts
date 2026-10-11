@@ -5,20 +5,20 @@
  * and the snapshot is switched to `journal_mode=DELETE`.
  */
 import { closeSync, copyFileSync, mkdirSync, openSync, readSync, rmSync, statSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { CliError } from "./util.js";
 
-export const MAX_SNAPSHOT_ATTEMPTS = 5;
+const MAX_SNAPSHOT_ATTEMPTS = 5;
 
-export interface FileStat {
+interface FileStat {
   size: number;
   mtimeMs: number;
   /** WAL header salt (hex), `""` for a non-WAL file. */
   salt: string;
 }
 
-export interface StatInfo {
+interface StatInfo {
   attempt: number;
   phase: "before" | "after";
 }
@@ -39,7 +39,7 @@ function walSalt(path: string): string {
   }
 }
 
-export const realSnapshotDeps: SnapshotDeps = {
+const realSnapshotDeps: SnapshotDeps = {
   statFile(path) {
     try {
       const st = statSync(path);

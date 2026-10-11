@@ -10,8 +10,8 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHermesDb, type FxMessage } from "../src/__tests__/helpers/hermes-db.js";
 
 const here = dirname(fileURLToPath(import.meta.url));

@@ -8,83 +8,85 @@ import { join } from "node:path";
 import { type Case, type CaseType, POSITIVE_TYPES } from "./cases.js";
 import { casePath, readCaseSet } from "./commands/cases.js";
 import { loadVerdicts } from "./commands/judge.js";
-import { readJson, type RetrievedFile, runDir } from "./commands/run.js";
+import { type JudgeInfo, type RetrievedFile, type RunManifest, readJson, runDir } from "./commands/run.js";
 import { keyString, outputHash, type VerdictKey } from "./judge.js";
 import type { CaseResult } from "./retriever.js";
 import { mcnemarExact, median, pct, wilson } from "./stats.js";
 import { CliError } from "./util.js";
 import type { WorkPaths } from "./workdir.js";
 
-export const SANITY_CENTER = 0.34;
-export const SANITY_BAND = 0.15;
-export const SANITY_RETRIEVER = "hermes.session_search.recent";
+const SANITY_CENTER = 0.34;
+const SANITY_BAND = 0.15;
+const SANITY_RETRIEVER = "hermes.session_search.recent";
 const isOldStack = (id: string) => id.startsWith("hermes.");
 
-export type ValidityState = "valid" | "invalid" | "unjudged";
-export type HelpState = "helpful" | "not_helpful" | "unjudged";
+type ValidityState = "valid" | "invalid" | "unjudged";
+type HelpState = "helpful" | "not_helpful" | "unjudged";
 
 export interface RunData {
   runId: string;
   cases: Case[];
   retrieved: RetrievedFile;
-  manifest: Record<string, any>;
+  manifest: RunManifest;
   validity(caseId: string): ValidityState;
   helpful(retrieverId: string, caseId: string): HelpState;
   /** Items that need a verdict for this run, and how many have one. */
   coverage(): { judged: number; unjudged: number };
 }
 
+type Reader = { validity: RunData["validity"]; helpful: RunData["helpful"] };
+
+/** Verdict lookup for one run, keyed by the judge recorded in its manifest. */
+function verdictReader(retrieved: RetrievedFile, cases: Case[], j: JudgeInfo, verdicts: ReturnType<typeof loadVerdicts>): Reader {
+  const judged = Boolean(j.model && j.model !== "absent");
+  const base = { promptVersion: j.promptVersion ?? "", promptSha256: j.promptSha256 ?? "", scrubSha256: j.scrubSha256 ?? "", judgeModel: j.model ?? "" };
+  const byId = new Map(cases.map((c) => [c.id, c]));
+  const get = (k: VerdictKey) => (judged ? verdicts.get(keyString(k))?.verdict : undefined);
+  return {
+    validity(caseId) {
+      const v = get({ kind: "validity", caseId, caseContentHash: byId.get(caseId)!.contentHash, ...base });
+      return v === "valid" || v === "invalid" ? v : "unjudged";
+    },
+    helpful(rid, caseId) {
+      const r: CaseResult | undefined = retrieved.results[rid]?.[caseId];
+      if (!r) return "unjudged";
+      if (!r.top5.length) return "not_helpful"; // nothing returned: not helpful by construction
+      const ver = retrieved.retrievers.find((x) => x.id === rid)?.version ?? "";
+      const v = get({ kind: "helpfulness", caseId, caseContentHash: byId.get(caseId)!.contentHash, outputHash: outputHash(rid, ver, r.top5), ...base });
+      return v === "helpful" || v === "not_helpful" ? v : "unjudged";
+    },
+  };
+}
+
+function coverageOf(retrieved: RetrievedFile, cases: Case[], rd: Reader): { judged: number; unjudged: number } {
+  let done = 0;
+  let missing = 0;
+  const count = (state: string) => (state === "unjudged" ? missing++ : done++);
+  for (const c of cases) {
+    const v = rd.validity(c.id);
+    count(v);
+    if (v !== "valid") continue;
+    for (const r of retrieved.retrievers) {
+      if (r.status === "ok" && retrieved.results[r.id]?.[c.id]?.top5.length) count(rd.helpful(r.id, c.id));
+    }
+  }
+  return { judged: done, unjudged: missing };
+}
+
 export function loadRun(p: WorkPaths, runId: string): RunData {
   const dir = runDir(p.runsDir, runId);
   const retrieved = readJson<RetrievedFile>(join(dir, "retrieved.json"));
-  const manifest = readJson<Record<string, any>>(join(dir, "manifest.json"));
+  const manifest = readJson<RunManifest>(join(dir, "manifest.json"));
   const caseSet = readCaseSet(casePath(p.casesDir, retrieved.caseSetName));
   if (caseSet.caseSetHash !== retrieved.caseSetHash) throw new CliError(`case set '${retrieved.caseSetName}' changed since run ${runId} (hash ${caseSet.caseSetHash} vs ${retrieved.caseSetHash})`);
   const cases = caseSet.cases;
-  const verdicts = loadVerdicts(p.verdicts);
-  const j = manifest.judge ?? {};
-  const judged = j.model && j.model !== "absent";
-  const base = { promptVersion: j.promptVersion, promptSha256: j.promptSha256, scrubSha256: j.scrubSha256, judgeModel: j.model };
-  const byId = new Map(cases.map((c) => [c.id, c]));
-  const get = (k: VerdictKey) => (judged ? verdicts.get(keyString(k))?.verdict : undefined);
-
-  const validity = (caseId: string): ValidityState => {
-    const c = byId.get(caseId)!;
-    const v = get({ kind: "validity", caseId, caseContentHash: c.contentHash, ...base });
-    return v === "valid" || v === "invalid" ? v : "unjudged";
-  };
-  const resultOf = (rid: string, caseId: string): CaseResult | undefined => retrieved.results[rid]?.[caseId];
-  const helpful = (rid: string, caseId: string): HelpState => {
-    const r = resultOf(rid, caseId);
-    if (!r) return "unjudged";
-    if (!r.top5.length) return "not_helpful"; // nothing returned: not helpful by construction
-    const c = byId.get(caseId)!;
-    const ver = retrieved.retrievers.find((x) => x.id === rid)?.version ?? "";
-    const v = get({ kind: "helpfulness", caseId, caseContentHash: c.contentHash, outputHash: outputHash(rid, ver, r.top5), ...base });
-    return v === "helpful" || v === "not_helpful" ? v : "unjudged";
-  };
-  const coverage = () => {
-    let done = 0;
-    let missing = 0;
-    for (const c of cases) {
-      const v = validity(c.id);
-      if (v === "unjudged") missing++;
-      else done++;
-      if (v !== "valid") continue;
-      for (const r of retrieved.retrievers) {
-        if (r.status !== "ok" || !resultOf(r.id, c.id)?.top5.length) continue;
-        if (helpful(r.id, c.id) === "unjudged") missing++;
-        else done++;
-      }
-    }
-    return { judged: done, unjudged: missing };
-  };
-  return { runId, cases, retrieved, manifest, validity, helpful, coverage };
+  const rd = verdictReader(retrieved, cases, manifest.judge ?? {}, loadVerdicts(p.verdicts));
+  return { runId, cases, retrieved, manifest, ...rd, coverage: () => coverageOf(retrieved, cases, rd) };
 }
 
 // ---------------------------------------------------------------- aggregate
 
-export interface Rate {
+interface Rate {
   k: number;
   n: number;
   lo: number;
@@ -92,7 +94,7 @@ export interface Rate {
 }
 const rate = (k: number, n: number): Rate => ({ k, n, ...wilson(k, n) });
 
-export interface TypeRow {
+interface TypeRow {
   cases: number;
   valid: number;
   invalid: number;
@@ -100,7 +102,7 @@ export interface TypeRow {
   helpful: Rate;
   helpfulnessUnjudged: number;
 }
-export interface NegativesRow {
+interface NegativesRow {
   cases: number;
   valid: number;
   invalid: number;
@@ -110,12 +112,12 @@ export interface NegativesRow {
   judgedHelpful: Rate;
   helpfulnessUnjudged: number;
 }
-export interface GoldRow {
+interface GoldRow {
   n: number;
   hit5: number;
   hit10: number;
 }
-export interface RetrieverAgg {
+interface RetrieverAgg {
   id: string;
   version: string;
   asOf: "strict" | "none";
@@ -126,7 +128,7 @@ export interface RetrieverAgg {
   gold: Record<string, GoldRow>;
   counts: { asOfViolations: number; underFill: number; ownSessionHits: number; ownSessionTotal: number; ownSessionDropped: number; invalidHits: number; errors: number };
 }
-export interface UnionAgg {
+interface UnionAgg {
   retrieverIds: string[];
   overall: Rate;
   byType: Record<string, Rate>;
@@ -141,54 +143,58 @@ export interface Aggregate {
   sanity: { retrieverId: string; rate: Rate; flagged: boolean } | null;
 }
 
-function typeRow(run: RunData, rid: string, cases: Case[]): TypeRow {
-  let valid = 0;
-  let invalid = 0;
-  let vUn = 0;
-  let k = 0;
-  let n = 0;
-  let hUn = 0;
+interface Tally {
+  valid: number;
+  invalid: number;
+  validityUnjudged: number;
+  returned: number;
+  helpful: number;
+  judged: number;
+  helpfulnessUnjudged: number;
+}
+
+function tallyHelp(t: Tally, h: HelpState): void {
+  if (h === "unjudged") {
+    t.helpfulnessUnjudged++;
+    return;
+  }
+  t.judged++;
+  if (h === "helpful") t.helpful++;
+}
+
+/** Per-case validity/helpfulness tally for one retriever over `cases`. */
+function tally(run: RunData, rid: string, cases: Case[]): Tally {
+  const t: Tally = { valid: 0, invalid: 0, validityUnjudged: 0, returned: 0, helpful: 0, judged: 0, helpfulnessUnjudged: 0 };
   for (const c of cases) {
     const v = run.validity(c.id);
-    if (v === "invalid") invalid++;
-    else if (v === "unjudged") vUn++;
+    if (v === "invalid") t.invalid++;
+    else if (v === "unjudged") t.validityUnjudged++;
     else {
-      valid++;
-      const h = run.helpful(rid, c.id);
-      if (h === "unjudged") hUn++;
-      else {
-        n++;
-        if (h === "helpful") k++;
-      }
+      t.valid++;
+      if (run.retrieved.results[rid]?.[c.id]?.top5.length) t.returned++;
+      tallyHelp(t, run.helpful(rid, c.id));
     }
   }
-  return { cases: cases.length, valid, invalid, validityUnjudged: vUn, helpful: rate(k, n), helpfulnessUnjudged: hUn };
+  return t;
+}
+
+function typeRow(run: RunData, rid: string, cases: Case[]): TypeRow {
+  const t = tally(run, rid, cases);
+  return { cases: cases.length, valid: t.valid, invalid: t.invalid, validityUnjudged: t.validityUnjudged, helpful: rate(t.helpful, t.judged), helpfulnessUnjudged: t.helpfulnessUnjudged };
 }
 
 function negativesRow(run: RunData, rid: string, cases: Case[]): NegativesRow {
-  let valid = 0;
-  let invalid = 0;
-  let vUn = 0;
-  let returned = 0;
-  let hk = 0;
-  let hn = 0;
-  let hUn = 0;
-  for (const c of cases) {
-    const v = run.validity(c.id);
-    if (v === "invalid") invalid++;
-    else if (v === "unjudged") vUn++;
-    else {
-      valid++;
-      if (run.retrieved.results[rid]?.[c.id]?.top5.length) returned++;
-      const h = run.helpful(rid, c.id);
-      if (h === "unjudged") hUn++;
-      else {
-        hn++;
-        if (h === "helpful") hk++;
-      }
-    }
-  }
-  return { cases: cases.length, valid, invalid, validityUnjudged: vUn, returnedAnything: rate(returned, valid), abstention: rate(valid - returned, valid), judgedHelpful: rate(hk, hn), helpfulnessUnjudged: hUn };
+  const t = tally(run, rid, cases);
+  return {
+    cases: cases.length,
+    valid: t.valid,
+    invalid: t.invalid,
+    validityUnjudged: t.validityUnjudged,
+    returnedAnything: rate(t.returned, t.valid),
+    abstention: rate(t.valid - t.returned, t.valid),
+    judgedHelpful: rate(t.helpful, t.judged),
+    helpfulnessUnjudged: t.helpfulnessUnjudged,
+  };
 }
 
 function goldRows(run: RunData, rid: string): Record<string, GoldRow> {
@@ -340,7 +346,7 @@ export function renderReport(a: Aggregate): string {
 
 // ---------------------------------------------------------------- compare
 
-export interface PairRow {
+interface PairRow {
   a: string;
   b: string;
   n: number;
@@ -361,36 +367,41 @@ export interface Comparison {
   pairs: PairRow[];
 }
 
-export function compareRuns(A: RunData, B: RunData, opts: { allowJudgeMismatch?: boolean } = {}): Comparison {
-  const ha = A.retrieved.caseSetHash;
-  const hb = B.retrieved.caseSetHash;
-  if (ha !== hb) throw new CliError(`cannot compare runs on different case sets: ${A.runId} has ${ha}, ${B.runId} has ${hb}`);
+function gateComparison(A: RunData, B: RunData, allowJudgeMismatch: boolean | undefined): { ja: JudgeInfo; jb: JudgeInfo; mismatch: boolean } {
+  if (A.retrieved.caseSetHash !== B.retrieved.caseSetHash) {
+    throw new CliError(`cannot compare runs on different case sets: ${A.runId} has ${A.retrieved.caseSetHash}, ${B.runId} has ${B.retrieved.caseSetHash}`);
+  }
   const ja = A.manifest.judge ?? {};
   const jb = B.manifest.judge ?? {};
   const mismatch = ja.model !== jb.model || ja.promptVersion !== jb.promptVersion;
-  if (mismatch && !opts.allowJudgeMismatch) {
+  if (mismatch && !allowJudgeMismatch) {
     throw new CliError(`cannot compare runs judged differently: ${A.runId} judge ${ja.model} (prompt ${ja.promptVersion}), ${B.runId} judge ${jb.model} (prompt ${jb.promptVersion}); pass --allow-judge-mismatch to compare anyway`);
   }
-  const positives = A.cases.filter((c) => (POSITIVE_TYPES as string[]).includes(c.type));
-  const pairs: PairRow[] = [];
-  for (const ra of A.retrieved.retrievers.filter((r) => r.status === "ok")) {
-    for (const rb of B.retrieved.retrievers.filter((r) => r.status === "ok")) {
-      let wins = 0;
-      let losses = 0;
-      let n = 0;
-      for (const c of positives) {
-        if (A.validity(c.id) !== "valid" || B.validity(c.id) !== "valid") continue;
-        const x = A.helpful(ra.id, c.id);
-        const y = B.helpful(rb.id, c.id);
-        if (x === "unjudged" || y === "unjudged") continue;
-        n++;
-        if (x === "helpful" && y !== "helpful") wins++;
-        else if (y === "helpful" && x !== "helpful") losses++;
-      }
-      pairs.push({ a: ra.id, b: rb.id, n, wins, losses, ties: n - wins - losses, p: mcnemarExact(wins, losses) });
-    }
+  return { ja, jb, mismatch };
+}
+
+function pairRow(A: RunData, B: RunData, a: string, b: string, positives: Case[]): PairRow {
+  let wins = 0;
+  let losses = 0;
+  let n = 0;
+  for (const c of positives) {
+    if (A.validity(c.id) !== "valid" || B.validity(c.id) !== "valid") continue;
+    const x = A.helpful(a, c.id);
+    const y = B.helpful(b, c.id);
+    if (x === "unjudged" || y === "unjudged") continue;
+    n++;
+    if (x === "helpful" && y !== "helpful") wins++;
+    else if (y === "helpful" && x !== "helpful") losses++;
   }
-  return { runA: A.runId, runB: B.runId, caseSetHash: ha, judgeA: ja.model ?? "absent", judgeB: jb.model ?? "absent", promptA: ja.promptVersion ?? "absent", promptB: jb.promptVersion ?? "absent", mismatch, pairs };
+  return { a, b, n, wins, losses, ties: n - wins - losses, p: mcnemarExact(wins, losses) };
+}
+
+export function compareRuns(A: RunData, B: RunData, opts: { allowJudgeMismatch?: boolean } = {}): Comparison {
+  const { ja, jb, mismatch } = gateComparison(A, B, opts.allowJudgeMismatch);
+  const positives = A.cases.filter((c) => (POSITIVE_TYPES as string[]).includes(c.type));
+  const okIds = (r: RunData) => r.retrieved.retrievers.filter((x) => x.status === "ok").map((x) => x.id);
+  const pairs = okIds(A).flatMap((a) => okIds(B).map((b) => pairRow(A, B, a, b, positives)));
+  return { runA: A.runId, runB: B.runId, caseSetHash: A.retrieved.caseSetHash, judgeA: ja.model ?? "absent", judgeB: jb.model ?? "absent", promptA: ja.promptVersion ?? "absent", promptB: jb.promptVersion ?? "absent", mismatch, pairs };
 }
 
 export function renderComparison(c: Comparison): string {

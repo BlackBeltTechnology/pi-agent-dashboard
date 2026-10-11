@@ -13,7 +13,7 @@ export const BATCH_SIZE = 10;
 export const JUDGE_TIMEOUT_MS = 120_000;
 export const DATA_CLASSES = "session prompts, commands, paths, error text, retrieved snippets; known secret shapes scrubbed (best-effort)";
 
-export type VerdictKind = "validity" | "helpfulness";
+type VerdictKind = "validity" | "helpfulness";
 export type Verdict = "valid" | "invalid" | "helpful" | "not_helpful";
 const ALLOWED: Record<VerdictKind, Verdict[]> = { validity: ["valid", "invalid"], helpfulness: ["helpful", "not_helpful"] };
 

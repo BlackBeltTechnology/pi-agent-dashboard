@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type Case, type CaseSet, caseSetHash } from "../../cases.js";
-import { sha256, stableJson } from "../../util.js";
 import { casePath } from "../../commands/cases.js";
+import { sha256, stableJson } from "../../util.js";
 import type { TestEnv } from "./ctx.js";
 
 export function mkCase(over: Partial<Case> & { id: string }): Case {

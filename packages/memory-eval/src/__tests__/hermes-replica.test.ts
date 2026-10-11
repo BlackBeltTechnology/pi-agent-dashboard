@@ -3,7 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { loadInstalledSearch, type GoldenQuery } from "../../scripts/regen-hermes-golden.js";
+import { type GoldenQuery, loadInstalledSearch } from "../../scripts/regen-hermes-golden.js";
 import { searchSessionsReplica } from "../retrievers/hermes-session-search.js";
 
 const FIXTURE = resolve(__dirname, "../../fixtures/hermes-golden");

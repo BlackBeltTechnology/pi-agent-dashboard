@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 /** Same derivation pi uses for a cwd's session dir: `--Users-robson-Project-x--`. */
-export function projectKeyFor(cwd: string): string {
+function projectKeyFor(cwd: string): string {
   return `--${cwd.replace(/^[\\/]/, "").replace(/[\\/:]/g, "-")}--`;
 }
 
@@ -47,13 +47,13 @@ export function resolvePaths(opts: { cwd: string; home?: string }): WorkPaths {
 }
 
 /** Create the work dir (and `dir` below it) with 0700; re-chmod when it already exists. */
-export function ensureDir(dir: string): void {
+function ensureDir(dir: string): void {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   chmodSync(dir, 0o700);
 }
 
 /** Make the whole work dir private again (idempotent): dirs 0700, files 0600. */
-export function hardenTree(root: string): void {
+function hardenTree(root: string): void {
   if (!existsSync(root)) return;
   chmodSync(root, 0o700);
   for (const name of readdirSync(root)) {

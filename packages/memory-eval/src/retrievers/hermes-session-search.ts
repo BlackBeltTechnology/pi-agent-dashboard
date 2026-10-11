@@ -16,7 +16,7 @@ import {
   normalizeNaturalLanguageFts5Query,
 } from "./hermes-fts-query.js";
 
-export interface SessionRow {
+interface SessionRow {
   id: string;
   session_id: string;
   project: string;
@@ -33,8 +33,8 @@ export interface SessionSearchOpts {
   limit?: number;
 }
 
-export const BM25_WINDOW = 5_000;
-export const BM25_WIDE_WINDOW = 50_000;
+const BM25_WINDOW = 5_000;
+const BM25_WIDE_WINDOW = 50_000;
 
 export interface SessionSearchResult {
   rows: SessionRow[];
@@ -45,112 +45,107 @@ export interface SessionSearchResult {
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, "\\$&");
 const COLS = "m.id, m.session_id, s.project, m.role, m.content, m.timestamp";
 
-type Match = { type: "fts"; query: string } | { type: "like"; terms: string[] };
-
 function filters(o: SessionSearchOpts): { sql: string[]; params: unknown[] } {
   const sql: string[] = [];
   const params: unknown[] = [];
-  if (o.project) {
-    sql.push("s.project = ?");
-    params.push(o.project);
-  }
-  if (o.asOf) {
-    sql.push("m.timestamp < ?");
-    params.push(o.asOf);
-  }
-  if (o.excludeSessionId) {
-    sql.push("m.session_id <> ?");
-    params.push(o.excludeSessionId);
-  }
+  const add = (cond: string, v: unknown) => {
+    sql.push(cond);
+    params.push(v);
+  };
+  if (o.project) add("s.project = ?", o.project);
+  if (o.asOf) add("m.timestamp < ?", o.asOf);
+  if (o.excludeSessionId) add("m.session_id <> ?", o.excludeSessionId);
   return { sql, params };
+}
+
+function likeRows(db: DatabaseSync, terms: string[], o: SessionSearchOpts, limit: number): SessionRow[] {
+  if (!terms.length) return [];
+  const f = filters(o);
+  const conds = [`(${terms.map(() => "m.content LIKE ? ESCAPE '\\'").join(" OR ")})`, ...f.sql];
+  const params = [...terms.map((t) => `%${escapeLike(t)}%`), ...f.params];
+  return db
+    .prepare(`SELECT ${COLS} FROM messages m JOIN sessions s ON s.id = m.session_id WHERE ${conds.join(" AND ")} ORDER BY m.timestamp DESC LIMIT ?`)
+    .all(...(params as never[]), limit) as unknown as SessionRow[];
+}
+
+function ftsRecentRows(db: DatabaseSync, q: string, o: SessionSearchOpts, limit: number): SessionRow[] {
+  const f = filters(o);
+  const conds = ["m.rowid IN (SELECT rowid FROM message_fts WHERE message_fts MATCH ?)", ...f.sql];
+  return db
+    .prepare(`SELECT ${COLS} FROM messages m JOIN sessions s ON s.id = m.session_id WHERE ${conds.join(" AND ")} ORDER BY m.timestamp DESC LIMIT ?`)
+    .all(...([q, ...f.params] as never[]), limit) as unknown as SessionRow[];
+}
+
+/**
+ * Rank inside FTS first (bounded window), then join and filter. Putting the
+ * as-of join inside the ranked query is the 9-48 s v0 plan.
+ */
+function ftsBm25Rows(db: DatabaseSync, q: string, o: SessionSearchOpts, limit: number): { rows: SessionRow[]; underFill: boolean } {
+  const f = filters(o);
+  const where = f.sql.length ? `WHERE ${f.sql.join(" AND ")}` : "";
+  const windowed = (window: number) =>
+    db
+      .prepare(
+        `WITH hits AS (SELECT rowid AS rid, rank AS r FROM message_fts WHERE message_fts MATCH ? ORDER BY rank LIMIT ${window})
+         SELECT ${COLS} FROM hits JOIN messages m ON m.rowid = hits.rid JOIN sessions s ON s.id = m.session_id ${where} ORDER BY hits.r LIMIT ?`,
+      )
+      .all(...([q, ...f.params] as never[]), limit) as unknown as SessionRow[];
+  const saturated = () => Number((db.prepare(`SELECT COUNT(*) AS n FROM (SELECT rowid FROM message_fts WHERE message_fts MATCH ? LIMIT ${BM25_WINDOW})`).get(q) as { n: number }).n) >= BM25_WINDOW;
+  let rows = windowed(BM25_WINDOW);
+  if (rows.length >= limit || !saturated()) return { rows, underFill: false };
+  rows = windowed(BM25_WIDE_WINDOW);
+  return { rows, underFill: rows.length < limit };
+}
+
+/** FTS queries to try after the exact one, in order (null = skipped). Hermes semantics. */
+function alternativeQueries(query: string, normalized: string): Array<string | null> {
+  if (!hasExplicitFts5Operator(query)) {
+    const fallback = buildFallbackFts5Query(query);
+    return [fallback && fallback !== normalized ? fallback : null];
+  }
+  const nl = normalizeNaturalLanguageFts5Query(query);
+  if (nl.length === 0 || nl === normalized) return [];
+  const nlFallback = buildNaturalLanguageFallbackQuery(query);
+  return [nl, nlFallback && nlFallback !== nl ? nlFallback : null];
+}
+
+/** The hermes query cascade over an injected FTS/LIKE runner. */
+function cascade<T>(query: string, run: { fts(q: string): T[]; like(terms: string[]): T[]; parseError(): boolean }): T[] {
+  const normalized = normalizeFts5Query(query);
+  if (!normalized) return run.like(collectLikeTerms(query));
+  const exact = run.fts(normalized);
+  // A valid operator query that matches nothing keeps its exact semantics; only a parse error recovers.
+  if (exact.length > 0 || (hasExplicitFts5Operator(query) && !run.parseError())) return exact;
+  for (const alt of alternativeQueries(query, normalized)) {
+    const r = alt ? run.fts(alt) : [];
+    if (r.length > 0) return r;
+  }
+  return run.like(collectLikeTerms(query));
 }
 
 /** Newest-first (hermes order) or BM25-first with a bounded FTS window. */
 export function searchSessionsReplica(db: DatabaseSync, query: string, o: SessionSearchOpts, order: "recent" | "bm25"): SessionSearchResult {
   const limit = o.limit ?? 10;
   if (query.trim().length === 0) return { rows: [], underFill: false };
-  let ftsParseError = false;
+  let parseError = false;
   let underFill = false;
-
-  const runLike = (terms: string[]): SessionRow[] => {
-    if (!terms.length) return [];
-    const f = filters(o);
-    const conds = [`(${terms.map(() => "m.content LIKE ? ESCAPE '\\'").join(" OR ")})`, ...f.sql];
-    const params = [...terms.map((t) => `%${escapeLike(t)}%`), ...f.params];
-    return db
-      .prepare(`SELECT ${COLS} FROM messages m JOIN sessions s ON s.id = m.session_id WHERE ${conds.join(" AND ")} ORDER BY m.timestamp DESC LIMIT ?`)
-      .all(...(params as never[]), limit) as unknown as SessionRow[];
-  };
-
-  const runFtsRecent = (q: string): SessionRow[] => {
-    const f = filters(o);
-    const conds = ["m.rowid IN (SELECT rowid FROM message_fts WHERE message_fts MATCH ?)", ...f.sql];
-    return db
-      .prepare(`SELECT ${COLS} FROM messages m JOIN sessions s ON s.id = m.session_id WHERE ${conds.join(" AND ")} ORDER BY m.timestamp DESC LIMIT ?`)
-      .all(...([q, ...f.params] as never[]), limit) as unknown as SessionRow[];
-  };
-
-  // Rank inside FTS first (bounded window), then join and filter. Putting the
-  // as-of join inside the ranked query is the 9-48 s v0 plan.
-  const runFtsBm25 = (q: string): SessionRow[] => {
-    const f = filters(o);
-    const where = f.sql.length ? `WHERE ${f.sql.join(" AND ")}` : "";
-    const stmt = (window: number) =>
-      db
-        .prepare(
-          `WITH hits AS (SELECT rowid AS rid, rank AS r FROM message_fts WHERE message_fts MATCH ? ORDER BY rank LIMIT ${window})
-           SELECT ${COLS} FROM hits JOIN messages m ON m.rowid = hits.rid JOIN sessions s ON s.id = m.session_id ${where} ORDER BY hits.r LIMIT ?`,
-        )
-        .all(...([q, ...f.params] as never[]), limit) as unknown as SessionRow[];
-    const count = (window: number) =>
-      Number((db.prepare(`SELECT COUNT(*) AS n FROM (SELECT rowid FROM message_fts WHERE message_fts MATCH ? LIMIT ${window})`).get(q) as { n: number }).n);
-    let rows = stmt(BM25_WINDOW);
-    if (rows.length < limit && count(BM25_WINDOW) >= BM25_WINDOW) {
-      rows = stmt(BM25_WIDE_WINDOW);
-      underFill = rows.length < limit;
-    }
-    return rows;
-  };
-
-  const runFts = (q: string): SessionRow[] => {
-    try {
-      return order === "recent" ? runFtsRecent(q) : runFtsBm25(q);
-    } catch (err) {
-      if (isFts5QueryError(err)) {
-        ftsParseError = true;
+  const rows = cascade<SessionRow>(query, {
+    like: (terms) => likeRows(db, terms, o, limit),
+    parseError: () => parseError,
+    fts(q) {
+      try {
+        if (order === "recent") return ftsRecentRows(db, q, o, limit);
+        const r = ftsBm25Rows(db, q, o, limit);
+        underFill = r.underFill;
+        return r.rows;
+      } catch (err) {
+        if (!isFts5QueryError(err)) throw err;
+        parseError = true;
         return [];
       }
-      throw err;
-    }
-  };
-  const done = (rows: SessionRow[]): SessionSearchResult => ({ rows, underFill });
-
-  const normalized = normalizeFts5Query(query);
-  if (!normalized) return done(runLike(collectLikeTerms(query)));
-  const exact = runFts(normalized);
-  if (exact.length > 0) return done(exact);
-
-  if (hasExplicitFts5Operator(query)) {
-    if (!ftsParseError) return done(exact);
-    const nl = normalizeNaturalLanguageFts5Query(query);
-    if (nl.length > 0 && nl !== normalized) {
-      const r = runFts(nl);
-      if (r.length > 0) return done(r);
-      const fb = buildNaturalLanguageFallbackQuery(query);
-      if (fb && fb !== nl) {
-        const r2 = runFts(fb);
-        if (r2.length > 0) return done(r2);
-      }
-    }
-    return done(runLike(collectLikeTerms(query)));
-  }
-
-  const fallback = buildFallbackFts5Query(query);
-  if (fallback && fallback !== normalized) {
-    const r = runFts(fallback);
-    if (r.length > 0) return done(r);
-  }
-  return done(runLike(collectLikeTerms(query)));
+    },
+  });
+  return { rows, underFill };
 }
 
 export interface MemoryRow {
@@ -161,6 +156,22 @@ export interface MemoryRow {
   created: string;
 }
 
+function memoryFilters(o: { project?: string; asOf?: string }): { sql: string[]; params: unknown[] } {
+  const sql: string[] = [];
+  const params: unknown[] = [];
+  if (o.project) {
+    sql.push("(m.project = ? OR m.project IS NULL)");
+    params.push(o.project);
+  }
+  if (o.asOf) {
+    sql.push("m.created < ?");
+    params.push(new Date(o.asOf).toISOString().slice(0, 10));
+  }
+  return { sql, params };
+}
+
+const MEMORY_COLS = "m.id, m.project, m.target, m.content, m.created";
+
 /**
  * hermes `searchMemories` with project-or-global scope and eligibility
  * `created < date(asOf UTC)`: `created` is a day, so same-day memories are
@@ -169,51 +180,38 @@ export interface MemoryRow {
 export function searchMemoriesReplica(db: DatabaseSync, query: string, o: { project?: string; asOf?: string; limit?: number }): MemoryRow[] {
   const limit = o.limit ?? 10;
   if (query.trim().length === 0) return [];
-  const f: string[] = [];
-  const fp: unknown[] = [];
-  if (o.project) {
-    f.push("(m.project = ? OR m.project IS NULL)");
-    fp.push(o.project);
-  }
-  if (o.asOf) {
-    f.push("m.created < ?");
-    fp.push(new Date(o.asOf).toISOString().slice(0, 10));
-  }
-  let ftsParseError = false;
-  const cols = "m.id, m.project, m.target, m.content, m.created";
-  const runFts = (q: string): MemoryRow[] => {
+  const f = memoryFilters(o);
+  let parseError = false;
+  const fts = (q: string): MemoryRow[] => {
     try {
-      const conds = ["memory_fts MATCH ?", ...f];
+      const conds = ["memory_fts MATCH ?", ...f.sql];
       return db
-        .prepare(`SELECT ${cols}, bm25(memory_fts) AS rank_score FROM memories m JOIN memory_fts ON memory_fts.rowid = m.id WHERE ${conds.join(" AND ")} ORDER BY rank_score ASC, m.last_referenced DESC LIMIT ?`)
-        .all(...([q, ...fp] as never[]), limit) as unknown as MemoryRow[];
+        .prepare(`SELECT ${MEMORY_COLS}, bm25(memory_fts) AS rank_score FROM memories m JOIN memory_fts ON memory_fts.rowid = m.id WHERE ${conds.join(" AND ")} ORDER BY rank_score ASC, m.last_referenced DESC LIMIT ?`)
+        .all(...([q, ...f.params] as never[]), limit) as unknown as MemoryRow[];
     } catch (err) {
-      if (isFts5QueryError(err)) {
-        ftsParseError = true;
-        return [];
-      }
-      throw err;
+      if (!isFts5QueryError(err)) throw err;
+      parseError = true;
+      return [];
     }
   };
-  const runLike = (terms: string[]): MemoryRow[] => {
+  const like = (terms: string[]): MemoryRow[] => {
     if (!terms.length) return [];
-    const conds = [`(${terms.map(() => "m.content LIKE ? ESCAPE '\\'").join(" OR ")})`, ...f];
+    const conds = [`(${terms.map(() => "m.content LIKE ? ESCAPE '\\'").join(" OR ")})`, ...f.sql];
     return db
-      .prepare(`SELECT ${cols} FROM memories m WHERE ${conds.join(" AND ")} ORDER BY m.last_referenced DESC LIMIT ?`)
-      .all(...([...terms.map((t) => `%${escapeLike(t.trim())}%`), ...fp] as never[]), limit) as unknown as MemoryRow[];
+      .prepare(`SELECT ${MEMORY_COLS} FROM memories m WHERE ${conds.join(" AND ")} ORDER BY m.last_referenced DESC LIMIT ?`)
+      .all(...([...terms.map((t) => `%${escapeLike(t.trim())}%`), ...f.params] as never[]), limit) as unknown as MemoryRow[];
   };
   const normalized = normalizeFts5Query(query);
-  if (!normalized) return runLike(collectLikeTerms(query));
-  const exact = runFts(normalized);
+  if (!normalized) return like(collectLikeTerms(query));
+  const exact = fts(normalized);
   if (exact.length > 0) return exact;
-  if (ftsParseError) {
+  if (parseError) {
     const nl = normalizeNaturalLanguageFts5Query(query);
     if (!nl || nl === normalized) return [];
-    const r = runFts(nl);
-    if (r.length > 0) return r;
+    const r = fts(nl);
     const fb = buildNaturalLanguageFallbackQuery(query);
-    return fb && fb !== nl ? runFts(fb) : r;
+    return r.length > 0 || !fb || fb === nl ? r : fts(fb);
   }
   const fb = buildFallbackFts5Query(query);
-  return !fb || fb === normalized ? exact : runFts(fb);
+  return !fb || fb === normalized ? exact : fts(fb);
 }

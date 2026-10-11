@@ -1,0 +1,27 @@
+# DOX — packages/memory-eval/src
+
+Files in this directory. One row per source file. Tests: `__tests__/AGENTS.md`.
+
+| File | Purpose |
+|------|---------|
+| `cases.ts` | Case builder (pure). `buildCaseSet(parsed, {seed, quotas})` → `CaseSet`; `buildCandidates`; `sampleCases` (seeded mulberry32 over id-sorted candidates); `caseSetHash`; `inputFingerprint`. Four types: recurring_fault, user_flagged, explicit_ref, negative. Case id = sha256(type\|session\|ts\|sig-or-text)[:12]; `contentHash` covers query+context+gold. Frequent sig = more than max(3, 5%) of sessions. See change: add-memory-eval-tier-r. |
+| `cli.ts` | `main(argv, ctx)` = whole program (tests call it). Subcommands `cases build`, `run`, `judge`, `report [--compare a b]`, `status`. Catches `CliError` → stderr + exit code. Sets `umask 077` when run as a script. |
+| `commands/cases.ts` | `casesBuild(ctx, args)`: read session dirs (+ `--include-worktrees`), refuse existing set without `--force`, write `cases/<set>.json` privately. Exit 1 when no `*.jsonl`. Exports `casePath`, `readCaseSet`. |
+| `commands/judge.ts` | `judgeCommand`: validity per case, helpfulness per (case, retriever output). Verdict cache `verdicts.jsonl`; consent (TTY confirm / `--yes` / fail closed); `--dry-run`; batch retry once, missing-id retry once, else `unjudged.jsonl` (never cached); `judge-calls.jsonl` log; updates manifest `judge`. Spawns `pi -p …` via `ctx.piCommand`, cwd = work dir, prompt on stdin, harness kills on timeout. Exports `loadVerdicts`, `DEFAULT_PROMPT`. |
+| `commands/report.ts` | `reportCommand` (single run or `--compare`) writes `reports/*.md`; `statusCommand` lists runs: case-set hash, judged/unjudged, judge-call outcomes. |
+| `commands/run.ts` | `runCommand`: validate `--retriever-module` first, snapshot hermes + kb, run retrievers × cases, write `runs/<id>/retrieved.json` + `manifest.json`. Missing source ⇒ adapters `unavailable`, manifest `absent`. Exports `latestRunId`, `readJson`, `ABSENT`, `RetrievedFile`. |
+| `ctx.ts` | `Ctx` = injected environment (cwd, home, TTY, confirm, `piCommand`, snapshot deps, timeouts, `promptPath`, `scrubRules`). `defaultCtx()`. |
+| `events.ts` | Session JSONL → ordered events. Links result→call by `toolCallId`; orders by embedded ISO ts, ties file name then line. `parseSessionFiles`, `listSessionFiles`. |
+| `judge.ts` | Judge core: `resolveJudge` (`parseRoleConfig` + `resolveModelRef`, `@role` → `provider/id[:thinking]`), `judgeArgs` (exact argv, `--no-tools`), `buildBatchPayload` (scrub + `<data>` wrap), `parseAnswer`, `keyString` (cache key), `outputHash`. |
+| `report.ts` | `loadRun` (verdict lookup per run judge), `aggregate` (typed, numbers + ids only — no text field exists), `renderReport`, `compareRuns` (gates: case-set hash, judge/prompt; exact McNemar), `renderComparison`. Sanity band flag: `hermes.session_search.recent` helpful@5 outside 34% ± 15. Union = old-stack `hermes.*` strict adapters over the judged intersection. |
+| `retriever.ts` | `Retriever`/`Hit` contract + harness `runOne`: per-search timeout, hit-schema validation, as-of backstop (drop + count missing/late timestamps), own-session backstop, top-5 (260 chars) + top-10 refs, unexcluded second call for own-session share. |
+| `retrievers/builtin.ts` | Old-stack adapters: `hermes.session_search.recent`, `.bm25`, `hermes.memory_search` (strict) over the hermes snapshot; `kb.docs` (asOf `none`) via `SqliteFtsStore.openExisting` on the kb snapshot. `REPLICA_VERSION`, `BUILTIN_IDS`. |
+| `retrievers/external.ts` | `--retriever-module` loader. Validates default export `Retriever[]`, unique ids (built-in ids reserved); records path + sha256. Trusted local code. |
+| `retrievers/hermes-fts-query.ts` | Replica of pi-hermes-memory 0.9.10 `fts-query.ts` (stop words, operator detect, OR fallback, LIKE terms). Pinned by the golden fixture. |
+| `retrievers/hermes-session-search.ts` | As-of replicas: `searchSessionsReplica(db, q, opts, "recent"\|"bm25")` (in-query `timestamp < asOf` + own-session exclusion before LIMIT; BM25 ranks inside FTS first with a 5,000 window, retry at 50,000, reports `underFill`), `searchMemoriesReplica` (`created < date(asOf UTC)`, project or global). |
+| `scrub.ts` | Best-effort secret scrub rule table (`SCRUB_RULES`): private keys, bearer/basic, JWT, sk-/gh*/glpat/xox/AKIA, URL userinfo, secret flags, `NAME=value` with KEY/TOKEN/SECRET/PASS/AUTH/CREDENTIAL. Hashed into every cache key. Paths, commands, hex hashes stay. |
+| `signature.ts` | Error detection (`isError` or non-zero `exited with code` in last 300 chars), signature masking (`tool\|` + ≤70 chars), generic-signature list, command head (skips `cd` + `VAR=`), fault query, `failuresIn` (fix = soonest same-tool success within 15 events inclusive; `fixChanged` = head differs). |
+| `snapshot.ts` | `snapshotDb`: file-copy DB + `-wal` (never `-shm`), stat-stable check (size, mtime, WAL salt), `integrity_check` on the copy, 5 attempts, `VACUUM INTO`, `journal_mode=DELETE`, drop `raw/`. Source is never opened. Injectable `SnapshotDeps`. `hermesFingerprint`, `kbFingerprint`. |
+| `stats.ts` | `wilson` (95%), `mcnemarExact` (exact two-sided), `median`, `pct`. |
+| `util.ts` | `sha256`, `stableJson` (sorted keys), `mulberry32`, `toUtcIso`, `epochMs`, `CliError`, `Out`. |
+| `workdir.ts` | `projectKeyFor(cwd)` (pi session-dir name), `resolvePaths`, `ensureWorkDir`/`hardenTree` (dirs 0700, files 0600, re-chmod existing), `writeSecure`. Work dir `~/.pi/dashboard/memory-eval/<key>/`. |

@@ -1,14 +1,13 @@
 /** Old-stack adapters (design M4): hermes session/memory replicas and kb docs. */
-import { statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { loadConfig, searchOptsFromConfig, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
+import { loadConfig, SqliteFtsStore, searchOptsFromConfig } from "@blackbelt-technology/pi-dashboard-kb";
 import type { Retriever, SearchQuery } from "../retriever.js";
 import { searchMemoriesReplica, searchSessionsReplica } from "./hermes-session-search.js";
 
 export const BUILTIN_IDS = ["hermes.session_search.recent", "hermes.session_search.bm25", "hermes.memory_search", "kb.docs"] as const;
 
 /** Bumped when a replica's behaviour changes (golden regenerated). */
-export const REPLICA_VERSION = "1";
+const REPLICA_VERSION = "1";
 
 export function hermesRetrievers(dbPath: string): Retriever[] {
   let db: DatabaseSync | null = null;
@@ -50,12 +49,4 @@ export function kbRetriever(snapshotPath: string, cwd: string): Retriever {
       return hits.map((h) => ({ ref: `${h.path}#${h.headingPath}`, text: h.snippet }));
     },
   };
-}
-
-export function fileExists(path: string): boolean {
-  try {
-    return statSync(path).size > 0;
-  } catch {
-    return false;
-  }
 }

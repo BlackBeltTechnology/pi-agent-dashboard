@@ -1,15 +1,15 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import { describe, expect, it } from "vitest";
 import { main } from "../cli.js";
 import { latestRunId } from "../commands/run.js";
 import type { SnapshotDeps } from "../snapshot.js";
 import { makeEnv, type TestEnv } from "./helpers/ctx.js";
 import { createHermesDb } from "./helpers/hermes-db.js";
-import { hermesDbPath, mkCase, writeCaseSet } from "./helpers/run-fixture.js";
 import { judgeEnv } from "./helpers/judge-env.js";
+import { hermesDbPath, mkCase, writeCaseSet } from "./helpers/run-fixture.js";
 import { bash, uuid, writeSession } from "./helpers/sessions.js";
 
 const T = "2026-02-01T12:00:00.000Z";

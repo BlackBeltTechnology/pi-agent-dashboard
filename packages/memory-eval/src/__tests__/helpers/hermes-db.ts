@@ -41,7 +41,7 @@ export interface FxMessage {
   role?: "user" | "assistant" | "system";
   id?: string;
 }
-export interface FxMemory {
+interface FxMemory {
   project: string | null;
   content: string;
   created: string;

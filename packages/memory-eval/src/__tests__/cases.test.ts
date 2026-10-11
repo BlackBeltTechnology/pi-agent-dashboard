@@ -6,7 +6,7 @@ import { casePath, casesBuild } from "../commands/cases.js";
 import { parseSessionText } from "../events.js";
 import { isErrorResult, signatureOf } from "../signature.js";
 import { makeEnv } from "./helpers/ctx.js";
-import { bash, sessionText, type SessionSpec, type Step, user, uuid, writeSession } from "./helpers/sessions.js";
+import { bash, type SessionSpec, type Step, sessionText, user, uuid, writeSession } from "./helpers/sessions.js";
 
 const FAIL = (cmd = "npx vitest run a", msg = "Error: boom 12") => bash(cmd, msg, true);
 const FIX = (cmd = "pnpm vitest run a") => bash(cmd, "ok");
