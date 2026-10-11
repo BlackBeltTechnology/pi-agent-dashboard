@@ -239,7 +239,7 @@ const validateFragmentSchema = ajv.compile({ definitions: (loadSchema() as { def
 
 export function validateOverridesFragment(fragment: unknown): ValidationIssue[] {
   if (validateFragmentSchema(fragment)) return [];
-  return (validateFragmentSchema.errors ?? []).map((e) => ({ path: formatPath(e.instancePath).replace(/^\(root\)$/, "(root)"), message: humanMessage(e) }));
+  return (validateFragmentSchema.errors ?? []).map((e) => ({ path: formatPath(e.instancePath), message: humanMessage(e) }));
 }
 
 export function validate(ir: unknown, opts: ValidateOptions = {}): ValidationResult {

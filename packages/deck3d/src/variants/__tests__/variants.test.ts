@@ -303,7 +303,9 @@ describe("variants pick / note / replay", () => {
     const deck = await styleDeck({ version: 1, steps: [step("look", [v("A", { deck: { mode: "light" } }), v("B")])] });
     const lock = join(deck.dir, "style.json.lock");
     // Another process (alive) holds the lock for ~0.6 s, as a serve rebuild would.
-    const holder = spawn(process.execPath, ["-e", `const fs=require("fs");fs.writeFileSync(${JSON.stringify(lock)}, process.pid+":held");console.log("ready");setTimeout(()=>fs.unlinkSync(${JSON.stringify(lock)}),600);`], { stdio: ["ignore", "pipe", "inherit"] });
+    // The lock path travels as an argument, never interpolated into the script text.
+    const script = 'const fs=require("fs");const lock=process.argv[1];fs.writeFileSync(lock, process.pid+":held");console.log("ready");setTimeout(()=>fs.unlinkSync(lock),600);';
+    const holder = spawn(process.execPath, ["-e", script, lock], { stdio: ["ignore", "pipe", "inherit"] });
     await new Promise<void>((resolve) => holder.stdout.once("data", () => resolve()));
     const t0 = Date.now();
     expect(() => pickVariant({ deckJson: deck.json, step: "look", name: "A" })).not.toThrow();
