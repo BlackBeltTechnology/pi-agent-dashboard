@@ -183,6 +183,12 @@
 | `overrides.props[].count` | integer |  | Instance count for the `ambient` role. |
 | `overrides.props[].restyle` | palette \| original |  | `palette` swaps materials for the deck PBR palette; `original` keeps the source materials. |
 | `overrides.props[].anim` | none \| float \| orbit \| spin |  | Animation preset applied to the prop group. |
+| `overrides.assets` | array |  | Pinned deck assets (images, JSON, text, fonts) embedded once into deck.html and read by effects through `ctx.assets.get(id)`. `pptx import` writes the `pptx-` entries. |
+| `overrides.assets[]` | object |  | One pinned deck asset. |
+| `overrides.assets[].id` | string |  | Asset id effects read it by. Font assets use `font-<name>`; only fonts may use that prefix. |
+| `overrides.assets[].path` | string |  | File path relative to the deck directory; must resolve inside it. |
+| `overrides.assets[].sha256` | string |  | Lowercase hex sha256 of the file bytes; a stale pin fails validate/render. |
+| `overrides.assets[].mime` | image/png \| image/jpeg \| image/gif \| image/webp \| image/svg+xml \| application/json \| text/plain \| font/ttf \| font/otf |  | Content type; decides how the runtime decodes it (bitmap, parsed JSON, text, registered font family). |
 | `overrides.slides` | object |  | Per-slide overrides keyed by slide id. |
 | `overrides.slides["<key>"]` | object |  | Per-slide overrides. Look knobs mirror `defaults` by $ref so the scopes cannot drift; `rail`/`spacing` stay deck-only because they position every anchor on the rail. |
 | `overrides.slides["<key>"].backgroundIntensity` | number |  | Override the background scene opacity. |

@@ -43,6 +43,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/**
+ * @structural-pin single-source lint: the pressure thresholds may be written only in the shared module, never restated in server or client files
+ */
 describe("host-pressure tracker", () => {
   it("a fresh frame emits nothing — a healthy session costs zero frames", () => {
     const { emissions, tracker } = setup();

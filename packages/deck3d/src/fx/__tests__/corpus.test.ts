@@ -1,13 +1,14 @@
 import { readFileSync } from "node:fs";
 import Ajv from "ajv";
-import { describe, expect, it } from "vitest";
 import * as THREE from "three";
+import { describe, expect, it } from "vitest";
 import { contrastRatio, luminanceFromHex } from "../../check/rules.js";
 import { PALETTES, resolvePalette } from "../../runtime/palette.js";
 import { qualityProfile } from "../../runtime/quality.js";
 import { makeRng } from "../../runtime/rng.js";
 import { catalogueHash, renderCatalogue } from "../catalogue.js";
 import { FX_IDS, REGISTRY } from "../index.js";
+import { STUB_PARAMS } from "../stub-assets.js";
 import { FX_TOPICS, PERMISSIVE_LICENCES } from "../types.js";
 
 const REQUIRED = [
@@ -70,8 +71,12 @@ describe("effect corpus (E27/E28)", () => {
       quality: qualityProfile("high"),
       rng: makeRng(1),
       slide: { id: "s1", title: "Slide", kind: "content" },
+      // The extended ctx (deck3d-pptx-import): an empty asset accessor.
+      assets: { get: (id: string): unknown => { throw new Error(`unknown asset '${id}'`); }, has: () => false },
     };
-    for (const { card, create } of Object.values(REGISTRY)) {
+    // The imported-pptx built-ins need decoded assets and a canvas (browser);
+    // they are constructed in the chromium suites with the stub bundle.
+    for (const { card, create } of Object.values(REGISTRY).filter((e) => !(e.card.id in STUB_PARAMS))) {
       expect(() => {
         const handle = create(ctx, {});
         handle.tick?.(0);

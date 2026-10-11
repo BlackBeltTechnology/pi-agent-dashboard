@@ -25,6 +25,9 @@ function gitGrep(args: string[]): string {
 
 const EXCLUDES = [":!packages/**/dist/**", ":!packages/**/out/**", ":!packages/electron/resources/**"];
 
+/**
+ * @structural-pin stays-gone guard over protocol and resolver symbols; absence of text is the contract
+ */
 describe("removed protocol types stay gone (E13)", () => {
   it("browser-protocol.ts has no bootstrap_* messages or BootstrapStateSnapshot", () => {
     const src = fs.readFileSync(path.join(REPO_ROOT, "packages", "shared", "src", "browser-protocol.ts"), "utf8");

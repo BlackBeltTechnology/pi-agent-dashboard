@@ -43,6 +43,9 @@ function obsDef(): ServiceDefinition {
   } as ServiceDefinition;
 }
 
+/**
+ * @structural-pin no-write invariant: the keychain resolver must never contain a write verb on any path, present or future; text covers paths a spy cannot reach
+ */
 describe("E48 — generated secret on add", () => {
   it("stores <id>/password; the response says configured without the value", async () => {
     writeDefinitions(root, []);

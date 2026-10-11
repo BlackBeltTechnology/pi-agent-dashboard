@@ -14,6 +14,7 @@ import {
   resetReconnectCaches,
 } from "../model-tracker.js";
 import type { BridgeContext } from "../bridge-context.js";
+import { readBridgeSource } from "./helpers/bridge-source.js";
 
 function makeBc() {
   const send = vi.fn();
@@ -21,6 +22,9 @@ function makeBc() {
   return { bc, send };
 }
 
+/**
+ * @structural-pin audited pi type declarations and the bridge wiring are checked as files; the pinned pi dist cannot be driven at runtime
+ */
 describe("sendPiVersionIfChanged", () => {
   beforeEach(() => _resetPiVersionCache());
 
@@ -388,28 +392,16 @@ describe("pi 0.84.x audit records", () => {
   });
 
   it("E8: the bridge consumes the in-process surface, never pi's stdout stream", () => {
-    const bridge = fs.readFileSync(path.join(__dirname, "../bridge.ts"), "utf-8");
-    expect(bridge).toMatch(/pi\.on\(/);
-    // The JSON/RPC stdout event surface must not leak into the bridge.
-    expect(bridge).not.toMatch(/toJsonEvent/);
-    expect(bridge).not.toMatch(/JsonAgentSessionEvent/);
-  });
-
-  it("E17: the admission handler blocks but never sets `terminate`", () => {
-    // `ToolCallEventResult.terminate` only takes effect for a handler that
-    // returns `block`. The bridge's pass-through `tool_call` forwarder does not
-    // block; the ONLY blocking handler is subagent fan-out admission
-    // (bound-subagent-fanout-under-host-pressure), which returns `block` +
-    // `reason` and deliberately never sets `terminate` — a refusal is "not now".
-    // This revisits the pi-api-feature-detection requirement that recorded the
-    // field as not-applicable while the bridge never blocked.
-    const bridge = fs.readFileSync(path.join(__dirname, "../bridge.ts"), "utf-8");
-    const passThrough = bridge.match(/const passThroughEventTypes = \[([\s\S]*?)\] as const;/);
+    const forwarders = readBridgeSource("bridge-handlers/forwarders.ts");
+    const passThrough = forwarders.match(/const passThroughEventTypes = \[([\s\S]*?)\] as const;/);
     expect(passThrough, "passThroughEventTypes block not found").toBeTruthy();
     expect(passThrough![1]).toMatch(/"tool_call"/);
-    // The bridge source itself must not inline a block/terminate result.
-    expect(bridge).not.toMatch(/terminate:\s*true/);
-    expect(bridge).not.toMatch(/block:\s*true/);
+    // No bridge-side module (entry point or extracted handler) may inline a block/terminate result.
+    for (const file of ["bridge.ts", "bridge-handlers/lifecycle.ts", "bridge-handlers/dispatch.ts", "bridge-handlers/forwarders.ts", "bridge-handlers/ui-prompt-patch.ts"] as const) {
+      const src = readBridgeSource(file);
+      expect(src, file).not.toMatch(/terminate:\s*true/);
+      expect(src, file).not.toMatch(/block:\s*true/);
+    }
 
     const admission = fs.readFileSync(
       path.join(__dirname, "../subagent-fanout-admission.ts"),

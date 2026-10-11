@@ -87,14 +87,14 @@ export interface ParamViolation {
   message: string;
 }
 
-function paramViolations(slideId: string, index: number, ref: EffectRef, local: LocalCards): ParamViolation[] {
+function paramViolations(scope: string, index: number, ref: EffectRef, local: LocalCards): ParamViolation[] {
   const c = card(ref.id, local);
   if (!c) return [];
   const out: ParamViolation[] = [];
   for (const [name, value] of Object.entries(ref.params ?? {})) {
     const schema = c.params[name] as { minimum?: number; maximum?: number } | undefined;
     if (!schema || typeof value !== "number") continue;
-    const base = `overrides.slides["${slideId}"].effects[${index}].params.${name}`;
+    const base = `${scope}[${index}].params.${name}`;
     if (schema.minimum !== undefined && value < schema.minimum) out.push({ path: base, message: `${value} < minimum ${schema.minimum}` });
     if (schema.maximum !== undefined && value > schema.maximum) out.push({ path: base, message: `${value} > maximum ${schema.maximum}` });
   }
@@ -103,12 +103,13 @@ function paramViolations(slideId: string, index: number, ref: EffectRef, local: 
 
 /** Validate `overrides.slides[id].effects[i].params` against the card schemas. */
 export function validateEffectParams(
-  ir: { overrides?: { slides?: Record<string, { effects?: EffectRef[] }> } },
+  ir: { overrides?: { effects?: EffectRef[]; slides?: Record<string, { effects?: EffectRef[] }> } },
   local: LocalCards = {},
 ): ParamViolation[] {
   const out: ParamViolation[] = [];
+  (ir.overrides?.effects ?? []).forEach((ref, i) => out.push(...paramViolations("overrides.effects", i, ref, local)));
   for (const [slideId, slide] of Object.entries(ir.overrides?.slides ?? {})) {
-    (slide.effects ?? []).forEach((ref, i) => out.push(...paramViolations(slideId, i, ref, local)));
+    (slide.effects ?? []).forEach((ref, i) => out.push(...paramViolations(`overrides.slides["${slideId}"].effects`, i, ref, local)));
   }
   return out;
 }

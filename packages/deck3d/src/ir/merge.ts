@@ -9,6 +9,7 @@
  * Persisted `slides[]` is never mutated: `applyOverrides` returns a fresh
  * merged view for the renderer, so re-parse always regenerates derived fields.
  */
+import { isPersistentFx } from "../fx/persistent.js";
 import type {
   DeckIR,
   Defaults,
@@ -82,8 +83,10 @@ export function applyOverrides(ir: DeckIR): MergedDeck {
     }
     // Effective effects: deck-level list first, then this slide's own list
     // (a slide `effects` override replaces the derived list). Arrays replace —
-    // the objects are never merged.
-    base.effects = [...clone(ir.overrides.effects ?? []), ...clone(base.effects ?? [])];
+    // the objects are never merged. Persistent cards live at deck scope only:
+    // they are created once by the runtime, never prepended to a slide.
+    const deckLevel = (ir.overrides.effects ?? []).filter((e) => !isPersistentFx(e.id));
+    base.effects = [...clone(deckLevel), ...clone(base.effects ?? [])];
     return base;
   });
   return { defaults, slides, effects: clone(ir.overrides.effects ?? []), props: clone(ir.overrides.props ?? []) };

@@ -1,6 +1,6 @@
 /**
  * Tests for the bridge's `ctx.ui.multiselect` PromptBus patch and the TUI
- * adapter's multiselect handling. The patch lives in `bridge.ts` but is
+ * adapter's multiselect handling. The patch lives in `bridge-handlers/ui-prompt-patch.ts` but is
  * exercised here through a small reproduction harness so we don't pull in
  * the full session lifecycle.
  *
@@ -181,14 +181,13 @@ describe("bridge ctx.ui.multiselect patch", () => {
 // expected snippet is missing or moved.
 // ──────────────────────────────────────────────────────────────────────
 
-describe("bridge.ts source regression guard", () => {
+/**
+ * @structural-pin the ui-prompt-patch module needs a live pi ctx.ui to run; the multiselect PromptBus assignment is pinned in its text beside a reproduction harness
+ */
+describe("ui-prompt-patch.ts source regression guard", () => {
   it("contains the ctx.ui.multiselect PromptBus assignment", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const url = await import("node:url");
-    const here = path.dirname(url.fileURLToPath(import.meta.url));
-    const bridgePath = path.resolve(here, "../bridge.ts");
-    const src = fs.readFileSync(bridgePath, "utf8");
+    const { readBridgeSource } = await import("./helpers/bridge-source.js");
+    const src = readBridgeSource("bridge-handlers/ui-prompt-patch.ts");
 
     // The assignment must mention `multiselect` as a key on ctx.ui AND
     // dispatch through bus.request with type:"multiselect".

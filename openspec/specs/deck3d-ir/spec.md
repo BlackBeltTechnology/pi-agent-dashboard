@@ -64,7 +64,7 @@ The IR SHALL expose, as plain JSON, every parameter the renderer reads: deck-lev
 - **THEN** `validate` exits 0 and the rendered deck uses the `ember` colours in both modes
 
 ### Requirement: Overrides survive re-parse
-User edits SHALL be recorded under a dedicated `overrides` block with a single schema-enforced grammar: `deck`, `effects[]`, `props[]`, `slides{<slideId>}`, `nodes{<slideId>/<nodeId>}`, `edges{<slideId>/<edgeId>}`. Objects deep-merge over derived values; arrays replace; `slides{}.diagram.data` replaces as a whole object. Slide ids SHALL be the ASCII-folded title slug (`-<ordinal>` on collision) unless pinned by `# Title {#id}`; edge ids SHALL be `<from>-><to>#<k>` by source order. Re-running parse on updated markdown SHALL regenerate derived fields and reapply every override whose target id still exists. Markdown inline overrides SHALL win over a `deck.json` override on the same key, with a warning. A `diagram.kind` or `diagram.data` override on a slide that carries a supported mermaid block SHALL be kept but ignored, with a warning naming the key. Parse SHALL store `meta.derivedHash` over the derived fields so `validate` can detect edits made outside `overrides` without the markdown. `deck3d overrides apply <deck.json> <file>` SHALL merge a file in the `overrides` grammar into `overrides` under the same rules and re-validate.
+User edits SHALL be recorded under a dedicated `overrides` block with a single schema-enforced grammar: `deck`, `effects[]`, `props[]`, `assets[]`, `slides{<slideId>}`, `nodes{<slideId>/<nodeId>}`, `edges{<slideId>/<edgeId>}`. Objects deep-merge over derived values; arrays replace; `slides{}.diagram.data` replaces as a whole object. Slide ids SHALL be the ASCII-folded title slug (`-<ordinal>` on collision) unless pinned by `# Title {#id}`; edge ids SHALL be `<from>-><to>#<k>` by source order. Re-running parse on updated markdown SHALL regenerate derived fields and reapply every override whose target id still exists. Markdown inline overrides SHALL win over a `deck.json` override on the same key, with a warning. A `diagram.kind` or `diagram.data` override on a slide that carries a supported mermaid block SHALL be kept but ignored, with a warning naming the key. Parse SHALL store `meta.derivedHash` over the derived fields so `validate` can detect edits made outside `overrides` without the markdown. `deck3d overrides apply <deck.json> <file>` SHALL merge a file in the `overrides` grammar into `overrides` under the same rules and re-validate.
 
 #### Scenario: Slide re-parsed after override
 - **WHEN** a slide has an override `mode: light` and its bullets are edited in markdown, then parse runs again
@@ -102,8 +102,12 @@ User edits SHALL be recorded under a dedicated `overrides` block with a single s
 - **WHEN** `deck3d overrides apply deck.json export.json` runs with `export.json` = `{ slides: { geo: { camera: { distance: 11 } } } }` and `overrides.slides.geo` already has `mode: light`
 - **THEN** `overrides.slides.geo` becomes `{ mode: "light", camera: { distance: 11 } }` and `validate` exits 0
 
+#### Scenario: Assets survive re-parse
+- **WHEN** `overrides.assets` lists 12 entries and the markdown is edited and re-parsed
+- **THEN** all 12 entries are still present unchanged
+
 ### Requirement: IR is schema-validated
-A JSON Schema SHALL define the IR. `validate` SHALL reject unknown fields, wrong types, out-of-range values, and dangling id references inside derived data (e.g. an edge to a missing node), reporting the JSON path of each violation; a dangling `overrides` target SHALL be a warning. When the deck's directory is known, `validate` SHALL also resolve every `local:` effect reference (file present, `sha256` matches, card present and valid, card kind allowed, size within cap) and report a mismatch as an error naming the override path and the file. `render` SHALL run the same validation before rendering.
+A JSON Schema SHALL define the IR. `validate` SHALL reject unknown fields, wrong types, out-of-range values, and dangling id references inside derived data (e.g. an edge to a missing node), reporting the JSON path of each violation; a dangling `overrides` target SHALL be a warning. When the deck's directory is known, `validate` SHALL also resolve every `local:` effect reference (file present, `sha256` matches, card present and valid, card kind allowed, size within cap) and report a mismatch as an error naming the override path and the file. It SHALL likewise resolve every `overrides.assets` entry (file present inside the deck directory, `sha256` matches, allowed mime, unique id) and SHALL reject a card with `persistent: true` referenced outside deck-scope `overrides.effects`, each as an error naming the override path. `render` SHALL run the same validation before rendering.
 
 #### Scenario: Bad edit fails before render
 - **WHEN** `deck.json` sets `depthRelief: "high"` (string where a number is required)
@@ -116,6 +120,10 @@ A JSON Schema SHALL define the IR. `validate` SHALL reject unknown fields, wrong
 #### Scenario: Missing local effect file
 - **WHEN** `overrides.slides["geo"].effects` references `local:globe` and `fx/globe.js` does not exist beside `deck.json`
 - **THEN** `validate` exits non-zero naming `overrides.slides["geo"].effects[0]` and `fx/globe.js`
+
+#### Scenario: Asset outside the deck directory
+- **WHEN** `overrides.assets[0].path` is `../../etc/hosts`
+- **THEN** `validate` exits non-zero naming `overrides.assets[0].path`
 
 ### Requirement: Field reference is documented
 Every IR field SHALL have a one-line description of its visual effect and allowed values, published with the skill so an editing agent can choose a knob without reading engine source.

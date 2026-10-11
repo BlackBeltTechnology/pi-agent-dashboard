@@ -275,19 +275,3 @@ describe("handleUiManagement", () => {
     }
   });
 });
-
-describe("Bridge invariants", () => {
-  it("ui-modules.ts does not import pi.newSession / ctx.fork / ctx.switchSession", async () => {
-    // Mirrors the contract checked by `no-session-replacement-calls.test.ts`,
-    // but localized to the new module so a regression is caught at unit-test
-    // granularity in addition to the global lint test.
-    const fs = await import("node:fs/promises");
-    const url = await import("node:url");
-    const path = await import("node:path");
-    const here = path.dirname(url.fileURLToPath(import.meta.url));
-    const src = await fs.readFile(path.join(here, "..", "ui-modules.ts"), "utf8");
-    expect(src).not.toMatch(/pi\.newSession\s*\(/);
-    expect(src).not.toMatch(/ctx\.fork\s*\(/);
-    expect(src).not.toMatch(/ctx\.switchSession\s*\(/);
-  });
-});

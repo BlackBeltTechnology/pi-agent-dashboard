@@ -125,6 +125,9 @@ function readList(): string[] {
   return [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
 }
 
+/**
+ * @structural-pin repo lint over vitest config files and the real-process list: collection membership is a config fact
+ */
 describe("real-process vitest project guard", () => {
   it("(a) every listed file exists", () => {
     const missing = readList().filter(

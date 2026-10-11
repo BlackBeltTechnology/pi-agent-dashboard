@@ -115,6 +115,9 @@ function rowWrappers(container: HTMLElement) {
   return Array.from(container.querySelectorAll("[data-index]"));
 }
 
+/**
+ * @structural-pin notify gating has two invariants (design D3); the second is a call-site placement rule only visible in ChatView source
+ */
 describe("notify gate — row count vs rendered rows (test-plan #F1)", () => {
   // 2.16
   it("leaves no blank measured row where a hidden notify was", () => {

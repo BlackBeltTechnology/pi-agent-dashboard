@@ -29,6 +29,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const CLI_SOURCE = path.resolve(__dirname, "..", "cli.ts");
 
+/**
+ * @structural-pin regression lint: the env spread anti-pattern in cli.ts clobbers a child environment; cli.ts starts the daemon on import
+ */
 describe("cli.ts env clobber lint", () => {
   it("does not pass `env: { ...process.env }` to launchDashboardServer", () => {
     const source = fs.readFileSync(CLI_SOURCE, "utf8");

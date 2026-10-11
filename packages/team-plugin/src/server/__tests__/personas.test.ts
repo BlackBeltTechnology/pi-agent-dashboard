@@ -288,6 +288,9 @@ describe("project assignment (E41)", () => {
   });
 });
 
+/**
+ * @structural-pin rate-limiter options are not observable through app.inject without issuing 100k requests; the registered values are pinned in routes.ts
+ */
 describe("route registration (E27)", () => {
   it("rate limiter is registered with the shared values", async () => {
     const src = fs.readFileSync(path.resolve(__dirname, "../routes.ts"), "utf8");

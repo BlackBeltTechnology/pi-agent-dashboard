@@ -32,6 +32,9 @@ const ctrl = (state: ToolStopState): StopController => ({ state, stop: vi.fn(), 
 const button = (state: ToolStopState) =>
   render(<ToolStopControl controller={ctrl(state)} labeled />).container.querySelector("button") as HTMLButtonElement;
 
+/**
+ * @structural-pin style lint: severity tokens only, no raw red/orange literals in ToolCallStep; computed styles under jsdom do not resolve tokens
+ */
 describe("ToolStopControl", () => {
   it("#X3 uses severity tokens only, no raw red/orange literals", () => {
     expect(button("idle").className).toContain("--severity-error-fg");

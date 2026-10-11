@@ -6,7 +6,7 @@
   "required": ["id", "kind", "tags", "cost", "modes", "params", "conflicts", "source", "licence"],
   "properties": {
     "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
-    "kind": { "enum": ["background", "post", "material", "light", "motion", "edge", "transition"] },
+    "kind": { "enum": ["background", "post", "material", "light", "motion", "edge", "transition", "layer"] },
     "tags": {
       "type": "object",
       "additionalProperties": false,
@@ -31,7 +31,7 @@
         "type": "object",
         "required": ["type"],
         "properties": {
-          "type": { "enum": ["number", "string", "boolean"] },
+          "type": { "enum": ["number", "string", "boolean", "array", "object"] },
           "default": {},
           "minimum": { "type": "number" },
           "maximum": { "type": "number" },
@@ -40,6 +40,14 @@
       }
     },
     "conflicts": { "type": "array", "items": { "type": "string" } },
+    "replacesContent": {
+      "type": "boolean",
+      "description": "A slide composing this effect builds none of its native title/subtitle/card/diagram (and measures none)."
+    },
+    "persistent": {
+      "type": "boolean",
+      "description": "Deck-scope only: created once per deck load, outside every slide group, driven by transition({from,to,p})."
+    },
     "source": {
       "description": "Upstream URL for a corpus card, or the literal `local` for a per-deck module in `fx/`.",
       "anyOf": [{ "type": "string", "pattern": "^https://" }, { "const": "local" }]

@@ -23,6 +23,9 @@ const restored = (over: Partial<DashboardSession>): DashboardSession =>
 
 const respawnRegister = { id: "s1", cwd: "/w", source: "dashboard", registerReason: "spawn", dashboardSpawned: true } as const;
 
+/**
+ * @structural-pin event-wiring.ts cannot be loaded standalone; the restart-surviving hidden-intent branch is pinned in its text
+ */
 describe("plugin-declared hidden survives a restart re-register", () => {
   it("a respawn re-register keeps a pluginHidden session hidden (and carries the intent)", () => {
     const m = createMemorySessionManager();

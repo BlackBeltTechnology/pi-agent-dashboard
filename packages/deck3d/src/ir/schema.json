@@ -892,6 +892,34 @@
         }
       }
     },
+    "asset": {
+      "type": "object",
+      "description": "One pinned deck asset.",
+      "additionalProperties": false,
+      "required": ["id", "path", "sha256", "mime"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+          "description": "Asset id effects read it by. Font assets use `font-<name>`; only fonts may use that prefix."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File path relative to the deck directory; must resolve inside it."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Lowercase hex sha256 of the file bytes; a stale pin fails validate/render."
+        },
+        "mime": {
+          "type": "string",
+          "enum": ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml", "application/json", "text/plain", "font/ttf", "font/otf"],
+          "description": "Content type; decides how the runtime decodes it (bitmap, parsed JSON, text, registered font family)."
+        }
+      }
+    },
     "overrides": {
       "type": "object",
       "description": "The ONLY user-writable region. Objects deep-merge over derived values; arrays replace.",
@@ -912,6 +940,13 @@
           "description": "Models placed on slides.",
           "items": {
             "$ref": "#/definitions/prop"
+          }
+        },
+        "assets": {
+          "type": "array",
+          "description": "Pinned deck assets (images, JSON, text, fonts) embedded once into deck.html and read by effects through `ctx.assets.get(id)`. `pptx import` writes the `pptx-` entries.",
+          "items": {
+            "$ref": "#/definitions/asset"
           }
         },
         "slides": {

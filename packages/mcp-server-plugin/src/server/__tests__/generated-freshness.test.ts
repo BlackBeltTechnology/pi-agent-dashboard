@@ -26,6 +26,9 @@ function readmeBlock(): string {
   return text.slice(start, end);
 }
 
+/**
+ * @structural-pin freshness gate: the checked-in generated tools.ts and README catalogue must equal regenerated output byte for byte
+ */
 describe("E17 — generated tool artefacts are fresh", () => {
   it("the checked-in generated file matches a fresh build", () => {
     const { content, tools } = build(routeTier);

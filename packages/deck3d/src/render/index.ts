@@ -9,8 +9,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import opentype from "opentype.js";
-import { canonicalJson } from "../ir/hash.js";
 import { localRefs, resolveLocalEffect, toFactorySource } from "../fx/local.js";
+import { canonicalJson } from "../ir/hash.js";
 import { applyOverrides } from "../ir/merge.js";
 import type { DeckIR } from "../ir/types.js";
 import { activeProps, creditsSlide } from "../props/embed.js";
@@ -89,6 +89,8 @@ export interface RenderOptions {
   props?: Record<string, string>;
   /** Local effect sources + cards keyed by `<name>` (from `loadLocalEffects`). */
   localFx?: Record<string, { card: unknown; src: string }>;
+  /** Deck assets as `data:` URIs, sorted by id (from `loadAssets`). */
+  assets?: Array<{ id: string; mime: string; data: string }>;
 }
 
 /**
@@ -113,7 +115,7 @@ export function loadLocalEffects(ir: DeckIR, jsonPath: string): Record<string, {
  * (e.g. a slide documenting deck3d's own `__FONT__` placeholder).
  */
 function substituteTokens(template: string, values: Record<string, string>): string {
-  return template.replace(/__(?:DECK_LOCAL_FX|DECK_PROPS|DECK|FONT|RUNTIME|TITLE)__/g, (token) => values[token] ?? token);
+  return template.replace(/__(?:DECK_ASSETS|DECK_LOCAL_FX|DECK_PROPS|DECK|FONT|RUNTIME|TITLE)__/g, (token) => values[token] ?? token);
 }
 
 /** Deck IR → self-contained `deck.html` string. */
@@ -137,11 +139,14 @@ export function renderDeck(ir: DeckIR, opts: RenderOptions = {}): string {
   // `jsonForScript` escapes `<`, so a `</script>` inside a module source cannot
   // terminate the block it is embedded in.
   const localFxJson = jsonForScript(opts.localFx ?? {});
+  // One escaped JSON block; ascending id order regardless of the deck.json order.
+  const assetsJson = jsonForScript([...(opts.assets ?? [])].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
 
   return substituteTokens(template, {
     __DECK__: deckJson,
     __DECK_PROPS__: propsJson,
     __DECK_LOCAL_FX__: localFxJson,
+    __DECK_ASSETS__: assetsJson,
     __FONT__: font,
     __RUNTIME__: runtime.replace(/<\/script/gi, "<\\/script"),
     __TITLE__: title.replace(/</g, "&lt;"),

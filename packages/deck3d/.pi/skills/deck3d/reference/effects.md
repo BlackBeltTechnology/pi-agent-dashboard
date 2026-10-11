@@ -1,8 +1,8 @@
 # deck3d effect catalogue
 
-GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `b4cd8fff4eb02ea8eef09609a788bea6dd77016f44291c10b49eb2202efa925d`.
+GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `3bb064f608378936b2ea14b9f41810555d2cb7d0c932b78a2d5bdc291777f961`.
 
-86 effects.
+91 effects.
 
 ## accent-cycle
 
@@ -33,6 +33,37 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | density | number | 0.2..3 | 1 |
 | wave | number | 0..1.5 | 0.55 |
 | waveSpeed | number | 0..3 | 0.9 |
+
+## art3d
+
+- kind: `layer`
+- cost: 1
+- modes: `both`
+- tags: mood=[bold, branded] content=[logo, wordmark, traced-art]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard/tree/develop/packages/deck3d/src/fx/art3d.ts
+- licence: MIT
+- preview: `fx/previews/art3d.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| outline | string | — |  |
+| item | string | — |  |
+| layout | string | — | pptx-layout |
+| slide | string | — |  |
+| depth | number | 0.01..2 | 0.25 |
+| bevel | number | 0..0.5 | 0.03 |
+| scale | number | 0.1..20 | 4 |
+| x | number | -12..12 | 0 |
+| y | number | -8..8 | 0 |
+| z | number | -4..6 | 0.4 |
+| depthOffset | number | -2..3 | 0.4 |
+| sway | number | 0..1 | 0 |
+| speed | number | 0..4 | 0.6 |
+| sweep | boolean | — | false |
+| metalness | number | 0..1 | 0.25 |
+| roughness | number | 0..1 | 0.4 |
+| gradient | array | — |  |
+| colors | object | — | [object Object] |
 
 ## ascii
 
@@ -453,6 +484,23 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## frame-chrome
+
+- kind: `layer`
+- cost: 1
+- modes: `both`
+- tags: mood=[branded, framed] content=[master, corner-art, persistent]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard/tree/develop/packages/deck3d/src/fx/frame-chrome.ts
+- licence: MIT
+- preview: `fx/previews/frame-chrome.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| opacity | number | 0..1 | 1 |
+| scale | number | 0.2..3 | 1 |
+| layers | array | — |  |
+| suppress | array | — |  |
+
 ## geo-fragments
 
 - kind: `background`
@@ -557,6 +605,26 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | spacing | number | 0.2..4 | 1 |
 
+## haze
+
+- kind: `background`
+- cost: 1
+- modes: `both`
+- tags: mood=[soft, atmospheric] content=[depth, backdrop-fade]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard/tree/develop/packages/deck3d/src/fx/haze.ts
+- licence: MIT
+- preview: `fx/previews/haze.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| layers | number | 1..8 | 4 |
+| near | number | 1..30 | 6 |
+| far | number | 2..60 | 26 |
+| density | number | 0..1 | 0.5 |
+| drift | number | 0..2 | 0.15 |
+| floor | number | -10..4 | -2.6 |
+| color | string | — |  |
+
 ## hex-grid
 
 - kind: `background`
@@ -599,6 +667,28 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | density | number | 0.2..3 | 1 |
 | speed | number | 0..3 | 1 |
+
+## icon3d
+
+- kind: `layer`
+- cost: 1
+- modes: `both`
+- tags: mood=[playful, tactile] content=[icon, pictogram, traced-art]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard/tree/develop/packages/deck3d/src/fx/icon3d.ts
+- licence: MIT
+- preview: `fx/previews/icon3d.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| asset | string | — |  |
+| item | string | — |  |
+| layout | string | — | pptx-layout |
+| slide | string | — |  |
+| card | boolean | — | false |
+| color | string | — |  |
+| rim | string | — |  |
+| depth | number | -1..3 | 0.6 |
+| sway | number | 0..1 | 0.12 |
 
 ## iridescent
 
@@ -1003,6 +1093,29 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
+
+## slide-layer
+
+- kind: `layer`
+- cost: 2
+- modes: `both`
+- tags: mood=[faithful, editorial] content=[imported-slide, pptx, layout]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard/tree/develop/packages/deck3d/src/fx/slide-layer.ts
+- licence: MIT
+- preview: `fx/previews/slide-layer.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| layout | string | — | pptx-layout |
+| slide | string | — |  |
+| mode | string | — | free |
+| depths | object | — | [object Object] |
+| panel | object | — | [object Object] |
+| halo | number | 0..1 | 0 |
+| background | boolean | — | true |
+| skip | array | — |  |
+| retext | object | — | [object Object] |
+| widen | object | — | [object Object] |
 
 ## smaa
 

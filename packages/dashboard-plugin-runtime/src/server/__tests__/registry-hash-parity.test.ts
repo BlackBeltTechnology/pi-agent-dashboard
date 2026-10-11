@@ -49,6 +49,9 @@ function selectedHash(
   );
 }
 
+/**
+ * @structural-pin the committed generated plugin-registry.tsx is a build artifact whose bytes must hash the same as the server-side computation
+ */
 describe("plugin-registry hash parity (E4)", () => {
   it("build-side and runtime-side both equal the embedded PLUGIN_REGISTRY_HASH", () => {
     clearDiscoveryCache();

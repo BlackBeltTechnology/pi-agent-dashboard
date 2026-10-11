@@ -4,6 +4,7 @@ import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDashboardExecEnv, createCommandHandler, isTeamConfinedSession, parseSendPrompt, tryExecSlashTemplate } from "../command-handler.js";
 import { RetryTracker } from "../retry-tracker.js";
+import { readBridgeSource } from "./helpers/bridge-source.js";
 
 // Mock the tool registry so `!`/`!!` bash resolution is deterministic
 // across hosts. `bashMock` is mutated per-test to simulate found / missing.
@@ -27,6 +28,9 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js", () =
   }),
 }));
 
+/**
+ * @structural-pin bridge.ts cannot be instantiated in a test; the fallback expansion call site and slash-dispatch wiring are pinned in text
+ */
 describe("CommandHandler", () => {
   function createMockPi() {
     return {
@@ -1716,7 +1720,7 @@ describe("extension slash dispatch precedence (test-plan E15–E20)", () => {
 
   /** The `sessionPrompt` arrow-function body from bridge.ts (step 8/9/10 order). */
   function bridgeSessionPromptBlock(): string {
-    const src = readFileSync(join(import.meta.dirname ?? __dirname, "../bridge.ts"), "utf-8");
+    const src = readBridgeSource("bridge.ts");
     const start = src.indexOf("sessionPrompt: async (text, delivery, promptId) => {");
     expect(start, "sessionPrompt closure not found in bridge.ts").toBeGreaterThan(-1);
     const end = src.indexOf("onSteerSent: recordSteerSent,", start);

@@ -1,0 +1,26 @@
+{
+  "id": "slide-layer",
+  "kind": "layer",
+  "tags": {
+    "mood": ["faithful", "editorial"],
+    "content": ["imported-slide", "pptx", "layout"]
+  },
+  "cost": 2,
+  "modes": "both",
+  "replacesContent": true,
+  "params": {
+    "layout": { "type": "string", "default": "pptx-layout" },
+    "slide": { "type": "string" },
+    "mode": { "type": "string", "enum": ["screen", "panel", "free"], "default": "free" },
+    "depths": { "type": "object", "default": { "body": 0, "icon": 0.6, "title": 0.9, "image": 1.2 } },
+    "panel": { "type": "object", "default": { "material": "glass", "tilt": 0 } },
+    "halo": { "type": "number", "default": 0, "minimum": 0, "maximum": 1 },
+    "background": { "type": "boolean", "default": true },
+    "skip": { "type": "array", "default": [] },
+    "retext": { "type": "object", "default": {} },
+    "widen": { "type": "object", "default": {} }
+  },
+  "conflicts": [],
+  "source": "https://github.com/BlackBeltTechnology/pi-agent-dashboard/tree/develop/packages/deck3d/src/fx/slide-layer.ts",
+  "licence": "MIT"
+}

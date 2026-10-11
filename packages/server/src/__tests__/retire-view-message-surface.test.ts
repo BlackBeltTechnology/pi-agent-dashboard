@@ -15,6 +15,9 @@ import { describe, expect, it } from "vitest";
 const srcDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel: string) => readFileSync(path.join(srcDir, rel), "utf8");
 
+/**
+ * @structural-pin stays-gone guard: the retired inline /view surface must not reappear in server sources; absence of text is the contract
+ */
 describe("retired /view inline surface (X8)", () => {
   it("the ViewMessageStore module is deleted", () => {
     expect(existsSync(path.join(srcDir, "view-message-store.ts"))).toBe(false);

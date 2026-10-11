@@ -33,6 +33,10 @@ const ALLOWLIST: readonly string[] = [
   // vitest` to re-run the corpus gate before admitting a promoted card.
   // See change: deck3d-cinematic-worlds.
   "packages/deck3d/src/cli.ts",
+  // Same standalone-package rationale: `deck3d pptx import` shells to
+  // `soffice` + `pdftoppm` (when present) to render reference slide images.
+  // See change: deck3d-pptx-import.
+  "packages/deck3d/src/pptx/ref.ts",
   // The startup recovery HTTP server runs precisely when top-level
   // dependencies are missing (corrupted node_modules) — importing the
   // platform/exec wrapper there would defeat the recovery flow because

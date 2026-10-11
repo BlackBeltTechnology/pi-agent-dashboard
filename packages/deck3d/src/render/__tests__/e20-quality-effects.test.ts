@@ -111,6 +111,7 @@ describe("P2 topic backgrounds scale with the quality tier", () => {
           quality: qualityProfile(tier),
           rng: makeRng(5),
           slide: { id: "s", title: "t", kind: "content" },
+          assets: { get: (id: string): unknown => { throw new Error(`unknown asset '${id}'`); }, has: () => false },
         },
         {},
       );

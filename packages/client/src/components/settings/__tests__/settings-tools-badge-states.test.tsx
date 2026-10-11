@@ -97,6 +97,9 @@ function lookup(source: string, key: string): string | undefined {
 	return m?.[1];
 }
 
+/**
+ * @structural-pin locale parity: zh-CN, hu and en catalogs must carry the badge-state keys; catalogs are not enumerable at runtime
+ */
 describe("ToolsSection status badge — rejected override states", () => {
 	// #F1 — the third state: unresolved row with a rejected override is
 	// distinct from BOTH the plain not-found state and the fallback state,

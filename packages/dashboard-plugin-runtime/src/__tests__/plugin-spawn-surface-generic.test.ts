@@ -19,6 +19,9 @@ const contextSrc = readFileSync(
   "utf8",
 );
 
+/**
+ * @structural-pin stays-gone guard: automationRun must be absent from the generic server-context surface; absence of text is the contract
+ */
 describe("plugin spawn surface is generic (E9)", () => {
   it("declares pluginRef + lifecycle, not automationRun", () => {
     // The generic seam fields are present…

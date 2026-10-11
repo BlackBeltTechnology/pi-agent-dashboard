@@ -37,6 +37,9 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+/**
+ * @structural-pin single-implementation guard: exactly one file may define the pairing payload encoder; duplicates are a code-shape fact
+ */
 describe("Single pairing-QR encoder (E10)", () => {
   it("exactly one module defines encodePayloadString, and it is the shared codec", () => {
     const defining = walk(SRC_ROOT).filter((f) =>

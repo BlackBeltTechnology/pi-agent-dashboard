@@ -9,6 +9,9 @@ import {
   t,
 } from "../lib/i18n/i18n.js";
 
+/**
+ * @structural-pin locale parity: zh-CN and hu catalogs are plain object literals checked key-by-key against the en source; no runtime path enumerates all keys
+ */
 describe("normalizeLanguage", () => {
   it("maps Hungarian variants to hu", () => {
     expect(normalizeLanguage("hu")).toBe("hu");

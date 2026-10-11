@@ -76,7 +76,7 @@ export interface Finding {
 const px = (n: number): string => `${Math.round(n)}px`;
 
 function isText(m: Measurement): boolean {
-  return (m.kind === "label" || m.kind === "title") && m.text.length > 0;
+  return (m.kind === "label" || m.kind === "title" || m.kind === "layer-text") && m.text.length > 0;
 }
 
 /** Overrides grammar key for a slide-level knob. */
@@ -103,22 +103,27 @@ export function fitFindings(measurements: Measurement[], viewport: { w: number; 
   const minY = Math.min(...usable.map((m) => m.rect.y));
   const maxY = Math.max(...usable.map((m) => m.rect.y + m.rect.h));
   const out: Finding[] = [];
-  const add = (detail: string, measured: number, threshold: number): void => {
+  // Imported layer text names the item past the edge: the fix is per item
+  // (`widen`/`retext`), not the slide-wide diagram scale.
+  const add = (detail: string, measured: number, threshold: number, extreme: Measurement | undefined): void => {
+    const layer = extreme?.kind === "layer-text" ? extreme : undefined;
     out.push({
       severity: "error",
       rule: "fit",
       slide: slide.id,
       slideIndex: slide.index,
+      ...(layer ? { id: layer.id, text: layer.text } : {}),
       measured: px(measured),
       threshold: px(threshold),
-      detail,
-      suggest: slideKnob(slide.id, "diagram.scale"),
+      detail: layer ? `${detail} (${layer.id})` : detail,
+      suggest: slideKnob(slide.id, layer ? "effects" : "diagram.scale"),
     });
   };
-  if (minX < left) add(`left ${px(minX)} < ${px(left)}`, minX, left);
-  if (maxX > right) add(`right ${px(maxX)} > ${px(right)}`, maxX, right);
-  if (minY < top) add(`top ${px(minY)} < ${px(top)}`, minY, top);
-  if (maxY > bottom) add(`bottom ${px(maxY)} > ${px(bottom)}`, maxY, bottom);
+  const at = (pick: (m: Measurement) => number, v: number) => usable.find((m) => pick(m) === v);
+  if (minX < left) add(`left ${px(minX)} < ${px(left)}`, minX, left, at((m) => m.rect.x, minX));
+  if (maxX > right) add(`right ${px(maxX)} > ${px(right)}`, maxX, right, at((m) => m.rect.x + m.rect.w, maxX));
+  if (minY < top) add(`top ${px(minY)} < ${px(top)}`, minY, top, at((m) => m.rect.y, minY));
+  if (maxY > bottom) add(`bottom ${px(maxY)} > ${px(bottom)}`, maxY, bottom, at((m) => m.rect.y + m.rect.h, maxY));
   return out;
 }
 

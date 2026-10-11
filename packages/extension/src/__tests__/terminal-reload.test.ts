@@ -19,6 +19,7 @@ import {
   START_TIMEOUT_MS,
   writePendingReload,
 } from "../terminal-reload.js";
+import { readBridgeSource } from "./helpers/bridge-source.js";
 
 const SID = "sess-1";
 
@@ -64,6 +65,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/**
+ * @structural-pin bridge.ts cannot be instantiated in a test; the re-entry guard placement is pinned in its text beside mocked-pi behavioural cases
+ */
 describe("requesting side (B1)", () => {
   it("E2: no pi version gate — reload self-dispatches immediately and arms the slot", async () => {
     // pi >= 1.0.0 is the single supported pi; the 0.84.2 gate is retired.
@@ -303,8 +307,7 @@ describe("bridge wiring (E6, E7)", () => {
     // Structural pin: the bridge module is not instantiable under a unit test
     // (live WS, timers). Source order in the session_start handler is the
     // contract: consume at the top (synchronous CAS), emit after replay_complete.
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(path.join(here, "..", "bridge.ts"), "utf8");
+    const src = readBridgeSource("bridge-handlers/lifecycle.ts");
     const start = src.indexOf('pi.on("session_start"');
     const end = src.indexOf("pi.on(", start + 10);
     const body = src.slice(start, end);

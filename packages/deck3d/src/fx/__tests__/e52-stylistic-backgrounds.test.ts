@@ -38,7 +38,7 @@ const palette = resolvePalette({ palette: "blackbelt", mode: "dark" });
 const PALETTE_HEX = new Set(Object.values(palette).map((c) => new THREE.Color(c as string).getHexString()));
 
 function ctx(seed: number, tier: "low" | "high" = "high") {
-  return { THREE, palette, mode: "dark" as const, quality: qualityProfile(tier), rng: makeRng(seed), slide: { id: "s", title: "t", kind: "content" } };
+  return { THREE, palette, mode: "dark" as const, quality: qualityProfile(tier), rng: makeRng(seed), slide: { id: "s", title: "t", kind: "content" }, assets: { get: (id: string): unknown => { throw new Error(`unknown asset '${id}'`); }, has: () => false } };
 }
 
 /**

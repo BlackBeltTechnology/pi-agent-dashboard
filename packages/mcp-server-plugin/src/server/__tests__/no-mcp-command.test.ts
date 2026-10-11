@@ -57,6 +57,9 @@ function collectCommandNames(): { names: string[]; unresolved: string[] } {
   return { names, unresolved };
 }
 
+/**
+ * @structural-pin static lint: loading every shipped extension against a fake pi would pull in the whole bridge, so registerCommand sites are resolved from text
+ */
 describe("E7 — no dashboard package registers a pi `/mcp` command", () => {
   it("collects every registerCommand name and none is `mcp`", () => {
     const { names, unresolved } = collectCommandNames();

@@ -14,6 +14,9 @@ import {
 } from "../components/settings/SettingsPanel.js";
 import { dedupeInterfaceOffers } from "../lib/gateway/gateway-config-ops.js";
 
+/**
+ * @structural-pin SettingsPanel mount-once check; rendering the full panel pulls every settings section
+ */
 describe("addTrustedEntry (Trusted Networks section — pure add logic)", () => {
   it("appends a trimmed CIDR entry", () => {
     expect(addTrustedEntry([], "192.168.1.0/24")).toEqual(["192.168.1.0/24"]);

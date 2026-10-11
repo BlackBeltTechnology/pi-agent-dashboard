@@ -27,6 +27,8 @@ export interface Deck3dApi {
   setTime: (seconds: number) => void;
   ready: () => Promise<void>;
   measure: () => Measurement[];
+  /** Fonts the deck drew with a fallback (sorted, de-duplicated). */
+  fonts: () => { fallbacks: string[] };
   peaks: () => number[];
   effects: () => {
     active: string[];
@@ -36,6 +38,14 @@ export interface Deck3dApi {
     errors: Array<{ slide: string; effectId: string; phase: "create" | "tick" | "dispose" }>;
   };
   debug: {
+    /** Apply an effect param edit on the current slide, as the configurator does. */
+    applyParams: (id: string, patch: Record<string, unknown>) => void;
+    /** Pin the transition `from → to` (1-based) at progress `p` and draw that frame. */
+    transitionAt: (from1: number, to1: number, p: number) => void;
+    /** Persistent effects: parent ("scene" = outside every slide group) and layer masks. */
+    persistent: () => Array<{ id: string; parent: "scene" | "other" | "none"; masks: number[]; mirrorMask: number; state: unknown }>;
+    /** Layer effects of the current slide with their optional debug state. */
+    layers: () => Array<{ id: string; dead: boolean; state: unknown }>;
     titleGlyphs: () => number;
     liftedMessage: () => string | null;
     look: () => {
@@ -90,13 +100,14 @@ export interface Deck3dApi {
     sceneNodes: () => number;
     anchors: () => Array<{ pos: [number, number, number]; rotY: number }>;
     /** Every registered post pass: enabled for the current slide, and the params it was last applied with. */
-    post: () => Array<{ id: string; enabled: boolean; params: Record<string, number | string | boolean> }>;
+    post: () => Array<{ id: string; enabled: boolean; params: Record<string, unknown> }>;
   };
   current: () => number;
 }
 
 export interface Measurement {
-  kind: "title" | "label" | "node";
+  /** `layer-text`: a text item drawn by `slide-layer` (id = layout item id). */
+  kind: "title" | "label" | "node" | "layer-text";
   id: string;
   text: string;
   rect: { x: number; y: number; w: number; h: number };

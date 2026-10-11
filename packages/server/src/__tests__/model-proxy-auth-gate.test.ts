@@ -69,6 +69,9 @@ async function buildApp(config: ModelProxyConfig) {
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
+/**
+ * @structural-pin server.ts boots the whole server on import; the gate registration order is checked in text beside the integration cases
+ */
 describe("model proxy auth gate (task 3.9)", () => {
   it("valid key → 200 on /v1/models", async () => {
     const { cleartext, entry } = makeKey();

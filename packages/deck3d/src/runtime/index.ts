@@ -8,11 +8,14 @@ import type { Font } from "opentype.js";
 import * as THREE from "three";
 import { composeEffects, QUALITY_BUDGET } from "../fx/compose.js";
 import { REGISTRY } from "../fx/index.js";
-import type { FxContext, FxParams } from "../fx/types.js";
+import { isPersistentFx } from "../fx/persistent.js";
+import type { FxContext, FxHandle, FxParams, FxView } from "../fx/types.js";
 import type { Layout } from "../ir/types.js";
+import { type AssetAccessor, type EmbeddedAsset, loadDeckAssets, makeAccessor } from "./assets.js";
 import { type Animator, backgroundFor } from "./backgrounds.js";
 import { buildDiagram, type DiagramBuild } from "./builders.js";
 import { anchorFor, cullRadius } from "./camera.js";
+import { createFader, fadeWindow } from "./fade.js";
 import { createHud, type SlidePatch } from "./hud.js";
 import { createLocalEffect, type LocalFxError, type LocalHandle, localCards, localFxRegistry } from "./local-fx.js";
 import { diagramMaterial, titleEdgeMaterial, titleMaterial } from "./materials.js";
@@ -22,10 +25,9 @@ import type { PartName } from "./post.js";
 import { applyProps, createPropMaterials, loadPropModels, type PropLayer, type PropMaterials } from "./props.js";
 import { type QualityProfile, qualityProfile } from "./quality.js";
 import { makeRng } from "./rng.js";
-import { createSceneRig, markBackdrop, sortAboveVeil } from "./scene.js";
+import { createSceneRig, markBackdrop, markOverlay, sortAboveVeil } from "./scene.js";
 import { buildTitle, bulletTexture, loadFont } from "./text.js";
-import { createFader, fadeWindow } from "./fade.js";
-import { easeInOut, makeMotion, type Motion, resolveTransition, reversed, type Sample } from "./transition.js";
+import { easeInOut, type Motion, makeMotion, resolveTransition, reversed, type Sample } from "./transition.js";
 import "./types.js";
 import type { Deck3dApi, Measurement, RuntimeDeck, SlideConfig } from "./types.js";
 
@@ -40,7 +42,15 @@ interface LabelRef {
   color?: string;
 }
 
+/** A corpus `layer` effect (or additive background) instantiated on a slide. */
+interface LayerFx {
+  id: string;
+  handle: FxHandle;
+  dead: boolean;
+}
+
 interface SlideBuild {
+  layerFx: LayerFx[];
   group: THREE.Group;
   anchor: ReturnType<typeof anchorFor>;
   diagram: DiagramBuild | null;
@@ -188,8 +198,15 @@ export function fxSeedFor(slideId: string): number {
   return (h >>> 0) % 233280;
 }
 
+/** Decoded deck assets; filled by `boot()` before any slide is built. */
+let deckAssets: AssetAccessor = makeAccessor(new Map());
+/** The rig camera, for `layer` / persistent effects' `ctx.view`. */
+let viewCamera: THREE.PerspectiveCamera | null = null;
+/** The deck's resting field of view (transitions may animate the live one). */
+let restFov = 42;
+
 /** The context every effect (corpus or local) is constructed with. */
-function fxContextFor(slide: DeckSlide, P: PaletteColors, profile: QualityProfile, mode: "dark" | "light"): FxContext {
+function fxContextFor(slide: DeckSlide, P: PaletteColors, profile: QualityProfile, mode: "dark" | "light", view?: FxView): FxContext {
   return {
     THREE,
     palette: P,
@@ -197,7 +214,69 @@ function fxContextFor(slide: DeckSlide, P: PaletteColors, profile: QualityProfil
     quality: profile,
     rng: makeRng(fxSeedFor(slide.id)),
     slide: { id: slide.id, title: slide.title, kind: slide.kind ?? "content" },
+    assets: deckAssets,
+    ...(view ? { view } : {}),
   };
+}
+
+const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
+
+/** `ctx.view` for a slide: its settled pose in slide-group space (`camera.ts` contract). */
+function slideView(cfg: SlideConfig): FxView | undefined {
+  if (!viewCamera) return undefined;
+  return { camera: viewCamera, pose: { cam: [0.6, 0.6, cfg.camera?.distance ?? 9], target: [0, 0, 0], fov: restFov }, viewport };
+}
+
+/**
+ * Background cards that ADD to the slide's backdrop instead of being its one
+ * scene background (`backgroundFromEffects` builds only the first). `haze`
+ * fades whatever world is behind the slide, so it must coexist with it.
+ */
+const ADDITIVE_BACKGROUNDS = new Set(["haze"]);
+
+function isLayerRef(id: string): boolean {
+  const card = REGISTRY[id]?.card;
+  return !!card && !card.persistent && (card.kind === "layer" || ADDITIVE_BACKGROUNDS.has(id));
+}
+
+/** Run one entry point of a corpus layer/persistent effect; a throw disables it. */
+function guardFx(fx: LayerFx, slideId: string, phase: LocalFxError["phase"], fn: (h: FxHandle) => void): void {
+  if (fx.dead) return;
+  try {
+    fn(fx.handle);
+  } catch (err) {
+    fx.dead = phase !== "dispose";
+    localFxErrors.push({ slide: slideId, effectId: fx.id, phase });
+    console.error(`effect ${fx.id} failed in ${phase} on slide ${slideId}:`, err);
+    if (fx.dead) (fx.handle.object as THREE.Object3D | undefined)?.parent?.remove(fx.handle.object as THREE.Object3D);
+  }
+}
+
+/** Instantiate the slide's corpus `layer` effects (and additive backgrounds). */
+function layerEffectsFor(slide: DeckSlide, P: PaletteColors, profile: QualityProfile, mode: "dark" | "light", g: THREE.Group, cfg: SlideConfig): LayerFx[] {
+  const out: LayerFx[] = [];
+  for (const ref of effectsOf(slide)) {
+    if (!isLayerRef(ref.id)) continue;
+    const entry = REGISTRY[ref.id];
+    let handle: FxHandle;
+    try {
+      handle = entry.create(fxContextFor(slide, P, profile, mode, slideView(cfg)), paramsFor(slide.id, ref));
+    } catch (err) {
+      localFxErrors.push({ slide: slide.id, effectId: ref.id, phase: "create" });
+      console.error(`effect ${ref.id} failed in create on slide ${slide.id}:`, err);
+      continue;
+    }
+    const object = handle.object as THREE.Object3D | undefined;
+    if (object) {
+      if (entry.card.kind === "background") {
+        markBackdrop(object);
+        sortAboveVeil(object);
+      }
+      g.add(object);
+    }
+    out.push({ id: ref.id, handle, dead: false });
+  }
+  return out;
 }
 
 /**
@@ -242,7 +321,7 @@ const LIFT_PARAM = { type: "number", default: 0, minimum: -6, maximum: 8 } as co
 function backgroundFromEffects(slide: DeckSlide, P: PaletteColors, profile: QualityProfile, mode: "dark" | "light"): Animator | null {
   for (const ref of effectsOf(slide)) {
     const entry = REGISTRY[ref.id];
-    if (entry?.card.kind !== "background") continue;
+    if (entry?.card.kind !== "background" || ADDITIVE_BACKGROUNDS.has(ref.id)) continue;
     const params = paramsFor(slide.id, ref);
     const handle = entry.create(fxContextFor(slide, P, profile, mode), params);
     if (!handle.object) continue;
@@ -325,14 +404,25 @@ function buildSlideGroup(
   g.rotation.y = anchor.rotY;
   const labels: LabelRef[] = [];
   const isTitle = slide.kind === "title";
-  addTitle(g, slide, isTitle, font, P, cfg, labels);
-  addBody(g, slide, isTitle, P, cfg);
-  const diagram = addDiagram(g, slide, font, P, cfg, labels);
+  const profile = qualityProfile(cfg.quality ?? deck.defaults.quality);
+  const mode = (cfg.mode ?? "dark") as "dark" | "light";
+  // Layer effects are constructed BEFORE the native content is decided: a
+  // `replacesContent` effect (slide-layer) draws the slide's content itself,
+  // so the native title, card and diagram are neither built nor measured —
+  // but only when that effect actually BUILT. One that threw in `create` (a
+  // missing layout, a bad slide id) leaves the native slide in place instead
+  // of a blank one.
+  const layerFx = layerEffectsFor(slide, P, profile, mode, g, cfg);
+  const replaced = layerFx.some((fx) => REGISTRY[fx.id]?.card.replacesContent === true);
+  let diagram: DiagramBuild | null = null;
+  if (!replaced) {
+    addTitle(g, slide, isTitle, font, P, cfg, labels);
+    addBody(g, slide, isTitle, P, cfg);
+    diagram = addDiagram(g, slide, font, P, cfg, labels);
+  }
   const props = applyProps(deck, slide.id, g, diagram, models, propMaterials);
   if (props) props.group.userData.part = "props";
   const nodes = diagram?.nodes ? Object.entries(diagram.nodes).map(([id, object]) => ({ id, object })) : [];
-  const profile = qualityProfile(cfg.quality ?? deck.defaults.quality);
-  const mode = (cfg.mode ?? "dark") as "dark" | "light";
   const background = backgroundFromEffects(slide, P, profile, mode) ?? backgroundFor(slide.scene, P, profile) ?? null;
   if (background) {
     background.g.position.z = -2;
@@ -352,7 +442,7 @@ function buildSlideGroup(
     limit: QUALITY_BUDGET[quality],
     ...(warning ? { warning } : {}),
   };
-  return { group: g, anchor, diagram, background, props, labels, nodes, cfg, palette: P, skipped, budget, localFx };
+  return { group: g, anchor, diagram, background, props, labels, nodes, cfg, palette: P, skipped, budget, localFx, layerFx };
 }
 
 async function boot(): Promise<void> {
@@ -368,6 +458,13 @@ async function boot(): Promise<void> {
   // (even at `quality: low`) is honoured per slide by the post stack.
   const rig = createSceneRig(qualityProfile(deck.defaults.quality));
   document.body.appendChild(rig.renderer.domElement);
+  viewCamera = rig.camera;
+  restFov = rig.camera.fov;
+  rig.resize(window.innerWidth, window.innerHeight);
+  // Every deck asset is decoded BEFORE a slide is built, so effects read them
+  // synchronously and `ready()` (the api only exists after boot) implies it.
+  const assetLoad = await loadDeckAssets((window as unknown as { __DECK_ASSETS?: EmbeddedAsset[] }).__DECK_ASSETS);
+  deckAssets = assetLoad.accessor;
   const baseFov = rig.camera.fov;
   // Screen cover for `fade` / `iris`: a DOM layer over the canvas (under the
   // HUD, appended later), so it covers bloom and post passes alike.
@@ -407,6 +504,8 @@ async function boot(): Promise<void> {
     look?: { from: PaletteColors; to: PaletteColors; cfg: SlideConfig };
   };
   let anim: Anim | null = null;
+  /** Debug hold: pins an in-flight transition at this progress (`debug.transitionAt`). */
+  let holdT: number | null = null;
   /** Slide whose local fx are reclaimed once the in-flight transition lands. */
   let pendingDispose: number | null = null;
 
@@ -447,7 +546,77 @@ async function boot(): Promise<void> {
    * a clip never runs off-screen and a pinned time renders a stable frame.
    */
   function settle(active: number | null): void {
-    for (let i = 0; i < builds.length; i++) builds[i]?.background?.setActive?.(i === active);
+    for (let i = 0; i < builds.length; i++) {
+      builds[i]?.background?.setActive?.(i === active);
+      for (const fx of builds[i]?.layerFx ?? []) guardFx(fx, deck.slides[i].id, "tick", (h) => h.setActive?.(i === active));
+    }
+  }
+
+  /** Tick slide `i`'s layer effects. */
+  function tickLayers(i: number, t: number): void {
+    for (const fx of builds[i]?.layerFx ?? []) guardFx(fx, deck.slides[i].id, "tick", (h) => h.tick?.(t));
+  }
+
+  function disposeLayers(build: SlideBuild, slideId: string): void {
+    for (const fx of build.layerFx) {
+      guardFx({ ...fx, dead: false }, slideId, "dispose", (h) => h.dispose());
+      const o = fx.handle.object as THREE.Object3D | undefined;
+      o?.parent?.remove(o);
+    }
+    build.layerFx = [];
+  }
+
+  // ── persistent (deck-scope) effects ────────────────────────────────────────
+  /** Live deck-scope persistent ids (the configurator may change them). */
+  let persistentIds = (deck.effects ?? []).filter((e) => isPersistentFx(e.id)).map((e) => e.id);
+  let persistent: LayerFx[] = [];
+
+  function buildPersistent(): void {
+    for (const fx of persistent) {
+      guardFx({ ...fx, dead: false }, "deck", "dispose", (h) => h.dispose());
+      const o = fx.handle.object as THREE.Object3D | undefined;
+      o?.parent?.remove(o);
+    }
+    persistent = [];
+    const P = resolvePalette(deck.defaults);
+    const profile = qualityProfile(deck.defaults.quality);
+    const mode = (deck.defaults.mode ?? "dark") as "dark" | "light";
+    const authored = new Map((deck.effects ?? []).map((e) => [e.id, e]));
+    const deckSlide = { id: "deck", title: "", kind: "deck", effects: [] } as unknown as DeckSlide;
+    const view: FxView = { camera: rig.camera, pose: { cam: [0, 0, 0], target: [0, 0, -1], fov: restFov }, viewport, deckSlideIds: deck.slides.map((s) => s.id) };
+    for (const id of persistentIds) {
+      const entry = REGISTRY[id];
+      if (!entry) continue;
+      let handle: FxHandle;
+      try {
+        handle = entry.create(fxContextFor(deckSlide, P, profile, mode, view), paramsFor("deck", authored.get(id) ?? { id }));
+      } catch (err) {
+        localFxErrors.push({ slide: "deck", effectId: id, phase: "create" });
+        console.error(`persistent effect ${id} failed in create:`, err);
+        continue;
+      }
+      const object = handle.object as THREE.Object3D | undefined;
+      if (object) {
+        object.userData.persistent = id;
+        rig.scene.add(object);
+        markOverlay(object);
+      }
+      persistent.push({ id, handle, dead: false });
+    }
+  }
+
+  /** Drive every persistent effect: transition state, then its clock. */
+  function drivePersistent(t: number): void {
+    const state = anim ? { from: anim.leaving, to: cur, p: anim.t } : { from: cur, to: cur, p: 1 };
+    for (const fx of persistent) {
+      guardFx(fx, "deck", "tick", (h) => {
+        h.transition?.(state);
+        h.tick?.(t);
+      });
+      // Effects may add children in tick; keep the whole subtree off the mirror.
+      const o = fx.handle.object as THREE.Object3D | undefined;
+      if (o) markOverlay(o);
+    }
   }
 
   /** Back to a still lens: no roll, deck fov, no screen cover. */
@@ -477,7 +646,7 @@ async function boot(): Promise<void> {
 
   function stepAnim(dt: number): void {
     if (!anim) return;
-    anim.t = Math.min(1, anim.t + dt / anim.dur);
+    anim.t = holdT ?? Math.min(1, anim.t + dt / anim.dur);
     const k = easeInOut(anim.t);
     const s = anim.motion(anim.t);
     camState.pos.copy(s.pos);
@@ -566,6 +735,7 @@ async function boot(): Promise<void> {
   }
 
   function goTo(i: number): void {
+    holdT = null;
     const target = ((i % builds.length) + builds.length) % builds.length;
     reviveLocalFx(target);
     // Back navigation plays the LEAVING slide's move reversed, so back and
@@ -663,6 +833,8 @@ async function boot(): Promise<void> {
     slide.background?.tick(t * 0.7);
     slide.props?.tick(t);
     for (const handle of slide.localFx) handle.tick(t);
+    tickLayers(cur, t);
+    drivePersistent(t);
     rig.followTarget(camState.target);
     cullNeighbours();
     billboardLabels();
@@ -677,6 +849,7 @@ async function boot(): Promise<void> {
    */
   function poseAt(t: number): void {
     anim = null; // a deterministic time cancels any in-flight transition
+    holdT = null;
     fader.clear();
     resetLens();
     const a = builds[cur].anchor;
@@ -765,12 +938,15 @@ async function boot(): Promise<void> {
     builds[cur].background?.tick(t * 0.7);
     builds[cur].props?.tick(t);
     for (const handle of builds[cur].localFx) handle.tick(t);
+    tickLayers(cur, t);
     // The outgoing slide is still in frame during a fly: tick it too, or its
     // backdrop freezes into a still the moment the camera moves.
     if (pendingDispose !== null && pendingDispose !== cur) {
       for (const handle of builds[pendingDispose]?.localFx ?? []) handle.tick(t);
       builds[pendingDispose]?.background?.tick(t * 0.7);
+      tickLayers(pendingDispose, t);
     }
+    drivePersistent(t);
     // After the ticks (effects write their own opacity there), before culling.
     fader.apply(fadeWeights());
     cullNeighbours();
@@ -829,7 +1005,22 @@ async function boot(): Promise<void> {
       const rect = projectRect(node.object, rig.camera, width, height);
       if (rect) out.push({ kind: "node", id: node.id, text: "", rect, capHeight: 0, hit: null });
     }
+    // Text drawn by layer effects (slide-layer), so check's rules apply to it.
+    rig.camera.updateMatrixWorld();
+    for (const fx of builds[cur].layerFx) {
+      if (fx.dead || !fx.handle.measure) continue;
+      for (const m of fx.handle.measure(rig.camera, width, height)) {
+        out.push({ kind: "layer-text", id: m.id, text: m.text, rect: m.rect, capHeight: m.capHeight, hit: null, color: m.color ?? null });
+      }
+    }
     return out;
+  }
+
+  /** Sorted, de-duplicated font names any layer effect drew with a fallback. */
+  function fonts(): { fallbacks: string[] } {
+    const names = new Set<string>();
+    for (const b of builds) for (const fx of b.layerFx) for (const n of fx.handle.fontFallbacks?.() ?? []) names.add(n);
+    return { fallbacks: [...names].sort() };
   }
 
   function peaks(): number[] {
@@ -890,6 +1081,7 @@ async function boot(): Promise<void> {
     cfg.spacing = railState.spacing;
 
     disposeLocalFx(i);
+    disposeLayers(previous, deck.slides[i].id);
     rig.world.remove(previous.group);
 
     // Props are tinted from the palette too, so they get materials derived
@@ -922,15 +1114,59 @@ async function boot(): Promise<void> {
    * Configurator. Built after the slides so it can read the composed effect
    * list, and given callbacks that re-apply the look WITHOUT touching `__DECK`.
    */
+  /**
+   * One effect param edit on the current slide — the configurator's path, also
+   * reachable as `debug.applyParams`.
+   */
+  function applyParamEdit(id: string, patch: FxParams): void {
+    const slide = deck.slides[cur];
+    const key = `${slide.id}|${id}`;
+    fxParamEdits[key] = { ...(fxParamEdits[key] ?? {}), ...(patch) };
+    const build = builds[cur];
+    const profile = qualityProfile(build.cfg.quality ?? deck.defaults.quality);
+    const mode = (build.cfg.mode ?? "dark") as "dark" | "light";
+    if (isPersistentFx(id)) {
+      // One deck-wide instance: params live under the "deck" key.
+      fxParamEdits[`deck|${id}`] = { ...(fxParamEdits[`deck|${id}`] ?? {}), ...(patch) };
+      buildPersistent();
+    } else if (isLayerRef(id)) {
+      // A layer effect may REPLACE the native content: rebuild the whole slide
+      // (the boot path), which keeps the native content when the replacement
+      // fails to construct instead of leaving the slide blank.
+      rebuildSlide(cur, {}, false);
+    } else if (id.startsWith("local:")) {
+      // Dispose and rebuild every local handle: they share one array and the
+      // factory is the only place params are read.
+      disposeLocalFx(cur);
+      build.localFx = localEffectsFor(slide, build.palette, profile, mode, build.group, cur);
+    } else {
+      if (build.background) {
+        build.group.remove(build.background.g);
+        disposeTree(build.background.g);
+      }
+      const next = backgroundFromEffects(slide, build.palette, profile, mode);
+      build.background = next;
+      if (next) {
+        next.g.position.z = -2;
+        markBackdrop(next.g);
+        sortAboveVeil(next.g);
+        build.group.add(next.g);
+      }
+    }
+    syncPost();
+    rig.render();
+  }
+
   const hud = createHud({
     slides: deck.slides.map((s) => ({ id: s.id, title: s.title, effects: [...(s.effects ?? [])] })),
     // Everything the deck can instantiate: the corpus, plus the `local:`
     // modules embedded in THIS file. The panel offers exactly this.
     catalogue: [
-      ...Object.values(REGISTRY).map((e) => ({ id: e.card.id, kind: e.card.kind as string })),
+      ...Object.values(REGISTRY).map((e) => ({ id: e.card.id, kind: e.card.kind as string, ...(e.card.persistent ? { persistent: true } : {}) })),
       ...Object.values(localCards()).map((c) => ({ id: `local:${c.id}`, kind: c.kind as string })),
     ],
     deckEffects: (deck.effects ?? []).map((e) => e.id),
+    persistentEffects: () => [...persistentIds],
     defaults: deck.defaults,
     overridden: overriddenKeys(),
     derivedHash: (window.__DECK as unknown as { derivedHash?: string }).derivedHash ?? "",
@@ -963,6 +1199,12 @@ async function boot(): Promise<void> {
         if (Object.keys(schema).length === 0) continue;
         out.push({ id: ref.id, schema, values: paramsFor(slide.id, ref) });
       }
+      // Deck-wide persistent cards carry their params under the "deck" key.
+      const authored = new Map((deck.effects ?? []).map((e) => [e.id, e]));
+      for (const id of persistentIds) {
+        const schema = (REGISTRY[id]?.card.params ?? {}) as Record<string, unknown>;
+        if (Object.keys(schema).length) out.push({ id, schema, values: paramsFor("deck", authored.get(id) ?? { id }) });
+      }
       return out;
     },
     /** Re-instantiate ONE effect of the current slide under edited params. */
@@ -973,42 +1215,23 @@ async function boot(): Promise<void> {
       const key = `${slideId}|${id}`;
       fxParamEdits[key] = { ...(fxParamEdits[key] ?? {}), ...(patch as FxParams) };
     },
-    applyEffectParams: (id, patch) => {
-      const slide = deck.slides[cur];
-      const key = `${slide.id}|${id}`;
-      fxParamEdits[key] = { ...(fxParamEdits[key] ?? {}), ...(patch as FxParams) };
-      const build = builds[cur];
-      const profile = qualityProfile(build.cfg.quality ?? deck.defaults.quality);
-      const mode = (build.cfg.mode ?? "dark") as "dark" | "light";
-      if (id.startsWith("local:")) {
-        // Dispose and rebuild every local handle: they share one array and the
-        // factory is the only place params are read.
-        disposeLocalFx(cur);
-        build.localFx = localEffectsFor(slide, build.palette, profile, mode, build.group, cur);
-      } else {
-        if (build.background) {
-          build.group.remove(build.background.g);
-          disposeTree(build.background.g);
-        }
-        const next = backgroundFromEffects(slide, build.palette, profile, mode);
-        build.background = next;
-        if (next) {
-          next.g.position.z = -2;
-          markBackdrop(next.g);
-          sortAboveVeil(next.g);
-          build.group.add(next.g);
-        }
-      }
-      syncPost();
-      rig.render();
-    },
+    applyEffectParams: (id, patch) => applyParamEdit(id, patch as FxParams),
     /**
      * Recompose the current slide. Flipping `background.visible` used to stand
      * in for this, which reached neither the post stack nor the `local:`
      * modules — a removed `post` card kept rendering until a reload.
      */
-    applyEffects: (ids) => {
-      fxSetEdits[deck.slides[cur].id] = [...ids];
+    applyEffects: (ids, scope) => {
+      // Persistent cards are deck-wide singletons: a deck-scope list decides
+      // the set (re-created once), and they never enter a slide's list.
+      if (scope === "deck") {
+        const next = ids.filter(isPersistentFx);
+        if (next.join("\u0000") !== persistentIds.join("\u0000")) {
+          persistentIds = next;
+          buildPersistent();
+        }
+      }
+      fxSetEdits[deck.slides[cur].id] = ids.filter((id) => !isPersistentFx(id));
       rebuildSlide(cur, {}, true);
     },
   });
@@ -1074,6 +1297,7 @@ async function boot(): Promise<void> {
     const i = hashIndex();
     if (i !== null) navTo(i, false);
   });
+  buildPersistent();
   snapTo(hashIndex() ?? 0);
 
   const api: Deck3dApi = {
@@ -1086,6 +1310,7 @@ async function boot(): Promise<void> {
     setTime: (seconds: number) => applyTime(seconds),
     ready: () => Promise.resolve(),
     measure,
+    fonts,
     peaks,
     effects: () => ({
       active: rig.passNames(),
@@ -1094,6 +1319,44 @@ async function boot(): Promise<void> {
       errors: localFxErrors.map((e) => ({ ...e })),
     }),
     debug: {
+      /** Apply an effect param edit on the current slide, exactly as the configurator does. */
+      applyParams: (id: string, patch: Record<string, unknown>) => applyParamEdit(id, patch as FxParams),
+      /**
+       * Pin a transition `from → to` (1-based) at progress `p` and draw it:
+       * mid-flight probes (parallax, chrome fly-out) and `compare --transition`.
+       */
+      transitionAt: (from1: number, to1: number, p: number) => {
+        frozen = frozen ?? 0;
+        snapTo(Math.max(0, Math.min(builds.length - 1, from1 - 1)));
+        goTo(Math.max(0, Math.min(builds.length - 1, to1 - 1)));
+        holdT = Math.min(1, Math.max(0, p));
+        stepAnim(0);
+        rig.camera.position.copy(camState.pos);
+        rig.camera.lookAt(camState.target);
+        applyLens();
+        fader.apply(fadeWeights());
+        tickLayers(cur, frozen);
+        if (anim) tickLayers(anim.leaving, frozen);
+        drivePersistent(frozen);
+        rig.render(frozen);
+      },
+      /** Persistent effects: id, parent kind and per-node layer masks (+ the mirror's). */
+      persistent: () =>
+        persistent.map((fx) => {
+          const o = fx.handle.object as THREE.Object3D | undefined;
+          const masks: number[] = [];
+          o?.traverse((n) => masks.push(n.layers.mask));
+          return {
+            id: fx.id,
+            parent: o?.parent === rig.scene ? "scene" : o?.parent ? "other" : "none",
+            masks,
+            mirrorMask: rig.mirrorMask(),
+            state: (fx.handle as { debug?: () => unknown }).debug?.() ?? null,
+          };
+        }),
+      /** Layer effects on the current slide, with their optional debug state. */
+      layers: () =>
+        builds[cur].layerFx.map((fx) => ({ id: fx.id, dead: fx.dead, state: (fx.handle as { debug?: () => unknown }).debug?.() ?? null })),
       titleGlyphs: () => {
         const title = builds[cur].labels.find((l) => l.kind === "title");
         if (!title) return 0;

@@ -228,10 +228,31 @@ export interface Slide {
   durationSec?: number;
 }
 
+/** One pinned deck asset (`overrides.assets[i]`). */
+export interface DeckAsset {
+  id: string;
+  /** Relative to the deck directory; must resolve inside it. */
+  path: string;
+  sha256: string;
+  mime: AssetMime;
+}
+
+export type AssetMime =
+  | "image/png"
+  | "image/jpeg"
+  | "image/gif"
+  | "image/webp"
+  | "image/svg+xml"
+  | "application/json"
+  | "text/plain"
+  | "font/ttf"
+  | "font/otf";
+
 export interface Overrides {
   deck?: Defaults;
   effects?: EffectRef[];
   props?: PropOverride[];
+  assets?: DeckAsset[];
   slides?: Record<string, SlideOverride>;
   nodes?: Record<string, NodeOverride>;
   edges?: Record<string, EdgeOverride>;

@@ -28,6 +28,9 @@ function isAllowed(spec: string): boolean {
   return false;
 }
 
+/**
+ * @structural-pin import-graph lint: pi-package-resolver.ts may import only node built-ins and shared-relative paths so the wizard bootstrap can load it
+ */
 describe("pi-package-resolver — shared-only imports", () => {
   it("only imports Node built-ins or shared-local paths", () => {
     const src = fs.readFileSync(resolverPath, "utf-8");

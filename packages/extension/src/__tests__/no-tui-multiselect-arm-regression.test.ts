@@ -1,5 +1,5 @@
 /**
- * Repo-level invariant: `packages/extension/src/bridge.ts` MUST NOT
+ * Repo-level invariant: `packages/extension/src/tui-prompt-adapter.ts` MUST NOT
  * contain the co-occurrence of two substrings:
  *
  *   1. `originals.custom`
@@ -22,6 +22,12 @@
  * patch site uses the substring `type: "multiselect"` (object-literal
  * shape), not `prompt.type === "multiselect"` (equality-check shape),
  * so it is unaffected by this lint.
+ *
+ * Scan target: the TUI arm can only be re-added in `tui-prompt-adapter.ts` (the
+ * `originals` capture lives in `bridge-handlers/ui-prompt-patch.ts`, the arm match in
+ * the adapter, so only the adapter file can hold both substrings). The previous target,
+ * `bridge.ts`, never held the arm, so this guard passed vacuously. The negative check
+ * below proves the predicate fires on a re-added arm.
  *
  * To remove a legitimate `originals.custom` reference (e.g. for a
  * future use that does not include multiselect prompt routing), keep
@@ -46,20 +52,26 @@ function findLineNumbers(src: string, needle: string): number[] {
   return hits;
 }
 
-describe("no TUI multiselect arm regression in bridge.ts", () => {
-  it("bridge.ts MUST NOT contain both `originals.custom` and `prompt.type === \"multiselect\"`", async () => {
-    const here = path.dirname(url.fileURLToPath(import.meta.url));
-    const bridgePath = path.resolve(here, "..", "bridge.ts");
-    const src = await fs.readFile(bridgePath, "utf-8");
+/** True when both banned substrings co-occur, i.e. the TUI multiselect arm is back. */
+function hasForbiddenArm(src: string): boolean {
+  return src.includes(FORBIDDEN_A) && src.includes(FORBIDDEN_B);
+}
 
-    const hasA = src.includes(FORBIDDEN_A);
-    const hasB = src.includes(FORBIDDEN_B);
+const here = path.dirname(url.fileURLToPath(import.meta.url));
+const adapterPath = path.resolve(here, "..", "tui-prompt-adapter.ts");
 
-    if (hasA && hasB) {
+/**
+ * @structural-pin regression lint: a banned substring co-occurrence must never reappear in the prompt adapter; absence of text is the contract
+ */
+describe("no TUI multiselect arm regression in tui-prompt-adapter.ts", () => {
+  it("tui-prompt-adapter.ts MUST NOT contain both `originals.custom` and `prompt.type === \"multiselect\"`", async () => {
+    const src = await fs.readFile(adapterPath, "utf-8");
+
+    if (hasForbiddenArm(src)) {
       const linesA = findLineNumbers(src, FORBIDDEN_A);
       const linesB = findLineNumbers(src, FORBIDDEN_B);
       const msg =
-        `Forbidden co-occurrence in ${path.relative(process.cwd(), bridgePath)}:\n` +
+        `Forbidden co-occurrence in ${path.relative(process.cwd(), adapterPath)}:\n` +
         `  - "${FORBIDDEN_A}" found on line(s): ${linesA.join(", ")}\n` +
         `  - "${FORBIDDEN_B}" found on line(s): ${linesB.join(", ")}\n` +
         `\n` +
@@ -73,9 +85,12 @@ describe("no TUI multiselect arm regression in bridge.ts", () => {
         `(or openspec/changes/fix-multiselect-tui-arm-self-cancel/ if not yet archived).`;
       expect.fail(msg);
     }
+  });
 
-    // Guardrail: at least one of the two substrings absent (we already
-    // assert above that both-present is illegal). Either-alone is fine.
-    expect(hasA && hasB).toBe(false);
+  it("the predicate fires when the arm is re-added (negative check, not vacuous)", async () => {
+    const src = await fs.readFile(adapterPath, "utf-8");
+    expect(hasForbiddenArm(src)).toBe(false);
+    const mutated = `${src}\nelse if (prompt.type === "multiselect" && originals.custom) {}\n`;
+    expect(hasForbiddenArm(mutated)).toBe(true);
   });
 });

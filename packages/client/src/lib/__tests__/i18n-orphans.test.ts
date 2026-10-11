@@ -41,6 +41,9 @@ const catalogs: Array<[string, string]> = [
   ["i18n-legacy-aliases.ts", readFileSync(join(root, "src/lib/i18n/i18n-legacy-aliases.ts"), "utf8")],
 ];
 
+/**
+ * @structural-pin removed locale keys must stay absent from every catalog source; absence of text is the contract
+ */
 describe("i18n orphan removal (E17)", () => {
   it("the 7 advisory-only keys are absent from every catalog and legacy aliases", () => {
     for (const key of REMOVED_KEYS) {

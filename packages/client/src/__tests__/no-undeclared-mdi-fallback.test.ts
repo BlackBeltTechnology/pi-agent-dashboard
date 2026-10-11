@@ -73,6 +73,9 @@ function collectImportedMdiIdents(content: string): Set<string> {
 	return idents;
 }
 
+/**
+ * @structural-pin repo-wide lint: a dangling mdi identifier only throws on a rare nullish branch at render; tsc misses it under the bundler
+ */
 describe("no undeclared `?? mdi<Name>` fallback in client .tsx files", () => {
 	it("every `?? mdi<Name>` identifier is imported from @mdi/js in the same file", async () => {
 		const here = path.dirname(url.fileURLToPath(import.meta.url));

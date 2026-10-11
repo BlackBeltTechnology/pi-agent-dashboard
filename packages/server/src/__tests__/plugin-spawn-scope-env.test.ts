@@ -79,6 +79,9 @@ function cleanBaseEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+/**
+ * @structural-pin server.ts boots the whole server on import; the scope-to-env projection call site is pinned in text beside mapper cases
+ */
 describe("plugin-spawn-scope env projection", () => {
   it("E9: extensionConfig → PI_EXT_<NAME>_<KEY>; no argv element derived", () => {
     const mapped = pluginSpawnToSessionOptions({ cwd: "/w", scope: { extensionConfig: { myext: { token: "abc" } } } });
