@@ -10,6 +10,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
 import { describe, expect, it } from "vitest";
 import { PluginForwardRegistry } from "../plugin-event-forward-registry.js";
+import { readBridgeSource } from "./helpers/bridge-source.js";
 
 type Handler = (data: unknown) => void;
 
@@ -296,7 +297,7 @@ describe("PluginForwardRegistry", () => {
 // bridge wiring has no isolated harness for the open callback).
 describe("bridge wiring: first-open drain", () => {
   it("primary onOpen schedules a registry flush after the lane comes up", () => {
-    const src = fs.readFileSync(new URL("../bridge.ts", import.meta.url), "utf8");
+    const src = readBridgeSource("bridge.ts");
     const open = src.indexOf("onOpen: () => {\n      if (!isActive() || connection !== primaryConnection) return;");
     expect(open).toBeGreaterThan(-1);
     const body = src.slice(open, src.indexOf("onClose:", open));

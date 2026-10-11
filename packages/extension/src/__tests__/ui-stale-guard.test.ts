@@ -5,7 +5,7 @@
  *
  * These import the REAL helper (not a mirror), so removing the guard from
  * production source makes them fail. `stopSpinner` itself is mirrored, because
- * `bridge.ts` is not importable in unit tests (see
+ * the bridge entry point is not importable in unit tests; `stopSpinner` lives in `bridge-handlers/lifecycle.ts` (see
  * `bridge-system-followup.test.ts`) — but the mirror is built on top of the real
  * `runUiSafely`, which is where the behaviour under test lives.
  *
@@ -58,7 +58,7 @@ async function withRejectionWatch(fn: () => Promise<void>): Promise<unknown[]> {
 }
 
 /**
- * Mirror of bridge.ts `stopSpinner`, built on the REAL guard. The interval is
+* Mirror of bridge-handlers/lifecycle.ts `stopSpinner`, built on the REAL guard. The interval is
  * cleared BEFORE the guarded `ctx.ui` call so a stale ctx still releases it.
  */
 function makeStopSpinner(ctx: { ui: { setWidget: (k: string, v: undefined) => void } }) {

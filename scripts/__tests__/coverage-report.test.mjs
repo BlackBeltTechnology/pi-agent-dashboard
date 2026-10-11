@@ -1,5 +1,7 @@
 /**
- * Live `npm run test:coverage` scenarios (test-plan E2, X1).
+ * Live `npm run test:coverage` scenarios (test-plan E2, X1). The unloaded-file-at-0% half of E2
+ * is proven by the baseline in design.md (`bridge.ts` 0 / 1300 lines before slice C) and by the
+ * explicit `coverage.include` pinned in coverage-config.test.mjs.
  *
  * `ci`-level, behind RUN_CI_SCENARIOS=1 and run by `npm run test:ci-scenarios`:
  * the extension-project run loads the whole extension suite under v8
@@ -32,7 +34,7 @@ function runCoverage(args) {
 
 describe.skipIf(!CI_SCENARIOS)("test:coverage (live)", () => {
   it(
-    "E2 reports the unloaded entry point at 0% and counts its lines",
+    "E2 reports the entry point in the summary with a real percentage and counts its lines",
     () => {
       // A path filter, NOT `--project`: with `--project` vitest 4 resolves the
       // `coverage.include` glob against that project's root, so no unloaded file
@@ -42,9 +44,10 @@ describe.skipIf(!CI_SCENARIOS)("test:coverage (live)", () => {
       const summary = JSON.parse(readFileSync(summaryPath, "utf8"));
       const key = Object.keys(summary).find((k) => k.endsWith("packages/extension/src/bridge.ts"));
       expect(key, "bridge.ts present in the coverage summary").toBeDefined();
-      // Slice C (bridge extraction) flips this to `> 0` once handler modules are loaded by tests.
-      expect(summary[key].lines.pct).toBe(0);
-      expect(summary[key].lines.total).toBeGreaterThan(1000);
+      // Loaded (and partly executed) by `bridge-reentry-guard.test.ts`, so no longer an invisible 0%.
+      // Before slice C of test-trust-audit nothing imported the entry point and this was exactly 0.
+      expect(summary[key].lines.pct).toBeGreaterThan(0);
+      expect(summary[key].lines.total).toBeGreaterThan(300);
       expect(summary.total.lines.total).toBeGreaterThanOrEqual(summary[key].lines.total);
     },
     RUN_TIMEOUT_MS,

@@ -58,7 +58,7 @@ describe("every commands_list sender routes through the chokepoint (3.4, X6)", (
   const SENDERS = [
     "session-sync.ts", // register + spawn
     "flow-event-wiring.ts", // flow rediscover / complete
-    "bridge.ts", // session_start (reload path)
+    "bridge-handlers/lifecycle.ts", // session_start (reload path)
     "command-handler.ts", // request_commands RPC
   ];
 

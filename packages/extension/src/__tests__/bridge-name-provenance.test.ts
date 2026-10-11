@@ -6,12 +6,16 @@
  *
  * See change: investigate-auto-name-provenance-relabel.
  */
-import fs from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { type AutoNamer, applyAutoNameRestore, createAutoNamer, type PersistedNamerState } from "../auto-session-namer.js";
 import { createCommandHandler } from "../command-handler.js";
+import { readBridgeSource } from "./helpers/bridge-source.js";
 
-const SRC = fs.readFileSync(new URL("../bridge.ts", import.meta.url), "utf8");
+// The rename hooks are wired in bridge.ts, the restore branch lives in the inbound dispatch and the
+// namer reset in the lifecycle handlers. See change: test-trust-audit.
+const SRC = readBridgeSource("bridge.ts");
+const DISPATCH_SRC = readBridgeSource("bridge-handlers/dispatch.ts");
+const LIFECYCLE_SRC = readBridgeSource("bridge-handlers/lifecycle.ts");
 
 /** Mirrors the bridge: a lazily-created namer, observations from session_info_changed. */
 function makeBridge(opts: { restored?: PersistedNamerState; setSessionNameThrows?: boolean; echoInside?: boolean } = {}) {
@@ -82,7 +86,7 @@ describe("bridge wiring is pinned in the source", () => {
     expect(SRC).toContain("onSystemRename: (name: string) =>");
     expect(SRC).toContain("getAutoNamer().noteSystemRename(name)");
     expect(SRC).toContain("onUserRename: () =>");
-    expect(SRC).toContain("applyAutoNameRestore(msg as any, autoNamer, pi.getSessionName())");
+    expect(DISPATCH_SRC).toContain("applyAutoNameRestore(msg as any, autoNamer, pi.getSessionName())");
     expect(SRC).not.toContain("deliberately NOT restored");
   });
 });
@@ -156,7 +160,7 @@ describe("X4: session resume does not carry S1 into S2", () => {
     s1.observe("Hand Typed");
     expect(s1.peek()!._state().nameSource).toBe("user");
     // Resume: the bridge drops its namer + state (session_start handler) …
-    expect(SRC).toContain("autoNamer = undefined;\n    namerState = undefined;\n    prev.namerState = undefined;");
+    expect(LIFECYCLE_SRC).toContain("autoNamer = undefined;\n  namerState = undefined;\n  shared.namerState = undefined;");
     // … S2 is a fresh bridge state; register → restore for S2 → turn-end observes its own name.
     const s2 = makeBridge();
     s2.restore({ state: {}, nameSource: "auto", nameSourceFor: "Fix login" });
