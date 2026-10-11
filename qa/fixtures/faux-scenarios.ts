@@ -471,6 +471,16 @@ export const FOOTER_ICON_KEY = "mdiCheckDecagram";
 export const OM_OBSERVATION_ALPHA = "e2e-observation-alpha";
 export const OM_OBSERVATION_BETA = "e2e-observation-beta";
 
+/**
+ * `web-search-results` ledger scenario (change: render-unclaimed-custom-entries,
+ * test-plan #F17/#F18). Emits a real `web-search-results` custom entry (2 queries,
+ * 8 results, one https link) BETWEEN two tool calls of the same burst, so the
+ * web-access `custom-entry-renderer` claim owns the row inside the burst.
+ */
+export const WEB_SEARCH_TAIL = "web search entry sent";
+export const WEB_SEARCH_LINK = "https://example.com/e2e-web-result";
+export const WEB_SEARCH_SUMMARY = "2 queries · 8 results";
+
 /** Read `[[fanout:N]]` from any message; default 1, clamped 1..10. */
 export function fanoutWidth(context: FauxContext): number {
   for (const message of context.messages ?? []) {
@@ -1918,6 +1928,57 @@ export const SCENARIOS: Record<string, Scenario> = {
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage([fauxText(OM_ENTRY_TAIL)]),
+    ],
+    expect: { toolName: "e2e_custom_entry" },
+  },
+
+  /**
+   * `web-search-results` entry between two tool calls of one burst (change:
+   * render-unclaimed-custom-entries). The payload mirrors pi-web-access's
+   * `search` shape: 2 queries holding 5 + 3 results.
+   */
+  "web-search-entry": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_custom_entry", {
+            customType: "e2e:before-search",
+            data: JSON.stringify({ step: "before" }),
+          }),
+          fauxToolCall("e2e_custom_entry", {
+            customType: "web-search-results",
+            data: JSON.stringify({
+              id: "e2e-web-search-1",
+              type: "search",
+              timestamp: 1700000000000,
+              queries: [
+                {
+                  query: "e2e first query",
+                  answer: "e2e synthesized answer",
+                  provider: "exa",
+                  error: null,
+                  results: [
+                    { title: "E2E result one", url: WEB_SEARCH_LINK, snippet: "first snippet" },
+                    ...[2, 3, 4, 5].map((n) => ({ title: `E2E result ${n}`, url: `javascript:void(${n})`, snippet: "" })),
+                  ],
+                },
+                {
+                  query: "e2e second query",
+                  provider: "exa",
+                  error: null,
+                  results: [6, 7, 8].map((n) => ({ title: `E2E result ${n}`, url: `https://example.org/${n}`, snippet: "" })),
+                },
+              ],
+            }),
+          }),
+          fauxToolCall("e2e_custom_entry", {
+            customType: "e2e:after-search",
+            data: JSON.stringify({ step: "after" }),
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(WEB_SEARCH_TAIL)]),
     ],
     expect: { toolName: "e2e_custom_entry" },
   },

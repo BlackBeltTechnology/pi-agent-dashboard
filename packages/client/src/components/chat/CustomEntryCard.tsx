@@ -1,6 +1,10 @@
 import { mdiPuzzleOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
+import { useMemo } from "react";
 import { formatMessageTime } from "../../lib/util/format.js";
+import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
+import { FallbackKeyValueList } from "./FallbackKeyValueList.js";
+import { parseFallbackObject } from "./parse-fallback-object.js";
 
 interface Props {
   /** Extension-authored label — rendered verbatim, never interpreted. */
@@ -26,6 +30,14 @@ interface Props {
  * grow unbounded nor interpret (and be spoofed by) the payload.
  */
 export function CustomEntryCard({ customType, body, timestamp }: Props) {
+  // An untruncated JSON-object body gets a bounded key/value view; everything
+  // else stays plain text. See change: render-unclaimed-custom-entries.
+  const view = useMemo(() => parseFallbackObject(body), [body]);
+  const plain = (
+    <pre className="mx-3 mb-2 px-2 pt-1 pb-1 rounded bg-[var(--bg-secondary)] overflow-y-auto overflow-x-auto max-h-[240px] text-[var(--text-secondary)] font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all">
+      {body}
+    </pre>
+  );
   return (
     <div
       className="my-1 mx-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] overflow-hidden text-xs"
@@ -38,9 +50,13 @@ export function CustomEntryCard({ customType, body, timestamp }: Props) {
           {formatMessageTime(timestamp)}
         </span>
       </div>
-      <pre className="mx-3 mb-2 px-2 pt-1 pb-1 rounded bg-[var(--bg-secondary)] overflow-y-auto overflow-x-auto max-h-[240px] text-[var(--text-secondary)] font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all">
-        {body}
-      </pre>
+      {view ? (
+        <ErrorBoundary fallback={plain}>
+          <FallbackKeyValueList view={view} />
+        </ErrorBoundary>
+      ) : (
+        plain
+      )}
     </div>
   );
 }

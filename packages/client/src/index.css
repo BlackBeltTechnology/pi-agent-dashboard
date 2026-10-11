@@ -24,6 +24,7 @@
 @source "../../gmail-plugin/src/client";
 @source "../../context-mode-settings-plugin/src/client";
 @source "../../team-plugin/src/client";
+@source "../../web-access-plugin/src/client";
 
 /* Shared font-size for code/diff payload inside tool-call renderers.
    See change: unify-tool-renderer-code-font-size. Keeps Read/Write/Edit/
