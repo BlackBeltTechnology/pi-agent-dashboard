@@ -9,6 +9,7 @@ import {
   isGenuinelyLocal,
 } from "../auth/localhost-guard.js";
 import { isLoopback } from "../auth/loopback.js";
+import { stampedHeaders } from "../test-support/local-credential-stamp.js";
 
 const SECRET = "test-secret";
 
@@ -81,14 +82,14 @@ describe("local-IPC token allowlist", () => {
     // A tunnel (forwarding header) + valid local token → trusted (genuine local process).
     expect(
       validateWsUpgrade(undefined, "127.0.0.1", SECRET, [], {
-        headers: { "x-forwarded-for": "9.9.9.9", [LOCAL_TOKEN_HEADER]: token },
+        headers: stampedHeaders({ "x-forwarded-for": "9.9.9.9", [LOCAL_TOKEN_HEADER]: token }, token),
         localToken: token,
       }),
     ).toBe(true);
     // Same, wrong token → rejected.
     expect(
       validateWsUpgrade(undefined, "127.0.0.1", SECRET, [], {
-        headers: { "x-forwarded-for": "9.9.9.9", [LOCAL_TOKEN_HEADER]: "nope" },
+        headers: stampedHeaders({ "x-forwarded-for": "9.9.9.9", [LOCAL_TOKEN_HEADER]: "nope" }, token),
         localToken: token,
       }),
     ).toBe(false);

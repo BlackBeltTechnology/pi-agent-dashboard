@@ -6,9 +6,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import Fastify, { type FastifyInstance } from "fastify";
 import fastifyCookie from "@fastify/cookie";
+import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { authorizeWsUpgrade, validateWsUpgrade } from "../auth/auth-plugin.js";
+import { registerBearerAuth } from "../auth/bearer-auth.js";
 import { decideBridgeTicketMint } from "../auth/bridge-ticket-eligibility.js";
 import {
   createLocalTrustContext,
@@ -25,12 +27,11 @@ import {
   isTrustedSource,
 } from "../auth/localhost-guard.js";
 import { tierRefusalFor } from "../auth/route-tier-gate.js";
-import { authorizeWsUpgrade, validateWsUpgrade } from "../auth/auth-plugin.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { PairingManager } from "../pairing/pairing.js";
-import { registerBearerAuth } from "../auth/bearer-auth.js";
 import { registerLocalProofRoutes } from "../routes/local-proof-routes.js";
 import { registerPairingRoutes } from "../routes/pairing-routes.js";
+import { stampedHeaders, stampLegacyHook } from "../test-support/local-credential-stamp.js";
 
 const TOKEN = "local-token-xyz";
 let strict = false;
@@ -54,7 +55,7 @@ describe("isLocallyTrusted / hasLocalProof decision table (E5)", () => {
   ];
   for (const [name, h, wantOn] of cases) {
     it(`${name}: strict off → admitted; strict on → ${wantOn}`, () => {
-      const headers = { ...h, ...(name === "proof cookie" ? { cookie: proofCookie() } : {}) };
+      const headers = stampedHeaders({ ...h, ...(name === "proof cookie" ? { cookie: proofCookie() } : {}) }, TOKEN);
       strict = false;
       expect(isLocallyTrusted({ ip: LOOP, headers }, ctx)).toBe(true);
       strict = true;
@@ -62,7 +63,7 @@ describe("isLocallyTrusted / hasLocalProof decision table (E5)", () => {
     });
   }
   it("a forwarding header is never locally trusted", () => {
-    expect(isLocallyTrusted({ ip: LOOP, headers: { "x-forwarded-for": "1.2.3.4", "x-pi-local-token": TOKEN } }, ctx)).toBe(false);
+    expect(isLocallyTrusted({ ip: LOOP, headers: stampedHeaders({ "x-forwarded-for": "1.2.3.4", "x-pi-local-token": TOKEN }, TOKEN) }, ctx)).toBe(false);
   });
   it("verifyLocalProofCookie rejects garbage", () => {
     expect(verifyLocalProofCookie("nope", ctx)).toBe(false);
@@ -76,13 +77,14 @@ describe("trusted-network loopback entry (E9)", () => {
     expect(isTrustedSource(LOOP, {}, ["127.0.0.1"], ctx)).toBe(true);
     strict = true;
     expect(isTrustedSource(LOOP, {}, ["127.0.0.1"], ctx)).toBe(false);
-    expect(isTrustedSource(LOOP, { "x-pi-local-token": TOKEN }, ["127.0.0.1"], ctx)).toBe(true);
+    expect(isTrustedSource(LOOP, stampedHeaders({ "x-pi-local-token": TOKEN }, TOKEN), ["127.0.0.1"], ctx)).toBe(true);
     expect(isTrustedSource("10.0.0.5", {}, ["10.0.0.0/8"], ctx)).toBe(true);
   });
 });
 
 async function guardedApp(): Promise<FastifyInstance> {
   const app = Fastify();
+  stampLegacyHook(app, TOKEN);
   await app.register(fastifyCookie);
   app.decorateRequest("isAuthenticated", false);
   app.addHook("onRequest", createNetworkGuardHook({ trustedNetworks: [], localToken: TOKEN, localTrust: ctx }));
@@ -183,7 +185,7 @@ describe("tier exemption + bridge mint (E10, E11)", () => {
   });
   it("E11 decideBridgeTicketMint", () => {
     const d = (headers: Record<string, unknown>) =>
-      decideBridgeTicketMint({ ip: LOOP, headers, localTrust: ctx, verifyDeviceBearer: () => null }).allow;
+      decideBridgeTicketMint({ ip: LOOP, headers: stampedHeaders(headers, TOKEN), localTrust: ctx, verifyDeviceBearer: () => null }).allow;
     strict = false;
     expect(d({})).toBe(true);
     strict = true;
@@ -198,6 +200,7 @@ describe("local-proof bootstrap (E15, X5, X6, X7)", () => {
   beforeEach(async () => {
     clock = 1_000_000;
     app = Fastify();
+    stampLegacyHook(app, TOKEN);
     await app.register(fastifyCookie);
     registerLocalProofRoutes(app, { codes: new LocalProofCodeStore(() => clock), ctx });
     await app.ready();
@@ -248,6 +251,7 @@ describe("pairing approval never honors bare loopback (E19, E20)", () => {
     reg = new PairedDeviceRegistry(path.join(tmp, "paired.json"));
     mgr = new PairingManager({ registry: reg, getFingerprint: () => "sha256:test-fp", getReachableUrls: () => ["https://a.example"], now: () => 1_000_000 });
     app = Fastify();
+    stampLegacyHook(app, TOKEN);
     await app.register(fastifyCookie);
     app.decorateRequest("isAuthenticated", false);
     app.addHook("onRequest", async (r) => {

@@ -3,7 +3,7 @@
  * when the dashboard is up, falls back to local stop/start when it is not.
  * See change: fix-restart-bridge-auto-start-race.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { cmdRestart } from "../cli.js";
 import type { ServerConfig } from "../server.js";
 
@@ -31,8 +31,10 @@ describe("cmdRestart", () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [url, init] = (fetchImpl as any).mock.calls[0];
-    expect(url).toBe("http://localhost:8000/api/restart");
+    expect(url).toBe("http://127.0.0.1:8000/api/restart");
     expect(init.method).toBe("POST");
+    expect(init.headers["X-Pi-Local-Proof"]).toBeTruthy();
+    expect(JSON.stringify(init.headers).toLowerCase()).not.toContain("x-pi-local-token");
     expect(JSON.parse(init.body)).toEqual({ dev: true });
     expect(cmdStopImpl).not.toHaveBeenCalled();
     expect(cmdStartImpl).not.toHaveBeenCalled();

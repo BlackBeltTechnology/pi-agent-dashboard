@@ -28,7 +28,13 @@ import {
   mergeHeapIntoNodeOptions,
   stripDashboardHeapFlag,
 } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
+import {
+  isLoopbackLiteral,
+  localDialHost,
+  REQUIRE_SERVER_PROOF_ENV,
+} from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import { MANAGED_BIN } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
+import { prependSelectedNodeToPath } from "@blackbelt-technology/pi-dashboard-shared/node-installs/index.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import {
   spawnDetached,
@@ -41,7 +47,6 @@ import {
   execSync,
   spawnSync,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { prependSelectedNodeToPath } from "@blackbelt-technology/pi-dashboard-shared/node-installs/index.js";
 import { electronAsNodeRequired } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
 import {
   buildWtArgs,
@@ -51,8 +56,8 @@ import {
   type UserSpawnStrategy,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
 import {
-  type ResolvedRuntime,
   piEntryFromArgv,
+  type ResolvedRuntime,
   validateResolvedRuntime,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { mintSpawnToken } from "../auth/spawn-token.js";
@@ -93,10 +98,19 @@ export function resetResolver(): void {
 // spawns (spawn-token watchdog, session tracking), so this overrides any
 // inherited `PI_DASHBOARD_URL`.
 let spawnDashboardPiPort: number | null = null;
+// The host the TCP gateway binds (`config.host`), supplied through the same
+// setter. It does NOT introspect the gateway: a socket-only gateway has no TCP
+// address. Unset ⇒ the legacy `ws://localhost:<piPort>` URL and no marker.
+let spawnBindHost: string | null = null;
 
-/** Set the owning server's piPort so spawned sessions connect back here. */
-export function setSpawnDashboardPiPort(piPort: number | null): void {
+/**
+ * Set the owning server's piPort so spawned sessions connect back here, and the
+ * host its TCP gateway binds so a loopback spawn can be dialled as a literal and
+ * marked for server-proof enforcement (change: loopback-credential-proof, D7).
+ */
+export function setSpawnDashboardPiPort(piPort: number | null, bindHost?: string | null): void {
   spawnDashboardPiPort = piPort;
+  spawnBindHost = bindHost ?? null;
 }
 
 /** The bridge transport this server actually serves, for spawn pinning (D6). */
@@ -360,11 +374,32 @@ export function buildSpawnEnv(
   // Point spawned bridges at THIS server's gateway so they register with the
   // server that spawned them, not the config-default piPort. Overrides any
   // inherited PI_DASHBOARD_URL. See setSpawnDashboardPiPort above.
+  // An inherited enforcement marker is ALWAYS dropped first: it names another
+  // endpoint's identity demand and must never reach a descendant that this spawn
+  // did not mark. (On the null-port path only the marker is removed here; the
+  // URL is left as today.) See change: loopback-credential-proof (D7).
+  delete env[REQUIRE_SERVER_PROOF_ENV];
   if (spawnDashboardPiPort != null) {
     const served = spawnGatewayTransport?.() ?? null;
-    // After a fallback the URL is a literal so a bridge never lands on a
-    // `[::1]` squatter. See change: fix-gateway-socket-stale-owner (D6).
-    env.PI_DASHBOARD_URL = `ws://${served?.transport === "loopback-fallback" ? "127.0.0.1" : "localhost"}:${spawnDashboardPiPort}`;
+    // A loopback bind is dialled as an address LITERAL and marked: the bridge
+    // then demands the server counter-proof at exactly this endpoint. The
+    // fallback listener always binds 127.0.0.1. `wsl-tmux` is NEVER marked — its
+    // pane runs in another kernel and HOME, so it holds another token and would
+    // quarantine forever.
+    const literal =
+      spawnBindHost != null && opts?.mechanism !== "wsl-tmux"
+        ? served?.transport === "loopback-fallback"
+          ? "127.0.0.1"
+          : localDialHost(spawnBindHost)
+        : undefined;
+    if (literal !== undefined && isLoopbackLiteral(literal)) {
+      env.PI_DASHBOARD_URL = `ws://${literal}:${spawnDashboardPiPort}`;
+      env[REQUIRE_SERVER_PROOF_ENV] = env.PI_DASHBOARD_URL;
+    } else {
+      // After a fallback the URL is a literal so a bridge never lands on a
+      // `[::1]` squatter. See change: fix-gateway-socket-stale-owner (D6).
+      env.PI_DASHBOARD_URL = `ws://${served?.transport === "loopback-fallback" ? "127.0.0.1" : "localhost"}:${spawnDashboardPiPort}`;
+    }
     // Pin over the socket too when this instance is serving one. The URL pin
     // alone stops working the moment the default TCP listener goes away (task
     // 8.1), and an inherited `PI_DASHBOARD_SOCKET` from another instance would
@@ -530,7 +565,7 @@ export function buildTmuxCommand(
   options?: SessionOptions,
   piInvocation: string[] = ["pi"],
   heapNodeOptions = "",
-  endpoint?: { url?: string; socket?: string },
+  endpoint?: { url?: string; socket?: string; marker?: string },
   contributedEnv: Record<string, string> = {},
 ): string[] {
   // `env -u` truly unsets context-mode's bridge-internal vars that the pane
@@ -574,13 +609,19 @@ export function buildTmuxCommand(
         `PI_DASHBOARD_SOCKET=${endpoint.socket ?? ""}`,
       ]
     : [];
+  // The server-proof enforcement marker rides `-e` too, ALWAYS: an empty value
+  // cancels one inherited from the tmux server's global env (the same
+  // convention as `PI_DASHBOARD_SOCKET=` above), and a `wsl-tmux` pane — which
+  // is never marked — gets the empty cancel.
+  // See change: loopback-credential-proof (D7).
+  const markerEnv = ["-e", `${REQUIRE_SERVER_PROOF_ENV}=${endpoint?.marker ?? ""}`];
   // Bridge activation stamp rides `-e` for the same reason: the spawn env
   // never reaches the pane. See change: add-bridge-env-opt-out (D5).
   const bridgeEnv = ["-e", "PI_DASHBOARD_BRIDGE=on"];
   // Trusted-plugin contributions ride per-window `-e` too (the pane env comes
   // from the tmux server). Already validated by `applySpawnEnvContributors`.
   const contribEnv: string[] = Object.entries(contributedEnv).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
-  const envArgs = [...tokenEnv, ...endpointEnv, ...heapEnv, ...bridgeEnv, ...contribEnv];
+  const envArgs = [...tokenEnv, ...endpointEnv, ...markerEnv, ...heapEnv, ...bridgeEnv, ...contribEnv];
   if (sessionExists) {
     return ["tmux", "new-window", "-t", "pi-dashboard", ...envArgs, "-c", cwd, paneCommand];
   }
@@ -588,9 +629,9 @@ export function buildTmuxCommand(
 }
 
 /** The endpoint pin `buildSpawnEnv` set, for the tmux `-e` path (D6). */
-function tmuxEndpoint(env: NodeJS.ProcessEnv): { url?: string; socket?: string } | undefined {
+function tmuxEndpoint(env: NodeJS.ProcessEnv): { url?: string; socket?: string; marker?: string } | undefined {
   if (spawnDashboardPiPort == null) return undefined;
-  return { url: env.PI_DASHBOARD_URL, socket: env.PI_DASHBOARD_SOCKET };
+  return { url: env.PI_DASHBOARD_URL, socket: env.PI_DASHBOARD_SOCKET, marker: env[REQUIRE_SERVER_PROOF_ENV] };
 }
 
 // ── Availability probes (isolated, one place) ───────────────────────────────

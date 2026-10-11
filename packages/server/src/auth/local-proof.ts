@@ -12,7 +12,7 @@
  * See change: harden-trust-and-credential-boundaries (D2).
  */
 import crypto from "node:crypto";
-import { verifyLocalToken } from "./local-token.js";
+import { hasLocalCredential } from "./local-credential.js";
 
 export const LOCAL_PROOF_COOKIE = "pi_dash_local";
 export const LOCAL_PROOF_MAX_AGE_S = 30 * 24 * 60 * 60;
@@ -69,9 +69,9 @@ function readCookie(headers: Record<string, unknown> | undefined, name: string):
   return undefined;
 }
 
-/** Local proof = valid proof cookie OR valid `X-Pi-Local-Token`. */
+/** Local proof = valid proof cookie OR a verified local credential (proof / legacy token). */
 export function hasLocalProof(headers: Record<string, unknown> | undefined, ctx: LocalTrustContext): boolean {
-  if (verifyLocalToken(headers, ctx.localToken)) return true;
+  if (hasLocalCredential(headers)) return true;
   return verifyLocalProofCookie(readCookie(headers, LOCAL_PROOF_COOKIE), ctx);
 }
 

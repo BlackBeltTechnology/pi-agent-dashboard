@@ -7,6 +7,7 @@ import type { IncomingMessage } from "node:http";
 import type { ExtensionToServerMessage, ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
+import type { LocalCredentialVerifier } from "../auth/local-credential.js";
 import type { TicketConsumption } from "../auth/ws-ticket.js";
 import { classifyCarrierLoss } from "../session/death-reason.js";
 import { createHostPressureTracker, type HostPressure } from "../session/host-pressure-tracker.js";
@@ -53,8 +54,13 @@ export interface PiGatewayOptions {
     consumeTicket: (ticket: string | null | undefined) => TicketConsumption;
     /** `true` once the D10b deprecation window has closed. */
     requireTicketOnLoopback?: boolean;
-    /** Checks `X-Pi-Local-Token` for a loopback bridge (D6, task 5.3). */
-    verifyLocalToken?: (headers: Record<string, unknown> | undefined) => boolean;
+    /**
+     * Local-credential verifier: stamps the per-request verdict (proof /
+     * legacy / absent / invalid) and mints the server counter-proof for a
+     * verified proof. Without it there is no verdict and no counter-proof, so
+     * marked bridges refuse (fail closed). See change: loopback-credential-proof (D5).
+     */
+    verifyCredential?: LocalCredentialVerifier;
     log?: (msg: string) => void;
   };
   /** Bounded window the contention probe waits for the incumbent's pong. */
@@ -181,6 +187,8 @@ export function createPiGateway(
    * `WebSocketServer` (D10), and `verifyClient` sees only the request.
    */
   const unixUpgrades = new WeakSet<IncomingMessage>();
+  /** Upgrades admitted on a verified proof → the data the counter-proof answers. */
+  const proofAdmissions = new WeakMap<IncomingMessage, { binding: string; nonce: string; mac: string }>();
   let pingTimer: ReturnType<typeof setInterval> | null = null;
   /** The UDS listener, when this instance serves bridges over a socket (D1). */
   let socketServer: http.Server | null = null;
@@ -1057,6 +1065,10 @@ export function createPiGateway(
     // the socket exists, so no unauthenticated bridge connection is ever
     // accepted and then closed.
     const bridgeAuth = options?.bridgeAuth;
+    const credential = bridgeAuth?.verifyCredential;
+    // Taken immediately BEFORE the bind below: a proof minted earlier cannot be
+    // for this listener (design D3).
+    const boundAt = Date.now();
     const verifyClient = bridgeAuth
       ? (info: { req: IncomingMessage }, done: (ok: boolean, code?: number, msg?: string) => void) => {
           // A unix-socket peer is exempt (D5): the socket is 0600 inside a
@@ -1069,6 +1081,12 @@ export function createPiGateway(
             done(true);
             return;
           }
+          // A browser Origin is refused below whatever it carries, so skip the
+          // HMAC (and the nonce burn) for it.
+          const stamped =
+            info.req.headers.origin === undefined
+              ? credential?.stamp(info.req, { kind: "bridge", boundAt, port })
+              : undefined;
           const verdict = decideBridgeUpgrade({
             transport: "tcp",
             remoteAddress: info.req.socket.remoteAddress ?? undefined,
@@ -1078,7 +1096,12 @@ export function createPiGateway(
             // The fallback has no tokenless grace: a squatter must not register.
             requireTicketOnLoopback: tcpOpts.requireLocalCredential ? true : bridgeAuth.requireTicketOnLoopback,
             consumeTicket: bridgeAuth.consumeTicket,
-            verifyLocalToken: bridgeAuth.verifyLocalToken,
+            localCredential: stamped
+              ? stamped.kind === "proof"
+                ? "valid"
+                : stamped.kind
+              : "absent",
+            invalidCause: stamped?.kind === "invalid" ? stamped.cause : undefined,
           });
           const log = bridgeAuth.log ?? ((m: string) => console.warn(m));
           if (!verdict.allow) {
@@ -1089,6 +1112,11 @@ export function createPiGateway(
             return;
           }
           if (verdict.deprecated) log(`[pi-gateway] ${verdict.reason}`);
+          // Counter-proof only for an admission the PROOF carried (not ticket,
+          // legacy, grace), so a relay or squatter can never produce one.
+          if (verdict.viaProof && stamped?.kind === "proof") {
+            proofAdmissions.set(info.req, { binding: stamped.binding, nonce: stamped.nonce, mac: stamped.mac });
+          }
           if (verdict.deviceId) upgradeDeviceId.set(info.req, verdict.deviceId);
           done(true);
         }
@@ -1096,6 +1124,14 @@ export function createPiGateway(
     wss = new WebSocketServer(
       host ? { port, host, verifyClient } : { port, verifyClient },
     );
+    // The only WebSocketServer serving TCP: append the counter-proof to the 101
+    // for proof admissions. Unix-socket upgrades share this wss, so exclude them.
+    if (credential) {
+      wss.on("headers", (headers: string[], req: IncomingMessage) => {
+        const proof = proofAdmissions.get(req);
+        if (proof && !unixUpgrades.has(req)) headers.push(`X-Pi-Local-Proof-Server: ${credential.counterProof(proof)}`);
+      });
+    }
     attachConnectionHandler(wss, "tcp");
     tcpKind = tcpOpts.kind;
     startHeartbeat();

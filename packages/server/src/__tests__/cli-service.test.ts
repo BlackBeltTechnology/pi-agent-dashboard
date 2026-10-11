@@ -5,6 +5,7 @@
  */
 import fs from "node:fs";
 import net from "node:net";
+import { httpProofHeaders } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp, FakeDriver, injectFetch, makeManager, ociDef, tmpRoot, writeDefinitions } from "../services/__tests__/helpers.js";
@@ -146,5 +147,23 @@ describe("X6 — exec survives a server restart", () => {
       await restarted.manager.tick();
     }
     expect(first.driver.calls.stop).toBe(0);
+  });
+});
+
+describe("E22 — service verbs mint a fresh proof per request", () => {
+  it("two consecutive verbs send distinct nonces to the host literal", async () => {
+    const seen: Array<{ url: string; headers: Record<string, string> }> = [];
+    const f = vi.fn(async (input: unknown, init?: RequestInit) => {
+      seen.push({ url: String(input), headers: (init?.headers ?? {}) as Record<string, string> });
+      return new Response(JSON.stringify({ success: true, data: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const authHeaders = (method: string, target: string) =>
+      httpProofHeaders("lt", `http://127.0.0.1:8000${target}`, method);
+    await run(["list", "--json"], { port: 8000, fetch: f, authHeaders });
+    await run(["list", "--json"], { port: 8000, fetch: f, authHeaders });
+    expect(seen).toHaveLength(2);
+    expect(seen.every((r) => r.url.startsWith("http://127.0.0.1:8000/"))).toBe(true);
+    const nonces = seen.map((r) => r.headers["X-Pi-Local-Proof"].split(".")[2]);
+    expect(new Set(nonces).size).toBe(2);
   });
 });

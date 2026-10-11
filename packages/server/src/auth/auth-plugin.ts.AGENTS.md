@@ -13,3 +13,5 @@ See change: fix-trusted-network-tunnel-bypass — `onRequest` bypassHosts skip a
 ## add-passkey-user-auth
 
 Options gain `passkeys?: PasskeyService` (configured at register + `_reloadAuth`; plugin stays active with zero providers when passkeys enabled; registers `registerPasskeyRoutes`). Callback applies `resolveGroupTier` (no match ⇒ denied page) and signs `tier`. onRequest/`/auth/status` use exported `effectiveSessionTier(payload, passkeys)` (passkey ⇒ live directory tier, null ⇒ unauthenticated; else claim ?? operate) and set `request.principalTier`. `setSessionCookie` helper. Login page: passkey section, no single-provider auto-redirect when passkeys on, `?error=` now `escapeHtml`'d (reflected XSS fix). `authorizeWsUpgrade` gains `isSessionLive` and returns `session` when the cookie admitted. See change: add-passkey-user-auth.
+
+Local-credential sites (`validateWsUpgrade`, `authorizeWsUpgrade`, request hook) read the stamped verdict via `hasLocalCredential(headers)`, not the raw header. See change: loopback-credential-proof (D4).

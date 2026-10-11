@@ -393,3 +393,84 @@ describe("browser Origin on the pi gateway (#E10)", () => {
     expect(v.allow).toBe(true);
   });
 });
+
+// ── E15: the local-credential decision table (change: loopback-credential-proof) ──
+describe("decideBridgeUpgrade × local credential verdict (E15)", () => {
+  type Cred = "valid" | "legacy" | "absent" | "invalid";
+  const run = (
+    over: Partial<Parameters<typeof decideBridgeUpgrade>[0]> & { cred?: Cred; grace: boolean },
+  ) => {
+    const s = store();
+    return decideBridgeUpgrade({
+      transport: "tcp",
+      remoteAddress: "127.0.0.1",
+      headers: {},
+      requireTicketOnLoopback: !over.grace,
+      consumeTicket: consumeWith(s),
+      localCredential: over.cred,
+      ...over,
+    });
+  };
+
+  it("unix → allow, whatever else", () => {
+    expect(
+      decideBridgeUpgrade({ transport: "unix", localCredential: "invalid", consumeTicket: () => ({ ok: false, reason: "missing" }) }).allow,
+    ).toBe(true);
+  });
+
+  it("Origin present → browser-origin, even with a valid proof", () => {
+    for (const grace of [true, false]) {
+      expect(run({ grace, cred: "valid", headers: { origin: "http://x" } })).toMatchObject({
+        allow: false,
+        cause: "browser-origin",
+      });
+    }
+  });
+
+  it("a valid ticket → allow without proof credit", () => {
+    const s = store();
+    const t = s.mint("bridge");
+    const v = decideBridgeUpgrade({
+      transport: "tcp",
+      remoteAddress: "127.0.0.1",
+      headers: {},
+      requireTicketOnLoopback: true,
+      url: `/?ticket=${typeof t === "string" ? t : (t as { ticket: string }).ticket}`,
+      consumeTicket: consumeWith(s),
+      localCredential: "absent",
+    });
+    expect(v.allow).toBe(true);
+    expect(v).not.toHaveProperty("viaProof");
+  });
+
+  it.each([true, false])("valid proof → allow, not deprecated, viaProof (grace=%s)", (grace) => {
+    const v = run({ grace, cred: "valid" });
+    expect(v).toMatchObject({ allow: true, viaProof: true });
+    expect(v).not.toHaveProperty("deprecated", true);
+  });
+
+  it.each([true, false])("legacy → allow, deprecated, no viaProof (grace=%s)", (grace) => {
+    const v = run({ grace, cred: "legacy" });
+    expect(v).toMatchObject({ allow: true, deprecated: true });
+    expect(v).not.toHaveProperty("viaProof");
+  });
+
+  it.each(["absent", "invalid"] as const)("%s on a grace listener → allow deprecated", (cred) => {
+    expect(run({ grace: true, cred })).toMatchObject({ allow: true, deprecated: true });
+  });
+
+  it("absent / invalid on a no-grace listener → distinct causes", () => {
+    expect(run({ grace: false, cred: "absent" })).toMatchObject({ allow: false, cause: "local-token-missing" });
+    expect(run({ grace: false, cred: "invalid", invalidCause: "stale" })).toMatchObject({
+      allow: false,
+      cause: "local-proof-invalid",
+    });
+  });
+
+  it("never reads the raw header: it carries no weight without a verdict", () => {
+    expect(run({ grace: false, headers: { "x-pi-local-token": "anything" } })).toMatchObject({
+      allow: false,
+      cause: "local-token-missing",
+    });
+  });
+});

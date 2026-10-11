@@ -6,3 +6,5 @@ Creates `PluginForwardRegistry` after `registerEventBusForwarding` (`isCoreChann
 `credentials_updated` refresh delegates to `refreshAfterCredentialsReload` (empty diff -> local full refresh). Wires `reloadProviders: () => reloadProviders(pi)` into `createCommandHandler`. See change: refresh-models-on-provider-change.
 
 - Wires `onSystemRename`/`onUserRename` into command-handler; `auto_name_state_restore` routed via `applyAutoNameRestore` (provenance applied even to a live namer). See change: investigate-auto-name-provenance-relabel.
+
+`ConnectionManager` gets `planDial: localCredentialPlan` (per-dial proof + pre-connected socket + marked-endpoint server verification) and `onIdentityFailure → appendIdentityLog`. See change: loopback-credential-proof (D6, D8).
