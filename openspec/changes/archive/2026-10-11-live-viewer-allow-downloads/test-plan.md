@@ -2,7 +2,7 @@
 
 Stage: proposal   Generated: 2026-10-14
 
-Requirement under test: `live-server-preview` — *Embedded content SHALL be origin-isolated via sandbox* (MODIFIED). Scenarios: **R-a** origin isolation, **R-b** exact sandbox token set, **R-c** user-initiated export reaches the user, **R-d** no-activation download stays blocked.
+Requirement under test: `live-server-preview` — *Embedded content SHALL be origin-isolated via sandbox* (MODIFIED). Scenarios: **R-a** origin isolation, **R-b** exact sandbox token set, **R-c** user-initiated export reaches the user, **R-d** token set omits `allow-same-origin` and `allow-downloads-without-user-activation` (no-gesture download blocking is NOT claimed: measured not enforced by Chrome).
 
 ---
 
@@ -13,7 +13,6 @@ Requirement under test: `live-server-preview` — *Embedded content SHALL be ori
 | id | requirement | technique | level | disposition | input | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
 | E1 | R-b, R-d | decision-table (token set) | L1 | automated | `LiveServerViewer` rendered, `startLiveServer` mocked to return `path:/live/abc12345/` | confirm URL `http://localhost:5173` → `live-iframe` renders | `sandbox` split on whitespace, as a set, equals exactly `{allow-scripts, allow-forms, allow-popups, allow-downloads}`. It contains neither `allow-same-origin` nor `allow-downloads-without-user-activation`, and there are no duplicate tokens |
-| E2 | R-d | state (no user activation) | L3 | automated | `/live/**` fulfilled with fixture HTML whose `load` handler, via `setTimeout(…, 0)`, clicks a blob `<a download="auto.json">` with no user gesture | open live-server pane on the routed target, wait for iframe load | no `download` event fires on the page within 3000ms, and `live-iframe` is still attached |
 
 ### Frontend-quirk
 
@@ -33,10 +32,10 @@ Requirement under test: `live-server-preview` — *Embedded content SHALL be ori
 
 ## Coverage summary
 
-- Requirement scenarios covered: 4/4 (R-a X1 · R-b E1 · R-c F1, M1, M2 · R-d E1, E2)
-- Scenarios by class: edge 2 · perf 0 · frontend 1 · error 3 (X1, M1, M2)
-- Scenarios by level: L1 1 · L2 0 · L3 3 · manual 2
-- Scenarios by disposition: automated 4 · manual-only 2
+- Requirement scenarios covered: 4/4 (R-a X1 · R-b E1 · R-c F1, M1, M2 · R-d E1)
+- Scenarios by class: edge 1 · perf 0 · frontend 1 · error 3 (X1, M1, M2)
+- Scenarios by level: L1 1 · L2 0 · L3 2 · manual 2
+- Scenarios by disposition: automated 3 · manual-only 2
 - Performance: none. A single static attribute has no runtime path.
 
 ## New infra needed
