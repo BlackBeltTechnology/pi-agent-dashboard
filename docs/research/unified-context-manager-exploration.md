@@ -653,21 +653,24 @@ Full report: `openspec/changes/add-memory-eval-tier-r/measurements.md`.
 
 Case set:
 
-- `baseline`, hash `559a9cb5cd2010f3…`, seed 5.
-- 661 session JSONLs. 124 cases.
+- `baseline`, hash `e1ddcd699e29bbc3…`, seed 5.
+- 663 session JSONLs. 124 cases.
 - recurring_fault 60, user_flagged 33, explicit_ref 1, negative 30.
+- Gold rule (review fix): earlier session is gold only when its fix landed before the later case's decision time.
+- Case set rebuilt once after that fix. Figures below use the rebuilt set.
 
 Judge:
 
 - `@propose-review-1` = `opencode-go/muse-spark-1.3-contributor:high`, prompt v1.
 - Default `@review` had no credits.
-- 32 calls, 0 unjudged.
+- 36 calls: 35 ok, 1 timeout (retried, recovered). 0 unjudged.
+- Judge not deterministic: earlier run on pre-fix case set gave 37/94 valid positives.
 - Phase 2 compares under same judge. `report --compare` refuses different case-set hash or judge.
 
 Changes vs v0:
 
 - Own-session hits excluded before top-5. v0: 26% own-session share.
-- v1 `recent`: own-session share before exclusion 196/580 = 33.8%. Own-session hits dropped: 0.
+- v1 `recent`: own-session share before exclusion 182/568 = 32.0%. Harness backstop caught 0 (adapters exclude in-query).
 - `memory_search` same-day memories excluded: `created < date(asOf UTC)`. v0 used `<=`.
 - As-of enforced in-query. Harness counts violations: 0 this run.
 - Judge model + prompt differ from v0 (`claude-opus-5`).
@@ -675,27 +678,27 @@ Changes vs v0:
 
 Validity (stricter judge):
 
-- Valid positives 37/94: recurring_fault 27/60, user_flagged 9/33, explicit_ref 1/1. v0: 56/75.
+- Valid positives 45/94: recurring_fault 35/60, user_flagged 9/33, explicit_ref 1/1. v0: 56/75.
 - Valid negatives 19/30.
 
-helpful@5 on valid positives (n=37), Wilson 95% CI:
+helpful@5 on valid positives (n=45), Wilson 95% CI:
 
 | retriever | helpful@5 | 95% CI |
 |---|---|---|
-| hermes.session_search.recent | 4/37 10.8% | 4.3–24.7 |
-| hermes.session_search.bm25 | 5/37 13.5% | 5.9–28.0 |
-| hermes.memory_search | 2/37 5.4% | 1.5–17.7 |
-| union of the three | 7/37 18.9% | 9.5–34.2 ← reference to beat |
-| kb.docs (non-as-of upper bound, not in union) | 4/37 10.8% | 4.3–24.7 |
+| hermes.session_search.recent | 2/45 4.4% | 1.2–14.8 |
+| hermes.session_search.bm25 | 6/45 13.3% | 6.3–26.2 |
+| hermes.memory_search | 3/45 6.7% | 2.3–17.9 |
+| union of the three | 9/45 20.0% | 10.9–33.8 ← reference to beat |
+| kb.docs (non-as-of upper bound, not in union) | 7/45 15.6% | 7.7–28.8 |
 
 Per type helpful@5 (valid n):
 
-| retriever | recurring_fault (27) | user_flagged (9) | explicit_ref (1) |
+| retriever | recurring_fault (35) | user_flagged (9) | explicit_ref (1) |
 |---|---|---|---|
-| recent | 1/27 | 2/9 | 1/1 |
-| bm25 | 0/27 | 4/9 | 1/1 |
-| memory_search | 1/27 | 1/9 | 0/1 |
-| union | 2/27 7.4% | 4/9 44.4% | 1/1 |
+| recent | 0/35 | 1/9 | 1/1 |
+| bm25 | 0/35 | 5/9 | 1/1 |
+| memory_search | 3/35 | 0/9 | 0/1 |
+| union | 3/35 8.6% | 5/9 55.6% | 1/1 |
 
 Negatives (19 valid):
 
@@ -705,13 +708,13 @@ Negatives (19 valid):
 
 Gold-session hit, deterministic, recurring_fault (n=60), hit@5 / hit@10:
 
-- recent: 3/60 / 6/60.
-- bm25: 4/60 / 9/60.
+- recent: 4/60 / 6/60.
+- bm25: 7/60 / 10/60.
 - explicit_ref (n=1): 1/1 / 1/1.
 
 Sanity band:
 
-- recent helpful@5 10.8% outside v0 34% ± 15 → flagged by harness. Not a gate.
+- recent helpful@5 4.4% outside v0 34% ± 15 → flagged by harness. Not a gate.
 - Causes: own-session exclusion + stricter judge + bigger case set. Not separable.
 
 Structural findings from v0 still hold:
@@ -720,7 +723,7 @@ Structural findings from v0 still hold:
 - Tool results unsearchable in hermes.
 - Deterministic gold hit small → judge needed.
 
-Caveat: n=37 valid positives, wide intervals. user_flagged n=9, explicit_ref n=1: indicative only.
+Caveat: n=45 valid positives, wide intervals. user_flagged n=9, explicit_ref n=1: indicative only.
 
 ### Design impact (`unify-context-manager`)
 
