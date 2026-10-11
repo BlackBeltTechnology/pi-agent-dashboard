@@ -16,7 +16,10 @@ import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
 const CI_SCENARIOS = process.env.RUN_CI_SCENARIOS === "1";
-const MAX_FILE_MS = 10_000;
+// 10 s on a dev machine. A CI runner has 2-4 cores shared by every file in the run (and each
+// parity shard fans out 8 CLI spawns), so wall-clock per file is contention-dominated there:
+// measured 12.7-13.4 s per parity shard against 20.4 s for the unsplit file. The ceiling doubles.
+const MAX_FILE_MS = process.env.CI ? 20_000 : 10_000;
 
 /** group name -> [file path substring, total assertions across the group's files]. */
 const GROUPS = {
