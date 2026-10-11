@@ -42,6 +42,8 @@ Commands:
   fx <list|preview>                          Inspect the effects corpus
   props <search|fetch|generate>              Illustrate slides with glTF models
   overrides apply <deck.json> <file>         Merge an overrides-grammar file into the deck
+  pptx import <file.pptx> [-o dir] [--ref dir] [--force]
+                                             pptx → layout.json + media + baseline deck (re-import keeps tuning)
 
 fx options:
   fx list [--kind k] [--tag t] [--topic p]   List effects (optionally filtered)
@@ -83,6 +85,7 @@ const VALUE_FLAGS = new Set([
   "--source",
   "--licence",
   "--port",
+  "--ref",
 ]);
 
 function parseArgs(args: string[]): Flags {
@@ -758,6 +761,30 @@ async function overridesApply(rest: string[], io: CliIO): Promise<number> {
   return 0;
 }
 
+/** `pptx import <file.pptx> [-o dir] [--ref dir] [--force]` (spec deck3d-pptx-import). */
+async function cmdPptx(args: string[], io: CliIO): Promise<number> {
+  const flags = parseArgs(args);
+  const [sub, file] = flags.positional;
+  if (sub !== "import") {
+    io.stderr(`deck3d pptx: unknown subcommand '${sub ?? ""}' (try import)`);
+    return 2;
+  }
+  if (!file) {
+    io.stderr("deck3d pptx import: missing <file.pptx>");
+    return 2;
+  }
+  const { importPptx } = await import("./pptx/import.js");
+  try {
+    const r = await importPptx({ input: file, out: flags.value.out, ref: flags.value.ref, force: flags.bool.has("force") });
+    for (const w of r.warnings) io.stderr(w);
+    io.stdout(`imported ${r.slides.length} slide(s) into ${r.dir}`);
+    return 0;
+  } catch (err) {
+    io.stderr(`deck3d pptx import: ${(err as Error).message}`);
+    return 1;
+  }
+}
+
 async function cmdOverrides(args: string[], io: CliIO): Promise<number> {
   const [sub, ...rest] = args;
   if (sub === "apply") return overridesApply(rest, io);
@@ -799,6 +826,8 @@ export async function run(argv: string[], io: CliIO = defaultIO): Promise<number
       return cmdSnapshot(rest, io);
     case "overrides":
       return cmdOverrides(rest, io);
+    case "pptx":
+      return cmdPptx(rest, io);
     default:
       io.stderr(`deck3d: unknown command '${command}' (try --help)`);
       return 2;

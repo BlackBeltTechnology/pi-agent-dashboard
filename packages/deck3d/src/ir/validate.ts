@@ -7,8 +7,9 @@
  *  3. Overrides referencing a vanished target is a WARNING (kept, inert).
  *  4. `meta.derivedHash` mismatch is a WARNING (edited outside `overrides`).
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import Ajv, { type ErrorObject } from "ajv";
 import { localRefs, resolveLocalEffect } from "../fx/local.js";
 import { pkgRoot } from "../util/paths.js";
@@ -133,6 +134,38 @@ function validateLocalEffects(deck: DeckIR, deckDir: string): ValidationIssue[] 
   return errors;
 }
 
+/**
+ * Resolve every `overrides.assets` entry against the deck directory (spec
+ * deck3d-slide-layers "Deck asset bundle"): unique id, `font-` prefix iff
+ * a font, path inside the deck directory, file present, sha256 pinned.
+ */
+export function validateAssets(deck: DeckIR, deckDir: string): ValidationIssue[] {
+  const errors: ValidationIssue[] = [];
+  const seen = new Set<string>();
+  const root = resolve(deckDir);
+  (deck.overrides.assets ?? []).forEach((a, i) => {
+    const at = `overrides.assets[${i}]`;
+    if (seen.has(a.id)) errors.push({ path: `${at}.id`, message: `duplicate asset id '${a.id}'` });
+    seen.add(a.id);
+    const font = a.mime === "font/ttf" || a.mime === "font/otf";
+    if (font && !a.id.startsWith("font-")) errors.push({ path: `${at}.id`, message: `font asset id '${a.id}' must start with 'font-'` });
+    if (!font && a.id.startsWith("font-")) errors.push({ path: `${at}.id`, message: `'font-' ids are reserved for font assets (mime is ${a.mime})` });
+    const file = resolve(root, a.path);
+    const rel = relative(root, file);
+    if (isAbsolute(a.path) || rel.startsWith("..") || isAbsolute(rel)) {
+      errors.push({ path: `${at}.path`, message: `'${a.path}' is outside the deck directory` });
+      return;
+    }
+    if (!existsSync(file) || !statSync(file).isFile()) {
+      errors.push({ path: `${at}.path`, message: `missing file ${a.path}` });
+      return;
+    }
+    const sha = createHash("sha256").update(readFileSync(file)).digest("hex");
+    if (sha !== a.sha256) errors.push({ path: `${at}.sha256`, message: `${a.path} has sha256 ${sha}, pinned ${a.sha256} (re-pin after editing the file)` });
+  });
+  return errors;
+}
+
 const PROP_COUNT_BUDGET = 5;
 const PROP_BYTES_BUDGET = 10 * 1024 * 1024;
 
@@ -196,7 +229,10 @@ export function validate(ir: unknown, opts: ValidateOptions = {}): ValidationRes
   const deck = ir as DeckIR;
   errors.push(...validateDerived(deck));
   errors.push(...validateCameraPaths(deck));
-  if (opts.deckDir !== undefined) errors.push(...validateLocalEffects(deck, opts.deckDir));
+  if (opts.deckDir !== undefined) {
+    errors.push(...validateLocalEffects(deck, opts.deckDir));
+    errors.push(...validateAssets(deck, opts.deckDir));
+  }
   warnings.push(...validateProps(deck, opts));
 
   for (const orphan of findOrphanOverrides(deck)) {
