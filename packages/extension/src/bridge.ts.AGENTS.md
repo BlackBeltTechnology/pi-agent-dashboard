@@ -4,3 +4,5 @@ Main bridge extension entry (default export). Connects to dashboard server, forw
 
 Creates `PluginForwardRegistry` after `registerEventBusForwarding` (`isCoreChannel` = channel in `EVENT_BUS_MAP`), attaches it, flushes in `flushPendingSubagentFrames`, disposes on shutdown; heartbeat gains `pluginForwardDeclared/Rejected/Conflicts/Retained/Dropped`. See change: add-plugin-bridge-contributions.
 `credentials_updated` refresh delegates to `refreshAfterCredentialsReload` (empty diff -> local full refresh). Wires `reloadProviders: () => reloadProviders(pi)` into `createCommandHandler`. See change: refresh-models-on-provider-change.
+
+- Wires `onSystemRename`/`onUserRename` into command-handler; `auto_name_state_restore` routed via `applyAutoNameRestore` (provenance applied even to a live namer). See change: investigate-auto-name-provenance-relabel.

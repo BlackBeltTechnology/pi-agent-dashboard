@@ -34,3 +34,5 @@ Carries the one-release `dispatch_extension_command` TOMBSTONE: on receipt it `c
 `onEnded` eager write adds shutdown-window evidence `{ liveEpoch: <current boot>, endedAt }` iff `wasEndedByBridgeUnregister(id)` ∧ `closedReason==='unknown'` ∧ no `movedTo`; every other ending writes no `liveEpoch`. See change: fix-recovery-pi-signal-unregister.
 
 - Deps gain `archiveSweeper`; single `onEnded` owner → `archiveSweeper.scheduleServiceArchive(id)`. Register lifecycle `archiveOnEnd` → `sessionManager.update` + own `mergeSessionMeta` (declaration-only filing reaches disk). See change: archive-service-sessions-on-end.
+
+- `session_name_update` guarded by `guardBridgeNameClaim`; auto-attach rename tagged `origin:"system"` + `systemRenameUpdates`; register-time `auto_name_state_restore` built by `buildAutoNameRestore` (sent when `autoNamerState` OR `nameSource`; carries session-owned provenance + witness). See change: investigate-auto-name-provenance-relabel.

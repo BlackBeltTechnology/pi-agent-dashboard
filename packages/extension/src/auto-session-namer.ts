@@ -25,6 +25,8 @@
  * See change: add-auto-session-naming, fix-auto-naming-reasoning-model.
  */
 
+import { sanitizeSessionName } from "@blackbelt-technology/pi-dashboard-shared/session-name.js";
+
 /** Greeting / trivial-opener set skipped without a model call. */
 const GREETINGS = new Set([
   "hi", "hello", "hey", "yo", "sup", "test", "ping", "thanks", "thank you", "ok", "okay",
@@ -153,29 +155,27 @@ export function buildTranscriptWindow(
   return a ? `${u}\n\n${a}` : u;
 }
 
+export type NameSource = "auto" | "user" | "system";
+
 /** Eligibility gate: ALL must hold to attempt naming. */
 export function isEligible(state: {
   autoNameSessions: boolean;
-  nameSource: "auto" | "user" | undefined;
+  nameSource: NameSource | undefined;
   hasAutoName: boolean;
 }): boolean {
   if (!state.autoNameSessions) return false;
-  if (state.nameSource === "user") return false;
+  if (state.nameSource === "user" || state.nameSource === "system") return false;
   if (state.hasAutoName) return false;
   return true;
 }
 
 /**
- * Normalize a name with pi's own session-name sanitization: collapse internal
- * newlines to single spaces and trim. pi applies this before it stores /
- * broadcasts a name, so `session_info_changed` carries the sanitized form. The
- * bridge records the raw title it self-applied, so both sides MUST be
- * normalized before comparison or a newline-bearing self-title would look
- * external. See change: adopt-pi-074-080-features (A.2).
+ * pi's session-name sanitization (newline-collapse + trim) lives in shared so
+ * the server provenance guard compares identically. Re-exported so existing
+ * imports keep working. See change: adopt-pi-074-080-features (A.2),
+ * investigate-auto-name-provenance-relabel.
  */
-export function sanitizeSessionName(name: string): string {
-  return name.replace(/[\r\n]+/g, " ").trim();
-}
+export { sanitizeSessionName };
 
 /**
  * Classify an observed session-name value as self-applied (the bridge's own
@@ -188,10 +188,11 @@ export function sanitizeSessionName(name: string): string {
 export function classifyNameChange(
   observed: string,
   lastSelfApplied: string | undefined,
-): "self" | "external" {
-  if (lastSelfApplied !== undefined && sanitizeSessionName(observed) === sanitizeSessionName(lastSelfApplied)) {
-    return "self";
-  }
+  lastSystemApplied?: string,
+): "self" | "system" | "external" {
+  const o = sanitizeSessionName(observed);
+  if (lastSelfApplied !== undefined && o === sanitizeSessionName(lastSelfApplied)) return "self";
+  if (lastSystemApplied !== undefined && o === sanitizeSessionName(lastSystemApplied)) return "system";
   return "external";
 }
 
@@ -418,30 +419,20 @@ export interface PersistedNamerState {
    * as `auto_name_error`.
    */
   stoppedReason?: string;
-  nameSource?: "auto" | "user";
+  nameSource?: NameSource;
   hasAutoName: boolean;
   lastSelfApplied?: string;
+  /** Last dashboard system-rename name; its echo is not an external rename. */
+  lastSystemApplied?: string;
 }
 
-/**
- * Adopt the stop state the server restored from `.meta.json` at register.
- *
- * Field-by-field on purpose, and the omissions are the contract: `nameSource`,
- * `lastSelfApplied` and `hasAutoName` are deliberately NOT adopted, because
- * reinstating provenance would change the behaviour of the separate auto→`user`
- * relabel bug (design D8b, tracked as its own investigation). Everything that
- * describes the STOP — including `stoppedReason`, without which a restarted
- * session re-reports a generic "stopped" and overwrites the cause-matched
- * remedy in the diagnostics readout — must be carried.
- *
- * Extracted from the bridge handler so the adoption is unit-testable: the
- * handler is buried inside `activate()`, which is exactly why a dropped field
- * went unnoticed once already.
- * See change: fix-auto-naming-reasoning-model (design D7).
- */
-export function adoptRestoredNamerState(raw: unknown): PersistedNamerState | undefined {
-  if (!raw || typeof raw !== "object") return undefined;
-  const s = raw as Record<string, unknown>;
+const ZERO_STOP = {
+  hardStopped: false, errorEmitted: false, attemptsUsed: 0, starvedCount: 0, waitingCount: 0, sawStarved: false,
+  stoppedModelRef: undefined, stoppedReason: undefined,
+} as const;
+
+/** Field-by-field STOP adoption (the omissions are the contract). */
+function adoptStopFields(s: Record<string, unknown>) {
   return {
     hardStopped: !!s.hardStopped,
     errorEmitted: !!s.errorEmitted,
@@ -450,10 +441,82 @@ export function adoptRestoredNamerState(raw: unknown): PersistedNamerState | und
     waitingCount: Number(s.waitingCount) || 0,
     sawStarved: !!s.sawStarved,
     stoppedModelRef: typeof s.stoppedModelRef === "string" ? s.stoppedModelRef : undefined,
-    stopCause: typeof s.stopCause === "string" ? (s.stopCause as StopCause) : undefined,
     stoppedReason: typeof s.stoppedReason === "string" ? s.stoppedReason : undefined,
+  };
+}
+
+/**
+ * Adopt the state the server restored from `.meta.json` at register: the STOP
+ * fields (`raw`) plus the session-owned provenance (`provenance`, literal-
+ * validated; unknown values ignored). `auto` → auto-named with the witness as
+ * `lastSelfApplied`; `system` → witness as `lastSystemApplied`; `user` → lockout
+ * (the stop already carries it). A stop WITHOUT `stopCause` is a `user` latch
+ * artefact, so it is cleared when provenance is `auto`/`system`; budget / role /
+ * registry / credentials / other stops always set `stopCause` and are kept.
+ *
+ * Extracted from the bridge handler so the adoption is unit-testable.
+ * See change: fix-auto-naming-reasoning-model (design D7);
+ * investigate-auto-name-provenance-relabel (D4).
+ */
+export function adoptRestoredNamerState(
+  raw: unknown,
+  provenance?: { nameSource?: unknown; nameSourceFor?: unknown },
+): PersistedNamerState | undefined {
+  const src = provenance?.nameSource;
+  const source: NameSource | undefined = src === "auto" || src === "user" || src === "system" ? src : undefined;
+  if ((!raw || typeof raw !== "object") && !source) return undefined;
+  const s = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const witness = typeof provenance?.nameSourceFor === "string" ? provenance.nameSourceFor : undefined;
+  const stopCause = typeof s.stopCause === "string" ? (s.stopCause as StopCause) : undefined;
+  const clearStop = (source === "auto" || source === "system") && !stopCause;
+  const adopted: PersistedNamerState = {
+    ...(clearStop ? ZERO_STOP : adoptStopFields(s)),
+    stopCause,
     hasAutoName: false,
   };
+  if (source) adopted.nameSource = source;
+  if (source === "auto") {
+    adopted.hasAutoName = true;
+    adopted.lastSelfApplied = witness;
+  } else if (source === "system") {
+    adopted.lastSystemApplied = witness;
+  }
+  return adopted;
+}
+
+/**
+ * A restored `auto`/`system` provenance may replace the live one only when the
+ * namer has none yet, or a live `user` latch sits on the restored witness (the
+ * latch misclassified our own / a system name). A live `user` on a DIFFERENT
+ * name is a genuine rename; a live auto/system provenance wins.
+ */
+function mayReplaceProvenance(current: NameSource | undefined, witness: string | undefined, liveName: string | undefined): boolean {
+  if (current === undefined) return true;
+  if (current !== "user") return false;
+  if (witness === undefined || liveName === undefined) return false;
+  return sanitizeSessionName(liveName) === sanitizeSessionName(witness);
+}
+
+/**
+ * Apply a register-time `auto_name_state_restore` message. Returns the adopted
+ * state when no namer exists yet (the caller seeds `namerState` with it); when a
+ * namer already exists (an observation raced ahead of the restore) the
+ * provenance is applied to it in place and `undefined` is returned.
+ * See change: investigate-auto-name-provenance-relabel (D4).
+ */
+export function applyAutoNameRestore(
+  msg: { state?: unknown; nameSource?: unknown; nameSourceFor?: unknown },
+  autoNamer: AutoNamer | undefined,
+  liveName: string | undefined,
+): PersistedNamerState | undefined {
+  const adopted = adoptRestoredNamerState(msg.state, { nameSource: msg.nameSource, nameSourceFor: msg.nameSourceFor });
+  if (!adopted) return undefined;
+  if (!autoNamer) return adopted;
+  autoNamer.restoreProvenance(
+    { nameSource: adopted.nameSource, nameSourceFor: adopted.lastSelfApplied ?? adopted.lastSystemApplied },
+    liveName,
+  );
+  return undefined;
 }
 
 export interface AutoNamer {
@@ -461,15 +524,29 @@ export interface AutoNamer {
   maybeName: () => Promise<void>;
   /** Feed an observed session-name value for self-vs-external classification. */
   onObservedName: (observed: string) => void;
-  /** Seed provenance restored from `.meta.json` on (re)connect. */
-  seed: (source: "auto" | "user" | undefined) => void;
+  /**
+   * Apply server-restored provenance to a LIVE namer. Replaces a live `user`
+   * latch only when `liveName` equals the restored witness (the latch was a
+   * misclassification of our own / a system name).
+   */
+  restoreProvenance: (
+    restored: { nameSource?: NameSource; nameSourceFor?: string } | undefined,
+    liveName: string | undefined,
+  ) => void;
+  /**
+   * Apply a dashboard SYSTEM rename synchronously (before pi echoes it).
+   * Returns a rollback restoring the prior provenance if the apply fails.
+   */
+  noteSystemRename: (name: string) => () => void;
+  /** A non-system (user) rename is about to be applied: its echo is external. */
+  noteUserRename: () => void;
   /** The carry/persist state set (design D7). */
   exportState: () => PersistedNamerState;
   /** Test-only snapshot of internal state. */
   _state: () => {
     hasAutoName: boolean;
     hardStopped: boolean;
-    nameSource: "auto" | "user" | undefined;
+    nameSource: NameSource | undefined;
     attemptsUsed: number;
     sawStarved: boolean;
   };
@@ -483,8 +560,14 @@ export interface AutoNamer {
 export function createAutoNamer(hooks: AutoNamerHooks, restored?: PersistedNamerState): AutoNamer {
   let hasAutoName = restored?.hasAutoName ?? false;
   let hardStopped = restored?.hardStopped ?? false;
-  let nameSource: "auto" | "user" | undefined = restored?.nameSource;
+  let nameSource: NameSource | undefined = restored?.nameSource;
   let lastSelfApplied: string | undefined = restored?.lastSelfApplied;
+  let lastSystemApplied: string | undefined = restored?.lastSystemApplied;
+  // Provisional trust: restored auto/system provenance without a witness adopts
+  // the FIRST observed name as the witness instead of latching `user`.
+  let provisional =
+    (restored?.nameSource === "auto" && restored.lastSelfApplied === undefined) ||
+    (restored?.nameSource === "system" && restored.lastSystemApplied === undefined);
   let inFlight = false;
   let errorEmitted = restored?.errorEmitted ?? false;
   let attemptsUsed = restored?.attemptsUsed ?? 0;
@@ -501,7 +584,7 @@ export function createAutoNamer(hooks: AutoNamerHooks, restored?: PersistedNamer
   function exportState(): PersistedNamerState {
     return {
       hardStopped, errorEmitted, attemptsUsed, starvedCount, waitingCount, sawStarved,
-      stoppedModelRef, stopCause, stoppedReason, nameSource, hasAutoName, lastSelfApplied,
+      stoppedModelRef, stopCause, stoppedReason, nameSource, hasAutoName, lastSelfApplied, lastSystemApplied,
     };
   }
 
@@ -626,6 +709,10 @@ export function createAutoNamer(hooks: AutoNamerHooks, restored?: PersistedNamer
       report("locked-out", "the session was renamed externally");
       return;
     }
+    if (nameSource === "system") {
+      report("already-named", "the session name was set by a dashboard rename");
+      return;
+    }
     if (hasAutoName) {
       report("already-named", "the session already has an auto-name");
       return;
@@ -675,6 +762,14 @@ export function createAutoNamer(hooks: AutoNamerHooks, restored?: PersistedNamer
       const maxTokens = sawStarved ? TITLE_MAX_TOKENS_ESCALATED : TITLE_MAX_TOKENS_BASE;
       const res = await generateTitle({ registry, streamSimple, modelRef: literal, transcript, maxTokens });
 
+      // A dashboard system rename that landed mid-flight owns the name: the old
+      // attempt must neither spend budget nor set a stop on ANY verdict (a later
+      // detach clearing the name would otherwise find a stale stop).
+      if ((nameSource as NameSource | undefined) === "system") {
+        report("already-named", "the session name was set by a dashboard rename while the naming call was in flight", literal);
+        return;
+      }
+
       if (!res.ok) {
         if (res.hardError) {
           const cause: StopCause = /credential|authenticate/i.test(res.reason)
@@ -721,29 +816,74 @@ export function createAutoNamer(hooks: AutoNamerHooks, restored?: PersistedNamer
 
   function onObservedName(observed: string): void {
     if (!observed) return;
-    if (classifyNameChange(observed, lastSelfApplied) === "self") return;
+    if (provisional) {
+      provisional = false;
+      if (nameSource === "auto") lastSelfApplied = observed;
+      else if (nameSource === "system") lastSystemApplied = observed;
+      persist();
+      return;
+    }
+    const kind = classifyNameChange(observed, lastSelfApplied, lastSystemApplied);
+    if (kind !== "external") return;
     if (nameSource !== "user") {
       nameSource = "user";
+      lastSystemApplied = undefined;
       hardStopped = true; // permanent lockout
       hooks.reportUserRename(observed);
       persist();
     }
   }
 
-  function seed(source: "auto" | "user" | undefined): void {
-    if (source === "user") {
-      nameSource = "user";
-      hardStopped = true;
-    } else if (source === "auto") {
-      nameSource = "auto";
-      hasAutoName = true;
+  function noteSystemRename(name: string): () => void {
+    const prev = { nameSource, hasAutoName, lastSelfApplied, lastSystemApplied, provisional };
+    const rollback = (): void => {
+      ({ nameSource, hasAutoName, lastSelfApplied, lastSystemApplied, provisional } = prev);
+      persist();
+    };
+    if (nameSource === "user") return () => {};
+    provisional = false;
+    hasAutoName = false;
+    lastSelfApplied = undefined;
+    if (name === "") {
+      nameSource = undefined;
+      lastSystemApplied = undefined;
+    } else {
+      nameSource = "system";
+      lastSystemApplied = name;
     }
+    persist();
+    return rollback;
+  }
+
+  function noteUserRename(): void {
+    if (lastSystemApplied === undefined) return;
+    lastSystemApplied = undefined;
+    persist();
+  }
+
+  function restoreProvenance(
+    restored: { nameSource?: NameSource; nameSourceFor?: string } | undefined,
+    liveName: string | undefined,
+  ): void {
+    const src = restored?.nameSource;
+    if (src !== "auto" && src !== "system") return;
+    const witness = restored?.nameSourceFor;
+    if (!mayReplaceProvenance(nameSource, witness, liveName)) return;
+    nameSource = src;
+    hasAutoName = src === "auto";
+    lastSelfApplied = src === "auto" ? witness : undefined;
+    lastSystemApplied = src === "system" ? witness : undefined;
+    provisional = witness === undefined;
+    if (hardStopped && !stopCause) clearStop();
+    persist();
   }
 
   return {
     maybeName,
     onObservedName,
-    seed,
+    restoreProvenance,
+    noteSystemRename,
+    noteUserRename,
     exportState,
     _state: () => ({ hasAutoName, hardStopped, nameSource, attemptsUsed, sawStarved }),
   };

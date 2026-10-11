@@ -6,6 +6,7 @@ import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { normalizeTags } from "@blackbelt-technology/pi-dashboard-shared/tags.js";
 import { attachRenameTarget, detachShouldClearName } from "../openspec/proposal-attach-naming.js";
+import { systemRenameUpdates, userRenameUpdates } from "../session/name-provenance.js";
 import { shutdownSession } from "./session-action-handler.js";
 import { stripNotifyLog } from "../session/memory-session-manager.js";
 import { canAccessSession } from "../identity/session-access.js";
@@ -36,7 +37,7 @@ export function handleRenameSession(
   // A dashboard-initiated rename is a user action — tag provenance "user" so
   // auto-naming is permanently locked out for this session.
   // See change: add-auto-session-naming.
-  const nameUpdates = { name: msg.name || undefined, nameSource: "user" as const };
+  const nameUpdates = userRenameUpdates(msg.name);
   sessionManager.update(msg.sessionId, nameUpdates);
   broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: nameUpdates });
   piGateway.sendToSession(msg.sessionId, { type: "rename_session", sessionId: msg.sessionId, name: msg.name });
@@ -193,8 +194,8 @@ export function applyAttachProposal(
 
   const newName = attachRenameTarget(session, changeName);
   if (newName !== undefined) {
-    updates.name = newName;
-    piGateway.sendToSession(sessionId, { type: "rename_session", sessionId, name: newName });
+    Object.assign(updates, systemRenameUpdates(session, newName));
+    piGateway.sendToSession(sessionId, { type: "rename_session", sessionId, name: newName, origin: "system" });
   }
   sessionManager.update(sessionId, updates);
   broadcast({ type: "session_updated", sessionId, updates });
@@ -298,8 +299,8 @@ export function handleDetachProposal(
     rejectedReplaceProposals: [],
   };
   if (detachShouldClearName(session)) {
-    updates.name = undefined;
-    piGateway.sendToSession(msg.sessionId, { type: "rename_session", sessionId: msg.sessionId, name: "" });
+    Object.assign(updates, systemRenameUpdates(session, ""));
+    piGateway.sendToSession(msg.sessionId, { type: "rename_session", sessionId: msg.sessionId, name: "", origin: "system" });
   }
   sessionManager.update(msg.sessionId, updates);
   broadcast({ type: "session_updated", sessionId: msg.sessionId, updates });

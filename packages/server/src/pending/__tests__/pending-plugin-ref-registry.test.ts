@@ -34,6 +34,14 @@ describe("pending-plugin-ref-registry", () => {
     expect(rC?.ref.live).toBeUndefined();
   });
 
+  it("E16: a ref body cannot forge the nameSourceFor witness (core-reserved)", () => {
+    const reg = createPendingPluginRefRegistry();
+    expect(reg.file("tW", { nameSourceFor: "evil", kind: "automation" }, "ownerA")).toBe(true);
+    const r = reg.resolve("tW");
+    expect(r?.ref).toEqual({ kind: "automation" });
+    expect(r?.ref.nameSourceFor).toBeUndefined();
+  });
+
   it("E10: 12 parallel same-cwd automation refs each resolve their own run; no cap drop", () => {
     const reg = createPendingPluginRefRegistry();
     const tokens = Array.from({ length: 12 }, (_, i) => `tok-${i}`);

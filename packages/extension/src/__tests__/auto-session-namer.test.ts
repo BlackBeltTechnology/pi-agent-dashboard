@@ -28,6 +28,7 @@ import {
   TITLE_MAX_TOKENS_ESCALATED,
 } from "../auto-session-namer.js";
 import { extractLatestTurnWindow } from "../bridge-context.js";
+import { sanitizeSessionName as sharedSanitize } from "@blackbelt-technology/pi-dashboard-shared/session-name.js";
 
 describe("shouldSkipByPrefilter", () => {
   it.each([
@@ -398,10 +399,9 @@ describe("createAutoNamer", () => {
     expect(namer._state()).toMatchObject({ nameSource: "auto", hardStopped: false });
   });
 
-  it("seeds a user lockout restored from meta", async () => {
+  it("restores a user lockout from meta", async () => {
     const hooks = makeHooks();
-    const namer = createAutoNamer(hooks);
-    namer.seed("user");
+    const namer = createAutoNamer(hooks, adoptRestoredNamerState({}, { nameSource: "user" }));
     await namer.maybeName();
     expect(hooks.applyName).not.toHaveBeenCalled();
   });
@@ -1097,7 +1097,7 @@ describe("adoptRestoredNamerState", () => {
     });
   });
 
-  it("deliberately does NOT adopt provenance (the D8b scope boundary)", () => {
+  it("does not read provenance from the state blob (server-owned sibling fields only)", () => {
     const adopted = adoptRestoredNamerState(persisted)!;
     expect(adopted.hasAutoName).toBe(false);
     expect(adopted.nameSource).toBeUndefined();
@@ -1122,5 +1122,251 @@ describe("adoptRestoredNamerState", () => {
     expect(adoptRestoredNamerState("nonsense")).toBeUndefined();
     expect(adoptRestoredNamerState({})).toMatchObject({ hardStopped: false, attemptsUsed: 0 });
     expect(adoptRestoredNamerState({ attemptsUsed: "3" })).toMatchObject({ attemptsUsed: 3 });
+  });
+});
+
+/**
+ * Provenance across restart/resume + `system` renames.
+ * See change: investigate-auto-name-provenance-relabel.
+ */
+describe("provenance: shared sanitizer (E18)", () => {
+  it.each([
+    ["A\r\nB  ", "A B"],
+    ["  A ", "A"],
+    ["A", "A"],
+  ])("sanitizes %j → %j", (input, out) => {
+    expect(sanitizeSessionName(input)).toBe(out);
+    expect(sharedSanitize(input)).toBe(out);
+  });
+  it("is the same function via the extension re-export", () => {
+    expect(sanitizeSessionName).toBe(sharedSanitize);
+  });
+});
+
+describe("classifyNameChange (E1)", () => {
+  const expected = (self: string | undefined, sys: string | undefined, o: string) => {
+    const same = (x: string | undefined) => x !== undefined && sanitizeSessionName(o) === sanitizeSessionName(x);
+    if (same(self)) return "self";
+    return same(sys) ? "system" : "external";
+  };
+  const cases = [undefined, "A"].flatMap((self) =>
+    [undefined, "S"].flatMap((sys) =>
+      ["A", "S", "X", "A\nB"].map((o): [string | undefined, string | undefined, string, string] => [self, sys, o, expected(self, sys, o)]),
+    ),
+  );
+  it.each(cases)("self=%j system=%j observed=%j → %s", (self, sys, o, want) => {
+    expect(classifyNameChange(o, self, sys)).toBe(want);
+  });
+  it("sanitized compare: 'A B' matches system 'A\\nB'", () => {
+    expect(classifyNameChange("A B", undefined, "A\nB")).toBe("system");
+  });
+});
+
+describe("noteSystemRename (E2)", () => {
+  it("non-user → system, then clear → eligible again", () => {
+    const namer = createAutoNamer(makeHooks());
+    namer.noteSystemRename("N");
+    expect(namer._state()).toMatchObject({ nameSource: "system", hasAutoName: false });
+    expect(namer.exportState().lastSystemApplied).toBe("N");
+    namer.noteSystemRename("");
+    expect(namer._state()).toMatchObject({ nameSource: undefined, hasAutoName: false });
+    expect(namer.exportState().lastSystemApplied).toBeUndefined();
+  });
+  it("system supersedes an auto-name", async () => {
+    const namer = createAutoNamer(makeHooks());
+    await namer.maybeName();
+    namer.noteSystemRename("S");
+    expect(namer._state()).toMatchObject({ nameSource: "system", hasAutoName: false });
+    expect(namer.exportState().lastSelfApplied).toBeUndefined();
+  });
+  it("never downgrades user", () => {
+    const hooks = makeHooks();
+    const namer = createAutoNamer(hooks);
+    namer.onObservedName("Mine");
+    namer.noteSystemRename("S");
+    namer.noteSystemRename("");
+    expect(namer._state().nameSource).toBe("user");
+    expect(namer.exportState().lastSystemApplied).toBeUndefined();
+  });
+  it("the system echo is not an external rename", () => {
+    const hooks = makeHooks();
+    const namer = createAutoNamer(hooks);
+    namer.noteSystemRename("add-x");
+    namer.onObservedName("add-x");
+    expect(hooks.reportUserRename).not.toHaveBeenCalled();
+    expect(namer._state().nameSource).toBe("system");
+  });
+  it("the rollback restores the prior provenance", async () => {
+    const namer = createAutoNamer(makeHooks());
+    await namer.maybeName();
+    const rollback = namer.noteSystemRename("add-x");
+    rollback();
+    expect(namer._state()).toMatchObject({ nameSource: "auto", hasAutoName: true });
+    expect(namer.exportState().lastSystemApplied).toBeUndefined();
+    expect(namer.exportState().lastSelfApplied).toBe("Auth Refactor");
+  });
+});
+
+describe("system provenance blocks naming (E3, E4)", () => {
+  it("E3: a system-named session makes 0 model calls and reports already-named", async () => {
+    const loadStreamSimple = vi.fn(async () => fakeStream([]));
+    const hooks = makeHooks({ loadStreamSimple });
+    const namer = createAutoNamer(hooks, { ...adoptRestoredNamerState({}, { nameSource: "system", nameSourceFor: "add-x" })! });
+    await namer.maybeName();
+    expect(loadStreamSimple).not.toHaveBeenCalled();
+    expect(hooks.applyName).not.toHaveBeenCalled();
+    expect(hooks.reportOutcome).toHaveBeenCalledTimes(1);
+    expect(hooks.reportOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "already-named", reason: expect.stringMatching(/dashboard rename/) }),
+    );
+    expect(namer.exportState().attemptsUsed).toBe(0);
+  });
+
+  it("E4: a system rename landing mid-flight is already-named, not locked-out", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const slow: StreamSimpleFn = () => (async function* () {
+      await gate;
+      yield { type: "text_delta", delta: "Auth Refactor" };
+      yield { type: "done", reason: "stop", message: { content: [] } };
+    })();
+    const hooks = makeHooks({ loadStreamSimple: async () => slow });
+    const namer = createAutoNamer(hooks);
+    const p = namer.maybeName();
+    await Promise.resolve();
+    namer.noteSystemRename("add-x");
+    release();
+    await p;
+    expect(hooks.applyName).not.toHaveBeenCalled();
+    const outcomes = (hooks.reportOutcome as any).mock.calls.map((c: any[]) => c[0].outcome);
+    expect(outcomes).toContain("already-named");
+    expect(outcomes).not.toContain("locked-out");
+    expect(namer._state().nameSource).toBe("system");
+    expect(namer.exportState().attemptsUsed).toBe(0);
+  });
+});
+
+describe("system rename mid-flight spends no budget on any verdict (E4b)", () => {
+  it.each([
+    ["a NULL (waiting) verdict", () => nullStream()],
+    ["a starved verdict", () => starvedStream()],
+  ])("%s", async (_n, mk) => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const inner = mk();
+    const slow: StreamSimpleFn = (m, c, o) => (async function* () {
+      await gate;
+      yield* inner(m, c, o);
+    })();
+    const hooks = makeHooks({ loadStreamSimple: async () => slow });
+    const namer = createAutoNamer(hooks);
+    const p = namer.maybeName();
+    await Promise.resolve();
+    namer.noteSystemRename("add-x");
+    release();
+    await p;
+    expect(namer.exportState()).toMatchObject({ attemptsUsed: 0, hardStopped: false });
+    const outcomes = (hooks.reportOutcome as any).mock.calls.map((c: any[]) => c[0].outcome);
+    expect(outcomes).toContain("already-named");
+    expect(outcomes).not.toContain("waiting");
+    expect(outcomes).not.toContain("starved");
+  });
+});
+
+describe("adoptRestoredNamerState provenance (E5, E9)", () => {
+  it.each([
+    ["auto", "A"], ["auto", undefined], ["auto", 7],
+    ["system", "A"], ["user", "A"], ["bogus", "A"], [42, "A"], [undefined, "A"],
+  ])("nameSource=%j nameSourceFor=%j", (src, wit) => {
+    const adopted = adoptRestoredNamerState({}, { nameSource: src, nameSourceFor: wit });
+    const valid = src === "auto" || src === "system" || src === "user";
+    const witness = typeof wit === "string" ? wit : undefined;
+    expect(adopted?.nameSource).toBe(valid ? src : undefined);
+    expect(adopted?.hasAutoName ?? false).toBe(src === "auto");
+    expect(adopted?.lastSelfApplied).toBe(src === "auto" ? witness : undefined);
+    expect(adopted?.lastSystemApplied).toBe(src === "system" ? witness : undefined);
+  });
+
+  it("auto + witness: observing the witness is self (no relabel)", () => {
+    const hooks = makeHooks();
+    const namer = createAutoNamer(hooks, adoptRestoredNamerState({}, { nameSource: "auto", nameSourceFor: "A" }));
+    namer.onObservedName("A");
+    expect(hooks.reportUserRename).not.toHaveBeenCalled();
+    expect(namer._state().nameSource).toBe("auto");
+  });
+  it("system + witness: observing the witness is system", () => {
+    const hooks = makeHooks();
+    const namer = createAutoNamer(hooks, adoptRestoredNamerState({}, { nameSource: "system", nameSourceFor: "A" }));
+    namer.onObservedName("A");
+    expect(hooks.reportUserRename).not.toHaveBeenCalled();
+    expect(namer._state().nameSource).toBe("system");
+  });
+  it("user → locked-out", async () => {
+    const hooks = makeHooks();
+    const namer = createAutoNamer(hooks, adoptRestoredNamerState({ hardStopped: true }, { nameSource: "user" }));
+    await namer.maybeName();
+    expect(hooks.reportOutcome).toHaveBeenCalledWith(expect.objectContaining({ outcome: "locked-out" }));
+  });
+
+  it.each([
+    [undefined, true], ["budget", false], ["role", false], ["registry", false], ["credentials", false], ["other", false],
+  ])("E9: stop cause %j clears=%s under auto provenance", (cause, clears) => {
+    const adopted = adoptRestoredNamerState(
+      { hardStopped: true, attemptsUsed: 3, stopCause: cause },
+      { nameSource: "auto", nameSourceFor: "A" },
+    )!;
+    expect(adopted.hardStopped).toBe(!clears);
+  });
+  it("E9: a cause-less stop is kept under user provenance", () => {
+    expect(adoptRestoredNamerState({ hardStopped: true }, { nameSource: "user" })!.hardStopped).toBe(true);
+  });
+});
+
+describe("provisional trust (E6)", () => {
+  it("witness-less auto: first two observations are the witness, a later one is external", () => {
+    const hooks = makeHooks();
+    const namer = createAutoNamer(hooks, adoptRestoredNamerState({}, { nameSource: "auto" }));
+    namer.onObservedName("A");
+    namer.onObservedName("A");
+    expect(hooks.reportUserRename).not.toHaveBeenCalled();
+    namer.onObservedName("B");
+    expect(hooks.reportUserRename).toHaveBeenCalledTimes(1);
+    expect(hooks.reportUserRename).toHaveBeenCalledWith("B");
+    expect(namer._state().nameSource).toBe("user");
+  });
+});
+
+describe("restoreProvenance (E7, E8)", () => {
+  function latchedUser(name: string, hooks = makeHooks()) {
+    const namer = createAutoNamer(hooks);
+    namer.onObservedName(name);
+    return namer;
+  }
+  it("E7: replaces a user latch when the live name equals the witness; clears the cause-less stop", () => {
+    const hooks = makeHooks();
+    const namer = latchedUser("A", hooks);
+    expect(namer._state()).toMatchObject({ nameSource: "user", hardStopped: true });
+    namer.restoreProvenance({ nameSource: "auto", nameSourceFor: "A" }, "A");
+    expect(namer._state()).toMatchObject({ nameSource: "auto", hardStopped: false });
+    (hooks.reportUserRename as any).mockClear();
+    namer.onObservedName("A");
+    expect(hooks.reportUserRename).not.toHaveBeenCalled();
+  });
+  it("E8: keeps a genuine user rename on a different name", () => {
+    const namer = latchedUser("B");
+    namer.restoreProvenance({ nameSource: "auto", nameSourceFor: "A" }, "B");
+    expect(namer._state()).toMatchObject({ nameSource: "user", hardStopped: true });
+  });
+  it("a live auto/system provenance is not overwritten", async () => {
+    const namer = createAutoNamer(makeHooks());
+    await namer.maybeName();
+    namer.restoreProvenance({ nameSource: "system", nameSourceFor: "S" }, "S");
+    expect(namer._state().nameSource).toBe("auto");
+  });
+  it("ignores user / absent restored provenance", () => {
+    const namer = latchedUser("A");
+    namer.restoreProvenance({ nameSource: "user" }, "A");
+    namer.restoreProvenance(undefined, "A");
+    expect(namer._state().nameSource).toBe("user");
   });
 });
