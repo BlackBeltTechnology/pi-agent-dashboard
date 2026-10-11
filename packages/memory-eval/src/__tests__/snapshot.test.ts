@@ -8,7 +8,7 @@ import { main } from "../cli.js";
 import { latestRunId } from "../commands/run.js";
 import type { SnapshotDeps } from "../snapshot.js";
 import { makeEnv, type TestEnv } from "./helpers/ctx.js";
-import { createHermesDb } from "./helpers/hermes-db.js";
+import { createHermesDb, HERMES_SCHEMA_SQL } from "./helpers/hermes-db.js";
 import { judgeEnv } from "./helpers/judge-env.js";
 import { hermesDbPath, mkCase, writeCaseSet } from "./helpers/run-fixture.js";
 import { bash, uuid, writeSession } from "./helpers/sessions.js";
@@ -226,5 +226,22 @@ describe("snapshot", () => {
       expect(env.stderr.join(""), source).toMatch(/expected schema/i);
       expect(completed(env), source).toEqual([]);
     }
+  });
+
+  it("B1 (round 7): a Hermes FTS table of the wrong kind fails the run for every session query variant", async () => {
+    const env = makeEnv();
+    writeCaseSet(env, [mkCase({ id: "c1", decisionTime: T })]);
+    const path = hermesDbPath(env);
+    mkdirSync(dirname(path), { recursive: true });
+    const db = new DatabaseSync(path);
+    // Right names and columns, but message_fts is FTS4 (no `rank`): the BM25 query cannot run.
+    db.exec(HERMES_SCHEMA_SQL.replace("USING fts5(content, content='messages', content_rowid='rowid', tokenize='trigram')", "USING fts4(content)"));
+    db.prepare("INSERT INTO sessions (id, project, cwd, started_at) VALUES ('s1', 'synth', '/x', '2026-01-01T00:00:00.000Z')").run();
+    db.prepare("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES ('m1', 's1', 'user', 'kaboom failure', '2026-01-01T00:00:00.000Z')").run();
+    db.close();
+    expect(await main(["run", "--retrievers", "hermes.session_search.bm25"], env.ctx)).not.toBe(0);
+    expect(env.stderr.join("")).toContain(path);
+    expect(env.stderr.join("")).toMatch(/expected schema/i);
+    expect(existsSync(env.paths.runsDir) ? readdirSync(env.paths.runsDir).filter((id) => existsSync(join(env.paths.runsDir, id, "manifest.json"))) : []).toEqual([]);
   });
 });
