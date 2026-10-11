@@ -67,6 +67,15 @@ export interface EventStore {
    * evicted under memory pressure. See change: adopt-pi-071-072-073-features.
    */
   findToolEndEvent(sessionId: string, toolCallId: string): DashboardEvent | undefined;
+  /**
+   * True when a REAL `tool_execution_end` for this call was trimmed out of the
+   * session buffer (bounded record; freed with the buffer). Synthesized
+   * (`healedBy`) ends are never recorded. Pure read.
+   * See change: distinguish-tool-result-pending-vs-gone (D1).
+   */
+  wasToolEndEvicted(sessionId: string, toolCallId: string): boolean;
+  /** Drop a recorded eviction (a live start re-uses the id). Idempotent. */
+  forgetEvictedToolEnd(sessionId: string, toolCallId: string): void;
   /** Delete all events for a specific session */
   deleteEventsForSession(sessionId: string): number;
   /** Check if session has events in memory */
@@ -292,6 +301,29 @@ interface SessionBuffer {
    * unbounded leak inside a memory-bounding change (D6.4).
    */
   collapseIndex: Map<string, CollapseIndexEntry>;
+  /**
+   * Bounded insertion-ordered record of `toolCallId`s whose real
+   * `tool_execution_end` was trimmed from this buffer. Lives on the buffer so
+   * it is freed with it. See change: distinguish-tool-result-pending-vs-gone.
+   */
+  evictedToolEnds: Set<string>;
+}
+
+const EVICTED_TOOL_END_CAP = 512;
+const EVICTED_TOOL_END_MAX_ID_LEN = 256;
+
+/** Record a dropped real `tool_execution_end` in the buffer's bounded record. */
+function recordEvictedToolEnd(buf: SessionBuffer, ev: DashboardEvent): void {
+  const data = ev.data as Record<string, unknown> | undefined;
+  const id = data?.toolCallId;
+  if (typeof id !== "string" || id.length > EVICTED_TOOL_END_MAX_ID_LEN) return;
+  if (data?.healedBy) return;
+  buf.evictedToolEnds.delete(id); // re-insert at the tail
+  buf.evictedToolEnds.add(id);
+  if (buf.evictedToolEnds.size > EVICTED_TOOL_END_CAP) {
+    const oldest = buf.evictedToolEnds.values().next().value;
+    if (oldest !== undefined) buf.evictedToolEnds.delete(oldest);
+  }
 }
 
 export const DEFAULT_MAX_CACHED_SESSIONS = 32;
@@ -397,7 +429,10 @@ function trimBufferToLimit(
       excessBytes -= e.bytes;
       dropped++;
       bytesDropped += e.bytes;
-      if (e.event.eventType === "tool_execution_end") toolEndDropped++;
+      if (e.event.eventType === "tool_execution_end") {
+        toolEndDropped++;
+        recordEvictedToolEnd(buf, e.event);
+      }
       continue;
     }
     kept.push(e);
@@ -412,7 +447,10 @@ function trimBufferToLimit(
     excessBytes -= e.bytes;
     dropped++;
     bytesDropped += e.bytes;
-    if (e.event.eventType === "tool_execution_end") toolEndDropped++;
+    if (e.event.eventType === "tool_execution_end") {
+        toolEndDropped++;
+        recordEvictedToolEnd(buf, e.event);
+      }
   }
   buf.events = kept;
   buf.bytes -= bytesDropped;
@@ -1243,6 +1281,7 @@ export function createMemoryEventStore(
         lastAccess: Date.now(),
         bytes: 0,
         collapseIndex: new Map(),
+        evictedToolEnds: new Set(),
       };
       buffers.set(sessionId, buf);
     }
@@ -1302,7 +1341,10 @@ export function createMemoryEventStore(
       if (!ESSENTIAL_CHAT_EVENT_TYPES.has(e.event.eventType)) {
         dropped++;
         bytesDropped += e.bytes;
-        if (e.event.eventType === "tool_execution_end") toolEndDropped++;
+        if (e.event.eventType === "tool_execution_end") {
+        toolEndDropped++;
+        recordEvictedToolEnd(buf, e.event);
+      }
         continue;
       }
       kept.push(e);
@@ -1827,6 +1869,14 @@ export function createMemoryEventStore(
         }
       }
       return undefined;
+    },
+
+    wasToolEndEvicted(sessionId: string, toolCallId: string): boolean {
+      return buffers.get(sessionId)?.evictedToolEnds.has(toolCallId) ?? false;
+    },
+
+    forgetEvictedToolEnd(sessionId: string, toolCallId: string): void {
+      buffers.get(sessionId)?.evictedToolEnds.delete(toolCallId);
     },
 
     deleteEventsForSession(sessionId: string): number {

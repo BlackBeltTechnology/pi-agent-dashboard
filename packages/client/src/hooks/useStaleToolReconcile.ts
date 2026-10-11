@@ -14,8 +14,11 @@
  * screen (`virtualize-chat-transcript-tanstack`) does NOT cancel the heal.
  *
  * The client applies only the authoritative server result; it never
- * synthesizes a completion of its own. On 404 / in-flight it keeps the row
- * running and re-arms.
+ * synthesizes a completion of its own — except on a `410`, where the SERVER
+ * vouches that the real end was trimmed from its store. The probe sends
+ * `?pending=1`; a `202 {pending:true}` (server's cosmetic "still running" hint)
+ * counts exactly like a 404, so a stale hint can never finalize a tool. On 404 /
+ * in-flight it keeps the row running and re-arms.
  *
  * See change: fix-stuck-tool-card-on-dropped-event.
  */
@@ -25,6 +28,7 @@ import {
   hasLaterAssistantInference,
   reduceEvent,
   type SessionState,
+  synthesizeEvictedEnd,
   synthesizeSupersededEnd,
   toDisplayString,
 } from "../lib/chat/event-reducer.js";
@@ -184,15 +188,39 @@ export function useStaleToolReconcile(
   // supersede heal) and a heal counter for observability (design D5).
   const count404Ref = useRef<Map<string, number>>(new Map());
   const supersedeHealCountRef = useRef(0);
+  const evictedHealCountRef = useRef(0);
 
   useEffect(() => {
     const reconcile = async (sessionId: string, toolCallId: string, key: string) => {
       try {
-        const res = await fetch(`${apiBase}/api/sessions/${sessionId}/tool-result/${toolCallId}`);
-        // 404 / in-flight (or the end event was evicted): count it toward the
-        // supersede-exhaustion gate, leave the row running and re-arm. Never
-        // synthesize a completion from THIS (recovery) path.
-        if (!res.ok) {
+        const res = await fetch(`${apiBase}/api/sessions/${sessionId}/tool-result/${toolCallId}?pending=1`);
+        // `410`: the server recorded that this call's real end was trimmed from
+        // its store — finalize now with the eviction placeholder (a later real
+        // end still overwrites it). Branched BEFORE `res.ok`.
+        // See change: distinguish-tool-result-pending-vs-gone (D4).
+        if (res.status === 410) {
+          setSessionStates((prev) => {
+            const current = prev.get(sessionId);
+            if (!current) return prev;
+            // Re-check under the setter: a real end may have raced in.
+            if (current.toolCalls.get(toolCallId)?.status !== "running") return prev;
+            const next = new Map(prev);
+            next.set(sessionId, reduceEvent(current, synthesizeEvictedEnd(toolCallId, Date.now())));
+            return next;
+          });
+          evictedHealCountRef.current += 1;
+          console.warn(
+            `[evicted-heal] finalized stuck tool ${sessionId}:${toolCallId} — server vouched the result was trimmed (total heals: ${evictedHealCountRef.current})`,
+          );
+          return;
+        }
+        // `202 {pending:true}` (server thinks it is still running) is NOT a
+        // result: count it like a 404 so the supersede heal still fires once a
+        // later inference proves completion. 404 / in-flight (or the end event
+        // was evicted): count it toward the supersede-exhaustion gate, leave the
+        // row running and re-arm. Never synthesize a completion from THIS
+        // (recovery) path.
+        if (res.status === 202 || !res.ok) {
           count404Ref.current.set(key, (count404Ref.current.get(key) ?? 0) + 1);
           return;
         }
