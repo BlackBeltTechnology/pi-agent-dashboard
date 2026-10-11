@@ -76,26 +76,29 @@ export function specRunningJobIds(workflowYaml: string): string[] {
  * arguments. Returns null when the call never closes. String-aware so a `,` or
  * paren inside a quoted reason never splits or ends the call.
  */
+/** Index of the quote that closes the string literal opening at `i` (escape-aware). */
+function stringEnd(src: string, i: number): number {
+  const quote = src[i];
+  let j = i + 1;
+  while (j < src.length && src[j] !== quote) j += src[j] === "\\" ? 2 : 1;
+  return j;
+}
+
 function callArgs(src: string, open: number): string[] | null {
   const args: string[] = [];
   let depth = 0;
-  let quote: string | null = null;
   let start = open + 1;
   for (let i = open; i < src.length; i++) {
     const c = src[i];
-    if (quote) {
-      if (c === "\\") i++;
-      else if (c === quote) quote = null;
-      continue;
-    }
-    if (c === '"' || c === "'" || c === "`") quote = c;
-    else if (c === "(" || c === "[" || c === "{") depth++;
-    else if (c === ")" || c === "]" || c === "}") {
-      depth--;
-      if (depth === 0) {
-        args.push(src.slice(start, i));
-        return args.map((a) => a.trim()).filter((a, idx, all) => a !== "" || idx < all.length - 1);
-      }
+    if (c === '"' || c === "'" || c === "`") {
+      i = stringEnd(src, i);
+    } else if ("([{".includes(c)) {
+      depth++;
+    } else if (")]}".includes(c) && --depth === 0) {
+      args.push(src.slice(start, i));
+      const trimmed = args.map((a) => a.trim());
+      if (trimmed.at(-1) === "") trimmed.pop(); // trailing comma
+      return trimmed;
     } else if (c === "," && depth === 1) {
       args.push(src.slice(start, i));
       start = i + 1;
