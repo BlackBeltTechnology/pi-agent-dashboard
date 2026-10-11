@@ -3,7 +3,7 @@
  * #F4–#F7. Exemplar: `serve.test.ts`.
  */
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -142,6 +142,25 @@ describe.skipIf(!hasChromium)("serve ?variant= (chromium)", () => {
       await browser.close();
     }
   }, 120_000);
+});
+
+describe("serve and the deck lock (R2-B2)", () => {
+  it("defers its rebuild while another process holds the deck lock, then rebuilds once", async () => {
+    const { dir, h } = await served();
+    await h.settled();
+    const lock = join(dir, "style.json.lock");
+    writeFileSync(lock, `${process.pid}:pick`); // a live holder, e.g. `variants pick`
+    const count = h.rebuilds();
+    writeFileSync(join(dir, "deck.md"), "# Opening\n\n- one\n\n# Second\n\n- two\n\n# Third\n\n- three\n");
+    await new Promise((r) => setTimeout(r, 900));
+    expect(h.rebuilds(), "no rebuild while the lock is held").toBe(count);
+    expect(readFileSync(join(dir, "deck.json"), "utf8")).not.toContain("Third");
+    unlinkSync(lock);
+    await until(() => h.rebuilds() === count + 1);
+    await new Promise((r) => setTimeout(r, 500));
+    expect(h.rebuilds()).toBe(count + 1);
+    expect(readFileSync(join(dir, "deck.json"), "utf8")).toContain("Third");
+  }, 60_000);
 });
 
 describe("serve rebuild triggers (F7)", () => {

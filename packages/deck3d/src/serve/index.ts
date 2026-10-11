@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import type { CliIO, CliRun } from "../cli-io.js";
 import { realInside } from "../util/confine.js";
+import { LockError, withStyleLockAsync } from "../variants/style.js";
 
 /** Media extensions the asset route will serve. */
 const ASSET_TYPES: Record<string, string> = {
@@ -160,6 +161,8 @@ export async function startServe(mdPath: string, opts: ServeOptions): Promise<Se
 
   let html: string | null = null;
   let rebuildCount = 0;
+  /** A change arrived while a pick (or another writer) held the deck lock; rebuild once it is free. */
+  let deferred = false;
   /** Last seen signature of style.json + asset files (see `sideSignature`). */
   let sideSig = "";
   const stylePath = join(deckDir, "style.json");
@@ -268,7 +271,21 @@ export async function startServe(mdPath: string, opts: ServeOptions): Promise<Se
    */
   let rebuilding = false;
 
+  /**
+   * A rebuild rewrites deck.json (parse, re-pins), so it runs under the same
+   * lock as `variants pick|note|replay`. While another process holds it the
+   * rebuild is deferred (not failed): the poll retries once the lock is free.
+   */
   async function rebuild(): Promise<void> {
+    try {
+      await withStyleLockAsync(deckDir, runRebuild, { waitMs: 0 });
+    } catch (err) {
+      if (!(err instanceof LockError)) throw err;
+      deferred = true;
+    }
+  }
+
+  async function runRebuild(): Promise<void> {
     rebuilding = true;
     rebuildCount++;
     const errors: string[] = [];
@@ -335,8 +352,6 @@ export async function startServe(mdPath: string, opts: ServeOptions): Promise<Se
 
   let timer: NodeJS.Timeout | null = null;
   const watchers: FSWatcher[] = [];
-  /** A change arrived while a pick was in progress; rebuild once it clears. */
-  let deferred = false;
   const fire = (): void => {
     if (stylePending()) {
       deferred = true;
@@ -451,9 +466,23 @@ export async function startServe(mdPath: string, opts: ServeOptions): Promise<Se
         }
         if (url.pathname === "/__apply") {
           const { deepMerge } = await import("../ir/merge.js");
-          const ir = JSON.parse(readFileSync(jsonPath, "utf8")) as Record<string, unknown>;
-          ir.overrides = deepMerge((ir.overrides ?? {}) as Record<string, unknown>, patch as Record<string, unknown>);
-          writeFileSync(target, `${JSON.stringify(ir, null, 2)}\n`);
+          try {
+            // Read-merge-write under the deck lock, so a concurrent pick cannot be overwritten.
+            await withStyleLockAsync(
+              deckDir,
+              async () => {
+                const ir = JSON.parse(readFileSync(jsonPath, "utf8")) as Record<string, unknown>;
+                ir.overrides = deepMerge((ir.overrides ?? {}) as Record<string, unknown>, patch as Record<string, unknown>);
+                writeFileSync(target, `${JSON.stringify(ir, null, 2)}\n`);
+              },
+              { waitMs: 3000 },
+            );
+          } catch (e) {
+            if (!(e instanceof LockError)) throw e;
+            res.writeHead(409, { "content-type": "application/json" });
+            res.end(JSON.stringify({ error: e.message }));
+            return;
+          }
           await (building = building.then(rebuild));
         } else {
           writeFileSync(target, `${JSON.stringify(patch, null, 2)}\n`);

@@ -195,6 +195,44 @@ describe("pptx import: re-import keeps user-owned files (B2)", () => {
     expect((await cli(["validate", join(talk, "deck.json")])).code).toBe(0);
   });
 
+  it("keeps a user asset that lives INSIDE pptx/, which re-import replaces wholesale (R2-B1)", async () => {
+    const dir = tmp();
+    const input = writeDeck(dir, basicDeck(2));
+    await importPptx({ input, out: join(dir, "talk"), env: NO_PATH });
+    const talk = join(dir, "talk");
+    const logo = solidPng(4, 4, [5, 6, 7, 255]);
+    mkdirSync(join(talk, "pptx", "custom"), { recursive: true });
+    writeFileSync(join(talk, "pptx", "custom", "logo.png"), logo);
+    const deck = JSON.parse(readFileSync(join(talk, "deck.json"), "utf8"));
+    deck.overrides.assets.push({ id: "user-logo", path: "pptx/custom/logo.png", sha256: createHash("sha256").update(logo).digest("hex"), mime: "image/png" });
+    writeFileSync(join(talk, "deck.json"), `${JSON.stringify(deck, null, 2)}\n`);
+    expect((await cli(["validate", join(talk, "deck.json")])).code).toBe(0);
+
+    const r = await cli(["pptx", "import", input, "-o", talk, "--force"]);
+    expect(r.code, r.stderr).toBe(0);
+    expect(existsSync(join(talk, "pptx", "custom", "logo.png")), "the user's file must survive the directory swap").toBe(true);
+    expect(readFileSync(join(talk, "pptx", "custom", "logo.png")).equals(Buffer.from(logo))).toBe(true);
+    expect((await cli(["validate", join(talk, "deck.json")])).code).toBe(0);
+  });
+
+  it("refuses, leaving the deck untouched, when a user file under pptx/ collides with an imported one (R2-B1)", async () => {
+    const dir = tmp();
+    const input = writeDeck(dir, basicDeck(2));
+    await importPptx({ input, out: join(dir, "talk"), env: NO_PATH });
+    const talk = join(dir, "talk");
+    const deck = JSON.parse(readFileSync(join(talk, "deck.json"), "utf8"));
+    // A user asset claiming the path of the imported layout.
+    const layoutBytes = readFileSync(join(talk, "pptx", "layout.json"));
+    deck.overrides.assets.push({ id: "user-clash", path: "pptx/layout.json", sha256: createHash("sha256").update(layoutBytes).digest("hex"), mime: "application/json" });
+    writeFileSync(join(talk, "deck.json"), `${JSON.stringify(deck, null, 2)}\n`);
+    const before = treeHash(talk);
+    // A changed deck regenerates layout.json with different bytes, so the claim is a real conflict.
+    const r = await cli(["pptx", "import", writeDeck(dir, basicDeck(3), "next.pptx"), "-o", talk, "--force"]);
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toMatch(/user-clash.*pptx\/layout\.json.*imported/);
+    expect(treeHash(talk)).toBe(before);
+  });
+
   it("still rejects a staged import whose own imported assets are broken", async () => {
     // Validation must keep covering the files the import writes (a bad pin cannot land).
     const dir = tmp();
@@ -202,6 +240,44 @@ describe("pptx import: re-import keeps user-owned files (B2)", () => {
     await importPptx({ input, out: join(dir, "talk"), env: NO_PATH });
     const r = await importPptx({ input, out: join(dir, "talk"), force: true, env: NO_PATH });
     expect(r.slides).toEqual(["s01", "s02"]);
+  });
+});
+
+describe("pptx import: identical parts keep their own asset ids (R2-B4)", () => {
+  it("stores identical bytes once but keeps a stable asset id per part, across removal of the first", async () => {
+    const same = solidPng(4, 4, [9, 9, 9, 255]);
+    const both = (withFirst: boolean) => ({
+      media: { ...(withFirst ? { "image1.png": same } : {}), "image2.png": same },
+      slides: [
+        {
+          shapes: titleShape("Twins") + (withFirst ? picShape("rId1", 0, 0, 100000, 100000) : "") + picShape("rId2", 200000, 0, 100000, 100000),
+          rels: { ...(withFirst ? { rId1: ["image", "../media/image1.png"] as [string, string] } : {}), rId2: ["image", "../media/image2.png"] as [string, string] },
+        },
+      ],
+    });
+    const dir = tmp();
+    await importPptx({ input: writeDeck(dir, both(true)), out: join(dir, "talk"), env: NO_PATH });
+    const talk = join(dir, "talk");
+    const deck = JSON.parse(readFileSync(join(talk, "deck.json"), "utf8"));
+    const ids = deck.overrides.assets.map((a: { id: string }) => a.id);
+    expect(ids).toContain("pptx-ppt-media-image1-png");
+    expect(ids).toContain("pptx-ppt-media-image2-png");
+    const layout = layoutOf(talk);
+    const imgs = layout.slides[0].items.filter((i): i is ImgItem => i.kind === "img");
+    expect(imgs.map((i) => i.asset).sort()).toEqual(["pptx-ppt-media-image1-png", "pptx-ppt-media-image2-png"]);
+    expect(readdirSync(join(talk, "pptx", "media")), "identical bytes are stored once").toHaveLength(1);
+
+    // A tuned effect references the SECOND part; the first part is then removed from the pptx.
+    deck.overrides.slides.s01 = { effects: [{ id: "aurora", params: { img: "pptx-ppt-media-image2-png" } }] };
+    writeFileSync(join(talk, "deck.json"), `${JSON.stringify(deck, null, 2)}\n`);
+    const r = await cli(["pptx", "import", writeDeck(dir, both(false), "next.pptx"), "-o", talk, "--force"]);
+    expect(r.code, r.stderr).toBe(0);
+    const after = JSON.parse(readFileSync(join(talk, "deck.json"), "utf8"));
+    const afterIds = after.overrides.assets.map((a: { id: string }) => a.id);
+    expect(afterIds).toContain("pptx-ppt-media-image2-png");
+    expect(afterIds).not.toContain("pptx-ppt-media-image1-png");
+    expect(layoutOf(talk).slides[0].items.filter((i): i is ImgItem => i.kind === "img").map((i) => i.asset)).toEqual(["pptx-ppt-media-image2-png"]);
+    expect((await cli(["validate", join(talk, "deck.json")])).code).toBe(0);
   });
 });
 

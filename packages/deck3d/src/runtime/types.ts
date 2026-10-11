@@ -38,6 +38,8 @@ export interface Deck3dApi {
     errors: Array<{ slide: string; effectId: string; phase: "create" | "tick" | "dispose" }>;
   };
   debug: {
+    /** Apply an effect param edit on the current slide, as the configurator does. */
+    applyParams: (id: string, patch: Record<string, unknown>) => void;
     /** Pin the transition `from → to` (1-based) at progress `p` and draw that frame. */
     transitionAt: (from1: number, to1: number, p: number) => void;
     /** Persistent effects: parent ("scene" = outside every slide group) and layer masks. */

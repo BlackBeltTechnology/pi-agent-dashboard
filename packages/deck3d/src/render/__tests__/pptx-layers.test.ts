@@ -325,6 +325,24 @@ describe.skipIf(!hasChromium)("slide-layer (chromium)", () => {
     }
   }, 120_000);
 
+  it("a live param edit that breaks the layer keeps the native slide, and a good one restores the layer (R2-B3)", async () => {
+    const deck = await layerDeck("free");
+    const page = await openDeck(browser, deck.html);
+    try {
+      await settle(page, 1);
+      const kinds = () => page.evaluate(() => [...new Set(window.__deck3d?.measure().map((m) => m.kind) ?? [])].sort());
+      expect(await kinds()).toEqual(["layer-text"]);
+      // The same path the configurator takes when a param changes.
+      await page.evaluate(() => window.__deck3d?.debug.applyParams("slide-layer", { slide: "s99" }));
+      expect(await kinds(), "a failed live edit must not blank the slide").toContain("title");
+      expect(await page.evaluate(() => window.__deck3d?.effects().errors.map((e) => e.effectId))).toContain("slide-layer");
+      await page.evaluate(() => window.__deck3d?.debug.applyParams("slide-layer", { slide: "s01" }));
+      expect(await kinds(), "fixing the param brings the layer back and retires the native content").toEqual(["layer-text"]);
+    } finally {
+      await page.close();
+    }
+  }, 120_000);
+
   it("keeps the original z-order: a picture UNDER a title does not cover it (B7)", async () => {
     // Pptx order is back-to-front: the red picture first, the black title on top of it.
     const red = encodePng({ width: 8, height: 8, data: new Uint8Array(Array.from({ length: 64 }, () => [200, 30, 30, 255]).flat()) });

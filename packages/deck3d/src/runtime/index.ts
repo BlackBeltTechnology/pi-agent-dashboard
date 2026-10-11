@@ -1114,6 +1114,49 @@ async function boot(): Promise<void> {
    * Configurator. Built after the slides so it can read the composed effect
    * list, and given callbacks that re-apply the look WITHOUT touching `__DECK`.
    */
+  /**
+   * One effect param edit on the current slide — the configurator's path, also
+   * reachable as `debug.applyParams`.
+   */
+  function applyParamEdit(id: string, patch: FxParams): void {
+    const slide = deck.slides[cur];
+    const key = `${slide.id}|${id}`;
+    fxParamEdits[key] = { ...(fxParamEdits[key] ?? {}), ...(patch) };
+    const build = builds[cur];
+    const profile = qualityProfile(build.cfg.quality ?? deck.defaults.quality);
+    const mode = (build.cfg.mode ?? "dark") as "dark" | "light";
+    if (isPersistentFx(id)) {
+      // One deck-wide instance: params live under the "deck" key.
+      fxParamEdits[`deck|${id}`] = { ...(fxParamEdits[`deck|${id}`] ?? {}), ...(patch) };
+      buildPersistent();
+    } else if (isLayerRef(id)) {
+      // A layer effect may REPLACE the native content: rebuild the whole slide
+      // (the boot path), which keeps the native content when the replacement
+      // fails to construct instead of leaving the slide blank.
+      rebuildSlide(cur, {}, false);
+    } else if (id.startsWith("local:")) {
+      // Dispose and rebuild every local handle: they share one array and the
+      // factory is the only place params are read.
+      disposeLocalFx(cur);
+      build.localFx = localEffectsFor(slide, build.palette, profile, mode, build.group, cur);
+    } else {
+      if (build.background) {
+        build.group.remove(build.background.g);
+        disposeTree(build.background.g);
+      }
+      const next = backgroundFromEffects(slide, build.palette, profile, mode);
+      build.background = next;
+      if (next) {
+        next.g.position.z = -2;
+        markBackdrop(next.g);
+        sortAboveVeil(next.g);
+        build.group.add(next.g);
+      }
+    }
+    syncPost();
+    rig.render();
+  }
+
   const hud = createHud({
     slides: deck.slides.map((s) => ({ id: s.id, title: s.title, effects: [...(s.effects ?? [])] })),
     // Everything the deck can instantiate: the corpus, plus the `local:`
@@ -1172,42 +1215,7 @@ async function boot(): Promise<void> {
       const key = `${slideId}|${id}`;
       fxParamEdits[key] = { ...(fxParamEdits[key] ?? {}), ...(patch as FxParams) };
     },
-    applyEffectParams: (id, patch) => {
-      const slide = deck.slides[cur];
-      const key = `${slide.id}|${id}`;
-      fxParamEdits[key] = { ...(fxParamEdits[key] ?? {}), ...(patch as FxParams) };
-      const build = builds[cur];
-      const profile = qualityProfile(build.cfg.quality ?? deck.defaults.quality);
-      const mode = (build.cfg.mode ?? "dark") as "dark" | "light";
-      if (isPersistentFx(id)) {
-        // One deck-wide instance: params live under the "deck" key.
-        fxParamEdits[`deck|${id}`] = { ...(fxParamEdits[`deck|${id}`] ?? {}), ...(patch as FxParams) };
-        buildPersistent();
-      } else if (isLayerRef(id)) {
-        disposeLayers(build, slide.id);
-        build.layerFx = layerEffectsFor(slide, build.palette, profile, mode, build.group, build.cfg);
-      } else if (id.startsWith("local:")) {
-        // Dispose and rebuild every local handle: they share one array and the
-        // factory is the only place params are read.
-        disposeLocalFx(cur);
-        build.localFx = localEffectsFor(slide, build.palette, profile, mode, build.group, cur);
-      } else {
-        if (build.background) {
-          build.group.remove(build.background.g);
-          disposeTree(build.background.g);
-        }
-        const next = backgroundFromEffects(slide, build.palette, profile, mode);
-        build.background = next;
-        if (next) {
-          next.g.position.z = -2;
-          markBackdrop(next.g);
-          sortAboveVeil(next.g);
-          build.group.add(next.g);
-        }
-      }
-      syncPost();
-      rig.render();
-    },
+    applyEffectParams: (id, patch) => applyParamEdit(id, patch as FxParams),
     /**
      * Recompose the current slide. Flipping `background.visible` used to stand
      * in for this, which reached neither the post stack nor the `local:`
@@ -1311,6 +1319,8 @@ async function boot(): Promise<void> {
       errors: localFxErrors.map((e) => ({ ...e })),
     }),
     debug: {
+      /** Apply an effect param edit on the current slide, exactly as the configurator does. */
+      applyParams: (id: string, patch: Record<string, unknown>) => applyParamEdit(id, patch as FxParams),
       /**
        * Pin a transition `from → to` (1-based) at progress `p` and draw it:
        * mid-flight probes (parallax, chrome fly-out) and `compare --transition`.

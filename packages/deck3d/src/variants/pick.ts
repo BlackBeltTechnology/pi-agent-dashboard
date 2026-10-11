@@ -23,6 +23,12 @@ import type { DeckIR } from "../ir/types.js";
 import { formatIssue, validate } from "../ir/validate.js";
 import { interruptedMessage, LockError, pendingStep, readStyle, type Step, type Style, serialize, stylePath, withStyleLock, writeAtomic } from "./style.js";
 
+/**
+ * A variants command waits this long for another deck3d process (e.g. a `serve`
+ * rebuild) to release the lock; `DECK3D_LOCK_WAIT_MS` overrides it.
+ */
+const lockWaitMs = (): number => Number(process.env.DECK3D_LOCK_WAIT_MS ?? 10_000);
+
 export class PickError extends Error {
   constructor(message: string) {
     super(message);
@@ -143,7 +149,7 @@ export function requireStyle(deckJson: string): { style: Style; path: string } {
 }
 
 export function pickVariant(opts: PickOptions): void {
-  withStyleLock(dirname(opts.deckJson), () => pick(opts));
+  withStyleLock(dirname(opts.deckJson), () => pick(opts), { waitMs: lockWaitMs() });
 }
 
 function pick(opts: PickOptions): void {
@@ -186,7 +192,7 @@ function pick(opts: PickOptions): void {
 
 /** Record a free-text answer: `picked: null`, the note, and a new round. */
 export function noteStep(deckJson: string, stepId: string, note: string): Step {
-  return withStyleLock(dirname(deckJson), () => note_(deckJson, stepId, note));
+  return withStyleLock(dirname(deckJson), () => note_(deckJson, stepId, note), { waitMs: lockWaitMs() });
 }
 
 function note_(deckJson: string, stepId: string, note: string): Step {
@@ -232,7 +238,7 @@ function collectItemRefs(v: unknown, out: Set<string>): void {
 
 /** Re-apply every picked fragment in step order; idempotent, writes only on change. */
 export function replayPicks(deckJson: string): ReplayResult {
-  return withStyleLock(dirname(deckJson), () => replay(deckJson));
+  return withStyleLock(dirname(deckJson), () => replay(deckJson), { waitMs: lockWaitMs() });
 }
 
 function replay(deckJson: string): ReplayResult {

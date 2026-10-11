@@ -10,6 +10,12 @@ import type { Browser, BrowserContext } from "playwright";
 import type { RgbaImage } from "./png.js";
 
 export const DECODE_MAX_BYTES = 20 * 1024 * 1024;
+/**
+ * Decoded size is bounded separately from the input size: a few KB of PNG can
+ * claim 30000×30000 pixels, and decoding it allocates a canvas, an RGBA buffer
+ * and a base64 string of that size. 4096×4096 = 64 MiB of RGBA.
+ */
+export const DECODE_MAX_PIXELS = 4096 * 4096;
 
 const ORIGIN = "https://deck3d-sandbox.invalid";
 
@@ -37,6 +43,48 @@ export function sniffMime(bytes: Uint8Array): string {
   return "application/octet-stream";
 }
 
+/** Pixel dimensions from the container header alone (no decoding); undefined when unknown. */
+export function peekDimensions(bytes: Uint8Array): { width: number; height: number } | undefined {
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (bytes.length >= 24 && bytes[0] === 0x89 && bytes[1] === 0x50) return { width: v.getUint32(16), height: v.getUint32(20) };
+  if (bytes.length >= 10 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return { width: v.getUint16(6, true), height: v.getUint16(8, true) };
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    // Walk JPEG segments to the first start-of-frame marker.
+    let p = 2;
+    while (p + 9 < bytes.length) {
+      if (bytes[p] !== 0xff) return undefined;
+      const marker = bytes[p + 1];
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) return { height: v.getUint16(p + 5), width: v.getUint16(p + 7) };
+      p += 2 + v.getUint16(p + 2);
+    }
+    return undefined;
+  }
+  if (bytes.length >= 30 && bytes[0] === 0x52 && bytes[8] === 0x57) {
+    const kind = String.fromCharCode(bytes[12], bytes[13], bytes[14], bytes[15]);
+    if (kind === "VP8X") return { width: 1 + (v.getUint8(24) | (v.getUint8(25) << 8) | (v.getUint8(26) << 16)), height: 1 + (v.getUint8(27) | (v.getUint8(28) << 8) | (v.getUint8(29) << 16)) };
+    if (kind === "VP8 ") return { width: v.getUint16(26, true) & 0x3fff, height: v.getUint16(28, true) & 0x3fff };
+    if (kind === "VP8L") {
+      const bits = v.getUint32(21, true);
+      return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Refuse an image that would decode past the pixel cap, from its header alone
+ * (raster) or its requested `--size` (SVG, rasterised at size × size at most).
+ */
+export function assertDecodable(bytes: Uint8Array, mime: string, svgSize = 1024): void {
+  if (bytes.length > DECODE_MAX_BYTES) throw new Error(`input is ${bytes.length} bytes (limit ${DECODE_MAX_BYTES / 1024 / 1024} MB)`);
+  const dims = mime === "image/svg+xml" ? { width: svgSize, height: svgSize } : peekDimensions(bytes);
+  if (!dims) return;
+  if (dims.width * dims.height > DECODE_MAX_PIXELS) {
+    const mp = ((dims.width * dims.height) / 1e6).toFixed(1);
+    throw new Error(`image is ${dims.width}×${dims.height} (${mp} megapixels; limit ${(DECODE_MAX_PIXELS / 1e6).toFixed(1)} megapixels)`);
+  }
+}
+
 /** Launch one sandbox browser; reuse it for many decodes, then `close()`. */
 export async function openSandbox(): Promise<Sandbox> {
   let browser: Browser;
@@ -51,7 +99,7 @@ export async function openSandbox(): Promise<Sandbox> {
   return {
     blocked,
     async decode(bytes, mime, opts = {}) {
-      if (bytes.length > DECODE_MAX_BYTES) throw new Error(`input is ${bytes.length} bytes (limit ${DECODE_MAX_BYTES / 1024 / 1024} MB)`);
+      assertDecodable(bytes, mime, opts.size);
       const page = await context.newPage();
       try {
         await page.route("**/*", (route) => {
@@ -74,6 +122,9 @@ export async function openSandbox(): Promise<Sandbox> {
         }, size);
         if ("error" in result) throw new Error(String(result.error));
         let { w, h } = result as { w: number; h: number };
+        // Backstop for a header `peekDimensions` could not read: check what the page decoded
+        // BEFORE the canvas, the RGBA buffer and the base64 string are allocated.
+        if (w * h > DECODE_MAX_PIXELS && mime !== "image/svg+xml") throw new Error(`image is ${w}×${h} (${((w * h) / 1e6).toFixed(1)} megapixels; limit ${(DECODE_MAX_PIXELS / 1e6).toFixed(1)} megapixels)`);
         if (mime === "image/svg+xml") {
           const k = size / Math.max(w, h);
           w = Math.max(1, Math.round(w * k));

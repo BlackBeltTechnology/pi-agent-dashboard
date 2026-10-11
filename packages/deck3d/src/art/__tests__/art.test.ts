@@ -12,7 +12,7 @@ import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
 import { canvas, fill, font, glyphRings } from "../../__tests__/helpers/glyphs.js";
 import { solidPng } from "../../__tests__/helpers/pptx.js";
 import { run } from "../../cli.js";
-import { openSandbox } from "../decode.js";
+import { assertDecodable, openSandbox } from "../decode.js";
 import { flattenPath, ICON_LIMITS, svgToPolylines } from "../icon.js";
 import { decodePng } from "../png.js";
 import { type Pt, signedArea, traceImage } from "../trace.js";
@@ -100,6 +100,41 @@ function arcCentre(x1: number, y1: number, rxIn: number, ryIn: number, phiDeg: n
   const cyp = (-s * ry * xp) / rx;
   return { cx: Math.cos(phi) * cxp - Math.sin(phi) * cyp + (x1 + x2) / 2, cy: Math.sin(phi) * cxp + Math.cos(phi) * cyp + (y1 + y2) / 2, rx, ry, phi };
 }
+
+describe("decode limits (R2-B5)", () => {
+  /** A PNG whose header claims `w`×`h` but carries no pixel data: compressed size is irrelevant to the limit. */
+  const pngHeader = (w: number, h: number): Uint8Array => {
+    const b = new Uint8Array(33);
+    b.set([137, 80, 78, 71, 13, 10, 26, 10]);
+    const v = new DataView(b.buffer);
+    v.setUint32(8, 13);
+    b.set([73, 72, 68, 82], 12);
+    v.setUint32(16, w);
+    v.setUint32(20, h);
+    b[24] = 8;
+    b[25] = 6;
+    return b;
+  };
+  const jpegHeader = (w: number, h: number): Uint8Array => new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, h >> 8, h & 255, w >> 8, w & 255, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
+  const gifHeader = (w: number, h: number): Uint8Array => new Uint8Array([71, 73, 70, 56, 57, 97, w & 255, w >> 8, h & 255, h >> 8, 0, 0, 0]);
+
+  it("refuses an image whose decoded size exceeds the pixel cap, before any decoding", () => {
+    for (const [name, bytes, mime] of [
+      ["png", pngHeader(30000, 30000), "image/png"],
+      ["jpeg", jpegHeader(30000, 30000), "image/jpeg"],
+      ["gif", gifHeader(20000, 20000), "image/gif"],
+    ] as const) {
+      expect(() => assertDecodable(bytes, mime), name).toThrow(/megapixel.*limit/i);
+    }
+  });
+
+  it("accepts images at the cap and SVG sized within it, and refuses an oversize --size", () => {
+    expect(() => assertDecodable(pngHeader(4096, 4096), "image/png")).not.toThrow();
+    expect(() => assertDecodable(pngHeader(4097, 4096), "image/png")).toThrow(/limit/);
+    expect(() => assertDecodable(new TextEncoder().encode("<svg/>"), "image/svg+xml", 1024)).not.toThrow();
+    expect(() => assertDecodable(new TextEncoder().encode("<svg/>"), "image/svg+xml", 20000)).toThrow(/limit/);
+  });
+});
 
 describe("art icon robustness (B9)", () => {
   it("rejects a curve whose flattening would exceed the point cap, without building it", () => {

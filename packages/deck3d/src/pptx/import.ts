@@ -5,7 +5,7 @@
  * staged and committed atomically.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, posix, resolve } from "node:path";
 import type { Sandbox } from "../art/decode.js";
 import { encodePng } from "../art/png.js";
 import type { DeckIR } from "../ir/types.js";
@@ -46,6 +46,34 @@ export interface ImportResult {
   dir: string;
   slides: string[];
   warnings: string[];
+}
+
+/** Top-level entries a commit replaces wholesale (see `Stage.commit`). */
+const REPLACED = new Set(["pptx", "deck.md", "deck.json", "deck.json.bak"]);
+
+/**
+ * Carry user-owned asset files that live INSIDE a replaced entry (e.g.
+ * `pptx/custom/logo.png`) into the staged tree, so the directory swap does
+ * not delete them. A user file whose path an imported file also claims, with
+ * different content, is a conflict: refuse rather than overwrite either.
+ */
+function preserveUserFiles(assets: AssetEntry[] | undefined, existingDir: string, stage: Stage): void {
+  for (const a of assets ?? []) {
+    if (a.id.startsWith("pptx-")) continue;
+    const rel = posix.normalize(a.path.replace(/\\/g, "/"));
+    if (rel.startsWith("..") || posix.isAbsolute(rel) || !REPLACED.has(rel.split("/")[0])) continue;
+    const src = join(existingDir, rel);
+    if (!existsSync(src)) continue; // `validate` reports a missing file
+    const staged = join(stage.dir, rel);
+    const bytes = readFileSync(src);
+    if (existsSync(staged)) {
+      if (!readFileSync(staged).equals(bytes)) {
+        throw new PptxImportError(`user asset '${a.id}' at '${a.path}' collides with an imported file; move it outside pptx/`);
+      }
+      continue;
+    }
+    stage.file(rel, bytes);
+  }
 }
 
 /**
@@ -170,11 +198,12 @@ export async function importPptx(opts: ImportOptions): Promise<ImportResult> {
       if (deckOv[k] === undefined) deckOv[k] = v;
     }
     overrides.deck = deckOv;
-    const rec = reconcileAssets(prevDeck?.overrides.assets as AssetEntry[] | undefined, importedAssets(media, sha256Hex(layoutJson)), overrides);
+    const rec = reconcileAssets(prevDeck?.overrides.assets as AssetEntry[] | undefined, importedAssets(ex.media.assetEntries(), sha256Hex(layoutJson)), overrides);
     if (rec.dangling.length) throw new PptxImportError(`re-import would drop referenced assets: ${rec.dangling.join("; ")}`);
     warnings.push(...rec.warnings);
     overrides.assets = rec.assets;
 
+    preserveUserFiles(overrides.assets, dir, stage);
     // A bad import never lands: the deck must validate before anything is committed.
     const problems = validateGenerated(ir, stage.dir, dir);
     if (problems.length) throw new PptxImportError(`generated deck failed validation: ${problems.map((e) => formatIssue("error", e)).join("; ")}`);

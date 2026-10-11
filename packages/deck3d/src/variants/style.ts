@@ -3,7 +3,7 @@
  * "style.json grammar and validation"). Every finding names its JSON path.
  */
 import { randomBytes } from "node:crypto";
-import { closeSync, existsSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, linkSync, openSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Ajv, { type ErrorObject } from "ajv";
 import { formatPath, validateOverridesFragment } from "../ir/validate.js";
@@ -118,7 +118,13 @@ export function readStyle(path: string): Style | undefined {
 export function writeAtomic(path: string, data: string): void {
   const tmp = `${path}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
   writeFileSync(tmp, data);
-  renameSync(tmp, path);
+  try {
+    renameSync(tmp, path);
+  } catch (err) {
+    // Do not leave the temp file behind when the swap fails.
+    rmSync(tmp, { force: true });
+    throw err;
+  }
 }
 
 export class LockError extends Error {
@@ -127,6 +133,17 @@ export class LockError extends Error {
     this.name = "LockError";
   }
 }
+
+export interface LockOptions {
+  /** How long to wait for a LIVE holder before giving up (default: fail at once). */
+  waitMs?: number;
+  /** Test seams for forced interleavings. */
+  hooks?: { afterInspect?: (lock: string) => void };
+}
+
+const POLL_MS = 40;
+/** A recovery lock older than this belongs to a crashed recoverer. */
+const RECOVER_STALE_MS = 30_000;
 
 function alive(pid: number): boolean {
   try {
@@ -137,45 +154,133 @@ function alive(pid: number): boolean {
   }
 }
 
+/** `pid:token` → pid; undefined for anything else (empty, garbage). */
+function ownerOf(content: string): number | undefined {
+  const m = /^(\d+):/.exec(content);
+  return m ? Number(m[1]) : undefined;
+}
+
+type Attempt = { token: string } | { retry: true } | { busy: string };
+
 /**
- * Run `fn` holding an exclusive lock next to style.json. A pick is three
- * writes (style pending → deck.json → style final) over a read-validate step;
- * two writers interleaving them can leave the deck and the recorded pick from
- * different decisions. `wx` creation is the atomic compare-and-set; a lock
- * whose owner process is gone is cleared once. The lock is released on every
- * path out, success or throw — and never removed unless we took it.
+ * One acquisition attempt. The lock is created with its owner already inside
+ * it: the content is written to a private temp file that is then `link`ed to
+ * the lock path (atomic, fails with EEXIST when held), so no other process can
+ * ever observe a lock that is empty or half-written.
+ *
+ * A held lock is only taken over when its owner is provably dead, and only
+ * under a separate recovery lock, re-reading the lock first: if it is no longer
+ * the one we inspected (someone recovered and re-acquired meanwhile) we leave
+ * it alone and re-inspect. A lock we cannot identify is treated as live.
  */
-export function withStyleLock<T>(deckDir: string, fn: () => T): T {
-  const lock = `${stylePath(deckDir)}.lock`;
-  let fd: number | undefined;
-  for (let attempt = 0; attempt < 2 && fd === undefined; attempt++) {
+function tryAcquire(lock: string, hooks: LockOptions["hooks"]): Attempt {
+  const token = `${process.pid}:${randomBytes(6).toString("hex")}`;
+  const tmp = `${lock}.${token.replace(":", "-")}.tmp`;
+  writeFileSync(tmp, token);
+  try {
+    linkSync(tmp, lock);
+    return { token };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+  } finally {
     try {
-      fd = openSync(lock, "wx");
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-      const owner = Number.parseInt(readFileSync(lock, "utf8"), 10);
-      if (Number.isInteger(owner) && owner > 0 && alive(owner)) {
-        throw new LockError(`another variants command is running (pid ${owner}); if it crashed, remove ${lock}`);
-      }
-      // Stale: its owner is gone (or the file is unreadable garbage).
-      try {
-        unlinkSync(lock);
-      } catch {
-        // A racing process removed it first; the next attempt decides.
-      }
+      unlinkSync(tmp);
+    } catch {
+      // Already gone.
     }
   }
-  if (fd === undefined) throw new LockError(`could not take ${lock}`);
+  let content: string;
   try {
-    writeFileSync(fd, String(process.pid));
-    return fn();
-  } finally {
-    closeSync(fd);
+    content = readFileSync(lock, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { retry: true }; // released meanwhile
+    throw err;
+  }
+  const owner = ownerOf(content);
+  if (owner === undefined) return { busy: `unidentifiable lock ${lock}; if no other deck3d process is running, remove it` };
+  if (alive(owner)) return { busy: `another deck3d process is writing this deck (pid ${owner}); if it crashed, remove ${lock}` };
+
+  hooks?.afterInspect?.(lock);
+  const recover = `${lock}.recover`;
+  let rfd: number;
+  try {
+    rfd = openSync(recover, "wx");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
     try {
-      unlinkSync(lock);
+      if (Date.now() - statSync(recover).mtimeMs > RECOVER_STALE_MS) unlinkSync(recover);
     } catch {
-      // Already gone: nothing left to release.
+      // Raced with its owner finishing.
     }
+    return { busy: `another process is recovering ${lock}; retry in a moment` };
+  }
+  try {
+    // Only the holder of the recovery lock may remove a lock, and only the one inspected.
+    if (readFileSync(lock, "utf8") === content) unlinkSync(lock);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  } finally {
+    closeSync(rfd);
+    unlinkSync(recover);
+  }
+  return { retry: true };
+}
+
+function release(lock: string, token: string): void {
+  try {
+    // Never remove a lock that is not ours any more.
+    if (readFileSync(lock, "utf8") === token) unlinkSync(lock);
+  } catch {
+    // Already gone: nothing left to release.
+  }
+}
+
+function lockPathOf(deckDir: string): string {
+  return `${stylePath(deckDir)}.lock`;
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Run `fn` holding the deck's exclusive lock. A pick is a read-validate step
+ * and three writes (style pending → deck.json → style final); two writers
+ * interleaving them can leave the deck and the recorded pick from different
+ * decisions. The lock is released on every path out, success or throw.
+ */
+export function withStyleLock<T>(deckDir: string, fn: () => T, opts: LockOptions = {}): T {
+  const lock = lockPathOf(deckDir);
+  const deadline = Date.now() + (opts.waitMs ?? 0);
+  for (;;) {
+    const got = tryAcquire(lock, opts.hooks);
+    if ("token" in got) {
+      try {
+        return fn();
+      } finally {
+        release(lock, got.token);
+      }
+    }
+    if ("busy" in got && Date.now() >= deadline) throw new LockError(got.busy);
+    if ("busy" in got) sleepSync(POLL_MS);
+  }
+}
+
+/** Async twin for callers that hold the lock across awaits (serve's rebuild). */
+export async function withStyleLockAsync<T>(deckDir: string, fn: () => Promise<T>, opts: LockOptions = {}): Promise<T> {
+  const lock = lockPathOf(deckDir);
+  const deadline = Date.now() + (opts.waitMs ?? 0);
+  for (;;) {
+    const got = tryAcquire(lock, opts.hooks);
+    if ("token" in got) {
+      try {
+        return await fn();
+      } finally {
+        release(lock, got.token);
+      }
+    }
+    if ("busy" in got && Date.now() >= deadline) throw new LockError(got.busy);
+    if ("busy" in got) await new Promise((r) => setTimeout(r, POLL_MS));
   }
 }
 

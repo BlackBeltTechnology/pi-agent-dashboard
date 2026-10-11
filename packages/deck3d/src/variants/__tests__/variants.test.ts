@@ -3,7 +3,7 @@
  * Exemplar: `src/__tests__/cli.test.ts`.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -200,16 +200,18 @@ describe("variants pick / note / replay", () => {
     const before = [readFileSync(deck.json), readFileSync(join(deck.dir, "style.json"))];
 
     // Held by a live process (this one): refuse without touching anything.
-    writeFileSync(lock, String(process.pid));
+    process.env.DECK3D_LOCK_WAIT_MS = "100";
+    writeFileSync(lock, `${process.pid}:held`);
     const held = await cli(["variants", "pick", "placement", "A", "--deck", deck.json]);
+    delete process.env.DECK3D_LOCK_WAIT_MS;
     expect(held.code).not.toBe(0);
-    expect(held.stderr).toMatch(/another variants command is running/);
+    expect(held.stderr).toMatch(/another deck3d process is writing this deck/);
     expect(readFileSync(deck.json).equals(before[0])).toBe(true);
     expect(readFileSync(join(deck.dir, "style.json")).equals(before[1])).toBe(true);
     expect(existsSync(lock), "a lock we did not take is never removed").toBe(true);
 
     // Left behind by a process that is gone: cleared, the pick proceeds, the lock is released.
-    writeFileSync(lock, "999999");
+    writeFileSync(lock, "999999:old");
     const stale = await cli(["variants", "pick", "placement", "A", "--deck", deck.json]);
     expect(stale.code, stale.stderr).toBe(0);
     expect(existsSync(lock)).toBe(false);
@@ -220,6 +222,60 @@ describe("variants pick / note / replay", () => {
     expect(existsSync(lock)).toBe(false);
     expect((await cli(["variants", "note", "placement", "--note", "after", "--deck", deck.json])).code).toBe(0);
   }, 120_000);
+
+  it("never removes a lock it cannot identify, nor one that was replaced after inspection (R2-B2)", async () => {
+    const { withStyleLock, LockError } = await import("../style.js");
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-lock-"));
+    const lock = join(dir, "style.json.lock");
+
+    // A fresh lock whose owner has not written its id yet looks EMPTY: treat it as live.
+    writeFileSync(lock, "");
+    expect(() => withStyleLock(dir, () => "ran")).toThrow(LockError);
+    expect(readFileSync(lock, "utf8")).toBe("");
+    writeFileSync(lock, "garbage");
+    expect(() => withStyleLock(dir, () => "ran")).toThrow(/unidentifiable/);
+    expect(readFileSync(lock, "utf8")).toBe("garbage");
+
+    // Forced interleaving: we inspect a STALE lock, then a live process takes the lock
+    // before we remove it. We must back off and leave the new lock in place.
+    writeFileSync(lock, "999999:old");
+    const live = `${process.pid}:fresh`;
+    expect(() =>
+      withStyleLock(dir, () => "ran", {
+        hooks: {
+          afterInspect: () => {
+            unlinkSync(lock);
+            writeFileSync(lock, live);
+          },
+        },
+      }),
+    ).toThrow(/another deck3d process/);
+    expect(readFileSync(lock, "utf8"), "the live owner's lock survives").toBe(live);
+    unlinkSync(lock);
+
+    // Two recoverers: while one holds the recovery lock, the other refuses and touches nothing.
+    writeFileSync(lock, "999999:old");
+    writeFileSync(`${lock}.recover`, "");
+    expect(() => withStyleLock(dir, () => "ran")).toThrow(/recovering/);
+    expect(readFileSync(lock, "utf8")).toBe("999999:old");
+    unlinkSync(`${lock}.recover`);
+    expect(withStyleLock(dir, () => "ran"), "a stale lock is then recovered").toBe("ran");
+    expect(existsSync(lock)).toBe(false);
+  });
+
+  it("waits for a live holder to finish instead of failing a pick (R2-B2)", async () => {
+    const { spawn } = await import("node:child_process");
+    const deck = await styleDeck({ version: 1, steps: [step("look", [v("A", { deck: { mode: "light" } }), v("B")])] });
+    const lock = join(deck.dir, "style.json.lock");
+    // Another process (alive) holds the lock for ~0.6 s, as a serve rebuild would.
+    const holder = spawn(process.execPath, ["-e", `const fs=require("fs");fs.writeFileSync(${JSON.stringify(lock)}, process.pid+":held");console.log("ready");setTimeout(()=>fs.unlinkSync(${JSON.stringify(lock)}),600);`], { stdio: ["ignore", "pipe", "inherit"] });
+    await new Promise<void>((resolve) => holder.stdout.once("data", () => resolve()));
+    const t0 = Date.now();
+    expect(() => pickVariant({ deckJson: deck.json, step: "look", name: "A" })).not.toThrow();
+    expect(Date.now() - t0, "the pick had to wait for the holder").toBeGreaterThan(300);
+    expect(JSON.parse(readFileSync(deck.json, "utf8")).overrides.deck.mode).toBe("light");
+    holder.kill();
+  }, 60_000);
 
   it("keeps deck.json and style.json consistent when two processes pick at once (B6)", async () => {
     const { spawn } = await import("node:child_process");
