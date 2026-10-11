@@ -870,60 +870,13 @@ export type RuntimeUpdateMessage =
   | { type: "runtime_update_failed"; version: string; message: string };
 
 /**
- * Bootstrap state snapshot. Mirrors `BootstrapState` in
- * `packages/server/src/bootstrap-state.ts` but kept as a structural
- * subset here so the shared package doesn't take a runtime dependency
- * on the server package.
- *
- * See change: unified-bootstrap-install.
- */
-export interface BootstrapStateSnapshot {
-  status: "ready" | "installing" | "failed";
-  progress?: { step: string; pct?: number; output?: string };
-  error?: { message: string; stack?: string };
-  version?: { pi?: string; openspec?: string; tsx?: string };
-  compatibility?: {
-    minimum: string;
-    recommended: string;
-    maximum: string | null;
-    current?: string;
-    upgradeRecommended?: boolean;
-    upgradeDashboard?: boolean;
-  };
-  bridgeRegistrationError?: string;
-}
-
-/**
- * Broadcast on every bootstrap-state transition. Browsers use this to
- * render the first-run install banner, the upgrade-pi progress display,
- * and version-skew hints.
- */
-export interface BootstrapStatusUpdateMessage {
-  type: "bootstrap_status_update";
-  state: BootstrapStateSnapshot;
-}
-
-/**
- * Broadcast when a queued pi-dependent operation (e.g. a session-spawn
- * request accepted with 202 during "installing") finishes running after
- * the bootstrap transitioned to "ready". Clients that stored a ticketId
- * from the 202 response can correlate the outcome via this message.
- *
- * `success` is true when the queued handler resolved without throwing;
- * `error` carries the thrown message string when `success` is false.
- *
- * See change: unified-bootstrap-install.
- */
-/**
  * Streamed during the +Worktree dialog's post-create dependency install
  * step. Only sent to the browser that initiated the worktree-create or
  * existing-row install, identified by `requestId`. Throttled to <= 4/sec
  * per requestId, each event carrying the most recent <= 4 KB tail of
  * combined stdout/stderr.
  *
- * Distinct from BootstrapStatusUpdateMessage / BootstrapTicketCompleteMessage
- * which describe the dashboard's own pi-core install. See change:
- * generalize-worktree-init-hook (renamed from worktree_bootstrap_*).
+ * See change: generalize-worktree-init-hook (renamed from worktree_bootstrap_*).
  */
 /**
  * Trust scope chosen at confirm time for `POST /api/git/worktree/init`.
@@ -961,13 +914,6 @@ export interface WorktreeInitFailedMessage {
   message: string;
   /** Last <= 4 KB of combined output. */
   stderr: string;
-}
-
-export interface BootstrapTicketCompleteMessage {
-  type: "bootstrap_ticket_complete";
-  ticketId: string;
-  success: boolean;
-  error?: string;
 }
 
 /** Sent when a package operation finishes (success or failure). */
@@ -1248,8 +1194,6 @@ export type ServerToBrowserMessage =
   | BrowserPromptDismissMessage
   | BrowserPromptCancelMessage
   | ModelsRefreshedMessage
-  | BootstrapStatusUpdateMessage
-  | BootstrapTicketCompleteMessage
   | WorktreeInitProgressMessage
   | WorktreeInitDoneMessage
   | WorktreeInitFailedMessage

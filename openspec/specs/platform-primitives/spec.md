@@ -146,7 +146,7 @@ Platform concerns that do NOT require Electron APIs (binary lookup, machine info
 #### Scenario: Electron jiti resolver is removed
 - **WHEN** a developer inspects `packages/electron/src/lib/server-lifecycle.ts` after the migration
 - **THEN** the function `resolveJitiFromAnchor` SHALL NOT exist
-- **AND** `resolveJitiFromPi` (if retained) SHALL delegate to `packages/shared/src/resolve-jiti.ts`
+- **AND** the function `resolveJitiFromPi` SHALL NOT exist; Electron SHALL resolve jiti via `ToolResolver.resolveJiti` from `packages/shared/src/platform/binary-lookup.ts`
 
 #### Scenario: Electron machine-info uses shared primitive
 - **WHEN** `packages/electron/src/main.ts` logs machine info at startup
