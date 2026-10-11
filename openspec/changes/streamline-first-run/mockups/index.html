@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>streamline-first-run · mockup</title>
+<link rel="stylesheet" href="tokens.css" />
+<style>
+  /* Mockup-only layout CSS. Colours come exclusively from tokens.css. */
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg-primary); color: var(--text-primary); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; flex-direction: column; }
+  code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  svg.i { width: 16px; height: 16px; fill: currentColor; flex: none; }
+  svg.i.sm { width: 14px; height: 14px; }
+
+  /* ── Mockup chrome (not product) ── */
+  .chrome { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 8px 12px; border-bottom: 1px dashed var(--border-strong); background: var(--bg-tertiary); font-size: 12px; }
+  .chrome b { color: var(--text-secondary); font-weight: 600; }
+  .chrome .grp { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .chrome button { font: inherit; font-size: 12px; min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border-secondary); background: var(--bg-secondary); color: var(--text-primary); }
+  .chrome button[aria-pressed="true"] { color: var(--tint-blue-fg); background: var(--tint-blue-bg); border-color: var(--tint-blue-border); }
+
+  /* ── Shell ── */
+  .shell { flex: 1; display: flex; min-height: 0; }
+  .sidebar { width: 248px; flex: none; border-right: 1px solid var(--border-primary); background: var(--bg-secondary); padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .sidebar .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text-primary); }
+  .sidebar .brand .pi { color: var(--accent-primary); font-size: 20px; }
+  .sidebar .empty { font-size: 12px; color: var(--text-secondary); padding: 8px; border: 1px dashed var(--border-secondary); border-radius: 8px; }
+  .sidebar .folder { display: flex; gap: 6px; align-items: center; font-size: 12px; padding: 6px 8px; border-radius: 8px; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); color: var(--text-primary); }
+  .main { flex: 1; overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 48px 16px; }
+  @media (max-width: 639px) { .sidebar { display: none; } .main { padding: 20px 12px; } }
+
+  /* ── Onboarding stepper ── */
+  .onb { width: 100%; max-width: 36rem; display: flex; flex-direction: column; gap: 16px; }
+  .onb-head { display: flex; flex-direction: column; gap: 4px; }
+  .onb-head h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  .onb-head p { margin: 0; font-size: 13px; color: var(--text-secondary); }
+  .progress { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+  .bar { flex: 1; height: 4px; border-radius: 999px; background: var(--bg-tertiary); overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: var(--accent-primary); transition: width .25s; }
+
+  .card { border-radius: 12px; border: 1px solid var(--border-secondary); background: var(--bg-secondary); box-shadow: inset 0 1px 0 var(--elevation-rim), 0 4px 8px var(--shadow-card); }
+  ol.steps { list-style: none; margin: 0; padding: 0; }
+  ol.steps > li { display: grid; grid-template-columns: 28px 1fr; gap: 12px; padding: 14px 16px; }
+  ol.steps > li + li { border-top: 1px solid var(--border-subtle); }
+  .marker { width: 28px; height: 28px; border-radius: 999px; display: grid; place-items: center; font-size: 12px; font-weight: 600; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); color: var(--text-secondary); }
+  li[data-state="active"] .marker { border: 2px solid var(--accent-primary); color: var(--text-primary); background: var(--bg-secondary); }
+  li[data-state="done"] .marker { background: var(--severity-success-bg); border-color: var(--severity-success-border); color: var(--severity-success-fg); }
+  .step-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-height: 28px; align-content: center; }
+  .step-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  li[data-state="locked"] .step-title { color: var(--text-secondary); font-weight: 500; }
+  .step-meta { font-size: 12px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px; }
+  .step-body { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
+  .step-body > p { margin: 0; font-size: 13px; color: var(--text-secondary); }
+
+  /* form */
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+  .field input { font: inherit; font-size: 14px; border-radius: 4px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); color: var(--text-primary); padding: 6px 12px; min-height: 44px; }
+  @media (min-width: 640px) { .field input { min-height: 36px; } }
+  .field input[aria-invalid="true"] { border-color: var(--severity-error-border); box-shadow: 0 0 0 1px var(--severity-error-border); }
+  .hint { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+  .hint code { color: var(--text-primary); }
+  .err { font-size: 12px; color: var(--severity-error-fg); display: flex; align-items: flex-start; gap: 6px; }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  @media (max-width: 639px) { .actions { flex-direction: column; align-items: stretch; } }
+
+  .btn { font: inherit; font-size: 14px; font-weight: 600; border-radius: 6px; padding: 0 14px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid transparent; }
+  @media (min-width: 640px) { .btn { min-height: 36px; } }
+  .btn-primary { background: var(--accent-solid); color: white; }
+  .btn-primary:disabled { background: var(--bg-tertiary); color: var(--text-secondary); border-color: var(--border-secondary); }
+  .btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--border-secondary); }
+  .link { font: inherit; font-size: 13px; background: none; border: 0; padding: 0 4px; min-height: 44px; color: var(--link); text-decoration: underline; text-underline-offset: 3px; }
+  .link:hover { color: var(--link-hover); }
+  @media (min-width: 640px) { .link { min-height: 32px; } }
+  .link:disabled { color: var(--text-muted); text-decoration: none; }
+
+  /* severity callout (InlineMessage) */
+  .callout { border-radius: 6px; border: 1px solid; padding: 8px 10px; font-size: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+  .callout .body { flex: 1 1 14rem; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .callout .ttl { overflow-wrap: anywhere; }
+  @media (max-width: 639px) { .callout button { margin-left: 24px; min-height: 44px; } }
+  .callout .ttl { font-weight: 600; }
+  .callout.info { background: var(--severity-info-bg); border-color: var(--severity-info-border); color: var(--severity-info-fg); }
+  .callout.success { background: var(--severity-success-bg); border-color: var(--severity-success-border); color: var(--severity-success-fg); }
+  .callout.warning { background: var(--severity-warning-bg); border-color: var(--severity-warning-border); color: var(--severity-warning-fg); }
+  .callout.error { background: var(--severity-error-bg); border-color: var(--severity-error-border); color: var(--severity-error-fg); }
+  .callout details { margin-top: 2px; }
+  .callout summary { min-height: 24px; display: inline-flex; align-items: center; text-decoration: underline; text-underline-offset: 2px; }
+  .callout .raw { display: block; margin-top: 4px; padding: 6px 8px; border-radius: 4px; background: var(--bg-code); color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .callout button { font: inherit; font-size: 12px; min-height: 32px; padding: 0 10px; border-radius: 4px; border: 1px solid currentColor; background: transparent; color: inherit; }
+
+  .spin { animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } .bar > span { transition: none; } }
+
+  .done-sub { margin-top: 6px; }
+
+  /* provider row specimen */
+  .section-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin: 8px 0 0; }
+  .note { font-size: 12px; color: var(--text-secondary); border-left: 2px solid var(--border-strong); padding-left: 8px; }
+  .prow { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .prow-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .prow-name { font-size: 14px; font-weight: 600; }
+  .prow-sub { font-size: 12px; color: var(--text-secondary); }
+  .connected { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; color: var(--severity-success-fg); background: var(--severity-success-bg); border: 1px solid var(--severity-success-border); border-radius: 999px; padding: 2px 8px; }
+  .prow-top .btn-secondary { font-size: 12px; font-weight: 500; min-height: 32px; }
+  .row-stack { display: flex; flex-direction: column; gap: 12px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><path d="M12,17A2,2 0 0,0 14,15C14,13.89 13.1,13 12,13A2,2 0 0,0 10,15A2,2 0 0,0 12,17M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V10C4,8.89 4.9,8 6,8H7V6A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,3A3,3 0 0,0 9,6V8H15V6A3,3 0 0,0 12,3Z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20,18H4V8H20M20,6H12L10,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V8C22,6.89 21.1,6 20,6Z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><path d="M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8,5.14V19.14L19,12.14L8,5.14Z"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M16,7V3H14V7H10V3H8V7H8C7,7 6,8 6,9V14.5L9.5,18V21H14.5V18L18,14.5V9C18,8 17,7 16,7Z"/></symbol>
+  <symbol id="i-loading" viewBox="0 0 24 24"><path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M16,17V14H9V10H16V7L21,12L16,17M14,2A2,2 0 0,1 16,4V6H14V4H5V20H14V18H16V20A2,2 0 0,1 14,22H5A2,2 0 0,1 3,20V4A2,2 0 0,1 5,2H14Z"/></symbol>
+</svg>
+
+<!-- Mockup chrome: scenario + theme switcher (not part of the product) -->
+<div class="chrome" role="toolbar" aria-label="Mockup controls">
+  <div class="grp" id="scenarios" aria-label="Scenario"><b>Scenario</b></div>
+  <div class="grp" id="themes" aria-label="Theme"><b>Theme</b></div>
+  <div class="grp"><b>View</b>
+    <button type="button" data-view="landing" aria-pressed="true">Landing</button>
+    <button type="button" data-view="provider" aria-pressed="false">Provider row</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside class="sidebar" aria-label="Folders">
+    <div class="brand"><span class="pi" aria-hidden="true">π</span> pi-dashboard</div>
+    <div id="sidebar-folders"></div>
+  </aside>
+
+  <main class="main" id="main">
+    <!-- LANDING -->
+    <section class="onb" id="view-landing" aria-labelledby="onb-title">
+      <header class="onb-head">
+        <h1 id="onb-title">Welcome to pi-dashboard</h1>
+        <p id="onb-sub">Three steps to your first agent session.</p>
+        <div class="progress"><span id="prog-text">0 of 3 done</span><div class="bar" aria-hidden="true"><span id="prog-bar" style="width:0%"></span></div></div>
+      </header>
+      <div class="card"><ol class="steps" id="steps"></ol></div>
+    </section>
+
+    <!-- PROVIDER ROW -->
+    <section class="onb" id="view-provider" hidden aria-labelledby="prov-title">
+      <header class="onb-head">
+        <h1 id="prov-title">Settings › Providers › Subscriptions</h1>
+        <p>Anthropic row after a fresh sign-in, first run (no pi session yet, so no bridge probe exists).</p>
+      </header>
+      <div class="row-stack" id="prov-rows"></div>
+      <p class="note">The existing "One more step: install the Anthropic peer package" warning stays unchanged. It still appears when a session probe later reports the peer missing and no auto-install ran.</p>
+    </section>
+  </main>
+</div>
+
+<script>
+const ic = (id, cls = "i") => `<svg class="${cls}" aria-hidden="true"><use href="#i-${id}"/></svg>`;
+const PROJECTS = "~/Projects/"; const HOME_ABS = "/Users/robson/Projects/"; // MOCK ONLY: the real UI renders the server-returned real path
+
+const SCENARIOS = {
+  s1: { label: "1 · Fresh", creds: false, peer: null, pinned: null, sessions: 0 },
+  s2: { label: "2 · Connected, peer installing", creds: true, peer: "installing", pinned: null, sessions: 0 },
+  s3: { label: "3 · Creating", creds: true, peer: "installed", pinned: null, sessions: 0, busy: true },
+  s4: { label: "4 · Name error", creds: true, peer: "installed", pinned: null, sessions: 0, error: true, name: "my/project" },
+  s5: { label: "5 · Project pinned (existed)", creds: true, peer: "installed", pinned: "my-first-project", existed: true, sessions: 0 },
+  s6: { label: "6 · Peer install failed", creds: true, peer: "failed", pinned: null, sessions: 0 },
+  s7: { label: "7 · All done", creds: true, peer: "installed", pinned: "my-first-project", sessions: 1 },
+  s8: { label: "8 · Manual install fallback", creds: true, peer: "manual", pinned: "my-first-project", sessions: 0 },
+};
+let state = { ...SCENARIOS.s2, name: "my-first-project" };
+
+function peerCallout(peer) {
+  if (!peer) return "";
+  if (peer === "installing") return `<div class="callout info done-sub" role="status">${ic("loading","i sm spin")}<div class="body"><span class="ttl">Installing pi-anthropic-messages…</span><span>Needed for Claude tool calls. You can continue meanwhile.</span></div></div>`;
+  if (peer === "installed") return "";
+  if (peer === "manual") return `<div class="callout warning done-sub" role="status">${ic("alert","i sm")}<div class="body"><span class="ttl">Claude tool calls need pi-anthropic-messages</span><span>Claude is connected, but this package is not active yet.</span></div><button type="button" onclick="setPeer('installing')">Install</button></div>`;
+  if (peer === "failed") return `<div class="callout warning done-sub" role="status">${ic("alert","i sm")}<div class="body"><span class="ttl">Couldn't install pi-anthropic-messages</span><span>The install didn't finish. Try again; if it keeps failing, check your network or proxy. Chat with Claude works; tool calls need this package.</span><details><summary>Details</summary><code class="mono raw">npm ERR! code ENOTFOUND · request to https://registry.npmjs.org/@blackbelt-technology%2fpi-anthropic-messages failed</code></details></div><button type="button" onclick="setPeer('installing')">Retry install</button></div>`;
+}
+
+function render() {
+  const s = state;
+  const step1 = s.creds ? "done" : "active";
+  const step2 = !s.creds ? "locked" : s.pinned ? "done" : "active";
+  const step3 = !s.pinned ? "locked" : s.sessions > 0 ? "done" : "active";
+  const doneCount = [step1, step2, step3].filter((x) => x === "done").length;
+  document.getElementById("prog-text").textContent = `${doneCount} of 3 done`;
+  document.getElementById("prog-bar").style.width = `${(doneCount / 3) * 100}%`;
+  document.getElementById("onb-title").textContent = doneCount === 3 ? "You're all set" : "Welcome to pi-dashboard";
+  document.getElementById("onb-sub").textContent = doneCount === 3 ? "Pick a session on the left, or start a new one from any folder." : "Three steps to your first agent session.";
+
+  const marker = (n, st) => st === "done" ? `<span class="marker">${ic("check","i sm")}<span class="sr-only">Done</span></span>`
+    : st === "locked" ? `<span class="marker">${ic("lock","i sm")}<span class="sr-only">Locked</span></span>`
+    : `<span class="marker" aria-hidden="true">${n}</span>`;
+
+  // Step 1
+  const li1 = step1 === "done"
+    ? `<li data-state="done">${marker(1, "done")}<div><div class="step-head"><span class="step-title">Credentials configured</span></div>${peerCallout(s.peer)}</div></li>`
+    : `<li data-state="active" aria-current="step">${marker(1, "active")}<div><div class="step-head"><span class="step-title">Connect a model provider</span></div>
+        <div class="step-body"><p>Sign in with a Claude, ChatGPT or Copilot subscription, or paste an API key. Sessions use it to reach a model.</p>
+        <div class="actions"><button class="btn btn-primary" type="button" onclick="connect()">${ic("plug","i sm")}Connect a provider</button></div></div></div></li>`;
+
+  // Step 2
+  let li2;
+  if (step2 === "locked") {
+    li2 = `<li data-state="locked">${marker(2, "locked")}<div><div class="step-head"><span class="step-title">Create your first project</span><span class="step-meta">Needs a model provider</span></div></div></li>`;
+  } else if (step2 === "done") {
+    li2 = `<li data-state="done">${marker(2, "done")}<div><div class="step-head"><span class="step-title">1 folder pinned</span><span class="step-meta mono">${HOME_ABS}${s.pinned}</span></div>${s.existed ? `<div class="hint done-sub">${ic("info","i sm")}That folder already existed, so it was pinned as-is.</div>` : ""}</div></li>`;
+  } else {
+    const nameOk = !s.error;
+    li2 = `<li data-state="active" aria-current="step">${marker(2, "active")}<div><div class="step-head"><span class="step-title">Create your first project</span></div>
+      <form class="step-body" onsubmit="createProject(event)" novalidate>
+        <p>A project is a folder your agents work in. We'll create it and pin it to the sidebar.</p>
+        <div class="field">
+          <label for="pname">Project name</label>
+          ${nameOk ? "" : `<div class="err" id="pname-err">${ic("alert","i sm")}<span><span class="sr-only">Error: </span>Use a single folder name without <code>/</code> or <code>\\</code>, for example <code>my-project</code>.</span></div>`}
+          <input id="pname" name="pname" value="${escapeHtml(s.name)}" autocomplete="off" spellcheck="false" aria-describedby="pname-hint${nameOk ? "" : " pname-err"}" ${nameOk ? "" : 'aria-invalid="true"'} ${s.busy ? "disabled" : ""} oninput="onName(this.value)" />
+          <div class="hint" id="pname-hint">${ic("folder","i sm")}<span id="ppath">${previewHtml(s.name)}</span></div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" type="submit" data-testid="onboarding-step-2-create" ${s.busy ? 'disabled aria-busy="true"' : ""}>${s.busy ? ic("loading","i sm spin") + "Creating…" : "Create project"}</button>
+          <button class="link" type="button" data-testid="onboarding-step-2-cta" ${s.busy ? "disabled" : ""} onclick="alert('Opens AddFoldersDialog (unchanged)')">Use an existing folder…</button>
+        </div>
+      </form></div></li>`;
+  }
+
+  // Step 3
+  let li3;
+  if (step3 === "locked") {
+    li3 = `<li data-state="locked">${marker(3, "locked")}<div><div class="step-head"><span class="step-title">Start your first session</span><span class="step-meta">Needs a project folder</span></div></div></li>`;
+  } else if (step3 === "done") {
+    li3 = `<li data-state="done">${marker(3, "done")}<div><div class="step-head"><span class="step-title">${s.sessions} active session</span></div></div></li>`;
+  } else {
+    li3 = `<li data-state="active" aria-current="step">${marker(3, "active")}<div><div class="step-head"><span class="step-title">Start your first session</span></div>
+      <div class="step-body"><p>Opens a pi agent in <code class="mono">${HOME_ABS}${s.pinned}</code>. Try asking it to set up the project.</p>
+      <div class="actions"><button class="btn btn-primary" type="button" onclick="startSession()">${ic("play","i sm")}Start session</button></div></div></div></li>`;
+  }
+
+  document.getElementById("steps").innerHTML = li1 + li2 + li3;
+  document.getElementById("sidebar-folders").innerHTML = s.pinned
+    ? `<div class="folder">${ic("folder","i sm")}<span class="mono">${s.pinned}</span></div>`
+    : `<div class="empty">No folders yet.</div>`;
+  renderProvider();
+}
+
+function renderProvider() {
+  const row = (title, callout) => `<div><p class="section-title">${title}</p><div class="card prow">
+    <div class="prow-top"><div><div class="prow-name">Anthropic (Claude Pro/Max)</div><div class="prow-sub">Subscription · expires in 7h 52m</div></div>
+    <div class="actions" style="flex-direction:row"><span class="connected">${ic("check","i sm")}Connected</span><button class="btn btn-secondary" type="button">${ic("logout","i sm")}Sign Out</button></div></div>${callout}</div></div>`;
+  document.getElementById("prov-rows").innerHTML =
+    row("Installing (auto, no click)", `<div class="callout info" role="status">${ic("loading","i sm spin")}<div class="body"><span class="ttl">Installing pi-anthropic-messages…</span><span>Claude is connected. This package lets Claude-model tool calls work.</span></div></div>`) +
+    row("Installed (latched until a probe confirms)", `<div class="callout success" role="status">${ic("check","i sm")}<div class="body"><span class="ttl">pi-anthropic-messages installed</span><span>Applies on the next pi session start.</span></div></div>`) +
+    row("Failed (offline / proxy)", `<div class="callout warning" role="status">${ic("alert","i sm")}<div class="body"><span class="ttl">Couldn't install pi-anthropic-messages</span><span>The install didn't finish. Try again; if it keeps failing, check your network or proxy. Chat with Claude works; tool calls need this package.</span><details><summary>Details</summary><code class="mono raw">npm ERR! code ENOTFOUND · request to https://registry.npmjs.org/@blackbelt-technology%2fpi-anthropic-messages failed</code></details></div><button type="button">Retry install</button></div>`);
+}
+
+function escapeHtml(v) { return String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+const validName = (v) => !!v && v === v.trim() && v !== "." && v !== ".." && !/[\/\\]/.test(v);
+function previewHtml() { return "Creates a folder with this name in your Projects folder"; }
+function onName(v) { state.name = v; const p = document.getElementById("ppath"); if (p) p.innerHTML = previewHtml(v); }
+function connect() { state = { ...state, creds: true, peer: "installing" }; render(); setTimeout(() => { if (state.peer === "installing") { state.peer = "installed"; render(); } }, 2500); }
+function setPeer(p) { state.peer = p; render(); if (p === "installing") setTimeout(() => { state.peer = "installed"; render(); }, 2000); }
+function startSession() { state.sessions = 1; render(); }
+function createProject(e) {
+  e.preventDefault();
+  const v = state.name;
+  const bad = !validName(v);
+  if (bad) { state.error = true; render(); document.getElementById("pname").focus(); return; }
+  state = { ...state, error: false, busy: true }; render();
+  setTimeout(() => { state = { ...state, busy: false, pinned: v, existed: v === "my-first-project" && false }; render(); }, 700);
+}
+
+// chrome
+const scen = document.getElementById("scenarios");
+for (const [id, sc] of Object.entries(SCENARIOS)) {
+  const b = document.createElement("button"); b.type = "button"; b.textContent = sc.label; b.dataset.s = id;
+  b.onclick = () => { state = { name: "my-first-project", ...sc }; [...scen.querySelectorAll("button")].forEach((x) => x.setAttribute("aria-pressed", x === b)); render(); };
+  b.setAttribute("aria-pressed", id === "s2"); scen.appendChild(b);
+}
+const themes = document.getElementById("themes");
+[["dark", "Base dark"], ["light", "Base light"], ["nord", "Nord dark"]].forEach(([id, lbl]) => {
+  const b = document.createElement("button"); b.type = "button"; b.textContent = lbl; b.setAttribute("aria-pressed", id === "dark");
+  b.onclick = () => { const h = document.documentElement; h.dataset.theme = id === "light" ? "light" : "dark"; if (id === "nord") h.dataset.palette = "nord"; else delete h.dataset.palette; [...themes.querySelectorAll("button")].forEach((x) => x.setAttribute("aria-pressed", x === b)); };
+  themes.appendChild(b);
+});
+document.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => {
+  const v = b.dataset.view; document.getElementById("view-landing").hidden = v !== "landing"; document.getElementById("view-provider").hidden = v !== "provider";
+  document.querySelectorAll("[data-view]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+});
+// URL params for screenshots: ?s=s4&theme=light&view=provider
+const q = new URLSearchParams(location.search);
+if (q.get("s") && SCENARIOS[q.get("s")]) { state = { name: "my-first-project", ...SCENARIOS[q.get("s")] }; scen.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x.dataset.s === q.get("s"))); }
+if (q.get("theme")) { const t = q.get("theme"); const map = { dark: "Base dark", light: "Base light", nord: "Nord dark" }; themes.querySelectorAll("button").forEach((x) => { if (x.textContent === map[t]) x.click(); }); }
+if (q.get("view") === "provider") document.querySelector('[data-view="provider"]').click();
+render();
+if (q.get("audit")) { const a = document.createElement("script"); a.src = "audit.js"; document.body.appendChild(a); }
+</script>
+</body>
+</html>
