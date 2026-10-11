@@ -126,14 +126,26 @@ Replay compaction may remove events from a batch, so batches MAY contain seq gap
 ### Requirement: Stale running-tool reconcile
 The client SHALL reconcile a tool-result row that has been in `running` state for
 longer than a conservative threshold (`STALE_TOOL_MS`) without a `tool_execution_end`,
-via a one-shot `GET /api/sessions/:sessionId/tool-result/:toolCallId`. The reconcile
+via a one-shot `GET /api/sessions/:sessionId/tool-result/:toolCallId?pending=1`. The reconcile
 channel is HTTP, independent of the WebSocket send buffer whose back-pressure can drop
 a live terminal event, so the heal cannot be re-dropped by the same condition. The
-client SHALL apply only the authoritative server result on HTTP 200 and SHALL NOT
-synthesize a completion from the reconcile path itself. When the authoritative result
-is unrecoverable (repeated HTTP 404) the row is finalized only by the separate
-Superseded terminal heal below, and only under its stricter proof-of-completion
-condition.
+client SHALL interpret the response status as follows:
+
+- **200**: apply the authoritative server result.
+- **202** (`{ pending: true }`): the server believes the tool is still running. Keep
+  the row `running` and re-arm. A 202 is a hint, not a fact: it SHALL count toward the
+  row's unrecovered-probe count exactly like a 404, so a stale hint can never strand a
+  row the Superseded terminal heal could otherwise finalize.
+- **410**: the server recorded that this call's stored result was dropped, which is a fact
+  that the call completed. Finalize the row at once via the existing `toolCallId`-keyed
+  reducer path with `isError: false`, a "result no longer available" sentinel body and a
+  `healedBy: "result_evicted"` detail. No later-inference proof is required.
+- **404**: unknown. Count it toward the unrecovered-probe count, keep the row running
+  and re-arm. Finalization is left to the Superseded terminal heal.
+
+The client SHALL branch on `202` and `410` BEFORE any generic success test: a `202`
+is a 2xx and SHALL NOT be treated as a result. The client SHALL NOT synthesize a
+completion on 202 or 404.
 
 The per-row bookkeeping the reconcile keeps across ticks (last attempt time and
 consecutive not-found count, keyed per session and tool call) SHALL NOT grow
@@ -178,17 +190,26 @@ Nested calls (tool events carrying `parentToolCallId`) are not tool-result rows 
   (complete/error) state without a manual page refresh
 
 #### Scenario: Genuinely slow tool is not falsely completed
-- **WHEN** a tool is legitimately still executing, its turn is still the newest turn,
-  and the server has no `tool_execution_end` for it (HTTP 404 / in-flight)
+- **WHEN** a tool is legitimately still executing, its inference is still the newest,
+  and the reconcile route answers HTTP 202 `{ pending: true }` or HTTP 404
 - **THEN** the client SHALL keep the running spinner and re-arm the reconcile timer
 - **AND** SHALL NOT synthesize a completion
+- **AND** a `{ pending: true }` body SHALL NOT be applied as a result
 
 #### Scenario: Evicted result is finalized by supersede, not left running
-- **WHEN** the server store has evicted the `tool_execution_end` under memory pressure
-  and the REST route returns 404 repeatedly
+- **WHEN** the server has no record of the call's result (its evicted-end record
+  overflowed or was freed) and the REST route returns 404 repeatedly
 - **THEN** the reconcile path SHALL NOT flip the row on a 404 (unchanged)
 - **AND** finalization is delegated to the Superseded terminal heal, which fires only
   when a later assistant `message_start` proves the tool finished
+
+#### Scenario: Server-vouched eviction is finalized immediately
+- **WHEN** the reconcile route answers HTTP 410 for a `running` row
+- **THEN** the client SHALL flip the row to `complete` with `healedBy: "result_evicted"`
+  and a "result no longer available" body on that same tick
+- **AND** SHALL NOT issue another reconcile request for that row
+- **AND** SHALL increment the client heal counter and badge the card as evicted
+- **AND** a genuine `tool_execution_end` arriving later SHALL overwrite the placeholder
 
 #### Scenario: Bookkeeping for vanished rows is discarded
 - **GIVEN** a session has executed many tool calls whose rows are no longer present
@@ -238,9 +259,10 @@ type. Counters SHALL be exposed on the diagnostics/health surface.
 
 ### Requirement: Superseded terminal heal
 The client SHALL finalize a `running` tool row whose authoritative result is
-unrecoverable when the transcript proves the tool completed. A row is eligible only when
-BOTH hold: (a) the base reconcile has returned HTTP 404 at least `SUPERSEDE_MIN_404`
-times for that row (the store has no result), AND (b) at least one assistant *inference*
+unrecoverable when the transcript proves the tool completed. A recorded eviction
+(HTTP 410) is finalized directly by the Stale running-tool reconcile instead. A row is eligible only when
+BOTH hold: (a) the base reconcile has returned an unrecovered answer (HTTP 404 or 202)
+at least `SUPERSEDE_MIN_404` times for that row, AND (b) at least one assistant *inference*
 strictly later than the inference that emitted the tool call has been applied for the
 session, where an inference boundary is an assistant `message_start` (tracked as a
 monotonic `assistantInferenceSeq`) — NOT `message_end` (which fires after its own
@@ -269,16 +291,28 @@ is introduced.
 
 #### Scenario: Recovery still preferred — real result wins over placeholder
 - **WHEN** a row was previously finalized by the supersede heal (`healedBy: "superseded"`)
-  and a genuine `tool_execution_end` later arrives (late reconcile 200, in-app full
-  replay, or bridge reconnect re-sync)
+  or the eviction heal (`healedBy: "result_evicted"`) and a genuine
+  `tool_execution_end` later arrives (late reconcile 200, in-app full replay, or bridge
+  reconnect re-sync)
 - **THEN** the reducer SHALL overwrite the placeholder with the authoritative result
-- **AND** a superseded placeholder SHALL NOT overwrite a real completion nor another
-  superseded placeholder
+- **AND** a synthesized placeholder SHALL NOT overwrite a real completion nor another
+  synthesized placeholder
 
 #### Scenario: Fallback never fires before recovery is exhausted
 - **WHEN** the base reconcile returns HTTP 200 before `SUPERSEDE_MIN_404` 404s accrue
 - **THEN** the row is healed by the base reconcile with its real body
 - **AND** the supersede heal SHALL NOT fire for that row
+
+#### Scenario: Pending answers alone never finalize a running tool
+- **WHEN** a tool's reconcile has answered HTTP 202 any number of times and no assistant
+  `message_start` later than the tool's inference exists
+- **THEN** the supersede heal SHALL NOT fire for it
+- **AND** the row SHALL stay `running`
+
+#### Scenario: A stale pending hint cannot strand a finished tool
+- **WHEN** a tool's reconcile has answered HTTP 202 at least `SUPERSEDE_MIN_404` times
+  and an assistant `message_start` later than the tool's inference exists
+- **THEN** the supersede heal SHALL finalize the row with `healedBy: "superseded"`
 
 ### Requirement: Store-trim instrumentation
 The in-memory event store SHALL make its shed paths observable. When

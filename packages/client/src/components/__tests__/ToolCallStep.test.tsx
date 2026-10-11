@@ -637,6 +637,21 @@ describe("ToolCallStep lazy-mount — <RichDiff> only mounts when expanded", () 
     expect(container.querySelector('[data-testid="tool-superseded-badge"]')).not.toBeNull();
   });
 
+  // See change: distinguish-tool-result-pending-vs-gone (test-plan E22).
+  it("renders a distinct eviction badge when the row was finalized by a server-vouched eviction", () => {
+    const { container } = renderStep({
+      status: "complete",
+      toolDetails: { healedBy: "result_evicted" },
+    });
+    const badge = container.querySelector('[data-testid="tool-evicted-badge"]');
+    expect(badge).not.toBeNull();
+    expect(container.querySelector('[data-testid="tool-superseded-badge"]')).toBeNull();
+    const superseded = renderStep({ status: "complete", toolDetails: { healedBy: "superseded" } });
+    const supersededText = superseded.container.querySelector('[data-testid="tool-superseded-badge"]')?.textContent;
+    expect(badge?.textContent).toBeTruthy();
+    expect(badge?.textContent).not.toBe(supersededText);
+  });
+
   it("omits the 'recovered' badge for a normal completion", () => {
     const { container } = renderStep({ status: "complete" });
     expect(container.querySelector('[data-testid="tool-superseded-badge"]')).toBeNull();

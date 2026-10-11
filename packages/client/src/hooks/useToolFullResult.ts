@@ -33,13 +33,15 @@ export function useToolFullResult(sessionId: string | undefined, toolCallId: str
     try {
       const res = await fetch(`${getApiBase()}/api/sessions/${sessionId}/tool-result/${encodeURIComponent(toolCallId)}`);
       if (!res.ok) {
+        // `404` (in flight / unknown) and `410` (recorded eviction) both read as
+        // "result evicted" ahead of the server's raw body text.
+        // See change: distinguish-tool-result-pending-vs-gone (D7).
+        if (res.status === 404 || res.status === 410) {
+          setError(t("tool.resultEvicted", undefined, "result evicted"));
+          return;
+        }
         const body = await res.json().catch(() => ({}));
-        setError(
-          body?.error ||
-            (res.status === 404
-              ? t("tool.resultEvicted", undefined, "result evicted")
-              : t("tool.loadFullOutputFailed", undefined, "failed to load full output")),
-        );
+        setError(body?.error || t("tool.loadFullOutputFailed", undefined, "failed to load full output"));
         return;
       }
       const body = await res.json();
