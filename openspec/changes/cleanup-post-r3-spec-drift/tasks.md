@@ -159,4 +159,4 @@ Red-first. Every test below is written before 1.2 and must fail first, except E4
   Verify:
   - `for f in packages/shared/src/doctor-core.ts.AGENTS.md packages/shared/src/browser-protocol.ts.AGENTS.md packages/shared/src/recommended-extensions.ts.AGENTS.md packages/shared/src/tool-registry/AGENTS.md packages/shared/src/platform/AGENTS.md packages/electron/AGENTS.md; do grep -q cleanup-post-r3-spec-drift $f || echo MISSING $f; done` prints nothing;
   - `git grep -n "BootstrapStateSnapshot" -- '*AGENTS.md' ':!packages/electron/resources/**'` returns nothing.
-- [ ] 4.5 Run the `review-code` skill on the diff, then `npm run quality:changed`. Verify there are no unresolved blocker/major review findings and `quality:changed` exits 0.
+- [x] 4.5 Run the `review-code` skill on the diff, then `npm run quality:changed`. Verify there are no unresolved blocker/major review findings and `quality:changed` exits 0.
