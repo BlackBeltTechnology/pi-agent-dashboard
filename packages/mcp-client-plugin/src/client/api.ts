@@ -18,22 +18,42 @@ export interface ScopeWire {
   cwd?: string;
 }
 
+/**
+ * Wire form of a scope. Picks fields explicitly so a server-side `admission`
+ * token (request-scoped, never on the wire) can never be serialized, even if a
+ * caller hands in a scope that carries one. See change: harden-plugin-cwd-admission.
+ */
 export function scopeToWire(scope: Scope): ScopeWire {
   return scope.kind === "global" ? { scope: "global" } : { scope: "project", cwd: scope.cwd };
 }
+
+/** The 503 code the server answers when it could not DECIDE cwd admission. */
+const ADMISSION_UNAVAILABLE_CODE = "cwd-admission-unavailable";
 
 /** A refusal from any route, carrying the closed `error` code + optional fields. */
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
   readonly fields: string[];
+  /** Server-suggested base retry delay for a transient refusal (ms). */
+  readonly retryAfterMs: number | undefined;
 
-  constructor(status: number, code: string, message: string, fields?: string[]) {
+  constructor(status: number, code: string, message: string, fields?: string[], retryAfterMs?: number) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.fields = fields ?? [];
+    this.retryAfterMs = retryAfterMs;
+  }
+
+  /**
+   * The server could not decide cwd admission right now (503
+   * `cwd-admission-unavailable`). Transient: retry with backoff, and never read
+   * it as "not tracked". A genuine 403 stays {@link isNotAllowed}.
+   */
+  get isTransient(): boolean {
+    return this.status === 503 && this.code === ADMISSION_UNAVAILABLE_CODE;
   }
 
   /** A cwd outside the dashboard's known-folder set (403 `not-allowed`). */
@@ -46,6 +66,7 @@ interface ErrorBody {
   error?: unknown;
   message?: unknown;
   fields?: unknown;
+  retryAfterMs?: unknown;
 }
 
 async function failure(res: Response): Promise<ApiError> {
@@ -60,6 +81,7 @@ async function failure(res: Response): Promise<ApiError> {
     typeof body.error === "string" ? body.error : `http-${res.status}`,
     typeof body.message === "string" ? body.message : `request failed (${res.status})`,
     Array.isArray(body.fields) ? body.fields.filter((f): f is string => typeof f === "string") : [],
+    typeof body.retryAfterMs === "number" && body.retryAfterMs > 0 ? body.retryAfterMs : undefined,
   );
 }
 

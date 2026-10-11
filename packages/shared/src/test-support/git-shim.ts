@@ -34,6 +34,37 @@ export function makeGitShim(body: string): string {
 }
 
 /**
+ * A temp dir holding a `git` that sleeps `delayMs` and then execs the REAL git,
+ * so every probe takes at least `delayMs` while still answering truthfully.
+ * Resolve the real binary BEFORE putting the shim on PATH (the lookup would
+ * otherwise find the shim). Compose with {@link useGitPath} for an in-process
+ * test, or put the returned dir first on a spawned server's `PATH`.
+ *
+ * The runner resolves `git` through the tool registry, which caches one
+ * Resolution per tool: the shim only takes effect after `useGitPath`'s
+ * `rescan("git")`, or when it is on `PATH` at process start. POSIX shell only.
+ * See change: harden-plugin-cwd-admission.
+ */
+export function makeSlowGitShim(delayMs: number, realGit: string = resolveRealGit()): string {
+  const seconds = (delayMs / 1000).toFixed(3);
+  // `sleep & wait` so a SIGTERM ends the shim at once instead of leaving the
+  // delay running and the stdio pipes held open.
+  return makeGitShim(
+    `sleep ${seconds} &\nslp=$!\ntrap 'kill $slp 2>/dev/null; exit 143' TERM\nwait $slp\nexec ${JSON.stringify(realGit)} "$@"`,
+  );
+}
+
+/**
+ * Absolute path of the `git` the shared runner currently resolves. Call it BEFORE
+ * `useGitPath(shim)`: afterwards the registry resolves the shim itself.
+ */
+export function resolveRealGit(): string {
+  const r = getDefaultRegistry().resolveExecutor("git");
+  if (!r.ok || r.argv.length === 0) throw new Error("git is not resolvable");
+  return r.argv[0];
+}
+
+/**
  * Prepend `dir` to PATH, or — when `dir` is `null` — make git UNAVAILABLE by
  * replacing PATH with an empty directory and `SHELL` with a nonexistent binary.
  * Rescans the registry so the cached `git` Resolution cannot mask the change.

@@ -457,6 +457,65 @@ test.describe.serial("access-grant prompt dialog (add-access-grant-dialog 10g)",
     }
   });
 
+  // harden-plugin-cwd-admission, test-plan #F11: a user-initiated plugin write for an
+  // unpinned existing non-repo directory raises the cwd dialog, and "Always allow"
+  // completes the SAME request. The page's own `fetch` carries the capability, so the
+  // PUT is held exactly as the MCP editor's save is. (The folder page for an unknown
+  // cwd renders "not tracked" with no editor, so the editor's request is driven directly.)
+  test("F11: saving an MCP server for an unpinned folder asks; Always allow pins it and the save succeeds", async ({
+    page,
+  }) => {
+    const dir = "/tmp/e2e-mcp-x";
+    inContainer(`
+      const fs = require("node:fs");
+      fs.rmSync(${JSON.stringify(dir)}, { recursive: true, force: true });
+      fs.mkdirSync(${JSON.stringify(dir)}, { recursive: true });
+    `);
+    const pinned = (): string[] =>
+      JSON.parse(
+        inContainer(`
+          fetch("http://127.0.0.1:${DASHBOARD_PORT}/api/pinned-dirs")
+            .then((r) => r.json()).then((j) => process.stdout.write(JSON.stringify(j.data)));
+        `),
+      );
+    expect(pinned()).not.toContain(dir);
+    try {
+      await openDashboard(page);
+      await page.goto(`/folder/${encodeURIComponent(dir)}/mcp`);
+      await expect(page.getByTestId("mcp-folder-not-allowed")).toBeVisible({ timeout: 15_000 });
+
+      const key = `k${Math.random().toString(36).slice(2)}`;
+      await page.evaluate(
+        ([k, d]) => {
+          (window as unknown as Record<string, Promise<number>>)[k] = fetch("/api/mcp-client/servers/e2e", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ scope: "project", cwd: d, entry: { command: "echo", args: ["e2e"] }, create: true }),
+          }).then((r) => r.status);
+        },
+        [key, dir],
+      );
+      await expect(dialog(page)).toBeVisible({ timeout: 15_000 });
+      await expect(dialog(page).getByTestId("grant-dialog-subject")).toHaveText(dir);
+      await dialog(page).getByTestId("grant-allow-always").click();
+      await expect(dialog(page)).toHaveCount(0);
+      expect(await page.evaluate((k) => (window as unknown as Record<string, Promise<number>>)[k], key)).toBe(200);
+      expect(pinned()).toContain(dir);
+    } finally {
+      // Leave the shared container as found: unpin (the same WS verb the sidebar's
+      // unpin uses) and remove the directory, so the test is re-runnable.
+      inContainer(`
+        const ws = new WebSocket("ws://127.0.0.1:${DASHBOARD_PORT}/ws");
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ type: "unpin_directory", path: ${JSON.stringify(dir)} }));
+          setTimeout(() => process.exit(0), 500);
+        };
+        setTimeout(() => process.exit(0), 5000);
+      `);
+      inContainer(`require("node:fs").rmSync(${JSON.stringify(dir)}, { recursive: true, force: true });`);
+    }
+  });
+
   test("10.62c / #E55: a browser issued no capability is told it will not receive dialogs", async ({ page }) => {
     await page.routeWebSocket(/\/ws(\?|$)/, (ws) => {
       const server = ws.connectToServer();

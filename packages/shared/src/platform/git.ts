@@ -15,12 +15,12 @@
  * See change: platform-command-executor.
  */
 import { realpathSync } from "node:fs";
-import { realpath as realpathAsync } from "node:fs/promises";
+import { realpath as fsRealpath } from "node:fs/promises";
 import path from "node:path";
 import type { GitPrChecks, GitPrState, GitStatus } from "../types.js";
 import { type CheckRollupEntry, collapseCheckRollup } from "./check-rollup.js";
 import { normalizePath, samePath } from "./paths.js";
-import { type Recipe, type Result, run, runAsync, unwrap } from "./runner.js";
+import { type Recipe, type Result, type RunCtx, run, runAsync, unwrap } from "./runner.js";
 
 /**
  * Parse `git status --porcelain=v2 --branch` stdout into a `GitStatus`.
@@ -739,7 +739,7 @@ function realpathOrNull(p: string): string | null {
 /** `fs.promises.realpath`, or `null` when the path does not exist. */
 async function realpathOrNullAsync(p: string): Promise<string | null> {
   try {
-    return await realpathAsync(p);
+    return await fsRealpath(p);
   } catch {
     return null;
   }
@@ -758,7 +758,7 @@ function canonical(p: string, platform: NodeJS.Platform): string {
  * loop outside every git probe timeout — the same DoS the async PROBES exist to
  * avoid. `fs.promises.realpath` keeps the whole path non-blocking.
  */
-async function canonicalAsync(p: string, platform: NodeJS.Platform): Promise<string> {
+export async function canonicalAsync(p: string, platform: NodeJS.Platform = process.platform): Promise<string> {
   return normalizePath((await realpathOrNullAsync(p)) ?? p, platform);
 }
 
@@ -876,6 +876,206 @@ export async function isBoundCheckoutAsync(
     reResolved?.thisCheckout ? canonicalAsync(reResolved.thisCheckout, platform) : Promise.resolve(null),
   ]);
   return bindDecision(candidateCanon, commonCanon, reResolved, reCommonCanon, reThisCanon, platform);
+}
+
+// ── Classified resolution (harden-plugin-cwd-admission) ─────────────────────
+// The unclassified resolvers above collapse a probe that did not COMPLETE
+// (timeout, spawn failure, …) into the same "no result" as a definitive
+// "not a repository". An authorization consumer must tell them apart: a
+// failure to decide is not a refusal. The classified twins below share the
+// resolution core and read `Result.error.kind` per probe; nothing above changes.
+
+/** `fs.promises.realpath` outcome that keeps the errno. */
+export type RealpathOutcome =
+  | { kind: "ok"; path: string }
+  /** `ENOENT` / `ENOTDIR`: the path (or a parent) does not exist. */
+  | { kind: "missing" }
+  /** Any other failure (`EACCES`, `ELOOP`, …): existence is undecided. */
+  | { kind: "error"; code: string };
+
+/** Errno-reporting async realpath. Unlike `realpathOrNullAsync` it never swallows a non-ENOENT error. */
+export async function realpathAsync(p: string): Promise<RealpathOutcome> {
+  try {
+    return { kind: "ok", path: await fsRealpath(p) };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code ?? "UNKNOWN";
+    if (code === "ENOENT" || code === "ENOTDIR") return { kind: "missing" };
+    return { kind: "error", code };
+  }
+}
+
+/** Runs one git recipe. Production uses `runAsync`; tests inject Results. */
+export type GitProbeRunner = <I, O>(recipe: Recipe<I, O>, input: I, ctx: RunCtx) => Promise<Result<O>>;
+
+/** Options shared by the classified resolver and binding check. */
+export interface ClassifiedGitOptions {
+  /** Per-probe timeout. */
+  timeout?: number;
+  /** Aborting terminates in-flight probes (see `RunCtx.signal`). */
+  signal?: AbortSignal;
+  /** Called once per probe before it is issued. Paired with `onProbeEnd`. */
+  onProbeStart?: () => void;
+  /** Called once per probe when its child process has ended (or never started). */
+  onProbeEnd?: () => void;
+  /** Injected runner (tests). Defaults to `runAsync`. */
+  runner?: GitProbeRunner;
+  /** Injected errno-reporting realpath (tests). Defaults to {@link realpathAsync}. */
+  realpath?: (p: string) => Promise<RealpathOutcome>;
+}
+
+/** Three-way outcome of the classified checkout-root resolution. */
+export type ClassifiedCheckoutRoots =
+  | { kind: "roots"; roots: GitCheckoutRoots }
+  /** Definitive: a required probe completed with a non-zero exit — not a repository. */
+  | { kind: "none" }
+  /** A needed probe did not complete or gave an untrustworthy answer. */
+  | { kind: "failed"; failedProbes: string[] };
+
+/** Three-way outcome of the classified repository-binding check. */
+export type ClassifiedBinding =
+  | { kind: "bound" }
+  | { kind: "unbound" }
+  | { kind: "failed"; failedProbes: string[] };
+
+/** Issue one probe through the (possibly injected) runner, pairing start/end exactly once. */
+function classifiedRunner(opts: ClassifiedGitOptions): <I, O>(recipe: Recipe<I, O>, input: I) => Promise<Result<O>> {
+  const runner = opts.runner ?? runAsync;
+  const injected = opts.runner !== undefined;
+  return async <I, O>(recipe: Recipe<I, O>, input: I): Promise<Result<O>> => {
+    let ended = false;
+    const end = () => {
+      if (ended) return;
+      ended = true;
+      opts.onProbeEnd?.();
+    };
+    opts.onProbeStart?.();
+    try {
+      return await runner(recipe, input, {
+        cwd: (input as WithCwd).cwd,
+        timeout: opts.timeout,
+        signal: opts.signal,
+        onClose: end,
+      });
+    } finally {
+      // The real runner reports process exit through `onClose`; an injected one
+      // has no process, so settling is the end — unless the probe was aborted,
+      // where a process may still be dying and only `onClose` may say so.
+      if (injected && !opts.signal?.aborted) end();
+    }
+  };
+}
+
+/**
+ * Classified async twin of {@link checkoutRootsAsync}. Same resolution core,
+ * different probe adapter (design D1):
+ *
+ * - `--git-dir` / `--git-common-dir`: non-zero `exit` → definitive "not a repository";
+ *   any other error kind → failed.
+ * - `--show-toplevel`: `exit` → `thisCheckout = null` (bare); other kinds → failed.
+ * - `config core.worktree` / `core.bare`: only the tolerated "unset" is an answer;
+ *   ANY other error (including `exit` ≠ 1, e.g. 128 for a corrupt config) → failed.
+ *
+ * Any failed probe makes the whole resolution `failed`: it is never read as an
+ * unset value and never falls through to a weaker derivation rule.
+ */
+export async function checkoutRootsClassifiedAsync(
+  input: WithCwd,
+  opts: ClassifiedGitOptions = {},
+): Promise<ClassifiedCheckoutRoots> {
+  const exec = classifiedRunner(opts);
+  const failed: string[] = [];
+  const fail = (name: string) => {
+    if (!failed.includes(name)) failed.push(name);
+  };
+  const roots = await resolveCheckoutRootsFromAsync({
+    gitDir: async () => {
+      const r = await exec(GIT_DIR_ABS, input);
+      if (r.ok) return r.value;
+      if (r.error.kind !== "exit") fail("git-dir");
+      return undefined;
+    },
+    commonDir: async () => {
+      const r = await exec(GIT_COMMON_DIR_ABS, input);
+      if (r.ok) return r.value;
+      if (r.error.kind !== "exit") fail("git-common-dir");
+      return undefined;
+    },
+    topLevel: async () => {
+      const r = await exec(GIT_TOPLEVEL, input);
+      if (r.ok) return r.value;
+      if (r.error.kind !== "exit") fail("show-toplevel");
+      return undefined;
+    },
+    localCoreWorktree: async (commonDir) => {
+      const r = await exec(GIT_CONFIG_LOCAL_CORE_WORKTREE, { cwd: input.cwd, gitDir: commonDir });
+      if (r.ok) return r.value;
+      fail("config core.worktree");
+      return undefined;
+    },
+    localCoreBare: async (commonDir) => {
+      // A failed earlier read already decides the outcome: do not spend a spawn.
+      if (failed.length > 0) return "unknown";
+      const r = await exec(GIT_CONFIG_LOCAL_CORE_BARE, { cwd: input.cwd, gitDir: commonDir });
+      if (!r.ok) {
+        fail("config core.bare");
+        return "unknown";
+      }
+      return r.value === "true" ? "bare" : "not-bare";
+    },
+  });
+  if (failed.length > 0) return { kind: "failed", failedProbes: failed };
+  return roots ? { kind: "roots", roots } : { kind: "none" };
+}
+
+/**
+ * Errno-aware canonicalization for a binding compare: follow symlinks, fall back to the
+ * normalized path only when it does not exist, and report `null` for any OTHER failure
+ * (the check cannot be decided — unlike {@link canonicalAsync}, which swallows it).
+ */
+async function canonicalClassified(
+  p: string,
+  platform: NodeJS.Platform,
+  realpath: (p: string) => Promise<RealpathOutcome>,
+): Promise<string | null> {
+  const r = await realpath(p);
+  if (r.kind === "error") return null;
+  return normalizePath(r.kind === "ok" ? r.path : p, platform);
+}
+
+/**
+ * Classified twin of {@link isBoundCheckoutAsync}: `bound`, `unbound`, or
+ * `failed` when the candidate's re-resolution could not complete. The
+ * unclassified twin keeps returning `false` for both unbound and failed.
+ */
+export async function bindCheckoutClassifiedAsync(
+  candidate: string,
+  commonDir: string,
+  opts: ClassifiedGitOptions = {},
+): Promise<ClassifiedBinding> {
+  const platform = process.platform;
+  const realpath = opts.realpath ?? realpathAsync;
+  const real = await realpath(candidate);
+  if (real.kind === "missing") return { kind: "unbound" };
+  if (real.kind === "error") return { kind: "failed", failedProbes: ["realpath"] };
+  if (hasGitPathSegment(real.path)) return { kind: "unbound" };
+  const re = await checkoutRootsClassifiedAsync({ cwd: real.path }, opts);
+  if (re.kind === "failed") return re;
+  if (re.kind === "none") return { kind: "unbound" };
+  const reResolved = re.roots;
+  const [candidateCanon, commonCanon, reCommonCanon, reThisCanon] = await Promise.all([
+    canonicalClassified(real.path, platform, realpath),
+    canonicalClassified(commonDir, platform, realpath),
+    canonicalClassified(reResolved.commonDir, platform, realpath),
+    reResolved.thisCheckout ? canonicalClassified(reResolved.thisCheckout, platform, realpath) : Promise.resolve(""),
+  ]);
+  // A needed canonicalization that failed for a reason other than non-existence is a
+  // failure to DECIDE, not an "unbound" answer.
+  if (candidateCanon === null || commonCanon === null || reCommonCanon === null || reThisCanon === null) {
+    return { kind: "failed", failedProbes: ["realpath"] };
+  }
+  return bindDecision(candidateCanon, commonCanon, reResolved, reCommonCanon, reThisCanon || null, platform)
+    ? { kind: "bound" }
+    : { kind: "unbound" };
 }
 
 export function diff(input: WithCwd & { path: string; ref?: string }): Result<string> {

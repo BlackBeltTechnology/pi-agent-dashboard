@@ -8,7 +8,7 @@ Every kb-plugin operation that opens a KB store or touches disk is driven by an 
 
 ### Requirement: Known-folder admission
 
-The cwd guard SHALL admit a `cwd` only when it matches the host-provided known-folder set — the union of active session cwds and pinned directories — or is admitted by the git-repo-main rule below, and SHALL reject every other `cwd`. When the host does not provide the known-folder service, the guard SHALL fall back to admitting active session cwds alone.
+The cwd guard SHALL admit a `cwd` only when it matches the host-provided known-folder set — the union of active session cwds and pinned directories — or is admitted by the git-repo-main rule below, and SHALL reject every other `cwd` whose admission it could decide. When a git probe needed to decide admission fails (timeout, spawn error, missing binary), the guard SHALL neither admit nor reject: the outcome is indeterminate (`plugin-cwd-admission`) and the route SHALL respond `503` with `error: "cwd-admission-unavailable"`. When the host does not provide the known-folder service, the guard SHALL fall back to admitting active session cwds alone.
 
 #### Scenario: Known cwd admitted
 - **WHEN** a request carries a `cwd` that is present in the known-folder set
@@ -17,11 +17,16 @@ The cwd guard SHALL admit a `cwd` only when it matches the host-provided known-f
 #### Scenario: Unknown cwd rejected before any disk access
 - **WHEN** a request carries a `cwd` that is not in the known-folder set and does not resolve to a git repo whose main working tree is a known folder
 - **THEN** the guard responds `403` with body `{ "error": "cwd not allowed" }`
-- **AND** no store is opened and no disk read is performed
+- **AND** no store is opened and no config or trust-store read is performed
 
 #### Scenario: Missing cwd rejected
 - **WHEN** a request omits the `cwd` parameter
 - **THEN** the guard responds `400` with body `{ "error": "Missing cwd" }`
+
+#### Scenario: Undecidable cwd is neither admitted nor rejected
+- **WHEN** a request carries a `cwd` that is not directly known and the git probe deciding its main checkout times out
+- **THEN** the route responds `503` with `error: "cwd-admission-unavailable"`
+- **AND** no store is opened and no config or trust-store read is performed
 
 ### Requirement: Canonicalization defeats symlink and traversal aliases
 
@@ -78,8 +83,12 @@ authorization consumer, which SHALL NOT assume the resolver filtered the value. 
 the case in which a repository-local `core.worktree` names an unrelated KNOWN folder to
 admit an otherwise-unknown `cwd`.
 
-When no `mainCheckout` resolves — a worktree of a bare repository, or a failed probe — the
-guard SHALL derive no main path, yielding rejection unless the cwd is independently known. A
+When no `mainCheckout` DEFINITIVELY resolves — a worktree of a bare repository, or probes
+that complete without naming a bound main checkout — the guard SHALL derive no main path,
+yielding rejection unless the cwd is independently known. A FAILED probe (timeout, spawn
+error) is NOT a definitive answer: the guard SHALL classify the admission as indeterminate
+(`plugin-cwd-admission`), SHALL NOT admit, and SHALL NOT reject with `403`; the HTTP route
+SHALL respond `503` with `error: "cwd-admission-unavailable"`. A
 submodule SHALL NOT inherit trust from its superproject: it is an independent project whose
 `mainCheckout` is its own checkout, so it SHALL be admitted only by being a known folder in
 its own right, or by its own checkout being one.
@@ -150,6 +159,12 @@ its own right, or by its own checkout being one.
 - **THEN** the indexer reads the outside source and writes the outside database — demonstrating that admission is authority over configured paths, not over the `cwd` subtree
 - **AND** this measured reach is the reason the binding check SHALL reject rather than tolerate an unbound `mainCheckout`
 
+#### Scenario: A timed-out probe is not a refusal
+- **GIVEN** `/repo` is a known folder and `/repo/.worktrees/w` is a linked worktree of it that is not itself known
+- **WHEN** a request carries `cwd = /repo/.worktrees/w` and a checkout-root probe times out
+- **THEN** the guard SHALL NOT admit the cwd and SHALL NOT open a store
+- **AND** the route SHALL respond `503` with `error: "cwd-admission-unavailable"`, not `403`
+
 ### Requirement: Config patch shape validation
 
 The `config.set` plugin_action SHALL reject a patch that is missing, not a plain object, or an array — before any config merge or disk write. Arrays and non-objects SHALL NOT be treated as valid patches even though a bare `typeof` check would pass an array.
@@ -160,7 +175,7 @@ The `config.set` plugin_action SHALL reject a patch that is missing, not a plain
 
 ### Requirement: Uniform enforcement across entry points
 
-The cwd guard SHALL apply the same admission logic to every cwd-scoped operation that opens a store, reads source status, grants trust, or writes config. This holds whether the operation arrives as a REST route (`GET /api/kb/stats`, `POST /api/kb/reindex`, `GET`/`PUT /api/kb/config`, `GET /api/kb/search`, `GET /api/kb/sources`, `POST /api/kb/source-trust`) or as a browser `plugin_action` message. The guard SHALL run before the operation's core is invoked. The global, non-cwd-scoped trust revocation route `DELETE /api/kb/source-trust` is outside this requirement and unchanged.
+The cwd guard SHALL apply the same admission logic to every cwd-scoped operation that opens a store, reads source status, grants trust, or writes config. This holds whether the operation arrives as a REST route (`GET /api/kb/stats`, `POST /api/kb/reindex`, `GET`/`PUT /api/kb/config`, `GET /api/kb/search`, `GET /api/kb/sources`, `POST /api/kb/source-trust`) or as a browser `plugin_action` message. The guard SHALL run before the operation's core is invoked, and before any preflight, config load, store open, or trust-store read. An indeterminate admission SHALL be handled on every entry point without running the operation: a REST route responds `503 cwd-admission-unavailable`; a `plugin_action` handler logs a warning stating that admission was unavailable and returns without running the action. A `plugin_action` SHALL NOT raise an access prompt. The global, non-cwd-scoped trust revocation route `DELETE /api/kb/source-trust` is outside this requirement and unchanged.
 
 #### Scenario: REST route guarded before store open
 - **WHEN** any cwd-scoped `/api/kb/*` route receives a request
@@ -170,6 +185,15 @@ The cwd guard SHALL apply the same admission logic to every cwd-scoped operation
 #### Scenario: plugin_action guarded before core invocation
 - **WHEN** a `plugin_action` message for the kb plugin carries a `cwd` that is not admitted
 - **THEN** the handler logs a warning and returns without running reindex, config mutation, or trust grants
+
+#### Scenario: plugin_action with an undecidable cwd
+- **WHEN** a `plugin_action` message for the kb plugin carries a `cwd` whose admission is indeterminate
+- **THEN** the handler logs a warning stating that cwd admission was unavailable and returns without running reindex, config mutation, or trust grants
+- **AND** no access prompt is raised
+
+#### Scenario: Write route admission precedes preflight
+- **WHEN** `PUT /api/kb/config` arrives for a `cwd` whose admission is indeterminate
+- **THEN** the route responds `503` before any config file is loaded or validated
 
 ### Requirement: Trust grants limited to saved config specs
 

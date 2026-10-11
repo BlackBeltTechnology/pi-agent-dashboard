@@ -29,3 +29,4 @@ KB retrieval pipeline (FTS5 BM25 staged rerank). Pi Gateway Transport & Identity
 `### Plugin Session Lifecycle Declarations (hide-chat-gateway-sessions)`: `PluginSpawnOptions.lifecycle` (`recover`/`finalizeOnSocketClose`/`hidden`); `hidden` persisted; not re-applied on reattach; `pluginHidden` survives restart; `ServerPluginContext.shutdownSession` (trusted `priority<=100`; reuses `browserGateway.shutdownSession`). See change: hide-chat-gateway-sessions, fix-plugin-hidden-across-restart, chat-gateway-close-command.
 
 TS loader §: native default, jiti opt-in. See change: fix-appimage-cold-boot-latency.
+- `### Plugin cwd admission`: async tri-state `admitCwd` (`admit`|`refuse`|`indeterminate`); `indeterminate` → 503 `cwd-admission-unavailable` + `Retry-After: 1`, never admits. `holdCwdDenial` seam; verdict re-run `resolveCwdVerdict`. See change: harden-plugin-cwd-admission.

@@ -62,4 +62,6 @@ Constructs `PasskeyService` (directory `~/.pi/dashboard/users.json`, `resolveRpC
 
 Creates the `local-credential` verifier (`acceptLegacyToken: true`), stamps at the first `onRequest` hook and at the top of the main `upgrade` handler, `httpBoundAt` before `listen`, passes `config.host` to `setSpawnDashboardPiPort`. See change: loopback-credential-proof (D4, D7, D9).
 
+Per-plugin `holdCwdDenial: createCwdHold(...)` beside `registerCwdPolicy` (`priority <= 100` gate); publishes `host.cwdAdmissionOnIndeterminate` (throttled `[cwd-admission] indeterminate` logger). See change: harden-plugin-cwd-admission.
+
 Creates `inFlightToolCalls` + `toolResultStats`; passes to `wireEvents`, `registerSessionRoutes`, `registerSystemRoutes`. See change: distinguish-tool-result-pending-vs-gone.

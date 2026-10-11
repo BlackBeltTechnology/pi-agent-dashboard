@@ -55,6 +55,8 @@ import { snapshotAccessGrantHealth } from "./access/access-health.js";
 import { AccessPlaneRegistry, isGrantPromptKilled } from "./access/access-plane.js";
 import { shouldIssuePromptCapability } from "./access/capability-issuance.js";
 import { createCorsDenialObserver } from "./access/cors-denial.js";
+import { createIndeterminateLogger } from "./access/cwd-admission-log.js";
+import { createCwdHold } from "./access/cwd-verdict.js";
 import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
 import { ensureGrantStoreId } from "./access/grant-store-id.js";
@@ -1411,6 +1413,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     for (const d of preferencesStore.getPinnedDirectories()) set.add(d);
     return [...set];
   });
+  // `indeterminate` plugin cwd admissions (a git probe that did not complete)
+  // are worth a log line — today they are invisible — but throttled per cwd and
+  // LRU-bounded. Plugins pass this as `admitCwd`'s `onIndeterminate`.
+  // See change: harden-plugin-cwd-admission (D7).
+  const cwdAdmissionLogger = createIndeterminateLogger({ warn: (m) => console.warn(m) });
+  pluginServiceRegistry.set("host.cwdAdmissionOnIndeterminate", cwdAdmissionLogger);
   // pi's project-trust rule as a SESSION applies it (recorded decision, else
   // `defaultProjectTrust`), consumed by mcp-client to decide whether a
   // folder's `.pi/mcp.json` is active. Resolved once; an unresolvable pi reads
@@ -3382,6 +3390,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 if (!trusted) return;
                 cwdPolicyRegistry.register(plugin.manifest.id, cwd, policy);
               },
+              // Raise the `cwd` access dialog for a user-initiated write whose cwd
+              // the plugin's guard refused. Same trust gate as registerCwdPolicy
+              // (priority <= 100); an untrusted plugin's hook resolves `refuse`
+              // without raising anything. See change: harden-plugin-cwd-admission.
+              holdCwdDenial: createCwdHold({
+                pluginId: plugin.manifest.id,
+                trusted: (plugin.manifest.priority ?? 1000) <= 100,
+                known: pluginServiceRegistry.get("host.knownFolderCwds") as () => string[],
+                logger: { warn: (m) => console.warn(m) },
+                admitOptions: { onIndeterminate: cwdAdmissionLogger },
+              }),
               // Remove the caller's own cwd policy (owner-scoped, idempotent).
               // No-op for untrusted plugins. See change: add-plugin-spawn-scope.
               unregisterCwdPolicy: (cwd) => {

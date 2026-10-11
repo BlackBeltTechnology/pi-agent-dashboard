@@ -129,7 +129,7 @@ A worktree session groups under its `gitWorktree.mainPath` in the sidebar and th
 
 ### Requirement: KB row reflects index state
 
-The KB folder row SHALL derive its presentation from the folder's KB stats and from the outcome of any client-initiated reindex, distinguishing not-indexed, no-sources, missing, indexing, populated, stale, error, and denied states. A folder with zero configured sources SHALL NOT offer an index action that cannot index anything; it SHALL offer to configure sources instead. A folder that no longer exists SHALL offer no index action. A reindex that fails to complete — whether the server job errored or the client request itself was rejected for a reason other than cwd admission — SHALL surface a visible failed state, never a silent no-op. A cwd-admission refusal (a `403` from any `/api/kb/*` request for the folder whose body carries `error: "cwd not allowed"`) SHALL surface a distinct `denied` state, never the failed state, because no index was attempted and a retry cannot succeed. Activating the primary reindex action SHALL give immediate visible feedback (an optimistic indexing indicator) on click, before the server acknowledges, and SHALL disable the action for the duration of that pending window so a single click cannot start two jobs. The optimistic indicator SHALL always resolve into a real state (polled indexing, populated, failed, or denied) and SHALL never persist indefinitely.
+The KB folder row SHALL derive its presentation from the folder's KB stats and from the outcome of any client-initiated reindex, distinguishing not-indexed, no-sources, missing, indexing, populated, stale, error, and denied states. A folder with zero configured sources SHALL NOT offer an index action that cannot index anything; it SHALL offer to configure sources instead. A folder that no longer exists SHALL offer no index action. A reindex that fails to complete — whether the server job errored or the client request itself was rejected for a reason other than cwd admission — SHALL surface a visible failed state, never a silent no-op. A cwd-admission refusal (a `403` from any `/api/kb/*` request for the folder whose body carries `error: "cwd not allowed"`) SHALL surface a distinct `denied` state, never the failed state, because no index was attempted and a retry cannot succeed. A `503` whose body carries `error: "cwd-admission-unavailable"` is NOT a refusal and NOT a failure: the client SHALL keep the row's current or pending presentation and retry with backoff, entering the failed state with `Retry` only after the retries are exhausted, and SHALL never enter the `denied` state for it. Activating the primary reindex action SHALL give immediate visible feedback (an optimistic indexing indicator) on click, before the server acknowledges, and SHALL disable the action for the duration of that pending window so a single click cannot start two jobs. The optimistic indicator SHALL always resolve into a real state (polled indexing, populated, failed, or denied) and SHALL never persist indefinitely.
 
 #### Scenario: Empty worktree prompts indexing
 - **WHEN** folder `W` reports `indexed: false` and a `sourceCount` greater than `0` (or no `sourceCount`)
@@ -232,6 +232,14 @@ The KB folder row SHALL derive its presentation from the folder's KB stats and f
 #### Scenario: Old server without the new fields
 - **WHEN** the stats response for `C` carries neither `folderMissing` nor `sourceCount`
 - **THEN** the row behaves as before this change for the non-denied states (no `missing` or `no-sources` presentation)
+
+#### Scenario: Transient admission failure is retried, never denied
+- **WHEN** `GET /api/kb/stats?cwd=C` responds `503 { error: "cwd-admission-unavailable" }` and a later retry responds `200`
+- **THEN** the row never shows `denied` or `index failed` and settles to the state derived from the fresh stats
+
+#### Scenario: Transient admission failure exhausts retries
+- **WHEN** `GET /api/kb/stats?cwd=C` responds `503 { error: "cwd-admission-unavailable" }` on the initial attempt and on all 3 retries
+- **THEN** the row shows the failed state with a `Retry` action, not the `denied` state
 
 ### Requirement: KB config read route
 
@@ -370,7 +378,7 @@ The per-folder KB settings page (opened from the folder row's `→`) SHALL let t
 
 ### Requirement: KB cwd admission
 
-Every `/api/kb/*` route SHALL validate the query `cwd` against the host-provided known-folder set (live session cwds ∪ pinned directories) BEFORE opening a store or touching disk. The match SHALL be realpath-canonicalized on BOTH sides — the query `cwd` and each known folder are resolved to an absolute path and, best-effort, symlink-followed — so that two paths denoting the same directory match regardless of symlink traversal. In addition, when the direct match fails, a `cwd` that is a git worktree whose MAIN working-tree path is a known folder SHALL be admitted; the main path is derived server-side via git and never taken from client input. A `cwd` that is neither a known folder nor a git worktree of a known folder SHALL be rejected with `403`.
+Every `/api/kb/*` route SHALL validate the query `cwd` against the host-provided known-folder set (live session cwds ∪ pinned directories) BEFORE opening a store or touching disk. The match SHALL be realpath-canonicalized on BOTH sides — the query `cwd` and each known folder are resolved to an absolute path and, best-effort, symlink-followed — so that two paths denoting the same directory match regardless of symlink traversal. In addition, when the direct match fails, a `cwd` that is a git worktree whose MAIN working-tree path is a known folder SHALL be admitted; the main path is derived server-side via git and never taken from client input. A `cwd` that is neither a known folder nor a git worktree of a known folder SHALL be rejected with `403`. When the guard cannot decide admission because a git probe failed to complete (timeout, spawn failure, missing binary), the route SHALL respond `503` with `error: "cwd-admission-unavailable"` (`plugin-cwd-admission`) — neither admitting nor rejecting — and SHALL NOT open a store or touch disk.
 
 #### Scenario: Symlink-equivalent cwd matches a known folder
 - **WHEN** `GET /api/kb/stats?cwd=A` is called where `A` reaches a known folder `K` through a symlink (for example `/tmp` for a session/pinned `/private/tmp`)
@@ -393,3 +401,8 @@ Every `/api/kb/*` route SHALL validate the query `cwd` against the host-provided
 #### Scenario: Missing cwd is rejected
 - **WHEN** any `/api/kb/*` route is called with no `cwd` query parameter
 - **THEN** the request is rejected with `400`
+
+#### Scenario: Undecidable worktree is not rejected
+- **WHEN** `GET /api/kb/stats?cwd=W` is called for a worktree `W` of a known repository and the git probe deriving its main checkout times out
+- **THEN** the request is answered `503` with `error: "cwd-admission-unavailable"`, not `403`
+- **AND** no store is opened

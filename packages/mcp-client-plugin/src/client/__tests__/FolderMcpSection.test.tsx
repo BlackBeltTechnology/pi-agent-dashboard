@@ -5,12 +5,12 @@
  * "not tracked" state with the session-list retry, navigation, and surfaces.
  * See spec mcp-client-folder-section.
  */
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { FolderMcpSection, folderMcpUrl } from "../FolderMcpSection.js";
-import { __resetNotTrackedCache, invalidateEffective } from "../hooks.js";
+import { __resetNotTrackedCache, invalidateEffective, loadEffective } from "../hooks.js";
 
 const hoisted = vi.hoisted(() => ({ sessions: [] as Array<{ id: string }> }));
 
@@ -219,5 +219,73 @@ describe("navigation + placement", () => {
     const second = renderPill(side);
     const raised = await second.findByTestId("mcp-folder-pill");
     expect(raised.className).toContain("bg-[var(--bg-secondary)]");
+  });
+});
+
+
+// ── harden-plugin-cwd-admission: a 503 is transient, never "not tracked" ─────
+
+const UNAVAILABLE = {
+  error: "cwd-admission-unavailable",
+  message: "cwd admission could not be decided right now",
+  retryAfterMs: 1000,
+};
+
+describe("transient 503 cwd-admission-unavailable", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Fake timers + jitter pinned to 1.0×, so delays are exactly 1 s, 2 s, 4 s. */
+  function fakeBackoff() {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+  }
+  const advance = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+
+  it("F1: shows the placeholder while retrying, converges to the server count, and never records not-tracked", async () => {
+    fakeBackoff();
+    const cwd = nextCwd();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonErr(503, UNAVAILABLE))
+      .mockResolvedValueOnce(jsonOk(view(cwd, { servers: [row("a", { command: "a" }), row("b", { command: "b" })] })));
+    vi.stubGlobal("fetch", fetchMock);
+    const { queryByTestId, getByTestId } = renderPill(cwd);
+    await advance(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(queryByTestId("mcp-folder-pill-loading")).not.toBeNull(); // placeholder throughout
+    expect(queryByTestId("mcp-folder-pill-not-tracked")).toBeNull();
+    await advance(1000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getByTestId("mcp-folder-pill-count").textContent).toBe("2 servers");
+    expect(queryByTestId("mcp-folder-pill-not-tracked")).toBeNull();
+  });
+
+  it("F2: exhausted after 3 retries → error marker, no not-tracked, exactly 4 fetches, and nothing cached as refused", async () => {
+    fakeBackoff();
+    const cwd = nextCwd();
+    const fetchMock = vi.fn(async () => jsonErr(503, UNAVAILABLE));
+    vi.stubGlobal("fetch", fetchMock);
+    const { queryByTestId } = renderPill(cwd);
+    await advance(1000 + 2000 + 4000 + 1000); // (1+2+4 s) plus slack
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(queryByTestId("mcp-folder-pill-error")).not.toBeNull();
+    expect(queryByTestId("mcp-folder-pill-not-tracked")).toBeNull();
+    // A later load is a fresh request, not a replay of a cached refusal.
+    fetchMock.mockResolvedValue(jsonOk(view(cwd, { servers: [row("a", { command: "a" })] })));
+    await act(async () => void (await loadEffective(cwd)));
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it("F3: a genuine 403 not-allowed is 'not tracked' with no retry fetch", async () => {
+    fakeBackoff();
+    const cwd = nextCwd();
+    const fetchMock = vi.fn(async () => jsonErr(403, { error: "not-allowed", message: "cwd not allowed" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { getByTestId } = renderPill(cwd);
+    await advance(10_000);
+    expect(getByTestId("mcp-folder-pill-not-tracked")).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

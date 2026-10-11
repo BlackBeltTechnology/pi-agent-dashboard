@@ -9,3 +9,5 @@ Access-grant prompting (change: add-access-grant-dialog, tasks 6.2/6.3). The fiv
 - `/api/file/render` asciidoctor `attributes: { showtitle: "" }` → embedded output keeps `= Title` as `<h1>`.
 
 See change: surface-denial-remedy-in-previews — Every denial site passes `disclosure: canDiscloseAccessPosture(request)` (5 holding sites; `gateFilePath` opts + `gateOfficeFile` param, 7 call sites). `denialBody` copies `promptOutcome`.
+
+`unknownCwdVerdictAdmits` now holds with the REAL path as subject and re-runs `resolveCwdVerdict` (canonical compare against sessions ∪ pins; allow-once real-path re-resolution) instead of a pins-only check. See change: harden-plugin-cwd-admission.

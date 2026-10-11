@@ -34,6 +34,35 @@ function keyOf(cwd?: string): string {
   return cwd ?? "";
 }
 
+/** Retries after the first attempt when the server could not decide admission. */
+const TRANSIENT_MAX_RETRIES = 3;
+/** Base delay when the 503 carries no `retryAfterMs`. */
+const TRANSIENT_BASE_MS = 1000;
+
+/** Jittered exponential backoff: `base × 2^n × (0.75 + random × 0.5)` (~1 s, 2 s, 4 s ±25 %). */
+function transientDelayMs(err: ApiError, attempt: number): number {
+  return (err.retryAfterMs ?? TRANSIENT_BASE_MS) * 2 ** attempt * (0.75 + Math.random() * 0.5);
+}
+
+/**
+ * `fetchEffective` with the transient-503 retry chain. ONE chain per key: it
+ * lives inside the key's single in-flight promise, so N pills on one cwd make
+ * one chain. A transient error is retried while `isCurrent()` (a superseding
+ * `invalidate` / forced reload ends the chain); only after exhaustion is it
+ * surfaced, and it is NEVER recorded as "not tracked".
+ */
+async function fetchEffectiveWithRetry(cwd: string | undefined, isCurrent: () => boolean): Promise<EffectiveView> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetchEffective(cwd);
+    } catch (err) {
+      if (!(err instanceof ApiError && err.isTransient) || attempt >= TRANSIENT_MAX_RETRIES || !isCurrent()) throw err;
+      await new Promise<void>((resolve) => setTimeout(resolve, transientDelayMs(err, attempt)));
+      if (!isCurrent()) throw err;
+    }
+  }
+}
+
 /** Test-only: drop every cached 403 so each test starts from a clean slate. */
 export function __resetNotTrackedCache(): void {
   notTracked.clear();
@@ -56,7 +85,7 @@ export function loadEffective(
     const hit = cache.get(key);
     if (hit) return Promise.resolve(hit);
   }
-  const request = fetchEffective(cwd).then(
+  const request: Promise<EffectiveView> = fetchEffectiveWithRetry(cwd, () => inflight.get(key) === request).then(
     (view) => {
       // A superseded request (invalidated, or replaced by a forced reload) must
       // not repopulate the cache with a now-stale body.
@@ -68,9 +97,14 @@ export function loadEffective(
       return view;
     },
     (err: unknown) => {
-      if (inflight.get(key) === request) inflight.delete(key);
-      // Remember a cwd refusal so a remount / sibling pill does not re-ask.
-      if (err instanceof ApiError && err.isNotAllowed) notTracked.set(key, err);
+      // A SUPERSEDED request (invalidated by a pin-list change, or replaced by a forced
+      // reload) must not write state either way: its late 403 would otherwise shadow the
+      // newer request's success, because `notTracked` is consulted before the view cache.
+      if (inflight.get(key) === request) {
+        inflight.delete(key);
+        // Remember a cwd refusal so a remount / sibling pill does not re-ask.
+        if (err instanceof ApiError && err.isNotAllowed) notTracked.set(key, err);
+      }
       throw err;
     },
   );

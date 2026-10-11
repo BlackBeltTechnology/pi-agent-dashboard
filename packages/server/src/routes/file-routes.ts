@@ -10,12 +10,12 @@ import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import { realpathAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { type DenialRemedy, evaluateContainment } from "../access/containment-gate.js";
+import { resolveCwdVerdict } from "../access/cwd-verdict.js";
 import { type HoldTarget, holdDenial } from "../access/denial-hold.js";
-import { isUngrantableSubject } from "../access/forbidden-subjects.js";
-import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
 import {
   assertRegularFile,
   openVerifiedRegularFile,
@@ -23,6 +23,7 @@ import {
   readFileVerifiedUtf8,
   VerifiedReadRefused,
 } from "../access/verified-read.js";
+import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
 import { classifyPaths, createDirectory, listDirectories, parseFlagsQuery } from "../browse.js";
 import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
@@ -760,7 +761,11 @@ export function registerFileRoutes(
       // now contain it; `allow-once` admits exactly the named directory, for this
       // request only. Every other outcome returns the unchanged denial below.
       const cwdAdmitted =
-        knownCwds.has(cwd) || (await unknownCwdVerdictAdmits(cwd, { request, reply }, preferencesStore));
+        knownCwds.has(cwd) ||
+        (await unknownCwdVerdictAdmits(cwd, { request, reply }, () => [
+          ...sessionManager.listAll().map((s) => s.cwd),
+          ...preferencesStore.getPinnedDirectories(),
+        ]));
       if (!cwdAdmitted) {
         reply.code(403);
         // Additive remedy fields beside the unchanged `"unknown cwd"` string
@@ -1411,22 +1416,22 @@ export function registerFileRoutes(
 /**
  * Ask about an unknown-cwd denial and re-run the known-cwd guard on an allow
  * verdict (add-access-grant-dialog, task 6.2). Resolves `false` for anything but
- * an explicit allow that the re-run confirms.
+ * an explicit allow that the re-run confirms. The re-run is the shared
+ * `resolveCwdVerdict` (canonical compare against sessions ∪ pins, allow-once
+ * real-path re-resolution) — the same rules plugin holds use.
+ * See change: harden-plugin-cwd-admission.
  */
 async function unknownCwdVerdictAdmits(
   cwd: string,
   target: HoldTarget,
-  preferencesStore: { getPinnedDirectories(): string[] },
+  known: () => string[],
 ): Promise<boolean> {
-  const resolution = await holdDenial({ plane: "cwd", rawSubject: cwd, origin: "file-routes:exists" }, target);
-  if (resolution.kind !== "allow") return false;
-  const pinned = new Set(preferencesStore.getPinnedDirectories());
-  if (pinned.has(cwd) || pinned.has(path.resolve(cwd))) return true;
-  // Allow-once re-checks the forbidden rule itself: a transient admission must
-  // never reach a directory no grant could name.
-  return (
-    resolution.verdict === "allow-once" &&
-    resolution.subject === path.resolve(cwd) &&
-    !isUngrantableSubject(resolution.subject)
-  );
+  // The subject is the REAL path, so an allow-once can later be compared strictly against
+  // what the path means at release time. A cwd that does not resolve is never asked about:
+  // the post-verdict re-run refuses it whatever the operator answers (and a pin for a
+  // directory that is not there is meaningless) — the same rule the plugin seam applies.
+  const real = await realpathAsync(path.resolve(cwd));
+  if (real.kind !== "ok") return false;
+  const resolution = await holdDenial({ plane: "cwd", rawSubject: real.path, origin: "file-routes:exists" }, target);
+  return (await resolveCwdVerdict(cwd, resolution, { known })).kind === "admit";
 }

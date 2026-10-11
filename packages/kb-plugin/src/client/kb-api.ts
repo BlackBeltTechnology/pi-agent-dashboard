@@ -69,6 +69,24 @@ class KbCwdDeniedError extends Error {
   }
 }
 
+/**
+ * `503 { error: "cwd-admission-unavailable" }` — the server could not DECIDE
+ * cwd admission right now (a git probe did not complete). Transient: never the
+ * `denied` state, and idempotent GETs retry it with backoff. Discriminate by
+ * `code`, not `instanceof`. See change: harden-plugin-cwd-admission.
+ */
+const KB_ADMISSION_UNAVAILABLE_ERROR = "cwd-admission-unavailable";
+class KbAdmissionUnavailableError extends Error {
+  readonly code = "admission_unavailable" as const;
+  constructor(
+    message: string,
+    readonly retryAfterMs?: number,
+  ) {
+    super(message);
+    this.name = "KbAdmissionUnavailableError";
+  }
+}
+
 type KbPreconditionCode = "folder_missing" | "no_sources";
 
 /** `409 { error: "folder missing" | "no sources configured" }` — a write refused by its preflight. */
@@ -88,19 +106,29 @@ const PRECONDITION_CODES = new Map<string, KbPreconditionCode>([
 ]);
 
 // ── REST ──────────────────────────────────────────────────────────
+/** Throw the typed error for a non-OK JSON response (cwd refusal, admission 503, precondition, or generic). */
+function throwForFailure(
+  status: number,
+  json: { error?: string; reason?: string; hint?: string; retryAfterMs?: number },
+): never {
+  const err = json?.error;
+  if (status === 503 && err === KB_ADMISSION_UNAVAILABLE_ERROR) {
+    const retryAfterMs = typeof json.retryAfterMs === "number" && json.retryAfterMs > 0 ? json.retryAfterMs : undefined;
+    throw new KbAdmissionUnavailableError(err, retryAfterMs);
+  }
+  if (status === 403 && err === "cwd not allowed") throw new KbCwdDeniedError(err, json.reason, json.hint);
+  const precondition = status === 409 && err ? PRECONDITION_CODES.get(err) : undefined;
+  if (err && precondition) throw new KbPreconditionError(err, precondition);
+  throw new Error(err ?? `HTTP ${status}`);
+}
+
 async function parseJson<T>(res: Response): Promise<T> {
   const ct = res.headers.get("content-type") ?? "";
   if (!ct.includes("application/json")) {
     throw new Error(`HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`);
   }
-  const json = (await res.json()) as T & { error?: string; reason?: string; hint?: string };
-  if (!res.ok) {
-    const err = json?.error;
-    if (res.status === 403 && err === "cwd not allowed") throw new KbCwdDeniedError(err, json.reason, json.hint);
-    const precondition = res.status === 409 && err ? PRECONDITION_CODES.get(err) : undefined;
-    if (err && precondition) throw new KbPreconditionError(err, precondition);
-    throw new Error(err ?? `HTTP ${res.status}`);
-  }
+  const json = (await res.json()) as T & { error?: string; reason?: string; hint?: string; retryAfterMs?: number };
+  if (!res.ok) throwForFailure(res.status, json);
   return json;
 }
 

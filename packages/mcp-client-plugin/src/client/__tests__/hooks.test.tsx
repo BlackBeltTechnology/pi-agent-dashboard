@@ -5,8 +5,9 @@
  *   - the per-cwd 403 cache short-circuits refused folders.
  *   - `useLiveState` fetches `/live` on mount and on explicit refresh only.
  */
-import { cleanup, render, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, render, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { scopeToWire } from "../api.js";
 import {
   invalidateEffective,
   loadEffective,
@@ -130,5 +131,88 @@ describe("useLiveState — page view + explicit refresh only", () => {
     const { result } = renderHook(() => useLiveState());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.live).toBeNull();
+  });
+});
+
+
+// ── harden-plugin-cwd-admission ──────────────────────────────────────────────
+
+describe("scopeToWire never serializes an admission token (E22)", () => {
+  it("drops a server-side `admission` field from the wire body", () => {
+    const scope = { kind: "project", cwd: "/w", admission: { canonCwd: "/w", rawCwd: "/w" } } as never;
+    const json = JSON.stringify(scopeToWire(scope));
+    expect(json).toBe('{"scope":"project","cwd":"/w"}');
+    expect(json).not.toContain("admission");
+  });
+});
+
+describe("transient 503 retry chain is per key (F4)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("five components on one cwd share ONE chain: 503 then 200 is two fetches in total", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const unavailable = {
+      ok: false,
+      status: 503,
+      json: async () => ({ error: "cwd-admission-unavailable", message: "m", retryAfterMs: 1000 }),
+    } as unknown as Response;
+    const fetchMock = vi.fn().mockResolvedValueOnce(unavailable).mockResolvedValue(jsonOk(view()));
+    vi.stubGlobal("fetch", fetchMock);
+    function Pill() {
+      useEffectiveConfig("/shared-cwd");
+      return null;
+    }
+    render(
+      <>
+        <Pill />
+        <Pill />
+        <Pill />
+        <Pill />
+        <Pill />
+      </>,
+    );
+    await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => void (await vi.advanceTimersByTimeAsync(1000)));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    invalidateEffective("/shared-cwd");
+  });
+});
+
+
+describe("a superseded 403 never re-poisons the not-tracked cache (r2 B3)", () => {
+  it("out-of-order 403 (old request) after 200 (newer request) leaves the view cached and no refusal recorded", async () => {
+    const forbidden = {
+      ok: false,
+      status: 403,
+      json: async () => ({ error: "not-allowed", message: "cwd not allowed" }),
+    } as unknown as Response;
+    let rejectOld!: (r: Response) => void;
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => (rejectOld = resolve))) // old, still pending
+      .mockImplementationOnce(async () => jsonOk(view())); // newer
+    vi.stubGlobal("fetch", fetchMock);
+
+    const old = loadEffective("/race");
+    const oldSettled = old.then(
+      () => "ok",
+      () => "rejected",
+    );
+    // A pin-list change invalidates the pending request and a fresh load succeeds.
+    invalidateEffective("/race");
+    await loadEffective("/race");
+    // Now the SUPERSEDED request finally answers 403.
+    rejectOld(forbidden);
+    expect(await oldSettled).toBe("rejected");
+
+    // The newer success must still be what the store serves — no `notTracked` re-poisoning.
+    const again = await loadEffective("/race");
+    expect(again).toEqual(view());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    invalidateEffective("/race");
   });
 });

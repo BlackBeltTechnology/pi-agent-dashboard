@@ -60,6 +60,19 @@ export interface RunCtx {
   env?: NodeJS.ProcessEnv;
   /** Override timeout for this call (takes precedence over recipe.timeout). */
   timeout?: number;
+  /**
+   * `runAsync` only. Aborting terminates the child through the same SIGTERM →
+   * SIGKILL path as the timeout and settles the call with an `aborted` error
+   * immediately; late output is ignored. An already-aborted signal settles
+   * without spawning. See change: harden-plugin-cwd-admission.
+   */
+  signal?: AbortSignal;
+  /**
+   * `runAsync` only. Called exactly once when the child process has ended
+   * (`close`/`error`) or was never started. Lets a caller bound live processes
+   * rather than live promises: an aborted call settles before its child exits.
+   */
+  onClose?: () => void;
 }
 
 /** Discriminated error type surfaced by `run()`. */
@@ -68,7 +81,9 @@ export type ExecError =
   | { kind: "timeout"; timeoutMs: number; binary: string; stdout?: string; stderr?: string }
   | { kind: "exit"; code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }
   | { kind: "spawn-failure"; message: string }
-  | { kind: "output-too-large"; binary: string; limitBytes: number; message: string };
+  | { kind: "output-too-large"; binary: string; limitBytes: number; message: string }
+  /** `runAsync` was cancelled through `RunCtx.signal`. */
+  | { kind: "aborted"; binary: string; message: string };
 
 /** Typed Result — no thrown exceptions for the 4 error kinds above. */
 export type Result<T> = { ok: true; value: T } | { ok: false; error: ExecError };
@@ -363,12 +378,18 @@ export function runAsync<Input, Output>(
 ): Promise<Result<Output>> {
   const argv = recipe.argv(input);
   if (argv.length === 0) {
+    ctx.onClose?.();
     return Promise.resolve({ ok: false, error: { kind: "spawn-failure", message: "Recipe produced empty argv" } });
   }
 
   const [rawCmd, ...recipeArgs] = argv;
+  if (ctx.signal?.aborted) {
+    ctx.onClose?.();
+    return Promise.resolve({ ok: false, error: { kind: "aborted", binary: rawCmd, message: `${rawCmd} aborted` } });
+  }
   const execArgv = resolveExecutorArgv(rawCmd, recipeArgs);
   if (!execArgv) {
+    ctx.onClose?.();
     return Promise.resolve({ ok: false, error: { kind: "not-found", binary: rawCmd } });
   }
 
@@ -384,6 +405,12 @@ export function runAsync<Input, Output>(
     let stdout = "";
     let stderr = "";
     let settled = false;
+    let closed = false;
+    const closeOnce = () => {
+      if (closed) return;
+      closed = true;
+      ctx.onClose?.();
+    };
     const settle = (r: Result<Output>) => {
       if (settled) return;
       settled = true;
@@ -399,6 +426,7 @@ export function runAsync<Input, Output>(
         ...spawnOptions, // shell: false, windowsHide: true
       });
     } catch (err) {
+      closeOnce();
       settle({ ok: false, error: { kind: "spawn-failure", message: err instanceof Error ? err.message : String(err) } });
       return;
     }
@@ -427,6 +455,18 @@ export function runAsync<Input, Output>(
       // add-openspec-init-affordances.
       settle({ ok: false, error: { kind: "timeout", timeoutMs: timeout, binary: rawCmd, stdout, stderr } });
     }, timeout);
+
+    const onAbort = () => {
+      if (settled) return;
+      clearTimeout(timer);
+      terminate();
+      settle({ ok: false, error: { kind: "aborted", binary: rawCmd, message: `${rawCmd} aborted` } });
+    };
+    ctx.signal?.addEventListener("abort", onAbort, { once: true });
+    const detachAbort = () => ctx.signal?.removeEventListener("abort", onAbort);
+    // `exit` (process ended), not `close` (stdio drained): a killed shell can
+    // leave an orphan holding the pipes open long after the child itself is gone.
+    child.once("exit", closeOnce);
 
     // Stateful decoders: a UTF-8 sequence split across two pipe chunks must
     // not decode to U+FFFD halves (raw Buffer chunks are still needed for the
@@ -462,6 +502,8 @@ export function runAsync<Input, Output>(
 
     child.on("error", (err: NodeJS.ErrnoException) => {
       clearTimeout(timer);
+      detachAbort();
+      closeOnce();
       if (err.code === "ETIMEDOUT" || err.message?.includes("ETIMEDOUT")) {
         settle({ ok: false, error: { kind: "timeout", timeoutMs: timeout, binary: rawCmd, stdout, stderr } });
         return;
@@ -471,6 +513,8 @@ export function runAsync<Input, Output>(
 
     child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
       clearTimeout(timer);
+      detachAbort();
+      closeOnce();
       // Already settled (timeout / overflow) → never parse truncated stdout.
       if (settled) return;
       stdout += stdoutDecoder.end();

@@ -25,6 +25,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import type { CwdHoldOrigin, ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   classifyRef,
   indexSource,
@@ -43,9 +44,17 @@ import {
   sourceSubject,
   validateConfig,
 } from "@blackbelt-technology/pi-dashboard-kb";
-import { isAllowedCwd } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
+import {
+  type Admission,
+  type AdmitCwdOptions,
+  admissionAllows,
+  admitCwd,
+  isAllowedCwd,
+  issueHeldAdmission,
+  releaseAdmission,
+} from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { isOutside } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type {
   KbConfigPatch,
   KbReindexResult,
@@ -61,6 +70,13 @@ export interface KbRouteDeps {
   /** Live known-folder set for cwd validation (session cwds ∪ pinned dirs). */
   knownCwds: () => string[];
   registry: KbJobRegistry;
+  /**
+   * Host seam that raises the `cwd` access dialog on a user-initiated WRITE
+   * (reindex / config PUT / source-trust POST). Optional: absent → plain 403.
+   */
+  holdCwdDenial?: ServerPluginContext["holdCwdDenial"];
+  /** `admitCwd` options (the host's `onIndeterminate` logger; test seams). */
+  admitOptions?: AdmitCwdOptions;
 }
 
 /** Absolute project config path for a folder (mirrors kb `projectConfigPath`). */
@@ -74,13 +90,23 @@ export function projectConfigPath(cwd: string): string {
  *  See change: extract-mcp-client-plugin. */
 export { isAllowedCwd };
 
-/** Send the refusal for a cwd that is missing or not an admitted folder (400 / 403).
- *  Callers test admission with the shared `isAllowedCwd` DIRECTLY, not through a
- *  wrapper, so static analysis can see the guard (see
+/** Send the refusal for a cwd that is missing, undecidable, or not an admitted folder
+ *  (400 / 503 / 403). Callers test admission with the shared `admissionAllows`
+ *  DIRECTLY, not through a wrapper, so static analysis can see the guard (see
  *  `.github/codeql/extensions/cwd-guard.model.yml`). */
-function denyCwd(reply: FastifyReply, cwd: string | undefined): void {
+function denyCwd(reply: FastifyReply, cwd: string | undefined, admission?: Admission): void {
   if (!cwd) {
     reply.code(400).send({ error: "Missing cwd" });
+    return;
+  }
+  // A failure to DECIDE is transient, never a refusal: the client retries with
+  // backoff instead of caching "denied". See change: harden-plugin-cwd-admission.
+  if (admission?.kind === "indeterminate") {
+    reply.code(503).header("Retry-After", "1").send({
+      error: "cwd-admission-unavailable",
+      message: "cwd admission could not be decided right now",
+      retryAfterMs: 1000,
+    });
     return;
   }
   // Bare `{ error }` shape preserved; `reason`/`hint` are additive (design
@@ -350,14 +376,46 @@ function refIsOutside(cwd: string, ref: string): boolean {
   return isOutside(cwd, isAbsolute(ref) ? ref : resolve(cwd, ref));
 }
 
+/**
+ * Decide admission for a request `cwd` (async, tri-state). On a user-initiated
+ * WRITE (`holdOrigin` set) a refusal may raise the host's `cwd` access dialog; a
+ * read never does. Returns the final `Admission`; the route branches on
+ * `admissionAllows` and answers via `denyCwd`.
+ */
+async function admitKbCwd(
+  deps: KbRouteDeps,
+  req: FastifyRequest,
+  reply: FastifyReply,
+  cwd: string | undefined,
+  holdOrigin?: CwdHoldOrigin,
+): Promise<Admission> {
+  if (typeof cwd !== "string" || cwd.length === 0) return { kind: "refuse" };
+  const admission = await admitCwd(cwd, deps.knownCwds, deps.admitOptions);
+  if (admission.kind !== "refuse" || !holdOrigin || !deps.holdCwdDenial) return endWithRequest(reply, admission);
+  const decision = await deps.holdCwdDenial(req, reply, { cwd, origin: holdOrigin });
+  if (decision.kind === "indeterminate") return { kind: "indeterminate", failedProbes: [], elapsedMs: 0 };
+  // The host returns a decision, never a token: mint our own, bound to this cwd.
+  return endWithRequest(reply, issueHeldAdmission(decision, cwd));
+}
+
+/** kb routes hand no token downstream, but a token must still not outlive its request. */
+function endWithRequest<A extends Admission | { kind: "refuse" }>(reply: FastifyReply, admission: A): A {
+  if (admission.kind === "admit") {
+    const { token } = admission as Extract<Admission, { kind: "admit" }>;
+    reply.raw.once("close", () => releaseAdmission(token));
+  }
+  return admission;
+}
+
 export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void {
-  const { knownCwds, registry } = deps;
+  const { registry } = deps;
 
   // ── GET stats ──────────────────────────────────────────────────
   fastify.get<{ Querystring: { cwd?: string } }>("/api/kb/stats", async (req, reply) => {
     const { cwd } = req.query;
-    if (!isAllowedCwd(cwd, knownCwds)) {
-      denyCwd(reply, cwd);
+    const admission = await admitKbCwd(deps, req, reply, cwd);
+    if (!admissionAllows(admission, cwd)) {
+      denyCwd(reply, cwd, admission);
       return;
     }
     // Side-effect free (design D8/D10): a removed folder reports `folderMissing`
@@ -391,8 +449,9 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // fix-kb-index-feedback.
   fastify.post<{ Querystring: { cwd?: string } }>("/api/kb/reindex", async (req, reply) => {
     const { cwd } = req.query;
-    if (!isAllowedCwd(cwd, knownCwds)) {
-      denyCwd(reply, cwd);
+    const admission = await admitKbCwd(deps, req, reply, cwd, "kb:reindex");
+    if (!admissionAllows(admission, cwd)) {
+      denyCwd(reply, cwd, admission);
       return;
     }
     if (!registry.isRunning(cwd)) {
@@ -417,8 +476,9 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // ── GET config ─────────────────────────────────────────────────
   fastify.get<{ Querystring: { cwd?: string } }>("/api/kb/config", async (req, reply) => {
     const { cwd } = req.query;
-    if (!isAllowedCwd(cwd, knownCwds)) {
-      denyCwd(reply, cwd);
+    const admission = await admitKbCwd(deps, req, reply, cwd);
+    if (!admissionAllows(admission, cwd)) {
+      denyCwd(reply, cwd, admission);
       return;
     }
     const cfg = loadConfig(cwd);
@@ -451,8 +511,9 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // the event loop). `store.search` is sync but user-initiated, bounded by q/limit.
   fastify.get<{ Querystring: { cwd?: string; q?: string; limit?: string; docType?: string } }>("/api/kb/search", async (req, reply) => {
     const { cwd } = req.query;
-    if (!isAllowedCwd(cwd, knownCwds)) {
-      denyCwd(reply, cwd);
+    const admission = await admitKbCwd(deps, req, reply, cwd);
+    if (!admissionAllows(admission, cwd)) {
+      denyCwd(reply, cwd, admission);
       return;
     }
     const parsed = parseSearchQuery(req.query);
@@ -500,8 +561,9 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // (root,path) PK — no per-root FTS scan.
   fastify.get<{ Querystring: { cwd?: string } }>("/api/kb/sources", async (req, reply) => {
     const { cwd } = req.query;
-    if (!isAllowedCwd(cwd, knownCwds)) {
-      denyCwd(reply, cwd);
+    const admission = await admitKbCwd(deps, req, reply, cwd);
+    if (!admissionAllows(admission, cwd)) {
+      denyCwd(reply, cwd, admission);
       return;
     }
     const cfg = loadConfig(cwd);
@@ -539,8 +601,9 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // SAVED effective config only; see grantSourceTrust.
   fastify.post<{ Querystring: { cwd?: string }; Body: { ref?: string } }>("/api/kb/source-trust", async (req, reply) => {
     const { cwd } = req.query;
-    if (!isAllowedCwd(cwd, knownCwds)) {
-      denyCwd(reply, cwd);
+    const admission = await admitKbCwd(deps, req, reply, cwd, "kb:trust");
+    if (!admissionAllows(admission, cwd)) {
+      denyCwd(reply, cwd, admission);
       return;
     }
     const ref = req.body?.ref;
@@ -559,8 +622,9 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // ── PUT config ─────────────────────────────────────────────────
   fastify.put<{ Querystring: { cwd?: string }; Body: KbConfigPatch }>("/api/kb/config", async (req, reply) => {
     const { cwd } = req.query;
-    if (!isAllowedCwd(cwd, knownCwds)) {
-      denyCwd(reply, cwd);
+    const admission = await admitKbCwd(deps, req, reply, cwd, "kb:config");
+    if (!admissionAllows(admission, cwd)) {
+      denyCwd(reply, cwd, admission);
       return;
     }
     const body = (req.body ?? {}) as KbConfigPatch;

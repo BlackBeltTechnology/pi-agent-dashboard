@@ -1,4 +1,19 @@
-# CodeQL data extension: `isAllowedCwd` is a path-injection barrier guard.
+# CodeQL data extension: the shared cwd guards are path-injection barrier guards.
+#
+# Modelled predicates (all in packages/shared/src/cwd-guard.ts):
+#   - `isAllowedCwd(cwd, known)`        sync boolean guard; cwd is Argument[0].
+#   - `admissionAllows(admission, cwd)` sync predicate over the decided async
+#     `admitCwd` result (true iff admitted AND bound to `cwd`); cwd is Argument[1].
+#     Plugin routes branch on it right after `await admitCwd(...)`.
+#   - `tokenAllows(token, cwd)`         the config writer's check of a live
+#     request-scoped admission token; cwd is Argument[1].
+#   - `admitCwd(cwd, known, opts)`      the guard ITSELF. It must canonicalize the raw cwd
+#     (async realpath) and probe git under it BEFORE it can decide, so CodeQL reported
+#     `js/path-injection` at that realpath (PR #856). It is therefore modelled as a
+#     BARRIER on its own Argument[0]: the argument is the thing being judged, never a
+#     value the decision trusts. This only stops taint at the call-site argument node;
+#     every consumer still has to branch on `admissionAllows` before touching disk.
+# See change: harden-plugin-cwd-admission.
 #
 # `isAllowedCwd(cwd, known)` (packages/shared/src/cwd-guard.ts) admits a
 # caller-supplied `cwd` ONLY when it — or the resolved main checkout of the git
@@ -17,3 +32,13 @@ extensions:
     data:
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[isAllowedCwd].Argument[0]", "true", "path-injection"]
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[isAllowedCwd].Argument[0]", "true", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[admissionAllows].Argument[1]", "true", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[admissionAllows].Argument[1]", "true", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[tokenAllows].Argument[1]", "true", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[tokenAllows].Argument[1]", "true", "path-injection"]
+  - addsTo:
+      pack: codeql/javascript-all
+      extensible: barrierModel
+    data:
+      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[admitCwd].Argument[0]", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[admitCwd].Argument[0]", "path-injection"]

@@ -10,6 +10,7 @@
  * See change: migrate-mcp-to-pi-builtin (D3); earlier: extract-mcp-client-plugin.
  */
 
+import type { AdmissionToken } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import type { AuthMode } from "./pi-rules.js";
 
 export type { AuthMode };
@@ -43,7 +44,20 @@ export interface ServerEntry {
 }
 
 /** Which Pi layer a read/write targets. */
-export type Scope = { kind: "global" } | { kind: "project"; cwd: string };
+export type Scope =
+  | { kind: "global" }
+  | {
+      kind: "project";
+      cwd: string;
+      /**
+       * Request-scoped proof that a ROUTE already admitted `cwd` (async guard),
+       * so the writer / live reader do not re-run the synchronous guard. Built
+       * server-side only: never parsed from a request, never serialized. A scope
+       * without a live token falls back to the synchronous `isAllowedCwd`.
+       * See change: harden-plugin-cwd-admission (D4).
+       */
+      admission?: AdmissionToken;
+    };
 
 /** Injected filesystem surface. `readFile` returns null when the file is absent. */
 export interface ConfigIO {

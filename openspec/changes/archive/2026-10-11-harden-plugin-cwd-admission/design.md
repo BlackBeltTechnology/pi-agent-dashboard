@@ -68,13 +68,15 @@ Exit codes other than the tolerated unset (1) on the config probes count as fail
 3. The canonical path in canonicalized live `known()` → `admit`. Canonicalization uses `canonicalAsync` (`git.ts:762`), which is private today and is exported by this change.
 4. `checkoutRootsClassifiedAsync` → `failed` ⇒ `indeterminate`. A `mainCheckout` with `bindCheckoutClassifiedAsync` → `failed` ⇒ `indeterminate`, `bound` and in live `known()` ⇒ `admit`, otherwise ⇒ `refuse`.
 
+**Canonicalization failures are failures to decide.** A non-`ENOENT` realpath error on the request path, on the derived main checkout, or inside the binding comparison is `indeterminate` — the errno-bearing `realpathAsync` is used throughout the classified path, never the best-effort `canonicalAsync`. A known folder that fails to canonicalize for a reason other than non-existence (`EACCES`, `ELOOP`) marks the known set `uncertain`: a match among the resolvable entries still admits, but "no match" is then `indeterminate`, not `refuse`, because the unreadable entry might have been the match. (A missing pin falls back to its lexical form and is not uncertain.) The host seam's `issueHeldAdmission` is errno-aware the same way.
+
 There is **no cross-request cache**, because a cached verdict or derivation would have to defend against path reuse and inode recycling. In-flight requests for the same canonical cwd share one promise, and the entry is removed on settle. The sync `isAllowedCwd` is unchanged.
 
 ### D3 — Budget, cap, abort
 - **Runner.** `runAsync` gains an optional `signal?: AbortSignal` that SIGTERMs the child, reusing the existing timeout kill path (`runner.ts:409-414`). This is additive.
 - **Per-probe timeout.** 1000 ms.
 - **Concurrency cap.** A global semaphore of 4 derivations.
-- **Deadline.** Each decision has a 3000 ms deadline counted from entry (it includes the semaphore wait). At the deadline: the decision resolves `indeterminate` immediately, and the derivation's `AbortController` fires. That sends SIGTERM to in-flight git children and SIGKILL 3 s later (`runner.ts:409-424`). The semaphore slot is released only when the derivation's last child has **exited**, so the cap bounds live git processes, not just derivations started. A probe result that arrives after abort is ignored.
+- **Deadline.** Each decision has a 3000 ms deadline counted from entry (it includes the semaphore wait). The deadline covers the **whole** decision (request realpath, known-folder canonicalization, derivation): the same entry deadline races the decision, and at expiry the decision is **fenced**, so a filesystem call that settles late finds the fence up and neither starts a derivation nor mints a token. At the deadline: the decision resolves `indeterminate` immediately, and the derivation's `AbortController` fires. That sends SIGTERM to in-flight git children and SIGKILL 3 s later (`runner.ts:409-424`). The semaphore slot is released only when the derivation's last child has **exited**, so the cap bounds live git processes, not just derivations started. A probe result that arrives after abort is ignored.
 
 ### D4 — One decision per request: a request-scoped admission token (mcp-client only)
 - **Where tokens exist.** Only the mcp-client plugin needs a token, because only its route hands a `Scope` to a downstream component that re-checks admission: `config-writer.ts:98-100` `targetPath` and `service.ts:90-93` `getLiveState`. The kb routes take a raw `cwd` and call no downstream re-check. They branch on `admissionAllows(await admitCwd(…), cwd)` and use no token. A kb reindex job admitted at start runs to completion under that admission, which is today's semantics (`kb-routes.ts:384-406`).
@@ -111,6 +113,18 @@ There is **no cross-request cache**, because a cached verdict or derivation woul
 | mcp-client `/effective`, `/live`, `/schema`; kb GET routes; kb `DELETE /api/kb/source-trust` (no cwd, unchanged); kb WS `plugin_action` | no seam is reachable from these handlers |
 
 An untrusted caller, a missing / `.git` / ungrantable subject, or a bad origin resolve as `refuse`, with no hold raised. Global-scope (no-cwd) requests skip admission, as today. Allowing a worktree pins the worktree itself (the `cwd` plane has no ladder, `planes.ts:110`). This is a documented trade-off.
+
+**Doubt-review verdict (task 4.3, on the shipped code).** An independent read-only adversarial pass (isolated `Audit` subagent) over `createCwdHold`, `resolveCwdVerdict`, `admitCwd`, `issueHeldAdmission` and both callers returned **HOLDS-WITH-CAVEATS**: no invariant breakable from the wire. Findings and dispositions:
+
+| Finding | Disposition |
+|---|---|
+| kb tokens never released at request end | **Fixed.** `endWithRequest` releases on `reply.raw` `close`. |
+| "One allow-once admits up to 8 coalesced requests" | **Rejected as a false positive.** `grant-coordinator` resolves a coalesced joiner `deny allow-once-not-shared`; only the raiser is admitted (see Risks). |
+| Check-then-use gap: writes use the raw cwd after the canonical check | **Accepted, documented.** Needs local write access to a parent of the folder; the superseded synchronous guard had the identical window. Narrowing it would mean writing through `token.canonCwd`, which changes the paths the writer reports. Not in scope. |
+| Relative `cwd` admitted on the non-hold path | **Accepted, unchanged.** `canonPath` always resolved against the server cwd; this change does not alter *who is admitted*. The hold seam itself rejects relative paths. |
+| YOLO auto-allow bypasses the dialog | **By design** (explicit operator opt-in); `resolveCwdVerdict` still re-resolves and compares the real path. |
+
+Verified to hold: trust gate evaluated first; closed origin set enforced at runtime; missing / `.git` / ungrantable subjects never reach `holdDenial`; a decision for one path cannot mint a token for another; every refuse→admit path goes through the real-path re-resolution; every route branches on `admissionAllows`.
 
 ### D7 — Logging
 `admitCwd` takes an optional `onIndeterminate({ cwd, failedProbes, elapsedMs })` callback, so `packages/shared` gains no logger dependency. `failedProbes` lists recipe names; `elapsedMs` is decision wall time including the semaphore wait. The server logs `[cwd-admission] indeterminate`, rate-limited to one line per canonical cwd per 60 s. The throttle map is capped by LRU at 512 entries.

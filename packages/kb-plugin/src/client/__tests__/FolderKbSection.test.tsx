@@ -662,3 +662,61 @@ describe("FolderKbSection — denied, pinning, missing, no-sources", () => {
     await waitFor(() => expect(kbItem(store)?.label).toBe("Index now"));
   });
 });
+
+
+// ── harden-plugin-cwd-admission ──────────────────────────────────────────────
+
+describe("FolderKbSection — transient admission 503", () => {
+  const UNAVAILABLE = { error: "cwd-admission-unavailable", retryAfterMs: 1000 };
+  const unavailable = () => jsonResp(UNAVAILABLE, false, 503);
+  const advance = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("F7: stats 503 then 200 never shows 'not allowed' or 'index failed' and settles to the fresh stats", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    (globalThis as { fetch?: unknown }).fetch = vi
+      .fn()
+      .mockResolvedValueOnce(unavailable())
+      .mockResolvedValue(jsonResp(stats({ chunks: 1247 })));
+    const { getByTestId } = renderSlot();
+    await advance(0);
+    const text = () => getByTestId("folder-kb-section").textContent ?? "";
+    expect(getByTestId("folder-kb-section").getAttribute("data-state")).not.toBe("denied");
+    expect(text()).not.toContain("not allowed");
+    expect(text()).not.toContain("index failed");
+    await advance(1000);
+    expect(getByTestId("folder-kb-count").textContent).toContain("1,247");
+    expect(text()).not.toContain("not allowed");
+  });
+
+  it("F8: stats 503 ×4 → the failed state with a Retry action, not denied", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const fetchMock = vi.fn(async () => unavailable());
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
+    const { getByTestId, store } = renderSlot();
+    await advance(1000 + 2000 + 4000 + 1000);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(getByTestId("folder-kb-section").getAttribute("data-state")).toBe("error");
+    expect(kbItem(store)?.label).toBe("Retry");
+    expect(getByTestId("folder-kb-section").textContent).not.toContain("not allowed");
+  });
+
+  it("F9: a 503 on the reindex trigger POST clears the optimistic indicator, shows failed + Retry, and is not auto-retried", async () => {
+    const fetchMock = vi.fn(async (_u: string, init?: RequestInit) =>
+      init?.method === "POST" ? unavailable() : jsonResp(stats({ chunks: 5 })),
+    );
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
+    const { getByTestId, store } = renderSlot();
+    await waitFor(() => expect(kbItem(store)?.label).toContain("Reindex"));
+    act(() => kbItem(store)!.onSelect());
+    await waitFor(() => expect(getByTestId("folder-kb-section").getAttribute("data-state")).toBe("error"));
+    expect(kbItem(store)?.label).toBe("Retry");
+    expect(getByTestId("folder-kb-section").getAttribute("data-state")).not.toBe("denied");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "POST")).toHaveLength(1);
+  });
+});
