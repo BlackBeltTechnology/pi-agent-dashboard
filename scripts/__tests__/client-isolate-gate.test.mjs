@@ -19,16 +19,19 @@ import { describe, expect, it } from "vitest";
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
 const CI_SCENARIOS = process.env.RUN_CI_SCENARIOS === "1";
 const config = readFileSync(resolve(REPO_ROOT, "packages/client/vitest.config.ts"), "utf8");
+// Isolated baseline (design.md `## Measurements`): 48.4 s wall for the jsdom client project.
+const ISOLATED_BASELINE_MS = 48_400;
 const adopted = /^\s*isolate:\s*false\b/m.test(config.replace(/\/\/.*$/gm, ""));
 
 function runClient(extra) {
+  const started = Date.now();
   const res = spawnSync(
     "npx",
     ["vitest", "run", "--project", "@blackbelt-technology/pi-dashboard-web", "--reporter=json", ...extra],
     { cwd: REPO_ROOT, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, env: { ...process.env, CI: "" } },
   );
   const json = JSON.parse(res.stdout.slice(res.stdout.indexOf("{")));
-  return { status: res.status, passed: json.numPassedTests, failed: json.numFailedTests, wall: Date.now() };
+  return { status: res.status, passed: json.numPassedTests, failed: json.numFailedTests, wallMs: Date.now() - started };
 }
 
 describe("client isolate gate", () => {
@@ -53,8 +56,15 @@ describe("client isolate gate", () => {
       }
     }, 3_600_000);
 
-    it("P2: three consecutive runs are green", () => {
-      for (let i = 0; i < 3; i++) expect(runClient([]).status, `run ${i + 1}`).toBe(0);
+    it("P2: three consecutive runs are green and the median wall time is not above the isolated baseline", () => {
+      const walls = [];
+      for (let i = 0; i < 3; i++) {
+        const r = runClient([]);
+        expect(r.status, `run ${i + 1}`).toBe(0);
+        walls.push(r.wallMs);
+      }
+      const median = walls.sort((a, b) => a - b)[1];
+      expect(median, `median wall ${median} ms vs isolated baseline ${ISOLATED_BASELINE_MS} ms`).toBeLessThanOrEqual(ISOLATED_BASELINE_MS);
     }, 3_600_000);
   });
 });

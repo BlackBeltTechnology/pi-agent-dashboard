@@ -64,7 +64,8 @@ describe("client env split", () => {
   });
 
   it("X7: no file in the node list mentions the DOM", () => {
-    const DOM = /\b(?:document|window|localStorage|sessionStorage|navigator)\s*[.[]|\b(?:HTMLElement|requestAnimationFrame)\b/;
+    const DOM =
+      /(?<![\w./-])(?:document|window|localStorage|sessionStorage|navigator|location|history)\s*[.[]|\b(?:HTMLElement|requestAnimationFrame|matchMedia|getComputedStyle|ResizeObserver|IntersectionObserver)\b/;
     const offenders = [...node].filter((f) => DOM.test(readFileSync(join(PKG, f), "utf8").replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "")));
     expect(offenders, `move these back to jsdom (remove from vitest.node-tests.ts):\n${offenders.join("\n")}`).toEqual([]);
   });

@@ -58,6 +58,8 @@ function tsLiteralsIn(text: string): string[] {
 
 /** Reads a repo `.ts`/`.tsx` file as text? Exported shape kept testable via the fixtures below. */
 export function readsRepoSource(text: string): boolean {
+  // Helper-based readers: the extension's guard tests read bridge modules via `readBridgeSource("…ts")`.
+  if (/\breadBridgeSource\s*\(\s*["'][^"']*\.tsx?["']/.test(text)) return true;
   if (!/\breadFile(?:Sync)?\s*\(|\.readFile\s*\(/.test(text)) return false;
   const written = new Set<string>();
   for (const m of text.matchAll(/\bwriteFile(?:Sync)?\s*\(/g)) for (const b of tsLiteralsIn(text.slice(m.index, m.index + 300))) written.add(b);
@@ -93,6 +95,7 @@ describe("source-reading tests carry @structural-pin (E10)", () => {
     expect(readsRepoSource('const s = readFileSync(resolve(here, "../bridge.ts"), "utf8");')).toBe(true);
     expect(readsRepoSource('writeFileSync(join(d, "a.ts"), "x"); const s = readFileSync(join(d, "a.ts"), "utf8");')).toBe(false);
     expect(readsRepoSource('const s = readFileSync(join(d, "package.json"), "utf8");')).toBe(false);
+    expect(readsRepoSource('const s = readBridgeSource("bridge-handlers/lifecycle.ts");')).toBe(true);
     expect(readsRepoSource('readdirSync(d).filter((f) => f.endsWith(".ts")).map((f) => readFileSync(join(d, f), "utf8"));')).toBe(true);
   });
 
