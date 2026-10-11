@@ -4,7 +4,7 @@
  * Exemplar: `src/__tests__/cli-build.test.ts`.
  */
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -240,6 +240,31 @@ describe("pptx import: re-import keeps user-owned files (B2)", () => {
     await importPptx({ input, out: join(dir, "talk"), env: NO_PATH });
     const r = await importPptx({ input, out: join(dir, "talk"), force: true, env: NO_PATH });
     expect(r.slides).toEqual(["s01", "s02"]);
+  });
+});
+
+describe("pptx import: re-import shares the deck lock with variants and serve (R2-B2 sibling)", () => {
+  it("refuses to re-import while another process holds the deck lock, leaving the deck untouched", async () => {
+    const dir = tmp();
+    const input = writeDeck(dir, basicDeck(2));
+    await importPptx({ input, out: join(dir, "talk"), env: NO_PATH });
+    const talk = join(dir, "talk");
+    const before = treeHash(talk);
+    writeFileSync(join(talk, "style.json.lock"), `${process.pid}:pick`); // a live holder
+    process.env.DECK3D_LOCK_WAIT_MS = "100";
+    try {
+      const r = await cli(["pptx", "import", writeDeck(dir, basicDeck(3), "next.pptx"), "-o", talk, "--force"]);
+      expect(r.code).not.toBe(0);
+      expect(r.stderr).toMatch(/another deck3d process is writing this deck/);
+    } finally {
+      delete process.env.DECK3D_LOCK_WAIT_MS;
+    }
+    rmSync(join(talk, "style.json.lock"));
+    expect(treeHash(talk)).toBe(before);
+    // Free again: the same re-import goes through, and releases the lock.
+    const ok = await cli(["pptx", "import", join(dir, "next.pptx"), "-o", talk, "--force"]);
+    expect(ok.code, ok.stderr).toBe(0);
+    expect(existsSync(join(talk, "style.json.lock"))).toBe(false);
   });
 });
 

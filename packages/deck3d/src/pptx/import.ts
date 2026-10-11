@@ -10,6 +10,7 @@ import type { Sandbox } from "../art/decode.js";
 import { encodePng } from "../art/png.js";
 import type { DeckIR } from "../ir/types.js";
 import { formatIssue, type ValidationIssue, validate, validateAssets } from "../ir/validate.js";
+import { withStyleLockAsync } from "../variants/style.js";
 import {
   type AssetEntry,
   baselineDeckOverrides,
@@ -121,6 +122,16 @@ function readJson<T>(path: string): T | undefined {
 export async function importPptx(opts: ImportOptions): Promise<ImportResult> {
   const input = resolve(opts.input);
   const dir = resolve(opts.out ?? join(dirname(input), basename(input, extname(input))));
+  // A re-import READS the previous deck.json (to keep its overrides) and later
+  // replaces it, so it holds the same deck lock as `variants pick|note|replay` and
+  // `serve` from that read to the commit: a pick landing in between would be lost.
+  if (opts.force && existsSync(dir)) {
+    return withStyleLockAsync(dir, () => runImport(opts, input, dir), { waitMs: Number(process.env.DECK3D_LOCK_WAIT_MS ?? 10_000) });
+  }
+  return runImport(opts, input, dir);
+}
+
+async function runImport(opts: ImportOptions, input: string, dir: string): Promise<ImportResult> {
   if (!opts.force) {
     for (const name of ["deck.md", "deck.json"]) {
       const p = join(dir, name);
