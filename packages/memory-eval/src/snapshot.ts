@@ -124,6 +124,9 @@ export function snapshotDb(opts: SnapshotOpts): SnapshotResult {
   const deps: SnapshotDeps = { ...realSnapshotDeps, ...opts.deps };
   const probe = deps.statFile(opts.source, { attempt: 0, phase: "before" });
   if (!probe) return { status: "absent", source: opts.source };
+  // An existing zero-byte file is a damaged or half-created database, not a missing one: silently
+  // evaluating it would produce a "completed" run full of missing-table errors.
+  if (probe.size === 0) throw new CliError(`snapshot source ${opts.source} exists but is empty (0 bytes); refusing to evaluate it`);
   const rawDir = join(opts.destDir, "raw");
   const rawDb = join(rawDir, opts.name);
   const out = join(opts.destDir, opts.name);

@@ -158,15 +158,20 @@ describe("snapshot", () => {
     for (const id of ids) expect(existsSync(join(env.paths.runsDir, id, "manifest.json"))).toBe(true);
   });
 
-  it("B3 (round 3): only a genuinely missing source is `absent`; empty and unreadable ones are not", async () => {
-    const empty = makeEnv();
-    writeCaseSet(empty, [mkCase({ id: "c1", decisionTime: T })]);
-    mkdirSync(dirname(hermesDbPath(empty)), { recursive: true });
-    writeFileSync(hermesDbPath(empty), "");
-    expect(await main(["run", "--retrievers", "hermes.memory_search"], empty.ctx)).toBe(0);
-    expect(manifestOf(empty).snapshots.hermes.status).toBe("ok"); // evaluated, not silently dropped
-    const retrieved = JSON.parse(readFileSync(join(empty.paths.runsDir, latestRunId(empty.paths.runsDir), "retrieved.json"), "utf8"));
-    expect(retrieved.results["hermes.memory_search"].c1.error).toBeTruthy(); // and the missing tables are loud
+  it("B3 (round 3) / B1 (round 4): only a genuinely missing source is `absent`; empty and unreadable ones fail the run", async () => {
+    // An empty file is not "absent" and not a database worth evaluating: fail, name the source, complete no run.
+    const completed = (env: TestEnv) => (existsSync(env.paths.runsDir) ? readdirSync(env.paths.runsDir).filter((id) => existsSync(join(env.paths.runsDir, id, "manifest.json"))) : []);
+    for (const source of ["hermes", "kb"] as const) {
+      const env = makeEnv();
+      writeCaseSet(env, [mkCase({ id: "c1", decisionTime: T })]);
+      const path = source === "hermes" ? hermesDbPath(env) : join(env.home, "kb", "index.db");
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, "");
+      const args = source === "hermes" ? ["run", "--retrievers", "hermes.memory_search"] : ["run", "--retrievers", "kb.docs", "--kb-index", path];
+      expect(await main(args, env.ctx), source).not.toBe(0);
+      expect(env.stderr.join(""), source).toContain(path);
+      expect(completed(env), source).toEqual([]);
+    }
 
     if (process.getuid?.() === 0) return; // permissions are not enforced for root
     const locked = makeEnv();
