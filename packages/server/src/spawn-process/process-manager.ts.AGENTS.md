@@ -17,3 +17,5 @@ See change: align-ui-with-theme-tokens. SpawnResult messages say "started" / "Fa
 `buildSpawnEnv` stamps `PI_DASHBOARD_BRIDGE=on` (overwrites inherited value; descendants inherit). `buildTmuxCommand` always appends `-e PI_DASHBOARD_BRIDGE=on` (pane inherits tmux SERVER env, not spawn env) after token/endpoint/heap pairs. Dashboard spawns therefore ignore `bridge.enabled:false` and a shell-exported opt-out. See change: add-bridge-env-opt-out.
 
 - `buildSpawnEnv` deletes `CONTEXT_MODE_BRIDGE_DEPTH`/`CONTEXT_MODE_BRIDGE_IDLE_MS` (true unset); `opts.mechanism` applies plugin spawn-env contributors, `opts.contributedOut` collects applied entries. `buildTmuxCommand` pane starts `env -u CONTEXT_MODE_BRIDGE_DEPTH -u CONTEXT_MODE_BRIDGE_IDLE_MS`, 7th param `contributedEnv` → per-window `-e`. See change: add-context-mode-settings-plugin.
+
+`setSpawnDashboardPiPort(piPort, bindHost?)`: a loopback bind dials a literal `PI_DASHBOARD_URL` and sets `PI_DASHBOARD_REQUIRE_SERVER_PROOF` to it (never for `wsl-tmux`); inherited marker always deleted first; tmux always gets `-e …REQUIRE_SERVER_PROOF=<url|empty>`. See change: loopback-credential-proof (D7).

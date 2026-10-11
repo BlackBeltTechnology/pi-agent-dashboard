@@ -10,17 +10,17 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/check-kb-dist-fresh.test.mjs` | C1 (fix-kb-eval-measurement-integrity): fault-injection via `--pkg` sandbox — clean fingerprint → exit 0; src/tsconfig edited after committed build or fingerprint missing → non-zero + mandated message. |
 | `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations` directly (12 cases) so detection is pinned independently of what `.pi/settings.json` currently holds. Negative cases carry the weight: `npm:`/`git:`/`https://`/`ssh://` sources and the bare-string package form must NOT be flagged, else the guard is unusable. See issue #371. |
 | `__tests__/biome-undeclared-dependencies.test.mjs` | Guardrails for the `noUndeclaredDependencies` config in `biome.json`. → see `__tests__/biome-undeclared-dependencies.test.mjs.AGENTS.md` |
-| `__tests__/client-isolate-gate.test.mjs` | `isolate:false` gate, client project. |
-| `__tests__/coverage-config.test.mjs` | Root `test.coverage` + wrapper shape (E1, E3). |
-| `__tests__/coverage-report.test.mjs` | Live `test:coverage` runs (E2, X1). |
+| `__tests__/coverage-config.test.mjs` | Coverage config shape. |
+| `__tests__/coverage-report.test.mjs` | Live coverage runs. |
+| `__tests__/client-isolate-gate.test.mjs` | Client isolate gate. |
 | `__tests__/dependency-declarations.test.mjs` | Set-based manifest guarantees over ALL 32 non-private workspaces (not a sample). → see `__tests__/dependency-declarations.test.mjs.AGENTS.md` |
-| `__tests__/fixtures/coverage-failing/` | Always-red fixture + config (X1). |
+| `__tests__/fixtures/coverage-failing/` | Red coverage fixture. |
 | `__tests__/fixtures/mutation-journal-child.mjs` | Child-process fixture for the mutation-journal crash-safety tests. → see `__tests__/fixtures/mutation-journal-child.mjs.AGENTS.md` |
 | `__tests__/fixtures/npm-view-stub.mjs` | Gate CLI npm-view stub. → see `__tests__/fixtures/npm-view-stub.mjs.AGENTS.md` |
 | `__tests__/merge-latest-mac.test.mjs` | Covers test-plan U6 for `merge-latest-mac.py`: the `minimumSystemVersion` update gate survives the arm64 + x64 merge, every arch DMG stays in `files[]`, extra legs are consumed, and a LEG-ASYMMETRIC injection (or a value disagreement) is REJECTED in both glob orders rather than silently inheriting from whichever file the glob yielded first. Skips when python3/pyyaml is absent. See change: upgrade-electron-runtime. |
 | `__tests__/seed-settings-compaction.test.mjs` | Unit tests for the e2e-only `compaction.keepRecentTokens` seed (change: replay-compaction-boundary): merge decision-table (fresh write, sibling-key preservation, no-clobber, unrelated top-level keys kept) + the file wrapper's corrupt-file / absent-path / idempotent cases. |
 | `__tests__/nightly-report.test.mjs` | Nightly report (X9–X11). → see `__tests__/nightly-report.test.mjs.AGENTS.md` |
-| `__tests__/shared-heavy-files.test.mjs` | Heavy shared groups <10 s/file (E14). |
+| `__tests__/shared-heavy-files.test.mjs` | Heavy shared groups. |
 | `__tests__/select-affected-tests.test.mjs` | Selector layers (E1–E27). → see `__tests__/select-affected-tests.test.mjs.AGENTS.md` |
 | `__tests__/select-affected-tests-cli.test.mjs` | Selector CLI (X2–X8). → see `__tests__/select-affected-tests-cli.test.mjs.AGENTS.md` |
 | `__tests__/select-affected-tests-graph.test.mjs` | Real-tree graph build (X1, P1). → see `__tests__/select-affected-tests-graph.test.mjs.AGENTS.md` |
@@ -49,7 +49,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/sync-served-client.test.mjs` | E15/E16/X3/X4: the `sync-served-client.mjs` outcome table over temp dirs — no-op (dest == source, source must be described), mirror+verify incl. superseded-asset removal, legacy adopt, API-only success, undescribed/malformed source refusal, non-client-build refusal, EACCES refusal with no partial write, and a post-copy mismatch reported as refusal (injected `copyTree` skips the declaration). See change: add-served-build-coherence-and-hash-parity. |
 | `__tests__/verify-release-deps-client-build-deps.test.mjs` | Vitest tests for the E7 client build-dep rules in verify-release-deps.mjs. → see `__tests__/verify-release-deps-client-build-deps.test.mjs.AGENTS.md` |
 | `__tests__/theme-token-guard.test.mjs` | Scan/ratchet/bootstrap tests for all three guard arms. → see `__tests__/theme-token-guard.test.mjs.AGENTS.md` |
-| `__tests__/test-up-oversubscribe-guard.test.mjs` | Vitest tests for the co-resident harness oversubscription guard (change: stabilize-browser-e2e, #451 part 2) + `list_running_harness_projects`/`parse_memory_bytes`/`human_bytes` in `docker/lib-ports.sh`. `docker` stubbed on PATH (records every argv; no daemon touched): (a) peer up + `MemTotal` 8 GiB + default `MEM_LIMIT` → exit non-zero, names the peer + `2 × 4 GiB`/`8 GiB`, no `compose up` call, no state file written; (b) `PI_HARNESS_ALLOW_OVERSUBSCRIBE=1` → proceeds, one warning; (c) `MemTotal` 16 GiB → proceeds, one warning; (d) no peer / non-harness peer → silent; (e) `docker info` fails or `MEM_LIMIT` unparseable → warns + proceeds. Uses `spawnSync` (NOT `execFileSync`) so stderr warnings on the exit-0 paths are captured. |
+| `__tests__/test-up-oversubscribe-guard.test.mjs` | Vitest tests for the co-resident harness oversubscription guard (change: stabilize-browser-e2e, #451 part 2)… → see `__tests__/test-up-oversubscribe-guard.test.mjs.AGENTS.md` |
 | `__tests__/test-up-port-derivation.test.mjs` | Vitest tests for parallel-worktree test-harness port/project derivation. → see `__tests__/test-up-port-derivation.test.mjs.AGENTS.md` |
 | `_windows-introspection-probe.ts` | Probe child for Windows introspection smoke. Imports real `isVirtualMachine` + `defaultGetCmdline` (relative… → see `_windows-introspection-probe.ts.AGENTS.md` |
 | `assert-bundled-plugins-published.mjs` | Gate #X17. → see `assert-bundled-plugins-published.mjs.AGENTS.md` |
@@ -104,7 +104,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `probe-harness-memory.mjs` | Out-of-band harness memory probe (host side): `docker exec` reads cgroup v2 `memory.*` + `pids.current` and… → see `probe-harness-memory.mjs.AGENTS.md` |
 | `prune-orphan-worktrees.ts` | One-shot: `rm -rf` orphan `.worktrees/*` husk dirs (on disk, absent from `git worktree list`) left by kb DB… → see `prune-orphan-worktrees.ts.AGENTS.md` |
 | `patch-vendor-specifiers.mjs` | Rewrites the vendored relay's playwright-internal specifiers to package-relative `shims/*.js` paths + §4(b) notice; idempotent, fail-closed. → see `patch-vendor-specifiers.mjs.AGENTS.md` |
-| `reload-all.sh` | Build bridge + reload all pi sessions |
+| `reload-all.sh` | Build bridge + reload all pi sessions Inline per-request proof mint (byte-identical to shared `mintProof`, pinned by `__tests__/reload-all-mint.test.mjs`), literal dial from config `host`. See change: loopback-credential-proof (D10). |
 | `repair-main-specs.mjs` | Structural repair of corrupted `openspec/specs/**/spec.md`. Exports `classifySpec`, `repairSpecText`, `PLACEHOLDER`; CLI takes `--dry-run`, `--specs-dir`. Promotes the FIRST delta header to `## Requirements` and DELETES every subsequent one (parser reads only the first section, so renaming yields a silently-ignored duplicate); wraps orphaned `### Requirement:` blocks in a created section; inserts `TODO(repair):`-marked Purpose + h1; REFUSES `## REMOVED Requirements` (exit non-zero, file untouched); re-validates after write to surface phase-two errors the `no-purpose` throw masked. Idempotent. Blank-run collapse is fence-aware. See change: repair-corrupted-main-specs. |
 | `repair-meta-source.mjs` | Removes `source: "dashboard"` from every `~/.pi/agent/sessions/**/*.meta.json`. Atomic tmp+rename. → see `repair-meta-source.mjs.AGENTS.md` |
 | `runtime-e2e-registry.mjs` | E2E registry fixture. → see `runtime-e2e-registry.mjs.AGENTS.md` |

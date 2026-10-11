@@ -14,6 +14,7 @@ Files in this directory. One row per source file.
 | `bridge-activation.ts` | Activation gate `shouldActivateBridge(env, readConfig)`: `bridgeEnvOverride(env)` (`PI_DASHBOARD_BRIDGE`… → see `bridge-activation.ts.AGENTS.md` |
 | `bridge-context.ts` | Shared mutable bridge state + pure predicates. Exports `BridgeContext`, `DASHBOARD_NATIVE_COMMANDS`,… → see `bridge-context.ts.AGENTS.md` |
 | `bridge-default-model-gate.ts` | Pure predicate `shouldApplyDefaultModel({reason, entryCount, hasModelRegistry, hasDefaultModel,… → see `bridge-default-model-gate.ts.AGENTS.md` |
+| `bridge-identity-log.ts` | `appendIdentityLog(report, env?)`: one JSON line per server identity failure in `~/.pi/dashboard/local/bridge-identity.log` (`0600`, rotated to `.1` past 256 KiB, best-effort, never throws). The off-channel record a squatter cannot suppress. See change: loopback-credential-proof (D8). |
 | `bridge-handlers/` | Handler bodies extracted from `bridge.ts`: lifecycle, inbound dispatch, forwarders, ui-prompt patch, `BridgeInstance`. → see `bridge-handlers/AGENTS.md` |
 | `bridge-polling.ts` | Testable seams from `bridge.ts` to the poll-cost machinery: `createPollingHolder` (scan + tracker, replace… → see `bridge-polling.ts.AGENTS.md` |
 | `bridge-ticket-client.ts` | Mints the credential a REMOTE bridge needs to open a gateway connection (§6 made TCP bridge auth mandatory). → see `bridge-ticket-client.ts.AGENTS.md` |

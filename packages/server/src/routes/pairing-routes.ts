@@ -14,13 +14,13 @@
  *    D2).
  */
 
-import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { isTier, TIERS } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type HostAdmissionOptions, isHostAdmitted } from "../auth/host-admission.js";
 import type { ServerIdentity } from "../auth/identity.js";
 import { signNonce } from "../auth/identity.js";
-import { verifyLocalToken } from "../auth/local-token.js";
+import { hasLocalCredential } from "../auth/local-credential.js";
 import { createLocalTrustContext, hasLocalProof, type LocalTrustContext } from "../auth/local-proof.js";
 import { isLocallyTrusted } from "../auth/localhost-guard.js";
 import type { PairedDeviceRegistry, PairedDeviceView } from "../pairing/paired-devices.js";
@@ -112,7 +112,7 @@ export function createOperatorGuard(deps: {
     const headers = request.headers as Record<string, unknown>;
     const isOperator =
       via === "session" ||
-      (deps.localToken !== undefined && verifyLocalToken(headers, deps.localToken)) ||
+      (deps.localToken !== undefined && hasLocalCredential(headers)) ||
       isLocallyTrusted({ ip: request.ip, headers }, deps.localTrust);
     if (!isOperator) {
       reply.code(401).send({ success: false, error: "operator credential required" });

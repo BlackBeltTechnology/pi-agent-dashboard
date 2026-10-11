@@ -63,6 +63,8 @@ export function readsRepoSource(text: string): boolean {
   if (!/\breadFile(?:Sync)?\s*\(|\.readFile\s*\(/.test(text)) return false;
   const written = new Set<string>();
   for (const m of text.matchAll(/\bwriteFile(?:Sync)?\s*\(/g)) for (const b of tsLiteralsIn(text.slice(m.index, m.index + 300))) written.add(b);
+  // `existsSync(join(…, "x.ts"))` probes for a file; it does not read its text.
+  text = text.replace(/\b(?:existsSync|statSync|accessSync)\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g, "");
   const pathLiterals: string[] = [];
   for (const m of text.matchAll(/\b(?:resolve|join|URL)\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g)) {
     if (MODULE_ANCHORED.test(m[1])) pathLiterals.push(...tsLiteralsIn(m[1]));
@@ -95,6 +97,7 @@ describe("source-reading tests carry @structural-pin (E10)", () => {
     expect(readsRepoSource('const s = readFileSync(resolve(here, "../bridge.ts"), "utf8");')).toBe(true);
     expect(readsRepoSource('writeFileSync(join(d, "a.ts"), "x"); const s = readFileSync(join(d, "a.ts"), "utf8");')).toBe(false);
     expect(readsRepoSource('const s = readFileSync(join(d, "package.json"), "utf8");')).toBe(false);
+    expect(readsRepoSource('const ok = existsSync(join(HERMES_DIR, "src", "x.ts")); readFileSync(join(FIXTURE, "q.json"), "utf8");')).toBe(false);
     expect(readsRepoSource('const s = readBridgeSource("bridge-handlers/lifecycle.ts");')).toBe(true);
     expect(readsRepoSource('readdirSync(d).filter((f) => f.endsWith(".ts")).map((f) => readFileSync(join(d, f), "utf8"));')).toBe(true);
   });

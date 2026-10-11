@@ -429,6 +429,20 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/memory-eval": {
+      "entry": [
+        "bin/memory-eval.mjs",
+        "src/cli.ts",
+        "scripts/*.ts",
+        "src/__tests__/helpers/stub-pi.mjs",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}",
+        "scripts/**/*.ts"
+      ]
+    },
     "packages/kb-extension": {
       "entry": [
         "src/extension.ts",

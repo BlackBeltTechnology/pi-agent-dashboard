@@ -7,4 +7,6 @@ Creates `PluginForwardRegistry` after `registerEventBusForwarding` (`isCoreChann
 
 - Wires `onSystemRename`/`onUserRename` into command-handler; `auto_name_state_restore` routed via `applyAutoNameRestore` (provenance applied even to a live namer). See change: investigate-auto-name-provenance-relabel.
 
+`ConnectionManager` gets `planDial: localCredentialPlan` (per-dial proof + pre-connected socket + marked-endpoint server verification) and `onIdentityFailure → appendIdentityLog`. See change: loopback-credential-proof (D6, D8).
+
 - Handler bodies live in `bridge-handlers/` (`lifecycle`, `dispatch`, `forwarders`, `ui-prompt-patch`, `instance`). `initBridge` keeps process-global `BridgeState` adoption, the subagent re-entry guard, generation bump, `EVENT_BUS_MAP` + emit intercept, thin `pi.on` delegators (registration order load-bearing), `pi.registerCommand` wiring, connection setup. Builds one `BridgeInstance` via `createInstance` after the bump; reassigned closure variables are `inst.<name>`, the rest are mirrored onto `inst` after their declaration. See change: test-trust-audit.

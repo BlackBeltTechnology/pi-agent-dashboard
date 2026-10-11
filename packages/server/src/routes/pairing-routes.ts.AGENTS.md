@@ -9,3 +9,5 @@ Server-identity challenge + device-pairing routes. Exports `registerPairingRoute
 ## harden-server-request-surfaces
 
 `createOperatorGuard` short-circuits `authVia === "device"` → 401 BEFORE the session / local-token / `isGenuinelyLocal` clauses — device bearer refused on credential strength alone, any network position; mint route inherits (E15). `DELETE /api/paired-devices/:id` swaps `networkGuard` → `operatorGuard` (E10–E12); operator on non-admitted Host → 403 `host_not_admitted` enforce semantics (X5). `/api/pair/approve` label: key present + non-string → 400 `label must be a string`; string → `validLabel` (trim, empty or >64 UTF-8 bytes → 400 `label must be 1..64 UTF-8 bytes`); absent key → `undefined` keeps pending label; trimmed value passed to `pairing.approve`. Validation route-level, NOT in `PairingManager` (no HTTP status vocabulary). Tests: `pairing.test.ts` D2 block (E10–E24, X5). See change: harden-server-request-surfaces.
+
+Operator guard reads `hasLocalCredential(headers)`. See change: loopback-credential-proof (D4).
