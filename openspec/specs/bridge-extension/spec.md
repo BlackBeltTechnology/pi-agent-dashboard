@@ -352,7 +352,7 @@ When the bridge's `autoStartServer` flow catches a `launchServer` failure, the `
 
 The bridge extension SHALL NOT invoke `pi.newSession(...)`, `ctx.fork(...)`, or `ctx.switchSession(...)` from any code under `packages/extension/src/` (excluding `__tests__/`).
 
-These three APIs trigger pi's session-replacement flow, which (per pi 0.69.0+) invalidates any captured pre-replacement `pi`/`ctx`/session-bound objects on next access. The bridge holds long-lived caches (`cachedCtx`, `cachedModelRegistry`, `cachedHasUI` in `bridge.ts`; `modelRegistry` in `provider-register.ts`) that depend on pi being the *only* originator of session replacement, so we can re-capture inside the resulting `session_start` handler (see existing handler at `bridge.ts` `pi.on("session_start", ...)` keying on `event.reason ∈ {"new","fork","resume"}`).
+These three APIs trigger pi's session-replacement flow, which (per pi 0.69.0+) invalidates any captured pre-replacement `pi`/`ctx`/session-bound objects on next access. The bridge holds long-lived caches (`cachedCtx`, `cachedModelRegistry`, `cachedHasUI`, held by the bridge extension; `modelRegistry` in `provider-register.ts`) that depend on pi being the *only* originator of session replacement, so we can re-capture inside the resulting `session_start` handler (see the bridge extension's `pi.on("session_start", ...)` handler keying on `event.reason ∈ {"new","fork","resume"}`).
 
 #### Scenario: Source-grep guard fails the build on a new replacement call
 - **WHEN** any `.ts` file under `packages/extension/src/` (other than `__tests__/`) contains the literal substring `pi.newSession(`, `ctx.fork(`, or `ctx.switchSession(`
@@ -364,7 +364,7 @@ These three APIs trigger pi's session-replacement flow, which (per pi 0.69.0+) i
 
 ### Requirement: Bridge cached session state is session-scoped
 
-`cachedCtx`, `cachedModelRegistry`, and `cachedHasUI` in `bridge.ts`, and the `modelRegistry` reference in `provider-register.ts`, SHALL be treated as session-scoped. They SHALL be re-captured in every `session_start` handler invocation (regardless of `event.reason`) and SHALL NOT be read after `session_shutdown` for that session has fired.
+`cachedCtx`, `cachedModelRegistry`, and `cachedHasUI` held by the bridge extension, and the `modelRegistry` reference in `provider-register.ts`, SHALL be treated as session-scoped. They SHALL be re-captured in every `session_start` handler invocation (regardless of `event.reason`) and SHALL NOT be read after `session_shutdown` for that session has fired.
 
 #### Scenario: session_start re-captures ctx and modelRegistry
 - **WHEN** `pi.on("session_start", ...)` fires
@@ -378,7 +378,7 @@ These three APIs trigger pi's session-replacement flow, which (per pi 0.69.0+) i
 
 ### Requirement: Bridge SHALL NOT register a TUI multiselect arm that consumes `originals.custom`
 
-The bridge extension's TUI PromptBus adapter (registered in `packages/extension/src/bridge.ts` when `ctx.hasUI === true`) MUST NOT contain an `else if (prompt.type === "multiselect" && ... originals.custom ...)` arm that calls `await originals.custom(...)` and uses its resolution to drive a `bus.respond(...)` call.
+The bridge extension's TUI PromptBus adapter (registered by the bridge extension when `ctx.hasUI === true`) MUST NOT contain an `else if (prompt.type === "multiselect" && ... originals.custom ...)` arm that calls `await originals.custom(...)` and uses its resolution to drive a `bus.respond(...)` call.
 
 The reason: pi 0.70's RPC mode (used by every dashboard-spawned headless session) defines `ExtensionUIContext.custom` as an unconditional no-op:
 
@@ -395,10 +395,10 @@ Any TUI adapter arm that awaits `originals.custom(...)` in dashboard headless mo
 
 The bridge's `ctx.ui.multiselect` PromptBus patch (added by the predecessor change `fix-multiselect-auto-cancel-on-dashboard`) already routes multiselect through the bus to the `DashboardDefaultAdapter`, which renders a working browser dialog via the registered client `MultiselectRenderer`. No TUI adapter participation is needed for dashboard sessions, and pure-TUI sessions on pi 0.70 RPC have no working `ctx.ui.custom` path to participate through anyway. The TUI multiselect arm is therefore prohibited until pi-coding-agent restores `ctx.ui.custom` in RPC mode.
 
-This requirement is enforced by a repository-level lint test (`packages/extension/src/__tests__/no-tui-multiselect-arm-regression.test.ts`) that scans `bridge.ts` and fails if the source contains the co-occurrence of `originals.custom` AND `prompt.type === "multiselect"`. Either substring alone is permitted — the prohibition is on the combination.
+This requirement is enforced by a repository-level lint test (`packages/extension/src/__tests__/no-tui-multiselect-arm-regression.test.ts`) that scans the module owning the TUI PromptBus adapter and fails if the source contains the co-occurrence of `originals.custom` AND `prompt.type === "multiselect"`. Either substring alone is permitted — the prohibition is on the combination.
 
 #### Scenario: Lint passes when `bridge.ts` does not contain the offending co-occurrence
-- **WHEN** the lint test reads `packages/extension/src/bridge.ts` source
+- **WHEN** the lint test reads the source of the module owning the TUI PromptBus adapter
 - **AND** the source does NOT contain `originals.custom` and `prompt.type === "multiselect"` together
 - **THEN** the lint test SHALL pass
 
@@ -407,16 +407,16 @@ This requirement is enforced by a repository-level lint test (`packages/extensio
 - **THEN** the lint test `no-tui-multiselect-arm-regression.test.ts` SHALL fail with a message that includes the file path, the matched lines, and a one-line pointer to this change name
 
 #### Scenario: `originals.custom` capture without consumption is permitted
-- **WHEN** `bridge.ts` captures `originals.custom = ctx.ui.custom?.bind(ctx.ui)` (e.g., for a *different* future use that does not include `prompt.type === "multiselect"`)
+- **WHEN** the scanned module captures `originals.custom = ctx.ui.custom?.bind(ctx.ui)` (e.g., for a *different* future use that does not include `prompt.type === "multiselect"`)
 - **THEN** the lint test SHALL pass — the prohibited pattern is the co-occurrence, not either substring alone
 
 #### Scenario: `prompt.type === "multiselect"` outside the TUI adapter is permitted
-- **WHEN** `bridge.ts` references `type: "multiselect"` in the `(ctx.ui as any).multiselect = (title, options, opts) => bus.request({ type: "multiselect", ... })` patch
+- **WHEN** the scanned module references `type: "multiselect"` in the `(ctx.ui as any).multiselect = (title, options, opts) => bus.request({ type: "multiselect", ... })` patch
 - **THEN** the lint test SHALL pass — that string is in the patch site, not in the TUI adapter, and is part of the working bus-routed primary path
 
 ### Requirement: Bridge SHALL patch `ctx.ui.multiselect` alongside select/input/confirm/editor
 
-The bridge extension's `session_start` PromptBus patching block in `packages/extension/src/bridge.ts` (currently lines ~935-948) SHALL include an assignment of `multiselect` onto `ctx.ui`, parallel to the existing `select`, `input`, `confirm`, and `editor` patches. Omitting this assignment is the regression that caused the dashboard multiselect to silently auto-cancel — the `polyfillMultiselect` helper consults `ctx.ui.multiselect` as its primary path, and without the patch it falls into a TUI-only `ctx.ui.custom` branch that does not render a browser dialog in dashboard / RPC mode.
+The bridge extension's `session_start` PromptBus patching block SHALL include an assignment of `multiselect` onto `ctx.ui`, parallel to the existing `select`, `input`, `confirm`, and `editor` patches. Omitting this assignment is the regression that caused the dashboard multiselect to silently auto-cancel — the `polyfillMultiselect` helper consults `ctx.ui.multiselect` as its primary path, and without the patch it falls into a TUI-only `ctx.ui.custom` branch that does not render a browser dialog in dashboard / RPC mode.
 
 The assignment MUST issue `bus.request` with `type: "multiselect"` and decode the response per the rules in the `multiselect-dialog` capability ("Bridge routes `ctx.ui.multiselect` through PromptBus" requirement). The decode helper (referred to here as `decodeMultiselectAnswer`) SHALL be a pure function over `{ cancelled, answer }` so it can be exercised in unit tests without instantiating a live PromptBus.
 
@@ -863,7 +863,7 @@ The `tryDispatchExtensionCommand(pi, text, sessionId, sink, delivery?)` helper i
 2. Otherwise emit `command_feedback {status:"started"}`; then call `pi.sendUserMessage(text, { expandPromptTemplates: true, deliverAs: delivery ?? "followUp" })` and emit `{status:"completed"}`, or `{status:"error", message}` if the call throws synchronously.
 3. Return `true` whenever it emitted `started`.
 
-The helper SHALL NOT accept a `connection` parameter, SHALL NOT feature-detect `pi.dispatchCommand`, and SHALL NOT emit `dispatch_extension_command`. Both call sites (`bridge.ts::sessionPrompt`, `command-handler.ts` slash else-arm) SHALL pass the requested `delivery` when known.
+The helper SHALL NOT accept a `connection` parameter, SHALL NOT feature-detect `pi.dispatchCommand`, and SHALL NOT emit `dispatch_extension_command`. Both call sites (the bridge extension's `sessionPrompt` callback, `command-handler.ts` slash else-arm) SHALL pass the requested `delivery` when known.
 
 #### Scenario: In-process dispatch
 - **GIVEN** `text` is `/ctx-stats`, `ctx-stats` is in `pi.getCommands()` with `source: "extension"`

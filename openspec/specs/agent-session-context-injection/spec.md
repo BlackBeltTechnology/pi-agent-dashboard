@@ -2,7 +2,9 @@
 
 ## Purpose
 Bridge injects a per-turn fragment into the agent's system prompt naming the active pi session (`sessionId`, `cwd`) and, when set, the dashboard-attached OpenSpec change with the path to its artifacts. Closes the gap where the agent had no structured awareness of its own session or the attached change.
+
 ## Requirements
+
 ### Requirement: Bridge injects per-turn dashboard session context into system prompt
 
 The bridge extension SHALL register a `pi.on("before_agent_start", ...)` handler that returns `{ systemPrompt }` containing a splice-replaced copy of `event.systemPrompt` on every turn. The handler SHALL locate the LAST occurrence of the literal anchor `\nCurrent working directory: ` in `event.systemPrompt` and replace from that anchor through end-of-string with the dashboard-session-context fragment. The fragment carries `cwd` itself, so the dropped `Current working directory:` line loses no information. All `event.systemPrompt` content BEFORE the anchor SHALL be preserved verbatim, so the handler composes with pi's body and with other extensions' system-prompt contributions. When the anchor is absent, the handler SHALL fall back to appending the fragment after a single blank-line separator (`\n\n`).
@@ -67,7 +69,7 @@ When `BridgeContext.attachedChange` is `null`, `undefined`, or the empty string,
 
 #### Scenario: Injection persists across session reseating on fork/resume
 
-- **WHEN** pi reseats the session via fork or resume (same `pi` instance; `bridge.ts` updates the tracked `sessionId` in `session_start`)
+- **WHEN** pi reseats the session via fork or resume (same `pi` instance; the bridge extension updates the tracked `sessionId` in `session_start`)
 - **THEN** the already-registered `before_agent_start` handler SHALL still fire on subsequent turns (no re-registration required)
 - **AND** it SHALL build the fragment from the NEW session's `sessionId`/`attachedChange`, read live via the getter
 
@@ -151,4 +153,3 @@ Where the dashboard keeps its OWN notion of which files are context files — th
 - **WHEN** the running pi predates `AGENTS.override.md` support
 - **THEN** that pi simply never loads such a file and normal `AGENTS.md` inheritance applies
 - **AND** the dashboard SHALL NOT carry a version- or shape-gated fallback branch for it
-

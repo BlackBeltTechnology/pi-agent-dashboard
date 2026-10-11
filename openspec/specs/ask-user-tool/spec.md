@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change ask-user-message-body. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: ask_user tool parameters
 The `ask_user` tool SHALL accept a `message` parameter (optional string) described as "Additional context or detailed question body (all methods)" that works with all methods, not just confirm.
 
@@ -391,7 +393,7 @@ The attachment side channel SHALL enforce the same caps as `markdown-image-inlin
 
 For each successfully persisted image, the bridge SHALL emit one `asset_register` message (per-session-deduplicated by hash) so the dashboard's `AskUserToolRenderer` card can render a thumbnail. This is independent of the disk-write path: the disk file is for the LLM's `Read`, the `asset_register` is for the user's chat-history view. Both fire on resolve.
 
-The emission SHALL use the same `connection.send({type: "asset_register", sessionId, hash, mimeType, data})` shape established by `markdown-image-inliner` callsites in `bridge.ts`.
+The emission SHALL use the same `connection.send({type: "asset_register", sessionId, hash, mimeType, data})` shape established by `markdown-image-inliner` callsites in the bridge extension.
 
 #### Scenario: asset_register fires once per new hash per session
 - **WHEN** an image with hash `H1` is pasted in `ask_user{method:"input"}`
@@ -484,4 +486,3 @@ The textarea + paste wiring SHALL be extracted into a shared `<InputComposer>` c
 - **WHEN** the textarea is rendered in its idle (no-input) state
 - **THEN** its placeholder SHALL NOT mention images, paste, attachments, or any related affordance
 - **AND** no separate helper text or icon SHALL advertise paste support
-
