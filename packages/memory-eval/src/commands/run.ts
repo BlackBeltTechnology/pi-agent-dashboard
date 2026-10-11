@@ -1,7 +1,7 @@
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { DEFAULTS, loadConfig, type SearchOpts, searchOptsFromConfig } from "@blackbelt-technology/pi-dashboard-kb";
+import { spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { Ctx } from "../ctx.js";
 import { type CaseResult, type Retriever, runOne } from "../retriever.js";
 import { BUILTIN_IDS, hermesRetrievers, kbRetriever } from "../retrievers/builtin.js";

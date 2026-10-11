@@ -3,10 +3,10 @@
  * output); cached by content hash; consent-gated; failures yield `unjudged`.
  * See change: add-memory-eval-tier-r (design M5).
  */
-import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { Case } from "../cases.js";
 import type { Ctx } from "../ctx.js";
 import {
@@ -60,8 +60,8 @@ function runPi(ctx: Ctx, args: string[], cwd: string, input: string, timeoutMs: 
     let stderr = "";
     let timedOut = false;
     const cap = (s: string, add: Buffer) => (s.length > 5_000_000 ? s : s + add.toString("utf8"));
-    child.stdout.on("data", (d: Buffer) => (stdout = cap(stdout, d)));
-    child.stderr.on("data", (d: Buffer) => (stderr = cap(stderr, d)));
+    child.stdout?.on("data", (d: Buffer) => (stdout = cap(stdout, d)));
+    child.stderr?.on("data", (d: Buffer) => (stderr = cap(stderr, d)));
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill("SIGKILL");
@@ -74,8 +74,8 @@ function runPi(ctx: Ctx, args: string[], cwd: string, input: string, timeoutMs: 
       clearTimeout(timer);
       res({ exitCode: code, stdout, stderr, timedOut });
     });
-    child.stdin.on("error", () => {});
-    child.stdin.end(input);
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(input);
   });
 }
 
