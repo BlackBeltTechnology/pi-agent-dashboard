@@ -205,9 +205,11 @@ export async function issueHeldAdmission(
   const abs = resolve(rawCwd);
   const r = await realpath(abs);
   if (r.kind === "error") return { kind: "indeterminate", failedProbes: ["realpath"], elapsedMs: 0 };
-  const canon = r.kind === "ok" ? r.path : abs;
-  if (canon !== decision.canonCwd || hasGitPathSegment(canon)) return { kind: "refuse" };
-  return { kind: "admit", token: mintToken(canon, rawCwd) };
+  // The host re-checked existence just before answering; a cwd that vanished since is not
+  // a subject to mint a token for.
+  if (r.kind === "missing") return { kind: "refuse" };
+  if (r.path !== decision.canonCwd || hasGitPathSegment(r.path)) return { kind: "refuse" };
+  return { kind: "admit", token: mintToken(r.path, rawCwd) };
 }
 
 // ── Semaphore ───────────────────────────────────────────────────────────────
@@ -356,11 +358,14 @@ async function deriveOnce(
   if (main.kind === "error") return { kind: "indeterminate", failedProbes: ["realpath"] };
   if (main.kind === "missing") return { kind: "refuse" };
   const knownCanon = await canonKnownClassified(known, realpath);
-  return knownCanon.canon.includes(main.path) ? { kind: "admit" } : { kind: "refuse" };
+  if (knownCanon.canon.includes(main.path)) return { kind: "admit" };
+  // A known folder this pass could not resolve might be the main checkout.
+  return knownCanon.uncertain ? { kind: "indeterminate", failedProbes: ["realpath"] } : { kind: "refuse" };
 }
 
 /** Canonical forms of the known folders, plus whether any entry could not be resolved. */
 export interface CanonicalKnown {
+  /** Matchable canonical forms. An entry that FAILED to canonicalize is never in here. */
   canon: string[];
   /**
    * A known folder failed to canonicalize for a reason other than non-existence (`EACCES`,
@@ -372,27 +377,25 @@ export interface CanonicalKnown {
 
 /**
  * Canonicalize the known folders. A missing (`ENOENT`) entry falls back to its lexical form
- * (a deleted pin cannot match anything but itself). Any OTHER failure marks the result
- * `uncertain` instead of being papered over: a match found among the resolvable entries
- * still admits, but the absence of one is then a failure to decide.
+ * (a deleted pin cannot match anything but itself). Any OTHER failure leaves the entry OUT of
+ * the matchable list — its lexical path must not authorize anything when its canonical form
+ * is unknown — and marks the result `uncertain`: a match among the resolvable entries still
+ * admits, but the absence of one is then a failure to decide.
  */
 export async function canonKnownClassified(
   known: () => string[],
   realpath: (p: string) => Promise<RealpathOutcome> = realpathAsync,
 ): Promise<CanonicalKnown> {
-  let uncertain = false;
-  const canon = await Promise.all(
+  const resolved = await Promise.all(
     known().map(async (p) => {
       const abs = resolve(p);
       const r = await realpath(abs);
-      if (r.kind === "error") {
-        uncertain = true;
-        return abs;
-      }
+      if (r.kind === "error") return null;
       return r.kind === "ok" ? r.path : abs;
     }),
   );
-  return { canon, uncertain };
+  const canon = resolved.filter((p): p is string => p !== null);
+  return { canon, uncertain: canon.length !== resolved.length };
 }
 
 /**

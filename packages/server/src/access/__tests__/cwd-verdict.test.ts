@@ -298,6 +298,22 @@ describe("resolveCwdVerdict (shared re-run)", () => {
     expect(out).toEqual({ kind: "indeterminate" });
   });
 
+  it("r3 B1: a known folder that FAILS to canonicalize never matches, even when its lexical path equals the cwd", async () => {
+    const dir = unknownDir();
+    const { realpathAsync } = await import("@blackbelt-technology/pi-dashboard-shared/platform/git.js");
+    let calls = 0;
+    const out = await resolveCwdVerdict(
+      dir,
+      { kind: "allow", verdict: "allow-always", subject: dir },
+      {
+        known: () => [dir],
+        // call 1 = the cwd's own realpath (ok); call 2 = the known entry (the would-be match) fails.
+        realpath: async (p) => (calls++ === 0 ? realpathAsync(p) : { kind: "error", code: "EACCES" }),
+      },
+    );
+    expect(out).toEqual({ kind: "indeterminate" });
+  });
+
   it("core site (no rerunAlways): an allow-always that is not in the known set is refused", async () => {
     const dir = unknownDir();
     expect(

@@ -377,6 +377,35 @@ describe("admitCwd — an unresolvable known folder is a failure to decide (r2 B
     expect(r.kind).toBe("refuse");
   });
 
+  it("r3 B1: a known folder that FAILS to canonicalize never matches, even when its lexical path equals the target", async () => {
+    const dir = makeDir("admit-failed-entry-match-");
+    const real = await import("../platform/git.js");
+    let calls = 0;
+    const r = await admitCwd(dir, () => [dir], {
+      // call 1 = the request's own realpath (ok); call 2 = the known entry — the would-be match — fails.
+      realpath: async (p) => (calls++ === 0 ? real.realpathAsync(p) : { kind: "error", code: "EACCES" }),
+    });
+    expect(r.kind).toBe("indeterminate");
+  });
+
+  it("r3 B1: same at the derived-main site — a failing known entry that IS the main checkout does not admit", async () => {
+    const { main, worktree } = makeRepoWithWorktree();
+    const mainReal = realpathSync(main);
+    const real = await import("../platform/git.js");
+    let mainCalls = 0;
+    const r = await admitCwd(worktree, () => [main], {
+      // 1st: outer known-set pass; 2nd: deriveOnce's own main realpath; 3rd: its known-set pass (fails).
+      realpath: async (p) => (p === mainReal && ++mainCalls === 3 ? { kind: "error", code: "EACCES" } : real.realpathAsync(p)),
+    });
+    expect(r.kind).toBe("indeterminate");
+  });
+
+  it("r3 B2: issueHeldAdmission mints nothing when the cwd vanished after the verdict (ENOENT)", async () => {
+    const dir = makeDir("admit-held-vanished-");
+    const r = await issueHeldAdmission({ kind: "admit", canonCwd: dir }, dir, async () => ({ kind: "missing" }));
+    expect(r.kind).toBe("refuse");
+  });
+
   it("issueHeldAdmission: a realpath error is indeterminate, never a mint or a plain refusal", async () => {
     const dir = makeDir("admit-held-eacces-");
     const r = await issueHeldAdmission({ kind: "admit", canonCwd: dir }, dir, async () => ({ kind: "error", code: "EACCES" }));
