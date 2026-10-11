@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Lifecycle handlers, event forwarders and inbound dispatch are importable
-The bodies of the bridge's pi lifecycle handlers (`session_start`, `turn_end`, `session_shutdown`, `session_info_changed`, `project_trust`), the enriched and pass-through event forwarders, and the inbound WebSocket message dispatch SHALL live in modules that a test can import without loading the bridge entry point. Each SHALL receive the state it reads or writes through one explicit per-incarnation instance object passed by the entry point, which in turn references the process-global bridge state that survives reload; the modules SHALL hold no module-level mutable state. The entry point SHALL keep the process-global state and its cross-reload adoption (session id, attached change, stop-after-turn latch, namer state, connections, timers), the subagent re-entry guard, the generation counter and its bump, `EVENT_BUS_MAP` and the EventBus emit intercept, and the registration wiring; each instance object SHALL carry the generation it was created with and expose `isActive()` derived from it. Extracted modules SHALL NOT import the entry point.
+The bodies of the bridge's pi lifecycle handlers (`session_start`, `turn_end`, `session_shutdown`, `session_info_changed`, `project_trust`), the enriched and pass-through event forwarders, and the inbound WebSocket message dispatch SHALL live in modules that a test can import without loading the bridge entry point. Each SHALL receive the state it reads or writes through one explicit per-incarnation instance object passed by the entry point, which in turn references the process-global bridge state that survives reload; the modules SHALL hold no module-level mutable state. The entry point SHALL keep the process-global state and its cross-reload adoption (session id, attached change, stop-after-turn latch, namer state, connections, timers), the subagent re-entry guard, the generation counter and its bump, `EVENT_BUS_MAP` and the EventBus emit intercept, the registration of thin handlers that only delegate to already-extracted modules (in their existing registration order), and the registration wiring; each instance object SHALL carry the generation it was created with and expose `isActive()` derived from it. Extracted modules SHALL NOT import the entry point.
 
 #### Scenario: Handler runs against a stub state without the entry point
 - **WHEN** a test imports an extracted handler module and invokes the handler with a stub `pi`, a stub context and a fresh instance object over a fresh process-global state
@@ -41,3 +41,14 @@ The bridge extension SHALL delegate `sendStateSync()`, `replaySessionEntries()`,
 #### Scenario: Session entries replayed
 - **WHEN** state sync or session change occurs
 - **THEN** session-sync replays all session entries as protocol events
+
+### Requirement: Model tracker extraction
+The bridge extension SHALL delegate model/thinking-level change detection and update sending to a `model-tracker` module.
+
+#### Scenario: Model change detected and sent
+- **WHEN** the current model or thinking level changes
+- **THEN** model-tracker sends a model_update message to the server
+
+#### Scenario: No update when unchanged
+- **WHEN** model and thinking level are the same as last sent
+- **THEN** model-tracker does not send a message

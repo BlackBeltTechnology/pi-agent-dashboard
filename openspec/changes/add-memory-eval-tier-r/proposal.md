@@ -13,7 +13,9 @@ today.
 
 - The Tier R v0 harness that produced the baseline (hermes `session_search`
   34% helpful, any shipped retriever 54%, no abstention on 30 negatives) ran
-  from `/tmp` and was deleted. Only its numbers survive.
+  from `/tmp` and was deleted. Its numbers survive in the research doc, and
+  fragments of its scripts survive in a session log. Neither is a committed,
+  re-runnable reference.
 - A re-run today would build a different case set with different ad-hoc
   scripts, so no later number is comparable with the baseline.
 - Phase 2's acceptance criterion ("the `sessions` scope beats the old stack
@@ -33,14 +35,19 @@ today.
   - negatives: first-ever failures.
 
   Each case carries its decision time, and retrieval is evaluated strictly
-  *as of* that time. The builder uses a seeded sample and stable case ids.
+  *as of* that time; the harness drops and counts any later hit. The builder
+  uses a seeded sample and stable case ids, and the baseline case set is
+  frozen so later phases are measured on the same cases.
 - **Retriever adapters** behind one interface: faithful replicas of the old
-  stack (hermes `session_search` in both newest-first and BM25 order, hermes
-  `memory_search`, `kb_search` over docs). blackhole `recall` is documented as
-  zero by construction, and phase 2 adds a context-manager adapter.
+  stack: hermes `session_search` in both newest-first and BM25 order, and
+  hermes `memory_search`. `kb_search` over docs is reported separately as a
+  non-as-of reference, because kb chunks carry no timestamps. blackhole
+  `recall` is documented as zero by construction, and phase 2 adds a
+  context-manager adapter.
 - **LLM judge:**
   - the model comes from a role (default `@review`) and runs through headless
-    `pi` with every extension, skill and context file off;
+    `pi` with every tool, extension, skill and context file off;
+  - secrets are scrubbed from case and retrieved text before it is sent;
   - the prompt is versioned in the repo;
   - it judges case validity once per case, and helpfulness per (case,
     retriever output) pair;
@@ -55,8 +62,9 @@ today.
   holds the code, the judge prompt, a synthetic fixture, and aggregate reports
   that contain no case text.
 - **Baseline:** this change re-measures the old stack for this repo with the
-  committed harness. The result replaces the v0 figures as the reference that
-  phase 2 must beat.
+  committed harness, judged by `@propose-review-1` (the `@review` provider had
+  no credits at planning time). The result replaces the v0 figures as the
+  reference that phase 2 must beat on the same frozen case set.
 
 ## Capabilities
 
@@ -70,14 +78,17 @@ None.
 ## Impact
 
 - **New:** `packages/memory-eval/` (private workspace package; no runtime
-  dependency beyond `node:sqlite`, `packages/kb`, `packages/shared`).
-- **Reads, never writes:** pi session JSONL under `~/.pi/agent/sessions/`,
-  hermes `sessions.db` (opened read-only), the kb index (a `VACUUM INTO` copy).
+  dependency beyond `node:sqlite`, `tsx`, `packages/kb`, `packages/shared`).
+- **Reads, never writes:** pi session JSONL under `~/.pi/agent/sessions/`;
+  hermes `sessions.db` and the kb index, each file-copied with its WAL
+  sidecars once per run (never opened in place), vacuumed into a snapshot
+  and queried only as that snapshot.
 - **Writes:** `~/.pi/dashboard/memory-eval/<project>/` only, plus the
   aggregate report the operator chooses to commit.
 - **External calls:** the judge sends case and retrieved text to the model
   provider behind the judge role. The CLI names the provider and asks for
-  confirmation before the first remote call.
+  confirmation before the first remote call. Without a TTY and without
+  `--yes`, it refuses.
 - **Umbrella:** task 2.1 splits: Tier R here, Tier O (outcome replay) later.
 - **No user-facing behaviour changes;** nothing ships in the dashboard or in
   pi sessions.
@@ -90,6 +101,7 @@ None.
 - `doubt-driven-review`: the case definitions and metrics become the yardstick
   for every later phase, so a flaw here propagates.
 - `review-code`: before commit.
-- `performance-optimization`: not triggered (offline tool; the v0 query-plan
-  lesson is captured as a requirement).
-- `observability-instrumentation`: not triggered (no runtime service).
+- `performance-optimization`: the BM25 adapter has a 500 ms budget over a
+  45k-row table (the v0 query-plan lesson).
+- `observability-instrumentation`: the judge is a new external call; each
+  call is logged to `judge-calls.jsonl` and summarised by `status`.
