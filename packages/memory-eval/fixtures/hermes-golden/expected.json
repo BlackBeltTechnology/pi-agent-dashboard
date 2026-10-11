@@ -1,0 +1,94 @@
+{
+  "hermesVersion": "0.9.10",
+  "expected": {
+    "kaboom failure": [
+      "s-synth-0",
+      "s-synth-4",
+      "s-synth-0",
+      "s-synth-4",
+      "s-synth-0"
+    ],
+    "the and of": [
+      "s-synth-2",
+      "s-synth-1",
+      "s-synth-7",
+      "s-synth-5",
+      "s-synth-4",
+      "s-synth-3",
+      "s-synth-2",
+      "s-synth-0",
+      "s-synth-6",
+      "s-synth-5"
+    ],
+    "DO NOT USE FIND /": [
+      "s-synth-1",
+      "s-synth-5",
+      "s-synth-1",
+      "s-synth-1"
+    ],
+    "vitest timeout error": [
+      "s-synth-5",
+      "s-synth-1",
+      "s-synth-5",
+      "s-synth-1",
+      "s-synth-5"
+    ],
+    "ab": [
+      "s-synth-7",
+      "s-synth-4",
+      "s-synth-0",
+      "s-synth-2",
+      "s-synth-0",
+      "s-synth-4",
+      "s-synth-7",
+      "s-synth-6",
+      "s-synth-4",
+      "s-synth-0"
+    ],
+    "\"exact phrase here\"": [
+      "s-synth-0",
+      "s-synth-4",
+      "s-synth-4",
+      "s-synth-0"
+    ],
+    "zzzzqqq": [],
+    "pnpm install failed": [
+      "s-synth-2",
+      "s-synth-6",
+      "s-synth-2",
+      "s-synth-6"
+    ],
+    "megint ugyanaz a hiba": [
+      "s-synth-1",
+      "s-synth-5",
+      "s-synth-1",
+      "s-synth-5",
+      "s-synth-1"
+    ],
+    "kaboom OR gadget": [
+      "s-synth-0",
+      "s-synth-2",
+      "s-synth-4",
+      "s-synth-6",
+      "s-synth-0",
+      "s-synth-2",
+      "s-synth-4",
+      "s-synth-6",
+      "s-synth-0"
+    ],
+    "Cannot find module": [
+      "s-synth-3",
+      "s-synth-7",
+      "s-synth-3",
+      "s-synth-7",
+      "s-synth-3"
+    ],
+    "worktree branch collision": [
+      "s-synth-3",
+      "s-synth-7",
+      "s-synth-3",
+      "s-synth-7",
+      "s-synth-3"
+    ]
+  }
+}
