@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import url from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   checkAttachedServerVersion,
@@ -580,8 +581,77 @@ describe("TypeScript loader row follows PI_DASHBOARD_TS_LOADER (E30)", () => {
     expect(r.message).not.toMatch(/jiti/);
   });
 
-  it("jiti opt-in → still probes for jiti/tsx (not the native row)", async () => {
+  it("jiti opt-in → probes for jiti (not the native row)", async () => {
     const r = row(await runSharedChecks(baseDeps({ PI_DASHBOARD_TS_LOADER: "jiti" })));
     expect(r.message).not.toContain("native-ts-register.mjs");
+  });
+
+  // tsx is never a server loader: no Doctor probe may report it (E1-E5, X1).
+  // See change: cleanup-post-r3-spec-drift.
+  const noTsx = (r: DoctorCheck) => {
+    for (const f of [r.message, r.detail, r.suggestion]) expect(f ?? "").not.toMatch(/tsx/i);
+  };
+  const jitiEnv = { PI_DASHBOARD_TS_LOADER: "jiti" };
+
+  it("E1: jiti mode ignores an installed tsx (jiti absent → error, no tsx mention)", async () => {
+    const deps: SharedChecksDeps = {
+      ...baseDeps(jitiEnv),
+      resolvePackageJson: (name) => (name === "tsx" ? "/fake/node_modules/tsx/package.json" : null),
+    };
+    const r = row(await runSharedChecks(deps));
+    expect(r.status).toBe("error");
+    expect(r.code).toBe("doctor.ts_loader_not_found");
+    noTsx(r);
+  });
+
+  it("E2: jiti mode ignores a managed tsx and names jiti", async () => {
+    const deps = baseDeps(jitiEnv);
+    const tsxDir = path.join(deps.managedDir, "node_modules", "tsx");
+    fs.mkdirSync(tsxDir, { recursive: true });
+    fs.writeFileSync(path.join(tsxDir, "package.json"), JSON.stringify({ version: "4.0.0" }));
+    const r = row(await runSharedChecks(deps));
+    expect(r.message).not.toMatch(/tsx/i);
+    expect(r.message).toMatch(/jiti/);
+  });
+
+  it("E3: native mode output omits tsx", async () => {
+    const r = row(await runSharedChecks(baseDeps({})));
+    expect(r.status).toBe("ok");
+    expect(r.message).toContain("native-ts-register.mjs");
+    noTsx(r);
+  });
+
+  it("E4: jiti mode reports the resolved managed jiti", async () => {
+    const deps = baseDeps(jitiEnv);
+    const jitiDir = path.join(deps.managedDir, "node_modules", "jiti");
+    fs.mkdirSync(jitiDir, { recursive: true });
+    fs.writeFileSync(path.join(jitiDir, "package.json"), JSON.stringify({ version: "9.9.9" }));
+    const r = row(await runSharedChecks(deps));
+    expect(r.status).toBe("ok");
+    expect(r.message).toContain("9.9.9");
+    expect(r.message).toContain(jitiDir);
+  });
+
+  it("E5: doctor-core.ts source has no tsx probe", () => {
+    const src = fs
+      .readFileSync(path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "doctor-core.ts"), "utf8")
+      .split(/\r?\n/)
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join("\n");
+    expect(src).not.toMatch(/(which|where) tsx/);
+    expect(src).not.toMatch(/(tryResolvePkg|resolvePackageJson)\(\s*"tsx"/);
+    expect(src).not.toMatch(/"node_modules",\s*"tsx"/);
+  });
+
+  it("X1: a throwing package resolver is contained by safeCheck", async () => {
+    const deps: SharedChecksDeps = {
+      ...baseDeps(jitiEnv),
+      resolvePackageJson: () => {
+        throw new Error("resolver boom");
+      },
+    };
+    const r = row(await runSharedChecks(deps));
+    expect(r).toBeDefined();
+    expect(r.status).toBe("error");
   });
 });

@@ -1,7 +1,7 @@
 # electron-qa-coverage Specification
 
 ## Purpose
-Defines the QA coverage required to catch Electron-bootstrap regressions — particularly the failure modes observed in v0.4.6 (degraded managed `node_modules`, invisible server logs, and lack of a real Electron-launch smoke test on Linux). These requirements pin specific QA stages and tests so production regressions are caught by the CI/VM test suite before release.
+Defines the QA coverage required to catch Electron-bootstrap regressions — particularly the failure modes observed in v0.4.6 (invisible server logs, and lack of a real Electron-launch smoke test on Linux). These requirements pin specific QA stages and tests so production regressions are caught by the CI/VM test suite before release.
 ## Requirements
 ### Requirement: QA simulates degraded managed-dir recovery
 The Linux Docker installer test (`packages/electron/scripts/test-electron-install-inner.sh`) SHALL include a "degraded re-extract recovery" stage that runs after the happy-path installation and health check succeed. This stage SHALL prove that the bootstrap auto-recovers when the `.version` marker says "no extraction needed" but the actual managed `node_modules` tree is degraded — the failure mode that produced the user-visible "FATAL: Cannot find pi's TypeScript loader (jiti)" in v0.4.6.

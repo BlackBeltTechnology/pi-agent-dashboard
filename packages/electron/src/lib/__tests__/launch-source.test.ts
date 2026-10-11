@@ -124,6 +124,8 @@ describe("selectLaunchSource — bundled", () => {
       cliPath,
       cwd: "/fake/resources/server",
     });
+    // E9: read-only — the probe surface is existence + health only, no write/mkdir/rm.
+    expect(Object.keys(probes).sort()).toEqual(["existsSync", "healthProbe"]);
   });
 
   // NSIS install location is irrelevant: any resourcesPath resolves to the
@@ -146,9 +148,10 @@ describe("selectLaunchSource — bundled", () => {
 
   it("throws BundledServerMissingError when no source resolves", async () => {
     const probes = makeProbes(); // existsSync always false
-    await expect(selectLaunchSource(baseOpts({ probes }))).rejects.toBeInstanceOf(
-      BundledServerMissingError,
-    );
+    const err = await selectLaunchSource(baseOpts({ probes })).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BundledServerMissingError);
+    // E7: the error names the bundled server entry.
+    expect((err as BundledServerMissingError).cliPath).toBe(getBundledCliPath("/fake/resources"));
   });
 });
 
@@ -212,9 +215,15 @@ describe("parsePreferOverride", () => {
   it("rejects pre-R3 source kinds (piExtension, npmGlobal, extracted) individually", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     for (const removed of ["piExtension", "npmGlobal", "extracted"]) {
+      warnSpy.mockClear();
       expect(
         parsePreferOverride({ DASHBOARD_PREFER_SOURCE: removed }),
       ).toBeNull();
+      // E8: the rejection is logged (stderr leg of logLaunchSource) with the raw value.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const msg = String(warnSpy.mock.calls[0]?.[0]);
+      expect(msg).toContain("[launch-source]");
+      expect(msg).toContain(removed);
     }
     warnSpy.mockRestore();
   });

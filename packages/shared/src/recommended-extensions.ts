@@ -619,15 +619,10 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 ];
 
 /**
- * Ids of recommended extensions that ship inside the Electron installer
- * as a pre-bundled source tree. See
- * `installBundledExtensions()` in `dependency-installer.ts`. Every id
- * MUST also appear in `RECOMMENDED_EXTENSIONS` and MUST have a git-based
- * `source` (enforced by a test) — the pre-bundle path only handles git
- * sources; npm-sourced extensions install via the recommended-extensions UI.
- *
- * Kept deliberately short — only first-party, source-only, native-dep-free
- * extensions belong here.
+ * Ids of recommended extensions treated as bundled. The manifest is EMPTY:
+ * there is no installer pre-bundle path any more, so every recommended
+ * extension installs through the recommended-extensions UI. Every id listed
+ * here MUST also appear in `RECOMMENDED_EXTENSIONS` (enforced by a test).
  */
 export const BUNDLED_EXTENSION_IDS: readonly string[] = [
 	// pi-anthropic-messages was previously bundled via its git source. It was
@@ -641,13 +636,9 @@ export const BUNDLED_EXTENSION_IDS: readonly string[] = [
 	// @blackbelt-technology/pi-dashboard-subagents was likewise migrated to an
 	// npm: source in v0.2.0 and removed from the pre-bundle set.
 	//
-	// "pi-flows" is intentionally NOT bundled until the upstream repo declares
-	// an SPDX-conformant license (`LICENSE` file or `package.json#license`).
-	// The bundle-recommended-extensions.mjs license allowlist enforcement
-	// (MIT/Apache-2.0/BSD-2-Clause/BSD-3-Clause/ISC) correctly rejects it.
-	// Re-add this entry once https://github.com/BlackBeltTechnology/pi-flows
-	// has a license declared. See: openspec/changes/archive/
-	// 2026-04-21-bundle-first-party-extensions/design.md §"License blockers".
+	// "pi-flows" was never bundled (upstream license blocker); see
+	// openspec/changes/archive/2026-04-21-bundle-first-party-extensions/design.md
+	// §"License blockers" for history.
 ];
 
 /** Retrieve a recommended entry by id, or `undefined`. */

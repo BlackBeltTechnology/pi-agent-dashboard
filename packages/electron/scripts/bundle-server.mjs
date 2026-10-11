@@ -74,12 +74,10 @@ const SOURCE_ONLY = process.argv.slice(2).includes("--source-only");
 
 console.log("→ Bundling dashboard server...");
 
-// Phase 1 of change: eliminate-electron-runtime-install (R3 dep lift).
 // pi/openspec/tsx are regular `dependencies` of packages/server/package.json.
 // They get materialized under resources/server/node_modules/ by the
 // `npm install --omit=dev` step below — same as every other workspace
 // dep. No synthetic dependency block needed at this layer.
-// `offline-packages.json` is vestigial and removed in Phase 5.
 
 // ── clean & re-create target structure ───────────────────────────────────
 rmSync(SERVER_BUNDLE, { recursive: true, force: true });
@@ -208,17 +206,10 @@ if (clientSrc) {
 //
 // pi-coding-agent / openspec / tsx are declared as production dependencies
 // here so the `npm install --omit=dev` step below materializes them under
-// `resources/server/node_modules/`. The .app then ships a complete
-// pre-installed runtime — no offline cacache, no runtime install into
-// `~/.pi-dashboard/`. Versions come from `offline-packages.json` until
-// Phase 5 of change: eliminate-electron-runtime-install collapses the pin
-// source into a constant in this file.
-//
-// This reverses the prior architectural decision (D5 in change:
-// fix-electron-windows-installer-and-server-bootstrap) which kept pi out of
-// the bundle to defer to an in-place `/api/pi-core/update` upgrader. That
-// upgrade path is removed in Phase 3; the bundle is now the single source
-// of truth for pi/openspec/tsx versions, refreshed via electron-updater
+// `resources/server/node_modules/`. The .app ships a complete pre-installed,
+// read-only runtime — no offline cacache, no runtime install. Versions come
+// from `packages/server/package.json`; the bundle is the single source of
+// truth for pi/openspec/tsx versions, refreshed via electron-updater
 // whole-.app replacement.
 //
 // Root `dependencies` = the bundled plugins' third-party `dependencies` union.
@@ -510,11 +501,10 @@ if (existsSync(NM)) {
 // npm workspaces creates symlinks like
 //   node_modules/@blackbelt-technology/pi-dashboard-server -> ../../packages/server
 // which are valid inside the bundle. BUT Node's `fs.cpSync(..., { recursive:
-// true, dereference: false })` — used by Electron's `extractBundle` on first
-// launch — has a quirk: it rewrites RELATIVE symlinks as ABSOLUTE paths
-// pointing to the build host's source location. After extraction on a user's
-// machine, those absolute paths resolve to nothing, breaking cliPath and
-// everything pi-coding-agent depends on.
+// true, dereference: false })` has a quirk: it rewrites RELATIVE symlinks as
+// ABSOLUTE paths pointing to the build host's source location. Any copy of the
+// bundle onto another machine would then resolve those paths to nothing,
+// breaking cliPath and everything pi-coding-agent depends on.
 //
 // docker-make.sh already does this replacement for Docker (Linux/Windows)
 // builds. Replicate here so native-macOS builds (which run bundle-server.mjs
@@ -560,7 +550,7 @@ if (existsSync(BB_DIR)) {
 // server.ts resolves the client via:
 //   createRequire(...).resolve("@blackbelt-technology/pi-dashboard-web/package.json")
 // then joins "dist" off that package dir. To make this canonical lookup
-// succeed in the extracted layout (~/.pi-dashboard/node_modules/...), copy
+// succeed in the bundled layout (resources/server/node_modules/...), copy
 // the built client into node_modules/@blackbelt-technology/pi-dashboard-web/.
 // packages/server/package.json doesn't declare pi-dashboard-web as a dep, so
 // `npm install` above did NOT pull it from the registry; we must place it

@@ -1,6 +1,6 @@
 ## Purpose
 
-Define the curated recommended-extensions manifest (`RECOMMENDED_EXTENSIONS`) and the subset bundled inside the Electron installer (`BUNDLED_EXTENSION_IDS`): membership rules, entry `source`/`requires` contract with live probing, the build-time bundling script, ExtraResource inclusion, first-run activation via pi's package manager, and the installer size budget.
+Define the curated recommended-extensions manifest (`RECOMMENDED_EXTENSIONS`) and the subset bundled inside the Electron installer (`BUNDLED_EXTENSION_IDS`): membership rules (the bundled manifest is currently empty), and the entry `source`/`requires` contract with live probing.
 
 ## Requirements
 

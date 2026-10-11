@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines a discriminated `LaunchSource` resolver that the Electron app uses to decide, on every launch, where to find the dashboard server (running, dev monorepo, pi extension, npm global, or extracted bundle), with deterministic per-source probes and a single uniform spawn primitive.
+Defines a discriminated `LaunchSource` resolver that the Electron app uses to decide, on every launch, where to find the dashboard server (a running server, the dev monorepo, a local link, a staged runtime overlay, or the bundled server), with deterministic per-source probes and a single uniform spawn primitive.
 
 ## Requirements
 

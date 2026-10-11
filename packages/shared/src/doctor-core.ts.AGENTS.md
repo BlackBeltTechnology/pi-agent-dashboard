@@ -7,3 +7,7 @@ See change: align-ui-with-theme-tokens. Diagnostics row name "Session runtime (r
 ## electron-runtime-overlay-updates
 
 `SECTION_OF`/`SUGGESTIONS` gain `Dashboard runtime` (section runtime). See change: electron-runtime-overlay-updates.
+
+## cleanup-post-r3-spec-drift
+
+`TypeScript loader` row (jiti mode) probes jiti only (managed, then bundled); tsx is never probed (no managed/bundled/`which tsx` lookup; remediation says "jiti"). `SharedChecksDeps.resolvePackageJson?(name)` is the test seam for the bundled-jiti lookup (default: `tryResolvePkg`). tsx-only install in jiti mode now reports `error` `doctor.ts_loader_not_found`. See change: cleanup-post-r3-spec-drift.
