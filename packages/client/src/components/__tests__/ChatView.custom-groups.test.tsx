@@ -99,6 +99,9 @@ function bodyText(container: HTMLElement): string {
   return container.textContent ?? "";
 }
 
+/**
+ * @structural-pin the gating wiring in ChatView and CustomEntryRow is checked in text because the rendered transcript hides which code path filtered a row
+ */
 describe("custom group gate (task 7.1)", () => {
   it("a hidden group's rows are excluded from row-visibility AND from rendering", () => {
     prefsRef.current = {

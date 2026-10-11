@@ -14,6 +14,9 @@ import { decodeMultiselectAnswer } from "../multiselect-decode.js";
 // and the TUI adapter's response encoding round-trip.
 // ──────────────────────────────────────────────────────────────────────
 
+/**
+ * @structural-pin bridge.ts cannot be instantiated in a test; the multiselect PromptBus patch line is pinned in text beside a reproduction harness
+ */
 describe("decodeMultiselectAnswer", () => {
   it("resolves cancellation as undefined", () => {
     expect(decodeMultiselectAnswer({ cancelled: true })).toBeUndefined();

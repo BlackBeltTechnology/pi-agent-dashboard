@@ -15,6 +15,9 @@ import { bootRoutes, json, makeHost, project, renderApp } from "./helpers.js";
 
 const PROJECTS = [project("billing", { name: "billing-api" }), project("crm", { name: "crm-web", available: false })];
 
+/**
+ * @structural-pin team-app.tsx mounts the whole SPA on import; the selector wiring is checked in its text beside component cases
+ */
 describe("F24: project selector", () => {
   it("lists projects + own workspace; unavailable disabled with reason; selection remembered and switches", async () => {
     const host = makeHost();

@@ -52,6 +52,9 @@ function parseJitiPackagesArray(source: string): string[] | null {
   return items;
 }
 
+/**
+ * @structural-pin parity lint: JITI_PACKAGES must stay identical across two source sites that resolve jiti at process start
+ */
 describe("JITI_PACKAGES parity (binary-lookup.ts ⇔ bin/pi-dashboard.mjs)", () => {
   it("both sites declare the same array in the same order", () => {
     const binSrc = readFileSync(BIN_PATH, "utf-8");

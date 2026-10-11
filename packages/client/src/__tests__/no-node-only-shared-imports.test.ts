@@ -103,6 +103,9 @@ function valueImportsOfShared(src: string): string[] {
   return out;
 }
 
+/**
+ * @structural-pin bundle-graph lint: a value import of a node:-pulling shared module blanks the SPA at boot while jsdom tests stay green; only import text reveals it
+ */
 describe("client bundle purity — no node-only shared modules", () => {
   it("the detector actually finds node-only shared modules (fails closed)", () => {
     const nodeOnly = nodeOnlySharedModules();

@@ -11,6 +11,9 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { filterHiddenCommands } from "../bridge-context.js";
 
+/**
+ * @structural-pin every module that sends commands_list must wrap pi.getCommands() in filterHiddenCommands; a scan of sender source is the only way to cover future senders
+ */
 describe("filterHiddenCommands maps sourceInfo.path onto path", () => {
   it("populates path for a skill command from pi's sourceInfo (3.1)", () => {
     const skillPath = "/Users/x/.pi/skills/ship-change/SKILL.md";

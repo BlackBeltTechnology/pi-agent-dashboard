@@ -39,6 +39,9 @@ function stripComments(src: string): string {
 
 const ALLOWED = new Set([path.join("auth", "localhost-guard.ts"), path.join("auth", "cors-origin.ts")]);
 
+/**
+ * @structural-pin single-predicate lint: isBypassedHost( may be called only in two modules; a static scan over server source
+ */
 describe("E16 single peer-IP trust predicate", () => {
   it("calls isBypassedHost( only in localhost-guard.ts and cors-origin.ts", () => {
     const offenders: string[] = [];

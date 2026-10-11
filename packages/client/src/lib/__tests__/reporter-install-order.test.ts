@@ -21,6 +21,9 @@ import { describe, expect, it } from "vitest";
 const clientSrc = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const mainSrc = readFileSync(path.join(clientSrc, "main.tsx"), "utf8");
 
+/**
+ * @structural-pin main.tsx renders the whole app on import; install order of the unhandled-rejection reporter is only visible in its text
+ */
 describe("F6 (ordering): the reporter is installed before the app renders", () => {
   it("calls installUnhandledRejectionReporter() at the entrypoint", () => {
     expect(mainSrc).toMatch(/^installUnhandledRejectionReporter\(\);$/m);

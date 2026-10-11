@@ -17,6 +17,9 @@ import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
 
+/**
+ * @structural-pin SettingsPanel slot mounts and browser-protocol message shapes are cross-package contracts checked from source
+ */
 describe("add-plugin-activation-ui repo-lint", () => {
   it("SettingsPanel mounts no SettingsSectionSlot at all", () => {
     // `settings-section` claims render EXCLUSIVELY on their owning plugin's

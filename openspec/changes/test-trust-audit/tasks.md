@@ -11,11 +11,11 @@
 
 ## 2. Slice B — Source-grep test triage (design D4)
 
-- [ ] 2.1 List every `*.test.ts(x)` under `packages/**/__tests__` that `readFileSync`s a `.ts`/`.tsx` source path with two patterns — literal (`rg -l 'readFileSync\([^)]*\.tsx?' --glob '**/__tests__/*.test.ts*' packages`, 45 files on 2025-10-11) and path-built (a `.ts`/`.tsx` string literal in `resolve(`/`join(`/`new URL(` plus any `readFile`/`readFileSync`, ~89 files) — then drop fixture/config reads by hand; record the resulting set with a keep / replace / delete disposition and one-line reason in the commit message of 2.4.
-- [ ] 2.2 Keep: add a JSDoc `@structural-pin <reason>` tag on the `describe` block of every kept file (`ChatView.notify-gate`, `i18n-orphans`, `engine-purity`, `no-bash-on-windows`, `no-tui-multiselect-arm-regression`, and any other justified pin).
-- [ ] 2.3 Replace: for each file whose assertion is a runtime behaviour, write the behavioural test beside it in the same `__tests__` dir (copy the nearest sibling's harness) and delete the text assertion.
-- [ ] 2.4 Delete: remove files that are neither, one commit, reason per file in the message.
-- [ ] 2.5 Test: every remaining source-reading test carries `@structural-pin` — see `packages/shared/src/__tests__/no-bash-on-windows.test.ts` for the tree-scan lint harness. Input: all `__tests__/*.test.ts(x)` containing `readFileSync(` on a `.ts`/`.tsx` path · trigger: read the JSDoc above the first `describe` · observable: contains `@structural-pin ` + ≥10 non-space chars; failure message lists offenders (test-plan E10)
+- [x] 2.1 List every `*.test.ts(x)` under `packages/**/__tests__` that `readFileSync`s a `.ts`/`.tsx` source path with two patterns — literal (`rg -l 'readFileSync\([^)]*\.tsx?' --glob '**/__tests__/*.test.ts*' packages`, 45 files on 2025-10-11) and path-built (a `.ts`/`.tsx` string literal in `resolve(`/`join(`/`new URL(` plus any `readFile`/`readFileSync`, ~89 files) — then drop fixture/config reads by hand; record the resulting set with a keep / replace / delete disposition and one-line reason in the commit message of 2.4.
+- [x] 2.2 Keep: add a JSDoc `@structural-pin <reason>` tag on the `describe` block of every kept file (`ChatView.notify-gate`, `i18n-orphans`, `engine-purity`, `no-bash-on-windows`, `no-tui-multiselect-arm-regression`, and any other justified pin).
+- [x] 2.3 Replace: for each file whose assertion is a runtime behaviour, write the behavioural test beside it in the same `__tests__` dir (copy the nearest sibling's harness) and delete the text assertion.
+- [x] 2.4 Delete: remove files that are neither, one commit, reason per file in the message.
+- [x] 2.5 Test: every remaining source-reading test carries `@structural-pin` — see `packages/shared/src/__tests__/no-bash-on-windows.test.ts` for the tree-scan lint harness. Input: all `__tests__/*.test.ts(x)` containing `readFileSync(` on a `.ts`/`.tsx` path · trigger: read the JSDoc above the first `describe` · observable: contains `@structural-pin ` + ≥10 non-space chars; failure message lists offenders (test-plan E10)
 
 ## 3. Slice C — Bridge handler extraction (design D2, D3)
 

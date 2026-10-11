@@ -66,6 +66,9 @@ function readRawConfig(): Record<string, unknown> {
   }
 }
 
+/**
+ * @structural-pin directory scan: every guarded namespace must record denials through the one ledger entry point; a code-shape fact over source files
+ */
 describe("4.1 — the ledger records denials from any guarded namespace", () => {
   beforeEach(() => blockEvents.clear());
 

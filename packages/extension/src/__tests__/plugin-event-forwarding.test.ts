@@ -59,6 +59,9 @@ const ENTRY_DECL = {
   },
 };
 
+/**
+ * @structural-pin bridge.ts cannot be instantiated in a test; the plugin event forwarding registration is pinned in its text
+ */
 describe("PluginForwardRegistry", () => {
   it("forwards a declared channel with its mapped type (E1)", () => {
     const { bus, sent, registry } = makeRegistry();

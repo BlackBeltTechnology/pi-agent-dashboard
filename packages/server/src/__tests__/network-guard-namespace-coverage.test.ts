@@ -103,6 +103,9 @@ function isCovered(routeUrl: string): boolean {
   return INDEPENDENTLY_AUTHENTICATED.some((ns) => isUnder(routeUrl, ns));
 }
 
+/**
+ * @structural-pin safety net for the universal guard: route prefixes registered in source must stay inside the guard's jurisdiction; enumerated from source text
+ */
 describe("S17: every registered route is guarded or explicitly exempt", () => {
   it("enumerates a non-trivial route table", () => {
     // Guards against a silently-empty enumeration making every assertion below

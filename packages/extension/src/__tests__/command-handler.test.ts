@@ -27,6 +27,9 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js", () =
   }),
 }));
 
+/**
+ * @structural-pin bridge.ts cannot be instantiated in a test; the fallback expansion call site and slash-dispatch wiring are pinned in text
+ */
 describe("CommandHandler", () => {
   function createMockPi() {
     return {

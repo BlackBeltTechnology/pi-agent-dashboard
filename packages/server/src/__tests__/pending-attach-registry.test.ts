@@ -21,6 +21,9 @@ function fakeNow() {
   };
 }
 
+/**
+ * @structural-pin the registry module must not reference the spawn-recovery window or spawnRegisterTimeoutMs; the absence of that coupling is a code-shape fact
+ */
 describe("pending-attach-registry", () => {
   it("FIFO enqueue + consume returns names in order", () => {
     const reg = createPendingAttachRegistry({ normalize: (s) => s, warn: () => {} });

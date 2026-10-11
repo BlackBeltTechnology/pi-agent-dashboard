@@ -46,6 +46,9 @@ function makeRepo(): string {
   return dir;
 }
 
+/**
+ * @structural-pin git-operations.ts must contain neither execSync( nor shellEscape (E31); a property of the source that no input can exercise
+ */
 describe("removeWorktree", () => {
   let repo: string;
   beforeEach(() => { repo = makeRepo(); });

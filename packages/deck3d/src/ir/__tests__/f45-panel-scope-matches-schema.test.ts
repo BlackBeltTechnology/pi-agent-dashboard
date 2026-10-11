@@ -45,6 +45,9 @@ function controlsOf(scope: "deck" | "slide"): string[] {
   return [...new Set(paths)];
 }
 
+/**
+ * @structural-pin HUD control-spec keys are extracted from hud.ts source and compared with the IR schema keys; the panel needs a browser to run
+ */
 describe("F45 panel scope matches the schema", () => {
   it("every slide-scope control is a key the IR accepts per slide", () => {
     const offenders = controlsOf("slide").filter((p) => !PANEL_ONLY.has(p) && !slideKeys.has(p));

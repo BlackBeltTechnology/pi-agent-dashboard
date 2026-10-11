@@ -45,6 +45,9 @@ function stripComments(src: string): string {
     .join("\n");
 }
 
+/**
+ * @structural-pin core is goal-free: a static scan of server source for goal-product identifiers; absence of text is the contract
+ */
 describe("core is goal-free (relocate-goal-product-to-plugin)", () => {
   it("E27: the goal/ directory and goal-routes file are gone from core", () => {
     expect(fs.existsSync(path.join(serverSrc, "goal"))).toBe(false);

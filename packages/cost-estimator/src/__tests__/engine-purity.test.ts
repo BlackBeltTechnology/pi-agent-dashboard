@@ -41,6 +41,9 @@ function importSpecifiers(source: string): string[] {
 
 const engineFiles = readdirSync(engineDir).filter((f) => f.endsWith(".ts"));
 
+/**
+ * @structural-pin architectural guard: engine files must import nothing outside the allowlist so the estimator stays portable; import specifiers are the contract
+ */
 describe("engine purity", () => {
   test("the engine directory is non-empty (guard would pass vacuously otherwise)", () => {
     expect(engineFiles.length).toBeGreaterThan(5);

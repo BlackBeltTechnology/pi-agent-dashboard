@@ -64,6 +64,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/**
+ * @structural-pin bridge.ts cannot be instantiated in a test; the re-entry guard placement is pinned in its text beside mocked-pi behavioural cases
+ */
 describe("requesting side (B1)", () => {
   it("E2: no pi version gate — reload self-dispatches immediately and arms the slot", async () => {
     // pi >= 1.0.0 is the single supported pi; the 0.84.2 gate is retired.

@@ -41,6 +41,9 @@ const CLIENT_SRC = path.resolve(
   "..",
 );
 
+/**
+ * @structural-pin route patterns live in App.tsx and SettingsPanel.tsx string literals; both sites must stay widened together
+ */
 describe("settings route pattern", () => {
   // Both route sites must carry the second segment. `SettingsPanel` owns the
   // interpretation, but `App` owns whether the URL matches AT ALL — widening

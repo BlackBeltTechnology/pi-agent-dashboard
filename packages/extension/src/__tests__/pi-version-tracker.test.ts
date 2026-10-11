@@ -21,6 +21,9 @@ function makeBc() {
   return { bc, send };
 }
 
+/**
+ * @structural-pin audited pi type declarations and the bridge wiring are checked as files; the pinned pi dist cannot be driven at runtime
+ */
 describe("sendPiVersionIfChanged", () => {
   beforeEach(() => _resetPiVersionCache());
 

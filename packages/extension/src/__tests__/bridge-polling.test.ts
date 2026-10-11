@@ -39,6 +39,9 @@ function region(from: string, to: string): string {
   return SRC.slice(start, end);
 }
 
+/**
+ * @structural-pin bridge.ts cannot be instantiated in a test; that it still calls the polling seams, and where, is pinned in its text
+ */
 describe("model_select pushes a model_update (E39/E40)", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());

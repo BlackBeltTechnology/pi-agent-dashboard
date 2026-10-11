@@ -48,6 +48,9 @@ const turnEnd = (unreadEdge: boolean): FanoutContext => ({
   unreadEdge,
 });
 
+/**
+ * @structural-pin event-wiring.ts cannot be loaded standalone; the dispatcher call sites are pinned in text and a TS AST check beside unit cases
+ */
 describe("push-dispatcher", () => {
   let tmpDir: string;
   let registry: PushTokenRegistry;

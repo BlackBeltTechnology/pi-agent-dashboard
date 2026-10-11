@@ -36,6 +36,9 @@ async function makeApp(): Promise<FastifyInstance> {
   return app;
 }
 
+/**
+ * @structural-pin app.inject cannot observe the raw socket: the handler's setTimeout(0) and restore-on-finish are only visible in the route source
+ */
 describe("GET /api/git/head", () => {
   let app: FastifyInstance;
   let repo: string;

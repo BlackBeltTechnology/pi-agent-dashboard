@@ -37,6 +37,9 @@ function tsFiles(dir: string): string[] {
   return out;
 }
 
+/**
+ * @structural-pin audit lint: removed TypeBox APIs must not be reintroduced anywhere in extension source; absence of text is the contract
+ */
 describe("removed TypeBox 1.3.7 API audit", () => {
   it("E11: no removed TypeBox API appears in packages/extension/src", () => {
     const offenders: string[] = [];

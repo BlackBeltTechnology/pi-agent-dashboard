@@ -128,6 +128,9 @@ const FIX_SUB = installFixture(
   ["main.js"],
 );
 
+/**
+ * @structural-pin behaviour is driven through jiti against the current strategies.ts; the source is loaded as text because jiti transforms it
+ */
 describe("the reorder preserves the dir-walk's answer (tasks 2.1–2.3)", () => {
   const cases = [
     ["shape-module-field", path.join(FIX_MOD, "mod-field.js"), "module field beats main"],

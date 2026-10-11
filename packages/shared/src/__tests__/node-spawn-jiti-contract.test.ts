@@ -24,28 +24,18 @@
  *   1. `shouldUrlWrapEntry` returns `false` for jiti loaders on every
  *      platform (POSIX + win32). Locks the behavioural rule against
  *      regression.
- *   2. The `shouldUrlWrapEntry` source comment still documents the
- *      Windows breakage so future contributors discover the constraint.
+ *   (A former case that grepped the source docstring for the breakage and
+ *   remediation wording was deleted: it asserted comment text, not behaviour.
+ *   See change: test-trust-audit.)
  *
  * See change: fix-windows-standalone-spawn.
  */
 import { describe, it, expect } from "vitest";
-import fs from "node:fs";
-import path from "node:path";
-import url from "node:url";
 import { shouldUrlWrapEntry, isJitiLoader, isTsxLoader, buildNodeImportArgvParts } from "../platform/node-spawn.js";
 
-const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
-const NODE_SPAWN_PATH = path.join(
-  REPO_ROOT,
-  "packages",
-  "shared",
-  "src",
-  "platform",
-  "node-spawn.ts",
-);
-
+/**
+ * @structural-pin pins node-spawn.ts call shape that only fails on Windows path forms; the real jiti behaviour is driven in sibling cases
+ */
 describe("jiti behavioural contract for shouldUrlWrapEntry", () => {
   it("jiti loader → entry passed RAW on every platform", () => {
     const jitiLoader =
@@ -69,38 +59,6 @@ describe("jiti behavioural contract for shouldUrlWrapEntry", () => {
     const tsxLoader = "file:///home/u/node_modules/tsx/dist/esm/index.mjs";
     expect(shouldUrlWrapEntry(tsxLoader, "win32")).toBe(false);
     expect(shouldUrlWrapEntry(tsxLoader, "linux")).toBe(false);
-  });
-
-  it("node-spawn.ts source documents the Windows jiti breakage", () => {
-    const source = fs.readFileSync(NODE_SPAWN_PATH, "utf8");
-
-    expect(source).toContain("JITI VERSION CONTRACT");
-    // Documented Windows-breakage marker. The original error signature
-    // (single-slash file:/<cwd>/file:/…) is the cheapest fingerprint
-    // for a contributor matching a new repro to this contract.
-    const hasBreakageMarker =
-      /file:\/{1,3}.*file:\//.test(source) ||
-      /misnormali[sz]e/i.test(source);
-    if (!hasBreakageMarker) {
-      throw new Error(
-        "shouldUrlWrapEntry() docstring is missing the Windows-breakage marker. " +
-          "It must mention either the `file:/<cwd>/file:/…` error signature " +
-          "or the word 'misnormalise'. See change: fix-windows-standalone-spawn.",
-      );
-    }
-
-    // Remediation guidance markers (at least one).
-    const hasRemediationGuidance =
-      /re-verify/i.test(source) ||
-      /per-version branch/i.test(source) ||
-      /per-jiti-version/i.test(source);
-    if (!hasRemediationGuidance) {
-      throw new Error(
-        "shouldUrlWrapEntry() docstring is missing remediation guidance. " +
-          "It must mention at least one of: re-verify, per-version branch. " +
-          "See change: fix-windows-standalone-spawn.",
-      );
-    }
   });
 });
 

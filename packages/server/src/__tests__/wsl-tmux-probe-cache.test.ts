@@ -15,6 +15,8 @@ const __dirname = path.dirname(__filename);
  *
  * We assert the cache exists by source inspection (tight, deterministic) and
  * that a reset helper is exported for tests.
+ *
+ * @structural-pin the cache lives in a private function behind a Windows/WSL platform probe; observing probe count needs a WSL host, so declaration shape is pinned
  */
 describe("WSL-tmux probe cache invariant", () => {
   const src = readFileSync(

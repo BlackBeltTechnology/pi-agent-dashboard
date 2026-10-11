@@ -67,6 +67,9 @@ function replayNativeRun() {
 	return { frames, state, abortLatch, retryTracker, sessionId };
 }
 
+/**
+ * @structural-pin bridge.ts opens sockets and timers at load and no test instantiates it; the native agent_settled wiring is pinned in text
+ */
 describe("F4: exactly one terminal settle, never synthesized", () => {
 	it("a native run forwards exactly ONE agent_settled, payload-free", () => {
 		const { frames, state } = replayNativeRun();

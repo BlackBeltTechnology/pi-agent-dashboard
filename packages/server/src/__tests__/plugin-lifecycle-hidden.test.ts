@@ -13,6 +13,9 @@ import { describe, expect, it } from "vitest";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(path.resolve(__dirname, "..", "event-wiring.ts"), "utf8");
 
+/**
+ * @structural-pin event-wiring.ts cannot be loaded standalone; fresh-resolution-only application of lifecycle.hidden is pinned in its text
+ */
 describe("plugin lifecycle.hidden on session_register", () => {
   it("is applied inside the fresh-resolution lifecycle block and broadcast", () => {
     const lifecycleIdx = src.indexOf("if (lifecycle) {");

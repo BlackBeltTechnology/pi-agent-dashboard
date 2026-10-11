@@ -23,6 +23,9 @@ import { decideTranscriptRequest } from "../transcript-request-guard.js";
 
 const OWN = "session-owned-by-this-bridge";
 
+/**
+ * @structural-pin purity lint: the guard must import no filesystem or child_process module; import text proves it for every path, including ones added later
+ */
 describe("decideTranscriptRequest", () => {
   it("serves a request naming this bridge's own session", () => {
     const v = decideTranscriptRequest({ request: { sessionId: OWN }, ownSessionId: OWN });

@@ -46,6 +46,9 @@ function findLineNumbers(src: string, needle: string): number[] {
   return hits;
 }
 
+/**
+ * @structural-pin regression lint: a banned substring co-occurrence must never reappear in the prompt adapter; absence of text is the contract
+ */
 describe("no TUI multiselect arm regression in bridge.ts", () => {
   it("bridge.ts MUST NOT contain both `originals.custom` and `prompt.type === \"multiselect\"`", async () => {
     const here = path.dirname(url.fileURLToPath(import.meta.url));

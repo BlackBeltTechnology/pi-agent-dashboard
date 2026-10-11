@@ -228,6 +228,9 @@ function park(model: BridgeModel, text: string, timestamp: number): void {
   model.mark();
 }
 
+/**
+ * @structural-pin bridge.ts opens sockets and timers at load; the coalescing proximity rule is a placement fact pinned in its text
+ */
 describe("bridge coalescing — choke-point predicate", () => {
   it("every event except message_update flushes parked text", () => {
     expect(flushesParkedText("message_update")).toBe(false);

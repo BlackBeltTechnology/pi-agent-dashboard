@@ -24,6 +24,9 @@ function makeClock(start = 1_000_000) {
   };
 }
 
+/**
+ * @structural-pin the registry module must not reference spawnRegisterTimeoutMs; its 60s bound stays independent, an absence-of-coupling code-shape fact
+ */
 describe("pending-resume-intent-registry", () => {
   it("record(\"front\") then consume returns \"front\"", () => {
     const clock = makeClock();

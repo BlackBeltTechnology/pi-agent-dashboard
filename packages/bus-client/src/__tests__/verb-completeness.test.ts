@@ -60,6 +60,9 @@ function serverTsFiles(dir: string): string[] {
   return out;
 }
 
+/**
+ * @structural-pin receivers are collected statically from four server dispatch sites that cannot be loaded without booting the server
+ */
 describe("verb completeness (S2)", () => {
   it("every generated verb has a server-side receiver", () => {
     const receivers = collectReceivers();

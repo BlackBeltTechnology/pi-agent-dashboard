@@ -9,6 +9,9 @@ import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/das
 import type React from "react";
 import { describe, expect, it } from "vitest";
 
+/**
+ * @structural-pin main.tsx renders the whole app on import, so registration calls can only be checked in its text
+ */
 describe("main.tsx primitive registrations", () => {
   const main = fs.readFileSync(path.resolve(__dirname, "../main.tsx"), "utf-8");
 

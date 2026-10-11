@@ -44,6 +44,9 @@ function walk(dir: string, acc: string[] = []): string[] {
 const FORBIDDEN_RE =
   /path\.dirname\s*\([^()]*path\.dirname\s*\([^()]*getBundledNodePath\s*\(\s*\)\s*[^()]*\)\s*[^()]*\)/;
 
+/**
+ * @structural-pin repo lint over electron sources: the dirname-of-dirname anti-pattern is a code shape
+ */
 describe("no-dirname-chain-on-bundled-node-path", () => {
   it("no source file chains path.dirname twice around getBundledNodePath()", () => {
     const files = walk(SRC_ROOT);

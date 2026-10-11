@@ -131,6 +131,9 @@ function childrenOf(name: string, runId: string): RunRecord[] {
 }
 const flush = () => new Promise((r) => setImmediate(r));
 
+/**
+ * @structural-pin domain-free engine invariant (X9): no goal-product identifiers in engine.ts; absence of text is the contract, nothing runs
+ */
 describe("work-source fan-out width", () => {
   it("E4: dynamic width equals items vended (3 items, bound 4 → 3 children)", () => {
     const src = new FakeSource(["a", "b", "c"]);

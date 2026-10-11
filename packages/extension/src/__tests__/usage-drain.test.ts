@@ -72,6 +72,9 @@ let tmp: string;
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), "usage-drain-")); });
 afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true }); vi.restoreAllMocks(); });
 
+/**
+ * @structural-pin bridge.ts cannot be instantiated in a test; drain-point call sites and shutdown ordering are pinned in its text
+ */
 describe("#E7 drain allowlist", () => {
   it("forwards usage / compaction / branch_summary with usage only; provider/model only on usage entries", () => {
     const sm = makeSm("A", [{ type: "message", id: "h1", message: { role: "user", content: "x" } }]);

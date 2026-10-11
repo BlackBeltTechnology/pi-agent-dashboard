@@ -74,6 +74,9 @@ function makeBridge(opts: { restored?: PersistedNamerState; setSessionNameThrows
 
 const rename = (name: string, origin?: "system") => ({ type: "rename_session" as const, sessionId: "s1", name, ...(origin ? { origin } : {}) });
 
+/**
+ * @structural-pin bridge.ts cannot be instantiated in a test; the wiring of the real handlers into it is pinned in its text
+ */
 describe("bridge wiring is pinned in the source", () => {
   it("passes both rename hooks and routes the restore through applyAutoNameRestore", () => {
     expect(SRC).toContain("onSystemRename: (name: string) =>");
