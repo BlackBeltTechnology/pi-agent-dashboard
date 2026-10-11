@@ -233,6 +233,28 @@ describe("pptx import: re-import keeps user-owned files (B2)", () => {
     expect(treeHash(talk)).toBe(before);
   });
 
+  it("refuses a user asset that claims a file the import itself writes, e.g. deck.json.bak (R3-B1)", async () => {
+    const dir = tmp();
+    const input = writeDeck(dir, basicDeck(2));
+    await importPptx({ input, out: join(dir, "talk"), env: NO_PATH });
+    const talk = join(dir, "talk");
+    for (const claimed of ["deck.json.bak", "deck.md"]) {
+      const bytes = Buffer.from(`user bytes for ${claimed}`);
+      writeFileSync(join(talk, claimed), bytes);
+      const deck = JSON.parse(readFileSync(join(talk, "deck.json"), "utf8"));
+      deck.overrides.assets = [
+        ...deck.overrides.assets.filter((a: { id: string }) => a.id !== "user-claim"),
+        { id: "user-claim", path: claimed, sha256: createHash("sha256").update(bytes).digest("hex"), mime: "text/plain" },
+      ];
+      writeFileSync(join(talk, "deck.json"), `${JSON.stringify(deck, null, 2)}\n`);
+      const before = treeHash(talk);
+      const r = await cli(["pptx", "import", input, "-o", talk, "--force"]);
+      expect(r.code, claimed).not.toBe(0);
+      expect(r.stderr, claimed).toMatch(new RegExp(`user-claim.*${claimed.replace(".", "\\.")}.*(generated|writes)`));
+      expect(treeHash(talk), `${claimed}: deck untouched`).toBe(before);
+    }
+  });
+
   it("still rejects a staged import whose own imported assets are broken", async () => {
     // Validation must keep covering the files the import writes (a bad pin cannot land).
     const dir = tmp();
@@ -304,6 +326,21 @@ describe("pptx import: identical parts keep their own asset ids (R2-B4)", () => 
     expect(layoutOf(talk).slides[0].items.filter((i): i is ImgItem => i.kind === "img").map((i) => i.asset)).toEqual(["pptx-ppt-media-image2-png"]);
     expect((await cli(["validate", join(talk, "deck.json")])).code).toBe(0);
   });
+});
+
+describe("pptx import: untrusted reference renders (R3-B4)", () => {
+  it("rejects a valid, highly compressed huge --ref PNG through the import entry point", async () => {
+    const { hugePng } = await import("../../__tests__/helpers/huge-png.js");
+    const dir = tmp();
+    // A chart forces the raster-fallback path, which decodes the slide's reference render.
+    const input = writeDeck(dir, { slides: [{ shapes: titleShape("Chart") + graphicFrame(URI.chart, 609600, 1524000, 3048000, 2286000) }] });
+    mkdirSync(join(dir, "ref"));
+    writeFileSync(join(dir, "ref", "Slide1.png"), await hugePng(8000, 8000));
+    const before = process.memoryUsage().arrayBuffers;
+    await expect(importPptx({ input, out: join(dir, "talk"), ref: join(dir, "ref"), env: NO_PATH })).rejects.toThrow(/megapixel.*limit/i);
+    expect(process.memoryUsage().arrayBuffers - before, "the 256 MB raster was never allocated").toBeLessThan(96 * 1024 * 1024);
+    expect(existsSync(join(dir, "talk"))).toBe(false);
+  }, 120_000);
 });
 
 describe("pptx import: slide space and layout", () => {

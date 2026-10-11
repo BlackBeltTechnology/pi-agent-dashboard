@@ -3,7 +3,7 @@
  * Exemplar: `src/__tests__/cli.test.ts`.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -261,6 +261,41 @@ describe("variants pick / note / replay", () => {
     unlinkSync(`${lock}.recover`);
     expect(withStyleLock(dir, () => "ran"), "a stale lock is then recovered").toBe("ran");
     expect(existsSync(lock)).toBe(false);
+  });
+
+  it("a recoverer paused between its re-read and unlink is never displaced, however old its lock looks (R3-B2)", async () => {
+    const { withStyleLock, LockError } = await import("../style.js");
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-lock-"));
+    const lock = join(dir, "style.json.lock");
+    const recover = `${lock}.recover`;
+    writeFileSync(lock, "999999:old"); // owner is gone
+    let arrival: unknown;
+    let recoverSurvived = false;
+    let lockSurvived = false;
+    const old = new Date(Date.now() - 10 * 60_000);
+    const ran = withStyleLock(dir, () => "A-ran", {
+      hooks: {
+        beforeUnlink: () => {
+          // A has re-read the dead owner's lock and is about to remove it. Make its recovery
+          // lock look ancient (a long pause), then let another process arrive.
+          utimesSync(recover, old, old);
+          try {
+            withStyleLock(dir, () => "B-ran");
+          } catch (err) {
+            arrival = err;
+          }
+          recoverSurvived = existsSync(recover);
+          lockSurvived = readFileSync(lock, "utf8") === "999999:old";
+        },
+      },
+    });
+    expect(arrival, "the arriving process must be refused").toBeInstanceOf(LockError);
+    expect((arrival as Error).message).toMatch(/recovering/);
+    expect(recoverSurvived, "an old-looking recovery lock is not taken from a live recoverer").toBe(true);
+    expect(lockSurvived).toBe(true);
+    expect(ran, "the paused recoverer completes and acquires").toBe("A-ran");
+    expect(existsSync(lock)).toBe(false);
+    expect(existsSync(recover)).toBe(false);
   });
 
   it("waits for a live holder to finish instead of failing a pick (R2-B2)", async () => {

@@ -7,7 +7,7 @@
  * `<img>`, where scripts never run and external references never load.
  */
 import type { Browser, BrowserContext } from "playwright";
-import type { RgbaImage } from "./png.js";
+import { PNG_MAX_PIXELS, type RgbaImage } from "./png.js";
 
 export const DECODE_MAX_BYTES = 20 * 1024 * 1024;
 /**
@@ -15,7 +15,7 @@ export const DECODE_MAX_BYTES = 20 * 1024 * 1024;
  * claim 30000×30000 pixels, and decoding it allocates a canvas, an RGBA buffer
  * and a base64 string of that size. 4096×4096 = 64 MiB of RGBA.
  */
-export const DECODE_MAX_PIXELS = 4096 * 4096;
+export const DECODE_MAX_PIXELS = PNG_MAX_PIXELS;
 
 const ORIGIN = "https://deck3d-sandbox.invalid";
 

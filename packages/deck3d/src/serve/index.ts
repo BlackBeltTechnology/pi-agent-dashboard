@@ -457,20 +457,18 @@ export async function startServe(mdPath: string, opts: ServeOptions): Promise<Se
           res.end(JSON.stringify({ error: (e as Error).message }));
           return;
         }
-        // Validate BEFORE touching either file.
-        const invalid = await validPayload(patch);
-        if (invalid) {
-          res.writeHead(400, { "content-type": "application/json" });
-          res.end(JSON.stringify({ error: invalid }));
-          return;
-        }
         if (url.pathname === "/__apply") {
           const { deepMerge } = await import("../ir/merge.js");
+          let invalid: string | null = null;
           try {
-            // Read-merge-write under the deck lock, so a concurrent pick cannot be overwritten.
+            // Validate, merge and write as ONE step under the deck lock: validating before
+            // waiting would check a deck a concurrent pick is about to change, and could
+            // persist a combination that was never validated.
             await withStyleLockAsync(
               deckDir,
               async () => {
+                invalid = await validPayload(patch);
+                if (invalid) return;
                 const ir = JSON.parse(readFileSync(jsonPath, "utf8")) as Record<string, unknown>;
                 ir.overrides = deepMerge((ir.overrides ?? {}) as Record<string, unknown>, patch as Record<string, unknown>);
                 writeFileSync(target, `${JSON.stringify(ir, null, 2)}\n`);
@@ -483,8 +481,20 @@ export async function startServe(mdPath: string, opts: ServeOptions): Promise<Se
             res.end(JSON.stringify({ error: e.message }));
             return;
           }
+          if (invalid) {
+            res.writeHead(400, { "content-type": "application/json" });
+            res.end(JSON.stringify({ error: invalid }));
+            return;
+          }
           await (building = building.then(rebuild));
         } else {
+          // `/__overrides` only writes the standalone overrides file; it never touches deck.json.
+          const invalid = await validPayload(patch);
+          if (invalid) {
+            res.writeHead(400, { "content-type": "application/json" });
+            res.end(JSON.stringify({ error: invalid }));
+            return;
+          }
           writeFileSync(target, `${JSON.stringify(patch, null, 2)}\n`);
         }
         res.writeHead(200, { "content-type": "application/json" });

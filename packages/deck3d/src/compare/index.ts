@@ -39,6 +39,8 @@ export interface CompareReport {
 }
 
 export const DEFAULT_THRESHOLD = 0.85;
+/** 8K UHD (7680×4320 ≈ 33 MP) fits; reference PNGs keep the stricter default cap. */
+const SNAPSHOT_MAX_PIXELS = 64 * 1024 * 1024;
 
 export class CompareUnavailableError extends Error {
   constructor() {
@@ -99,7 +101,8 @@ export async function compareDeck(opts: CompareOptions): Promise<CompareReport> 
         }
         const reference = decodePng(new Uint8Array(readFileSync(refFile)));
         await settle(i + 1);
-        const snap = decodePng(new Uint8Array(await page.screenshot()));
+        // Our own browser snapshot (trusted, viewport-sized): a larger cap than for reference files.
+        const snap = decodePng(new Uint8Array(await page.screenshot()), SNAPSHOT_MAX_PIXELS);
         const { score, rgb } = scoreFrame(snap, reference, aspectOf(htmlDir, reference));
         scores.push({ slide: ids[i], index: i + 1, score, rgb, below: score < threshold });
       }

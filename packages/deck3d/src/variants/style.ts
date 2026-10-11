@@ -138,12 +138,15 @@ export interface LockOptions {
   /** How long to wait for a LIVE holder before giving up (default: fail at once). */
   waitMs?: number;
   /** Test seams for forced interleavings. */
-  hooks?: { afterInspect?: (lock: string) => void };
+  hooks?: {
+    /** After a stale lock was inspected, before the recovery lock is taken. */
+    afterInspect?: (lock: string) => void;
+    /** Holding the recovery lock, after re-reading the lock, right before removing it. */
+    beforeUnlink?: (lock: string) => void;
+  };
 }
 
 const POLL_MS = 40;
-/** A recovery lock older than this belongs to a crashed recoverer. */
-const RECOVER_STALE_MS = 30_000;
 
 function alive(pid: number): boolean {
   try {
@@ -163,25 +166,21 @@ function ownerOf(content: string): number | undefined {
 type Attempt = { token: string } | { retry: true } | { busy: string };
 
 /**
- * One acquisition attempt. The lock is created with its owner already inside
- * it: the content is written to a private temp file that is then `link`ed to
- * the lock path (atomic, fails with EEXIST when held), so no other process can
- * ever observe a lock that is empty or half-written.
- *
- * A held lock is only taken over when its owner is provably dead, and only
- * under a separate recovery lock, re-reading the lock first: if it is no longer
- * the one we inspected (someone recovered and re-acquired meanwhile) we leave
- * it alone and re-inspect. A lock we cannot identify is treated as live.
+ * Create `path` atomically WITH its owner inside it: the content goes to a
+ * private temp file that is `link`ed to `path` (atomic, EEXIST when it already
+ * exists), so no other process can ever observe the file empty or half-written.
+ * Returns the owner token, or undefined when `path` already exists.
  */
-function tryAcquire(lock: string, hooks: LockOptions["hooks"]): Attempt {
+function createWithOwner(path: string): string | undefined {
   const token = `${process.pid}:${randomBytes(6).toString("hex")}`;
-  const tmp = `${lock}.${token.replace(":", "-")}.tmp`;
+  const tmp = `${path}.${token.replace(":", "-")}.tmp`;
   writeFileSync(tmp, token);
   try {
-    linkSync(tmp, lock);
-    return { token };
+    linkSync(tmp, path);
+    return token;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    return undefined;
   } finally {
     try {
       unlinkSync(tmp);
@@ -189,6 +188,28 @@ function tryAcquire(lock: string, hooks: LockOptions["hooks"]): Attempt {
       // Already gone.
     }
   }
+}
+
+/** Remove `path` only if it still holds `token` (never a lock that is not ours). */
+function releaseOwned(path: string, token: string): void {
+  try {
+    if (readFileSync(path, "utf8") === token) unlinkSync(path);
+  } catch {
+    // Already gone: nothing left to release.
+  }
+}
+
+/**
+ * One acquisition attempt. A held lock is only taken over when its owner is
+ * provably dead, and only under a separate recovery lock, re-reading the lock
+ * first: if it is no longer the one we inspected we leave it alone and
+ * re-inspect. A lock we cannot identify is treated as live. The recovery lock
+ * is never expired by age — a recoverer that is merely slow is still the
+ * recoverer — so one left by a crash is reported with its pid for manual removal.
+ */
+function tryAcquire(lock: string, hooks: LockOptions["hooks"]): Attempt {
+  const token = createWithOwner(lock);
+  if (token) return { token };
   let content: string;
   try {
     content = readFileSync(lock, "utf8");
@@ -202,37 +223,32 @@ function tryAcquire(lock: string, hooks: LockOptions["hooks"]): Attempt {
 
   hooks?.afterInspect?.(lock);
   const recover = `${lock}.recover`;
-  let rfd: number;
-  try {
-    rfd = openSync(recover, "wx");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+  const rtoken = createWithOwner(recover);
+  if (!rtoken) {
+    let who = "unknown";
     try {
-      if (Date.now() - statSync(recover).mtimeMs > RECOVER_STALE_MS) unlinkSync(recover);
+      who = String(ownerOf(readFileSync(recover, "utf8")) ?? "unknown");
     } catch {
-      // Raced with its owner finishing.
+      // Released meanwhile; the next attempt decides.
     }
-    return { busy: `another process is recovering ${lock}; retry in a moment` };
+    return { busy: `another process is recovering ${lock} (pid ${who}); if it crashed, remove ${recover}` };
   }
   try {
     // Only the holder of the recovery lock may remove a lock, and only the one inspected.
-    if (readFileSync(lock, "utf8") === content) unlinkSync(lock);
+    if (readFileSync(lock, "utf8") === content) {
+      hooks?.beforeUnlink?.(lock);
+      unlinkSync(lock);
+    }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   } finally {
-    closeSync(rfd);
-    unlinkSync(recover);
+    releaseOwned(recover, rtoken);
   }
   return { retry: true };
 }
 
 function release(lock: string, token: string): void {
-  try {
-    // Never remove a lock that is not ours any more.
-    if (readFileSync(lock, "utf8") === token) unlinkSync(lock);
-  } catch {
-    // Already gone: nothing left to release.
-  }
+  releaseOwned(lock, token);
 }
 
 function lockPathOf(deckDir: string): string {

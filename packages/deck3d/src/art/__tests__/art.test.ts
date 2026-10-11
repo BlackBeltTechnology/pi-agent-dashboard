@@ -136,6 +136,34 @@ describe("decode limits (R2-B5)", () => {
   });
 });
 
+describe("decodePng limits (R3-B4)", () => {
+  it("refuses a header claiming more than the pixel cap before inflating anything", async () => {
+    const { decodePng } = await import("../png.js");
+    const bomb = new Uint8Array(33 + 12 + 12);
+    bomb.set([137, 80, 78, 71, 13, 10, 26, 10]);
+    const v = new DataView(bomb.buffer);
+    v.setUint32(8, 13);
+    bomb.set([73, 72, 68, 82], 12);
+    v.setUint32(16, 30000);
+    v.setUint32(20, 30000);
+    bomb[24] = 8;
+    bomb[25] = 6;
+    expect(() => decodePng(bomb)).toThrow(/megapixel.*limit/i);
+  });
+
+  it("refuses a VALID compressed large PNG without allocating it, and still decodes ordinary ones", async () => {
+    const { decodePng, encodePng } = await import("../png.js");
+    const { hugePng } = await import("../../__tests__/helpers/huge-png.js");
+    const big = await hugePng(8000, 8000); // 64 MP of pixels in well under 1 MB of PNG
+    expect(big.length).toBeLessThan(1024 * 1024);
+    const before = process.memoryUsage().arrayBuffers;
+    expect(() => decodePng(big)).toThrow(/megapixel.*limit/i);
+    expect(process.memoryUsage().arrayBuffers - before, "nothing like the 256 MB raster was allocated").toBeLessThan(64 * 1024 * 1024);
+    const small = encodePng({ width: 4, height: 4, data: new Uint8Array(64).fill(7) });
+    expect(decodePng(small).width).toBe(4);
+  });
+});
+
 describe("art icon robustness (B9)", () => {
   it("rejects a curve whose flattening would exceed the point cap, without building it", () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0 C 1e9 1e9 -1e9 1e9 1e12 0"/></svg>';

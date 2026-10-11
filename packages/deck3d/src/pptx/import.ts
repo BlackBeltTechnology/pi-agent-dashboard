@@ -51,6 +51,8 @@ export interface ImportResult {
 
 /** Top-level entries a commit replaces wholesale (see `Stage.commit`). */
 const REPLACED = new Set(["pptx", "deck.md", "deck.json", "deck.json.bak"]);
+/** Top-level files (not directories) the import regenerates on every run. */
+const GENERATED = new Set(["deck.md", "deck.json", "deck.json.bak"]);
 
 /**
  * Carry user-owned asset files that live INSIDE a replaced entry (e.g.
@@ -63,6 +65,9 @@ function preserveUserFiles(assets: AssetEntry[] | undefined, existingDir: string
     if (a.id.startsWith("pptx-")) continue;
     const rel = posix.normalize(a.path.replace(/\\/g, "/"));
     if (rel.startsWith("..") || posix.isAbsolute(rel) || !REPLACED.has(rel.split("/")[0])) continue;
+    // Files the import itself WRITES are not the user's to claim: the new deck.json would pin
+    // bytes the import then overwrites.
+    if (GENERATED.has(rel)) throw new PptxImportError(`user asset '${a.id}' at '${a.path}' claims a generated file the import writes; use another path`);
     const src = join(existingDir, rel);
     if (!existsSync(src)) continue; // `validate` reports a missing file
     const staged = join(stage.dir, rel);

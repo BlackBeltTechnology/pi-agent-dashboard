@@ -8,6 +8,13 @@
  */
 import { deflateSync, inflateSync } from "node:zlib";
 
+/**
+ * Decoded-size cap for untrusted PNGs (4096×4096 = 64 MiB of RGBA). A few KB
+ * of valid PNG can inflate to hundreds of MB, so the pixel count comes from the
+ * header, BEFORE anything is inflated, and inflation itself is bounded too.
+ */
+export const PNG_MAX_PIXELS = 4096 * 4096;
+
 export interface RgbaImage {
   width: number;
   height: number;
@@ -80,7 +87,7 @@ function paeth(a: number, b: number, c: number): number {
   return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
 }
 
-export function decodePng(bytes: Uint8Array): RgbaImage {
+export function decodePng(bytes: Uint8Array, maxPixels = PNG_MAX_PIXELS): RgbaImage {
   if (!isPng(bytes)) throw new Error("not a PNG");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let p = 8;
@@ -111,6 +118,9 @@ export function decodePng(bytes: Uint8Array): RgbaImage {
   if (depth !== 8 || interlace !== 0) throw new Error(`unsupported PNG (bit depth ${depth}, interlace ${interlace})`);
   const channels = ({ 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 } as Record<number, number>)[type];
   if (!channels) throw new Error(`unsupported PNG colour type ${type}`);
+  if (width * height > maxPixels) {
+    throw new Error(`image is ${width}×${height} (${((width * height) / 1e6).toFixed(1)} megapixels; limit ${(maxPixels / 1e6).toFixed(1)} megapixels)`);
+  }
   const total = idat.reduce((a, c) => a + c.length, 0);
   const joined = new Uint8Array(total);
   let o = 0;
@@ -118,7 +128,8 @@ export function decodePng(bytes: Uint8Array): RgbaImage {
     joined.set(c, o);
     o += c.length;
   }
-  const raw = new Uint8Array(inflateSync(joined));
+  // The header promises exactly this many bytes; inflating more is a lie or a bomb.
+  const raw = new Uint8Array(inflateSync(joined, { maxOutputLength: (width * channels + 1) * height }));
   const stride = width * channels;
   const pixels = new Uint8Array(stride * height);
   for (let y = 0; y < height; y++) {

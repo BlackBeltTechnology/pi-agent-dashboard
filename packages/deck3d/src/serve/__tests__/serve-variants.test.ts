@@ -144,6 +144,31 @@ describe.skipIf(!hasChromium)("serve ?variant= (chromium)", () => {
   }, 120_000);
 });
 
+describe("serve Apply validates inside the lock (R3-B3)", () => {
+  it("validates against the deck a concurrent pick left, not the one it saw before waiting", async () => {
+    const { withStyleLockAsync } = await import("../../variants/style.js");
+    const { dir, h } = await served();
+    await h.settled();
+    // `cameraPath` is only valid on a slide whose resolved transition is "path".
+    const patch = { slides: { opening: { cameraPath: { keys: [{ t: 0.5, offset: [0.1, 0.1, 0] }] } } } };
+    let response: Promise<Response> | undefined;
+    await withStyleLockAsync(dir, async () => {
+      // The Apply arrives while a pick holds the lock…
+      response = fetch(`${h.url}/__apply`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) });
+      await new Promise((r) => setTimeout(r, 400));
+      // …and the pick (a locked writer) makes the patch valid before it releases.
+      const ir = JSON.parse(readFileSync(join(dir, "deck.json"), "utf8"));
+      ir.overrides.slides = { ...(ir.overrides.slides ?? {}), opening: { ...(ir.overrides.slides?.opening ?? {}), transition: "path" } };
+      writeFileSync(join(dir, "deck.json"), `${JSON.stringify(ir, null, 2)}\n`);
+    });
+    const res = await (response as Promise<Response>);
+    expect(res.status, await res.clone().text()).toBe(200);
+    const after = JSON.parse(readFileSync(join(dir, "deck.json"), "utf8"));
+    expect(after.overrides.slides.opening.transition).toBe("path");
+    expect(after.overrides.slides.opening.cameraPath.keys).toHaveLength(1);
+  }, 60_000);
+});
+
 describe("serve and the deck lock (R2-B2)", () => {
   it("defers its rebuild while another process holds the deck lock, then rebuilds once", async () => {
     const { dir, h } = await served();
