@@ -39,6 +39,10 @@ deck3d props   search <query> [--role ambient]       # candidate models
 deck3d props   fetch <source> <id>                    # cache + hash-pin, prints override entry
 deck3d props   generate --prompt <text> --name <n>   # text → image → GLB
 deck3d overrides apply <deck.json> <file>            # merge an overrides-grammar file
+deck3d pptx    import <file.pptx> [-o dir] [--ref dir] [--force]  # pptx → layout.json + media + baseline deck
+deck3d art     trace <img> [--palette #a,#b] | icon <svg> | cutout <img> --bg #hex [--split]
+deck3d variants render --step <id> | pick <step> <name> | note <step> --note t | replay
+deck3d compare <deck.html> [--ref dir] [--strict] [--transition]  # SSIM vs reference renders
 ```
 
 Exit codes: `0` ok, `1` failure (one-line stderr reason), `2` usage.
@@ -63,6 +67,29 @@ Default check viewports: `1920x1080,1280x720`. Default `check` timeout 120 s/vie
 - Write endpoints IR-validate payload before write. Invalid payload returns 400 and leaves target file untouched. Write targets confined to deck directory (path traversal refused). 1 MB body cap.
 - `--check` runs fit check out of band after rebuild; findings stream over SSE as `findings` event; reload never waits for check.
 
+## From a pptx
+
+`deck3d pptx import talk.pptx -o talk` turns an existing deck into
+`talk/pptx/layout.json` (1920-unit slide space, items `sNN-iMMM`), content-hashed
+media, a baseline `deck.md`/`deck.json`, and optional reference renders (`--ref`
+user exports, else LibreOffice + `pdftoppm`). TypeScript only; unsupported
+constructs (charts, SmartArt, tables, EMF/WMF, WordArt, gradients) become visible
+fallbacks with a warning each. `--force` re-imports and keeps your overrides.
+
+- **`overrides.assets[]`** `{ id, path, sha256, mime }` pins files into the one
+  offline `deck.html` (25 MB warn / 200 MB error); effects read them via
+  `ctx.assets.get(id)`.
+- **Built-ins**: `slide-layer` (the imported layout as depth layers, ≤ 2 px from
+  the original at rest), `frame-chrome` (persistent master art that flies out and
+  in), `art3d`, `icon3d`, `haze`. `deck3d fx preview <id>` renders each against a
+  packaged stub bundle.
+- **Variant loop**: `style.json` records each creative decision; `variants render`
+  makes a contact sheet, `serve` previews `?variant=<step>:<name>` (`V` cycles),
+  `variants pick` merges one (validated, never drops another writer's effects),
+  `variants replay` re-applies the picks after a re-import, `compare` scores each
+  slide against its reference render.
+- The guided procedure is the `deck3d-from-pptx` skill.
+
 ## Markdown grammar
 
 - `---` front-matter: deck defaults.
@@ -71,7 +98,8 @@ Default check viewports: `1920x1080,1280x720`. Default `check` timeout 120 s/vie
 - `- bullet` = body bullets.
 - ```mermaid `flowchart` / `sequenceDiagram` = slide diagram (harvested headless).
   Other diagram types: warn + `diagram: none`.
-- `<!-- deck3d: {...} -->` inline overrides win over `deck.json`.
+- `<!-- deck3d: {...} -->` inline overrides win over `deck.json`. May span
+  lines or be a bullet (`- <!-- … -->`); never read as subtitle or bullet.
 - Pin an id: `# Final {#outro}`.
 
 ## IR + overrides
@@ -79,7 +107,7 @@ Default check viewports: `1920x1080,1280x720`. Default `check` timeout 120 s/vie
 `deck.json` = `{ meta, defaults, slides[], overrides }`.
 
 - `slides[]` and below are DERIVED (regenerated every parse).
-- Write only `overrides`: `deck`, `slides`, `nodes`, `edges`, `effects`, `props`.
+- Write only `overrides`: `deck`, `slides`, `nodes`, `edges`, `effects`, `props`, `assets`.
 - Objects deep-merge. Arrays replace. `diagram.data` replaces as a whole object.
 - Suggest keys spell the overrides grammar: `overrides.slides["arch"].diagram.scale`.
 - The deck's `⚙` configurator (`C` key) exports an `overrides.json` in this

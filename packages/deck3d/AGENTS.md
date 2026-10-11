@@ -6,7 +6,7 @@ Deterministic Markdown → self-contained 3D presentation engine (`deck3d` CLI +
 |------|---------|
 | `AGENTS.md` | This file — per-file map for the package root. |
 | `README.md` | Install, markdown grammar, CLI commands, authoring server (`serve`), IR/overrides, tune loop, effects, props, tests, build. |
-| `package.json` | Manifest. Name `@blackbelt-technology/pi-dashboard-deck3d`. `pi.skills` → `.pi/skills/deck3d`, bin `deck3d` → `bin/deck3d`. deps three (pinned 0.160.0), mermaid (exact 11.17.2, harvest), opentype.js, ajv, esbuild, playwright. `build` = bundle CLI + harvest + runtime + regenerate IR field reference; `files` ships `src/`+`assets/`+`dist/` and excludes every `__tests__`. |
+| `package.json` | Manifest. Name `@blackbelt-technology/pi-dashboard-deck3d`. `pi.skills` → `.pi/skills/deck3d`, bin `deck3d` → `bin/deck3d`. deps three (pinned 0.160.0), mermaid (exact 11.17.2, harvest), opentype.js, ajv, esbuild, playwright. `build` = bundle CLI + harvest + runtime + regenerate IR field reference; `files` ships `src/`+`assets/`+`dist/` and excludes every `__tests__`. `pi.skills` also lists `.pi/skills/deck3d-from-pptx`; deps add `fflate`, `fast-xml-parser`. See change: deck3d-pptx-import. |
 | `bin/deck3d` | CLI launcher. Dev (tsx resolvable + `src/cli.ts` present) → `node --import tsx src/cli.ts`; else built `dist/cli.js` via a `node` subprocess (the CLI entry guard needs `argv[1]`); else exit 1 naming `npm run build`. |
 | `tsconfig.json` | Extends `../../tsconfig.base.json`; `rootDir` src → `outDir` dist. |
 | `vitest.config.ts` | Vitest config. Node env, forks pool, **maxWorkers 1** (browser-driving suites share one chromium), `testTimeout` 60 s, `passWithNoTests`. |
@@ -39,3 +39,6 @@ Deterministic Markdown → self-contained 3D presentation engine (`deck3d` CLI +
 - `POLY_PIZZA_ENDPOINT` — override the Poly Pizza search endpoint (tests point it at a local mock).
 - `DECK3D_HARVEST_STALL` — set to `1` to make the harvest page never resolve (timeout-path tests).
 - Browser-driving suites self-skip without chromium (`describe.skipIf(!chromiumAvailable())`); CI installs chromium via `npx playwright install chromium --with-deps`.
+| `scripts/gen-stub-assets.ts` | Writes the stub asset bundle (`src/fx/stub-assets.ts`) to `assets/preview/` and `fixtures/business-2031/assets/`; `--check` fails on drift. See change: deck3d-pptx-import. |
+| `assets/preview/` | Packaged stub bundle (`stub-layout.json`, `stub-outline.json`, `stub-icon.json`, `stub-chrome.png`) that `fx preview <built-in>` renders against. GENERATED. See change: deck3d-pptx-import. |
+| `.pi/skills/deck3d-from-pptx/AGENTS.md` | Subfolder — the tutorial skill: pptx → styled deck, nine variant-and-ask steps. See change: deck3d-pptx-import. |

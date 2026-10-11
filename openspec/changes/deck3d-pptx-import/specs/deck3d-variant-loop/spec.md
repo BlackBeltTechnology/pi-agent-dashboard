@@ -9,7 +9,8 @@ A deck MAY carry `style.json` beside `deck.json` with `version: 1`, optional `so
 - `title`, `question`, and `slides[]` (sample slide ids);
 - `round` (integer ≥ 1);
 - `variants`: an ordered array of 2–4 entries `{ name, label, overrides }`, where `overrides` uses the deck overrides grammar;
-- optional `picked` (a variant name, or `null` when the answer was free text), `note`, `pickedAt` (ISO 8601) and `pending` (boolean).
+- optional `picked` (a variant name, or `null` when the answer was free text), `note`, `pickedAt` (ISO 8601) and `pending` (boolean);
+- optional `drop` (ids the pick was allowed to remove) and `replaceStep`, written by `variants pick` so `variants replay` repeats the same decision.
 
 `deck3d validate deck.json` SHALL validate a `style.json` found beside it (absence is fine). It SHALL fail on:
 - a step with fewer than 2 or more than 4 variants;

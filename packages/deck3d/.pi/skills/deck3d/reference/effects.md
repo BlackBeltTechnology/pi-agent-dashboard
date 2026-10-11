@@ -1,6 +1,6 @@
 # deck3d effect catalogue
 
-GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `cec3463b3175b66f9cd9fb6a6ff169e0d344e416a5cf678a1c9e2af4bb88c391`.
+GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `3bb064f608378936b2ea14b9f41810555d2cb7d0c932b78a2d5bdc291777f961`.
 
 91 effects.
 
@@ -496,6 +496,8 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 
 | Param | Type | Range | Default |
 |---|---|---|---|
+| opacity | number | 0..1 | 1 |
+| scale | number | 0.2..3 | 1 |
 | layers | array | — |  |
 | suppress | array | — |  |
 

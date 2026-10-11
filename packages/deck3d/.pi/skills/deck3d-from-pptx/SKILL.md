@@ -107,6 +107,8 @@ Preview each (`deck3d fx preview local:<name>`) before offering it. Traced art a
   box**, compare against the reference and fix with `widen` (or a `font-<name>` asset); a
   closing line wrapping onto two lines while the reference has one → set `widen` for that
   item, re-run `compare`. `compare` lists `font-fallback <name>` for every missing font.
+- **Scores**: the deck's output tone mapping dims pure white to about 221, so a faithful
+  match scores about 0.9 (default threshold 0.85), not 0.99 — judge by the margin and by eye.
 - **In-place file replacement**: after replacing a file in place that `serve` may miss,
   **rebuild manually** (`deck3d build deck.md -o deck.html`).
 - **Verification**: verify at the user's **actual viewport** (`--viewport WxH`) and also
