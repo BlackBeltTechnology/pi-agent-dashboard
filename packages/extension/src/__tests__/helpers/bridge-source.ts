@@ -25,8 +25,3 @@ export type BridgeSourceFile =
 export function readBridgeSource(file: BridgeSourceFile): string {
   return readFileSync(resolve(SRC, file), "utf8").replace(/\binst\./g, "");
 }
-
-/** Raw source text, untouched. */
-export function readBridgeSourceRaw(file: BridgeSourceFile): string {
-  return readFileSync(resolve(SRC, file), "utf8");
-}
