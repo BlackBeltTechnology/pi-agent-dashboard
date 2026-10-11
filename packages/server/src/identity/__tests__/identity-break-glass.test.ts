@@ -9,6 +9,11 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import {
+  canonicalBinding,
+  httpPurpose,
+  mintProof,
+} from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import { type FakeOidcIssuer, startFakeOidcIssuer } from "@blackbelt-technology/pi-dashboard-shared/test-support/fake-oidc-issuer.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type BootHarness, createBootHarness, loginPlugin } from "./boot-harness.js";
@@ -52,6 +57,30 @@ describe("D23 break-glass (IdP down)", () => {
   it("issuing a code needs the host-only local token", async () => {
     expect((await post("/api/identity/local-code", {})).status).toBe(401);
     expect((await post("/api/identity/local-code", {}, { "x-pi-local-token": "wrong" })).status).toBe(401);
+  });
+
+  it("issuing a code is admitted by an endpoint-bound proof; a replay or a proof for another target is not (E14)", async () => {
+    const proof = () =>
+      mintProof({
+        token: localToken(),
+        binding: canonicalBinding("127.0.0.1", h.handle().httpPort),
+        purpose: httpPurpose("POST", "/api/identity/local-code"),
+      }).header;
+    const p = proof();
+    expect((await post("/api/identity/local-code", {}, { "x-pi-local-proof": p })).status).toBe(200);
+    // replayed proof → treated as no credential
+    const replay = await post("/api/identity/local-code", {}, { "x-pi-local-proof": p });
+    expect(replay.status).toBe(401);
+    // identical body to a request with no credential at all (sub-cause is not an oracle)
+    const none = await post("/api/identity/local-code", {});
+    expect(await replay.text()).toBe(await none.text());
+    // a proof minted for a different target does not verify here
+    const other = mintProof({
+      token: localToken(),
+      binding: canonicalBinding("127.0.0.1", h.handle().httpPort),
+      purpose: httpPurpose("POST", "/api/identity/other"),
+    }).header;
+    expect((await post("/api/identity/local-code", {}, { "x-pi-local-proof": other })).status).toBe(401);
   });
 
   it("signed-out loopback is still refused while enforced (no localhost bypass)", async () => {

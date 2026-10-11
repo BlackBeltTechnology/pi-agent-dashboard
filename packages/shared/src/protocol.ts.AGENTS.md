@@ -34,6 +34,8 @@ Heartbeat metrics gain optional `pluginForward*` counters. See change: add-plugi
 
 - `RenameSessionExtensionMessage.origin?: "system"`; `AutoNameStateRestoreMessage` carries session-owned `nameSource` + `nameSourceFor`; `session_name_update.nameSource` widened. See change: investigate-auto-name-provenance-relabel.
 
+`BridgeDiagnosticEvent` gains `server_proof_failed` (a marked bridge aborted on a server that could not prove the credential; delivered only over a later verified connection to the same endpoint). See change: loopback-credential-proof (D8).
+
 New `ProviderRefreshError { provider, message }`; `ModelsListMessage.refreshErrors?` — present only when a provider refresh failed, omitted (never `[]`) on success, never set by a bare abort. See change: upgrade-model-selector-primitives.
 
 `ProcessMetrics` gains the subagent-tick throttle counters (`tickForwarded`/`tickCoalesced`/`tickDiscardedAtTerminal`/`tickDroppedNotReady`), riding the existing `session_heartbeat` transport to `/api/health` (per-session + summed). See change: reduce-bridge-tick-bandwidth.

@@ -2,11 +2,12 @@
  * Network access guard for Fastify routes.
  * Supports loopback, trusted networks (CIDR/wildcard/exact), and authenticated users.
  */
-import type { FastifyReply, FastifyRequest } from "fastify";
+
 import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { isBypassed } from "./bypass-urls.js";
-import { verifyLocalToken } from "./local-token.js";
+import { hasLocalCredential } from "./local-credential.js";
 import { hasLocalProof, type LocalTrustContext } from "./local-proof.js";
 import { isLoopback, isLoopbackRange } from "./loopback.js";
 
@@ -404,7 +405,7 @@ function hasNetworkPassCondition(
     return true;
   }
   // Affirmative local-IPC token.
-  if (opts.localToken && verifyLocalToken(headers, opts.localToken)) return true;
+  if (opts.localToken && hasLocalCredential(headers)) return true;
   const trusted = opts.readTrusted();
   noteTrustedList(trusted);
   if (isTrustedSource(request.ip, headers, trusted, opts.localTrust)) return true;

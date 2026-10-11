@@ -6110,7 +6110,7 @@ flowchart TD
 | transport | credential | mechanism |
 |---|---|---|
 | unix socket | none | kernel via `0600` socket in `0700` dir (D5) |
-| loopback TCP | `X-Pi-Local-Token` | 32-byte secret `~/.pi/dashboard/local/token`, verified with `crypto.timingSafeEqual` (D6) |
+| loopback TCP | `X-Pi-Local-Proof` (legacy raw `X-Pi-Local-Token` until 1.0.0) | per-request HMAC proof keyed from 32-byte secret `~/.pi/dashboard/local/token`; see [Local credential proof](#local-credential-proof) |
 | remote TCP | single-use bridge-scoped ws ticket | minted from paired-device bearer or genuinely-local caller; rides upgrade only |
 
 - Loopback = `127.0.0.1`/`::1` AND absence of proxy-forwarding headers (`hasProxyForwardingHeaders`). `ssh -L`, zrok, host nginx present as loopback → not genuinely local.
@@ -6121,6 +6121,71 @@ flowchart TD
 - Server identity = Ed25519 fingerprint (`auth/identity.ts` → `~/.pi/dashboard/identity.key`), per-HOME, stable across restarts. Stored at pairing; verified by nonce challenge before registering (D8). Stale or hostile server cannot impersonate a pinned identity.
 - Rendezvous instance id = separate concept (D14, defect B1): `<dashboardConfigDir>/instances/<piPort>.id`, `0600`, per-instance, stable across restarts. Identifier, never a capability — `/api/health` publishes it unauthenticated. Answers "which instance answered"; never proof of entitlement.
 - Local token (or socket ownership) proves entitlement; instance id only names the instance (D14).
+
+#### Local credential proof
+
+Change: `loopback-credential-proof`. Design: `openspec/changes/archive/2026-10-11-loopback-credential-proof/design.md` (D1–D10).
+
+Wire:
+- Raw `X-Pi-Local-Token` never sent by current clients: bridge, CLI, Electron main, `scripts/reload-all.sh`.
+- Client sends `X-Pi-Local-Proof: v1.<13-digit ts>.<22 b64url nonce>.<43 b64url mac>`.
+- Proof minted per request. One proof = one request.
+- Key: `k = HMAC-SHA256(key = trimmed token, msg = "pi-dashboard/local-credential-proof/v1")`.
+- Client MAC: `HMAC(k, "pi-lcp/v1/client\n" + binding + "\n" + ts + "\n" + nonce + "\n" + purpose)`.
+- `binding` = `<addr literal>:<port>`. IPv6 bracketed, IPv4-mapped → IPv4. Never a host name.
+- `purpose`: `bridge` on pi gateway. `http <METHOD> <pathname+search>` on main server (HTTP + WS upgrade).
+- Server counter-proof: `X-Pi-Local-Proof-Server: v1.<43 b64url>`, `HMAC(k, "pi-lcp/v1/server\n" + binding + "\n" + nonce + "\n" + mac)`.
+- Shared module: `packages/shared/src/local-credential-proof.ts` (`canonicalBinding`, `localDialHost`, `isLoopbackLiteral`).
+
+Verify (server, once per request, at listener edge — `packages/server/src/auth/local-credential.ts` `stamp`):
+1. Parse + bounds. Malformed → `malformed`, no HMAC.
+2. `|now − ts| ≤ 30 s` → else `stale`.
+3. `ts ≥ boundAt` of receiving listener, zero tolerance → else `before-start`.
+4. Binding == connection's OWN `localAddress:localPort` → else `binding-mismatch` (relayed proof).
+5. Constant-time MAC → else `bad-mac`.
+6. Replay cache: TTL 61 s, cap 10 000, insert only after MAC. Duplicate → `replayed`. Full → `replay-cache-full` (fail closed).
+- `boundAt` = timestamp taken before successful bind. Per listener.
+- Verdict `proof | legacy | absent | invalid` stamped under module-private Symbol on `req.headers`.
+- Exemption sites read `hasLocalCredential(headers)`. Unstamped = `absent`.
+- Only first value of multi-valued header evaluated.
+
+Invalid proof:
+- Treated as `absent`: grace where listener grants it (deprecated), else refuse `local-proof-invalid`.
+- Sub-cause in server log only (`[local-credential]`). Response body identical (401).
+
+Counter-proof (gateway, `packages/server/src/pi/pi-gateway.ts`):
+- `verifyClient` records verdict in `WeakMap` only for verified proof.
+- `wss.on('headers')` appends `X-Pi-Local-Proof-Server` for that `req`.
+- Never on: unix socket, ticket, legacy, grace, refusal.
+
+Marked bridges (enforcement):
+- Dashboard sets `PI_DASHBOARD_REQUIRE_SERVER_PROOF=<url>` when bind is loopback.
+  - Set for headless, tmux (`-e`, empty value cancels inherited), wt.
+  - Never `wsl-tmux` (other kernel + HOME, other token).
+- `PI_DASHBOARD_URL` = address literal from `localDialHost(bindHost)`.
+- Bridge enforces only when parsed dial endpoint == parsed marker (case-insensitive literal, default port applied). Path/trailing slash ignored.
+- Unparsable non-empty marker → enforce on every loopback TCP dial (fail closed).
+- Bridge pre-connects TCP (`net.connect`), binds proof to reached `remoteAddress:remotePort`, passes socket to `ws` via `createConnection`.
+- Verifies counter-proof in ws `'upgrade'` before `'open'`. Missing/invalid → `terminate()`, nothing flushed.
+- Failure cause: `server-proof-missing` | `server-proof-invalid`.
+- Quarantine: 5 s, then 30 s doubling, cap 300 s. First verified open clears.
+- Report 1 — `~/.pi/dashboard/local/bridge-identity.log`: one JSON line `{ts, pid, endpoint, cause}`, `0600`, rotated to `.1` past 256 KiB.
+- Report 2 — `bridge_diagnostic` frame `server_proof_failed`: queued in `pendingIdentityReports` (≤20, oldest dropped). Sent ONLY on later verified open to the same endpoint.
+
+Legacy window:
+- `acceptLegacyToken: true` in `packages/server/src/server.ts`.
+- Raw header still accepted. Logged `DEPRECATED`, ≤1 line / 60 s per caller kind, with `suppressed=N`.
+- Close window + rotate token: follow-up change `close-loopback-legacy-window` (1.0.0).
+- Harvested token stays valid proof key until rotation.
+
+Residuals:
+- Unmarked bridges (manual `pi`, rendezvous, `wsl-tmux`, null-port spawns): no token leak. Squatter can still receive or MITM frames silently.
+- NAT / published-port callers (docker): `binding-mismatch`. BREAKING for `pi-dashboard login --local|open|token create` through a published port. Run inside container or log in.
+
+Deploy + rollback:
+- Order: restart server FIRST (`curl -X POST http://localhost:8000/api/restart`), THEN `npm run reload`.
+- Reverse order: proof-only bridges hit pre-proof server → refused / quarantined.
+- Rollback: revert server. Marked sessions quarantine (`server-proof-missing`) → restart those sessions.
 
 ### Move command (D11)
 

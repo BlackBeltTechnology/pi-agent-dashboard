@@ -56,6 +56,40 @@ export interface WatchdogFireInfo {
   refusedInbound: number;
 }
 
+/** Why a marked bridge refused the server it reached. */
+export type ServerProofFailure = "server-proof-missing" | "server-proof-invalid";
+
+/**
+ * Everything one dial attempt needs, produced fresh per attempt so a
+ * nonce-bearing proof is never reused on a reconnect.
+ * See change: loopback-credential-proof (D6).
+ */
+export interface DialPlan {
+  /** Per-dial URL override (a freshly minted ticket). */
+  url?: string;
+  /** Fresh proof headers for THIS dial. */
+  headers?: Record<string, string>;
+  /** The pre-connected TCP socket the proof is bound to, handed to `ws`. */
+  createConnection?: () => unknown;
+  /**
+   * Verifies the server's upgrade response BEFORE `open`. Present only for a
+   * marked endpoint; absent means no server verification is demanded.
+   */
+  verifyUpgrade?: (res: {
+    headers: Record<string, string | string[] | undefined>;
+  }) => { ok: true } | { ok: false; cause: ServerProofFailure };
+  /** Release resources acquired for the plan when the dial never starts. */
+  dispose?: () => void;
+}
+
+/** One identity failure, reported only over a later VERIFIED connection to the same endpoint. */
+export interface IdentityFailureReport {
+  ts: number;
+  pid: number;
+  endpoint: string;
+  cause: ServerProofFailure;
+}
+
 export interface ConnectionManagerOptions {
   url: string;
   WebSocketImpl?: any;
@@ -68,8 +102,8 @@ export interface ConnectionManagerOptions {
    */
   prepareConnect?: () => Promise<{ url?: string } | undefined>;
   /**
-   * Extra WebSocket upgrade headers, e.g. the Windows `X-Pi-Local-Token`
-   * local credential (D6). Requires the `ws` client — the global WebSocket
+   * Extra static WebSocket upgrade headers. The loopback local credential is a
+   * per-dial PROOF produced by `planDial`, never a static header (D6). Requires the `ws` client — the global WebSocket
    * cannot set headers at all.
    */
   headers?: Record<string, string>;
@@ -84,7 +118,21 @@ export interface ConnectionManagerOptions {
   credentialsFor?: (url: string) => {
     headers?: Record<string, string>;
     prepare?: () => Promise<{ url?: string } | undefined>;
+    planDial?: (baseUrl: string) => Promise<DialPlan | undefined>;
   };
+  /**
+   * Per-dial plan (fresh proof headers, the pre-connected socket the proof is
+   * bound to, and optional server verification). Called on EVERY attempt with
+   * the base endpoint; merged with `prepareConnect` and the static `headers`.
+   * See change: loopback-credential-proof (D6).
+   */
+  planDial?: (baseUrl: string) => Promise<DialPlan | undefined>;
+  /**
+   * Fired once per server-proof failure so the owner can record it where the
+   * suspect server cannot observe it (owner-only log). The manager itself keeps
+   * the report for delivery over a later verified connection (D8).
+   */
+  onIdentityFailure?: (report: IdentityFailureReport) => void;
   maxBufferSize?: number;
   /**
    * Bound on the SERIALIZED INBOUND queue. Distinct from `maxBufferSize`, which
@@ -359,6 +407,27 @@ export class ConnectionManager {
   /** Upgrade headers presented on every (re)connect. */
   private headers?: Record<string, string>;
   private prepareConnect?: () => Promise<{ url?: string } | undefined>;
+  private planDial?: (baseUrl: string) => Promise<DialPlan | undefined>;
+  private readonly onIdentityFailure?: (report: IdentityFailureReport) => void;
+  /** Set by a failed `verifyUpgrade`: the attempt that is closing was an identity failure. */
+  private identityFailure: ServerProofFailure | null = null;
+  /**
+   * Generation of the newest dial. An async plan (pre-connect, ticket mint) can
+   * outlive the dial that asked for it — a re-target or `disconnect()` while it
+   * awaits — and its late result must not open an orphaned socket that no
+   * handler owns. See change: loopback-credential-proof (audit).
+   */
+  private dialGen = 0;
+  /** Consecutive identity failures; indexes the quarantine backoff, cleared by an open. */
+  private quarantineFailures = 0;
+  /** True while the open socket's server proof verified (gates the report flush). */
+  private dialVerified = false;
+  /** The single report slot: only a marked dial can fail identity, and a process has one marker. */
+  private pendingIdentityReports: IdentityFailureReport[] = [];
+  private static readonly MAX_IDENTITY_REPORTS = 20;
+  private static readonly QUARANTINE_FIRST_MS = 5_000;
+  private static readonly QUARANTINE_SECOND_MS = 30_000;
+  private static readonly QUARANTINE_MAX_MS = 300_000;
 
   // ── Migration state (fix-bridge-mdns-migration-hijack) ─────────────────
   /** The endpoint on which a `session_register` was last sent on a LIVE
@@ -392,11 +461,13 @@ export class ConnectionManager {
     //   - `ws+unix://<path>:/` is rejected outright by the global/undici
     //     WebSocket (`DOMException: expected a ws: or wss: url`), so the
     //     local socket transport is unreachable without it (D1);
-    //   - the Windows local-token credential rides an `X-Pi-Local-Token`
+    //   - the loopback local-credential proof rides an `X-Pi-Local-Proof`
     //     upgrade header, and the global WebSocket cannot set headers (D6).
     // See change: add-pi-gateway-transport-identity (task 2.6).
     this.WS = options.WebSocketImpl ?? WsWebSocket;
     this.prepareConnect = options.prepareConnect;
+    this.planDial = options.planDial;
+    this.onIdentityFailure = options.onIdentityFailure;
     this.credentialsFor = options.credentialsFor;
     // Validate the numeric options up front: a negative bound would refuse
     // every message and a NaN/Infinity bound would disable the limit entirely
@@ -455,6 +526,7 @@ export class ConnectionManager {
 
   disconnect(): void {
     this.intentionalClose = true;
+    this.dialGen++;
     this.resetInbound();
     this.stopWatchdog();
     if (this.reconnectTimer) {
@@ -832,23 +904,45 @@ export class ConnectionManager {
     if (!c) return;
     this.headers = c.headers;
     this.prepareConnect = c.prepare;
+    this.planDial = c.planDial;
   }
 
   private createConnection(): void {
-    if (!this.prepareConnect) {
+    const gen = ++this.dialGen;
+    if (!this.prepareConnect && !this.planDial) {
       this.openSocket();
       return;
     }
-    void this.prepareThenOpen().catch(() => this.onPrepareFailed());
+    void this.prepareThenOpen(gen).catch(() => {
+      // A stale dial's failure must not schedule a reconnect for a newer one.
+      if (gen === this.dialGen) this.onPrepareFailed();
+    });
   }
 
-  /** Apply a per-attempt URL override (e.g. a freshly minted ticket). The
-   * override applies to THIS DIAL only — the base endpoint (`this.url`) is
-   * never mutated by preparation, so `lastRegisteredUrl` and every
-   * migration record name the real endpoint, not a ticketed one-off. */
-  private async prepareThenOpen(): Promise<void> {
+  /** Apply a per-attempt URL override (e.g. a freshly minted ticket) and a
+   * per-attempt dial plan (fresh proof). Both apply to THIS DIAL only — the
+   * base endpoint (`this.url`) is never mutated by preparation, so
+   * `lastRegisteredUrl` and every migration record name the real endpoint, not
+   * a ticketed one-off. */
+  private async prepareThenOpen(gen: number): Promise<void> {
+    const base = this.url;
     const override = await this.prepareConnect?.();
-    this.openSocket(override?.url);
+    const plan = await this.planDial?.(base);
+    if (gen !== this.dialGen || this.intentionalClose) {
+      // Superseded (reconnect / disconnect) while the plan was being built:
+      // release what it acquired and open nothing.
+      plan?.dispose?.();
+      return;
+    }
+    if (this.url !== base) {
+      // Re-targeted mid-plan: the plan (and any pre-connected socket) belongs to
+      // the OLD endpoint and must never be dialled against the new one. This
+      // manager was asked to connect, so dial the new endpoint instead.
+      plan?.dispose?.();
+      this.createConnection();
+      return;
+    }
+    this.openSocket(plan?.url ?? override?.url, plan);
   }
 
   /**
@@ -861,23 +955,88 @@ export class ConnectionManager {
     if (!this.intentionalClose) this.scheduleReconnect();
   }
 
-  private openSocket(dialUrl: string = this.url): void {
+  private openSocket(dialUrl: string = this.url, plan?: DialPlan): void {
+    const headers = this.headers || plan?.headers ? { ...this.headers, ...plan?.headers } : undefined;
+    const wsOptions: Record<string, unknown> = {};
+    if (headers) wsOptions.headers = headers;
+    if (plan?.createConnection) wsOptions.createConnection = plan.createConnection;
+    this.identityFailure = null;
+    this.dialVerified = false;
     try {
-      this.ws = this.headers
-        ? new this.WS(dialUrl, { headers: this.headers })
-        : new this.WS(dialUrl);
+      this.ws = Object.keys(wsOptions).length > 0 ? new this.WS(dialUrl, wsOptions) : new this.WS(dialUrl);
     } catch {
       // Constructor failed — schedule reconnect
       this.ws = null;
+      plan?.dispose?.();
       if (!this.intentionalClose) {
         this.scheduleReconnect();
       }
       return;
     }
 
+    // Verify the server's identity on the upgrade response, BEFORE `open`: the
+    // buffered `session_register` flushes in `onopen`, so nothing is sent to —
+    // and nothing is dispatched from — a peer that cannot prove the credential.
+    // A WebSocket without an `upgrade` event fails closed.
+    // See change: loopback-credential-proof (D6, D8).
+    let failDial: ((cause: ServerProofFailure) => void) | undefined;
+    if (plan?.verifyUpgrade) {
+      const ws = this.ws;
+      const verify = plan.verifyUpgrade;
+      const fail = (cause: ServerProofFailure): void => {
+        if (this.ws !== ws) {
+          // A superseded socket must never be left to open unverified.
+          try {
+            ws.terminate?.();
+          } catch {
+            /* already torn down */
+          }
+          return;
+        }
+        this.recordIdentityFailure(cause);
+        // `terminate()` mid-handshake emits `error` on the next tick; `handleDisconnect`
+        // detaches `onerror`, and an `error` with no listener would throw.
+        try {
+          ws.on?.("error", () => {});
+        } catch {
+          /* fake without an emitter */
+        }
+        try {
+          ws.terminate?.();
+        } catch {
+          /* already torn down */
+        }
+        this.handleDisconnect();
+      };
+      failDial = fail;
+      if (typeof ws.on !== "function") {
+        fail("server-proof-missing");
+        return;
+      }
+      ws.on("upgrade", (res: { headers: Record<string, string | string[] | undefined> }) => {
+        if (this.ws !== ws) return fail("server-proof-missing");
+        let result: ReturnType<typeof verify>;
+        try {
+          result = verify(res);
+        } catch {
+          result = { ok: false, cause: "server-proof-invalid" };
+        }
+        if (result.ok) this.dialVerified = true;
+        else fail(result.cause);
+      });
+    }
+
     this.ws.onopen = () => {
+      // A marked dial may open ONLY after its counter-proof verified. Production
+      // `ws` always emits `upgrade` first; an injectable implementation that does
+      // not must not flush buffered frames to an unverified peer.
+      if (failDial && !this.dialVerified) {
+        failDial("server-proof-missing");
+        return;
+      }
       // Reset backoff on successful connection
       this.backoff = 0;
+      this.quarantineFailures = 0;
       this.lastMessageAt = Date.now();
 
       // A registration noted while this dial was in flight is now real: the
@@ -903,6 +1062,7 @@ export class ConnectionManager {
       for (const data of buffered) {
         this.ws?.send(data);
       }
+      this.flushIdentityReports();
 
       // Strictly after the flush — see the `onPostFlush` doc comment. Paired
       // with `onReconnect`, so it skips the first open for the same reason.
@@ -963,8 +1123,72 @@ export class ConnectionManager {
     try { ws.close(); } catch { /* ignore — may already be closed */ }
     this.fireClose();
     if (!this.intentionalClose) {
-      this.scheduleReconnect();
+      if (this.identityFailure) {
+        this.identityFailure = null;
+        this.scheduleQuarantine();
+      } else {
+        this.scheduleReconnect();
+      }
     }
+  }
+
+  /**
+   * A marked dial's server failed to prove it holds this HOME's credential.
+   * Keep the report for a later VERIFIED connection to this same endpoint and
+   * hand it to the owner for the owner-only log. It never goes through the
+   * suspect socket, and never to a different endpoint.
+   */
+  private recordIdentityFailure(cause: ServerProofFailure): void {
+    this.identityFailure = cause;
+    const report: IdentityFailureReport = { ts: Date.now(), pid: process.pid, endpoint: this.url, cause };
+    this.pendingIdentityReports.push(report);
+    while (this.pendingIdentityReports.length > ConnectionManager.MAX_IDENTITY_REPORTS) {
+      this.pendingIdentityReports.shift();
+    }
+    try {
+      this.onIdentityFailure?.(report);
+    } catch {
+      /* the log is best-effort; quarantine must proceed */
+    }
+  }
+
+  /** Deliver pending identity reports, only over a connection whose proof verified. */
+  private flushIdentityReports(): void {
+    if (!this.dialVerified || this.pendingIdentityReports.length === 0) return;
+    const sessionId = this.getSessionIdForReports?.();
+    if (!sessionId) return;
+    // Only this endpoint's failures: a malformed marker enforces on EVERY loopback
+    // dial, so the slot can hold failures from another endpoint, which must not
+    // travel over this connection.
+    const pending = this.pendingIdentityReports.filter((r) => r.endpoint === this.url);
+    this.pendingIdentityReports = this.pendingIdentityReports.filter((r) => r.endpoint !== this.url);
+    for (const r of pending) {
+      try {
+        this.ws?.send(
+          JSON.stringify({
+            type: "bridge_diagnostic",
+            sessionId,
+            event: "server_proof_failed",
+            detail: JSON.stringify(r),
+          }),
+        );
+      } catch {
+        /* best-effort, like every other diagnostic */
+      }
+    }
+  }
+
+  /** Quarantine backoff: 5 s, 30 s, then doubling to a 5 min cap (D8). */
+  private scheduleQuarantine(): void {
+    const n = this.quarantineFailures++;
+    const delay =
+      n === 0
+        ? ConnectionManager.QUARANTINE_FIRST_MS
+        : Math.min(ConnectionManager.QUARANTINE_SECOND_MS * 2 ** (n - 1), ConnectionManager.QUARANTINE_MAX_MS);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.createConnection();
+    }, delay);
   }
 
   private startWatchdog(): void {

@@ -368,9 +368,22 @@ foreach ($p in @(__PATHS__)) {
     $out += [pscustomobject]@{ Path = $p; Verdict = "READ-ERROR"; Error = $_.Exception.GetType().Name }
   }
 }
+# The bind half (loopback-credential-proof, D2): while the dashboard holds
+# 127.0.0.1:<piPort>, a second standard user must not be able to co-bind it. The
+# proof's endpoint binding presumes exclusive `addr:port` across users, which is
+# assumed on Windows, so it is OBSERVED here rather than taken on trust.
+try {
+  $l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse("127.0.0.1"), __PIPORT__)
+  $l.Start(); $l.Stop()
+  $out += [pscustomobject]@{ Path = "BIND"; Verdict = "BIND-SUCCEEDED" }
+} catch [System.Net.Sockets.SocketException] {
+  $out += [pscustomobject]@{ Path = "BIND"; Verdict = "BIND-REFUSED"; Error = $_.Exception.SocketErrorCode.ToString() }
+} catch {
+  $out += [pscustomobject]@{ Path = "BIND"; Verdict = "BIND-ERROR"; Error = $_.Exception.GetType().Name }
+}
 $out | ConvertTo-Json -Compress | Set-Content -Path '__OUT__'
 '@
-    $probeBody = $probeBody.Replace("__PATHS__", $probePaths).Replace("__OUT__", $probeOut.Replace("'", "''"))
+    $probeBody = $probeBody.Replace("__PATHS__", $probePaths).Replace("__PIPORT__", "$piPort").Replace("__OUT__", $probeOut.Replace("'", "''"))
     Set-Content -Path $probeScript -Encoding UTF8 -Value $probeBody
 
     Start-Process -FilePath "powershell.exe" `
@@ -399,6 +412,20 @@ $out | ConvertTo-Json -Compress | Set-Content -Path '__OUT__'
     }
   } else {
     Write-Host "  read attempt   : $readVerdict"
+  }
+
+  # The bind attempt (D2): refused (EADDRINUSE / EACCES) or the proof binding's
+  # exclusivity assumption is false on this platform.
+  $bindVerdict = if ($readByFile.ContainsKey("BIND")) { $readByFile["BIND"] } else { "NO-VERDICT" }
+  $bindDetail = $readDetailByFile["BIND"]
+  Write-Host "  bind attempt   : $bindVerdict $bindDetail (a second user binding 127.0.0.1:$piPort while the dashboard holds it)"
+  if ($bindVerdict -eq "BIND-SUCCEEDED") {
+    Write-Error "FAIL: a second standard user bound 127.0.0.1:$piPort while the dashboard held it - the endpoint binding's exclusivity assumption is FALSE on this platform"
+    exit 1
+  }
+  if ($bindVerdict -ne "BIND-REFUSED") {
+    Write-Error "FAIL: the bind attempt produced no refusal verdict ($bindVerdict $bindDetail) - the claim went UNTESTED"
+    exit 1
   }
 
   $leaked = @($credTargets | Where-Object { $readByFile[$_.Path] -eq "READ-SUCCEEDED" } | ForEach-Object { $_.Name })

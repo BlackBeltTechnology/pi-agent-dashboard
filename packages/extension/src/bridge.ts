@@ -5,14 +5,13 @@
  * forwards all pi events, and relays commands back.
  */
 
-import { bridgeExtensionIdentity } from "./extension-identity.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureConfig, loadConfig, resolveDashboardPorts } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { shouldActivateBridge } from "./bridge-activation.js";
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type {
   ServerToExtensionMessage,
   TranscriptRequestMessage,
@@ -32,9 +31,12 @@ import {
 } from "./ask-user-attachments.js";
 import { registerAskUserTool } from "./ask-user-tool.js";
 import { type AutoNamer, applyAutoNameRestore, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
+import { shouldActivateBridge } from "./bridge-activation.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstMessage, extractLatestTurnWindow, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession, safeCwd } from "./bridge-context.js";
 import { hasExplicitModelArg, shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
+import { appendIdentityLog } from "./bridge-identity-log.js";
+import { createPollingHolder, drainDisposables, ensureDisposable, feedPollingEvent, routeGitInfoRefresh, scheduleModelRecheckOnSelect, teardownPreviousIncarnation } from "./bridge-polling.js";
 import { mintBridgeTicket, readDeviceToken, withTicket } from "./bridge-ticket-client.js";
 import { registerCanvasTool } from "./canvas-tool.js";
 import {
@@ -45,14 +47,6 @@ import {
 } from "./command-handler.js";
 import { buildSessionContextText, runForkSubagentDraft } from "./commit-draft-agent.js";
 import { ConnectionManager, type WatchdogFireInfo } from "./connection.js";
-import {
-  consumePendingReloadOnSessionStart,
-  createTerminalReload,
-  isBridgeReentry,
-  RELOAD_COMMAND_NAME,
-  releaseBridgeOwnerOnShutdown,
-  reloadCompletedFeedback,
-} from "./terminal-reload.js";
 import { toCustomEntryForward, toCustomMessageForward } from "./custom-entry-forward.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
 import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
@@ -61,6 +55,7 @@ import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
 import { decideRetarget, instanceIdFileForSocket, resolveEndpoint } from "./endpoint-resolution.js";
 import { mapEventToProtocol, redactBeforeSettleContext, redactCompactionEntry } from "./event-forwarder.js";
+import { bridgeExtensionIdentity } from "./extension-identity.js";
 import {
   FLOW_EVENT_MAP,
   registerEventBusForwarding,
@@ -68,17 +63,13 @@ import {
   SUBAGENT_EVENT_MAP,
 } from "./flow-event-wiring.js";
 import { createFollowupBuffer } from "./followup-buffer.js";
-import { createPollingHolder, drainDisposables, ensureDisposable, feedPollingEvent, routeGitInfoRefresh, scheduleModelRecheckOnSelect, teardownPreviousIncarnation } from "./bridge-polling.js";
 import { createGitPollState, runGitPollTick } from "./git-poll.js";
 import { createGitTracker, type GitTracker } from "./git-tracker.js";
-import { createPrStatusScheduler, type PrStatusScheduler } from "./pr-status.js";
-import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { healthUrlForInstance, probeEndpointReachability, verifyInstanceIdentity } from "./instance-verification.js";
-import { localTokenHeaders } from "./local-token-header.js";
+import { localCredentialPlan } from "./local-token-header.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { createMcpDashboardRegistrar, type McpRegistrationApi, type McpTokenMintedPayload } from "./mcp-token-delivery.js";
-import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { COALESCE_WINDOW_MS, flushesParkedText, MessageUpdateCoalescer } from "./message-update-coalescer.js";
 import { refreshAfterCredentialsReload, reportRefresh } from "./model-refresh.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
@@ -89,13 +80,17 @@ import { createPathGate } from "./path-gate/index.js";
 import { Suppression } from "./path-gate/suppression.js";
 import { emitPendingPrompts } from "./pending-prompt-emitter.js";
 import { readPiRetrySettings } from "./pi-retry-settings.js";
-import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "./process-metrics.js";
-import { getOwnPgid, scanChildProcessesAsync } from "./process-scanner.js";
-import { createProcessScanScheduler } from "./process-scan-scheduler.js";
+import { PluginForwardRegistry } from "./plugin-event-forward-registry.js";
+import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { pollCost } from "./poll-cost.js";
+import { createPrStatusScheduler, type PrStatusScheduler } from "./pr-status.js";
+import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "./process-metrics.js";
+import { createProcessScanScheduler } from "./process-scan-scheduler.js";
+import { getOwnPgid, scanChildProcessesAsync } from "./process-scanner.js";
 import { decideProjectTrust, readEventCwd } from "./project-trust.js";
 import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
+import { buildPromptMeta } from "./prompt-meta.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
 import { gateRemoteRegistration, httpBaseUrlFor, isRemoteEndpoint } from "./remote-registration-gate.js";
 import { RetryTracker } from "./retry-tracker.js";
@@ -106,23 +101,29 @@ import { launchServer } from "./server-launcher.js";
 import { loadServerPins, notePinEndpoint, serverPinsPath } from "./server-pin-store.js";
 import { handleSessionChange as _handleSessionChange, replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync, consumeSpawnToken, filterByEnabledModels } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
-import { UsageDrain, drainUsageAndSend, makeCacheWarmingDecisionHandler, sendShutdownUsageThenUnregister } from "./usage-drain.js";
 import { detectSessionSource } from "./source-detector.js";
+import { FanoutAdmissionGate, resolveAdmissionConfig } from "./subagent-fanout-admission.js";
 import { flushBufferedSubagentFrames, serveSubagentResync } from "./subagent-forward-sites.js";
-import { PluginForwardRegistry } from "./plugin-event-forward-registry.js";
 import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
 import { stripForForward } from "./subagent-frame-strip.js";
-import { FanoutAdmissionGate, resolveAdmissionConfig } from "./subagent-fanout-admission.js";
 import { SaturationSampler } from "./subagent-saturation.js";
 import { isSubagentTick, SubagentTickThrottle } from "./subagent-tick-throttle.js";
+import {
+  consumePendingReloadOnSessionStart,
+  createTerminalReload,
+  isBridgeReentry,
+  RELOAD_COMMAND_NAME,
+  releaseBridgeOwnerOnShutdown,
+  reloadCompletedFeedback,
+} from "./terminal-reload.js";
 import { inlineToolResultImages } from "./tool-result-image-inliner.js";
 import { readTranscriptChunk, type TranscriptCursor } from "./transcript-backfill.js";
 import { createTransportDiagnostics } from "./transport-diagnostics.js";
 import { createTuiPromptAdapter } from "./tui-prompt-adapter.js";
 import { classifyTurnActionability } from "./turn-actionability.js";
 import { handleUiManagement, refreshUiModules, subscribeUiInvalidate, type UiModulesBridgeCtx } from "./ui-modules.js";
-import { buildPromptMeta } from "./prompt-meta.js";
 import { runUiSafely } from "./ui-stale-guard.js";
+import { drainUsageAndSend, makeCacheWarmingDecisionHandler, sendShutdownUsageThenUnregister, UsageDrain } from "./usage-drain.js";
 import { detectIsGitRepo } from "./vcs-info.js";
 import { buildVisibilityRegisterFields } from "./visibility-intent.js";
 
@@ -1238,17 +1239,24 @@ function initBridge(pi: ExtensionAPI) {
         detail,
       });
     },
-    // D6 (task 5.3): a LOOPBACK TCP dial carries this HOME's local token, the
-    // credential that replaces the socket's file mode where there is no socket
-    // (Windows, or a sun_path fallback). Undefined over a socket and never
-    // sent to a remote endpoint.
-    headers: localTokenHeaders(dashboardUrl),
+    // D6 (task 5.3): a LOOPBACK TCP dial carries a PROOF of possession of this
+    // HOME's local token (never the token), bound to the address actually
+    // reached — the credential that replaces the socket's file mode where there
+    // is no socket (Windows, or a sun_path fallback). Planned per dial, so each
+    // attempt has a fresh nonce; nothing is planned over a socket or for a
+    // remote endpoint. A bridge MARKED by its spawner also verifies the server
+    // counter-proof before `open`. See change: loopback-credential-proof (D6, D7).
+    planDial: (base) => localCredentialPlan(base),
+    onIdentityFailure: (report) => {
+      console.error(`[dashboard] server identity check failed (${report.cause}) at ${report.endpoint}`);
+      appendIdentityLog(report);
+    },
     // Every accepted re-target (and every reversal) re-derives these from the
-    // endpoint actually being dialled — a loopback token must never ride a
+    // endpoint actually being dialled — a loopback proof must never ride a
     // dial to a discovered remote host, and a remote candidate needs its own
     // bridge ticket. (CodeRabbit review, fix-bridge-mdns-migration-hijack.)
     credentialsFor: (u) => ({
-      headers: localTokenHeaders(u),
+      planDial: (base) => localCredentialPlan(base),
       prepare: () => prepareRemoteUpgrade(u),
     }),
     // A REMOTE endpoint needs a bridge ticket per attempt (§6 made TCP bridge
@@ -2100,7 +2108,8 @@ function initBridge(pi: ExtensionAPI) {
           let handler: (msg: unknown) => void = () => {};
           targetManager = new ConnectionManager({
             url,
-            headers: localTokenHeaders(url),
+            planDial: (base) => localCredentialPlan(base),
+            onIdentityFailure: (report) => appendIdentityLog(report),
             getSessionId: () => sessionId,
             onMessage: (data) => {
               // Plugin lane replies resolve the caller's Promise only.

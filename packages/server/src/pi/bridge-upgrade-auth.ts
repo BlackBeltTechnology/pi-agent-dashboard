@@ -25,7 +25,6 @@
  * See change: add-pi-gateway-transport-identity (D5, D7, D10b).
  */
 
-import { LOCAL_TOKEN_HEADER } from "../auth/local-token.js";
 import { hasProxyForwardingHeaders } from "../auth/localhost-guard.js";
 import type { TicketConsumption } from "../auth/ws-ticket.js";
 
@@ -50,11 +49,17 @@ export interface BridgeUpgradeInput {
    */
   requireTicketOnLoopback?: boolean;
   /**
-   * Check the `X-Pi-Local-Token` header against this HOME's secret (D6, task
-   * 5.3). Injected rather than read here so the decision stays pure and the
-   * gateway owns the token's lifetime.
+   * The local-credential verdict stamped at the listener edge (see
+   * `auth/local-credential.ts`): `valid` = endpoint-bound proof verified,
+   * `legacy` = deprecated raw `X-Pi-Local-Token` accepted, `invalid` = a proof
+   * was presented and failed (treated as ABSENT here: grace where granted,
+   * refusal where not, never a counter-proof — design D5), `absent` = none.
+   * Replaces the injected `verifyLocalToken` callback so the decision stays
+   * pure. See change: loopback-credential-proof (D5).
    */
-  verifyLocalToken?: (headers: Record<string, unknown> | undefined) => boolean;
+  localCredential?: "valid" | "legacy" | "absent" | "invalid";
+  /** Sub-cause of an `invalid` proof — server log only, never a response. */
+  invalidCause?: string;
   /** Single-use consumption against the `bridge` scope. */
   consumeTicket: (ticket: string | null | undefined) => TicketConsumption;
 }
@@ -62,12 +67,12 @@ export interface BridgeUpgradeInput {
 /** Distinct refusal causes — "no credential" ≠ "bad credential" (tasks 5.4/10.3). */
 type BridgeRefusalCause =
   | "local-token-missing"
-  | "local-token-invalid"
+  | "local-proof-invalid"
   | "no-ticket"
   | "browser-origin";
 
 export type BridgeUpgradeVerdict =
-  | { allow: true; reason: string; deprecated?: boolean; deviceId?: string }
+  | { allow: true; reason: string; deprecated?: boolean; deviceId?: string; viaProof?: boolean }
   | { allow: false; reason: string; cause: BridgeRefusalCause };
 
 /** Loopback in every form Node reports it, including IPv4-mapped IPv6. */
@@ -142,16 +147,21 @@ export function decideBridgeUpgrade(input: BridgeUpgradeInput): BridgeUpgradeVer
     };
   }
 
-  // A loopback bridge may instead present the local token — a POSITIVE
-  // credential (only the same OS user can read the file), which is what makes
-  // the Windows path defensible without a unix socket (D6). Checked before the
-  // grace so an authorised bridge is logged as credentialed, not as a
-  // deprecation.
-  const tokenPresented =
-    input.headers?.[LOCAL_TOKEN_HEADER] !== undefined && input.headers?.[LOCAL_TOKEN_HEADER] !== "";
-  const tokenValid = loopback && input.verifyLocalToken?.(input.headers) === true;
-  if (tokenValid) {
-    return { allow: true, reason: "tcp loopback: valid local token (D6)" };
+  // A loopback bridge may instead present a verified local credential — a
+  // POSITIVE credential (only the same OS user can read the token), which is
+  // what makes the Windows path defensible without a unix socket (D6). The
+  // verdict was computed once at the edge; a `legacy` raw token is allowed but
+  // flagged deprecated. Checked before the grace so an authorised bridge is
+  // logged as credentialed, not as a deprecation.
+  if (loopback && input.localCredential === "valid") {
+    return { allow: true, viaProof: true, reason: "tcp loopback: valid local credential proof (D6)" };
+  }
+  if (loopback && input.localCredential === "legacy") {
+    return {
+      allow: true,
+      deprecated: true,
+      reason: "tcp loopback: legacy raw local token (deprecated; send X-Pi-Local-Proof)",
+    };
   }
 
   if (loopback && input.requireTicketOnLoopback !== true) {
@@ -164,12 +174,13 @@ export function decideBridgeUpgrade(input: BridgeUpgradeInput): BridgeUpgradeVer
     };
   }
 
-  // On loopback the local token is the credential that was expected, so the
-  // refusal names ITS failure mode rather than the ticket's.
+  // On loopback the local credential is what was expected, so the refusal names
+  // ITS failure mode rather than the ticket's. An invalid proof is otherwise
+  // treated exactly as an absent one (the sub-cause goes to the log only).
   const cause: BridgeRefusalCause = !loopback
     ? "no-ticket"
-    : tokenPresented
-      ? "local-token-invalid"
+    : input.localCredential === "invalid"
+      ? "local-proof-invalid"
       : "local-token-missing";
   return {
     allow: false,

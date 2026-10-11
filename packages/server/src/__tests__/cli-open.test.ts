@@ -19,7 +19,10 @@ describe("cmdOpen", () => {
     expect(await cmdOpen(cfg, { print: true, out: (s) => out.push(s), fetchImpl, open })).toBe(0);
     expect(out[0]).toMatch(/^http:\/\/localhost:8123\/auth\/local-proof\?code=[A-Za-z0-9_-]{43}$/);
     expect(open).not.toHaveBeenCalled();
-    expect((fetchImpl as any).mock.calls[0][1].headers["x-pi-local-token"]).toBeTruthy();
+    const [url, init] = (fetchImpl as any).mock.calls[0];
+    expect(url).toBe("http://127.0.0.1:8123/api/local-proof");
+    expect(init.headers["X-Pi-Local-Proof"]).toBeTruthy();
+    expect(JSON.stringify(init.headers).toLowerCase()).not.toContain("x-pi-local-token");
   });
   it("without --print opens the browser", async () => {
     const open = vi.fn();

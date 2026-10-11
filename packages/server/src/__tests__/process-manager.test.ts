@@ -8,6 +8,7 @@ import {
   resetResolver,
   type SessionOptions,
   setResolver,
+  setSpawnDashboardPiPort,
   spawnPiSession,
   spawnTmux,
   spawnWslTmux,
@@ -133,8 +134,8 @@ describe("Process Manager", () => {
       );
       expect(cmd).toContain("PI_DASHBOARD_SPAWN_TOKEN=tok-1");
       expect(cmd).toContain("NODE_OPTIONS=--max-old-space-size=512");
-      // token + heap + the unconditional bridge stamp (add-bridge-env-opt-out D5).
-      expect(cmd.filter((a) => a === "-e")).toHaveLength(3);
+      // token + heap + the unconditional marker cancel (loopback-credential-proof) + the unconditional bridge stamp (add-bridge-env-opt-out D5).
+      expect(cmd.filter((a) => a === "-e")).toHaveLength(4);
     });
 
     it("emits no -e NODE_OPTIONS pair when no ceiling is configured", () => {
@@ -411,9 +412,11 @@ describe("Process Manager", () => {
           expect(eIdx).toBeGreaterThanOrEqual(0);
           expect(cmd[eIdx + 1]).toBe(`PI_DASHBOARD_SPAWN_TOKEN=${spawnToken}`);
         } else {
-          // Only the unconditional bridge stamp (add-bridge-env-opt-out D5).
-          expect(cmd.filter((a) => a === "-e")).toHaveLength(1);
-          expect(cmd[eIdx + 1]).toBe("PI_DASHBOARD_BRIDGE=on");
+          // Only the unconditional bridge stamp (add-bridge-env-opt-out D5) and the
+          // unconditional empty marker cancel (loopback-credential-proof D7).
+          expect(cmd.filter((a) => a === "-e")).toHaveLength(2);
+          expect(cmd).toContain("PI_DASHBOARD_BRIDGE=on");
+          expect(cmd).toContain("PI_DASHBOARD_REQUIRE_SERVER_PROOF=");
           expect(cmd.filter(e => e.startsWith("PI_DASHBOARD_SPAWN_TOKEN=")).length).toBe(0);
         }
       }
@@ -585,11 +588,14 @@ describe("buildTmuxCommand: per-window spawn token", () => {
     expect(cmd).toContain(`PI_DASHBOARD_SPAWN_TOKEN=${TOKEN}`);
   });
 
-  it("emits only the bridge -e pair when there is no token", () => {
-    // The bridge activation stamp is unconditional (add-bridge-env-opt-out D5).
+  it("emits only the bridge and marker-cancel -e pairs when there is no token", () => {
+    // The bridge activation stamp is unconditional (add-bridge-env-opt-out D5);
+    // so is the empty server-proof marker that cancels an inherited one
+    // (loopback-credential-proof D7).
     const cmd = buildTmuxCommand("/home/user/project", true);
-    expect(cmd.filter((a) => a === "-e")).toHaveLength(1);
-    expect(cmd[cmd.indexOf("-e") + 1]).toBe("PI_DASHBOARD_BRIDGE=on");
+    expect(cmd.filter((a) => a === "-e")).toHaveLength(2);
+    expect(cmd).toContain("PI_DASHBOARD_BRIDGE=on");
+    expect(cmd).toContain("PI_DASHBOARD_REQUIRE_SERVER_PROOF=");
     expect(cmd.some((a) => a.startsWith("PI_DASHBOARD_SPAWN_TOKEN="))).toBe(false);
   });
 
@@ -599,5 +605,100 @@ describe("buildTmuxCommand: per-window spawn token", () => {
     // itself (no shell), so the value stays literal — no quoting.
     expect(cmd).toContain("PI_DASHBOARD_SPAWN_TOKEN=a; rm -rf /");
     expect(cmd).not.toContain("PI_DASHBOARD_SPAWN_TOKEN='a; rm -rf /'");
+  });
+});
+
+// ── E19: the server-proof enforcement marker (change: loopback-credential-proof, D7) ──
+describe("spawn env: the server-proof marker (E19)", () => {
+  const MARKER = "PI_DASHBOARD_REQUIRE_SERVER_PROOF";
+  const PORT = 4321;
+  const mechanisms = ["headless", "tmux", "wt", "wsl-tmux"] as const;
+  const binds = ["127.0.0.1", "0.0.0.0", "::1", "192.168.1.5"] as const;
+  const dial: Record<(typeof binds)[number], string> = {
+    "127.0.0.1": "127.0.0.1",
+    "0.0.0.0": "127.0.0.1",
+    "::1": "[::1]",
+    "192.168.1.5": "192.168.1.5",
+  };
+  const loopback = (b: (typeof binds)[number]) => b !== "192.168.1.5";
+  let savedMarker: string | undefined;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    savedMarker = process.env[MARKER];
+    setResolver({
+      resolvePi: () => ["/usr/bin/node", "/opt/pi/dist/cli.js"],
+      resolveNode: () => "/usr/bin/node",
+      which: () => null,
+      buildSpawnEnv: (env: NodeJS.ProcessEnv) => env,
+    } as unknown as ToolResolver);
+  });
+  afterEach(() => {
+    setSpawnDashboardPiPort(null);
+    resetResolver();
+    if (savedMarker === undefined) delete process.env[MARKER];
+    else process.env[MARKER] = savedMarker;
+  });
+
+  const tmuxMarkerArg = (argv: string[]): string | undefined =>
+    argv.find((a) => a.startsWith(`${MARKER}=`));
+
+  for (const mechanism of mechanisms) {
+    for (const bind of binds) {
+      for (const port of [PORT, null] as const) {
+        for (const inherited of [undefined, "ws://127.0.0.1:1"] as const) {
+          const name = `${mechanism} bind=${bind} piPort=${port} inherited=${inherited ?? "none"}`;
+          it(name, () => {
+            setSpawnDashboardPiPort(port, bind);
+            if (inherited === undefined) delete process.env[MARKER];
+            else process.env[MARKER] = inherited;
+
+            let env: NodeJS.ProcessEnv;
+            let argv: string[] = [];
+            if (mechanism === "tmux" || mechanism === "wsl-tmux") {
+              const call = mechanism === "tmux" ? spawnTmux : spawnWslTmux;
+              expect(call("/work", undefined).success).toBe(true);
+              const [, args, opts] = mockExecFileSync.mock.calls[0];
+              argv = args as string[];
+              env = (opts as { env: NodeJS.ProcessEnv }).env;
+            } else {
+              env = buildSpawnEnv({ PATH: "/usr/bin", ...(inherited ? { [MARKER]: inherited } : {}) }, { mechanism });
+            }
+
+            const marked = port != null && mechanism !== "wsl-tmux" && loopback(bind);
+            if (marked) {
+              const url = `ws://${dial[bind]}:${PORT}`;
+              expect(env.PI_DASHBOARD_URL).toBe(url);
+              expect(env[MARKER]).toBe(url);
+            } else {
+              expect(env[MARKER]).toBeUndefined(); // an inherited marker never propagates
+              if (port != null) expect(env.PI_DASHBOARD_URL).toBe(`ws://localhost:${PORT}`);
+            }
+            if (mechanism === "tmux" || mechanism === "wsl-tmux") {
+              expect(tmuxMarkerArg(argv)).toBe(`${MARKER}=${marked ? `ws://${dial[bind]}:${PORT}` : ""}`);
+              const at = argv.indexOf(tmuxMarkerArg(argv) as string);
+              expect(argv[at - 1]).toBe("-e");
+            }
+          });
+        }
+      }
+    }
+  }
+
+  it("null piPort: the inherited marker is removed and an inherited URL is left untouched", () => {
+    setSpawnDashboardPiPort(null, "127.0.0.1");
+    const env = buildSpawnEnv(
+      { PATH: "/usr/bin", [MARKER]: "ws://127.0.0.1:1", PI_DASHBOARD_URL: "ws://inherited:1" },
+      { mechanism: "headless" },
+    );
+    expect(env[MARKER]).toBeUndefined();
+    expect(env.PI_DASHBOARD_URL).toBe("ws://inherited:1");
+  });
+
+  it("without a bind host the legacy URL is kept and nothing is marked", () => {
+    setSpawnDashboardPiPort(PORT);
+    const env = buildSpawnEnv({ PATH: "/usr/bin" }, { mechanism: "headless" });
+    expect(env.PI_DASHBOARD_URL).toBe(`ws://localhost:${PORT}`);
+    expect(env[MARKER]).toBeUndefined();
   });
 });

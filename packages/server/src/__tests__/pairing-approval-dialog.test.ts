@@ -13,6 +13,7 @@ import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "../pairing/pairing.js";
 import { registerPairingRoutes } from "../routes/pairing-routes.js";
+import { stampLegacyHook } from "../test-support/local-credential-stamp.js";
 
 /** Pairing-code TTL, read from a live pending entry so it tracks `CODE_TTL_MS`. */
 function ttlOf(mgr: PairingManager, now: number): number {
@@ -51,6 +52,7 @@ const wrong = (real: string) => (real === "11111111" ? "22222222" : "11111111");
 async function mkApp(opts: { trusted?: string[]; deviceBearer?: boolean } = {}) {
   const { mgr, reg } = mkManager();
   const app = Fastify();
+  stampLegacyHook(app, LOCAL_TOKEN);
   apps.push(app);
   // Simulate a dashboard login session for the operator guard.
   app.addHook("onRequest", async (req) => {
