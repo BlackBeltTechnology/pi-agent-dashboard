@@ -2,7 +2,7 @@
  * Classified checkout-root resolution — a probe that did not COMPLETE is FAILED, never
  * "not a repository", and never falls through to a weaker rule. The unclassified resolvers
  * keep returning no result for both. Covers test-plan E1–E7 of harden-plugin-cwd-admission.
- * (Split from git-checkout-roots.test.ts after test-trust-audit's file split.)
+ * (A file of its own, outside the `git-checkout-roots` assertion-count group of shared-heavy-files.test.mjs.)
  */
 import { realpathSync } from "node:fs";
 import path from "node:path";
