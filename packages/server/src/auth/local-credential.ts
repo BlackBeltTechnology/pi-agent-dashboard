@@ -226,12 +226,33 @@ export function createLocalCredentialVerifier(opts: LocalCredentialVerifierOptio
         }
       }
       Object.defineProperty(req.headers, STAMP, {
-        value: verdict,
+        // Frozen too: the property is immutable, so the verdict it holds must be.
+        value: Object.freeze(verdict),
         enumerable: true,
-        configurable: true,
-        writable: true,
+        // Immutable: no later code may redefine or overwrite a recorded verdict.
+        // See change: harden-credential-proof-binding.
+        configurable: false,
+        writable: false,
       });
       return verdict;
     },
   };
+}
+
+/**
+ * Take the listener's proof floor AFTER the application is ready and immediately
+ * before the bind. `listen()` itself awaits `ready()` (plugin boot, possibly
+ * seconds); a floor taken before it would let a proof captured by the previous
+ * port holder during that window pass `before-start`. A failing `ready()` sets no
+ * floor and never listens. See change: harden-credential-proof-binding.
+ */
+export async function listenWithProofFloor(
+  app: { ready(): PromiseLike<unknown>; listen(opts: { port: number; host: string }): PromiseLike<unknown> },
+  setFloor: (boundAt: number) => void,
+  listenOpts: { port: number; host: string },
+  now: () => number = Date.now,
+): Promise<void> {
+  await app.ready();
+  setFloor(now());
+  await app.listen(listenOpts);
 }

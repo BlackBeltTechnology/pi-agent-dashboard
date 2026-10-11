@@ -180,13 +180,17 @@ export function isLoopbackLiteral(host: string): boolean {
  * itself (IPv6 bracketed).
  */
 export function localDialHost(bindHost: string | undefined): string {
-  const h = (bindHost ?? "").trim();
-  if (h === "" || h === "0.0.0.0" || h === "::" || h === "[::]" || h.toLowerCase() === "localhost") {
+  const trimmed = (bindHost ?? "").trim();
+  // One layer of brackets, as `canonicalBinding` accepts.
+  const h = trimmed.startsWith("[") && trimmed.endsWith("]") ? trimmed.slice(1, -1) : trimmed;
+  if (h === "" || h === "0.0.0.0" || h === "::" || h.toLowerCase() === "localhost") {
     return "127.0.0.1";
   }
-  if (h === "::1" || h === "[::1]") return "[::1]";
+  if (h === "::1") return "[::1]";
   if (net.isIPv6(h)) return `[${h}]`;
-  return h;
+  // A DNS name is not a binding (`canonicalBinding` takes IP literals only):
+  // dial the loopback literal rather than make every local credential call fail.
+  return net.isIPv4(h) ? h : "127.0.0.1";
 }
 
 /**

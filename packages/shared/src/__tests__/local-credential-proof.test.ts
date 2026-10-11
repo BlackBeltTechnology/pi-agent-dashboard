@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   canonicalBinding,
   deriveKey,
+  httpProofHeaders,
   httpPurpose,
   isLoopbackLiteral,
   localDialHost,
@@ -80,6 +81,27 @@ describe("E20 localDialHost / isLoopbackLiteral", () => {
   ])("%s → %s (loopback %s)", (bind, dial, loop) => {
     expect(localDialHost(bind)).toBe(dial);
     expect(isLoopbackLiteral(localDialHost(bind))).toBe(loop);
+  });
+});
+
+describe("a DNS-name bind host still yields an IP-literal dial (harden-credential-proof-binding 3.1)", () => {
+  it("maps a name to 127.0.0.1 so the binding never throws", () => {
+    expect(localDialHost("myhost.example")).toBe("127.0.0.1");
+    expect(localDialHost("MyHost.Local")).toBe("127.0.0.1");
+    expect(() => canonicalBinding(localDialHost("myhost.example"), 8000)).not.toThrow();
+    expect(isLoopbackLiteral(localDialHost("myhost.example"))).toBe(true);
+  });
+
+  it("an IP literal is left alone", () => {
+    expect(localDialHost("192.168.1.5")).toBe("192.168.1.5");
+    expect(localDialHost("fe80::1")).toBe("[fe80::1]");
+    expect(localDialHost("[fe80::1]")).toBe("[fe80::1]");
+    expect(localDialHost(" [::1] ")).toBe("[::1]");
+  });
+
+  it("httpProofHeaders for the dial host of a name bind mints a proof", () => {
+    const url = `http://${localDialHost("myhost.example")}:8000/api/x`;
+    expect(() => httpProofHeaders("tok", url, "GET")).not.toThrow();
   });
 });
 

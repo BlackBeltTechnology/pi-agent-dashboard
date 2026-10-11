@@ -9,7 +9,7 @@
  * See change: add-pi-gateway-transport-identity.
  */
 import { describe, expect, it } from "vitest";
-import { decideGatewayListeners, isTcpOptIn } from "../pi/gateway-transport-policy.js";
+import { decideGatewayListeners, isTcpOptIn, spawnDialHost } from "../pi/gateway-transport-policy.js";
 
 const unix = { transport: "unix", path: "/home/u/.pi/dashboard/gateway-8001.sock" } as const;
 const loopback = { transport: "loopback", port: 8001, reason: "win32 has no UDS transport" } as const;
@@ -60,5 +60,27 @@ describe("decideGatewayListeners", () => {
         expect(Boolean(d.socketPath) || Boolean(d.tcp)).toBe(true);
       }
     }
+  });
+});
+
+// harden-credential-proof-binding 4.1: the spawner dials (and marks) the host the
+// gateway's TCP listener ACTUALLY binds, never the HTTP bind host.
+describe("spawnDialHost", () => {
+  it.each([
+    ["socket only (no TCP listener) → the 127.0.0.1 fallback address", { reason: "r", socketPath: "/s" }, "127.0.0.1"],
+    ["opt-in TCP on a wildcard", { reason: "r", tcp: { host: "0.0.0.0", port: 1 } }, "0.0.0.0"],
+    ["fallback pinned to loopback", { reason: "r", tcp: { host: "127.0.0.1", port: 1 } }, "127.0.0.1"],
+    ["IPv6 loopback", { reason: "r", tcp: { host: "::1", port: 1 } }, "::1"],
+    ["a specific LAN address", { reason: "r", tcp: { host: "192.168.1.5", port: 1 } }, "192.168.1.5"],
+    ["`localhost` may bind only ::1 → legacy unmarked URL", { reason: "r", tcp: { host: "localhost", port: 1 } }, null],
+    ["` localhost ` is trimmed", { reason: "r", tcp: { host: " localhost ", port: 1 } }, null],
+    ["`LocalHost` is case-insensitive", { reason: "r", tcp: { host: "LocalHost", port: 1 } }, null],
+  ])("%s", (_name, policy, want) => {
+    expect(spawnDialHost(policy)).toBe(want);
+  });
+
+  it("follows decideGatewayListeners: a LAN HTTP host never leaks into the fallback endpoint", () => {
+    const policy = decideGatewayListeners({ local: loopback, tcpOptIn: false, host: "192.168.1.5", piPort: 8001 });
+    expect(spawnDialHost(policy)).toBe("127.0.0.1");
   });
 });

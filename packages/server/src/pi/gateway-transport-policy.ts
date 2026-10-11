@@ -63,3 +63,16 @@ export function decideGatewayListeners(input: ListenerPolicyInput): ListenerPoli
     reason: `no unix socket here (${local.reason}); bridge TCP ${bindHost}:${piPort}`,
   };
 }
+
+/**
+ * The host a SPAWNED bridge must dial (and, on a loopback host, demand the
+ * server counter-proof from): the host the gateway's TCP listener actually
+ * binds — NOT the dashboard's HTTP bind host. With no TCP listener of its own
+ * the loopback fallback address applies. `localhost` may bind only `::1`, so it
+ * returns `null` (legacy unmarked `ws://localhost:<piPort>`).
+ * See change: harden-credential-proof-binding.
+ */
+export function spawnDialHost(policy: ListenerPolicy): string | null {
+  const host = policy.tcp?.host ?? "127.0.0.1";
+  return host.trim().toLowerCase() === "localhost" ? null : host;
+}
