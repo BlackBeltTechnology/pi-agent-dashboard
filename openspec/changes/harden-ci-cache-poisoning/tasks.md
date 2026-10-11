@@ -58,5 +58,5 @@
 
 ## 6. Post-merge verification
 
-- [ ] 6.1 After the CodeQL re-scan of `develop`, verify that all 15 `missing-workflow-permissions` alerts are closed and that the open `poisonable-step` alerts are exactly `_smoke.yml` ×4 + `ci-checks` ×4 + `_electron-build.yml` ×10. Then dismiss them per the `ci-troubleshoot` procedure (task 4.3) and record the numbers. (test-plan: manual-only, #C3)
-- [ ] 6.2 At the next `v*` release, confirm that the `publish`, `tag-and-push`, `runtime-asset` and `electron` leg `setup-node` logs contain no `Cache restored` line and that the release succeeds. (test-plan: manual-only, #C4)
+- [x] 6.1 After the CodeQL re-scan of `develop`, verify that all 15 `missing-workflow-permissions` alerts are closed and that the open `poisonable-step` alerts are exactly `_smoke.yml` ×4 + `ci-checks` ×4 + `_electron-build.yml` ×10. Then dismiss them per the `ci-troubleshoot` procedure (task 4.3) and record the numbers. (test-plan: manual-only, #C3)
+- [x] 6.2 At the next `v*` release, confirm that the `publish`, `tag-and-push`, `runtime-asset` and `electron` leg `setup-node` logs contain no `Cache restored` line and that the release succeeds. (test-plan: manual-only, #C4)
