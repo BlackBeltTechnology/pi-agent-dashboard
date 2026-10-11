@@ -231,7 +231,7 @@ export function aggregate(run: RunData): Aggregate {
           : { overall: typeRow(run, r.id, []), byType: {} },
       negatives: negativesRow(run, r.id, r.status === "ok" ? negatives : []),
       medianSize: median(sizes),
-      gold: r.status === "ok" ? goldRows(run, r.id) : {},
+      gold: r.status === "ok" && r.sessionBacked ? goldRows(run, r.id) : {},
       counts: {
         asOfViolations: results.reduce((n, x) => n + x.asOfViolations, 0),
         underFill: results.filter((x) => x.underFill).length,
@@ -304,7 +304,7 @@ function renderRetriever(r: RetrieverAgg): string {
   for (const [t, g] of Object.entries(r.gold)) if (g.n) L.push(`- gold-session hit@5 / hit@10 (${t}): ${g.hit5}/${g.n} / ${g.hit10}/${g.n}`);
   const c = r.counts;
   L.push(`- as-of violations: ${c.asOfViolations}; under-fill: ${c.underFill}; invalid hits: ${c.invalidHits}; errors: ${c.errors}`);
-  if (c.ownSessionTotal || c.ownSessionDropped) L.push(`- own-session share of top-5 (before exclusion): ${c.ownSessionHits}/${c.ownSessionTotal}; own-session hits dropped: ${c.ownSessionDropped}`);
+  if (c.ownSessionTotal || c.ownSessionDropped) L.push(`- own-session share of top-5 (before exclusion): ${c.ownSessionHits}/${c.ownSessionTotal}; own-session hits caught by the harness backstop: ${c.ownSessionDropped} (adapters exclude in-query)`);
   return `${L.join("\n")}\n`;
 }
 

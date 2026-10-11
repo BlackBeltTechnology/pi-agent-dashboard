@@ -19,7 +19,7 @@ export interface RunSpec {
   helpful?: (rid: string, c: Case) => "helpful" | "not_helpful" | undefined;
 }
 
-type Retr = { id: string; version: string; asOf: "strict" | "none"; status: "ok" | "unavailable" };
+type Retr = { id: string; version: string; asOf: "strict" | "none"; status: "ok" | "unavailable"; sessionBacked?: boolean };
 
 function buildResults(spec: RunSpec, retrievers: Retr[]): Record<string, Record<string, CaseResult>> {
   const results: Record<string, Record<string, CaseResult>> = {};
@@ -53,7 +53,7 @@ export function writeRun(env: TestEnv, spec: RunSpec): { caseSetHash: string } {
   const set = writeCaseSet(env, spec.cases, setName);
   const dir = join(env.paths.runsDir, spec.runId);
   mkdirSync(dir, { recursive: true });
-  const retrievers: Retr[] = spec.retrievers.map((r) => ({ id: r.id, version: r.version ?? "1", asOf: r.asOf ?? "strict", status: r.status ?? "ok" }));
+  const retrievers: Retr[] = spec.retrievers.map((r) => ({ id: r.id, version: r.version ?? "1", asOf: r.asOf ?? "strict", status: r.status ?? "ok", ...(r.id.startsWith("hermes.session_search") ? { sessionBacked: true } : {}) }));
   const results = buildResults(spec, retrievers);
   writeFileSync(join(dir, "retrieved.json"), stableJson({ runId: spec.runId, caseSetName: setName, caseSetHash: set.caseSetHash, retrievers, results }));
   const j = spec.judge === null ? null : (spec.judge ?? { model: "judge-1" });

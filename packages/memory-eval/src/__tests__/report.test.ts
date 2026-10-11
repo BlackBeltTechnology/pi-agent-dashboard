@@ -157,6 +157,9 @@ describe("report", () => {
     const text = renderReport(a);
     expect(text).toContain("0% by construction");
     expect(text).toContain("1/4 / 2/4");
+    // A retriever without session ids has no gold-session figures.
+    const memory = agg(makeEnv(), { runId: "r2", cases: cs.map((c) => mkCase(c)), retrievers: [{ id: "hermes.memory_search" }] });
+    expect(memory.retrievers[0].gold).toEqual({});
   });
 
   it("E26: kb.docs is a separate non-as-of reference and stays out of the union", () => {

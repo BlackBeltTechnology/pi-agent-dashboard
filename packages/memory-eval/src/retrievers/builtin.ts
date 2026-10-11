@@ -37,6 +37,7 @@ export function hermesRetrievers(dbPath: string): Retriever[] {
 /** kb search over the snapshot with shipped defaults. Chunks carry no timestamp: asOf "none". */
 export function kbRetriever(snapshotPath: string, cwd: string): Retriever {
   let store: SqliteFtsStore | null | undefined;
+  let opts: ReturnType<typeof searchOptsFromConfig> | undefined;
   return {
     id: "kb.docs",
     version: REPLICA_VERSION,
@@ -44,8 +45,8 @@ export function kbRetriever(snapshotPath: string, cwd: string): Retriever {
     async search(q) {
       if (store === undefined) store = SqliteFtsStore.openExisting(snapshotPath);
       if (!store) return [];
-      const cfg = loadConfig(cwd);
-      const hits = store.search(q.query, { ...searchOptsFromConfig(cfg), limit: 10 });
+      opts ??= searchOptsFromConfig(loadConfig(cwd));
+      const hits = store.search(q.query, { ...opts, limit: 10 });
       return hits.map((h) => ({ ref: `${h.path}#${h.headingPath}`, text: h.snippet }));
     },
   };

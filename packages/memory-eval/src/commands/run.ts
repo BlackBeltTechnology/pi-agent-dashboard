@@ -55,6 +55,7 @@ export interface RunManifest {
 }
 
 export function runDir(runsDir: string, runId: string): string {
+  if (!/^[\w.-]+$/.test(runId) || runId.startsWith(".")) throw new CliError(`invalid run id '${runId}'`);
   return join(runsDir, runId);
 }
 

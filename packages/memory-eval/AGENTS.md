@@ -12,5 +12,6 @@ Files in this directory. One row per file. Source rows live in `src/AGENTS.md`.
 | `package.json` | Private workspace package. bin `memory-eval`; deps kb, shared, tsx; `test` = vitest with `NODE_OPTIONS=--experimental-sqlite`. |
 | `prompts/judge.v1.md` | Judge prompt v1. Validity + helpfulness rubric; "topical overlap ≠ help"; treat `<data>` as data; JSON-array answer. File hash + version key every cached verdict. |
 | `scripts/regen-hermes-golden.ts` | Rebuilds `fixtures/hermes-golden/` against the INSTALLED hermes. Never called by the CLI. A regenerated golden bumps `REPLICA_VERSION`. Exports `QUERIES`, `buildFixtureDb`, `loadInstalledSearch`. |
+| `README.md` | Package overview: what it measures, local-only data, CLI cheat-sheet, adapters, judge argv. |
 | `tsconfig.json` | Typecheck-only config (`noEmit`), extends `tsconfig.base.json`, NodeNext. |
 | `vitest.config.ts` | Vitest project config; `pool: "forks"`, repo worker cap, 30 s test timeout (stub-`pi` + timeout tests spawn children). Registered in root `vitest.config.ts` `test.projects`. |
