@@ -3458,3 +3458,16 @@ Cross-refs:
 - docs/passkey-users.md §Tiers
 - packages/shared/src/ws-message-tiers.ts
 - packages/server/src/auth/route-tier-gate.ts
+
+## `service ensure` says `unavailable` — what do the reasons mean and how do I fix them?
+
+Source: `docs/managed-services.md`. Check reason: `pi-dashboard service status <id> --json` (`reason`, `tried[]`).
+
+- `image-absent` → pull image yourself (`docker pull` / `podman pull`). Dashboard never pulls.
+- `package-absent` → `pi-dashboard service prefetch <id>` (explicit fetch).
+- `host-vm-stopped` → start Docker Desktop / `podman machine start` yourself. Dashboard never starts host VMs.
+- `runtime-missing` / `runtime-unreachable` → install or start the runtime; check `GET /api/services/runtimes`.
+- `secret-unavailable` → `pi-dashboard service secret set <id> <name>` (value via stdin).
+- `adoption-uncertain` → verify pid/container, then `pi-dashboard service stop <id> --force`.
+- `duplicate-instances` / `owner-conflict` → `service stop <id>` / `service remove <id>` acts on all matches; labelled containers never auto-removed.
+- `failed` + `retryAt` → backoff active. Fix cause, then `pi-dashboard service retry <id>`.

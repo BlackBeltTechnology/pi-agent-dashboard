@@ -57,3 +57,5 @@ Cold-start loop adds shutdown-window path: `resolveExitRecord(session.liveEpoch)
 ## add-passkey-user-auth
 
 Constructs `PasskeyService` (directory `~/.pi/dashboard/users.json`, `resolveRpContext`) always; passes to `registerAuthPlugin`; `registerUserRoutes` after pairing routes. WS upgrade: `isSessionLive` via `effectiveSessionTier`; cookie-session sockets get `sessionTier()` (`TieredSocket`); terminal upgrade needs operate, live needs control (403). See change: add-passkey-user-auth.
+
+- Managed services: constructs `ServiceManager` (paths `servicesPaths()`, `defaultCommandRunner`, registry `resolveBinary`, offers from `resolveInstallRoot`), `registerServiceRoutes` (network guard + `localTrust`), `boot()` (adoption only, no-op without `services.json`) → `startScheduler()`; `serviceManager.dispose()` in `stop()`. See change: add-service-registry-core.

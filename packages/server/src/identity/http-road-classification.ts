@@ -77,6 +77,7 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   pi: "packages",
   node: "packages",
   tools: "packages",
+  services: "packages",
   runtime: "packages",
   electron: "packages",
   // access / trust / pairing records
