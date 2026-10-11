@@ -5,6 +5,7 @@
  * so no `Object.defineProperty(process, "platform", ...)` mutation is needed.
  * See change: consolidate-platform-handlers.
  */
+import { spawn } from "node:child_process";
 import { describe, it, expect, vi } from "vitest";
 import {
   findPortHolders,
@@ -12,6 +13,7 @@ import {
   isProcessAlive,
   killProcess,
   killPidWithGroup,
+  killProcessGroup,
   processStartedAt,
 } from "../platform/process.js";
 
@@ -195,5 +197,88 @@ describe("processStartedAt", () => {
     const ms = processStartedAt(process.pid);
     expect(ms).not.toBeNull();
     expect(Math.abs((ms as number) - (Date.now() - process.uptime() * 1000))).toBeLessThan(5000);
+  });
+});
+
+// ── killProcessGroup. See change: add-service-registry-core (E55–E57). ──────
+
+/** Is any member of process group `pgid` alive (ESRCH = gone)? */
+function groupAlive(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+/**
+ * Spawn a detached group leader that forks one worker; both trap SIGTERM when
+ * `stubborn`. Resolves once the worker pid is printed.
+ */
+async function spawnGroup(stubborn: boolean): Promise<{ leader: number; worker: number }> {
+  const trap = stubborn ? "process.on('SIGTERM',()=>{});" : "";
+  const workerSrc = `${trap}setInterval(()=>{},1000);`;
+  const leaderSrc =
+    `${trap}const {spawn}=require('node:child_process');` +
+    `const w=spawn(process.execPath,['-e',${JSON.stringify(workerSrc)}],{stdio:'ignore'});` +
+    "setTimeout(()=>process.stdout.write(String(w.pid)+'\\n'),300);setInterval(()=>{},1000);";
+  const child = spawn(process.execPath, ["-e", leaderSrc], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
+  const worker = await new Promise<number>((resolve, reject) => {
+    child.stdout?.once("data", (d) => resolve(Number(String(d).trim())));
+    child.once("error", reject);
+  });
+  child.unref();
+  return { leader: child.pid as number, worker };
+}
+
+describe.skipIf(process.platform === "win32")("killProcessGroup — POSIX (real processes)", () => {
+  it("E55: worker ignoring SIGTERM → SIGTERM then SIGKILL to -pid; group fully gone", async () => {
+    const { leader, worker } = await spawnGroup(true);
+    const signals: Array<[number, unknown]> = [];
+    const kill = (pid: number, sig: NodeJS.Signals | number) => {
+      if (sig !== 0) signals.push([pid, sig]);
+      process.kill(pid, sig);
+    };
+    const result = await killProcessGroup(leader, { timeoutMs: 2000, kill });
+    expect(result).toEqual({ ok: true, forced: true });
+    expect(signals).toEqual([[-leader, "SIGTERM"], [-leader, "SIGKILL"]]);
+    expect(groupAlive(leader)).toBe(false);
+    expect(isProcessAlive(worker)).toBe(false);
+  }, 15_000);
+
+  it("E56: group exits on SIGTERM → no SIGKILL", async () => {
+    const { leader } = await spawnGroup(false);
+    const signals: unknown[] = [];
+    const kill = (pid: number, sig: NodeJS.Signals | number) => {
+      if (sig !== 0) signals.push(sig);
+      process.kill(pid, sig);
+    };
+    const result = await killProcessGroup(leader, { timeoutMs: 2000, kill });
+    expect(result).toEqual({ ok: true, forced: false });
+    expect(signals).toEqual(["SIGTERM"]);
+    expect(groupAlive(leader)).toBe(false);
+  }, 15_000);
+
+  it("already-gone group → { ok:false, forced:false } and no signal", async () => {
+    const kill = vi.fn((_pid: number, sig: NodeJS.Signals | number) => {
+      if (sig === 0) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+    });
+    expect(await killProcessGroup(999_999, { platform: "linux", kill })).toEqual({ ok: false, forced: false });
+    expect(kill.mock.calls.every((c) => c[1] === 0)).toBe(true);
+  });
+});
+
+describe("killProcessGroup — win32 delegates to killProcess (E57)", () => {
+  it("issues exactly taskkill /F /T /PID <pid>", async () => {
+    const exec = vi.fn().mockReturnValue("");
+    const kill = vi.fn();
+    const viaGroup = await killProcessGroup(4242, { platform: "win32", exec, kill });
+    const groupCalls = exec.mock.calls.map((c) => c[0]);
+    exec.mockClear();
+    const viaProcess = await killProcess(4242, { platform: "win32", exec, kill });
+    expect(viaGroup).toEqual(viaProcess);
+    expect(groupCalls).toEqual(["taskkill /F /T /PID 4242"]);
+    expect(exec.mock.calls.map((c) => c[0])).toEqual(groupCalls);
   });
 });

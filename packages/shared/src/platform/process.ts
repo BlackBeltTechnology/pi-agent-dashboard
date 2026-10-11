@@ -240,3 +240,54 @@ export function killPidWithGroup(
   const target = platform === "win32" ? pid : -pid;
   kill(target, signal);
 }
+
+/**
+ * Terminate a whole process GROUP led by `pid` (a child spawned detached on
+ * POSIX), escalating:
+ *   - POSIX: SIGTERM to `-pid` → poll every `pollMs` (200) until no member of
+ *     the group is alive or `timeoutMs` (5000) elapses → re-check the group
+ *     still exists → SIGKILL to `-pid`, then wait briefly for it to vanish.
+ *   - win32: delegates to {@link killProcess} (`taskkill /F /T`).
+ *
+ * Liveness uses the errno-aware {@link signalZero}: only ESRCH proves the
+ * group is gone, so an EPERM member is never mistaken for an exit.
+ * Known limit: a worker that called `setsid` left the group and is not reached.
+ * See change: add-service-registry-core (D5, command-executor delta).
+ */
+export async function killProcessGroup(
+  pid: number,
+  opts: ProcessOpts & { timeoutMs?: number; pollMs?: number } = {},
+): Promise<KillProcessResult> {
+  const platform = opts.platform ?? process.platform;
+  if (platform === "win32") return killProcess(pid, opts);
+  const kill = opts.kill ?? defaultKill;
+  const timeoutMs = opts.timeoutMs ?? 5000;
+  const pollMs = opts.pollMs ?? 200;
+  if (!Number.isInteger(pid) || pid <= 1) return { ok: false, forced: false };
+  const groupAlive = () => signalZero(-pid, { kill }) !== "esrch";
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  if (!groupAlive()) return { ok: false, forced: false };
+  try {
+    kill(-pid, "SIGTERM");
+  } catch {
+    if (!groupAlive()) return { ok: true, forced: false };
+    return { ok: false, forced: false };
+  }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(pollMs);
+    if (!groupAlive()) return { ok: true, forced: false };
+  }
+  // Re-check right before escalating: the group may have drained between the
+  // last poll and now, and SIGKILL must never target a vanished group id.
+  if (!groupAlive()) return { ok: true, forced: false };
+  try {
+    kill(-pid, "SIGKILL");
+  } catch {
+    /* raced to exit */
+  }
+  const killDeadline = Date.now() + 2000;
+  while (groupAlive() && Date.now() < killDeadline) await sleep(50);
+  return { ok: !groupAlive(), forced: true };
+}

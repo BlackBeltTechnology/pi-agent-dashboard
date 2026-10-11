@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-eng-disciplines",
   "version": "0.9.0",
-  "description": "Cross-cutting engineering-discipline skills for pi sessions — interview-me, doubt-driven-review, code-simplification, security-hardening, performance-optimization, observability-instrumentation, systematic-debugging, node-inspect-debugger, scenario-design (ISTQB test-scenario design), reverse-spec-for-rebuild (rebuild-grade code characterization: rules, model, quirks, gaps, provenance). Orthogonal to the openspec pipeline; triggers retargeted to avoid spec/plan/build/ship/review collisions. Adapted from Addy Osmani's agent-skills, NousResearch's hermes-agent (both MIT) and greenfield methodology (Apache-2.0).",
+  "description": "Cross-cutting engineering-discipline skills for pi sessions — interview-me, doubt-driven-review, code-simplification, security-hardening, performance-optimization, observability-instrumentation, systematic-debugging, node-inspect-debugger, scenario-design (ISTQB test-scenario design), reverse-spec-for-rebuild (rebuild-grade code characterization: rules, model, quirks, gaps, provenance), rebuild-package-diagrams (ER + BPMN views of a rebuild package). Orthogonal to the openspec pipeline; triggers retargeted to avoid spec/plan/build/ship/review collisions. Adapted from Addy Osmani's agent-skills, NousResearch's hermes-agent (both MIT) and greenfield methodology (Apache-2.0).",
   "type": "module",
   "repository": {
     "type": "git",
@@ -31,7 +31,9 @@
     "test-design",
     "scenario-design",
     "reverse-engineering",
-    "rebuild"
+    "rebuild",
+    "er-diagram",
+    "bpmn"
   ],
   "pi": {
     "skills": [
@@ -45,7 +47,8 @@
       ".pi/skills/systematic-debugging",
       ".pi/skills/node-inspect-debugger",
       ".pi/skills/scenario-design",
-      ".pi/skills/reverse-spec-for-rebuild"
+      ".pi/skills/reverse-spec-for-rebuild",
+      ".pi/skills/rebuild-package-diagrams"
     ]
   },
   "files": [

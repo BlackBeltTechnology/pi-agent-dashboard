@@ -1,3 +1,3 @@
 # __tests__/assert-bundled-plugins-complete.test.mjs — index
 
-Vitest unit tests for packages/electron/scripts/assert-bundled-plugins-complete.mjs (subprocess-driven with synthetic PACKAGES_DIR/BUNDLE_PLUGINS_DIR fixtures): fixture-only plugin not required, runtime plugin missing from bundle → non-zero exit + names it, complete bundle → exit 0. See change: add-nightly-verdaccio-build.
+Vitest unit tests for packages/electron/scripts/assert-bundled-plugins-complete.mjs (subprocess-driven with synthetic PACKAGES_DIR/BUNDLE_PLUGINS_DIR fixtures): fixture-only plugin not required, runtime plugin missing from bundle → non-zero exit + names it, complete bundle → exit 0. See change: add-nightly-verdaccio-build. Resolvability cases (E15–E18): `BUNDLE_ROOT_DIR` always explicit; absent dep → exit 1 naming `gmail-plugin → oauth4webapi`; dep only above root still fails; dep at root → exit 0 + `oauth4webapi@3.8.8`. See change: bundle-plugin-third-party-deps.

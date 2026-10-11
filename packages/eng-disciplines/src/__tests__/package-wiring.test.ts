@@ -32,8 +32,11 @@ describe("eng-disciplines wiring", () => {
   it("ships rsfr-* agents whose frontmatter model matches the SKILL routing table", () => {
     expect(pkg.files).toContain("agents/");
     const skill = read(join(PKG, ".pi/skills/reverse-spec-for-rebuild/SKILL.md"));
-    const rows = [...skill.matchAll(/^\| \w+ \| `(rsfr-[\w-]+)` \| `[^`]+` \| `(@\w+)` \|/gm)];
-    expect(rows.map((r) => r[1]).sort()).toEqual(["rsfr-auditor", "rsfr-completeness", "rsfr-discovery", "rsfr-generator"]);
+    const rows = [...skill.matchAll(/^\| [^|]+? \| `(rsfr-[\w-]+)` \| `[^`]+` \| `(@\w+)` \|/gm)];
+    expect(rows.map((r) => r[1]).sort()).toEqual([
+      "rsfr-auditor", "rsfr-completeness", "rsfr-crud-classifier", "rsfr-discovery", "rsfr-generator",
+      "rsfr-sequence-generator", "rsfr-state-machine-generator", "rsfr-uc-linker", "rsfr-ui-screen-generator", "rsfr-usage-mapper", "rsfr-variability-classifier",
+    ]);
     for (const [, type, model] of rows) {
       expect(read(join(PKG, "agents", `${type}.md`))).toMatch(new RegExp(`^model: "${model}"$`, "m"));
     }

@@ -14,6 +14,7 @@ import {
   type SessionHeapConfig,
 } from "./heap-limits.js";
 import type { HostGateMode } from "./host-admission.js";
+import { isTier, type Tier } from "./tiers.js";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
@@ -149,6 +150,18 @@ export interface AuthConfig {
   redirectBaseUrl?: string;
   /** Admin email override — can list/revoke every user's proxy API keys. */
   admin?: string;
+  /**
+   * OIDC `groups` claim → session tier. Configured ⇒ highest matching tier
+   * wins and no match refuses login (fail closed). Absent ⇒ legacy
+   * behaviour (`allowedUsers`, tier `operate`).
+   * See change: add-passkey-user-auth (D4).
+   */
+  groupTiers?: Record<string, Tier>;
+  /**
+   * Native passkey sign-in (user directory, invite QR, sign-in-with-phone).
+   * Inert unless `enabled`. See change: add-passkey-user-auth.
+   */
+  passkeys?: { enabled: boolean };
 }
 
 
@@ -1364,6 +1377,16 @@ const DEFAULTS: DashboardConfig = {
  * without OAuth lost remote network access after the UI started writing
  * to auth.bypassHosts. See openspec/changes/fix-trusted-networks-no-oauth.
  */
+/** Keep only `group → valid tier` entries; none left ⇒ undefined (unconfigured). */
+function parseGroupTiers(raw: unknown): Record<string, Tier> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: Record<string, Tier> = {};
+  for (const [group, tier] of Object.entries(raw as Record<string, unknown>)) {
+    if (group && isTier(tier)) out[group] = tier;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function parseAuthConfig(raw: any): AuthConfig | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const providers = raw.providers;
@@ -1371,7 +1394,8 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
     providers && typeof providers === "object" && Object.keys(providers).length > 0;
   const hasHosts = Array.isArray(raw.bypassHosts) && raw.bypassHosts.length > 0;
   const hasUrls = Array.isArray(raw.bypassUrls) && raw.bypassUrls.length > 0;
-  if (!hasProviders && !hasHosts && !hasUrls) return undefined;
+  const hasPasskeys = raw.passkeys?.enabled === true;
+  if (!hasProviders && !hasHosts && !hasUrls && !hasPasskeys) return undefined;
 
   // Validate each provider has at least clientId and clientSecret.
   // validProviders may end up empty when providers is {} or all entries
@@ -1395,9 +1419,11 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
   // If providers was declared but all entries are malformed AND there is no
   // bypass content, fall back to undefined — same "nothing auth-relevant"
   // rule as the top-level gate.
-  if (Object.keys(validProviders).length === 0 && !hasHosts && !hasUrls) {
+  if (Object.keys(validProviders).length === 0 && !hasHosts && !hasUrls && !hasPasskeys) {
     return undefined;
   }
+
+  const groupTiers = parseGroupTiers(raw.groupTiers);
 
   return {
     secret: raw.secret ?? "",
@@ -1409,6 +1435,8 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
       ? { redirectBaseUrl: raw.redirectBaseUrl.trim() }
       : {}),
     ...(typeof raw.admin === "string" && raw.admin ? { admin: raw.admin } : {}),
+    ...(groupTiers ? { groupTiers } : {}),
+    ...(hasPasskeys ? { passkeys: { enabled: true } } : {}),
   };
 }
 

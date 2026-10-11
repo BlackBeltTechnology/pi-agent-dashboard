@@ -37,12 +37,20 @@ describe("bundled server ships the pi runtime (E10)", () => {
     expect(deps).not.toContain("@mariozechner/pi-coding-agent");
   });
 
+  // Root `dependencies` hold ONLY the bundled plugins' third-party union;
+  // pi/openspec/tsx still arrive solely through the server workspace.
+  // See change: bundle-plugin-third-party-deps (test-plan #E14).
   it("bundlePkg declares workspaces and no dependencies", () => {
     const m = bundleSrc.match(/const bundlePkg = \{([\s\S]*?)\n\};/);
     expect(m).not.toBeNull();
     const body = m![1]!;
     expect(body).toMatch(/\bworkspaces:/);
-    expect(body).not.toMatch(/\bdependencies\b/);
+    const depLines = body.split("\n").filter((l) => /\bdependencies\b/.test(l));
+    expect(depLines.map((l) => l.trim())).toEqual(["dependencies: pluginRuntimeDeps,"]);
+    expect(body).not.toMatch(/pi-coding-agent|openspec|\btsx\b/);
+    const call = bundleSrc.match(/collectPluginRuntimeDeps\(\{([\s\S]*?)\}\)/);
+    expect(call).not.toBeNull();
+    expect(call![1]).toMatch(/\bworkspaceManifests\b/);
   });
 
   // mcp-client-plugin is a direct server dependency: installed from the registry
@@ -99,6 +107,25 @@ describe("local builder arch-cache invalidation (E13)", () => {
     expect(script).not.toContain("bundle-server.sh");
     expect(script).toMatch(/cross_prefix="arch -x86_64"/);
     expect(script).toMatch(/\$cross_prefix node "\$ELECTRON_DIR\/scripts\/bundle-server\.mjs"/);
+  });
+});
+
+// The freshness watch set is derived (bundle workspaces + bundled plugins), and
+// a (re)bundle is followed by the plugin resolvability gate.
+// See change: bundle-plugin-third-party-deps (design D6; test-plan #E24).
+describe("local builder bundle freshness is derived (E24)", () => {
+  const script = read("packages", "electron", "scripts", "build-installer.sh");
+
+  it("iterates bundle-watch-paths.mjs output instead of a hardcoded watch list", () => {
+    expect(script).toMatch(/node "\$ELECTRON_DIR\/scripts\/bundle-watch-paths\.mjs"/);
+    expect(script).not.toMatch(/"\$PROJECT_DIR\/packages\/server\/src"/);
+  });
+
+  it("runs assert-bundled-plugins-complete.mjs after bundle-server.mjs", () => {
+    const bundle = script.lastIndexOf('scripts/bundle-server.mjs"');
+    const gate = script.indexOf("scripts/assert-bundled-plugins-complete.mjs");
+    expect(gate).toBeGreaterThan(-1);
+    expect(gate).toBeGreaterThan(bundle);
   });
 });
 

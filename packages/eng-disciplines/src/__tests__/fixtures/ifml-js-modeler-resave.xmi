@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xmi:XMI xmlns:xmi="http://www.omg.org/spec/XMI/20131001" xmlns:ifml="http://www.omg.org/spec/IFML/20140301" xmlns:ifmldi="http://www.omg.org/spec/IFML/20130218/IFML-DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:uml="http://www.omg.org/spec/UML/20110701/">
+  <ifml:IFMLModel xmi:id="IFMLModel_1" name="Rebuild package">
+    <interactionFlowModel xmi:type="ifml:InteractionFlowModel" xmi:id="InteractionFlowModel_1" name="Rebuild package">
+      <interactionFlowModelElements xmi:type="ifml:Window" xmi:id="W.SCR-order" uml:name="Orders" isLandmark="true">
+        <viewElementEvents xmi:type="ifml:ViewElementEvent" xmi:id="E.SCR-order.ACT-gone" uml:name="Gone &#34;quoted&#34; &#38; &#60;tagged&#62;" />
+        <viewElements xmi:type="ifml:Form" xmi:id="F.SCR-order.FRM-line" uml:name="FRM-line">
+          <viewElementEvents xmi:type="ifml:OnSubmitEvent" xmi:id="E.SCR-order.ACT-add" uml:name="Add">
+            <activationExpression xmi:type="ifml:ActivationExpression" xmi:id="X.SCR-order.ACT-add">
+              <language>rebuild-package-ref</language>
+              <body>BR-001</body>
+            </activationExpression>
+          </viewElementEvents>
+          <viewComponentParts xmi:type="ifml:SimpleField" xmi:id="P.SCR-order.FRM-line.qty" uml:name="qty">
+            <constraints xmi:type="ifml:ValidationRule" xmi:id="VR.SCR-order.FRM-line.qty.0">
+              <language>javascript</language>
+              <body>qty&gt;0</body>
+            </constraints>
+          </viewComponentParts>
+          <viewComponentParts xmi:type="ifml:SelectionField" xmi:id="P.SCR-order.FRM-line.item" uml:name="item" />
+        </viewElements>
+        <actions xmi:type="ifml:Action" xmi:id="A.SCR-order.ACT-add" uml:name="Add">
+          <actionEvents xmi:type="ifml:ActionEvent" xmi:id="AE.SCR-order.ACT-add" uml:name="done" />
+        </actions>
+        <isModal>false</isModal>
+      </interactionFlowModelElements>
+      <interactionFlowModelElements xmi:type="ifml:Window" xmi:id="W.DLG-sure" uml:name="DLG-sure">
+        <isModal>true</isModal>
+      </interactionFlowModelElements>
+      <interactionFlowModelElements xmi:type="ifml:Window" xmi:id="W.DLG-orphan" uml:name="DLG-orphan">
+        <isModal>true</isModal>
+      </interactionFlowModelElements>
+      <interactionFlowModelElements xmi:type="ifml:Window" xmi:id="W.SCR-two" uml:name="Two" isLandmark="false">
+        <viewElements xmi:type="ifml:Form" xmi:id="F.SCR-two.fields" uml:name="Two fields">
+          <viewComponentParts xmi:type="ifml:SimpleField" xmi:id="P.SCR-two.fields.start" uml:name="start" />
+        </viewElements>
+        <isModal>true</isModal>
+      </interactionFlowModelElements>
+      <interactionFlowModelElements xmi:type="ifml:NavigationFlow" xmi:id="NF.E_SCR-order_ACT-add.A_SCR-order_ACT-add" sourceInteractionFlowElement="E.SCR-order.ACT-add" targetInteractionFlowElement="A.SCR-order.ACT-add" />
+      <interactionFlowModelElements xmi:type="ifml:NavigationFlow" xmi:id="NF.AE_SCR-order_ACT-add.W_DLG-sure" sourceInteractionFlowElement="AE.SCR-order.ACT-add" targetInteractionFlowElement="W.DLG-sure" />
+      <interactionFlowModelElements xmi:type="ifml:NavigationFlow" xmi:id="NF.W_SCR-order.W_SCR-two" sourceInteractionFlowElement="W.SCR-order" targetInteractionFlowElement="W.SCR-two" />
+    </interactionFlowModel>
+  </ifml:IFMLModel>
+  <ifmldi:IFMLDiagram xmi:id="IFMLDiagram_1" modelElement="InteractionFlowModel_1">
+    <ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="W.SCR-order_di" modelElement="W.SCR-order">
+      <ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="F.SCR-order.FRM-line_di" modelElement="F.SCR-order.FRM-line">
+        <ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="P.SCR-order.FRM-line.qty_di" modelElement="P.SCR-order.FRM-line.qty">
+          <bounds xmi:type="dc:Bounds" x="70" y="102" width="230" height="18" />
+        </ownedElement>
+        <ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="P.SCR-order.FRM-line.item_di" modelElement="P.SCR-order.FRM-line.item">
+          <bounds xmi:type="dc:Bounds" x="70" y="124" width="230" height="18" />
+        </ownedElement>
+        <ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="E.SCR-order.ACT-add_di" modelElement="E.SCR-order.ACT-add">
+          <ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="X.SCR-order.ACT-add_di" modelElement="X.SCR-order.ACT-add">
+            <bounds xmi:type="dc:Bounds" x="520" y="82" width="130" height="28" />
+          </ownedElement>
+          <bounds xmi:type="dc:Bounds" x="300" y="86" width="20" height="20" />
+        </ownedElement>
+        <bounds xmi:type="dc:Bounds" x="60" y="74" width="250" height="88" />
+      </ownedElement>
+      <ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="A.SCR-order.ACT-add_di" modelElement="A.SCR-order.ACT-add">
+        <ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="AE.SCR-order.ACT-add_di" modelElement="AE.SCR-order.ACT-add">
+          <bounds xmi:type="dc:Bounds" x="910" y="86" width="20" height="20" />
+        </ownedElement>
+        <bounds xmi:type="dc:Bounds" x="700" y="69" width="220" height="54" />
+      </ownedElement>
+      <ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="E.SCR-order.ACT-gone_di" modelElement="E.SCR-order.ACT-gone">
+        <bounds xmi:type="dc:Bounds" x="470" y="74" width="20" height="20" />
+      </ownedElement>
+      <bounds xmi:type="dc:Bounds" x="40" y="40" width="440" height="160" />
+    </ownedElement>
+    <ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="W.DLG-sure_di" modelElement="W.DLG-sure">
+      <bounds xmi:type="dc:Bounds" x="1060" y="69" width="200" height="54" />
+    </ownedElement>
+    <ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="W.DLG-orphan_di" modelElement="W.DLG-orphan">
+      <bounds xmi:type="dc:Bounds" x="1060" y="141" width="200" height="54" />
+    </ownedElement>
+    <ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="W.SCR-two_di" modelElement="W.SCR-two">
+      <ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="F.SCR-two.fields_di" modelElement="F.SCR-two.fields">
+        <ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="P.SCR-two.fields.start_di" modelElement="P.SCR-two.fields.start">
+          <bounds xmi:type="dc:Bounds" x="70" y="365" width="230" height="18" />
+        </ownedElement>
+        <bounds xmi:type="dc:Bounds" x="60" y="337" width="250" height="66" />
+      </ownedElement>
+      <bounds xmi:type="dc:Bounds" x="40" y="303" width="440" height="138" />
+    </ownedElement>
+    <ownedElement xmi:type="ifmldi:IFMLConnection" xmi:id="NF.E_SCR-order_ACT-add.A_SCR-order_ACT-add_di" modelElement="NF.E_SCR-order_ACT-add.A_SCR-order_ACT-add">
+      <waypoint xmi:type="dc:Point" x="320" y="96" />
+      <waypoint xmi:type="dc:Point" x="510" y="96" />
+      <waypoint xmi:type="dc:Point" x="510" y="96" />
+      <waypoint xmi:type="dc:Point" x="700" y="96" />
+    </ownedElement>
+    <ownedElement xmi:type="ifmldi:IFMLConnection" xmi:id="NF.AE_SCR-order_ACT-add.W_DLG-sure_di" modelElement="NF.AE_SCR-order_ACT-add.W_DLG-sure">
+      <waypoint xmi:type="dc:Point" x="930" y="96" />
+      <waypoint xmi:type="dc:Point" x="995" y="96" />
+      <waypoint xmi:type="dc:Point" x="995" y="96" />
+      <waypoint xmi:type="dc:Point" x="1060" y="96" />
+    </ownedElement>
+    <ownedElement xmi:type="ifmldi:IFMLConnection" xmi:id="NF.W_SCR-order.W_SCR-two_di" modelElement="NF.W_SCR-order.W_SCR-two">
+      <waypoint xmi:type="dc:Point" x="480" y="120" />
+      <waypoint xmi:type="dc:Point" x="520" y="120" />
+      <waypoint xmi:type="dc:Point" x="520" y="372" />
+      <waypoint xmi:type="dc:Point" x="480" y="372" />
+    </ownedElement>
+  </ifmldi:IFMLDiagram>
+</xmi:XMI>

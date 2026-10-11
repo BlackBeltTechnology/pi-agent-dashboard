@@ -305,23 +305,23 @@ build_native_one_arch() {
   if [ ! -f "$bundle_stamp" ]; then
     needs_rebundle=1
   else
-    # Watch every workspace package bundle-server.mjs copies
-    # (BUNDLED_WORKSPACE_PKGS = server, shared, extension,
-    # dashboard-plugin-runtime) plus the built client + the bundler itself.
-    # Omitting shared/dashboard-plugin-runtime would let edits to those ship
-    # stale — the same failure class this gate exists to prevent.
-    for watched in \
-      "$PROJECT_DIR/packages/server/src" \
-      "$PROJECT_DIR/packages/shared/src" \
-      "$PROJECT_DIR/packages/extension/src" \
-      "$PROJECT_DIR/packages/dashboard-plugin-runtime/src" \
-      "$PROJECT_DIR/packages/dist/index.html" \
-      "$ELECTRON_DIR/scripts/bundle-server.mjs"; do
+    # Watch every package bundle-server.mjs ships — each BUNDLED_WORKSPACE_PKGS
+    # entry and each bundled plugin (src + package.json; a manifest edit
+    # changes the installed deps) — plus the server manifest, the built client
+    # and the bundler itself. The list is DERIVED by bundle-watch-paths.mjs so
+    # it can never drift from bundle-server.mjs; omitting a shipped package
+    # would let its edits ship stale. See change: bundle-plugin-third-party-deps.
+    watch_list=$(node "$ELECTRON_DIR/scripts/bundle-watch-paths.mjs") || {
+      echo "✗ bundle-watch-paths.mjs failed — cannot judge bundle freshness" >&2
+      exit 1
+    }
+    while IFS= read -r rel; do
+      watched="$PROJECT_DIR/$rel"
       if [ -e "$watched" ] && [ -n "$(find "$watched" -newer "$bundle_stamp" -print -quit 2>/dev/null)" ]; then
         needs_rebundle=1
         break
       fi
-    done
+    done <<< "$watch_list"
   fi
   if [ "$needs_rebundle" -eq 1 ]; then
     echo ""
@@ -331,6 +331,10 @@ build_native_one_arch() {
     else
       node "$ELECTRON_DIR/scripts/bundle-server.mjs"
     fi
+    # Built-bundle gate: every runtime plugin present AND every declared plugin
+    # dependency resolvable inside resources/server (never via the monorepo's
+    # own node_modules). See change: bundle-plugin-third-party-deps (D4).
+    node "$ELECTRON_DIR/scripts/assert-bundled-plugins-complete.mjs"
   else
     echo "✓ Bundled server cache is fresh (stamp $(cat "$bundle_stamp" 2>/dev/null))"
   fi

@@ -29,7 +29,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
-import { readBundledPluginIds } from "../runtime-overlay/materialize-plugins.mjs";
+import { collectPluginRuntimeDeps, readBundledPluginIds } from "../runtime-overlay/materialize-plugins.mjs";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -119,6 +119,18 @@ describe("piDashboard.bundledPlugins completeness", () => {
       }
     }
     expect([...missing].sort(), "add these dirs to BUNDLED_WORKSPACE_PKGS in bundle-server.mjs").toEqual([]);
+  });
+
+  // Third-party plugin deps are unioned into the bundle root package.json.
+  // See change: bundle-plugin-third-party-deps (test-plan #E13).
+  it("the real bundled plugins' third-party deps union without conflict and cover the server-reachable gaps", () => {
+    const union = collectPluginRuntimeDeps({
+      ids: bundled,
+      resolveSource: (id) => path.join(PACKAGES_DIR, id),
+      workspaceManifests: readBundledWorkspacePkgs().map((dir) => readPkg(dir)),
+    });
+    for (const dep of ["oauth4webapi", "yaml", "debug", "discord.js"]) expect(union).toHaveProperty(dep);
+    expect(Object.keys(union).filter((d) => d.startsWith("@blackbelt-technology/"))).toEqual([]);
   });
 
   it("includes kb-plugin", () => {

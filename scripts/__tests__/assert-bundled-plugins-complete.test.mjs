@@ -45,12 +45,16 @@ function makeBundledPlugin(bundleDir, dir) {
   mkdirSync(path.join(bundleDir, dir), { recursive: true });
 }
 
-function run(packagesDir, bundleDir) {
+// BUNDLE_ROOT_DIR is always explicit so the default (dirname(dirname(
+// BUNDLE_PLUGINS_DIR))) can never resolve against the shared os temp root
+// (test-plan #E18). See change: bundle-plugin-third-party-deps.
+function run(packagesDir, bundleDir, bundleRootDir = path.join(tmp, "bundle-root")) {
   return spawnSync("node", [SCRIPT], {
     env: {
       ...process.env,
       PACKAGES_DIR: packagesDir,
       BUNDLE_PLUGINS_DIR: bundleDir,
+      BUNDLE_ROOT_DIR: bundleRootDir,
     },
     encoding: "utf8",
   });
@@ -105,5 +109,51 @@ describe("assert-bundled-plugins-complete", () => {
 
     const r = run(packagesDir, bundleDir);
     expect(r.status).toBe(0);
+  });
+
+  // Resolvability: every declared dep of every bundled plugin must resolve
+  // inside the bundle root. See change: bundle-plugin-third-party-deps (D4).
+  describe("plugin dependency resolvability", () => {
+    /** Bundle fixture: root/resources/plugins/gmail-plugin declaring oauth4webapi. */
+    function gmailFixture() {
+      const packagesDir = path.join(tmp, "packages");
+      const root = path.join(tmp, "parent", "root");
+      const pluginsDir = path.join(root, "resources", "plugins");
+      mkdirSync(packagesDir, { recursive: true });
+      makePluginPkg(packagesDir, "gmail-plugin", { id: "gmail" });
+      mkdirSync(path.join(pluginsDir, "gmail-plugin"), { recursive: true });
+      writeFileSync(
+        path.join(pluginsDir, "gmail-plugin", "package.json"),
+        JSON.stringify({ name: "@x/gmail-plugin", dependencies: { oauth4webapi: "^3.8.8" } }),
+      );
+      return { packagesDir, root, pluginsDir };
+    }
+    const install = (nmParent, name, version) => {
+      mkdirSync(path.join(nmParent, "node_modules", name), { recursive: true });
+      writeFileSync(path.join(nmParent, "node_modules", name, "package.json"), JSON.stringify({ name, version }));
+    };
+
+    it("fails naming the plugin → dep pair when a declared dep is absent (test-plan #E15)", () => {
+      const { packagesDir, root, pluginsDir } = gmailFixture();
+      const r = run(packagesDir, pluginsDir, root);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("gmail-plugin → oauth4webapi");
+    });
+
+    it("does not accept a dep that resolves only above the bundle root (test-plan #E16)", () => {
+      const { packagesDir, root, pluginsDir } = gmailFixture();
+      install(path.dirname(root), "oauth4webapi", "3.8.8");
+      const r = run(packagesDir, pluginsDir, root);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("gmail-plugin → oauth4webapi");
+    });
+
+    it("passes and prints the installed version when the dep is at the bundle root (test-plan #E17)", () => {
+      const { packagesDir, root, pluginsDir } = gmailFixture();
+      install(root, "oauth4webapi", "3.8.8");
+      const r = run(packagesDir, pluginsDir, root);
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain("oauth4webapi@3.8.8");
+    });
   });
 });

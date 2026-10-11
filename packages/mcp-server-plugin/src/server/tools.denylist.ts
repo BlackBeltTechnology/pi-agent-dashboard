@@ -39,6 +39,11 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // binding from the denial body it can already read, which is precisely the
   // limit D15 states rather than widens.
   { pattern: "/api/access/", reason: "operator-only grant review; trust-widening action" },
+  // add-passkey-user-auth: people + passkey invites. Creating users and
+  // minting invites widens who can sign in — an operator UI action, never an
+  // LLM tool.
+  { pattern: "/api/users", reason: "user directory + passkey invites; operator-only, trust-widening" },
+  { pattern: "/api/users/", reason: "user directory + passkey invites; operator-only, trust-widening" },
   { pattern: "/api/cost-estimator/", reason: "billing telemetry UI" },
   { pattern: "/api/flows-anthropic-bridge/", reason: "bridge diagnostics" },
   { pattern: "/api/plugins/blackhole/", reason: "plugin-internal" },
@@ -50,6 +55,10 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/plugins/context-mode-settings/", reason: "plugin-internal config; writes a file under ~/.pi and alters session env" },
   { pattern: "/api/plugins/flows/", reason: "plugin-internal" },
   { pattern: "/api/tools/", reason: "tool-registry UI" },
+  // add-service-registry-core: service mutations start processes and write
+  // secrets; core keeps the whole surface out of MCP (skills use the CLI).
+  { pattern: "/api/services/", reason: "managed services: lifecycle + secrets; CLI/REST only in core" },
+  { pattern: "/api/services", reason: "managed services: lifecycle + secrets; CLI/REST only in core" },
   { pattern: "/api/ws-ticket", reason: "transport credential" },
   { pattern: "/api/local-proof", reason: "mints a one-time local-proof bootstrap code; host-local credential" },
   { pattern: "/api/device-session", reason: "exchanges the device bearer for an httpOnly cookie; browser credential plumbing" },

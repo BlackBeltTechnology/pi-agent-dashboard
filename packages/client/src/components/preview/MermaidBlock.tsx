@@ -1,23 +1,31 @@
+import { mdiContentCopy } from "@mdi/js";
+import { Icon } from "@mdi/react";
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { type RuleId, repairMermaid } from "../../lib/preview/mermaid-repair.js";
+import { CopyButton } from "../primitives/CopyButton.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
+import { mermaidConfig } from "./mermaid-config.js";
 import { computeFitScale, VIEWPORT_HEIGHT_CSS } from "./mermaid-fit.js";
 import { ZoomControls } from "./ZoomControls.js";
 
 let mermaidIdCounter = 0;
 
-// ── Module-level SVG cache ──────────────────────────────────────────────────
-// Survives component unmount/remount so re-mounted MermaidBlocks can display
-// instantly without a "Loading diagram…" flash or re-calling mermaid.render().
-export const _svgCache = new Map<string, string>();
+// ── Module-level outcome cache ──────────────────────────────────────────────
+// Survives component unmount/remount so re-mounted MermaidBlocks display the
+// final outcome instantly — no "Loading diagram…" flash, no re-render and no
+// re-repair. Failed renders are deterministic for a given (code, theme), so
+// errors are cached too. Keyed on the ORIGINAL code. Cleared globally when
+// mermaid is re-initialized for another theme.
+// See change: add-mermaid-auto-repair (design D3).
+export type MermaidOutcome =
+  | { kind: "ok"; svg: string }
+  /** Rendered from repaired source: `code` is the source as rendered, `error` the original render error. */
+  | { kind: "repaired"; svg: string; code: string; applied: RuleId[]; error: string }
+  | { kind: "error"; message: string };
 
-// ── Module-level error cache ────────────────────────────────────────────────
-// Failed renders are deterministic for a given (code, theme): the same invalid
-// source always fails the same way. Caching the error message lets a re-mounted
-// or re-rendered MermaidBlock show the error instantly instead of replaying
-// "Loading diagram…" → render → error, which flickers on every parent update.
-export const _errorCache = new Map<string, string>();
+export const _outcomeCache = new Map<string, MermaidOutcome>();
 
 // Cache identity is the composite theme id (`<themeName>:<resolved>`), not just
 // light/dark: accent palettes differ per named theme, so colorized output must
@@ -175,54 +183,80 @@ export function colorizeDefaultNodes(svg: string, accents: string[], textColor: 
 let renderQueue: Promise<void> = Promise.resolve();
 let lastInitTheme: string | null = null;
 
-async function renderMermaid(
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : "Failed to render diagram";
+}
+
+type MermaidApi = typeof import("mermaid").default;
+
+/** One render attempt: render → sanitize → colorize, then drop any error node mermaid left in the DOM. */
+async function renderOnce(mermaid: MermaidApi, id: string, code: string, resolved: string): Promise<string> {
+  try {
+    const result = await mermaid.render(id, code);
+    // Sanitize → colorize once, before caching, so the cached SVG is the
+    // final injected markup (no per-React-render DOMParser cost). Accents
+    // resolve live for the current theme.
+    const clean = sanitizeMermaidSvg(result.svg);
+    return colorizeDefaultNodes(
+      clean,
+      resolveAccents(),
+      resolveVar("--text-primary", resolved === "dark" ? "#e5e7eb" : "#111827"),
+    );
+  } finally {
+    document.getElementById(`d${id}`)?.remove();
+  }
+}
+
+/**
+ * Second attempt after the original render failed with `original`: apply
+ * rule-based repair and render once more as `<id>-r`. Every failure path
+ * (no rule applies, repair throws, retry throws) yields the ORIGINAL error.
+ */
+async function renderRepaired(
+  mermaid: MermaidApi,
   id: string,
-  code: string,
+  normalized: string,
   resolved: string,
-): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
+  original: string,
+): Promise<MermaidOutcome> {
+  try {
+    const repaired = repairMermaid(normalized);
+    if (repaired.applied.length === 0) return { kind: "error", message: original };
+    const svg = await renderOnce(mermaid, `${id}-r`, repaired.code, resolved);
+    return { kind: "repaired", svg, code: repaired.code, applied: repaired.applied, error: original };
+  } catch {
+    return { kind: "error", message: original };
+  }
+}
+
+/**
+ * Render the original source; on failure apply rule-based repair and retry
+ * once with id `<id>-r`. Both attempts run inside one queued job. Never
+ * rejects: failures resolve to an `error` outcome carrying the ORIGINAL
+ * attempt's message. See change: add-mermaid-auto-repair (design D1).
+ */
+async function renderMermaid(id: string, code: string, resolved: string): Promise<MermaidOutcome> {
+  return new Promise<MermaidOutcome>((resolve) => {
     renderQueue = renderQueue.then(async () => {
+      let mermaid: MermaidApi;
+      let normalized: string;
       try {
-        const mermaid = (await import("mermaid")).default;
+        mermaid = (await import("mermaid")).default;
         if (lastInitTheme !== resolved) {
-          const fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-          mermaid.initialize({
-            startOnLoad: false,
-            theme: resolved === "dark" ? "dark" : "default",
-            suppressErrorRendering: true,
-            fontFamily,
-            fontSize: 16,
-            themeVariables: { fontFamily, fontSize: "16px" },
-            flowchart: { useMaxWidth: true, htmlLabels: true },
-            sequence: {
-              useMaxWidth: true,
-              actorFontFamily: fontFamily,
-              messageFontFamily: fontFamily,
-              noteFontFamily: fontFamily,
-            },
-            gantt: { useMaxWidth: true },
-          });
-          _svgCache.clear();
-          _errorCache.clear();
+          mermaid.initialize(mermaidConfig(resolved));
+          _outcomeCache.clear();
           lastInitTheme = resolved;
         }
-        const sanitized = sanitizeMermaidCode(code);
-        const result = await mermaid.render(id, sanitized);
-        // Sanitize → colorize once, before caching, so the cached SVG is the
-        // final injected markup (no per-React-render DOMParser cost). Accents
-        // resolve live for the current theme.
-        const clean = sanitizeMermaidSvg(result.svg);
-        const colorized = colorizeDefaultNodes(
-          clean,
-          resolveAccents(),
-          resolveVar("--text-primary", resolved === "dark" ? "#e5e7eb" : "#111827"),
-        );
-        resolve(colorized);
-        // Clean up any leftover error elements mermaid injects into the DOM
-        const errorEl = document.getElementById("d" + id);
-        if (errorEl) errorEl.remove();
+        normalized = sanitizeMermaidCode(code);
       } catch (err) {
-        reject(err);
+        resolve({ kind: "error", message: errorMessage(err) });
+        return;
+      }
+
+      try {
+        resolve({ kind: "ok", svg: await renderOnce(mermaid, id, normalized, resolved) });
+      } catch (err) {
+        resolve(await renderRepaired(mermaid, id, normalized, resolved, errorMessage(err)));
       }
     });
   });
@@ -249,24 +283,118 @@ interface Props {
 
 // ── Component ───────────────────────────────────────────────────────────────
 
-export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = true }: Props) {
+const RULE_DESCRIPTIONS: Record<RuleId, string> = {
+  R1: "Removed invisible characters or a stray leading \"mermaid\" line",
+  R2: "Renamed a participant whose name is a reserved keyword",
+  R3: "Balanced unclosed or surplus sequence blocks",
+  R4: "Quoted an edge label",
+  R5: "Quoted a node label containing special characters",
+  R6: "Simplified an ER attribute type",
+  R7: "Replaced ; and # inside quoted labels",
+};
+
+function ErrorView({ code, message }: { code: string; message: string }) {
+  return (
+    <div className="rounded-md overflow-hidden mb-2">
+      <div className="text-xs text-red-400 px-3 py-1.5 bg-red-900/20">
+        {i18nT("status.failedToRenderMermaidDiagram", undefined, "Failed to render Mermaid diagram:")} {message}
+      </div>
+      <pre className="bg-[var(--bg-code)] rounded-b-md p-4 overflow-x-auto text-sm">
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+}
+
+/**
+ * Auto-fixed badge row (applied rule codes, show-original toggle, copy-fixed),
+ * followed by the original source + original error while toggled on.
+ * See change: add-mermaid-auto-repair (D4).
+ */
+function RepairBadge({
+  idPrefix,
+  code,
+  outcome,
+  showOriginal,
+  onToggle,
+}: {
+  idPrefix: string;
+  code: string;
+  outcome: Extract<MermaidOutcome, { kind: "repaired" }> | null;
+  showOriginal: boolean;
+  onToggle: () => void;
+}) {
+  if (!outcome) return null;
+  return (
+    <>
+      <div
+        data-testid="mermaid-repair-badge"
+        className="flex flex-wrap items-center gap-1.5 mt-2 text-xs text-[var(--text-secondary)]"
+      >
+        <span>{i18nT("preview.mermaid.autoFixed", undefined, "Auto-fixed:")}</span>
+        {outcome.applied.map((rule) => {
+          const description = i18nT(`preview.mermaid.rule.${rule}`, undefined, RULE_DESCRIPTIONS[rule]);
+          return (
+            <React.Fragment key={rule}>
+              <code
+                data-testid="mermaid-repair-rule"
+                aria-describedby={`${idPrefix}-${rule}`}
+                title={description}
+                className="px-1 rounded bg-[var(--bg-code)] text-[var(--text-primary)]"
+              >
+                {rule}
+              </code>
+              <span id={`${idPrefix}-${rule}`} className="sr-only">
+                {description}
+              </span>
+            </React.Fragment>
+          );
+        })}
+        <button
+          type="button"
+          aria-pressed={showOriginal}
+          onClick={onToggle}
+          className="px-1.5 py-0.5 rounded hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] underline-offset-2 hover:underline"
+        >
+          {i18nT("preview.mermaid.showOriginal", undefined, "Show original")}
+        </button>
+        <CopyButton
+          getText={() => outcome.code}
+          icon={<Icon path={mdiContentCopy} size={0.6} />}
+          title={i18nT("preview.mermaid.copyFixed", undefined, "Copy fixed source")}
+          testId="mermaid-copy-fixed"
+        />
+      </div>
+      {showOriginal && <ErrorView code={code} message={outcome.error} />}
+    </>
+  );
+}
+
+/**
+ * Contain-fit scale of `svg` in the viewport `el`, or null while the viewport
+ * has no size: a hidden viewport (show original) reports 0×0, for which
+ * computeFitScale answers 1 and would re-seed an untouched view.
+ */
+function measureFitScale(el: HTMLElement, svg: string): number | null {
+  const r = el.getBoundingClientRect();
+  if (r.width <= 0 || r.height <= 0) return null;
+  // clientWidth/Height are layout sizes: unaffected by the zoom transform (unlike getBoundingClientRect).
+  const node = el.querySelector("svg") as unknown as SVGSVGElement | null;
+  const measured = node && node.clientWidth > 0 && node.clientHeight > 0 ? { w: node.clientWidth, h: node.clientHeight } : null;
+  return computeFitScale(svg, r.width, r.height, measured);
+}
+
+/**
+ * Render-outcome state for one diagram: seeded from the module cache, then
+ * (once `complete`) rendered — with repair on failure — and cached.
+ */
+function useMermaidOutcome(code: string, themeId: string, key: string, resolved: string, complete: boolean) {
   const reactId = useId();
-  const { resolved, themeName } = useThemeContext();
-  // Composite identity: accent palettes differ per named theme, so cache and
-  // re-render must key on both the named theme and its light/dark resolution.
-  const themeId = `${themeName}:${resolved}`;
-  const [svg, setSvg] = useState<string | null>(() => _svgCache.get(cacheKey(code, themeId)) ?? null);
-  const [error, setError] = useState<string | null>(() => _errorCache.get(cacheKey(code, themeId)) ?? null);
-  const [focused, setFocused] = useState(false);
+  const [outcome, setOutcome] = useState<MermaidOutcome | null>(() => _outcomeCache.get(key) ?? null);
   const cancelledRef = useRef(false);
   const prevCodeRef = useRef<string | null>(null);
   const prevThemeRef = useRef<string | null>(null);
-  const viewportRef = useRef<HTMLDivElement>(null);
-  // Contain-fit scale, measured against the fixed-height viewport once the SVG
-  // is known; the hook clamps it into [min,max] and re-seeds until user input.
-  // See change: fix-markdown-remount-storm (D4).
-  const [fit, setFit] = useState(1);
-  const { state: zoom, handlers, zoomIn, zoomOut, reset, initialScale } = useZoomPan({ initialScale: fit });
+  const svg = outcome && outcome.kind !== "error" ? outcome.svg : null;
 
   useEffect(() => {
     // Defer rendering until the fenced block is closed. While streaming, `code`
@@ -284,55 +412,70 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
 
     cancelledRef.current = false;
 
-    // Check caches — a hit (success or deterministic error) skips render and
-    // shows the result immediately, avoiding any loading flicker.
-    const key = cacheKey(code, themeId);
-    const cached = _svgCache.get(key);
+    // Cache hit (ok, repaired or deterministic error) skips render and repair
+    // and shows the result immediately, avoiding any loading flicker.
+    const cached = _outcomeCache.get(key);
     if (cached) {
-      setError(null);
-      setSvg(cached);
-      return;
-    }
-    const cachedError = _errorCache.get(key);
-    if (cachedError) {
-      setError(cachedError);
+      setOutcome(cached);
       return;
     }
 
-    // Don't clear existing SVG — keep showing the old diagram while re-rendering
-    setError(null);
+    // Don't clear an existing diagram — keep showing it while re-rendering.
+    setOutcome((prev) => (prev?.kind === "error" ? null : prev));
 
     const id = `mermaid-${reactId.replace(/:/g, "")}-${mermaidIdCounter++}`;
 
-    renderMermaid(id, code, resolved).then(
-      (result) => {
-        _svgCache.set(key, result);
-        if (!cancelledRef.current) setSvg(result);
-      },
-      (err) => {
-        const msg = err instanceof Error ? err.message : "Failed to render diagram";
-        _errorCache.set(key, msg);
-        if (!cancelledRef.current) {
-          console.warn("[MermaidBlock] render failed:", msg, "\nCode:", code);
-          setError(msg);
-        }
-      },
-    );
+    // renderMermaid never rejects: every failure resolves to an `error` outcome.
+    void renderMermaid(id, code, resolved).then((result) => {
+      _outcomeCache.set(key, result);
+      if (cancelledRef.current) return;
+      if (result.kind === "error") console.warn("[MermaidBlock] render failed:", result.message, "\nCode:", code);
+      setOutcome(result);
+    });
 
     return () => {
       cancelledRef.current = true;
     };
-  }, [code, themeId, resolved, complete]);
+  }, [code, themeId, key, resolved, complete]);
+
+  const repaired = outcome?.kind === "repaired" ? outcome : null;
+  // "Show original" is tied to the outcome identity (code + theme): a new
+  // source or theme closes it without an effect. See change: add-mermaid-auto-repair (D4).
+  const [showOriginalFor, setShowOriginalFor] = useState<string | null>(null);
+  const showOriginal = repaired !== null && showOriginalFor === key;
+  const toggleShowOriginal = () => setShowOriginalFor(showOriginal ? null : key);
+  return { outcome, svg, repaired, showOriginal, toggleShowOriginal };
+}
+
+export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = true }: Props) {
+  const reactId = useId();
+  const { resolved, themeName } = useThemeContext();
+  // Composite identity: accent palettes differ per named theme, so cache and
+  // re-render must key on both the named theme and its light/dark resolution.
+  const themeId = `${themeName}:${resolved}`;
+  const key = cacheKey(code, themeId);
+  const { outcome, svg, repaired, showOriginal, toggleShowOriginal } = useMermaidOutcome(
+    code,
+    themeId,
+    key,
+    resolved,
+    complete,
+  );
+  const [focused, setFocused] = useState(false);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  // Contain-fit scale, measured against the fixed-height viewport once the SVG
+  // is known; the hook clamps it into [min,max] and re-seeds until user input.
+  // See change: fix-markdown-remount-storm (D4).
+  const [fit, setFit] = useState(1);
+  const { state: zoom, handlers, zoomIn, zoomOut, reset, initialScale } = useZoomPan({ initialScale: fit });
+
 
   useLayoutEffect(() => {
     const el = viewportRef.current;
     if (!svg || !el) return;
     const measure = () => {
-      const r = el.getBoundingClientRect();
-      // clientWidth/Height are layout sizes: unaffected by the zoom transform (unlike getBoundingClientRect).
-      const node = el.querySelector("svg") as unknown as SVGSVGElement | null;
-      const measured = node && node.clientWidth > 0 && node.clientHeight > 0 ? { w: node.clientWidth, h: node.clientHeight } : null;
-      setFit(computeFitScale(svg, r.width, r.height, measured));
+      const scale = measureFitScale(el, svg);
+      if (scale !== null) setFit(scale);
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
@@ -370,17 +513,8 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
     };
   }, [focused]);
 
-  if (error) {
-    return (
-      <div className="rounded-md overflow-hidden mb-2">
-        <div className="text-xs text-red-400 px-3 py-1.5 bg-red-900/20">
-          {i18nT("status.failedToRenderMermaidDiagram", undefined, "Failed to render Mermaid diagram:")} {error}
-        </div>
-        <pre className="bg-[var(--bg-code)] rounded-b-md p-4 overflow-x-auto text-sm">
-          <code>{code}</code>
-        </pre>
-      </div>
-    );
+  if (outcome?.kind === "error") {
+    return <ErrorView code={code} message={outcome.message} />;
   }
 
   if (!svg) {
@@ -395,51 +529,69 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
     ? "border-blue-500/60"
     : "border-[var(--border-subtle)]";
 
+  const toggleOriginal = () => {
+    setFocused(false); // the hidden viewport must not keep zoom focus
+    toggleShowOriginal();
+  };
+
+  // Badge + original view render as siblings BEFORE `.mermaid-diagram`, so its
+  // structure (first child div = viewport, only svg = the diagram) is unchanged.
   return (
-    <div className="mermaid-diagram relative my-2">
-      {/* Viewport: clips zoomed/panned content */}
-      <div
-        ref={viewportRef}
-        className={`relative overflow-hidden rounded-md border ${borderColor} bg-[var(--bg-surface)] transition-colors`}
-        style={{
-          touchAction: focused ? "none" : "auto",
-          cursor: focused ? (zoom.scale > initialScale ? "grab" : "default") : "pointer",
-          height: VIEWPORT_HEIGHT_CSS,
-        }}
-        onClick={() => { if (!focused) setFocused(true); }}
-        onPointerDown={focused ? handlers.onPointerDown : undefined}
-        onPointerMove={focused ? handlers.onPointerMove : undefined}
-        onPointerUp={focused ? handlers.onPointerUp : undefined}
-        onTouchMove={focused ? handlers.onTouchMove as unknown as React.TouchEventHandler : undefined}
-        onTouchEnd={focused ? handlers.onTouchEnd : undefined}
-        onDoubleClick={focused ? handlers.onDoubleClick : undefined}
-      >
-        {focused && (
-          <ZoomControls
-            onZoomIn={zoomIn}
-            onZoomOut={zoomOut}
-            onReset={reset}
-            scale={zoom.scale}
-            initialScale={initialScale}
-          />
-        )}
-        {!focused && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/10 rounded-md">
-            <span className="text-xs text-[var(--text-secondary)] bg-[var(--bg-surface)]/90 px-2 py-1 rounded shadow">
-              {i18nT("common.clickToZoomPan", undefined, "Click to zoom & pan")}
-            </span>
-          </div>
-        )}
-        {/* Inner wrapper with zoom transform */}
+    <>
+      <RepairBadge
+        idPrefix={`mermaid-rule-${reactId.replace(/:/g, "")}`}
+        code={code}
+        outcome={repaired}
+        showOriginal={showOriginal}
+        onToggle={toggleOriginal}
+      />
+      <div className="mermaid-diagram relative my-2">
+        {/* Viewport: clips zoomed/panned content. Hidden (not unmounted) while the
+            original is shown, so zoom/pan state survives the toggle. */}
         <div
-          className="mermaid-diagram-inner origin-top-left"
+          ref={viewportRef}
+          hidden={showOriginal}
+          className={`relative overflow-hidden rounded-md border ${borderColor} bg-[var(--bg-surface)] transition-colors`}
           style={{
-            transform: `translate(${zoom.translateX}px, ${zoom.translateY}px) scale(${zoom.scale})`,
-            transformOrigin: "0 0",
+            touchAction: focused ? "none" : "auto",
+            cursor: focused ? (zoom.scale > initialScale ? "grab" : "default") : "pointer",
+            height: VIEWPORT_HEIGHT_CSS,
           }}
-          dangerouslySetInnerHTML={{ __html: svg }}
-        />
+          onClick={() => { if (!focused) setFocused(true); }}
+          onPointerDown={focused ? handlers.onPointerDown : undefined}
+          onPointerMove={focused ? handlers.onPointerMove : undefined}
+          onPointerUp={focused ? handlers.onPointerUp : undefined}
+          onTouchMove={focused ? handlers.onTouchMove as unknown as React.TouchEventHandler : undefined}
+          onTouchEnd={focused ? handlers.onTouchEnd : undefined}
+          onDoubleClick={focused ? handlers.onDoubleClick : undefined}
+        >
+          {focused && (
+            <ZoomControls
+              onZoomIn={zoomIn}
+              onZoomOut={zoomOut}
+              onReset={reset}
+              scale={zoom.scale}
+              initialScale={initialScale}
+            />
+          )}
+          {!focused && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/10 rounded-md">
+              <span className="text-xs text-[var(--text-secondary)] bg-[var(--bg-surface)]/90 px-2 py-1 rounded shadow">
+                {i18nT("common.clickToZoomPan", undefined, "Click to zoom & pan")}
+              </span>
+            </div>
+          )}
+          {/* Inner wrapper with zoom transform */}
+          <div
+            className="mermaid-diagram-inner origin-top-left"
+            style={{
+              transform: `translate(${zoom.translateX}px, ${zoom.translateY}px) scale(${zoom.scale})`,
+              transformOrigin: "0 0",
+            }}
+            dangerouslySetInnerHTML={{ __html: svg }}
+          />
+        </div>
       </div>
-    </div>
+    </>
   );
 });

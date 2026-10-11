@@ -1,0 +1,9 @@
+= Mermaid Repair Fixture
+
+AsciiDoc mermaid block that fails as written and is fixed by rule-based repair (R5).
+
+[source,mermaid]
+----
+flowchart TD
+  A[call (x)]-->B
+----

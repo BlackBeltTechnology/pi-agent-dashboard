@@ -40,7 +40,10 @@ import {
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import { isRecoveryCandidate, isShutdownWindowCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
-import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { rank } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import { LIVE_PREVIEW_TIER, TERMINAL_TIER } from "@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js";
+import { getDefaultRegistry, resolveInstallRoot } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { discoverServiceOffers } from "@blackbelt-technology/pi-dashboard-shared/services/offers.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import compress from "@fastify/compress";
 import cors from "@fastify/cors";
@@ -62,7 +65,7 @@ import { YOLO_ENV } from "./access/yolo-env.js";
 import { YoloController } from "./access/yolo-session.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { resolveRedirectBase } from "./auth/auth.js";
-import { authorizeWsUpgrade, registerAuthPlugin } from "./auth/auth-plugin.js";
+import { authorizeWsUpgrade, effectiveSessionTier, registerAuthPlugin } from "./auth/auth-plugin.js";
 import { registerBearerAuth, registerDeviceSessionRoutes } from "./auth/bearer-auth.js";
 import {
   computeBindReachability,
@@ -106,7 +109,11 @@ import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
 import type { OAuthLoginFlow } from "./auth/pi-oauth-types.js";
 import { createPluginRequestLane } from "./plugin-request-lane.js";
 import type { PluginRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import { PasskeyService } from "./auth/passkey/passkey-service.js";
+import { resolveRpContext } from "./auth/passkey/rp-context.js";
+import { UserDirectory } from "./auth/passkey/user-directory.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
+import type { TieredSocket } from "./pairing/ws-tier-gate.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import {
   type CoreWsRouteScope,
@@ -230,6 +237,7 @@ import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { registerOpenSpecRoutes } from "./routes/openspec-routes.js";
 import { registerPackageRoutes } from "./routes/package-routes.js";
 import { PUBLIC_PAIRING_PREFIXES, registerPairingRoutes } from "./routes/pairing-routes.js";
+import { registerUserRoutes } from "./routes/user-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
@@ -252,6 +260,10 @@ import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
+import { defaultCommandRunner } from "./services/command-runner.js";
+import { servicesPaths } from "./services/paths.js";
+import { registerServiceRoutes } from "./services/routes.js";
+import { ServiceManager } from "./services/service-manager.js";
 import {
   dispatchReload as dispatchReloadRaw,
   reloadTargetSessionIds,
@@ -1942,6 +1954,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
     }
   });
+  // Native passkey users (user directory + WebAuthn ceremonies). Always
+  // constructed (cheap: one small file read) so `/api/users` can report
+  // "disabled"; inert until `auth.passkeys.enabled`, which the auth plugin
+  // applies at register and on every reload. The RP context is the SAME
+  // redirect-base resolution OAuth uses. See change: add-passkey-user-auth.
+  const passkeyService = new PasskeyService({
+    directory: new UserDirectory(),
+    getRpContext: (override) => resolveRpContext(config.port, override),
+  });
+  passkeyService.configure(config.authConfig);
   if (config.authConfig) {
     await registerAuthPlugin(fastify, {
       authConfig: config.authConfig,
@@ -1949,6 +1971,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       resolvedTrustedNetworks: config.resolvedTrustedNetworks,
       localToken,
       localTrust,
+      passkeys: passkeyService,
     });
   }
   // `/auth/status` is what the client's WS-refusal handler polls to tell
@@ -2308,6 +2331,23 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   registerPushRoutes(fastify, { getPush: () => pushService });
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
+  // Managed services: definitions + offers + lifecycle + secrets. Boot is
+  // adoption only (no probes, no network I/O), and a no-op without
+  // services.json. See change: add-service-registry-core.
+  const serviceManager = new ServiceManager({
+    paths: servicesPaths(),
+    run: defaultCommandRunner,
+    resolveBinary: (name) => {
+      try {
+        const r = getDefaultRegistry().resolve(name);
+        return r.ok ? r.path : null;
+      } catch {
+        return null;
+      }
+    },
+    discoverOffers: () => discoverServiceOffers(resolveInstallRoot(fileURLToPath(import.meta.url))),
+  });
+  registerServiceRoutes(fastify, { manager: serviceManager, networkGuard, localTrust });
   // Pi runtime discovery + atomic dual selection. See change: select-pi-runtime-install.
   registerPiRuntimeRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
   // Node family discovery + atomic triple selection (node+npm+npx).
@@ -2587,6 +2627,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       const addr = fastify.server.address();
       return typeof addr === "object" && addr !== null ? addr.port : config.port;
     },
+  });
+  // Operator user directory (passkeys). See change: add-passkey-user-auth.
+  registerUserRoutes(fastify, {
+    service: passkeyService,
+    localToken,
+    localTrust,
+    hostAdmission: () => getHostGateCtx().admission,
   });
   // Mint a single-use WS ticket (D11). Authenticated (networkGuard: cookie,
   // trusted network, or Authorization: Bearer). The ticket is bound to a WS
@@ -3762,7 +3809,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           localToken,
           localTrust,
           requireIdentityTicket,
+          // A revoked / disabled passkey user's cookie opens no socket (D4).
+          isSessionLive: (p) => effectiveSessionTier(p, passkeyService) !== null,
         });
+        // Cookie-session sockets carry the session's LIVE tier (passkey users
+        // re-read the directory). Terminals need operate, live previews
+        // control; browser messages are gated per type in the gateway.
+        // See change: add-passkey-user-auth.
+        const sessionPayload = upgradeAuth.ok ? upgradeAuth.session : undefined;
+        const sessionTierOf = sessionPayload ? () => effectiveSessionTier(sessionPayload, passkeyService) : undefined;
+        const roadTier = scope === "terminal" ? TERMINAL_TIER : scope === "live" ? LIVE_PREVIEW_TIER : undefined;
+        if (sessionTierOf && roadTier) {
+          const t = sessionTierOf();
+          if (t === null || rank(t) < rank(roadTier)) {
+            socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+            socket.destroy();
+            return;
+          }
+        }
         if (!upgradeAuth.ok) {
           // 401 when an auth secret is configured (cookie realm), else 403 for
           // the no-auth allowances — preserving the prior status semantics.
@@ -3830,6 +3894,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 bound.principalExpiresAt = upgradeAuth.principalExpiresAt;
               }
               if (grants) (ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants = grants;
+              if (sessionTierOf) (ws as TieredSocket).sessionTier = sessionTierOf;
               browserGateway.wss.emit("connection", ws, request);
             });
             if (identityEnforced() && policyRegistry.hasPolicy()) {
@@ -3912,6 +3977,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       await fastify.listen({ port: config.port, host: config.host });
       writePid(process.pid);
       console.log(`Dashboard server running at http://${config.host}:${config.port}`);
+
+      // Managed services: adoption + scheduler only once the server really
+      // started (a created-but-never-started server touches nothing). Boot is
+      // adoption only and a no-op without services.json; never blocks startup.
+      // See change: add-service-registry-core.
+      // The scheduler starts whether or not adoption succeeded: lease sweeps,
+      // leased re-probes and idle-stop must run regardless.
+      serviceManager
+        .boot()
+        .catch((err: unknown) => console.warn(`[services] boot adoption failed: ${(err as Error).message}`))
+        .finally(() => serviceManager.startScheduler());
 
       // Bind-vs-trust reachability. A loopback or specific-NIC bind silently
       // voids a trusted network outside its range: the TCP connection is
@@ -4342,6 +4418,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // gateway so sessions it ends cannot re-arm one.
       // See change: archive-service-sessions-on-end.
       archiveSweeper.stop();
+      serviceManager.dispose();
       for (const client of browserGateway.wss.clients) {
         client.terminate();
       }

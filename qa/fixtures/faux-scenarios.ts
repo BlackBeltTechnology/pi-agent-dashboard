@@ -691,6 +691,21 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "Alpha" },
   },
 
+  // Rule-based mermaid auto-repair (change: add-mermaid-auto-repair, F9):
+  // `participant end` is a keyword alias mermaid rejects; R2 renames it and
+  // leaves the `alt … end` terminator intact, so the chat diagram renders
+  // with an auto-fixed badge.
+  "mermaid-repair": {
+    script: [
+      fauxAssistantMessage([
+        fauxText(
+          "Repair probe\n\n```mermaid\nsequenceDiagram\n  participant end\n  participant Alice\n  alt ok\n  end->>Alice: hi\n  end\n```",
+        ),
+      ]),
+    ],
+    expect: { text: "Repair probe" },
+  },
+
   // Copy-surfaces round-trip. Streams an assistant message carrying a GFM table
   // AND a fenced code block so one render exercises all four copy buttons:
   //   - table "Copy as Markdown" / "Copy as TSV" (TableWrapper, ref-at-click),

@@ -1,0 +1,3 @@
+# src/__tests__/skill-text.test.ts — index
+
+E14-E15: every `prompts/`/`references/`/`scripts/` path in SKILL.md, prompts and references resolves inside the skill dir, no `../`; frontmatter name + rebuild trigger. Executes SKILL.md's `openspec validate` block against a stub CLI: exit status = validate's, transient dir removed per iteration even when looped in one shell; traversal `CAP`/`RUN_ID` refused before any filesystem effect. See change: add-reverse-spec-for-rebuild. E9-E12: catalog boundary verbatim in generator/auditor/SKILL.md, literal-key wording, `lint-cite` wiring, fragment template example passes `lint-cite`. See change: tune-reverse-spec-for-rebuild-eval.

@@ -7,7 +7,7 @@ and default-node colorization.
 ## Requirements
 
 ### Requirement: Mermaid diagram rendering
-The MermaidBlock component SHALL accept a `code` string prop containing Mermaid diagram syntax, lazy-load the mermaid library via dynamic import, render the diagram to SVG using `mermaid.render()`, sanitize the SVG output using DOMPurify to remove script tags, event handlers, and other XSS vectors, and display the sanitized SVG inside a zoomable viewport container that spans the full content area width.
+The MermaidBlock component SHALL accept a `code` string prop containing Mermaid diagram syntax, lazy-load the mermaid library via dynamic import, render the diagram to SVG using `mermaid.render()`, sanitize the SVG output using DOMPurify to remove script tags, event handlers, and other XSS vectors, and display the sanitized SVG inside a zoomable viewport container that spans the full content area width. When rendering the original source fails, the component SHALL attempt rule-based repair (see `mermaid-rule-repair`) before falling back to the error display.
 
 #### Scenario: Valid Mermaid diagram
 - **WHEN** a mermaid code block contains valid Mermaid syntax (e.g., `graph TD; A-->B`)
@@ -19,7 +19,12 @@ The MermaidBlock component SHALL accept a `code` string prop containing Mermaid 
 
 #### Scenario: Invalid Mermaid syntax
 - **WHEN** a mermaid code block contains invalid syntax
-- **THEN** the component SHALL display the raw code text with an error message
+- **AND** rule-based repair applies no rule, or the repaired source also fails to render
+- **THEN** the component SHALL display the raw code text with the error message from the original render attempt
+
+#### Scenario: Repairable Mermaid syntax
+- **WHEN** a mermaid code block contains invalid syntax that rule-based repair fixes
+- **THEN** the component SHALL render the repaired diagram with an auto-fixed indication
 
 #### Scenario: Multiple diagrams on same page
 - **WHEN** multiple mermaid code blocks appear in the same markdown content
@@ -50,11 +55,19 @@ The MermaidBlock component SHALL read the current dashboard theme via `useThemeC
 - **THEN** mermaid diagrams SHALL re-render with the updated theme
 
 ### Requirement: Mermaid SVG cache prevents re-render blink
-MermaidBlock SHALL cache rendered SVG strings at module scope keyed by diagram code and theme. On mount, if a cached SVG exists for the current code+theme, it SHALL initialize with the cached value instead of showing a loading state.
+MermaidBlock SHALL cache the render outcome at module scope keyed by the original diagram code and theme. The cached outcome SHALL be one of: rendered SVG; repaired SVG with its repaired source, applied rules and the original render error; or a render error. When mermaid is re-initialized for a different theme, every cached outcome is invalidated and the next mount re-renders (and, if needed, re-repairs); the no-re-render guarantee applies within one theme initialization. On mount, if a cached outcome exists for the current code+theme, it SHALL initialize with it instead of showing a loading state or re-running render or repair.
 
 #### Scenario: Remount with cached SVG
 - **WHEN** a MermaidBlock unmounts and remounts with the same code and theme
 - **THEN** it SHALL display the cached SVG immediately without a loading flash
+
+#### Scenario: Remount with cached repaired outcome
+- **WHEN** a MermaidBlock whose diagram was repaired unmounts and remounts with the same code and theme
+- **THEN** it SHALL display the repaired diagram and its auto-fixed indication immediately without re-running render or repair
+
+#### Scenario: Remount with cached error
+- **WHEN** a MermaidBlock whose diagram failed to render (and could not be repaired) unmounts and remounts with the same code and theme
+- **THEN** it SHALL display the cached error immediately without a loading flash and without re-running render or repair
 
 #### Scenario: Theme change invalidates cache entry
 - **WHEN** the theme changes from dark to light (or vice versa)
@@ -124,12 +137,16 @@ Colorization SHALL cover flowchart and class diagrams.
 
 ### Requirement: Mermaid hydration in AsciiDoc previews
 
-The mermaid rendering component SHALL be mountable against mermaid source extracted from rendered AsciiDoc preview HTML, in addition to markdown fenced code blocks, preserving its existing behavior: theme-aware rendering, SVG caching, zoomable viewport, and raw-source-with-error display on invalid syntax.
+The mermaid rendering component SHALL be mountable against mermaid source extracted from rendered AsciiDoc preview HTML, in addition to markdown fenced code blocks, preserving its existing behavior: theme-aware rendering, SVG caching, zoomable viewport, rule-based repair of failing diagrams, and raw-source-with-error display when repair does not produce a renderable diagram.
 
 #### Scenario: Adoc-sourced mermaid renders identically
 - **WHEN** the same mermaid source is rendered from a markdown fence and from an AsciiDoc source block
 - **THEN** both produce the same sanitized SVG behavior (theme-aware, cached, zoomable)
 
 #### Scenario: Invalid adoc-sourced mermaid degrades
-- **WHEN** an AsciiDoc mermaid block contains invalid syntax
+- **WHEN** an AsciiDoc mermaid block contains invalid syntax that rule-based repair cannot fix
 - **THEN** the raw code text is displayed with an error message, matching markdown behavior
+
+#### Scenario: Repairable adoc-sourced mermaid is repaired
+- **WHEN** an AsciiDoc mermaid block contains invalid syntax that rule-based repair fixes
+- **THEN** the repaired diagram is displayed with an auto-fixed indication, matching markdown behavior

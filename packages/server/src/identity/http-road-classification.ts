@@ -77,12 +77,15 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   pi: "packages",
   node: "packages",
   tools: "packages",
+  services: "packages",
   runtime: "packages",
   electron: "packages",
   // access / trust / pairing records
   access: "access",
   auth: "access",
   "paired-devices": "access",
+  // user directory + passkey invites (change: add-passkey-user-auth)
+  users: "access",
   "host-gate": "access",
   // credential plumbing (change: harden-trust-and-credential-boundaries)
   "device-session": "access",

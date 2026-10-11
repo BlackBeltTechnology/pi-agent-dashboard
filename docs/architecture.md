@@ -87,6 +87,10 @@ See change: configurable-bind-host.
 
 See change: warn-unreachable-trusted-networks.
 
+### Passkey users + tiers (`add-passkey-user-auth`)
+
+Native passkey login, user directory (`~/.pi/dashboard/users.json`), tier gates REST + WS, phone sign-in, RP ID stability rule. Full ref: [`passkey-users.md`](passkey-users.md). See change: add-passkey-user-auth.
+
 **Server decomposition:** The server is split into focused modules:
 - `server.ts` — Orchestrator: creates services, composes modules, manages lifecycle
 - `routes/` — REST API routes grouped by domain (session, git, file, openspec, system)
@@ -95,6 +99,7 @@ See change: warn-unreachable-trusted-networks.
 - `session-bootstrap.ts` — Startup session discovery and OpenSpec polling init
 - `extension-register.ts` — Auto-registers bundled bridge extension in pi's global settings (`~/.pi/agent/settings.json`) on startup; no-op in dev mode
 - `browser-handlers/` — Browser WebSocket message handlers by domain (subscription, session-actions, session-meta, terminal, directory)
+- `services/` — Managed services (long-lived endpoints, lifecycle, leases). → see `docs/managed-services.md`
 
 ### 3. Web Client (`src/client/`)
 React-based responsive web UI that:
