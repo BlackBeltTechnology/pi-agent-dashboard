@@ -169,6 +169,8 @@ import { create as tokens } from "./tokens.js";
 import tokensCard from "./tokens.meta.json";
 import { create as trail } from "./trail.js";
 import trailCard from "./trail.meta.json";
+import { create as slide_layer } from "./slide-layer.js";
+import slide_layerCard from "./slide-layer.meta.json";
 import type { FxCard, FxEntry } from "./types.js";
 import { create as vignette } from "./vignette.js";
 import vignetteCard from "./vignette.meta.json";
@@ -264,6 +266,7 @@ export const REGISTRY: Record<string, FxEntry> = {
   "horizon-gates": { card: horizon_gatesCard as FxCard, create: horizon_gates },
   "proof-gate": { card: proof_gateCard as FxCard, create: proof_gate },
   "trust-ledger": { card: trust_ledgerCard as FxCard, create: trust_ledger },
+  "slide-layer": { card: slide_layerCard as FxCard, create: slide_layer },
 };
 
 export const FX_IDS: string[] = Object.keys(REGISTRY);

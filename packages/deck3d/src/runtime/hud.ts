@@ -18,9 +18,11 @@ export interface HudSlide {
 export interface HudHost {
   slides: HudSlide[];
   /** Every effect the deck can instantiate (corpus + embedded `local:` cards). */
-  catalogue: Array<{ id: string; kind: string }>;
+  catalogue: Array<{ id: string; kind: string; persistent?: boolean }>;
   /** Deck-level effect ids, PREPENDED to every slide — shown as inherited slots. */
   deckEffects: string[];
+  /** Live deck-scope persistent effect ids (deck-wide singletons). */
+  persistentEffects?: () => string[];
   /** Deck defaults as embedded (read-only). */
   defaults: Defaults;
   /** Keys already overridden, for the `●` markers. */
@@ -33,7 +35,8 @@ export interface HudHost {
   /** Same, for EVERY slide — a deck-scope value is not a property of one slide. */
   applyDeck: (patchFor: (slideId: string) => SlidePatch) => void;
   /** Recompose the current slide's effects from this list. */
-  applyEffects: (ids: string[]) => void;
+  /** `scope` decides persistent cards: only a deck-scope list may carry them. */
+  applyEffects: (ids: string[], scope: "deck" | "slide") => void;
   /** Declared knobs of the current slide's effects, with values in force. */
   effectParams: () => Array<{ id: string; schema: Record<string, unknown>; values: Record<string, unknown> }>;
   /** Rebuild one effect of the current slide under edited params. */
@@ -434,14 +437,19 @@ export function createHud(host: HudHost): Hud {
       state.slides[slideId].effects = next;
     }
     persist();
-    host.applyEffects(next);
+    host.applyEffects(next, scope);
     // The list itself changed shape — rows and the picker's options with it.
     render();
   }
 
   /** Effect ids of one kind, sorted — the stepper's ring. */
+  /** What the active scope may add: persistent cards are deck-scope only. */
+  function offered(): Array<{ id: string; kind: string; persistent?: boolean }> {
+    return scope === "slide" ? host.catalogue.filter((c) => !c.persistent) : host.catalogue;
+  }
+
   function idsOfKind(kind: string): string[] {
-    return host.catalogue
+    return offered()
       .filter((c) => c.kind === kind)
       .map((c) => c.id)
       .sort();
@@ -449,7 +457,7 @@ export function createHud(host: HudHost): Hud {
 
   /** Kinds the catalogue actually carries (background, post, light, …). */
   function kinds(): string[] {
-    return [...new Set(host.catalogue.map((c) => c.kind))].sort();
+    return [...new Set(offered().map((c) => c.kind))].sort();
   }
 
   function kindOf(id: string): string {
@@ -524,7 +532,10 @@ export function createHud(host: HudHost): Hud {
     const list = el("div", { class: "deck3d-hud-effects" });
     const composed = host.slides[host.current() - 1]?.effects ?? [];
     const staged = (scope === "deck" ? state.deck.effects : state.slides[slideId]?.effects) as string[] | undefined;
-    const active = staged ?? composed.map((e) => e.id);
+    const composedIds = composed.map((e) => e.id);
+    // Persistent cards never sit in a slide's list; deck scope shows them.
+    const persistentIds = scope === "deck" ? (host.persistentEffects?.() ?? []).filter((id) => !composedIds.includes(id)) : [];
+    const active = staged ?? [...composedIds, ...persistentIds];
     const fromDeck = new Set(host.deckEffects);
     for (let i = 0; i < active.length; i++) {
       list.appendChild(slotRow(slideId, active, i, scope === "slide" && fromDeck.has(active[i])));
@@ -539,7 +550,7 @@ export function createHud(host: HudHost): Hud {
     button.textContent = "+ add slot";
     button.addEventListener("click", () => {
       const taken = new Set(active);
-      const seed = idsOfKind("background").find((id) => !taken.has(id)) ?? host.catalogue.map((c) => c.id).find((id) => !taken.has(id));
+      const seed = idsOfKind("background").find((id) => !taken.has(id)) ?? offered().map((c) => c.id).find((id) => !taken.has(id));
       if (seed) commitEffects(slideId, [...active, seed]);
     });
     return button;
@@ -556,6 +567,9 @@ export function createHud(host: HudHost): Hud {
     const box = el("div", { class: "deck3d-hud-fxparams" });
     for (const [key, rawSpec] of Object.entries(decl.schema)) {
       const spec = rawSpec as { type?: string; minimum?: number; maximum?: number; default?: unknown; enum?: string[] };
+      // Structured params (layer lists, id maps) have no scalar control; they
+      // are edited in deck.json or picked as a variant.
+      if (spec.type === "array" || spec.type === "object" || (spec.type === "string" && !spec.enum)) continue;
       const current = decl.values[key] ?? spec.default;
       const line = el("label", { class: "deck3d-hud-fxparam" });
       const tag = el("span");

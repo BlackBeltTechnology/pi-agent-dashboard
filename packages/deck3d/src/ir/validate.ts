@@ -12,6 +12,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import Ajv, { type ErrorObject } from "ajv";
 import { localRefs, resolveLocalEffect } from "../fx/local.js";
+import { isPersistentFx } from "../fx/persistent.js";
 import { pkgRoot } from "../util/paths.js";
 import { computeDerivedHash } from "./hash.js";
 import { findOrphanOverrides, orphanOverridePath } from "./merge.js";
@@ -166,6 +167,19 @@ export function validateAssets(deck: DeckIR, deckDir: string): ValidationIssue[]
   return errors;
 }
 
+/** A persistent card anywhere but deck-scope `overrides.effects` is an error. */
+function validatePersistentScope(deck: DeckIR): ValidationIssue[] {
+  const errors: ValidationIssue[] = [];
+  for (const [id, slide] of Object.entries(deck.overrides.slides ?? {})) {
+    (slide.effects ?? []).forEach((ref, i) => {
+      if (isPersistentFx(ref.id)) {
+        errors.push({ path: `overrides.slides["${id}"].effects[${i}]`, message: `'${ref.id}' is persistent: deck-scope only (list it in overrides.effects)` });
+      }
+    });
+  }
+  return errors;
+}
+
 const PROP_COUNT_BUDGET = 5;
 const PROP_BYTES_BUDGET = 10 * 1024 * 1024;
 
@@ -229,6 +243,7 @@ export function validate(ir: unknown, opts: ValidateOptions = {}): ValidationRes
   const deck = ir as DeckIR;
   errors.push(...validateDerived(deck));
   errors.push(...validateCameraPaths(deck));
+  errors.push(...validatePersistentScope(deck));
   if (opts.deckDir !== undefined) {
     errors.push(...validateLocalEffects(deck, opts.deckDir));
     errors.push(...validateAssets(deck, opts.deckDir));

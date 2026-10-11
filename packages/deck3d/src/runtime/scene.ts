@@ -38,6 +38,8 @@ export interface SceneRig {
   shadowCamera: () => { left: number; right: number; top: number; bottom: number; near: number; far: number; pos: [number, number, number]; castShadow: boolean };
   /** Whether backdrop geometry is in the reflection, for `debug.look()`. */
   reflectsBackdrop: () => boolean;
+  /** Layer mask of the floor reflection's camera (0 when there is no mirror). */
+  mirrorMask: () => number;
   /** Live floor roughness (0 = mirror), read off the shader, for `debug.look()`. */
   floorMatte: () => number;
   /** Live reflection strength (1 = full mirror), read off the shader, for `debug.look()`. */
@@ -221,6 +223,20 @@ interface RigParts {
  */
 export const BACKDROP_LAYER = 1;
 const CONTENT_LAYER = 0;
+/**
+ * Drawn in the content pass but never seen by the floor reflection's camera
+ * (its mask is content + optionally backdrop): persistent deck chrome lives
+ * here, so the camera-pinned frame never mirrors into the floor.
+ */
+export const OVERLAY_LAYER = 2;
+
+/** Put `object` and everything under it on the overlay layer. */
+export function markOverlay(object: THREE.Object3D): void {
+  object.traverse((n) => {
+    n.layers.set(OVERLAY_LAYER);
+    n.userData.overlay = true;
+  });
+}
 
 /** Put `object` and everything under it on the backdrop layer. */
 export function markBackdrop(object: THREE.Object3D): void {
@@ -299,6 +315,7 @@ function renderLayered(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
   renderer.autoClear = false;
   scene.background = null;
   camera.layers.set(CONTENT_LAYER);
+  camera.layers.enable(OVERLAY_LAYER);
   // The casters are visible to THIS camera: refresh the map here, for the
   // content-on-content shadows in this pass and the floor in the next frame.
   renderer.shadowMap.needsUpdate = true;
@@ -412,6 +429,7 @@ export function createSceneRig(profile: QualityProfile): SceneRig {
     rimColor: () => r.rimLight.color,
     floorMode: () => floorNow,
     reflectsBackdrop: () => backdropReflected,
+    mirrorMask: () => r.mirror?.camera.layers.mask ?? 0,
     // Read from the uniform, not from the config that was meant to set it: a
     // knob that stages a value without reaching the frame must still fail.
     floorMatte: () => (r.mirror ? mirrorUniforms(r.mirror).matte.value : 0),

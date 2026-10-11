@@ -70,6 +70,8 @@ describe("effect corpus (E27/E28)", () => {
       quality: qualityProfile("high"),
       rng: makeRng(1),
       slide: { id: "s1", title: "Slide", kind: "content" },
+      // The extended ctx (deck3d-pptx-import): an empty asset accessor.
+      assets: { get: (id: string): unknown => { throw new Error(`unknown asset '${id}'`); }, has: () => false },
     };
     for (const { card, create } of Object.values(REGISTRY)) {
       expect(() => {

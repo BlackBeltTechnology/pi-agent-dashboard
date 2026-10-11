@@ -44,6 +44,11 @@ Commands:
   overrides apply <deck.json> <file>         Merge an overrides-grammar file into the deck
   pptx import <file.pptx> [-o dir] [--ref dir] [--force]
                                              pptx → layout.json + media + baseline deck (re-import keeps tuning)
+  art trace <image> [-o out.json] [--palette #a,#b] [--min-area px] [--tolerance px] [--size px]
+                                             Raster/SVG → coloured outline polygons with holes (sandboxed decode)
+  art icon <file.svg> [-o out.json]          SVG → polylines (parsed as data, no browser)
+  art cutout <image> --bg #hex [--split] [--max px] [-o dir]
+                                             Colour-to-alpha; --split writes one PNG per region + index
 
 fx options:
   fx list [--kind k] [--tag t] [--topic p]   List effects (optionally filtered)
@@ -65,6 +70,7 @@ interface Flags {
   positional: string[];
   bool: Set<string>;
   value: Record<string, string>;
+  multi: Record<string, string[]>;
 }
 
 /** Flags that consume the next argument as their value. */
@@ -86,15 +92,29 @@ const VALUE_FLAGS = new Set([
   "--licence",
   "--port",
   "--ref",
+  "--min-area",
+  "--tolerance",
+  "--size",
+  "--bg",
+  "--max",
+  "--step",
+  "--threshold",
+  "--note",
+  "--replace-step",
+  "--drop",
 ]);
 
+/** Value flags that may repeat; every value is kept in `Flags.multi`. */
+const MULTI_FLAGS = new Set(["--drop"]);
+
 function parseArgs(args: string[]): Flags {
-  const flags: Flags = { positional: [], bool: new Set(), value: {} };
+  const flags: Flags = { positional: [], bool: new Set(), value: {}, multi: {} };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (VALUE_FLAGS.has(arg)) {
       const key = arg === "-o" ? "out" : arg.replace(/^--?/, "");
       flags.value[key] = args[++i] ?? "";
+      if (MULTI_FLAGS.has(arg)) (flags.multi[key] ??= []).push(flags.value[key]);
     } else if (arg.startsWith("-")) {
       flags.bool.add(arg.replace(/^--?/, ""));
     } else {
@@ -245,7 +265,19 @@ async function renderFile(jsonPath: string, outPath: string, io: CliIO, embedVid
     if (total) io.stdout(`embedded ${Object.keys(result.embedded).length} clip(s), ${(total / 1024 / 1024).toFixed(1)} MiB`);
     renderIr = result.ir;
   }
-  const html = renderDeck(renderIr, { runtime, font: fontBase64(), title: basename(jsonPath, ".json"), props, localFx });
+  const { loadAssets, AssetBudgetError } = await import("./render/assets.js");
+  let bundle: ReturnType<typeof loadAssets>;
+  try {
+    bundle = loadAssets(ir, jsonPath);
+  } catch (err) {
+    if (err instanceof AssetBudgetError) {
+      io.stderr(`error ${err.message}`);
+      return 1;
+    }
+    throw err;
+  }
+  for (const w of bundle.warnings) io.stderr(w);
+  const html = renderDeck(renderIr, { runtime, font: fontBase64(), title: basename(jsonPath, ".json"), props, localFx, assets: bundle.assets });
   writeFileSync(outPath, html);
   return 0;
 }
@@ -785,6 +817,89 @@ async function cmdPptx(args: string[], io: CliIO): Promise<number> {
   }
 }
 
+/** `art trace|icon|cutout` (spec deck3d-art-tooling). */
+async function cmdArt(args: string[], io: CliIO): Promise<number> {
+  const flags = parseArgs(args);
+  const [sub, file] = flags.positional;
+  if (sub !== "trace" && sub !== "icon" && sub !== "cutout") {
+    io.stderr(`deck3d art: unknown subcommand '${sub ?? ""}' (try trace|icon|cutout)`);
+    return 2;
+  }
+  if (!file) {
+    io.stderr(`deck3d art ${sub}: missing input file`);
+    return 2;
+  }
+  const base = basename(file).replace(/\.[^.]+$/, "");
+  try {
+    if (sub === "icon") {
+      const { svgToPolylines } = await import("./art/icon.js");
+      const { icon, warnings } = svgToPolylines(new Uint8Array(readFileSync(file)), file);
+      for (const w of warnings) io.stderr(w);
+      const out = flags.value.out ?? join(dirname(file), `${base}.icon.json`);
+      writeFileSync(out, `${JSON.stringify(icon)}\n`);
+      io.stdout(`wrote ${out} (${icon.polylines.length} polylines)`);
+      return 0;
+    }
+    if (sub === "cutout" && !flags.value.bg) {
+      io.stderr("deck3d art cutout: missing --bg #hex");
+      return 2;
+    }
+    const bytes = new Uint8Array(readFileSync(file));
+    const { openSandbox, sniffMime, DecodeUnavailableError, DECODE_MAX_BYTES } = await import("./art/decode.js");
+    if (bytes.length > DECODE_MAX_BYTES) {
+      io.stderr(`deck3d art ${sub}: ${file} is ${bytes.length} bytes (limit ${DECODE_MAX_BYTES / 1024 / 1024} MB)`);
+      return 1;
+    }
+    let sandbox: Awaited<ReturnType<typeof openSandbox>>;
+    try {
+      sandbox = await openSandbox();
+    } catch (err) {
+      if (err instanceof DecodeUnavailableError) {
+        io.stderr(`deck3d art ${sub}: chromium missing (npx playwright install chromium)`);
+        return 1;
+      }
+      throw err;
+    }
+    let img: import("./art/png.js").RgbaImage;
+    try {
+      img = await sandbox.decode(bytes, sniffMime(bytes), flags.value.size ? { size: Number(flags.value.size) } : {});
+    } finally {
+      await sandbox.close();
+    }
+    if (sub === "trace") {
+      const { traceImage } = await import("./art/trace.js");
+      const outline = traceImage(img, {
+        ...(flags.value.palette ? { palette: flags.value.palette.split(",") } : {}),
+        ...(flags.value["min-area"] ? { minArea: Number(flags.value["min-area"]) } : {}),
+        ...(flags.value.tolerance ? { tolerance: Number(flags.value.tolerance) } : {}),
+      });
+      const out = flags.value.out ?? join(dirname(file), `${base}.outline.json`);
+      writeFileSync(out, `${JSON.stringify(outline)}\n`);
+      io.stdout(`wrote ${out} (${outline.polygons.length} polygons)`);
+      return 0;
+    }
+    const { cutout } = await import("./art/cutout.js");
+    const { encodePng } = await import("./art/png.js");
+    const { mkdirSync } = await import("node:fs");
+    const dir = flags.value.out ?? dirname(file);
+    mkdirSync(dir, { recursive: true });
+    const pieces = cutout(img, flags.value.bg, { split: flags.bool.has("split"), ...(flags.value.max ? { max: Number(flags.value.max) } : {}) });
+    const regions = pieces.map((p, i) => {
+      const name = flags.bool.has("split") ? `${base}-${i}.png` : `${base}.png`;
+      writeFileSync(join(dir, name), encodePng(p.image));
+      return { file: name, ...p.region };
+    });
+    if (flags.bool.has("split")) {
+      writeFileSync(join(dir, `${base}.cutout.json`), `${JSON.stringify({ version: 1, source: basename(file), width: img.width, height: img.height, regions }, null, 2)}\n`);
+    }
+    io.stdout(`wrote ${regions.length} image(s) to ${dir}`);
+    return 0;
+  } catch (err) {
+    io.stderr(`deck3d art ${sub}: ${(err as Error).message}`);
+    return 1;
+  }
+}
+
 async function cmdOverrides(args: string[], io: CliIO): Promise<number> {
   const [sub, ...rest] = args;
   if (sub === "apply") return overridesApply(rest, io);
@@ -828,6 +943,8 @@ export async function run(argv: string[], io: CliIO = defaultIO): Promise<number
       return cmdOverrides(rest, io);
     case "pptx":
       return cmdPptx(rest, io);
+    case "art":
+      return cmdArt(rest, io);
     default:
       io.stderr(`deck3d: unknown command '${command}' (try --help)`);
       return 2;
