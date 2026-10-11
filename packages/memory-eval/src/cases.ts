@@ -107,18 +107,25 @@ function faultContext(f: FailureOccurrence): string {
   return `${f.call.tool}: ${f.head}\n${f.result.text.slice(0, 600)}`;
 }
 
-type PerSession = Map<string, { first: FailureOccurrence; solved: boolean }>;
+/** `solvedMs`: when the earliest changed-approach fix in that session landed (null = never). */
+type PerSession = Map<string, { first: FailureOccurrence; solvedMs: number | null }>;
 
-/** signature -> per-session first failure + whether any failure there had a changed-approach fix. */
+/** Fold one failure into its signature's per-session record (first failure wins; earliest fix wins). */
+function recordFailure(per: PerSession, session: string, f: FailureOccurrence): void {
+  const solvedMs = f.fixChanged ? f.fixMs : null;
+  const cur = per.get(session);
+  if (!cur) per.set(session, { first: f, solvedMs });
+  else if (solvedMs !== null && (cur.solvedMs === null || solvedMs < cur.solvedMs)) cur.solvedMs = solvedMs;
+}
+
+/** signature -> per-session first failure + when a changed-approach fix landed there. */
 function groupBySignature(parsed: ParsedSessions): Map<string, PerSession> {
   const bySig = new Map<string, PerSession>();
   for (const session of parsed.sessions) {
     for (const f of failuresIn(session, parsed.bySession.get(session) ?? [])) {
       let per = bySig.get(f.signature);
       if (!per) bySig.set(f.signature, (per = new Map()));
-      const cur = per.get(session);
-      if (!cur) per.set(session, { first: f, solved: f.fixChanged });
-      else if (f.fixChanged) cur.solved = true;
+      recordFailure(per, session, f);
     }
   }
   return bySig;
@@ -133,7 +140,9 @@ function casesForSignature(sig: string, per: PerSession): { recurring: Case[]; n
   if (ordered.length === 1) return { recurring: [], negatives: [faultCase("negative", ordered[0][0], ordered[0][1].first, sig, [])] };
   const recurring: Case[] = [];
   for (let i = 1; i < ordered.length; i++) {
-    const gold = ordered.slice(0, i).filter(([, v]) => v.solved).map(([s]) => s);
+    // An earlier session is gold only if its fix existed when this case's decision was made.
+    const decisionMs = ordered[i][1].first.result.ms;
+    const gold = ordered.slice(0, i).filter(([, v]) => v.solvedMs !== null && v.solvedMs < decisionMs).map(([s]) => s);
     if (gold.length) recurring.push(faultCase("recurring_fault", ordered[i][0], ordered[i][1].first, sig, gold));
   }
   return { recurring, negatives: [] };

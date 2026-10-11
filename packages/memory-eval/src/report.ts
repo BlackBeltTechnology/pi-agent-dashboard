@@ -21,7 +21,7 @@ const SANITY_RETRIEVER = "hermes.session_search.recent";
 const isOldStack = (id: string) => id.startsWith("hermes.");
 
 type ValidityState = "valid" | "invalid" | "unjudged";
-type HelpState = "helpful" | "not_helpful" | "unjudged";
+type HelpState = "helpful" | "not_helpful" | "unjudged" | "error";
 
 export interface RunData {
   runId: string;
@@ -50,6 +50,7 @@ function verdictReader(retrieved: RetrievedFile, cases: Case[], j: JudgeInfo, ve
     helpful(rid, caseId) {
       const r: CaseResult | undefined = retrieved.results[rid]?.[caseId];
       if (!r) return "unjudged";
+      if (r.error) return "error"; // a failed search is neither abstention nor a miss
       if (!r.top5.length) return "not_helpful"; // nothing returned: not helpful by construction
       const ver = retrieved.retrievers.find((x) => x.id === rid)?.version ?? "";
       const v = get({ kind: "helpfulness", caseId, caseContentHash: byId.get(caseId)!.contentHash, outputHash: outputHash(rid, ver, r.top5), ...base });
@@ -61,7 +62,11 @@ function verdictReader(retrieved: RetrievedFile, cases: Case[], j: JudgeInfo, ve
 function coverageOf(retrieved: RetrievedFile, cases: Case[], rd: Reader): { judged: number; unjudged: number } {
   let done = 0;
   let missing = 0;
-  const count = (state: string) => (state === "unjudged" ? missing++ : done++);
+  const count = (state: string) => {
+    if (state === "error") return; // needs no verdict
+    if (state === "unjudged") missing++;
+    else done++;
+  };
   for (const c of cases) {
     const v = rd.validity(c.id);
     count(v);
@@ -101,6 +106,7 @@ interface TypeRow {
   validityUnjudged: number;
   helpful: Rate;
   helpfulnessUnjudged: number;
+  searchErrors: number;
 }
 interface NegativesRow {
   cases: number;
@@ -111,6 +117,7 @@ interface NegativesRow {
   abstention: Rate;
   judgedHelpful: Rate;
   helpfulnessUnjudged: number;
+  searchErrors: number;
 }
 interface GoldRow {
   n: number;
@@ -151,9 +158,14 @@ interface Tally {
   helpful: number;
   judged: number;
   helpfulnessUnjudged: number;
+  searchErrors: number;
 }
 
 function tallyHelp(t: Tally, h: HelpState): void {
+  if (h === "error") {
+    t.searchErrors++;
+    return;
+  }
   if (h === "unjudged") {
     t.helpfulnessUnjudged++;
     return;
@@ -164,15 +176,16 @@ function tallyHelp(t: Tally, h: HelpState): void {
 
 /** Per-case validity/helpfulness tally for one retriever over `cases`. */
 function tally(run: RunData, rid: string, cases: Case[]): Tally {
-  const t: Tally = { valid: 0, invalid: 0, validityUnjudged: 0, returned: 0, helpful: 0, judged: 0, helpfulnessUnjudged: 0 };
+  const t: Tally = { valid: 0, invalid: 0, validityUnjudged: 0, returned: 0, helpful: 0, judged: 0, helpfulnessUnjudged: 0, searchErrors: 0 };
   for (const c of cases) {
     const v = run.validity(c.id);
     if (v === "invalid") t.invalid++;
     else if (v === "unjudged") t.validityUnjudged++;
     else {
       t.valid++;
-      if (run.retrieved.results[rid]?.[c.id]?.top5.length) t.returned++;
-      tallyHelp(t, run.helpful(rid, c.id));
+      const h = run.helpful(rid, c.id);
+      if (h !== "error" && run.retrieved.results[rid]?.[c.id]?.top5.length) t.returned++;
+      tallyHelp(t, h);
     }
   }
   return t;
@@ -180,20 +193,22 @@ function tally(run: RunData, rid: string, cases: Case[]): Tally {
 
 function typeRow(run: RunData, rid: string, cases: Case[]): TypeRow {
   const t = tally(run, rid, cases);
-  return { cases: cases.length, valid: t.valid, invalid: t.invalid, validityUnjudged: t.validityUnjudged, helpful: rate(t.helpful, t.judged), helpfulnessUnjudged: t.helpfulnessUnjudged };
+  return { cases: cases.length, valid: t.valid, invalid: t.invalid, validityUnjudged: t.validityUnjudged, helpful: rate(t.helpful, t.judged), helpfulnessUnjudged: t.helpfulnessUnjudged, searchErrors: t.searchErrors };
 }
 
 function negativesRow(run: RunData, rid: string, cases: Case[]): NegativesRow {
   const t = tally(run, rid, cases);
+  const searched = t.valid - t.searchErrors; // errored searches are out of every retrieval denominator
   return {
     cases: cases.length,
     valid: t.valid,
     invalid: t.invalid,
     validityUnjudged: t.validityUnjudged,
-    returnedAnything: rate(t.returned, t.valid),
-    abstention: rate(t.valid - t.returned, t.valid),
+    returnedAnything: rate(t.returned, searched),
+    abstention: rate(searched - t.returned, searched),
     judgedHelpful: rate(t.helpful, t.judged),
     helpfulnessUnjudged: t.helpfulnessUnjudged,
+    searchErrors: t.searchErrors,
   };
 }
 
@@ -212,6 +227,32 @@ function goldRows(run: RunData, rid: string): Record<string, GoldRow> {
     out[type] = { n: cs.length, hit5: h5, hit10: h10 };
   }
   return out;
+}
+
+/** Union: any as-of old-stack retriever helpful, over cases judged for EVERY constituent. */
+function unionOf(run: RunData, positives: Case[]): UnionAgg | null {
+  const members = run.retrieved.retrievers.filter((r) => r.status === "ok" && r.asOf === "strict" && isOldStack(r.id)).map((r) => r.id);
+  if (!members.length) return null;
+  const calc = (cs: Case[]): Rate => {
+    let k = 0;
+    let n = 0;
+    for (const c of cs) {
+      if (run.validity(c.id) !== "valid") continue;
+      const hs = members.map((m) => run.helpful(m, c.id));
+      if (hs.includes("unjudged") || hs.includes("error")) continue;
+      n++;
+      if (hs.includes("helpful")) k++;
+    }
+    return rate(k, n);
+  };
+  return { retrieverIds: members, overall: calc(positives), byType: Object.fromEntries(POSITIVE_TYPES.map((t) => [t, calc(positives.filter((c) => c.type === t))])) };
+}
+
+function sanityOf(retrievers: RetrieverAgg[]): Aggregate["sanity"] {
+  const san = retrievers.find((r) => r.id === SANITY_RETRIEVER && r.status === "ok");
+  const h = san?.positives.overall.helpful;
+  if (!san || !h || h.n === 0) return null;
+  return { retrieverId: san.id, rate: h, flagged: Math.abs(h.k / h.n - SANITY_CENTER) > SANITY_BAND };
 }
 
 export function aggregate(run: RunData): Aggregate {
@@ -244,27 +285,8 @@ export function aggregate(run: RunData): Aggregate {
     };
   });
 
-  // Union: any as-of old-stack retriever helpful, over cases judged for EVERY constituent.
-  const members = run.retrieved.retrievers.filter((r) => r.status === "ok" && r.asOf === "strict" && isOldStack(r.id)).map((r) => r.id);
-  let union: UnionAgg | null = null;
-  if (members.length) {
-    const calc = (cs: Case[]): Rate => {
-      let k = 0;
-      let n = 0;
-      for (const c of cs) {
-        if (run.validity(c.id) !== "valid") continue;
-        const hs = members.map((m) => run.helpful(m, c.id));
-        if (hs.includes("unjudged")) continue;
-        n++;
-        if (hs.includes("helpful")) k++;
-      }
-      return rate(k, n);
-    };
-    union = { retrieverIds: members, overall: calc(positives), byType: Object.fromEntries(POSITIVE_TYPES.map((t) => [t, calc(positives.filter((c) => c.type === t))])) };
-  }
-
-  const san = retrievers.find((r) => r.id === SANITY_RETRIEVER && r.status === "ok");
-  const sanity = san && san.positives.overall.helpful.n > 0 ? { retrieverId: san.id, rate: san.positives.overall.helpful, flagged: Math.abs(san.positives.overall.helpful.k / san.positives.overall.helpful.n - SANITY_CENTER) > SANITY_BAND } : null;
+  const union = unionOf(run, positives);
+  const sanity = sanityOf(retrievers);
   const j = run.manifest.judge ?? {};
   const counts: Record<string, number> = {};
   for (const c of run.cases) counts[c.type] = (counts[c.type] ?? 0) + 1;
@@ -288,7 +310,7 @@ function renderRetriever(r: RetrieverAgg): string {
   const L: string[] = [`### ${r.id} v${r.version} (asOf: ${r.asOf})`, ""];
   if (r.status === "unavailable") return `${L.join("\n")}\nunavailable — no figures\n`;
   L.push("| positives | cases | valid | invalid | validity unjudged | helpful@5 | 95% CI | helpfulness unjudged |", "|---|---|---|---|---|---|---|---|");
-  const row = (name: string, t: TypeRow) => `| ${name} | ${t.cases} | ${t.valid} | ${t.invalid} | ${t.validityUnjudged} | ${cell(t.helpful)} | ${ci(t.helpful)} | unjudged: ${t.helpfulnessUnjudged} |`;
+  const row = (name: string, t: TypeRow) => `| ${name} | ${t.cases} | ${t.valid} | ${t.invalid} | ${t.validityUnjudged} | ${cell(t.helpful)} | ${ci(t.helpful)} | unjudged: ${t.helpfulnessUnjudged}; search errors: ${t.searchErrors} |`;
   L.push(row("all positives", r.positives.overall));
   for (const [t, v] of Object.entries(r.positives.byType)) L.push(row(t, v));
   const n = r.negatives;
@@ -297,7 +319,7 @@ function renderRetriever(r: RetrieverAgg): string {
     `Negatives (${n.cases} cases, ${n.valid} valid, ${n.invalid} invalid, ${n.validityUnjudged} validity-unjudged):`,
     `- returned anything (false injection if delivered): ${cell(n.returnedAnything)}`,
     `- abstention (returned nothing): ${cell(n.abstention)}`,
-    `- judged-helpful: ${cell(n.judgedHelpful)} (helpfulness unjudged: ${n.helpfulnessUnjudged})`,
+    `- judged-helpful: ${cell(n.judgedHelpful)} (helpfulness unjudged: ${n.helpfulnessUnjudged}); search errors: ${n.searchErrors}`,
     "",
     `- median injected size: ${r.medianSize === null ? "—" : `${r.medianSize} chars`}`,
   );
@@ -388,7 +410,7 @@ function pairRow(A: RunData, B: RunData, a: string, b: string, positives: Case[]
     if (A.validity(c.id) !== "valid" || B.validity(c.id) !== "valid") continue;
     const x = A.helpful(a, c.id);
     const y = B.helpful(b, c.id);
-    if (x === "unjudged" || y === "unjudged") continue;
+    if (x === "unjudged" || y === "unjudged" || x === "error" || y === "error") continue;
     n++;
     if (x === "helpful" && y !== "helpful") wins++;
     else if (y === "helpful" && x !== "helpful") losses++;

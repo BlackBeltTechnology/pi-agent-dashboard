@@ -196,4 +196,34 @@ describe("report", () => {
     const text = report(makeEnv(), { runId: "r1", cases: positives(3), retrievers: [{ id: RECENT }], judge: null });
     expect(text).toContain("NOT JUDGED");
   });
+
+  it("B7: a search that errored is neither abstention nor not-helpful", () => {
+    const neg = negatives(10);
+    const erroring = (c: Case) => ["n001", "n002", "n003", "n004"].includes(c.id);
+    const a = agg(makeEnv(), {
+      runId: "r1",
+      cases: neg,
+      retrievers: [{ id: RECENT }],
+      results: (_r, c) => (erroring(c) ? { top5: [], top10: [], error: "search timed out" } : {}),
+      helpful: () => "not_helpful",
+    });
+    const n = a.retrievers[0].negatives;
+    expect(n.valid).toBe(10);
+    expect(n.searchErrors).toBe(4);
+    expect(n.returnedAnything).toMatchObject({ k: 6, n: 6 });
+    expect(n.abstention).toMatchObject({ k: 0, n: 6 });
+    expect(n.judgedHelpful.n).toBe(6);
+    const cs = positives(10);
+    const p = agg(makeEnv(), {
+      runId: "r2",
+      cases: cs,
+      retrievers: [{ id: RECENT }, { id: "hermes.session_search.bm25" }],
+      results: (r, c) => (r === RECENT && c.id === "c001" ? { top5: [], top10: [], error: "boom" } : {}),
+      helpful: () => "helpful",
+    });
+    expect(p.retrievers.find((r) => r.id === RECENT)!.positives.overall.helpful.n).toBe(9);
+    expect(p.retrievers.find((r) => r.id === RECENT)!.positives.overall.searchErrors).toBe(1);
+    expect(p.union!.overall.n).toBe(9); // a constituent's failed search takes the case out of the union
+    expect(renderReport(p)).toContain("search errors: 1");
+  });
 });

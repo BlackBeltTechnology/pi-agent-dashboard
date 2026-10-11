@@ -122,4 +122,39 @@ describe("snapshot", () => {
     hermes.close();
     kb.close();
   });
+
+  it("B5: a WAL that disappears between stat and copy is a failed attempt, not an abort", async () => {
+    const vanish = (when: (attempt: number) => boolean): Partial<SnapshotDeps> => ({
+      copyFile(src, dst, attempt) {
+        if (src.endsWith("-wal") && when(attempt)) throw Object.assign(new Error("ENOENT: no such file or directory, copyfile"), { code: "ENOENT" });
+        copyFileSync(src, dst);
+      },
+    });
+    const once = walEnv(vanish((n) => n === 1));
+    expect(await run(once.env)).toBe(0);
+    expect(manifestOf(once.env).snapshots.hermes.attempts).toBe(2);
+    once.h.close();
+
+    const always = walEnv(vanish(() => true));
+    expect(await run(always.env)).not.toBe(0);
+    expect(always.env.stderr.join("")).toContain(hermesDbPath(always.env));
+    // No transient raw/ copy is left behind on the failure path.
+    const leftovers = existsSync(always.env.paths.snapshotsDir) ? readdirSync(always.env.paths.snapshotsDir).flatMap((id) => readdirSync(join(always.env.paths.snapshotsDir, id))) : [];
+    expect(leftovers).not.toContain("raw");
+    always.h.close();
+  });
+
+  it("B6: two runs started in the same second get distinct run ids", async () => {
+    const env = makeEnv({ now: () => new Date("2026-02-01T12:00:00.000Z") });
+    writeCaseSet(env, [mkCase({ id: "c1", decisionTime: T })]);
+    // An async external adapter makes the runs interleave between choosing an id and writing results.
+    const mod = join(env.home, "slow.mjs");
+    writeFileSync(mod, `export default [{ id: "stub.slow", version: "1", asOf: "strict", search: async () => { await new Promise((r) => setTimeout(r, 30)); return []; } }];`);
+    const args = ["run", "--retrievers", "hermes.memory_search", "--retriever-module", mod];
+    const codes = await Promise.all([main(args, env.ctx), main(args, env.ctx), main(args, env.ctx)]);
+    expect(codes).toEqual([0, 0, 0]);
+    const ids = readdirSync(env.paths.runsDir);
+    expect(new Set(ids).size).toBe(3);
+    for (const id of ids) expect(existsSync(join(env.paths.runsDir, id, "manifest.json"))).toBe(true);
+  });
 });

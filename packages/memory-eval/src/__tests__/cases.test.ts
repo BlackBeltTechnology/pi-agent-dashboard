@@ -251,4 +251,24 @@ describe("cases", () => {
     expect(empty.stderr.join("")).toContain(empty.paths.sessionsDir);
     expect(existsSync(casePath(empty.paths.casesDir, "baseline"))).toBe(false);
   });
+
+  it("B4: an earlier session only counts as gold when its fix landed before the decision time", () => {
+    const fillers = (n: number): Step[] => Array.from({ length: n }, () => user("ok"));
+    // S1 fails at +2 s and fixes at ~+9 s; S2 (started 1 s later) fails at +3 s, BEFORE that fix exists.
+    const overlap = setup([
+      S(1, 1, [FAIL(), ...fillers(5), FIX()], { start: "2026-01-01T10:00:00.000Z" }),
+      S(2, 1, [FAIL()], { start: "2026-01-01T10:00:01.000Z" }),
+    ]);
+    overlap.build();
+    expect(ofType(overlap.read(), "recurring_fault")).toHaveLength(0);
+    // Control: the same S2 starting after S1's fix does get S1 as gold.
+    const after = setup([
+      S(1, 1, [FAIL(), ...fillers(5), FIX()], { start: "2026-01-01T10:00:00.000Z" }),
+      S(2, 1, [FAIL()], { start: "2026-01-01T11:00:00.000Z" }),
+    ]);
+    after.build();
+    const rf = ofType(after.read(), "recurring_fault");
+    expect(rf).toHaveLength(1);
+    expect(rf[0].goldSessions).toEqual([uuid(1)]);
+  });
 });

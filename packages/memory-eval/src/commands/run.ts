@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
-import { DEFAULTS } from "@blackbelt-technology/pi-dashboard-kb";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
+import { DEFAULTS, loadConfig } from "@blackbelt-technology/pi-dashboard-kb";
 import type { Ctx } from "../ctx.js";
 import { type CaseResult, type Retriever, runOne } from "../retriever.js";
 import { BUILTIN_IDS, hermesRetrievers, kbRetriever } from "../retrievers/builtin.js";
@@ -17,7 +17,7 @@ export interface RunArgs {
   retrieverModule?: string;
   /** Hermes `project` filter; default = basename of the project dir. */
   hermesProject?: string;
-  /** kb index path; default `<cwd>/.pi/dashboard/kb/index.db`. */
+  /** kb index path; default = the project's kb config `dbPath` (shipped default `.pi/dashboard/kb/index.db`). */
   kbIndex?: string;
 }
 
@@ -64,17 +64,26 @@ export function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T;
 }
 
+/** Newest completed run (the manifest is the last file a run writes). */
 export function latestRunId(runsDir: string): string {
-  const ids = existsSync(runsDir) ? readdirSync(runsDir).sort() : [];
-  if (!ids.length) throw new CliError(`no runs in ${runsDir}`);
+  const ids = (existsSync(runsDir) ? readdirSync(runsDir).sort() : []).filter((id) => existsSync(join(runsDir, id, "manifest.json")));
+  if (!ids.length) throw new CliError(`no completed runs in ${runsDir}`);
   return ids[ids.length - 1];
 }
 
-function newRunId(ctx: Ctx, runsDir: string): string {
+/** Claim a fresh run id by creating its directory: `mkdir` fails for an id another process already took. */
+function reserveRunId(ctx: Ctx, runsDir: string): string {
+  mkdirSync(runsDir, { recursive: true, mode: 0o700 });
   const stamp = (ctx.now?.() ?? new Date()).toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "");
-  let id = `r${stamp}`;
-  for (let n = 2; existsSync(join(runsDir, id)); n++) id = `r${stamp}-${n}`;
-  return id;
+  for (let n = 1; ; n++) {
+    const id = n === 1 ? `r${stamp}` : `r${stamp}-${n}`;
+    try {
+      mkdirSync(join(runsDir, id), { mode: 0o700 });
+      return id;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    }
+  }
 }
 
 function hermesVersion(ctx: Ctx): string {
@@ -108,6 +117,16 @@ function unavailable(ids: string[], asOf: "strict" | "none", reason: string): Re
   return ids.map((id) => ({ id, version: "", asOf, status: "unavailable" as const, reason }));
 }
 
+/** `--kb-index`, else the project's kb config (`dbPath`), else the shipped default. */
+function kbIndexPath(ctx: Ctx, args: RunArgs): string {
+  if (args.kbIndex) return resolve(ctx.cwd, args.kbIndex);
+  try {
+    return loadConfig(ctx.cwd).dbAbsPath;
+  } catch {
+    return join(ctx.cwd, DEFAULTS.dbPath); // unreadable config: fall back rather than abort the whole run
+  }
+}
+
 /** Snapshot the sources the selected built-ins need; a missing source marks its adapters unavailable. */
 function openSources(ctx: Ctx, args: RunArgs, selected: string[], snapDir: string): Sources {
   const out: Sources = { retrievers: [], statuses: [], snapshots: { hermes: ABSENT, kb: ABSENT }, kbChunks: ABSENT };
@@ -121,7 +140,7 @@ function openSources(ctx: Ctx, args: RunArgs, selected: string[], snapDir: strin
     } else out.statuses.push(...unavailable(hermesIds, "strict", "hermes sessions.db absent"));
   }
   if (selected.includes("kb.docs")) {
-    const snap = snapshotDb({ source: args.kbIndex ?? join(ctx.cwd, DEFAULTS.dbPath), destDir: snapDir, name: "kb.db", fingerprint: kbFingerprint, deps: ctx.snapshotDeps });
+    const snap = snapshotDb({ source: kbIndexPath(ctx, args), destDir: snapDir, name: "kb.db", fingerprint: kbFingerprint, deps: ctx.snapshotDeps });
     if (snap.status === "ok") {
       out.snapshots.kb = { status: "ok", attempts: snap.attempts, fingerprint: snap.fingerprint };
       out.kbChunks = snap.fingerprint.chunks ?? ABSENT;
@@ -143,7 +162,7 @@ export async function runCommand(ctx: Ctx, args: RunArgs = {}): Promise<number> 
   const external = args.retrieverModule ? await loadRetrieverModule(args.retrieverModule, ctx.cwd, BUILTIN_IDS) : null;
 
   ensureWorkDir(p);
-  const runId = newRunId(ctx, p.runsDir);
+  const runId = reserveRunId(ctx, p.runsDir);
   const dir = runDir(p.runsDir, runId);
   const src = openSources(ctx, args, selected, join(p.snapshotsDir, runId));
   const active = [...src.retrievers, ...(external?.retrievers ?? [])];

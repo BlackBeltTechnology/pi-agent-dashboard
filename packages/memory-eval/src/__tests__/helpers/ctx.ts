@@ -15,7 +15,7 @@ export interface TestEnv {
 
 export function makeEnv(over: Partial<Ctx> = {}): TestEnv {
   const home = mkdtempSync(join(tmpdir(), "meval-"));
-  const cwd = "/synthetic/project";
+  const cwd = over.cwd ?? "/synthetic/project";
   const stdout: string[] = [];
   const stderr: string[] = [];
   const ctx: Ctx = {

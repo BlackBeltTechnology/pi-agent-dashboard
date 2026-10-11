@@ -65,7 +65,7 @@ function hardenTree(root: string): void {
 }
 
 /** Write a file privately: parent dirs 0700, file 0600. */
-export function writeSecure(path: string, data: string | Uint8Array, opts: { flag?: "w" | "a" } = {}): void {
+export function writeSecure(path: string, data: string | Uint8Array, opts: { flag?: "w" | "a" | "wx" } = {}): void {
   ensureDir(dirname(path));
   writeFileSync(path, data, { mode: 0o600, flag: opts.flag ?? "w" });
   chmodSync(path, 0o600);

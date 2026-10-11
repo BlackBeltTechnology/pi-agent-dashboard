@@ -23,19 +23,24 @@ export function readCaseSet(path: string): CaseSet {
   return JSON.parse(readFileSync(path, "utf8")) as CaseSet;
 }
 
+/** The project's session dir, plus the sibling `.worktrees/*` dirs when asked. */
+function sessionDirs(p: ReturnType<typeof resolvePaths>, includeWorktrees: boolean | undefined): string[] {
+  const dirs = [p.sessionsDir];
+  if (!includeWorktrees) return dirs;
+  const prefix = `${p.projectKey.slice(0, -2)}-.worktrees-`;
+  try {
+    for (const n of readdirSync(p.sessionsRoot)) if (n.startsWith(prefix)) dirs.push(join(p.sessionsRoot, n));
+  } catch {
+    /* no sessions root */
+  }
+  return dirs;
+}
+
 export function casesBuild(ctx: Ctx, args: CasesBuildArgs = {}): number {
   const set = args.set ?? "baseline";
   if (!/^[\w.-]+$/.test(set)) throw new CliError(`invalid set name: ${set}`);
   const p = resolvePaths({ cwd: ctx.cwd, home: ctx.home });
-  const dirs = [p.sessionsDir];
-  if (args.includeWorktrees) {
-    const prefix = `${p.projectKey.slice(0, -2)}-.worktrees-`;
-    try {
-      for (const n of readdirSync(p.sessionsRoot)) if (n.startsWith(prefix)) dirs.push(join(p.sessionsRoot, n));
-    } catch {
-      /* no sessions root */
-    }
-  }
+  const dirs = sessionDirs(p, args.includeWorktrees);
   const files = listSessionFiles(dirs);
   if (!files.length) {
     ctx.err(`memory-eval: no session files (*.jsonl) in ${p.sessionsDir}\n`);
@@ -48,7 +53,14 @@ export function casesBuild(ctx: Ctx, args: CasesBuildArgs = {}): number {
   }
   const caseSet = buildCaseSet(parseSessionFiles(files), { seed: args.seed ?? DEFAULT_SEED, quotas: args.quotas });
   ensureWorkDir(p);
-  writeSecure(target, stableJson(caseSet));
+  try {
+    // `wx`: exclusive create, so two concurrent builds cannot both pass the existence check above.
+    writeSecure(target, stableJson(caseSet), { flag: args.force ? "w" : "wx" });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    ctx.err(`memory-eval: case set '${set}' already exists (${target}); pass --force to overwrite or --set <name> for a new set\n`);
+    return 1;
+  }
   const c = caseSet.counts;
   ctx.out(
     `case set '${set}': ${caseSet.cases.length} cases, hash ${caseSet.caseSetHash.slice(0, 16)}\n` +

@@ -87,44 +87,61 @@ function integrityOk(path: string): boolean {
   }
 }
 
+/** One attempt: copy, stat again, integrity-check. Returns the raw copy's path, or the reason it failed. */
+function attemptCopy(deps: SnapshotDeps, opts: SnapshotOpts, rawDb: string, attempt: number): { ok: true } | { ok: false; reason: string } {
+  const walSrc = `${opts.source}-wal`;
+  const before = [deps.statFile(opts.source, { attempt, phase: "before" }), deps.statFile(walSrc, { attempt, phase: "before" })];
+  try {
+    deps.copyFile(opts.source, rawDb, attempt);
+    if (before[1]) deps.copyFile(walSrc, `${rawDb}-wal`, attempt);
+  } catch (e) {
+    return { ok: false, reason: `copy failed (${e instanceof Error ? e.message : String(e)})` }; // e.g. the WAL vanished mid-copy
+  }
+  const after = [deps.statFile(opts.source, { attempt, phase: "after" }), deps.statFile(walSrc, { attempt, phase: "after" })];
+  if (sig(before[0]) !== sig(after[0]) || sig(before[1]) !== sig(after[1])) return { ok: false, reason: "a writer raced the copy" };
+  return integrityOk(rawDb) ? { ok: true } : { ok: false, reason: "integrity_check failed on the copy" };
+}
+
+function vacuumInto(rawDb: string, out: string, fingerprint: SnapshotOpts["fingerprint"]): Record<string, unknown> {
+  rmSync(out, { force: true });
+  const raw = new DatabaseSync(rawDb);
+  try {
+    raw.exec(`VACUUM INTO '${out.replace(/'/g, "''")}'`);
+  } finally {
+    raw.close();
+  }
+  const snap = new DatabaseSync(out);
+  try {
+    snap.exec("PRAGMA journal_mode=DELETE");
+    return fingerprint(snap);
+  } finally {
+    snap.close();
+  }
+}
+
 export function snapshotDb(opts: SnapshotOpts): SnapshotResult {
   const deps: SnapshotDeps = { ...realSnapshotDeps, ...opts.deps };
   const probe = deps.statFile(opts.source, { attempt: 0, phase: "before" });
   if (!probe || probe.size === 0) return { status: "absent", source: opts.source };
-  const walSrc = `${opts.source}-wal`;
   const rawDir = join(opts.destDir, "raw");
   const rawDb = join(rawDir, opts.name);
   const out = join(opts.destDir, opts.name);
-  for (let attempt = 1; attempt <= MAX_SNAPSHOT_ATTEMPTS; attempt++) {
-    rmSync(rawDir, { recursive: true, force: true });
-    mkdirSync(rawDir, { recursive: true, mode: 0o700 });
-    const before = [deps.statFile(opts.source, { attempt, phase: "before" }), deps.statFile(walSrc, { attempt, phase: "before" })];
-    deps.copyFile(opts.source, rawDb, attempt);
-    if (before[1]) deps.copyFile(walSrc, `${rawDb}-wal`, attempt);
-    const after = [deps.statFile(opts.source, { attempt, phase: "after" }), deps.statFile(walSrc, { attempt, phase: "after" })];
-    if (sig(before[0]) !== sig(after[0]) || sig(before[1]) !== sig(after[1])) continue; // a writer raced the copy
-    if (!integrityOk(rawDb)) continue;
-    rmSync(out, { force: true });
-    const db = new DatabaseSync(rawDb);
-    try {
-      db.exec(`VACUUM INTO '${out.replace(/'/g, "''")}'`);
-    } finally {
-      db.close();
-    }
-    const snap = new DatabaseSync(out);
-    try {
-      snap.exec("PRAGMA journal_mode=DELETE");
-      const fingerprint = opts.fingerprint(snap);
-      snap.close();
+  let lastReason = "";
+  try {
+    for (let attempt = 1; attempt <= MAX_SNAPSHOT_ATTEMPTS; attempt++) {
       rmSync(rawDir, { recursive: true, force: true });
-      return { status: "ok", source: opts.source, path: out, attempts: attempt, fingerprint };
-    } catch (e) {
-      snap.close();
-      throw e;
+      mkdirSync(rawDir, { recursive: true, mode: 0o700 });
+      const r = attemptCopy(deps, opts, rawDb, attempt);
+      if (!r.ok) {
+        lastReason = r.reason;
+        continue;
+      }
+      return { status: "ok", source: opts.source, path: out, attempts: attempt, fingerprint: vacuumInto(rawDb, out, opts.fingerprint) };
     }
+  } finally {
+    rmSync(rawDir, { recursive: true, force: true }); // the transient copy never outlives the call
   }
-  rmSync(rawDir, { recursive: true, force: true });
-  throw new CliError(`snapshot of ${opts.source} failed after ${MAX_SNAPSHOT_ATTEMPTS} attempts (source kept changing or the copy failed its integrity check)`);
+  throw new CliError(`snapshot of ${opts.source} failed after ${MAX_SNAPSHOT_ATTEMPTS} attempts (last: ${lastReason})`);
 }
 
 /** Row counts + max timestamps of the hermes tables, as a logical fingerprint. */

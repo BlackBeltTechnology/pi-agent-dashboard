@@ -90,15 +90,17 @@ export interface FailureOccurrence {
   fixChanged: boolean;
   /** A same-tool success within FIX_WINDOW events (any head). */
   fixed: boolean;
+  /** Timestamp (epoch ms) of that fix's result; null when there is none. */
+  fixMs: number | null;
 }
 
 /** Soonest same-tool success within FIX_WINDOW events after `from`; null when there is none. */
-function findFix(events: Ev[], from: number, call: CallEv, results: Map<string, ResEv>): CallEv | null {
+function findFix(events: Ev[], from: number, call: CallEv, results: Map<string, ResEv>): { call: CallEv; resultMs: number } | null {
   for (let j = from + 1; j <= from + FIX_WINDOW && j < events.length; j++) {
     const c = events[j];
     if (c.kind !== "call" || c.tool !== call.tool) continue;
     const r = results.get(c.id);
-    if (r && !isErrorResult(r)) return c;
+    if (r && !isErrorResult(r)) return { call: c, resultMs: r.ms };
   }
   return null;
 }
@@ -117,7 +119,7 @@ export function failuresIn(session: string, events: Ev[]): FailureOccurrence[] {
     if (e.kind !== "res" || !call) return;
     const head = headOf(call);
     const fix = findFix(events, i, call, results);
-    out.push({ session, signature: signatureOf(e.tool || call.tool, e.text), resultIdx: i, result: e, call, head, fixChanged: fix !== null && headOf(fix) !== head, fixed: fix !== null });
+    out.push({ session, signature: signatureOf(e.tool || call.tool, e.text), resultIdx: i, result: e, call, head, fixChanged: fix !== null && headOf(fix.call) !== head, fixed: fix !== null, fixMs: fix?.resultMs ?? null });
   });
   return out;
 }

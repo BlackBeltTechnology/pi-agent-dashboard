@@ -1,5 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import { describe, expect, it } from "vitest";
 import { main } from "../cli.js";
 import { latestRunId, type RetrievedFile } from "../commands/run.js";
@@ -178,5 +180,21 @@ describe("retrievers", () => {
     const c = retrieved!.results["stub.bad"].c1;
     expect(c.invalidHits).toBe(1);
     expect(c.top5.map((h) => h.ref)).toEqual(["ok"]);
+  });
+
+  it("B3: the kb index path comes from the project's kb config, not only the default", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "meval-proj-"));
+    const env = makeEnv({ cwd });
+    writeCaseSet(env, [mkCase({ id: "c1", decisionTime: T })]);
+    mkdirSync(join(cwd, ".pi", "dashboard"), { recursive: true });
+    writeFileSync(join(cwd, ".pi", "dashboard", "knowledge_base.json"), JSON.stringify({ dbPath: "custom/kb.db" }));
+    mkdirSync(join(cwd, "custom"), { recursive: true });
+    const kb = new SqliteFtsStore(join(cwd, "custom", "kb.db"));
+    kb.init();
+    const { code, manifest } = await doRun(env, ["--retrievers", "kb.docs"]);
+    kb.close();
+    expect(code).toBe(0);
+    expect(manifest!.snapshots.kb.status).toBe("ok");
+    expect(manifest!.kbChunkCount).not.toBe("absent");
   });
 });

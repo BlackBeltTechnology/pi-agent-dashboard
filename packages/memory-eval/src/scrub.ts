@@ -15,7 +15,7 @@ const NAME = String.raw`[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASS(?:WORD|WD)?(?![A
 
 export const SCRUB_RULES: ScrubRule[] = [
   { kind: "private-key", re: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/g, replace: "[REDACTED:private-key]" },
-  { kind: "auth-header", re: /(Authorization\s*:\s*(?:Bearer|Basic)\s+)[^\s"']+/gi, replace: "$1[REDACTED:auth-header]" },
+  { kind: "auth-header", re: /(Authorization["']?\s*:\s*["']?(?:Bearer|Basic)\s+)["']?[^\s"']+["']?/gi, replace: "$1[REDACTED:auth-header]" },
   { kind: "jwt", re: /\beyJ[\w-]{5,}\.[\w-]{5,}\.[\w-]{5,}/g, replace: "[REDACTED:jwt]" },
   { kind: "sk-key", re: /\bsk-[A-Za-z0-9_-]{8,}/g, replace: "[REDACTED:sk-key]" },
   { kind: "github-token", re: /\b(?:gh[pos]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g, replace: "[REDACTED:github-token]" },
@@ -23,7 +23,7 @@ export const SCRUB_RULES: ScrubRule[] = [
   { kind: "slack-token", re: /\bxox[a-z]-[A-Za-z0-9-]{10,}/g, replace: "[REDACTED:slack-token]" },
   { kind: "aws-key", re: /\bAKIA[0-9A-Z]{16}\b/g, replace: "[REDACTED:aws-key]" },
   { kind: "url-userinfo", re: /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, replace: "$1[REDACTED:url-userinfo]@" },
-  { kind: "secret-flag", re: /(--(?:password|token|api-key|secret)(?:=|\s+))(?!\[REDACTED:)[^\s"']+/gi, replace: "$1[REDACTED:secret-flag]" },
+  { kind: "secret-flag", re: /(--(?:password|token|api-key|secret)(?:=|\s+))(?!\[REDACTED:)("[^"\n]*"|'[^'\n]*'|[^\s"']+)/gi, replace: "$1[REDACTED:secret-flag]" },
   {
     kind: "secret-assignment",
     re: new RegExp(String.raw`(["']?${NAME}["']?\s*[=:]\s*)(?!\[REDACTED:)("[^"\n]*"|'[^'\n]*'|[^\s,;]+)`, "gi"),

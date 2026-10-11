@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { terminalConfirm } from "./confirm.js";
 import type { ScrubRule } from "./scrub.js";
 import type { SnapshotDeps } from "./snapshot.js";
 import type { Out } from "./util.js";
@@ -35,6 +36,7 @@ export function defaultCtx(over: Partial<Ctx> = {}): Ctx {
     cwd: process.cwd(),
     home: homedir(),
     isTTY: Boolean(process.stdin.isTTY),
+    confirm: (q) => terminalConfirm(q),
     piCommand: ["pi"],
     out: (s) => process.stdout.write(s),
     err: (s) => process.stderr.write(s),

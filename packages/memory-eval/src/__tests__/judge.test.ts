@@ -100,6 +100,21 @@ describe("judge", () => {
     expect(payload).toContain(hash);
   });
 
+  it("B2: quoted flag values and quoted bearer tokens are scrubbed too", () => {
+    const secrets = ["secretABC1", "secretABC2", "hunter2x", "has space inside", "tokQuoted1", "tokJson2"];
+    const context = [
+      `run --token "secretABC1"`,
+      `run --api-key 'secretABC2'`,
+      `run --password=hunter2x next`,
+      `run --secret "has space inside"`,
+      `Authorization: Bearer "tokQuoted1"`,
+      `{"Authorization": "Bearer tokJson2"}`,
+    ].join("\n");
+    const payload = buildBatchPayload("PROMPT", [validityItem(mkCase({ id: "c1", context }))], SCRUB_RULES);
+    for (const s of secrets) expect(payload, s).not.toContain(s);
+    expect(payload.match(/\[REDACTED:/g)!.length).toBeGreaterThanOrEqual(6);
+  });
+
   it("E32: the judge argv is exact and never carries an @role", async () => {
     for (const [spec, ref] of [["@review", "openai/gpt-6.1-sol:medium"], ["provider/x", "provider/x"]] as const) {
       const env = judgeEnv();
