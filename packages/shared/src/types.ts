@@ -21,9 +21,11 @@ export interface AutoNamerPersistedState {
   stopCause?: string;
   /** The cause-matched stop reason, so a later re-report stays actionable. */
   stoppedReason?: string;
-  nameSource?: "auto" | "user";
+  nameSource?: "auto" | "user" | "system";
   hasAutoName: boolean;
   lastSelfApplied?: string;
+  /** Last name a dashboard system rename applied (echo witness). */
+  lastSystemApplied?: string;
 }
 
 /** Source environment where a pi session is running */
@@ -162,7 +164,12 @@ export interface DashboardSession {
    * a dashboard or in-pi rename. Absent = never named. Drives the auto-naming
    * lockout. See change: add-auto-session-naming.
    */
-  nameSource?: "auto" | "user";
+  nameSource?: "auto" | "user" | "system";
+  /**
+   * Witness: the name `nameSource` (auto/system) was recorded FOR. Cleared when
+   * provenance becomes user/absent. See change: investigate-auto-name-provenance-relabel.
+   */
+  nameSourceFor?: string;
   /**
    * The auto-namer's durable stop state, restored on cold start so a
    * permanent stop survives a process restart rather than re-spending a full

@@ -87,6 +87,7 @@ Files in this directory. One row per source file.
 | `session-group-by.ts` | Group-by vocabulary + guards (`GroupByMode`, `LaneId`, `laneCollapseKey`). → see `session-group-by.ts.AGENTS.md` |
 | `session-group-path.ts` | Hoisted `inferPlatform`/`pathKey`/`resolveSessionGroupPath` from client session-grouping.ts. → see `session-group-path.ts.AGENTS.md` |
 | `session-meta.ts` | Per-session sidecar `.meta.json` schema + IO. Exports `SessionMeta`, `metaPath`, `readSessionMeta`,… → see `session-meta.ts.AGENTS.md` Adds `archived`, `archivedAt`, and `restoredAt` to `SessionMeta`. See change: archive-sessions-lazy-load. `SessionMeta.pluginHidden?` persisted hide intent. See change: fix-plugin-hidden-across-restart. |
+| `session-name.ts` | `sanitizeSessionName`. See change: investigate-auto-name-provenance-relabel. |
 | `skill-block-parser.ts` | Single source of truth for pi's `<skill name location>…</skill>` envelope. → see `skill-block-parser.ts.AGENTS.md` |
 | `source-matching.ts` | `sourcesMatch` cross-kind matcher. Adds `npm ↔ raw` branch: npm-declared package installed from local path… → see `source-matching.ts.AGENTS.md` |
 | `session-meta.ts` | `SessionMeta` sidecar shape + read/write/merge. Adds `originDeviceId?` — origin gates FILESYSTEM READS, so it must outlive the process that derived it; a restart that forgets it resurrects a remote session as local and hydration opens the origin host's path on THIS disk (#E15). Absent = local. See change: serve-retained-remote-transcripts. |

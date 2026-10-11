@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { listGlobalSkills } from "./pi/pi-resource-scanner.js";
+import { systemRenameUpdates } from "./session/name-provenance.js";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
@@ -3386,10 +3387,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 // Empty names never reach here (rejected above, E9) — the
                 // host's old `name || undefined` normalization is dead by
                 // design; see relocate-goal-product-to-plugin (D1-#4 note).
-                const updates = { name };
+                // A plugin rename is a SYSTEM rename: it overwrites the name but never
+                // downgrades `user`. See change: investigate-auto-name-provenance-relabel.
+                const updates = systemRenameUpdates(sessionManager.get(sessionId), name);
                 sessionManager.update(sessionId, updates);
                 browserGateway.broadcastSessionUpdated(sessionId, updates);
-                piGateway.sendToSession(sessionId, { type: "rename_session", sessionId, name });
+                piGateway.sendToSession(sessionId, { type: "rename_session", sessionId, name, origin: "system" });
                 return true;
               },
               // Merge a plugin-owned ref onto a session — post-spawn sibling

@@ -7,3 +7,5 @@ Enumerates `statsExtractorVersion` (full-overwrite save must keep it). See chang
 - Persists `pluginHidden` (undefined on user sessions → no key). See change: fix-plugin-hidden-across-restart.
 
 - Enumerates `archiveOnEnd` (pass-through; undeclared → no key). See change: archive-service-sessions-on-end.
+
+- Enumerates `nameSourceFor` (witness; full-overwrite save). See change: investigate-auto-name-provenance-relabel.

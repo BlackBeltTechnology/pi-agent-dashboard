@@ -562,6 +562,19 @@ export function createCommandHandler(
      */
     onAttachProposalChanged?: (attachedChange: string | null) => void;
     /**
+     * A dashboard SYSTEM rename (`rename_session{origin:"system"}`) is about to
+     * be applied. Called BEFORE `pi.setSessionName` so the namer records the
+     * `system` provenance and the echo is not misread as a user rename. Returns
+     * a rollback invoked if `setSessionName` throws. See change:
+     * investigate-auto-name-provenance-relabel (D3).
+     */
+    onSystemRename?: (name: string) => (() => void) | void;
+    /**
+     * A non-system (user) `rename_session` is about to be applied: the namer
+     * clears its system-echo witness so the echo classifies external (`user`).
+     */
+    onUserRename?: () => void;
+    /**
      * Clear the bridge's abort latch. Called at the start of `send_prompt`
      * (before pi.sendUserMessage) so a deliberate new turn is never aborted
      * by a latch left set from a prior user abort. See change:
@@ -1075,13 +1088,22 @@ export function createCommandHandler(
           options?.onAttachProposalChanged?.(msg.attachedChange);
           return undefined;
 
-        case "rename_session":
-          pi.setSessionName(msg.name);
+        case "rename_session": {
+          let rollback: (() => void) | void = undefined;
+          if (msg.origin === "system") rollback = options?.onSystemRename?.(msg.name);
+          else options?.onUserRename?.();
+          try {
+            pi.setSessionName(msg.name);
+          } catch (err) {
+            rollback?.();
+            throw err;
+          }
           return {
             type: "session_name_update",
             sessionId,
             name: msg.name,
           };
+        }
 
         case "request_models": {
           const registry = options?.getModelRegistry?.();

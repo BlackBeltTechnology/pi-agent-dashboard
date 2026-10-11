@@ -31,3 +31,5 @@ Frames `PathGrantRequestMessage` (`path_grant_request`, ext→server), `PathGran
 - Adds `PathYoloRequestMessage` (`path_yolo_request`), `PathYoloResultMessage` (`path_yolo_result`, verdict auto-allow/refused/decline), `PathGateRefusalMessage` (`path_gate_refusal`); `DashboardIdentityMessage.grantStoreId` optional + `features?: string[]`. See change: yolo-covers-agent-path-gate.
 
 Heartbeat metrics gain optional `pluginForward*` counters. See change: add-plugin-bridge-contributions.
+
+- `RenameSessionExtensionMessage.origin?: "system"`; `AutoNameStateRestoreMessage` carries session-owned `nameSource` + `nameSourceFor`; `session_name_update.nameSource` widened. See change: investigate-auto-name-provenance-relabel.

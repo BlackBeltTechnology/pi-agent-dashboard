@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { SessionsPageResultMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { createMemorySessionManager, type SessionManager } from "../../session/memory-session-manager.js";
 import type { BrowserHandlerContext } from "../handler-context.js";
-import { handleAttachProposal, handleDetachProposal, handleListSessions, handleRemoveTagGlobally, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, pushAttachProposalChanged } from "../session-meta-handler.js";
+import { handleAttachProposal, handleDetachProposal, handleRenameSession, handleListSessions, handleRemoveTagGlobally, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, pushAttachProposalChanged } from "../session-meta-handler.js";
 
 interface PiSent {
   sessionId: string;
@@ -63,11 +63,11 @@ describe("handleAttachProposal — decision matrix", () => {
     expect(s.attachedProposal).toBe("add-auth");
     expect(s.name).toBe("add-auth");
     expect(piSends).toEqual([
-      { sessionId: "s1", msg: { type: "rename_session", sessionId: "s1", name: "add-auth" } },
+      { sessionId: "s1", msg: { type: "rename_session", sessionId: "s1", name: "add-auth", origin: "system" } },
       { sessionId: "s1", msg: { type: "attach_proposal_changed", sessionId: "s1", attachedChange: "add-auth" } },
     ]);
     expect(broadcasts).toEqual([
-      { type: "session_updated", sessionId: "s1", updates: { attachedProposal: "add-auth", name: "add-auth" } },
+      { type: "session_updated", sessionId: "s1", updates: { attachedProposal: "add-auth", name: "add-auth", nameSource: "system", nameSourceFor: "add-auth" } },
     ]);
   });
 
@@ -98,10 +98,10 @@ describe("handleAttachProposal — decision matrix", () => {
     expect(s.name).toBe("bar");
     expect(s.attachedProposal).toBe("bar");
     expect(piSends).toEqual([
-      { sessionId: "s1", msg: { type: "rename_session", sessionId: "s1", name: "bar" } },
+      { sessionId: "s1", msg: { type: "rename_session", sessionId: "s1", name: "bar", origin: "system" } },
       { sessionId: "s1", msg: { type: "attach_proposal_changed", sessionId: "s1", attachedChange: "bar" } },
     ]);
-    expect(broadcasts[0].updates).toEqual({ attachedProposal: "bar", name: "bar" });
+    expect(broadcasts[0].updates).toEqual({ attachedProposal: "bar", name: "bar", nameSource: "system", nameSourceFor: "bar" });
   });
 
   it("custom name + non-null attached → name preserved, no rename_session", () => {
@@ -352,7 +352,7 @@ describe("handleDetachProposal — decision matrix", () => {
     expect(s.attachedProposal).toBeNull();
     expect(s.name).toBeUndefined();
     expect(piSends).toEqual([
-      { sessionId: "s1", msg: { type: "rename_session", sessionId: "s1", name: "" } },
+      { sessionId: "s1", msg: { type: "rename_session", sessionId: "s1", name: "", origin: "system" } },
       { sessionId: "s1", msg: { type: "attach_proposal_changed", sessionId: "s1", attachedChange: null } },
     ]);
     expect(broadcasts[0].updates).toEqual({
@@ -698,5 +698,36 @@ describe("session-list roads — per-item owner filtering (§8.2)", () => {
 
       expect(sent[0].sessions.map((s: any) => s.id).sort()).toEqual(["anna-1", "anna-2", "bela-1", "orphan"]);
     });
+  });
+});
+
+// Name provenance — browser paths. See change: investigate-auto-name-provenance-relabel (E12–E14).
+describe("browser rename / detach provenance", () => {
+  it("E13: browser rename tags user, clears the witness, forwards no origin", () => {
+    const mgr = createMemorySessionManager();
+    registerSession(mgr, "s1", { name: "add-x", nameSource: "system", nameSourceFor: "add-x" });
+    const { ctx, piSends } = makeCtx(mgr);
+    handleRenameSession({ type: "rename_session", sessionId: "s1", name: "mine" } as any, ctx);
+    const s = mgr.get("s1")!;
+    expect(s).toMatchObject({ name: "mine", nameSource: "user" });
+    expect(s.nameSourceFor).toBe(undefined);
+    expect(piSends).toEqual([{ sessionId: "s1", msg: { type: "rename_session", sessionId: "s1", name: "mine" } }]);
+  });
+
+  it("E14: browser detach leaves a user-owned slug-named session untouched (no rename)", () => {
+    const mgr = createMemorySessionManager();
+    registerSession(mgr, "s1", { name: "foo", attachedProposal: "foo", nameSource: "user" });
+    const { ctx, piSends } = makeCtx(mgr);
+    handleDetachProposal({ type: "detach_proposal", sessionId: "s1" } as any, ctx);
+    expect(mgr.get("s1")).toMatchObject({ name: "foo", nameSource: "user" });
+    expect(piSends.filter((p) => (p.msg as any).type === "rename_session")).toHaveLength(0);
+  });
+
+  it("E12: browser attach on a user-owned empty name keeps user provenance", () => {
+    const mgr = createMemorySessionManager();
+    registerSession(mgr, "s1", { nameSource: "user" });
+    const { ctx } = makeCtx(mgr);
+    handleAttachProposal({ type: "attach_proposal", sessionId: "s1", changeName: "add-z" } as any, ctx);
+    expect(mgr.get("s1")).toMatchObject({ name: "add-z", nameSource: "user" });
   });
 });
