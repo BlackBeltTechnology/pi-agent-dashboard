@@ -3,9 +3,10 @@
  * `<home>/.pi/dashboard/memory-eval/<project-key>/` (mode 0700, files 0600).
  * See change: add-memory-eval-tier-r (design M2).
  */
-import { chmodSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, fchmodSync, constants as fsConstants, lstatSync, mkdirSync, openSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
+import { CliError } from "./util.js";
 
 /** Same derivation pi uses for a cwd's session dir: `--Users-robson-Project-x--`. */
 function projectKeyFor(cwd: string): string {
@@ -46,33 +47,63 @@ export function resolvePaths(opts: { cwd: string; home?: string }): WorkPaths {
   };
 }
 
-/** Create the work dir (and `dir` below it) with 0700; re-chmod when it already exists. */
+/** The work dir the current process is writing to; every write must stay inside its real path. */
+let activeRoot: string | null = null;
+
+function refuseSymlink(path: string): void {
+  let st: ReturnType<typeof lstatSync> | null = null;
+  try {
+    st = lstatSync(path);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+  if (st?.isSymbolicLink()) throw new CliError(`refusing to follow a symlink inside the work dir: ${path}`);
+}
+
+/** Create `dir` (0700), re-chmod an existing one; never through a symlink or out of the work dir. */
 function ensureDir(dir: string): void {
+  if (activeRoot) {
+    // Check every existing component below the work dir root before mkdir can follow one out of it.
+    for (let d = dir; d !== activeRoot && d.startsWith(activeRoot + sep); d = dirname(d)) refuseSymlink(d);
+  }
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  refuseSymlink(dir);
   chmodSync(dir, 0o700);
 }
 
-/** Make the whole work dir private again (idempotent): dirs 0700, files 0600. */
+/** Make the whole work dir private again (idempotent): dirs 0700, files 0600. Symlinks are refused, not followed. */
 function hardenTree(root: string): void {
   if (!existsSync(root)) return;
+  refuseSymlink(root);
   chmodSync(root, 0o700);
   for (const name of readdirSync(root)) {
     const p = join(root, name);
-    const st = statSync(p);
+    const st = lstatSync(p);
+    if (st.isSymbolicLink()) throw new CliError(`refusing to follow a symlink inside the work dir: ${p}`);
     if (st.isDirectory()) hardenTree(p);
     else chmodSync(p, 0o600);
   }
 }
 
-/** Write a file privately: parent dirs 0700, file 0600. */
+const O = fsConstants;
+const FLAGS = { w: O.O_WRONLY | O.O_CREAT | O.O_TRUNC, a: O.O_WRONLY | O.O_CREAT | O.O_APPEND, wx: O.O_WRONLY | O.O_CREAT | O.O_EXCL } as const;
+
+/** Write a file privately: parent dirs 0700, file 0600, never through a symlink (`O_NOFOLLOW`). */
 export function writeSecure(path: string, data: string | Uint8Array, opts: { flag?: "w" | "a" | "wx" } = {}): void {
   ensureDir(dirname(path));
-  writeFileSync(path, data, { mode: 0o600, flag: opts.flag ?? "w" });
-  chmodSync(path, 0o600);
+  refuseSymlink(path);
+  const fd = openSync(path, FLAGS[opts.flag ?? "w"] | (O.O_NOFOLLOW ?? 0), 0o600);
+  try {
+    writeFileSync(fd, data);
+    fchmodSync(fd, 0o600);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** Ensure the work dir tree exists and is private. Called by every command that writes. */
 export function ensureWorkDir(p: WorkPaths): void {
+  activeRoot = p.root;
   ensureDir(p.root);
   hardenTree(p.root);
 }

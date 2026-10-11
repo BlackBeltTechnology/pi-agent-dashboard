@@ -24,4 +24,4 @@ Files in this directory. One row per source file. Tests: `__tests__/AGENTS.md`.
 | `snapshot.ts` | `snapshotDb`: file-copy DB + `-wal` (never `-shm`), stat-stable check (size, mtime, WAL salt), `integrity_check` on the copy, 5 attempts, `VACUUM INTO`, `journal_mode=DELETE`, drop `raw/`. Source is never opened. Injectable `SnapshotDeps`. `hermesFingerprint`, `kbFingerprint`. |
 | `stats.ts` | `wilson` (95%), `mcnemarExact` (exact two-sided), `median`, `pct`. |
 | `util.ts` | `sha256`, `stableJson` (sorted keys), `mulberry32`, `toUtcIso`, `epochMs`, `CliError`, `Out`. |
-| `workdir.ts` | `projectKeyFor(cwd)` (pi session-dir name), `resolvePaths`, `ensureWorkDir`/`hardenTree` (dirs 0700, files 0600, re-chmod existing), `writeSecure`. Work dir `~/.pi/dashboard/memory-eval/<key>/`. |
+| `workdir.ts` | `projectKeyFor(cwd)` (pi session-dir name), `resolvePaths`, `ensureWorkDir`/`hardenTree` (dirs 0700, files 0600, re-chmod existing; symlinks in the tree are refused, not followed), `writeSecure` (`O_NOFOLLOW`, stays inside the work dir). Work dir `~/.pi/dashboard/memory-eval/<key>/`. |

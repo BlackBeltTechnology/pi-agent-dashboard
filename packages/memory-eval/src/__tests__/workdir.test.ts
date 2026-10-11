@@ -1,8 +1,11 @@
-import { chmodSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
+import { main } from "../cli.js";
 import { casesBuild } from "../commands/cases.js";
 import { makeEnv } from "./helpers/ctx.js";
+import { judgeEnv } from "./helpers/judge-env.js";
+import { mkCase, writeCaseSet } from "./helpers/run-fixture.js";
 import { bash, uuid, writeSession } from "./helpers/sessions.js";
 
 function list(root: string, dir = root, out: string[] = []): string[] {
@@ -44,5 +47,27 @@ describe("work dir", () => {
       const abs = join(env.paths.root, p);
       expect(modeOf(abs), p).toBe(statSync(abs).isDirectory() ? 0o700 : 0o600);
     }
+  });
+
+  it("B1 (round 8): a symlink inside the work dir is refused, never followed out of it", async () => {
+    // (a) a pre-existing verdicts.jsonl symlinked to an outside file: `judge` must not append to it.
+    const a = judgeEnv();
+    await a.run();
+    const outside = join(a.home, "outside-verdicts.jsonl");
+    writeFileSync(outside, "untouched\n");
+    symlinkSync(outside, a.paths.verdicts);
+    expect(await a.judge()).not.toBe(0);
+    expect(readFileSync(outside, "utf8")).toBe("untouched\n");
+    expect(a.stderr.join("")).toMatch(/symlink/i);
+
+    // (b) a symlinked sub-directory: `run` must not create its run dir outside the work dir.
+    const b = makeEnv();
+    writeCaseSet(b, [mkCase({ id: "c1" })]);
+    const elsewhere = join(b.home, "elsewhere");
+    mkdirSync(elsewhere, { recursive: true });
+    symlinkSync(elsewhere, b.paths.runsDir);
+    expect(await main(["run", "--retrievers", "hermes.memory_search"], b.ctx)).not.toBe(0);
+    expect(readdirSync(elsewhere)).toEqual([]);
+    expect(b.stderr.join("")).toMatch(/symlink/i);
   });
 });
