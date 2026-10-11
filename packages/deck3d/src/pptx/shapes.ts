@@ -9,7 +9,7 @@ import type { MasterChain, PhInfo } from "./master.js";
 import { isTitleType, placeholderOf } from "./master.js";
 import { extOf, type MediaRegistry } from "./media.js";
 import type { Package } from "./package.js";
-import { readTextBody, bodyText } from "./text.js";
+import { bodyText, readTextBody } from "./text.js";
 import { type ColorEnv, resolveColor } from "./theme.js";
 import type { FallbackConstruct, LayoutItem, ThemeInfo } from "./types.js";
 import { type Frame, groupFrame, normDeg, type Placed, readXfrm, toSlide } from "./xfrm.js";

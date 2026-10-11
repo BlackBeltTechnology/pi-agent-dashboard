@@ -9,13 +9,13 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import * as THREE from "three";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { decodePng } from "../../art/png.js";
-import { traceImage } from "../../art/trace.js";
-import { run } from "../../cli.js";
 import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
 import { canvas, fill, glyphRings } from "../../__tests__/helpers/glyphs.js";
 import { buildLayerDeck, imgItem, mappedRect, openDeck, rectDelta, settle } from "../../__tests__/helpers/layer-deck.js";
 import { stubCard } from "../../__tests__/helpers/local-fx.js";
+import { decodePng } from "../../art/png.js";
+import { traceImage } from "../../art/trace.js";
+import { run } from "../../cli.js";
 import { extrudePolygon, repairNormals } from "../../fx/art-geometry.js";
 import { stubChrome, stubIcon } from "../../fx/stub-assets.js";
 
@@ -78,7 +78,10 @@ describe.skipIf(!hasChromium)("art3d / icon3d / haze / local assets (chromium)",
     try {
       await settle(a, 1);
       await settle(b, 1);
-      const holes = await a.evaluate(() => (window.__deck3d?.debug.layers().find((l) => l.id === "art3d")?.state as { holes: Array<{ x: number; y: number }> }).holes);
+      const holes = await a.evaluate(() => {
+        const state = window.__deck3d?.debug.layers().find((l) => l.id === "art3d")?.state as { holes: Array<{ x: number; y: number }> } | undefined;
+        return state?.holes ?? [];
+      });
       expect(holes.length).toBeGreaterThanOrEqual(3);
       const pa = await shot(a);
       const pb = await shot(b);

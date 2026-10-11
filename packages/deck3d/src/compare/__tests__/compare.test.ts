@@ -6,11 +6,11 @@ import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { describe, expect, it } from "vitest";
-import { encodePng, type RgbaImage } from "../../art/png.js";
-import { run } from "../../cli.js";
 import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
 import { buildLayerDeck, openDeck, settle } from "../../__tests__/helpers/layer-deck.js";
-import { ssim, scoreFrame } from "../ssim.js";
+import { encodePng, type RgbaImage } from "../../art/png.js";
+import { run } from "../../cli.js";
+import { scoreFrame, ssim } from "../ssim.js";
 
 const hasChromium = await chromiumAvailable();
 

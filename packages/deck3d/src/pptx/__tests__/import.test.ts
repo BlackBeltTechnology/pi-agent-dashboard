@@ -11,8 +11,6 @@ import { pathToFileURL } from "node:url";
 import { deflateSync } from "fflate";
 import { chromium } from "playwright";
 import { describe, expect, it } from "vitest";
-import { decodePng } from "../../art/png.js";
-import { run } from "../../cli.js";
 import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
 import {
   basicDeck,
@@ -28,6 +26,8 @@ import {
   titleShape,
   URI,
 } from "../../__tests__/helpers/pptx.js";
+import { decodePng } from "../../art/png.js";
+import { run } from "../../cli.js";
 import { importPptx } from "../import.js";
 import type { ImgItem, Layout, TextItem } from "../types.js";
 import { ZIP_LIMITS, ZipLimitError } from "../zip.js";
@@ -182,7 +182,7 @@ describe("pptx import: slide space and layout", () => {
     const dir = tmp();
     const input = writeDeck(dir, {
       size: EMU_4x3,
-      slides: [{ shapes: titleShape("Square") + `<p:sp><p:nvSpPr><p:cNvPr id="90" name="Full"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="9144000" cy="6858000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="112233"/></a:solidFill></p:spPr></p:sp>` }],
+      slides: [{ shapes: `${titleShape("Square")}<p:sp><p:nvSpPr><p:cNvPr id="90" name="Full"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="9144000" cy="6858000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="112233"/></a:solidFill></p:spPr></p:sp>` }],
     });
     await importPptx({ input, out: join(dir, "t"), env: NO_PATH });
     const layout = layoutOf(join(dir, "t"));

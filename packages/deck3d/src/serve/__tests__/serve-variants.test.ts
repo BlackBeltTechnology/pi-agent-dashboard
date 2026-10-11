@@ -8,8 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { afterEach, describe, expect, it } from "vitest";
-import { run } from "../../cli.js";
 import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
+import { run } from "../../cli.js";
 import { stubChrome } from "../../fx/stub-assets.js";
 import { type ServeHandle, startServe } from "../index.js";
 

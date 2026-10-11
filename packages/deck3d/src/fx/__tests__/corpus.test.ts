@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import Ajv from "ajv";
-import { describe, expect, it } from "vitest";
 import * as THREE from "three";
+import { describe, expect, it } from "vitest";
 import { contrastRatio, luminanceFromHex } from "../../check/rules.js";
 import { PALETTES, resolvePalette } from "../../runtime/palette.js";
 import { qualityProfile } from "../../runtime/quality.js";

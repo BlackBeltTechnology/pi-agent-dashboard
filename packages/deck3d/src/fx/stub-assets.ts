@@ -6,8 +6,9 @@
  * `tsx scripts/gen-stub-assets.ts` rewrites both copies, and a test fails
  * when they drift from this module.
  */
-import { encodePng } from "../art/png.js";
+
 import type { IconOutput } from "../art/icon.js";
+import { encodePng } from "../art/png.js";
 import type { Outline } from "../art/trace.js";
 import type { Layout, LayoutItem } from "../pptx/types.js";
 

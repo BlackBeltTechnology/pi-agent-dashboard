@@ -9,8 +9,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import opentype from "opentype.js";
-import { canonicalJson } from "../ir/hash.js";
 import { localRefs, resolveLocalEffect, toFactorySource } from "../fx/local.js";
+import { canonicalJson } from "../ir/hash.js";
 import { applyOverrides } from "../ir/merge.js";
 import type { DeckIR } from "../ir/types.js";
 import { activeProps, creditsSlide } from "../props/embed.js";

@@ -15,6 +15,7 @@ import { type AssetAccessor, type EmbeddedAsset, loadDeckAssets, makeAccessor } 
 import { type Animator, backgroundFor } from "./backgrounds.js";
 import { buildDiagram, type DiagramBuild } from "./builders.js";
 import { anchorFor, cullRadius } from "./camera.js";
+import { createFader, fadeWindow } from "./fade.js";
 import { createHud, type SlidePatch } from "./hud.js";
 import { createLocalEffect, type LocalFxError, type LocalHandle, localCards, localFxRegistry } from "./local-fx.js";
 import { diagramMaterial, titleEdgeMaterial, titleMaterial } from "./materials.js";
@@ -26,8 +27,7 @@ import { type QualityProfile, qualityProfile } from "./quality.js";
 import { makeRng } from "./rng.js";
 import { createSceneRig, markBackdrop, markOverlay, sortAboveVeil } from "./scene.js";
 import { buildTitle, bulletTexture, loadFont } from "./text.js";
-import { createFader, fadeWindow } from "./fade.js";
-import { easeInOut, makeMotion, type Motion, resolveTransition, reversed, type Sample } from "./transition.js";
+import { easeInOut, type Motion, makeMotion, resolveTransition, reversed, type Sample } from "./transition.js";
 import "./types.js";
 import type { Deck3dApi, Measurement, RuntimeDeck, SlideConfig } from "./types.js";
 

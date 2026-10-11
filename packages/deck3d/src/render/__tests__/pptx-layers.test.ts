@@ -5,13 +5,11 @@
  * Exemplar: `f1-measure-stable.test.ts`.
  */
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, truncateSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { encodePng, decodePng } from "../../art/png.js";
-import { run } from "../../cli.js";
 import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
 import {
   buildLayerDeck,
@@ -23,6 +21,8 @@ import {
   settle,
   textItem,
 } from "../../__tests__/helpers/layer-deck.js";
+import { decodePng, encodePng } from "../../art/png.js";
+import { run } from "../../cli.js";
 import { stubChrome } from "../../fx/stub-assets.js";
 import { FONT_PATH } from "../index.js";
 
@@ -421,7 +421,10 @@ describe.skipIf(!hasChromium)("frame-chrome and the configurator (chromium)", ()
     });
 
   const offsets = (page: Awaited<ReturnType<typeof openDeck>>) =>
-    page.evaluate(() => (window.__deck3d?.debug.persistent()[0]?.state as { offsets: number[] }).offsets);
+    page.evaluate(() => {
+      const state = window.__deck3d?.debug.persistent()[0]?.state as { offsets: number[] } | undefined;
+      return state?.offsets ?? [];
+    });
 
   it("flies out and back in monotonically; never absent at both ends; suppressed slide stays clear (F2)", async () => {
     const deck = await chromeDeck(["s03"]);

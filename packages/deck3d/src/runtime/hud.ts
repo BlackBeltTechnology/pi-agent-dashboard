@@ -6,8 +6,9 @@
  * embedded IR stays the record of what was rendered, and the panel's state
  * lives in memory plus `localStorage["deck3d:" + derivedHash]`.
  */
-import { TRANSITION_IDS } from "./transition.js";
+
 import type { BuiltDiagramKind, CardOffset, Defaults, EffectRef, Layout, Material, Mode, Palette, Quality, Rail, TitleEdge } from "../ir/types.js";
+import { TRANSITION_IDS } from "./transition.js";
 
 export interface HudSlide {
   id: string;

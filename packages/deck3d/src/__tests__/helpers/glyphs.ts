@@ -5,8 +5,8 @@
  */
 import { readFileSync } from "node:fs";
 import opentype from "opentype.js";
-import { FONT_PATH } from "../../render/index.js";
 import type { RgbaImage } from "../../art/png.js";
+import { FONT_PATH } from "../../render/index.js";
 
 export const font = opentype.parse(new Uint8Array(readFileSync(FONT_PATH)).buffer);
 

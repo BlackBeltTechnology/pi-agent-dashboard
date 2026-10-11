@@ -7,10 +7,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { run } from "../../cli.js";
 import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
 import { buildLayerDeck } from "../../__tests__/helpers/layer-deck.js";
 import { solidPng } from "../../__tests__/helpers/pptx.js";
+import { run } from "../../cli.js";
 import { PickError, pickVariant } from "../pick.js";
 import type { Step, Style } from "../style.js";
 

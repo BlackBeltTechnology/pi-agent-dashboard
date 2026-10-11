@@ -20,6 +20,7 @@ export const VERSION = "0.1.0";
 const PALETTE_IDS: Palette[] = ["blackbelt", "zenit", "dapp", "midnight", "ember", "arctic", "forest", "mono", "neon", "custom"];
 
 export type { CliIO, CliRun } from "./cli-io.js";
+
 import type { CliIO } from "./cli-io.js";
 
 export const defaultIO: CliIO = {

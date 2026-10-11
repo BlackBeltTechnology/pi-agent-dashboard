@@ -47,8 +47,6 @@ export interface RenderStepResult {
   files: string[];
 }
 
-const quiet = { stdout: () => {}, stderr: () => {} };
-
 /** Merge `fragment` into the IR's overrides in memory (same rules as `overrides apply`). */
 export function withFragment(ir: DeckIR, fragment: Record<string, unknown> | undefined): DeckIR {
   return fragment ? { ...ir, overrides: deepMerge(ir.overrides ?? {}, fragment) as DeckIR["overrides"] } : ir;

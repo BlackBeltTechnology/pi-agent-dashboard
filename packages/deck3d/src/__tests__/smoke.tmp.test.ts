@@ -1,8 +1,9 @@
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { it } from "vitest";
-import { writeFileSync, rmSync, readFileSync } from "node:fs";
-import { buildPptx, basicDeck, rectShape } from "./helpers/pptx.js";
 import { run } from "../cli.js";
 import { importPptx } from "../pptx/import.js";
+import { basicDeck, buildPptx, rectShape } from "./helpers/pptx.js";
+
 it("smoke", async () => {
   rmSync("/tmp/pp/sl", { recursive: true, force: true });
   const spec = basicDeck(3);

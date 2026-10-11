@@ -8,10 +8,10 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } fro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { run } from "../../cli.js";
 import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
 import { canvas, fill, font, glyphRings } from "../../__tests__/helpers/glyphs.js";
 import { solidPng } from "../../__tests__/helpers/pptx.js";
+import { run } from "../../cli.js";
 import { openSandbox } from "../decode.js";
 import { flattenPath, ICON_LIMITS, svgToPolylines } from "../icon.js";
 import { decodePng } from "../png.js";

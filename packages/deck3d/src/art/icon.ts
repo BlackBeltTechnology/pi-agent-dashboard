@@ -5,8 +5,9 @@
  * polygons, rects, circles and ellipses; group and element transforms
  * composed. External references are ignored with a warning.
  */
-import { hasDoctype } from "../pptx/zip.js";
+
 import { parseXml, type XNode } from "../pptx/xml.js";
+import { hasDoctype } from "../pptx/zip.js";
 
 export const ICON_LIMITS = { maxBytes: 2 * 1024 * 1024, maxElements: 50_000, maxPoints: 500_000 };
 
