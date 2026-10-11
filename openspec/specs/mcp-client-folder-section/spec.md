@@ -40,10 +40,22 @@ The plugin SHALL contribute a `sidebar-folder-section` claim and a `worktree-car
 - **THEN** the effective-view request for it is refused by the server
 - **AND** the pill renders a muted "not tracked" state
 - **AND** no retry is issued for that cwd until the client's session or pinned-folder list changes
+- **AND** this applies only to a `403` refusal; a `503 cwd-admission-unavailable` SHALL NOT be recorded as not tracked
+
+#### Scenario: Transient admission failure is retried
+- **WHEN** the effective-view request for the card's cwd returns `503` with `error: "cwd-admission-unavailable"`
+- **THEN** the pill keeps its loading placeholder and retries with jittered exponential backoff derived from the response's `retryAfterMs` (about 1 s, 2 s, 4 s, each ±25 %)
+- **AND** the cwd is NOT recorded as not tracked
+- **AND** a later `200` renders the normal summary
+
+#### Scenario: Transient failure exhausts retries
+- **WHEN** the effective-view request returns `503 cwd-admission-unavailable` on the initial attempt and all 3 retries
+- **THEN** the pill renders its error marker, not the "not tracked" state
+- **AND** a later change to the client's session or pinned-folder list, or an explicit reload, retries again
 
 ### Requirement: Folder page cwd is guarded
 
-The page SHALL render an empty not-allowed state when the server refuses the cwd (admission is server-side; the client has no folder set of its own, per the kb-plugin cwd-guard pattern).
+The page SHALL render an empty not-allowed state when the server refuses the cwd with `403`. A `503 cwd-admission-unavailable` is not a refusal: the page SHALL keep its loading state while retrying with backoff, and after the retries are exhausted SHALL render an error state with a Retry action (admission is server-side; the client has no folder set of its own, per the kb-plugin cwd-guard pattern).
 
 #### Scenario: Unknown cwd in the URL
 
@@ -51,6 +63,11 @@ The page SHALL render an empty not-allowed state when the server refuses the cwd
 - **THEN** the effective-view request is refused
 - **AND** the page shows a not-allowed empty state with no retry
 - **AND** no server or folder data is rendered
+
+#### Scenario: Transient admission failure on the folder page
+- **WHEN** the route is opened for a cwd whose effective-view request returns `503 cwd-admission-unavailable` and then `200`
+- **THEN** the page shows its loading state, retries, and renders the folder's servers
+- **AND** never shows the not-allowed empty state
 
 ### Requirement: Mobile presentation
 

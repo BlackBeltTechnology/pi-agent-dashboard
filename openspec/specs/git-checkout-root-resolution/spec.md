@@ -53,6 +53,17 @@ form over the SAME resolution logic, so a consumer on an event-loop-sensitive
 request path can resolve without blocking, and the two forms cannot drift in
 classification.
 
+The resolver SHALL additionally be available in a CLASSIFIED asynchronous form that
+distinguishes three outcomes: a result, no result because the cwd is definitively not in
+a repository (every needed probe completed, a probe exited non-zero), and FAILED because
+a needed probe did not complete (timeout, spawn failure, missing binary, oversized output).
+In the classified form, a failed probe at ANY step SHALL yield FAILED — it SHALL NOT be read
+as an unset value and SHALL NOT fall through to a later derivation rule (e.g. a failed
+`core.worktree` read SHALL NOT fall through to the common-dir-parent rule). The unclassified
+forms SHALL keep returning no result for both definitive absence and failure, so existing
+consumers are unchanged. The repository-binding check SHALL have a classified twin with the
+outcomes bound, unbound, and failed.
+
 #### Scenario: Normal checkout resolves to itself
 
 - **WHEN** the resolver runs for a cwd that is an ordinary git checkout root
@@ -112,6 +123,21 @@ mis-wiring in which one side dropped the flag.
 - **GIVEN** injected probes in which `--show-toplevel` fails, and separately in which the `core.bare` probe fails
 - **WHEN** both forms run over the same injected probes
 - **THEN** both SHALL return identical results, with the bareness mapped to `"unknown"` (never `"not-bare"`) in both forms
+
+#### Scenario: Classified form reports a timed-out probe as failed
+- **WHEN** the classified resolver runs and the `--git-common-dir` probe times out
+- **THEN** it SHALL return FAILED, not no-result
+- **AND** the unclassified resolver, under the same probe outcome, SHALL return no result
+
+#### Scenario: Failed core.worktree probe does not fall through
+- **GIVEN** a linked worktree whose `core.worktree` read times out and whose common-dir parent is a real directory
+- **WHEN** the classified resolver runs
+- **THEN** it SHALL return FAILED
+- **AND** SHALL NOT return the common-dir parent as `mainCheckout`
+
+#### Scenario: Definitive non-repository is not failed
+- **WHEN** the classified resolver runs for a directory outside any repository and `--git-dir` exits non-zero
+- **THEN** it SHALL return no result, not FAILED
 
 ### Requirement: Linked-worktree detection uses the gitdir-vs-common-dir signal
 
