@@ -269,3 +269,18 @@ describe("mergeCwdPolicy — persona scope fields pass through (add-team-plugin 
     expect(merged.tools).toEqual(["read"]); // intersected with the policy
   });
 });
+
+describe("mergeCwdPolicy — noMcp is not read by policy composition (spawn-scope-no-mcp E5)", () => {
+  it("keeps options.noMcp untouched and ignores a policy-carried noMcp", () => {
+    const options = { noMcp: true, tools: ["read", "ls"] };
+    const merged = mergeCwdPolicy({ tools: ["read"], noTools: true }, options) as typeof options & {
+      noTools?: boolean;
+    };
+    expect(merged.noMcp).toBe(true);
+    expect(merged.tools).toEqual(["read"]);
+    expect(merged.noTools).toBe(true);
+
+    const withPolicyNoMcp = mergeCwdPolicy({ noMcp: true } as never, { tools: ["read"] }) as { noMcp?: boolean };
+    expect(withPolicyNoMcp.noMcp).toBeUndefined();
+  });
+});
