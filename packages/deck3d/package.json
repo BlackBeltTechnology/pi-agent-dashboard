@@ -23,7 +23,8 @@
   ],
   "pi": {
     "skills": [
-      ".pi/skills/deck3d"
+      ".pi/skills/deck3d",
+      ".pi/skills/deck3d-from-pptx"
     ]
   },
   "exports": {
