@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup: folder MCP page, per-project overrides</title>
+<style>
+/* Tokens copied from packages/client/src/index.css (base dark / light). Mockup-only copy. */
+:root, [data-theme="dark"] {
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+  --bg-hover:rgba(255,255,255,.06); --bg-overlay:rgba(0,0,0,.6);
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858;
+  --border-primary:#252525; --border-secondary:#333333; --border-subtle:rgba(255,255,255,.06);
+  --accent-blue:#3b82f6; --accent-orange:#f97316; --accent-red:#ef4444; --accent-green:#22c55e;
+  --accent:#3b82f6; --accent-soft:#1d3a63; --accent-solid:#2563eb; --accent-text:#60a5fa;
+}
+[data-theme="light"] {
+  --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+  --bg-hover:rgba(0,0,0,.04); --bg-overlay:rgba(0,0,0,.3);
+  --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#636363; --text-muted:#aaaaaa;
+  --border-primary:#e0e0e0; --border-secondary:#cccccc; --border-subtle:rgba(0,0,0,.06);
+  --accent:#2563eb; --accent-soft:#dbeafe; --accent-solid:#2563eb; --accent-text:#1d4ed8;
+}
+:root {
+  --tint-blue-bg:color-mix(in srgb,var(--accent-blue) 10%,var(--bg-tertiary));
+  --tint-blue-fg:color-mix(in srgb,var(--accent-blue) 46%,var(--text-primary));
+  --tint-blue-border:color-mix(in srgb,var(--accent-blue) 40%,transparent);
+  --severity-warning-bg:color-mix(in srgb,var(--accent-orange) 10%,var(--bg-tertiary));
+  --severity-warning-fg:color-mix(in srgb,var(--accent-orange) 46%,var(--text-primary));
+  --severity-warning-border:color-mix(in srgb,var(--accent-orange) 40%,transparent);
+  --severity-info-bg:var(--tint-blue-bg); --severity-info-fg:var(--tint-blue-fg); --severity-info-border:var(--tint-blue-border);
+  --severity-error-bg:color-mix(in srgb,var(--accent-red) 10%,var(--bg-tertiary));
+  --severity-error-fg:color-mix(in srgb,var(--accent-red) 46%,var(--text-primary));
+  --severity-error-border:color-mix(in srgb,var(--accent-red) 40%,transparent);
+}
+* { box-sizing:border-box; }
+[hidden] { display:none !important; }
+body { margin:0; background:var(--bg-primary); color:var(--text-primary);
+  font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; }
+.wrap { max-width:960px; margin:0 auto; padding:16px; }
+.top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+.top h1 { font-size:15px; font-weight:600; margin:0; }
+.crumb { color:var(--text-secondary); font-size:12px; }
+.card { border:1px solid var(--border-secondary); background:var(--bg-secondary); border-radius:12px; padding:12px 16px; }
+.section-h { font-size:12px; font-weight:600; color:var(--text-secondary); margin:0 0 6px; }
+.note { border:1px solid; border-radius:8px; padding:8px 10px; font-size:12px; margin:0 0 10px; display:flex; gap:8px; align-items:flex-start; }
+.note b { font-weight:600; }
+.note.warn { background:var(--severity-warning-bg); color:var(--severity-warning-fg); border-color:var(--severity-warning-border); }
+.note.info { background:var(--severity-info-bg); color:var(--severity-info-fg); border-color:var(--severity-info-border); }
+ul.rows { list-style:none; margin:0; padding:0; }
+li.row { display:flex; flex-direction:column; gap:4px; padding:6px 0; border-bottom:1px solid var(--border-secondary); }
+li.row:last-child { border-bottom:0; }
+.line { display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-height:44px; }
+.name { font-size:12px; font-weight:500; }
+.meta { font-size:11px; color:var(--text-tertiary); }
+.desc { font-size:11px; color:var(--text-secondary); }
+.chip { display:inline-flex; align-items:center; font-size:11px; padding:2px 6px; border-radius:999px; border:1px solid var(--border-secondary); color:var(--text-secondary); }
+.chip.folder { background:var(--tint-blue-bg); color:var(--tint-blue-fg); border-color:var(--tint-blue-border); }
+.chip.replace { border-color:var(--accent); color:var(--accent-text); }
+.linkbtn { background:none; border:0; color:var(--accent-text); font:inherit; font-size:11px; cursor:pointer; padding:0 4px; min-height:44px; min-width:44px; text-decoration:underline; text-underline-offset:2px; }
+.btn { font:inherit; font-size:11px; padding:4px 8px; border-radius:6px; border:1px solid var(--border-secondary); background:var(--bg-tertiary); color:var(--text-primary); cursor:pointer; min-height:44px; min-width:44px; }
+.btn:disabled { color:var(--text-muted); cursor:not-allowed; }
+.btn.primary { background:var(--accent-solid); border-color:var(--accent-solid); color:#fff; font-weight:600; }
+.ml-auto { margin-left:auto; }
+.msg { font-size:11px; margin:0; }
+.msg.err { color:var(--severity-error-fg); }
+.msg.sec { color:var(--text-secondary); }
+.msg.warn { color:var(--severity-warning-fg); }
+:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+input[type=checkbox][role=switch] { width:16px; height:16px; accent-color:var(--accent-solid); }
+.sw { display:inline-flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; }
+/* overflow menu */
+.menu { position:relative; }
+.menu-pop { position:absolute; right:0; top:100%; z-index:5; min-width:220px; background:var(--bg-secondary); border:1px solid var(--border-secondary); border-radius:8px; padding:4px; box-shadow:0 8px 24px rgba(0,0,0,.35); display:none; }
+.menu-pop.open { display:block; }
+.menu-pop button { display:block; width:100%; text-align:left; background:none; border:0; color:var(--text-primary); font:inherit; font-size:12px; padding:10px; border-radius:6px; cursor:pointer; min-height:44px; }
+.menu-pop button:hover { background:var(--bg-hover); }
+.menu-pop small { display:block; color:var(--text-secondary); font-size:11px; }
+/* dialog */
+dialog { border:1px solid var(--border-secondary); background:var(--bg-secondary); color:var(--text-primary); border-radius:12px; padding:0; width:min(480px,calc(100vw - 32px)); }
+dialog::backdrop { background:var(--bg-overlay); }
+.dlg-h { padding:14px 16px 0; }
+.dlg-h h2 { margin:0; font-size:14px; font-weight:600; }
+.dlg-h p { margin:4px 0 0; font-size:12px; color:var(--text-secondary); }
+.dlg-b { padding:12px 16px; display:flex; flex-direction:column; gap:14px; }
+.dlg-f { padding:0 16px 14px; display:flex; gap:8px; justify-content:flex-end; }
+fieldset { border:0; margin:0; padding:0; }
+legend, .label { font-size:12px; font-weight:600; color:var(--text-primary); margin-bottom:6px; padding:0; }
+.hint { font-size:11px; color:var(--text-secondary); margin-top:4px; }
+.seg { display:inline-flex; border:1px solid var(--border-secondary); border-radius:8px; overflow:hidden; background:var(--bg-tertiary); }
+.seg label { position:relative; }
+.seg input { position:absolute; opacity:0; inset:0; }
+.seg span { display:inline-flex; align-items:center; justify-content:center; min-width:84px; min-height:44px; padding:0 12px; font-size:12px; color:var(--text-secondary); cursor:pointer; border-right:1px solid var(--border-secondary); }
+.seg label:last-child span { border-right:0; }
+.seg input:checked + span { background:var(--accent-soft); color:var(--text-primary); font-weight:600; box-shadow:inset 0 0 0 1px var(--accent); }
+.seg input:checked + span::before { content:"\2713"; margin-right:6px; }
+.seg input:focus-visible + span { outline:2px solid var(--accent); outline-offset:-2px; }
+select { font:inherit; font-size:12px; border:1px solid var(--border-secondary); background:var(--bg-tertiary); color:var(--text-primary); border-radius:6px; padding:6px 10px; min-height:44px; width:100%; }
+.kv { font-size:11px; color:var(--text-secondary); border:1px solid var(--border-subtle); background:var(--bg-tertiary); border-radius:8px; padding:6px 10px; }
+.kv code { color:var(--text-primary); }
+.toast { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); background:var(--bg-surface); color:var(--text-primary); border:1px solid var(--border-secondary); border-radius:8px; padding:6px 6px 6px 12px; display:flex; gap:8px; align-items:center; font-size:12px; box-shadow:0 8px 24px rgba(0,0,0,.35); }
+.legend { margin-top:16px; font-size:11px; color:var(--text-secondary); }
+.legend ol { padding-left:18px; margin:4px 0; }
+.ctl { display:flex; gap:6px; align-items:center; }
+.mobile-only { display:none; }
+@media (max-width:639px) {
+  .wrap { padding:10px; }
+  .desktop-only { display:none !important; }
+  .mobile-only { display:inline-flex; }
+  dialog { margin:auto auto 0; width:100vw; max-width:100vw; border-radius:12px 12px 0 0; }
+}
+@media (min-width:640px) { .line { min-height:0; } .linkbtn,.btn,.sw { min-height:0; min-width:0; } .btn { padding:4px 8px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>MCP servers</h1>
+    <span class="crumb">~/Project/acme-api · <code>.pi/mcp.json</code></span>
+    <span class="ml-auto ctl">
+      <button class="btn" id="theme" type="button" aria-pressed="false">Light theme</button>
+      <button class="btn" id="trust" type="button" aria-pressed="true">Project trusted</button>
+    </span>
+  </div>
+
+  <p class="note warn" id="untrusted" hidden>
+    <span aria-hidden="true">⚠</span>
+    <span><b>Not trusted.</b> pi does not read this folder's <code>.pi/mcp.json</code> until you trust the project. You can still change folder settings here; they apply once the project is trusted. Dashboard-started headless sessions in this folder trust it per run.</span>
+  </p>
+
+  <div class="card">
+    <p class="section-h">Servers in this folder (Pi global + Pi folder)</p>
+    <ul class="rows">
+
+      <!-- 1. Inherit: plain global row -->
+      <li class="row" data-testid="mcp-folder-row-pi-global:docs">
+        <div class="line">
+          <label class="sw"><input type="checkbox" role="switch" aria-label="Enable docs" checked></label>
+          <span class="name">docs</span>
+          <span class="desc">Internal API docs search</span>
+          <code class="meta">url</code><span class="meta">codemode</span><span class="meta">header</span>
+          <span class="chip">Pi global</span>
+          <span class="meta">connected · 12 tools</span>
+          <span class="ml-auto menu"><button class="btn" aria-haspopup="menu" aria-expanded="false" data-menu>⋯ <span class="desktop-only">&nbsp;Actions</span></button>
+            <span class="menu-pop" role="menu">
+              <button role="menuitem" data-open-panel="docs">Project settings…<small>On/off and exposure for this folder</small></button>
+              <button role="menuitem">Replace with folder entry…<small>Write a full folder entry (different URL or command)</small></button>
+            </span></span>
+        </div>
+      </li>
+
+      <!-- 2. Off in this folder -->
+      <li class="row" data-row="sentry">
+        <div class="line">
+          <label class="sw"><input type="checkbox" role="switch" aria-label="Enable sentry" data-switch="sentry"></label>
+          <span class="name">sentry</span>
+          <code class="meta">url</code><span class="meta">direct</span><span class="meta">OAuth</span>
+          <span class="chip">Pi global</span>
+          <span class="chip folder" data-badge="sentry">Off in this folder</span>
+          <button class="linkbtn desktop-only" data-reset="sentry">Reset to global</button>
+          <span class="meta">disabled</span>
+          <span class="ml-auto menu"><button class="btn" aria-haspopup="menu" aria-expanded="false" data-menu>⋯ <span class="desktop-only">&nbsp;Actions</span></button>
+            <span class="menu-pop" role="menu">
+              <button role="menuitem" data-open-panel="sentry">Project settings…<small>On/off and exposure for this folder</small></button>
+              <button role="menuitem" class="mobile-only" data-reset="sentry">Reset to global<small>Remove this folder's override</small></button>
+              <button role="menuitem">Replace with folder entry…<small>Write a full folder entry (different URL or command)</small></button>
+            </span></span>
+        </div>
+        <p class="msg warn" data-pending="sentry" hidden>Saved. Applies once the project is trusted. pi still runs <code>sentry</code> from Pi global here.</p>
+      </li>
+
+      <!-- 3. Globally off, On in this folder -->
+      <li class="row">
+        <div class="line">
+          <label class="sw"><input type="checkbox" role="switch" aria-label="Enable filesystem" checked></label>
+          <span class="name">filesystem</span>
+          <code class="meta">command</code><span class="meta">direct</span>
+          <span class="chip">Pi global</span>
+          <span class="chip folder">On in this folder</span>
+          <button class="linkbtn desktop-only">Reset to global</button>
+          <span class="meta">connected · 9 tools</span>
+          <span class="ml-auto menu"><button class="btn" aria-haspopup="menu" aria-expanded="false" data-menu>⋯ <span class="desktop-only">&nbsp;Actions</span></button>
+            <span class="menu-pop" role="menu"><button role="menuitem" data-open-panel="filesystem">Project settings…<small>On/off and exposure for this folder</small></button><button role="menuitem">Replace with folder entry…<small>Write a full folder entry</small></button></span></span>
+        </div>
+        <p class="msg sec">Off in Pi global; turned on for this folder.</p>
+      </li>
+
+      <!-- 4. Exposure override -->
+      <li class="row">
+        <div class="line">
+          <label class="sw"><input type="checkbox" role="switch" aria-label="Enable linear" checked></label>
+          <span class="name">linear</span>
+          <code class="meta">url</code><span class="meta">direct</span><span class="meta">auth: radius</span>
+          <span class="chip">Pi global</span>
+          <span class="chip folder">Exposure: direct in this folder</span>
+          <button class="linkbtn desktop-only">Reset to global</button>
+          <span class="meta">connected · 31 tools</span>
+          <span class="ml-auto menu"><button class="btn" aria-haspopup="menu" aria-expanded="false" data-menu>⋯ <span class="desktop-only">&nbsp;Actions</span></button>
+            <span class="menu-pop" role="menu"><button role="menuitem" data-open-panel="linear">Project settings…<small>On/off and exposure for this folder</small></button><button role="menuitem">Replace with folder entry…<small>Write a full folder entry</small></button></span></span>
+        </div>
+      </li>
+
+      <!-- 5. Legacy copy (old disable path) -->
+      <li class="row">
+        <div class="line">
+          <label class="sw"><input type="checkbox" role="switch" aria-label="Enable jira"></label>
+          <span class="name">jira</span>
+          <code class="meta">url</code><span class="meta">codemode</span>
+          <span class="chip">Pi folder</span>
+          <span class="chip replace">overrides Pi global</span>
+          <span class="meta">disabled</span>
+          <span class="ml-auto"><button class="btn">Edit</button></span>
+        </div>
+        <p class="note info" style="margin:0">
+          <span aria-hidden="true">ⓘ</span>
+          <span><b>Copied from Pi global by an older dashboard, without credentials.</b> A project override keeps the global credentials and only changes on/off here.
+          <button class="btn" style="margin-left:6px" data-convert>Convert to project override</button></span>
+        </p>
+      </li>
+
+      <!-- 6. Whole-entry replace (deliberate), unchanged behaviour -->
+      <li class="row">
+        <div class="line">
+          <label class="sw"><input type="checkbox" role="switch" aria-label="Enable postgres" checked></label>
+          <span class="name">postgres</span>
+          <code class="meta">command</code><span class="meta">direct</span>
+          <span class="chip">Pi folder</span>
+          <span class="chip replace">overrides Pi global</span>
+          <span class="meta">connected · 4 tools</span>
+          <span class="ml-auto"><button class="btn">Edit</button></span>
+        </div>
+      </li>
+
+      <!-- 7. Orphaned override -->
+      <li class="row">
+        <div class="line">
+          <label class="sw"><input type="checkbox" role="switch" aria-label="Enable ghost" disabled title="No Pi global server named ghost"></label>
+          <span class="name">ghost</span>
+          <span class="chip">Pi folder</span>
+          <span class="chip folder">Off in this folder</span>
+          <span class="ml-auto"><button class="btn">Remove</button></span>
+        </div>
+        <p class="msg err" role="alert"><b>Not loaded:</b> server "ghost" needs "command" or "url", or a global server to override</p>
+      </li>
+    </ul>
+  </div>
+
+  <div class="legend">
+    <b>Mockup states</b> (change <code>mcp-client-project-overrides</code>):
+    <ol>
+      <li><code>docs</code>: Inherit, no override (one switch, one overflow).</li>
+      <li><code>sentry</code>: <code>{"enabled": false}</code>. Badge plus Reset (switch it off/on, Reset gives an undo toast). Toggle "Project trusted" to see the pending note.</li>
+      <li><code>filesystem</code>: off globally, <code>{"enabled": true}</code> here.</li>
+      <li><code>linear</code>: <code>{"exposure": "direct"}</code>. Credentials (<code>auth: radius</code>) are inherited.</li>
+      <li><code>jira</code>: a legacy whole-entry copy without credentials, offered Convert.</li>
+      <li><code>postgres</code>: a deliberate replace, unchanged ("Replace with folder entry…" output).</li>
+      <li><code>ghost</code>: an orphaned override. pi's message, switch disabled, Remove only, not counted by the pill.</li>
+    </ol>
+    Open "⋯ → Project settings…" on any global row for the panel. Below 640px it becomes a bottom sheet.
+  </div>
+</div>
+
+<dialog id="panel" aria-labelledby="panel-h">
+  <form method="dialog">
+    <div class="dlg-h"><h2 id="panel-h">Project settings: <span data-name>sentry</span></h2>
+      <p>Changes only this folder. Writes <code>.pi/mcp.json</code>; the Pi global entry and its credentials are kept.</p></div>
+    <div class="dlg-b">
+      <fieldset>
+        <legend>Enabled in this folder</legend>
+        <div class="seg" role="radiogroup" aria-label="Enabled in this folder">
+          <label><input type="radio" name="en" value="inherit"><span>Inherit (on)</span></label>
+          <label><input type="radio" name="en" value="on"><span>On</span></label>
+          <label><input type="radio" name="en" value="off" checked autofocus><span>Off</span></label>
+        </div>
+        <div class="hint">Inherit follows Pi global, including later changes there.</div>
+      </fieldset>
+      <div>
+        <label class="label" for="exp" style="display:block">Exposure in this folder</label>
+        <select id="exp"><option>Inherit (direct)</option><option>direct</option><option>codemode</option><option>deferred</option><option>hidden</option></select>
+      </div>
+      <div>
+        <div class="label">Per-tool exposure (read-only)</div>
+        <div class="kv"><code>search</code> → direct · <code>issues_*</code> → hidden<br><span>Kept as is. Edit in <code>.pi/mcp.json</code> or pi's <code>/mcp</code>.</span></div>
+      </div>
+    </div>
+    <div class="dlg-f">
+      <button class="btn" value="cancel">Cancel</button>
+      <button class="btn primary" value="save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden role="status"><span id="toast-t">Reset sentry to Pi global.</span><button class="btn" id="undo">Undo</button></div>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+$('#theme').onclick=e=>{const h=document.documentElement;const l=h.dataset.theme==='dark';h.dataset.theme=l?'light':'dark';e.target.textContent=l?'Dark theme':'Light theme';e.target.setAttribute('aria-pressed',String(l));};
+let trusted=true;
+$('#trust').onclick=e=>{trusted=!trusted;e.target.textContent=trusted?'Project trusted':'Project not trusted';e.target.setAttribute('aria-pressed',String(trusted));$('#untrusted').hidden=trusted;$('[data-pending="sentry"]').hidden=trusted;};
+$$('[data-menu]').forEach(b=>b.onclick=e=>{e.stopPropagation();const p=b.nextElementSibling;const o=!p.classList.contains('open');$$('.menu-pop').forEach(x=>x.classList.remove('open'));$$('[data-menu]').forEach(x=>x.setAttribute('aria-expanded','false'));if(o){p.classList.add('open');b.setAttribute('aria-expanded','true');p.querySelector('button').focus();}});
+document.addEventListener('click',()=>$$('.menu-pop').forEach(x=>x.classList.remove('open')));
+document.addEventListener('keydown',e=>{if(e.key==='Escape')$$('.menu-pop').forEach(x=>x.classList.remove('open'));});
+$$('[data-open-panel]').forEach(b=>b.onclick=()=>{$('[data-name]').textContent=b.dataset.openPanel;$('#panel').showModal();});
+function toast(t){$('#toast-t').textContent=t;$('#toast').hidden=false;clearTimeout(window._t);window._t=setTimeout(()=>$('#toast').hidden=true,6000);}
+function setSentry(off){const badge=$('[data-badge="sentry"]');const reset=$$('[data-reset="sentry"]');badge.hidden=!off;reset.forEach(r=>r.hidden=!off);$('[data-switch="sentry"]').checked=!off;}
+$$('[data-reset="sentry"]').forEach(b=>b.onclick=()=>{setSentry(false);toast('Reset sentry to Pi global.');});
+$('[data-switch="sentry"]').onchange=e=>{setSentry(!e.target.checked);};
+$('#undo').onclick=()=>{setSentry(true);$('#toast').hidden=true;};
+$('[data-convert]').onclick=e=>{e.target.closest('p').outerHTML='<p class="msg sec">Converted: <code>{"enabled": false}</code>. Pi global credentials apply again.</p>';toast('Converted jira to a project override.');};
+</script>
+</body>
+</html>
