@@ -183,7 +183,16 @@ export type CwdHoldOrigin = (typeof CWD_HOLD_ORIGINS)[number];
  * could not confirm (answer 503, not 403).
  */
 export type CwdHoldDecision =
-  | { kind: "admit"; canonCwd: string }
+  | {
+      kind: "admit";
+      canonCwd: string;
+      /**
+       * The cwd this decision answers, as `path.resolve` of the string the plugin passed in.
+       * The plugin mints a token only for a request whose own resolved cwd is exactly this
+       * string, so a decision cannot be replayed for another path.
+       */
+      cwd: string;
+    }
   | { kind: "indeterminate" }
   | { kind: "refuse" };
 

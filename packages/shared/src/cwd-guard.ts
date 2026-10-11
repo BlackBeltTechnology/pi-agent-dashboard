@@ -189,27 +189,21 @@ export function admissionAllows(admission: Admission, cwd: string | undefined): 
 }
 
 /**
- * Mint a token from the host's post-verdict decision (`holdCwdDenial`). The host
- * returns a DECISION, never a token, so each plugin mints from its own module
- * instance; the canonical cwd must equal the decision's, so a decision for one
- * path cannot be replayed for another.
+ * Mint a token from the host's post-verdict decision (`holdCwdDenial`). The host returns a
+ * DECISION, never a token, so each plugin mints from its own module instance. The decision
+ * names the cwd it answers (`decision.cwd`, the resolved string the plugin passed to the
+ * host): a token is minted only for a request whose own resolved cwd is exactly that, so a
+ * decision for one path cannot be replayed for another. The host has already re-resolved
+ * the real path at release time (symlink swap, existence, `.git`, forbidden) — this module
+ * deliberately does NOT touch the filesystem with the request's cwd again.
  */
-export async function issueHeldAdmission(
-  decision: { kind: string; canonCwd?: string },
+export function issueHeldAdmission(
+  decision: { kind: string; canonCwd?: string; cwd?: string },
   rawCwd: string,
-  realpath: (p: string) => Promise<RealpathOutcome> = realpathAsync,
-): Promise<Admission> {
-  if (decision.kind !== "admit" || !decision.canonCwd) return { kind: "refuse" };
-  // Errno-aware: a canonicalization failure other than non-existence means the decision
-  // cannot be confirmed for this path — a failure to DECIDE, never a mint, never a plain refusal.
-  const abs = resolve(rawCwd);
-  const r = await realpath(abs);
-  if (r.kind === "error") return { kind: "indeterminate", failedProbes: ["realpath"], elapsedMs: 0 };
-  // The host re-checked existence just before answering; a cwd that vanished since is not
-  // a subject to mint a token for.
-  if (r.kind === "missing") return { kind: "refuse" };
-  if (r.path !== decision.canonCwd || hasGitPathSegment(r.path)) return { kind: "refuse" };
-  return { kind: "admit", token: mintToken(r.path, rawCwd) };
+): { kind: "admit"; token: AdmissionToken } | { kind: "refuse" } {
+  if (decision.kind !== "admit" || !decision.canonCwd || decision.cwd === undefined) return { kind: "refuse" };
+  if (decision.cwd !== resolve(rawCwd) || hasGitPathSegment(decision.canonCwd)) return { kind: "refuse" };
+  return { kind: "admit", token: mintToken(decision.canonCwd, rawCwd) };
 }
 
 // ── Semaphore ───────────────────────────────────────────────────────────────

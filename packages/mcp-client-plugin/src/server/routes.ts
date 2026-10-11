@@ -135,11 +135,11 @@ async function admitViaHold(
   const decision = await deps.holdCwdDenial(req.request, req.reply, { cwd, origin: req.holdOrigin });
   if (decision.kind === "indeterminate") return admissionUnavailable(cwd);
   // The host returns a decision, never a token: mint our own, bound to this cwd.
-  const held = await issueHeldAdmission(decision, cwd);
+  const held = issueHeldAdmission(decision, cwd);
   if (held.kind === "admit" && admissionAllows(held, cwd)) {
     return { ok: true, scope: { kind: "project", cwd, admission: held.token } };
   }
-  return held.kind === "indeterminate" ? admissionUnavailable(cwd) : null;
+  return null;
 }
 
 /** Admit a project `cwd`: `admit` → token-bearing scope; `indeterminate` → 503; `refuse` → hold (writes) or 403. */

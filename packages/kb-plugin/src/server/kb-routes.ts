@@ -395,7 +395,7 @@ async function admitKbCwd(
   const decision = await deps.holdCwdDenial(req, reply, { cwd, origin: holdOrigin });
   if (decision.kind === "indeterminate") return { kind: "indeterminate", failedProbes: [], elapsedMs: 0 };
   // The host returns a decision, never a token: mint our own, bound to this cwd.
-  return endWithRequest(reply, await issueHeldAdmission(decision, cwd));
+  return endWithRequest(reply, issueHeldAdmission(decision, cwd));
 }
 
 /** kb routes hand no token downstream, but a token must still not outlive its request. */

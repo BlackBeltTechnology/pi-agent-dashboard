@@ -187,7 +187,7 @@ describe("verdicts", () => {
     const dir = unknownDir();
     const pending = call(dir);
     await answer("allow-always");
-    expect(decisionOf(await pending)).toEqual({ kind: "admit", canonCwd: dir });
+    expect(decisionOf(await pending)).toEqual({ kind: "admit", canonCwd: dir, cwd: expect.any(String) });
     expect(pinned).toEqual([dir]);
   });
 
@@ -206,7 +206,7 @@ describe("verdicts", () => {
     const dir = unknownDir();
     const pending = call(dir);
     await answer("allow-once");
-    expect(decisionOf(await pending)).toEqual({ kind: "admit", canonCwd: dir });
+    expect(decisionOf(await pending)).toEqual({ kind: "admit", canonCwd: dir, cwd: expect.any(String) });
     expect(pinned).toEqual([]);
   });
 
@@ -256,7 +256,7 @@ describe("resolveCwdVerdict (shared re-run)", () => {
       { kind: "allow", verdict: "allow-once", subject: dir },
       { known: () => [dir] },
     );
-    expect(out).toEqual({ kind: "admit", canonCwd: dir });
+    expect(out).toEqual({ kind: "admit", canonCwd: dir, cwd: expect.any(String) });
   });
 
   it.each(["allow-once", "allow-always"] as const)(

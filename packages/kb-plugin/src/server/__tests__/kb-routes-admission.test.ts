@@ -9,7 +9,7 @@
  */
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { CwdHoldDecision } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { GitProbeRunner } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -57,11 +57,14 @@ function folder(withConfig = true): string {
   return root;
 }
 
-function build(opts: { runner?: GitProbeRunner; hold?: CwdHoldDecision | "absent" } = {}) {
+function build(opts: { runner?: GitProbeRunner; hold?: CwdHoldDecision | ((cwd: string) => CwdHoldDecision) | "absent" } = {}) {
   const app = Fastify();
   apps.push(app);
   const registry = new KbJobRegistry();
-  const hold = vi.fn(async (): Promise<CwdHoldDecision> => (opts.hold === "absent" || !opts.hold ? { kind: "refuse" } : opts.hold));
+  const hold = vi.fn(async (_req: unknown, _reply: unknown, input: { cwd: string }): Promise<CwdHoldDecision> => {
+    if (opts.hold === "absent" || !opts.hold) return { kind: "refuse" };
+    return typeof opts.hold === "function" ? opts.hold(input.cwd) : opts.hold;
+  });
   mountKbRoutes(app, {
     knownCwds: () => [],
     registry,
@@ -125,7 +128,7 @@ describe("E32 (kb GET half): reads never prompt", () => {
   for (const r of ROUTES.filter((x) => !x.writes)) {
     it(`GET ${r.name} on an unknown cwd is 403 and never calls the seam`, async () => {
       const dir = folder();
-      const { app, hold } = build({ hold: { kind: "admit", canonCwd: dir } });
+      const { app, hold } = build({ hold: (cwd) => ({ kind: "admit", canonCwd: dir, cwd: resolve(cwd) }) });
       const res = await fire(app, r, dir);
       expect(res.statusCode).toBe(403);
       expect(hold).not.toHaveBeenCalled();
@@ -136,7 +139,7 @@ describe("E32 (kb GET half): reads never prompt", () => {
 describe("E38: write routes raise the access dialog", () => {
   it("POST /reindex: an allow the host confirms → 202 and the job is registered", async () => {
     const dir = folder();
-    const { app, registry, hold } = build({ hold: { kind: "admit", canonCwd: realpathOf(dir) } });
+    const { app, registry, hold } = build({ hold: (cwd) => ({ kind: "admit", canonCwd: realpathOf(dir), cwd: resolve(cwd) }) });
     const res = await app.inject({ method: "POST", url: url("/api/kb/reindex", dir) });
     expect(res.statusCode).toBe(202);
     expect(hold).toHaveBeenCalledWith(expect.anything(), expect.anything(), { cwd: dir, origin: "kb:reindex" });
@@ -169,9 +172,10 @@ describe("E38: write routes raise the access dialog", () => {
     expect(res.statusCode).toBe(503);
   });
 
-  it("a decision for another path never admits (no token for a replayed decision)", async () => {
+  it("a decision that answers another cwd never admits (no token for a replayed decision)", async () => {
     const dir = folder();
-    const { app, registry } = build({ hold: { kind: "admit", canonCwd: "/elsewhere" } });
+    // The decision answers a DIFFERENT cwd than the request carries.
+    const { app, registry } = build({ hold: () => ({ kind: "admit", canonCwd: dir, cwd: "/elsewhere" }) });
     const res = await app.inject({ method: "POST", url: url("/api/kb/reindex", dir) });
     expect(res.statusCode).toBe(403);
     expect(registry.get(dir)).toBeUndefined();

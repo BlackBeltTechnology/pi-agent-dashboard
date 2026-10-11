@@ -306,14 +306,19 @@ describe("admitCwd", () => {
     expect(admissionAllows({ kind: "refuse" }, known)).toBe(false);
   });
 
-  it("issueHeldAdmission mints only for a decision whose canonical cwd matches", async () => {
+  it("issueHeldAdmission mints only for a decision that answers THIS request's cwd", () => {
     const dir = makeDir("admit-held-");
-    const good = await issueHeldAdmission({ kind: "admit", canonCwd: dir }, dir);
+    const good = issueHeldAdmission({ kind: "admit", canonCwd: dir, cwd: dir }, dir);
     expect(good.kind).toBe("admit");
-    expect((await issueHeldAdmission({ kind: "admit", canonCwd: `${dir}-other` }, dir)).kind).toBe("refuse");
-    expect((await issueHeldAdmission({ kind: "indeterminate" }, dir)).kind).toBe("refuse");
-    expect((await issueHeldAdmission({ kind: "refuse" }, dir)).kind).toBe("refuse");
+    // A trailing slash resolves to the same string; a different path does not.
+    expect(issueHeldAdmission({ kind: "admit", canonCwd: dir, cwd: dir }, `${dir}/`).kind).toBe("admit");
+    expect(issueHeldAdmission({ kind: "admit", canonCwd: dir, cwd: `${dir}-other` }, dir).kind).toBe("refuse");
+    expect(issueHeldAdmission({ kind: "admit", canonCwd: dir }, dir).kind).toBe("refuse"); // decision names no cwd
+    expect(issueHeldAdmission({ kind: "indeterminate" }, dir).kind).toBe("refuse");
+    expect(issueHeldAdmission({ kind: "refuse" }, dir).kind).toBe("refuse");
+    expect(issueHeldAdmission({ kind: "admit", canonCwd: `${dir}/.git`, cwd: dir }, dir).kind).toBe("refuse");
   });
+
 });
 
 describe("admitCwd — the deadline covers the WHOLE decision (B2)", () => {
@@ -399,17 +404,9 @@ describe("admitCwd — an unresolvable known folder is a failure to decide (r2 B
     expect(r.kind).toBe("indeterminate");
   });
 
-  it("r3 B2: issueHeldAdmission mints nothing when the cwd vanished after the verdict (ENOENT)", async () => {
-    const dir = makeDir("admit-held-vanished-");
-    const r = await issueHeldAdmission({ kind: "admit", canonCwd: dir }, dir, async () => ({ kind: "missing" }));
-    expect(r.kind).toBe("refuse");
-  });
 
-  it("issueHeldAdmission: a realpath error is indeterminate, never a mint or a plain refusal", async () => {
-    const dir = makeDir("admit-held-eacces-");
-    const r = await issueHeldAdmission({ kind: "admit", canonCwd: dir }, dir, async () => ({ kind: "error", code: "EACCES" }));
-    expect(r.kind).toBe("indeterminate");
-  });
+
+
 });
 
 describe("admitCwd — canonicalization failures are failures to decide (B3)", () => {

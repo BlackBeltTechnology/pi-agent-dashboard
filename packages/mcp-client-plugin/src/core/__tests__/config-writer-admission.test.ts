@@ -36,7 +36,7 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 async function tokenScope(cwd: string): Promise<Extract<Scope, { kind: "project" }>> {
-  const held = await issueHeldAdmission({ kind: "admit", canonCwd: cwd }, cwd);
+  const held = issueHeldAdmission({ kind: "admit", canonCwd: cwd, cwd }, cwd);
   if (held.kind !== "admit") throw new Error("expected admit");
   return { kind: "project", cwd, admission: held.token };
 }

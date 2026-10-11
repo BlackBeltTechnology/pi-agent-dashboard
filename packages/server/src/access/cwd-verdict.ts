@@ -66,19 +66,20 @@ export async function resolveCwdVerdict(
   // symlink swapped in while the request was held), no verdict kind applies — not even
   // when the new target happens to be a known folder.
   if (resolution.subject !== canon) return { kind: "refuse" };
+  const admit = (): CwdHoldDecision => ({ kind: "admit", canonCwd: canon, cwd: path.resolve(cwd) });
 
   // Canonical membership against sessions ∪ pins, both sides: a session that
   // registered for this cwd while the dialog was open admits too.
   const knownCanon = await canonKnownClassified(deps.known, deps.realpath);
-  if (knownCanon.canon.includes(canon)) return { kind: "admit", canonCwd: canon };
+  if (knownCanon.canon.includes(canon)) return admit();
 
   if (resolution.verdict === "allow-always") {
     if (!deps.rerunAlways) return { kind: knownCanon.uncertain ? "indeterminate" : "refuse" };
     const outcome = await deps.rerunAlways(canon);
-    return outcome === "admit" ? { kind: "admit", canonCwd: canon } : { kind: outcome };
+    return outcome === "admit" ? admit() : { kind: outcome };
   }
   // allow-once: admits only the single held request, whose subject was just re-confirmed.
-  return { kind: "admit", canonCwd: canon };
+  return admit();
 }
 
 export interface CwdHoldDeps {

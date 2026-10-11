@@ -5,7 +5,7 @@
  */
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { CwdHoldDecision } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { GitProbeRunner } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { runAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
@@ -193,7 +193,7 @@ describe("E27–E31: user-initiated writes raise the access dialog", () => {
       hold: async (cwd) => {
         const canon = realpathSync(cwd);
         hh.known.push(canon);
-        return { kind: "admit", canonCwd: canon };
+        return { kind: "admit", canonCwd: canon, cwd: resolve(cwd) };
       },
     });
     const cwd = dir(hh, "x");
@@ -214,7 +214,7 @@ describe("E27–E31: user-initiated writes raise the access dialog", () => {
   });
 
   it("E29: allow-once completes one write, pins nothing, and the next save asks again", async () => {
-    const hh = await harness({ hold: async (cwd) => ({ kind: "admit", canonCwd: realpathSync(cwd) }) });
+    const hh = await harness({ hold: async (cwd) => ({ kind: "admit", canonCwd: realpathSync(cwd), cwd: resolve(cwd) }) });
     const cwd = dir(hh, "x");
     expect((await put(hh, cwd)).statusCode).toBe(200);
     expect(hh.known).toEqual([]);
@@ -222,8 +222,8 @@ describe("E27–E31: user-initiated writes raise the access dialog", () => {
     expect(hh.hold).toHaveBeenCalledTimes(2); // no cached admission between requests
   });
 
-  it("a decision for a DIFFERENT path never mints a token (replay)", async () => {
-    const hh = await harness({ hold: async () => ({ kind: "admit", canonCwd: "/somewhere/else" }) });
+  it("a decision that answers a DIFFERENT cwd never mints a token (replay)", async () => {
+    const hh = await harness({ hold: async () => ({ kind: "admit", canonCwd: "/somewhere/else", cwd: "/somewhere/else" }) });
     const cwd = dir(hh, "x");
     const res = await put(hh, cwd);
     expect(res.statusCode).toBe(403);
@@ -272,7 +272,7 @@ describe("E27–E31: user-initiated writes raise the access dialog", () => {
 
 describe("E32: reads never prompt", () => {
   it("GET /effective and /live on an unknown cwd are 403 and never call the seam", async () => {
-    const hh = await harness({ hold: async () => ({ kind: "admit", canonCwd: "/x" }) });
+    const hh = await harness({ hold: async () => ({ kind: "admit", canonCwd: "/x", cwd: "/x" }) });
     const cwd = dir(hh, "x");
     for (const route of ["effective", "live"]) {
       const res = await hh.app.inject({ method: "GET", url: `/api/mcp-client/${route}?cwd=${encodeURIComponent(cwd)}` });
