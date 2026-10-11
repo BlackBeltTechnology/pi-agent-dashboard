@@ -73,6 +73,7 @@ describe("spawnDialHost", () => {
     ["IPv6 loopback", { reason: "r", tcp: { host: "::1", port: 1 } }, "::1"],
     ["a specific LAN address", { reason: "r", tcp: { host: "192.168.1.5", port: 1 } }, "192.168.1.5"],
     ["`localhost` may bind only ::1 → legacy unmarked URL", { reason: "r", tcp: { host: "localhost", port: 1 } }, null],
+    ["` localhost ` is trimmed", { reason: "r", tcp: { host: " localhost ", port: 1 } }, null],
     ["`LocalHost` is case-insensitive", { reason: "r", tcp: { host: "LocalHost", port: 1 } }, null],
   ])("%s", (_name, policy, want) => {
     expect(spawnDialHost(policy)).toBe(want);

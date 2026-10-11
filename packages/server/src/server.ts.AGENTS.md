@@ -60,6 +60,6 @@ Constructs `PasskeyService` (directory `~/.pi/dashboard/users.json`, `resolveRpC
 
 - Managed services: constructs `ServiceManager` (paths `servicesPaths()`, `defaultCommandRunner`, registry `resolveBinary`, offers from `resolveInstallRoot`), `registerServiceRoutes` (network guard + `localTrust`), `boot()` (adoption only, no-op without `services.json`) → `startScheduler()`; `serviceManager.dispose()` in `stop()`. See change: add-service-registry-core.
 
-Creates the `local-credential` verifier (`acceptLegacyToken: true`), stamps at the first `onRequest` hook and at the top of the main `upgrade` handler, `httpBoundAt` before `listen`, passes `config.host` to `setSpawnDashboardPiPort`. See change: loopback-credential-proof (D4, D7, D9).
+Creates the `local-credential` verifier (`acceptLegacyToken: true`), stamps at the first `onRequest` hook and at the top of the main `upgrade` handler, `listenWithProofFloor` (floor after `ready()`), passes the gateway's real TCP host (`spawnDialHost(policy)`) to `setSpawnDashboardPiPort`. See change: loopback-credential-proof (D4, D7, D9); harden-credential-proof-binding.
 
 Creates `inFlightToolCalls` + `toolResultStats`; passes to `wireEvents`, `registerSessionRoutes`, `registerSystemRoutes`. See change: distinguish-tool-result-pending-vs-gone.

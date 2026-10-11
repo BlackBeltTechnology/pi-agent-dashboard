@@ -74,5 +74,5 @@ export function decideGatewayListeners(input: ListenerPolicyInput): ListenerPoli
  */
 export function spawnDialHost(policy: ListenerPolicy): string | null {
   const host = policy.tcp?.host ?? "127.0.0.1";
-  return host.toLowerCase() === "localhost" ? null : host;
+  return host.trim().toLowerCase() === "localhost" ? null : host;
 }

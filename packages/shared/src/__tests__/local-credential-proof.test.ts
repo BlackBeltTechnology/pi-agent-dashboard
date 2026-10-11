@@ -95,6 +95,8 @@ describe("a DNS-name bind host still yields an IP-literal dial (harden-credentia
   it("an IP literal is left alone", () => {
     expect(localDialHost("192.168.1.5")).toBe("192.168.1.5");
     expect(localDialHost("fe80::1")).toBe("[fe80::1]");
+    expect(localDialHost("[fe80::1]")).toBe("[fe80::1]");
+    expect(localDialHost(" [::1] ")).toBe("[::1]");
   });
 
   it("httpProofHeaders for the dial host of a name bind mints a proof", () => {

@@ -20,5 +20,5 @@
 
 ## 5. Integration
 
-- [ ] 5.1 Full suite `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` shows no failure attributable to this change.
-- [ ] 5.2 `review-code` on the diff; fix findings. Docs: no prose change needed (behaviour matches `docs/architecture.md` "Local credential proof"); update the touched files' AGENTS.md rows (`See change: harden-credential-proof-binding`).
+- [x] 5.1 Full suite `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` shows no failure attributable to this change.
+- [x] 5.2 `review-code` on the diff; fix findings. Docs: no prose change needed (behaviour matches `docs/architecture.md` "Local credential proof"); update the touched files' AGENTS.md rows (`See change: harden-credential-proof-binding`).
