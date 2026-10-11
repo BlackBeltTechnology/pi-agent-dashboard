@@ -45,6 +45,7 @@ import {
 } from "./session/custom-event-group-annotation.js";
 import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js";
 import { extractSessionUpdates, isActivityEvent, isUnreadTrigger, reconcileAgentLiveness } from "./session/event-status-extraction.js";
+import { createInFlightToolCalls, type InFlightToolCalls } from "./session/in-flight-tool-calls.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
 import { applyPluginRef } from "./session/plugin-refs.js";
 import {
@@ -103,6 +104,12 @@ const STRICT_SPAWN_CORRELATION =
 
 export interface EventWiringDeps {
   sessionManager: SessionManager;
+  /**
+   * Live-only in-flight tool-call hint shared with the tool-result route
+   * (`202` vs `404`). Created internally when absent.
+   * See change: distinguish-tool-result-pending-vs-gone (D2).
+   */
+  inFlightToolCalls?: InFlightToolCalls;
   /**
    * Lazy YOLO verdict for an agent-path-gate would-prompt call. Absent (YOLO not
    * constructed yet) → every `path_yolo_request` declines.
@@ -339,6 +346,9 @@ export function wireEvents(deps: EventWiringDeps): void {
     archiveSweeper,
     customEventGroupResolver,
   } = deps;
+  const inFlightToolCalls = deps.inFlightToolCalls ?? createInFlightToolCalls();
+  // Session removal (archive) frees the hint; the store frees its own record.
+  sessionManager.onRemoved = (sessionId) => inFlightToolCalls.clear(sessionId);
 
   // Once-per-activation guard for the eager liveness marker: maps sessionId
   // → epoch already stamped. Prevents a fresh atomic write on every event.
@@ -649,6 +659,9 @@ export function wireEvents(deps: EventWiringDeps): void {
         }
       }
     }
+    // Nothing is running in an ended session. See change:
+    // distinguish-tool-result-pending-vs-gone (D2).
+    inFlightToolCalls.clear(sessionId);
 
     // Graced on-end archive of a session its plugin declared disposable. The
     // sweeper re-validates at fire time and is idempotent per id, so a
@@ -1072,6 +1085,23 @@ export function wireEvents(deps: EventWiringDeps): void {
         ? prepareEventForIngest(msg.event)
         : { event: msg.event, pending: [] as PendingAttachment[] };
       const seq = eventStore.insertEvent(sessionId, prepared.event);
+      // Live-only in-flight hint + eviction-record invalidation. A replayed
+      // end/`agent_settled` can describe a still-running call (the reconnect
+      // orphan-close), so replay never feeds either. See change:
+      // distinguish-tool-result-pending-vs-gone (D1, D2).
+      if (!replayingSessions.has(sessionId)) {
+        inFlightToolCalls.observeLive(sessionId, msg.event);
+        if (msg.event.eventType === "tool_execution_start") {
+          const startData = msg.event.data;
+          const startId = startData?.toolCallId;
+          if (
+            typeof startId === "string" &&
+            !(typeof startData.parentToolCallId === "string" && startData.parentToolCallId !== "")
+          ) {
+            eventStore.forgetEvictedToolEnd(sessionId, startId);
+          }
+        }
+      }
       // Skip broadcasting during replay — browser gets events via subscribe replay
       if (!replayingSessions.has(sessionId)) {
         const storedEvent = eventStore.getEvent(sessionId, seq) ?? prepared.event;
@@ -1510,6 +1540,10 @@ export function wireEvents(deps: EventWiringDeps): void {
       // clear is unreachable and a resumed-then-crashed session is wrongly
       // excluded from recovery. See change: reopen-sessions-after-shutdown.
       stampedLiveEpoch.delete(sessionId);
+      // A call running across the reconnect answers `404` until it ends:
+      // re-seeding from replayed events would reintroduce the orphan-close
+      // hazard. See change: distinguish-tool-result-pending-vs-gone (D2).
+      inFlightToolCalls.clear(sessionId);
       replayingSessions.add(sessionId);
       // Safety timeout: clear replay flag after 5s if replay_complete never arrives
       setTimeout(() => {

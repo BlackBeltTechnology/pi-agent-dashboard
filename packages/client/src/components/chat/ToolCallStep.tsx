@@ -98,6 +98,9 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   // a real result loss is never mistaken for a silent bodyless success.
   // See change: fix-stuck-tool-card-superseded-heal.
   const isSuperseded = toolDetails?.healedBy === "superseded";
+  // Eviction heal: the server vouched the real end was trimmed from its store.
+  // See change: distinguish-tool-result-pending-vs-gone (D4).
+  const isEvicted = toolDetails?.healedBy === "result_evicted";
   const isAskUser = toolName === "ask_user";
   const isFailedAskUser = isAskUser && status === "error";
   const [expanded, setExpanded] = useState(hasImages || isAgentRunning || (isAskUser && !isFailedAskUser));
@@ -186,6 +189,15 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
             title={i18nT("common.resultNotCapturedRecovered", undefined, "Result not captured — the tool finished but its output was unrecoverable; recovered from the transcript.")}
           >
             {i18nT("common.recovered", undefined, "recovered")}
+          </span>
+        )}
+        {isEvicted && (
+          <span
+            data-testid="tool-evicted-badge"
+            className="ml-1 shrink-0 rounded px-1 text-[10px] leading-4 bg-[var(--bg-secondary)] text-[var(--text-muted)] border border-[var(--border-subtle)]"
+            title={i18nT("chat.tool.evictedHint", undefined, "Result not captured — the tool finished, but the server no longer holds its output.")}
+          >
+            {i18nT("chat.tool.evicted", undefined, "result evicted")}
           </span>
         )}
         {status === "elided" && (

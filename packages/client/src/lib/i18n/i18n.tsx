@@ -50,6 +50,8 @@ const zhCN: Record<string, string> = {
   "chat.historyGap.retry": "重试",
   "chat.tool.elided": "结果未加载",
   "chat.tool.elidedHint": "该工具的结果不在已加载的历史范围内，无法加载。",
+  "chat.tool.evicted": "结果已移除",
+  "chat.tool.evictedHint": "结果未被记录——工具已完成，但服务器已不再保留其输出。",
   "chat.tool.nested.argsOmitted": "参数已省略（{bytes} 字节）",
   "chat.tool.nested.count": "{count} 个嵌套调用",
   "chat.tool.nested.incomplete": "嵌套调用记录不完整",

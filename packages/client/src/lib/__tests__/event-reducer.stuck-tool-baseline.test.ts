@@ -11,7 +11,12 @@
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { createInitialState, reduceEvent } from "../chat/event-reducer.js";
+import {
+  createInitialState,
+  EVICTED_SENTINEL_BODY,
+  reduceEvent,
+  synthesizeEvictedEnd,
+} from "../chat/event-reducer.js";
 
 describe("stuck-tool baseline: withheld tool_execution_end leaves row running", () => {
   it("tool row stays running when its end event never arrives", () => {
@@ -68,5 +73,50 @@ describe("stuck-tool baseline: withheld tool_execution_end leaves row running", 
     const row = state.messages.find((m) => m.toolCallId === "stuck-1");
     expect(row?.toolStatus).toBe("complete");
     expect(row?.result).toBe("file contents");
+  });
+});
+
+// See change: distinguish-tool-result-pending-vs-gone (test-plan E20).
+describe("server-vouched eviction heal (healedBy: result_evicted)", () => {
+  const started = () =>
+    reduceEvent(createInitialState(), {
+      eventType: "tool_execution_start",
+      timestamp: 1_000,
+      data: { toolCallId: "ev-1", toolName: "bash", args: { command: "sleep 60" } },
+    });
+
+  it("carries the sentinel body, isError:false and the marker", () => {
+    const e = synthesizeEvictedEnd("ev-1", 5_000);
+    expect(e.eventType).toBe("tool_execution_end");
+    expect(e.data).toMatchObject({
+      toolCallId: "ev-1",
+      result: EVICTED_SENTINEL_BODY,
+      isError: false,
+      healedBy: "result_evicted",
+    });
+    expect(EVICTED_SENTINEL_BODY).toBe("result no longer available");
+  });
+
+  it("finalizes only a running row", () => {
+    let state = started();
+    state = reduceEvent(state, synthesizeEvictedEnd("ev-1", 5_000));
+    expect(state.toolCalls.get("ev-1")?.status).toBe("complete");
+    expect(state.messages.find((m) => m.toolCallId === "ev-1")?.result).toBe(EVICTED_SENTINEL_BODY);
+    // Unknown row: ignored, no map mutation.
+    const stray = reduceEvent(createInitialState(), synthesizeEvictedEnd("nope", 5_000));
+    expect(stray.toolCalls.has("nope")).toBe(false);
+  });
+
+  it("a later real end overwrites it; a second synth is ignored", () => {
+    let state = reduceEvent(started(), synthesizeEvictedEnd("ev-1", 5_000));
+    const afterSecond = reduceEvent(state, synthesizeEvictedEnd("ev-1", 6_000));
+    expect(afterSecond.messages.find((m) => m.toolCallId === "ev-1")?.result).toBe(EVICTED_SENTINEL_BODY);
+    state = reduceEvent(state, {
+      eventType: "tool_execution_end",
+      timestamp: 7_000,
+      data: { toolCallId: "ev-1", isError: false, result: "real output" },
+    });
+    expect(state.messages.find((m) => m.toolCallId === "ev-1")?.result).toBe("real output");
+    expect(state.toolCalls.get("ev-1")?.status).toBe("complete");
   });
 });
