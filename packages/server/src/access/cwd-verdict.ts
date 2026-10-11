@@ -50,6 +50,34 @@ export interface VerdictDeps {
   realpath?: (p: string) => Promise<RealpathOutcome>;
 }
 
+/**
+ * The verdict's subject, if `cwd` still resolves to it: the real path now, existing, free of
+ * a `.git` segment, grantable, and EQUAL to the subject the operator answered for (any verdict
+ * kind — a swapped symlink never rides a stale answer onto another folder, even when the new
+ * target happens to be a known folder). Otherwise null.
+ */
+async function confirmedSubject(cwd: string, subject: string, realpath: RealpathFn): Promise<string | null> {
+  const real = await realpath(path.resolve(cwd));
+  if (real.kind !== "ok") return null;
+  const canon = real.path;
+  if (hasGitPathSegment(canon) || isUngrantableSubject(canon)) return null;
+  return canon === subject ? canon : null;
+}
+
+type RealpathFn = (p: string) => Promise<RealpathOutcome>;
+
+/**
+ * The final answer, re-reading the real path IMMEDIATELY before it is returned: the known-set
+ * canonicalization and an `allow-always` re-run are awaited in between, and a symlink swapped
+ * during either would otherwise ride the earlier check onto a different folder. The plugin's
+ * token issuance stays filesystem-free, so this is the last place the path is verified.
+ */
+async function admitIfUnchanged(cwd: string, canon: string, realpath: RealpathFn): Promise<CwdHoldDecision> {
+  const again = await realpath(path.resolve(cwd));
+  if (again.kind !== "ok" || again.path !== canon) return { kind: "refuse" };
+  return { kind: "admit", canonCwd: canon, cwd: path.resolve(cwd) };
+}
+
 /** Re-run the guard that denied `cwd` after the operator answered. See module doc. */
 export async function resolveCwdVerdict(
   cwd: string,
@@ -57,29 +85,22 @@ export async function resolveCwdVerdict(
   deps: VerdictDeps,
 ): Promise<CwdHoldDecision> {
   if (resolution.kind !== "allow") return { kind: "refuse" };
-  const real = await (deps.realpath ?? realpathAsync)(path.resolve(cwd));
-  if (real.kind !== "ok") return { kind: "refuse" };
-  const canon = real.path;
-  if (hasGitPathSegment(canon) || isUngrantableSubject(canon)) return { kind: "refuse" };
-
-  // The verdict answered for ONE real path. If the cwd resolves elsewhere now (a
-  // symlink swapped in while the request was held), no verdict kind applies — not even
-  // when the new target happens to be a known folder.
-  if (resolution.subject !== canon) return { kind: "refuse" };
-  const admit = (): CwdHoldDecision => ({ kind: "admit", canonCwd: canon, cwd: path.resolve(cwd) });
+  const realpath = deps.realpath ?? realpathAsync;
+  const canon = await confirmedSubject(cwd, resolution.subject, realpath);
+  if (canon === null) return { kind: "refuse" };
 
   // Canonical membership against sessions ∪ pins, both sides: a session that
   // registered for this cwd while the dialog was open admits too.
   const knownCanon = await canonKnownClassified(deps.known, deps.realpath);
-  if (knownCanon.canon.includes(canon)) return admit();
+  if (knownCanon.canon.includes(canon)) return admitIfUnchanged(cwd, canon, realpath);
 
   if (resolution.verdict === "allow-always") {
     if (!deps.rerunAlways) return { kind: knownCanon.uncertain ? "indeterminate" : "refuse" };
     const outcome = await deps.rerunAlways(canon);
-    return outcome === "admit" ? admit() : { kind: outcome };
+    return outcome === "admit" ? admitIfUnchanged(cwd, canon, realpath) : { kind: outcome };
   }
   // allow-once: admits only the single held request, whose subject was just re-confirmed.
-  return admit();
+  return admitIfUnchanged(cwd, canon, realpath);
 }
 
 export interface CwdHoldDeps {

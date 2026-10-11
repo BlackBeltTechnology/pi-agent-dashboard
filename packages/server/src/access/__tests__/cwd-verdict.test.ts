@@ -314,6 +314,28 @@ describe("resolveCwdVerdict (shared re-run)", () => {
     expect(out).toEqual({ kind: "indeterminate" });
   });
 
+  it.each(["allow-once", "allow-always"] as const)(
+    "a symlink swapped DURING the verdict's async checks is not admitted (%s)",
+    async (verdict) => {
+      const x = unknownDir("x");
+      const y = unknownDir("y");
+      const out = await resolveCwdVerdict(
+        x,
+        { kind: "allow", verdict, subject: x },
+        {
+          // `known()` runs after the cwd's real path was first checked: swap the link in then.
+          known: () => {
+            fs.rmSync(x, { recursive: true });
+            fs.symlinkSync(y, x, "dir");
+            return [];
+          },
+          rerunAlways: async () => "admit",
+        },
+      );
+      expect(out).toEqual({ kind: "refuse" });
+    },
+  );
+
   it("core site (no rerunAlways): an allow-always that is not in the known set is refused", async () => {
     const dir = unknownDir();
     expect(
