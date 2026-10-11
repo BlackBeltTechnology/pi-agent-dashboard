@@ -103,6 +103,9 @@ export function writeSecure(path: string, data: string | Uint8Array, opts: { fla
 
 /** Ensure the work dir tree exists and is private. Called by every command that writes. */
 export function ensureWorkDir(p: WorkPaths): void {
+  // The eval owns `memory-eval/` and `<project-key>/`; a symlink at either would redirect every write.
+  // Higher components (`~/.pi`, `~/.pi/dashboard`) are the user's own config tree and may legitimately be linked.
+  refuseSymlink(dirname(p.root));
   activeRoot = p.root;
   ensureDir(p.root);
   hardenTree(p.root);

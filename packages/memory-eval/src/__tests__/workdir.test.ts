@@ -1,5 +1,5 @@
 import { chmodSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { main } from "../cli.js";
 import { casesBuild } from "../commands/cases.js";
@@ -69,5 +69,17 @@ describe("work dir", () => {
     expect(await main(["run", "--retrievers", "hermes.memory_search"], b.ctx)).not.toBe(0);
     expect(readdirSync(elsewhere)).toEqual([]);
     expect(b.stderr.join("")).toMatch(/symlink/i);
+  });
+
+  it("B1 (round 9): a symlinked `memory-eval` namespace dir (the work dir's parent) is refused too", async () => {
+    const env = makeEnv();
+    writeSession(env.paths.sessionsDir, { id: uuid(1), start: "2026-01-01T10:00:00.000Z", steps: [bash("npx a", "Error: x", true)] });
+    const elsewhere = join(env.home, "elsewhere");
+    mkdirSync(elsewhere, { recursive: true });
+    mkdirSync(dirname(dirname(env.paths.root)), { recursive: true });
+    symlinkSync(elsewhere, dirname(env.paths.root));
+    expect(await main(["cases", "build"], env.ctx)).not.toBe(0);
+    expect(readdirSync(elsewhere)).toEqual([]);
+    expect(env.stderr.join("")).toMatch(/symlink/i);
   });
 });
