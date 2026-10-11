@@ -76,6 +76,7 @@ import { registerLocalProofRoutes } from "./routes/local-proof-routes.js";
 import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
 import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
 import {
+  CORS_ALLOWED_METHODS,
   type CorsOriginOptions,
   isCorsOriginAllowed,
   isPluginWsOriginAdmitted,
@@ -1843,6 +1844,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       cb(null, isCorsOriginAllowed(origin ?? undefined, corsOpts()));
     },
     credentials: true,
+    methods: CORS_ALLOWED_METHODS,
   });
   // Close the rate-limiter's log window on a timer so the `suppressed <n>`
   // summary lands even when no further refusal arrives (D5). Unref'd: a
