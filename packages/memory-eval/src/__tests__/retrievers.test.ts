@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
@@ -196,5 +196,38 @@ describe("retrievers", () => {
     expect(code).toBe(0);
     expect(manifest!.snapshots.kb.status).toBe("ok");
     expect(manifest!.kbChunkCount).not.toBe("absent");
+  });
+
+  it("B3 (round 2): mixed UTC offsets are compared as instants, before the limit", async () => {
+    const env = makeEnv();
+    writeCaseSet(env, [mkCase({ id: "c1", sessionId: OWN, decisionTime: T })]); // T = 12:00Z
+    const messages: FxMessage[] = [];
+    // Eligible instants (before 12:00Z) written with a positive offset: lexically AFTER the bound.
+    for (let i = 0; i < 10; i++) messages.push(msg(OTHER, `kaboom failure eligible ${i}`, `2026-02-01T14:${String(10 + i).padStart(2, "0")}:00+05:00`, `ok-${i}`));
+    // Future instants (after 12:00Z) written with a negative offset: lexically BEFORE the bound.
+    for (let i = 0; i < 10; i++) messages.push(msg(OTHER, `kaboom failure future ${i}`, `2026-02-01T10:${String(10 + i).padStart(2, "0")}:00-05:00`, `future-${i}`));
+    createHermesDb(hermesDbPath(env), { sessions: [{ id: OTHER, project: "synth" }], messages }).close();
+    const { retrieved } = await doRun(env, ["--retrievers", "hermes.session_search.recent,hermes.session_search.bm25"]);
+    for (const id of ["hermes.session_search.recent", "hermes.session_search.bm25"]) {
+      const c = retrieved!.results[id].c1;
+      expect(c.asOfViolations, id).toBe(0);
+      expect(c.top10.map((h) => h.ref).sort(), id).toEqual(Array.from({ length: 10 }, (_, i) => `ok-${i}`).sort());
+    }
+  });
+
+  it("B1 (round 2): a malformed kb config is an error, not a silent switch to the default index", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "meval-proj-"));
+    const env = makeEnv({ cwd });
+    writeCaseSet(env, [mkCase({ id: "c1", decisionTime: T })]);
+    mkdirSync(join(cwd, ".pi", "dashboard", "kb"), { recursive: true });
+    const defaultIndex = new SqliteFtsStore(join(cwd, ".pi", "dashboard", "kb", "index.db"));
+    defaultIndex.init();
+    defaultIndex.close();
+    const cfg = join(cwd, ".pi", "dashboard", "knowledge_base.json");
+    writeFileSync(cfg, "{ not json");
+    const { code, stderr } = await doRun(env, ["--retrievers", "kb.docs"]);
+    expect(code).not.toBe(0);
+    expect(stderr).toContain(cfg);
+    expect(existsSync(env.paths.runsDir) ? readdirSync(env.paths.runsDir).filter((id) => existsSync(join(env.paths.runsDir, id, "manifest.json"))) : []).toEqual([]);
   });
 });

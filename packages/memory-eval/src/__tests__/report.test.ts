@@ -226,4 +226,16 @@ describe("report", () => {
     expect(p.union!.overall.n).toBe(9); // a constituent's failed search takes the case out of the union
     expect(renderReport(p)).toContain("search errors: 1");
   });
+
+  it("B2 (round 2): a failed search is not a gold-session miss", () => {
+    const cs = positives(4).map((c, i) => mkCase({ ...c, goldSessions: [`gold-${i}`] }));
+    const a = agg(makeEnv(), {
+      runId: "r1",
+      cases: cs,
+      retrievers: [{ id: RECENT }],
+      results: (_r, c) => (c.id === "c004" ? { top5: [], top10: [], error: "timed out" } : { top10: [{ ref: "x", sessionId: c.goldSessions[0] }] }),
+    });
+    expect(a.retrievers[0].gold.recurring_fault).toEqual({ n: 3, hit5: 3, hit10: 3 });
+    expect(renderReport(a)).toContain("3/3 / 3/3");
+  });
 });

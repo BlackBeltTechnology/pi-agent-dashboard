@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { DEFAULTS, loadConfig } from "@blackbelt-technology/pi-dashboard-kb";
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-kb";
 import type { Ctx } from "../ctx.js";
 import { type CaseResult, type Retriever, runOne } from "../retriever.js";
 import { BUILTIN_IDS, hermesRetrievers, kbRetriever } from "../retrievers/builtin.js";
@@ -117,13 +117,13 @@ function unavailable(ids: string[], asOf: "strict" | "none", reason: string): Re
   return ids.map((id) => ({ id, version: "", asOf, status: "unavailable" as const, reason }));
 }
 
-/** `--kb-index`, else the project's kb config (`dbPath`), else the shipped default. */
+/** `--kb-index`, else the project's kb config (`dbPath`; absent config = the shipped default). An invalid config is an error. */
 function kbIndexPath(ctx: Ctx, args: RunArgs): string {
   if (args.kbIndex) return resolve(ctx.cwd, args.kbIndex);
   try {
     return loadConfig(ctx.cwd).dbAbsPath;
-  } catch {
-    return join(ctx.cwd, DEFAULTS.dbPath); // unreadable config: fall back rather than abort the whole run
+  } catch (e) {
+    throw new CliError(`cannot resolve the kb index: ${e instanceof Error ? e.message : String(e)} (pass --kb-index <path> to override)`);
   }
 }
 

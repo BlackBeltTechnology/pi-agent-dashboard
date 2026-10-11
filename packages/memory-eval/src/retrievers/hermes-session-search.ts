@@ -53,7 +53,8 @@ function filters(o: SessionSearchOpts): { sql: string[]; params: unknown[] } {
     params.push(v);
   };
   if (o.project) add("s.project = ?", o.project);
-  if (o.asOf) add("m.timestamp < ?", o.asOf);
+  // Compare instants, not strings: stored timestamps may carry any ISO-8601 offset.
+  if (o.asOf) add("julianday(m.timestamp) < julianday(?)", o.asOf);
   if (o.excludeSessionId) add("m.session_id <> ?", o.excludeSessionId);
   return { sql, params };
 }

@@ -215,16 +215,13 @@ function negativesRow(run: RunData, rid: string, cases: Case[]): NegativesRow {
 function goldRows(run: RunData, rid: string): Record<string, GoldRow> {
   const out: Record<string, GoldRow> = {};
   for (const type of ["recurring_fault", "explicit_ref"] as CaseType[]) {
-    const cs = run.cases.filter((c) => c.type === type && c.goldSessions.length);
-    let h5 = 0;
-    let h10 = 0;
-    for (const c of cs) {
-      const refs = run.retrieved.results[rid]?.[c.id]?.top10 ?? [];
+    // A failed search has no top-10: it is excluded, not scored as a miss.
+    const cs = run.cases.filter((c) => c.type === type && c.goldSessions.length && !run.retrieved.results[rid]?.[c.id]?.error);
+    const hits = (c: Case, k: number) => {
       const gold = new Set(c.goldSessions);
-      if (refs.slice(0, 5).some((r) => r.sessionId && gold.has(r.sessionId))) h5++;
-      if (refs.slice(0, 10).some((r) => r.sessionId && gold.has(r.sessionId))) h10++;
-    }
-    out[type] = { n: cs.length, hit5: h5, hit10: h10 };
+      return (run.retrieved.results[rid]?.[c.id]?.top10 ?? []).slice(0, k).some((r) => r.sessionId && gold.has(r.sessionId));
+    };
+    out[type] = { n: cs.length, hit5: cs.filter((c) => hits(c, 5)).length, hit10: cs.filter((c) => hits(c, 10)).length };
   }
   return out;
 }
