@@ -107,7 +107,26 @@ describe("X3 — runtime pi-core installs stay npm (never pnpm)", () => {
 });
 
 // ── X5: CI cache flip — dev/CI workflows use pnpm, not `npm ci` ────────────
+/**
+ * `_electron-build.yml` restores the pnpm cache only behind its
+ * `use_dependency_cache` input (release callers pass false), so it accepts the
+ * gated expression; every other migrated workflow keeps the literal
+ * `cache: pnpm`. See change: harden-ci-cache-poisoning (D4).
+ */
+const GATED_CACHE = /cache:\s*\$\{\{\s*inputs\.use_dependency_cache\s*&&\s*'pnpm'\s*\|\|\s*''\s*\}\}/;
+const missingPnpmCache = (wf: string, src: string): string | undefined => {
+  const ok = wf === "_electron-build.yml" ? GATED_CACHE.test(src) : /cache:\s*pnpm/.test(src);
+  return ok ? undefined : "missing cache: pnpm";
+};
+
 describe("X5 — root/workspace workflows install with pnpm", () => {
+  it("E14: the gated form is accepted only for _electron-build.yml; a ci.yml without cache: pnpm fails", () => {
+    expect(missingPnpmCache("_electron-build.yml", readWf("_electron-build.yml"))).toBeUndefined();
+    expect(missingPnpmCache("ci.yml", readWf("ci.yml").replace(/cache:\s*pnpm/g, ""))).toBe("missing cache: pnpm");
+    // the gated expression does not satisfy any other workflow
+    expect(missingPnpmCache("ci.yml", readWf("_electron-build.yml"))).toBe("missing cache: pnpm");
+  });
+
   const migrated = [
     "ci.yml",
     "publish.yml",
@@ -119,7 +138,7 @@ describe("X5 — root/workspace workflows install with pnpm", () => {
     it(`${wf} uses pnpm/action-setup + cache: pnpm and no \`npm ci\``, () => {
       const y = readWf(wf);
       expect(y, `${wf} missing pnpm/action-setup`).toContain("pnpm/action-setup");
-      expect(y, `${wf} missing \`cache: pnpm\``).toMatch(/cache:\s*pnpm/);
+      expect(missingPnpmCache(wf, y), `${wf} missing \`cache: pnpm\``).toBeUndefined();
       expect(y, `${wf} still installs with pnpm`).toMatch(/pnpm install/);
       if (/\bnpm ci\b/.test(y)) {
         throw new Error(

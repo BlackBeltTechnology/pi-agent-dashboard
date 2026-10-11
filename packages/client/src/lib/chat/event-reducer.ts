@@ -702,6 +702,29 @@ export function synthesizeSupersededEnd(toolCallId: string, now: number): Dashbo
 }
 
 
+/** Body of the placeholder end synthesized for a server-vouched eviction. */
+export const EVICTED_SENTINEL_BODY = "result no longer available";
+
+/**
+ * Build the synthetic `tool_execution_end` that finalizes a card whose real end
+ * the SERVER says was trimmed from its store (`410`). Same reducer guard as the
+ * superseded heal: it finalizes only a `running` row, and a later real end
+ * overwrites it. `isError:false` because the original outcome is unknown (the
+ * badge says so). See change: distinguish-tool-result-pending-vs-gone (D4).
+ */
+export function synthesizeEvictedEnd(toolCallId: string, now: number): DashboardEvent {
+  return {
+    eventType: "tool_execution_end",
+    timestamp: now,
+    data: {
+      toolCallId,
+      result: EVICTED_SENTINEL_BODY,
+      isError: false,
+      healedBy: "result_evicted",
+    },
+  };
+}
+
 
 /**
  * Hard turn boundaries in `messages[]`. Any row with one of these roles

@@ -29,3 +29,5 @@ See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustP
 `/api/health` gains `pluginEventForward {declared,rejected,conflicts,retained,dropped}` roll-up. See change: add-plugin-bridge-contributions.
 
 - `PUT /api/config`: invalid `sessionList` → 400 via `validateSessionListConfig`, nothing persisted. See change: archive-service-sessions-on-end.
+
+`/api/health` gains `toolResult: {pending, gone}` from dep `toolResultStats` (next to `storeTrim`). See change: distinguish-tool-result-pending-vs-gone.

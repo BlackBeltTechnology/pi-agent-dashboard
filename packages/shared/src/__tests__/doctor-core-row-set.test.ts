@@ -27,4 +27,10 @@ describe("shared Doctor row set (E15)", () => {
       expect(`${c.name} ${c.message}`, `row ${c.name}`).not.toMatch(/offline[ -]?(bundle|packages?)/i);
     }
   });
+
+  it("E6: the loader row is named `TypeScript loader` and tagged server", async () => {
+    const checks = await runSharedChecks(okDeps());
+    expect(checks.find((c) => c.name === "TypeScript loader")?.section).toBe("server");
+    expect(checks.some((c) => c.name === "TypeScript loader (tsx)")).toBe(false);
+  });
 });

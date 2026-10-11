@@ -43,8 +43,6 @@ const OPT_OUT_MARKER = "ban:raw-node-import-ok";
  * Then check that both X and Y are either:
  *   - a string literal starting with "file:" (already a URL)
  *   - a call expression to toFileUrl(...) or pathToFileURL(...).href
- *   - the identifier resolveJitiImport() / resolveJitiFromAnchor() (which
- *     are documented to return file:// URLs — allowlisted by name)
  *
  * Anything else is flagged.
  */

@@ -1,7 +1,9 @@
 ## Purpose
 
 Bash command execution events and their rendering in the dashboard chat view.
+
 ## Requirements
+
 ### Requirement: Bash output event type
 The dashboard event system SHALL support a `bash_output` event type for forwarding shell execution results from the extension to the browser.
 
@@ -76,7 +78,7 @@ The chat view SHALL render `command_feedback` events as inline status indicators
 
 When the chat view renders a `toolResult` whose text starts with the truncation marker (`«` U+00AB followed by `<N> earlier lines hidden»`), the UI SHALL render a "Show full output" affordance below the truncated text. Clicking it SHALL fetch the full result via `GET /api/sessions/:sessionId/tool-result/:toolCallId` and replace the rendered text with the full result in-place. Subsequent collapse SHALL re-show the truncated form.
 
-When the endpoint returns 404 (tool call still in flight or evicted from the memory buffer), the UI SHALL render an inline message "result evicted" instead of the full text. The truncated text SHALL remain visible.
+When the endpoint returns 404 (tool call still in flight or unknown) or 410 (result evicted from the memory buffer), the UI SHALL render the localized inline "result evicted" message (`tool.resultEvicted`) instead of the full text, regardless of the response body's `error` string. The truncated text SHALL remain visible.
 
 This affordance SHALL appear in both `ToolCallStep` and `BashOutputCard` renderers — they are the two places truncated results render today.
 
@@ -89,8 +91,8 @@ This affordance SHALL appear in both `ToolCallStep` and `BashOutputCard` rendere
 - **THEN** the rendered text SHALL update to the full untruncated result
 
 #### Scenario: Evicted result shows inline notice
-- **WHEN** the endpoint returns 404 (evicted)
-- **THEN** the rendered area SHALL show an inline "result evicted" notice
+- **WHEN** the endpoint returns 404 or 410
+- **THEN** the rendered area SHALL show the localized inline "result evicted" notice (`tool.resultEvicted`), not the response body's raw `error` text
 - **AND** the truncated text SHALL remain visible
 
 #### Scenario: Non-truncated results have no affordance
@@ -119,4 +121,3 @@ Therefore this change SHALL treat streaming-bash and bash-session-env adoption a
 - **WHEN** an adoption is implemented for that path
 - **THEN** it SHALL be feature-detected (present → enhanced, absent → today's behavior)
 - **AND** the existing `bash_output` event contract SHALL remain the source of truth for the final rendered card
-
