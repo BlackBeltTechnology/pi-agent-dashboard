@@ -4,8 +4,11 @@ name: Electron build (reusable)
 # (DMG/AppImage/DEB/Windows ZIP + NSIS Setup.exe) across 6 legs.
 #
 # Consumed by:
-#   - .github/workflows/publish.yml         (release flow, source_only_bundle=false)
-#   - .github/workflows/ci-electron.yml     (on-demand dev builds, source_only_bundle=true)
+#   - .github/workflows/publish.yml         (release flow, source_only_bundle=false,
+#                                            use_dependency_cache=false)
+#   - .github/workflows/ci-electron.yml     (on-demand dev builds, source_only_bundle=false,
+#                                            use_dependency_cache=true)
+#   - .github/workflows/nightly.yml         (nightly round-trip, use_dependency_cache=true)
 #
 # This workflow MUST NOT publish to npm or create a GitHub Release. It only
 # produces artifacts via actions/upload-artifact. Publishing remains the sole
@@ -66,6 +69,23 @@ on:
         type: string
         required: false
         default: ""
+      use_dependency_cache:
+        description: |
+          Restore the pnpm dependency cache in each build leg. Default false
+          (fail-closed): a release caller must not restore a cache that a
+          develop-scope run could have poisoned. Only dev callers
+          (ci-electron.yml, nightly.yml) pass true. Pinned by
+          workflow-token-cache-contract.test.ts.
+          See change: harden-ci-cache-poisoning (design.md D4).
+        type: boolean
+        required: false
+        default: false
+
+# Least-privilege default: jobs that need more declare it at job level.
+# Pinned by packages/shared/src/__tests__/workflow-token-cache-contract.test.ts.
+# See change: harden-ci-cache-poisoning.
+permissions:
+  contents: read
 
 jobs:
   # Resolve the matrix subset *before* fan-out. Job-level `if:` cannot reference
@@ -135,7 +155,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: pnpm
+          # '' disables setup-node restore AND save (main.ts: `cache && ...`).
+          cache: ${{ inputs.use_dependency_cache && 'pnpm' || '' }}
 
       - name: Export the macOS deployment target (before any native compile)
         # MUST run BEFORE `pnpm install`. A macOS native module compiled from
