@@ -9,7 +9,7 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import type { Sandbox } from "../art/decode.js";
 import { encodePng } from "../art/png.js";
 import type { DeckIR } from "../ir/types.js";
-import { formatIssue, validate } from "../ir/validate.js";
+import { formatIssue, type ValidationIssue, validate, validateAssets } from "../ir/validate.js";
 import {
   type AssetEntry,
   baselineDeckOverrides,
@@ -23,7 +23,7 @@ import { extractPptx, finalizeLayout, stableStringify } from "./extract.js";
 import { applyFallbacks, pngDecoder } from "./fallback.js";
 import { sha256Hex } from "./media.js";
 import { refFromDir, refFromLibreOffice } from "./ref.js";
-import { defaultWrite, Stage, type WriteFn } from "./stage.js";
+import { defaultWrite, type RenameFn, Stage, type WriteFn } from "./stage.js";
 import { type Layout, PptxImportError } from "./types.js";
 import { readPptxZip } from "./zip.js";
 
@@ -36,6 +36,8 @@ export interface ImportOptions {
   env?: NodeJS.ProcessEnv;
   /** Write hook (fault injection in tests). */
   write?: WriteFn;
+  /** Rename hook used by the commit (fault injection in tests). */
+  rename?: RenameFn;
   /** Sandbox factory; resolves undefined when chromium is unavailable. */
   sandbox?: () => Promise<Sandbox | undefined>;
 }
@@ -44,6 +46,30 @@ export interface ImportResult {
   dir: string;
   slides: string[];
   warnings: string[];
+}
+
+/**
+ * Validate the generated deck. User-owned references (assets without the
+ * `pptx-` prefix, `local:` effects) live in the EXISTING deck directory and
+ * survive the import untouched, so they resolve there; the imported `pptx-`
+ * assets exist only in staging and are checked against it. A fresh import has
+ * no existing directory, so staging resolves everything.
+ */
+export function validateGenerated(ir: DeckIR, stageDir: string, targetDir: string): ValidationIssue[] {
+  if (!existsSync(targetDir)) return validate(ir, { deckDir: stageDir }).errors;
+  const assets = ir.overrides.assets ?? [];
+  const imported = assets.map((a, i) => ({ a, i })).filter(({ a }) => a.id.startsWith("pptx-"));
+  const importedIdx = new Set(imported.map(({ i }) => i));
+  const errors = validate(ir, { deckDir: targetDir }).errors.filter((e) => {
+    const m = /^overrides\.assets\[(\d+)\]/.exec(e.path);
+    return !(m && importedIdx.has(Number(m[1])));
+  });
+  const own = validateAssets({ ...ir, overrides: { ...ir.overrides, assets: imported.map(({ a }) => a) } }, stageDir);
+  for (const e of own) {
+    const k = Number(/^overrides\.assets\[(\d+)\]/.exec(e.path)?.[1]);
+    errors.push({ ...e, path: e.path.replace(/^overrides\.assets\[\d+\]/, `overrides.assets[${imported[k]?.i ?? k}]`) });
+  }
+  return errors;
 }
 
 async function defaultSandbox(): Promise<Sandbox | undefined> {
@@ -98,7 +124,7 @@ export async function importPptx(opts: ImportOptions): Promise<ImportResult> {
     }
     return sandbox;
   };
-  const stage = new Stage(dir, opts.write ?? defaultWrite);
+  const stage = new Stage(dir, opts.write ?? defaultWrite, opts.rename);
   try {
     const refs = opts.ref
       ? await refFromDir(opts.ref, ex.slides.length, async (bytes) => {
@@ -149,9 +175,9 @@ export async function importPptx(opts: ImportOptions): Promise<ImportResult> {
     warnings.push(...rec.warnings);
     overrides.assets = rec.assets;
 
-    // The deck validates against the STAGED tree, so a bad import never lands.
-    const result = validate(ir, { deckDir: stage.dir });
-    if (!result.ok) throw new PptxImportError(`generated deck failed validation: ${result.errors.map((e) => formatIssue("error", e)).join("; ")}`);
+    // A bad import never lands: the deck must validate before anything is committed.
+    const problems = validateGenerated(ir, stage.dir, dir);
+    if (problems.length) throw new PptxImportError(`generated deck failed validation: ${problems.map((e) => formatIssue("error", e)).join("; ")}`);
     stage.file("deck.json", `${JSON.stringify(ir, null, 2)}\n`);
     if (prevDeckRaw !== undefined) stage.file("deck.json.bak", prevDeckRaw);
     stage.commit(["pptx", "deck.md", "deck.json", "deck.json.bak"]);

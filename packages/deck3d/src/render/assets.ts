@@ -8,6 +8,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DeckIR } from "../ir/types.js";
+import { realInside } from "../util/confine.js";
 
 export const ASSET_WARN_BYTES = 25 * 1024 * 1024;
 export const ASSET_MAX_BYTES = 200 * 1024 * 1024;
@@ -35,6 +36,10 @@ export class AssetBudgetError extends Error {
 /** Embed `entries` (paths relative to `baseDir`), sorted by id, under the size budget. */
 export function embedFiles(entries: Array<{ id: string; path: string; mime: string }>, baseDir: string): AssetBundle {
   const sorted = [...entries].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // `validate` already checked this; re-checked here so no caller can embed a file from outside.
+  for (const a of sorted) {
+    if (!realInside(baseDir, resolve(baseDir, a.path))) throw new Error(`asset '${a.id}': '${a.path}' is missing or resolves outside the deck directory`);
+  }
   const total = sorted.reduce((sum, a) => sum + statSync(resolve(baseDir, a.path)).size, 0);
   if (total > ASSET_MAX_BYTES) throw new AssetBudgetError(total);
   const warnings = total > ASSET_WARN_BYTES ? [`warning overrides.assets total ${total} bytes exceeds ${ASSET_WARN_BYTES / 1024 / 1024} MiB (deck.html grows by ~4/3 of that)`] : [];

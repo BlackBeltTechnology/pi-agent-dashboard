@@ -19,13 +19,8 @@ export const ZIP_LIMITS = {
   maxEntries: 4000,
   maxEntryBytes: 128 * 1024 * 1024,
   maxTotalBytes: 512 * 1024 * 1024,
+  /** Actual (and declared) uncompressed:compressed ratio above this is rejected, at any size. */
   maxRatio: 200,
-  /**
-   * The ratio rule is evaluated once an entry's output passes this size. A
-   * few-KiB part can exceed 200:1 legitimately (boilerplate XML) and cannot
-   * be a bomb; every bomb crosses this floor long before it does damage.
-   */
-  ratioFloorBytes: 1024 * 1024,
 };
 
 const MiB = 1024 * 1024;
@@ -119,7 +114,7 @@ function readCentralDirectory(bytes: Uint8Array): CdEntry[] {
     if (declaredTotal > ZIP_LIMITS.maxTotalBytes) {
       throw new ZipLimitError(`zip declares more than ${ZIP_LIMITS.maxTotalBytes / MiB} MiB uncompressed (at entry '${name}')`);
     }
-    if (size >= ZIP_LIMITS.ratioFloorBytes && size > ZIP_LIMITS.maxRatio * Math.max(1, compressedSize)) {
+    if (size > ZIP_LIMITS.maxRatio * Math.max(1, compressedSize)) {
       throw new ZipLimitError(`entry '${name}' declares a compression ratio above ${ZIP_LIMITS.maxRatio}:1`);
     }
     entries.push({ name, method, compressedSize, size, localOffset, flags });
@@ -146,7 +141,7 @@ function inflateGuarded(name: string, data: Uint8Array, budget: { total: number 
     if (budget.total + produced > ZIP_LIMITS.maxTotalBytes) {
       throw new ZipLimitError(`zip inflates past ${ZIP_LIMITS.maxTotalBytes / MiB} MiB in total (at entry '${name}')`, produced);
     }
-    if (produced >= ZIP_LIMITS.ratioFloorBytes && produced > ZIP_LIMITS.maxRatio * Math.max(1, data.length)) {
+    if (produced > ZIP_LIMITS.maxRatio * Math.max(1, data.length)) {
       throw new ZipLimitError(`entry '${name}' exceeds a compression ratio of ${ZIP_LIMITS.maxRatio}:1`, produced);
     }
   };

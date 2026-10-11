@@ -2,7 +2,8 @@
  * `style.json` — types, validation and atomic I/O (spec deck3d-variant-loop
  * "style.json grammar and validation"). Every finding names its JSON path.
  */
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { closeSync, existsSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Ajv, { type ErrorObject } from "ajv";
 import { formatPath, validateOverridesFragment } from "../ir/validate.js";
@@ -109,11 +110,73 @@ export function readStyle(path: string): Style | undefined {
   return JSON.parse(readFileSync(path, "utf8")) as Style;
 }
 
-/** Write via a temp file + rename, so a reader never sees a half-written file. */
+/**
+ * Write via a temp file + rename, so a reader never sees a half-written file.
+ * The temp name is unique per call: a PID alone collided between two writers
+ * (or two writes) in one process.
+ */
 export function writeAtomic(path: string, data: string): void {
-  const tmp = `${path}.tmp-${process.pid}`;
+  const tmp = `${path}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
   writeFileSync(tmp, data);
   renameSync(tmp, path);
+}
+
+export class LockError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LockError";
+  }
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Run `fn` holding an exclusive lock next to style.json. A pick is three
+ * writes (style pending → deck.json → style final) over a read-validate step;
+ * two writers interleaving them can leave the deck and the recorded pick from
+ * different decisions. `wx` creation is the atomic compare-and-set; a lock
+ * whose owner process is gone is cleared once. The lock is released on every
+ * path out, success or throw — and never removed unless we took it.
+ */
+export function withStyleLock<T>(deckDir: string, fn: () => T): T {
+  const lock = `${stylePath(deckDir)}.lock`;
+  let fd: number | undefined;
+  for (let attempt = 0; attempt < 2 && fd === undefined; attempt++) {
+    try {
+      fd = openSync(lock, "wx");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      const owner = Number.parseInt(readFileSync(lock, "utf8"), 10);
+      if (Number.isInteger(owner) && owner > 0 && alive(owner)) {
+        throw new LockError(`another variants command is running (pid ${owner}); if it crashed, remove ${lock}`);
+      }
+      // Stale: its owner is gone (or the file is unreadable garbage).
+      try {
+        unlinkSync(lock);
+      } catch {
+        // A racing process removed it first; the next attempt decides.
+      }
+    }
+  }
+  if (fd === undefined) throw new LockError(`could not take ${lock}`);
+  try {
+    writeFileSync(fd, String(process.pid));
+    return fn();
+  } finally {
+    closeSync(fd);
+    try {
+      unlinkSync(lock);
+    } catch {
+      // Already gone: nothing left to release.
+    }
+  }
 }
 
 export const serialize = (v: unknown): string => `${JSON.stringify(v, null, 2)}\n`;

@@ -68,9 +68,26 @@ export function parseTransform(src: string | undefined): M {
 /** Flatness: max deviation of a flattened curve from the true curve, in user units. */
 const TOL = 0.1;
 
-function cubic(p0: P2, p1: P2, p2: P2, p3: P2, out: P2[]): void {
+/**
+ * Points still allowed across ONE SVG. Curves and arcs check their segment
+ * count against it BEFORE building anything, so hostile coordinates (1e12)
+ * fail fast instead of allocating millions of points first.
+ */
+class PointBudget {
+  left: number;
+  constructor(readonly limit: number) {
+    this.left = limit;
+  }
+  take(n: number): void {
+    if (!Number.isFinite(n) || n > this.left) throw new IconLimitError(`flattens to more than ${this.limit} points (limit)`);
+    this.left -= n;
+  }
+}
+
+function cubic(p0: P2, p1: P2, p2: P2, p3: P2, out: P2[], budget: PointBudget): void {
   const len = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) + Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) + Math.hypot(p3[0] - p2[0], p3[1] - p2[1]);
   const n = Math.max(4, Math.ceil(Math.sqrt(len / TOL)));
+  budget.take(n);
   for (let i = 1; i <= n; i++) {
     const t = i / n;
     const u = 1 - t;
@@ -81,12 +98,12 @@ function cubic(p0: P2, p1: P2, p2: P2, p3: P2, out: P2[]): void {
   }
 }
 
-function quad(p0: P2, p1: P2, p2: P2, out: P2[]): void {
-  cubic(p0, [p0[0] + (2 / 3) * (p1[0] - p0[0]), p0[1] + (2 / 3) * (p1[1] - p0[1])], [p2[0] + (2 / 3) * (p1[0] - p2[0]), p2[1] + (2 / 3) * (p1[1] - p2[1])], p2, out);
+function quad(p0: P2, p1: P2, p2: P2, out: P2[], budget: PointBudget): void {
+  cubic(p0, [p0[0] + (2 / 3) * (p1[0] - p0[0]), p0[1] + (2 / 3) * (p1[1] - p0[1])], [p2[0] + (2 / 3) * (p1[0] - p2[0]), p2[1] + (2 / 3) * (p1[1] - p2[1])], p2, out, budget);
 }
 
 /** SVG elliptical arc (spec F.6.5 endpoint → centre parameterisation), sampled on the ellipse. */
-export function arc(p0: P2, rxIn: number, ryIn: number, phiDeg: number, large: boolean, sweep: boolean, p1: P2, out: P2[]): void {
+export function arc(p0: P2, rxIn: number, ryIn: number, phiDeg: number, large: boolean, sweep: boolean, p1: P2, out: P2[], budget: PointBudget): void {
   let rx = Math.abs(rxIn);
   let ry = Math.abs(ryIn);
   if (rx === 0 || ry === 0 || (p0[0] === p1[0] && p0[1] === p1[1])) {
@@ -123,6 +140,7 @@ export function arc(p0: P2, rxIn: number, ryIn: number, phiDeg: number, large: b
   const r = Math.max(rx, ry);
   const step = 2 * Math.acos(Math.max(-1, 1 - TOL / r));
   const n = Math.max(2, Math.ceil(Math.abs(dt) / step));
+  budget.take(n);
   for (let i = 1; i <= n; i++) {
     const t = t1 + (dt * i) / n;
     const ex = rx * Math.cos(t);
@@ -132,7 +150,7 @@ export function arc(p0: P2, rxIn: number, ryIn: number, phiDeg: number, large: b
 }
 
 /** Flatten SVG path data into subpaths (`closed` per subpath). */
-export function flattenPath(d: string): Array<{ points: P2[]; closed: boolean }> {
+export function flattenPath(d: string, budget = new PointBudget(ICON_LIMITS.maxPoints)): Array<{ points: P2[]; closed: boolean }> {
   const tokens = d.match(/[a-zA-Z]|-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/gi) ?? [];
   const subs: Array<{ points: P2[]; closed: boolean }> = [];
   let cur: P2[] = [];
@@ -150,6 +168,12 @@ export function flattenPath(d: string): Array<{ points: P2[]; closed: boolean }>
   while (i < tokens.length) {
     if (/[a-zA-Z]/.test(tokens[i])) cmd = tokens[i++];
     else if (!cmd) break;
+    else if (cmd.toUpperCase() === "Z") {
+      // A number after `Z` has no command to belong to (Z takes no arguments);
+      // skip it, or the loop never advances.
+      i++;
+      continue;
+    }
     const rel = cmd === cmd.toLowerCase();
     const C = cmd.toUpperCase();
     const at = (x: number, y: number): P2 => (rel ? [pos[0] + x, pos[1] + y] : [x, y]);
@@ -182,7 +206,7 @@ export function flattenPath(d: string): Array<{ points: P2[]; closed: boolean }>
         const c1 = at(n(), n());
         const c2 = at(n(), n());
         const p = at(n(), n());
-        cubic(pos, c1, c2, p, cur);
+        cubic(pos, c1, c2, p, cur, budget);
         lastCtrl = c2;
         pos = p;
         break;
@@ -191,7 +215,7 @@ export function flattenPath(d: string): Array<{ points: P2[]; closed: boolean }>
         const c1: P2 = lastCtrl && /[CS]/i.test(lastCmd) ? [2 * pos[0] - lastCtrl[0], 2 * pos[1] - lastCtrl[1]] : pos;
         const c2 = at(n(), n());
         const p = at(n(), n());
-        cubic(pos, c1, c2, p, cur);
+        cubic(pos, c1, c2, p, cur, budget);
         lastCtrl = c2;
         pos = p;
         break;
@@ -199,7 +223,7 @@ export function flattenPath(d: string): Array<{ points: P2[]; closed: boolean }>
       case "Q": {
         const c = at(n(), n());
         const p = at(n(), n());
-        quad(pos, c, p, cur);
+        quad(pos, c, p, cur, budget);
         lastCtrl = c;
         pos = p;
         break;
@@ -207,7 +231,7 @@ export function flattenPath(d: string): Array<{ points: P2[]; closed: boolean }>
       case "T": {
         const c: P2 = lastCtrl && /[QT]/i.test(lastCmd) ? [2 * pos[0] - lastCtrl[0], 2 * pos[1] - lastCtrl[1]] : pos;
         const p = at(n(), n());
-        quad(pos, c, p, cur);
+        quad(pos, c, p, cur, budget);
         lastCtrl = c;
         pos = p;
         break;
@@ -219,7 +243,7 @@ export function flattenPath(d: string): Array<{ points: P2[]; closed: boolean }>
         const large = n() !== 0;
         const sweep = n() !== 0;
         const p = at(n(), n());
-        arc(pos, rx, ry, phi, large, sweep, p, cur);
+        arc(pos, rx, ry, phi, large, sweep, p, cur, budget);
         pos = p;
         break;
       }
@@ -249,8 +273,9 @@ function styleProp(n: XNode, name: string): string | undefined {
   return m?.[1].trim() ?? n.attrs[name];
 }
 
-function ellipsePoints(cx: number, cy: number, rx: number, ry: number): P2[] {
+function ellipsePoints(cx: number, cy: number, rx: number, ry: number, budget: PointBudget): P2[] {
   const n = Math.max(12, Math.ceil((2 * Math.PI) / (2 * Math.acos(Math.max(-1, 1 - TOL / Math.max(rx, ry, 1e-6))))));
+  budget.take(n);
   return Array.from({ length: n }, (_, i) => [cx + rx * Math.cos((2 * Math.PI * i) / n), cy + ry * Math.sin((2 * Math.PI * i) / n)] as P2);
 }
 
@@ -285,7 +310,7 @@ export function svgToPolylines(bytes: Uint8Array, name = "input.svg"): { icon: I
     }
     switch (local) {
       case "path":
-        for (const s of flattenPath(n.attrs.d ?? "")) emit(s.points, s.closed, m, width);
+        for (const s of flattenPath(n.attrs.d ?? "", new PointBudget(ICON_LIMITS.maxPoints - points))) emit(s.points, s.closed, m, width);
         break;
       case "line":
         emit([[attrNum(n, "x1"), attrNum(n, "y1")], [attrNum(n, "x2"), attrNum(n, "y2")]], false, m, width);
@@ -307,7 +332,7 @@ export function svgToPolylines(bytes: Uint8Array, name = "input.svg"): { icon: I
         const ry = Math.min(h / 2, attrNum(n, "ry", rx));
         if (rx > 0 && ry > 0) {
           const d = `M${x + rx} ${y}H${x + w - rx}A${rx} ${ry} 0 0 1 ${x + w} ${y + ry}V${y + h - ry}A${rx} ${ry} 0 0 1 ${x + w - rx} ${y + h}H${x + rx}A${rx} ${ry} 0 0 1 ${x} ${y + h - ry}V${y + ry}A${rx} ${ry} 0 0 1 ${x + rx} ${y}Z`;
-          for (const s of flattenPath(d)) emit(s.points, true, m, width);
+          for (const s of flattenPath(d, new PointBudget(ICON_LIMITS.maxPoints - points))) emit(s.points, true, m, width);
         } else
           emit(
             [
@@ -323,10 +348,10 @@ export function svgToPolylines(bytes: Uint8Array, name = "input.svg"): { icon: I
         break;
       }
       case "circle":
-        emit(ellipsePoints(attrNum(n, "cx"), attrNum(n, "cy"), attrNum(n, "r"), attrNum(n, "r")), true, m, width);
+        emit(ellipsePoints(attrNum(n, "cx"), attrNum(n, "cy"), attrNum(n, "r"), attrNum(n, "r"), new PointBudget(ICON_LIMITS.maxPoints - points)), true, m, width);
         break;
       case "ellipse":
-        emit(ellipsePoints(attrNum(n, "cx"), attrNum(n, "cy"), attrNum(n, "rx"), attrNum(n, "ry")), true, m, width);
+        emit(ellipsePoints(attrNum(n, "cx"), attrNum(n, "cy"), attrNum(n, "rx"), attrNum(n, "ry"), new PointBudget(ICON_LIMITS.maxPoints - points)), true, m, width);
         break;
       case "defs":
       case "clipPath":
@@ -342,6 +367,12 @@ export function svgToPolylines(bytes: Uint8Array, name = "input.svg"): { icon: I
     }
     for (const c of n.children) walk(c, m, width);
   };
-  walk(root, I, 1);
+  try {
+    walk(root, I, 1);
+  } catch (err) {
+    // The budget fires deep inside a curve and does not know the file name.
+    if (err instanceof IconLimitError && !err.message.startsWith(name)) throw new IconLimitError(`${name}: ${err.message}`);
+    throw err;
+  }
   return { icon: { version: 1, viewBox, polylines }, warnings };
 }

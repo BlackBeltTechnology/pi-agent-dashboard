@@ -20,6 +20,41 @@ const DEFAULT_DEPTHS: Record<LayerName, number> = { body: 0, icon: 0.6, title: 0
 const MAX_CANVAS = 4096;
 const CAP_RATIO = 0.7;
 
+/** Axis-aligned bounds of an item's (possibly rotated) rect. */
+function boundsOf(item: LayoutItem): { x1: number; y1: number; x2: number; y2: number } {
+  const r = item.rect;
+  const a = (item.rotation * Math.PI) / 180;
+  const w = Math.abs(r.w * Math.cos(a)) + Math.abs(r.h * Math.sin(a));
+  const h = Math.abs(r.w * Math.sin(a)) + Math.abs(r.h * Math.cos(a));
+  const cx = r.x + r.w / 2;
+  const cy = r.y + r.h / 2;
+  return { x1: cx - w / 2, y1: cy - h / 2, x2: cx + w / 2, y2: cy + h / 2 };
+}
+
+/**
+ * Which plane each item is drawn on. By default the kind decides (body, icon,
+ * title, image), but the original draw ORDER wins wherever two items overlap:
+ * an item is never placed in front of an overlapping item that sits above it
+ * in the pptx (a picture under a title must not cover the title). Walking the
+ * z-order top-down, each item takes the deepest rank among its default and the
+ * ranks of the overlapping items above it. Items on one plane paint in z-order.
+ * `order` lists the layer names back to front.
+ */
+export function assignLayers(items: LayoutItem[], order: LayerName[]): Map<string, LayerName> {
+  const rankOf = new Map(order.map((n, i) => [n, i]));
+  const rank = items.map((i) => rankOf.get(layerOf(i)) ?? 0);
+  const bounds = items.map(boundsOf);
+  for (let i = items.length - 1; i >= 0; i--) {
+    for (let j = i + 1; j < items.length; j++) {
+      const a = bounds[i];
+      const b = bounds[j];
+      const overlap = a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 && b.y1 < a.y2;
+      if (overlap && rank[i] > rank[j]) rank[i] = rank[j];
+    }
+  }
+  return new Map(items.map((it, i) => [it.id, order[rank[i]]]));
+}
+
 function layerOf(item: LayoutItem): LayerName {
   if (item.kind === "text") return item.placeholder === "title" || item.placeholder === "ctrTitle" ? "title" : "body";
   if (item.kind === "img") return item.svg ? "icon" : "image";
@@ -114,6 +149,9 @@ export const create: FxFactory = (ctx: FxContext, params: FxParams): FxHandle =>
   };
 
   const items = slide.items.filter((i) => !skip.has(i.id));
+  // Planes back to front by their depth (a deck may reorder them with `depths`).
+  const order = [...LAYERS].sort((a, b) => depths[a] - depths[b] || LAYERS.indexOf(a) - LAYERS.indexOf(b));
+  const planeOf = assignLayers(items, order);
   const textItems = items.filter((i): i is TextItem => i.kind === "text");
   const haloColor = slide.background?.color ?? ctx.palette.bg;
 
@@ -122,14 +160,14 @@ export const create: FxFactory = (ctx: FxContext, params: FxParams): FxHandle =>
   const meshes = new Map<LayerName, THREE_NS.Mesh>();
   const canvases = new Map<LayerName, HTMLCanvasElement>();
   for (const name of LAYERS) {
-    if (!items.some((i) => layerOf(i) === name) && !(name === "body" && drawBackground && slide.background)) continue;
+    if (!items.some((i) => planeOf.get(i.id) === name) && !(name === "body" && drawBackground && slide.background)) continue;
     const canvas = document.createElement("canvas");
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 4;
     const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false, depthWrite: false, side: THREE.DoubleSide, fog: false });
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
-    mesh.renderOrder = 3 + LAYERS.indexOf(name);
+    mesh.renderOrder = 3 + order.indexOf(name);
     mesh.userData.layer = name;
     root.add(mesh);
     meshes.set(name, mesh);
@@ -371,7 +409,7 @@ export const create: FxFactory = (ctx: FxContext, params: FxParams): FxHandle =>
         if (bg) g.drawImage(bg, 0, 0, canvas.width, canvas.height);
       }
       for (const item of items) {
-        if (layerOf(item) !== name) continue;
+        if (planeOf.get(item.id) !== name) continue;
         if (item.kind === "rect") paintRect(g, item, k);
         else if (item.kind === "img") paintImg(g, item, k);
         else if (item.kind === "fallback") paintFallback(g, item, k);
@@ -452,7 +490,7 @@ export const create: FxFactory = (ctx: FxContext, params: FxParams): FxHandle =>
   }
 
   function projected(item: LayoutItem, camera: THREE_NS.Camera, width: number, height: number, extraW = 0) {
-    const mesh = meshes.get(layerOf(item));
+    const mesh = meshes.get(planeOf.get(item.id) as LayerName);
     if (!mesh) return undefined;
     mesh.updateWorldMatrix(true, false);
     const pts = corners(item, extraW).map(([sx, sy]) => new THREE.Vector3(sx / size.w - 0.5, 0.5 - sy / size.h, 0).applyMatrix4(mesh.matrixWorld));
@@ -491,7 +529,7 @@ export const create: FxFactory = (ctx: FxContext, params: FxParams): FxHandle =>
       return {
         mode,
         frame: maps.get("body") ? { width: maps.get("body")?.width, height: maps.get("body")?.height } : null,
-        items: items.map((i) => ({ id: i.id, kind: i.kind, layer: layerOf(i), rect: projected(i, view.camera, width, height, Number(widen[i.id] ?? 0)) })),
+        items: items.map((i) => ({ id: i.id, kind: i.kind, layer: planeOf.get(i.id), rect: projected(i, view.camera, width, height, Number(widen[i.id] ?? 0)) })),
       };
     },
     dispose: () => {

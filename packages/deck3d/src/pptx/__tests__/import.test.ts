@@ -4,7 +4,7 @@
  * Exemplar: `src/__tests__/cli-build.test.ts`.
  */
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,6 +12,7 @@ import { deflateSync } from "fflate";
 import { chromium } from "playwright";
 import { describe, expect, it } from "vitest";
 import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
+import { stubCard, stubModule } from "../../__tests__/helpers/local-fx.js";
 import {
   basicDeck,
   bodyShape,
@@ -131,6 +132,76 @@ describe("pptx import: command and outputs", () => {
     expect(existsSync(join(dir, "talk", "deck.md"))).toBe(false);
     expect(treeHash(join(dir, "talk"))).toBe(before);
     expect(readdirSync(dir).filter((n) => n.includes("deck3d-import"))).toEqual([]);
+  });
+});
+
+describe("pptx import: atomic re-import (B1)", () => {
+  it("restores every entry when a later rename fails during the commit", async () => {
+    const dir = tmp();
+    const input = writeDeck(dir, basicDeck(3));
+    await importPptx({ input, out: join(dir, "talk"), env: NO_PATH });
+    const deckPath = join(dir, "talk", "deck.json");
+    const deck = JSON.parse(readFileSync(deckPath, "utf8"));
+    deck.overrides.slides.s02 = { camera: { distance: 11 } };
+    writeFileSync(deckPath, `${JSON.stringify(deck, null, 2)}\n`);
+    const before = treeHash(join(dir, "talk"));
+    let renames = 0;
+    await expect(
+      importPptx({
+        input: writeDeck(dir, basicDeck(4), "next.pptx"),
+        out: join(dir, "talk"),
+        force: true,
+        env: NO_PATH,
+        // Rename #1 and #2 (pptx/, deck.md) succeed; the third (deck.json) fails.
+        rename: (from, to) => {
+          if (++renames === 5) throw new Error("rename failed (injected)");
+          renameSync(from, to);
+        },
+      }),
+    ).rejects.toThrow(/rename failed/);
+    expect(renames, "the failure must land mid-commit").toBeGreaterThanOrEqual(5);
+    expect(treeHash(join(dir, "talk"))).toBe(before);
+    expect(readdirSync(dir).filter((n) => n.includes("deck3d-import"))).toEqual([]);
+  });
+});
+
+describe("pptx import: re-import keeps user-owned files (B2)", () => {
+  it("re-imports a deck that carries a user asset and a local effect", async () => {
+    const dir = tmp();
+    const input = writeDeck(dir, basicDeck(3));
+    await importPptx({ input, out: join(dir, "talk"), env: NO_PATH });
+    const talk = join(dir, "talk");
+    // A user-added asset (no `pptx-` prefix) and a hash-pinned local effect, both OUTSIDE pptx/.
+    mkdirSync(join(talk, "extra"), { recursive: true });
+    const logo = solidPng(4, 4, [1, 2, 3, 255]);
+    writeFileSync(join(talk, "extra", "logo.png"), logo);
+    mkdirSync(join(talk, "fx"), { recursive: true });
+    const mod = stubModule();
+    writeFileSync(join(talk, "fx", "mark.js"), mod);
+    writeFileSync(join(talk, "fx", "mark.meta.json"), stubCard("mark"));
+    const deck = JSON.parse(readFileSync(join(talk, "deck.json"), "utf8"));
+    deck.overrides.assets.push({ id: "user-logo", path: "extra/logo.png", sha256: createHash("sha256").update(logo).digest("hex"), mime: "image/png" });
+    deck.overrides.slides.s02 = { effects: [{ id: "local:mark", sha256: createHash("sha256").update(mod).digest("hex") }] };
+    writeFileSync(join(talk, "deck.json"), `${JSON.stringify(deck, null, 2)}\n`);
+    expect((await cli(["validate", join(talk, "deck.json")])).code).toBe(0);
+
+    const r = await cli(["pptx", "import", input, "-o", talk, "--force"]);
+    expect(r.code, r.stderr).toBe(0);
+    const after = JSON.parse(readFileSync(join(talk, "deck.json"), "utf8"));
+    expect(after.overrides.assets.map((a: { id: string }) => a.id)).toContain("user-logo");
+    expect(after.overrides.slides.s02.effects[0].id).toBe("local:mark");
+    expect(existsSync(join(talk, "extra", "logo.png"))).toBe(true);
+    expect(existsSync(join(talk, "fx", "mark.js"))).toBe(true);
+    expect((await cli(["validate", join(talk, "deck.json")])).code).toBe(0);
+  });
+
+  it("still rejects a staged import whose own imported assets are broken", async () => {
+    // Validation must keep covering the files the import writes (a bad pin cannot land).
+    const dir = tmp();
+    const input = writeDeck(dir, basicDeck(2));
+    await importPptx({ input, out: join(dir, "talk"), env: NO_PATH });
+    const r = await importPptx({ input, out: join(dir, "talk"), force: true, env: NO_PATH });
+    expect(r.slides).toEqual(["s01", "s02"]);
   });
 });
 
@@ -519,6 +590,20 @@ describe("pptx import: untrusted input", () => {
     expect(() => readPptxZip(ok)).not.toThrow();
     const bad = rawZip([{ name: "ppt/b.bin", stored: paddedZeros(201 * 10000, 10000), method: 8, size: 1000 }]);
     expect(() => readPptxZip(bad)).toThrow(/ppt\/b\.bin.*200:1/);
+  });
+
+  it("applies the 200:1 limit to small entries too, not only above 1 MiB (B4)", async () => {
+    const { readPptxZip } = await import("../zip.js");
+    // 100 KiB of zeros inflated from ~100 bytes: far above 200:1, far below 1 MiB.
+    const stored = paddedZeros(100 * 1024, 150);
+    const bad = rawZip([{ name: "ppt/small.bin", stored, method: 8, size: 1000 }]);
+    expect(() => readPptxZip(bad)).toThrow(/ppt\/small\.bin.*200:1/);
+    // The same limit holds on the DECLARED sizes (central directory), before inflating.
+    const declared = rawZip([{ name: "ppt/declared.bin", stored, method: 8, size: 100 * 1024 }]);
+    expect(() => readPptxZip(declared)).toThrow(/ppt\/declared\.bin.*200:1/);
+    // Ordinary small parts still pass.
+    const ok = rawZip([{ name: "ppt/ok.txt", stored: enc("hello hello hello"), method: 0, size: 17 }]);
+    expect(() => readPptxZip(ok)).not.toThrow();
   });
 
   it("rejects zip-slip and absolute entry names and writes nothing outside the target (X4)", async () => {

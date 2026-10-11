@@ -404,9 +404,16 @@ function buildSlideGroup(
   g.rotation.y = anchor.rotY;
   const labels: LabelRef[] = [];
   const isTitle = slide.kind === "title";
-  // A `replacesContent` effect (slide-layer) draws the slide's content itself:
-  // the native title, card and diagram are neither built nor measured.
-  const replaced = effectsOf(slide).some((ref) => REGISTRY[ref.id]?.card.replacesContent === true);
+  const profile = qualityProfile(cfg.quality ?? deck.defaults.quality);
+  const mode = (cfg.mode ?? "dark") as "dark" | "light";
+  // Layer effects are constructed BEFORE the native content is decided: a
+  // `replacesContent` effect (slide-layer) draws the slide's content itself,
+  // so the native title, card and diagram are neither built nor measured —
+  // but only when that effect actually BUILT. One that threw in `create` (a
+  // missing layout, a bad slide id) leaves the native slide in place instead
+  // of a blank one.
+  const layerFx = layerEffectsFor(slide, P, profile, mode, g, cfg);
+  const replaced = layerFx.some((fx) => REGISTRY[fx.id]?.card.replacesContent === true);
   let diagram: DiagramBuild | null = null;
   if (!replaced) {
     addTitle(g, slide, isTitle, font, P, cfg, labels);
@@ -416,8 +423,6 @@ function buildSlideGroup(
   const props = applyProps(deck, slide.id, g, diagram, models, propMaterials);
   if (props) props.group.userData.part = "props";
   const nodes = diagram?.nodes ? Object.entries(diagram.nodes).map(([id, object]) => ({ id, object })) : [];
-  const profile = qualityProfile(cfg.quality ?? deck.defaults.quality);
-  const mode = (cfg.mode ?? "dark") as "dark" | "light";
   const background = backgroundFromEffects(slide, P, profile, mode) ?? backgroundFor(slide.scene, P, profile) ?? null;
   if (background) {
     background.g.position.z = -2;
@@ -426,7 +431,6 @@ function buildSlideGroup(
     g.add(background.g);
   }
   const localFx = localEffectsFor(slide, P, profile, mode, g, index);
-  const layerFx = layerEffectsFor(slide, P, profile, mode, g, cfg);
   const quality = cfg.quality ?? deck.defaults.quality ?? "high";
   const comp = composeEffects(effectsOf(slide), mode, quality, slide.id, localCards());
   const skipped = comp.skipped.map((s) => `${s.id}: ${s.reason}`);

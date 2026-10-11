@@ -13,6 +13,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import Ajv, { type ErrorObject } from "ajv";
 import { localRefs, resolveLocalEffect } from "../fx/local.js";
 import { isPersistentFx } from "../fx/persistent.js";
+import { realInside } from "../util/confine.js";
 import { pkgRoot } from "../util/paths.js";
 import { computeDerivedHash } from "./hash.js";
 import { findOrphanOverrides, orphanOverridePath } from "./merge.js";
@@ -159,6 +160,11 @@ export function validateAssets(deck: DeckIR, deckDir: string): ValidationIssue[]
     }
     if (!existsSync(file) || !statSync(file).isFile()) {
       errors.push({ path: `${at}.path`, message: `missing file ${a.path}` });
+      return;
+    }
+    // The spelling is inside; the REAL path (symlinks followed) must be too.
+    if (!realInside(root, file)) {
+      errors.push({ path: `${at}.path`, message: `'${a.path}' resolves outside the deck directory (symlink)` });
       return;
     }
     const sha = createHash("sha256").update(readFileSync(file)).digest("hex");

@@ -101,6 +101,35 @@ function arcCentre(x1: number, y1: number, rxIn: number, ryIn: number, phiDeg: n
   return { cx: Math.cos(phi) * cxp - Math.sin(phi) * cyp + (x1 + x2) / 2, cy: Math.sin(phi) * cxp + Math.cos(phi) * cyp + (y1 + y2) / 2, rx, ry, phi };
 }
 
+describe("art icon robustness (B9)", () => {
+  it("rejects a curve whose flattening would exceed the point cap, without building it", () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0 C 1e9 1e9 -1e9 1e9 1e12 0"/></svg>';
+    const t0 = Date.now();
+    expect(() => svgToPolylines(new TextEncoder().encode(svg), "huge.svg")).toThrow(/huge\.svg.*500000 points/);
+    expect(Date.now() - t0, "must fail fast, not allocate millions of points first").toBeLessThan(1500);
+  });
+
+  it("rejects an arc with enormous radii the same way", () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0 A 1e12 1e12 0 1 1 1e12 1"/></svg>';
+    expect(() => svgToPolylines(new TextEncoder().encode(svg), "arc.svg")).toThrow(/arc\.svg.*500000 points/);
+  });
+
+  it("rejects a circle or ellipse of enormous radius before building its points (sibling of the curve cap)", () => {
+    for (const shape of ['<circle cx="0" cy="0" r="1e13"/>', '<ellipse cx="0" cy="0" rx="1e13" ry="5"/>']) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">${shape}</svg>`;
+      const t0 = Date.now();
+      expect(() => svgToPolylines(new TextEncoder().encode(svg), "round.svg"), shape).toThrow(/round\.svg.*500000 points/);
+      // Building the 22 M points first takes ~0.9 s; refusing up front is instant.
+      expect(Date.now() - t0, `${shape}: must refuse before allocating`).toBeLessThan(300);
+    }
+  }, 20_000);
+
+  it("terminates on stray numbers after a command that takes none", () => {
+    expect(flattenPath("M0 0 L1 1 Z 5 5 7")).toBeDefined();
+    expect(flattenPath("M0 0 L1 1 Z 5 5 L2 2")).toHaveLength(2);
+  }, 5000);
+});
+
 describe("art icon", () => {
   it("flattens an elliptical arc onto the analytic ellipse within 0.5 units (E40)", () => {
     const [sub] = flattenPath("M10 10 A 20 10 30 0 1 50 40");

@@ -90,6 +90,14 @@ describe.skipIf(!hasChromium)("compare (chromium)", () => {
     expect(strict.stderr).toMatch(/below threshold 0\.85: s02 0\.\d{3}/);
   }, 240_000);
 
+  it("--json prints exactly one JSON document, even with fallbacks and transitions (review)", async () => {
+    const deck = await buildLayerDeck({ slides: [{ id: "s01" }, { id: "s02" }] });
+    const r = await cli(["compare", deck.html, "--json", "--transition", "-o", join(deck.dir, "cmp")]);
+    expect(r.code, r.stderr).toBe(0);
+    const report = JSON.parse(r.out) as { transitions: string[] };
+    expect(report.transitions).toHaveLength(3);
+  }, 240_000);
+
   it("writes 25/50/75 % frames per transition and scores none of them (E57)", async () => {
     const deck = await buildLayerDeck({ slides: [{ id: "s01" }, { id: "s02" }, { id: "s03" }] });
     const out = join(deck.dir, "cmp");

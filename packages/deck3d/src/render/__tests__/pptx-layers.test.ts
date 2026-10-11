@@ -5,7 +5,7 @@
  * Exemplar: `f1-measure-stable.test.ts`.
  */
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, truncateSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, statSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -119,6 +119,35 @@ describe("deck asset bundle", () => {
     expect(pngFont.stderr).toMatch(/overrides\.assets\[\d+\]\.id.*reserved for font assets/);
     const okFont = await withAsset({ id: "font-calibri", path: "calibri.ttf", sha256: sha(ttf), mime: "font/ttf" });
     expect(okFont.code, okFont.stderr).toBe(0);
+  }, 120_000);
+
+  it("rejects an asset that reaches outside the deck directory through a symlink (B3)", async () => {
+    const deck = await buildLayerDeck({ slides: [{ id: "s01" }] });
+    const outside = mkdtempSync(join(tmpdir(), "deck3d-outside-"));
+    writeFileSync(join(outside, "secret.json"), '{"secret":true}');
+    symlinkSync(join(outside, "secret.json"), join(deck.dir, "assets", "link.json"));
+    symlinkSync(outside, join(deck.dir, "assets", "dir"));
+    const sha = createHash("sha256").update(readFileSync(join(outside, "secret.json"))).digest("hex");
+    const base = JSON.parse(readFileSync(deck.json, "utf8"));
+    for (const path of ["assets/link.json", "assets/dir/secret.json"]) {
+      const d = JSON.parse(JSON.stringify(base));
+      d.overrides.assets = [...base.overrides.assets, { id: "linked", path, sha256: sha, mime: "application/json" }];
+      writeFileSync(deck.json, JSON.stringify(d));
+      const v = await cli(["validate", deck.json]);
+      expect(v.code, path).not.toBe(0);
+      expect(v.stderr, path).toMatch(/overrides\.assets\[\d+\]\.path.*outside the deck directory/);
+      // And `render` refuses too: nothing outside the deck is ever embedded.
+      const r = await cli(["render", deck.json, "-o", join(deck.dir, "linked.html")]);
+      expect(r.code, path).not.toBe(0);
+      expect(existsSync(join(deck.dir, "linked.html")), path).toBe(false);
+    }
+    // A symlink that stays INSIDE the deck directory is fine.
+    symlinkSync(join(deck.dir, "assets", "lay.json"), join(deck.dir, "assets", "inside.json"));
+    const d = JSON.parse(JSON.stringify(base));
+    const lay = base.overrides.assets.find((a: { id: string }) => a.id === "lay");
+    d.overrides.assets = [...base.overrides.assets, { ...lay, id: "inside", path: "assets/inside.json" }];
+    writeFileSync(deck.json, JSON.stringify(d));
+    expect((await cli(["validate", deck.json])).code).toBe(0);
   }, 120_000);
 
   it("rejects a persistent card on a slide but accepts it at deck scope, never prepended to slides (E34)", async () => {
@@ -291,6 +320,58 @@ describe.skipIf(!hasChromium)("slide-layer (chromium)", () => {
       const b = await page.evaluate(() => window.__deck3d?.measure().map((m) => m.kind) ?? []);
       expect(b).toContain("title");
       expect(b).not.toContain("layer-text");
+    } finally {
+      await page.close();
+    }
+  }, 120_000);
+
+  it("keeps the original z-order: a picture UNDER a title does not cover it (B7)", async () => {
+    // Pptx order is back-to-front: the red picture first, the black title on top of it.
+    const red = encodePng({ width: 8, height: 8, data: new Uint8Array(Array.from({ length: 64 }, () => [200, 30, 30, 255]).flat()) });
+    const items = [imgItem("s01-i001", { x: 100, y: 60, w: 1000, h: 260 }, "red"), textItem("s01-i002", { x: 120, y: 80, w: 960, h: 200 }, "VISIBLE", { size: 150, placeholder: "title" })];
+    const deck = await buildLayerDeck({
+      slides: [{ id: "s01", items, background: { color: "#ffffff" } }],
+      assets: [{ id: "red", mime: "image/png", bytes: red }],
+      // Baseline bloom follows the quality tier and would lift the black glyphs to
+      // grey next to the bright picture; this test is about layering only.
+      deck: { quality: "low" },
+      slideOverrides: { s01: { effects: [{ id: "slide-layer", params: { layout: "lay", slide: "s01", mode: "free" } }] } },
+    });
+    const page = await openDeck(browser, deck.html);
+    try {
+      await settle(page, 1);
+      const dark = await page.evaluate(() => {
+        const c = document.querySelector("canvas") as HTMLCanvasElement;
+        const k = document.createElement("canvas");
+        k.width = c.width;
+        k.height = c.height;
+        const g = k.getContext("2d") as CanvasRenderingContext2D;
+        g.drawImage(c, 0, 0);
+        const d = g.getImageData(120, 80, 960, 200).data;
+        let n = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] < 90 && d[i + 1] < 90 && d[i + 2] < 90) n++;
+        return n;
+      });
+      expect(dark, "the title's dark glyph pixels must be drawn over the picture").toBeGreaterThan(1500);
+    } finally {
+      await page.close();
+    }
+  }, 120_000);
+
+  it("keeps the native slide when slide-layer fails to construct (B8)", async () => {
+    // The layout has no slide `s99`: the effect throws in create.
+    const deck = await buildLayerDeck({
+      slides: [{ id: "s01", title: "Still here", items: LAYOUT_ITEMS }],
+      assets: [{ id: "pic", mime: "image/png", bytes: PIC }],
+      slideOverrides: { s01: { effects: [{ id: "slide-layer", params: { layout: "lay", slide: "s99", mode: "free" } }] } },
+    });
+    const page = await openDeck(browser, deck.html);
+    try {
+      await settle(page, 1);
+      const kinds = await page.evaluate(() => window.__deck3d?.measure().map((m) => m.kind) ?? []);
+      expect(kinds, "a failed replacement must not leave a blank slide").toContain("title");
+      expect(kinds).not.toContain("layer-text");
+      expect(await page.evaluate(() => window.__deck3d?.effects().errors)).toEqual([{ slide: "s01", effectId: "slide-layer", phase: "create" }]);
     } finally {
       await page.close();
     }

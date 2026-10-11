@@ -873,7 +873,7 @@ async function cmdVariants(args: string[], io: CliIO): Promise<number> {
     io.stdout(r.changed ? `replayed ${r.applied.length} pick(s): deck.json updated` : `replayed ${r.applied.length} pick(s): deck.json unchanged`);
     return 0;
   } catch (err) {
-    if (err instanceof pickMod.PickError) {
+    if (err instanceof pickMod.PickError || err instanceof (await import("./variants/style.js")).LockError) {
       io.stderr(`deck3d variants ${sub}: ${err.message}`);
       return 1;
     }
@@ -907,8 +907,11 @@ async function cmdCompare(args: string[], io: CliIO): Promise<number> {
       if (!report.scores.length) io.stdout("(no slide has a reference render)");
     }
     for (const sc of report.scores) if (sc.below) io.stderr(`warning slide ${sc.slide} scores ${sc.score.toFixed(3)} < ${threshold}`);
-    for (const f of report.fallbacks) io.stdout(`font-fallback ${f}`);
-    if (report.transitions.length) io.stdout(`wrote ${report.transitions.length} transition frame(s)`);
+    // `--json` stdout is ONE JSON document (fallbacks/transitions are in it).
+    if (!flags.bool.has("json")) {
+      for (const f of report.fallbacks) io.stdout(`font-fallback ${f}`);
+      if (report.transitions.length) io.stdout(`wrote ${report.transitions.length} transition frame(s)`);
+    }
     if (flags.bool.has("strict") && report.scores.some((sc) => sc.below)) {
       const worst = report.scores.filter((sc) => sc.below).map((sc) => `${sc.slide} ${sc.score.toFixed(3)}`).join(", ");
       io.stderr(`deck3d compare: below threshold ${threshold}: ${worst}`);

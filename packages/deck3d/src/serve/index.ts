@@ -16,11 +16,12 @@
  * `build` produces.
  */
 import { createHash } from "node:crypto";
-import { existsSync, type FSWatcher, mkdtempSync, readFileSync, statSync, watch, writeFileSync } from "node:fs";
+import { existsSync, type FSWatcher, mkdtempSync, readFileSync, rmSync, statSync, watch, writeFileSync } from "node:fs";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import type { CliIO, CliRun } from "../cli-io.js";
+import { realInside } from "../util/confine.js";
 
 /** Media extensions the asset route will serve. */
 const ASSET_TYPES: Record<string, string> = {
@@ -217,7 +218,7 @@ export async function startServe(mdPath: string, opts: ServeOptions): Promise<Se
     let touched = false;
     for (const a of ir.overrides?.assets ?? []) {
       const file = resolve(deckDir, a.path);
-      if (!(file === deckDir || file.startsWith(deckDir + sep)) || !existsSync(file)) continue;
+      if (!realInside(deckDir, file)) continue;
       const sha = createHash("sha256").update(readFileSync(file)).digest("hex");
       if (a.sha256 !== sha) {
         a.sha256 = sha;
@@ -278,9 +279,16 @@ export async function startServe(mdPath: string, opts: ServeOptions): Promise<Se
       repinAssets();
       // Render to a scratch file: the served copy carries the reload client,
       // and the deck-dir artifact must not.
-      const scratch = join(mkdtempSync(join(tmpdir(), "deck3d-serve-out-")), "deck.html");
-      if ((await run(["render", jsonPath, "-o", scratch], collect)) !== 0) throw new Error(errors.join("\n") || "render failed");
-      const built = readFileSync(scratch, "utf8");
+      const scratchDir = mkdtempSync(join(tmpdir(), "deck3d-serve-out-"));
+      let built: string;
+      try {
+        const scratch = join(scratchDir, "deck.html");
+        if ((await run(["render", jsonPath, "-o", scratch], collect)) !== 0) throw new Error(errors.join("\n") || "render failed");
+        built = readFileSync(scratch, "utf8");
+      } finally {
+        // One scratch dir per rebuild: remove it on success AND on a failed render.
+        rmSync(scratchDir, { recursive: true, force: true });
+      }
       writeFileSync(htmlPath, built);
       html = built.replace("</body>", `${CLIENT}</body>`);
       lastError = null;

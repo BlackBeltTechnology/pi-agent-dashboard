@@ -21,7 +21,7 @@ import { validateEffectParams } from "../fx/compose.js";
 import { deepMerge } from "../ir/merge.js";
 import type { DeckIR } from "../ir/types.js";
 import { formatIssue, validate } from "../ir/validate.js";
-import { interruptedMessage, pendingStep, readStyle, type Step, type Style, serialize, stylePath, writeAtomic } from "./style.js";
+import { interruptedMessage, LockError, pendingStep, readStyle, type Step, type Style, serialize, stylePath, withStyleLock, writeAtomic } from "./style.js";
 
 export class PickError extends Error {
   constructor(message: string) {
@@ -49,6 +49,14 @@ export function listScopes(overrides: unknown): Map<string, string[]> {
   return out;
 }
 
+/** True when a picked step AFTER `index` lists `id` on `scope` in its fragment. */
+function laterPicksList(style: Style, index: number, scope: string, id: string): boolean {
+  return style.steps.slice(index + 1).some((s) => {
+    const picked = s.variants.find((v) => v.name === s.picked);
+    return !!picked && listScopes(picked.overrides).get(scope)?.includes(id) === true;
+  });
+}
+
 /** Who put `id` on `scope`: the earliest picked step (before `current`) whose fragment lists it. */
 function introducedBy(style: Style, current: number, scope: string, id: string): string | undefined {
   for (let i = 0; i < current; i++) {
@@ -62,6 +70,13 @@ function introducedBy(style: Style, current: number, scope: string, id: string):
 export interface GuardOptions {
   drop: string[];
   replaceStep?: string;
+  /**
+   * Replay only: true when a LATER picked step lists `id` on `scope`. Replay
+   * starts from the live deck, which already holds that later step's effect;
+   * an earlier fragment that omits it is not dropping it — the later step
+   * re-adds it when its turn comes.
+   */
+  restoredLater?: (scope: string, id: string) => boolean;
 }
 
 /** Ownership conflicts of merging `fragment` into `overrides` as step `index` of `style`. */
@@ -73,6 +88,7 @@ export function ownershipConflicts(style: Style, index: number, overrides: unkno
     for (const id of live.get(scope) ?? []) {
       if (next.includes(id)) continue;
       if (opts.drop.includes(id)) continue;
+      if (opts.restoredLater?.(scope, id)) continue;
       const owner = introducedBy(style, index, scope, id);
       // Re-picking the SAME step replaces its own earlier effects; `--replace-step` names another.
       if (owner !== undefined && (owner === opts.replaceStep || owner === self)) continue;
@@ -127,6 +143,10 @@ export function requireStyle(deckJson: string): { style: Style; path: string } {
 }
 
 export function pickVariant(opts: PickOptions): void {
+  withStyleLock(dirname(opts.deckJson), () => pick(opts));
+}
+
+function pick(opts: PickOptions): void {
   const deckDir = dirname(opts.deckJson);
   const path = stylePath(deckDir);
   const style = readStyle(path);
@@ -166,6 +186,10 @@ export function pickVariant(opts: PickOptions): void {
 
 /** Record a free-text answer: `picked: null`, the note, and a new round. */
 export function noteStep(deckJson: string, stepId: string, note: string): Step {
+  return withStyleLock(dirname(deckJson), () => note_(deckJson, stepId, note));
+}
+
+function note_(deckJson: string, stepId: string, note: string): Step {
   const { style, path } = requireStyle(deckJson);
   const step = style.steps[stepIndex(style, stepId)];
   step.picked = null;
@@ -208,6 +232,10 @@ function collectItemRefs(v: unknown, out: Set<string>): void {
 
 /** Re-apply every picked fragment in step order; idempotent, writes only on change. */
 export function replayPicks(deckJson: string): ReplayResult {
+  return withStyleLock(dirname(deckJson), () => replay(deckJson));
+}
+
+function replay(deckJson: string): ReplayResult {
   const { style } = requireStyle(deckJson);
   const deckDir = dirname(deckJson);
   const before = readFileSync(deckJson, "utf8");
@@ -221,7 +249,11 @@ export function replayPicks(deckJson: string): ReplayResult {
     if (typeof step.picked !== "string") return;
     const variant = step.variants.find((v) => v.name === step.picked);
     if (!variant) return;
-    const conflicts = ownershipConflicts(style, idx, overrides, variant.overrides, { drop: step.drop ?? [], replaceStep: step.replaceStep });
+    const conflicts = ownershipConflicts(style, idx, overrides, variant.overrides, {
+      drop: step.drop ?? [],
+      replaceStep: step.replaceStep,
+      restoredLater: (scope, id) => laterPicksList(style, idx, scope, id),
+    });
     if (conflicts.length) throw new PickError(`replay of step '${step.id}': ${conflicts.join("\n")}`);
     overrides = deepMerge(overrides as Json, variant.overrides);
     applied.push(step.id);

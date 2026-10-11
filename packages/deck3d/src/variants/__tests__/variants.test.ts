@@ -173,6 +173,76 @@ describe("variants pick / note / replay", () => {
     expect(gone.stderr).toMatch(/step c: overrides\.slides\["s03"\] references a slide missing/);
   }, 120_000);
 
+  it("replays two picks that replace the same slide's effects (B5)", async () => {
+    // `b` carries `a`'s effect forward (arrays replace) and adds its own to the SAME list.
+    const style: Style = {
+      version: 1,
+      steps: [
+        step("a", [v("A", slideFx("s02", { id: "fog" })), v("B")]),
+        step("b", [v("A", slideFx("s02", { id: "fog" }, { id: "vignette" })), v("B")]),
+      ],
+    };
+    const deck = await styleDeck(style);
+    for (const id of ["a", "b"]) expect((await cli(["variants", "pick", id, "A", "--deck", deck.json])).code, id).toBe(0);
+    const before = readFileSync(deck.json);
+    const r = await cli(["variants", "replay", "--deck", deck.json]);
+    expect(r.code, r.stderr).toBe(0);
+    expect(r.out).toMatch(/unchanged/);
+    expect(readFileSync(deck.json).equals(before)).toBe(true);
+    const effects = JSON.parse(before.toString()).overrides.slides.s02.effects.map((e: { id: string }) => e.id);
+    expect(effects).toEqual(["fog", "vignette"]);
+  }, 120_000);
+
+  it("serialises writers with a lock: a held lock refuses, a stale one is cleared, errors release it (B6)", async () => {
+    const bad = slideFx("s01", { id: "slide-layer", params: { layout: "lay", slide: "s01", halo: 5 } });
+    const deck = await styleDeck({ version: 1, steps: [step("placement", [v("A", { deck: { mode: "light" } }), v("B", bad)])] });
+    const lock = join(deck.dir, "style.json.lock");
+    const before = [readFileSync(deck.json), readFileSync(join(deck.dir, "style.json"))];
+
+    // Held by a live process (this one): refuse without touching anything.
+    writeFileSync(lock, String(process.pid));
+    const held = await cli(["variants", "pick", "placement", "A", "--deck", deck.json]);
+    expect(held.code).not.toBe(0);
+    expect(held.stderr).toMatch(/another variants command is running/);
+    expect(readFileSync(deck.json).equals(before[0])).toBe(true);
+    expect(readFileSync(join(deck.dir, "style.json")).equals(before[1])).toBe(true);
+    expect(existsSync(lock), "a lock we did not take is never removed").toBe(true);
+
+    // Left behind by a process that is gone: cleared, the pick proceeds, the lock is released.
+    writeFileSync(lock, "999999");
+    const stale = await cli(["variants", "pick", "placement", "A", "--deck", deck.json]);
+    expect(stale.code, stale.stderr).toBe(0);
+    expect(existsSync(lock)).toBe(false);
+
+    // A pick that FAILS validation releases the lock too.
+    const failed = await cli(["variants", "pick", "placement", "B", "--deck", deck.json]);
+    expect(failed.code).not.toBe(0);
+    expect(existsSync(lock)).toBe(false);
+    expect((await cli(["variants", "note", "placement", "--note", "after", "--deck", deck.json])).code).toBe(0);
+  }, 120_000);
+
+  it("keeps deck.json and style.json consistent when two processes pick at once (B6)", async () => {
+    const { spawn } = await import("node:child_process");
+    const bin = new URL("../../../bin/deck3d", import.meta.url).pathname;
+    const style: Style = { version: 1, steps: [step("look", [v("A", { deck: { mode: "light" } }), v("B", { deck: { mode: "dark" } })])] };
+    for (let round = 0; round < 3; round++) {
+      const deck = await styleDeck(style);
+      const run = (name: string) =>
+        new Promise<number>((resolve) => {
+          const p = spawn(bin, ["variants", "pick", "look", name, "--deck", deck.json], { stdio: "ignore" });
+          p.on("exit", (c) => resolve(c ?? 1));
+        });
+      await Promise.all([run("A"), run("B")]);
+      const st = JSON.parse(readFileSync(join(deck.dir, "style.json"), "utf8")) as Style;
+      const picked = st.steps[0].picked;
+      const mode = JSON.parse(readFileSync(deck.json, "utf8")).overrides.deck?.mode;
+      expect(st.steps[0].pending, `round ${round}`).toBe(false);
+      expect(mode, `round ${round}: the deck holds the variant style.json says was picked`).toBe(picked === "A" ? "light" : "dark");
+      expect(existsSync(join(deck.dir, "style.json.lock")), `round ${round}`).toBe(false);
+      expect(readdirSync(deck.dir).filter((n) => n.includes(".tmp-")), `round ${round}: no stray temp files`).toEqual([]);
+    }
+  }, 180_000);
+
   it("reports an interrupted pick naming the step and asks for a re-run (X12)", async () => {
     const deck = await styleDeck({ version: 1, steps: [step("placement", [v("A", { deck: { mode: "light" } }), v("B")])] });
     expect(() =>
