@@ -148,9 +148,14 @@ export interface LockOptions {
 
 const POLL_MS = 40;
 
+/**
+ * Liveness probe only: signal 0 delivers nothing and kills nothing. deck3d is a
+ * standalone package with no dependency edge on the dashboard's shared platform
+ * helpers (`isProcessAlive`), hence the per-line policy opt-out.
+ */
 function alive(pid: number): boolean {
   try {
-    process.kill(pid, 0);
+    process.kill(pid, 0); // ban:process-kill-ok
     return true;
   } catch (err) {
     return (err as NodeJS.ErrnoException).code === "EPERM";
