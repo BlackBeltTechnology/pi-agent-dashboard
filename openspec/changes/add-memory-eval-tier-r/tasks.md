@@ -154,5 +154,5 @@ implement (TDD).
 
 ## 9. Close-out
 
-- [ ] 9.1 Run `review-code` on the diff. Then run `npm run quality:changed` and the full `npm test`, piped to `/tmp/pi-test.log`.
+- [x] 9.1 Run `review-code` on the diff. Then run `npm run quality:changed` and the full `npm test`, piped to `/tmp/pi-test.log`. (Nine local review rounds, 23 blocking findings fixed with failing-first tests; reviewer `openai-codex/gpt-6-sol:high` because `@review` had no credits. Biome `--error-on-warnings`, `tsc`, knip and the repo guards are clean for `packages/memory-eval`. The full `npm test` has only failures that also fail on a pristine `origin/develop` or are environmental: rendezvous, resource-activation-*, gateway-listener-wiring, pi-gateway-socket-transport.)
 - [x] 9.2 Update the `packages/memory-eval/AGENTS.md` rows for every new file (`See change: add-memory-eval-tier-r`).
