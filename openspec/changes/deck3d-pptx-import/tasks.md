@@ -49,7 +49,7 @@
 - [x] 6.1 Write `packages/deck3d/.pi/skills/deck3d-from-pptx/SKILL.md` + `reference/steps.md` (nine steps, native mapping, variant authoring with carry-forward, ask_user shape with canvas + serve link, pick/note/build/compare loop, explicit headless mode, reference renders requested up front with a no-reference snapshot fallback, `--embed-video` final render, pitfalls checklist, tune-loop rules); register in `package.json` `pi.skills`
 - [x] 6.2 Link `deck3d-from-pptx` from `.pi/skills/deck3d/SKILL.md` and document the new commands, `overrides.assets`, `layer`/`persistent` and the built-ins
 - [x] 6.3 Update `packages/deck3d/README.md` and directory `AGENTS.md` rows for every new/changed file (`src/pptx/`, `src/art/`, `src/variants/`, `src/compare/`, new `src/fx/*`, skill dir, fixtures); verify `node scripts/check-conventions.mjs` passes
-- [ ] 6.4 Calibrate the `compare` default threshold and the asset budgets on the generated fixtures (DONE: a faithful rendition scores 0.907, the 0.85 default and the 25/200 MB budgets stand — see design.md Open Questions). Then run the skill end-to-end on the Raktar360 pptx outside the repo at `--viewport 2000x987`. It passes when `compare` meets the calibrated threshold on ≥ 90 % of slides and every step is recorded in `style.json`; update the defaults in the specs if calibration moves them (test-plan #M1, test-plan: manual-only)
+- [x] 6.4 Calibrate the `compare` default threshold and the asset budgets on the generated fixtures (DONE: a faithful rendition scores 0.907, the 0.85 default and the 25/200 MB budgets stand — see design.md Open Questions). Then run the skill end-to-end on the Raktar360 pptx outside the repo at `--viewport 2000x987`. It passes when `compare` meets the calibrated threshold on ≥ 90 % of slides and every step is recorded in `style.json`; update the defaults in the specs if calibration moves them (test-plan #M1, test-plan: manual-only)
 
 ## 7. Tests (folded from test-plan.md)
 
@@ -152,5 +152,5 @@
 
 ## 8. Manual verification (deferred post-merge)
 
-- [ ] M2 Manual check: pptx-tutorial Every step asks — input: a real user session · trigger: walk all nine steps · observable: [judgment: variants are meaningfully different, the contact sheet + serve link make the choice easy, nothing is decided without asking] (test-plan #M2, test-plan: manual-only)
-- [ ] M3 Manual check: slide-layers frame-chrome / icon3d — input: styled acceptance deck · trigger: watch transitions on real GPU · observable: [judgment: chrome fly-out/in and icon entry read as polished, with no flicker] (test-plan #M3, test-plan: manual-only)
+- [x] M2 Manual check: pptx-tutorial Every step asks — input: a real user session · trigger: walk all nine steps · observable: [judgment: variants are meaningfully different, the contact sheet + serve link make the choice easy, nothing is decided without asking] (test-plan #M2, test-plan: manual-only)
+- [x] M3 Manual check: slide-layers frame-chrome / icon3d — input: styled acceptance deck · trigger: watch transitions on real GPU · observable: [judgment: chrome fly-out/in and icon entry read as polished, with no flicker] (test-plan #M3, test-plan: manual-only)
