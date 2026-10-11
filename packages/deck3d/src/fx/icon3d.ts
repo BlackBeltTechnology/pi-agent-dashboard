@@ -14,7 +14,7 @@ import type { IconOutput } from "../art/icon.js";
 import type { Outline } from "../art/trace.js";
 import type { Layout } from "../pptx/types.js";
 import { extrudePolygon, outlineBounds, segmentMatrix } from "./art-geometry.js";
-import { planeMap, poseBasis } from "./slide-space.js";
+import { planeMap, poseBasis, projectPoints } from "./slide-space.js";
 import type { FxContext, FxFactory, FxHandle, FxParams } from "./types.js";
 
 const num = (v: unknown, d: number): number => (typeof v === "number" && Number.isFinite(v) ? v : d);
@@ -153,7 +153,13 @@ export const create: FxFactory = (ctx: FxContext, params: FxParams): FxHandle =>
     },
     tick: pose,
     // Probe for tests: how many arrivals have started an entry, and its progress.
-    debug: () => ({ arrivals, progress, active, rect: { box }, centre: centre.toArray() }),
+    debug: () => {
+      const { width: vw, height: vh } = view.viewport();
+      root.updateWorldMatrix(true, false);
+      const half = box / 2;
+      const corners = [[-half, -half], [half, -half], [half, half], [-half, half]].map(([x, y]) => root.localToWorld(new THREE.Vector3(x, y, 0)));
+      return { arrivals, progress, active, rect: projectPoints(corners, view.camera, vw, vh) };
+    },
     dispose: () => {
       for (const d of disposables) d.dispose();
     },

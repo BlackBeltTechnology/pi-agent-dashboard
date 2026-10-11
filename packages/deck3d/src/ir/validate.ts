@@ -228,6 +228,14 @@ function validateCameraPaths(deck: DeckIR): ValidationIssue[] {
   return errors;
 }
 
+/** Validates an overrides-grammar fragment (a `style.json` variant) against the IR schema. */
+const validateFragmentSchema = ajv.compile({ definitions: (loadSchema() as { definitions: object }).definitions, $ref: "#/definitions/overrides" });
+
+export function validateOverridesFragment(fragment: unknown): ValidationIssue[] {
+  if (validateFragmentSchema(fragment)) return [];
+  return (validateFragmentSchema.errors ?? []).map((e) => ({ path: formatPath(e.instancePath).replace(/^\(root\)$/, "(root)"), message: humanMessage(e) }));
+}
+
 export function validate(ir: unknown, opts: ValidateOptions = {}): ValidationResult {
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];

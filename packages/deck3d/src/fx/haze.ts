@@ -72,6 +72,11 @@ export const create: FxFactory = (ctx: FxContext, params: FxParams): FxHandle =>
 
   return {
     object: root,
+    // Probe for tests: lowest world y over every plane vertex.
+    debug: () => {
+      root.updateWorldMatrix(true, true);
+      return { minY: new THREE.Box3().setFromObject(root).min.y, floor };
+    },
     tick: (t: number) => {
       planes.forEach((p, i) => {
         p.position.x = Math.sin(t * drift + i * 1.7) * 1.2;
@@ -82,5 +87,5 @@ export const create: FxFactory = (ctx: FxContext, params: FxParams): FxHandle =>
       tex.dispose();
       for (const m of mats) m.dispose();
     },
-  };
+  } as FxHandle;
 };

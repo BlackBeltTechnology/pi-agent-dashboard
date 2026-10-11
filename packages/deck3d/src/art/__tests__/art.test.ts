@@ -7,83 +7,17 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import opentype from "opentype.js";
 import { describe, expect, it } from "vitest";
 import { run } from "../../cli.js";
-import { FONT_PATH } from "../../render/index.js";
 import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
+import { canvas, fill, font, glyphRings } from "../../__tests__/helpers/glyphs.js";
 import { solidPng } from "../../__tests__/helpers/pptx.js";
 import { openSandbox } from "../decode.js";
 import { flattenPath, ICON_LIMITS, svgToPolylines } from "../icon.js";
-import { decodePng, type RgbaImage } from "../png.js";
+import { decodePng } from "../png.js";
 import { type Pt, signedArea, traceImage } from "../trace.js";
 
 const hasChromium = await chromiumAvailable();
-const font = opentype.parse(new Uint8Array(readFileSync(FONT_PATH)).buffer);
-
-type Ring = Array<[number, number]>;
-
-/** Glyph outlines of `text` at `size` px, flattened to rings. */
-function glyphRings(text: string, x: number, y: number, size: number): Ring[] {
-  const rings: Ring[] = [];
-  let cur: Ring = [];
-  let pos: [number, number] = [0, 0];
-  for (const c of font.getPath(text, x, y, size).commands) {
-    if (c.type === "M") {
-      if (cur.length) rings.push(cur);
-      cur = [[c.x, c.y]];
-      pos = [c.x, c.y];
-    } else if (c.type === "L") {
-      cur.push([c.x, c.y]);
-      pos = [c.x, c.y];
-    } else if (c.type === "Q" || c.type === "C") {
-      const p0 = pos;
-      for (let i = 1; i <= 12; i++) {
-        const t = i / 12;
-        const u = 1 - t;
-        if (c.type === "Q") cur.push([u * u * p0[0] + 2 * u * t * c.x1 + t * t * c.x, u * u * p0[1] + 2 * u * t * c.y1 + t * t * c.y]);
-        else
-          cur.push([
-            u * u * u * p0[0] + 3 * u * u * t * c.x1 + 3 * u * t * t * c.x2 + t * t * t * c.x,
-            u * u * u * p0[1] + 3 * u * u * t * c.y1 + 3 * u * t * t * c.y2 + t * t * t * c.y,
-          ]);
-      }
-      pos = [c.x, c.y];
-    } else if (c.type === "Z" && cur.length) {
-      rings.push(cur);
-      cur = [];
-    }
-  }
-  if (cur.length) rings.push(cur);
-  return rings;
-}
-
-/** Non-zero winding fill of rings into an RGBA buffer (sample at pixel centres). */
-function fill(img: RgbaImage, rings: Ring[], rgb: [number, number, number]): void {
-  for (let y = 0; y < img.height; y++) {
-    const sy = y + 0.5;
-    for (let x = 0; x < img.width; x++) {
-      const sx = x + 0.5;
-      let wind = 0;
-      for (const r of rings) {
-        for (let i = 0; i < r.length; i++) {
-          const [x1, y1] = r[i];
-          const [x2, y2] = r[(i + 1) % r.length];
-          if (y1 <= sy && y2 > sy && (x2 - x1) * (sy - y1) - (sx - x1) * (y2 - y1) > 0) wind++;
-          else if (y1 > sy && y2 <= sy && (x2 - x1) * (sy - y1) - (sx - x1) * (y2 - y1) < 0) wind--;
-        }
-      }
-      if (wind !== 0) img.data.set([...rgb, 255], (y * img.width + x) * 4);
-    }
-  }
-}
-
-function canvas(w: number, h: number, bg: [number, number, number]): RgbaImage {
-  const data = new Uint8Array(w * h * 4);
-  for (let i = 0; i < w * h; i++) data.set([...bg, 255], i * 4);
-  return { width: w, height: h, data };
-}
-
 function inside(pt: Pt, ring: Pt[]): boolean {
   let c = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {

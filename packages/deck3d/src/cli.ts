@@ -44,6 +44,14 @@ Commands:
   overrides apply <deck.json> <file>         Merge an overrides-grammar file into the deck
   pptx import <file.pptx> [-o dir] [--ref dir] [--force]
                                              pptx → layout.json + media + baseline deck (re-import keeps tuning)
+  variants render --step <id> [--viewport WxH] [--deck deck.json] [-o dir] [--ref dir]
+                                             Contact sheet: reference vs each variant of a style step (deck.json untouched)
+  variants pick <step> <name> [--note t] [--replace-step s] [--drop id]...
+                                             Merge a variant into deck.json (validated, ownership-guarded) and record it
+  variants note <step> --note text           Record a free-text answer and start a new round
+  variants replay                            Re-apply every recorded pick (after a pptx re-import)
+  compare <deck.html> [--ref dir] [--viewport WxH] [--threshold n] [--json] [--strict] [--transition] [-o dir]
+                                             Score each slide against its reference render (SSIM inside the slide frame)
   art trace <image> [-o out.json] [--palette #a,#b] [--min-area px] [--tolerance px] [--size px]
                                              Raster/SVG → coloured outline polygons with holes (sandboxed decode)
   art icon <file.svg> [-o out.json]          SVG → polylines (parsed as data, no browser)
@@ -102,6 +110,7 @@ const VALUE_FLAGS = new Set([
   "--note",
   "--replace-step",
   "--drop",
+  "--deck",
 ]);
 
 /** Value flags that may repeat; every value is kept in `Flags.multi`. */
@@ -197,8 +206,27 @@ async function cmdValidate(args: string[], io: CliIO): Promise<number> {
     for (const v of violations) io.stderr(`error ${v.path}: ${v.message}`);
     if (violations.length) return 1;
   }
-  if (result.errors.length === 0) io.stdout(`${file}: valid`);
-  return result.ok ? 0 : 1;
+  // A `style.json` beside the deck is part of its record: errors fail, a
+  // sample slide the deck no longer has is only a warning.
+  let styleOk = true;
+  const stylePath = join(dirname(file), "style.json");
+  if (existsSync(stylePath)) {
+    const { validateStyle } = await import("./variants/style.js");
+    let style: unknown;
+    try {
+      style = JSON.parse(readFileSync(stylePath, "utf8"));
+    } catch (err) {
+      io.stderr(`error style.json (root): invalid JSON: ${(err as Error).message}`);
+      return 1;
+    }
+    const ids = new Set(((parsed as { slides?: Array<{ id: string }> }).slides ?? []).map((sl) => sl.id));
+    const sv = validateStyle(style, ids);
+    for (const e of sv.errors) io.stderr(`error style.json ${e.path}: ${e.message}`);
+    for (const w of sv.warnings) io.stderr(`warn style.json ${w.path}: ${w.message}`);
+    styleOk = sv.errors.length === 0;
+  }
+  if (result.errors.length === 0 && styleOk) io.stdout(`${file}: valid`);
+  return result.ok && styleOk ? 0 : 1;
 }
 
 /** Load + validate a deck.json; returns undefined on failure (already reported). */
@@ -222,62 +250,9 @@ function loadValidated(file: string, io: CliIO): DeckIR | undefined {
 async function renderFile(jsonPath: string, outPath: string, io: CliIO, embedVideoFlag = false): Promise<number> {
   const ir = loadValidated(jsonPath, io);
   if (!ir) return 1;
-  const { composeEffects, validateEffectParams } = await import("./fx/compose.js");
-  const { ensureRuntime, renderDeck, fontBase64, loadLocalEffects } = await import("./render/index.js");
-  // Resolve the local effects first: their cards take part in param bounds,
-  // conflict, mode and budget gating exactly like corpus cards.
-  const localFx = loadLocalEffects(ir, jsonPath);
-  const localCards = Object.fromEntries(
-    Object.entries(localFx).map(([name, m]) => [name, m.card as import("./fx/types.js").FxCard]),
-  );
-  const violations = validateEffectParams(ir, localCards);
-  if (violations.length) {
-    for (const v of violations) io.stderr(`error ${v.path}: ${v.message}`);
-    return 1;
-  }
-  // Compose the MERGED view: `overrides.effects` + `overrides.slides[id].effects`
-  // are already folded into each slide's effective list by `applyOverrides`.
-  const { applyOverrides } = await import("./ir/merge.js");
-  const merged = applyOverrides(ir);
-  for (const slide of merged.slides) {
-    const ov = ir.overrides.slides?.[slide.id];
-    const mode = ov?.mode ?? ir.overrides.deck?.mode ?? ir.defaults.mode ?? "dark";
-    const quality = ov?.quality ?? ir.overrides.deck?.quality ?? ir.defaults.quality ?? "high";
-    const comp = composeEffects(slide.effects, mode, quality, slide.id, localCards);
-    for (const warning of comp.warnings) io.stderr(warning);
-    if (comp.conflicts.length) {
-      for (const c of comp.conflicts) io.stderr(`error conflict ${c}`);
-      return 1;
-    }
-  }
-  const { loadProps } = await import("./props/embed.js");
-  const runtime = await ensureRuntime();
-  const props = loadProps(ir, jsonPath);
-  // `--embed-video` inlines clips as `data:` URLs so the html stays ONE file.
-  // Without it the clip is fetched relative to the page, which `deck3d serve`
-  // answers from its asset route.
-  let renderIr = ir;
-  if (embedVideoFlag) {
-    const { embedVideo } = await import("./render/embed-video.js");
-    const result = embedVideo(ir, jsonPath);
-    for (const w of result.warnings) io.stderr(`warning ${w}`);
-    const total = Object.values(result.embedded).reduce((a, b) => a + b, 0);
-    if (total) io.stdout(`embedded ${Object.keys(result.embedded).length} clip(s), ${(total / 1024 / 1024).toFixed(1)} MiB`);
-    renderIr = result.ir;
-  }
-  const { loadAssets, AssetBudgetError } = await import("./render/assets.js");
-  let bundle: ReturnType<typeof loadAssets>;
-  try {
-    bundle = loadAssets(ir, jsonPath);
-  } catch (err) {
-    if (err instanceof AssetBudgetError) {
-      io.stderr(`error ${err.message}`);
-      return 1;
-    }
-    throw err;
-  }
-  for (const w of bundle.warnings) io.stderr(w);
-  const html = renderDeck(renderIr, { runtime, font: fontBase64(), title: basename(jsonPath, ".json"), props, localFx, assets: bundle.assets });
+  const { renderIrToHtml } = await import("./render/build.js");
+  const html = await renderIrToHtml(ir, jsonPath, io, { embedVideo: embedVideoFlag });
+  if (html === undefined) return 1;
   writeFileSync(outPath, html);
   return 0;
 }
@@ -826,6 +801,129 @@ async function cmdPptx(args: string[], io: CliIO): Promise<number> {
   }
 }
 
+function parseWxH(v: string | undefined): { width: number; height: number } | undefined {
+  const m = /^(\d+)x(\d+)$/.exec(v ?? "");
+  return m ? { width: Number(m[1]), height: Number(m[2]) } : undefined;
+}
+
+/** `variants render|pick|note|replay` (spec deck3d-variant-loop). */
+async function cmdVariants(args: string[], io: CliIO): Promise<number> {
+  const flags = parseArgs(args);
+  const [sub, ...rest] = flags.positional;
+  const deckJson = flags.value.deck ?? "deck.json";
+  if (!["render", "pick", "note", "replay"].includes(sub ?? "")) {
+    io.stderr(`deck3d variants: unknown subcommand '${sub ?? ""}' (try render|pick|note|replay)`);
+    return 2;
+  }
+  if (!existsSync(deckJson)) {
+    io.stderr(`deck3d variants ${sub}: missing ${deckJson} (pass --deck <deck.json>)`);
+    return 1;
+  }
+  const pickMod = await import("./variants/pick.js");
+  try {
+    if (sub === "render") {
+      if (!flags.value.step) {
+        io.stderr("deck3d variants render: missing --step <id>");
+        return 2;
+      }
+      pickMod.requireStyle(deckJson);
+      const { renderStep, RenderUnavailableError } = await import("./variants/render.js");
+      try {
+        const r = await renderStep({
+          deckJson,
+          step: flags.value.step,
+          viewport: parseWxH(flags.value.viewport),
+          outDir: flags.value.out,
+          refDir: flags.value.ref,
+        });
+        for (const w of r.warnings) io.stderr(w);
+        io.stdout(`wrote ${r.contact} (${r.rows} row(s) × ${r.columns} column(s))`);
+        return 0;
+      } catch (err) {
+        if (err instanceof RenderUnavailableError) {
+          io.stderr(`deck3d variants render: ${err.message}`);
+          return 1;
+        }
+        throw err;
+      }
+    }
+    if (sub === "pick") {
+      const [step, name] = rest;
+      if (!step || !name) {
+        io.stderr("deck3d variants pick: missing <step> <name>");
+        return 2;
+      }
+      pickMod.pickVariant({ deckJson, step, name, note: flags.value.note, drop: flags.multi.drop ?? [], replaceStep: flags.value["replace-step"] });
+      io.stdout(`picked ${name} for step ${step}`);
+      return 0;
+    }
+    if (sub === "note") {
+      const [step] = rest;
+      if (!step || flags.value.note === undefined) {
+        io.stderr("deck3d variants note: missing <step> and --note <text>");
+        return 2;
+      }
+      const st = pickMod.noteStep(deckJson, step, flags.value.note);
+      io.stdout(`recorded note for step ${step}; now round ${st.round}`);
+      return 0;
+    }
+    const r = pickMod.replayPicks(deckJson);
+    for (const o of r.orphans) io.stderr(`warning ${o}`);
+    io.stdout(r.changed ? `replayed ${r.applied.length} pick(s): deck.json updated` : `replayed ${r.applied.length} pick(s): deck.json unchanged`);
+    return 0;
+  } catch (err) {
+    if (err instanceof pickMod.PickError) {
+      io.stderr(`deck3d variants ${sub}: ${err.message}`);
+      return 1;
+    }
+    throw err;
+  }
+}
+
+/** `compare <deck.html>` (spec deck3d-variant-loop "Compare against the original"). */
+async function cmdCompare(args: string[], io: CliIO): Promise<number> {
+  const flags = parseArgs(args);
+  const html = flags.positional[0];
+  if (!html) {
+    io.stderr("deck3d compare: missing <deck.html>");
+    return 2;
+  }
+  const { compareDeck, CompareUnavailableError, DEFAULT_THRESHOLD } = await import("./compare/index.js");
+  try {
+    const threshold = flags.value.threshold ? Number(flags.value.threshold) : DEFAULT_THRESHOLD;
+    const report = await compareDeck({
+      html,
+      refDir: flags.value.ref,
+      viewport: parseWxH(flags.value.viewport),
+      threshold,
+      transition: flags.bool.has("transition"),
+      outDir: flags.value.out,
+    });
+    if (flags.bool.has("json")) io.stdout(JSON.stringify(report, null, 2));
+    else {
+      io.stdout("slide\tscore\trgbdiff");
+      for (const sc of report.scores) io.stdout(`${sc.slide}\t${sc.score.toFixed(3)}\t${sc.rgb.toFixed(2)}${sc.below ? "\tBELOW" : ""}`);
+      if (!report.scores.length) io.stdout("(no slide has a reference render)");
+    }
+    for (const sc of report.scores) if (sc.below) io.stderr(`warning slide ${sc.slide} scores ${sc.score.toFixed(3)} < ${threshold}`);
+    for (const f of report.fallbacks) io.stdout(`font-fallback ${f}`);
+    if (report.transitions.length) io.stdout(`wrote ${report.transitions.length} transition frame(s)`);
+    if (flags.bool.has("strict") && report.scores.some((sc) => sc.below)) {
+      const worst = report.scores.filter((sc) => sc.below).map((sc) => `${sc.slide} ${sc.score.toFixed(3)}`).join(", ");
+      io.stderr(`deck3d compare: below threshold ${threshold}: ${worst}`);
+      return 1;
+    }
+    return 0;
+  } catch (err) {
+    if (err instanceof CompareUnavailableError) {
+      io.stderr(`deck3d compare: ${err.message}`);
+      return 1;
+    }
+    io.stderr(`deck3d compare: ${(err as Error).message}`);
+    return 1;
+  }
+}
+
 /** `art trace|icon|cutout` (spec deck3d-art-tooling). */
 async function cmdArt(args: string[], io: CliIO): Promise<number> {
   const flags = parseArgs(args);
@@ -954,6 +1052,10 @@ export async function run(argv: string[], io: CliIO = defaultIO): Promise<number
       return cmdPptx(rest, io);
     case "art":
       return cmdArt(rest, io);
+    case "variants":
+      return cmdVariants(rest, io);
+    case "compare":
+      return cmdCompare(rest, io);
     default:
       io.stderr(`deck3d: unknown command '${command}' (try --help)`);
       return 2;

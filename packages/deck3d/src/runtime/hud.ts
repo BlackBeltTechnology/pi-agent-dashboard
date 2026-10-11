@@ -816,8 +816,15 @@ export function createHud(host: HudHost): Hud {
       body.appendChild(box);
     }
 
+    // `serve ?variant=` renders a candidate in memory: it must never reach disk
+    // through this panel, so Save/Apply are disabled and the notice says how
+    // to choose it properly.
+    const variantPreview = (window as { __DECK3D_VARIANT?: { step: string; name: string } }).__DECK3D_VARIANT;
+
     const notice = el("div", { class: "deck3d-hud-note" });
-    notice.textContent = served
+    notice.textContent = variantPreview
+      ? `Previewing variant ${variantPreview.step}:${variantPreview.name}. Save and Apply are disabled; choose a variant with \`deck3d variants pick ${variantPreview.step} ${variantPreview.name}\`.`
+      : served
       ? "Save writes overrides.json beside the deck. Apply merges into deck.json and rebuilds. Markdown inline overrides win over the file, and a saved effects list pins that scope's effects."
       : "Tuning here is remembered in this browser only. Export writes overrides.json; make it permanent with `deck3d overrides apply deck.json overrides.json`, then rebuild. Markdown inline overrides win over this file, and an exported effects list pins that scope's effects.";
     body.appendChild(notice);
@@ -832,6 +839,10 @@ export function createHud(host: HudHost): Hud {
       apply.textContent = "Apply to deck.json";
       apply.addEventListener("click", () => void postPayload("/__apply", apply));
       body.appendChild(apply);
+      if (variantPreview) {
+        save.disabled = true;
+        apply.disabled = true;
+      }
     }
 
     const exportButton = el("button", { type: "button", id: "deck3d-hud-export" });

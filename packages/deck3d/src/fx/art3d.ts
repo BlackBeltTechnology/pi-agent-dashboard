@@ -91,8 +91,28 @@ export const create: FxFactory = (ctx: FxContext, params: FxParams): FxHandle =>
     geoms.push(geom);
   }
 
+  // Probe for tests: screen-space centre of every hole (CSS px), at the current camera.
+  const holeCentres = outline.polygons.flatMap((poly) =>
+    poly.holes.map((h) => {
+      const xs = h.map((p) => p[0]);
+      const ys = h.map((p) => p[1]);
+      return new THREE.Vector3(((Math.min(...xs) + Math.max(...xs)) / 2 - cx) * scale, -((Math.min(...ys) + Math.max(...ys)) / 2 - cy) * scale, 0);
+    }),
+  );
   return {
     object: root,
+    debug: () => {
+      const view = ctx.view;
+      if (!view) return null;
+      const { width, height } = view.viewport();
+      root.updateWorldMatrix(true, true);
+      return {
+        holes: holeCentres.map((c) => {
+          const v = root.localToWorld(c.clone()).project(view.camera);
+          return { x: ((v.x + 1) / 2) * width, y: ((1 - v.y) / 2) * height };
+        }),
+      };
+    },
     tick: (t: number) => {
       if (sway) root.rotation.y = Math.sin(t * speed) * sway;
       if (sweep) sweepUniform.value = ((t * speed * 0.5) % 2) * (w * scale) - w * scale;
@@ -101,7 +121,7 @@ export const create: FxFactory = (ctx: FxContext, params: FxParams): FxHandle =>
       for (const g of geoms) g.dispose();
       for (const m of mats) m.dispose();
     },
-  };
+  } as FxHandle;
 };
 
 function findItem(ctx: FxContext, params: FxParams): LayoutItem | undefined {
