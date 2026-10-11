@@ -1,3 +1,29 @@
+# types.ts — index
 
+Core dashboard shared type surface. Exports `DashboardSession`, `DashboardEvent`, `FlowInfo`, `CommandInfo`, `ModelInfo`, `ProviderInfo`, `OpenSpecChange`/`OpenSpecConfig`, `FlowState`/`FlowAgentState` (`cost?` = per-agent USD from `flow_agent_complete.result.cost`, sibling of `tokens`; see change surface-flow-agent-cost)/`NodeKind`, `ArchitectState`, `GoalRecord`/`GoalsFile`, `ApiResponse`, `ViewTarget`, extension UI module + decorator unions (`ExtensionUiModule`, `DecoratorDescriptor`), and `deriveChangeState`. Plus workflow + schema-version constants (`CORE_WORKFLOWS`, `EXPANDED_WORKFLOWS`, `OPENSPEC_GROUPS_SCHEMA_VERSION`, `GOALS_SCHEMA_VERSION`, `GOAL_VERDICTS_CAP`, `GOAL_RESPAWNS_CAP`). `GoalRecordStatus` gains `respawning`+`failed` (visible non-terminal / terminal breaker verdict). `GoalRecord` gains supervisor fields: `autoRespawn?`, `respawns?:GoalRespawn[]`, `generation?`, `statusReason?`, `inFlightSpawn?:GoalInFlightSpawn`, `currentDriverBaselineTurns?` (progress baseline). New types `GoalRespawn` (`{at,sessionId,reason:"resume"\|"fresh",madeProgress}`), `GoalInFlightSpawn` (`{spawnToken,generation,startedAt}`). See change: add-goal-session-supervisor. `GoalRecord` gains `totalSpendUsd?:number` — server-derived at read time (Σ linked `DashboardSession.cost`), never persisted / never bridge-sent (same convention as `groupId`). See change: fix-goal-detail-turns-and-spend. `SessionSource`+`"embed"`; new `LifecyclePolicy`(`"ephemeral"`/`"durable"`); `DashboardSession`+`lifecyclePolicy?`(absent⇒durable, persisted)+non-persisted `lastSettledAt?`/`lastRunStartedAt?`(reaper at-rest, mtime-seeded). See change: add-embed-session-lifecycle. `NotifyLevel` (`info|success|warning|error`) + `NotifyLogEntry` (`{notifyId,message,level?}`); `DashboardSession.notifyLog?` holds the bounded (50) retained notification history — transcript history only, never a pending ask, retained after session end. See change: split-notify-from-prompt-request.
+
+`GitWorktreeInfo` docstring RETARGETED: identity now comes from the shared checkout-root resolution (`--git-dir` ≠ `--git-common-dir`) AND a plausible resolved `mainCheckout` — not from `--git-common-dir` vs `--show-toplevel`, and `mainPath` is not `dirname(--git-common-dir)`. Absent for a submodule, a `--separate-git-dir` checkout, a bare repo, and a worktree-of-bare. `mainPath` never contains a `.git` path segment. See change: add-git-checkout-root-resolver.
+
+`ApiResponse` gains `transmitted?`/`promptId?` (prompt TRANSMISSION plus the handle whose acknowledgement is observable on the session event stream — `delivered` deliberately cannot appear, the response is not gated on the bridge) and documents the pre-existing `bridgeState?`/`warning?`. See change: fix-spawn-correlation-ttl-coupling. `ClosedReason` extended to `"manual"|"process_gone"|"spawn_failed"|"unknown"` (all optional on `DashboardSession`, `SessionStatus` unchanged); `isRecoveryCandidate` tests `!== "manual"`, so new values pass through untouched. See change: stop-discarding-known-session-state (tasks 4.3, 4.9).
+
+`DashboardSession.hostPressure?: {state:"degraded"|"unresponsive"; since:number} | null` — server-derived bridge-silence verdict, pushed on transition only (`server/src/session/host-pressure-tracker.ts`). `undefined` = unknown (server silent), explicit `null` = recovered. `since` = server receipt time of the last frame, the anchor the card counts from. Transient: NOT in `sessionToMeta`, never persisted. See change: fix-false-unresponsive-badge.
+
+Adds `ProviderSource` — the six-member pi-ai union (`stored | runtime | environment | fallback | models_json_key | models_json_command`). `ProviderInfo.source` widens from the old four members to it. See change: redesign-providers-settings-page (D1).
+
+`ProviderInfo.configured` is REGISTRY-level, not auth.json-level: an env var or a key in pi's runtime configuration also sets it, with `source` naming which. Consumers must not read `configured: true` as "stored in auth.json" — test `source === "stored"` for that. See change: redesign-providers-settings-page (CodeRabbit PR #709).
+
+Adds `GitPrState`, `GitPrChecks`; `DashboardSession.gitPrNumber|Url` `| null` + `gitPrState|Draft|Checks|CheckedAt` (not persisted). See change: redesign-composer-session-strip.
+
+`NotifyLogEntry` gains optional `ts` (emit time, epoch ms; persisted with the notify log). See change: collapse-and-order-notify-rows.
+
+`DashboardSession.piBelowFloor?: {minimum}|null` (null = cleared). `ProviderInfo.authLabel?`. See change: update-pi-core-1-0-adopt-apis.
+
+`DashboardSession.statsExtractorVersion?` — extractor version of the totals (server-only, persisted via `sessionToMeta`). See change: count-non-message-usage.
+
+`DashboardSession.awaitingFileAccess?: boolean` — server-derived from pending-prompt `kind` `agent-path-gate`/`-confirm`; `currentTool` untouched. See change: ask-agent-file-access-in-chat.
+
+- `DashboardSession.pluginHidden?` — core-owned plugin hide intent. See change: fix-plugin-hidden-across-restart.
+
+- `DashboardSession.archiveOnEnd?: boolean` — distinct from `lifecyclePolicy`. See change: archive-service-sessions-on-end.
 
 - `nameSource` widened to include `system`; `DashboardSession.nameSourceFor?` witness; `AutoNamerPersistedState.lastSystemApplied?`. See change: investigate-auto-name-provenance-relabel.
