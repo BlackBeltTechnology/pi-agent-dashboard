@@ -26,6 +26,12 @@ on:
       - "qa/tests/29-gateway-posix-no-tcp.sh"
       - ".github/workflows/ci-gateway-platform.yml"
 
+# Least-privilege default: jobs that need more declare it at job level.
+# Pinned by packages/shared/src/__tests__/workflow-token-cache-contract.test.ts.
+# See change: harden-ci-cache-poisoning.
+permissions:
+  contents: read
+
 jobs:
   posix:
     name: no bridge TCP port (${{ matrix.os }})
