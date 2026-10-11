@@ -3201,6 +3201,37 @@ Access-page mutations (`POST /api/access/prompts/:promptId`, `POST`/`DELETE /api
 
 **Coverage.** Browser E2E `tests/e2e/access-grant-dialog.spec.ts`; clean-install VM smoke `qa/tests/36-access-grant-dialog.sh`.
 
+### Plugin cwd admission (change: harden-plugin-cwd-admission)
+
+Plugin route `cwd` gate. Async tri-state (`admitCwd`, `packages/shared/src/cwd-guard.ts`): `admit{token}` | `refuse` | `indeterminate{failedProbes, elapsedMs}`.
+
+- `indeterminate` never admits. Route → `503 {error:"cwd-admission-unavailable",retryAfterMs:1000}` + `Retry-After: 1`. `refuse` keeps plugin 403 body.
+- `indeterminate` causes: git probe timeout/spawn/not-found/oversize; config probe exit≠1; realpath error≠ENOENT.
+- Limits: global git cap 4; per-probe 1000 ms; decision deadline 3000 ms (abort git; slot freed on child exit); in-flight dedupe per canonical cwd; no cross-request cache.
+- Classified derivation (`checkoutRootsClassifiedAsync`, `bindCheckoutClassifiedAsync`, `packages/shared/src/platform/git.ts`): failed probe never falls to weaker rule. Unclassified resolvers unchanged.
+- Request token (mcp-client only): minted by `admitCwd`, bound to raw cwd, released in route `finally`, never on wire. Config writer / live reader use `tokenAllows`. Routes branch on `admissionAllows(adm, cwd)` (CodeQL barrier: `.github/codeql/extensions/cwd-guard.model.yml`).
+- Held denial: `ServerPluginContext.holdCwdDenial(request, reply, {cwd, origin})` (`packages/dashboard-plugin-runtime/src/server/server-context.ts`), built by `createCwdHold` (`packages/server/src/access/cwd-verdict.ts`), bound per plugin in `server.ts` beside `registerCwdPolicy`. Trust gate `manifest.priority <= 100`. Closed origins: `mcp:save|delete|enable|convert`, `kb:reindex|config|trust`. Never prompts for missing / `.git` / ungrantable cwd.
+- Held denial returns DECISION `admit{canonCwd}` | `indeterminate` | `refuse`, never token. Plugin mints own via `issueHeldAdmission`. Callers: user-initiated WRITE routes only, never GET or WS `plugin_action`.
+- Verdict re-run (`resolveCwdVerdict`): real path, exists, `.git`/ungrantable, canonical sessions∪pins. allow-always → full guard re-run (`indeterminate` → 503). allow-once → admits single held request only if real path still equals verdict subject. Same rule for `file-routes:exists`.
+- Clients: 503 transient. mcp-client + kb retry jittered `retryAfterMs×2^n`, 3 retries, one chain per cwd. Never render "not tracked" / "denied". Retry action after exhaustion.
+- Log: `[cwd-admission] indeterminate cwd= failedProbes= elapsedMs=`. ≤1 line / cwd / 60 s. LRU 512 (`server.ts` `onIndeterminate`).
+
+```mermaid
+flowchart TD
+  A[admitCwd] --> B{realpath error ≠ ENOENT?}
+  B -->|yes| I[indeterminate]
+  B -->|no| C{missing AND unknown?}
+  C -->|yes| F[refuse]
+  C -->|no| D{.git present?}
+  D -->|yes| F
+  D -->|no| E{canonical known?}
+  E -->|yes| AD[admit]
+  E -->|no| G{classified derivation}
+  G -->|probe failed| I
+  G -->|admit| AD
+  G -->|refuse| F
+```
+
 ### OAuth Authentication Flow
 
 Optional OAuth2 authentication protects the dashboard when accessed remotely.

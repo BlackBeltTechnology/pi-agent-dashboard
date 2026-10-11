@@ -18,8 +18,14 @@
  * See change: migrate-mcp-to-pi-builtin (D3); earlier: extract-mcp-client-plugin (D7).
  */
 
-import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import { isAllowedCwd } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
+import type { CwdHoldOrigin, ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import {
+  type AdmitCwdOptions,
+  admissionAllows,
+  admitCwd,
+  issueHeldAdmission,
+  releaseAdmission,
+} from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isValidServerName } from "../core/pi-rules.js";
 import { errorFields, mcpConfigSchema, validateServerEntry } from "../core/schema-validation.js";
@@ -30,6 +36,13 @@ export interface McpClientRouteDeps {
   runtime: McpClientRuntime;
   knownCwds: () => string[];
   networkGuard: ServerPluginContext["networkGuard"];
+  /**
+   * Host seam that raises the `cwd` access dialog. Optional: on a host without it
+   * a write on an unknown cwd is refused with the existing 403.
+   */
+  holdCwdDenial?: ServerPluginContext["holdCwdDenial"];
+  /** `admitCwd` options (the host's `onIndeterminate` logger; test seams). */
+  admitOptions?: AdmitCwdOptions;
 }
 
 const PREFIX = "/api/mcp-client";
@@ -77,19 +90,89 @@ interface ScopeInput {
   cwd?: unknown;
 }
 
-type ParsedScope = { ok: true; scope: Scope } | { ok: false; status: number; body: Record<string, unknown> };
+type ParsedScope =
+  | { ok: true; scope: Scope }
+  | { ok: false; status: number; body: Record<string, unknown>; headers?: Record<string, string> };
 
-/** Parse + ADMIT a scope (no IO): a project cwd must be a known folder. */
-function parseScope(input: ScopeInput, knownCwds: () => string[]): ParsedScope {
-  if (input.scope === "global") return { ok: true, scope: { kind: "global" } };
-  if (input.scope === "project") {
-    if (typeof input.cwd !== "string" || input.cwd.length === 0) {
-      return { ok: false, status: 400, body: { error: "invalid-body", message: "project scope requires a cwd" } };
-    }
-    if (!isAllowedCwd(input.cwd, knownCwds)) return { ok: false, ...notAllowed(input.cwd) };
-    return { ok: true, scope: { kind: "project", cwd: input.cwd } };
+/** The decision could not be made (a git probe failed): transient, never a refusal. */
+function admissionUnavailable(cwd: string): Extract<ParsedScope, { ok: false }> {
+  return {
+    ok: false,
+    status: 503,
+    body: {
+      error: "cwd-admission-unavailable",
+      message: `cwd admission could not be decided right now: ${cwd}`,
+      retryAfterMs: 1000,
+    },
+    headers: { "Retry-After": "1" },
+  };
+}
+
+function sendParseFailure(reply: FastifyReply, parsed: Extract<ParsedScope, { ok: false }>): FastifyReply {
+  if (parsed.headers) reply.headers(parsed.headers);
+  return reply.code(parsed.status).send(parsed.body);
+}
+
+/** End a route-built scope's admission token. Call in the handler's `finally`. */
+function releaseScope(scope: Scope): void {
+  if (scope.kind === "project" && scope.admission) releaseAdmission(scope.admission);
+}
+
+interface ScopeRequest {
+  request: FastifyRequest;
+  reply: FastifyReply;
+  /** Set only on a user-initiated WRITE route: a refusal may raise the access dialog. */
+  holdOrigin?: CwdHoldOrigin;
+}
+
+/** Ask the host to raise the access dialog for a refused write, and admit on a confirmed allow. */
+async function admitViaHold(
+  cwd: string,
+  deps: McpClientRouteDeps,
+  req: ScopeRequest & { holdOrigin: CwdHoldOrigin },
+): Promise<ParsedScope | null> {
+  if (!deps.holdCwdDenial) return null;
+  const decision = await deps.holdCwdDenial(req.request, req.reply, { cwd, origin: req.holdOrigin });
+  if (decision.kind === "indeterminate") return admissionUnavailable(cwd);
+  // The host returns a decision, never a token: mint our own, bound to this cwd.
+  const held = await issueHeldAdmission(decision, cwd);
+  if (held.kind === "admit" && admissionAllows(held, cwd)) {
+    return { ok: true, scope: { kind: "project", cwd, admission: held.token } };
   }
-  return { ok: false, status: 400, body: { error: "invalid-body", message: "scope must be 'global' or 'project'" } };
+  return null;
+}
+
+/** Admit a project `cwd`: `admit` → token-bearing scope; `indeterminate` → 503; `refuse` → hold (writes) or 403. */
+async function admitProject(cwd: string, deps: McpClientRouteDeps, req: ScopeRequest): Promise<ParsedScope> {
+  const admission = await admitCwd(cwd, deps.knownCwds, deps.admitOptions);
+  if (admission.kind === "admit" && admissionAllows(admission, cwd)) {
+    return { ok: true, scope: { kind: "project", cwd, admission: admission.token } };
+  }
+  if (admission.kind === "indeterminate") return admissionUnavailable(cwd);
+  if (req.holdOrigin) {
+    const held = await admitViaHold(cwd, deps, { ...req, holdOrigin: req.holdOrigin });
+    if (held) return held;
+  }
+  return { ok: false, ...notAllowed(cwd) };
+}
+
+/**
+ * Parse + ADMIT a scope before any IO. A project cwd is decided by the async
+ * tri-state guard: `admit` → a scope carrying a request-scoped token; `refuse` →
+ * on a write route the host may ask the operator (`holdCwdDenial`), else 403;
+ * `indeterminate` → 503 (never a refusal, never a prompt). A client-sent
+ * `admission` field is never read.
+ */
+async function parseScope(input: ScopeInput, deps: McpClientRouteDeps, req: ScopeRequest): Promise<ParsedScope> {
+  if (input.scope === "global") return { ok: true, scope: { kind: "global" } };
+  if (input.scope !== "project") {
+    return { ok: false, status: 400, body: { error: "invalid-body", message: "scope must be 'global' or 'project'" } };
+  }
+  const cwd = input.cwd;
+  if (typeof cwd !== "string" || cwd.length === 0) {
+    return { ok: false, status: 400, body: { error: "invalid-body", message: "project scope requires a cwd" } };
+  }
+  return admitProject(cwd, deps, req);
 }
 
 /** Decoded + validated path name, or null. */
@@ -106,32 +189,40 @@ function pathName(request: FastifyRequest): string | null {
 }
 
 /** `?cwd=` → scope, admitted; a repeated key (array) is refused. */
-function queryScope(request: FastifyRequest, knownCwds: () => string[]): ParsedScope {
+async function queryScope(request: FastifyRequest, reply: FastifyReply, deps: McpClientRouteDeps): Promise<ParsedScope> {
   const rawCwd = (request.query as { cwd?: unknown }).cwd;
   if (rawCwd !== undefined && typeof rawCwd !== "string") {
     return { ok: false, status: 400, body: { error: "invalid-cwd", message: "cwd must be a single string" } };
   }
   if (rawCwd === undefined || rawCwd === "") return { ok: true, scope: { kind: "global" } };
-  return parseScope({ scope: "project", cwd: rawCwd }, knownCwds);
+  return parseScope({ scope: "project", cwd: rawCwd }, deps, { request, reply });
 }
 
 const INVALID_NAME = { error: "invalid-name", message: "invalid server name" };
 
 export function mountMcpClientRoutes(fastify: FastifyInstance, deps: McpClientRouteDeps): void {
   const guard = { preHandler: deps.networkGuard };
-  const { runtime, knownCwds } = deps;
+  const { runtime } = deps;
 
   fastify.get(`${PREFIX}/effective`, guard, async (request, reply) => {
-    const parsed = queryScope(request, knownCwds);
-    if (!parsed.ok) return reply.code(parsed.status).send(parsed.body);
-    return runtime.getEffectiveView(parsed.scope);
+    const parsed = await queryScope(request, reply, deps);
+    if (!parsed.ok) return sendParseFailure(reply, parsed);
+    try {
+      return runtime.getEffectiveView(parsed.scope);
+    } finally {
+      releaseScope(parsed.scope);
+    }
   });
 
   fastify.get(`${PREFIX}/live`, guard, async (request, reply) => {
-    const parsed = queryScope(request, knownCwds);
-    if (!parsed.ok) return reply.code(parsed.status).send(parsed.body);
-    const fresh = (request.query as { fresh?: string }).fresh === "1";
-    return runtime.getLiveState(parsed.scope, { fresh });
+    const parsed = await queryScope(request, reply, deps);
+    if (!parsed.ok) return sendParseFailure(reply, parsed);
+    try {
+      const fresh = (request.query as { fresh?: string }).fresh === "1";
+      return await runtime.getLiveState(parsed.scope, { fresh });
+    } finally {
+      releaseScope(parsed.scope);
+    }
   });
 
   fastify.get(`${PREFIX}/schema`, guard, async () => mcpConfigSchema);
@@ -140,8 +231,7 @@ export function mountMcpClientRoutes(fastify: FastifyInstance, deps: McpClientRo
     const name = pathName(request);
     if (!name) return reply.code(400).send(INVALID_NAME);
     const body = (request.body ?? {}) as ScopeInput & { entry?: unknown; previousName?: unknown; create?: unknown };
-    const parsed = parseScope(body, knownCwds);
-    if (!parsed.ok) return reply.code(parsed.status).send(parsed.body);
+    // Cheap body validation first, so an invalid body never raises an access dialog.
     if (typeof body.entry !== "object" || body.entry === null || Array.isArray(body.entry)) {
       return reply.code(400).send({ error: "invalid-body", message: "body must carry an `entry` object" });
     }
@@ -154,46 +244,72 @@ export function mountMcpClientRoutes(fastify: FastifyInstance, deps: McpClientRo
         .code(400)
         .send({ error: "schema", message: "server entry failed validation", fields: errorFields(validation.errors) });
     }
-    const result = runtime.saveServer(name, body.entry as ServerEntry, parsed.scope, {
-      ...(typeof body.previousName === "string" ? { previousName: body.previousName } : {}),
-      ...(body.create === true ? { create: true } : {}),
-    });
-    if (!result.ok) return sendRefusal(reply, result.refusal);
-    return { ok: true };
+    const parsed = await parseScope(body, deps, { request, reply, holdOrigin: "mcp:save" });
+    if (!parsed.ok) return sendParseFailure(reply, parsed);
+    try {
+      const result = runtime.saveServer(name, body.entry as ServerEntry, parsed.scope, {
+        ...(typeof body.previousName === "string" ? { previousName: body.previousName } : {}),
+        ...(body.create === true ? { create: true } : {}),
+      });
+      if (!result.ok) return sendRefusal(reply, result.refusal);
+      return { ok: true };
+    } finally {
+      releaseScope(parsed.scope);
+    }
   });
 
   fastify.delete(`${PREFIX}/servers/:name`, guard, async (request, reply) => {
     const name = pathName(request);
     if (!name) return reply.code(400).send(INVALID_NAME);
     const query = request.query as { scope?: unknown; cwd?: unknown };
-    const parsed = parseScope({ scope: query.scope ?? "global", cwd: query.cwd }, knownCwds);
-    if (!parsed.ok) return reply.code(parsed.status).send(parsed.body);
-    const result = runtime.removeServer(name, parsed.scope);
-    if (!result.ok) return sendRefusal(reply, result.refusal);
-    return { ok: true, removed: result.removed };
+    const parsed = await parseScope({ scope: query.scope ?? "global", cwd: query.cwd }, deps, {
+      request,
+      reply,
+      holdOrigin: "mcp:delete",
+    });
+    if (!parsed.ok) return sendParseFailure(reply, parsed);
+    try {
+      const result = runtime.removeServer(name, parsed.scope);
+      if (!result.ok) return sendRefusal(reply, result.refusal);
+      return { ok: true, removed: result.removed };
+    } finally {
+      releaseScope(parsed.scope);
+    }
   });
 
   fastify.put(`${PREFIX}/servers/:name/enabled`, guard, async (request, reply) => {
     const name = pathName(request);
     if (!name) return reply.code(400).send(INVALID_NAME);
     const body = (request.body ?? {}) as ScopeInput & { enabled?: unknown };
-    const parsed = parseScope(body, knownCwds);
-    if (!parsed.ok) return reply.code(parsed.status).send(parsed.body);
     if (typeof body.enabled !== "boolean") {
       return reply.code(400).send({ error: "invalid-body", message: "`enabled` must be a boolean" });
     }
-    const result = runtime.setEnabled(name, body.enabled, parsed.scope);
-    if (!result.ok) return sendRefusal(reply, result.refusal);
-    return result;
+    const parsed = await parseScope(body, deps, { request, reply, holdOrigin: "mcp:enable" });
+    if (!parsed.ok) return sendParseFailure(reply, parsed);
+    try {
+      const result = runtime.setEnabled(name, body.enabled, parsed.scope);
+      if (!result.ok) return sendRefusal(reply, result.refusal);
+      return result;
+    } finally {
+      releaseScope(parsed.scope);
+    }
   });
 
   fastify.post(`${PREFIX}/servers/:name/convert`, guard, async (request, reply) => {
     const name = pathName(request);
     if (!name) return reply.code(400).send(INVALID_NAME);
-    const parsed = parseScope((request.body ?? {}) as ScopeInput, knownCwds);
-    if (!parsed.ok) return reply.code(parsed.status).send(parsed.body);
-    const result = runtime.convertAdapterLeftovers(name, parsed.scope);
-    if (!result.ok) return sendRefusal(reply, result.refusal);
-    return { ok: true };
+    const parsed = await parseScope((request.body ?? {}) as ScopeInput, deps, {
+      request,
+      reply,
+      holdOrigin: "mcp:convert",
+    });
+    if (!parsed.ok) return sendParseFailure(reply, parsed);
+    try {
+      const result = runtime.convertAdapterLeftovers(name, parsed.scope);
+      if (!result.ok) return sendRefusal(reply, result.refusal);
+      return { ok: true };
+    } finally {
+      releaseScope(parsed.scope);
+    }
   });
 }

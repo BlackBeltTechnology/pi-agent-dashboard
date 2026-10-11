@@ -7,7 +7,7 @@
  * folder disable, override removal + undo (raw entry re-PUT), and 403.
  * Test-plan: E12; spec mcp-client-folder-section.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import schemaDoc from "../../../schema/mcp-config.schema.json";
 import { FolderMcpPage } from "../FolderMcpPage.js";
@@ -364,5 +364,53 @@ describe("navigation", () => {
     renderPage(CWD, onBack);
     fireEvent.click(await screen.findByTestId("mcp-folder-back"));
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+// ── harden-plugin-cwd-admission: a 503 is retried; Retry after exhaustion ────
+
+describe("FolderMcpPage — transient 503 cwd-admission-unavailable", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const UNAVAILABLE = { error: "cwd-admission-unavailable", message: "cwd admission could not be decided", retryAfterMs: 1000 };
+  const advance = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+  const serversView = () => view({ servers: [folderRow("f", { command: "f" })] });
+
+  it("F5: 503 then 200 → loading then the server list; the not-allowed state is never rendered", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonErr(503, UNAVAILABLE))
+      .mockResolvedValue(jsonOk(serversView()));
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage(CWD);
+    await advance(0);
+    expect(screen.queryByTestId("mcp-folder-not-allowed")).toBeNull();
+    expect(screen.queryByTestId("mcp-folder-error")).toBeNull();
+    await advance(1000);
+    expect(screen.getByTestId("mcp-folder-row-pi-folder:f")).toBeTruthy();
+    expect(screen.queryByTestId("mcp-folder-not-allowed")).toBeNull();
+  });
+
+  it("F6: exhausted → error state with a Retry button; clicking Retry loads the list", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const fetchMock = vi.fn(async () => jsonErr(503, UNAVAILABLE));
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage(CWD);
+    await advance(1000 + 2000 + 4000 + 1000);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(screen.getByTestId("mcp-folder-error")).toBeTruthy();
+    expect(screen.queryByTestId("mcp-folder-not-allowed")).toBeNull();
+    const retry = screen.getByRole("button", { name: "Retry" });
+    fetchMock.mockImplementation(async () => jsonOk(serversView()) as never);
+    await act(async () => {
+      fireEvent.click(retry);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByTestId("mcp-folder-row-pi-folder:f")).toBeTruthy();
   });
 });

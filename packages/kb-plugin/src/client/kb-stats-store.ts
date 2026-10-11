@@ -48,6 +48,10 @@ export const MAX_POLL_MISSES = 3;
  * can never wedge a row on a permanent spinner.
  */
 export const REINDEX_GUARD_MS = 4000;
+/** Retries after the first `/stats` attempt when the server could not decide cwd admission. */
+const ADMISSION_MAX_RETRIES = 3;
+/** Base delay when the 503 carries no `retryAfterMs`. */
+const ADMISSION_BASE_MS = 1000;
 /** Bounded wait after a Pin click for the `pinned_dirs_updated` refetch to admit the folder. */
 export const PIN_GUARD_MS = 3000;
 
@@ -85,6 +89,11 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
 /** Typed-refusal discriminator (`kb-api.ts`): `code`, not `instanceof`. */
 const codeOf = (e: unknown): string | undefined =>
   e && typeof e === "object" && typeof (e as { code?: unknown }).code === "string" ? (e as { code: string }).code : undefined;
+/** `base × 2^n × (0.75 + random × 0.5)` — about 1 s, 2 s, 4 s ±25 %. */
+const admissionDelayMs = (e: unknown, attempt: number): number => {
+  const base = (e as { retryAfterMs?: unknown }).retryAfterMs;
+  return (typeof base === "number" && base > 0 ? base : ADMISSION_BASE_MS) * 2 ** attempt * (0.75 + Math.random() * 0.5);
+};
 const isPreconditionCode = (c: string | undefined): boolean => c === "folder_missing" || c === "no_sources";
 
 export class KbStatsStore {
@@ -98,6 +107,9 @@ export class KbStatsStore {
   private guard: ReturnType<typeof setTimeout> | null = null;
   private pinGuard: ReturnType<typeof setTimeout> | null = null;
   private misses = 0;
+  /** Transient (503) retries used in the current chain; ONE chain per folder. */
+  private admissionRetries = 0;
+  private admissionTimer: ReturnType<typeof setTimeout> | null = null;
   private initialized = false;
   private disposed = false;
 
@@ -180,6 +192,7 @@ export class KbStatsStore {
     this.stopPoll();
     this.clearGuard();
     this.clearPinGuard();
+    this.clearAdmissionTimer();
     this.listeners.clear();
     this.refs = 0;
   }
@@ -193,7 +206,7 @@ export class KbStatsStore {
       this.startFetch("initial");
       return;
     }
-    if (this.inFlight) return; // coalesced into the fetch already running
+    if (this.inFlight || this.admissionTimer) return; // coalesced into the fetch / retry chain already running
     this.startFetch("revalidate");
   }
 
@@ -203,11 +216,18 @@ export class KbStatsStore {
     this.startFetch("refetch");
   }
 
-  private startFetch(kind: FetchKind): void {
+  private startFetch(kind: FetchKind, continuesChain = false): void {
     // A poll tick NEVER stacks on a request still in flight: a slow or hung
     // `/stats` would otherwise accumulate one request per second. The next tick
-    // after it settles resumes the loop.
-    if (kind === "poll" && this.inFlight) return;
+    // after it settles resumes the loop. Nor does it fire inside a transient
+    // admission retry chain (the chain owns the next attempt).
+    if (kind === "poll" && (this.inFlight || this.admissionTimer)) return;
+    if (!continuesChain) {
+      // A deliberate fetch supersedes any pending transient retry and starts a
+      // fresh chain.
+      this.clearAdmissionTimer();
+      this.admissionRetries = 0;
+    }
     if (kind !== "poll") {
       this.ac?.abort(); // supersede the in-flight epoch
       // Parity with the old effect body, which reset the miss run on every
@@ -230,6 +250,7 @@ export class KbStatsStore {
     if (this.disposed || epoch !== this.epoch) return; // stale response
     this.inFlight = false;
     this.misses = 0; // a success resets the miss run
+    this.admissionRetries = 0;
     // Real job now owns the spinner — hand off from the optimistic `pending`
     // in the SAME snapshot so `pending || indexing` never has a false/false gap.
     if (s.indexing) this.clearGuard();
@@ -254,6 +275,10 @@ export class KbStatsStore {
       this.applyDenied(e); // definitive — never counts as a miss
       return;
     }
+    if (codeOf(e) === "admission_unavailable") {
+      this.onAdmissionUnavailable(e);
+      return;
+    }
     this.misses += 1;
     if (this.misses >= MAX_POLL_MISSES) {
       // Genuine outage — give up and surface a persistent "stats unavailable".
@@ -267,6 +292,34 @@ export class KbStatsStore {
     this.startPoll();
   }
 
+  /**
+   * The server could not DECIDE admission (503): transient, NEVER a miss, never
+   * `denied`. Retry with jittered backoff — one chain per folder, `loading` held
+   * so the row keeps its placeholder — and surface the failed state (with Retry)
+   * only once the retries are spent.
+   */
+  private onAdmissionUnavailable(e: unknown): void {
+    this.stopPoll(); // the chain owns the next attempt
+    if (this.admissionRetries >= ADMISSION_MAX_RETRIES) {
+      this.admissionRetries = 0;
+      this.update({ error: message(e), loading: false });
+      return;
+    }
+    const delay = admissionDelayMs(e, this.admissionRetries);
+    this.admissionRetries += 1;
+    this.admissionTimer = setTimeout(() => {
+      this.admissionTimer = null;
+      if (this.disposed || this.refs === 0) return;
+      this.startFetch("refetch", true);
+    }, delay);
+  }
+
+  private clearAdmissionTimer(): void {
+    if (!this.admissionTimer) return;
+    clearTimeout(this.admissionTimer);
+    this.admissionTimer = null;
+  }
+
   /** Cwd refusal: definitive. Clears both error channels + optimism; stops polling. */
   private applyDenied(e: unknown): void {
     // Invalidate any OLDER stats response still in flight (e.g. a GET started
@@ -278,6 +331,7 @@ export class KbStatsStore {
     this.stopPoll();
     this.clearGuard();
     this.clearPinGuard();
+    this.clearAdmissionTimer();
     this.misses = 0;
     const reason = (e as { reason?: unknown }).reason;
     this.update({

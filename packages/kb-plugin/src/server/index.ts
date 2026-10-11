@@ -13,12 +13,28 @@
 
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-kb";
-import { isAllowedCwd } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
+import {
+  type Admission,
+  type AdmitCwdOptions,
+  admissionAllows,
+  admitCwd,
+  type IndeterminateInfo,
+} from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { KbJobRegistry } from "./job-registry.js";
 import { applyConfigPatchAndTrust, mountKbRoutes, preflightWrite, reindexAll } from "./kb-routes.js";
 
 const HOST_KNOWN_FOLDERS = "host.knownFolderCwds";
+const HOST_CWD_ADMISSION_LOG = "host.cwdAdmissionOnIndeterminate";
 const PLUGIN_ID = "kb";
+
+/** Admit a `plugin_action` cwd (an absent one is a plain refusal). */
+async function admitActionCwd(
+  cwd: string | undefined,
+  knownCwds: () => string[],
+  options: AdmitCwdOptions,
+): Promise<Admission> {
+  return cwd ? admitCwd(cwd, knownCwds, options) : { kind: "refuse" };
+}
 
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.logger.info("kb-plugin server entry activated");
@@ -35,7 +51,13 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       .filter((c): c is string => typeof c === "string" && c.length > 0);
   };
 
-  mountKbRoutes(ctx.fastify, { knownCwds, registry });
+  // Undecidable admissions are logged through the host's throttled sink; the
+  // access dialog is raised only from user-initiated write routes (never from
+  // the WS `plugin_action` handler below). See change: harden-plugin-cwd-admission.
+  const onIndeterminate = ctx.consume<(info: IndeterminateInfo) => void>(HOST_CWD_ADMISSION_LOG);
+  const admitOptions = { onIndeterminate };
+
+  mountKbRoutes(ctx.fastify, { knownCwds, registry, holdCwdDenial: ctx.holdCwdDenial, admitOptions });
 
   /** Start a background reindex unless one is running or a precondition refuses it
    *  (design D9: same preconditions as REST — refuse, log, create nothing). */
@@ -83,13 +105,17 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   // REST routes call (no HTTP re-entry), guarded by the same cwd allow-list.
   // Fan-out routes this only for pluginId==="kb"; the guard is defense-in-depth.
   // See change: fix-plugin-action-fanout-and-handlers.
-  ctx.registerBrowserHandler("plugin_action", (msg) => {
+  const handlePluginAction = async (msg: unknown): Promise<void> => {
     const m = msg as { pluginId?: string; action?: string; payload?: Record<string, unknown> };
     if (m.pluginId !== PLUGIN_ID) return;
     const payload = m.payload ?? {};
     const cwd = typeof payload.cwd === "string" ? payload.cwd : undefined;
-    if (!isAllowedCwd(cwd, knownCwds)) {
-      ctx.logger.warn(`kb ${m.action ?? "(no action)"}: cwd not allowed (${cwd ?? "missing"})`);
+    // No response channel here, so an undecidable admission is logged and the
+    // action dropped; a WS action never prompts. Admission precedes any IO.
+    const admission = await admitActionCwd(cwd, knownCwds, admitOptions);
+    if (!admissionAllows(admission, cwd)) {
+      const why = admission.kind === "indeterminate" ? "cwd admission unavailable" : "cwd not allowed";
+      ctx.logger.warn(`kb ${m.action ?? "(no action)"}: ${why} (${cwd ?? "missing"})`);
       return;
     }
     switch (m.action) {
@@ -103,6 +129,11 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       default:
         ctx.logger.warn(`unknown kb action: ${m.action}`);
     }
+  };
+  ctx.registerBrowserHandler("plugin_action", (msg) => {
+    handlePluginAction(msg).catch((err) =>
+      ctx.logger.error(`kb plugin_action failed: ${err instanceof Error ? err.message : String(err)}`),
+    );
   });
 }
 

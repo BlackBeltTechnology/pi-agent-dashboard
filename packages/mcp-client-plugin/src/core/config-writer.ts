@@ -17,7 +17,7 @@
  * See change: migrate-mcp-to-pi-builtin (D3); earlier: extract-mcp-client-plugin.
  */
 
-import { isAllowedCwd } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
+import { isAllowedCwd, tokenAllows } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { type LayerPaths, type LayerRead, nullProto, readLayer } from "./layers.js";
 import { isPlainObject } from "./path-utils.js";
 import { ADAPTER_ONLY_KEYS, isValidServerName, mcpNamespace, transportOf, validatePiEntry } from "./pi-rules.js";
@@ -97,6 +97,10 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
 
   function targetPath(scope: Scope): string {
     if (scope.kind === "global") return paths.globalPath();
+    // A live request-scoped token means the route already admitted this exact cwd
+    // (async, once): accept it without a second, synchronous git probe. Any other
+    // scope (non-route callers, a released token) is decided by the sync guard.
+    if (tokenAllows(scope.admission, scope.cwd)) return paths.projectPath(scope.cwd);
     if (!isAllowedCwd(scope.cwd, knownCwds)) throw new NotAllowedCwdError(scope.cwd);
     return paths.projectPath(scope.cwd);
   }

@@ -160,6 +160,47 @@ export type RegisterBrowserHandlerFn = (type: string, handler: (msg: unknown, ws
 export type IsPiExtensionInstalledFn = (name: string) => Promise<boolean>;
 
 /**
+ * Closed set of write-route origins a plugin may raise the `cwd` access plane
+ * with. The host refuses any other string. The registry origin is recorded as
+ * `plugin:<pluginId>:<origin>`. See change: harden-plugin-cwd-admission (D6).
+ */
+export const CWD_HOLD_ORIGINS = [
+  "mcp:save",
+  "mcp:delete",
+  "mcp:enable",
+  "mcp:convert",
+  "kb:reindex",
+  "kb:config",
+  "kb:trust",
+] as const;
+export type CwdHoldOrigin = (typeof CWD_HOLD_ORIGINS)[number];
+
+/**
+ * Decision after the operator answered a `cwd` access prompt. A DECISION, never
+ * a token: the plugin mints its own admission token from its own `cwd-guard`
+ * module instance (`issueHeldAdmission`), so duplicate shared-module instances
+ * cannot split trust. `indeterminate` means the operator allowed but the guard
+ * could not confirm (answer 503, not 403).
+ */
+export type CwdHoldDecision =
+  | { kind: "admit"; canonCwd: string }
+  | { kind: "indeterminate" }
+  | { kind: "refuse" };
+
+/**
+ * Raise the `cwd` access plane for a user-initiated write whose cwd the plugin's
+ * guard just REFUSED, and wait for the verdict. Gated to first-party / trusted
+ * plugins; resolves `refuse` (raising nothing) for an untrusted caller, a
+ * missing / `.git` / ungrantable cwd, or an origin outside {@link CWD_HOLD_ORIGINS}.
+ * Never call it on `indeterminate`, from a GET route, or from a WS action.
+ */
+export type HoldCwdDenialFn = (
+  request: FastifyRequest,
+  reply: FastifyReply,
+  input: { cwd: string; origin: CwdHoldOrigin },
+) => Promise<CwdHoldDecision>;
+
+/**
  * Generic lifecycle declaration a plugin attaches to a spawned session so core
  * can make lifecycle decisions without naming the plugin. See change:
  * detach-automation-goal-from-core.
@@ -988,6 +1029,12 @@ export interface ServerPluginContext {
    */
   isPiExtensionInstalled?: IsPiExtensionInstalledFn;
   /**
+   * Raise the `cwd` access dialog from a user-initiated write route. Optional:
+   * absent on hosts that do not wire it, where the plugin refuses an unknown cwd
+   * with its existing 403. See change: harden-plugin-cwd-admission.
+   */
+  holdCwdDenial?: HoldCwdDenialFn;
+  /**
    * Stored provider credentials. Optional — absent for untrusted plugins.
    * See change: publish-quota-plugin.
    */
@@ -1167,6 +1214,8 @@ export interface ServerContextDeps {
   registerPiRequestHandler?: (pluginId: string, type: string, handler: PluginRequestHandler) => void;
   /** Installed-extension probe (optional). See change: add-blackhole-session-pipeline. */
   isPiExtensionInstalled?: IsPiExtensionInstalledFn;
+  /** Per-plugin `cwd` access-hold seam (optional, host-gated). See change: harden-plugin-cwd-admission. */
+  holdCwdDenial?: HoldCwdDenialFn;
   /** Mint a fresh spawn-correlation token (trusted-gated). See change: relocate-goal-product-to-plugin. */
   mintSpawnToken: MintSpawnTokenFn;
   /** Rename a live session (trusted-gated). See change: relocate-goal-product-to-plugin. */
@@ -1273,6 +1322,7 @@ export function createServerPluginContext(
       ? (type, handler) => deps.registerPiRequestHandler!(pluginId, type, handler)
       : undefined,
     isPiExtensionInstalled: deps.isPiExtensionInstalled,
+    holdCwdDenial: deps.holdCwdDenial,
     openEditorTab,
     mintSpawnToken: deps.mintSpawnToken,
     renameSession: deps.renameSession,

@@ -112,6 +112,18 @@ There is **no cross-request cache**, because a cached verdict or derivation woul
 
 An untrusted caller, a missing / `.git` / ungrantable subject, or a bad origin resolve as `refuse`, with no hold raised. Global-scope (no-cwd) requests skip admission, as today. Allowing a worktree pins the worktree itself (the `cwd` plane has no ladder, `planes.ts:110`). This is a documented trade-off.
 
+**Doubt-review verdict (task 4.3, on the shipped code).** An independent read-only adversarial pass (isolated `Audit` subagent) over `createCwdHold`, `resolveCwdVerdict`, `admitCwd`, `issueHeldAdmission` and both callers returned **HOLDS-WITH-CAVEATS**: no invariant breakable from the wire. Findings and dispositions:
+
+| Finding | Disposition |
+|---|---|
+| kb tokens never released at request end | **Fixed.** `endWithRequest` releases on `reply.raw` `close`. |
+| "One allow-once admits up to 8 coalesced requests" | **Rejected as a false positive.** `grant-coordinator` resolves a coalesced joiner `deny allow-once-not-shared`; only the raiser is admitted (see Risks). |
+| Check-then-use gap: writes use the raw cwd after the canonical check | **Accepted, documented.** Needs local write access to a parent of the folder; the superseded synchronous guard had the identical window. Narrowing it would mean writing through `token.canonCwd`, which changes the paths the writer reports. Not in scope. |
+| Relative `cwd` admitted on the non-hold path | **Accepted, unchanged.** `canonPath` always resolved against the server cwd; this change does not alter *who is admitted*. The hold seam itself rejects relative paths. |
+| YOLO auto-allow bypasses the dialog | **By design** (explicit operator opt-in); `resolveCwdVerdict` still re-resolves and compares the real path. |
+
+Verified to hold: trust gate evaluated first; closed origin set enforced at runtime; missing / `.git` / ungrantable subjects never reach `holdDenial`; a decision for one path cannot mint a token for another; every refuse→admit path goes through the real-path re-resolution; every route branches on `admissionAllows`.
+
 ### D7 — Logging
 `admitCwd` takes an optional `onIndeterminate({ cwd, failedProbes, elapsedMs })` callback, so `packages/shared` gains no logger dependency. `failedProbes` lists recipe names; `elapsedMs` is decision wall time including the semaphore wait. The server logs `[cwd-admission] indeterminate`, rate-limited to one line per canonical cwd per 60 s. The throttle map is capped by LRU at 512 entries.
 

@@ -8,14 +8,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // vi.mock is hoisted above module-level const initializers, so the mock fns must
 // live in vi.hoisted to avoid a TDZ hit inside the factory.
-const { reindexAll, applyConfigPatchAndTrust, isAllowedCwd, preflightWrite } = vi.hoisted(() => ({
+const { reindexAll, applyConfigPatchAndTrust, admitCwd, preflightWrite } = vi.hoisted(() => ({
   reindexAll: vi.fn(async () => ({ changed: 1, chunks: 2 })),
   applyConfigPatchAndTrust: vi.fn((): { ok: true; projectPath: string; untrustedRefs: string[] } => ({
     ok: true,
     projectPath: "/w/repo/.pi/dashboard/knowledge_base.json",
     untrustedRefs: [],
   })),
-  isAllowedCwd: vi.fn(() => true),
+  // The async tri-state guard: `admit` / `refuse` / `indeterminate`.
+  admitCwd: vi.fn(async (): Promise<unknown> => ({ kind: "admit", token: {} })),
   preflightWrite: vi.fn((_cwd: string, _opts: { needsSources: boolean }): string | null => null),
 }));
 
@@ -27,7 +28,10 @@ vi.mock("../kb-routes.js", () => ({
 }));
 // The handler imports the guard DIRECTLY from the shared module (the CodeQL
 // barrier model only recognizes that import path, not the kb-routes re-export).
-vi.mock("@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", () => ({ isAllowedCwd }));
+vi.mock("@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", () => ({
+  admitCwd,
+  admissionAllows: (a: { kind: string }, cwd: unknown) => a.kind === "admit" && typeof cwd === "string",
+}));
 vi.mock("@blackbelt-technology/pi-dashboard-kb", () => ({
   loadConfig: () => ({ origin: "project" }),
 }));
@@ -51,13 +55,16 @@ async function setup() {
   return { handler, ctx };
 }
 
-const tick = () => new Promise((r) => setImmediate(r));
+// The handler admits asynchronously, then runs the action: let both settle.
+const tick = async () => {
+  for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r));
+};
 
 describe("kb plugin_action handler", () => {
   beforeEach(() => {
     reindexAll.mockClear();
     applyConfigPatchAndTrust.mockClear();
-    isAllowedCwd.mockReturnValue(true);
+    admitCwd.mockResolvedValue({ kind: "admit", token: {} });
     preflightWrite.mockReset();
     preflightWrite.mockReturnValue(null);
   });
@@ -72,6 +79,7 @@ describe("kb plugin_action handler", () => {
   it("config.set reaches the applyConfigPatchAndTrust core", async () => {
     const { handler } = await setup();
     handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/w/repo", patch: { include: ["docs"] } } });
+    await tick();
     expect(applyConfigPatchAndTrust).toHaveBeenCalledWith("/w/repo", { include: ["docs"] });
   });
 
@@ -79,21 +87,40 @@ describe("kb plugin_action handler", () => {
     applyConfigPatchAndTrust.mockReturnValueOnce({ ok: true, projectPath: "/p", untrustedRefs: ["missing"] });
     const { handler, ctx } = await setup();
     handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/w/repo", patch: { trustRefs: ["g", "missing"] } } });
+    await tick();
     expect(applyConfigPatchAndTrust).toHaveBeenCalledWith("/w/repo", { trustRefs: ["g", "missing"] });
     const warns = (ctx.logger.warn as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
     expect(warns.some((w) => w.includes("missing"))).toBe(true);
   });
 
   it("X8 config.set with trustRefs for a non-admitted cwd is guarded — no core call", async () => {
-    isAllowedCwd.mockReturnValue(false);
+    admitCwd.mockResolvedValue({ kind: "refuse" });
     const { handler, ctx } = await setup();
     handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/etc", patch: { trustRefs: ["g"] } } });
+    await tick();
     expect(applyConfigPatchAndTrust).not.toHaveBeenCalled();
     expect(ctx.logger.warn as ReturnType<typeof vi.fn>).toHaveBeenCalled();
   });
 
+  it("E37: an undecidable admission logs 'cwd admission unavailable', starts nothing, and never prompts", async () => {
+    admitCwd.mockResolvedValue({ kind: "indeterminate", failedProbes: ["git-common-dir"], elapsedMs: 3000 });
+    const { handler, ctx } = await setup();
+    handler({ pluginId: "kb", action: "reindex", payload: { cwd: "/w/repo" } });
+    await tick();
+    handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/w/repo", patch: { include: ["docs"] } } });
+    await tick();
+    expect(reindexAll).not.toHaveBeenCalled();
+    expect(applyConfigPatchAndTrust).not.toHaveBeenCalled();
+    expect(preflightWrite).not.toHaveBeenCalled();
+    const warnLines = (ctx.logger.warn as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    expect(warnLines.some((w) => w.includes("cwd admission unavailable"))).toBe(true);
+    expect(warnLines.some((w) => w.includes("cwd not allowed"))).toBe(false);
+    // A WS action has no seam to the access dialog at all.
+    expect((ctx as unknown as { holdCwdDenial?: unknown }).holdCwdDenial).toBeUndefined();
+  });
+
   it("rejects a cwd outside the allow-list — no core call", async () => {
-    isAllowedCwd.mockReturnValue(false);
+    admitCwd.mockResolvedValue({ kind: "refuse" });
     const { handler, ctx } = await setup();
     const result = handler({ pluginId: "kb", action: "reindex", payload: { cwd: "/etc" } });
     await tick();

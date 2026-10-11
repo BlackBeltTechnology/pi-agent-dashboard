@@ -550,7 +550,9 @@ describe("POST /api/kb/reindex", () => {
     // observes indexing:true before the walk settles. See change: fix-kb-index-feedback.
     const cwd = makeFolder({ withConfig: false });
     mkdirSync(join(cwd, "big"), { recursive: true });
-    for (let i = 0; i < 300; i++) {
+    // Sized so the walk still outlives the first /stats poll now that cwd
+    // admission is async (a few fs round trips before the handler body runs).
+    for (let i = 0; i < 1500; i++) {
       writeFileSync(join(cwd, "big", `f${i}.md`), `# Doc ${i}\n\nBody text number ${i} with enough words to survive the tiny-chunk merge threshold here and there.\n`);
     }
     mkdirSync(join(cwd, ".pi", "dashboard"), { recursive: true });

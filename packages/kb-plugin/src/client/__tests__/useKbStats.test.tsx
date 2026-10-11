@@ -3,7 +3,7 @@
  * a malformed-response error (task 2.2). See change: add-kb-folder-slot.
  */
 
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KbStats } from "../../shared/kb-plugin-types.js";
@@ -863,5 +863,87 @@ describe("kb stats store — cwd refusal and pin wait", () => {
     await settle();
     expect(store.getSnapshot().denied).toBe(true);
     un();
+  });
+});
+
+
+// ── harden-plugin-cwd-admission: 503 cwd-admission-unavailable is transient ───
+
+describe("useKbStats — transient admission 503", () => {
+  const UNAVAILABLE = { error: "cwd-admission-unavailable", retryAfterMs: 1000 };
+  const unavailable = () => jsonResp(UNAVAILABLE, false, 503);
+  const advance = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+
+  function DeniedProbe({ cwd }: { cwd: string }): React.ReactElement {
+    const { stats, error, denied, loading } = useKbStats(cwd);
+    return (
+      <div
+        data-testid="probe"
+        data-chunks={stats?.chunks ?? ""}
+        data-error={error ?? ""}
+        data-denied={String(denied)}
+        data-loading={String(loading)}
+      />
+    );
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("F7: retried with backoff — never denied, never an error, settles on the fresh stats", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(unavailable())
+      .mockResolvedValueOnce(unavailable())
+      .mockResolvedValue(json(base({ chunks: 42, indexed: true })));
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
+    const { getByTestId } = render(<DeniedProbe cwd="/w/f7" />);
+    await advance(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getByTestId("probe").getAttribute("data-denied")).toBe("false");
+    expect(getByTestId("probe").getAttribute("data-error")).toBe("");
+    expect(getByTestId("probe").getAttribute("data-loading")).toBe("true"); // placeholder held
+    await advance(1000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getByTestId("probe").getAttribute("data-error")).toBe("");
+    await advance(2000);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(getByTestId("probe").getAttribute("data-chunks")).toBe("42");
+    expect(getByTestId("probe").getAttribute("data-denied")).toBe("false");
+    expect(getByTestId("probe").getAttribute("data-error")).toBe("");
+  });
+
+  it("F8: exhausted after 3 retries → error (failed state), not denied; a manual refetch starts a fresh chain", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const fetchMock = vi.fn(async () => unavailable());
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
+    const { getByTestId } = render(<DeniedProbe cwd="/w/f8" />);
+    await advance(1000 + 2000 + 4000 + 1000);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(getByTestId("probe").getAttribute("data-error")).not.toBe("");
+    expect(getByTestId("probe").getAttribute("data-denied")).toBe("false");
+    // No further background retries once exhausted.
+    await advance(30_000);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("one retry chain per folder: two consumers of one cwd make one chain", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const fetchMock = vi.fn().mockResolvedValueOnce(unavailable()).mockResolvedValue(json(base({ chunks: 7 })));
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
+    render(
+      <>
+        <DeniedProbe cwd="/w/chain" />
+        <DeniedProbe cwd="/w/chain" />
+      </>,
+    );
+    await advance(0);
+    await advance(1000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

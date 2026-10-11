@@ -26,6 +26,7 @@
  * (kb-plugin case), or remove the stale entry (honcho case).
  */
 import { describe, it, expect } from "vitest";
+import { parse } from "yaml";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -140,5 +141,37 @@ describe("piDashboard.bundledPlugins completeness", () => {
 
   it("excludes fixture-only plugins (e.g. demo-plugin)", () => {
     expect(bundled).not.toContain("demo-plugin");
+  });
+});
+
+
+/**
+ * E41 — the CodeQL path-injection barrier survives the move to the async guard.
+ * Routes now branch on `admissionAllows(admission, cwd)`; without a model row
+ * every plugin route would report `js/path-injection` again. The existing
+ * `isAllowedCwd` rows stay (sync non-route callers still use them).
+ * See change: harden-plugin-cwd-admission.
+ */
+describe("cwd-guard CodeQL barrier model (E41)", () => {
+  const modelPath = path.resolve(__dirname, "../../../../.github/codeql/extensions/cwd-guard.model.yml");
+  const rows = (parse(fs.readFileSync(modelPath, "utf8")) as {
+    extensions: Array<{ data: string[][] }>;
+  }).extensions.flatMap((e) => e.data);
+  const has = (module: string, member: string) => rows.some((r) => r[0] === module && r[1] === member && r[2] === "true" && r[3] === "path-injection");
+  const MODULES = [
+    "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js",
+    "@blackbelt-technology/pi-dashboard-shared/cwd-guard",
+  ];
+
+  it.each(MODULES)("models admissionAllows(admission, cwd) — cwd is Argument[1] — for %s", (m) => {
+    expect(has(m, "Member[admissionAllows].Argument[1]")).toBe(true);
+  });
+
+  it.each(MODULES)("keeps the isAllowedCwd Argument[0] row unchanged for %s", (m) => {
+    expect(has(m, "Member[isAllowedCwd].Argument[0]")).toBe(true);
+  });
+
+  it.each(MODULES)("models the writer's tokenAllows(token, cwd) check for %s", (m) => {
+    expect(has(m, "Member[tokenAllows].Argument[1]")).toBe(true);
   });
 });

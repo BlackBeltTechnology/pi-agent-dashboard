@@ -11,6 +11,7 @@
  */
 
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import type { IndeterminateInfo } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { createRealConfigIO } from "../core/config-io.js";
 import { createMcpClientConfigService } from "../core/service.js";
 import { createPiMcpListRunner } from "./pi-runner.js";
@@ -19,6 +20,7 @@ import { mountMcpClientRoutes } from "./routes.js";
 const SERVICE_KEY = "mcp-client.config";
 const HOST_KNOWN_FOLDERS = "host.knownFolderCwds";
 const HOST_PROJECT_TRUST = "host.isProjectTrusted";
+const HOST_CWD_ADMISSION_LOG = "host.cwdAdmissionOnIndeterminate";
 
 async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.logger.info("mcp-client server entry activated");
@@ -39,7 +41,18 @@ async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   // observes it during its own registration.
   ctx.provide(SERVICE_KEY, runtime);
 
-  mountMcpClientRoutes(ctx.fastify, { runtime, knownCwds, networkGuard: ctx.networkGuard });
+  // Raise the access dialog on a user-initiated write for an unknown folder, and
+  // log undecidable admissions through the host's throttled sink. Both optional:
+  // a host without them keeps the plain 403 / no log.
+  // See change: harden-plugin-cwd-admission.
+  const onIndeterminate = ctx.consume<(info: IndeterminateInfo) => void>(HOST_CWD_ADMISSION_LOG);
+  mountMcpClientRoutes(ctx.fastify, {
+    runtime,
+    knownCwds,
+    networkGuard: ctx.networkGuard,
+    holdCwdDenial: ctx.holdCwdDenial,
+    admitOptions: onIndeterminate ? { onIndeterminate } : undefined,
+  });
 }
 
 export default registerPlugin;
