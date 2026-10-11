@@ -45,6 +45,22 @@ describe("E29 — CLI token create", () => {
     expect(err.lines).toHaveLength(0);
   });
 
+  it("E22: every request carries a fresh X-Pi-Local-Proof and never the raw token", async () => {
+    const seen: Array<{ url: string; headers: Record<string, string> }> = [];
+    const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+      seen.push({ url: String(input), headers: (init?.headers ?? {}) as Record<string, string> });
+      if (String(input).endsWith("/api/paired-devices")) return okJson({ device: {}, token: "tok_abc" });
+      return okJson(["https://a.example"]);
+    }) as unknown as typeof fetch;
+    await cmdTokenCreate(["create", "--label", "ci"], { port: 8000 }, { fetchImpl, localToken: "lt", out: () => {}, err: () => {} });
+    expect(seen).toHaveLength(2);
+    expect(seen.every((r) => r.url.startsWith("http://127.0.0.1:8000/"))).toBe(true);
+    expect(seen.every((r) => r.headers["X-Pi-Local-Proof"])).toBe(true);
+    expect(JSON.stringify(seen).toLowerCase()).not.toContain("x-pi-local-token");
+    const nonces = seen.map((r) => r.headers["X-Pi-Local-Proof"].split(".")[2]);
+    expect(new Set(nonces).size).toBe(2);
+  });
+
   it("--url overrides reachability with a single snippet", async () => {
     const out = sink();
     const calls: string[] = [];

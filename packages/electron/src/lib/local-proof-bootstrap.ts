@@ -12,8 +12,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
-
-const LOCAL_TOKEN_HEADER = "x-pi-local-token";
+import {
+  httpProofHeaders,
+  isLoopbackLiteral,
+  localDialHost,
+} from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 
 /** The host-only local token, or null when absent/unreadable. */
 function readLocalToken(): string | null {
@@ -25,22 +28,57 @@ function readLocalToken(): string | null {
   }
 }
 
-/** `X-Pi-Local-Token` header bag for main-process calls to our own server. */
-export function localTokenHeaders(token: string | null = readLocalToken()): Record<string, string> {
-  return token ? { [LOCAL_TOKEN_HEADER]: token } : {};
+/**
+ * The base URL main-process calls to our own server dial: the address LITERAL the
+ * server's bind maps to, never `localhost` — a local credential proof is bound to
+ * the literal address + port actually reached. The window keeps loading
+ * `http://localhost:<port>`; only API calls dial this.
+ * See change: loopback-credential-proof (D10).
+ */
+export function localApiBase(config: { host?: string; port: number }): string {
+  return `http://${localDialHost(config.host)}:${config.port}`;
+}
+
+/**
+ * `X-Pi-Local-Proof` header bag for ONE main-process request to our own server
+ * (`url` must be an address-literal URL from `localApiBase`). A proof is
+ * single-use: mint per request. The raw token never leaves this process.
+ */
+export function localProofHeaders(
+  method: string,
+  url: string,
+  token: string | null = readLocalToken(),
+): Record<string, string> {
+  return token ? httpProofHeaders(token, url, method) : {};
+}
+
+/** The literal-dial form of a window URL, or null when it does not name THIS host. */
+function localDialUrl(baseUrl: string, host?: string): string | null {
+  try {
+    const u = new URL(baseUrl);
+    const hostname = u.hostname.replace(/^\[|\]$/g, "");
+    const literal = hostname.toLowerCase() === "localhost" ? localDialHost(host) : isLoopbackLiteral(hostname) ? u.hostname : null;
+    return literal ? `${u.protocol}//${literal}${u.port ? `:${u.port}` : ""}` : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Mint a one-time code and return the bootstrap URL, or null on any failure. */
 export async function mintLocalProofUrl(
   baseUrl: string,
-  deps: { fetchImpl?: typeof fetch; token?: string | null } = {},
+  deps: { fetchImpl?: typeof fetch; token?: string | null; host?: string } = {},
 ): Promise<string | null> {
   const token = deps.token === undefined ? readLocalToken() : deps.token;
   if (!token) return null;
+  // Never present a local credential to a host that is not this one.
+  const dial = localDialUrl(baseUrl, deps.host);
+  if (!dial) return null;
   try {
-    const res = await (deps.fetchImpl ?? fetch)(`${baseUrl}/api/local-proof`, {
+    const proofUrl = `${dial}/api/local-proof`;
+    const res = await (deps.fetchImpl ?? fetch)(proofUrl, {
       method: "POST",
-      headers: localTokenHeaders(token),
+      headers: localProofHeaders("POST", proofUrl, token),
       signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return null;
@@ -59,7 +97,7 @@ export async function mintLocalProofUrl(
 export async function loadWithLocalProof(
   win: { loadURL: (url: string) => unknown },
   serverUrl: string,
-  deps: { fetchImpl?: typeof fetch; token?: string | null } = {},
+  deps: { fetchImpl?: typeof fetch; token?: string | null; host?: string } = {},
 ): Promise<boolean> {
   const proofUrl = await mintLocalProofUrl(serverUrl, deps);
   await win.loadURL(proofUrl ?? serverUrl);

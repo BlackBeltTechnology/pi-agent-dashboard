@@ -9,6 +9,7 @@ import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { PAIRING_PROTOCOL_VERSION, PairingManager } from "../pairing/pairing.js";
 import { MAX_DEVICE_LABEL_BYTES, registerPairingRoutes } from "../routes/pairing-routes.js";
+import { stampLegacyHook } from "../test-support/local-credential-stamp.js";
 
 let tmpDir: string;
 let clock: number;
@@ -235,6 +236,7 @@ async function mkRouteApp(
 ): Promise<{ app: FastifyInstance; reg: PairedDeviceRegistry }> {
   const reg = new PairedDeviceRegistry(path.join(tmpDir, "paired.json"));
   const app = Fastify();
+  if (opts.localToken) stampLegacyHook(app, opts.localToken);
   openApps.push(app);
   const deps = {
     networkGuard: createNetworkGuard(opts.trusted ?? [], { localToken: opts.localToken }),
@@ -488,6 +490,7 @@ describe("E7 — approve tier", () => {
       now: () => clock,
     });
     const app = Fastify();
+    stampLegacyHook(app, "approve-local-token");
     openApps.push(app);
     registerPairingRoutes(app, {
       networkGuard: createNetworkGuard([]),
@@ -552,6 +555,7 @@ describe("E7 — approve tier", () => {
 async function mkD2App(opts: { deviceBearer?: boolean; localToken?: string } = {}) {
   const { mgr, reg } = mkManager();
   const app = Fastify();
+  if (opts.localToken) stampLegacyHook(app, opts.localToken);
   openApps.push(app);
   // Simulate a dashboard login session (models auth-plugin's cookie branch).
   app.addHook("onRequest", async (req) => {
