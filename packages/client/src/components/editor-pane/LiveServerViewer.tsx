@@ -4,9 +4,11 @@
  * Flow: pick a saved allowlist target OR enter a URL (confirmed, never auto-
  * fetched) → `startLiveServer` (client + server both run the loopback SSRF
  * check) → iframe the proxied `/live/<id>/` path on the MAIN origin with
- * `sandbox="allow-scripts"` and NO `allow-same-origin` (opaque origin, D7):
- * the app's scripts run but it cannot read the dashboard token or call its
- * APIs. Remote/free-form hosts are refused by `validateLiveTarget`.
+ * `sandbox="allow-scripts allow-forms allow-popups allow-downloads"` and NO
+ * `allow-same-origin` (opaque origin, D7): the app's scripts run but it cannot
+ * read the dashboard token or call its APIs. `allow-downloads` grants
+ * user-initiated downloads only (no `allow-downloads-without-user-activation`).
+ * Remote/free-form hosts are refused by `validateLiveTarget`.
  *
  * See change: improve-content-editor (live-server-preview §6.3).
  */
@@ -138,7 +140,9 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
           data-testid="live-iframe"
           // D7: opaque origin — scripts run, but NO allow-same-origin, so the
           // embedded app cannot read the dashboard token or call /api/*.
-          sandbox="allow-scripts allow-forms allow-popups"
+          // allow-downloads = user-initiated downloads, not an origin; the
+          // without-user-activation variant stays absent.
+          sandbox="allow-scripts allow-forms allow-popups allow-downloads"
           src={`${getApiBase()}${path}${deep}`}
           title={t("editor.liveServerPreview", undefined, "Live server preview")}
           className="min-h-0 flex-1 border-0 bg-white"
