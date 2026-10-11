@@ -16,8 +16,6 @@ import type { FastifyInstance } from "fastify";
 import { type DenialRemedy, evaluateContainment } from "../access/containment-gate.js";
 import { resolveCwdVerdict } from "../access/cwd-verdict.js";
 import { type HoldTarget, holdDenial } from "../access/denial-hold.js";
-
-import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
 import {
   assertRegularFile,
   openVerifiedRegularFile,
@@ -25,6 +23,7 @@ import {
   readFileVerifiedUtf8,
   VerifiedReadRefused,
 } from "../access/verified-read.js";
+import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
 import { classifyPaths, createDirectory, listDirectories, parseFlagsQuery } from "../browse.js";
 import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
@@ -1427,10 +1426,12 @@ async function unknownCwdVerdictAdmits(
   target: HoldTarget,
   known: () => string[],
 ): Promise<boolean> {
-  // The subject is the REAL path when it resolves, so an allow-once can later be
-  // compared strictly against what the path means at release time.
+  // The subject is the REAL path, so an allow-once can later be compared strictly against
+  // what the path means at release time. A cwd that does not resolve is never asked about:
+  // the post-verdict re-run refuses it whatever the operator answers (and a pin for a
+  // directory that is not there is meaningless) — the same rule the plugin seam applies.
   const real = await realpathAsync(path.resolve(cwd));
-  const subject = real.kind === "ok" ? real.path : path.resolve(cwd);
-  const resolution = await holdDenial({ plane: "cwd", rawSubject: subject, origin: "file-routes:exists" }, target);
+  if (real.kind !== "ok") return false;
+  const resolution = await holdDenial({ plane: "cwd", rawSubject: real.path, origin: "file-routes:exists" }, target);
   return (await resolveCwdVerdict(cwd, resolution, { known })).kind === "admit";
 }

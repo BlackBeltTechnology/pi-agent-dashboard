@@ -314,6 +314,20 @@ describe("6.2 the unknown-cwd site", () => {
 });
 
 describe("harden-plugin-cwd-admission: the file-exists re-run is the shared verdict", () => {
+  it("a cwd that does not exist is refused WITHOUT raising a dialog (it could never succeed)", async () => {
+    const missing = path.join(tmp, "no-such-ws");
+    const app = makeApp();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/exists?cwd=${encodeURIComponent(missing)}&path=${encodeURIComponent(missing)}`,
+      headers: { [GRANT_CHANNEL_HEADER]: capability },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error).toBe("unknown cwd");
+    expect(sent.filter((m) => m.type === "grant_request")).toHaveLength(0);
+    expect(coordinator.registry.size).toBe(0);
+  });
+
   it("E39: a session that registers while the dialog is open admits via canonical compare (sessions ∪ pins)", async () => {
     const real = path.join(tmp, "x-real");
     fs.mkdirSync(real);
