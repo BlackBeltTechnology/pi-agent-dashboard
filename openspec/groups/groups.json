@@ -8,63 +8,87 @@
       "order": 0
     },
     {
-      "id": "copilot-assistant",
-      "name": "Copilot / Assistant",
+      "id": "pi-update",
+      "name": "Pi Update",
+      "color": "#3b82f6",
       "order": 1
     },
     {
-      "id": "ai-team",
-      "name": "AI Team",
-      "color": "#a855f7",
+      "id": "lan-pairing-trust",
+      "name": "LAN Pairing & Trust",
+      "color": "#14b8a6",
       "order": 2
     },
     {
-      "id": "next-phase",
-      "name": "Next phase",
-      "color": "#3b82f6",
+      "id": "client-ui-fixes",
+      "name": "Client UI fixes",
+      "color": "#eab308",
       "order": 3
     },
     {
-      "id": "kowledge-base",
-      "name": "Kowledge Base",
-      "color": "#f97316",
+      "id": "update-to-node-26",
+      "name": "Update to Node 26",
+      "color": "#3b82f6",
       "order": 4
-    },
-    {
-      "id": "electrun-execution",
-      "name": "Electrun execution",
-      "color": "#a855f7",
-      "order": 5
-    },
-    {
-      "id": "future",
-      "name": "Future",
-      "color": "#f97316",
-      "order": 6
-    },
-    {
-      "id": "separate-functions-to-plugins",
-      "name": "Separate functions to plugins",
-      "color": "#ef4444",
-      "order": 7
-    },
-    {
-      "id": "ui-extensions",
-      "name": "UI Extensions",
-      "color": "#eab308",
-      "order": 8
     },
     {
       "id": "security",
       "name": "Security",
       "color": "#ef4444",
+      "order": 5
+    },
+    {
+      "id": "copilot-assistant",
+      "name": "Copilot / Assistant",
+      "order": 6
+    },
+    {
+      "id": "fix-mermaid",
+      "name": "Fix mermaid",
+      "color": "#3b82f6",
+      "order": 7
+    },
+    {
+      "id": "ai-team",
+      "name": "AI Team",
+      "color": "#a855f7",
+      "order": 8
+    },
+    {
+      "id": "next-phase",
+      "name": "Next phase",
+      "color": "#3b82f6",
       "order": 9
     },
     {
-      "id": "pi-update",
-      "name": "Pi Update",
-      "color": "#3b82f6",
+      "id": "kowledge-base",
+      "name": "Kowledge Base",
+      "color": "#f97316",
       "order": 10
+    },
+    {
+      "id": "electrun-execution",
+      "name": "Electrun execution",
+      "color": "#a855f7",
+      "order": 11
+    },
+    {
+      "id": "future",
+      "name": "Future",
+      "color": "#f97316",
+      "order": 12
+    },
+    {
+      "id": "separate-functions-to-plugins",
+      "name": "Separate functions to plugins",
+      "color": "#ef4444",
+      "order": 13
+    },
+    {
+      "id": "ui-extensions",
+      "name": "UI Extensions",
+      "color": "#eab308",
+      "order": 14
     }
   ],
   "assignments": {
@@ -299,10 +323,63 @@
     "add-passkey-user-auth": "ui",
     "add-multi-user-identity-plane": "ui",
     "fix-appimage-cold-boot-latency": "ui",
-    "bundle-plugin-third-party-deps": "ui"
+    "bundle-plugin-third-party-deps": "ui",
+    "yolo-covers-agent-path-gate": "ui",
+    "add-mermaid-ai-repair": "fix-mermaid",
+    "add-mermaid-auto-repair": "fix-mermaid",
+    "add-md-adoc-markup-repair": "fix-mermaid",
+    "add-preview-apply-fix-to-file": "fix-mermaid",
+    "add-browser-editor-pane-tab": "ui",
+    "add-service-registry-core": "ui",
+    "add-team-skill-access": "ai-team",
+    "deck3d-pptx-import": "ui",
+    "cleanup-post-r3-spec-drift": "ui",
+    "investigate-auto-name-provenance-relabel": "ui",
+    "add-memory-eval-tier-r": "ui",
+    "harden-ci-cache-poisoning": "ui",
+    "harden-plugin-cwd-admission": "ui",
+    "loopback-credential-proof": "ui",
+    "test-trust-audit": "ui",
+    "distinguish-tool-result-pending-vs-gone": "ui",
+    "add-native-pi-tui-view": "next-phase",
+    "live-viewer-allow-downloads": "ui",
+    "strip-only-native-ts-loader": "update-to-node-26",
+    "close-loopback-legacy-window": "security",
+    "raise-node-floor-to-26": "update-to-node-26",
+    "migrate-typecheck-to-ts7": "update-to-node-26",
+    "close-e2e-tooling-followups": "ui",
+    "stabilize-mdns-server-identity": "lan-pairing-trust",
+    "add-lan-knock-pairing": "lan-pairing-trust",
+    "add-electron-server-windows": "lan-pairing-trust",
+    "retire-trusted-networks-bypass": "lan-pairing-trust",
+    "update-pi-core-1-1-adopt-apis": "pi-update",
+    "spawn-scope-no-mcp": "pi-update",
+    "mcp-client-project-overrides": "pi-update",
+    "fix-remote-relative-api-fetch": "client-ui-fixes",
+    "fix-canvas-chip-tray-overlay": "client-ui-fixes",
+    "render-unclaimed-custom-entries": "client-ui-fixes",
+    "add-credential-vault": "security"
   },
   "changeOrder": {
-    "__ungrouped__": [],
+    "__ungrouped__": [
+      "add-acme-dns01-certs",
+      "add-kb-eval-regularized-gate",
+      "add-microservice-pattern-selection-skill",
+      "add-ntfy-push-transport",
+      "add-omni-embedding-retrieval",
+      "add-plugin-capability-routes",
+      "add-session-step-table",
+      "add-social-login-broker",
+      "add-srt-translation-pass",
+      "add-tailscale-cert-tls",
+      "add-welcome-tutorial",
+      "electron-local-link-node-compat",
+      "implement-it",
+      "retest-plain-language-hard-battery",
+      "unify-context-manager",
+      "ab-test-rlm-delegation-claim",
+      "streamline-first-run"
+    ],
     "kowledge-base": [
       "consolidate-retrieval-planes",
       "add-lora-dataset-export-skill",
@@ -312,20 +389,19 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "bundle-plugin-third-party-deps"
+      "close-e2e-tooling-followups",
+      "add-acp-session-driver",
+      "context-manager-kernel"
     ],
     "next-phase": [
+      "add-native-pi-tui-view",
       "add-session-trajectory-view",
       "add-persistent-onboarding-card",
       "add-prompt-snapshot-audit-trail",
-      "add-access-grant-dialog",
-      "add-access-grants-and-review",
       "add-mid-turn-tool-oauth",
       "share-session-archives",
       "add-oauth-key-sync-service",
       "add-codegraph-code-plane",
-      "distill-hermes-memory-into-skills",
-      "add-chat-gateway",
       "add-google-oauth-provider",
       "add-workspace-checkpointing",
       "bundle-python-runtime",
@@ -334,19 +410,48 @@
       "add-connector-layer",
       "add-end-user-docs",
       "add-hyperframes-skills",
-      "external-dashboard-plugins",
-      "focus-driven-folder-compaction"
+      "external-dashboard-plugins"
     ],
     "security": [
+      "close-loopback-legacy-window",
+      "add-credential-vault",
       "harden-server-capability-bounds",
       "harden-electron-renderer-boundary"
     ],
     "pi-update": [
+      "update-pi-core-1-1-adopt-apis",
+      "spawn-scope-no-mcp",
+      "mcp-client-project-overrides",
       "cleanup-stale-fork-specs"
     ],
     "copilot-assistant": [
       "add-voice-wall-plugin",
       "add-voice-assistant-dashboard-plugin"
+    ],
+    "fix-mermaid": [
+      "add-mermaid-auto-repair",
+      "add-mermaid-ai-repair",
+      "add-preview-apply-fix-to-file",
+      "add-md-adoc-markup-repair"
+    ],
+    "ai-team": [
+      "add-team-skill-access"
+    ],
+    "update-to-node-26": [
+      "strip-only-native-ts-loader",
+      "migrate-typecheck-to-ts7",
+      "raise-node-floor-to-26"
+    ],
+    "lan-pairing-trust": [
+      "stabilize-mdns-server-identity",
+      "add-lan-knock-pairing",
+      "add-electron-server-windows",
+      "retire-trusted-networks-bypass"
+    ],
+    "client-ui-fixes": [
+      "fix-remote-relative-api-fetch",
+      "fix-canvas-chip-tray-overlay",
+      "render-unclaimed-custom-entries"
     ]
   }
 }
