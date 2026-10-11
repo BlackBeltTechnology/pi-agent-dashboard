@@ -6124,7 +6124,7 @@ flowchart TD
 
 #### Local credential proof
 
-Change: `loopback-credential-proof`. Design: `openspec/changes/loopback-credential-proof/design.md` (D1–D10).
+Change: `loopback-credential-proof`. Design: `openspec/changes/archive/2026-10-11-loopback-credential-proof/design.md` (D1–D10).
 
 Wire:
 - Raw `X-Pi-Local-Token` never sent by current clients: bridge, CLI, Electron main, `scripts/reload-all.sh`.
