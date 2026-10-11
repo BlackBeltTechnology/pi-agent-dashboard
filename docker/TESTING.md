@@ -76,9 +76,11 @@ Refusal runs before image build and before `.pi-test-harness.json` write. Refuse
 
 Refusal message names other project(s) and arithmetic. Override: `PI_HARNESS_ALLOW_OVERSUBSCRIBE=1`.
 
-Limits fit but peer up → one warning (attribution degraded). No peer → silent.
+Arithmetic runs with n = 0 too. Lone harness with `MEM_LIMIT >= MemTotal` → refused; headline `harness memory cap exceeds the daemon` (no "co-resident"). Override → one `oversubscribed` warning. See change: close-e2e-tooling-followups.
 
-Unparseable `MEM_LIMIT` or failed `docker info` → warning + proceed; never refuse on missing data.
+Limits fit but peer up → one warning (attribution degraded). No peer + fits → silent.
+
+Unparseable `MEM_LIMIT` or failed `docker info` → peer up: warning + proceed; no peer: silent. Never refuse on missing data.
 
 One code path in and out of CI (CI runner has one harness → no-op).
 

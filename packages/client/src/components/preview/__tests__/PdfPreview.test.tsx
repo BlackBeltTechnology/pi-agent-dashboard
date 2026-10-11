@@ -40,7 +40,7 @@ vi.mock("pdfjs-dist", () => ({
 }));
 
 import { PreviewProvenance } from "../../../lib/access-grants/preview-provenance.js";
-import { PdfPreview } from "../PdfPreview.js";
+import PdfPreview from "../PdfPreview.js";
 
 const target = { kind: "file" as const, cwd: "/proj", path: "spec.pdf" };
 

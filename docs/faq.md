@@ -3169,21 +3169,33 @@ Cross-refs:
 - vitest.workers.ts
 - packages/client/src/__tests__/fixed-tick-conversion-equivalence.test.ts
 
-## Why does docker/test-up.sh refuse to start with "co-resident harness oversubscription"?
+## Why does docker/test-up.sh refuse to start ("co-resident harness oversubscription" / "harness memory cap exceeds the daemon")?
 
-Cause: `docker/test-up.sh` compares `(n+1) × MEM_LIMIT` against daemon `MemTotal`, where n = count of running peer `pi-dash-test-*` compose projects. Default `MEM_LIMIT` = `4g` (`docker/compose.yml`).
+Cause: `docker/test-up.sh` compares `INSTANCES × MEM_LIMIT` against daemon `MemTotal`. `INSTANCES` = running peer `pi-dash-test-*` compose projects + 1. Default `MEM_LIMIT` = `4g` (`docker/compose.yml`).
 
-Refuses when `(n+1) × MEM_LIMIT >= MemTotal`. Equality refuses: host must keep running. Error names other running project(s) plus arithmetic.
+Refuses when `INSTANCES × MEM_LIMIT >= MemTotal`. Equality refuses: host must keep running. Arithmetic runs with zero peers too.
+
+Two refusal headlines:
+
+- Peer up: `stabilize-browser-e2e: refusing to start — co-resident harness oversubscription` + `  other harness project(s): <names>`.
+- Lone harness: `stabilize-browser-e2e: refusing to start — harness memory cap exceeds the daemon`. No project names.
+- Both then print `  memory: 1 × 8 GiB = 8 GiB  >=  8 GiB MemTotal (MEM_LIMIT=8g)` and `  set PI_HARNESS_ALLOW_OVERSUBSCRIBE=1 to start anyway`.
 
 Fix A: free peer harness — run `docker/test-down.sh` from other worktree.
 
-Fix B: override — `PI_HARNESS_ALLOW_OVERSUBSCRIBE=1 docker/test-up.sh -d --build`.
+Fix A (lone harness): lower `MEM_LIMIT` (e.g. `MEM_LIMIT=4g`) or raise Docker VM memory.
+
+Fix B: override — `PI_HARNESS_ALLOW_OVERSUBSCRIBE=1 docker/test-up.sh -d --build`. Prints one `oversubscribed` warning, proceeds.
 
 Softer case: limits fit but peer running → one warning only (attribution degraded under contention).
 
-Missing data case: unparseable `MEM_LIMIT` or unavailable `docker info` → warning + proceed; never refuse.
+Lone harness + fits → silent.
+
+Missing data case: unparseable `MEM_LIMIT` or failed `docker info` → peer up: one warning + proceed; no peer: silent. Never refuses.
 
 Issue: #451 part 2. Change: stabilize-browser-e2e.
+
+See change: close-e2e-tooling-followups.
 
 Cross-refs:
 - docker/TESTING.md
