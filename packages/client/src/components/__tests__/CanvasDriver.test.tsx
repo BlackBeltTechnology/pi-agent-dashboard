@@ -122,3 +122,109 @@ describe("CanvasDriver — target withheld by the mobile gate opens once the vie
     expect(api?.paneState.openFiles ?? []).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Floating chip tray (change: fix-canvas-chip-tray-overlay, test-plan #E3-#E6)
+// ---------------------------------------------------------------------------
+
+const chipState: CanvasState = {
+  ...EMPTY_CANVAS_STATE,
+  chip: { kind: "server", port: 4321, title: "Dev server" } as CanvasState["chip"],
+};
+
+function renderTray(state: CanvasState, anchor?: HTMLElement | null) {
+  return render(
+    <SplitWorkspaceProvider sessionId="sTray" cwd="/proj" orientation="h">
+      <CanvasDriver state={state} anchor={anchor} />
+    </SplitWorkspaceProvider>,
+  );
+}
+
+describe("CanvasDriver — floating chip tray", () => {
+  const origRO = globalThis.ResizeObserver;
+  let roCallbacks: Array<() => void>;
+  let roObserve: ReturnType<typeof vi.fn>;
+  let roDisconnect: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    roCallbacks = [];
+    roObserve = vi.fn();
+    roDisconnect = vi.fn();
+    class FakeRO {
+      constructor(cb: () => void) {
+        roCallbacks.push(cb);
+      }
+      observe = roObserve;
+      unobserve = vi.fn();
+      disconnect = roDisconnect;
+    }
+    globalThis.ResizeObserver = FakeRO as unknown as typeof ResizeObserver;
+  });
+  const anchorHosts: HTMLElement[] = [];
+  afterEach(() => {
+    globalThis.ResizeObserver = origRO;
+    // Only remove what this suite created — RTL cleanup owns the portal node.
+    for (const h of anchorHosts.splice(0)) h.remove();
+  });
+
+  function makeAnchor() {
+    const parent = document.createElement("div");
+    const anchor = document.createElement("div");
+    const sibling = document.createElement("div");
+    parent.append(anchor, sibling);
+    document.body.append(parent);
+    anchorHosts.push(parent);
+    return anchor;
+  }
+
+  it("#E3: no anchor → portaled to body, safe-area fallback bottom, visible", () => {
+    renderTray(chipState);
+    const tray = screen.getByTestId("canvas-chip-tray");
+    expect(tray.parentElement).toBe(document.body);
+    expect(tray.style.bottom).toBe("calc(1rem + env(safe-area-inset-bottom))");
+    expect(tray.style.visibility).not.toBe("hidden");
+  });
+
+  it("#E4: anchor set but unmeasured → hidden, then visible with numeric bottom", () => {
+    const anchor = makeAnchor();
+    renderTray(chipState, anchor);
+    const tray = screen.getByTestId("canvas-chip-tray");
+    expect(tray.style.visibility).toBe("hidden");
+
+    act(() => {
+      for (const cb of roCallbacks) cb();
+    });
+    expect(tray.style.visibility).not.toBe("hidden");
+    expect(tray.style.bottom).toMatch(/^-?\d+(\.\d+)?px$/);
+  });
+
+  it("#E5: tray ignores pointer input, chips take it", () => {
+    tier = "mobile";
+    renderTray({ ...chipState, target: { kind: "file", cwd: "/proj", path: "a.md" }, version: 1 });
+    expect(screen.getByTestId("canvas-chip-tray").className).toContain("pointer-events-none");
+    expect(screen.getByTestId("canvas-file-chip").className).toContain("pointer-events-auto");
+    expect(screen.getByTestId("canvas-server-chip").className).toContain("pointer-events-auto");
+  });
+
+  it("#E6: jsdom without visualViewport — mount/unmount cleans every listener/observer", () => {
+    expect(window.visualViewport ?? undefined).toBeUndefined();
+    const added: string[] = [];
+    const removed: string[] = [];
+    const add = vi.spyOn(window, "addEventListener").mockImplementation((t: string) => {
+      added.push(t);
+    });
+    const rem = vi.spyOn(window, "removeEventListener").mockImplementation((t: string) => {
+      removed.push(t);
+    });
+    const anchor = makeAnchor();
+    const { unmount } = renderTray(chipState, anchor);
+    expect(() => unmount()).not.toThrow();
+    const ours = added.filter((t) => t === "resize");
+    expect(ours.length).toBeGreaterThan(0);
+    for (const t of ours) expect(removed).toContain(t);
+    expect(removed.filter((t) => t === "resize")).toHaveLength(ours.length);
+    expect(roDisconnect).toHaveBeenCalled();
+    add.mockRestore();
+    rem.mockRestore();
+  });
+});
