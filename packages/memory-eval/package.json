@@ -1,0 +1,22 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-memory-eval",
+  "version": "0.9.0",
+  "private": true,
+  "description": "Tier R retrieval evaluation for the context manager: mines cases from pi session logs, replays old-stack retrievers as-of the decision time, judges helpfulness with a role-resolved model, and reports with confidence intervals. Local-only data.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "memory-eval": "./bin/memory-eval.mjs"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "test": "NODE_OPTIONS=--experimental-sqlite vitest run"
+  },
+  "dependencies": {
+    "@blackbelt-technology/pi-dashboard-kb": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
+    "tsx": "^4.21.0"
+  }
+}

@@ -1,0 +1,2 @@
+# The golden fixture is a synthetic SQLite file; the repo-wide *.db ignore must not drop it.
+!sessions.db
