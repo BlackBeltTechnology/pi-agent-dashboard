@@ -31,6 +31,18 @@ The server SHALL set `Access-Control-Allow-Credentials: true` to support cross-o
 - **WHEN** a cross-origin request includes credentials (cookies)
 - **THEN** the server SHALL accept and process the cookies
 
+### Requirement: CORS preflight allows mutating methods
+The server SHALL advertise `GET, HEAD, POST, PUT, PATCH, DELETE` in `Access-Control-Allow-Methods` (`CORS_ALLOWED_METHODS` in `auth/cors-origin.ts`, passed as `@fastify/cors` `methods`). The `@fastify/cors` v11 default (`GET,HEAD,POST`) SHALL NOT be relied on. The method list SHALL NOT widen which origins are allowed; auth still gates every mutation.
+
+#### Scenario: Cross-origin PUT preflight from an allowed origin
+- **WHEN** an allowed cross-origin client (e.g. the Electron renderer) sends `OPTIONS /api/openspec/groups/assignments` with `Access-Control-Request-Method: PUT`
+- **THEN** `Access-Control-Allow-Methods` SHALL include `PUT`
+- **AND** the follow-up `PUT` SHALL NOT be blocked by the browser
+
+#### Scenario: PATCH and DELETE preflight
+- **WHEN** an allowed origin preflights `PATCH` or `DELETE`
+- **THEN** `Access-Control-Allow-Methods` SHALL include the requested method
+
 ### Requirement: CORS config field
 The dashboard config (`~/.pi/dashboard/config.json`) SHALL support a `cors` object with an `allowedOrigins` string array.
 

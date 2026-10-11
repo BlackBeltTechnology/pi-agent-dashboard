@@ -14,6 +14,14 @@ import { isHostAdmitted } from "./host-admission.js";
 import { isBypassedHost } from "./localhost-guard.js";
 import type { WsRouteScope } from "./ws-ticket.js";
 
+/**
+ * Methods advertised on CORS preflight. `@fastify/cors` v11 defaults to the
+ * safelisted GET,HEAD,POST, which blocks every cross-origin PUT/PATCH/DELETE
+ * (e.g. the Electron renderer). Widens no origin: this list only matters for
+ * origins the allow-decision already admits; auth still gates each mutation.
+ */
+export const CORS_ALLOWED_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"];
+
 export interface CorsOriginOptions {
   /** Explicitly configured allowed origins (`cors.allowedOrigins`). */
   configuredOrigins: string[];

@@ -5,6 +5,7 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  CORS_ALLOWED_METHODS,
   isCorsOriginAllowed,
   isMutationOriginTrusted,
   isOriginAdmitted,
@@ -569,5 +570,24 @@ describe("universal guard does not break cross-origin preflight (S15)", () => {
     expect([200, 204]).toContain(res.statusCode);
     expect(res.headers["access-control-allow-origin"]).toBe(ORIGIN);
     expect(res.body).not.toContain("network_not_allowed");
+  });
+});
+
+// @fastify/cors v11 defaults `methods` to the CORS-safelisted GET,HEAD,POST, so
+// a cross-origin client (the Electron renderer) had every PUT/PATCH/DELETE
+// blocked at preflight — e.g. OpenSpec board drag-and-drop never persisted.
+describe("preflight allows mutating methods", () => {
+  it.each(["PUT", "PATCH", "DELETE"])("advertises %s in Access-Control-Allow-Methods", async (method) => {
+    const app = Fastify({ logger: false });
+    await app.register(cors, { origin: true, credentials: true, methods: CORS_ALLOWED_METHODS });
+    app.put("/api/openspec/groups/assignments", async () => ({ ok: true }));
+    await app.ready();
+    const res = await app.inject({
+      method: "OPTIONS",
+      url: "/api/openspec/groups/assignments",
+      headers: { origin: "http://127.0.0.1:5180", "access-control-request-method": method },
+    });
+    await app.close();
+    expect(String(res.headers["access-control-allow-methods"]).split(/,\s*/)).toContain(method);
   });
 });
