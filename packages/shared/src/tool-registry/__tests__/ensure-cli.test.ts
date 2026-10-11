@@ -9,6 +9,9 @@
  *
  * Folded scenarios: test-plan #X4 (8.32), #X8 (8.33).
  * L2 exemplar: qa/tests/01-install.sh (spawn + exit-code assertion).
+ *
+ * The headless auto-deny half (#X8 / 8.33) lives in `ensure-cli.confirm.test.ts`.
+ * See change: test-trust-audit (design D7).
  */
 import { describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
@@ -71,32 +74,4 @@ describe("ensure CLI — exit codes (8.32)", () => {
     expect(json.status).toBe(0);
     expect(JSON.parse(json.stdout).ok).toBe(false);
   }, 90_000);
-});
-
-describe("ensure CLI — requiresConfirm auto-deny on a headless host (8.33)", () => {
-  const NO_PW_CACHE = { PLAYWRIGHT_BROWSERS_PATH: "/nonexistent-pw-cache" };
-
-  it("required chromium + --install (no TTY) → auto-deny, blocked, exit non-zero", () => {
-    const fixture = path.join(FIXTURES, "confirm-required.package.json");
-    const res = run(["--install", fixture], NO_PW_CACHE);
-    expect(res.status).not.toBe(0);
-    expect(res.stdout).toContain("blocked");
-    // --json of the same situation still exits 0, outcome encoded.
-    const json = run(["--install", fixture, "--json"], NO_PW_CACHE);
-    expect(json.status).toBe(0);
-    const payload = JSON.parse(json.stdout);
-    const chromium = payload.tools.find((t: { name: string }) => t.name === "chromium");
-    expect(chromium.action).toBe("blocked");
-  }, 120_000);
-
-  it("optional chromium + --install (no TTY) → degraded, exit 0", () => {
-    const fixture = path.join(FIXTURES, "confirm-optional.package.json");
-    const res = run(["--install", fixture, "--json"], NO_PW_CACHE);
-    expect(res.status).toBe(0);
-    const payload = JSON.parse(res.stdout);
-    expect(payload.ok).toBe(true);
-    const chromium = payload.tools.find((t: { name: string }) => t.name === "chromium");
-    expect(chromium.action).toBe("degraded");
-    expect(chromium.optional).toBe(true);
-  }, 120_000);
 });

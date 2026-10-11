@@ -5,8 +5,8 @@
  * `ci`-level (`RUN_CI_SCENARIOS=1`): it runs the three groups in a real vitest subprocess and
  * reads per-file durations, which the default parallel run would distort.
  *
- * Groups: `git-checkout-roots` (split in two halves so they run on two workers),
- * `openspec-poller-parity`, `ensure-cli`. The assertion counts are the totals before the split.
+ * Groups: `git-checkout-roots` and `ensure-cli` (each split in two halves), `openspec-poller-parity`
+ * (three hash-partitioned shards) — split so no file serializes a worker. The assertion counts are the totals before the split.
  *
  * See change: test-trust-audit (design D7).
  */
@@ -21,7 +21,8 @@ const MAX_FILE_MS = 10_000;
 /** group name -> [file path substring, total assertions across the group's files]. */
 const GROUPS = {
   "git-checkout-roots": ["platform/__tests__/git-checkout-roots", 43],
-  "openspec-poller-parity": ["__tests__/openspec-poller-parity", 1],
+  // One CLI spawn per active change: partitioned over three shard files by a hash of the change name.
+  "openspec-poller-parity": ["__tests__/openspec-poller-parity", 3],
   "ensure-cli": ["tool-registry/__tests__/ensure-cli", 5],
 };
 
@@ -36,14 +37,18 @@ describe.skipIf(!CI_SCENARIOS)("heavy shared test groups (E14)", () => {
     });
     const report = JSON.parse(res.stdout.slice(res.stdout.indexOf("{")));
     expect(report.numFailedTests).toBe(0);
+    // Collect every violation first: one CI round-trip should show them all, not the first.
+    const problems = [];
     for (const [group, [needle, expected]] of Object.entries(GROUPS)) {
       const files = report.testResults.filter((f) => f.name.includes(needle));
-      expect(files.length, `${group}: files found`).toBeGreaterThan(0);
-      for (const f of files) expect(f.endTime - f.startTime, `${f.name} duration`).toBeLessThan(MAX_FILE_MS);
-      expect(
-        files.reduce((n, f) => n + f.assertionResults.length, 0),
-        `${group}: assertion count`,
-      ).toBe(expected);
+      if (files.length === 0) problems.push(`${group}: no files found`);
+      for (const f of files) {
+        const ms = f.endTime - f.startTime;
+        if (ms >= MAX_FILE_MS) problems.push(`${f.name}: ${Math.round(ms)} ms (limit ${MAX_FILE_MS})`);
+      }
+      const assertions = files.reduce((n, f) => n + f.assertionResults.length, 0);
+      if (assertions !== expected) problems.push(`${group}: ${assertions} assertions, expected ${expected}`);
     }
+    expect(problems).toEqual([]);
   }, 300_000);
 });
