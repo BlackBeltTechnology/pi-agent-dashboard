@@ -2,8 +2,9 @@
  * Reverse proxy for live-server-preview targets, on the MAIN origin at
  * `/live/:id/*` (mirrors `editor-proxy`'s `/editor/:id/*`). Same-origin path
  * proxy so it survives the single-port remote tunnel (zrok). The client frames
- * it with `sandbox="allow-scripts"` and NO `allow-same-origin` (opaque origin,
- * D7), so the embedded app cannot read the dashboard token or call its APIs.
+ * it with `sandbox="allow-scripts allow-forms allow-popups allow-downloads"`
+ * and NO `allow-same-origin` (opaque origin, D7), so the embedded app cannot
+ * read the dashboard token or call its APIs.
  *
  * The proxy ONLY forwards to targets the manager already validated as loopback
  * (SSRF gate lives in `validateLiveTarget`); an unregistered id → 404.
