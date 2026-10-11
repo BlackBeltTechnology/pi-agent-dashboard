@@ -226,7 +226,8 @@ export function createLocalCredentialVerifier(opts: LocalCredentialVerifierOptio
         }
       }
       Object.defineProperty(req.headers, STAMP, {
-        value: verdict,
+        // Frozen too: the property is immutable, so the verdict it holds must be.
+        value: Object.freeze(verdict),
         enumerable: true,
         // Immutable: no later code may redefine or overwrite a recorded verdict.
         // See change: harden-credential-proof-binding.

@@ -197,6 +197,19 @@ describe("the recorded verdict is immutable (harden-credential-proof-binding 1.1
     expect(credentialVerdict(r.headers).kind).toBe("invalid");
     expect(hasLocalCredential(r.headers)).toBe(false);
   });
+
+  it("the recorded verdict object itself is frozen (a mutation cannot upgrade invalid to proof)", () => {
+    const { v } = setup();
+    const r = req({ "x-pi-local-proof": "garbage" });
+    v.stamp(r, listener());
+    const verdict = credentialVerdict(r.headers) as { kind: string };
+    expect(Object.isFrozen(verdict)).toBe(true);
+    expect(() => {
+      "use strict";
+      verdict.kind = "proof";
+    }).toThrow(TypeError);
+    expect(hasLocalCredential(r.headers)).toBe(false);
+  });
 });
 
 describe("the proof floor follows readiness (harden-credential-proof-binding 2.1)", () => {
