@@ -94,7 +94,7 @@ import {
   resolveHostGateMode,
 } from "./auth/host-gate.js";
 import { ensureServerIdentity } from "./auth/identity.js";
-import { createLocalCredentialVerifier, hasLocalCredential } from "./auth/local-credential.js";
+import { createLocalCredentialVerifier, hasLocalCredential, listenWithProofFloor } from "./auth/local-credential.js";
 import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
 import { ensureLocalToken } from "./auth/local-token.js";
 import {
@@ -3028,7 +3028,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // setSpawnDashboardPiPort in process-manager.ts.
       {
         const { setSpawnDashboardPiPort } = await import("./spawn-process/process-manager.js");
-        setSpawnDashboardPiPort(config.piPort, config.host);
+        // The bind host is supplied below, once the listener policy is known: the
+        // gateway's ACTUAL TCP host is not always `config.host`.
+        // See change: harden-credential-proof-binding.
+        setSpawnDashboardPiPort(config.piPort);
         // Pin spawned sessions to the transport actually served (read lazily,
         // after the gateway starts) — never to another instance's socket.
         // See change: fix-gateway-socket-stale-owner (D6).
@@ -3083,7 +3086,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         const { resolveLocalGatewayEndpoint } = await import(
           "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js"
         );
-        const { decideGatewayListeners, isTcpOptIn } = await import("./pi/gateway-transport-policy.js");
+        const { decideGatewayListeners, isTcpOptIn, spawnDialHost } = await import("./pi/gateway-transport-policy.js");
         const policy = decideGatewayListeners({
           local: resolveLocalGatewayEndpoint(undefined, config.piPort),
           tcpOptIn: config.gatewayTcp ?? isTcpOptIn(process.env),
@@ -3091,6 +3094,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           piPort: config.piPort,
         });
         console.log(`[pi-gateway] ${policy.reason}`);
+        // Spawned bridges dial — and on a loopback host demand the counter-proof
+        // from — the host the gateway really binds (`policy.tcp.host`; 127.0.0.1 on
+        // the fallback path), never the HTTP bind host.
+        {
+          const { setSpawnDashboardPiPort } = await import("./spawn-process/process-manager.js");
+          setSpawnDashboardPiPort(config.piPort, spawnDialHost(policy));
+        }
         const { startGatewayListeners } = await import("./pi/gateway-listeners.js");
         await startGatewayListeners(piGateway, policy, { piPort: config.piPort });
       }
@@ -4008,8 +4018,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         }
       }
 
-      httpBoundAt = Date.now();
-      await fastify.listen({ port: config.port, host: config.host });
+      // The proof floor is taken after readiness, immediately before the bind.
+      await listenWithProofFloor(fastify, (at) => (httpBoundAt = at), { port: config.port, host: config.host });
       writePid(process.pid);
       console.log(`Dashboard server running at http://${config.host}:${config.port}`);
 

@@ -186,7 +186,9 @@ export function localDialHost(bindHost: string | undefined): string {
   }
   if (h === "::1" || h === "[::1]") return "[::1]";
   if (net.isIPv6(h)) return `[${h}]`;
-  return h;
+  // A DNS name is not a binding (`canonicalBinding` takes IP literals only):
+  // dial the loopback literal rather than make every local credential call fail.
+  return net.isIPv4(h) ? h : "127.0.0.1";
 }
 
 /**

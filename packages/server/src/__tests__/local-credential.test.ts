@@ -16,6 +16,7 @@ import {
   createLocalCredentialVerifier,
   credentialVerdict,
   hasLocalCredential,
+  listenWithProofFloor,
   type StampableRequest,
 } from "../auth/local-credential.js";
 
@@ -177,6 +178,61 @@ describe("E8 one verdict per request", () => {
     expect([1, 2, 3].map(() => hasLocalCredential(r.headers))).toEqual([true, true, true]);
     // re-stamping the same request does not re-verify (no replayed verdict)
     expect(v.stamp(r, listener()).kind).toBe("proof");
+  });
+});
+
+describe("the recorded verdict is immutable (harden-credential-proof-binding 1.1)", () => {
+  it("cannot be redefined or overwritten by later code that holds the Symbol", () => {
+    const { v } = setup();
+    const r = req({ "x-pi-local-proof": "garbage" });
+    v.stamp(r, listener());
+    expect(credentialVerdict(r.headers).kind).toBe("invalid");
+    const [sym] = Object.getOwnPropertySymbols(r.headers);
+    const forged = { kind: "proof", binding: "127.0.0.1:1", nonce: "n", mac: "m" };
+    expect(() => Object.defineProperty(r.headers, sym, { value: forged })).toThrow(TypeError);
+    expect(() => {
+      "use strict";
+      (r.headers as Record<symbol, unknown>)[sym] = forged;
+    }).toThrow(TypeError);
+    expect(credentialVerdict(r.headers).kind).toBe("invalid");
+    expect(hasLocalCredential(r.headers)).toBe(false);
+  });
+});
+
+describe("the proof floor follows readiness (harden-credential-proof-binding 2.1)", () => {
+  it("takes the floor after ready() resolves and immediately before listen()", async () => {
+    const order: string[] = [];
+    let readyDone = 0;
+    let t = 1_000;
+    const app = {
+      ready: async () => {
+        order.push("ready:start");
+        t += 5_000; // plugin boot takes seconds
+        readyDone = t;
+        order.push("ready:end");
+      },
+      listen: async (o: { port: number; host: string }) => {
+        order.push(`listen:${o.host}:${o.port}`);
+      },
+    };
+    let floor = 0;
+    await listenWithProofFloor(app, (at) => (floor = at), { port: 8000, host: "0.0.0.0" }, () => t);
+    expect(order).toEqual(["ready:start", "ready:end", "listen:0.0.0.0:8000"]);
+    expect(floor).toBeGreaterThanOrEqual(readyDone);
+    expect(floor).toBe(6_000);
+  });
+
+  it("a failing ready() never sets the floor and never listens", async () => {
+    const app = {
+      ready: async () => {
+        throw new Error("plugin boot failed");
+      },
+      listen: vi.fn(async () => {}),
+    };
+    const setFloor = vi.fn();
+    await expect(listenWithProofFloor(app, setFloor, { port: 1, host: "h" })).rejects.toThrow(/plugin boot failed/);
+    expect(setFloor).not.toHaveBeenCalled();
+    expect(app.listen).not.toHaveBeenCalled();
   });
 });
 
