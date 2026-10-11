@@ -51,4 +51,4 @@
 
 - [x] 5.1 Run `npm test` (pipefail + tee) and `npm run quality:changed`; verify 0 failures and no new Biome findings
 - [x] 5.2 Update `AGENTS.md` rows for every touched file (`auto-session-namer.ts.AGENTS.md`, `command-handler`, `event-wiring`, `session-to-meta`, `proposal-attach-naming`, shared `session-name.ts` new row, `pending-plugin-ref-registry`); verify each row cites `See change: investigate-auto-name-provenance-relabel`
-- [ ] 5.3 Live fleet verification (test-plan: manual-only, #M1): new session auto-named, then dashboard restart + pi process restart, then attach/detach on another session; check `.meta.json` keeps `nameSource:"auto"` + witness and attach-named sessions show `system`
+- [x] 5.3 Live fleet verification (test-plan: manual-only, #M1): new session auto-named, then dashboard restart + pi process restart, then attach/detach on another session; check `.meta.json` keeps `nameSource:"auto"` + witness and attach-named sessions show `system`
