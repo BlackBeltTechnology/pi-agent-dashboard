@@ -23,9 +23,9 @@ import type { DiscoveredServer } from "@blackbelt-technology/pi-dashboard-shared
 import type { ProveResult } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 
 /** Min gap between evaluations of one (fingerprint, port). */
-export const MOVE_CHALLENGE_INTERVAL_MS = 60_000;
+const MOVE_CHALLENGE_INTERVAL_MS = 60_000;
 /** A suggestion not re-verified for this long is withdrawn. */
-export const MOVE_SUGGESTION_TTL_MS = 10 * 60_000;
+const MOVE_SUGGESTION_TTL_MS = 10 * 60_000;
 
 export interface MoveTarget {
   host: string;
@@ -70,7 +70,7 @@ function isSpecial(address: string): boolean {
 }
 
 /** True when `address` lies in a subnet of one of this machine's interfaces. */
-export function isOnLink(address: string, interfaces: NodeJS.Dict<os.NetworkInterfaceInfo[]>): boolean {
+function isOnLink(address: string, interfaces: NodeJS.Dict<os.NetworkInterfaceInfo[]>): boolean {
   const family = net.isIPv4(address) ? "ipv4" : net.isIPv6(address) ? "ipv6" : undefined;
   if (!family) return false;
   const list = new net.BlockList();

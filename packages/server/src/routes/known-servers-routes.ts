@@ -46,8 +46,8 @@ const PROBE_HTTP_TIMEOUT_MS = 2000;
 
 let writeChain: Promise<unknown> = Promise.resolve();
 
-/** The single serialized queue for known-server config writes (shared with the move unit). */
-export function enqueueKnownServersWrite<T>(fn: () => T | Promise<T>): Promise<T> {
+/** The single serialized queue for known-server config writes. */
+function enqueueKnownServersWrite<T>(fn: () => T | Promise<T>): Promise<T> {
   const run = writeChain.then(fn, fn);
   writeChain = run.catch(() => undefined);
   return run;

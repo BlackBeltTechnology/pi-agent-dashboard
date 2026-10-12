@@ -1,6 +1,6 @@
 # known-servers-routes.ts — index
 
-Known-servers config + mDNS discovery routes. Exports `registerKnownServersRoutes(fastify, deps)`, `enqueueKnownServersWrite`.
+Known-servers config + mDNS discovery routes. Exports `registerKnownServersRoutes(fastify, deps)`.
 - `GET /api/known-servers` (networkGuard): `{data: entries(+fingerprint, +movedTo), canManage}`; `canManage` = side-effect-free run of the operator guard.
 - Mutations + probe: `preHandler: [networkGuard, operatorGuard]` (login / local proof / local token / genuinely-local). Network-trusted + paired-device callers refused 401, no outbound call, no write.
 - `POST /api/known-servers {host,port,label?,fingerprint?}`: challenge (`proveServerIdentity`, 2 s, bounded) OUTSIDE the queue; pins only a PROVEN fingerprint (body hint never stored); `409 identity_changed {expected,proven}`; `409 already_known {host,port}` when holder still proves; dead holder → updated in place `{data:{updated:true}}` (label only if non-empty, `addedAt` kept). Existing pin never cleared.

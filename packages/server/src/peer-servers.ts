@@ -24,7 +24,7 @@ export interface PeerSelf {
   host: string;
 }
 
-export function isSelfPeer(peer: DiscoveredServer, self: Pick<PeerSelf, "fingerprint" | "port">): boolean {
+function isSelfPeer(peer: DiscoveredServer, self: Pick<PeerSelf, "fingerprint" | "port">): boolean {
   if (!peer.isLocal || peer.port !== self.port) return false;
   return peer.fingerprint ? peer.fingerprint === self.fingerprint : true;
 }
