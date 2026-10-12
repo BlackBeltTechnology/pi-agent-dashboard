@@ -24,4 +24,5 @@ Rows for `/api/users`, `/api/users/:id`, `/api/users/:id/revoke`, `/api/users/:i
 `/api/services/*` (17 routes): GETs `observe`; every mutation (POST/PUT/DELETE incl. ensure/heartbeat/release) `operate`; MCP denylisted. Route itself also refuses trusted-network + observe/control callers (`canMutateServices`). See change: add-service-registry-core.
 
 `POST /api/browse/create-project` row, `control` (same tier as `/api/browse/mkdir`). See change: streamline-first-run.
+
 `GET /api/provider-auth/legacy-provider-ids` → `operate` (names pi config files holding a renamed provider id; same tier as `/status`). See change: update-pi-core-1-1-adopt-apis.
