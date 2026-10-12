@@ -81,22 +81,22 @@ export function CanvasServerChip({ chip, onTap }: Props) {
         : null;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 max-w-full items-center gap-2">
       <button
         type="button"
         data-testid="canvas-server-chip"
         data-port={chip.port}
         disabled={status === "probing"}
         onClick={() => void probe()}
-        className="flex min-h-[44px] items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+        className="pointer-events-auto flex min-h-[44px] min-w-0 max-w-full items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
         title={t("canvas.serverChipHint", undefined, "Tap to probe 127.0.0.1 and preview")}
       >
-        <Icon path={mdiServerNetwork} size={0.6} className="text-[var(--accent-blue)]" />
-        <span className="font-medium">{label}</span>
-        <span className="font-mono text-[var(--text-tertiary)]">:{chip.port}</span>
+        <Icon path={mdiServerNetwork} size={0.6} className="shrink-0 text-[var(--accent-blue)]" />
+        <span className="min-w-0 truncate font-medium">{label}</span>
+        <span className="shrink-0 font-mono text-[var(--text-tertiary)]">:{chip.port}</span>
       </button>
       {message && (
-        <span data-testid="canvas-server-chip-status" className="text-xs text-[var(--accent-red)]">
+        <span data-testid="canvas-server-chip-status" className="pointer-events-auto text-xs text-[var(--accent-red)]">
           {message}
         </span>
       )}
