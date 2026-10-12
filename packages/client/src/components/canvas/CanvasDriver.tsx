@@ -49,7 +49,8 @@ const FALLBACK_BOTTOM = "calc(1rem + env(safe-area-inset-bottom))";
  * stack's growth only MOVES it. We therefore observe every sibling that follows
  * the sentinel (strip, StatusBar, QueuePanel, composer root, …) and re-collect
  * that set via a `childList` MutationObserver when a row mounts/unmounts.
- * The sentinel itself is observed too so the first measure always fires.
+ * The sentinel itself (so the first measure always fires) and its parent pane
+ * (a pane resize moves the stack with no row resizing) are observed too.
  */
 function useAnchorBottom(anchor: HTMLElement | null | undefined): number | null {
   const [bottom, setBottom] = useState<number | null>(null);
@@ -74,6 +75,9 @@ function useAnchorBottom(anchor: HTMLElement | null | undefined): number | null 
       if (!ro) return;
       ro.disconnect();
       ro.observe(anchor);
+      // The pane itself: a pane resize moves the stack's top edge while no stack
+      // row changes size.
+      if (anchor.parentElement) ro.observe(anchor.parentElement);
       for (let el = anchor.nextElementSibling; el; el = el.nextElementSibling) ro.observe(el);
     };
     observeRows();

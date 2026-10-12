@@ -198,6 +198,18 @@ describe("CanvasDriver — floating chip tray", () => {
     expect(tray.style.bottom).toMatch(/^-?\d+(\.\d+)?px$/);
   });
 
+  it("B1: the anchor's parent (the chat pane) is observed, so a pane resize re-measures", () => {
+    const anchor = makeAnchor();
+    const parent = anchor.parentElement as HTMLElement;
+    renderTray(chipState, anchor);
+    const observed = roObserve.mock.calls.map((c) => c[0]);
+    // Rows after the sentinel AND the pane itself: the pane can move the stack's
+    // top edge without any stack row resizing.
+    expect(observed).toContain(anchor);
+    expect(observed).toContain(anchor.nextElementSibling);
+    expect(observed).toContain(parent);
+  });
+
   it("#E5: tray ignores pointer input, chips take it", () => {
     tier = "mobile";
     renderTray({ ...chipState, target: { kind: "file", cwd: "/proj", path: "a.md" }, version: 1 });

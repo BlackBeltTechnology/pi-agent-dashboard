@@ -21,7 +21,7 @@
 - [ ] 3.9 Same spec: an idle chip, then a prompt so `StatusBar` mounts → chip `rect.bottom ≤` the topmost stack row while streaming and after the turn ends (test-plan #F2)
 - [ ] 3.10 Same spec: with the model selector open, `elementFromPoint` at the chip centre returns the popover wherever the popover covers it (test-plan #F3)
 - [ ] 3.11 Same spec: `elementFromPoint` 4 px left of the chip inside the tray box returns chat-pane content, not the tray (test-plan #F4)
-- [ ] 3.12 Same spec: Settings open → `elementFromPoint` at the chip centre is inside the dialog/backdrop; after closing, the F1 invariant holds again (test-plan #F5)
+- [ ] 3.12 Same spec: commit dialog open (Settings deselects the session, so it has no chip) → `elementFromPoint` at the chip centre is inside the dialog/backdrop; after closing, the F1 invariant holds again (test-plan #F5)
 - [ ] 3.13 Same spec: at 767×800 with `[[faux:canvas-write-md]]` → `canvas-file-chip` visible, `split-chat-pane` box unchanged, and tapping opens `split-editor-pane` with that file active (test-plan #F6)
 - [ ] 3.14 Manual: on iPhone Safari with a chip shown, focus the composer; the chip stays visible above the composer and is not hidden by the keyboard (test-plan: manual-only, #F7)
 - [ ] 3.15 Manual: on desktop with throttled CPU, there is no frame where a newly appearing chip covers the composer (test-plan: manual-only, #F8)
