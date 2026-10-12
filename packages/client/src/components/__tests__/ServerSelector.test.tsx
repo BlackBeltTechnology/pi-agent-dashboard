@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act, cleanup, waitFor, fireEvent } from "@testing-library/react";
-import { ServerSelector } from "../connectivity/ServerSelector.js";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listKnownServers, probeKnownServer } from "../../lib/api/known-servers-api.js";
+import { ServerSelector } from "../connectivity/ServerSelector.js";
 
 vi.mock("../../lib/api/known-servers-api.js", () => ({
   listKnownServers: vi.fn(async () => [
@@ -115,7 +115,8 @@ describe("ServerSelector", () => {
     await waitFor(() => screen.queryByText(/Unreachable/i));
     const localEntry = screen.getByText("localhost:8000").closest("button") as HTMLButtonElement;
     expect(localEntry).not.toBeNull();
-    expect(localEntry.disabled).toBe(true);
+    // aria-disabled, not `disabled`: a blocked entry stays focusable (retro-ux F6).
+    expect(localEntry.getAttribute("aria-disabled")).toBe("true");
     act(() => localEntry.click());
     expect(onSwitch).not.toHaveBeenCalled();
   });
@@ -151,11 +152,11 @@ describe("ServerSelector", () => {
     const btn = screen.getByTitle("Switch server");
     act(() => btn.click());
     await waitFor(() => {
-      expect(screen.queryAllByText(/CORS-blocked/i).length).toBeGreaterThan(0);
+      expect(screen.queryAllByText(/Blocked in this browser/i).length).toBeGreaterThan(0);
     });
     // The LAN entry is disabled and did not render a bare "Unreachable".
     const lanEntry = screen.getByText("192.168.16.242:8000").closest("button") as HTMLButtonElement;
-    expect(lanEntry.disabled).toBe(true);
+    expect(lanEntry.getAttribute("aria-disabled")).toBe("true");
     expect(lanEntry.getAttribute("data-cors-blocked")).toBe("true");
     vi.mocked(probeKnownServer).mockResolvedValue(null);
     vi.mocked(listKnownServers).mockResolvedValue([
@@ -176,8 +177,7 @@ describe("ServerSelector", () => {
     const btn = screen.getByTitle("Switch server");
     act(() => btn.click());
     await waitFor(() => {
-      const spinner = screen.queryByLabelText(/Switching/i);
-      expect(spinner).not.toBeNull();
+      expect(screen.queryAllByText(/Switching/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -217,5 +217,95 @@ describe("ServerSelector", () => {
     expect(document.querySelector('[class*="z-popover"]')).not.toBeNull();
     fireEvent.mouseDown(document.body);
     expect(document.querySelector('[class*="z-popover"]')).toBeNull();
+  });
+
+  // retro-ux-identity-connectivity (test-plan #E8, #F1, #F2, #F4): trigger word + APG menu button.
+  describe("trigger word (E8)", () => {
+    it.each([
+      [true, "Connected"],
+      [false, "Offline"],
+    ])("connected=%s shows the word %s, names it, keeps the title", async (connected, word) => {
+      render(<ServerSelector currentHost="my-pc" currentPort={8000} connected={connected} onSwitch={() => {}} />);
+      const trigger = screen.getByTitle("Switch server");
+      expect(within(trigger).getByText(word)).toBeTruthy();
+      expect(trigger.getAttribute("aria-label")?.toLowerCase()).toContain(word.toLowerCase());
+      expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    });
+  });
+
+  describe("APG menu button", () => {
+    const known = (host: string, label: string) => ({ host, port: 8000, label, addedAt: "2024-01-01T00:00:00Z" });
+    beforeEach(async () => {
+      vi.mocked(listKnownServers).mockResolvedValue([known("office-mac.local", "office-mac"), known("build-box.lan", "build-box")] as never);
+      fetchMock.mockImplementation((url: string) =>
+        url.includes("build-box") ? Promise.reject(new Error("refused")) : Promise.resolve({ ok: true, json: async () => ({ ok: true }) } as Response),
+      );
+    });
+    afterEach(() => {
+      vi.mocked(listKnownServers).mockResolvedValue([known("my-pc", "my-pc")] as never);
+    });
+
+    const renderSel = async (onSwitch = vi.fn()) => {
+      render(<ServerSelector currentHost="localhost" currentPort={8000} connected={true} onSwitch={onSwitch} onManageServers={() => {}} />);
+      await act(async () => {});
+      return { onSwitch, trigger: screen.getByTitle("Switch server") as HTMLButtonElement };
+    };
+
+    it("F1: Enter opens with focus on the first item; arrows/Home/End move focus; Escape restores the trigger", async () => {
+      const { trigger } = await renderSel();
+      trigger.focus();
+      fireEvent.keyDown(trigger, { key: "Enter" });
+      const menu = await screen.findByRole("menu", { hidden: true });
+      const items = () => Array.from(menu.querySelectorAll<HTMLElement>('[role^="menuitem"]'));
+      await waitFor(() => expect(document.activeElement).toBe(items()[0]));
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+      expect(items().map((i) => i.getAttribute("role"))).toEqual(["menuitemradio", "menuitemradio", "menuitemradio", "menuitem"]);
+
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+      expect(document.activeElement).toBe(items()[1]);
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+      expect(document.activeElement).toBe(items()[2]);
+      fireEvent.keyDown(document.activeElement!, { key: "End" });
+      expect(document.activeElement).toBe(items()[3]);
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" }); // wraps
+      expect(document.activeElement).toBe(items()[0]);
+      fireEvent.keyDown(document.activeElement!, { key: "End" });
+      fireEvent.keyDown(document.activeElement!, { key: "Home" });
+      expect(document.activeElement).toBe(items()[0]);
+
+      fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+      expect(screen.queryByRole("menu", { hidden: true })).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("F2: keyboard-only switch calls onSwitch once, closes, and refocuses the trigger", async () => {
+      const { onSwitch, trigger } = await renderSel();
+      trigger.focus();
+      fireEvent.keyDown(trigger, { key: "Enter" });
+      await waitFor(() => expect(screen.queryAllByText("Available").length).toBeGreaterThan(0));
+      const menu = screen.getByRole("menu", { hidden: true });
+      const items = within(menu).getAllByRole("menuitemradio", { hidden: true });
+      expect(items[0].getAttribute("aria-checked")).toBe("true");
+      await waitFor(() => expect(document.activeElement).toBe(items[0]));
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+      fireEvent.keyDown(document.activeElement!, { key: "Enter" });
+      expect(onSwitch).toHaveBeenCalledTimes(1);
+      expect(onSwitch).toHaveBeenCalledWith("office-mac.local", 8000);
+      expect(screen.queryByRole("menu", { hidden: true })).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    it("F4: Tab closes the menu and leaves focus outside it", async () => {
+      const { trigger } = await renderSel();
+      trigger.focus();
+      fireEvent.keyDown(trigger, { key: "ArrowDown" });
+      const menu = await screen.findByRole("menu", { hidden: true });
+      await waitFor(() => expect(menu.contains(document.activeElement)).toBe(true));
+      fireEvent.keyDown(document.activeElement!, { key: "Tab" });
+      expect(screen.queryByRole("menu", { hidden: true })).toBeNull();
+      expect(document.activeElement).toBe(trigger); // the browser then moves on to the next focusable
+    });
   });
 });

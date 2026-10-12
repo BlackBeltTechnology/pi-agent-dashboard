@@ -59,4 +59,14 @@ Approved by the user in session on 2026-10-12 via `ask_user`: all 8 decisions �
 
 ## Replica ↔ capture reconciliation (phase 2)
 
-_Empty until `RETRO_UX_CAPTURE=1` runs on the real components._
+Real render captured with `RETRO_UX_CAPTURE=1` into `mockups/after/<surface>/` (297 PNGs: 33 states × 3 themes × 3 widths). The probes (`retro-ux-identity-connectivity.spec.ts`) report 0 contrast, size and focus failures in every cell, matching the replica's proposed column (0).
+
+| # | Replica vs real render | Resolution |
+|---|---|---|
+| R1 | Selector items are `<button role="menuitemradio">`, so all item text is "interactive" (12 px floor); the replica used 11 px `div`s for host:port, reasons and the connection word | real render uses 12 px (`text-xs`) in items; board's 11 px was too small |
+| R2 | Bootstrap state: replica placeholder "e.g. Anna Kovács" | kept the existing placeholder "Your name (first operator)" (existing test and i18n key preserved); label reads "Name" |
+| R3 | Discovery: replica button reads "Scan network" always | after a scan it reads "Scan again" |
+| R4 | `trigger-offline` not captured | a refused WebSocket flips the app to `/login`; the Offline word is covered by unit test E8 |
+| R5 | Manual-add `192.168.16` shown as invalid on the board | `parseHostInput` accepts it as a host; fixtures and tests use `[::1` as the unparseable input |
+| R6 | Panel keeps the reason text in the left column beside the pill | matches the board; long reasons wrap at the pill column |
+

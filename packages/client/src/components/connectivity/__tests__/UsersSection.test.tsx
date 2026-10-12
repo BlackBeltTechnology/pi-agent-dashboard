@@ -56,7 +56,7 @@ describe("UsersSection", () => {
   it("lists users with status and orphaned credential count", async () => {
     render(<UsersSection />);
     expect(await screen.findByText("Anna")).toBeTruthy();
-    expect(screen.getByTestId("user-status-a1").textContent).toBe("active");
+    expect(screen.getByTestId("user-status-a1").textContent).toBe("Active");
     expect(screen.getByTestId("user-orphaned-a1").textContent).toContain("1");
   });
 
@@ -111,5 +111,84 @@ describe("UsersSection", () => {
     render(<UsersSection />);
     expect(await screen.findByPlaceholderText("Your name (first operator)")).toBeTruthy();
     expect(screen.queryByLabelText("Capability")).toBeNull();
+  });
+
+  // retro-ux-identity-connectivity (test-plan #E9, #E10, #X7)
+  const user = (id: string, name: string, status: string, creds: Array<{ rpId: string; orphaned: boolean }> = []) => ({
+    ...ANNA,
+    id,
+    name,
+    status,
+    credentials: creds,
+  });
+
+  it("E9: status pills read Active / Invite pending / Revoked; orphaned is its own warning pill", async () => {
+    api.listUsers.mockResolvedValue({
+      ...stableState,
+      users: [
+        user("u1", "Anna", "active", [{ rpId: "host.ts.net", orphaned: false }]),
+        user("u2", "Bence", "invited"),
+        user("u3", "Gabor", "revoked"),
+        user("u4", "Dora", "active", [
+          { rpId: "host.ts.net", orphaned: false },
+          { rpId: "old", orphaned: true },
+          { rpId: "older", orphaned: true },
+        ]),
+      ],
+    });
+    render(<UsersSection />);
+    await screen.findByText("Anna");
+    expect(screen.getByTestId("user-status-u1").textContent).toBe("Active");
+    expect(screen.getByTestId("user-status-u2").textContent).toBe("Invite pending");
+    expect(screen.getByTestId("user-status-u3").textContent).toBe("Revoked");
+    const orphaned = screen.getByTestId("user-orphaned-u4");
+    expect(orphaned.textContent).toBe("2 orphaned");
+    expect(orphaned).not.toBe(screen.getByTestId("user-status-u4")); // separate element
+    expect(screen.queryByTestId("user-orphaned-u1")).toBeNull();
+  });
+
+  it("E10: every pre-existing testid renders in its state", async () => {
+    // list + invite open
+    render(<UsersSection />);
+    await screen.findByTestId("user-a1");
+    expect(screen.getByTestId("users-add-form")).toBeTruthy();
+    expect(screen.getByTestId("user-status-a1")).toBeTruthy();
+    expect(screen.getByTestId("user-orphaned-a1")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("user-invite-a1"));
+    expect(await screen.findByTestId("users-invite")).toBeTruthy();
+    cleanup();
+    // disabled
+    api.listUsers.mockResolvedValue({ ...stableState, enabled: false });
+    render(<UsersSection />);
+    expect(await screen.findByTestId("users-disabled")).toBeTruthy();
+    cleanup();
+    // unstable
+    api.listUsers.mockResolvedValue({
+      ...stableState,
+      rp: { rpId: "x.share.zrok.io", rpOrigin: "https://x.share.zrok.io", stable: false, reason: "ephemeral_tunnel" },
+    });
+    render(<UsersSection />);
+    expect(await screen.findByTestId("users-unstable")).toBeTruthy();
+  });
+
+  it("X7: copy failure is shown in the error severity colour as a status message", async () => {
+    const clip = await import("../../../lib/util/clipboard.js");
+    vi.spyOn(clip, "copyText").mockResolvedValue(false);
+    render(<UsersSection />);
+    fireEvent.click(await screen.findByTestId("user-invite-a1"));
+    await screen.findByTestId("users-invite");
+    fireEvent.click(screen.getByText("Copy link"));
+    const msg = await screen.findByText(/Copy failed/);
+    expect(msg.getAttribute("role")).toBe("status");
+    expect(msg.className).toContain("--severity-error-fg");
+    expect(msg.className).not.toContain("--status-error");
+  });
+
+  it("a failed load shows an error with Retry that reloads", async () => {
+    api.listUsers.mockRejectedValueOnce(new Error("503")).mockResolvedValue(stableState);
+    render(<UsersSection />);
+    expect((await screen.findByRole("alert")).textContent).toContain("503");
+    fireEvent.click(screen.getByText("Retry"));
+    expect(await screen.findByText("Anna")).toBeTruthy();
   });
 });

@@ -149,6 +149,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-clip` (F5–F8… → see `popover-container-clip.spec.ts.AGENTS.md` |
 | `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4, change: adopt-pi-074-0… → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
 | `quota-context-strip.spec.ts` | L3 (change: move-quota-to-context-strip; F7–F9, X3). Stubs… → see `quota-context-strip.spec.ts.AGENTS.md` |
+| `retro-ux-identity-connectivity.spec.ts` | L3 E13/E14/F6–F9: Users, impact note, server selector, known servers, discovery pass the contract probes (contrast/size/focus) in every fixture state × 3 themes × 3 widths via `captureStates`; Users target sizes; `--focus-ring` outline; `RETRO_UX_CAPTURE=1` writes `mockups/after/`. See change: retro-ux-identity-connectivity. |
 | `real-flow-regression.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests, D5 follow-up). → see `real-flow-regression.spec.ts.AGENTS.md` |
 | `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested at L1 in → see `reap-core.ts.AGENTS.md` |
 | `reasoning-auto-collapse.spec.ts` | Playwright E2E for reasoning-auto-collapse-timer. Two tests. → see `reasoning-auto-collapse.spec.ts.AGENTS.md` |
