@@ -64,3 +64,10 @@ The `/` boundary prevents `azure-openai-responses2` matches. Glob or fuzzy `enab
 ## Migration Plan
 
 Fixtures first (red), then pins, `pnpm install` and green. Then the verification matrix from the 1.0 change: unit, docker-harness E2E smoke, `verify-release-deps`. Rollback: revert and `pnpm install`. No data migrates.
+
+## Late finding (implementation / CI): pi-ai 1.1.0 changes OAuth refresh cancellation
+
+The changelog triage missed a **pi-ai 1.1.0** change (`dist/auth/resolve.js`, no changelog line): the caller's signal now cancels only the wait for the credential lock. A refresh that has started ignores it (bounded by `AbortSignal.timeout(15s)`) and persists the rotated credential, "otherwise a cancelled caller could discard the only valid refresh token". CI `unit (4)` caught it: `internal-auth-storage-refresh` X14 (×2) failed on 1.1.0; the nightly full suite on develop (pi 1.0.0) passes it.
+
+**D7 (user decision): adopt pi's semantics.** The facade's per-provider shared flight no longer carries any caller's signal; each caller races its OWN signal (`raceSignal`); an already-aborted request starts nothing. This also removes the old "joiner restarts when its initiator aborted" path, which on 1.1.0 would start a SECOND concurrent refresh with a possibly already-rotated refresh token while the first still runs. `model-proxy-credential-routing` › "Aborted refresh stops cleanly" is MODIFIED accordingly (delta in this change). Rollback: revert; on pi < 1.1.0 the old contract still held, but the floor is 1.1.0.
+

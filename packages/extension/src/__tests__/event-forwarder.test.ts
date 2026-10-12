@@ -230,3 +230,16 @@ describe("mapEventToProtocol — nested tool calls (E21)", () => {
     expect(result.event.data.toolCallId).toBe("call_1/1");
   });
 });
+
+/**
+ * pi 1.1.0 adds `aborted` to `agent_settled`. The bridge forwards it unchanged;
+ * the dashboard does not consume it (test-plan #E18).
+ * See change: update-pi-core-1-1-adopt-apis.
+ */
+describe("mapEventToProtocol — agent_settled.aborted (E18)", () => {
+  it("forwards aborted:true unchanged", () => {
+    const out = mapEventToProtocol("s1", { type: "agent_settled", aborted: true });
+    expect(out.event.eventType).toBe("agent_settled");
+    expect(out.event.data).toEqual({ type: "agent_settled", aborted: true });
+  });
+});

@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { checkPiPinCoherence, piManifests } from "../verify-release-deps.mjs";
 
-const V = "1.0.0";
+const V = "1.1.0";
 const serverPkg = (dep, recommended, minimum = recommended) => ({
   dependencies: { "@earendil-works/pi-coding-agent": dep },
   piCompatibility: { recommended, minimum },
@@ -125,6 +125,23 @@ describe("checkPiPinCoherence — six governed pins", () => {
     expect(err).toContain("packages/b/package.json devDependencies.@earendil-works/pi-tui");
   });
 
+  // update-pi-core-1-1-adopt-apis (test-plan #E2): the 1.0.0 → 1.1.0 lockstep move —
+  // each pin left on the old floor is drift, named at exactly its own location.
+  it("E2 (1.1): a pin left on 1.0.0 is drift naming exactly that location", () => {
+    const tui = check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V, { tui: "1.0.0" }));
+    expect(tui).toContain("pnpm-workspace.yaml overrides @earendil-works/pi-tui");
+    expect(tui).not.toContain("overrides @earendil-works/pi-ai");
+
+    const peer = check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V), V, [
+      manifest("packages/a/package.json", peerPkg(">=1.0.0")),
+    ]);
+    expect(peer).toContain("packages/a/package.json peerDependencies.@earendil-works/pi-coding-agent");
+
+    const min = check(serverPkg(`^${V}`, V, "1.0.0"), dockerfile(V), workspace(V));
+    expect(min).toContain("piCompatibility.minimum");
+    expect(min).toContain("1.0.0");
+  });
+
   it("ungoverned pi-coding-agent scopes are not governed here", () => {
     const pkg = {
       ...peerPkg(`>=${V}`),
@@ -139,16 +156,16 @@ describe("checkPiPinCoherence — six governed pins", () => {
  * test-plan E28 — the gate is what actually holds the repo's OWN pins
  * together at HEAD, not just synthetic fixtures.
  *
- * The floor asserted here is `1.0.0` rather than an exact equality: the
- * requirement is "`^1.0.0` or later, and every other pin agrees", so a later
+ * The floor asserted here is `1.1.0` rather than an exact equality: the
+ * requirement is "`^1.1.0` or later, and every other pin agrees", so a later
  * lockstep bump must NOT have to edit this test. What it forbids is a pin below
  * the floor or any disagreement between the governed surfaces.
  * See change: delegate-provider-oauth-to-pi-ai (D3), update-pi-core-1-0-adopt-apis.
  */
-describe("repo HEAD — governed pins agree at or above the 1.0.0 floor", () => {
+describe("repo HEAD — governed pins agree at or above the 1.1.0 floor", () => {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const read = (rel) => fs.readFileSync(path.join(repoRoot, rel), "utf8");
-  const FLOOR = "1.0.0";
+  const FLOOR = "1.1.0";
 
   const serverPkg = JSON.parse(read("packages/server/package.json"));
   const dockerfileText = read("docker/Dockerfile");

@@ -68,6 +68,21 @@ see [`docs/release-process.md`](docs/release-process.md).
   Every team session starts with `--no-skills` and only its catalog skills; legacy alias
   keys and single-file (`.md`) `skillCatalog` entries become invalid. `/skill:<name>`
   works in the team chat for granted skills only.
+- **BREAKING (pi peers): the supported pi floor is now 1.1.0.** `piCompatibility`
+  `minimum`/`recommended`, the server dependency, every `@earendil-works` pi peer
+  (`>=1.1.0`) and devDependency (`^1.1.0`), the three workspace overrides and the Docker
+  image all move to pi 1.1.0. A session on pi below 1.1.0 (including 1.0.x) shows the
+  below-floor warning, and `/api/health` reports an error naming both versions.
+  **Rollback:** revert the pin commit and run `pnpm install`; no data migrates.
+- **Tool durations come from pi.** A tool row shows pi's recorded execution time
+  (`durationMs`, pi 1.1.0) instead of the timestamp difference, live and after a reload;
+  older events keep the timestamp fallback.
+- **Per-thinking-level sampling parameters pass through.** `samplingParamsByThinkingLevel`
+  from `models.json` now reaches the bridge's re-registered models and the model proxy.
+- **Azure provider rename notice.** pi renamed `azure-openai-responses` to `azure`. Settings →
+  Providers now shows a warning naming the files where the old id is still used
+  (`auth.json`, `settings.json`, `models.json`) with pi's fix (rename, or `/login`).
+  Backed by the new read-only `GET /api/provider-auth/legacy-provider-ids`.
 
 ### Fixed
 

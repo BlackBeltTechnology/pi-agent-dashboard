@@ -21,4 +21,6 @@ Arms `subagent_entry` (place by index, dedupe; `blockId` closes `liveBlock`, rai
 
 `EVICTED_SENTINEL_BODY`, `synthesizeEvictedEnd(id, now)` (`healedBy:"result_evicted"`, `isError:false`); same running-only guard as superseded heal. See change: distinguish-tool-result-pending-vs-gone.
 
+Top-level `tool_execution_end`: row `duration` = `data.durationMs` when finite and >= 0 (pi >= 1.1.0 recorded execution time), else `event.timestamp - startedAt`. Nested ends keep their span rule. See change: update-pi-core-1-1-adopt-apis.
+
 `CUSTOM_BODY_MAX_CHARS` is now `export`ed (only change) so `parse-fallback-object.ts` can detect tail-sliced bodies. See change: render-unclaimed-custom-entries.

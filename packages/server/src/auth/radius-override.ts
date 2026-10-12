@@ -58,6 +58,19 @@ export function setAgentDirSource(source: (() => string) | undefined): void {
   cached = undefined;
 }
 
+/**
+ * pi's agent dir from the wired runtime `getAgentDir` (honours
+ * `PI_CODING_AGENT_DIR`), or `undefined` when the runtime is unavailable or
+ * throws. See change: update-pi-core-1-1-adopt-apis.
+ */
+export function getRuntimeAgentDir(): string | undefined {
+  try {
+    return agentDirSource?.() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** False when the pi runtime did not load (callers must not assume "no override"). */
 export function isRadiusRuntimeAvailable(): boolean {
   return agentDirSource !== undefined;
