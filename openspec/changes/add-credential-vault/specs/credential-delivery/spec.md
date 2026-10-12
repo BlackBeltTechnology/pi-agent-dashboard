@@ -65,7 +65,7 @@ When an account is rotated or revoked, or a grant or checkout confirmation chang
 - On rotation, update the variable.
 - On revocation or loss of the grant, remove the variable.
 
-These changes, including those made during reconciliation, SHALL apply only while the variable still holds the value that delivery set. The session and the hub SHALL reconcile the full set of granted bindings in all of these cases:
+While the bridge is connected, a rotation, revocation, grant change or confirmation change SHALL take effect in the session within 5 seconds of the user's action. These changes, including those made during reconciliation, SHALL apply only while the variable still holds the value that delivery set. The session and the hub SHALL reconcile the full set of granted bindings in all of these cases:
 - the bridge connects or reconnects;
 - a session starts in the same process, for any start reason, including extension reload.
 
@@ -78,8 +78,8 @@ If the bridge reconnects to a hub that does not support vault delivery, for exam
 - **THEN** the session's next shell command does not see `POLY_PIZZA_KEY`
 
 #### Scenario: Rotated key reaches the next command
-- **WHEN** the account behind `SONIOX_API_KEY` is rotated while a session holds it
-- **THEN** the session's next shell command sees the new value
+- **WHEN** the account behind `SONIOX_API_KEY` is rotated while a connected session holds it
+- **THEN** a shell command started 5 seconds later sees the new value
 
 #### Scenario: User-overwritten variable is left alone
 - **WHEN** delivery set `GEMINI_API_KEY`, the user then assigned it a different value in the session, and the binding is revoked
@@ -102,6 +102,13 @@ If the bridge reconnects to a hub that does not support vault delivery, for exam
 - **WHEN** a binding is revoked while a session's bridge is disconnected, and the bridge then reconnects
 - **THEN** the session's next shell command does not see the variable
 
+### Requirement: Redaction overhead is bounded
+With 20 values held, masking SHALL add at most 5 ms at the 95th percentile to forwarding an event whose payload is 64 KiB.
+
+#### Scenario: Masking a large event stays within budget
+- **WHEN** a session holds 20 values and forwards 64 KiB tool-output events
+- **THEN** the 95th percentile of masking time per event is at most 5 ms
+
 ### Requirement: Bounded retention while the hub is unreachable
 While the hub is unreachable, a session SHALL keep the values already delivered for at most the configured offline grace period. The period SHALL be measured in elapsed real time from the last successful reconciliation, so time the machine spends asleep counts toward it. The grace period SHALL default to 24 hours and SHALL be limited to between 1 hour and 7 days. After that period the values SHALL be withdrawn. The session SHALL NOT crash. The dashboard SHALL show each session's last vault contact time, and the binding state SHALL show `hub-unreachable` once known.
 
@@ -114,7 +121,7 @@ While the hub is unreachable, a session SHALL keep the values already delivered 
 - **THEN** the session's next shell command does not see the delivered variables
 
 ### Requirement: Delivered values are redacted from session output
-Every exact occurrence of a value delivered to, or inherited by, the session SHALL be replaced by a redaction marker before it is recorded in the transcript, sent to the model, or forwarded to the dashboard. Redaction SHALL cover:
+Every exact occurrence of a value delivered to, or inherited by, the session SHALL be replaced before it is recorded in the transcript, sent to the model, or forwarded to the dashboard. The replacement SHALL be the redaction marker `[REDACTED:<NAME>]`, where `<NAME>` is the binding name, for example `[REDACTED:GEMINI_API_KEY]`. Redaction SHALL cover:
 - tool result text, details and structured content;
 - assistant message text and tool-call arguments as recorded in the transcript;
 - tool completion events;

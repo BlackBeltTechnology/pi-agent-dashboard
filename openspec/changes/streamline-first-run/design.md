@@ -98,7 +98,7 @@ Rules, first match wins:
 - **Reset to `null`, bumping `seq` every time so late transitions are ignored:**
   - a page reload;
   - an App-level effect on `useProvidersReady().anthropicAuthenticated`, which is three-valued: `true`, `false`, or `unknown` when the status read failed. The store resets **only on a transition from `true` to `false` between two successful reads**. That covers in-dashboard sign-out immediately, and expiry or CLI logout on the next focus refetch. A failed read never resets.
-- **`installed` clears** when a probe read by a mounted surface reports the peer resolving.
+- **`installed` and `failed` clear** when a probe read by a mounted surface reports the peer resolving.
 
 **Accepted:** a sign-out while an install is running discards that success from the store. The surfaces then fall back to `activeInPi` and the probe.
 
@@ -173,7 +173,7 @@ Log: `[create-project] <created|reused|rejected:<reason>> name=<typeof name === 
 - **Controls.** The primary **Create project** gets the new `data-testid="onboarding-step-2-create"`. The secondary link **Use an existing folder…** keeps `onboarding-step-2-cta` and its meaning (it opens `AddFoldersDialog`), so every E2E spec that uses it through `tests/e2e/helpers/index.ts:18` is unaffected. The harness seeds credentials, so Step ② is never locked there.
 - **Validation.** Only the server validates. Its `reason` maps to localized guidance, for example `invalid_name` → "Use a single folder name without / or \\, for example my-project." An unknown reason, or a non-ApiResponse body such as an older server's Fastify 404, maps to a generic message. The message renders between the label and the input, with `aria-invalid` and `aria-describedby`, and the input keeps the user's text.
 - **In flight.** The field, the button and the link are disabled; the button gets `aria-busy` and reads "Creating…".
-- **Success.** Optimistic `setPinnedDirectories` (already de-duplicated by `includes`) plus `send({ type: "pin_directory", path })`, the same path as `AddFoldersDialog.onPin`. The done row shows the pinned-folder count; when `existed`, it adds one line, "That folder already existed, so it was pinned as-is."
+- **Success.** Optimistic `setPinnedDirectories` (already de-duplicated by `includes`) plus `send({ type: "pin_directory", path })`, the same path as `AddFoldersDialog.onPin`. The done row shows the pinned-folder count; when `existed`, it adds one line, "That folder already existed, so it was pinned as-is." The line is `LandingPage` component state, so it is gone after Landing unmounts.
 - **Test ids:** `onboarding-step-2-create`, `onboarding-step-2-cta` (existing-folder link), `onboarding-step-2-name`, `onboarding-step-2-error`, `onboarding-step-2-existed`, `onboarding-progress`.
 
 ### D6: Landing becomes a vertical stepper
@@ -214,7 +214,6 @@ On both surfaces the failure is an `InlineMessage` with `severity="warning"`, be
 - **[Optimistic pin can be dropped]** (WS down or missing scope) → Same as `AddFoldersDialog` today. The `pinned_dirs_updated` echo reconciles it.
 - **[`~/Projects` inside Docker is ephemeral]** → "Use an existing folder…" covers `PI_WORKSPACES` mounts. No harness or E2E variant change is needed: the auto-install path needs a real OAuth completion, which the harness does not drive (`unverified` beyond the spec titles in `flow-plugin-e2e`).
 - **[Containment root vs `file-read-containment`]** → Unrelated anchors. That capability governs file reads relative to a session cwd; this endpoint creates directories under a fixed home root.
-- **[Adopted `extensions-hub` mockup has no tasks]** → Kept at the user's request, and labelled reference-only.
 
 ## Migration Plan
 

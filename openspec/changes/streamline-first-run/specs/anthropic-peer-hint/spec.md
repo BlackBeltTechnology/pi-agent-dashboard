@@ -65,7 +65,7 @@ A later, separate completion of the same flow SHALL be decided afresh. None of t
 From the moment a decision starts until the page reloads or `anthropic` stops being authenticated, the authenticated `anthropic` row SHALL show the automatic install's state, whether or not a bridge probe exists, except where a probe reports an import failure (the missing-peer hint's import-failure form then replaces it):
 - **deciding, queued or running:** an in-progress status;
 - **succeeded:** an informational message that the peer is installed and applies on the next pi session start. It SHALL remain until the page reloads, `anthropic` stops being authenticated, or a probe reports the peer resolving;
-- **failed:** a warning whose first sentence says the install did not finish and invites a retry, mentioning the network or proxy only as a possible cause. It SHALL offer a retry install affordance, and SHALL show the raw installer output only inside a collapsed log block.
+- **failed:** until the page reloads, `anthropic` stops being authenticated, or a probe reports the peer resolving: a warning whose first sentence says the install did not finish and invites a retry, mentioning the network or proxy only as a possible cause. It SHALL offer a retry install affordance, and SHALL show the raw installer output only inside a collapsed log block.
 
 A successful install of the peer source from any surface SHALL replace a failed state with the succeeded state; a successful remove or update of that source SHALL NOT be shown as installed. `anthropic` counts as no longer authenticated only after a successful status read reports it; a failed status read SHALL leave the state unchanged. A state change after the page has lost the `anthropic` connection SHALL NOT be shown. Each state change SHALL be announced politely to assistive technology. No state SHALL disable Sign Out.
 
@@ -89,6 +89,11 @@ A successful install of the peer source from any surface SHALL replace a failed 
 - **THEN** the row shows the warning with the plain-language first sentence and a retry install affordance
 - **AND** the raw installer output is visible only after expanding the collapsed log block
 - **AND** the row remains Connected with Sign Out enabled
+
+#### Scenario: Failed state clears on a resolving probe
+- **GIVEN** the row shows the failed warning
+- **WHEN** a probe reports the peer resolving
+- **THEN** neither the warning nor the retry affordance is shown
 
 #### Scenario: Retry
 - **WHEN** the operator activates retry install after a failure

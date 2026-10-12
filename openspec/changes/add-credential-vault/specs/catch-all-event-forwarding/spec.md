@@ -35,7 +35,9 @@ exceptions:
    streamed message text (`message_update`), the bridge MAY delay forwarding the
    trailing characters of the stream, up to one fewer than the longest held
    value. The delayed characters SHALL be sent, masked, with the next update or
-   the stream's end event. Characters are delayed, never dropped. This is
+   the stream's end event, and in any case before any later event of the
+   session is forwarded, so event order is preserved. Characters are delayed,
+   never dropped. This is
    admissible only because the replaced text is a secret that no consumer may
    derive state from. While no values are held, this exception SHALL NOT apply.
 
@@ -65,6 +67,10 @@ derives state.
 - **WHEN** a session holds a vault value, and a tool streams output whose last update ends with the first half of that value
 - **THEN** that half is not forwarded with that update
 - **AND** the tool's end event carries the complete output with the value masked
+
+#### Scenario: Held characters never cross a later event
+- **WHEN** a session holds a vault value, a message stream has delayed characters, and a `tool_execution_start` event follows
+- **THEN** the delayed characters are forwarded before the `tool_execution_start` event
 
 #### Scenario: No vault values means no change
 - **WHEN** a session holds no vault values

@@ -140,6 +140,7 @@ The done row reports the pinned-folder count.
 - **WHEN** the endpoint responds successfully with `existed: true`
 - **THEN** the client SHALL pin the returned path
 - **AND** the Step ② done row SHALL add a line stating that the folder already existed and was pinned as-is
+- **AND** that line SHALL disappear once the LandingPage unmounts (for example the user opens a session) and SHALL NOT reappear when it mounts again
 
 #### Scenario: Create fails
 - **WHEN** the endpoint responds with `success: false`, the request fails, or the response is not a standard API envelope (for example an older server's 404)
