@@ -15,9 +15,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  VERDICT_TIMEOUT_MS,
   bootArgv,
   bundleLayout,
   bundleRoot,
@@ -26,9 +26,9 @@ import {
   logTail,
   pluginLoadProblems,
   pluginVerdicts,
+  VERDICT_TIMEOUT_MS,
   waitForVerdicts,
 } from '../../packages/electron/scripts/assert-bundled-server-plugin-load.mjs';
-import { pathToFileURL } from 'node:url';
 
 const tempDirs = [];
 
@@ -41,7 +41,7 @@ afterEach(() => {
  * `<base>/resources/node`, so the `../node` lookup is per-test and cannot see a
  * sibling test's fixture (they all live under the shared tmpdir).
  */
-function fixture({ jiti = true, cli = true, node = true, native = true } = {}) {
+function fixture({ cli = true, node = true, native = true } = {}) {
   const base = mkdtempSync(join(tmpdir(), 'electron-bundle-'));
   tempDirs.push(base);
   const root = join(base, 'resources', 'server');
@@ -51,7 +51,6 @@ function fixture({ jiti = true, cli = true, node = true, native = true } = {}) {
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, '');
   };
-  if (jiti) write('node_modules/jiti/lib/jiti-register.mjs');
   if (native) write('node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs');
   if (cli) write('packages/server/src/cli.ts');
   if (node) {
@@ -66,12 +65,12 @@ describe('bundle layout', () => {
     expect(bundleRoot({ SERVER_BUNDLE_DIR: '/tmp/whatever' })).toBe('/tmp/whatever');
   });
 
-  it('resolves the bundled node + jiti loader + cli.ts', () => {
+  it('resolves the bundled node + native loader + cli.ts', () => {
     const root = fixture();
     const layout = bundleLayout(root, 'linux');
     expect(layout.missing).toEqual([]);
     expect(layout.nodeBin).toBe(join(root, '..', 'node', 'bin', 'node'));
-    expect(layout.jiti).toBe(join(root, 'node_modules', 'jiti', 'lib', 'jiti-register.mjs'));
+    expect(layout.loader).toBe(join(root, 'node_modules', '@blackbelt-technology', 'pi-dashboard-shared', 'src', 'platform', 'native-ts-register.mjs'));
     expect(layout.cli).toBe(join(root, 'packages', 'server', 'src', 'cli.ts'));
   });
 
@@ -130,19 +129,18 @@ describe('failure diagnostics: server.log tail', () => {
 });
 
 /**
- * E31 — the gate boots the SELECTED loader, so it proves the shipped default:
- * native unless PI_DASHBOARD_TS_LOADER=jiti; a missing selected loader is
- * named instead of booting. The entry stays raw for both loaders on every OS
+ * E31 — the gate boots the native loader (the only server loader); a missing
+ * register module is named instead of booting. The entry stays raw on every OS
  * (mirrors `shouldUrlWrapEntry`, design D8 revised); the loader is a
- * percent-encoded `file://` URL.
- * See change: fix-appimage-cold-boot-latency (design D4).
+ * percent-encoded `file://` URL. `PI_DASHBOARD_TS_LOADER` is not read.
+ * See change: fix-appimage-cold-boot-latency (design D4); strip-only-native-ts-loader.
  */
-describe('selected TS loader (E31)', () => {
+describe('native TS loader (E31)', () => {
   const NATIVE_REL = ['node_modules', '@blackbelt-technology', 'pi-dashboard-shared', 'src', 'platform', 'native-ts-register.mjs'];
 
-  it('env unset → boots with --import <native register URL>', () => {
+  it('boots with --import <native register URL>', () => {
     const root = fixture();
-    const layout = bundleLayout(root, 'linux', {});
+    const layout = bundleLayout(root, 'linux');
     expect(layout.missing).toEqual([]);
     expect(layout.loader).toBe(join(root, ...NATIVE_REL));
     const argv = bootArgv(layout, ['start', '--port', '1234'], 'linux');
@@ -151,26 +149,17 @@ describe('selected TS loader (E31)', () => {
     expect(argv.slice(3)).toEqual(['start', '--port', '1234']);
   });
 
-  it('PI_DASHBOARD_TS_LOADER=jiti → boots with the jiti register', () => {
-    const root = fixture();
-    const layout = bundleLayout(root, 'linux', { PI_DASHBOARD_TS_LOADER: 'jiti' });
-    expect(layout.loader).toBe(layout.jiti);
-    expect(bootArgv(layout, ['stop'], 'linux')[1]).toBe(pathToFileURL(layout.jiti).href);
-  });
-
-  it('a bundle without the native register is reported missing by default', () => {
+  it('a bundle without the native register is reported missing', () => {
     const root = fixture({ native: false });
-    expect(bundleLayout(root, 'linux', {}).missing).toEqual([join(root, ...NATIVE_REL)]);
+    expect(bundleLayout(root, 'linux').missing).toEqual([join(root, ...NATIVE_REL)]);
   });
 
-  it('the entry stays raw for both loaders on win32 (Node path.resolve()s the main entry)', () => {
-    const layout = { native: 'C:\\b #1\\native-ts-register.mjs', jiti: 'C:\\b #1\\jiti-register.mjs', cli: 'B:\\b\\packages\\server\\src\\cli.ts' };
-    for (const loaderKind of ['native', 'jiti']) {
-      const argv = bootArgv({ ...layout, loader: layout[loaderKind], loaderKind }, [], 'win32');
-      // `#` and the space are percent-encoded, so the loader URL is not cut at a fragment.
-      expect(argv[1]).toBe(`file:///C:/b%20%231/${loaderKind === 'native' ? 'native' : 'jiti'}-register.mjs`.replace('native-register', 'native-ts-register'));
-      expect(argv[2]).toBe(layout.cli);
-    }
+  it('the entry stays raw on win32 (Node path.resolve()s the main entry)', () => {
+    const layout = { loader: 'C:\\b #1\\native-ts-register.mjs', cli: 'B:\\b\\packages\\server\\src\\cli.ts' };
+    const argv = bootArgv(layout, [], 'win32');
+    // `#` and the space are percent-encoded, so the loader URL is not cut at a fragment.
+    expect(argv[1]).toBe('file:///C:/b%20%231/native-ts-register.mjs');
+    expect(argv[2]).toBe(layout.cli);
   });
 });
 

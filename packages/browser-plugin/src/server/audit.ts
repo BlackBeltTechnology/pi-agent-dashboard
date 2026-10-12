@@ -56,14 +56,19 @@ export interface AuditAppend {
 export const AUDIT_CAPACITY = 500;
 
 export class AuditRing {
+  private readonly capacity: number;
+  private readonly now: () => number;
   private entries: AuditEntry[] = [];
   private seq = 0;
   private onAppend?: (entry: AuditEntry) => void;
 
   constructor(
-    private readonly capacity: number = AUDIT_CAPACITY,
-    private readonly now: () => number = () => Date.now(),
-  ) {}
+    capacity: number = AUDIT_CAPACITY,
+    now: () => number = () => Date.now(),
+  ) {
+    this.capacity = capacity;
+    this.now = now;
+  }
 
   /**
    * Observe every append (the status broadcaster coalesces its refresh off

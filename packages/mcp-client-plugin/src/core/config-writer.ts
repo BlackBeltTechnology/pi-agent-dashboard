@@ -34,8 +34,11 @@ import type {
 
 /** Thrown when a project scope names a cwd outside the known-folder set. */
 export class NotAllowedCwdError extends Error {
-  constructor(public readonly cwd: string) {
+  public readonly cwd: string;
+
+  constructor(cwd: string) {
     super(`cwd not allowed: ${cwd}`);
+    this.cwd = cwd;
     this.name = "NotAllowedCwdError";
   }
 }

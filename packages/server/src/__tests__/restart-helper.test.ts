@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildOrchestratorScript, buildRestartEnv, spawnRestart } from "../spawn-process/restart-helper.js";
 
 describe("buildOrchestratorScript", () => {
@@ -43,9 +43,11 @@ describe("buildOrchestratorScript", () => {
     expect(script).toMatch(/"start"/);
   });
 
-  // E19 — restart keeps the running loader; PI_DASHBOARD_TS_LOADER (unset →
-  // native) is never consulted. See change: fix-appimage-cold-boot-latency.
-  it("E19: re-uses the given jiti loader even when the env would select native", () => {
+  // E19 — the orchestrator re-uses whatever loader it is GIVEN (`/api/restart`
+  // always passes the native one; see system-routes-restart-loader.test.ts);
+  // PI_DASHBOARD_TS_LOADER is never consulted. See change:
+  // fix-appimage-cold-boot-latency; strip-only-native-ts-loader.
+  it("E19: re-uses the given loader even when the env would select native", () => {
     vi.stubEnv("PI_DASHBOARD_TS_LOADER", undefined as unknown as string);
     try {
       const script = buildOrchestratorScript({ ...baseParams, loader: "file:///j/jiti/lib/jiti-register.mjs" });

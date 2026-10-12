@@ -44,8 +44,11 @@ function parseForMerge(text: string | null): Record<string, unknown> {
 }
 
 export class StaleRevisionError extends Error {
-  constructor(readonly current: string) {
+  readonly current: string;
+
+  constructor(current: string) {
     super("stale-revision");
+    this.current = current;
   }
 }
 

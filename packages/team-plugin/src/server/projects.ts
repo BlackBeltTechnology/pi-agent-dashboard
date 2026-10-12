@@ -69,12 +69,14 @@ function slugify(base: string): string {
 }
 
 export class ProjectRegistry {
+  private readonly deps: ProjectDeps;
   private readonly ops: FsOps;
   private accepted = new Set<string>();
   private acceptedFor = "";
   private readonly warned = new Set<string>();
 
-  constructor(private readonly deps: ProjectDeps) {
+  constructor(deps: ProjectDeps) {
+    this.deps = deps;
     this.ops = deps.ops ?? realFs;
     this.activate();
   }

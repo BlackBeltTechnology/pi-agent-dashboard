@@ -11,7 +11,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as url from "node:url";
-import { SLOT_SECTIONS, SLOT_RENDER_ORDER } from "./templates/slot-sections.js";
+import { SLOT_RENDER_ORDER, SLOT_SECTIONS } from "./templates/slot-sections.js";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(__dirname, "templates");
@@ -93,7 +93,11 @@ export class InMemorySink implements WriteSink {
 }
 
 export class FsSink implements WriteSink {
-  constructor(private readonly root: string) {}
+  private readonly root: string;
+
+  constructor(root: string) {
+    this.root = root;
+  }
   write(relativePath: string, content: string): void {
     const abs = path.join(this.root, relativePath);
     fs.mkdirSync(path.dirname(abs), { recursive: true });

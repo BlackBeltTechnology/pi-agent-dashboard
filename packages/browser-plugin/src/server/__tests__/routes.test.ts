@@ -15,10 +15,16 @@ import type { BrowserProfileConfig, ConnectResult, RelayConfig, RelayLike } from
 import { type BrowserRoutesManager, registerBrowserRoutes } from "../routes.js";
 
 class StubInstance implements RelayLike {
+  readonly instanceId: string;
+  readonly profileDirectory: string;
+
   constructor(
-    readonly instanceId: string,
-    readonly profileDirectory: string,
-  ) {}
+    instanceId: string,
+    profileDirectory: string,
+  ) {
+    this.instanceId = instanceId;
+    this.profileDirectory = profileDirectory;
+  }
   tabList() {
     return [{ tabId: 5, title: "A", url: "https://a.test", state: "live" as const }];
   }

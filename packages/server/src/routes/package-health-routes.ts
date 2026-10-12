@@ -39,11 +39,14 @@ function entrySource(entry: unknown): string | null {
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 class CleanupInputError extends Error {
+  readonly unknown?: string[];
+
   constructor(
     message: string,
-    readonly unknown?: string[],
+    unknown?: string[],
   ) {
     super(message);
+    this.unknown = unknown;
   }
 }
 

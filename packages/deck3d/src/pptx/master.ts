@@ -57,6 +57,7 @@ export interface Inheritance {
 
 /** Per-slide resolver for placeholder and text-style inheritance. */
 export class MasterChain {
+  private readonly defaultTextStyle: XNode | undefined;
   readonly layoutTree?: XNode;
   readonly masterTree?: XNode;
   private layoutPh: PhEntry[];
@@ -67,8 +68,9 @@ export class MasterChain {
     pkg: Package,
     layoutPart: string | undefined,
     masterPart: string | undefined,
-    private readonly defaultTextStyle: XNode | undefined,
+    defaultTextStyle: XNode | undefined,
   ) {
+    this.defaultTextStyle = defaultTextStyle;
     const layout = layoutPart ? pkg.xml(layoutPart) : undefined;
     const master = masterPart ? pkg.xml(masterPart) : undefined;
     this.layoutTree = path(layout, "p:cSld", "p:spTree");

@@ -8,11 +8,11 @@
  * must not be "fixed" (task 9.4). The disabled-inclusion divergence is pinned by
  * tests/component.test.tsx ("includes a disabled one").
  */
-import { describe, it, expect } from "vitest";
-import type { Condition } from "../src/schema/types";
-import { EvalContext, evaluateCondition, resolveProperty, compareOrdinal } from "../src/logic/cnf";
-import { normalizeSchema } from "../src/schema/normalize";
+import { describe, expect, it } from "vitest";
+import { compareOrdinal, type EvalContext, evaluateCondition, resolveProperty } from "../src/logic/cnf";
 import { resolveFormState } from "../src/logic/state";
+import { normalizeSchema } from "../src/schema/normalize";
+import type { Condition } from "../src/schema/types";
 
 function ctxOf(a: Record<string, unknown>): EvalContext {
   return { getAnswer: (k) => (k in a ? (a[k] as never) : undefined) };

@@ -34,9 +34,10 @@ const ALLOWLIST: Readonly<Record<string, string>> = {
 	"packages/server/src/__tests__/pi-core-routes.test.ts": "fork fixture (E6, E7)",
 	"packages/server/src/__tests__/pi-version-skew-by-name.test.ts": "fork fixture (E15)",
 	"packages/server/src/__tests__/package-manager-wrapper-resolve.test.ts": "fork fixture (E12, E13)",
-	"packages/shared/src/__tests__/binary-lookup-resolveJiti.test.ts": "fork fixture (E8)",
 	"packages/client/src/components/__tests__/UnifiedPackagesSection.test.tsx": "fork fixture (F1)",
 	"packages/shared/src/__tests__/tool-registry-definitions.test.ts": "absence assertions (E11)",
+	// Names the legacy `@mariozechner/jiti` scope in a jiti-import grep pattern.
+	"scripts/__tests__/loader-neutral-source.test.mjs": "jiti-import grep pattern (E23)",
 	// This scan (seeded fixture string).
 	"packages/shared/src/__tests__/no-legacy-pi-fork.test.ts": "the gate itself",
 };

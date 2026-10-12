@@ -56,6 +56,6 @@
     "jsdom": "^29.0.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.8.0"
   }
 }

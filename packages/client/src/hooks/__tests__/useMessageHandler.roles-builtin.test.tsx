@@ -6,12 +6,13 @@
  * the Built-in/Custom split and the "＋ Add custom role" control; dropping it
  * here collapses the panel to the flat back-compat layout.
  */
-import { describe, it, expect, vi } from "vitest";
-import { renderHook } from "@testing-library/react";
-import { useMessageHandler } from "../useMessageHandler.js";
-import { type SessionState } from "../../lib/chat/event-reducer.js";
+
 import { getPluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { renderHook } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import type { SessionState } from "../../lib/chat/event-reducer.js";
+import { useMessageHandler } from "../useMessageHandler.js";
 
 function setup() {
   const sessionStatesRef = { current: new Map<string, SessionState>() };

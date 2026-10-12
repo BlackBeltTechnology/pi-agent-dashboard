@@ -4,11 +4,12 @@
  * Lazy: the package builds a jsdom window at import time, so a broken jsdom
  * install fails one sanitize request instead of server boot.
  *
- * Native `require`: under the server's `node --import jiti-register` loader, a
- * dynamic `import()` routes jsdom's CommonJS through jiti, which breaks jsdom's
- * interfaces.js <-> create-element.js require cycle
- * (`interfaces.getInterfaceWrapper is not a function`). `createRequire`
- * bypasses the ESM hook and keeps Node's native CJS cycle semantics.
+ * Native `require`: a dynamic `import()` of jsdom's CommonJS through a loader
+ * can break jsdom's interfaces.js <-> create-element.js require cycle
+ * (`interfaces.getInterfaceWrapper is not a function`) — it did under jiti, and
+ * the native loader's `registerHooks` also sees `require()`. `createRequire`
+ * keeps Node's native CJS cycle semantics; `purify-jiti.test.ts` pins that it
+ * works under the native loader.
  */
 import { createRequire } from "node:module";
 

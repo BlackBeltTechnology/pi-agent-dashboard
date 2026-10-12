@@ -11,7 +11,7 @@
  * At w = 1 the base is restored and the material is released; at w ≈ 0 the
  * root is hidden outright (covers shaders that ignore opacity).
  */
-import * as THREE from "three";
+import type * as THREE from "three";
 
 interface Tracked {
   base: number;

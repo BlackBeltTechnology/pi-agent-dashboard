@@ -248,9 +248,9 @@ if [ ! -s "$SERVER_LOG" ]; then
 fi
 echo "  ✓ server.log non-empty ($(wc -c < "$SERVER_LOG") bytes)"
 
-# Assert no FATAL in Electron stdout (jiti FATAL regression guard).
+# Assert no FATAL in Electron stdout (loader FATAL regression guard).
 if grep -q "FATAL" "$ELECTRON_LOG"; then
-  echo "FAIL: FATAL found in Electron stdout (jiti FATAL regression?):"
+  echo "FAIL: FATAL found in Electron stdout (loader FATAL regression?):"
   grep -n "FATAL" "$ELECTRON_LOG" | head -5
   exit 1
 fi

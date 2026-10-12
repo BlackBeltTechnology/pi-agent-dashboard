@@ -87,8 +87,10 @@ export class UntrustedContentGuard {
   private taintSource: string | undefined;
   private runMarker: string;
   private readonly makeMarker: () => string;
+  private readonly deps: GuardDeps;
 
-  constructor(private readonly deps: GuardDeps) {
+  constructor(deps: GuardDeps) {
+    this.deps = deps;
     this.makeMarker = deps.marker ?? newMarker;
     this.runMarker = this.makeMarker();
   }

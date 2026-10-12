@@ -90,6 +90,7 @@ export class SubagentFrameBuffer {
     resyncNoop: 0,
     resyncCadence: 0,
   };
+  private readonly maxAgents: number;
 
   /**
    * @param maxAgents bound on distinct buffered agents (drop-oldest beyond it).
@@ -103,7 +104,9 @@ export class SubagentFrameBuffer {
    * explicit `resyncNoop` so the client keeps its last rendered state rather
    * than blanking (C3). See change: reduce-subagent-details-payload.
    */
-  constructor(private readonly maxAgents = 64) {}
+  constructor(maxAgents = 64) {
+    this.maxAgents = maxAgents;
+  }
 
   static isSubagentChannel(channel: string): boolean {
     return SUBAGENT_CHANNELS.has(channel);

@@ -16,7 +16,7 @@ This skill is the **TOOL** half of a pair; the **METHOD** is `systematic-debuggi
 
 Reach for the inspector when the state you need is expensive or impossible to log:
 
-- **The dashboard server** (`packages/server`, TypeScript run directly via the native loader, or jiti on the `PI_DASHBOARD_TS_LOADER=jiti` opt-in) — request handlers whose failure depends on accumulated in-memory state.
+- **The dashboard server** (`packages/server`, TypeScript run directly via the Node-native strip-only loader; the server has no jiti path) — request handlers whose failure depends on accumulated in-memory state.
 - **The restart orchestrator / PTY workers** (`restart-helper.ts`) — a detached process whose closure state you can't `console.log` from the parent.
 - **Dual WebSocket server closure state** — connection maps and buffers held in closures across the bridge and browser servers.
 - **The Electron main process** — lifecycle/bootstrap state that never reaches a browser console.
@@ -37,7 +37,7 @@ If a single well-placed `console.log` would answer the question, use the log. Th
 
 | Command | Does |
 |---------|------|
-| `sb('file.ts', N)` | set breakpoint at line N of `file.ts` (see jiti note below — `.ts` works directly) |
+| `sb('file.ts', N)` | set breakpoint at line N of `file.ts` (see Pitfalls — `.ts` works directly) |
 | `c` | continue to next breakpoint |
 | `n` / `s` / `o` | step **n**ext / **s**tep-in / step-**o**ut |
 | `bt` | backtrace (call stack of the paused frame) |
@@ -49,9 +49,9 @@ If a single well-placed `console.log` would answer the question, use the log. Th
 
 In `repl` mode you can read any in-scope variable by name — this is the fastest way to answer "what is `x` right now?".
 
-## Tier 2 — pi-dashboard native-loader launch (the default)
+## Tier 2 — pi-dashboard native-loader launch (the server; default)
 
-The dashboard server runs TypeScript **directly** (no `dist/*.js` build) through the Node-native loader `@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs` (`module.stripTypeScriptTypes`, transform mode). Launch the target with the inspector and that register module:
+The dashboard server runs TypeScript **directly** (no `dist/*.js` build) through the single Node-native loader `@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs` (strip-only: `module.stripTypeScriptTypes` on `module.registerHooks`; tier 2/3 `module.register` on EOL 23.x). Launch the target with the inspector and that register module:
 
 ```bash
 node --inspect-brk=<port> --enable-source-maps --import <native-ts-register-url> cli.ts
@@ -66,12 +66,13 @@ const req = createRequire(process.argv[1] ?? import.meta.url);
 const hook = pathToFileURL(req.resolve("@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs")).href;
 ```
 
-- Type erasure replaces types with whitespace, so `.ts` lines stay aligned for ordinary code; TS-only constructs that transform mode rewrites (`enum`, `namespace`, parameter properties) may shift columns. Keep `--enable-source-maps` on.
+- Type erasure replaces types with whitespace, so `.ts` lines and columns stay aligned. First-party server source is erasable-only (no `enum`, runtime `namespace`, parameter properties), so nothing is rewritten. Keep `--enable-source-maps` on.
+- Do NOT launch the server with `tsx` or jiti `--import`: the server logs a foreign-loader warning and `/api/restart` normalizes to native.
 - The log header names the running loader: `grep "launch (parent pid" ~/.pi/dashboard/server.log | tail -1`.
 
-## Tier 2b — jiti launch (`PI_DASHBOARD_TS_LOADER=jiti` opt-in, spike-verified)
+## Tier 2b — jiti launch (pi-hosted code only)
 
-Under the jiti fallback (`PI_DASHBOARD_TS_LOADER=jiti`) the server runs TypeScript through jiti. Launch the target with the inspector and jiti's register hook:
+Pi-hosted TypeScript (bridge extension, plugin `bridge` entries) runs under pi's own jiti, not the dashboard server. To inspect such code in a standalone process, launch with jiti's register hook. `PI_DASHBOARD_TS_LOADER` is ignored by the server; `PI_DASHBOARD_TS_LOADER=jiti` no longer selects jiti. Do not use this recipe for the server.
 
 ```bash
 node --inspect-brk=<port> --enable-source-maps --import <jiti-register-hook-url> cli.ts
@@ -82,7 +83,7 @@ node --inspect-brk=<port> --enable-source-maps --import <jiti-register-hook-url>
 
 ### Locating the jiti register hook (do not hard-code the path)
 
-The register hook path differs across local / standalone / global installs. Resolve it the same way this repo's launcher (`packages/server/bin/pi-dashboard.mjs`) does — via `createRequire`, trying each supported jiti package:
+The register hook path differs across local / standalone / global installs. Resolve it via `createRequire` by package specifier, trying each supported jiti package (pi-hosted code only; the repo's launcher `packages/server/bin/pi-dashboard.mjs` no longer resolves jiti):
 
 ```js
 import { createRequire } from "node:module";
@@ -115,7 +116,7 @@ curl -s http://127.0.0.1:<port>/json/list            # find the webSocketDebugge
 
 ## Pitfalls
 
-### The upstream "emitted JS" pitfall does NOT apply to jiti — corrected
+### The upstream "emitted JS" pitfall does NOT apply to jiti or the native loader — corrected
 
 A common guide warns: *"breakpoints hit the emitted JS, not your `.ts`, and `node inspect` doesn't follow sourcemaps."* **This is false for this repo.** jiti transpiles **line-preserving** and registers the compiled JS **under the `.ts` URL** (1:1 line alignment). There is no separate `dist/*.js` file and no sourcemap indirection to fight.
 
@@ -136,7 +137,7 @@ A breakpoint set **before** the target script has parsed (e.g. right after the `
 For scripted or repeatable inspection, this skill ships a dependency-free TypeScript helper. It uses Node 24's global `WebSocket` — no `chrome-remote-interface` dependency. It attaches to a paused target, sets a `.ts` breakpoint, resumes past the entry halt, and on the hit prints the paused frame plus every local and closure variable:
 
 ```bash
-# 1. launch the target halted (see jiti recipe above), noting <port>
+# 1. launch the target halted (see Tier 2 native recipe; Tier 2b for pi-hosted code), noting <port>
 # 2. attach + break at a line inside a function:
 npx tsx packages/eng-disciplines/.pi/skills/node-inspect-debugger/scripts/cdp-inspect.ts <port> <ts-url> <line>
 # prints:  PAUSED at <file>:<line> fn=<name>

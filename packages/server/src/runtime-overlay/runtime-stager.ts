@@ -56,8 +56,11 @@ export interface RuntimeLock {
 }
 
 class RuntimeStageError extends Error {
-  constructor(public readonly code: string, detail: string) {
+  public readonly code: string;
+
+  constructor(code: string, detail: string) {
     super(`${code} ${detail}`.trim());
+    this.code = code;
     this.name = "RuntimeStageError";
   }
 }

@@ -29,8 +29,11 @@ export const MIN_POLICY_TIMEOUT_MS = 50;
 export const MAX_POLICY_TIMEOUT_MS = 2000;
 
 export class PolicyTrustError extends Error {
-  constructor(public readonly pluginId: string) {
+  public readonly pluginId: string;
+
+  constructor(pluginId: string) {
     super(`plugin '${pluginId}' is not permitted to register a host access policy`);
+    this.pluginId = pluginId;
     this.name = "PolicyTrustError";
   }
 }

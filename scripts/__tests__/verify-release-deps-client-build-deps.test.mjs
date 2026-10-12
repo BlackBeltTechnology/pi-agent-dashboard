@@ -14,7 +14,11 @@
  * `packages/extension/package.json`, `docker/Dockerfile` — copied from the real
  * repo so only the client rules vary between the pass and fail cases.
  *
- * See change: fix-pi-install-node26-and-omit-dev-build.
+ * Also hosts test-plan #E24 (strip-only-native-ts-loader, design D4): the
+ * `amaro` pin in `packages/shared/package.json` `dependencies`.
+ *
+ * See change: fix-pi-install-node26-and-omit-dev-build;
+ *             strip-only-native-ts-loader (E24).
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -30,6 +34,7 @@ const REPO_ROOT = path.resolve(HERE, "..", "..");
 const CARRIED = [
   "packages/server/package.json",
   "packages/extension/package.json",
+  "packages/shared/package.json",
   "docker/Dockerfile",
   // The pi-pin coherence gate also reads the pinned workspace override.
   "pnpm-workspace.yaml",
@@ -47,7 +52,7 @@ afterEach(() => {
  * Build a fixture repo tree. `mutate` receives the real client package.json
  * (parsed) and may move deps around before it is written.
  */
-function fixtureRepo(mutate = () => {}) {
+function fixtureRepo(mutate = () => {}, mutateShared = null) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "verify-release-deps-"));
   tmpDirs.push(root);
 
@@ -64,6 +69,13 @@ function fixtureRepo(mutate = () => {}) {
   const dest = path.join(root, "packages/client/package.json");
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, JSON.stringify(clientPkg, null, 2));
+
+  if (mutateShared) {
+    const sharedDest = path.join(root, "packages/shared/package.json");
+    const sharedPkg = JSON.parse(fs.readFileSync(sharedDest, "utf-8"));
+    mutateShared(sharedPkg);
+    fs.writeFileSync(sharedDest, JSON.stringify(sharedPkg, null, 2));
+  }
 
   return root;
 }
@@ -104,5 +116,36 @@ describe("verify-release-deps client build-dep rules (E7)", () => {
     expect(failures).toHaveLength(2);
     expect(failures.join("\n")).toContain("dependencies.vite");
     expect(failures.join("\n")).toContain("dependencies.tailwindcss");
+  });
+});
+
+describe("verify-release-deps amaro rule (E24)", () => {
+  it("passes with amaro in packages/shared dependencies (real tree)", () => {
+    expect(collectFailures({ repoRoot: fixtureRepo() })).toEqual([]);
+  });
+
+  it("fails, naming amaro and the shared manifest, when amaro is removed from dependencies", () => {
+    const failures = collectFailures({
+      repoRoot: fixtureRepo(undefined, (pkg) => {
+        delete pkg.dependencies.amaro;
+      }),
+    });
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("packages/shared/package.json");
+    expect(failures[0]).toContain("dependencies.amaro");
+    expect(failures[0]).toContain("Missing");
+  });
+
+  it("fails when amaro regresses to devDependencies (tier 3 loads it at runtime)", () => {
+    const failures = collectFailures({
+      repoRoot: fixtureRepo(undefined, (pkg) => {
+        pkg.devDependencies = { ...pkg.devDependencies, amaro: pkg.dependencies.amaro };
+        delete pkg.dependencies.amaro;
+      }),
+    });
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("dependencies.amaro");
   });
 });

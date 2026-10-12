@@ -107,13 +107,17 @@ function isUserShape(u: unknown): u is DirectoryUser {
 }
 
 export class UserDirectory {
+  private readonly filePath: string;
+  private readonly now: () => number;
   private state: DirectoryFile;
   private chain: Promise<unknown> = Promise.resolve();
 
   constructor(
-    private readonly filePath: string = defaultUsersPath(),
-    private readonly now: () => number = Date.now,
+    filePath: string = defaultUsersPath(),
+    now: () => number = Date.now,
   ) {
+    this.filePath = filePath;
+    this.now = now;
     this.state = this.load();
   }
 

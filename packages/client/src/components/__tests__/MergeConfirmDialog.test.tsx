@@ -1,9 +1,10 @@
 /**
  * Tests for MergeConfirmDialog. See change: add-worktree-lifecycle-actions.
  */
-import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MergeConfirmDialog } from "../worktree/MergeConfirmDialog.js";
 
 const fetchDiffStatMock = vi.fn();

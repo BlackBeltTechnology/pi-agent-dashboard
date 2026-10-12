@@ -17,7 +17,9 @@ import { isPathInside } from "@blackbelt-technology/pi-dashboard-shared/path-con
 export const MAX_ATTACH_BYTES = 20 * 1024 * 1024;
 
 class PathRefusedError extends Error {
-  constructor(readonly code: "path_refused" | "exists" | "too_large") {
+  readonly code: "path_refused" | "exists" | "too_large";
+
+  constructor(code: "path_refused" | "exists" | "too_large") {
     super(
       code === "exists"
         ? "path_refused: target already exists (attachments never overwrite)"
@@ -25,6 +27,7 @@ class PathRefusedError extends Error {
           ? "path_refused: file exceeds the 20 MiB attachment limit"
           : "path_refused: path must stay inside the session working directory",
     );
+    this.code = code;
     this.name = "PathRefusedError";
   }
 }

@@ -2,12 +2,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as sharedNodeVersion from "@blackbelt-technology/pi-dashboard-shared/node-version.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildEnginesRangeMessage,
   buildNodeUpgradeMessage,
+  foreignTsLoaderWarning,
   isAffectedNode,
   isOutOfEnginesRange,
+  warnTsLoaderState,
 } from "../auth/node-guard.js";
 
 describe("node-guard re-exports the shared canonical predicates", () => {
@@ -221,5 +223,53 @@ describe("buildEnginesRangeMessage", () => {
         'PATH="$HOME/.pi-dashboard/node/bin',
       );
     });
+  });
+});
+
+// See change: strip-only-native-ts-loader (test-plan #E14, #E18).
+describe("foreignTsLoaderWarning (#E18)", () => {
+  const NATIVE = "file:///x/pi-dashboard-shared/src/platform/native-ts-register.mjs";
+  const JITI = "file:///x/node_modules/jiti/lib/jiti-register.mjs";
+  const TSX = "file:///x/node_modules/tsx/dist/loader.mjs";
+
+  it("warns once naming jiti and the stop/start recovery", () => {
+    const msg = foreignTsLoaderWarning(["--import", JITI]);
+    expect(msg).toContain("jiti");
+    expect(msg).toContain("pi-dashboard stop && pi-dashboard start");
+  });
+
+  it("recognises the combined --import=<url> spelling", () => {
+    expect(foreignTsLoaderWarning([`--import=${JITI}`])).toContain("jiti");
+  });
+
+  it("warns for tsx, naming it", () => {
+    expect(foreignTsLoaderWarning(["--import", TSX])).toContain("tsx");
+  });
+
+  it.each([[["--import", NATIVE]], [[]], [["--max-old-space-size=512"]]])("is silent for %j", (argv) => {
+    expect(foreignTsLoaderWarning(argv)).toBeNull();
+  });
+});
+
+describe("warnTsLoaderState (#E14, #E18)", () => {
+  const NATIVE = "file:///x/pi-dashboard-shared/src/platform/native-ts-register.mjs";
+
+  it.each([[undefined], [""], ["native"]])("PI_DASHBOARD_TS_LOADER=%s → 0 warnings", (value) => {
+    const warn = vi.fn();
+    warnTsLoaderState(value === undefined ? {} : { PI_DASHBOARD_TS_LOADER: value }, ["--import", NATIVE], warn);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each([["jiti"], ["tsx"], ["garbage"]])("PI_DASHBOARD_TS_LOADER=%s → exactly 1 warning naming the variable", (value) => {
+    const warn = vi.fn();
+    warnTsLoaderState({ PI_DASHBOARD_TS_LOADER: value }, ["--import", NATIVE], warn);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toContain("PI_DASHBOARD_TS_LOADER");
+  });
+
+  it("foreign loader and legacy env var are reported separately", () => {
+    const warn = vi.fn();
+    warnTsLoaderState({ PI_DASHBOARD_TS_LOADER: "jiti" }, ["--import", "file:///x/node_modules/jiti/lib/jiti-register.mjs"], warn);
+    expect(warn).toHaveBeenCalledTimes(2);
   });
 });

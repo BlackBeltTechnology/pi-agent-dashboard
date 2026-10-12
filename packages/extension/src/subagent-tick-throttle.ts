@@ -99,8 +99,10 @@ export class SubagentTickThrottle<M = unknown> {
   private readonly windowMs: number;
   private readonly idleTtlMs: number;
   private readonly now: () => number;
+  private readonly opts: SubagentTickThrottleOptions<M>;
 
-  constructor(private readonly opts: SubagentTickThrottleOptions<M>) {
+  constructor(opts: SubagentTickThrottleOptions<M>) {
+    this.opts = opts;
     this.windowMs = opts.windowMs;
     this.idleTtlMs = opts.idleTtlMs ?? DEFAULT_TICK_IDLE_TTL_MS;
     this.now = opts.now ?? Date.now;

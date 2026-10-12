@@ -162,11 +162,14 @@ interface PidRecord {
 }
 
 export class Supervisor implements ManagedControl {
+  private readonly d: SupervisorDeps;
   private readonly entries = new Map<string, Entry>();
   /** Orphan cleanup barrier; every start waits for it. */
   private boot: Promise<number> = Promise.resolve(0);
 
-  constructor(private readonly d: SupervisorDeps) {}
+  constructor(d: SupervisorDeps) {
+    this.d = d;
+  }
 
   platform(): string {
     return this.d.platform;

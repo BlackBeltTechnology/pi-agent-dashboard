@@ -12,14 +12,15 @@
  * This path runs once per distinct `customType` per process (resolver-level
  * memoization), so the round-trip cost is irrelevant.
  */
-import { Worker } from "node:worker_threads";
+
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 
 import type { MatcherResponse } from "./custom-event-group-matcher-worker.js";
 
 function defaultWorkerUrl(): string {
-  // The worker entry is a sibling .ts module; jiti (inherited via
+  // The worker entry is a sibling .ts module; the server's `--import` loader (inherited via
   // `execArgv: process.execArgv`) loads it transparently in the worker thread.
   const here = dirname(fileURLToPath(import.meta.url));
   return pathToFileURL(resolve(here, "custom-event-group-matcher-worker.ts")).href;
@@ -180,7 +181,7 @@ export class CustomEventGroupMatcher {
   private ensureWorker(): Worker {
     if (this.worker && !this.workerDead) return this.worker;
     const w = new Worker(new URL(this.workerUrl), {
-      // Inherit `--import jiti-register.mjs` so the worker loads the .ts entry.
+      // Inherit the server's `--import` loader so the worker loads the .ts entry.
       execArgv: [...process.execArgv],
     });
     w.unref();

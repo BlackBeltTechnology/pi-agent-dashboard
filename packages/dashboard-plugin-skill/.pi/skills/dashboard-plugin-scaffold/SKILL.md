@@ -16,6 +16,8 @@ metadata:
 
 Two modes, one skill. Mode `new` scaffolds `packages/<id>-plugin/` inside the dashboard monorepo. Mode `augment` retrofits an existing pi-extension at the current working directory with a `pi-dashboard-plugin` manifest field and a `src/dashboard/` React subtree.
 
+> **Server TypeScript must be erasable.** The dashboard server loads a plugin's `server` entry with Node's strip-only TypeScript loader, so plugin server code must not use `enum`, runtime `namespace`, or constructor parameter properties, and must import type-only symbols with `import type`. A plugin that does fails to load in isolation (the error names the file). The templates already comply; keep them that way when editing.
+
 ## Step 1 — Up-front ask_user batch
 
 Use the `ask_user` tool, method `batch`, with these questions in order:

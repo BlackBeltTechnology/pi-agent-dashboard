@@ -3,6 +3,10 @@
  * Validates PluginManifest and PluginClaim objects.
  */
 
+import {
+  PANE_TAB_PREFIX_RE,
+  RESERVED_PANE_TAB_PREFIXES,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import type {
   PluginClaim,
   PluginManifest,
@@ -10,21 +14,22 @@ import type {
   SettingsNavHint,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import {
-  PANE_TAB_PREFIX_RE,
-  RESERVED_PANE_TAB_PREFIXES,
-} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
-import {
   type SettingsTab,
   SLOT_DEFINITIONS,
   type SlotId,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 
 export class ManifestValidationError extends Error {
+  public readonly pluginId: string;
+  public readonly reason: string;
+
   constructor(
-    public readonly pluginId: string,
-    public readonly reason: string,
+    pluginId: string,
+    reason: string,
   ) {
     super(`[plugin:${pluginId}] Manifest validation failed: ${reason}`);
+    this.pluginId = pluginId;
+    this.reason = reason;
     this.name = "ManifestValidationError";
   }
 }

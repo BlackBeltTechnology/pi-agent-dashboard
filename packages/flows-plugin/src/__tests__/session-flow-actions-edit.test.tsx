@@ -5,16 +5,17 @@
  * onEditFlow(name|undefined, instruction) so the claim can send
  * `/skill:manage-flows ...`. See change: rework-flows-plugin-for-new-pi-flows.
  */
-import React from "react";
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, cleanup, fireEvent } from "@testing-library/react";
+
 import {
-  UiPrimitiveProvider,
   createUiPrimitiveRegistry,
   registerUiPrimitive,
+  UiPrimitiveProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, fireEvent, render } from "@testing-library/react";
+import type React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionFlowActions } from "../client/SessionFlowActions.js";
 
 const registry = createUiPrimitiveRegistry();

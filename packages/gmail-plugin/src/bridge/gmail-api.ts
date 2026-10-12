@@ -34,11 +34,19 @@ export interface GmailMessage {
 }
 
 export class GmailApi {
+  private readonly base: string;
+  private readonly token: string;
+  private readonly fetchImpl: typeof fetch;
+
   constructor(
-    private readonly base: string,
-    private readonly token: string,
-    private readonly fetchImpl: typeof fetch = fetch,
-  ) {}
+    base: string,
+    token: string,
+    fetchImpl: typeof fetch = fetch,
+  ) {
+    this.base = base;
+    this.token = token;
+    this.fetchImpl = fetchImpl;
+  }
 
   private async call<T>(method: string, pathAndQuery: string, body?: unknown): Promise<T> {
     let res: Response;

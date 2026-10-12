@@ -19,9 +19,10 @@
  * errors via React's nearest-boundary semantics; this test scopes only
  * the *outer* contract that did not previously exist.
  */
-import React from "react";
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+
+import { cleanup, render } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ErrorBoundary } from "../components/primitives/ErrorBoundary.js";
 

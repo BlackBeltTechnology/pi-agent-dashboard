@@ -1,23 +1,22 @@
 /**
  * Tests for `packages/server/bin/pi-dashboard.mjs` — the published CLI
  * bin entry. Spawns the wrapper as a child process to exercise the
- * real jiti-resolution + re-exec behaviour.
+ * real native-loader resolution + re-exec behaviour.
  *
- * See change: replace-tsx-with-jiti.
+ * See change: replace-tsx-with-jiti; strip-only-native-ts-loader (test-plan #E14, #E21).
  */
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import url from "node:url";
-import { realpathSync, symlinkSync } from "node:fs";
 import { shouldUrlWrapEntry } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
 const wrapperPath = path.resolve(here, "..", "..", "bin", "pi-dashboard.mjs");
-const repoNodeModules = path.resolve(here, "..", "..", "..", "..", "node_modules");
-const repoJitiRegister = path.join(repoNodeModules, "jiti", "lib", "jiti-register.mjs");
+const repoNativeRegister = path.resolve(here, "..", "..", "..", "shared", "src", "platform", "native-ts-register.mjs");
 
 describe("bin/pi-dashboard.mjs wrapper", () => {
   beforeAll(() => {
@@ -26,85 +25,46 @@ describe("bin/pi-dashboard.mjs wrapper", () => {
     }
   });
 
-  it("exits 1 with install-hint when jiti cannot be resolved", () => {
-    // Build an isolated anchor with NO node_modules tree — createRequire on
-    // it will fail to resolve `jiti/package.json`, triggering the miss path.
+  // The register module does not resolve from an isolated copy (no node_modules
+  // tree): the wrapper prints the corrupted-install hint and exits 1. It never
+  // probes jiti or tsx. See #E21.
+  it.each([["--version"], ["start"]])("`%s` with no resolvable register module exits 1 with the corrupted-install hint", (arg) => {
     const tmp = mkdtempSync(path.join(tmpdir(), "pi-dashboard-bin-test-"));
     try {
-      const fakeAnchor = path.join(tmp, "fake-anchor.js");
-      writeFileSync(fakeAnchor, "// no-op anchor with no node_modules\n");
-
-      // Spawn the wrapper. We override process.argv[1] indirectly by
-      // invoking node with `<wrapper>` then forcing argv[1] to the fake
-      // anchor via a tiny preamble — but the wrapper reads its OWN
-      // process.argv[1] which is the wrapper path itself when invoked
-      // directly. Strategy: copy the wrapper into the isolated tmp dir so
-      // its argv[1] resolves there with no jiti adjacency.
-      const isolatedWrapper = path.join(tmp, "pi-dashboard.mjs");
-      const wrapperSrc = require("node:fs").readFileSync(wrapperPath, "utf-8");
-      writeFileSync(isolatedWrapper, wrapperSrc);
-
-      const result = spawnSync(process.execPath, [isolatedWrapper, "--version"], {
-        encoding: "utf-8",
-        env: { ...process.env, NODE_PATH: "", PI_DASHBOARD_TS_LOADER: "jiti" },
-        timeout: 10_000,
-      });
-
-      expect(result.status).toBe(1);
-      expect(result.stderr).toContain("pi-dashboard: cannot find jiti");
-      expect(result.stderr).toContain("npm install -g @earendil-works/pi-coding-agent");
-      // No tsx mention — proposal mandates no-fallback wrapper.
-      expect(result.stderr).not.toMatch(/tsx/i);
-    } finally {
-      rmSync(tmp, { recursive: true, force: true });
-    }
-  });
-
-  // `start` with no resolvable jiti: the corrupted-install message, no tsx
-  // fallback (test-plan #X1). See change: cleanup-stale-fork-specs.
-  it("`start` with no jiti exits 1 with the corrupted-install message", () => {
-    const tmp = mkdtempSync(path.join(tmpdir(), "pi-dashboard-bin-start-"));
-    try {
+      // Copy the wrapper into the isolated tmp dir so its own location has no
+      // node_modules adjacency (and no sibling package.json for --version).
       const isolatedWrapper = path.join(tmp, "pi-dashboard.mjs");
       writeFileSync(isolatedWrapper, readFileSync(wrapperPath, "utf-8"));
 
-      const result = spawnSync(process.execPath, [isolatedWrapper, "start"], {
+      const result = spawnSync(process.execPath, [isolatedWrapper, arg], {
         encoding: "utf-8",
-        env: { ...process.env, NODE_PATH: "", PI_DASHBOARD_TS_LOADER: "jiti" },
+        env: { ...process.env, NODE_PATH: "" },
         timeout: 10_000,
       });
 
       expect(result.status).toBe(1);
-      expect(result.stderr.startsWith("pi-dashboard: cannot find jiti.")).toBe(true);
+      expect(result.stderr.startsWith("pi-dashboard: cannot find the native TypeScript loader")).toBe(true);
       expect(result.stderr).toContain("corrupted");
       expect(result.stderr).toContain("npm install -g @blackbelt-technology/pi-agent-dashboard");
-      expect(result.stderr).not.toMatch(/tsx/i);
+      expect(result.stderr).not.toMatch(/tsx|jiti/i);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
 
-  it("resolves jiti from process.argv[1] anchor and re-execs cli.ts", () => {
-    // Repo root has jiti at node_modules/jiti — wrapper invoked with its
-    // real path SHOULD walk createRequire(realpath(argv[1])) up into the
-    // repo's node_modules and find jiti.
-    if (!existsSync(repoJitiRegister)) {
-      // CI / fresh clone without `npm install` — skip rather than fail.
-      return;
-    }
-
+  it("resolves the native register module from the process.argv[1] anchor and re-execs cli.ts", () => {
     // Use `status` — it doesn't bind ports and exits quickly regardless
     // of whether a server is running. We don't care about exit code (0 if
-    // a dashboard is up, 1 if not — both are valid outcomes that prove
-    // the wrapper successfully resolved jiti and re-execed cli.ts). What
-    // we DO care about: (a) no jiti-miss error on stderr, (b) cli.ts
-    // produced its own "Dashboard server" output (running OR not running).
+    // a dashboard is up, 1 if not — both prove the wrapper resolved the
+    // loader and re-execed cli.ts). What we DO care about: (a) no
+    // corrupted-install error on stderr, (b) cli.ts produced its own
+    // "Dashboard server" output (running OR not running).
     const result = spawnSync(process.execPath, [wrapperPath, "status"], {
       encoding: "utf-8",
       timeout: 30_000,
     });
 
-    expect(result.stderr).not.toContain("pi-dashboard: cannot find jiti");
+    expect(result.stderr).not.toContain("cannot find the native TypeScript loader");
     expect(result.stdout).toMatch(/Dashboard server/i);
   }, 60_000);
 
@@ -113,7 +73,7 @@ describe("bin/pi-dashboard.mjs wrapper", () => {
   // spaces below and the child can no longer find the --require'd file.
   // See change: guard-server-heap-and-store-coupling (CodeRabbit PR #780 sweep).
   it("preserves a quoted NODE_OPTIONS value with repeated spaces for the server child", () => {
-    if (!existsSync(repoJitiRegister)) return;
+    if (!existsSync(repoNativeRegister)) return;
     const tmp = mkdtempSync(path.join(tmpdir(), "wrap-quoted-"));
     try {
       // Repeated spaces AND the wrapper's own prior token inside the quoted
@@ -155,7 +115,7 @@ describe("bin/pi-dashboard.mjs wrapper", () => {
  * E14–E16 — loader selection in the wrapper. A fake install tree in a temp dir:
  *   <tmp>/node_modules/@blackbelt-technology/pi-dashboard-shared → packages/shared
  *   <tmp>/pkg/{package.json, bin/pi-dashboard.mjs, src/cli.ts}
- * No jiti is resolvable from it. The stub `cli.ts` prints the child's
+ * Neither jiti nor tsx is resolvable from it. The stub `cli.ts` prints the child's
  * `execArgv` + `argv` so the spawned argv is observable.
  * See change: fix-appimage-cold-boot-latency (design D4, D8).
  */
@@ -175,7 +135,7 @@ describe("bin/pi-dashboard.mjs — TS loader selection", () => {
     writeFileSync(path.join(tmp, "pkg", "bin", "pi-dashboard.mjs"), readFileSync(wrapperPath, "utf-8"));
     writeFileSync(
       path.join(tmp, "pkg", "src", "cli.ts"),
-      `const out: string = JSON.stringify({ execArgv: process.execArgv, argv: process.argv.slice(1) });\nconsole.log("CHILD " + out);\n`,
+      `const out: string = JSON.stringify({ execArgv: process.execArgv, argv: process.argv.slice(1), loaderEnv: process.env.PI_DASHBOARD_TS_LOADER ?? null });\nconsole.log("CHILD " + out);\n`,
     );
     return tmp;
   }
@@ -189,7 +149,7 @@ describe("bin/pi-dashboard.mjs — TS loader selection", () => {
     });
   }
 
-  function childArgv(stdout: string): { execArgv: string[]; argv: string[] } {
+  function childArgv(stdout: string): { execArgv: string[]; argv: string[]; loaderEnv: string | null } {
     const line = stdout.split("\n").find((l) => l.startsWith("CHILD "));
     if (!line) throw new Error(`no CHILD line in stdout: ${stdout}`);
     return JSON.parse(line.slice("CHILD ".length));
@@ -225,20 +185,27 @@ describe("bin/pi-dashboard.mjs — TS loader selection", () => {
     expect(readFileSync(wrapperPath, "utf-8")).toMatch(/^const entry = cliPath;$/m);
   });
 
-  it("E16: missing jiti is fatal only for the jiti opt-in; --version never needs a loader", () => {
+  // #E14: PI_DASHBOARD_TS_LOADER is ignored by the wrapper — no warning (only the
+  // server process warns) and the variable reaches the child unchanged.
+  it.each([[undefined], [""], ["native"], ["jiti"], ["tsx"], ["garbage"]])(
+    "E14/E16: PI_DASHBOARD_TS_LOADER=%s → native loader, no wrapper warning, env passed through",
+    (loaderEnv) => {
+      const tmp = fakeInstall();
+      const res = runWrapper(tmp, ["start"], loaderEnv);
+      expect(res.status).toBe(0);
+      expect(res.stderr).toBe("");
+      const child = childArgv(res.stdout);
+      expect(child.execArgv[child.execArgv.indexOf("--import") + 1]).toMatch(/\/platform\/native-ts-register\.mjs$/);
+      expect(child.argv.slice(1)).toEqual(["start"]);
+      expect(child.loaderEnv).toBe(loaderEnv ?? null);
+    },
+    60_000,
+  );
+
+  it("E21: --version never needs a loader", () => {
     const tmp = fakeInstall();
-    const nativeStart = runWrapper(tmp, ["start"]);
-    expect(nativeStart.stderr).not.toContain("cannot find jiti");
-    expect(childArgv(nativeStart.stdout).argv.slice(1)).toEqual(["start"]);
-
-    const jitiStart = runWrapper(tmp, ["start"], "jiti");
-    expect(jitiStart.status).toBe(1);
-    expect(jitiStart.stderr.startsWith("pi-dashboard: cannot find jiti.")).toBe(true);
-
-    for (const loaderEnv of [undefined, "jiti"]) {
-      const v = runWrapper(tmp, ["--version"], loaderEnv);
-      expect(v.status).toBe(0);
-      expect(v.stdout.trim()).toBe("9.9.9");
-    }
+    const v = runWrapper(tmp, ["--version"]);
+    expect(v.status).toBe(0);
+    expect(v.stdout.trim()).toBe("9.9.9");
   }, 60_000);
 });

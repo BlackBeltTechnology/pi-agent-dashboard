@@ -5,23 +5,23 @@
  *
  * See change: fix-flows-plugin-polish (path-as-first-class-claim-field).
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
 // Re-import the matcher via a public hook surface would be cleanest, but
 // the matcher is currently a file-private function. Test it indirectly
 // by registering a claim and exercising the hook through render.
 
-import React from "react";
 import { act, render } from "@testing-library/react";
+import type React from "react";
 import { Router, useRoute } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import {
+  type ClaimEntry,
+  createSlotRegistry,
   PluginContextProvider,
   ShellOverlayRouteSlot,
-  createSlotRegistry,
   useShellOverlayRouteMatched,
   useShellOverlayRoutePresentation,
-  type ClaimEntry,
 } from "../index.js";
 
 function Probe({ onResult }: { onResult: (matched: boolean) => void }) {

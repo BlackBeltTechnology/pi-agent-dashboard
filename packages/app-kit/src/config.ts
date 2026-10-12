@@ -8,11 +8,14 @@
 
 /** A machine-readable kit failure. `code` is stable; the message is not. */
 export class AppKitError extends Error {
+  readonly code: "invalid_dashboard_url" | "app_config_unavailable" | "no_page_origin";
+
   constructor(
-    readonly code: "invalid_dashboard_url" | "app_config_unavailable" | "no_page_origin",
+    code: "invalid_dashboard_url" | "app_config_unavailable" | "no_page_origin",
     message: string = code,
   ) {
     super(message);
+    this.code = code;
     this.name = "AppKitError";
   }
 }

@@ -10,13 +10,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionManager } from "../connection.js";
 
 class MockWebSocket {
+  public url: string;
   static instances: MockWebSocket[] = [];
   readyState = 0;
   onopen: (() => void) | null = null;
   onclose: (() => void) | null = null;
   onmessage: ((ev: { data: string }) => void) | null = null;
   onerror: ((ev: unknown) => void) | null = null;
-  constructor(public url: string) {
+  constructor(url: string) {
+    this.url = url;
     MockWebSocket.instances.push(this);
   }
   send() {}

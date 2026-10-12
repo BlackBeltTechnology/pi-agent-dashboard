@@ -1,8 +1,9 @@
-import React, { useState, useRef, useEffect } from "react";
-import { Icon } from "@mdi/react";
-import { mdiPencil } from "@mdi/js";
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { mdiPencil } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Intent-capture step for the manage-flows authoring launcher.

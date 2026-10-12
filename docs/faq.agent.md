@@ -13,7 +13,7 @@ Pull-only condensed map. Source: docs/faq.md. Question → key answer.
 - Install without Electron — direct npm; pi/openspec/tsx as regular npm deps.
 - Install from source (dev) — Path C: clone, npm install, register pi package.
 - Prerequisites — required for B+C only; A bundles everything.
-- Start server manually — run `cli.ts` via `tsx`, foreground.
+- Start server manually — `node --import "file://$PWD/packages/shared/src/platform/native-ts-register.mjs" packages/server/src/cli.ts`, foreground. No `tsx` (foreign-loader warn).
 - Run as daemon — `pi-dashboard` CLI, background.
 - Check daemon status — CLI subcommand or `/api/health`.
 - Auto-start flow — bridge TCP-probes `piPort` each session start; spawns server detached when closed and `autoStart:true`.
@@ -114,7 +114,8 @@ Pull-only condensed map. Source: docs/faq.md. Question → key answer.
 ## Misc troubleshooting
 - See why session spawn failed — banner in folder card (code/hint/preflight/stderr). Settings→General→Recent Spawn Failures.
 - Old `~/.pi-dashboard/` after upgrade — left untouched. `detectLegacyManagedDir({homedir})` (`legacy-managed-dir.ts`).
-- `pi-dashboard start` ERR_MODULE_NOT_FOUND in dev checkout — .bin pointed at cli.ts (no TS loader). Fix: `packages/server/bin/pi-dashboard.mjs` resolves jiti.
+- `pi-dashboard start` ERR_MODULE_NOT_FOUND in dev checkout — .bin pointed at cli.ts (no TS loader). Fix: `packages/server/bin/pi-dashboard.mjs` resolves native register (`ts-loader-select.mjs`).
+- Server logs `PI_DASHBOARD_TS_LOADER is no longer supported` → unset var. Logs `booted under the jiti TypeScript loader` → `pi-dashboard stop && pi-dashboard start`. No jiti rollback.
 - `/api/flows-anthropic-bridge/status` "no sessions reporting" — pi reads `packages[]` not `dashboardPluginBridges`. 0.5.4+ dual-writes; `reconcilePluginBridgePackages`.
 - Abort slow on parallel flows — pi-flows <0.2.x `Promise.all` didn't race AbortSignal. Fixed 0.2.0+ `raceWithAbort`.
 - Hide reasoning/token bar/tool output — Settings▸General▸Chat display. Per-session ⚙ View popover.

@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeAll } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
-import React from "react";
+import type React from "react";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import type { ChatMessage } from "../../lib/chat/event-reducer.js";
+import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
 import { CollapsedToolGroup } from "../chat/CollapsedToolGroup.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
-import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
-import type { ChatMessage } from "../../lib/chat/event-reducer.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
 vi.mock("../../hooks/useMobile.js", () => ({

@@ -6,7 +6,7 @@
 #
 # Stages:
 #   1. Verify bundled resource layout (bundled node, start-server.sh, cli.ts,
-#      jiti loader, pi-coding-agent, node-pty linux-x64 prebuild,
+#      native TS loader, pi-coding-agent, node-pty linux-x64 prebuild,
 #      no absolute @blackbelt-technology symlinks).
 #   2. Verify pi-coding-agent version satisfies piCompatibility.minimum from
 #      the bundled server package.json. Locks the floor at install-time.
@@ -30,7 +30,7 @@ NODE_BIN="$APP_RESOURCES/node/bin/node"
 SERVER_BUNDLE="$APP_RESOURCES/server"
 START_SH="$SERVER_BUNDLE/start-server.sh"
 CLI_REL="node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts"
-JITI_REGISTER="$SERVER_BUNDLE/node_modules/jiti/lib/jiti-register.mjs"
+NATIVE_REGISTER="$SERVER_BUNDLE/node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs"
 PI_PKG_JSON="$SERVER_BUNDLE/node_modules/@earendil-works/pi-coding-agent/package.json"
 SERVER_PKG_JSON="$SERVER_BUNDLE/node_modules/@blackbelt-technology/pi-dashboard-server/package.json"
 
@@ -50,7 +50,7 @@ hr; echo "  Stage 1 — Verify bundled resource layout"; hr
 [ -d "$SERVER_BUNDLE" ]                     && pass "Server bundle dir present"            || fail "Server bundle" "missing $SERVER_BUNDLE"
 [ -x "$START_SH" ]                          && pass "Manual launch helper present"         || fail "start-server.sh" "missing or not executable: $START_SH"
 [ -f "$SERVER_BUNDLE/$CLI_REL" ]            && pass "Bundle cliPath present"               || fail "Bundle cliPath" "missing $SERVER_BUNDLE/$CLI_REL"
-[ -f "$JITI_REGISTER" ]                     && pass "Bundled jiti loader present"          || fail "jiti loader" "missing $JITI_REGISTER"
+[ -f "$NATIVE_REGISTER" ]                   && pass "Bundled native TS loader present"     || fail "native TS loader" "missing $NATIVE_REGISTER"
 [ -f "$PI_PKG_JSON" ]                       && pass "Bundled pi-coding-agent present"      || fail "pi-coding-agent" "missing $PI_PKG_JSON"
 [ -d "$SERVER_BUNDLE/node_modules/node-pty/prebuilds/linux-x64" ] \
                                             && pass "node-pty linux-x64 prebuild present"  || fail "node-pty prebuild" "linux-x64 missing"
@@ -110,7 +110,7 @@ PI_PORT=9998
 # daemon and exits, which would orphan SERVER_PID and break our health
 # probe. Foreground keeps the process backgrounded by the shell.
 "$NODE_BIN" \
-  --import "file://$JITI_REGISTER" \
+  --import "file://$NATIVE_REGISTER" \
   "$SERVER_BUNDLE/$CLI_REL" \
   --port "$PORT" \
   --pi-port "$PI_PORT" \

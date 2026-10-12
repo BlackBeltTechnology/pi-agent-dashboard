@@ -2,12 +2,13 @@
  * Tests for `useDisplayPrefs` — merges global + per-session override.
  * See change: configurable-chat-display.
  */
-import React from "react";
-import { describe, it, expect } from "vitest";
-import { renderHook } from "@testing-library/react";
-import { DisplayPrefsProvider } from "../lib/state/DisplayPrefsContext.js";
-import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
+
 import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import { renderHook } from "@testing-library/react";
+import type React from "react";
+import { describe, expect, it } from "vitest";
+import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
+import { DisplayPrefsProvider } from "../lib/state/DisplayPrefsContext.js";
 
 function wrapper(value: React.ComponentProps<typeof DisplayPrefsProvider>["value"]) {
   return ({ children }: { children: React.ReactNode }) => (

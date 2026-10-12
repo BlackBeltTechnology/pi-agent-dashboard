@@ -12,9 +12,10 @@
  * and uses a 10 s cold-start window),
  * add-configurable-readiness-timeout (window now configurable).
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { launchDashboardServer } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
+
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import type { launchDashboardServer } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { launchSpy } = vi.hoisted(() => ({
   launchSpy: vi.fn<typeof launchDashboardServer>(async () => ({ childPid: 1, reportedPid: 1, healthOk: true as const })),
@@ -22,7 +23,6 @@ const { launchSpy } = vi.hoisted(() => ({
 
 vi.mock("@blackbelt-technology/pi-dashboard-shared/server-launcher.js", () => ({
   launchDashboardServer: launchSpy,
-  JitiNotFoundError: class JitiNotFoundError extends Error {},
   PortConflictError: class PortConflictError extends Error {},
   EarlyExitError: class EarlyExitError extends Error { code: number | null = null; },
 }));
@@ -73,14 +73,6 @@ describe("Bridge launchServer → launchDashboardServer forwarding", () => {
     expect(opts.healthTimeoutMs).toBe(60_000);
   });
 
-  it("maps JitiNotFoundError to a failed LaunchResult (no throw)", async () => {
-    const { JitiNotFoundError } = await import("@blackbelt-technology/pi-dashboard-shared/server-launcher.js");
-    launchSpy.mockRejectedValueOnce(new JitiNotFoundError("loader missing"));
-    const r = await launchServer(cfg);
-    expect(r.success).toBe(false);
-    expect(r.message).toContain("loader missing");
-  });
-
   it("maps EarlyExitError to a failed LaunchResult mentioning the exit code", async () => {
     const { EarlyExitError } = await import("@blackbelt-technology/pi-dashboard-shared/server-launcher.js");
     const err = new (EarlyExitError as unknown as new (...args: unknown[]) => Error & { code: number })();
@@ -107,25 +99,23 @@ describe("Bridge launchServer → launchDashboardServer forwarding", () => {
 });
 
 /**
- * E20 — bridge auto-start under the native default: the REAL shared launcher
- * (seams injected through the mocked entry point) with no resolvable jiti and
- * `PI_DASHBOARD_TS_LOADER` unset launches on the native register and reports
- * a log-owning success (no `logOwned: false` / jiti-not-found path).
- * See change: fix-appimage-cold-boot-latency (design D4).
+ * E20 — bridge auto-start under the native loader: the REAL shared launcher
+ * (seams injected through the mocked entry point) with `PI_DASHBOARD_TS_LOADER`
+ * unset launches on the native register and reports a log-owning success. No
+ * jiti is resolved anywhere (test-plan #E15, #E16).
+ * See change: fix-appimage-cold-boot-latency (design D4); strip-only-native-ts-loader.
  */
 describe("Bridge launchServer under the native loader (E20)", () => {
-  it("launches with the native register when jiti is unresolvable", async () => {
+  it("launches with the native register with no jiti anywhere", async () => {
     vi.stubEnv("PI_DASHBOARD_TS_LOADER", undefined as unknown as string);
     try {
       const actual = await vi.importActual<typeof import("@blackbelt-technology/pi-dashboard-shared/server-launcher.js")>(
         "@blackbelt-technology/pi-dashboard-shared/server-launcher.js",
       );
       const { EventEmitter } = await import("node:events");
-      const resolveJiti = vi.fn(() => null);
       const spawnSeam = vi.fn(() => Object.assign(new EventEmitter(), { pid: 4242, exitCode: null, signalCode: null, unref: () => {} }));
       launchSpy.mockImplementationOnce((opts) => actual.launchDashboardServer({
         ...opts,
-        _resolveJiti: resolveJiti,
         _spawnNodeScript: spawnSeam as never,
         _isDashboardRunning: (async () => ({ running: true, pid: 4242 })) as never,
         _fs: { mkdirSync: () => undefined, openSync: () => 9, writeSync: () => 0, closeSync: () => undefined } as never,
@@ -133,9 +123,9 @@ describe("Bridge launchServer under the native loader (E20)", () => {
       }));
       const r = await launchServer(cfg);
       expect(r).toMatchObject({ success: true, logOwned: true, childPid: 4242 });
-      expect(resolveJiti).not.toHaveBeenCalled();
       const spawnOpts = (spawnSeam.mock.calls[0] as unknown as [{ loader: string }])[0];
       expect(spawnOpts.loader).toMatch(/^file:\/\/.*\/platform\/native-ts-register\.mjs$/);
+      expect(r.message).not.toMatch(/jiti/i);
     } finally {
       vi.unstubAllEnvs();
     }

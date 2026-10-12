@@ -32,9 +32,11 @@ export class NoCredentialError extends Error {
 
 /** Thrown in `none` mode when the host refuses a credential-less caller (401/403). */
 export class NotAdmittedError extends Error {
+  readonly status: number;
   readonly code = "not_admitted";
-  constructor(readonly status: number) {
+  constructor(status: number) {
     super("not_admitted");
+    this.status = status;
     this.name = "NotAdmittedError";
   }
 }

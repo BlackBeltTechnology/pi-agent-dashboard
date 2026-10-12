@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
-import React from "react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SpecsBrowserView } from "../openspec/SpecsBrowserView.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 
@@ -14,6 +14,7 @@ vi.mock("../../hooks/useMainSpecsReader.js", () => ({
 }));
 
 import { useMainSpecsReader } from "../../hooks/useMainSpecsReader.js";
+
 const mockUseMainSpecsReader = vi.mocked(useMainSpecsReader);
 
 describe("SpecsBrowserView", () => {

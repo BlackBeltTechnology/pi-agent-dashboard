@@ -1,11 +1,12 @@
 /**
  * Tests for CLI argument parsing.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { parseArgs, buildConfig, guardTempHomePort, PRODUCTION_DEFAULT_PORT } from "../cli.js";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildConfig, guardTempHomePort, PRODUCTION_DEFAULT_PORT, parseArgs } from "../cli.js";
 
 describe("parseArgs", () => {
   it("returns null subcommand with no args", () => {
@@ -245,22 +246,11 @@ describe("buildConfig host resolution", () => {
   });
 });
 
-describe("daemon spawn jiti resolution", () => {
-  it("ToolResolver.resolveJiti either returns a file:// URL or null", async () => {
-    // After change `unify-server-launch-ts-loader`, jiti resolution
-    // is owned by `ToolResolver.resolveJiti()` which walks managed pi
-    // → system pi → anchor → argv. Vitest's transitive `jiti` dep
-    // makes resolution likely succeed under the test runner; either
-    // outcome is valid — we just assert the contract: success returns
-    // a `file://` URL, miss returns null (no throw).
-    const { ToolResolver } = await import(
-      "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js"
+describe("daemon spawn native loader resolution", () => {
+  it("resolveNativeTsLoader returns a file:// URL of the shipped register module", async () => {
+    const { resolveNativeTsLoader } = await import(
+      "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs"
     );
-    const url = new ToolResolver().resolveJiti();
-    if (url !== null) {
-      expect(url.startsWith("file://")).toBe(true);
-    } else {
-      expect(url).toBeNull();
-    }
+    expect(resolveNativeTsLoader().startsWith("file://")).toBe(true);
   });
 });
