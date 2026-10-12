@@ -29,9 +29,10 @@ export function notSupportedTransport(): Error {
 }
 
 export class WSServer {
-  constructor(private readonly _options: WSServerOptions) {
-    // Inert by design: upstream's constructor also only stores options; the
-    // HTTP server is created in listen(), which this shim never runs.
+  private readonly _options: WSServerOptions;
+
+  constructor(_options: WSServerOptions) {
+    this._options = _options;
   }
 
   /** Transport entry point — always throws (see file header). */

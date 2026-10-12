@@ -43,12 +43,17 @@ function personaKeyFromDir(name: string): string | null {
 }
 
 export class RecordStore {
+  private readonly paths: TeamPaths;
+  private readonly ops: FsOps;
   private index = new Map<string, Locator>();
 
   constructor(
-    private readonly paths: TeamPaths,
-    private readonly ops: FsOps = realFs,
-  ) {}
+    paths: TeamPaths,
+    ops: FsOps = realFs,
+  ) {
+    this.paths = paths;
+    this.ops = ops;
+  }
 
   private file(l: Locator): string {
     if (!CONVERSATION_ID_RE.test(l.c)) throw new TeamError(404, "conversation_not_found");

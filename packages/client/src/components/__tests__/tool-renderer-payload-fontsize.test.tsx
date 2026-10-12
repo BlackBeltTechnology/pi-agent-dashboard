@@ -10,9 +10,10 @@
  * `text-code` className or an inline `12px` font-size. The 12 px value itself
  * is defined once in `packages/client/src/index.css` (`@utility text-code`).
  */
-import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
-import React from "react";
+
+import { cleanup, render } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -49,12 +50,12 @@ vi.mock("../settings/ThemeProvider.js", () => ({
 // We rely on real react-syntax-highlighter for Read/Write to verify the
 // `fontSize: "12px"` override actually lands on the rendered element.
 
-import { ReadToolRenderer } from "../tool-renderers/ReadToolRenderer.js";
-import { WriteToolRenderer } from "../tool-renderers/WriteToolRenderer.js";
-import { EditToolRenderer } from "../tool-renderers/EditToolRenderer.js";
 import { BashToolRenderer } from "../tool-renderers/BashToolRenderer.js";
+import { EditToolRenderer } from "../tool-renderers/EditToolRenderer.js";
 import { GenericToolRenderer } from "../tool-renderers/GenericToolRenderer.js";
+import { ReadToolRenderer } from "../tool-renderers/ReadToolRenderer.js";
 import type { ToolContext } from "../tool-renderers/types.js";
+import { WriteToolRenderer } from "../tool-renderers/WriteToolRenderer.js";
 
 const ctx: ToolContext = {};
 

@@ -81,9 +81,12 @@ function runnerArgs(r: NativeRecipe, rest: readonly string[], mode: "offline" | 
 }
 
 export class NativeDriver implements ServiceDriver {
+  private readonly deps: NativeDriverDeps;
   readonly name = "native" as const;
 
-  constructor(private readonly deps: NativeDriverDeps) {}
+  constructor(deps: NativeDriverDeps) {
+    this.deps = deps;
+  }
 
   private get platform() {
     return this.deps.platform ?? process.platform;

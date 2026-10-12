@@ -1224,12 +1224,13 @@ export const DEFAULT_OPENSPEC_CONFIG: OpenSpecConfig = {
 };
 
 /** Lifecycle state of an OpenSpec change, derived from artifacts + task status */
-export enum ChangeState {
-  PLANNING = "PLANNING",
-  READY = "READY",
-  IMPLEMENTING = "IMPLEMENTING",
-  COMPLETE = "COMPLETE",
-}
+export const ChangeState = {
+  PLANNING: "PLANNING",
+  READY: "READY",
+  IMPLEMENTING: "IMPLEMENTING",
+  COMPLETE: "COMPLETE",
+} as const;
+export type ChangeState = (typeof ChangeState)[keyof typeof ChangeState];
 
 /** Derive the lifecycle state of an OpenSpec change from its data */
 export function deriveChangeState(change: OpenSpecChange): ChangeState {

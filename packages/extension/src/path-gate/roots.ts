@@ -80,8 +80,11 @@ export class RootsProvider {
   private probeGen = 0;
   private cachedKey = "";
   private cachedStatic: Omit<GateRoots, "grants" | "workspace"> | null = null;
+  private readonly opts: RootsProviderOptions;
 
-  constructor(private readonly opts: RootsProviderOptions) {}
+  constructor(opts: RootsProviderOptions) {
+    this.opts = opts;
+  }
 
   /** Start (or restart for a new cwd) the bounded checkout probe. */
   startProbe(cwdArg?: string): void {

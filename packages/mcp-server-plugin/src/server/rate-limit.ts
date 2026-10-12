@@ -78,6 +78,11 @@ function credentialKey(ip: string, fingerprint: string): string {
 }
 
 export class AuthFailureThrottle {
+  private readonly maxFailures: number;
+  private readonly windowMs: number;
+  private readonly lockoutMs: number;
+  private readonly maxSources: number;
+  private readonly maxIpFailures: number;
   /**
    * Per-`(ip, fingerprint)` buckets. Keyed by `ip + NUL + fingerprint` — the
    * fingerprint is a hex SHA-256 digest, but the separator keeps an ip and a
@@ -89,12 +94,18 @@ export class AuthFailureThrottle {
   private readonly perIp = new Map<string, FailureRecord>();
 
   constructor(
-    private readonly maxFailures = MAX_AUTH_FAILURES,
-    private readonly windowMs = AUTH_FAILURE_WINDOW_MS,
-    private readonly lockoutMs = AUTH_LOCKOUT_MS,
-    private readonly maxSources = MAX_TRACKED_SOURCES,
-    private readonly maxIpFailures = MAX_IP_AUTH_FAILURES,
-  ) {}
+    maxFailures = MAX_AUTH_FAILURES,
+    windowMs = AUTH_FAILURE_WINDOW_MS,
+    lockoutMs = AUTH_LOCKOUT_MS,
+    maxSources = MAX_TRACKED_SOURCES,
+    maxIpFailures = MAX_IP_AUTH_FAILURES,
+  ) {
+    this.maxFailures = maxFailures;
+    this.windowMs = windowMs;
+    this.lockoutMs = lockoutMs;
+    this.maxSources = maxSources;
+    this.maxIpFailures = maxIpFailures;
+  }
 
   /** Tracked per-credential bucket count. Asserted by tests as the memory-bound canary. */
   get size(): number {

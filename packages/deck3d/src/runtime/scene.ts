@@ -330,11 +330,16 @@ function renderLayered(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera
  * Reports as `RenderPass` in `effects().active` so the pass names stay stable.
  */
 class BackdropRenderPass extends Pass {
+  private readonly rigScene: THREE.Scene;
+  private readonly rigCamera: THREE.Camera;
+
   constructor(
-    private readonly rigScene: THREE.Scene,
-    private readonly rigCamera: THREE.Camera,
+    rigScene: THREE.Scene,
+    rigCamera: THREE.Camera,
   ) {
     super();
+    this.rigScene = rigScene;
+    this.rigCamera = rigCamera;
     this.clear = true;
     this.needsSwap = false;
   }

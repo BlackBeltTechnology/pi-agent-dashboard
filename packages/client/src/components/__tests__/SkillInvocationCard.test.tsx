@@ -1,12 +1,13 @@
 /**
  * See change: render-skill-invocations-collapsibly.
  */
-import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
-import { render, fireEvent, act } from "@testing-library/react";
-import React from "react";
+
+import type { SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
+import { act, fireEvent, render } from "@testing-library/react";
+import type React from "react";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SkillInvocationCard } from "../chat/SkillInvocationCard.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
-import type { SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 
 beforeAll(() => {
   // jsdom doesn't implement matchMedia (needed by ThemeProvider).

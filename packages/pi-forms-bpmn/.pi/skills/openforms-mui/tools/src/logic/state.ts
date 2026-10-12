@@ -16,8 +16,8 @@ import type {
   NumberField,
 } from "../schema/types.js";
 import { walkFields } from "../schema/walk.js";
+import { type EvalContext, evaluateRule, type RuleEvaluation, resolveProperty } from "./cnf.js";
 import { evaluateFormula } from "./formula.js";
-import { EvalContext, RuleEvaluation, evaluateRule, resolveProperty } from "./cnf.js";
 
 export interface FieldLogicState {
   key: string;

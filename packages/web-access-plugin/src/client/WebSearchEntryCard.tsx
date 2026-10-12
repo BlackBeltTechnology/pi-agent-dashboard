@@ -20,7 +20,8 @@ import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { CustomEntryRendererProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { mdiChevronDown, mdiChevronRight, mdiFileDownloadOutline, mdiWeb } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useMemo } from "react";
+import type React from "react";
+import { useMemo } from "react";
 import { CUSTOM_BODY_MAX_CHARS } from "./body-limits.js";
 import {
   type FetchView,

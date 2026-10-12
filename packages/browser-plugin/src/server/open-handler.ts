@@ -31,11 +31,13 @@ export interface OpenResult {
 }
 
 export class OpenHandler {
+  private readonly deps: OpenHandlerDeps;
   /** `${sessionId}\0${instanceId}` → time of the last ACCEPTED `show`. */
   private readonly lastShow = new Map<string, number>();
   private readonly now: () => number;
 
-  constructor(private readonly deps: OpenHandlerDeps) {
+  constructor(deps: OpenHandlerDeps) {
+    this.deps = deps;
     this.now = deps.now ?? (() => Date.now());
   }
 

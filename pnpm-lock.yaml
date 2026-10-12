@@ -80,7 +80,7 @@ importers:
         specifier: ^4.21.0
         version: 4.23.12
       typescript:
-        specifier: ^5.7.0
+        specifier: ^5.8.0
         version: 5.9.3
       vitest:
         specifier: ^4.0.0
@@ -120,7 +120,7 @@ importers:
         specifier: ^19.0.0
         version: 19.2.8(react@19.2.8)
       typescript:
-        specifier: ^5.7.0
+        specifier: ^5.8.0
         version: 5.9.3
 
   packages/apple-tools:

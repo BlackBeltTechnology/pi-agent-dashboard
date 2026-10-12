@@ -50,11 +50,16 @@ export const DEFAULT_RETRY_CAP = 2;
 export class EmptyActionableGuard {
   /** sessionId → consecutive empty-actionable continuation count. */
   private count = new Map<string, number>();
+  private readonly mode: GuardMode;
+  private readonly retryCap: number;
 
   constructor(
-    private readonly mode: GuardMode = "auto-continue",
-    private readonly retryCap: number = DEFAULT_RETRY_CAP,
-  ) {}
+    mode: GuardMode = "auto-continue",
+    retryCap: number = DEFAULT_RETRY_CAP,
+  ) {
+    this.mode = mode;
+    this.retryCap = retryCap;
+  }
 
   /**
    * Observe a terminal turn's classification for a session and decide.

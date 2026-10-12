@@ -7,13 +7,14 @@
  *
  * See change: add-plugin-ui-primitive-registry.
  */
-import React from "react";
-import { describe, it, expect } from "vitest";
-import { render, renderHook } from "@testing-library/react";
+
 import {
   UI_PRIMITIVE_KEYS,
   type UiPrimitiveMap,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { render, renderHook } from "@testing-library/react";
+import type React from "react";
+import { describe, expect, it } from "vitest";
 import {
   createUiPrimitiveRegistry,
   registerUiPrimitive,

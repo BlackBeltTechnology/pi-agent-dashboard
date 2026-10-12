@@ -25,7 +25,9 @@ export class GrantCache {
   private sig = "";
   private subjects: string[] = [];
   private readonly file: string;
-  constructor(private readonly opts: GrantCacheOptions = {}) {
+  private readonly opts: GrantCacheOptions;
+  constructor(opts: GrantCacheOptions = {}) {
+    this.opts = opts;
     this.file = opts.file ?? defaultGrantsFile();
   }
 

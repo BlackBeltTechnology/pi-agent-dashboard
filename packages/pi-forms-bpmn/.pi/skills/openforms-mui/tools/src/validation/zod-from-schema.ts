@@ -11,11 +11,11 @@
  *  - Every non-required validator accepts its type's declared empty value.
  */
 import { z } from "zod";
-import type { FormAnswers, FormSchemaJSON, RepeaterField } from "../schema/types.js";
+import { type EvalContext, evaluateRule } from "../logic/cnf.js";
 import type { FormLogicState } from "../logic/state.js";
-import { EvalContext, evaluateRule } from "../logic/cnf.js";
-import { isEmptyValue } from "./empty.js";
+import type { FormAnswers, FormSchemaJSON, RepeaterField } from "../schema/types.js";
 import { constrainedValidatorFor } from "./constrain.js";
+import { isEmptyValue } from "./empty.js";
 
 /** Form-level (unlinked) issues carry this sentinel as their sole path element. */
 export const FORM_LEVEL_PATH = "__form__";

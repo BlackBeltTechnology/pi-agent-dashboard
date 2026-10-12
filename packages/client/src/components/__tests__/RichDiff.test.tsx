@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
 import { render as _rtlRender, cleanup } from "@testing-library/react";
-import React from "react";
+import type React from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 const render = _rtlRender;
 

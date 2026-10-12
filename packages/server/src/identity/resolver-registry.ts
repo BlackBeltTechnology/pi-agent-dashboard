@@ -36,27 +36,36 @@ export interface ResolverRegistration {
 }
 
 export class ResolverTrustError extends Error {
-  constructor(public readonly pluginId: string) {
+  public readonly pluginId: string;
+
+  constructor(pluginId: string) {
     super(`plugin '${pluginId}' is not permitted to register a principal resolver`);
+    this.pluginId = pluginId;
     this.name = "ResolverTrustError";
   }
 }
 
 export class ResolverDuplicateError extends Error {
-  constructor(public readonly pluginId: string) {
+  public readonly pluginId: string;
+
+  constructor(pluginId: string) {
     super(`plugin '${pluginId}' already registered a principal resolver`);
+    this.pluginId = pluginId;
     this.name = "ResolverDuplicateError";
   }
 }
 
 export class ResolverRegistry {
+  private readonly trustedPlugins: readonly string[];
   private readonly byPlugin = new Map<string, ResolverRegistration>();
 
   /**
    * @param trustedPlugins operator-controlled ids from
    *   `identity.trustedResolverPlugins`. The bundled id is always trusted.
    */
-  constructor(private readonly trustedPlugins: readonly string[]) {}
+  constructor(trustedPlugins: readonly string[]) {
+    this.trustedPlugins = trustedPlugins;
+  }
 
   /** Is a plugin permitted to register a resolver? (bundled OR in trust list) */
   isTrusted(pluginId: string): boolean {

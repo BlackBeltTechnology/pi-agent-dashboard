@@ -11,11 +11,11 @@
 import * as crypto from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
+import { normalizeEnvPathKey } from "@blackbelt-technology/pi-dashboard-shared/platform/env-path-key.js";
 import {
   type ResolvedRuntime,
   resolvedFamilyEntries,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
-import { normalizeEnvPathKey } from "@blackbelt-technology/pi-dashboard-shared/platform/env-path-key.js";
 import {
   getDefaultSubprocessAdapter,
   type SubprocessAdapter,
@@ -842,8 +842,13 @@ export function translatePathSource(args: {
 }
 
 export class AlreadyAtDestinationError extends Error {
-  constructor(public source: string, public destScope: PackageScope) {
+  public source: string;
+  public destScope: PackageScope;
+
+  constructor(source: string, destScope: PackageScope) {
     super(`Package already installed at ${destScope} scope: ${source}`);
+    this.source = source;
+    this.destScope = destScope;
     this.name = "AlreadyAtDestinationError";
   }
 }

@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
-import React from "react";
+import { cleanup, render } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -65,9 +65,9 @@ vi.mock("../settings/ThemeProvider.js", async () => {
   };
 });
 
-import { ThemeProvider } from "../settings/ThemeProvider.js";
-import { DiffPanel } from "../diff/DiffPanel.js";
 import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+import { DiffPanel } from "../diff/DiffPanel.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 const fileWithEdit: FileDiffEntry = {
   path: "src/example.ts",

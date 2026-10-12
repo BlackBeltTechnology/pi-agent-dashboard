@@ -58,17 +58,26 @@ export interface SubscriptionOptions {
 }
 
 export class McpSubscription {
+  private readonly sessionIds: ReadonlySet<string>;
+  private readonly sink: StreamSink;
+  private readonly caller: McpCaller;
+  private readonly options: SubscriptionOptions;
   private buffered = 0;
   private closed = false;
   private drainBound = false;
   private unsubscribe: (() => void) | null = null;
 
   constructor(
-    private readonly sessionIds: ReadonlySet<string>,
-    private readonly sink: StreamSink,
-    private readonly caller: McpCaller,
-    private readonly options: SubscriptionOptions = {},
-  ) {}
+    sessionIds: ReadonlySet<string>,
+    sink: StreamSink,
+    caller: McpCaller,
+    options: SubscriptionOptions = {},
+  ) {
+    this.sessionIds = sessionIds;
+    this.sink = sink;
+    this.caller = caller;
+    this.options = options;
+  }
 
   /** True once released. Tests assert this rather than poking internals. */
   get isClosed(): boolean {
