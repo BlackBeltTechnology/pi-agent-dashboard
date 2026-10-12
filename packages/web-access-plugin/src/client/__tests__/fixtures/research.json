@@ -1,0 +1,23 @@
+{
+  "id": "fx-research-1",
+  "type": "research",
+  "timestamp": 1700000000004,
+  "artifact": {
+    "id": "fx-research-1",
+    "type": "research",
+    "timestamp": 1700000000004,
+    "query": "example research question",
+    "sources": [
+      {
+        "rank": 1,
+        "url": "https://example.com/r1",
+        "title": "Example Source",
+        "snippet": "Neutral snippet.",
+        "quality": "official_docs",
+        "fetched": true,
+        "fetch_timestamp": 1700000000003,
+        "content_hash": "sha256:0000"
+      }
+    ]
+  }
+}
