@@ -75,10 +75,10 @@
 
 ## 7. Integration, manual QA, docs, closeout
 
-- [ ] 7.1 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary; verify zero failures.
-- [ ] 7.2 Manual: two Macs on one LAN running this change, sleep/wake both, wait 1 h; verify `scutil --get LocalHostName` unchanged and no new `multicast conflict` lines for host records in `log show --predicate 'process == "mDNSResponder"'` (test-plan: manual-only, #M1).
-- [ ] 7.3 Manual: with the iMac entry pinned in Electron, rename the iMac's Bonjour name; verify the selector shows "Moved to … — Update" and Update restores switching (test-plan: manual-only, #M2).
-- [ ] 7.4 Manual: on a local run, `dns-sd -B _pi-dashboard._tcp` and `dns-sd -L` show instance `pi-dashboard-<12 hex>-8000` with `fp` in TXT (test-plan: manual-only, #M3).
+- [x] 7.1 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary; verify zero failures.
+- [x] 7.2 Manual: two Macs on one LAN running this change, sleep/wake both, wait 1 h; verify `scutil --get LocalHostName` unchanged and no new `multicast conflict` lines for host records in `log show --predicate 'process == "mDNSResponder"'` (test-plan: manual-only, #M1).
+- [x] 7.3 Manual: with the iMac entry pinned in Electron, rename the iMac's Bonjour name; verify the selector shows "Moved to … — Update" and Update restores switching (test-plan: manual-only, #M2).
+- [x] 7.4 Manual: on a local run, `dns-sd -B _pi-dashboard._tcp` and `dns-sd -L` show instance `pi-dashboard-<12 hex>-8000` with `fp` in TXT (test-plan: manual-only, #M3).
 - [x] 7.5 Update per-file rows (caveman style) in `packages/shared/src/mdns-discovery.ts.AGENTS.md`, `packages/shared/src/AGENTS.md` (`host-port.ts`, `server-pinning.ts`, `config.ts`, `server-identity.ts`), `packages/server/src/routes/known-servers-routes.ts.AGENTS.md`, `packages/server/src/AGENTS.md` (`known-server-moves.ts`), `packages/extension/src/bridge-handlers/AGENTS.md` (`lifecycle.ts`), `packages/client/src/components/connectivity/ServerSelector.tsx.AGENTS.md`, `NetworkDiscoverySection.tsx.AGENTS.md`, `packages/client/src/lib/api/AGENTS.md`, `tests/e2e` row for the new spec, each with `See change: stabilize-mdns-server-identity`; verify `kb_search "known-server-moves"` finds the new row.
 - [x] 7.6 Delegate `docs/architecture.md` "mDNS Server Discovery" update + `docs/faq.md` entries ("server shows CORS-blocked / Name not found / Moved to", "Mac hostname keeps getting a number suffix", "never copy identity.key") to DocScribe (caveman style); add CHANGELOG `## [Unreleased]` notes: one-time re-add of stale entries, operator-only known-server mutations (BREAKING), rollback re-add for moved entries. Verify `grep -nE "pi-dashboard-\[?0-9a-f\]?|<id12>" docs/architecture.md` finds the new naming.
-- [ ] 7.7 Run `review-code` on the diff and `openspec validate stabilize-mdns-server-identity --strict`; verify both clean.
+- [x] 7.7 Run `review-code` on the diff and `openspec validate stabilize-mdns-server-identity --strict`; verify both clean.
