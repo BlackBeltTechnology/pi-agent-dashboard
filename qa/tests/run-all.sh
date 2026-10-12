@@ -38,6 +38,7 @@ TESTS=(
   "42-context-mode-settings.sh" # context-mode bridge-internal env scrubbed (headless + tmux), stale projected value dropped, operator export wins (#X8-X12). Skips when pi absent / Windows; MCP-child + store checks need context-mode. See change: add-context-mode-settings-plugin.
   "43-gateway-squatter-proof.sh" # a marked dashboard-spawned session refuses a loopback port squatter (proof only, no frame), logs it off-channel, recovers when the dashboard returns (#X7). Skips off POSIX / without pi. See change: loopback-credential-proof.
   "42-managed-services-podman.sh" # real rootless podman: adopt-after-restart, idle-stop, mounted secret, npx group stop (#X11-X13). Skips off Linux / without podman. See change: add-service-registry-core.
+  "44-photocraft.sh"            # pi-photocraft install (no TS loader), real release provisioning cacheHit false->true, exec + MCP handshake, Intel-mac native slice (#E36, #E37). Needs network. See change: add-photocraft-plugin.
   # 25-gateway-remote-join-perf.sh, 26-gateway-promotion-soak.sh and 38-poll-cost.sh are OPT-IN:
   # one moves ~1 GB through a socket, the others soak for minutes (38: PI_QA_POLL_COST=1).
 )

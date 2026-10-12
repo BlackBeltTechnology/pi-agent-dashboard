@@ -1,0 +1,52 @@
+#!/usr/bin/env node
+// pi-nano-banana launcher.
+//
+// Checkout: run `src/bin/nano-banana.ts` through tsx (the working tree, not a
+// stale `dist/`). Published install: tsx is a devDependency and absent, so run
+// the esbuild bundle `dist/nano-banana.js` in a `node` subprocess (a real entry
+// `process.argv[1]` is what the CLI's `isEntry()` guard needs). Neither → say
+// how to build. Arguments, stdio, exit code and signals pass through.
+//
+// A raw-TS bin ("bin": "src/bin/nano-banana.ts") does not run from a shell:
+// workspace → ERR_MODULE_NOT_FOUND (`.js` specifiers name `.ts` files); npm
+// install → ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING.
+// See change: add-photocraft-plugin.
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const srcCli = join(pkgRoot, "src", "bin", "nano-banana.ts");
+const distCli = join(pkgRoot, "dist", "nano-banana.js");
+
+function resolveTsx() {
+  try {
+    return createRequire(import.meta.url).resolve("tsx");
+  } catch {
+    return undefined;
+  }
+}
+
+const args = process.argv.slice(2);
+const tsx = existsSync(srcCli) ? resolveTsx() : undefined;
+
+let argv;
+if (tsx) argv = ["--import", tsx, srcCli, ...args];
+else if (existsSync(distCli)) argv = [distCli, ...args];
+else {
+  console.error("[pi-nano-banana] neither src/bin/nano-banana.ts (with tsx) nor dist/nano-banana.js is available — run `node scripts/build.mjs` in this package");
+  process.exit(1);
+}
+
+const child = spawn(process.execPath, argv, { stdio: "inherit" });
+for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => child.kill(sig));
+child.on("error", (e) => {
+  console.error(`[pi-nano-banana] failed to launch: ${e.message}`);
+  process.exit(1);
+});
+child.on("exit", (code, signal) => {
+  if (signal) process.exit(signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 1);
+  process.exit(code ?? 1);
+});
