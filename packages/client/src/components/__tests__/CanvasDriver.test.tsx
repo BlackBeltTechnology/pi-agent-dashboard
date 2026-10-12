@@ -210,6 +210,15 @@ describe("CanvasDriver — floating chip tray", () => {
     expect(observed).toContain(parent);
   });
 
+  it("B1 (r2): rows BEFORE the sentinel are observed too, so an in-place resize re-measures", () => {
+    const anchor = makeAnchor();
+    const parent = anchor.parentElement as HTMLElement;
+    const before = document.createElement("div");
+    parent.insertBefore(before, anchor);
+    renderTray(chipState, anchor);
+    expect(roObserve.mock.calls.map((c) => c[0])).toContain(before);
+  });
+
   it("#E5: tray ignores pointer input, chips take it", () => {
     tier = "mobile";
     renderTray({ ...chipState, target: { kind: "file", cwd: "/proj", path: "a.md" }, version: 1 });
