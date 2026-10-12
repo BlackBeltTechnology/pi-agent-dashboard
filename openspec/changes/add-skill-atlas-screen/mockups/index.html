@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skill Atlas — mockup</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* Tokens only — every colour is var(--…) from tokens.css (generated from index.css / themes.ts). */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg-primary); color: var(--text-primary); font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button, input { font: inherit; color: inherit; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .focus-ring:focus-visible, button:focus-visible, input:focus-visible, [tabindex]:focus-visible, a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* mockup chrome (not part of the design) */
+  .mock-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px dashed var(--border-strong); background: var(--bg-code); font-size: 12px; }
+  .mock-bar strong { color: var(--text-secondary); font-weight: 600; }
+  .mock-bar select { background: var(--bg-tertiary); border: 1px solid var(--border-secondary); border-radius: 4px; padding: 4px 6px; color: var(--text-primary); min-height: 32px; }
+
+  /* shell */
+  .shell { display: flex; height: calc(100% - 49px); }
+  .sidebar { width: 248px; flex: none; border-right: 1px solid var(--border-primary); background: var(--bg-secondary); padding: 12px; display: none; }
+  @media (min-width: 1024px) { .sidebar { display: block; } }
+  .folder { border-radius: 12px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); padding: 8px 10px; font-size: 12px; margin-bottom: 8px; }
+  .folder.active { border-color: var(--tint-blue-border); background: var(--tint-blue-bg); }
+  .folder .path { color: var(--text-secondary); font-size: 11px; }
+  .content { flex: 1; min-width: 0; overflow: auto; }
+
+  /* contract recipes */
+  .card { border-radius: 12px; border: 1px solid var(--border-secondary); background: var(--bg-secondary); box-shadow: inset 0 1px 0 var(--elevation-rim), 0 4px 8px var(--shadow-card); }
+  .inset { border-radius: 8px; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); }
+  .h-section { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin: 0; }
+  .title { font-size: 18px; font-weight: 600; margin: 0; }
+  .meta { font-size: 11px; color: var(--text-secondary); }
+  .btn { border-radius: 6px; padding: 0 12px; min-height: 44px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; font-weight: 600; }
+  @media (min-width: 640px) { .btn { min-height: 36px; } }
+  .btn-secondary { border: 1px solid var(--border-secondary); background: var(--bg-tertiary); color: var(--text-primary); }
+  .btn-secondary:hover { background: var(--bg-hover); }
+  .btn-icon { min-width: 44px; justify-content: center; padding: 0; }
+  @media (min-width: 640px) { .btn-icon { min-width: 32px; min-height: 32px; } }
+  .pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; border: 1px solid transparent; white-space: nowrap; }
+  .pill-neutral { background: var(--bg-tertiary); color: var(--text-secondary); border-color: var(--border-subtle); }
+  .pill-green { background: var(--tint-green-bg); color: var(--tint-green-fg); border-color: var(--tint-green-border); }
+  .pill-orange { background: var(--tint-orange-bg); color: var(--tint-orange-fg); border-color: var(--tint-orange-border); }
+  .pill-purple { background: var(--tint-purple-bg); color: var(--tint-purple-fg); border-color: var(--tint-purple-border); }
+  .callout { border-radius: 6px; border: 1px solid; padding: 8px 12px; font-size: 12px; display: flex; gap: 8px; align-items: flex-start; }
+  .callout-warning { background: var(--severity-warning-bg); border-color: var(--severity-warning-border); color: var(--severity-warning-fg); }
+  .callout-info { background: var(--severity-info-bg); border-color: var(--severity-info-border); color: var(--severity-info-fg); }
+  .callout-error { background: var(--severity-error-bg); border-color: var(--severity-error-border); color: var(--severity-error-fg); }
+  .input { border-radius: 4px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); padding: 6px 12px; font-size: 14px; min-height: 44px; width: 100%; }
+  @media (min-width: 640px) { .input { min-height: 36px; } }
+  .chk { display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); padding: 0 10px; min-height: 44px; font-size: 12px; font-weight: 600; cursor: pointer; user-select: none; }
+  @media (min-width: 640px) { .chk { min-height: 32px; } }
+  .chk:has(input:checked) { background: var(--tint-blue-bg); border-color: var(--tint-blue-border); color: var(--tint-blue-fg); }
+  .chk input { margin: 0; accent-color: var(--accent-primary); }
+  .chk .count { color: var(--text-secondary); font-weight: 400; }
+  .chk:has(input:checked) .count { color: var(--tint-blue-fg); }
+  .dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+  .skel { background: var(--bg-hover); border-radius: 4px; height: 12px; }
+  @media (prefers-reduced-motion: no-preference) { .skel { animation: pulse 1.4s ease-in-out infinite; } }
+  @keyframes pulse { 50% { opacity: .45; } }
+
+  /* relation glyphs (colour + line style + word) */
+  .rel-ref { --rel: var(--accent-blue); }
+  .rel-bundle { --rel: var(--accent-purple); }
+  .rel-tool { --rel: var(--accent-orange); }
+  .glyph { width: 22px; height: 0; border-top: 3px solid var(--rel); display: inline-block; vertical-align: middle; }
+  .rel-bundle .glyph { border-top-style: dashed; }
+  .rel-tool .glyph { border-top-style: dotted; }
+
+  /* S1 skills page */
+  .page { padding: 16px; max-width: 1200px; }
+  .tabs-settings { display: flex; gap: 4px; border-bottom: 1px solid var(--border-primary); margin: 12px 0; }
+  .tabs-settings span { padding: 8px 12px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+  .tabs-settings span.on { color: var(--text-primary); border-bottom: 2px solid var(--accent-primary); }
+  .atlas-section { padding: 12px; display: grid; gap: 12px; margin-bottom: 16px; }
+  @media (min-width: 768px) { .atlas-section { grid-template-columns: 1fr auto; align-items: center; } }
+  .atlas-section .row { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+  .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+  .hub { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 0 10px; min-height: 44px; font-size: 11px; font-weight: 600; background: var(--bg-secondary); border: 1px solid var(--border-secondary); cursor: pointer; }
+  @media (min-width: 640px) { .hub { min-height: 32px; } }
+  .hub:hover { background: var(--bg-hover); }
+  .ftoggle { display: inline-flex; }
+  .fgroups { display: contents; }
+  @media (max-width: 639px) { .fgroups { display: none; } .fgroups.open { display: flex; flex-direction: column; gap: 8px; width: 100%; } }
+  @media (min-width: 640px) { .ftoggle { display: none; } }
+  .showing { display: flex; align-items: center; gap: 8px; padding: 8px 16px; font-size: 12px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); }
+  @media (max-width: 1023px) { .detail.has-sel { order: -1; border-top: 0; border-bottom: 1px solid var(--border-primary); } }
+  .hub .n { color: var(--text-secondary); font-weight: 400; }
+  .grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+  .rcard { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .rcard h4 { margin: 0; font-size: 13.5px; }
+  .rcard p { margin: 0; font-size: 12px; color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+  /* S2 atlas */
+  .atlas { display: flex; flex-direction: column; height: 100%; }
+  .atlas-head { padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; border-bottom: 1px solid var(--border-primary); }
+  .back { color: var(--link); font-size: 12px; text-decoration: none; min-height: 32px; display: inline-flex; align-items: center; }
+  .fresh { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+  .toolbar { padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-bottom: 1px solid var(--border-primary); }
+  .toolbar .search { flex: 1 1 220px; max-width: 320px; }
+  .toolbar .grp { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .toolbar .grp-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-right: 2px; }
+  .vtabs { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 6px; overflow: hidden; }
+  .vtabs button { border: 0; background: var(--bg-tertiary); padding: 0 12px; min-height: 44px; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--text-secondary); }
+  @media (min-width: 640px) { .vtabs button { min-height: 32px; } }
+  .vtabs button[aria-selected="true"] { background: var(--tint-blue-bg); color: var(--tint-blue-fg); }
+  .vtabs button[aria-disabled="true"] { color: var(--text-muted); cursor: not-allowed; }
+  .body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  @media (min-width: 1024px) { .body { flex-direction: row; } }
+  .main { flex: 1; min-width: 0; min-height: 420px; position: relative; overflow: auto; }
+  .detail { flex: none; border-top: 1px solid var(--border-primary); padding: 12px; overflow: auto; }
+  @media (min-width: 1024px) { .detail { width: 320px; border-top: 0; border-left: 1px solid var(--border-primary); } }
+  .detail .card { padding: 12px; display: grid; gap: 10px; }
+  .detail h3 { margin: 0; font-size: 15px; word-break: break-word; }
+  .detail p { margin: 0; font-size: 12px; color: var(--text-secondary); }
+  .nb-group h5 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+  .nb { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; border: 0; background: none; padding: 6px 8px; border-radius: 6px; cursor: pointer; min-height: 44px; justify-content: center; }
+  @media (min-width: 640px) { .nb { min-height: 32px; } }
+  .nb:hover { background: var(--bg-hover); }
+  .nb .id { font-size: 12px; font-weight: 600; }
+  .nb .why { font-size: 11px; color: var(--text-secondary); }
+  .seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; background: var(--bg-tertiary); padding: 0 10px; min-height: 44px; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--text-secondary); }
+  @media (min-width: 640px) { .seg button { min-height: 32px; } }
+  .seg button[aria-pressed="true"] { background: var(--tint-blue-bg); color: var(--tint-blue-fg); }
+  .empty-detail { font-size: 12px; color: var(--text-secondary); padding: 8px; }
+
+  /* graph */
+  svg.graph { width: 100%; height: 100%; min-height: 420px; display: block; cursor: grab; touch-action: none; }
+  svg.graph:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+  .edge { fill: none; stroke-width: 1.4; opacity: .75; }
+  .edge.ref { stroke: var(--accent-blue); }
+  .edge.bundle { stroke: var(--accent-purple); stroke-dasharray: 5 4; }
+  .edge.tool { stroke: var(--accent-orange); stroke-dasharray: 1.5 3; stroke-linecap: round; stroke-width: 1.8; }
+  .node .shape { fill: var(--bg-secondary); stroke: var(--border-strong); stroke-width: 1.5; }
+  .node.project .ring { fill: none; stroke: var(--accent-green); stroke-width: 2.5; }
+  .node.sel .shape { stroke: var(--focus-ring); stroke-width: 3; }
+  .node.kbd .shape { stroke: var(--focus-ring); stroke-dasharray: 3 2; stroke-width: 2.5; }
+  .node text { font-size: 11px; fill: var(--text-secondary); paint-order: stroke; stroke: var(--bg-primary); stroke-width: 3px; pointer-events: none; }
+  .node.sel text { fill: var(--text-primary); font-weight: 600; }
+  .dim { opacity: .12; }
+  .zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
+  .graph-legend { position: absolute; left: 12px; bottom: 12px; padding: 8px 10px; display: grid; gap: 4px; font-size: 11px; }
+  .graph-legend .li { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+  .graph-legend svg { overflow: visible; }
+
+  /* cards view */
+  .cards { padding: 16px; display: grid; gap: 16px; }
+  .cgroup h3 { margin: 0 0 8px; display: flex; gap: 6px; align-items: center; }
+  .scard { padding: 12px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; text-align: left; width: 100%; color: inherit; }
+  .scard[aria-pressed="true"] { border-color: var(--tint-blue-border); }
+  .scard:hover { background: var(--bg-hover); }
+  .scard .top { display: flex; gap: 6px; align-items: flex-start; }
+  .scard h4 { margin: 0; font-size: 13.5px; flex: 1; word-break: break-word; }
+  .scard p { margin: 0; font-size: 12px; color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .deg { display: flex; gap: 10px; font-size: 11px; color: var(--text-secondary); }
+  .scard.dim, .lrow.dim { opacity: .35; }
+
+  /* links table */
+  .ltable { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .ltable th { text-align: left; font-weight: 600; color: var(--text-secondary); padding: 8px 12px; border-bottom: 1px solid var(--border-primary); position: sticky; top: 0; background: var(--bg-primary); }
+  .ltable td { padding: 6px 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
+  .ltable td.why { color: var(--text-secondary); }
+  .linkbtn { border: 0; background: none; padding: 0; color: var(--link); cursor: pointer; font-weight: 600; text-align: left; min-height: 24px; }
+  .linkbtn:hover { color: var(--link-hover); text-decoration: underline; }
+
+  /* states page */
+  .states { padding: 16px; display: grid; gap: 16px; max-width: 1100px; }
+  .states .lbl { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<div class="mock-bar" role="region" aria-label="Mockup controls (not part of design)">
+  <strong>MOCKUP</strong>
+  <label>Surface
+    <select id="surface">
+      <option value="skills">S1 · Folder Skills page + atlas section</option>
+      <option value="project">S2 · Project atlas</option>
+      <option value="global">S2 · Global atlas</option>
+      <option value="states">States (loading / empty / degraded / &gt;300 / error)</option>
+    </select>
+  </label>
+  <label>Theme
+    <select id="theme">
+      <option value="dark|base">base · dark</option>
+      <option value="light|base">base · light</option>
+      <option value="dark|nord">nord · dark</option>
+      <option value="light|nord">nord · light</option>
+    </select>
+  </label>
+  <span class="meta">Data: real 91-skill snapshot (reference atlas + this repo's .pi/skills)</span>
+</div>
+
+<div class="shell">
+  <aside class="sidebar" aria-label="Folders (shell stub)">
+    <div class="folder active"><div><strong>pi-agent-dashboard</strong></div><div class="path mono">~/Project/pi-agent-dashboard</div></div>
+    <div class="folder"><div><strong>compsychletter</strong></div><div class="path mono">~/Project/compsychletter</div></div>
+    <div class="folder"><div><strong>Documents</strong></div><div class="path mono">~/Documents</div></div>
+  </aside>
+  <main class="content" id="app"></main>
+</div>
+
+<script src="data.js"></script>
+<script>
+(() => {
+  const A = window.ATLAS;
+  const REL = { references: { cls: "ref", rc: "rel-ref", label: "references" }, bundle: { cls: "bundle", rc: "rel-bundle", label: "same package" }, "shares-tool": { cls: "tool", rc: "rel-tool", label: "shares a tool" } };
+  const ORIG = { project: { label: "Project", pill: "pill-green", glyph: "◆" }, user: { label: "Global", pill: "pill-purple", glyph: "●" }, package: { label: "Package", pill: "pill-orange", glyph: "■" } };
+  const originOf = (s) => s.origin === "project" ? "project" : s.pkg ? "package" : "user";
+  const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const shortPkg = (p) => p ? p.replace("@blackbelt-technology/", "").replace("pi-dashboard-", "") : "";
+
+  const state = { surface: "skills", scope: "project", view: "graph", rel: { references: true, bundle: true, "shares-tool": true }, org: { project: true, user: true, package: true }, q: "", sel: null, hops: 0, kbd: 0, zoom: 1, pan: [0, 0] };
+
+  function dataset(scope) {
+    const skills = A.skills.filter((s) => scope === "project" || s.origin !== "project");
+    const ids = new Set(skills.map((s) => s.id));
+    const links = A.links.filter((l) => ids.has(l.source) && ids.has(l.target));
+    const deg = {}; for (const l of links) { deg[l.source] = (deg[l.source] || 0) + 1; deg[l.target] = (deg[l.target] || 0) + 1; }
+    return { skills, links, deg };
+  }
+  const counts = (links) => links.reduce((m, l) => (m[l.type] = (m[l.type] || 0) + 1, m), {});
+
+  // ---- deterministic force layout (seeded, precomputed, no animation) ----
+  const layoutCache = {};
+  let graphSize = { w: 900, h: 600 };
+  function layout(scope) {
+    if (layoutCache[scope]) return layoutCache[scope];
+    const { skills, links } = dataset(scope);
+    let seed = 1337; const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+    const P = {}; skills.forEach((s) => (P[s.id] = { x: rnd() * 800 - 400, y: rnd() * 600 - 300, vx: 0, vy: 0 }));
+    const N = skills.map((s) => P[s.id]);
+    const linked = new Set(links.flatMap((l) => [l.source, l.target])); skills.forEach((s) => (P[s.id].deg0 = !linked.has(s.id)));
+    for (let it = 0; it < 420; it++) {
+      const t = 1 - it / 420;
+      for (let i = 0; i < N.length; i++) for (let j = i + 1; j < N.length; j++) {
+        const a = N[i], b = N[j]; let dx = a.x - b.x, dy = a.y - b.y; const d2 = dx * dx + dy * dy + 0.01; const f = 2600 / d2;
+        dx *= f; dy *= f; a.vx += dx; a.vy += dy; b.vx -= dx; b.vy -= dy;
+      }
+      for (const l of links) {
+        const a = P[l.source], b = P[l.target]; const dx = b.x - a.x, dy = b.y - a.y; const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const rest = l.type === "bundle" ? 110 : 95; const k = (l.type === "references" ? 0.06 : l.type === "bundle" ? 0.008 : 0.03) * (d - rest) / d;
+        a.vx += dx * k; a.vy += dy * k; b.vx -= dx * k; b.vy -= dy * k;
+      }
+      for (const [i, p] of N.entries()) { const g = p.deg0 ? 0.09 : 0.03; p.vx -= p.x * g; p.vy -= p.y * g; p.x += Math.max(-30, Math.min(30, p.vx)) * t; p.y += Math.max(-30, Math.min(30, p.vy)) * t; p.vx *= 0.5; p.vy *= 0.5; }
+    }
+    return (layoutCache[scope] = P);
+  }
+
+  function hopSet(links, id, hops) {
+    const set = new Set([id]); let frontier = [id];
+    for (let h = 0; h < hops; h++) { const next = []; for (const l of links) for (const [a, b] of [[l.source, l.target], [l.target, l.source]]) if (frontier.includes(a) && !set.has(b)) { set.add(b); next.push(b); } frontier = next; }
+    return set;
+  }
+
+  function visible(ds) {
+    const q = state.q.trim().toLowerCase();
+    const links = ds.links.filter((l) => state.rel[l.type]);
+    const nodeOk = (s) => state.org[originOf(s)];
+    const match = (s) => !q || s.id.toLowerCase().includes(q) || s.description.toLowerCase().includes(q);
+    const focus = state.sel && state.hops ? hopSet(links, state.sel, state.hops) : null;
+    return { links, nodeOk, match, focus };
+  }
+
+  // ---------- S1 ----------
+  function atlasSection(variant = "ok") {
+    const ds = dataset("project"); const c = counts(ds.links);
+    if (variant === "loading") return `<section class="inset atlas-section" aria-busy="true" aria-label="Skill Atlas"><div style="display:grid;gap:8px"><h2 class="h-section">Skill Atlas</h2><div class="skel" style="width:60%"></div><div class="skel" style="width:40%"></div></div></section>`;
+    if (variant === "error") return `<section class="inset atlas-section" aria-label="Skill Atlas"><div style="display:grid;gap:6px"><h2 class="h-section">Skill Atlas</h2><div class="callout callout-error" role="alert"><span aria-hidden="true">✕</span><span>Could not build the skill graph: request timed out.</span></div></div><button class="btn btn-secondary">Retry</button></section>`;
+    const hubs = [...ds.skills].sort((a, b) => (ds.deg[b.id] || 0) - (ds.deg[a.id] || 0)).slice(0, 5);
+    return `<section class="inset atlas-section" aria-labelledby="atlas-h">
+      <div style="display:grid;gap:8px">
+        <div class="row"><h2 class="h-section" id="atlas-h">Skill Atlas</h2><span class="meta">${ds.skills.length} skills · ${ds.links.length} links · ${ds.skills.filter((s) => s.origin === "project").length} from this folder</span></div>
+        ${variant === "degraded" ? `<div class="callout callout-warning"><span aria-hidden="true">▲</span><span>pi's resolver was unavailable, so the list comes from a directory walk. It may differ from what pi loads.</span></div>` : ""}
+        <div class="row" aria-label="Relation types">
+          ${Object.entries(REL).map(([k, r]) => `<span class="legend-item ${r.rc}"><span class="glyph" aria-hidden="true"></span>${r.label} <span>${c[k] || 0}</span></span>`).join("")}
+        </div>
+        <div class="row"><span class="meta">Most connected:</span>${hubs.map((h) => `<button class="hub" data-open="${esc(h.id)}">${esc(h.id)} <span class="n">${ds.deg[h.id]}</span></button>`).join("")}</div>
+      </div>
+      <button class="btn btn-secondary" data-open="">Open atlas →</button>
+    </section>`;
+  }
+
+  function skillsPage() {
+    const local = A.skills.filter((s) => s.origin === "project").slice(0, 6);
+    return `<div class="page">
+      <h1 class="title">pi-agent-dashboard · Folder settings</h1>
+      <div class="tabs-settings" aria-hidden="true"><span>General</span><span class="on">Skills</span><span>Agents</span><span>Extensions</span><span>Prompts</span></div>
+      ${atlasSection()}
+      <div class="grid">${local.map((s) => `<article class="card rcard"><h4>${esc(s.id)}</h4><p>${esc(s.description)}</p><div style="display:flex;gap:6px"><span class="pill pill-green">◆ local</span><span class="pill pill-neutral">loose</span></div></article>`).join("")}</div>
+      <p class="meta" style="margin-top:8px">Existing grid unchanged (preserve mode). Section above is the new <span class="mono">resource-page-section</span> slot.</p>
+    </div>`;
+  }
+
+  // ---------- S2 ----------
+  function atlasPage(opts = {}) {
+    const scope = state.scope; const ds = dataset(scope); const c = counts(ds.links);
+    const tooMany = opts.tooMany;
+    const view = tooMany && state.view === "graph" ? "cards" : state.view;
+    const oc = ds.skills.reduce((m, s) => (m[originOf(s)] = (m[originOf(s)] || 0) + 1, m), {});
+    const freshness = opts.rebuilding
+      ? `<span class="fresh" role="status"><span class="dot" style="background:var(--status-working)" aria-hidden="true"></span>Updating… (SKILL.md changed)</span>`
+      : `<span class="fresh" role="status"><span class="dot" style="background:var(--status-idle)" aria-hidden="true"></span>Up to date · rebuilt 12:41</span>`;
+    return `<div class="atlas">
+      <header class="atlas-head">
+        <a class="back" href="#" data-back>${scope === "project" ? "← pi-agent-dashboard" : "← Home"}</a>
+        <h1 class="title">Skill Atlas</h1>
+        <span class="pill ${scope === "project" ? "pill-green" : "pill-purple"}">${scope === "project" ? "◆ Project · pi-agent-dashboard" : "● Global"}</span>
+        <span class="meta">${ds.skills.length} skills · ${ds.links.length} links</span>
+        ${freshness}
+      </header>
+      ${opts.degraded ? `<div style="padding:8px 16px 0"><div class="callout callout-warning"><span aria-hidden="true">▲</span><span>pi's resolver was unavailable, so the list comes from a directory walk. It may differ from what pi loads.</span></div></div>` : ""}
+      ${tooMany ? `<div style="padding:8px 16px 0"><div class="callout callout-info"><span aria-hidden="true">ⓘ</span><span>312 skills is more than the graph can show legibly (limit 300). Use Cards or Links, or narrow with the filters.</span></div></div>` : ""}
+      <div class="toolbar">
+        <div class="vtabs" role="tablist" aria-label="Atlas view">
+          ${["cards", "graph", "links"].map((v) => `<button role="tab" id="tab-${v}" aria-controls="panel" aria-selected="${view === v}" tabindex="${view === v ? 0 : -1}" ${v === "graph" && tooMany ? 'aria-disabled="true" title="Graph disabled above 300 skills"' : ""} data-view="${v}">${v[0].toUpperCase() + v.slice(1)}</button>`).join("")}
+        </div>
+        <div class="search"><label class="sr-only" for="q">Search skills</label><input id="q" class="input" type="search" placeholder="Search skills…" value="${esc(state.q)}"></div>
+        <button class="btn btn-secondary ftoggle" aria-expanded="${!!state.fOpen}" aria-controls="fgroups" data-ftoggle>Filters · ${Object.values(state.rel).filter(Boolean).length + Object.values(state.org).filter(Boolean).length} on</button>
+        <div class="fgroups ${state.fOpen ? "open" : ""}" id="fgroups">
+        <div class="grp" role="group" aria-label="Relation types"><span class="grp-label">Relations</span>
+          ${Object.entries(REL).map(([k, r]) => `<label class="chk ${r.rc}"><input type="checkbox" data-rel="${k}" ${state.rel[k] ? "checked" : ""}><span class="glyph" aria-hidden="true"></span>${r.label} <span class="count">${c[k] || 0}</span></label>`).join("")}
+        </div>
+        <div class="grp" role="group" aria-label="Origin"><span class="grp-label">Origin</span>
+          ${Object.entries(ORIG).filter(([k]) => scope === "project" || k !== "project").map(([k, o]) => `<label class="chk"><input type="checkbox" data-org="${k}" ${state.org[k] ? "checked" : ""}><span aria-hidden="true">${o.glyph}</span>${o.label} <span class="count">${oc[k] || 0}</span></label>`).join("")}
+        </div>
+        </div>
+      </div>
+      ${view !== "graph" && (state.q || (state.sel && state.hops)) ? `<div class="showing" role="status">${showingText(ds)} <button class="linkbtn" data-clear>Clear</button></div>` : ""}
+      <div class="body">
+        <div class="main" id="panel" role="tabpanel" aria-labelledby="tab-${view}">${view === "graph" ? graphView(ds) : view === "cards" ? cardsView(ds) : linksView(ds)}</div>
+        <aside class="detail ${state.sel ? "has-sel" : ""}" aria-label="Skill details">${detailView(ds)}</aside>
+      </div>
+    </div>`;
+  }
+
+  function nodeShape(o, r) {
+    if (o === "project") return `<polygon class="shape" points="0,${-r - 2} ${r + 2},0 0,${r + 2} ${-r - 2},0"/><polygon class="ring" points="0,${-r - 6} ${r + 6},0 0,${r + 6} ${-r - 6},0"/>`;
+    if (o === "package") return `<rect class="shape" x="${-r}" y="${-r}" width="${2 * r}" height="${2 * r}" rx="2"/>`;
+    return `<circle class="shape" r="${r}"/>`;
+  }
+
+  function graphView(ds) {
+    const P = layout(state.scope); const v = visible(ds);
+    const shown = ds.skills.filter(v.nodeOk); const ids = new Set(shown.map((s) => s.id));
+    const order = [...shown].sort((a, b) => (ds.deg[b.id] || 0) - (ds.deg[a.id] || 0));
+    const kbdId = order[state.kbd % Math.max(1, order.length)]?.id;
+    const top = new Set(order.slice(0, 10).map((s) => s.id));
+    const nb = state.sel ? hopSet(v.links, state.sel, 1) : null;
+    // pixel-space transform: node sizes + 11px labels stay legible at any graph extent
+    const fitSet = v.focus ? shown.filter((s) => v.focus.has(s.id)) : shown;
+    const xs = fitSet.map((s) => P[s.id].x), ys = fitSet.map((s) => P[s.id].y);
+    const W = graphSize.w, H = graphSize.h, pad = 80;
+    const minX = Math.min(...xs), minY = Math.min(...ys), w = Math.max(1, Math.max(...xs) - minX), h = Math.max(1, Math.max(...ys) - minY);
+    const sc = Math.min((W - 2 * pad) / w, (H - 2 * pad) / h, 2.2) * state.zoom;
+    const cx = minX + w / 2, cy = minY + h / 2;
+    const X = (id) => ((P[id].x - cx) * sc + W / 2 + state.pan[0]), Y = (id) => ((P[id].y - cy) * sc + H / 2 + state.pan[1]);
+    const dimNode = (id, s) => (v.focus && !v.focus.has(id)) || (!v.match(s));
+    const edges = v.links.filter((l) => ids.has(l.source) && ids.has(l.target)).map((l) => {
+      const dim = v.focus && !(v.focus.has(l.source) && v.focus.has(l.target));
+      return `<line class="edge ${REL[l.type].cls} ${dim ? "dim" : ""}" x1="${X(l.source).toFixed(1)}" y1="${Y(l.source).toFixed(1)}" x2="${X(l.target).toFixed(1)}" y2="${Y(l.target).toFixed(1)}" ${l.type === "references" ? 'marker-end="url(#arr)"' : ""}/>`;
+    }).join("");
+    // greedy label placement by priority: selected > neighbours > search hit > keyboard cursor > top degree; skip on overlap
+    const prio = (s) => s.id === state.sel ? 0 : nb && nb.has(s.id) ? 1 : state.q && v.match(s) ? 2 : s.id === kbdId && state.kbdOn ? 3 : top.has(s.id) ? 4 : 9;
+    const boxes = [], labelled = new Set();
+    for (const s of [...shown].sort((a, b) => prio(a) - prio(b))) {
+      if (prio(s) === 9 || (v.focus && !v.focus.has(s.id))) continue;
+      const bx = { x: X(s.id) + 10, y: Y(s.id) - 8, w: s.id.length * 6.3 + 4, h: 15 };
+      if (prio(s) > 0 && boxes.some((o) => bx.x < o.x + o.w && o.x < bx.x + bx.w && bx.y < o.y + o.h && o.y < bx.y + bx.h)) continue;
+      boxes.push(bx); labelled.add(s.id);
+    }
+    const nodes = shown.map((s) => {
+      const o = originOf(s), r = 5 + Math.min(7, Math.sqrt(ds.deg[s.id] || 0) * 1.6);
+      const label = labelled.has(s.id);
+      return `<g class="node ${o} ${s.id === state.sel ? "sel" : ""} ${s.id === kbdId && state.kbdOn ? "kbd" : ""} ${dimNode(s.id, s) ? "dim" : ""}" transform="translate(${X(s.id).toFixed(1)},${Y(s.id).toFixed(1)})" data-node="${esc(s.id)}" style="cursor:pointer">
+        ${nodeShape(o, r)}<title>${esc(s.id)} — ${ORIG[o].label}${s.pkg ? " · " + esc(shortPkg(s.pkg)) : ""}</title></g>`;
+    }).join("");
+    return `<svg class="graph" id="svg" tabindex="0" role="img" aria-roledescription="skill graph" aria-label="Skill graph, ${shown.length} skills, ${v.links.length} links. Arrow keys move between skills by connection count, Enter opens details. The Links tab lists the same data as a table." viewBox="0 0 ${W} ${H}">
+        <defs><marker id="arr" viewBox="0 0 10 10" refX="16" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--accent-blue)"/></marker></defs>
+        <g>${edges}</g><g>${nodes}</g><g aria-hidden="true">${shown.filter((s) => labelled.has(s.id)).map((s) => `<g class="node ${s.id === state.sel ? "sel" : ""}" transform="translate(${X(s.id).toFixed(1)},${Y(s.id).toFixed(1)})"><text x="12" y="4">${esc(s.id)}</text></g>`).join("")}</g></svg>
+      <div class="card graph-legend" aria-hidden="true">
+        <div class="li"><svg width="12" height="12"><polygon points="6,0 12,6 6,12 0,6" style="fill:var(--bg-secondary);stroke:var(--accent-green);stroke-width:2"/></svg>Project</div>
+        <div class="li"><svg width="12" height="12"><circle cx="6" cy="6" r="5" style="fill:var(--bg-secondary);stroke:var(--border-strong);stroke-width:1.5"/></svg>Global</div>
+        <div class="li"><svg width="12" height="12"><rect x="1" y="1" width="10" height="10" rx="2" style="fill:var(--bg-secondary);stroke:var(--border-strong);stroke-width:1.5"/></svg>Package</div>
+      </div>
+      <div class="zoom"><button class="btn btn-secondary btn-icon" data-zoom="1.25" aria-label="Zoom in">+</button><button class="btn btn-secondary btn-icon" data-zoom="0.8" aria-label="Zoom out">−</button><button class="btn btn-secondary btn-icon" data-zoom="0" aria-label="Fit graph">⤢</button></div>`;
+  }
+
+  function cardsView(ds) {
+    const v = visible(ds); const groups = {};
+    for (const s of ds.skills.filter((s) => v.nodeOk(s) && keep(v, s))) { const o = originOf(s); const key = o === "package" ? "pkg:" + s.pkg : o; (groups[key] ||= []).push(s); }
+    const keyOrder = (k) => k === "project" ? 0 : k === "user" ? 1 : 2;
+    const din = {}, dout = {}; for (const l of v.links) { dout[l.source] = (dout[l.source] || 0) + 1; din[l.target] = (din[l.target] || 0) + 1; }
+    return `<div class="cards">${Object.keys(groups).sort((a, b) => keyOrder(a) - keyOrder(b) || a.localeCompare(b)).map((k) => {
+      const o = k.startsWith("pkg:") ? "package" : k; const name = o === "package" ? shortPkg(k.slice(4)) : ORIG[o].label;
+      return `<section class="cgroup"><h3 class="h-section"><span aria-hidden="true">${ORIG[o].glyph}</span>${esc(name)} <span class="meta">${groups[k].length}</span></h3>
+        <div class="grid">${groups[k].map((s) => `<button class="card scard" aria-pressed="${s.id === state.sel}" data-node="${esc(s.id)}">
+          <div class="top"><h4>${esc(s.id)}</h4></div><p>${esc(s.description)}</p>
+          <div class="deg"><span title="references out">→ ${dout[s.id] || 0}</span><span title="referenced by">← ${din[s.id] || 0}</span><span>${ds.deg[s.id] || 0} links total</span></div></button>`).join("")}</div></section>`;
+    }).join("")}</div>`;
+  }
+
+  // Cards/Links HIDE non-matching items (dimmed text would fail WCAG 1.4.3); graph dims shapes to keep spatial memory.
+  const keep = (v, s) => v.match(s) && (!v.focus || v.focus.has(s.id));
+  function showingText(ds) { const v = visible(ds); const all = ds.skills.filter(v.nodeOk); const n = all.filter((s) => keep(v, s)).length; return `Showing ${n} of ${all.length} skills${state.sel && state.hops ? ` · ${state.hops}-hop focus on ${esc(state.sel)}` : ""}${state.q ? ` · matching “${esc(state.q)}”` : ""}`; }
+  function linksView(ds) {
+    const v = visible(ds); const byId = Object.fromEntries(ds.skills.map((s) => [s.id, s]));
+    const rows = v.links.filter((l) => v.nodeOk(byId[l.source]) && v.nodeOk(byId[l.target]));
+    return `<table class="ltable"><caption class="sr-only">Skill relations, ${rows.length} rows</caption><thead><tr><th scope="col">From</th><th scope="col">Relation</th><th scope="col">To</th><th scope="col">Why</th></tr></thead><tbody>
+      ${rows.filter((l) => (v.match(byId[l.source]) || v.match(byId[l.target])) && (!v.focus || (v.focus.has(l.source) && v.focus.has(l.target)))).map((l) => { return `<tr><td><button class="linkbtn" data-node="${esc(l.source)}">${esc(l.source)}</button></td><td><span class="legend-item ${REL[l.type].rc}"><span class="glyph" aria-hidden="true"></span>${REL[l.type].label}</span></td><td><button class="linkbtn" data-node="${esc(l.target)}">${esc(l.target)}</button></td><td class="why">${esc(l.why)}</td></tr>`; }).join("")}
+      </tbody></table>`;
+  }
+
+  // mutual references collapse to one "\u2194" row (both why lines kept)
+  function mergeMutual(id, g) {
+    const m = new Map();
+    for (const l of g) { const other = l.source === id ? l.target : l.source; const d = l.source === id ? "\u2192" : "\u2190"; const e = m.get(other); if (e) { e.dir = "\u2194"; e.why = "both name each other in their SKILL.md"; } else m.set(other, { other, dir: d, why: l.why }); }
+    return [...m.values()];
+  }
+  function detailView(ds) {
+    const s = ds.skills.find((x) => x.id === state.sel);
+    if (!s) return `<div class="empty-detail">Select a skill in the graph, a card, or the table to see what it connects to.</div>`;
+    const o = originOf(s); const ls = ds.links.filter((l) => l.source === s.id || l.target === s.id);
+    const groups = Object.keys(REL).map((t) => [t, ls.filter((l) => l.type === t)]).filter(([, g]) => g.length);
+    return `<div class="card">
+      <h3>${esc(s.id)}</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:6px"><span class="pill ${ORIG[o].pill}">${ORIG[o].glyph} ${ORIG[o].label}</span>${s.pkg ? `<span class="pill pill-neutral">${esc(shortPkg(s.pkg))}</span>` : `<span class="pill pill-neutral">loose</span>`}</div>
+      <p>${esc(s.description)}</p>
+      <div class="meta mono" style="word-break:break-all">${esc(s.path)}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="h-section">Focus</span>
+        <div class="seg" role="group" aria-label="Neighbourhood focus">${[[0, "All"], [1, "1 hop"], [2, "2 hops"]].map(([h, t]) => `<button aria-pressed="${state.hops === h}" data-hops="${h}">${t}</button>`).join("")}</div></div>
+      ${groups.length ? groups.map(([t, g]) => `<div class="nb-group ${REL[t].rc}"><h5><span class="glyph" aria-hidden="true"></span>${REL[t].label} (${g.length})</h5>
+        ${mergeMutual(s.id, g).map(({ other, dir, why }) => `<button class="nb" data-node="${esc(other)}"><span class="id">${t === "references" ? dir + " " : ""}${esc(other)}</span><span class="why">${esc(why)}</span></button>`).join("")}</div>`).join("") : `<p>No relations found. This skill does not name others and shares no package or tool.</p>`}
+      <button class="btn btn-secondary">Open SKILL.md</button>
+    </div>`;
+  }
+
+  // ---------- states ----------
+  function statesPage() {
+    return `<div class="states">
+      <div><div class="lbl">S1 · loading</div>${atlasSection("loading")}</div>
+      <div><div class="lbl">S1 · degraded scan</div>${atlasSection("degraded")}</div>
+      <div><div class="lbl">S1 · error</div>${atlasSection("error")}</div>
+      <div><div class="lbl">S1 · empty → section not rendered (no empty chrome on a resource page)</div></div>
+      <div><div class="lbl">S2 · empty folder</div><div class="card" style="padding:24px;text-align:center;display:grid;gap:8px;justify-items:center">
+        <h2 class="title" style="font-size:15px">No skills load in this folder</h2><p class="meta" style="margin:0">pi found no skill with a description here or in your global skills.</p>
+        <button class="btn btn-secondary">Go to Skills settings</button></div></div>
+      <div><div class="lbl">S2 · rebuilding (stale view kept, header status changes)</div><div class="card" style="overflow:hidden"><div class="atlas-head"><h1 class="title">Skill Atlas</h1><span class="fresh" role="status"><span class="dot" style="background:var(--status-working)" aria-hidden="true"></span>Updating… (SKILL.md changed)</span></div></div></div>
+      <div><div class="lbl">S2 · &gt;300 skills (Graph tab disabled with reason)</div><div class="callout callout-info"><span aria-hidden="true">ⓘ</span><span>312 skills is more than the graph can show legibly (limit 300). Use Cards or Links, or narrow with the filters.</span></div></div>
+      <div><div class="lbl">S2 · error</div><div class="callout callout-error" role="alert"><span aria-hidden="true">✕</span><span style="flex:1">Could not build the skill graph: request timed out.</span><button class="btn btn-secondary">Retry</button></div></div>
+    </div>`;
+  }
+
+  // ---------- render + events ----------
+  const app = document.getElementById("app");
+  function render(keepFocus) {
+    const fid = keepFocus && document.activeElement?.id;
+    const caret = fid === "q" ? document.activeElement.selectionStart : null;
+    app.innerHTML = state.surface === "skills" ? skillsPage() : state.surface === "states" ? statesPage() : atlasPage();
+    if (fid) { const el = document.getElementById(fid); if (el) { el.focus(); if (caret != null) el.setSelectionRange(caret, caret); } }
+    const svg = document.getElementById("svg");
+    if (svg) { const w = svg.clientWidth, h = svg.clientHeight; if (Math.abs(w - graphSize.w) > 2 || Math.abs(h - graphSize.h) > 2) { graphSize = { w, h }; render(keepFocus); } }
+  }
+  window.addEventListener("resize", () => render());
+  function go(surface) { state.surface = surface; document.getElementById("surface").value = surface; if (surface !== "skills" && surface !== "states") state.scope = surface; render(); }
+
+  document.getElementById("surface").addEventListener("change", (e) => { state.sel = null; state.hops = 0; go(e.target.value); });
+  document.getElementById("theme").addEventListener("change", (e) => { const [m, p] = e.target.value.split("|"); document.documentElement.dataset.theme = m; if (p === "base") delete document.documentElement.dataset.palette; else document.documentElement.dataset.palette = p; });
+
+  app.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-open],[data-view],[data-node],[data-hops],[data-zoom],[data-back],[data-ftoggle],[data-clear]"); if (!t) return;
+    if (t.dataset.ftoggle !== undefined) { state.fOpen = !state.fOpen; render(); return; }
+    if (t.dataset.clear !== undefined) { state.q = ""; state.hops = 0; render(); return; }
+    if (t.dataset.back !== undefined) { e.preventDefault(); go("skills"); return; }
+    if (t.dataset.open !== undefined) { state.sel = t.dataset.open || null; state.hops = t.dataset.open ? 1 : 0; go("project"); return; }
+    if (t.dataset.view) { if (t.getAttribute("aria-disabled") === "true") return; state.view = t.dataset.view; }
+    if (t.dataset.node) { state.sel = state.sel === t.dataset.node && state.view === "graph" ? null : t.dataset.node; if (!state.sel) state.hops = 0; }
+    if (t.dataset.hops) { state.hops = +t.dataset.hops; state.zoom = 1; state.pan = [0, 0]; }
+    if (t.dataset.zoom) { const z = +t.dataset.zoom; if (!z) { state.zoom = 1; state.pan = [0, 0]; } else state.zoom = Math.max(0.5, Math.min(5, state.zoom * z)); }
+    render();
+  });
+  app.addEventListener("input", (e) => { if (e.target.id === "q") { state.q = e.target.value; render(true); } });
+  app.addEventListener("change", (e) => {
+    if (e.target.dataset.rel) state.rel[e.target.dataset.rel] = e.target.checked;
+    if (e.target.dataset.org) state.org[e.target.dataset.org] = e.target.checked;
+    render();
+  });
+  app.addEventListener("keydown", (e) => {
+    if (e.target.getAttribute?.("role") === "tab" && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+      const tabs = [...app.querySelectorAll('[role="tab"]:not([aria-disabled="true"])')]; const i = tabs.indexOf(e.target);
+      const n = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length]; state.view = n.dataset.view; render(); document.getElementById(n.id)?.focus(); e.preventDefault();
+    }
+    if (e.target.id === "svg") {
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") { state.kbd++; state.kbdOn = true; }
+      else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { state.kbd = Math.max(0, state.kbd - 1); state.kbdOn = true; }
+      else if (e.key === "Enter" || e.key === " ") { const n = app.querySelector(".node.kbd"); if (n) state.sel = n.dataset.node; }
+      else if (e.key === "Escape") { state.sel = null; state.hops = 0; }
+      else return;
+      e.preventDefault(); render(); document.getElementById("svg")?.focus();
+    }
+  });
+  // drag-to-pan + wheel zoom
+  let drag = null;
+  app.addEventListener("pointerdown", (e) => { if (e.target.closest("svg.graph") && !e.target.closest("[data-node]")) drag = { x: e.clientX, y: e.clientY, p: [...state.pan] }; });
+  window.addEventListener("pointermove", (e) => { if (!drag) return; const svg = document.getElementById("svg"); if (!svg) return; state.pan = [drag.p[0] + (e.clientX - drag.x), drag.p[1] + (e.clientY - drag.y)]; render(); });
+  window.addEventListener("pointerup", () => (drag = null));
+  app.addEventListener("wheel", (e) => { if (!e.target.closest("svg.graph")) return; e.preventDefault(); state.zoom = Math.max(0.5, Math.min(5, state.zoom * (e.deltaY < 0 ? 1.1 : 0.9))); render(); }, { passive: false });
+
+  const qp = new URLSearchParams(location.search);
+  if (qp.get("theme")) { const sel = document.getElementById("theme"); sel.value = qp.get("theme"); sel.dispatchEvent(new Event("change")); }
+  if (qp.get("sel")) { state.sel = qp.get("sel"); state.hops = +(qp.get("hops") || 0); }
+  if (qp.get("view")) state.view = qp.get("view");
+  if (qp.get("surface")) go(qp.get("surface")); else render();
+})();
+</script>
+</body>
+</html>
