@@ -73,33 +73,34 @@ Alternatives considered:
 **Gap and its fallback.** A sign-in that completes after the section has unmounted never reaches `finishFlow`, because polling stops on unmount. `MissingRequiredBanner` covers only mobile, so the fallback is the Landing Step ① done row's manual-install state: it appears when `anthropic` is authenticated and `activeInPi === false` (D3c).
 
 ### D2: The probe vetoes, `activeInPi` decides, and the install is always global
-`ensureInstall()` does two **fresh** reads, `GET /api/health` and `GET /api/packages/recommended`. It never reads the section's `useAnthropicPeerProbe` state: `finishFlow` is a memoised callback captured by the flow poll, so that state would be stale.
+`ensureInstall()` does two **fresh** reads, `GET /api/health` and `GET /api/packages/recommended`, each with `AbortSignal.timeout(20_000)`. A timeout counts as "unreadable", so the store goes to `null` and nothing is installed. It never reads the section's `useAnthropicPeerProbe` state: `finishFlow` is a memoised callback captured by the flow poll, so that state would be stale.
 
-The probe body is parsed by a shared `derivePeerState(body)`, extracted from `useAnthropicPeerProbe.ts:derive` so the hook and the decision cannot drift. It checks the scoped key `@blackbelt-technology/pi-anthropic-messages` **and** the legacy key `@pi/anthropic-messages`, and matches `IMPORT_FAILURE_PREFIX` against the trimmed reason.
+The probe body is parsed by a shared `derivePeerState(body) → { missing, resolving, importFailed, reason }`, extracted from `useAnthropicPeerProbe.ts:derive`. It reads **only** the key `@pi/anthropic-messages`, the only key the bridge emits (`packages/flows-anthropic-bridge-plugin/src/bridge/index.ts:32-35`; `probeAll` already folds the scoped and legacy package names into it, `peer-probe.ts:79-86`). The hook's `peerMissing` is exactly `missing`, so its derivation is unchanged. The hook additively exposes `peerResolving` and `importFailed`.
 
 Rules, first match wins:
-1. The peer has an import failure under either key → `null`. The package is present but broken; the surfaces show the import-failure form.
-2. The peer is resolving under either key → `null`. This covers resolutions `activeInPi` cannot see: the legacy npm name, tier-1 `node_modules`, a local install in another project.
-3. The recommended fetch failed or has no `pi-anthropic-messages` entry → `null` (fail open).
+1. `importFailed` → `null`.
+2. `resolving` → `null`. This covers resolutions `activeInPi` cannot see (tier-1 `node_modules`, a local install).
+3. The recommended fetch failed or timed out, or has no `pi-anthropic-messages` entry → `null`.
 4. `activeInPi === true` → `null`.
-5. `packageQueue.isSourcePending(source)` is true → `running`, following that operation. This is a new public, read-only accessor. `enqueue` would silently drop an exact `(source, "install")` repeat without calling `onComplete` (`package-queue.ts:130-137`), so following the existing operation by source avoids a stuck store.
+5. `packageQueue.getSourceOp(source)` reports a queued or running `install` → `running`, following it. `getSourceOp` is a new public read-only accessor returning `{ action, status } | null`. An `enqueue` would be silently dropped as a `(source, "install")` repeat (`package-queue.ts:130-137`). A pending `remove`/`update` is not followed; the decision goes on to rule 6, which is queued behind it.
 6. Otherwise, `packageQueue.enqueue({ source, action: "install", scope: "global" })` → `running`.
 
-**Scope is always global.** That is the same constant as the hint's install affordance (`ProviderAuthSection.tsx:1000`). The banner's on-disk-scope Activate was rejected because the server resolves local scope from its own cwd (`recommended-routes.ts:353-355`), not from the user's project.
+**Scope is always global.** That is the same constant as the hint's install affordance (`ProviderAuthSection.tsx:1000`). The server resolves local scope from its own cwd (`recommended-routes.ts:353-355`), not from the user's project.
 
-### D3: A module-level store follows the source's queue transitions
+### D3: A module-level store follows the source's install transitions
 `peerAutoInstallStore` (`packages/client/src/lib/package/peer-auto-install-store.ts`) is read through `useSyncExternalStore`.
 
-- **State:** `{ seq, outcome: "deciding" | "running" | "installed" | "failed" | null, message? }`.
-- **Watching:** at module load it subscribes once to `packageQueue.subscribe`. While `outcome === "running"` it reads `getStateForSource(source)`: `success` → `installed`, `error` → `failed` (keeping the message). `enqueue` clears the source's sticky success and error (`package-queue.ts:138-139`), so a stale earlier error cannot latch. Following an operation another surface started works the same way. The subscription is module-level, so a success that auto-clears after 3 s while every surface is unmounted is still observed. Another action (`remove`/`update`) on the same source during our run is ignored as negligible.
-- **Recovery:** while `outcome === "failed"`, a later `success` for the source moves it to `installed`.
+- **State:** `{ seq, outcome: "deciding" | "running" | "installed" | "failed" | null, message? }`. There is no veto field: Landing reads the probe itself (D3c).
+- **Watching:** at module load the store subscribes once to `packageQueue.subscribe`. While `outcome === "running"`, it reads `getSourceOp(source)` and the source's terminal state. A terminal `success` or `error` **of an `install` operation** latches `installed` or `failed`, keeping the message. `enqueue` clears the source's sticky success and error (`package-queue.ts:138-139`), so a stale earlier result cannot latch. The subscription is module-level, so a success that auto-clears after 3 s while every surface is unmounted is still observed.
+  - Implementing this needs the queue to remember the action of the last terminal operation per source, an additive field on the per-source state.
+- **Recovery:** while `outcome === "failed"`, a later `install` success for the source moves it to `installed`. A `remove` or `update` success does nothing.
 - **Retry:** calls `ensureInstall("retry")`.
 - **Reset to `null`, bumping `seq` every time so late transitions are ignored:**
   - a page reload;
-  - an App-level effect when `useProvidersReady` reports `anthropic` no longer authenticated. It runs on mount, on focus and on `provider-auth-event`, so it covers in-dashboard sign-out immediately and expiry or CLI logout on the next focus refetch.
+  - an App-level effect on `useProvidersReady().anthropicAuthenticated`, which is three-valued: `true`, `false`, or `unknown` when the status read failed. The store resets **only on a transition from `true` to `false` between two successful reads**. That covers in-dashboard sign-out immediately, and expiry or CLI logout on the next focus refetch. A failed read never resets.
 - **`installed` clears** when a probe read by a mounted surface reports the peer resolving.
 
-**Accepted:** a sign-out while an install is running discards that success from the store. Landing then relies on `activeInPi`, and the row on the probe, as today.
+**Accepted:** a sign-out while an install is running discards that success from the store. The surfaces then fall back to `activeInPi` and the probe.
 
 ### D3b: Precedence on the Anthropic row
 Order, first match:
@@ -114,19 +115,19 @@ Other surfaces (`MissingRequiredBanner` on mobile, `RecommendedExtensions` in Se
 This also avoids coupling to the banner's dismissal logic (`MissingRequiredBanner.tsx:50-70`).
 
 ### D3c: Landing Step ① done row states
-App passes two new props to `LandingPage`: `anthropicAuthenticated`, from an additive field on the `useProvidersReady` result App already holds (`App.tsx:825`), and the store snapshot. `LandingPage` calls `useRecommendedExtensions` **only when `step1 === "done" && anthropicAuthenticated`**, which avoids the cold `/api/packages/recommended` cost for everyone else (`recommended-routes.ts:342-374`). All hooks sit above the legacy early return (`LandingPage.tsx:100-113`).
+App passes `anthropicAuthenticated` (the additive field on the `useProvidersReady` result App already holds, `App.tsx:825`) and the store snapshot to `LandingPage`. The peer row is a child component, `Step1PeerStatus`, **mounted only when `step1 === "done" && anthropicAuthenticated === true`**. It is the only place Landing calls `useRecommendedExtensions` and `useAnthropicPeerProbe`, so their requests happen only then, and hook order stays unconditional. `LandingPage`'s own hooks stay above its legacy early return (`LandingPage.tsx:100-113`).
 
 | First match | Beneath the Step ① label |
 |---|---|
+| probe `importFailed` | warning "pi-anthropic-messages failed to load — see Settings › Providers", no action |
+| probe `resolving` | nothing |
 | store `deciding` / `running` | in-progress status |
 | store `failed` | D7 warning + **Retry install** |
 | store `installed` | nothing |
-| `anthropicAuthenticated && entry && !entry.activeInPi` | warning "Claude tool calls need pi-anthropic-messages" + **Install** → `ensureInstall("manual")` |
+| entry present and `!entry.activeInPi` | warning "Claude tool calls need pi-anthropic-messages" + **Install** → `ensureInstall("manual")` |
 | otherwise | nothing |
 
-If `ensureInstall("manual")` hits the import-failure veto, the store records `outcome: null` with `vetoed: "import-failure"`, and the row shows "pi-anthropic-messages failed to load — see Settings › Providers" with no action.
-
-Peer actions use the ui-contract **secondary** button recipe, so the pending step's CTA stays the only primary.
+Peer actions use the ui-contract **secondary** button recipe, so the first pending step's CTA stays the only primary.
 
 Both surfaces wrap the status in one persistent `role="status"` / `aria-live="polite"` container, because `InlineMessage` has no live-region semantics.
 
@@ -142,15 +143,15 @@ Test ids: `onboarding-step-1-peer-status`, `onboarding-step-1-peer-install`, `on
    - no Windows-reserved basename (`CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0-9`, `LPT0-9`, superscript `COM¹²³` / `LPT¹²³`), case-insensitive, with or without an extension;
    - at most 255 UTF-8 bytes.
 
-   Failure returns 400 `invalid_name` or `reserved_name`.
+   Failure returns 400 `invalid_name`, `reserved_name`, or `too_long` (for the byte limit).
 3. **Home.** `stat(homeDir)` must be a directory, else 500 `home_missing`. Nothing above `<home>` is ever created.
-4. **Root.** `root = join(homeDir, "Projects")`, then a **non-recursive** `mkdir(root)`, tolerating EEXIST. Next, `rootReal = realpath(root)`; `stat(rootReal)` must be a directory, else 409 `root_not_a_directory`. A symlinked root is accepted.
+4. **Root.** `root = join(homeDir, "Projects")`, then a **non-recursive** `mkdir(root)`, tolerating EEXIST; any other error → 500 `fs_error`. Next, `rootReal = realpath(root)`; ENOENT (a dangling link) → 409 `root_not_a_directory`. `stat(rootReal)` must be a directory, else 409 `root_not_a_directory`. A symlinked root is accepted.
 5. **Target.** `target = join(rootReal, name)`. Try a non-recursive `mkdir(target)`:
    - success: `created = true`;
    - EEXIST: `created = false`;
    - ENAMETOOLONG: 400 `too_long`;
    - any other error: 500 `fs_error`.
-6. **Containment.** `targetReal = realpath(target)`; ENOENT (a dangling link) → 409 `not_a_directory`. If `targetReal` is neither `rootReal` nor below `rootReal + sep`, return 400 `outside_root`. If `created`, clean up first: `lstat(target)` must still be a directory, then `rmdir`, inside a try/catch that never follows a link.
+6. **Containment.** `targetReal = realpath(target)`; ENOENT (a dangling link) → 409 `not_a_directory`. If `targetReal` does not start with `rootReal + sep` (equal to the root also fails), return 400 `outside_root`. If `created`, clean up first: `lstat(target)` must still be a directory, then `rmdir`, inside a try/catch that never follows a link.
 7. **Type.** If `stat(targetReal)` is not a directory, return 409 `not_a_directory`.
 8. **Result.** Return `{ path: targetReal, existed: !created }`. Case and Unicode normalization follow the OS: a case-insensitive filesystem may reuse `Demo` for `demo`.
 
@@ -163,7 +164,7 @@ Gates:
 
 Shared types: `CreateProjectRequest` / `CreateProjectResult` / `CreateProjectErrorReason` in `packages/shared/src/rest-api.ts`, next to `MkdirRequest` (`:349`).
 
-Log: `[create-project] <created|reused|rejected:<reason>> name=<JSON.stringify(name.slice(0, 64))> bytes=<n>`.
+Log: `[create-project] <created|reused|rejected:<reason>> name=<typeof name === "string" ? JSON.stringify(name.slice(0, 64)) : "<non-string>"> bytes=<n>`.
 
 `/api/browse/mkdir` is untouched.
 
@@ -183,7 +184,9 @@ One card-root `<ol>` (`ui-contract.md`, card root recipe):
 - A "n of 3 done" line plus a bar sits above the list.
 - The existing `onboarding-step-N-cta` and `onboarding-step-N-done` testids are preserved.
 
-Locked rows render **no controls**, only the lock marker and "Needs …" text. The unit tests that assert disabled locked CTAs (`LandingPage.test.tsx:69-70,92-93`) change to assert the lock text instead. E2E is unaffected because the harness seeds credentials.
+Only the **first** pending step is expanded. Locked rows, and any later pending step (for example Step ③ when a folder was pinned from the sidebar before credentials), render **no controls**, only a lock marker and "Needs …" text.
+
+Marker tokens: the check marker uses the `--severity-success-{bg,fg,border}` triple, the lock marker `--bg-tertiary` + `--text-secondary`, the active number `--accent-primary` border + `--text-primary`, and the progress bar fill `--accent-primary` on `--bg-tertiary`. The current raw Tailwind colours in `LandingPage.tsx` (`text-green-500`, `text-amber-500/80`, `border-blue-500/50`, `text-blue-400`) are removed. The unit tests that assert disabled locked CTAs (`LandingPage.test.tsx:69-70,92-93`) change to assert the lock text instead. E2E is unaffected because the harness seeds credentials.
 
 Copy keeps the spec's done-row labels: "Credentials configured", the pinned-folder count, the active-session count. Step titles are "Connect a model provider", "Create your first project" and "Start your first session". Mockup: `mockups/index.html`; rationale with public-rule citations: `mockups/ui-plan.md`.
 
@@ -205,6 +208,8 @@ On both surfaces the failure is an `InlineMessage` with `severity="warning"`, be
 - **[Offline or corporate proxy]** → A plain-language warning plus Retry. Sign-in is never blocked.
 - **[Sign-in completes after settings unmounts]** (D1 gap) → No automatic install, but the Landing Step ① manual-install state (D3c) appears on every platform.
 - **[Stale recommended cache]** `/api/packages/recommended` can serve a 60 s-old `activeInPi` after an install. → Landing renders nothing for store `installed`, so it never offers Install over a fresh success. A pre-existing cache race in `recommended-routes.ts` is out of scope.
+- **[Probe is cwd-local and last-writer-wins]** (`flows-anthropic-bridge-plugin/src/server/index.ts:84-96`) → The resolving veto can skip a global install that another project would need. When that project's session starts, its probe reports the peer missing and the row hint offers Install, as today. A stale `ok:true` from an ended session has the same bound.
+- **[Harness before the first session]** The docker harness seeds an `anthropic` credential and links the peer only into `node_modules`, so before any session emits a probe, Landing shows the manual-install warning (`activeInPi` false, no probe yet). E2E selects by test id and never clicks it. The scenario plan decides whether a harness assertion is needed.
 - **[Page reload resets the store]** → After a reload the row hint is probe-driven as today, and Landing D3c still offers Install while `activeInPi === false`. `activeInPi` prevents redundant installs.
 - **[Optimistic pin can be dropped]** (WS down or missing scope) → Same as `AddFoldersDialog` today. The `pinned_dirs_updated` echo reconciles it.
 - **[`~/Projects` inside Docker is ephemeral]** → "Use an existing folder…" covers `PI_WORKSPACES` mounts. No harness or E2E variant change is needed: the auto-install path needs a real OAuth completion, which the harness does not drive (`unverified` beyond the spec titles in `flow-plugin-e2e`).

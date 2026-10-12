@@ -41,9 +41,9 @@ The two planned onboarding changes, `add-persistent-onboarding-card` and `add-we
 - `/api/browse/mkdir` semantics are unchanged.
 
 **Spec drift fix.** `landing-page-onboarding` and `pinned-directories-ui` still name `PinDirectoryDialog` as the Landing Step ② target. The modified requirements name `AddFoldersDialog`, which the code has used since `redesign-folder-workspace-add-flow`.
+- The "Step ① Setup credentials" requirement is modified to match shipped code: route `/settings/providers`, done when `useProvidersReady()` reports credentials.
 - The re-stated Landing scenarios read credentials through `useProvidersReady()`, which the unmodified "Providers-ready detection" requirement already defines (API key or OAuth). This aligns their wording with shipped behaviour; it is not a new done-condition.
 - Known drift deliberately left alone:
-  - the Step ① CTA route (`/settings/providers` in code vs `/settings?tab=providers` in the spec);
   - the `pinned-directories-ui` "Pin directory dialog uses PathPicker" and "Manual pin dialog" requirements, which still describe `PinDirectoryDialog`. That component still exists for the Packages move-to-local picker.
 
 **Mockups:**
@@ -84,9 +84,9 @@ The two planned onboarding changes, `add-persistent-onboarding-card` and `add-we
   - auto-install surface;
   - `AnthropicPeerHint` suppression rule.
 - `packages/client/src/hooks/useProvidersReady.ts`: an additive `anthropicAuthenticated` field from the status it already fetches. App passes it to `LandingPage` and resets the store when it turns false.
-- `packages/client/src/hooks/useAnthropicPeerProbe.ts`: `derive` is extracted as a shared `derivePeerState` that checks the scoped and legacy keys.
-- `packages/client/src/lib/package/package-queue.ts`: a public read-only `isSourcePending(source)`.
-- `LandingPage` reads `useRecommendedExtensions` for the Step ① manual-install fallback.
+- `packages/client/src/hooks/useAnthropicPeerProbe.ts`: `derive` is extracted as a shared `derivePeerState` (still reading only the `@pi/anthropic-messages` key). The hook additively exposes `peerResolving` and `importFailed`; `peerMissing` is unchanged.
+- New `Step1PeerStatus` child of `LandingPage`, mounted only when Step ① is done and Claude is connected.
+- `packages/client/src/lib/package/package-queue.ts`: a public read-only `getSourceOp(source)` returning `{ action, status }`, plus the action of the last terminal operation per source.
 - New `packages/client/src/lib/package/peer-auto-install-store.ts`.
 - New i18n keys.
 

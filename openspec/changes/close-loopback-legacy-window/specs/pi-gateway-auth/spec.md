@@ -86,7 +86,7 @@ pre-1.0.0 client from an unauthenticated one.
 - **AND** the response to the client SHALL NOT reveal the sub-cause
 
 #### Scenario: Legacy token acceptance is recorded
-- **WHEN** a request or bridge upgrade carries the raw `X-Pi-Local-Token` header and no `X-Pi-Local-Proof` header
+- **WHEN** a request or bridge upgrade carries a raw `X-Pi-Local-Token` header whose first value is non-empty after trimming, carries no `X-Pi-Local-Proof` header, and was not already refused for carrying an `Origin` header
 - **THEN** the server SHALL log that an outdated client presented the retired header, naming the caller kind and telling the operator to update or reload it
 - **AND** it SHALL emit at most one such line per caller kind per 60 seconds, the next emitted line carrying the number of occurrences suppressed since the previous line
 - **AND** the log line SHALL NOT include the header value, nor state whether that value matches the current token

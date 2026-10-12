@@ -38,7 +38,7 @@ The `Add-ons` page (page id `add-ons`, formerly `Packages`) SHALL render within 
 
 Each per-type page SHALL render the resources of that type across both local and global scope as cards. Each card SHALL surface, as explicit card content rather than by tree position: the resource **scope** (`local`/`global` badge), its **source** (`loose` badge, or a `📦 <package-name>` badge for a package-contributed resource), the resource **file path**, and the existing per-resource **activation toggle**. A card SHALL open the file preview when clicked. The page SHALL provide a name/description **search filter** and an `All / Local / Global` **scope filter**.
 
-The `DirectorySettingsPage` union SHALL enumerate `add-ons`, `skills`, `agents`, `extensions`, `prompts`, `themes` and SHALL NOT include `resources` or `packages`.
+The `DirectorySettingsPage` union SHALL enumerate `instructions`, `add-ons`, `cards`, `skills`, `agents`, `extensions`, `prompts`, `themes` and SHALL NOT include `resources` or `packages`. Every page in the union SHALL be addressable by URL.
 
 #### Scenario: Packages page preserves manage surface
 - **GIVEN** the directory settings page is open

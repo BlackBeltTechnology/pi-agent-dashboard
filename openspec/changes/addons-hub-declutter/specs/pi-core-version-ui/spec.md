@@ -1,9 +1,9 @@
 ## MODIFIED Requirements
 
 ### Requirement: Settings panel version section
-The Settings panel SHALL include a unified packages section, headed **Add-ons**, that contains three sub-groups: **Core**, **Recommended Extensions**, and **Other Packages**. Each sub-group SHALL render its rows using the same row component, and each package SHALL appear in exactly one sub-group, classified in priority order Core → Recommended → Other. Rows flagged `dashboardManaged` SHALL NOT render in any sub-group.
+The Settings panel SHALL include a unified packages section, headed **Add-ons**, that contains three sub-groups: **Core**, **Recommended Extensions**, and **Other Packages**. Each sub-group SHALL render its rows using the same row component, and each package SHALL appear in exactly one sub-group, classified in priority order Core → Recommended → Other. Rows flagged `dashboardManaged` SHALL NOT render in any sub-group. While no installed-list filter is active all three sub-groups SHALL render (an empty one shows its empty hint); while a filter is active a sub-group with no matching row SHALL be hidden.
 
-A local/git-installed row has a **resolvable published variant** when the server exposes `InstalledPackage.publishedVariantSource` (the canonical `npm:<name>` or git spec) for it — resolved via `RECOMMENDED_EXTENSIONS` for recommended rows, or an npm-registry lookup by `package.json name` for non-recommended local rows. Such a row SHALL render ONE source line (the installed `local`/`git` path) and a `local` badge whose accessible description names the published target and its available version (`publishedVariantVersion`). The `⋮` overflow menu SHALL include a **Reset to published version** item. The row SHALL NOT render a second source line or an inline "Reset to npm" link.
+A local/git-installed row has a **resolvable published variant** when the server exposes `InstalledPackage.publishedVariantSource` (the canonical `npm:<name>` or git spec) for it — resolved via `RECOMMENDED_EXTENSIONS` for recommended rows, or an npm-registry lookup by `package.json name` for non-recommended local rows. Such a row SHALL render ONE source line (the installed `local`/`git` path) and a `local` badge whose accessible description names the published target and its available version (`publishedVariantVersion`). The `⋮` overflow menu SHALL include a **Reset to published version** item whose visible label includes the published version when known and omits it (no empty brackets, no placeholder text) when unknown; the badge description likewise omits an unknown version. The row SHALL NOT render a second source line or an inline "Reset to npm" link. The menu item SHALL stay disabled while the row is `busy` or `locked` (any package operation running), exactly as today.
 
 The reset action SHALL be gated behind a confirmation dialog whose copy states that the local checkout *link* (not the on-disk files) is discarded and the published version installed, naming the exact published target. When `publishedVariantSource` is absent the row SHALL render a single source line, no `local`-override description and NO reset action.
 
@@ -32,6 +32,10 @@ The reset action SHALL NOT alter the existing Update, Uninstall, or Move afforda
 - **WHEN** the user selects the "Reset to published version" menu item
 - **THEN** a confirmation dialog SHALL appear naming the discarded local/git link and the exact published target
 - **AND** the reset SHALL run only after explicit confirmation
+
+#### Scenario: Reset disabled while another operation runs
+- **WHEN** any package operation is running (`locked`)
+- **THEN** the "Reset to published version" menu item SHALL be disabled with the locked reason as its description
 
 #### Scenario: Dashboard-managed rows are excluded
 - **WHEN** an installed row carries `dashboardManaged: true`

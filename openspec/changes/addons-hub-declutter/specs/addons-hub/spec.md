@@ -26,7 +26,7 @@ The Add-ons page SHALL render a concept explainer that defines, in plain languag
 - a **dashboard plugin** as code that runs only in the dashboard and changes what the user sees and controls, with no effect in terminal pi;
 - a **package** as the unit the user installs (npm, git or a folder), which may contain any mix of the above.
 
-The explainer SHALL include one worked example naming a real installed or recommended feature that has both an extension part and a dashboard-plugin part. The explainer SHALL be dismissible; dismissal SHALL persist across reloads on the same browser. A link in the page header SHALL reopen it. The page SHALL also render a one-line legend for the part labels (dashboard UI, extension, skills, tools).
+The explainer SHALL include one worked example naming a feature that has both an extension part (an entry of the recommended-extensions manifest) and a dashboard-plugin part (a plugin that ships with the dashboard and requires that extension). The explainer SHALL be dismissible; dismissal SHALL persist across reloads on the same browser. A link in the page header SHALL reopen it. The page SHALL also render a one-line legend for the part labels (dashboard UI, extension, skills, tools).
 
 #### Scenario: First visit shows the explainer
 - **GIVEN** the user has never dismissed the explainer on this browser
@@ -46,7 +46,7 @@ The explainer SHALL include one worked example naming a real installed or recomm
 
 ### Requirement: Part labels SHALL carry plain-language tooltips
 
-Every part label rendered on an add-on row or card (dashboard UI, extension, bridge, skills, tools) SHALL expose a plain-language description of that part as an accessible tooltip, matching the explainer's definitions.
+Every part label rendered on an add-on row or card (dashboard UI, extension, skills, tools) SHALL expose a plain-language description of that part as an accessible tooltip, matching the explainer's definitions.
 
 #### Scenario: Hovering an extension label
 - **WHEN** the user hovers or focuses an `extension` label on a row
@@ -54,7 +54,7 @@ Every part label rendered on an add-on row or card (dashboard UI, extension, bri
 
 ### Requirement: Dashboard-managed bridge entries SHALL NOT render as installed rows
 
-An installed-package row whose server response marks it `dashboardManaged` SHALL NOT render in the Add-ons installed list, in the folder Add-ons page, or in installed counts. These entries remain in `packages[]` and keep loading in pi; only their display is suppressed.
+An installed-package row whose server response marks it `dashboardManaged` SHALL NOT render anywhere installed rows render (global and folder Add-ons pages) and SHALL NOT count in installed totals or in the local-source banner. These entries remain in `packages[]` and keep loading in pi; only their display is suppressed.
 
 #### Scenario: Plugin bridges are hidden
 - **GIVEN** `packages[]` contains nine bridge paths written for enabled dashboard plugins
@@ -69,13 +69,18 @@ An installed-package row whose server response marks it `dashboardManaged` SHALL
 
 ### Requirement: A recommended extension SHALL appear once on the Add-ons page
 
-On the global Add-ons page, an installed recommended extension SHALL render only in the installed list. The recommended panel in the browse area SHALL list only recommended entries that are not active in pi. When every recommended entry is installed, the panel SHALL render a single line stating that all recommended add-ons are installed instead of an empty grid. "Install all missing" SHALL keep its existing behaviour.
+On the global Add-ons page, a recommended extension installed at global scope (recommended entry `installed.scope === "global"`) SHALL render only in the installed list. The recommended panel in the browse area SHALL list every recommended entry that is not installed at global scope; an entry installed only in a folder SHALL keep its card with its existing folder state, so it is never invisible on the page. When every recommended entry is installed globally, the panel SHALL render a single line stating that all recommended add-ons are installed instead of an empty grid. "Install all missing" SHALL keep its existing behaviour.
 
 #### Scenario: Installed recommended entry is not repeated
 - **GIVEN** `pi-flows` is recommended and installed globally
 - **WHEN** the Add-ons page renders
 - **THEN** `pi-flows` SHALL render as a row in the installed list
 - **AND** SHALL NOT render as a card in the recommended panel
+
+#### Scenario: Folder-only install keeps its card
+- **GIVEN** `pi-simplify` is recommended and installed only in folder `/repo`
+- **WHEN** the global Add-ons page renders
+- **THEN** the recommended panel SHALL still show a `pi-simplify` card with its folder install state
 
 #### Scenario: Missing recommended entry is offered
 - **GIVEN** `@blackbelt-technology/pi-image-fit-extension` is recommended and not installed
@@ -100,10 +105,11 @@ The Add-ons installed list SHALL provide a text filter matching display name, so
 
 ### Requirement: Local-source rows SHALL be summarised by one banner
 
-When one or more installed rows come from a local path or git checkout and have a published variant, the Add-ons page SHALL render one informational banner stating how many add-ons run from local source, with an action that applies the `Local source` filter. The banner SHALL NOT offer a bulk reset.
+When one or more displayed installed rows come from a local path or git checkout, the Add-ons page SHALL render one informational banner stating how many add-ons run from local source, with a `Show` action that clears the text filter and the other chips and turns on the `Local source` filter. The banner count and the `Local source` chip SHALL use the same predicate (source type local or git, `dashboardManaged` excluded), so the filtered list shows exactly the counted rows. The banner SHALL NOT offer a bulk reset.
 
 #### Scenario: Banner counts local overrides
-- **GIVEN** 13 installed rows are local checkouts with a published npm variant
+- **GIVEN** 13 displayed installed rows are local checkouts and 9 hidden rows are dashboard-managed bridges
 - **WHEN** the page renders
 - **THEN** a banner SHALL state that 13 add-ons run from local source
-- **AND** activating its `Show` action SHALL turn on the `Local source` filter
+- **AND** activating its `Show` action, even while a text filter is active, SHALL clear the other filters and turn on the `Local source` filter
+- **AND** exactly those 13 rows SHALL remain visible
