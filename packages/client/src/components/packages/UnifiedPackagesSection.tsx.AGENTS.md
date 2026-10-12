@@ -28,3 +28,7 @@ Version-list refresh after completion comes from `usePiCoreVersions`' own indepe
 See change: unify-pi-core-into-package-queue.
 
 `PI_CORE_PKG_LEGACY` / `isPiCorePkg` removed — icon + changelog wired to `@earendil-works/pi-coding-agent` only; a stale fork row gets neither. See change: drop-mariozechner-pi-fork.
+
+## addons-hub-declutter
+
+Heading `Add-ons` (was Pi Ecosystem). Renders `AddonsExplainer` (dismissal key `dashboard:addons-explainer-dismissed`, header link reopens + focuses), installed filter (text + `Local source` + `Update available` chips; Update chip disabled until a check completes), local-source banner (`Show` resets other filters), hides `dashboardManaged` rows via `visibleInstalledRows`; empty sub-groups hidden only while filtering; unmatched query → `ADDONS_NPM_SEARCH_EVENT` handoff to PackageBrowser. See change: addons-hub-declutter.

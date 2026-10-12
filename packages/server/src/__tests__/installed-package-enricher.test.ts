@@ -5,9 +5,13 @@
  * (readMeta, existsFn, manifest, bundledIds) is replaceable. We
  * exercise each branch without touching the real filesystem.
  */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, it, expect } from "vitest";
 import {
 	enrichInstalledRow,
+	enrichInstalledRows,
 	extractBasenameFromSource,
 	matchRecommendedEntry,
 	computeIsBundled,
@@ -241,5 +245,72 @@ describe("enrichInstalledRow", () => {
 		});
 		expect(out.isRecommended).toBe(true);
 		expect(out.isBundled).toBe(false);
+	});
+});
+
+// See change: addons-hub-declutter (test-plan E1, E2, E3)
+describe("enrichInstalledRows — dashboardManaged flag", () => {
+	const BRIDGE = "/r/goal-plugin/src/bridge/index.ts";
+	const row = (over: Partial<RawInstalledRow> = {}): RawInstalledRow => ({
+		source: BRIDGE,
+		scope: "user",
+		filtered: false,
+		installedPath: BRIDGE,
+		...over,
+	});
+
+	it("E1: flags a user row whose path is in the managed set (from either record)", () => {
+		const [flagged] = enrichInstalledRows([row()], undefined, { managedPaths: [BRIDGE] });
+		expect(flagged.dashboardManaged).toBe(true);
+	});
+
+	it("E1: does not flag a path absent from the managed set", () => {
+		const [other] = enrichInstalledRows([row({ source: "/repo/packages/eng-disciplines", installedPath: undefined })], undefined, {
+			managedPaths: [BRIDGE],
+		});
+		expect(other.dashboardManaged).toBeUndefined();
+	});
+
+	it("E1: no managedPaths (registry empty/absent) flags nothing", () => {
+		expect(enrichInstalledRows([row()], undefined)[0].dashboardManaged).toBeUndefined();
+		expect(enrichInstalledRows([row()], undefined, { managedPaths: [] })[0].dashboardManaged).toBeUndefined();
+	});
+
+	it("E2: `~`-prefixed registry spelling matches the absolute row", () => {
+		const abs = path.join(os.homedir(), "p/bridge/index.ts");
+		const [out] = enrichInstalledRows([row({ source: abs, installedPath: abs })], undefined, {
+			managedPaths: ["~/p/bridge/index.ts"],
+		});
+		expect(out.dashboardManaged).toBe(true);
+	});
+
+	it("E2: symlinked home spelling matches the real path", () => {
+		const base = fs.mkdtempSync(path.join(os.tmpdir(), "addons-managed-"));
+		try {
+			const realHome = path.join(base, "real");
+			const linkHome = path.join(base, "link");
+			fs.mkdirSync(path.join(realHome, "p/bridge"), { recursive: true });
+			fs.writeFileSync(path.join(realHome, "p/bridge/index.ts"), "");
+			fs.symlinkSync(realHome, linkHome);
+			const viaLink = path.join(linkHome, "p/bridge/index.ts");
+			const viaReal = path.join(realHome, "p/bridge/index.ts");
+			const [a, b] = enrichInstalledRows(
+				[row({ source: viaLink, installedPath: viaLink }), row({ source: viaReal, installedPath: viaReal })],
+				undefined,
+				{ managedPaths: [viaReal] },
+			);
+			expect(a.dashboardManaged).toBe(true);
+			expect(b.dashboardManaged).toBe(true);
+		} finally {
+			fs.rmSync(base, { recursive: true, force: true });
+		}
+	});
+
+	it("E3: project-scope rows are never flagged and isBundled is unchanged", () => {
+		const projectRow = row({ scope: "project" });
+		const [withSet] = enrichInstalledRows([projectRow], undefined, { managedPaths: [BRIDGE] });
+		const [without] = enrichInstalledRows([projectRow], undefined);
+		expect(withSet.dashboardManaged).toBeUndefined();
+		expect(withSet.isBundled).toBe(without.isBundled);
 	});
 });

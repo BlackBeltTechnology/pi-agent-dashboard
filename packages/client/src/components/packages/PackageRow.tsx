@@ -24,7 +24,7 @@ import {
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
@@ -83,13 +83,13 @@ export interface PackageRowProps {
 	onReset?: () => void;
 	/**
 	 * Canonical published spec (`npm:<name>` / git URL) this row can reset TO.
-	 * When set (with `onResetToNpm`), the row renders a second source line
-	 * (published link + available version) and both an inline ↺ Reset to npm
-	 * and a ⋮-menu "Reset to published version" item. Distinct from the generic
-	 * `onReset` ("Reset (reinstall)"). See change: reset-override-to-npm.
+	 * When set (with `onResetToNpm`), the source badge gains an accessible
+	 * description naming this target and the ⋮ menu gains a "Reset to published
+	 * version" item. Distinct from the generic `onReset` ("Reset (reinstall)").
+	 * See change: reset-override-to-npm, addons-hub-declutter.
 	 */
 	publishedVariantSource?: string;
-	/** Available version of `publishedVariantSource`, shown as "<v> available". */
+	/** Available version of `publishedVariantSource`; shown in the badge description and reset item label. */
 	publishedVariantVersion?: string;
 	/** Fires AFTER the user confirms the reset dialog. */
 	onResetToNpm?: () => void;
@@ -184,6 +184,23 @@ export function PackageRow({
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 	const canResetToNpm = !!publishedVariantSource && !!onResetToNpm;
+	const overrideDescId = useId();
+	// One source line + badge; the published target and version live in the
+	// badge's accessible description and the ⋮ reset item. Version omitted when
+	// unknown. See change: addons-hub-declutter (D5).
+	const overrideDescription = canResetToNpm
+		? publishedVariantVersion
+			? i18nT(
+					"packages.localOverrideDescriptionVersion",
+					{ target: publishedVariantSource, version: publishedVariantVersion },
+					`Runs from local source. Published version: ${publishedVariantSource} ${publishedVariantVersion}.`,
+				)
+			: i18nT(
+					"packages.localOverrideDescription",
+					{ target: publishedVariantSource },
+					`Runs from local source. Published version: ${publishedVariantSource}.`,
+				)
+		: undefined;
 	const menuRef = useRef<HTMLDivElement | null>(null);
 	const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
 	// The `right-0` menu can render in a narrow pi-resources list pane; measure
@@ -225,7 +242,19 @@ export function PackageRow({
 				<div className="min-w-0 flex-1">
 					<div className="flex items-center gap-2 flex-wrap">
 						<span className="text-[var(--text-primary)] font-medium">{displayName}</span>
-						<Badge className={SOURCE_BADGE_STYLE[sourceType]}>{sourceType}</Badge>
+						<span
+							className={`text-[10px] px-1.5 py-0.5 rounded border ${SOURCE_BADGE_STYLE[sourceType]}`}
+							title={overrideDescription}
+							aria-describedby={overrideDescription ? overrideDescId : undefined}
+							data-testid={testId ? `${testId}-source-badge` : undefined}
+						>
+							{sourceType}
+						</span>
+						{overrideDescription && (
+							<span id={overrideDescId} className="sr-only">
+								{overrideDescription}
+							</span>
+						)}
 						{queued && (
 							<Badge className="border-[var(--accent-primary)]/40 text-[var(--accent-primary)]">
 								<span
@@ -255,31 +284,6 @@ export function PackageRow({
 						)}
 					</div>
 					<code className="text-[10px] text-[var(--text-muted)] font-mono break-all">{source}</code>
-					{canResetToNpm && (
-						<div
-							className="flex items-center gap-1.5 mt-0.5"
-							data-testid={testId ? `${testId}-published-variant` : undefined}
-						>
-							<code className="text-[10px] text-[var(--text-secondary)] font-mono break-all">
-								{publishedVariantSource}
-							</code>
-							{publishedVariantVersion && (
-								<span className="text-[10px] text-[var(--text-muted)]">
-									{publishedVariantVersion} {i18nT("packages.available", undefined, "available")}
-								</span>
-							)}
-							<button
-								onClick={() => setResetConfirmOpen(true)}
-								disabled={busy || locked}
-								title={locked ? lockedReason : undefined}
-								className="text-[10px] text-[var(--accent-primary)] hover:underline disabled:opacity-50 flex items-center gap-0.5"
-								data-testid={testId ? `${testId}-reset-inline` : undefined}
-							>
-								<Icon path={mdiRestore} size={0.4} />
-								{i18nT("packages.resetToNpm", undefined, "Reset to npm")}
-							</button>
-						</div>
-					)}
 				</div>
 				<div className="flex items-center gap-2 flex-shrink-0">
 					{updateAvailable && currentVersion && latestVersion ? (
@@ -394,7 +398,13 @@ export function PackageRow({
 											data-testid={testId ? `${testId}-reset-to-published` : undefined}
 										>
 											<Icon path={mdiRestore} size={0.45} />
-											{i18nT("packages.resetToPublished", undefined, "Reset to published version")}
+											{publishedVariantVersion
+												? i18nT(
+														"packages.resetToPublishedVersion",
+														{ version: publishedVariantVersion },
+														`Reset to published version (${publishedVariantVersion})`,
+													)
+												: i18nT("packages.resetToPublished", undefined, "Reset to published version")}
 										</button>
 									)}
 									{onReset && (

@@ -42,6 +42,23 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
+describe("InstalledPackagesList — dashboard-managed rows", () => {
+	it("never lists a dashboardManaged row (see change: addons-hub-declutter)", () => {
+		mockInstalled.mockReturnValue({
+			packages: [
+				{ source: "/r/goal/src/bridge/index.ts", scope: "user", filtered: false, displayName: "index.ts", dashboardManaged: true },
+				{ source: "npm:pi-doom", scope: "user", filtered: false, displayName: "pi-doom" },
+			],
+			isLoading: false,
+			error: null,
+			refresh: vi.fn(),
+		});
+		render(<InstalledPackagesList scope="global" />);
+		expect(screen.queryByText("index.ts")).toBeNull();
+		expect(screen.getByText("pi-doom")).toBeTruthy();
+	});
+});
+
 describe("InstalledPackagesList", () => {
 	it("shows empty hint when no packages installed", () => {
 		render(<InstalledPackagesList scope="local" cwd="/proj" />);

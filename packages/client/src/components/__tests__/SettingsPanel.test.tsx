@@ -223,6 +223,48 @@ describe("SettingsPanel", () => {
     });
   });
 
+  // See change: addons-hub-declutter (test-plan E5, E6)
+  it("E5: /settings/add-ons renders the Add-ons page as the canonical URL", async () => {
+    global.fetch = mockFetchConfig();
+    setPath("/settings/add-ons");
+
+    render(<SettingsPanel />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/settings/add-ons");
+      expect(screen.getByRole("button", { name: "Add-ons" }).getAttribute("aria-current")).toBe("page");
+    });
+  });
+
+  it.each(["/settings/packages", "/settings?tab=packages"])(
+    "E5: legacy %s replace-redirects to /settings/add-ons without a new history entry",
+    async (legacy) => {
+      global.fetch = mockFetchConfig();
+      setPath(legacy);
+      const lengthBefore = window.history.length;
+
+      render(<SettingsPanel />);
+
+      await waitFor(() => {
+        expect(window.location.pathname).toBe("/settings/add-ons");
+        expect(window.location.search).toBe("");
+        expect(screen.getByRole("button", { name: "Add-ons" }).getAttribute("aria-current")).toBe("page");
+      });
+      expect(window.history.length).toBe(lengthBefore);
+    },
+  );
+
+  it.each(["/settings/package", "/settings/add-on"])("E6: near-miss %s still falls back to general", async (bad) => {
+    global.fetch = mockFetchConfig();
+    setPath(bad);
+
+    render(<SettingsPanel />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/settings/general");
+    });
+  });
+
   it("shows loading state initially", () => {
     global.fetch = vi.fn().mockReturnValue(new Promise(() => {})); // never resolves
     render(<SettingsPanel />);
@@ -1514,12 +1556,15 @@ describe("SettingsPanel Models nav group", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    // Plugins subtree is collapsed by default; pre-expand it (explicit choice).
+    localStorage.setItem("dashboard:settings-plugins-expanded", "true");
     fetchAutoInitWorktreePref.mockResolvedValue(false);
     setAutoInitWorktreePref.mockResolvedValue(true);
     setPath("/settings/general");
   });
   afterEach(() => {
     cleanup();
+    localStorage.removeItem("dashboard:settings-plugins-expanded");
     vi.unstubAllGlobals();
   });
 
@@ -1532,7 +1577,7 @@ describe("SettingsPanel Models nav group", () => {
     expect(groups[0].getAttribute("data-testid")).toBe("settings-nav-group-models");
     expect(groups[0].textContent).toContain("Models");
     expect(groupItems(groups[0])).toEqual(["Providers", "Model roles"]);
-    const ext = within(rail).getByTestId("settings-nav-group-extensions");
+    const ext = within(rail).getByTestId("settings-nav-group-add-ons");
     expect(groupItems(ext)).not.toContain("Providers");
     const active = rail.querySelectorAll("[aria-current='page']");
     expect(active).toHaveLength(1);
@@ -1625,5 +1670,112 @@ describe("SettingsPanel TrustedNetworks dropdown overlay-layering", () => {
     expect(panel.className).toContain("z-popover");
     expect(panel.className).not.toContain("absolute");
     expect(panel.className).not.toContain("z-50");
+  });
+});
+
+// ADD-ONS rail group + collapsed Plugins subtree.
+// See change: addons-hub-declutter (test-plan #F3).
+describe("SettingsPanel Add-ons rail + collapsed Plugins subtree", () => {
+  const PREF_KEY = "dashboard:settings-plugins-expanded";
+  function pluginRow(id: string, displayName: string) {
+    return {
+      id,
+      displayName,
+      priority: 100,
+      hasServer: true,
+      hasBridge: false,
+      hasClient: true,
+      claims: [{ slot: "settings-section", component: `${displayName}Settings` }],
+      requires: null,
+      status: { id, displayName, enabled: true, loaded: true, claims: 1 },
+    };
+  }
+  function mockFetchPlugins(rows: unknown[]) {
+    return vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
+      }
+      if (url.endsWith("/api/plugins")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, plugins: rows }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+  }
+  const rows = [pluginRow("flows", "Flows"), pluginRow("goal", "Goal")];
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    setPath("/settings/general");
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it("groups Add-ons, Plugins and OpenSpec under the ADD-ONS rail group", async () => {
+    vi.stubGlobal("fetch", mockFetchPlugins(rows));
+    render(<SettingsPanel />);
+    const rail = await screen.findByTestId("settings-nav-rail");
+    const group = within(rail).getByTestId("settings-nav-group-add-ons");
+    expect(within(group).getByTestId("settings-nav-group-label-add-ons").textContent).toBe("Add-ons");
+    const names = Array.from(group.querySelectorAll("button"))
+      .map((b) => (b.textContent ?? "").trim())
+      .filter((n) => ["Add-ons", "Plugins", "OpenSpec"].includes(n));
+    expect(names).toEqual(["Add-ons", "Plugins", "OpenSpec"]);
+    expect(within(rail).queryByRole("button", { name: "Packages" })).toBeNull();
+  });
+
+  it("F3: starts collapsed with a child count; auto-expands on a child page without writing storage", async () => {
+    vi.stubGlobal("fetch", mockFetchPlugins(rows));
+    const first = render(<SettingsPanel />);
+    const rail = await screen.findByTestId("settings-nav-rail");
+    const toggle = await within(rail).findByTestId("nav-plugins-toggle");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toContain("2");
+    expect(within(rail).queryByTestId("nav-plugin-flows")).toBeNull();
+    first.unmount();
+    cleanup();
+
+    setPath("/settings/plugins/flows");
+    render(<SettingsPanel />);
+    const rail2 = await screen.findByTestId("settings-nav-rail");
+    const child = await within(rail2).findByTestId("nav-plugin-flows");
+    expect(child.getAttribute("aria-current")).toBe("page");
+    expect(within(rail2).getByTestId("nav-plugins-toggle").getAttribute("aria-expanded")).toBe("true");
+    expect(localStorage.getItem(PREF_KEY)).toBeNull();
+  });
+
+  it("F3: back to a non-plugin page collapses again; an explicit toggle persists across remount", async () => {
+    vi.stubGlobal("fetch", mockFetchPlugins(rows));
+    setPath("/settings/plugins/flows");
+    const first = render(<SettingsPanel />);
+    let rail = await screen.findByTestId("settings-nav-rail");
+    await within(rail).findByTestId("nav-plugin-flows");
+    first.unmount();
+    cleanup();
+
+    setPath("/settings/general");
+    const second = render(<SettingsPanel />);
+    rail = await screen.findByTestId("settings-nav-rail");
+    expect((await within(rail).findByTestId("nav-plugins-toggle")).getAttribute("aria-expanded")).toBe("false");
+    expect(within(rail).queryByTestId("nav-plugin-flows")).toBeNull();
+
+    fireEvent.click(within(rail).getByTestId("nav-plugins-toggle"));
+    expect(within(rail).getByTestId("nav-plugins-toggle").getAttribute("aria-expanded")).toBe("true");
+    expect(within(rail).getByTestId("nav-plugin-flows")).toBeTruthy();
+    // Expanding in place never navigates.
+    expect(window.location.pathname).toBe("/settings/general");
+    expect(localStorage.getItem(PREF_KEY)).toBe("true");
+    second.unmount();
+    cleanup();
+
+    render(<SettingsPanel />);
+    rail = await screen.findByTestId("settings-nav-rail");
+    expect((await within(rail).findByTestId("nav-plugins-toggle")).getAttribute("aria-expanded")).toBe("true");
+    expect(within(rail).getByTestId("nav-plugin-goal")).toBeTruthy();
   });
 });

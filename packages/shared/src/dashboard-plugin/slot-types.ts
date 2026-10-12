@@ -213,7 +213,7 @@ export type SettingsTab =
   | "remote"
   | "security"
   | "providers"
-  | "packages"
+  | "add-ons"
   | "plugins"
   | "openspec"
   // Resource card pages (global scope). See change: resources-card-tabs.
@@ -231,7 +231,7 @@ export const VALID_SETTINGS_TABS: SettingsTab[] = [
   "remote",
   "security",
   "providers",
-  "packages",
+  "add-ons",
   "plugins",
   "openspec",
   "skills",

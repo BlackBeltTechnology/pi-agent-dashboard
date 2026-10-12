@@ -3,7 +3,7 @@
  * change: directory-settings-page-and-scoped-md-editing.
  *
  * Covers: nav rail rendering, page-prop → content switching, nav-click →
- * URL update, and the legacy /pi-resources → /settings/packages redirect
+ * URL update, and the legacy /pi-resources → /settings/add-ons redirect
  * (verified at the wouter routing-primitive level — App.tsx mounts this same
  * <Redirect> branch).
  */
@@ -50,7 +50,7 @@ afterEach(() => {
   cleanup();
 });
 
-function renderAt(page: "instructions" | "packages" | "cards" | "skills" | "agents", path = buildFolderSettingsUrl(CWD, page)) {
+function renderAt(page: "instructions" | "add-ons" | "cards" | "skills" | "agents", path = buildFolderSettingsUrl(CWD, page)) {
   const { hook, history } = memoryLocation({ path, record: true });
   const utils = render(
     <Router hook={hook}>
@@ -78,7 +78,7 @@ describe("DirectorySettings", () => {
   it("renders the nav with a RESOURCES group of five per-type items and no combined Resources item", () => {
     renderAt("instructions");
     const nav = screen.getByTestId("directory-settings-nav");
-    for (const label of ["Instructions", "Packages", "Skills", "Agents", "Extensions", "Prompts", "Themes"]) {
+    for (const label of ["Instructions", "Add-ons", "Skills", "Agents", "Extensions", "Prompts", "Themes"]) {
       expect(nav.textContent).toContain(label);
     }
     // The former combined "Resources" page is gone (it is now a group header only).
@@ -101,8 +101,8 @@ describe("DirectorySettings", () => {
     expect(screen.getByRole("button", { name: /Session cards/ }).getAttribute("aria-current")).toBe("page");
   });
 
-  it("renders the packages surface on the packages page", () => {
-    renderAt("packages");
+  it("renders the Add-ons surface on the add-ons page", () => {
+    renderAt("add-ons");
     expect(screen.getByTestId("directory-settings-packages")).toBeTruthy();
   });
 
@@ -136,13 +136,13 @@ describe("DirectorySettings", () => {
     fireEvent.click(screen.getByRole("button", { name: /Agents/ }));
     expect(history[history.length - 1]).toBe(`/folder/${ENC}/settings/agents`);
 
-    fireEvent.click(screen.getByRole("button", { name: /Packages/ }));
-    expect(history[history.length - 1]).toBe(`/folder/${ENC}/settings/packages`);
+    fireEvent.click(screen.getByRole("button", { name: /Add-ons/ }));
+    expect(history[history.length - 1]).toBe(`/folder/${ENC}/settings/add-ons`);
   });
 });
 
 describe("legacy /pi-resources redirect", () => {
-  it("redirects /folder/:cwd/pi-resources → /folder/:cwd/settings/packages", () => {
+  it("redirects /folder/:cwd/pi-resources → /folder/:cwd/settings/add-ons", () => {
     const { hook } = memoryLocation({ path: `/folder/${ENC}/pi-resources` });
     render(
       <Router hook={hook}>
@@ -150,7 +150,7 @@ describe("legacy /pi-resources redirect", () => {
           <Route path="/folder/:encodedCwd/pi-resources">
             {(params) => {
               const cwd = decodeFolderPath(params.encodedCwd ?? "") ?? "";
-              return <Redirect to={buildFolderSettingsUrl(cwd, "packages")} replace />;
+              return <Redirect to={buildFolderSettingsUrl(cwd, "add-ons")} replace />;
             }}
           </Route>
           <Route>
@@ -159,6 +159,6 @@ describe("legacy /pi-resources redirect", () => {
         </Switch>
       </Router>,
     );
-    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${ENC}/settings/packages`);
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${ENC}/settings/add-ons`);
   });
 });

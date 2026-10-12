@@ -4,6 +4,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 
 | File | Purpose |
 |------|---------|
+| `addons-hub.spec.ts` | Add-ons E2E. |
 | `agent-path-gate.spec.ts` | L3 path gate. → see `agent-path-gate.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | L3 #F1/#F5 service-session archive on end. → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | L3 F8/F11 archived attachment. → see `archived-attachment.spec.ts.AGENTS.md` |

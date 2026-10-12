@@ -113,6 +113,23 @@ describe("PackageBrowser — Installed Packages section (unify-workspace-package
     expect(screen.queryByTestId("installed-packages-section")).toBeNull();
   });
 
+  // See change: addons-hub-declutter (package-browse: dashboard-managed rows are not listed)
+  it("does not list dashboardManaged bridge rows", () => {
+    installedOwnPkgs = [
+      makePkg("/r/goal/src/bridge/index.ts", "local", { dashboardManaged: true }),
+      makePkg("/abs/path/foo", "local"),
+    ];
+    render(<PackageBrowser scope="local" cwd="/test" />);
+    expect(screen.queryByTestId("installed-row--r-goal-src-bridge-index-ts")).toBeNull();
+    expect(screen.getByTestId("installed-row--abs-path-foo")).toBeTruthy();
+  });
+
+  it("renders no section at all when every row is a dashboard-managed bridge", () => {
+    installedOwnPkgs = [makePkg("/r/goal/src/bridge/index.ts", "local", { dashboardManaged: true })];
+    render(<PackageBrowser scope="local" cwd="/test" />);
+    expect(screen.queryByTestId("installed-packages-section")).toBeNull();
+  });
+
   it("renders the section header when at least one non-recommended package is installed", () => {
     installedOwnPkgs = [makePkg("/abs/path/foo", "local")];
     render(<PackageBrowser scope="local" cwd="/test" />);

@@ -171,3 +171,45 @@ describe("RecommendedExtensions — derived skills badges", () => {
     expect(screen.queryByTestId("recommended-skills-noskill")).toBeNull();
   });
 });
+
+// See change: addons-hub-declutter (task 4.3; test-plan E9)
+describe("RecommendedExtensions \u2014 hideGlobalInstalled (recommended once)", () => {
+  const flows = () => makeEntry({ id: "pi-flows", source: "src:flows", displayName: "pi-flows", activeInPi: true, installed: { scope: "global" } });
+  const simplify = () =>
+    makeEntry({ id: "pi-simplify", source: "src:simplify", displayName: "pi-simplify", activeInPi: true, installed: { scope: "local" } });
+  const imageFit = () =>
+    makeEntry({ id: "pi-image-fit", source: "src:image-fit", displayName: "pi-image-fit", activeInPi: false, installed: { scope: null } });
+
+  function show(recommended: EnrichedRecommendedExtension[], hide = true) {
+    mockRecommended.mockReturnValue({ recommended, isLoading: false, error: null, refresh: vi.fn() });
+    render(<RecommendedExtensions scope="global" hideGlobalInstalled={hide} />);
+  }
+
+  it("E9: omits a globally installed entry, keeps a folder-only install and a missing one", () => {
+    show([flows(), simplify(), imageFit()]);
+    expect(screen.queryByText("pi-flows")).toBeNull();
+    const simplifyCard = screen.getByText("pi-simplify").closest("div.border") as HTMLElement;
+    expect(simplifyCard.textContent).toContain("Local");
+    const missing = screen.getByText("pi-image-fit").closest("div.border") as HTMLElement;
+    expect(missing.textContent).toContain("Install");
+  });
+
+  it("E9: shows every entry when hideGlobalInstalled is off (folder behaviour unchanged)", () => {
+    show([flows(), simplify(), imageFit()], false);
+    expect(screen.getByText("pi-flows")).toBeTruthy();
+  });
+
+  it("E9: all-installed state renders one line instead of an empty grid", () => {
+    show([flows(), makeEntry({ id: "x", source: "src:x", displayName: "x-ext", activeInPi: true, installed: { scope: "global" } })]);
+    expect(screen.getByTestId("rec-all-installed").textContent).toMatch(/all recommended add-ons are installed/i);
+    expect(screen.queryByText("pi-flows")).toBeNull();
+  });
+
+  it("keeps Install all missing counting entries hidden from the grid", () => {
+    // Globally on disk but not active in pi: still a card (it would otherwise vanish from the page).
+    const inactive = makeEntry({ id: "off", source: "src:off", displayName: "off-ext", activeInPi: false, installed: { scope: "global" } });
+    show([flows(), inactive]);
+    expect(screen.getByText("off-ext")).toBeTruthy();
+    expect((screen.getByTestId("rec-install-all-missing") as HTMLButtonElement).disabled).toBe(false);
+  });
+});

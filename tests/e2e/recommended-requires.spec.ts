@@ -20,11 +20,11 @@ test.describe("recommended extensions — requires probe", () => {
     await gotoDashboard(page);
 
     // Settings → Packages tab hosts PackageBrowser → RecommendedExtensions.
-    await page.goto("/settings/packages");
+    await page.goto("/settings/add-ons");
     await byTestId(page, "settingsContent").waitFor({ state: "visible", timeout: 15_000 });
     // Belt-and-suspenders: if the route param didn't activate the Packages
     // tab, click it explicitly in the settings nav rail.
-    const packagesNav = page.getByRole("button", { name: "Packages", exact: true });
+    const packagesNav = page.getByRole("button", { name: "Add-ons", exact: true });
     if (await packagesNav.isVisible().catch(() => false)) {
       await packagesNav.click();
     }

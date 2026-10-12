@@ -4,6 +4,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
+| `AddonsExplainer.tsx` | Exports `AddonsExplainer`. Add-ons page concept panel (disclosure button `aria-expanded`) + part-label legend; static Goal example. See change: addons-hub-declutter. |
 | `InstallBanner.tsx` | Mobile-only PWA install banner (`md:hidden`). Shows iOS Share→Add-to-Home-Screen hint or generic install… → see `InstallBanner.tsx.AGENTS.md` |
 | `InstallButton.tsx` | Icon-only install-app button (`mdiDownload`). Renders null when `!canInstall` or `isInstalled`. Exports `InstallButton`. |
 | `InstalledPackagesList.tsx` | Shared installed-packages list for Settings + Pi Resources. → see `InstalledPackagesList.tsx.AGENTS.md` |
@@ -13,6 +14,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `PackagePartialSuccessBanner.tsx` | Shared kind-aware partial-success banner for composite package ops (move + reset). → see `PackagePartialSuccessBanner.tsx.AGENTS.md` |
 | `PackageReadmeDialog.tsx` | Dialog fetching + rendering a package README. Exports `PackageReadmeDialog`. → see `PackageReadmeDialog.tsx.AGENTS.md` |
 | `PackageRow.tsx` | Generic installed-package row used across unified packages sections. Exports `PackageRow`, `PackageRowProps`. Three non-conflated op-state props `busy`/`queued`/`locked` — `locked` gates ONLY Move + Reset-to-npm. → see `PackageRow.tsx.AGENTS.md` |
+| `PartChip.tsx` | Exports `PartChip`, `PartKind`, `PART_KINDS`, `partLabel`, `partDescription`. Part label (dashboard UI / extension / skills / tools) with plain-language accessible description. See change: addons-hub-declutter. |
 | `PiUpdateBadge.tsx` | Header badge counting available pi-core updates. Exports `PiUpdateBadge`. → see `PiUpdateBadge.tsx.AGENTS.md` Self-hides under Electron (`useLaunchSource`) — E21. See change: electron-runtime-overlay-updates. |
 | `PiVersionAdvisory.tsx` | NEW. Settings→General advisory. Receives `compatibility` via prop (host panel polls once; hook call moved up) + optional `onChangeRuntime` rendering the `Change…` affordance (testid `pi-advisory-change`) in both alert states; renders unchanged without it. → see `PiVersionAdvisory.tsx.AGENTS.md` |
 | `plugin-row-parts.tsx` | Shared presentational plugin-row parts extracted from `PluginsSection.tsx`: `StatusPill`, `CopyableErrorBlock`, `MissingRequirementsBlock`, and the `WARN_*`/`LINK_*` theme-token fragments (`ERR_*`/`OK_*` module-private). Consumed by both the activation index and `PluginSettingsPage` chrome. See change: plugin-settings-pages, close-e2e-tooling-followups. |

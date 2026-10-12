@@ -1,13 +1,14 @@
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { mdiLink, mdiLoading, mdiMagnify, mdiPackageVariantClosed } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePackageSearch } from "../../hooks/usePackageSearch.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { ADDONS_NPM_SEARCH_EVENT, visibleInstalledRows } from "../../lib/package/installed-list-helpers.js";
 import { classifySource } from "../../lib/package/package-classifier.js";
 import { PackageCard } from "./PackageCard.js";
 import { PackageRow } from "./PackageRow.js";
@@ -25,13 +26,15 @@ interface PackageBrowserProps {
    *
    * Defaults to `true` for the workspace surface (Pi Resources → Packages
    * tab), where this is the only manage UI. Settings → Packages should
-   * pass `false` because `UnifiedPackagesSection` (Pi Ecosystem) is already
+   * pass `false` because `UnifiedPackagesSection` (Add-ons) is already
    * the global-scope manage surface, and rendering both would duplicate
    * every installed row.
    *
    * See change: unify-workspace-package-management.
    */
   showInstalledSection?: boolean;
+  /** Global Add-ons page: recommended entries already installed globally are not repeated as cards. */
+  hideGlobalInstalledRecommended?: boolean;
 }
 
 export function PackageBrowser({
@@ -40,6 +43,7 @@ export function PackageBrowser({
   onViewReadme,
   onConfirmInstall,
   showInstalledSection = true,
+  hideGlobalInstalledRecommended = false,
 }: PackageBrowserProps) {
   const { t } = useI18n();
   const search = usePackageSearch();
@@ -49,6 +53,21 @@ export function PackageBrowser({
   const installedOther = useInstalledPackages(otherScope, scope === "local" ? cwd : undefined);
   const operations = usePackageOperations(scope, cwd, installedOwn.refresh);
   const [urlInput, setUrlInput] = useState("");
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const { setQuery: setSearchQuery } = search;
+  // The Add-ons installed filter hands an unmatched query over to the npm search.
+  // See change: addons-hub-declutter.
+  useEffect(() => {
+    const onHandoff = (e: Event) => {
+      const query = (e as CustomEvent<{ query?: string }>).detail?.query;
+      if (typeof query !== "string") return;
+      setSearchQuery(query);
+      searchInputRef.current?.scrollIntoView?.({ block: "center" });
+      searchInputRef.current?.focus();
+    };
+    window.addEventListener(ADDONS_NPM_SEARCH_EVENT, onHandoff);
+    return () => window.removeEventListener(ADDONS_NPM_SEARCH_EVENT, onHandoff);
+  }, [setSearchQuery]);
   const [updatesAvailable, setUpdatesAvailable] = useState<Set<string>>(new Set());
   const [checkingUpdateFor, setCheckingUpdateFor] = useState<Set<string>>(new Set());
 
@@ -102,7 +121,7 @@ export function PackageBrowser({
    * panel and are intentionally excluded here to avoid double-listing.
    */
   const installedNonRecommended = useMemo(
-    () => installedOwn.packages.filter((p) => !p.isRecommended),
+    () => visibleInstalledRows(installedOwn.packages).filter((p) => !p.isRecommended),
     [installedOwn.packages],
   );
 
@@ -161,7 +180,7 @@ export function PackageBrowser({
   return (
     <div className="flex flex-col gap-3" data-testid="package-browser">
       {/* Recommended extensions (curated by the dashboard) — shown above search */}
-      <RecommendedExtensions scope={scope} cwd={cwd} />
+      <RecommendedExtensions scope={scope} cwd={cwd} hideGlobalInstalled={hideGlobalInstalledRecommended} />
 
       {/* Installed Packages — every source shape, uniform PackageRow.
           Hidden in Settings → Packages where UnifiedPackagesSection already
@@ -243,6 +262,7 @@ export function PackageBrowser({
         />
         <input
           type="text"
+          ref={searchInputRef}
           value={search.query}
           onChange={(e) => search.setQuery(e.target.value)}
           placeholder={t("packages.searchPlaceholder", undefined, "Search pi packages on npm...")}

@@ -25,9 +25,9 @@ test.describe("recommended extensions — local install matched by package.json 
   test("decorated local checkout renders Active/Remove, not Install", async ({ page }) => {
     await gotoDashboard(page);
 
-    await page.goto("/settings/packages");
+    await page.goto("/settings/add-ons");
     await byTestId(page, "settingsContent").waitFor({ state: "visible", timeout: 15_000 });
-    const packagesNav = page.getByRole("button", { name: "Packages", exact: true });
+    const packagesNav = page.getByRole("button", { name: "Add-ons", exact: true });
     if (await packagesNav.isVisible().catch(() => false)) {
       await packagesNav.click();
     }
