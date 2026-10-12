@@ -139,6 +139,7 @@ Persona reaches prompt as a **base option**, not a per-turn handler.
 - `scope.noContextFiles = true` → `--no-context-files`. Keeps operator + parent-dir `AGENTS.md` out.
 - Project `contextFiles: true` = append only root `AGENTS.md`/`CLAUDE.md` (inside root, regular file, ≤ 64 KiB) after `persona.md`. Untrusted input.
 - `scope.noProjectTrust = true` → `--no-approve`. Skips project `.pi/` resources (settings, MCP, extensions, skills, SYSTEM.md).
+- `scope.noMcp = true` → `--no-mcp`. Set for every preset (chat/files/full), create and resume. Pi built-in MCP off for run: no servers connect, no MCP tools, no `/mcp`. Pi-global `~/.pi/agent/mcp.json` no longer loads for team sessions. Mapper copies only `=== true`. Not read by cwd-policy composition.
 - `scope.sessionDir = piSessionDirForCwd(T)` → `--session-dir`. Pins pi default per-cwd folder. Outranks project `.pi/settings.json` `sessionDir`. Keeps discovery, archive, owner, resume working across restarts.
 - All in `event.systemPrompt` before any `before_agent_start` handler ⇒ order-independent against dashboard bridge. Renderer neutralises cwd-anchor literal in persona text.
 - Missing `persona.md` before spawn ⇒ abort with `500 persona_render_failed`, no spawn.
@@ -153,6 +154,9 @@ Logical isolation (same OS user). `full` cannot be confined.
 - Extension sends `team_guard_ready {runId}` plugin message on session start. Server credits readiness per run; session without ready signal aborted.
 - Spawn projects `extensionConfig.team.runId` → env `PI_EXT_TEAM_RUN_ID` (camelCase → `RUN_ID`).
 - **Name gate** — deny-first `tool_call`: tool name not in preset blocked before execution. Covers extension tools, MCP, `codemode`/`tool_search`.
+  - Team sessions get no MCP connection (`--no-mcp`). Name gate stays backstop: blocks `mcp__*` names before execution. See change: spawn-scope-no-mcp.
+  - Consequence: no connected `pi-dashboard` MCP server in team sessions. Bridge still registers it (harmless).
+  - Pi below 1.0.4 rejects `--no-mcp` (`Unknown option`, exit 1) → team spawn fails closed with spawn error.
 - **Path gate** — path args of `read, write, edit, grep, find, ls` canonicalised (symlinks resolve) + must lie inside target root `T`. Missing arg = cwd = `T`. Unparseable policy/path ⇒ block.
   - `~` + any `scheme:` path (≥ 2-char scheme, e.g. `file://…`) refused — pi converts `file://` to real path.
   - `write`/`edit` refused under `.git`, `.pi`, `.claude` (`protected_path`).

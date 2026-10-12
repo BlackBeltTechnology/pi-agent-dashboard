@@ -565,6 +565,8 @@ export class ConversationService {
           appendSystemPrompt: [personaFile, ...contextFiles],
           noContextFiles: true,
           noProjectTrust: true,
+          // No MCP connection for team sessions; the guard name gate stays the backstop.
+          noMcp: true,
           sessionDir: (this.d.sessionDirFor ?? ((cwd: string) => piSessionDirForCwd(cwd)))(root.dir),
         },
         spawnToken,

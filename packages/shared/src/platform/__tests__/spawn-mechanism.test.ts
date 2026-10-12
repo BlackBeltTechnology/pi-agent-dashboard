@@ -146,3 +146,23 @@ describe("sessionFlagsToArgv capability-scope", () => {
     expect(sessionFlagsToArgv({ model: "m" })).toEqual(["--model", "m"]);
   });
 });
+
+describe("sessionFlagsToArgv --no-mcp (spawn-scope-no-mcp)", () => {
+  it("E1: noMcp emits exactly one bare --no-mcp after the name/model flags", () => {
+    const argv = sessionFlagsToArgv({ name: "n", model: "m", noMcp: true });
+    expect(argv).toEqual(["--name", "n", "--model", "m", "--no-mcp"]);
+    expect(argv.filter((a) => a === "--no-mcp")).toHaveLength(1);
+  });
+
+  it("E3: absent noMcp is byte-identical to the pre-change argv", () => {
+    expect(sessionFlagsToArgv({})).toEqual([]);
+    expect(sessionFlagsToArgv({ noMcp: false })).toEqual([]);
+    expect(sessionFlagsToArgv({ model: "m" })).toEqual(["--model", "m"]);
+  });
+
+  it("E4: a partial scope emits no MCP flag", () => {
+    const argv = sessionFlagsToArgv({ tools: ["read"] });
+    expect(argv).toEqual(["--tools", "read"]);
+    expect(argv).not.toContain("--no-mcp");
+  });
+});
