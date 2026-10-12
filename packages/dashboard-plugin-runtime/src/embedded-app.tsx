@@ -25,6 +25,7 @@ import React, {
 } from "react";
 import { Router, useLocation } from "wouter";
 import { type EmbeddedAppShell, isSafeDashboardPath, useEmbeddedAppShell } from "./embedded-app-shell.js";
+import { type FolderProjectEntry, useFolderProject } from "./folder-project.js";
 import { useLanguage, useRuntimeT } from "./plugin-context.js";
 
 export interface EmbeddedAppProps {
@@ -39,6 +40,15 @@ export interface EmbeddedAppProps {
   onBack: () => void;
   /** The claim's plugin context — accepted for symmetry with the slot props; unused today. */
   pluginContext?: unknown;
+  /**
+   * Restrict the app to folders of a project type and/or declared project id
+   * (at least one field). The app mounts only when the folder's resolved
+   * project matches every set field; otherwise a *Not available* state renders
+   * (closes folder-route deep links). Needs `folderParam`. Without it the app
+   * is unscoped and no project is requested.
+   * See change: add-project-scoped-apps.
+   */
+  projectScope?: { type?: string; id?: string };
 }
 
 /** At most this many `setActions` entries render inline; the rest overflow. */
@@ -392,10 +402,76 @@ function StateMessage({ testId, message, onBack, backLabel }: { testId: string; 
   );
 }
 
+/** True only for a `ready` entry matching EVERY set scope field (fails closed on an empty scope). */
+function scopeMatches(scope: NonNullable<EmbeddedAppProps["projectScope"]>, entry: FolderProjectEntry | undefined): boolean {
+  if (entry?.state !== "ready") return false;
+  if (scope.type === undefined && scope.id === undefined) return false;
+  if (scope.type !== undefined && !entry.project.types.includes(scope.type)) return false;
+  return scope.id === undefined || entry.project.id === scope.id;
+}
+
+/** *Not available* state under a reduced top bar (Back + breadcrumb), for scoped apps. */
+function NotAvailable({
+  testId,
+  message,
+  app,
+  folderName,
+  onBack,
+  backLabel,
+  breadcrumbLabel,
+}: {
+  testId: string;
+  message: string;
+  app: DashboardAppDefinition;
+  folderName: string | undefined;
+  onBack: () => void;
+  backLabel: string;
+  breadcrumbLabel: string;
+}) {
+  return (
+    <div className="flex flex-col h-full min-h-0 bg-[var(--bg-primary)]" data-app-id={app.id}>
+      <div
+        data-testid="embedded-app-topbar"
+        className="flex items-center gap-3 px-4 py-2.5 bg-[var(--bg-secondary)] border-b border-[var(--border-primary)] shrink-0"
+      >
+        <button
+          type="button"
+          onClick={onBack}
+          data-testid="embedded-app-back"
+          aria-label={backLabel}
+          className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 text-blue-400 hover:text-blue-300 text-[13px] flex items-center gap-1"
+        >
+          <span aria-hidden="true">←</span>
+          <span className="hidden sm:inline">{backLabel}</span>
+        </button>
+        <nav aria-label={breadcrumbLabel} className="hidden sm:block text-[var(--text-primary)] font-semibold text-[13px] truncate">
+          {folderName ? (
+            <>
+              <span className="text-[var(--text-tertiary)] font-normal">{folderName}</span>
+              <span className="text-[var(--text-tertiary)] font-normal" aria-hidden="true">
+                {" › "}
+              </span>
+            </>
+          ) : null}
+          <span>{app.title}</span>
+        </nav>
+      </div>
+      <div role="alert" data-testid={testId} className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-[13px] text-[var(--text-secondary)]">
+        <p>{message}</p>
+        <p className="text-[var(--text-tertiary)]">{folderName ? `${app.title} · ${folderName}` : app.title}</p>
+      </div>
+    </div>
+  );
+}
+
 export function EmbeddedApp(props: EmbeddedAppProps) {
   const shell = useEmbeddedAppShell();
   const t = useRuntimeT();
   const back = t("embeddedApp.back", undefined, "Back");
+  // Called before every early return so hook order is stable; an unscoped app
+  // (or one without a folder) passes `undefined` and never fetches.
+  const scopeCwd = shell && props.projectScope && props.folderParam !== undefined ? shell.decodeFolder(props.folderParam) : null;
+  const project = useFolderProject(scopeCwd ?? undefined);
   if (!shell) {
     return (
       <StateMessage
@@ -420,6 +496,38 @@ export function EmbeddedApp(props: EmbeddedAppProps) {
       );
     }
     folder = { cwd, name: basename(cwd) };
+  }
+  if (props.projectScope) {
+    const breadcrumbLabel = t("embeddedApp.breadcrumb", undefined, "Breadcrumb");
+    if (!folder) {
+      return (
+        <NotAvailable
+          testId="embedded-app-not-available-here"
+          message={t("embeddedApp.notAvailableHere", undefined, "Not available here")}
+          app={props.app}
+          folderName={undefined}
+          onBack={props.onBack}
+          backLabel={back}
+          breadcrumbLabel={breadcrumbLabel}
+        />
+      );
+    }
+    if (!project || project.state === "loading") {
+      return <div data-testid="embedded-app-loading" aria-busy="true" className="h-full" />;
+    }
+    if (!scopeMatches(props.projectScope, project)) {
+      return (
+        <NotAvailable
+          testId="embedded-app-not-available"
+          message={t("embeddedApp.notAvailableForFolder", undefined, "Not available for this folder")}
+          app={props.app}
+          folderName={folder.name}
+          onBack={props.onBack}
+          backLabel={back}
+          breadcrumbLabel={breadcrumbLabel}
+        />
+      );
+    }
   }
   return <EmbeddedAppHosted {...props} shell={shell} folder={folder} />;
 }

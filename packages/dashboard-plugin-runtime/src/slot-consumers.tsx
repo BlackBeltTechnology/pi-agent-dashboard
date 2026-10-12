@@ -145,6 +145,10 @@ export function SidebarFolderSectionSlot({
   /** Host per-plugin visibility filter; absent = render all. */
   isPluginVisible?: (pluginId: string) => boolean;
 }) {
+  // Re-evaluate folder predicates on a claims-version bump (async folder signals,
+  // e.g. the project cache). BEFORE the registry-null guard: stable hook order.
+  // See change: add-project-scoped-apps.
+  useSlotClaimsVersion();
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
   const claims = forFolder(registry.getClaims("sidebar-folder-section"), folder).filter(
@@ -169,6 +173,7 @@ export function SidebarFolderSectionSlot({
  * See change: kb-row-on-worktree-session-card.
  */
 export function WorktreeCardSectionSlot({ folder }: { folder: FolderDescriptor }) {
+  useSlotClaimsVersion(); // see SidebarFolderSectionSlot — change: add-project-scoped-apps
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
   const claims = forFolder(registry.getClaims("worktree-card-section"), folder);

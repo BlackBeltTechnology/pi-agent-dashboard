@@ -32,8 +32,13 @@ Use the `ask_user` tool, method `batch`, with these questions in order:
 | 6 | confirm | "Scaffold a server entry (REST routes + WS handlers)?" | (mode `new` only) — default `true` |
 | 7 | confirm | "Scaffold a bridge entry (pi extension that loads in every pi session)?" | (mode `new` only) — default `false`, high blast radius |
 | 8 | confirm | "Scaffold a configSchema.json?" | (mode `new` only) — default `true` |
+| 9 | select | "Embedded app scope" | (mode `new` only) — options: `["none — no embedded app", "global — one app, not tied to a folder", "project-type — an app on every folder of a project type (marker files)", "project-specific — an app on one project (a declared project id)"]`. See [Embedded app scope](#embedded-app-scope-mode-new). |
+| 10 | input | "Project type (^[a-z][a-z0-9-]{0,63}$)" | scope `project-type` only |
+| 11 | input | "Marker patterns, one per line (1–16; max 3 segments, `*` inside a segment only, no `**`, no `.git`/`node_modules`)" | scope `project-type` only, e.g. `model/*.judo` |
+| 12 | input | "Project id (^[a-z][a-z0-9-]{0,63}$)" | scope `project-specific` only |
+| 13 | input | "Absolute folder to write the project id into (empty = do not write)" | scope `project-specific` only |
 
-Skip questions 2-8 entirely if mode is `augment`. The augment-mode questions come **after** the analysis, in step 4b.
+Skip questions 2-13 entirely if mode is `augment`; skip 10-13 unless the scope needs them. The augment-mode questions come **after** the analysis, in step 4b.
 
 ## Step 2 — Branch on mode
 
@@ -63,6 +68,8 @@ echo "<id>" | grep -qE '^[a-z][a-z0-9-]*$' || { echo "id must be kebab-case" >&2
 
 Substitute `<id>` with the user-provided id throughout.
 
+Validate the app-scope answers (questions 9-13) against the same rules the dashboard applies — the renderer re-checks and prints **every** violation. On any violation: report them all and **stop**; write nothing and **do not re-ask** (no extra prompt beyond the final summary confirm).
+
 ### 3a.2 Run the renderer
 
 The renderer lives in this skill's parent package as a bin script:
@@ -83,6 +90,7 @@ cat <<JSON | node --import "$(node -e "import('@blackbelt-technology/pi-dashboar
   "server": <true|false>,
   "bridge": <true|false>,
   "configSchema": <true|false>,
+  "appScope": <omit | {"scope":"global"} | {"scope":"project-type","type":"<type>","markers":["<marker>", …]} | {"scope":"project-specific","projectId":"<id>","folderPath":"<abs or omit>"}>,
   "outDir": "$ROOT/packages/<id>-plugin"
 }
 JSON
@@ -105,6 +113,8 @@ packages/<id>-plugin/
     index.test.ts
 ```
 
+With an `appScope` other than `none` the renderer also writes `src/app/app.tsx` (a `defineDashboardApp` app) and `src/app/AppRoute.tsx` (a lazy route rendering `<EmbeddedApp>`), and adds the matching claims — see [Embedded app scope](#embedded-app-scope-mode-new).
+
 ### 3a.3 Register the workspace
 
 ```bash
@@ -112,6 +122,16 @@ packages/<id>-plugin/
 ```
 
 This is idempotent — re-running on an already-registered workspace is a no-op.
+
+### 3a.3b Final summary confirm, then write the project id (scope `project-specific` only)
+
+Show the final summary (files written, claims, scope). For `project-specific` **without** a folder path, warn: *the app matches no folder until the id is declared in a folder's `.pi/dashboard/project.json`*. Ask the one existing final confirm. Only after it is accepted and a folder path was given:
+
+```bash
+node --import "$(node -e "import('@blackbelt-technology/pi-dashboard-shared/jiti-register.ts')")" "$SKILL_PKG/src/bin/scaffold.ts" --write-project-id "<folder>" "<id>"
+```
+
+It prints one JSON result line. It creates `<folder>/.pi/dashboard/project.json` (`schemaVersion: 1`) or merges the id into the existing one (adds `schemaVersion: 1` only when absent, keeps every other field) via temp file + rename. It **refuses** (exit 1, file unchanged) on a symlinked file/`.pi`/`.pi/dashboard`, a non-regular, oversized (> 64 KiB) or non-object file, a `schemaVersion` other than 1, or a different existing `id` — report the reason (for a different id: it must be changed by hand). A refusal does not undo the scaffold.
 
 ### 3a.4 Print next-steps
 
@@ -127,6 +147,21 @@ Next steps:
 ```
 
 Done with mode `new`.
+
+---
+
+## Embedded app scope (mode `new`)
+
+Answer 9 chooses the embedded app, derived from `packages/demo-plugin/src/demo-app/`:
+
+| Scope | Claims | Notes |
+|---|---|---|
+| `none` | — | no app; the output is unchanged |
+| `global` | `shell-overlay-route` `/<id>/*?`, `depth: 1`, `presentation: "content"` | no folder entry |
+| `project-type` | route `/folder/:encodedCwd/<id>/*?` (`depth: 2`, `parentPath: "/folder/:encodedCwd"`) + state-only `sidebar-folder-section` | manifest `projectTypes: [{ type, markers }]`; predicate `is<Id>Folder = folderHasProjectType("<type>")`; route passes `projectScope={{ type }}` |
+| `project-specific` | same two claims | predicate `folderHasProjectId("<id>")`; route passes `projectScope={{ id }}` |
+
+Scoped apps get **no** `standaloneUrl` and no standalone entry. `requiredApi` stays `^0.x`. The folder entry and the route's `projectScope` keep a deep link on a non-matching folder from mounting the app (*Not available for this folder*). A declared `id` is unauthenticated — never grant privileged data by project id alone.
 
 ---
 
