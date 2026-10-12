@@ -9,6 +9,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `InstalledPackagesList.tsx` | Shared installed-packages list for Settings + Pi Resources. → see `InstalledPackagesList.tsx.AGENTS.md` |
 | `PackageBrowser.tsx` | Main package management surface. Exports `PackageBrowser`. → see `PackageBrowser.tsx.AGENTS.md` |
 | `PackageCard.tsx` | Search-result card for one npm package. Exports `PackageCard`. → see `PackageCard.tsx.AGENTS.md` |
+| `PackageHealthPanel.tsx` | Panel for unhealthy `packages[]` entries: stale / missing / duplicate groups, per-row drop checkbox, Select all, single Apply, inline error, sticky session collapse. Exports `PackageHealthPanel`, `countHealthIssues`. Pre-checks missing-path members of a duplicate group only. See change: add-package-health-cleanup. |
 | `PackageInstallConfirmDialog.tsx` | Pre-install confirmation dialog. Exports `PackageInstallConfirmDialog`. Shows source + optional name + scope. → see `PackageInstallConfirmDialog.tsx.AGENTS.md` |
 | `PackagePartialSuccessBanner.tsx` | Shared kind-aware partial-success banner for composite package ops (move + reset). → see `PackagePartialSuccessBanner.tsx.AGENTS.md` |
 | `PackageReadmeDialog.tsx` | Dialog fetching + rendering a package README. Exports `PackageReadmeDialog`. → see `PackageReadmeDialog.tsx.AGENTS.md` |

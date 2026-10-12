@@ -16,6 +16,7 @@
 
 import type {
 	InstalledPackage,NpmPackageResult, 
+	PackageHealthListResponseData,
 	PiCorePackage
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
@@ -39,9 +40,11 @@ import {
 	groupInstalledPackages,
 	isSourceOverride,
 } from "../../lib/package/package-classifier.js";
+import { applyPackageCleanup, fetchPackageHealth } from "../../lib/package/package-health-api.js";
 import { piCoreSource } from "../../lib/package/package-queue.js";
 import { logRejection } from "../../lib/report-error.js";
 import { PinDirectoryDialog } from "../workspace/PinDirectoryDialog.js";
+import { countHealthIssues, PackageHealthPanel } from "./PackageHealthPanel.js";
 import { PackagePartialSuccessBanner } from "./PackagePartialSuccessBanner.js";
 import { PackageReadmeDialog } from "./PackageReadmeDialog.js";
 import { PackageRow, type PackageRowProps } from "./PackageRow.js";
@@ -144,6 +147,30 @@ export function UnifiedPackagesSection() {
 	const [checkingUpdates, setCheckingUpdates] = useState(false);
 	const [readmePkg, setReadmePkg] = useState<NpmPackageResult | null>(null);
 	const [movePickerSource, setMovePickerSource] = useState<string | null>(null);
+
+	// ── Package health (stale / missing / duplicate packages[] entries) ───
+	// See change: add-package-health-cleanup.
+	const [health, setHealth] = useState<PackageHealthListResponseData | null>(null);
+	const [restartRequired, setRestartRequired] = useState(false);
+	const loadHealth = useCallback(async () => {
+		try {
+			setHealth(await fetchPackageHealth());
+		} catch (err) {
+			logRejection("UnifiedPackagesSection.health")(err);
+		}
+	}, []);
+	useEffect(() => {
+		void loadHealth();
+	}, [loadHealth]);
+	const applyHealthCleanup = useCallback(
+		async (drop: string[]) => {
+			await applyPackageCleanup(drop);
+			setRestartRequired(true);
+			await Promise.all([installed.refresh(), loadHealth()]);
+		},
+		[installed.refresh, loadHealth],
+	);
+	const healthIssueCount = health ? countHealthIssues(health) : 0;
 
 	// Core "Update All" stays CLICKABLE while operations run — clicking it
 	// mid-flight fills the queue and each row shows queued → running. The
@@ -308,6 +335,14 @@ export function UnifiedPackagesSection() {
 			<h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3 pb-1 border-b border-[var(--border-secondary)] flex items-center justify-between">
 				<span>{t("settings.piEcosystem", undefined, "Pi Ecosystem")}</span>
 				<div className="flex items-center gap-2">
+					{healthIssueCount > 0 && (
+						<span
+							className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400"
+							data-testid="pkg-health-badge"
+						>
+							{t("packages.health.issuesBadge", { count: healthIssueCount }, `Issues (${healthIssueCount})`)}
+						</span>
+					)}
 					{status?.lastChecked && (
 						<span className="text-[10px] font-normal text-[var(--text-muted)]">
 								{t("settings.lastChecked", { time: relativeTime(status.lastChecked, t) }, `Last checked: ${relativeTime(status.lastChecked, t)}`)}
@@ -337,6 +372,23 @@ export function UnifiedPackagesSection() {
 					<Icon path={mdiAlertCircle} size={0.6} className="flex-shrink-0 mt-0.5" />
 					<span>{error}</span>
 				</div>
+			)}
+
+			{restartRequired && (
+				<div
+					className="mb-2 p-2 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs"
+					role="status"
+					data-testid="pkg-health-restart-banner"
+				>
+					{t("packages.health.restartRequired", undefined, "Restart required for package changes to take effect.")}
+				</div>
+			)}
+			{health && (
+				<PackageHealthPanel
+					report={health}
+					onApply={applyHealthCleanup}
+					onRefresh={() => void loadHealth()}
+				/>
 			)}
 
 			{/* ── Core sub-group ─────────────────────────────────────────── */}

@@ -2518,6 +2518,43 @@ Cross-refs:
 - packages/server/src/pi/resource-activation-toggle.ts
 - docs/architecture.md — Project-scope disable of global resources
 
+## How do I clean up stale entries from settings.json?
+
+Symptom: Settings → Packages shows `Issues (N)` badge + "Package issues" panel.
+Source: global `~/.pi/agent/settings.json#packages[]`. Only global (user) scope scanned. Project `.pi/settings.json` not scanned.
+
+Statuses:
+- `stale-npm` — `npm:` entry, package uninstalled.
+- `missing-path` — local or git path gone.
+- `duplicate` — ≥2 entries, same `package.json#name` (e.g. same extension from dev path + bundled app + managed dir).
+- Existing dir without `package.json` → `ok`. Never flagged.
+
+Fix:
+1. Open Settings → Packages → Package issues.
+2. Tick rows to drop.
+3. Apply cleanup. Sends one `POST /api/packages/cleanup {drop:[sources]}`.
+4. Restart dashboard when banner shows.
+
+- Server never auto-removes.
+- Nothing pre-ticked, except `missing-path` members of a duplicate group.
+- Backup written first: `~/.pi/agent/settings.json.<ISO-ts>.bak` (`:` and `.` → `-`). Not auto-pruned.
+- Rollback: copy `.bak` over `settings.json`.
+- Unknown source in `drop` → HTTP 400 `{unknown:[...]}`. Nothing written.
+
+Log-only boot summary (one line when issues exist):
+
+```bash
+grep package-health ~/.pi/dashboard/server.log
+# [package-health] 13 entries: 6 ok, 4 stale-npm, 2 missing-path, 1 duplicate-group (name ×2)
+```
+
+API: `GET /api/packages/health` → `{entries, summary}`.
+
+Cross-refs:
+- docs/architecture.md → Package management → Package health cleanup
+- packages/server/src/package/package-health-scanner.ts
+- packages/server/src/routes/package-health-routes.ts
+
 ## Why does abort feel slow on parallel flows?
 
 pi-flows < 0.2.x bug: `Promise.all` over child flows did not race the AbortSignal. Children aborted at iteration boundaries; parent awaited all in-flight branches. Abort latency = slowest child remaining work, not signal-to-unwind time.

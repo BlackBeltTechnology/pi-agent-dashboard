@@ -23,9 +23,6 @@ import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-share
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, resolveAdvertisedAddresses, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
-import { proveServerIdentity } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
-import { createKnownServerMoves } from "./known-server-moves.js";
-import { buildSelfServer, wirePeerServers } from "./peer-servers.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import {
@@ -42,6 +39,7 @@ import {
   readRuntimeRequest,
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import { proveServerIdentity } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import { discoverServiceOffers } from "@blackbelt-technology/pi-dashboard-shared/services/offers.js";
 import { isRecoveryCandidate, isShutdownWindowCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { rank } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
@@ -174,6 +172,7 @@ import { getRouteOwnerRegistry } from "./identity/route-owner-registry.js";
 import { canAccessSession, isLocalOperator, markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
 import { scheduleAtExpiry } from "./identity/socket-lifetime.js";
 import { authorizeRoadUpgrade } from "./identity/upgrade-gate.js";
+import { createKnownServerMoves } from "./known-server-moves.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
@@ -194,11 +193,13 @@ import { getServerModelRuntime } from "./model-proxy/server-model-runtime.js";
 import { callPiAiStreamSimple } from "./model-proxy/streamer.js";
 import { currentGlobalWorkflowSignature } from "./openspec/global-signature.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
+import { logPackageHealthAtBoot } from "./package/package-health-scanner.js";
 import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import type { TieredSocket } from "./pairing/ws-tier-gate.js";
+import { buildSelfServer, wirePeerServers } from "./peer-servers.js";
 import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
@@ -246,6 +247,7 @@ import { registerModelsIntrospectionRoute } from "./routes/models-introspection-
 import { registerNodeRuntimeRoutes } from "./routes/node-runtime-routes.js";
 import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { registerOpenSpecRoutes } from "./routes/openspec-routes.js";
+import { registerPackageHealthRoutes } from "./routes/package-health-routes.js";
 import { registerPackageRoutes } from "./routes/package-routes.js";
 import { PUBLIC_PAIRING_PREFIXES, registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
@@ -264,7 +266,6 @@ import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/
 import { registerResourceActivationRoutes } from "./routes/resource-activation-routes.js";
 import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
 import { registerSessionRoutes, type ToolResultStats } from "./routes/session-routes.js";
-import { createInFlightToolCalls } from "./session/in-flight-tool-calls.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
 import { registerUserRoutes } from "./routes/user-routes.js";
@@ -287,6 +288,7 @@ import { createArchiveSweeper } from "./session/archive-sweeper.js";
 import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
 import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
+import { createInFlightToolCalls } from "./session/in-flight-tool-calls.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
 import { systemRenameUpdates } from "./session/name-provenance.js";
 import { applyPluginRef } from "./session/plugin-refs.js";
@@ -2490,6 +2492,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
 
   registerPackageRoutes(fastify, { packageManagerWrapper });
+  registerPackageHealthRoutes(fastify, { packageManagerWrapper });
   registerResourceActivationRoutes(fastify, {
     networkGuard,
     piGateway,
@@ -4304,6 +4307,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       } catch (err) {
         console.warn("[plugin-bridge] Reconciliation failed (non-fatal):", err);
       }
+
+      // Log-only health scan of settings.json packages[] (never mutates, never
+      // throws). Not awaited: cold listConfiguredPackages can take seconds on
+      // Windows and boot must not wait on a diagnostic. See change: add-package-health-cleanup.
+      void logPackageHealthAtBoot({ listInstalled: () => packageManagerWrapper.listInstalled("global") });
 
       idleTimer.start();
       // Arm the ephemeral boot-parent watch (D5) — a no-op unless --ephemeral
