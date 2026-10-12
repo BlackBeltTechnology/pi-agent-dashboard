@@ -25,7 +25,7 @@ done
 # Step 1: Optional type-check
 if $CHECK; then
   echo "=== Type-checking ==="
-  npx tsc --noEmit
+  node scripts/tsc7.mjs --noEmit
   echo "✓ Type-check passed"
 fi
 

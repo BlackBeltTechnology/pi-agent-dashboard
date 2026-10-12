@@ -540,7 +540,14 @@ export async function installAnchorProbe(page: Page): Promise<void> {
       } catch {
         // Never let the probe break the product's send.
       }
-      return origSend.apply(this, [data]);
+      // TS 7's lib.dom wants `ArrayBufferView<ArrayBuffer>`; copy both binary arms.
+      const payload: string | Blob | ArrayBufferView<ArrayBuffer> =
+        typeof data === "string" || data instanceof Blob
+          ? data
+          : ArrayBuffer.isView(data)
+            ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice()
+            : new Uint8Array(data).slice();
+      return origSend.apply(this, [payload]);
     } as typeof WebSocket.prototype.send;
   });
 }

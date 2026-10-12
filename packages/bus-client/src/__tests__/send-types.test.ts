@@ -18,9 +18,9 @@ const PKG_ROOT = path.resolve(HERE, "..", "..");
 
 describe("typed send is compile-checked (S1)", () => {
   it("the type-negative fixture compiles (every bad send is rejected)", () => {
-    const tscBin = path.resolve(PKG_ROOT, "..", "..", "node_modules", ".bin", "tsc");
+    const tsc7 = path.resolve(PKG_ROOT, "..", "..", "scripts", "tsc7.mjs");
     expect(() =>
-      execFileSync(tscBin, ["-p", "tsconfig.fixtures.json"], {
+      execFileSync(process.execPath, [tsc7, "-p", "tsconfig.fixtures.json"], {
         cwd: PKG_ROOT,
         stdio: "pipe",
       }),
