@@ -1185,7 +1185,8 @@ function initBridge(pi: ExtensionAPI) {
     createLocalBashOperations: async () => {
       try {
         const pkg: any = await import("@earendil-works/pi-coding-agent");
-        return (pkg.createLocalBashOperations ?? pkg.default?.createLocalBashOperations)();
+        const create: (() => unknown) | undefined = pkg.createLocalBashOperations ?? pkg.default?.createLocalBashOperations;
+        return create?.() as any;
       } catch {
         return undefined; // the forwarded copy is still masked
       }
