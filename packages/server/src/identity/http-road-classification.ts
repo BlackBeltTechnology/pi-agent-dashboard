@@ -104,6 +104,7 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   "network-interfaces": "gateway",
   push: "gateway",
   // system
+  acp: "workspace",
   restart: "system",
   shutdown: "system",
   doctor: "system",

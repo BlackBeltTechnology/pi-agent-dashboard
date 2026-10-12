@@ -33,6 +33,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/grammar/", reason: "UI-only" },
   { pattern: "/api/roles/used-by", reason: "Model roles page \"used by\" overview; informational, UI-only" },
   { pattern: "/api/kb/", reason: "kb engine admin" },
+  // add-acp-session-driver: the spawn picker's {id,name} list; UI-only.
+  { pattern: "/api/acp/", reason: "ACP spawn picker agent list; UI-only" },
   // add-server-push-notifications (Decision 12).
   { pattern: "/api/push/", reason: "push management is UI/REST-only in v1" },
   // Access-grant review + creation (change: add-access-grants-and-review). The

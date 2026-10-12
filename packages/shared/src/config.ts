@@ -2,10 +2,12 @@
  * Shared configuration module for PI Dashboard.
  * Used by both the server CLI and bridge extension.
  */
+
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { type AcpAgentConfig, type AcpSettings, DEFAULT_ACP_SETTINGS, parseAcpAgents, parseAcpSettings } from "./acp/acp-config.js";
 import {
   DEFAULT_SERVER_HEAP,
   DEFAULT_SESSION_HEAP,
@@ -14,10 +16,10 @@ import {
   type SessionHeapConfig,
 } from "./heap-limits.js";
 import type { HostGateMode } from "./host-admission.js";
-import { isTier, type Tier } from "./tiers.js";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
+import { isTier, type Tier } from "./tiers.js";
 import {
   providerSupportsMode,
   type TunnelMode,
@@ -805,6 +807,13 @@ export interface DashboardConfig {
   embedLifecycle: EmbedLifecycleConfig;
   /** Keeper log behavior — gates capture of pi stdout/stderr into keeper-<id>.log. */
   keeperLog: KeeperLogConfig;
+  /**
+   * User-configured ACP agents (`[]` → no ACP spawn surface). Env values are
+   * secrets: `config-api` redacts/preserves them. See change: add-acp-session-driver.
+   */
+  acpAgents: AcpAgentConfig[];
+  /** ACP tuning (v2 flag, timeouts, line/log caps) — clamped. */
+  acp: AcpSettings;
   /** Server push notifications. Absent → disabled. See change: add-server-push-notifications. */
   push?: PushConfig;
   /**
@@ -1343,6 +1352,8 @@ const DEFAULTS: DashboardConfig = {
   sessionList: { ...DEFAULT_SESSION_LIST },
   embedLifecycle: { ...DEFAULT_EMBED_LIFECYCLE },
   keeperLog: { ...DEFAULT_KEEPER_LOG },
+  acpAgents: [],
+  acp: { ...DEFAULT_ACP_SETTINGS },
   allowedHosts: [],
   hostGate: { mode: "enforce" },
   trustedNetworks: [],
@@ -2135,6 +2146,8 @@ export function loadConfig(): DashboardConfig {
       sessionList: parseSessionListConfig(parsed.sessionList),
       embedLifecycle: parseEmbedLifecycleConfig(parsed.embedLifecycle),
       keeperLog: parseKeeperLogConfig(parsed.keeperLog),
+      acpAgents: parseAcpAgents(parsed.acpAgents),
+      acp: parseAcpSettings(parsed.acp),
       push: parsePushConfig(parsed.push),
       allowedHosts: Array.isArray(parsed.allowedHosts)
         ? parsed.allowedHosts.filter((h: unknown): h is string => typeof h === "string")
