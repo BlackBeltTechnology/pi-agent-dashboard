@@ -96,6 +96,11 @@ Red on `origin/develop` itself (branch is 0 commits behind it), so **pre-existin
 
 After the fixes: `packages/shared/src` (248 files, 3120 tests) and the touched server/client/extension suites are green.
 
+Verify-gate rerun (`TMPDIR=/tmp/s npm test`, tree at `5e8fa9be3`): **31722 passed, 4 failed in 3 files**.
+- `internal-auth-storage-refresh` X14 ×2: pre-existing (fails on pristine `origin/develop` source with pi 1.0.0 overlaid).
+- `role-bindings-watcher` X8, `EditorSearchPanel` keyboard: load flakes — both pass in isolation (7/7); no file of this change is in those areas.
+- `npm run build`: exit 0.
+
 ## Docker harness (step 3)
 
 `docker/test-up.sh -d --build` (image installs `@earendil-works/pi-coding-agent@1.1.0`, seeded `PI_E2E_SEED=1 PI_TEST_PEERS=both PI_E2E_OAUTH=1`), attach mode with `PW_CHANNEL=chrome` (host has no Playwright Chromium):
