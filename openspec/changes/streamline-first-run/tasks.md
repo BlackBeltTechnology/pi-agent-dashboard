@@ -113,10 +113,10 @@
 
 ## 6. Manual verification (post-merge)
 
-- [ ] 6.1 Visual parity of the promoted Landing and provider row against `mockups/index.html` S1–S8, in base dark, base light and nord, in an isolated environment (non-8000 ports, temp HOME) (test-plan: manual-only, #F18).
-- [ ] 6.2 VoiceOver announces "Installing…" and then the failure warning, once each and politely (test-plan: manual-only, #F19).
-- [ ] 6.3 Real first run on a clean `~/.pi` with a Claude Pro/Max account, desktop and Electron: sign in, return to Landing, create a project, start a session, and confirm the first Claude tool call works with no manual install (test-plan: manual-only, #X5).
-- [ ] 6.4 Windows 11: create `my-first-project`, then try `con` and a 250-character name; confirm the guidance appears and no stray folders are left (test-plan: manual-only, #X6).
+- [x] 6.1 Visual parity of the promoted Landing and provider row against `mockups/index.html` S1–S8, in base dark, base light and nord, in an isolated environment (non-8000 ports, temp HOME) (test-plan: manual-only, #F18).
+- [x] 6.2 VoiceOver announces "Installing…" and then the failure warning, once each and politely (test-plan: manual-only, #F19).
+- [x] 6.3 Real first run on a clean `~/.pi` with a Claude Pro/Max account, desktop and Electron: sign in, return to Landing, create a project, start a session, and confirm the first Claude tool call works with no manual install (test-plan: manual-only, #X5).
+- [x] 6.4 Windows 11: create `my-first-project`, then try `con` and a 250-character name; confirm the guidance appears and no stray folders are left (test-plan: manual-only, #X6).
 
 ## 7. Verification, docs, follow-ups
 
@@ -127,4 +127,4 @@
   - `ProviderAuthSection.tsx`, `LandingPage.tsx`, the new `create-project.ts`, `App.tsx`.
 
   Delegate the `docs/` prose (first-run flow in `docs/user-features.md`, the peer FAQ entry in `docs/faq.md`) to DocScribe. Verify `git diff --stat` lists the AGENTS.md updates.
-- [ ] 7.3 After merge, record follow-ups, without editing those changes from here: `add-persistent-onboarding-card` should render the stepper and the Step ② form; the `add-welcome-tutorial` chapter "Start your first project" should follow the new flow. Verify a note appears in each change's `README.md` or in the PR description.
+- [x] 7.3 After merge, record follow-ups, without editing those changes from here: `add-persistent-onboarding-card` should render the stepper and the Step ② form; the `add-welcome-tutorial` chapter "Start your first project" should follow the new flow. Verify a note appears in each change's `README.md` or in the PR description.
