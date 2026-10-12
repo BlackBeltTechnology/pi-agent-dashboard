@@ -87,7 +87,7 @@ Justified, not modified:
 | exports | 245 | 234 |
 | duplicates | 14 | 12 |
 
-Red on `origin/develop` itself (branch was 0 commits behind it at measurement), so **pre-existing, user-approved**. No finding is in a file this change adds; the three `exports` findings inside touched files (`event-reducer.ts`: `LIVE_BLOCK_GAP_MARKER`, `applyLiveBlockPiece`, `truncateLines`) predate the change. The 15 unused files are unrelated (`tests/e2e/identity*`, client `DiffView`/`TerminalCard`/`message-queue`/`useAuthStatus`/…, electron lib files, deck3d fixtures). `knip-ratchet --check-baseline-diff origin/develop` passes (no baseline class raised).
+Red on `origin/develop` itself (branch was 0 commits behind it at measurement), so **pre-existing, user-approved**. **Superseded:** develop's `close-e2e-tooling-followups` later lowered the baseline (files 4, exports 231, types 189, duplicates 12) and deleted the dead files; after merging it the ratchet is green (`files 4/4, exports 231/231, types 189/189, duplicates 12/12`) and `--check-baseline-diff origin/develop` passes — no exception remains. No finding is in a file this change adds; the three `exports` findings inside touched files (`event-reducer.ts`: `LIVE_BLOCK_GAP_MARKER`, `applyLiveBlockPiece`, `truncateLines`) predate the change. The 15 unused files are unrelated (`tests/e2e/identity*`, client `DiffView`/`TerminalCard`/`message-queue`/`useAuthStatus`/…, electron lib files, deck3d fixtures). `knip-ratchet --check-baseline-diff origin/develop` passes (no baseline class raised).
 
 ## Full suite (`npm test`)
 
@@ -131,3 +131,7 @@ Verification: `packages/server/src/model-proxy/__tests__/` 13 files / 157 tests 
 ## Method note
 
 The contaminated baseline also made my local "X14 fails on pristine develop" reproduction meaningless. The reliable signals were develop's nightly CI (passes) vs this branch's CI (fails), then the `resolve.js` diff on a version-verified 1.0.0 set.
+
+## Final integration (after the D7 fix)
+
+Merged `origin/develop` again (3 more commits). Conflicts: `tests/e2e/AGENTS.md` (develop promoted `local-credential-proof-nat` to a sidecar itself — theirs kept) and `event-reducer.ts.AGENTS.md` (union-kept). `tests/e2e/AGENTS.md` sits 11 bytes under the byte cap on develop, so this change adds the spec's sidecar (`pi-1-1-floor-smoke.spec.ts.AGENTS.md`) but no dir row. `pnpm install --frozen-lockfile` rc 0; `verify-release-deps` 11 rules OK; all step-4.4 enforcers green; `packages/server` 673 files / 8684 tests green.
