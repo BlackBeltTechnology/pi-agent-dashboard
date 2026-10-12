@@ -109,6 +109,22 @@ export interface EditorPaneTabLabelProps {
   pluginContext: AnyPluginContext;
 }
 
+/** Resource page types a `resource-page-section` claim can target. */
+export type ResourcePageType = "skill" | "agent" | "extension" | "prompt" | "theme";
+
+/**
+ * Props passed to a `resource-page-section` component. `scope` names the
+ * SURFACE (folder settings vs global settings), independent of any scope filter
+ * on that page; `cwd` is present exactly when `scope === "folder"`.
+ * See change: add-skill-atlas-screen.
+ */
+export interface ResourcePageSectionProps {
+  resourceType: ResourcePageType;
+  scope: "folder" | "global";
+  cwd?: string;
+  pluginContext: AnyPluginContext;
+}
+
 /** Map of slot id → props type for that slot's contributions. */
 export interface SlotPropsMap {
   "sidebar-folder-section": {
@@ -231,6 +247,7 @@ export interface SlotPropsMap {
     pluginContext: AnyPluginContext;
   };
   "editor-pane-tab": EditorPaneTabProps;
+  "resource-page-section": ResourcePageSectionProps;
   // Descriptor-only slots don't have React props (consumed by extension-ui-system)
   "management-modal": Record<string, unknown>;
   "footer-segment": Record<string, unknown>;

@@ -1,6 +1,6 @@
 /**
  * Settings-nav promotion resolver: decides which plugin settings pages the
- * host promotes into a nav group (today only `models`), under what label, in
+ * host promotes into a nav group (`models` or `resources`), under what label, in
  * what order. Pure; owns the whole "is this plugin promoted" decision.
  *
  * Gate (all must hold): a `settings-section` claim carries a `nav` hint; its
@@ -14,8 +14,8 @@
  */
 import { translationsOf } from "./i18n/i18n.js";
 
-/** Groups a plugin may be promoted into. */
-export const PROMOTION_GROUP_ALLOWLIST: ReadonlySet<string> = new Set(["models"]);
+/** Groups a plugin may be promoted into. `resources`: see change add-skill-atlas-screen. */
+export const PROMOTION_GROUP_ALLOWLIST: ReadonlySet<string> = new Set(["models", "resources"]);
 
 const DEFAULT_ORDER = 1000;
 

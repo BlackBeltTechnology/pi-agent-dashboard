@@ -43,6 +43,12 @@ export interface PluginClaim {
    */
   pathPrefix?: string;
   /**
+   * For `resource-page-section` slot: restrict the section to one resource
+   * page (`skill` | `agent` | `extension` | `prompt` | `theme`). Absent = every
+   * resource page. See change: add-skill-atlas-screen.
+   */
+  resourceType?: "skill" | "agent" | "extension" | "prompt" | "theme";
+  /**
    * For `editor-pane-tab` slot: optional exported component name rendered as
    * the tab-strip label (props: `{ path, session, pluginContext }`). Stays
    * mounted while the tab is in the background. See change: add-browser-editor-pane-tab.

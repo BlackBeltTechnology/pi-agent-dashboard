@@ -2115,6 +2115,11 @@ export function wireEvents(deps: EventWiringDeps): void {
       // settling rule keeps a transitional reload list from emptying it.
       // See change: fix-skill-discovery-parity.
       sessionCommandRegistry.retain(sessionId, msg.commands);
+      // A reload can reveal skill changes no watcher sees (body edits, npm
+      // packages): let pi-resource subscribers (skill-atlas) re-check. Unknown
+      // session → no cwd → nothing to emit. See change: add-skill-atlas-screen (D5).
+      const reportingCwd = sessionManager.get(sessionId)?.cwd;
+      if (reportingCwd) directoryService.notifyPiResourcesInvalidated?.(reportingCwd);
       browserGateway.sendToSubscribers(sessionId, {
         type: "commands_list",
         sessionId,

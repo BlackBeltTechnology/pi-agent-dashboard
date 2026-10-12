@@ -218,6 +218,21 @@ export interface DirectoryService {
   /** Scan now (deduped per cwd) and store the result. */
   refreshPiResources(cwd: string): Promise<PiResourcesResult>;
   /**
+   * Resolve with a scan that STARTED AFTER this call. An in-flight scan that
+   * began earlier (it may predate an edit) is awaited, then a new one runs.
+   * See change: add-skill-atlas-screen (design D4).
+   */
+  refreshPiResourcesFresh(cwd: string): Promise<PiResourcesResult>;
+  /**
+   * Subscribe to pi-resource invalidation: `cwd` from the watcher, `undefined`
+   * for the global scope, or whatever `notifyPiResourcesInvalidated` passes.
+   * Throwing listeners are isolated. Returns an unsubscribe function.
+   * See change: add-skill-atlas-screen (design D5).
+   */
+  onPiResourcesInvalidated(listener: (cwd: string | undefined) => void): () => void;
+  /** Fan a non-watcher invalidation (e.g. a session's `commands_list`) out to listeners. */
+  notifyPiResourcesInvalidated(cwd: string | undefined): void;
+  /**
    * Subscribe to OpenSpec updates. The optional `serialized` arg carries the
    * worker's pre-stringified `data` (matches `JSON.stringify(data)` byte-for-byte).
    * Broadcast wiring can pass it straight through to the wire so the payload
@@ -625,6 +640,16 @@ export function createDirectoryService(
   const piResourcesCache = new Map<string, PiResourcesEntry>();
   const piResourcesInFlight = new Map<string, Promise<PiResourcesResult>>();
   const piResourcesVersion = new Map<string, number>();
+  // Start sequence of each scan (monotonic) + of the in-flight scan per cwd, so a
+  // fresh read can tell a scan that predates it. See change: add-skill-atlas-screen.
+  let piResourcesScanSeq = 0;
+  const piResourcesInFlightSeq = new Map<string, number>();
+  const piResourcesInvalidationListeners = new Set<(cwd: string | undefined) => void>();
+  function notifyPiResourcesInvalidated(cwd: string | undefined): void {
+    for (const listener of [...piResourcesInvalidationListeners]) {
+      try { listener(cwd); } catch (err) { console.error("[pi-resources] invalidation listener failed:", err); }
+    }
+  }
   const piResourcesWatcher: PiResourcesWatcher = createPiResourcesWatcher({
     onInvalidate: (cwd) => invalidatePiResources(cwd),
     ...options.piResourcesWatch,
@@ -1465,11 +1490,22 @@ export function createDirectoryService(
         entry.stale = true;
         piResourcesVersion.set(key, (piResourcesVersion.get(key) ?? 0) + 1);
       }
-      return;
+    } else {
+      const entry = piResourcesCache.get(cwd);
+      if (entry) entry.stale = true;
+      piResourcesVersion.set(cwd, (piResourcesVersion.get(cwd) ?? 0) + 1);
     }
-    const entry = piResourcesCache.get(cwd);
-    if (entry) entry.stale = true;
-    piResourcesVersion.set(cwd, (piResourcesVersion.get(cwd) ?? 0) + 1);
+    notifyPiResourcesInvalidated(cwd);
+  }
+
+  async function refreshPiResourcesFresh(cwd: string): Promise<PiResourcesResult> {
+    const callSeq = piResourcesScanSeq;
+    // ≤ 2 iterations: an awaited pre-call scan is cleared before the next starts.
+    for (;;) {
+      const run = refreshPiResourcesInternal(cwd);
+      if ((piResourcesInFlightSeq.get(cwd) ?? 0) > callSeq) return run;
+      await run.catch(() => { /* superseded by the fresh scan below */ });
+    }
   }
 
   /** Release watchers beyond the caps, oldest first; drop data beyond its cap. */
@@ -1548,6 +1584,7 @@ export function createDirectoryService(
     // Attach BEFORE scanning so an edit during the scan is not missed.
     touchPiResources(cwd);
     const startVersion = piResourcesVersion.get(cwd) ?? 0;
+    piResourcesInFlightSeq.set(cwd, ++piResourcesScanSeq);
     const run = scanPiResources(cwd)
       .then((data) => {
         const now = piResourcesNow();
@@ -1571,7 +1608,10 @@ export function createDirectoryService(
         }
         throw err;
       })
-      .finally(() => piResourcesInFlight.delete(cwd));
+      .finally(() => {
+        piResourcesInFlight.delete(cwd);
+        piResourcesInFlightSeq.delete(cwd);
+      });
     piResourcesInFlight.set(cwd, run);
     return run;
   }
@@ -1709,6 +1749,15 @@ export function createDirectoryService(
     async refreshPiResources(cwd: string): Promise<PiResourcesResult> {
       return refreshPiResourcesInternal(cwd);
     },
+
+    refreshPiResourcesFresh,
+
+    onPiResourcesInvalidated(listener: (cwd: string | undefined) => void): () => void {
+      piResourcesInvalidationListeners.add(listener);
+      return () => { piResourcesInvalidationListeners.delete(listener); };
+    },
+
+    notifyPiResourcesInvalidated,
 
     startPolling(
       onChange: (cwd: string, data: OpenSpecData, serialized?: string) => void,

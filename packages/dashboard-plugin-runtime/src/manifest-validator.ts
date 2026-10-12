@@ -26,6 +26,9 @@ import {
   type SlotId,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 
+/** Valid `resource-page-section` `resourceType` values. See change: add-skill-atlas-screen. */
+const RESOURCE_PAGE_TYPES: ReadonlySet<string> = new Set(["skill", "agent", "extension", "prompt", "theme"]);
+
 /**
  * Validate the optional `projectTypes` marker rules (fatal on any violation).
  * See change: add-project-scoped-apps.
@@ -333,6 +336,15 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     }
   }
 
+  // resource-page-section: optional `resourceType` must name a resource page.
+  // See change: add-skill-atlas-screen.
+  if (slotId === "resource-page-section" && c.resourceType !== undefined && !RESOURCE_PAGE_TYPES.has(c.resourceType as string)) {
+    throw new ManifestValidationError(
+      pluginId,
+      `claims[${index}] slot "resource-page-section" resourceType must be one of ${[...RESOURCE_PAGE_TYPES].join(", ")}`,
+    );
+  }
+
   // settings-section: `tab` is accepted but inert. Every `settings-section`
   // claim renders on its owning plugin's page (`/settings/plugins/<id>`), so
   // rejecting an unknown VALUE would fail a manifest over a field nothing
@@ -380,6 +392,9 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     ...(typeof c.toolName === "string" ? { toolName: c.toolName } : {}),
     ...(typeof c.customType === "string" ? { customType: c.customType } : {}),
     ...(slotId === "editor-pane-tab" && typeof c.pathPrefix === "string" ? { pathPrefix: c.pathPrefix } : {}),
+    ...(slotId === "resource-page-section" && typeof c.resourceType === "string"
+      ? { resourceType: c.resourceType as NonNullable<PluginClaim["resourceType"]> }
+      : {}),
     ...(slotId === "editor-pane-tab" && typeof c.labelComponent === "string"
       ? { labelComponent: c.labelComponent }
       : {}),
