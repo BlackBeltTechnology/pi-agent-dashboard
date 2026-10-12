@@ -1711,9 +1711,10 @@ The generic plugin runtime surface (`ServerPluginContext` / `server-context.ts`)
 No plugin workspace SHALL depend on monorepo-only module resolution. CI SHALL
 verify this dynamically: for each workspace whose `pi-dashboard-plugin`
 manifest declares a `server` entry, pack the workspace, extract it outside the
-repository, install its dependencies, and import the server entry under plain
-node+jiti with `JITI_TSCONFIG_PATHS` unset and no repository `tsconfig`
-reachable. The check SHALL assert `typeof mod.default === "function"`, the
+repository, install its dependencies, and import the server entry under plain Node with the dashboard's Node-native
+TypeScript loader (the same strip-only loader the server uses) and no
+repository `tsconfig` reachable, so a plugin whose TypeScript is not erasable
+fails here instead of at a user's server boot. The check SHALL assert `typeof mod.default === "function"`, the
 same contract the loader enforces.
 
 First-party workspace dependencies SHALL be installed from locally packed
@@ -1742,6 +1743,11 @@ not the script itself.
 - **GIVEN** a workspace whose `pi-dashboard-plugin` manifest declares no `server` entry
 - **WHEN** the install-load verification runs
 - **THEN** that workspace SHALL be skipped and reported as skipped
+
+#### Scenario: Plugin with non-erasable TypeScript fails CI
+- **GIVEN** a plugin whose server entry graph declares an `enum` or a constructor parameter property
+- **WHEN** the install-load verification runs
+- **THEN** it SHALL exit non-zero naming the plugin and the offending file
 
 ### Requirement: Clean-install QA boot proves plugins actually load
 
@@ -1784,6 +1790,15 @@ assert, in order:
 - **GIVEN** a monorepo checkout present on the host
 - **WHEN** the smoke boots the installed dashboard
 - **THEN** every loaded plugin path SHALL be inside the install prefix
+
+### Requirement: Plugin server TypeScript must be erasable
+A dashboard plugin's server entry and everything it imports from TypeScript source SHALL use only syntax accepted by Node's strip-only type stripping (no `enum`, runtime `namespace`, or constructor parameter properties) and SHALL import type-only symbols with `import type`, because the dashboard server loads it with the Node-native strip-only loader. A third-party plugin that violates this SHALL fail to load in isolation, per "Plugin failure does not crash the shell", with the load error naming the offending file.
+
+#### Scenario: Non-erasable third-party plugin is isolated
+- **GIVEN** an installed plugin whose server entry declares a class with a constructor parameter property
+- **WHEN** the dashboard server boots
+- **THEN** the server SHALL start and other plugins SHALL load
+- **AND** `/api/health` `plugins[]` SHALL report that plugin with an error naming the file
 
 ## Related Capabilities
 

@@ -12,7 +12,7 @@ The Electron main process SHALL discover or launch a dashboard server, then open
 #### Scenario: Launch with no server running
 
 - **WHEN** the Electron app starts and no dashboard server is discovered (mDNS via `@blackbelt-technology/pi-dashboard-shared/mdns-discovery` + health check fallback via `@blackbelt-technology/pi-dashboard-shared/server-identity`)
-- **THEN** it SHALL launch the server as a detached process through `launchDashboardServer` (see `server-launch`), with the TypeScript loader selected per `server-launch` (Node-native by default, jiti when `PI_DASHBOARD_TS_LOADER=jiti`) resolved from the launch source, and open a BrowserWindow pointing at `http://localhost:<port>` once the server is ready
+- **THEN** it SHALL launch the server as a detached process through `launchDashboardServer` (see `server-launch`), with the Node-native TypeScript loader (the only server loader per `server-launch`) resolved from the launch source, and open a BrowserWindow pointing at `http://localhost:<port>` once the server is ready
 
 #### Scenario: Launch with server already running
 
