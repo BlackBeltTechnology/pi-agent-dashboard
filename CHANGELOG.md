@@ -46,8 +46,23 @@ see [`docs/release-process.md`](docs/release-process.md).
   an active search or filter always forces the full list.
 - **Role-aware model refs.** Any model setting can hold `@role[:level]` instead of a concrete `provider/id`, so switching a role or preset re-routes every dependent setting from one place. `ui:model-selector` gains an opt-in `allowRoles` prop (Model | Role tabs; hidden when the roles plugin is absent). New roles-plugin service `roles.bindings` projects role-bound fields into third-party config files; blackhole is the first projector (all model slots + fallback chains, with `ok`/`dangling`/`detached` status and Reattach). Composer and OpenSpec run-dialog pickers resolve a role once at pick time ("via @role"). The Model roles page lists what follows each role. New `~/.pi/dashboard/role-bindings.json`.
 
+- **Web search and fetch entries render as compact cards.** A new client-only `web-access`
+  plugin (`pi-dashboard-web-access-plugin`, bundled) renders `pi-web-access`'s
+  `web-search-results` entries as one line ("Web search · 2 queries · 8 results", "Web fetch ·
+  4 URLs"); expanding shows queries, answers, results and fetched URLs, with only safe `http(s)`
+  links clickable. Disabling the plugin falls back to the generic card.
+- **Generic custom-entry fallback shows JSON objects as key/value lists.** An untruncated
+  object body renders up to 50 keys as a list instead of pretty-printed JSON; everything else
+  stays plain text.
+
 ### Changed
 
+- **Subagent admission refusals ship hidden.** The durable `subagent-admission-refused`
+  record now belongs to a new `diagnostics` custom event group, hidden by default (the refused
+  tool call already shows its reason). Enable "Diagnostics" in the chat View popover, or in
+  `~/.pi/dashboard/custom-event-groups.json`, to see it again. **Rollback note:** reverting the
+  code does not unhide refusals — the `diagnostics` group stays in your
+  `custom-event-groups.json` with `default: false`; enable it or delete the entry to restore them.
 - Grammar model may be `llm: { role: "@fast" }` (resolved per check; new error `model_role_unassigned`). Automation drops its private role dropdown for the shared picker's Role tab, and its `@role` resolution now honors a `:level` suffix on the ref. **Rollback note:** reverting leaves any `llm.role` grammar config unreadable — it falls back to "pick a model" until a model is chosen again.
 - **Team personas no longer inherit global, package or extension skills (breaking).**
   Every team session starts with `--no-skills` and only its catalog skills; legacy alias

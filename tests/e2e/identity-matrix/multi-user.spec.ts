@@ -41,7 +41,7 @@ const hasPi = (() => {
 })();
 
 test.describe.configure({ mode: "serial", timeout: 180_000 });
-test.skip(!hasPi, "needs the pi CLI on PATH to spawn real sessions");
+test.skip(!hasPi, "needs the pi CLI on PATH to spawn real sessions; runs in no CI leg yet — https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/861");
 
 let inst: DedicatedInstance;
 let base: string;

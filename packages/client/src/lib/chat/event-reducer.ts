@@ -1164,7 +1164,7 @@ export function truncateLines(text: string | unknown, maxLines: number): string 
  * parity holds. See change: render-inline-reasoning-and-custom-entries
  * (security-hardening pass, advisory #2).
  */
-const CUSTOM_BODY_MAX_CHARS = 64_000;
+export const CUSTOM_BODY_MAX_CHARS = 64_000;
 
 function extractCustomEntryBody(content: unknown): string {
   const body = extractCustomEntryBodyUncapped(content);

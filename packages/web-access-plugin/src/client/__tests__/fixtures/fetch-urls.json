@@ -1,0 +1,22 @@
+{
+  "id": "fx-fetch-2",
+  "type": "fetch",
+  "timestamp": 1700000000003,
+  "urls": [
+    {
+      "url": "https://example.com/doc",
+      "title": "Example Doc",
+      "content": "# Example\n\nNeutral body text."
+    },
+    {
+      "url": "https://example.org/doc2",
+      "title": "Example Doc Two",
+      "content": "More neutral body text."
+    },
+    {
+      "url": "https://example.net/doc3",
+      "title": "Example Doc Three",
+      "content": "x"
+    }
+  ]
+}

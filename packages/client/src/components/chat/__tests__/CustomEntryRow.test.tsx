@@ -9,6 +9,7 @@
 import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { createSlotRegistry, bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { WebSearchEntryCard } from "@blackbelt-technology/pi-dashboard-web-access-plugin";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "../../../lib/chat/event-reducer.js";
@@ -309,5 +310,74 @@ describe("CustomEntryRow — collapsed-first payload contract", () => {
     await vi.waitFor(() => {
       expect(screen.getByTestId("stub-plugin").getAttribute("data-error")).toMatch(/evicted/i);
     });
+  });
+});
+
+describe("CustomEntryRow — diagnostics group (change: render-unclaimed-custom-entries, F5)", () => {
+  const refusal = () =>
+    customMsg({
+      customType: "subagent-admission-refused",
+      groupId: "diagnostics",
+      content: '{"cause":"cap","inFlight":2}',
+    });
+
+  it("F5: hidden by default, visible once the group is enabled", () => {
+    const { container, unmount } = renderRow(refusal());
+    expect(container.firstChild).toBeNull();
+    unmount();
+    const prefs: DisplayPrefs = {
+      ...DISPLAY_PRESETS.standard,
+      customEventGroups: { ...DISPLAY_PRESETS.standard.customEventGroups, diagnostics: true },
+    };
+    renderRow(refusal(), { prefs });
+    expect(screen.getByTestId("custom-entry-card")).toBeTruthy();
+  });
+});
+
+describe("CustomEntryRow — web-access claim (change: render-unclaimed-custom-entries, F6–F8, X6)", () => {
+  const searchBody = JSON.stringify({ type: "search", queries: [{ query: "q", results: [{}] }] });
+  const row = () => customMsg({ customType: "web-search-results", groupId: "search", content: searchBody, entryId: "e1" });
+  const webRegistry = (Component: React.ComponentType<never> = WebSearchEntryCard as never) => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "web-access",
+      priority: 1000,
+      slot: "custom-entry-renderer",
+      customType: "web-search-results",
+      Component: Component as never,
+    });
+    return registry;
+  };
+
+  it("F6: a claimed row renders the web-access card, not the generic fallback", () => {
+    renderRow(row(), { registry: webRegistry() });
+    expect(screen.getByTestId("web-search-entry")).toBeTruthy();
+    expect(screen.queryByTestId("custom-entry-card")).toBeNull();
+  });
+
+  it("F7: with the plugin disabled the generic fallback shows the structured view", () => {
+    renderRow(row(), { registry: createSlotRegistry() });
+    const card = screen.getByTestId("custom-entry-card");
+    expect(card.querySelector("dl")).toBeTruthy();
+    expect(screen.queryByTestId("web-search-entry")).toBeNull();
+  });
+
+  it("F8: a hidden `search` group suppresses the row", () => {
+    const prefs: DisplayPrefs = {
+      ...DISPLAY_PRESETS.standard,
+      customEventGroups: { ...DISPLAY_PRESETS.standard.customEventGroups, search: false },
+    };
+    const { container } = renderRow(row(), { registry: webRegistry(), prefs });
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("X6: a throwing card falls back to the generic card for that row", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    function Boom(): React.ReactElement {
+      throw new Error("card crash");
+    }
+    renderRow(row(), { registry: webRegistry(Boom as never) });
+    expect(screen.getByTestId("custom-entry-card")).toBeTruthy();
+    expect(screen.queryByTestId("web-search-entry")).toBeNull();
   });
 });

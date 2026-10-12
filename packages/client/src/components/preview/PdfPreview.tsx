@@ -80,7 +80,7 @@ async function mountViewer(container: HTMLDivElement, url: string): Promise<View
   return { doc, viewer };
 }
 
-export function PdfPreview({ target, srcUrl }: Props) {
+function PdfPreview({ target, srcUrl }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const { cwd, path } = target;

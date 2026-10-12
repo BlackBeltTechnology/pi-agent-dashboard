@@ -12,7 +12,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `hermes-model-override.spec.ts` | L3 F3 → see `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | L3 KB settings sources + search. → see `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `live-server-downloads.spec.ts` | L3 #F1/#X1 |
-| `local-credential-proof-nat.spec.ts` | L3 #X9 NAT proof. → see `local-credential-proof-nat.spec.ts.AGENTS.md` |
+| `local-credential-proof-nat.spec.ts` | L3 #X9: published-port proof. → see `local-credential-proof-nat.spec.ts.AGENTS.md` |
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
@@ -54,6 +54,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `custom-entry-fallback.spec.ts` | L3 (change: render-inline-reasoning-and-custom-entries… → see `custom-entry-fallback.spec.ts.AGENTS.md` |
 | `custom-entry-om-renderer.spec.ts` | L3 (change: add-custom-entry-renderer-slot, F15). → see `custom-entry-om-renderer.spec.ts.AGENTS.md` |
 | `custom-entry-replay-parity.spec.ts` | L3 (change: render-inline-reasoning-and-custom-entries… → see `custom-entry-replay-parity.spec.ts.AGENTS.md` |
+| `custom-entry-web-search.spec.ts` | L3 F17/F18. → see `custom-entry-web-search.spec.ts.AGENTS.md` |
 | `dashboard-slash.spec.ts` | Browser E2E: spawn session → `/dashboard:server-health`… → see `dashboard-slash.spec.ts.AGENTS.md` |
 | `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home page… → see `directory-home.spec.ts.AGENTS.md` |
 | `editor-pane.spec.ts` | Playwright E2E for internal Monaco editor pane (change… → see `editor-pane.spec.ts.AGENTS.md` |
@@ -69,7 +70,6 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `faux-ask.spec.ts` | Faux-provider ask_user round trip. → see `faux-ask.spec.ts.AGENTS.md` |
 | `faux-text.spec.ts` | Playwright spec. Faux `[[faux:plain-text]]` roundtrip.… → see `faux-text.spec.ts.AGENTS.md` |
 | `faux-tool.spec.ts` | Faux-provider tool-call round trip. → see `faux-tool.spec.ts.AGENTS.md` |
-| `pi-1-1-floor-smoke.spec.ts` | L3 floor smoke → see sidecar |
 | `file-mention-resolve.spec.ts` | L3 server-side-file-mention-resolution (S19). → see `file-mention-resolve.spec.ts.AGENTS.md` |
 | `file-preview-survives-churn.spec.ts` | Playwright spec. Rendered-DOM regression for hoisted… → see `file-preview-survives-churn.spec.ts.AGENTS.md` |
 | `fixtures.ts` | The suite's `test`/`expect` entry point — EVERY spec… → see `fixtures.ts.AGENTS.md` |
@@ -124,7 +124,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `openspec-board-drop.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drop… → see `openspec-board-drop.spec.ts.AGENTS.md` |
 | `openspec-board-worktree-availability.spec.ts` | L3 worktree availability on OpenSpec board → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
 | `openspec-connect-coverage.spec.ts` | L3 connect coverage, fix-connect-snapshot-frame-loss… → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
-| `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice (add-openspec-init-affordances). → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
+| `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice. → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board segment… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
 | `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-attach-to-session-cwd). → see `openspec-locality-gate.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux… → see `optimistic-prompt.spec.ts.AGENTS.md` |

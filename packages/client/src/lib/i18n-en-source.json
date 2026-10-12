@@ -360,6 +360,8 @@
   "packages.modules": "Modules",
   "common.moreActions": "More actions",
   "common.moreProcesses": "more processes",
+  "customEntry.moreKeysOne": "{count} more key",
+  "customEntry.moreKeysOther": "{count} more keys",
   "common.movePartiallySucceeded": "Move partially succeeded",
   "common.mustBeAnIntegerBetween5000": "Must be an integer between 5000 and 120000.",
   "common.name": "Name",

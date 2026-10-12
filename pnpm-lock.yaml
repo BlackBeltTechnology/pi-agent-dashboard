@@ -388,6 +388,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-team-plugin':
         specifier: ^0.9.0
         version: link:../team-plugin
+      '@blackbelt-technology/pi-dashboard-web-access-plugin':
+        specifier: ^0.9.0
+        version: link:../web-access-plugin
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -1738,6 +1741,34 @@ importers:
       sherpa-onnx-node:
         specifier: ^1.13.6
         version: 1.13.7
+
+  packages/web-access-plugin:
+    dependencies:
+      '@blackbelt-technology/dashboard-plugin-runtime':
+        specifier: ^0.9.0
+        version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.9.0
+        version: link:../shared
+      '@mdi/js':
+        specifier: ^7.4.47
+        version: 7.4.47
+      '@mdi/react':
+        specifier: ^1.6.1
+        version: 1.6.1
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.5(@types/react@19.2.18)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.8(react@19.2.8)
 
 packages:
 

@@ -32,9 +32,30 @@ and merge purposes; `pattern` and `label` SHALL be freely editable by the user w
 #### Scenario: Shipped defaults cover the known emitters
 - **WHEN** the shipped defaults are seeded
 - **THEN** they SHALL include groups covering memory telemetry (`om.` prefixed types), web search results, subagent
-  entries, flows help, and goal-plugin entries
-- **AND** the memory telemetry group SHALL default to hidden
+  entries, flows help, goal-plugin entries, and diagnostics (subagent admission refusals,
+  `subagent-admission-refused`)
+- **AND** the memory telemetry group and the diagnostics group SHALL default to hidden
 - **AND** every other shipped group SHALL default to visible
+
+#### Scenario: Admission refusal resolves to diagnostics, not the catch-all
+- **GIVEN** the shipped defaults
+- **WHEN** the `customType` `subagent-admission-refused` is resolved
+- **THEN** it SHALL resolve to the `diagnostics` group
+- **AND** it SHALL NOT resolve to the `subagents` group or the catch-all `other` group
+
+#### Scenario: Existing config gains diagnostics hidden
+- **GIVEN** an existing `custom-event-groups.json` whose `seenShippedIds` does not contain `diagnostics`
+- **AND** no group earlier in the file matches `subagent-admission-refused`
+- **WHEN** the server starts
+- **THEN** the `diagnostics` group SHALL be appended with `default: false`
+- **AND** a previously visible `subagent-admission-refused` row SHALL no longer render unless the user enables
+  `diagnostics`
+
+#### Scenario: Earlier user rule keeps claiming refusals
+- **GIVEN** an existing file with a user-authored group, earlier than `diagnostics`, whose pattern matches
+  `subagent-admission-refused`
+- **WHEN** `diagnostics` is merged in
+- **THEN** `subagent-admission-refused` SHALL continue to resolve to the user's group
 
 ### Requirement: Group resolution SHALL be first-match-wins and total
 Resolving a `customType` to a group SHALL evaluate the `groups` array in order and select the first group whose
