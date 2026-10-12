@@ -203,7 +203,7 @@ export async function proveServerIdentity(
   const timeoutMs = opts.timeoutMs ?? 2000;
   const signal = AbortSignal.timeout(timeoutMs);
   try {
-    const res = await doFetch(`${baseUrl.replace(/\/+$/, "")}/api/pair/challenge`, {
+    const res = await doFetch(`${trimTrailingSlashes(baseUrl)}/api/pair/challenge`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ nonce }),
@@ -226,6 +226,13 @@ export async function proveServerIdentity(
   } catch {
     return { refused: "challenge failed" };
   }
+}
+
+/** Trim trailing `/` by scanning (a `/\/+$/` regex is polynomial on long slash runs). */
+function trimTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url.charCodeAt(end - 1) === 47) end--;
+  return url.slice(0, end);
 }
 
 /** Read a response body up to `max` bytes; `null` when it exceeds the cap. */

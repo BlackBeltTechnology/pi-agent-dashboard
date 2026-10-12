@@ -320,6 +320,17 @@ describe("known-servers routes (identity pinning)", () => {
     });
   });
 
+  it("rejects a host that is not a DNS name / IP literal before any outbound challenge", async () => {
+    await mkCtx();
+    for (const host of ["evil.com#@x", "user@host.local", "a/b", "h.local?x=1", "a b"]) {
+      const r = await operator("POST", "/api/known-servers", { host, port: 8000 });
+      expect(r.statusCode, host).toBe(400);
+      expect(r.json().error).toBe("invalid_host");
+    }
+    expect(ctx.prove).not.toHaveBeenCalled();
+    expect(entries()).toEqual([]);
+  });
+
   describe("E14 non-operator mutations are refused", () => {
     it.each([
       ["trusted-network peer", {} as Record<string, string>],

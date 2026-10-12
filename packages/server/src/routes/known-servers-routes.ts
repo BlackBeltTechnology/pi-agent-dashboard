@@ -30,7 +30,7 @@ import type {
   RemoveKnownServerRequest,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { formatHostPort, normalizeHostKey } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
+import { formatHostPort, isValidHost, normalizeHostKey } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
 import { type ProveResult, proveServerIdentity } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import type { HostAdmissionOptions } from "../auth/host-admission.js";
 import type { LocalTrustContext } from "../auth/local-proof.js";
@@ -155,6 +155,9 @@ export function registerKnownServersRoutes(fastify: FastifyInstance, deps: Known
       if (!host || typeof host !== "string" || !Number.isInteger(port) || port < 1 || port > 65535) {
         return { success: false, error: "host and port are required" };
       }
+      // The host is placed in an outbound URL (identity challenge): admit only DNS-name / IP-literal
+      // characters, so no URL-authority trick (`@`, `/`, `#`, `?`) can redirect the request.
+      if (!/^[A-Za-z0-9._:[\]-]+$/.test(host) || !isValidHost(host)) return fail(reply, 400, "invalid_host");
       // Snapshot BEFORE the challenge: an entry that existed then but is gone when the
       // write runs was deleted meanwhile and must not be recreated.
       const snapshot = readList();
