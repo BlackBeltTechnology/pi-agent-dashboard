@@ -221,7 +221,7 @@ sequenceDiagram
    - Before the result is returned, it rewrites the full-output file named in `details.fullOutputPath`.
    - pi applies the result before recording (`agent-session.js:336-357`). The transcript and the model therefore see masked text whatever the forwarder does.
    - The vault handler registers at bridge activation. A later-registered `tool_result` handler from another extension can still see raw text, which falls under the trusted-code posture.
-1b. **`message_end` handler.** It returns a replacement message with every text and tool-call argument string deep-masked (`MessageEndEventResult`, `types.d.ts:1078-1081`). pi persists the replacement (`agent-session.js:902-912`), so assistant text is masked in the transcript as well.
+1b. **`message_end` handler.** It returns a replacement message with every text and tool-call argument string deep-masked. Every other field, including `role` and `usage`, is kept unchanged, as `token-stats-pipeline` requires (`MessageEndEventResult`, `types.d.ts:1078-1081`). pi persists the replacement (`agent-session.js:902-912`), so assistant text is masked in the transcript as well.
 2. **User `!` commands.**
    - A `user_bash` handler returns wrapped `createLocalBashOperations`.
    - The wrapper masks streamed `onData` chunks with the same hold-back as point 3. It decodes with a streaming UTF-8 decoder, so multi-byte characters never split, and it flushes the held tail, masked, when the command exits.
@@ -238,6 +238,7 @@ sequenceDiagram
      - For cumulative snapshots, it forwards each masked snapshot minus that tail.
      - For deltas, it keeps only the tail buffer, never the whole message. That respects the `pi-api-feature-detection` rule against delta accumulation.
      - Spike T4 confirms which shape each event has.
+     - **Ordering.** Before forwarding any other event of the session, the forwarder flushes every held tail, masked. This keeps the wire order that `event-reducer` ("Streaming text flushed at tool_execution_start") and `provider-retry-state` (wire-ordering invariant) rely on.
    - **Spec delta.** This is a fourth forwarding exception, which `catch-all-event-forwarding` forbids unless listed. The change adds a MODIFIED delta for "Subscribe to all pi core event types": masking is value-scoped, and characters are delayed, never dropped.
    - **Scope.** The forwarder protects the dashboard copy. Points 1 and 1b protect the transcript and model copy.
 4. **Reload.** On extension reload, the redaction set is read back from the `process` registry before any output is produced.
@@ -277,6 +278,9 @@ In both cases the user confirms each proposed key. Values shorter than 8 charact
 | `dashboard-plugin-loader` | unaffected: D4 is a separate read |
 | `spawn-correlation` | unaffected: `PI_DASHBOARD_VAULT_DELIVERED` holds no secret; `PI_` names are not deliverable |
 | `pi-api-feature-detection` | honoured: no delta accumulation; only a bounded tail buffer (D5.3) |
+| `event-reducer`, `provider-retry-state` | honoured: held tails flush before any later event (D5.3) |
+| `token-stats-pipeline` | honoured: the `message_end` replacement keeps `usage` (D5.1b) |
+| `replay-stream-compaction`, `in-memory-event-buffer`, `event-status-extraction`, `bridge-retry-observability` | unaffected: end events carry the full masked text; classification does not read payload text |
 | `pi-gateway-auth` | honoured: remote delivery rides the paired-device ticket and adds a TLS requirement (D3) |
 | `mid-turn-prompt-queue`, `jiti-cjs-transpile-safety`, `markdown-knowledge-base`, `bridge-decomposition`, `platform-primitives`, `terminal-emulator` | unaffected: no shared surface |
 | `deck3d-effects`, `deck3d-mermaid-harvest` | unaffected requirements; deck3d itself is a consumer (`POLY_PIZZA_KEY`, read from env first) |
