@@ -174,7 +174,7 @@ jobs:
       # resolved version if the hoisted install did not link the platform binary.
       # See change: migrate-typecheck-to-ts7.
       - name: TypeScript 7 compiler is installed
-        run: node scripts/tsc7.mjs --version
+        run: node scripts/tsc7.mjs --version | grep -q '^Version 7\.'
       - run: pnpm run lint
       # Typechecks tests/e2e + guards the reap-fixture import. The root tsconfig
       # only includes `packages/*/src`, so before change

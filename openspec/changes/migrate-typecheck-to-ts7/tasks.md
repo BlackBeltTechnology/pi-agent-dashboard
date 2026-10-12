@@ -16,21 +16,21 @@
 
 ## 3. Tests (folded from test-plan.md)
 
-- [x] 3.1 L1 wrapper runs TS 7 from the repo root (test-plan #E1); see scripts/__tests__/loader-neutral-source.test.mjs; repo root cwd · `node scripts/tsc7.mjs --version` · exit 0, stdout starts with `Version 7.`
-- [x] 3.2 L1 wrapper runs TS 7 from a package directory (test-plan #E2); see scripts/__tests__/loader-neutral-source.test.mjs; `packages/kb` cwd · `node ../../scripts/tsc7.mjs --version` · exit 0, `Version 7.`
-- [x] 3.3 L1 wrapper forwards the exit code (test-plan #E3); see scripts/__tests__/loader-neutral-source.test.mjs; temp project with a type error / clean file · `node scripts/tsc7.mjs --noEmit -p <temp>` · non-zero + TS2322 / exit 0 with empty output
-- [x] 3.4 L1 wrapper with the alias missing (test-plan #E4); see scripts/__tests__/loader-neutral-source.test.mjs; wrapper copied to a temp dir without `typescript-7` · run `--version` · exit 1, one stderr line naming `typescript-7` and `pnpm install`, no stack trace
-- [x] 3.5 L1 no bare `tsc` in type-check invocations (test-plan #E5); see scripts/__tests__/loader-neutral-source.test.mjs; package.json scripts, the 3 shell scripts, `send-types.test.ts` · scan for bare `tsc` / `npx tsc` / `.bin/tsc` · zero matches
-- [x] 3.6 L1 `require("typescript")` stays on 5.x (test-plan #E6); see scripts/__tests__/verify-release-deps-client-build-deps.test.mjs; install with both versions · `require("typescript")` · version `5.*`, `createSourceFile` is a function
+- [x] 3.1 L1 wrapper runs TS 7 from the repo root (test-plan #E1); see scripts/__tests__/tsc7-wrapper.test.mjs; repo root cwd · `node scripts/tsc7.mjs --version` · exit 0, stdout starts with `Version 7.`
+- [x] 3.2 L1 wrapper runs TS 7 from a package directory (test-plan #E2); see scripts/__tests__/tsc7-wrapper.test.mjs; `packages/kb` cwd · `node ../../scripts/tsc7.mjs --version` · exit 0, `Version 7.`
+- [x] 3.3 L1 wrapper forwards the exit code (test-plan #E3); see scripts/__tests__/tsc7-wrapper.test.mjs; temp project with a type error / clean file · `node scripts/tsc7.mjs --noEmit -p <temp>` · non-zero + TS2322 / exit 0 with empty output
+- [x] 3.4 L1 wrapper with the alias missing (test-plan #E4); see scripts/__tests__/tsc7-wrapper.test.mjs; wrapper copied to a temp dir without `typescript-7` · run `--version` · exit 1, one stderr line naming `typescript-7` and `pnpm install`, no stack trace
+- [x] 3.5 L1 no bare `tsc` in type-check invocations (test-plan #E5); see scripts/__tests__/tsc7-wrapper.test.mjs; package.json scripts, the 3 shell scripts, `send-types.test.ts` · scan for bare `tsc` / `npx tsc` / `.bin/tsc` · zero matches
+- [x] 3.6 L1 `require("typescript")` stays on 5.x (test-plan #E6); see scripts/__tests__/tsc7-wrapper.test.mjs; install with both versions · `require("typescript")` · version `5.*`, `createSourceFile` is a function
 - [x] 3.7 L1 kb dev rebuild prefers the wrapper (test-plan #E7); see packages/kb/src/__tests__/engine-fingerprint.test.ts; `kb.mjs` in repo / copied to temp with fake `typescript` · trigger rebuild · wrapper spawned / fake `tsc.js` runs (`REBUILT_OK`)
-- [x] 3.8 L1 emit identical at the switch-over (test-plan #E8); see scripts/__tests__/verify-release-deps-client-build-deps.test.mjs; app-kit, bus-client, context-budget, kb · build with 5.9 and with the wrapper into temp dirs · `diff -r` empty
-- [x] 3.9 L1 codegen still runs on the 5.x API (test-plan #E9); see packages/server/src/__tests__/mcp-manifest-completeness.test.ts; bus-client verb codegen + mcp-server tool codegen · run both · exit 0, output byte-identical to committed files
-- [x] 3.10 L1 `BufferSource` copy keeps behaviour (test-plan #E10); see packages/shared/src/__tests__/server-launcher.test.ts (vitest pure-function pattern); patched `send` with string, Blob, offset `Uint8Array` view, raw `ArrayBuffer` · call · underlying `send` receives identical content
-- [x] 3.11 L1 docs and skills name the wrapper (test-plan #E11); see scripts/__tests__/loader-neutral-source.test.mjs; `docs/` + `.pi/skills/` minus archived and `*.AGENTS.md` · `git grep -nE '(npx )?tsc --noEmit'` · only wrapper invocations
+- [x] 3.8 L1 emit identical at the switch-over (test-plan #E8); see scripts/__tests__/tsc7-wrapper.test.mjs; app-kit, bus-client, context-budget, kb · build with 5.9 and with the wrapper into temp dirs · `diff -r` empty
+- [x] 3.9 L1 codegen still runs on the 5.x API (test-plan #E9); see scripts/__tests__/tsc7-wrapper.test.mjs; bus-client verb codegen + mcp-server tool codegen · run both · exit 0, output byte-identical to committed files
+- [x] 3.10 L1 `BufferSource` copy keeps behaviour (test-plan #E10); see tests/e2e/helpers/__tests__/anchor-probe-send.test.ts; patched `send` with string, Blob, offset `Uint8Array` view, raw `ArrayBuffer` · call · underlying `send` receives identical content
+- [x] 3.11 L1 docs and skills name the wrapper (test-plan #E11); see scripts/__tests__/tsc7-wrapper.test.mjs; `docs/` + `.pi/skills/` minus archived and `*.AGENTS.md` · `git grep -nE '(npx )?tsc --noEmit'` · only wrapper invocations
 - [x] 3.12 ci TS 7 platform binary on the Linux runner (test-plan #X1); see the `pnpm run lint` step in .github/workflows/ci.yml; hoisted frozen-lockfile install · `node scripts/tsc7.mjs --version` then `pnpm run lint` · prints `Version 7.`, lint exits 0
 - [x] 3.13 ci diagnostics parity (test-plan #X2); see the `pnpm run lint` / `lint:e2e` steps in .github/workflows/ci.yml; none · CI lint, lint:e2e and the 4 package builds · all exit 0
 - [x] 3.14 ci kb fingerprint stays fresh (test-plan #X3); see the "kb dist freshness (engine fingerprint)" step in .github/workflows/ci.yml; `packages/kb/tsconfig.json` edited · `node scripts/check-kb-dist-fresh.mjs` · exit 0
-- [x] 3.15 L1 team-app does not regress on TS 7 (test-plan #X4); see scripts/__tests__/loader-neutral-source.test.mjs; `packages/team-app` · `node scripts/tsc7.mjs --noEmit -p packages/team-app` · ≤ 8 errors, only TS18049/TS2339/TS2345
+- [x] 3.15 L1 team-app does not regress on TS 7 (test-plan #X4); see scripts/__tests__/tsc7-wrapper.test.mjs; `packages/team-app` · `node scripts/tsc7.mjs --noEmit -p packages/team-app` · ≤ 8 errors, only TS18049/TS2339/TS2345
 
 ## 4. Docs
 
