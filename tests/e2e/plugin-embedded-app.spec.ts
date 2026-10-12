@@ -1,5 +1,12 @@
 import { expect, type Page, test } from "./fixtures.js";
-import { FIXTURE_GIT, gotoDashboard, spawnFreshGitSession } from "./helpers/index.js";
+import {
+  expandFolder,
+  FIXTURE_GIT,
+  folderCard,
+  gotoDashboard,
+  pinDirectory,
+  spawnFreshGitSession,
+} from "./helpers/index.js";
 
 /**
  * Browser E2E — embedded plugin apps (change: add-plugin-app-host, test-plan
@@ -108,5 +115,57 @@ test.describe("embedded plugin app (mobile)", () => {
 
     await back.click();
     await expect(page).toHaveURL(new RegExp(`/folder/${ENC}$`), { timeout: 15_000 });
+  });
+});
+
+// ── Project-scoped apps (change: add-project-scoped-apps, test-plan F3–F5) ───
+// `/fixtures/demo-scoped` carries the `.pi/dashboard/demo-scoped` marker the
+// demo plugin declares as project type `demo-scoped`; `sample-git` (the plain
+// folder) does not. Both are admitted by being pinned.
+
+const SCOPED = "/fixtures/demo-scoped";
+const SCOPED_ENC = Buffer.from(SCOPED).toString("base64url");
+const PLAIN = FIXTURE_GIT;
+const PLAIN_ENC = ENC;
+
+async function pinOnce(page: Page, cwd: string) {
+  if ((await page.getByTestId(`folder-home-row-${cwd}`).count()) === 0) await pinDirectory(page, cwd);
+  await expect(page.getByTestId(`folder-home-row-${cwd}`)).toBeVisible({ timeout: 30_000 });
+}
+
+test.describe("project-scoped embedded app", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize(DESKTOP);
+    await gotoDashboard(page);
+    await pinOnce(page, PLAIN);
+    await pinOnce(page, SCOPED);
+  });
+
+  test("F3: the folder entry converges to visible without a reload, only on the matching folder", async ({ page }) => {
+    await expandFolder(page, SCOPED);
+    await expandFolder(page, PLAIN);
+    await expect(folderCard(page, SCOPED).getByTestId("demo-scoped-folder-entry")).toBeVisible({ timeout: 20_000 });
+    await expect(folderCard(page, PLAIN).getByTestId("demo-scoped-folder-entry")).toHaveCount(0);
+  });
+
+  test("F4: a deep link to a non-matching folder shows Not available; Back returns; sidebar stays interactive", async ({ page }) => {
+    await page.goto(`/folder/${PLAIN_ENC}/demo-scoped`);
+    const na = page.getByTestId("embedded-app-not-available");
+    await expect(na).toBeVisible({ timeout: 20_000 });
+    await expect(na).toContainText("Not available for this folder");
+    await expect(na).toContainText("sample-git");
+    await expect(page.getByTestId("demo-scoped-app")).toHaveCount(0);
+    await expect(page.getByTestId("folder-home-row-" + SCOPED)).toBeVisible();
+    await page.getByTestId("embedded-app-back").click();
+    await expect(page).toHaveURL(new RegExp(`/folder/${PLAIN_ENC}$`), { timeout: 15_000 });
+  });
+
+  test("F5: a matching deep link renders the app's sub view, also after a reload", async ({ page }) => {
+    const url = `/folder/${SCOPED_ENC}/demo-scoped/sub`;
+    await page.goto(url);
+    await expect(page.getByTestId("demo-scoped-view-sub")).toBeVisible({ timeout: 20_000 });
+    await page.reload();
+    await expect(page.getByTestId("demo-scoped-view-sub")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   });
 });

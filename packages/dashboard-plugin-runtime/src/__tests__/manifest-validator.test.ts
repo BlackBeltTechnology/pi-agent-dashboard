@@ -517,3 +517,60 @@ describe("validateManifest — presentation \"content\" + trailing /*? (add-plug
     ).not.toThrow();
   });
 });
+
+describe("validateManifest — projectTypes (change: add-project-scoped-apps)", () => {
+  const withRules = (projectTypes: unknown) => ({ ...validManifest, projectTypes });
+  const markers = (...m: string[]) => withRules([{ type: "judo", markers: m }]);
+
+  // test-plan #E16
+  it("accepts valid marker patterns", () => {
+    const m = validateManifest(markers("model/*.judo", "judo.yaml", "a/b/c.x"));
+    expect(m.projectTypes).toEqual([{ type: "judo", markers: ["model/*.judo", "judo.yaml", "a/b/c.x"] }]);
+  });
+
+  it.each([
+    "../x",
+    "/abs",
+    "a/",
+    "a//b",
+    "**/pom.xml",
+    "src/*",
+    "a\\b",
+    "x?.y",
+    "node_modules/a",
+    ".git/HEAD",
+    "./a",
+    "a/b/c/d",
+  ])("rejects marker %j naming plugin + pattern", (pattern) => {
+    const run = () => validateManifest(markers(pattern));
+    expect(run).toThrow(ManifestValidationError);
+    expect(run).toThrow(/demo/);
+    expect(run).toThrow(pattern);
+  });
+
+  it("allows wildcard segments that could match excluded names", () => {
+    expect(() => validateManifest(markers("*_modules/x.judo", ".gi*/x.judo"))).not.toThrow();
+  });
+
+  // test-plan #E17
+  it("enforces entry and marker counts and the type shape", () => {
+    const entry = (i: number) => ({ type: `t${i}`, markers: ["a.x"] });
+    const entries = (n: number) => Array.from({ length: n }, (_, i) => entry(i));
+    expect(validateManifest(withRules(entries(8))).projectTypes).toHaveLength(8);
+    expect(() => validateManifest(withRules(entries(9)))).toThrow(ManifestValidationError);
+    const n = (count: number) => withRules([{ type: "judo", markers: Array.from({ length: count }, (_, i) => `a${i}.x`) }]);
+    expect(() => validateManifest(n(0))).toThrow(ManifestValidationError);
+    expect(validateManifest(n(1)).projectTypes?.[0].markers).toHaveLength(1);
+    expect(validateManifest(n(16)).projectTypes?.[0].markers).toHaveLength(16);
+    expect(() => validateManifest(n(17))).toThrow(ManifestValidationError);
+    expect(() => validateManifest(withRules([{ type: "Judo", markers: ["a.x"] }]))).toThrow(ManifestValidationError);
+    expect(() => validateManifest(withRules("nope"))).toThrow(ManifestValidationError);
+  });
+
+  // test-plan #E19
+  it("leaves manifests without projectTypes unchanged", () => {
+    const out = validateManifest(validManifest);
+    expect("projectTypes" in out).toBe(false);
+    expect(out).toEqual({ ...validManifest, claims: out.claims });
+  });
+});

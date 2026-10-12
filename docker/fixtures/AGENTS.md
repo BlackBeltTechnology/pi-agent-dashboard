@@ -4,6 +4,8 @@ Files in this directory. One row per file. Non-source area. See change: migrate-
 
 | File | Purpose |
 |------|---------|
+| `demo-scoped/.pi/dashboard/demo-scoped` | Marker file for project type `demo-scoped` (demo-plugin `projectTypes`). Folder materialized at `/fixtures/demo-scoped`; pinned by `plugin-embedded-app.spec.ts` F3–F5. See change: add-project-scoped-apps. |
+| `demo-scoped/README.md` | Describes the `demo-scoped` fixture folder. See change: add-project-scoped-apps. |
 | `kb-parent/.pi/dashboard/knowledge_base.json` | KB Copy-from-parent e2e fixture: parent repo config. sources:[{kind:filesystem,ref:"."}], origin=project. Worktree copies these sources via Copy-from-parent. Materialized writable at /fixtures/kb-parent by test-entrypoint.sh. See change: add-kb-folder-slot. |
 | `kb-parent/gamma.md` | KB Copy-from-parent e2e fixture: parent markdown. Indexable chunk in parent repo. See change: add-kb-folder-slot. |
 | `kb-parent/worktrees/kb-wt/delta.md` | KB Copy-from-parent e2e fixture: worktree markdown. Worktree ships NO knowledge_base.json (origin=defaults) until Copy-from-parent seeds sources[]; then reindex over ref "." indexes delta.md. `worktrees/` (not `.worktrees/`) so PathPicker lists it while parentRepoOf still derives /fixtures/kb-parent. See change: add-kb-folder-slot. |

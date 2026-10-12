@@ -9,8 +9,9 @@
  *
  * See change: add-plugin-activation-ui.
  */
-import { useEffect, useState } from "react";
-import { bumpSlotClaimsVersion, type SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+
+import { bumpSlotClaimsVersion, clearFolderProjects, type SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useEffect, useRef, useState } from "react";
 import { logRejection } from "../lib/report-error.js";
 
 export interface PluginEnabledSetState {
@@ -20,6 +21,8 @@ export interface PluginEnabledSetState {
 
 export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetState {
   const [startedAt, setStartedAt] = useState<string | null>(null);
+  // Signature of the last applied enabled set (null until the first refresh).
+  const lastEnabledSig = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,6 +61,12 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
           if (p.enabled !== false) enabled.add(p.id);
         }
         registry.setEnabledSet(enabled);
+        // A changed set means a plugin's `projectTypes` rules joined/left, so every
+        // cached folder project is suspect. An unchanged refresh keeps the cache.
+        // See change: add-project-scoped-apps.
+        const sig = Array.from(enabled).sort().join("\n");
+        if (lastEnabledSig.current !== null && lastEnabledSig.current !== sig) clearFolderProjects();
+        lastEnabledSig.current = sig;
         // `setEnabledSet` mutates the EXISTING registry — `getClaims` now
         // filters disabled plugins without the registry reference changing.
         // Memos keyed on that reference (claim lookups, the burst-transparency

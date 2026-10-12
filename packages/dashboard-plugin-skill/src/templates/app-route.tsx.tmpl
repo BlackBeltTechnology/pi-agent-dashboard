@@ -1,0 +1,11 @@
+/**
+ * `shell-overlay-route` component for the {{ displayName }} app
+ * ({{ routePath }}, `presentation: "content"`). Loaded via `React.lazy` from the
+ * client entry. {{ scopeNote }}
+ */
+import { EmbeddedApp } from "@blackbelt-technology/dashboard-plugin-runtime/embedded-app";
+import { app } from "./app.js";
+
+export default function AppRoute({ params, onBack }: { params: Record<string, string>; onBack: () => void }) {
+{{ routeBody }}
+}

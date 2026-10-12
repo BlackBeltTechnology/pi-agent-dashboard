@@ -85,6 +85,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/favorite-models", reason: "UI-only" },
   { pattern: "/api/custom-event-groups", reason: "UI-only" },
   { pattern: "/api/canvas-types", reason: "UI-only" },
+  // add-project-scoped-apps: backs the client folder-project cache (claim predicates); not an LLM action.
+  { pattern: "/api/folder/project", reason: "UI-only: folder project identity for claim predicates" },
   { pattern: "/api/diagram/render", reason: "UI-only" },
   { pattern: "/api/host-gate", reason: "host admission internals" },
   { pattern: "/api/network-interfaces", reason: "fleet enumeration UI" },
