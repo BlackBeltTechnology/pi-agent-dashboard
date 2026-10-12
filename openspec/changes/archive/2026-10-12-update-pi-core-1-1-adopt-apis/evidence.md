@@ -23,7 +23,9 @@ No package added or removed other than `brace-expansion`; the dashboard imports 
 
 ## 5.1 OAuth-set equality (design D1)
 
-`ModelRuntime.create({ modelsPath: null, refreshOnCreate: false, allowModelNetwork: false })` then `getProviders().filter(p => p.auth?.oauth)`, run against 1.0.0 (installed into a throwaway dir) and 1.1.0 (the workspace):
+`ModelRuntime.create({ modelsPath: null, refreshOnCreate: false, allowModelNetwork: false })` then `getProviders().filter(p => p.auth?.oauth)`, run against 1.0.0 and 1.1.0 (the workspace).
+
+**Baseline correction.** My first 1.0.0 install (`npm install @earendil-works/pi-coding-agent@1.0.0`) was contaminated: npm resolved its `^1.0.0` dependencies (`pi-ai`, `pi-tui`, `pi-agent-core`, `pi-codemode`, `pi-mcp`, `chord`) to **1.1.0**, so only `pi-coding-agent` was 1.0.0. Everything below was re-run on a true 1.0.0 set (`npm` `overrides` pinning all seven to 1.0.0; versions verified). The set was identical on the contaminated baseline too, but the pi-ai identity check I drew from it was wrong (see "Late finding").
 
 ```
 1.0.0 9 ["anthropic","github-copilot","kimi-coding","meta","openai","openai-codex","openrouter","radius","xai"]
@@ -85,19 +87,19 @@ Justified, not modified:
 | exports | 245 | 234 |
 | duplicates | 14 | 12 |
 
-Red on `origin/develop` itself (branch is 0 commits behind it), so **pre-existing, user-approved**. No finding is in a file this change adds; the three `exports` findings inside touched files (`event-reducer.ts`: `LIVE_BLOCK_GAP_MARKER`, `applyLiveBlockPiece`, `truncateLines`) predate the change. The 15 unused files are unrelated (`tests/e2e/identity*`, client `DiffView`/`TerminalCard`/`message-queue`/`useAuthStatus`/…, electron lib files, deck3d fixtures). `knip-ratchet --check-baseline-diff origin/develop` passes (no baseline class raised).
+Red on `origin/develop` itself (branch was 0 commits behind it at measurement), so **pre-existing, user-approved**. No finding is in a file this change adds; the three `exports` findings inside touched files (`event-reducer.ts`: `LIVE_BLOCK_GAP_MARKER`, `applyLiveBlockPiece`, `truncateLines`) predate the change. The 15 unused files are unrelated (`tests/e2e/identity*`, client `DiffView`/`TerminalCard`/`message-queue`/`useAuthStatus`/…, electron lib files, deck3d fixtures). `knip-ratchet --check-baseline-diff origin/develop` passes (no baseline class raised).
 
 ## Full suite (`npm test`)
 
-22 failures in 7 files, none caused by this change:
+22 failures in 7 files on the first run. Four of those groups are environmental/flaky; **one was wrongly classified here and is a real 1.1.0 effect (X14, below)**:
 - `gateway-listener-wiring`, `rendezvous`, `resource-activation-routes`, `resource-activation-toggle` (17 tests): environmental — the sandbox `$TMPDIR` is a long path (unix-socket path limit, symlinked temp roots). All pass with `TMPDIR=/tmp/s`.
-- `internal-auth-storage-refresh` X14 (2 tests): fails identically on pristine `origin/develop` source with pi 1.0.0 overlaid, so it is not a 1.1.0 effect.
+- `internal-auth-storage-refresh` X14 (2 tests): **initially recorded as pre-existing — wrong.** The "pi 1.0.0 overlay" used for that claim was the contaminated baseline (pi-ai was 1.1.0). It is a real pi-ai 1.1.0 behaviour change; see "Late finding" and design D7.
 - Two real regressions the run found and this change fixed: `mcp-manifest-completeness` (new route needed a `ROUTE_TIERS` entry → `operate`, same as `/status`) and `pi-version-update-handling` X3 (1.0.0 is now below the floor → fixture moved to 1.1.0).
 
 After the fixes: `packages/shared/src` (248 files, 3120 tests) and the touched server/client/extension suites are green.
 
 Verify-gate rerun (`TMPDIR=/tmp/s npm test`, tree at `5e8fa9be3`): **31722 passed, 4 failed in 3 files**.
-- `internal-auth-storage-refresh` X14 ×2: pre-existing (fails on pristine `origin/develop` source with pi 1.0.0 overlaid).
+- `internal-auth-storage-refresh` X14 ×2: real pi-ai 1.1.0 effect, fixed in the follow-up commit (see "Late finding").
 - `role-bindings-watcher` X8, `EditorSearchPanel` keyboard: load flakes — both pass in isolation (7/7); no file of this change is in those areas.
 - `npm run build`: exit 0.
 
@@ -111,3 +113,21 @@ Verify-gate rerun (`TMPDIR=/tmp/s npm test`, tree at `5e8fa9be3`): **31722 passe
 ## X4 install check (T.22)
 
 `pnpm install --frozen-lockfile` and `node scripts/verify-release-deps.mjs` both exit 0 (`11 rules passed`); one resolved copy each of pi-coding-agent / pi-ai / pi-tui at 1.1.0. `qa/tests/01-install.sh` gained a post-install assertion that every resolved copy under the published package is >= 1.1.0 (exercised against a passing and a deliberately-stale fake tree).
+
+## Late finding — pi-ai 1.1.0 OAuth refresh cancellation (design D7)
+
+CI `unit (4)` on PR #866 failed `internal-auth-storage-refresh` X14 ×2; develop's nightly full suite (pi 1.0.0, run 38199030692) passes the file (11 tests, 401 ms). Diffing a **true** 1.0.0 vs 1.1.0 pi-ai (`dist/auth/resolve.js`):
+
+- 1.0.0: `oauth.refresh(current, AbortSignal.any([callerSignal, AbortSignal.timeout(15s)]))` — a caller abort cancelled the refresh.
+- 1.1.0: new `refreshStoredOAuthCredential`; `signal` "cancels only the wait for the lock. Once a refresh starts … the refresh and its persistence ignore `signal` and are bounded only by a timeout. Otherwise a cancelled caller could discard the only valid refresh token." `oauth.refresh(current, AbortSignal.timeout(15s))`.
+
+The changelog has no line for this; the triage did not read the pi-ai `dist` diff. Consequences found and fixed (user chose "adopt pi's semantics"):
+1. Spec `model-proxy-credential-routing` › "Aborted refresh stops cleanly" (refresh stops, nothing persisted) no longer holds and cannot be reimplemented without patching pi-ai → MODIFIED delta + main spec.
+2. The facade's "joiner restarts when its initiator aborted" path now starts a **second concurrent refresh** with a possibly already-rotated refresh token while the first still runs (the credential-store lock is released during the provider call). The shared flight no longer carries any caller's signal; each caller races its own. An already-aborted request starts nothing.
+3. Tests X14 / X14b / X14c and the joiner test rewritten to the new contract (shared single refresh, rotated token kept, failure-after-cancel persists nothing); no-weakening guard clean.
+
+Verification: `packages/server/src/model-proxy/__tests__/` 13 files / 157 tests green on 1.1.0.
+
+## Method note
+
+The contaminated baseline also made my local "X14 fails on pristine develop" reproduction meaningless. The reliable signals were develop's nightly CI (passes) vs this branch's CI (fails), then the `resolve.js` diff on a version-verified 1.0.0 set.

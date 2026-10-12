@@ -5848,6 +5848,12 @@ Two writer processes for `~/.pi/agent/auth.json`:
 Last-writer-wins on overlapping provider keys; non-overlapping providers preserved by merge. Acceptable — both writers re-read before writing; churn only occurs during concurrent OAuth refreshes (rare in practice).
 
 Refresh window: pi refreshes at 5 min remaining (`OAUTH_REFRESH_WINDOW_MS`) with a 15 s abort — was dashboard 30 s / 30 s.
+pi-ai >= 1.1.0 (`dist/auth/resolve.js` `refreshStoredOAuthCredential`): caller signal cancels only credential-lock wait.
+Started refresh ignores caller signal; bounded by `AbortSignal.timeout(15s)`; persists rotated credential.
+Reason: cancelled caller must not discard only valid refresh token.
+`InternalAuthStorage` (`packages/server/src/model-proxy/internal-auth-storage.ts`): shared per-provider flight carries no caller signal; each caller races own signal (`raceSignal`); already-aborted request starts nothing.
+Client disconnect (`model-proxy-routes.ts`) ends credential wait promptly; refresh still completes + persists.
+Old contract (abort stops refresh, nothing persisted) retired. See change: `update-pi-core-1-1-adopt-apis` (design D7).
 
 See change: `add-dashboard-model-proxy`, `collapse-model-proxy-onto-modelruntime`.
 

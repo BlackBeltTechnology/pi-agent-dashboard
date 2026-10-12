@@ -27,6 +27,13 @@
 - [x] 5.1 Write `evidence.md` in this change: dependency diff, OAuth-set equality (`ModelRuntime` on 1.0.0 and 1.1.0), extension-type diff, justified version anchors, and verification runs
 - [x] 5.2 Update the AGENTS.md rows for touched files, including the `scripts/verify-release-deps.mjs.AGENTS.md` sidecar (`minVersion` 1.0.0 → 1.1.0) and `docker/Dockerfile.AGENTS.md` (`See change: update-pi-core-1-1-adopt-apis`)
 
+## 6. Late finding: OAuth refresh cancellation (pi-ai 1.1.0)
+
+- [x] 6.1 `internal-auth-storage.ts`: shared flight carries no caller signal; each caller races its own; an already-aborted request starts nothing (design D7)
+- [x] 6.2 Rewrite `internal-auth-storage-refresh.test.ts` X14 → prompt rejection + refresh completes/persists/shared (X14), failure-after-cancel persists nothing (X14b), pre-aborted request starts nothing (X14c), and the joiner test shares one refresh
+- [x] 6.3 MODIFIED delta `model-proxy-credential-routing` (+ main spec); fix the stale comments/AGENTS rows (`model-proxy-routes.ts`, `model-proxy/AGENTS.md`)
+- [x] 6.4 `evidence.md`: record the finding and correct the baseline contamination
+
 ## Tests (folded from test-plan.md)
 
 - [x] T.1 unit (vitest): pi-core-version-check: lockstep floor. Input: `piCompatibility` min `1.1.0`, rec `1.1.0`; running `1.0.4` / `1.1.0` / `1.1.1`. Trigger: `computeCompatibility()`. Expected: `1.0.4` → `error` naming `1.0.4` and `1.1.0`; `1.1.0` → no error, no hint; `1.1.1` → no error. Copy harness glue from `packages/server/src/__tests__/pi-version-skew.test.ts`. (test-plan #E1)
@@ -55,3 +62,7 @@
 - [x] T.24 unit (vitest): provider-auth-ui: no notice. Input: `legacyProviderIds` absent / `[]`. Trigger: render. Expected: no notice node. Copy harness glue from `packages/client/src/__tests__/ProviderAuthSection.test.tsx`. (test-plan #F2)
 - [x] T.25 Playwright e2e (docker harness): docker smoke on 1.1.0. Input: docker harness built with the new Dockerfile pin. Trigger: spawn a session, send a prompt with a tool call. Expected: session registers; `/api/health` reports pi `1.1.0`; tool row shows a duration. Copy harness glue from `tests/e2e/mcp-session-token.spec.ts`. (test-plan #F3)
 - [x] T.26 Manual check: real Azure user migration. Input: a machine with an old `azure-openai-responses` login. Trigger: open Settings → Providers. Expected: notice visible; after renaming the key and refreshing, the notice disappears. (test-plan #M1, test-plan: manual-only)
+- [x] T.27 unit (vitest): X14 cancelled request. Input: refresh in flight, initiator aborts. Trigger: `getApiKeyAndHeaders(model, signal)`. Expected: rejects promptly; refresh signal NOT aborted; joiner shares the one refresh; rotated credential persisted; later request makes no second refresh. Copy harness glue from `packages/server/src/model-proxy/__tests__/internal-auth-storage-refresh.test.ts`.
+- [x] T.28 unit (vitest): X14b failure after cancel. Input: initiator aborts, then refresh rejects. Expected: `auth.json` byte-identical, refresh called once.
+- [x] T.29 unit (vitest): X14c pre-aborted request. Expected: rejects `AbortError`, refresh never called.
+

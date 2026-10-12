@@ -6,8 +6,9 @@
  * (`pi-models-fixture.ts`). Only the provider's OAuth `refresh` is faked.
  *
  * Covers test-plan #X2 (one refresh under concurrency), #X10 (a failed
- * refresh is attempted once and shared), #X14 (the initiating request's abort
- * reaches the refresh; nothing written) and the facade half of #E6 (named
+ * refresh is attempted once and shared), #X14 (a cancelled request returns
+ * promptly but a STARTED refresh completes and persists — pi >= 1.1.0 — and is
+ * shared, never repeated) and the facade half of #E6 (named
  * missing-OAuth-capability error, api-key providers unaffected).
  *
  * Supersedes the pi 0.84.0 refresh-internals suite: refresh signal, timeout
@@ -105,16 +106,13 @@ describe("facade auth resolution", () => {
     }
   });
 
-  it("X14: aborting the initiating request aborts the refresh signal and writes nothing", async () => {
+  it("X14: aborting the initiating request rejects it promptly; the started refresh completes, persists, and is shared (pi >= 1.1.0)", async () => {
     writeAuth({ anthropic: expired() });
-    const before = sha();
+    const d = deferred<unknown>();
     let refreshSignal: AbortSignal | undefined;
     const refresh = vi.fn((_c: unknown, signal: AbortSignal) => {
       refreshSignal = signal;
-      // A provider that honours its signal.
-      return new Promise((_resolve, reject) => {
-        signal.addEventListener("abort", () => reject(new Error("refresh aborted")), { once: true });
-      });
+      return d.promise;
     });
     const storage = facade(refresh);
     const controller = new AbortController();
@@ -123,13 +121,25 @@ describe("facade auth resolution", () => {
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
     controller.abort();
 
+    // The cancelled request does not wait for the provider...
     expect(await pending).toBeInstanceOf(Error);
-    expect(refreshSignal?.aborted).toBe(true);
-    expect(sha()).toBe(before);
-    expect(readAuthJson().anthropic).toMatchObject({ access: "old-a" });
+    // ...and its abort never reaches the refresh (pi bounds it with its own timeout).
+    expect(refreshSignal).toBeInstanceOf(AbortSignal);
+    expect(refreshSignal?.aborted).toBe(false);
+
+    // A request arriving while the refresh is still running joins it — no second refresh.
+    const joiner = storage.getApiKeyAndHeaders(model);
+    d.resolve(minted("ROTATED"));
+    await expect(joiner).resolves.toMatchObject({ apiKey: "ROTATED" });
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    // The rotated credential was kept: the cancelled caller did not discard the only valid refresh token.
+    expect(readAuthJson().anthropic).toMatchObject({ access: "ROTATED", refresh: "r-new" });
+    await expect(storage.getApiKeyAndHeaders(model)).resolves.toMatchObject({ apiKey: "ROTATED" });
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
-  it("X14: a provider that IGNORES its signal still cannot persist after the abort", async () => {
+  it("X14b: a refresh that fails after the initiator aborted persists nothing and is not retried by the cancelled caller", async () => {
     writeAuth({ anthropic: expired() });
     const before = sha();
     const d = deferred<unknown>();
@@ -142,10 +152,21 @@ describe("facade auth resolution", () => {
     controller.abort();
     expect(await pending).toBeInstanceOf(Error);
 
-    // The late answer is discarded, never written.
-    d.resolve(minted("LATE"));
+    d.reject(new Error("invalid_grant"));
     await new Promise((r) => setTimeout(r, 50));
     expect(sha()).toBe(before);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("X14c: an already-aborted request starts no refresh", async () => {
+    writeAuth({ anthropic: expired() });
+    const refresh = vi.fn(async () => minted("never"));
+    const storage = facade(refresh);
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(storage.getApiKeyAndHeaders(model, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(refresh).not.toHaveBeenCalled();
   });
 });
 
@@ -195,18 +216,10 @@ describe("one completion refreshes at most once (ship-it review rounds 2–3, B1
 });
 
 describe("a joined request is not failed by someone else's disconnect (audit)", () => {
-  it("initiator aborts mid-refresh; a still-connected joiner resolves through its own attempt", async () => {
+  it("initiator aborts mid-refresh; a still-connected joiner resolves through the SAME refresh", async () => {
     writeAuth({ anthropic: expired() });
-    let calls = 0;
-    const refresh = vi.fn((_c: unknown, signal: AbortSignal) => {
-      calls += 1;
-      if (calls === 1) {
-        return new Promise((_resolve, reject) => {
-          signal.addEventListener("abort", () => reject(new Error("refresh aborted")), { once: true });
-        });
-      }
-      return Promise.resolve(minted("joiner-a"));
-    });
+    const d = deferred<unknown>();
+    const refresh = vi.fn(() => d.promise);
     const storage = facade(refresh);
     const initiator = new AbortController();
 
@@ -216,8 +229,10 @@ describe("a joined request is not failed by someone else's disconnect (audit)", 
     initiator.abort();
 
     expect(await first).toBeInstanceOf(Error);
-    await expect(joiner).resolves.toMatchObject({ apiKey: "joiner-a" });
-    expect(refresh).toHaveBeenCalledTimes(2);
+    d.resolve(minted("shared-a"));
+    await expect(joiner).resolves.toMatchObject({ apiKey: "shared-a" });
+    // One refresh only: a second concurrent attempt would reuse an already-rotated refresh token.
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("a joiner's own abort ends its wait without aborting the shared refresh", async () => {
