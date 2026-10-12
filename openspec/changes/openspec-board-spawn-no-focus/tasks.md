@@ -35,6 +35,6 @@ All tests in a new `packages/client/src/hooks/__tests__/useMessageHandler.no-foc
 
 ## 5. Verification & docs
 
-- [ ] 5.1 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and confirm no failures via `grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`.
+- [x] 5.1 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and confirm no failures via `grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`.
 - [ ] 5.2 Manual QA after `npm run build && curl -X POST http://localhost:8000/api/restart`: fan out 3 board spawns (card `+ Session`, card `New worktree`, New-proposal create) — each new session is noticeable on its card without a toast; sidebar `+` still focuses (test-plan: manual-only, #M1).
 - [x] 5.3 Update DOX rows for touched files with `See change: openspec-board-spawn-no-focus`: `packages/client/src/hooks/AGENTS.md` (useSessionActions, useMessageHandler + new test files), `packages/client/src/components/openspec/OpenSpecBoardView.tsx.AGENTS.md`, the directory owning `App.tsx`, and `tests/e2e/` sidecar for the new spec; verify each row exists via `kb_search --doc-type agents`.
