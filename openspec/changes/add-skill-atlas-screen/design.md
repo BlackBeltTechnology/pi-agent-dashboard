@@ -163,7 +163,7 @@ The claim manifest carries an optional `resourceType` filter, and the consumer r
 
 ## Risks / Trade-offs
 
-- **[Stat cost on large setups]** 300 skills means 300 `stat` calls per GET. → A benchmark task measures it; rebuild timing is logged; the memo is an LRU of 32.
+- **[Stat cost on large setups]** 300 skills means 300 `stat` calls per GET. → Measured (task 4.5, Apple-silicon dev machine): 300 `stat` ≈ 3–4 ms; reading 300 × 256 KiB ≈ 30–55 ms; `buildSkillGraph` ≈ 75 ms after replacing per-id regex scans with a linear per-body mention index (≈ 500 ms before). P1 (memo hit, 100 skills) and P2 (rebuild, 300 × 256 KiB) are asserted by `atlas-perf.test.ts`. Rebuild timing is logged; the memo is an LRU of 32.
 - **[`commands_list` churn]** Reloads, plus flow rediscover/complete events. → Only that cwd's memo entries are re-checked, with a per-key 500 ms debounce, and a broadcast is sent only when the fingerprint moved.
 - **[Global atlas depends on the server's start directory]** Project-scope disables in the server's own cwd also shape the global list. → This is accepted, because it matches the existing Global Skills page exactly. A cwd-independent global scan is out of scope.
 - **[Arbitrary `cwd`]** A caller can scan any directory. → This has parity with `/api/pi-resources` under the same `networkGuard`; the memo LRU bounds memory.

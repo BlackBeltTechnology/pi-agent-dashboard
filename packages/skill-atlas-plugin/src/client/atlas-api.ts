@@ -1,0 +1,60 @@
+/**
+ * REST client + URL helpers for the skill atlas.
+ * Folder paths use the shell's base64url `/folder/:encodedCwd` codec.
+ * See change: add-skill-atlas-screen.
+ */
+import type { SkillAtlasScope, SkillGraphResponse } from "../shared/types.js";
+
+export const GRAPH_URL = "/api/plugins/skill-atlas/graph";
+
+export async function fetchSkillGraph(scope: SkillAtlasScope, cwd?: string, signal?: AbortSignal): Promise<SkillGraphResponse> {
+  const q = new URLSearchParams({ scope });
+  if (scope === "project" && cwd) q.set("cwd", cwd);
+  const res = await fetch(`${GRAPH_URL}?${q.toString()}`, { signal });
+  const type = res.headers?.get?.("content-type") ?? "application/json";
+  if (!type.includes("json")) throw new Error(`http_${res.status}`);
+  const body = (await res.json()) as { success?: boolean; data?: SkillGraphResponse; error?: string };
+  if (!res.ok || !body.success || !body.data) throw new Error(body.error ?? `http_${res.status}`);
+  return body.data;
+}
+
+/** Probe the restricted resource-file read path before opening the viewer. */
+export async function canOpenSkillFile(filePath: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/pi-resource-file?path=${encodeURIComponent(filePath)}`);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export function piResourceViewerUrl(filePath: string, title: string): string {
+  const q = new URLSearchParams({ path: filePath, title });
+  return `/pi-resource?${q.toString()}`;
+}
+
+export function encodeFolderPath(cwd: string): string {
+  const bytes = new TextEncoder().encode(cwd);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+export function decodeFolderPath(encoded: string): string | null {
+  try {
+    const padded = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const bin = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
+    return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+  } catch {
+    return null;
+  }
+}
+
+/** Atlas URL; `sel` + `hops` preselect a skill (most-connected chips). */
+export function atlasUrl(scope: SkillAtlasScope, cwd?: string, sel?: string, hops?: number): string {
+  const base = scope === "project" && cwd ? `/folder/${encodeFolderPath(cwd)}/atlas` : "/atlas";
+  if (!sel) return base;
+  const q = new URLSearchParams({ sel });
+  if (hops) q.set("hops", String(hops));
+  return `${base}?${q.toString()}`;
+}

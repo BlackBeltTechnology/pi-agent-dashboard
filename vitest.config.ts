@@ -104,6 +104,8 @@ export default defineConfig({
       // collected by no project, so its suite never ran. A gate no CI job runs
       // is not a gate. See change: move-slot-actions-to-menu.
       "packages/kb-plugin",
+      // skill-atlas-plugin (change: add-skill-atlas-screen).
+      "packages/skill-atlas-plugin",
       // browser-plugin (change: add-browser-relay): relay scaffold + vendor
       // integrity + manifest tests; relay-instance/manager tests land with
       // workstream 2c. A package absent here never runs its tests.

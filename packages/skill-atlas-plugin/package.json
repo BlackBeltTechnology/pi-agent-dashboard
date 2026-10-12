@@ -45,7 +45,41 @@
     "priority": 100,
     "client": "./src/client/index.tsx",
     "server": "./src/server/index.ts",
-    "claims": []
+    "claims": [
+      {
+        "slot": "resource-page-section",
+        "component": "SkillAtlasSection",
+        "resourceType": "skill"
+      },
+      {
+        "slot": "sidebar-folder-section",
+        "component": "FolderAtlasMenu"
+      },
+      {
+        "slot": "shell-overlay-route",
+        "component": "ProjectAtlasClaim",
+        "path": "/folder/:encodedCwd/atlas/*?",
+        "depth": 2,
+        "parentPath": "/folder/:encodedCwd",
+        "presentation": "content"
+      },
+      {
+        "slot": "shell-overlay-route",
+        "component": "GlobalAtlasClaim",
+        "path": "/atlas/*?",
+        "depth": 1,
+        "presentation": "content"
+      },
+      {
+        "slot": "settings-section",
+        "component": "SkillAtlasSettings",
+        "nav": {
+          "group": "resources",
+          "label": "Skill Atlas",
+          "description": "Every skill pi loads, as a relation graph."
+        }
+      }
+    ]
   },
   "peerDependencies": {
     "fastify": "^5.0.0",

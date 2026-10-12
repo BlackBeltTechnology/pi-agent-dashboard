@@ -154,6 +154,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/pi-core/changelog", tier: "observe" },
   { method: "GET", path: "/api/pi-core/versions", tier: "observe" },
   // Runtime overlay (see change: electron-runtime-overlay-updates).
+  { method: "GET", path: "/api/plugins/skill-atlas/graph", tier: "observe" },
   { method: "GET", path: "/api/plugins/team/agents", tier: "operate" },
   { method: "GET", path: "/api/plugins/team/agents/:key/conversations", tier: "operate" },
   { method: "GET", path: "/api/plugins/team/agents/:key/conversations/:c/history", tier: "operate" },

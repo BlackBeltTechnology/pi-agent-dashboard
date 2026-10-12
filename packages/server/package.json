@@ -45,7 +45,8 @@
       "keycloak-resolver-plugin",
       "chat-gateway",
       "system-one-plugin",
-      "team-plugin"
+      "team-plugin",
+    "skill-atlas-plugin"
     ]
   },
   "main": "src/cli.ts",

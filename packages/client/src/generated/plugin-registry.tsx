@@ -12,6 +12,7 @@ import { HermesMemorySettings, catalog as hermes_memory_catalog } from "@blackbe
 import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackbelt-technology/pi-dashboard-kb-plugin";
 import { McpSettingsClaim, FolderMcpSection, FolderMcpPage } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin";
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
+import { SkillAtlasSection, FolderAtlasMenu, ProjectAtlasClaim, GlobalAtlasClaim, SkillAtlasSettings, catalog as skill_atlas_catalog } from "@blackbelt-technology/pi-dashboard-skill-atlas-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { FolderTeamSection, catalog as team_catalog } from "@blackbelt-technology/pi-dashboard-team-plugin";
 import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDetailView, isPipelineDetailActive, OmEntryCard, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
@@ -462,6 +463,59 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "skill-atlas",
+        "displayName": "Skill Atlas",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "resource-page-section",
+                "component": "SkillAtlasSection",
+                "resourceType": "skill"
+            },
+            {
+                "slot": "sidebar-folder-section",
+                "component": "FolderAtlasMenu"
+            },
+            {
+                "slot": "shell-overlay-route",
+                "component": "ProjectAtlasClaim",
+                "path": "/folder/:encodedCwd/atlas/*?",
+                "depth": 2,
+                "parentPath": "/folder/:encodedCwd",
+                "presentation": "content"
+            },
+            {
+                "slot": "shell-overlay-route",
+                "component": "GlobalAtlasClaim",
+                "path": "/atlas/*?",
+                "depth": 1,
+                "presentation": "content"
+            },
+            {
+                "slot": "settings-section",
+                "component": "SkillAtlasSettings",
+                "nav": {
+                    "group": "resources",
+                    "label": "Skill Atlas",
+                    "description": "Every skill pi loads, as a relation graph."
+                }
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "skill-atlas", priority: 100, slot: "resource-page-section", resourceType: "skill", Component: SkillAtlasSection },
+      { pluginId: "skill-atlas", priority: 100, slot: "sidebar-folder-section", Component: FolderAtlasMenu },
+      { pluginId: "skill-atlas", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/atlas/*?", depth: 2, parentPath: "/folder/:encodedCwd", presentation: "content", Component: ProjectAtlasClaim },
+      { pluginId: "skill-atlas", priority: 100, slot: "shell-overlay-route", path: "/atlas/*?", depth: 1, presentation: "content", Component: GlobalAtlasClaim },
+      { pluginId: "skill-atlas", priority: 100, slot: "settings-section", Component: SkillAtlasSettings },
+    ],
+    catalog: skill_atlas_catalog,
+  },
+  {
+    manifest: {
         "id": "subagents",
         "displayName": "Subagent Inspector",
         "priority": 100,
@@ -731,4 +785,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "19d940fab33487d3ee56aa16dbacdacc0923ecdcc66809032e9c157322454a80";
+export const PLUGIN_REGISTRY_HASH = "57e45f287205309496adaf6e4b9eb1ee91e6cd9ce9fc92c0b226a6f0eb9e4f15";
