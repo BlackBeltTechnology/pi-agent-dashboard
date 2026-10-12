@@ -23,3 +23,7 @@ Unchanged: inline advisory inside the authenticated Anthropic SUBSCRIPTION row o
 OAuth badge: `subscription === false` → "Account" (`providers.badgeAccount`), else "Subscription" (absent = older server). Environment mechanism: `envVar ? from <envVar> : authLabel ?? ambient text`. See change: update-pi-core-1-0-adopt-apis.
 
 Radius MCP offer: `finishFlow("radius")` → `fetchRadiusMcpOffer()` (`RadiusMcpOffer.tsx`, GET `/api/provider-auth/radius/mcp`); `configured:false` → inline `<RadiusMcpOffer>` above the Add control; 503/409/configured → no offer. Accept POSTs once, toasts `providers.radiusMcpDone` ({count}); refusal renders `err.provider_auth.radius_mcp_*` inline. Sign-in itself uses the generic panes. See change: add-radius-provider-login.
+
+## streamline-first-run
+
+`finishFlow("anthropic")` fires `peerAutoInstallStore.ensureInstall("sign-in")` detached after `handleChanged()` (never awaited; other flows, API-key/custom saves never trigger). Anthropic subscription row renders one persistent `role="status"` `aria-live="polite"` wrapper (`anthropic-peer-autoinstall-live`) holding `PeerAutoInstallStatus` when `usePeerAutoInstall().outcome` is non-null. Precedence: probe import failure → hint's import-failure form; store outcome → auto-install surface (also hides a stale not-resolving hint); else hint as before. Section effect calls `notifyPeerResolving()` when the probe reports resolving. See change: streamline-first-run.

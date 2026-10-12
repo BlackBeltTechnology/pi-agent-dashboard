@@ -19,6 +19,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
     reason:
       "single-provider credential write; the whole-map set_providers row remains the MCP surface",
   },
+  { pattern: "/api/browse/create-project", reason: "UI-only first-run convenience; agents use file_mkdir" },
   { pattern: "/api/electron/", reason: "Electron-only" },
   // Stages, activates and rolls back the dashboard runtime (downloads + runs
   // code; Electron-only). Never an LLM action. See change: electron-runtime-overlay-updates.
