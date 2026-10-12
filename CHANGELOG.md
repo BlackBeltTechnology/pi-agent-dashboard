@@ -56,6 +56,7 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Remote server selection reaches plugins.** After switching the client to a remote dashboard, un-prefixed `/api/` fetches (plugin clients such as Quota, plus a few core hooks) went to the local server. A host fetch wrapper now rewrites them to the selected server and never sends the local device bearer or grant header to it.
 - **kb search: queries with accented letters (Hungarian, German, French, …) no longer
   split into ASCII fragments; Greek and Vietnamese accents are preserved like the index.**
   `közzétételek` now finds its own document instead of one about a *telek*. No reindex.
