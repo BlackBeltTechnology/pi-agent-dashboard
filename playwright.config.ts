@@ -1,4 +1,4 @@
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig, devices, type ReporterDescription } from "@playwright/test";
 import { BASE_URL } from "./tests/e2e/lifecycle.js";
 
 // Browser-E2E suite. Targets the disposable Docker test harness. The port is
@@ -19,9 +19,12 @@ const PW_CHANNEL = process.env.PW_CHANNEL;
 // into one HTML artifact. Locally `list` + `html` are the point, so blob stays
 // out of a local run. Reporters are read at config load, like every env here.
 const IS_CI = !!process.env.CI;
-const REPORTERS = [
+// Typed + the conditional tuple pinned `as const`: untyped, the spread widens to
+// `string[][]` and a strict tsc fails TS2769 (#701.3; the file sits outside every
+// tsconfig `include`). See change: close-e2e-tooling-followups (D4).
+const REPORTERS: ReporterDescription[] = [
   ["list"],
-  ...(IS_CI ? [["blob"]] : []),
+  ...(IS_CI ? [["blob"] as const] : []),
   ["html", { outputFolder: "playwright-report", open: "never" }],
 ];
 

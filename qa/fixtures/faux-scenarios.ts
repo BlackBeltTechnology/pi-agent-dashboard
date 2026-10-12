@@ -1650,6 +1650,39 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { toolName: "canvas" },
   },
 
+  // Server declare with a >=80-char title: proves the floating chip tray stays
+  // inside a 360px viewport and truncates the label.
+  // See change: fix-canvas-chip-tray-overlay (test-plan #E2).
+  "canvas-declare-server-long": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("canvas", {
+            target: { kind: "server", port: 5173 },
+            title: "Identity topológia — Keycloak realm administration console for the staging cluster",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("long server declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
+  // Server declare followed by a slow-streaming final message, so the composer
+  // stack's StatusBar row is mounted while the chip is shown (then unmounts when
+  // the turn ends). See change: fix-canvas-chip-tray-overlay (test-plan #F2).
+  "canvas-declare-server-slow": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("canvas", { target: { kind: "server", port: 5173 }, title: "dev server" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(SLOW_TEXT)]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
   // A `canvas({ target:{ kind:"server", port } })` declare for a port nothing
   // listens on. On chip tap the loopback probe is refused → "server not
   // running" immediately, no iframe (S30). Two-step terminate.
