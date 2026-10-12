@@ -7,6 +7,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import type { Resolution, ToolRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error -- .mjs release gate, no type declarations; exported for fixture-driven tests.
@@ -605,5 +606,35 @@ describe("pi-version-skew", () => {
       const registry = stubRegistry(link);
       expect(readCurrentPiVersion(registry)).toBeUndefined();
     });
+  });
+});
+
+describe("below-floor pi fails closed on --no-mcp (spawn-scope-no-mcp X1)", () => {
+  it("a pi whose parser predates --no-mcp reports it as an unknown option (exit-1 path)", async () => {
+    // Locate the installed pi (nearest node_modules up the tree), then import its arg parser
+    // by absolute path (the package exports map hides deep imports).
+    let pkgDir = "";
+    for (let dir = REPO_ROOT; ; dir = path.dirname(dir)) {
+      const candidate = path.join(dir, "node_modules/@earendil-works/pi-coding-agent");
+      if (fs.existsSync(path.join(candidate, "package.json"))) {
+        pkgDir = candidate;
+        break;
+      }
+      if (dir === path.dirname(dir)) throw new Error("installed pi-coding-agent not found");
+    }
+    const dist = path.join(pkgDir, "dist");
+    const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf-8")) as { version: string };
+    const { parseArgs } = (await import(pathToFileURL(path.join(dist, "cli", "args.js")).href)) as {
+      parseArgs: (argv: string[]) => { unknownFlags: Map<string, string | boolean> };
+    };
+    const parsed = parseArgs(["--mode", "rpc", "--no-mcp"]);
+    if (isBelow(pkg.version, "1.0.4")) {
+      // Baseline: the flag is unclaimed → pi's services layer turns it into an
+      // `Unknown option: --no-mcp` error diagnostic and main exits 1.
+      expect(parsed.unknownFlags.has("no-mcp")).toBe(true);
+    } else {
+      // Floor raised: pi claims the flag itself.
+      expect(parsed.unknownFlags.has("no-mcp")).toBe(false);
+    }
   });
 });

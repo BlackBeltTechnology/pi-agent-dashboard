@@ -214,6 +214,8 @@ export interface SessionOptions {
   appendSystemPrompt?: string[];
   noContextFiles?: boolean;
   noProjectTrust?: boolean;
+  /** `--no-mcp`: see `SessionFlags`. See change: spawn-scope-no-mcp. */
+  noMcp?: boolean;
   sessionDir?: string;
   /**
    * Per-extension config projected to namespaced env (`PI_EXT_<NAME>_<KEY>`)
