@@ -348,3 +348,13 @@ describe("X2 guard half: missing skill policy ⇒ no readiness signal", () => {
     expect(emitted).toHaveLength(0); // only on session_start
   });
 });
+
+describe("E8: guard still blocks MCP tool names (spawn-scope-no-mcp backstop)", () => {
+  for (const preset of ["chat", "files", "full"] as const) {
+    it(`${preset}: mcp__* names are denied`, () => {
+      for (const tool of ["mcp__docs__search", "mcp__pi-dashboard__list_sessions"]) {
+        expect(decideToolCall(tool, {}, policy(preset)).allow, `${preset}/${tool}`).toBe(false);
+      }
+    });
+  }
+});

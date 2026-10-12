@@ -3,6 +3,7 @@ import { execFileSync, execSync } from "@blackbelt-technology/pi-dashboard-share
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildHeadlessArgs,
+  buildInteractivePiArgs,
   buildSpawnEnv,
   buildTmuxCommand,
   resetResolver,
@@ -219,6 +220,24 @@ describe("Process Manager", () => {
       });
       expect(cmd).toContain("new-session");
       expect(cmd[cmd.length - 1]).toBe(UNSET_PREFIX + "pi --session /path/to/session.jsonl");
+    });
+  });
+
+  // (test-plan #E9) every strategy funnels through `sessionFlagsToArgv`, so the
+  // flag reaches headless, interactive and the tmux pane command.
+  // See change: spawn-scope-no-mcp.
+  describe("noMcp passthrough (spawn-scope-no-mcp E9)", () => {
+    it("headless, interactive and tmux argv all carry --no-mcp", () => {
+      expect(buildHeadlessArgs({ noMcp: true })).toEqual(["--mode", "rpc", "--no-mcp"]);
+      expect(buildInteractivePiArgs({ noMcp: true })).toEqual(["--no-mcp"]);
+      const tmux = buildTmuxCommand("/p", false, { noMcp: true } as never);
+      expect(tmux.join(" ")).toContain(`${UNSET_PREFIX}pi --no-mcp`);
+    });
+
+    it("absent noMcp leaves every argv unchanged", () => {
+      expect(buildHeadlessArgs({})).toEqual(["--mode", "rpc"]);
+      expect(buildInteractivePiArgs({})).toEqual([]);
+      expect(buildTmuxCommand("/p", false).join(" ")).not.toContain("--no-mcp");
     });
   });
 
