@@ -106,12 +106,19 @@ export interface Project {
 
 /** HTTP-level error carrying a machine code. */
 export class TeamError extends Error {
+  public readonly status: number;
+  public readonly code: string;
+  public readonly details?: unknown;
+
   constructor(
-    public readonly status: number,
-    public readonly code: string,
-    public readonly details?: unknown,
+    status: number,
+    code: string,
+    details?: unknown,
   ) {
     super(code);
+    this.status = status;
+    this.code = code;
+    this.details = details;
   }
 }
 

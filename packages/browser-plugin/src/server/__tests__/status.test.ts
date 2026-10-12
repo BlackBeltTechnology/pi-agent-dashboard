@@ -15,6 +15,8 @@ import type { RelayLike } from "../relay/relay-manager.js";
 import { BrowserRelayStatus, STATUS_COALESCE_MS, type StatusManager } from "../status.js";
 
 class StubInstance implements RelayLike {
+  readonly instanceId: string;
+  readonly profileDirectory: string;
   readonly subscribed: Array<{ ws: RelaySocket; tabId: number }> = [];
   readonly unsubscribedAll: RelaySocket[] = [];
   readonly inputs: Array<{ tabId: number; msg: unknown; address?: string }> = [];
@@ -22,9 +24,12 @@ class StubInstance implements RelayLike {
   private _state: "connected" | "no-cdp-client" = "connected";
 
   constructor(
-    readonly instanceId: string,
-    readonly profileDirectory: string,
-  ) {}
+    instanceId: string,
+    profileDirectory: string,
+  ) {
+    this.instanceId = instanceId;
+    this.profileDirectory = profileDirectory;
+  }
 
   setTabs(tabs: RelayTabView[]): void {
     this._tabs = tabs;

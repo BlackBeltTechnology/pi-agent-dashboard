@@ -357,6 +357,34 @@ export interface MkdirResult {
 
 export type MkdirResponse = ApiResponse<MkdirResult>;
 
+/** Request body for `POST /api/browse/create-project`. See change: streamline-first-run. */
+export interface CreateProjectRequest {
+  name: string;
+}
+
+/** Stable machine codes returned as `reason` on a failed create-project call. */
+export type CreateProjectErrorReason =
+  | "invalid_name"
+  | "reserved_name"
+  | "too_long"
+  | "not_a_directory"
+  | "root_not_a_directory"
+  | "outside_root"
+  | "home_missing"
+  | "fs_error";
+
+export interface CreateProjectResult {
+  /** Real (symlink-resolved) absolute path of the project directory. */
+  path: string;
+  /** True when the directory already existed before the call. */
+  existed: boolean;
+}
+
+/** Failure envelope: `ApiResponse` plus the machine `reason`. */
+export type CreateProjectResponse =
+  | ApiResponse<CreateProjectResult>
+  | { success: false; error: string; reason: CreateProjectErrorReason };
+
 // ── Tunnel Status ───────────────────────────────────────────────────
 
 export interface TunnelWatchdogPublicStatus {
@@ -666,6 +694,23 @@ export interface ProviderAuthInfo {
   flowType: "auth_code" | "device_code";
 }
 
+/**
+ * A provider id pi renamed (pi 1.0.3: `azure-openai-responses` → `azure`) still
+ * present in pi's agent-dir files. Ids and location tokens only — never values.
+ * See change: update-pi-core-1-1-adopt-apis.
+ */
+export interface LegacyProviderIdEntry {
+  legacyId: string;
+  newId: string;
+  /** e.g. `auth.json`, `settings.json:defaultProvider`, `models.json:providers`. */
+  locations: string[];
+}
+
+/** `GET /api/provider-auth/legacy-provider-ids`. Empty list when nothing matched. */
+export interface LegacyProviderIdsResponse {
+  legacyProviderIds: LegacyProviderIdEntry[];
+}
+
 export interface ProviderAuthStatus {
   id: string;
   name: string;
@@ -820,6 +865,14 @@ export interface InstalledPackage {
   publishedVariantSource?: string;
   /** Latest published version of `publishedVariantSource`, when known (best-effort; undefined offline). */
   publishedVariantVersion?: string;
+  /**
+   * True on a user-scope row whose path the dashboard recorded as its own
+   * plugin bridge (`dashboardPluginBridges` value or `_dashboardManagedPackages`
+   * key in the same settings file). Display-only: the entry stays in
+   * `packages[]` and keeps loading; the Add-ons page hides it.
+   * See change: addons-hub-declutter.
+   */
+  dashboardManaged?: boolean;
 }
 
 export type InstalledPackagesResponse = ApiResponse<InstalledPackage[]>;
@@ -846,6 +899,65 @@ export interface PackageUpdateInfo {
 }
 
 export type CheckUpdatesResponse = ApiResponse<PackageUpdateInfo[]>;
+
+// ── Package health (settings.json packages[] rot) ────────────
+// See change: add-package-health-cleanup.
+
+/** Health classification of one `packages[]` entry. */
+export type PackageHealthStatus = "ok" | "stale-npm" | "missing-path" | "duplicate";
+
+/** One classified `packages[]` entry. */
+export interface PackageHealthReport {
+  /** Verbatim `packages[]` source string (object entries → their `source`). */
+  source: string;
+  status: PackageHealthStatus;
+  /** Resolved install dir; undefined for stale-npm / missing-path. */
+  resolvedPath?: string;
+  /** `package.json#name` when readable. */
+  packageName?: string;
+  /** `package.json#version` when readable. */
+  version?: string;
+  /** Stable group id (`dup:<lowercased name>`); set only for `duplicate`. */
+  duplicateGroupId?: string;
+  /** Install dir mtime (ISO-8601) when resolvable. */
+  mtime?: string;
+  /** Human-readable explanation for non-ok statuses. */
+  reason?: string;
+}
+
+/** One group of entries sharing a `package.json#name`. */
+export interface PackageHealthDuplicateGroup {
+  id: string;
+  packageName: string;
+  count: number;
+}
+
+export interface PackageHealthSummary {
+  ok: number;
+  staleNpm: number;
+  missingPath: number;
+  duplicateGroups: PackageHealthDuplicateGroup[];
+}
+
+export interface PackageHealthListResponseData {
+  entries: PackageHealthReport[];
+  summary: PackageHealthSummary;
+}
+
+export type PackageHealthListResponse = ApiResponse<PackageHealthListResponseData>;
+
+/** Body of `POST /api/packages/cleanup`. Each member is a verbatim `packages[]` source. */
+export interface PackageCleanupRequest {
+  drop: string[];
+}
+
+export interface PackageCleanupResponse {
+  before: number;
+  after: number;
+  dropped: string[];
+  /** Absolute path of the pre-mutation backup; empty string when nothing was dropped. */
+  backupPath: string;
+}
 
 // ── Pi core version check ────────────────────────────────────
 
@@ -891,12 +1003,42 @@ export type PiCoreUpdateApiResponse = ApiResponse<PiCoreUpdateResponse>;
 
 import type { KnownServer } from "./config.js";
 
-export type KnownServersListResponse = ApiResponse<KnownServer[]>;
+/** A known server as listed, with its verified move suggestion when one exists. */
+export interface KnownServerListEntry extends KnownServer {
+  /** Verified new address of the same identity (never persisted). */
+  movedTo?: { host: string; port: number };
+}
+
+export type KnownServersListResponse = ApiResponse<KnownServerListEntry[]> & {
+  /** Caller holds an operator credential (may add/remove/update). */
+  canManage?: boolean;
+};
 
 export interface AddKnownServerRequest {
   host: string;
   port: number;
   label?: string;
+  /** Hint only — persisted solely when the identity challenge proves it. */
+  fingerprint?: string;
+}
+
+/** `POST /api/known-servers` success data when an existing entry was updated. */
+export interface AddKnownServerResult {
+  updated?: boolean;
+}
+
+/** `POST /api/known-servers/accept-move` body. */
+export interface AcceptKnownServerMoveRequest {
+  /** Current stored address of the entry. */
+  host: string;
+  port: number;
+}
+
+/** Server-side reachability of a known server (operator-only probe). */
+export type KnownServerProbeStatus = "reachable" | "name-not-resolved" | "refused" | "timeout" | "error";
+
+export interface KnownServerProbeResult {
+  status: KnownServerProbeStatus;
 }
 
 export interface RemoveKnownServerRequest {
@@ -911,6 +1053,10 @@ export interface DiscoveredServerInfo {
   version: string;
   pid: number;
   isLocal: boolean;
+  /** Advertised identity fingerprint (absent on older servers). */
+  fingerprint?: string;
+  /** Advertised display name. */
+  name?: string;
 }
 
 export type DiscoverServersResponse = ApiResponse<DiscoveredServerInfo[]>;

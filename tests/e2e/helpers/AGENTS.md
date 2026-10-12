@@ -5,6 +5,7 @@ One row per file. Non-source area. Rows split out of `tests/e2e/AGENTS.md` (byte
 | File | Purpose |
 |------|---------|
 | `__tests__/evidence-path.test.ts` | Unit tests (vitest `tests` project) for… → see `__tests__/evidence-path.test.ts.AGENTS.md` |
+| `__tests__/anchor-probe-send.test.ts` | E10: `installAnchorProbe` WebSocket.send wrapper forwards string/Blob/offset view/ArrayBuffer unchanged after the TS 7 `BufferSource` copy. Fake Page + stub globals, no browser. See change: migrate-typecheck-to-ts7. |
 | `__tests__/lifecycle.test.ts` | Unit tests (vitest `tests` project) for `tests/e2e/lifecycle.ts` harness failure diagnostics. → see `__tests__/lifecycle.test.ts.AGENTS.md` |
 | `__tests__/playwright-config.test.ts` | Unit tests (vitest `tests` project) for root `playwright.config.ts`. → see `__tests__/playwright-config.test.ts.AGENTS.md` |
 | `card-sections.ts` | Card-block / focus-mode L3 glue: opens the card-section settings surfaces, toggles a block, waits for the `card_sections_updated` echo. See change: add-focus-mode-and-card-block-toggles. |

@@ -164,7 +164,7 @@ export function MissingRequirementsBlock({ row }: { row: PluginRow }) {
             ) : (
               <button
                 type="button"
-                onClick={() => navigate("/settings/packages")}
+                onClick={() => navigate("/settings/add-ons")}
                 className="px-2 py-0.5 rounded text-[10px] bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-secondary)]"
                 data-testid={`install-piExtension-link-${name}`}
               >

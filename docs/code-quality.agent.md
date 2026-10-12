@@ -49,7 +49,7 @@ Pull-only condensed map. Source: docs/code-quality.md. Rule → severity tier + 
 - `--only=<rule>` bypasses overrides (only `files.includes` survives). Oracle: rule `"error"` in config copy, `npx biome lint . --max-diagnostics=20000`. `--only` OK for counting `off` candidates.
 
 ## Oracle — `quality:changed`
-- `quality:changed` = `biome check --changed --error-on-warnings --write && tsc --noEmit && npm test`. Single exit code → goal-plugin judge (`@ricoyudog/pi-goal-hermes`).
+- `quality:changed` = `biome check --changed --error-on-warnings --write && node scripts/tsc7.mjs --noEmit && npm test`. Single exit code → goal-plugin judge (`@ricoyudog/pi-goal-hermes`).
 - DEV-LOOP oracle only. No automated caller — absent from `.github/`, `ship-it`, `ship-change`.
 
 ## Dead-code oracle — Knip
@@ -70,7 +70,7 @@ Pull-only condensed map. Source: docs/code-quality.md. Rule → severity tier + 
 - `biome check --write` = SAFE fixes only. Safe: useConst, useImportType, noUnusedImports. Unsafe: useTemplate, useOptionalChain, noUnusedVariables (manual / `--unsafe`, never in loop).
 
 ## npm scripts
-- `lint:biome` — `biome lint .` · `fix:changed` — `biome check --changed --write` · `quality:report` — `biome lint . --reporter=github` · `lint` — `tsc --noEmit` (unchanged).
+- `lint:biome` — `biome lint .` · `fix:changed` — `biome check --changed --write` · `quality:report` — `biome lint . --reporter=github` · `lint` — `node scripts/tsc7.mjs --noEmit` (TS 7).
 
 ## CI
 - `ci.yml` — `npx biome lint . --reporter=github` after `npm run lint`, before `npm test`. Triggers `develop`. Tier A error gates; B/C annotate.
@@ -82,7 +82,7 @@ Pull-only condensed map. Source: docs/code-quality.md. Rule → severity tier + 
 - Lints whole files, not diff lines. Default: grandfather — fix only diff, `// biome-ignore` unavoidable legacy lines.
 
 ## Known quirk — quality:changed empty diff
-- Exits 1 "No files were processed in the specified paths" when diff has no lintable file (only `.md` + `biome.json`). Not a violation — run legs directly: `npx biome lint .`, `npx tsc --noEmit`, `npm test`.
+- Exits 1 "No files were processed in the specified paths" when diff has no lintable file (only `.md` + `biome.json`). Not a violation — run legs directly: `npx biome lint .`, `node scripts/tsc7.mjs --noEmit`, `npm test`.
 
 ## Skill
 - `.pi/skills/code-quality/SKILL.md` owns procedure (analyze→fix→test). Goal owns when-to-stop.

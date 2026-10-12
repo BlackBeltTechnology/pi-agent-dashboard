@@ -10,8 +10,10 @@
  *
  * See change: configurable-chat-display.
  */
-import React, { createContext, useContext } from "react";
+
 import type { DisplayPrefs, PartialDisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import type React from "react";
+import { createContext, useContext } from "react";
 
 export interface DisplayPrefsContextValue {
   /** Global prefs, or `undefined` when never seeded (first-launch state). */

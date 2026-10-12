@@ -95,7 +95,7 @@ describe("OpenSpec board — per-change New worktree action", () => {
     const props = baseProps();
     render(<OpenSpecBoardView {...props} />);
     fireEvent.click(screen.getByTestId("card-new-session-add-dark-mode"));
-    expect(props.onSpawnSession).toHaveBeenCalledWith("/project/foo", "add-dark-mode");
+    expect(props.onSpawnSession).toHaveBeenCalledWith("/project/foo", "add-dark-mode", { focus: false });
   });
 
   // F1 — rewrites the former "hidden on non-git folder" absence assertion.

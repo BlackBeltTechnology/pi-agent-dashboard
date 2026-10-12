@@ -210,7 +210,7 @@ if [ "$HARNESS_RC" -ne 0 ]; then
   exit 1
 fi
 
-# The harness's exit code is now load-bearing — Test 8 (jiti launch +
+# The harness's exit code is now load-bearing — Test 8 (native-loader launch +
 # /api/health probe) is the real verdict and its exit propagates. The
 # earlier tests (2–4, tsx-based) are kept as diagnostics and may emit
 # SyntaxError markers that DO NOT indicate failure; ignore them.
@@ -223,7 +223,7 @@ fi
 
 echo
 echo "  ✓ harness exited cleanly"
-echo "  ✓ Test 8 (jiti boot + /api/health) PASS marker found"
+echo "  ✓ Test 8 (native-loader boot + /api/health) PASS marker found"
 echo
 echo "  Spike: PASS — --source-only bundle boots under the Docker harness."
 echo "  Design decision in openspec/changes/add-ci-electron-on-demand-build/design.md"

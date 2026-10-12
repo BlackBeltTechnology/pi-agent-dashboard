@@ -4,10 +4,12 @@
  * Consumed by EditToolRenderer (desktop) and DiffPanel (Path A).
  * See change: rich-diff-in-chat
  */
-import React, { useMemo } from "react";
-import { DiffView, DiffModeEnum } from "@git-diff-view/react";
+
 import { generateDiffFile } from "@git-diff-view/file";
 import { highlighter } from "@git-diff-view/lowlight";
+import { DiffModeEnum, DiffView } from "@git-diff-view/react";
+import type React from "react";
+import { useMemo } from "react";
 import "@git-diff-view/react/styles/diff-view.css";
 import { useThemeContext } from "../settings/ThemeProvider.js";
 

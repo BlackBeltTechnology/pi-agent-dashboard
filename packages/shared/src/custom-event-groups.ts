@@ -45,8 +45,8 @@ export const RESERVED_OTHER_GROUP_ID = "other";
 /**
  * Shipped default groups, covering the emitters inventoried in the proposal
  * (12 distinct `customType` values across 3901 gated rows; `om.*` alone is
- * 74%). `memory` defaults to HIDDEN — the observable behavior change called
- * out in the CHANGELOG.
+ * 74%, plus `subagent-admission-refused`). `memory` and `diagnostics` default
+ * to HIDDEN — the observable behavior change called out in the CHANGELOG.
  *
  * Order matters: resolution is first-match-wins, and upgrade-merge appends
  * newly shipped groups AFTER user-authored entries, so a later-shipped group
@@ -58,6 +58,9 @@ export const SHIPPED_CUSTOM_EVENT_GROUPS: readonly CustomEventGroup[] = [
   { id: "subagents", label: "Subagents", pattern: "^subagents:|^subagent-notification$", default: true },
   { id: "flows", label: "Flows help", pattern: "^pi-flows-help$", default: true },
   { id: "goals", label: "Goals", pattern: "^pi-goal-hermes:", default: true },
+  // Forensic records (subagent fan-out admission refusals). Hidden by default:
+  // the refused tool call already shows its reason. See change: render-unclaimed-custom-entries.
+  { id: "diagnostics", label: "Diagnostics", pattern: "^subagent-admission-refused$", default: false },
 ];
 
 /** The reserved catch-all as a group (synthesized, never shipped). */

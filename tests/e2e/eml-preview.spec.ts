@@ -84,6 +84,13 @@ test.describe("EML preview in the editor pane", () => {
       .toContain("blob:");
     const srcdoc = (await frame.getAttribute("srcdoc")) ?? "";
     expect(srcdoc).not.toContain("cid:logo");
+    // The server sanitizes the body through the lazily `require`d DOMPurify/jsdom
+    // (lib/purify.ts) running under the strip-only native loader: the fixture's
+    // <script> must be gone and the server still healthy. See change:
+    // strip-only-native-ts-loader (test-plan #X6).
+    expect(srcdoc).not.toContain("<script");
+    expect(srcdoc).not.toContain("__EML_XSS__");
+    expect(srcdoc).toContain("Quarterly Report");
 
     // X4 — remote tracker image blocked on render; "Load remote content" shown.
     expect(trackerHits).toBe(0);

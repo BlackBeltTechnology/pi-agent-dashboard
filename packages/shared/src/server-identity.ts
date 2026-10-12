@@ -12,6 +12,7 @@
  * behaviour (single attempt, 2 s timeout) so existing call sites are
  * unaffected.
  */
+import { formatHostPort } from "./host-port.js";
 
 const DEFAULT_TIMEOUT_MS = 2000;
 const DEFAULT_RETRIES = 0;
@@ -105,7 +106,7 @@ async function probeOnce(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const res = await fetch(`http://${host}:${port}/api/health`, {
+    const res = await fetch(`http://${formatHostPort(host, port)}/api/health`, {
       signal: controller.signal,
     });
     clearTimeout(timer);

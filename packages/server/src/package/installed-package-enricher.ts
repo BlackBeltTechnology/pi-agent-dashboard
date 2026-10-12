@@ -14,6 +14,7 @@
  * See change: consolidate-packages-settings-ui.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
 	BUNDLED_EXTENSION_IDS,
@@ -93,6 +94,25 @@ export function computeIsBundled(
 	return existsFn(dir);
 }
 
+/** Canonical absolute path: `~` expanded, resolved, symlinks followed when the
+ * file exists (falls back to the resolved path). */
+function canonicalizePath(p: string): string {
+	const expanded = p === "~" || p.startsWith("~/") ? path.join(os.homedir(), p.slice(1)) : p;
+	const resolved = path.resolve(expanded);
+	try {
+		return fs.realpathSync.native(resolved);
+	} catch {
+		return resolved;
+	}
+}
+
+/** Canonical form of a registry path set, ready for `managedPaths` matching. */
+function canonicalPathSet(paths: Iterable<string>): Set<string> {
+	const out = new Set<string>();
+	for (const p of paths) if (typeof p === "string" && p) out.add(canonicalizePath(p));
+	return out;
+}
+
 /** Enrich a single raw row. Pure dependency injection for tests. */
 export function enrichInstalledRow(
 	row: RawInstalledRow,
@@ -102,6 +122,8 @@ export function enrichInstalledRow(
 		bundledIds?: readonly string[];
 		readMeta?: (p: string | undefined) => { version?: string; description?: string };
 		existsFn?: (p: string) => boolean;
+		/** Canonical (see `canonicalPathSet`) dashboard-recorded bridge paths. */
+		managedPaths?: ReadonlySet<string>;
 	} = {},
 ): InstalledPackage {
 	const readMeta = opts.readMeta ?? readPackageJsonMeta;
@@ -120,7 +142,7 @@ export function enrichInstalledRow(
 		? computeIsBundled(recommended.id, opts.resourcesPath, existsFn, bundledIds)
 		: false;
 
-	return {
+	const out: InstalledPackage = {
 		source: row.source,
 		scope: row.scope,
 		filtered: row.filtered,
@@ -131,6 +153,16 @@ export function enrichInstalledRow(
 		isRecommended,
 		isBundled,
 	};
+	if (isDashboardManaged(row, opts.managedPaths)) out.dashboardManaged = true;
+	return out;
+}
+
+/** User-scope row whose path is one the dashboard recorded as its own bridge.
+ * Project rows are never flagged. See change: addons-hub-declutter. */
+function isDashboardManaged(row: RawInstalledRow, managedPaths: ReadonlySet<string> | undefined): boolean {
+	if (!managedPaths || managedPaths.size === 0 || row.scope !== "user") return false;
+	const candidates = [row.source, row.installedPath];
+	return candidates.some((c) => !!c && managedPaths.has(canonicalizePath(c)));
 }
 
 /** Read `package.json#name` from a directory. Swallows all errors and
@@ -233,13 +265,16 @@ function npmNameFromSource(source: string): string | undefined {
 }
 
 /** Enrich a list of raw rows. Reads the Electron resourcesPath at
- * runtime (or undefined in CLI mode). */
+ * runtime (or undefined in CLI mode). `managedPaths` (raw registry paths,
+ * canonicalised here) flags dashboard-managed bridge rows. */
 export function enrichInstalledRows(
 	rows: RawInstalledRow[],
 	resourcesPath: string | undefined = (process as { resourcesPath?: string })
 		.resourcesPath,
+	extra: { managedPaths?: Iterable<string> } = {},
 ): InstalledPackage[] {
-	return rows.map((row) => enrichInstalledRow(row, { resourcesPath }));
+	const managedPaths = extra.managedPaths ? canonicalPathSet(extra.managedPaths) : undefined;
+	return rows.map((row) => enrichInstalledRow(row, { resourcesPath, managedPaths }));
 }
 
 /**

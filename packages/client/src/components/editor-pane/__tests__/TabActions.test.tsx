@@ -6,7 +6,7 @@
  * See change: open-view-command-in-editor-pane (test-plan E17 / F11).
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import React from "react";
+import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));

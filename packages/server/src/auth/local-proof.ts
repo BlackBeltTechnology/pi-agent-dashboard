@@ -77,9 +77,12 @@ export function hasLocalProof(headers: Record<string, unknown> | undefined, ctx:
 
 /** One-time bootstrap codes (32 random bytes, 60 s TTL, single use). */
 export class LocalProofCodeStore {
+  private now: () => number;
   private codes = new Map<string, number>();
 
-  constructor(private now: () => number = Date.now) {}
+  constructor(now: () => number = Date.now) {
+    this.now = now;
+  }
 
   mint(): string {
     this.sweep();

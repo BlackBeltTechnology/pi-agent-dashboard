@@ -20,7 +20,7 @@ See change: add-dashboard-bus-client-scripting.
 | `src/__tests__/ticket-expiry.test.ts` | C2 — expired ticket → TicketExpiredError (distinct from close). |
 | `src/__tests__/ticket-reuse.test.ts` | C3 — consumed single-use ticket reuse → TicketConsumedError. |
 | `src/__tests__/offbox-ticket-denied.test.ts` | C4 (L1 companion) — denied mint → OffBoxError, no hang. |
-| `src/__tests__/send-types.test.ts` | S1 — runs `tsc -p tsconfig.fixtures.json` over the type-negative fixture; exit 0 proves bad sends rejected. |
+| `src/__tests__/send-types.test.ts` | S1 — runs `node scripts/tsc7.mjs -p tsconfig.fixtures.json` (TS 7) over the type-negative fixture; exit 0 proves bad sends rejected. |
 | `src/__tests__/fixtures/bad-send.ts` | S1 fixture. `@ts-expect-error`-guarded malformed sends + well-formed sends. |
 | `src/__tests__/verb-completeness.test.ts` | S2 — every GENERATED_VERBS entry has a server receiver (gateway switch / handlePiGatewayForward / registerHandler / plugin registerBrowserHandler). |
 | `src/__tests__/codegen-denylist.test.ts` | S3 — plugin_config_write in raw union but excluded from GENERATED_VERBS. |
@@ -32,6 +32,6 @@ See change: add-dashboard-bus-client-scripting.
 | `src/__tests__/read-live-consistent.test.ts` | R1 — read.sessions() reflects delta, no extra fetch. |
 | `src/__tests__/read-metadata-only.test.ts` | R2 — read.session returns metadata+status, no messages/lastResponse. |
 | `package.json` | `@blackbelt-technology/pi-dashboard-bus-client`. Deps: shared, ws. Scripts: build (tsc), codegen, test (vitest). |
-| `tsconfig.json` | NodeNext, emits dist, excludes `src/__tests__`. |
+| `tsconfig.json` | NodeNext, emits dist, excludes `src/__tests__`. `types: ["node"]` (TS 7 defaults `types` to `[]`), `lib: ["ES2023","DOM"]` (reaches `shared` `slot-props.ts` `HTMLElement`). See change: migrate-typecheck-to-ts7. |
 | `tsconfig.fixtures.json` | noEmit typecheck over `src/__tests__/fixtures/**` for S1. |
 | `vitest.config.ts` | node env, forks pool, include `src/**/__tests__/**/*.test.ts`, `testTimeout` 30_000 (subprocess codegen/typecheck tests blew the 5s default under fork contention). See change: contention-harden-real-process-tests. |

@@ -26,7 +26,11 @@ function publicPersona(p: Persona): Omit<Persona, "owner"> {
 }
 
 export class PersonaService {
-  constructor(private readonly d: PersonaServiceDeps) {}
+  private readonly d: PersonaServiceDeps;
+
+  constructor(d: PersonaServiceDeps) {
+    this.d = d;
+  }
 
   private now(): string {
     return (this.d.now?.() ?? new Date()).toISOString();

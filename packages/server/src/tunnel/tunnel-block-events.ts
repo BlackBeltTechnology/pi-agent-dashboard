@@ -69,8 +69,11 @@ function sanitizeOrigin(origin: string | undefined): string | undefined {
 const DEFAULT_CAP = 50;
 
 export class BlockEventBuffer {
+  private readonly cap: number;
   private readonly byIp = new Map<string, BlockEvent>();
-  constructor(private readonly cap: number = DEFAULT_CAP) {}
+  constructor(cap: number = DEFAULT_CAP) {
+    this.cap = cap;
+  }
 
   /**
    * Record a denial for a socket-peer IP. Dedupes by IP; evicts the oldest

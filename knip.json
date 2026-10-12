@@ -99,6 +99,16 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/web-access-plugin": {
+      "entry": [
+        "src/client/index.tsx",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
     "packages/app-kit": {
       "entry": [
         "src/index.ts",

@@ -18,13 +18,17 @@ import { latestBackup } from "./definitions-store.js";
 const LOG_TAG = "services";
 
 export class SecretsCorruptError extends Error {
+  readonly file: string;
+  readonly backupPath?: string;
   readonly code = "secrets-corrupt";
-  constructor(readonly file: string, readonly backupPath?: string) {
+  constructor(file: string, backupPath?: string) {
     super(
       `Refusing to write: ${file} is corrupt` +
         (backupPath ? ` (byte-exact backup: ${backupPath})` : "") +
         ". Repair or remove it manually, then try again.",
     );
+    this.file = file;
+    this.backupPath = backupPath;
   }
 }
 
@@ -42,7 +46,11 @@ export interface SecretsStatus {
 }
 
 export class SecretsStore {
-  constructor(readonly file: string) {}
+  readonly file: string;
+
+  constructor(file: string) {
+    this.file = file;
+  }
 
   private readBag(): { corrupt: boolean; bag: Bag } {
     if (!fs.existsSync(this.file)) return { corrupt: false, bag: {} };

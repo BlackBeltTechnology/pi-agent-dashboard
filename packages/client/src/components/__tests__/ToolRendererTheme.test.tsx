@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeAll } from "vitest";
 import { render } from "@testing-library/react";
-import React from "react";
+import type React from "react";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -13,11 +13,12 @@ beforeAll(() => {
     })),
   });
 });
+
 import { ThemeProvider } from "../settings/ThemeProvider.js";
-import { ReadToolRenderer } from "../tool-renderers/ReadToolRenderer.js";
-import { WriteToolRenderer } from "../tool-renderers/WriteToolRenderer.js";
 import { BashToolRenderer } from "../tool-renderers/BashToolRenderer.js";
+import { ReadToolRenderer } from "../tool-renderers/ReadToolRenderer.js";
 import type { ToolContext } from "../tool-renderers/types.js";
+import { WriteToolRenderer } from "../tool-renderers/WriteToolRenderer.js";
 
 // Mock SyntaxHighlighter to capture props
 vi.mock("react-syntax-highlighter", () => ({

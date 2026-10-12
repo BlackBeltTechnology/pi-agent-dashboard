@@ -183,6 +183,7 @@ function readHead(md: string): string {
   }
 }
 export class SkillsService {
+  private readonly d: SkillsServiceDeps;
   private readonly ops: FsOps;
   private readonly file: string;
   private managed: { error: string | null; records: ManagedRecord[] } | undefined;
@@ -193,7 +194,8 @@ export class SkillsService {
   private tail: Promise<unknown> = Promise.resolve();
   private epochN = 0;
 
-  constructor(private readonly d: SkillsServiceDeps) {
+  constructor(d: SkillsServiceDeps) {
+    this.d = d;
     this.ops = d.ops ?? realFs;
     this.file = path.join(d.paths.home, "skills.json");
   }

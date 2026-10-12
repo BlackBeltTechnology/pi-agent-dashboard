@@ -438,7 +438,7 @@ jobs:
         # because the bundle ships no `tsconfig.base.json` (bundle-server.mjs
         # copies workspace source, not the repo tsconfig) and `JITI_TSCONFIG_PATHS`
         # is gone. That was exactly the browser plugin's state before this change.
-        # Boots the bundled node + jiti + cli.ts with the variable removed and
+        # Boots the bundled node + the native strip-only loader + cli.ts and
         # reads the server's own `[plugin-loader]` verdict. Node-native
         # (Windows-reachable invariant: no bash).
         #
@@ -579,12 +579,9 @@ jobs:
             exit 1
           fi
           echo "Probing $APPIMAGE against ubuntu:22.04 (glibc 2.35)"
-          # PI_DASHBOARD_TS_LOADER passes through only when set on the step
-          # (a throwaway-branch dispatch forces `jiti` to prove the failure path).
           docker run --rm \
             -v "$PWD/$(dirname "$APPIMAGE")":/art:ro \
             -e APPIMAGE_NAME="$(basename "$APPIMAGE")" \
-            -e PI_DASHBOARD_TS_LOADER \
             ubuntu:22.04 bash -euo pipefail -c '
               apt-get update -qq
               apt-get install -y -qq --no-install-recommends \

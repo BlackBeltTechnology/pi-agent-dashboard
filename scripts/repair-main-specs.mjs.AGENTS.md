@@ -1,0 +1,3 @@
+# repair-main-specs.mjs — index
+
+Structural repair of corrupted `openspec/specs/**/spec.md`. Exports `classifySpec`, `repairSpecText`, `PLACEHOLDER`; CLI takes `--dry-run`, `--specs-dir`. Promotes the FIRST delta header to `## Requirements` and DELETES every subsequent one (parser reads only the first section, so renaming yields a silently-ignored duplicate); wraps orphaned `### Requirement:` blocks in a created section; inserts `TODO(repair):`-marked Purpose + h1; REFUSES `## REMOVED Requirements` (exit non-zero, file untouched); re-validates after write to surface phase-two errors the `no-purpose` throw masked. Idempotent. Blank-run collapse is fence-aware. See change: repair-corrupted-main-specs.

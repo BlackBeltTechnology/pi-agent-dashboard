@@ -9,13 +9,18 @@
 import Ajv, { type ValidateFunction } from "ajv";
 
 export class ValidationError extends Error {
+  public readonly pluginId: string;
+  public readonly errors: unknown[];
+
   constructor(
-    public readonly pluginId: string,
-    public readonly errors: unknown[],
+    pluginId: string,
+    errors: unknown[],
   ) {
     super(
       `[plugin:${pluginId}] Config validation failed: ${JSON.stringify(errors)}`,
     );
+    this.pluginId = pluginId;
+    this.errors = errors;
     this.name = "ValidationError";
   }
 }

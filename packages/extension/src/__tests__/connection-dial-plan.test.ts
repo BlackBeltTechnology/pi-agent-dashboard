@@ -13,6 +13,8 @@ import { ConnectionManager, type DialPlan, type IdentityFailureReport } from "..
 type UpgradeRes = { headers: Record<string, string | string[] | undefined> };
 
 class FakeWs {
+  public url: string;
+  public opts?: { headers?: Record<string, string>; createConnection?: () => unknown };
   static instances: FakeWs[] = [];
   readyState = 0;
   onopen: (() => void) | null = null;
@@ -23,9 +25,11 @@ class FakeWs {
   terminated = false;
   private handlers = new Map<string, Array<(...a: unknown[]) => void>>();
   constructor(
-    public url: string,
-    public opts?: { headers?: Record<string, string>; createConnection?: () => unknown },
+    url: string,
+    opts?: { headers?: Record<string, string>; createConnection?: () => unknown },
   ) {
+    this.url = url;
+    this.opts = opts;
     FakeWs.instances.push(this);
   }
   on(ev: string, fn: (...a: unknown[]) => void) {

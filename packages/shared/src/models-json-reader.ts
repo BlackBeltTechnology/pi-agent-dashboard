@@ -41,6 +41,12 @@ export interface NativeModelEntry {
    * See change: update-pi-core-0-84-adopt-apis.
    */
   samplingParams?: Record<string, unknown>;
+  /**
+   * Per-thinking-level sampling parameters (pi 1.1.0), keyed by thinking level.
+   * Opaque passthrough like `samplingParams`: pi owns validation, an older pi
+   * ignores the field. See change: update-pi-core-1-1-adopt-apis.
+   */
+  samplingParamsByThinkingLevel?: Record<string, Record<string, unknown>>;
   cost?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   input?: string[];
   headers?: Record<string, string>;

@@ -22,15 +22,28 @@
 #
 # --keep: leave the temp HOME on disk for inspection
 # --port: dashboard port (default 18000 to avoid colliding with a dev instance)
+#
+# Split-runtime modes (CI builds on one Node and installs/boots on another, e.g.
+# the EOL Node 23 legs of _smoke.yml; see change: strip-only-native-ts-loader):
+# --pack-only <dir>:  build the client, pack every workspace into <dir>, exit
+# --tarballs <dir>:   skip build + pack, install the *.tgz already in <dir>
+# --install-arg <a>:  extra argument for `npm install` (repeatable), e.g.
+#                     --install-arg --engine-strict=false
 
 set -euo pipefail
 
 KEEP=0
 PORT=18000
+PACK_ONLY=""
+TARBALLS_DIR=""
+INSTALL_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --keep) KEEP=1; shift ;;
     --port) PORT="$2"; shift 2 ;;
+    --pack-only) PACK_ONLY="$2"; shift 2 ;;
+    --tarballs) TARBALLS_DIR="$2"; shift 2 ;;
+    --install-arg) INSTALL_ARGS+=("$2"); shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -60,17 +73,29 @@ trap cleanup EXIT
 echo "[smoke] temp HOME: $TMP_HOME"
 echo "[smoke] packing workspaces..."
 
-# Build the web client first (its dist/ is shipped in the published tarball).
-( cd packages/client && npm run build >/dev/null )
+if [[ -n "$TARBALLS_DIR" ]]; then
+  PACK_DIR="$TARBALLS_DIR"
+else
+  # Build the web client first (its dist/ is shipped in the published tarball).
+  ( cd packages/client && npm run build >/dev/null )
 
-# Pack root + every workspace under packages/. `npm pack -ws --include-workspace-root`
-# emits one .tgz per package into the cwd.
-(
-  cd "$PACK_DIR"
-  npm --prefix "$REPO_ROOT" pack -ws --include-workspace-root --pack-destination "$PACK_DIR" >/dev/null
-)
+  # Pack root + every workspace under packages/. `npm pack -ws --include-workspace-root`
+  # emits one .tgz per package into the cwd.
+  if [[ -n "$PACK_ONLY" ]]; then
+    mkdir -p "$PACK_ONLY"
+    PACK_DIR="$(cd "$PACK_ONLY" && pwd)"
+  fi
+  (
+    cd "$PACK_DIR"
+    npm --prefix "$REPO_ROOT" pack -ws --include-workspace-root --pack-destination "$PACK_DIR" >/dev/null
+  )
+fi
 TGZS=("$PACK_DIR"/*.tgz)
 echo "[smoke] packed ${#TGZS[@]} tarballs"
+if [[ -n "$PACK_ONLY" ]]; then
+  echo "[smoke] --pack-only: tarballs in $PACK_DIR"
+  exit 0
+fi
 
 # Install into an isolated prefix under TMP_HOME. We use a project-local install
 # (npm i <tgz> ...) into a fresh package dir so the resolution chain mirrors what
@@ -80,7 +105,7 @@ mkdir -p "$INSTALL_DIR"
 ( cd "$INSTALL_DIR" && npm init -y >/dev/null )
 
 echo "[smoke] installing tarballs into ${INSTALL_DIR}..."
-( cd "$INSTALL_DIR" && npm install "${TGZS[@]}" --no-audit --no-fund 2>&1 | tail -3 )
+( cd "$INSTALL_DIR" && npm install "${TGZS[@]}" --no-audit --no-fund ${INSTALL_ARGS[@]+"${INSTALL_ARGS[@]}"} 2>&1 | tail -3 )
 
 BIN="$INSTALL_DIR/node_modules/.bin/pi-dashboard"
 if [[ ! -x "$BIN" ]]; then
@@ -148,5 +173,30 @@ else
   echo "[smoke] FAIL: web UI not reachable" >&2
   exit 1
 fi
+
+# The native strip-only loader must not leak experimental/deprecation noise on
+# any supported Node line (22/24/25/26): its ExperimentalWarning filter is exact
+# and Node 26 has no `stripTypeScriptTypes` experimental warning or DEP0205.
+# Also (EOL Node 23.0-23.1, tier 3): the bundled `amaro` must resolve.
+# Scans the foreground output AND the daemon log when one was written.
+# See change: strip-only-native-ts-loader (test-plan #X1, #X2).
+for LOG in "$TMP/server.log" "$TMP_HOME/.pi/dashboard/server.log"; do
+  [[ -f "$LOG" ]] || continue
+  if grep -qE "stripTypeScriptTypes is an experimental feature|DEP0205" "$LOG"; then
+    echo "[smoke] FAIL: $LOG carries a type-stripping warning:" >&2
+    grep -nE "stripTypeScriptTypes is an experimental feature|DEP0205" "$LOG" | head -5 >&2
+    exit 1
+  fi
+done
+echo "[smoke] ✓ no stripTypeScriptTypes ExperimentalWarning / DEP0205 in server logs"
+for LOG in "$TMP/server.log" "$TMP_HOME/.pi/dashboard/server.log"; do
+  [[ -f "$LOG" ]] || continue
+  if grep -qE "MODULE_NOT_FOUND.*amaro|Cannot find (module|package) 'amaro'" "$LOG"; then
+    echo "[smoke] FAIL: $LOG reports amaro unresolvable (tier 3 regression):" >&2
+    grep -nE "amaro" "$LOG" | head -5 >&2
+    exit 1
+  fi
+done
+echo "[smoke] ✓ no MODULE_NOT_FOUND for amaro in server logs"
 
 echo "[smoke] ✓ standalone npm install smoke passed"

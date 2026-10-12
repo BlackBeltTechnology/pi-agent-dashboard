@@ -17,17 +17,19 @@
  *
  * See change: add-plugin-ui-primitive-registry.
  */
-import React, { type ReactNode } from "react";
+
 import {
   UI_PRIMITIVE_KEYS,
   type UiPrimitiveKey,
   type UiPrimitiveMap,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import type React from "react";
+import type { ReactNode } from "react";
+import { UiPrimitiveProvider } from "../ui-primitive-context.js";
 import {
   createUiPrimitiveRegistry,
   registerUiPrimitive,
 } from "../ui-primitive-registry.js";
-import { UiPrimitiveProvider } from "../ui-primitive-context.js";
 
 /**
  * Wrap `children` in a `<UiPrimitiveProvider>` populated with the provided

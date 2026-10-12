@@ -79,15 +79,14 @@ describe("spawnFromSource uniform spawn options (E10, E11)", () => {
 });
 
 /**
- * E21 — the Electron spawn carries the SELECTED loader: the real shared
- * launcher (seams injected through the mocked entry point) builds the argv.
- * argv = [nodeBin, "--import", <loader>, <entry>, ...]; argv[2] is the native
- * register by default and the jiti URL under PI_DASHBOARD_TS_LOADER=jiti.
- * See change: fix-appimage-cold-boot-latency (design D4).
+ * E21 — the Electron spawn always carries the Node-native loader (the only
+ * server loader): the real shared launcher (seams injected through the mocked
+ * entry point) builds the argv. argv = [nodeBin, "--import", <loader>,
+ * <entry>, ...]; argv[2] is the native register whatever PI_DASHBOARD_TS_LOADER
+ * holds (the variable is not honored in Electron).
+ * See change: strip-only-native-ts-loader.
  */
-describe("spawnFromSource carries the selected TS loader (E21)", () => {
-  const JITI = "file:///j/node_modules/jiti/lib/jiti-register.mjs";
-
+describe("spawnFromSource always carries the native TS loader (E21)", () => {
   async function captureArgv(): Promise<{ argv: string[]; launchNodeBin: unknown }> {
     const actual = await vi.importActual<typeof import("@blackbelt-technology/pi-dashboard-shared/server-launcher.js")>(
       "@blackbelt-technology/pi-dashboard-shared/server-launcher.js",
@@ -100,7 +99,6 @@ describe("spawnFromSource carries the selected TS loader (E21)", () => {
       launchNodeBin = opts.nodeBin;
       return actual.launchDashboardServer({
         ...opts,
-        _resolveJiti: () => JITI,
         _spawnNodeScript: ((o: { nodeBin: string; loader: string; entry: string; args?: string[] }) => {
           argv = [o.nodeBin, ...buildNodeImportArgvParts({ loader: o.loader, entry: o.entry, args: o.args })];
           return Object.assign(new EventEmitter(), { pid: 77, exitCode: null, signalCode: null, unref: () => {} });
@@ -127,11 +125,12 @@ describe("spawnFromSource carries the selected TS loader (E21)", () => {
     }
   });
 
-  it("PI_DASHBOARD_TS_LOADER=jiti → argv[2] is the jiti URL; nodeBin unchanged", async () => {
+  it("legacy PI_DASHBOARD_TS_LOADER=jiti is ignored → argv[2] is still the native register", async () => {
     vi.stubEnv("PI_DASHBOARD_TS_LOADER", "jiti");
     try {
       const { argv, launchNodeBin } = await captureArgv();
-      expect(argv[2]).toBe(JITI);
+      expect(argv[2]).toMatch(/^file:\/\/.*\/platform\/native-ts-register\.mjs$/);
+      expect(argv.join(" ")).not.toMatch(/jiti/);
       expect(argv[0]).toBe(launchNodeBin);
     } finally {
       vi.unstubAllEnvs();

@@ -53,7 +53,7 @@ describe("computeBackTarget", () => {
   describe("depth 1 folder-scoped settings → owning folder", () => {
     const folderScoped = [
       "/folder/Zm9v/settings",
-      "/folder/Zm9v/settings/packages",
+      "/folder/Zm9v/settings/add-ons",
       "/folder/Zm9v/settings/resources",
     ];
     for (const route of folderScoped) {

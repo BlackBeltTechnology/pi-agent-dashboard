@@ -141,12 +141,12 @@ Electron-specific platform decisions that import from the `electron` package SHA
 - **AND** `packages/electron/src/lib/tray.ts` (if retained) SHALL delegate to `getTrayIcon()` rather than branching on `process.platform` itself
 
 ### Requirement: Electron delegates to shared for non-UI platform concerns
-Platform concerns that do NOT require Electron APIs (binary lookup, machine info via `sysctl`/`systemd-detect-virt`/`wmic`, jiti register-hook resolution) SHALL be implemented in `packages/shared/src/platform/` and consumed by Electron via import. `packages/electron/src/lib/server-lifecycle.ts` SHALL NOT contain a duplicate jiti resolver.
+Platform concerns that do NOT require Electron APIs (binary lookup, machine info via `sysctl`/`systemd-detect-virt`/`wmic`, TypeScript-loader register-module resolution) SHALL be implemented in `packages/shared/src/platform/` and consumed by Electron via import. `packages/electron/src/lib/server-lifecycle.ts` SHALL NOT contain a duplicate loader resolver, and no package SHALL resolve a jiti register hook for the dashboard server.
 
 #### Scenario: Electron jiti resolver is removed
 - **WHEN** a developer inspects `packages/electron/src/lib/server-lifecycle.ts` after the migration
 - **THEN** the function `resolveJitiFromAnchor` SHALL NOT exist
-- **AND** the function `resolveJitiFromPi` SHALL NOT exist; Electron SHALL resolve jiti via `ToolResolver.resolveJiti` from `packages/shared/src/platform/binary-lookup.ts`
+- **AND** the function `resolveJitiFromPi` SHALL NOT exist; Electron SHALL resolve the server's TypeScript loader via `resolveNativeTsLoader` from `packages/shared/src/platform/ts-loader-select.mjs`
 
 #### Scenario: Electron machine-info uses shared primitive
 - **WHEN** `packages/electron/src/main.ts` logs machine info at startup

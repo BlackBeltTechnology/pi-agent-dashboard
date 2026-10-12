@@ -1,13 +1,13 @@
-import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 import {
   buildServerSpawnOptions,
   buildServerStartupError,
-  SERVER_READY_DEADLINE_MS,
-  SERVER_READY_DEADLINE_DEV_MS,
   getServerReadyDeadlineMs,
+  SERVER_READY_DEADLINE_DEV_MS,
+  SERVER_READY_DEADLINE_MS,
 } from "../lib/server-lifecycle.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -176,7 +176,7 @@ describe("buildServerStartupError", () => {
   it("emits child-exit wording when readyError mentions an exit", () => {
     const err = buildServerStartupError({
       spawnBin: "node",
-      spawnArgs: ["--import", "jiti", "cli.ts"],
+      spawnArgs: ["--import", "native-ts-register.mjs", "cli.ts"],
       cwd: "/tmp/server",
       logTail: "some log",
       readyError: "child exited with code 1",
@@ -191,7 +191,7 @@ describe("buildServerStartupError", () => {
   it("emits deadline wording when readyError mentions deadline", () => {
     const err = buildServerStartupError({
       spawnBin: "node",
-      spawnArgs: ["--import", "jiti", "cli.ts"],
+      spawnArgs: ["--import", "native-ts-register.mjs", "cli.ts"],
       cwd: "/tmp/server",
       logTail: "",
       readyError: "deadline 15000ms reached",
@@ -220,13 +220,13 @@ describe("buildServerStartupError", () => {
   it("renders spawnBin form when cliPath is omitted", () => {
     const err = buildServerStartupError({
       spawnBin: "/path/to/node",
-      spawnArgs: ["--import", "jiti.mjs", "cli.ts", "--port", "8000"],
+      spawnArgs: ["--import", "native-ts-register.mjs", "cli.ts", "--port", "8000"],
       cwd: "/tmp",
       logTail: "",
       readyError: "deadline reached",
     });
     expect(err.message).toContain(
-      "Command: /path/to/node --import jiti.mjs cli.ts --port 8000",
+      "Command: /path/to/node --import native-ts-register.mjs cli.ts --port 8000",
     );
   });
 

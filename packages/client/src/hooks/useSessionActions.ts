@@ -10,6 +10,19 @@ import { createInitialState, resolveInteractiveRequest, type SessionState } from
 import { encodePromptAnswer } from "../lib/chat/prompt-answer-encoder.js";
 import type { SendVerdict } from "./useWebSocket.js";
 
+/**
+ * One in-flight spawn/resume awaiting its `session_added`. `focus: false`
+ * (set only when a caller opts out, e.g. the OpenSpec board) makes the
+ * correlation cleanup run WITHOUT navigating. Absent = default auto-focus.
+ * See change: openspec-board-spawn-no-focus.
+ */
+export interface PendingSpawnEntry {
+  cwd: string;
+  kind: "spawn" | "resume";
+  placeholderCwd?: string;
+  focus?: boolean;
+}
+
 export interface SessionActionDeps {
   selectedId: string | undefined;
   send: (msg: any) => SendVerdict | void;
@@ -38,7 +51,7 @@ export interface SessionActionDeps {
    * `useMessageHandler.session_added` for exact auto-select correlation.
    * See change: spawn-correlation-token.
    */
-  pendingSpawnsRef: React.MutableRefObject<Map<string, { cwd: string; kind: "spawn" | "resume"; placeholderCwd?: string }>>;
+  pendingSpawnsRef: React.MutableRefObject<Map<string, PendingSpawnEntry>>;
 }
 
 export function useSessionActions(deps: SessionActionDeps) {
@@ -394,7 +407,7 @@ export function useSessionActions(deps: SessionActionDeps) {
   const handleSpawnSession = useCallback((
     cwd: string,
     attachProposal?: string,
-    opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string },
+    opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string; focus?: boolean },
   ) => {
     // The placeholder/disabled-button group cwd. For a normal spawn this is
     // the spawn cwd; for a worktree spawn the host passes the PARENT repo
@@ -422,7 +435,14 @@ export function useSessionActions(deps: SessionActionDeps) {
     // `placeholderCwd` so the clear keys on the group cwd, not the worktree
     // path. See change: add-worktree-spawn-placeholder-card.
     const requestId = mintRequestId();
-    pendingSpawnsRef.current.set(requestId, { cwd, kind: "spawn", placeholderCwd });
+    pendingSpawnsRef.current.set(requestId, {
+      cwd,
+      kind: "spawn",
+      placeholderCwd,
+      // Only record the opt-out; default entries stay byte-identical.
+      // See change: openspec-board-spawn-no-focus.
+      ...(opts?.focus === false ? { focus: false } : {}),
+    });
     // The optional `attachProposal` field is consumed server-side and applied
     // when the bridge issues `session_register`. See change:
     // add-folder-task-checker-and-spawn-attach.

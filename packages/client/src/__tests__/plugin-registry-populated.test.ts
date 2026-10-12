@@ -97,4 +97,15 @@ describe("plugin-registry-populated", () => {
     );
     expect(matched, `no PLUGIN_REGISTRY entry matched a workspace plugin id`).toBe(true);
   });
+
+  // See change: render-unclaimed-custom-entries (R1).
+  it("web-access claims the custom-entry-renderer slot for web-search-results", () => {
+    const entry = PLUGIN_REGISTRY.find(e => e.manifest.id === "web-access");
+    expect(entry, "web-access missing from the generated registry").toBeTruthy();
+    expect(
+      entry!.claims.some(
+        c => c.slot === "custom-entry-renderer" && c.customType === "web-search-results" && c.pluginId === "web-access",
+      ),
+    ).toBe(true);
+  });
 });

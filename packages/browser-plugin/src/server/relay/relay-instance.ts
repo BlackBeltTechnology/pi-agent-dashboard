@@ -126,6 +126,7 @@ interface WireCommand {
 }
 
 export class RelayInstance {
+  private readonly deps: RelayInstanceDeps;
   private readonly protocol: ExtensionProtocolV2;
   private readonly tap: ScreencastTap;
   private readonly timers: RelayTimers;
@@ -174,7 +175,8 @@ export class RelayInstance {
   /** Last `tabId:hasSession` signature; a change triggers `onStatusChange` (D2). */
   private lastViewableSig?: string;
 
-  constructor(private readonly deps: RelayInstanceDeps) {
+  constructor(deps: RelayInstanceDeps) {
+    this.deps = deps;
     this.timers = deps.timers ?? REAL_TIMERS;
     this.cdpAttachTimeoutMs = deps.cdpAttachTimeoutMs ?? DEFAULT_CDP_ATTACH_TIMEOUT_MS;
 

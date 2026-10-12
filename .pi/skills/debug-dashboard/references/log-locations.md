@@ -96,7 +96,7 @@ Production client build output. Served by the server in production mode. Rebuild
 
 ### `dist/` (per-package)
 
-Each workspace package (`packages/extension/`, `packages/server/`, etc.) builds its own `dist/` for tsc output. Most don't need to be built (jiti runs source TS directly); they exist for npm publish.
+Each workspace package (`packages/extension/`, `packages/server/`, etc.) builds its own `dist/` for tsc output. Most don't need to be built (the server runs source TS directly via the native strip-only loader; pi runs bridge TS via its jiti); they exist for npm publish.
 
 ## Quick "where is X" cheatsheet
 

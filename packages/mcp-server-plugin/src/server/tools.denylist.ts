@@ -19,6 +19,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
     reason:
       "single-provider credential write; the whole-map set_providers row remains the MCP surface",
   },
+  { pattern: "/api/browse/create-project", reason: "UI-only first-run convenience; agents use file_mkdir" },
   { pattern: "/api/electron/", reason: "Electron-only" },
   // Stages, activates and rolls back the dashboard runtime (downloads + runs
   // code; Electron-only). Never an LLM action. See change: electron-runtime-overlay-updates.
@@ -27,6 +28,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/live-server/", reason: "live-server preview UI" },
   { pattern: "/api/node/", reason: "node runtime UI" },
   { pattern: "/api/preferences/", reason: "UI preferences" },
+  { pattern: "/api/packages/health", reason: "packages[] rot diagnostics; Settings UI-only. See change: add-package-health-cleanup" },
+  { pattern: "/api/packages/cleanup", reason: "rewrites ~/.pi/agent/settings.json packages[]; user-mediated Settings UI-only. See change: add-package-health-cleanup" },
   { pattern: "/api/grammar/", reason: "UI-only" },
   { pattern: "/api/roles/used-by", reason: "Model roles page \"used by\" overview; informational, UI-only" },
   { pattern: "/api/kb/", reason: "kb engine admin" },
@@ -72,6 +75,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/pair/deny", reason: "pairing ceremony" },
   { pattern: "/api/discover-servers", reason: "fleet discovery UI" },
   { pattern: "/api/known-servers", reason: "fleet discovery UI" },
+  { pattern: "/api/known-servers/accept-move", reason: "fleet discovery UI; operator-only" },
+  { pattern: "/api/known-servers/probe", reason: "fleet discovery UI; operator-only" },
   { pattern: "/api/pi/runtime", reason: "pi runtime UI" },
   { pattern: "/api/tools", reason: "tool-registry UI" },
   { pattern: "/api/open-in-system", reason: "UI-only" },

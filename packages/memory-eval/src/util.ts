@@ -48,7 +48,10 @@ export interface Out {
 }
 
 export class CliError extends Error {
-  constructor(message: string, readonly code = 1) {
+  readonly code: number;
+
+  constructor(message: string, code = 1) {
     super(message);
+    this.code = code;
   }
 }

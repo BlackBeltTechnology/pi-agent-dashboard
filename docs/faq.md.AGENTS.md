@@ -16,6 +16,10 @@ Gains dashboard-MCP troubleshooting → "dashboard MCP tools missing in a pi ses
 
 Gains "Why do control routes 403 `local_proof_required` after enabling `requireLocalProof`?" → strict mode; bare loopback observe-only; control/operate REST + WS + plugin WS + bridge mint + tier exemption + pairing approval need proof; `pi_dash_local` cookie / `X-Pi-Local-Token` / principal; fix via `pi-dashboard open` or token at `~/.pi/dashboard/local/token`; marker-less relay (`ssh -R`, `socat`) reason; `127.0.0.1` entry does not re-admit; pairing approval never honors bare loopback any mode; token rotation invalidates cookies; `/v1/*` stays bare-loopback; live toggle. See change: harden-trust-and-credential-boundaries.
 
- TS-loader rollback FAQ (PI_DASHBOARD_TS_LOADER=jiti, fresh launch, /api/restart keeps loader). See change: fix-appimage-cold-boot-latency.
+ TS-loader FAQ: `PI_DASHBOARD_TS_LOADER` ignored (boot warn) → unset + stop/start; `booted under the jiti TypeScript loader` warn → `pi-dashboard stop && pi-dashboard start`; no jiti rollback; manual start via native `--import`. See change: fix-appimage-cold-boot-latency, strip-only-native-ts-loader.
 
-Gains "Server fails to start / behaves differently after the native TS loader switch — how to roll back?" → PI_DASHBOARD_TS_LOADER=jiti + fresh launch, Electron env, /api/restart keeps loader, server.log loader grep, old-Node stripTypeScriptTypes error. See change: fix-appimage-cold-boot-latency.
+Gains "Server logs 'PI_DASHBOARD_TS_LOADER is no longer supported'" → unset env + stop/start. Gains "Server logs 'booted under the jiti TypeScript loader'" → stop/start (upgrade continuity). server.log loader grep, old-Node error. See change: strip-only-native-ts-loader.
+
+Gains FAQ: bare `tsc` prints Version 7 → which compiler runs. See change: migrate-typecheck-to-ts7.
+
+See change: streamline-first-run. Claude tool-call fallback / peer auto-install FAQ.

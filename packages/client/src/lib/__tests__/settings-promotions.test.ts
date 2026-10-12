@@ -5,8 +5,8 @@
 import { describe, expect, it } from "vitest";
 import {
   foldSettingsLabel,
-  RESERVED_SETTINGS_LABELS,
   type PromotionRow,
+  RESERVED_SETTINGS_LABELS,
   resolveSettingsPromotions,
 } from "../settings-promotions.js";
 
@@ -29,6 +29,25 @@ describe("RESERVED_SETTINGS_LABELS (task 3.1)", () => {
     expect(RESERVED_SETTINGS_LABELS.has(foldSettingsLabel("提供商"))).toBe(true);
     expect(RESERVED_SETTINGS_LABELS.has(foldSettingsLabel("Modellek"))).toBe(true);
     expect(RESERVED_SETTINGS_LABELS.has("model roles")).toBe(false);
+  });
+});
+
+// See change: addons-hub-declutter (test-plan E16)
+describe("RESERVED_SETTINGS_LABELS — Add-ons rename", () => {
+  it("E16: reserves the folded Add-ons label in every shipped locale", () => {
+    expect(RESERVED_SETTINGS_LABELS.has("add-ons")).toBe(true);
+    expect(RESERVED_SETTINGS_LABELS.has(foldSettingsLabel("Kiegészítők"))).toBe(true);
+    expect(RESERVED_SETTINGS_LABELS.has(foldSettingsLabel("附加组件"))).toBe(true);
+  });
+
+  it("E16: a promoted plugin labelled Add-ons is rejected; Resources › Extensions stays reserved", () => {
+    const map = resolveSettingsPromotions([row("x", true, { group: "models", label: "Add-ons" })], RESERVED_SETTINGS_LABELS);
+    expect(map.size).toBe(0);
+    expect(RESERVED_SETTINGS_LABELS.has("extensions")).toBe(true);
+  });
+
+  it("the retired Packages page label is no longer reserved", () => {
+    expect(RESERVED_SETTINGS_LABELS.has("packages")).toBe(false);
   });
 });
 

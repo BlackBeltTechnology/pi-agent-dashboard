@@ -556,102 +556,70 @@ describe("autoRebuild unattended executor (task 5.4 / spec X6 run half)", () => 
 });
 
 /**
- * E30 (doctor-core half) — the TypeScript-loader row follows the selection:
- * native (default) is OK without any jiti; the jiti opt-in still looks for
- * jiti and errors when none resolves.
- * See change: fix-appimage-cold-boot-latency (design D4).
+ * E30 (doctor-core half) — the TypeScript-loader row checks only the native
+ * register module: OK naming its path, else error `doctor.ts_loader_not_found`.
+ * jiti and tsx are never probed or named.
+ * See change: fix-appimage-cold-boot-latency (design D4);
+ * strip-only-native-ts-loader (test-plan #E20).
  */
-describe("TypeScript loader row follows PI_DASHBOARD_TS_LOADER (E30)", () => {
+describe("TypeScript loader row checks the native register module (E30, #E20)", () => {
   const emptyManaged = () => fs.mkdtempSync(path.join(os.tmpdir(), "doctor-tsl-"));
-  const baseDeps = (env: NodeJS.ProcessEnv): SharedChecksDeps => ({
+  const baseDeps = (extra: Partial<SharedChecksDeps> = {}): SharedChecksDeps => ({
     managedDir: emptyManaged(),
     detectSystemNode: () => ({ found: true, path: "/usr/bin/node" }),
     detectPi: () => ({ found: true, path: "/usr/bin/pi", source: "system" }),
     detectOpenSpec: () => ({ found: true, path: "/usr/bin/openspec", source: "system" }),
     dnsLookup: async () => undefined,
-    env,
+    ...extra,
   });
   const row = (checks: DoctorCheck[]) => checks.find((c) => c.name === "TypeScript loader")!;
-
-  it("env unset → OK row naming the native register", async () => {
-    const r = row(await runSharedChecks(baseDeps({})));
-    expect(r.status).toBe("ok");
-    expect(r.message).toMatch(/native/);
-    expect(r.message).toContain("native-ts-register.mjs");
-    expect(r.message).not.toMatch(/jiti/);
-  });
-
-  it("jiti opt-in → probes for jiti (not the native row)", async () => {
-    const r = row(await runSharedChecks(baseDeps({ PI_DASHBOARD_TS_LOADER: "jiti" })));
-    expect(r.message).not.toContain("native-ts-register.mjs");
-  });
-
-  // tsx is never a server loader: no Doctor probe may report it (E1-E5, X1).
-  // See change: cleanup-post-r3-spec-drift.
-  const noTsx = (r: DoctorCheck) => {
-    for (const f of [r.message, r.detail, r.suggestion]) expect(f ?? "").not.toMatch(/tsx/i);
+  const noLoaderNames = (r: DoctorCheck) => {
+    for (const f of [r.message, r.detail, r.suggestion]) expect(f ?? "").not.toMatch(/tsx|jiti/i);
   };
-  const jitiEnv = { PI_DASHBOARD_TS_LOADER: "jiti" };
 
-  it("E1: jiti mode ignores an installed tsx (jiti absent → error, no tsx mention)", async () => {
-    const deps: SharedChecksDeps = {
-      ...baseDeps(jitiEnv),
-      resolvePackageJson: (name) => (name === "tsx" ? "/fake/node_modules/tsx/package.json" : null),
-    };
-    const r = row(await runSharedChecks(deps));
+  it("register module resolves → OK row naming the native register", async () => {
+    const r = row(await runSharedChecks(baseDeps()));
+    expect(r.status).toBe("ok");
+    expect(r.message).toContain("native-ts-register.mjs");
+    noLoaderNames(r);
+  });
+
+  it("register module does not resolve → error doctor.ts_loader_not_found", async () => {
+    const r = row(
+      await runSharedChecks(
+        baseDeps({
+          resolveNativeLoader: () => {
+            throw new Error("cannot locate native-ts-register.mjs");
+          },
+        }),
+      ),
+    );
     expect(r.status).toBe("error");
     expect(r.code).toBe("doctor.ts_loader_not_found");
-    noTsx(r);
+    noLoaderNames(r);
   });
 
-  it("E2: jiti mode ignores a managed tsx and names jiti", async () => {
-    const deps = baseDeps(jitiEnv);
-    const tsxDir = path.join(deps.managedDir, "node_modules", "tsx");
-    fs.mkdirSync(tsxDir, { recursive: true });
-    fs.writeFileSync(path.join(tsxDir, "package.json"), JSON.stringify({ version: "4.0.0" }));
+  it("a managed jiti or tsx install never changes the row", async () => {
+    const deps = baseDeps();
+    for (const pkg of ["jiti", "tsx"]) {
+      const dir = path.join(deps.managedDir, "node_modules", pkg);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ version: "9.9.9" }));
+    }
     const r = row(await runSharedChecks(deps));
-    expect(r.message).not.toMatch(/tsx/i);
-    expect(r.message).toMatch(/jiti/);
-  });
-
-  it("E3: native mode output omits tsx", async () => {
-    const r = row(await runSharedChecks(baseDeps({})));
     expect(r.status).toBe("ok");
     expect(r.message).toContain("native-ts-register.mjs");
-    noTsx(r);
+    noLoaderNames(r);
   });
 
-  it("E4: jiti mode reports the resolved managed jiti", async () => {
-    const deps = baseDeps(jitiEnv);
-    const jitiDir = path.join(deps.managedDir, "node_modules", "jiti");
-    fs.mkdirSync(jitiDir, { recursive: true });
-    fs.writeFileSync(path.join(jitiDir, "package.json"), JSON.stringify({ version: "9.9.9" }));
-    const r = row(await runSharedChecks(deps));
-    expect(r.status).toBe("ok");
-    expect(r.message).toContain("9.9.9");
-    expect(r.message).toContain(jitiDir);
-  });
-
-  it("E5: doctor-core.ts source has no tsx probe", () => {
+  it("E5: doctor-core.ts source has no tsx or jiti probe", () => {
     const src = fs
       .readFileSync(path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "doctor-core.ts"), "utf8")
       .split(/\r?\n/)
       .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
       .join("\n");
     expect(src).not.toMatch(/(which|where) tsx/);
-    expect(src).not.toMatch(/(tryResolvePkg|resolvePackageJson)\(\s*"tsx"/);
-    expect(src).not.toMatch(/"node_modules",\s*"tsx"/);
-  });
-
-  it("X1: a throwing package resolver is contained by safeCheck", async () => {
-    const deps: SharedChecksDeps = {
-      ...baseDeps(jitiEnv),
-      resolvePackageJson: () => {
-        throw new Error("resolver boom");
-      },
-    };
-    const r = row(await runSharedChecks(deps));
-    expect(r).toBeDefined();
-    expect(r.status).toBe("error");
+    expect(src).not.toMatch(/(tryResolvePkg|resolvePackageJson)\(\s*"(tsx|jiti)"/);
+    expect(src).not.toMatch(/"node_modules",\s*"(tsx|jiti)"/);
   });
 });

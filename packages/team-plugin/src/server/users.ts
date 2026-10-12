@@ -12,10 +12,16 @@ export interface KnownUser {
 }
 
 export class UsersStore {
+  private readonly paths: TeamPaths;
+  private readonly ops: FsOps;
+
   constructor(
-    private readonly paths: TeamPaths,
-    private readonly ops: FsOps = realFs,
-  ) {}
+    paths: TeamPaths,
+    ops: FsOps = realFs,
+  ) {
+    this.paths = paths;
+    this.ops = ops;
+  }
 
   list(): KnownUser[] {
     try {

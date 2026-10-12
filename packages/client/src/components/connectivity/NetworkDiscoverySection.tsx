@@ -9,6 +9,7 @@
  */
 
 import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { normalizeHostKey } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
 import type { DiscoveredServerInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
   mdiAlertCircleOutline,
@@ -37,6 +38,7 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
   const [scanError, setScanError] = useState<string | null>(null);
   const [addingKey, setAddingKey] = useState<string | null>(null);
   const [addLabel, setAddLabel] = useState("");
+  const [updatedKey, setUpdatedKey] = useState<string | null>(null);
 
   // Manual-add form state (shown when mDNS finds nothing)
   const [manualInput, setManualInput] = useState("");
@@ -61,17 +63,29 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
   }, []);
 
   const isKnown = (host: string, port: number) =>
-    knownServers.some((s) => s.host === host && s.port === port);
+    knownServers.some((s) => s.port === port && normalizeHostKey(s.host) === normalizeHostKey(host));
+
+  /** Known by address, or by identity: a renamed server keeps its fingerprint + port. */
+  const isKnownServer = (server: DiscoveredServerInfo) =>
+    isKnown(server.host, server.port) ||
+    (!!server.fingerprint && knownServers.some((s) => s.fingerprint === server.fingerprint && s.port === server.port));
 
   const handleStartAdd = (server: DiscoveredServerInfo) => {
     const key = `${server.host}:${server.port}`;
     setAddingKey(key);
-    setAddLabel(server.host);
+    setAddLabel(server.name ?? server.host);
   };
 
   const handleConfirmAdd = async (server: DiscoveredServerInfo) => {
     try {
-      await addKnownServer(server.host, server.port, addLabel.trim() || undefined);
+      // The advertised fingerprint is a hint: the server pins it only if its challenge proves it.
+      const { updated } = await addKnownServer(
+        server.host,
+        server.port,
+        addLabel.trim() || undefined,
+        server.fingerprint,
+      );
+      setUpdatedKey(updated ? `${server.host}:${server.port}` : null);
       setAddingKey(null);
       setAddLabel("");
       onServerAdded();
@@ -196,7 +210,7 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
       {/* Discovered servers */}
       {discovered.map((server) => {
         const key = `${server.host}:${server.port}`;
-        const alreadyKnown = isKnown(server.host, server.port);
+        const alreadyKnown = isKnownServer(server);
         const isAdding = addingKey === key;
 
         return (
@@ -211,14 +225,16 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
             />
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-[var(--text-primary)] truncate">
-                {server.host}
+                {server.name ?? server.host}
               </div>
               <div className="text-xs text-[var(--text-muted)]">
-                :{server.port} {i18nT("common.v", undefined, "· v")}{server.version}
+                {server.name ? `${server.host}:${server.port}` : `:${server.port}`} {i18nT("common.v", undefined, "· v")}{server.version}
               </div>
             </div>
 
-            {alreadyKnown ? (
+            {updatedKey === key ? (
+              <span className="text-xs text-green-500 shrink-0">{i18nT("connection.updatedExistingEntry", undefined, "Updated existing entry")}</span>
+            ) : alreadyKnown ? (
               <span className="text-xs text-green-500 shrink-0">{i18nT("common.alreadyAdded", undefined, "Already added")}</span>
             ) : isAdding ? (
               <div className="flex items-center gap-1 shrink-0">

@@ -32,6 +32,7 @@ import { handleSessionChange } from "../session-sync.js";
 
 // ── Fake WebSocket: opens asynchronously via onopen, like a real socket ──
 class FakeWebSocket {
+  public url: string;
   static instances: FakeWebSocket[] = [];
   readyState = 0; // CONNECTING
   onopen: (() => void) | null = null;
@@ -40,7 +41,8 @@ class FakeWebSocket {
   onerror: ((ev: unknown) => void) | null = null;
   sent: string[] = [];
 
-  constructor(public url: string) {
+  constructor(url: string) {
+    this.url = url;
     FakeWebSocket.instances.push(this);
     // Open on the next macrotask — the register frame is buffered until then.
     setTimeout(() => {

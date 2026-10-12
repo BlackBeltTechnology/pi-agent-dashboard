@@ -24,7 +24,8 @@
  */
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import React, { useEffect, useState } from "react";
+import type React from "react";
+import { useEffect, useState } from "react";
 import { openPipelineDetail } from "./detail-navigation.js";
 import { getSessionPipeline, type SessionPipelineResponse } from "./pipeline-api.js";
 import { deriveSubcardState, type SubcardViewModel } from "./pipeline-state.js";

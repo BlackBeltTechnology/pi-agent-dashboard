@@ -11,7 +11,10 @@
  *   - a named missing-OAuth-capability error instead of pi's silent
  *     `undefined` when a stored OAuth credential's provider has no OAuth;
  *   - per-provider single-flight: concurrent requests join ONE resolution, so
- *     a refresh is attempted once, also when it fails;
+ *     a refresh is attempted once, also when it fails. The flight is NOT tied to
+ *     any caller's signal (pi >= 1.1.0: a started refresh ignores the caller's
+ *     abort and persists a rotated token, so a cancelled caller cannot discard
+ *     the only valid refresh token); each caller races its OWN signal instead;
  *   - a bounded signal on every resolution, and `ModelsError.cause` unwrap so
  *     the store's named coordination errors reach the caller (D2).
  *
@@ -53,7 +56,10 @@ export function unwrapRuntimeAuthError(err: unknown): unknown {
 
 type RuntimeAuth = Pick<ServerModelRuntime, "getAuth" | "getProvider">;
 
-/** Settle with `promise`, or reject with the abort reason once `signal` fires. */
+/**
+ * Settle with `promise`, or reject with the abort reason once `signal` fires.
+ * The underlying promise is left running either way (the shared flight).
+ */
 function raceSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
   if (!signal) return promise;
   if (signal.aborted) return Promise.reject(signal.reason);
@@ -81,8 +87,8 @@ export class InternalAuthStorage {
    */
   private customProviderCreds: (() => Record<string, { type: "api_key"; key: string }>) | null;
   private resolutionTimeoutMs: number;
-  /** One in-flight resolution per provider (+ its initiator's signal); joined by concurrent requests. */
-  private flights = new Map<string, { promise: Promise<string>; signal: AbortSignal | undefined }>();
+  /** One in-flight resolution per provider; joined by concurrent requests, never aborted by a caller. */
+  private flights = new Map<string, Promise<string>>();
 
   constructor(
     runtime: RuntimeAuth,
@@ -119,40 +125,35 @@ export class InternalAuthStorage {
   }
 
   /**
-   * Join the provider's in-flight resolution, or start one carrying THIS
-   * request's signal (an initiator abort reaches the refresh, as before).
-   * A joiner waits only as long as its own signal allows, and when the flight
-   * failed solely because ITS INITIATOR aborted, it starts its own resolution
-   * instead of inheriting someone else's disconnect.
+   * Join the provider's in-flight resolution, or start one. The flight carries
+   * no caller signal: pi >= 1.1.0 lets a started OAuth refresh run to completion
+   * and persist its rotated credential, so tying the flight to one request's
+   * disconnect would either be a no-op or — worse — invite a second concurrent
+   * refresh with the same refresh token. Every caller waits only as long as its
+   * OWN signal allows. See change: update-pi-core-1-1-adopt-apis.
    */
-  private async joinOrStart(model: any, provider: string, signal: AbortSignal | undefined): Promise<string> {
-    const joined = this.flights.get(provider);
-    if (!joined) return this.start(model, provider, signal);
-    try {
-      return await raceSignal(joined.promise, signal);
-    } catch (err) {
-      if (signal?.aborted || !joined.signal?.aborted) throw err;
-      return this.start(model, provider, signal);
-    }
+  private joinOrStart(model: any, provider: string, signal: AbortSignal | undefined): Promise<string> {
+    // An already-cancelled request must not start (or join) any work.
+    if (signal?.aborted) return Promise.reject(signal.reason);
+    const flight = this.flights.get(provider) ?? this.start(model, provider);
+    return raceSignal(flight, signal);
   }
 
-  private start(model: any, provider: string, signal: AbortSignal | undefined): Promise<string> {
-    const promise = this.resolve(model, signal);
-    const flight = { promise, signal };
-    this.flights.set(provider, flight);
+  private start(model: any, provider: string): Promise<string> {
+    const promise = this.resolve(model);
+    this.flights.set(provider, promise);
     const clear = () => {
-      if (this.flights.get(provider) === flight) this.flights.delete(provider);
+      if (this.flights.get(provider) === promise) this.flights.delete(provider);
     };
     promise.then(clear, clear);
     return promise;
   }
 
-  private async resolve(model: any, signal: AbortSignal | undefined): Promise<string> {
+  private async resolve(model: any): Promise<string> {
     const ceiling = AbortSignal.timeout(this.resolutionTimeoutMs);
-    const bounded = signal ? AbortSignal.any([signal, ceiling]) : ceiling;
     let result: Awaited<ReturnType<RuntimeAuth["getAuth"]>>;
     try {
-      result = await this.runtime.getAuth(model, { signal: bounded });
+      result = await this.runtime.getAuth(model, { signal: ceiling });
     } catch (err) {
       throw unwrapRuntimeAuthError(err);
     }

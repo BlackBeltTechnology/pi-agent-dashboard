@@ -17,11 +17,14 @@ export interface Lease {
 }
 
 export class LeaseTable {
+  readonly ttlMs: number;
   private readonly leases = new Map<string, Lease>();
   /** serviceId → when its last live lease ended (release or expiry). */
   private readonly lastEnded = new Map<string, number>();
 
-  constructor(readonly ttlMs = DEFAULT_LEASE_TTL_SEC * 1000) {}
+  constructor(ttlMs = DEFAULT_LEASE_TTL_SEC * 1000) {
+    this.ttlMs = ttlMs;
+  }
 
   create(serviceId: string, now: number, holder?: string): Lease {
     const lease: Lease = { leaseId: randomUUID(), serviceId, expiresAt: now + this.ttlMs, ...(holder ? { holder } : {}) };

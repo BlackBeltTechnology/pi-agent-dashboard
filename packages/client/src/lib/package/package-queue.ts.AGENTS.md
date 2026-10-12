@@ -28,3 +28,7 @@ Queue handles BOTH extension and pi-core ops — same FIFO, because both contend
 pm-level failures (e.g. pi 0.82 needs `pnpm store prune` when a pnpm-installed core pkg's cached version was removed) arrive as the per-package shape → own verbatim message, never flattened to busy text. Retry-once is reserved for the busy lock; 500 ms cannot repair a pruned cache.
 
 See change: unify-pi-core-into-package-queue.
+
+## streamline-first-run
+
+`getSourceOp(source): SourceOp | null` — read-only per-source accessor. Pending (running/queued) wins, an `install` over other actions; else sticky terminal state (`error` before `success`) carrying the action of the last terminal op (`lastTerminalAction`, set in `completeRunning`, cleared with the sticky state on `enqueue`/auto-clear/reset). Lets `peer-auto-install-store` follow an install and tell a `remove` success from an `install` success. See change: streamline-first-run.

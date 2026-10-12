@@ -106,13 +106,16 @@ export interface HostGateStateOptions {
  * close). Header values are already sanitized before they reach `recordRefusal`.
  */
 export class HostGateState {
+  private readonly opts: HostGateStateOptions;
   private readonly ring = new Map<string, HostGateRefusal>();
   private readonly logHosts = new Map<string, number>();
   private windowStart = 0;
   private windowCount = 0;
   private suppressed = 0;
 
-  constructor(private readonly opts: HostGateStateOptions = {}) {}
+  constructor(opts: HostGateStateOptions = {}) {
+    this.opts = opts;
+  }
 
   private now(): number {
     return (this.opts.now ?? Date.now)();

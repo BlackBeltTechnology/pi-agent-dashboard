@@ -354,8 +354,10 @@ async function runCompletion<B extends CompletionBody>(
   // Abort on client disconnect. Listen on the RESPONSE: on modern Node
   // `request.raw` emits "close" once the body is consumed (before this
   // listener attaches), so it never signals a disconnect. Attached BEFORE
-  // credential resolution so a disconnect also aborts an in-flight OAuth
-  // refresh. See change: collapse-model-proxy-onto-modelruntime.
+  // credential resolution so a disconnect ends the credential wait promptly.
+  // It does NOT cancel a started OAuth refresh (pi >= 1.1.0 lets it finish and
+  // persist the rotated token). See changes: collapse-model-proxy-onto-modelruntime,
+  // update-pi-core-1-1-adopt-apis.
   reply.raw.on("close", () => {
     if (!reply.raw.writableFinished) controller.abort();
   });

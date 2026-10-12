@@ -64,7 +64,7 @@ export function buildPiResourcesUrl(cwd: string): string {
 
 /** `/folder/:encodedCwd/settings[/:page]` — Directory Settings page.
  *  Omits the trailing page segment when `page` is undefined (defaults to
- *  the packages page in the route handler). See change:
+ *  the add-ons page in the route handler). See change:
  *  directory-settings-page-and-scoped-md-editing. */
 export function buildFolderSettingsUrl(cwd: string, page?: string): string {
   const base = `/folder/${encodeFolderPath(cwd)}/settings`;

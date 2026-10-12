@@ -52,7 +52,6 @@ import { SessionContentGate } from "./components/shell/SessionContentGate.js";
 import { ShellContent, type ShellContentRenderers } from "./components/shell/ShellContent.js";
 import { StatusBar } from "./components/shell/StatusBar.js";
 import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
-import { useEditorTabOpenListener } from "./lib/layout/editor-tab-open.js";
 import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
 import { allTagsInUse } from "./components/tags/all-tags.js";
 import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
@@ -85,6 +84,7 @@ import { applyPromptTimeout, carryInteractiveRequests, createInitialState, deriv
 import { normalizeFollowUpEntries } from "./lib/chat/followup-entries.js";
 import { nextBackfillRange } from "./lib/chat/history-gap.js";
 import { refreshChat } from "./lib/chat/refresh-chat.js";
+import { createProjectAndPin } from "./lib/create-project.js";
 import { maybeAutoInitWorktreeOnSpawn } from "./lib/git/auto-init-worktree.js";
 import { resolveWorktreeAvailability } from "./lib/git/folder-worktree-availability.js";
 import { fetchActiveInits } from "./lib/git/git-api.js";
@@ -92,6 +92,7 @@ import { refreshGitStatus } from "./lib/git/git-status-cache.js";
 import { resendActiveCwdSubscriptions, setInitSender } from "./lib/git/worktree-init-bus.js";
 import { initStore } from "./lib/git/worktree-init-store.js";
 import { CHAT_HEADER_BOUND, CHAT_HEADER_WEIGHT } from "./lib/layout/chat-pane-row-class.js";
+import { useEditorTabOpenListener } from "./lib/layout/editor-tab-open.js";
 import { getMobileDepth } from "./lib/layout/mobile-depth.js";
 import { goBack as goBackAction, returnTo } from "./lib/nav/history-back.js";
 import {
@@ -127,7 +128,10 @@ import { OpenSpecMapContext } from "./lib/openspec/OpenSpecMapContext.js";
 import { useOpenSpecConfig } from "./lib/openspec/openspec-config-api.js";
 import { computeRenderedCwds } from "./lib/openspec/rendered-cwds.js";
 import { useArchiveEntries } from "./lib/openspec/useAttachmentResolution.js";
+import { usePeerAutoInstallReset } from "./lib/package/peer-auto-install-store.js";
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
+import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
+import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
 import { buildHistoryPhaseMap, hasChatContent } from "./lib/replay/history-load-phase.js";
 import { extractUserPromptHistory } from "./lib/replay/message-history.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
@@ -138,8 +142,6 @@ import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storag
 import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
-import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
-import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
 
 // Stable tracker facade for the depth-aware back action
 // (change: fix-mobile-back-depth-aware).
@@ -184,7 +186,7 @@ import { useCardFxAttributes } from "./hooks/useCardFxAttributes.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
 import { useProvidersReady } from "./hooks/useProvidersReady.js";
-import { useSessionActions } from "./hooks/useSessionActions.js";
+import { type PendingSpawnEntry, useSessionActions } from "./hooks/useSessionActions.js";
 import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
 import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib/api/api-context.js";
 import { buildContextUsageMap } from "./lib/context-usage.js";
@@ -412,6 +414,10 @@ const EMPTY_STEERING: string[] = [];
 
 export default function App() {
   const { t, language } = useI18n();
+  // Zero-height sentinel at the top of the LIVE composer stack. State-backed
+  // (callback ref) so unmount yields `null` → CanvasDriver's safe-area fallback.
+  // See change: fix-canvas-chip-tray-overlay.
+  const [composerAnchor, setComposerAnchor] = useState<HTMLElement | null>(null);
   // Pause all CSS animations while the window is hidden to the tray /
   // backgrounded, so the renderer + GPU stop continuous compositing.
   // See change: throttle-idle-ui-animations.
@@ -571,12 +577,12 @@ export default function App() {
   const specsCwd = specsMatch && specsParams ? decodeFolderPath(specsParams.encodedCwd) : null;
   const piResourcesCwd = piResourcesMatch && piResourcesParams ? decodeFolderPath(piResourcesParams.encodedCwd) : null;
   const folderSettingsCwd = folderSettingsMatch && folderSettingsParams ? decodeFolderPath(folderSettingsParams.encodedCwd) : null;
-  const VALID_FOLDER_SETTINGS_PAGES = ["instructions", "packages", "cards", "skills", "agents", "extensions", "prompts", "themes"] as const;
+  const VALID_FOLDER_SETTINGS_PAGES = ["instructions", "add-ons", "cards", "skills", "agents", "extensions", "prompts", "themes"] as const;
   const folderSettingsPageRaw = folderSettingsMatch ? folderSettingsParams?.page : undefined;
   const folderSettingsPage: DirectorySettingsPage =
     folderSettingsPageRaw && (VALID_FOLDER_SETTINGS_PAGES as readonly string[]).includes(folderSettingsPageRaw)
       ? (folderSettingsPageRaw as DirectorySettingsPage)
-      : "packages";
+      : "add-ons";
   const diffSessionId = diffMatch && diffParams ? diffParams.id : null;
   const editorSessionId = editorMatch && editorParams ? editorParams.id : null;
   const editorFile = editorMatch ? fileViewSearch.get("file") : null;
@@ -743,7 +749,7 @@ export default function App() {
   // back to the originating click for auto-select after spawn AND fork.
   // Lives alongside `spawningCwds` (which keeps placeholder + disabled-button
   // behavior cwd-keyed). See change: spawn-correlation-token.
-  const pendingSpawnsRef = useRef<Map<string, { cwd: string; kind: "spawn" | "resume"; placeholderCwd?: string }>>(new Map());
+  const pendingSpawnsRef = useRef<Map<string, PendingSpawnEntry>>(new Map());
   const [sessionOrderMap, setSessionOrderMap] = useState<Map<string, string[]>>(new Map());
   // ── fix-connect-snapshot-frame-loss (D7/D9) ── Snapshot-window ended
   // totals, per-group page offsets, and the snapshot generation counter that
@@ -823,6 +829,8 @@ export default function App() {
   const [cardSections, setCardSections] = useState<CardSectionPrefs>({});
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const providersReady = useProvidersReady();
+  // Drop the automatic-peer-install state when `anthropic` signs out (true → false).
+  usePeerAutoInstallReset(providersReady.anthropicAuthenticated);
   const [terminals, setTerminals] = useState<Map<string, TerminalSession>>(new Map());
   const pendingTerminalCwdRef = useRef<string | null>(null);
   const lastCreatedTerminalIdRef = useRef<string | null>(null);
@@ -2391,7 +2399,9 @@ export default function App() {
           onBack={goBack}
         />
       ) : !frozen && piResourcesMatch && piResourcesCwd ? (
-        <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
+        <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "add-ons")} replace />
+      ) : !frozen && folderSettingsMatch && folderSettingsCwd && folderSettingsPageRaw === "packages" ? (
+        <Redirect to={buildFolderSettingsUrl(folderSettingsCwd, "add-ons")} replace />
       ) : !frozen && folderSettingsMatch && folderSettingsCwd ? (
         <DirectorySettings
           cwd={folderSettingsCwd}
@@ -2491,6 +2501,17 @@ export default function App() {
               menu + session-action groups (relocated from the retired
               StatusBar model row). Read-only archived open hides it with the
               rest of the composer (archive-sessions-lazy-load). */}
+          {/* Anchor for the floating canvas chip tray: 0 height, no gap unit, so it
+              leaves the pane's flex budget untouched. Live stack only — a frozen
+              underlay never anchors it. See change: fix-canvas-chip-tray-overlay. */}
+          {!frozen && !readOnly && (
+            <div
+              aria-hidden
+              data-testid="composer-stack-anchor"
+              className="h-0 shrink-0"
+              ref={setComposerAnchor}
+            />
+          )}
           {selectedSession && !readOnly && (
             <div
               /* `shrink-0`: thin furniture row — cannot compress below its content,
@@ -2790,7 +2811,7 @@ export default function App() {
     renderPiResourceFile: (filePath, title) => (
       <PiResourceFileRoute filePath={filePath} title={title} onBack={goBack} />
     ),
-    renderPiResourcesRedirect: (cwd) => <Redirect to={buildFolderSettingsUrl(cwd, "packages")} replace />,
+    renderPiResourcesRedirect: (cwd) => <Redirect to={buildFolderSettingsUrl(cwd, "add-ons")} replace />,
     renderFolderSettings: (cwd, page) => (
       <DirectorySettings cwd={cwd} page={page} onBack={goBack} />
     ),
@@ -2825,6 +2846,8 @@ export default function App() {
     renderLanding: () => (
       <LandingPage
         providersReady={providersReady.ready}
+        anthropicAuthenticated={providersReady.anthropicAuthenticated}
+        onCreateProject={(name) => createProjectAndPin(name, { send, setPinned: setPinnedDirectories })}
         pinnedCount={pinnedDirectories.length}
         sessionsCount={sessions.size}
         firstPinnedCwd={pinnedDirectories[0] ?? null}
@@ -2974,7 +2997,10 @@ export default function App() {
             }}
           >
             <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} url={editorUrl} nonce={editorOpenNonce} tabs={editorTabs} />
-            <CanvasDriver state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE} />
+            <CanvasDriver
+              state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE}
+              anchor={composerAnchor}
+            />
             <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
               {children}
               {/* Non-modal "waiting for file access" toast (own tray, both layouts).
@@ -3381,7 +3407,9 @@ export default function App() {
           onSpawn={(path, opts) => {
             const placeholderCwd = boardWorktreeForChange.cwd;
             setBoardWorktreeForChange(null);
-            handleSpawnSession(path, opts?.attachProposal, { ...opts, placeholderCwd });
+            // Board spawns never take focus (`focus: false` last so `opts` can't
+            // override it). See change: openspec-board-spawn-no-focus.
+            handleSpawnSession(path, opts?.attachProposal, { ...opts, placeholderCwd, focus: false });
             // Opt-in trusted-only worktree auto-init. See change: auto-init-worktree-on-spawn.
             void maybeAutoInitWorktreeOnSpawn(path);
           }}

@@ -11,11 +11,11 @@
 import * as crypto from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
+import { normalizeEnvPathKey } from "@blackbelt-technology/pi-dashboard-shared/platform/env-path-key.js";
 import {
   type ResolvedRuntime,
   resolvedFamilyEntries,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
-import { normalizeEnvPathKey } from "@blackbelt-technology/pi-dashboard-shared/platform/env-path-key.js";
 import {
   getDefaultSubprocessAdapter,
   type SubprocessAdapter,
@@ -502,6 +502,17 @@ export class PackageManagerWrapper {
     }
   }
 
+  /**
+   * Drop every cached package manager. Call after an out-of-band
+   * settings.json rewrite (e.g. package-health cleanup) so a later
+   * install/remove doesn't write a stale in-memory `packages[]` back.
+   * See change: add-package-health-cleanup.
+   */
+  invalidateAllPackageManagers(): void {
+    this.pmCache.clear();
+    this.pmPending.clear();
+  }
+
   /** Drop the cached package manager for a cwd (after install/remove/update). */
   private invalidatePackageManager(cwd?: string): void {
     const effectiveCwd = cwd ?? process.cwd();
@@ -842,8 +853,13 @@ export function translatePathSource(args: {
 }
 
 export class AlreadyAtDestinationError extends Error {
-  constructor(public source: string, public destScope: PackageScope) {
+  public source: string;
+  public destScope: PackageScope;
+
+  constructor(source: string, destScope: PackageScope) {
     super(`Package already installed at ${destScope} scope: ${source}`);
+    this.source = source;
+    this.destScope = destScope;
     this.name = "AlreadyAtDestinationError";
   }
 }

@@ -10,8 +10,10 @@
  * theoretical meter as cash out is the single easiest way to make an estimate
  * indefensible under scrutiny.
  */
-import React, { useEffect, useState } from "react";
+
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import type React from "react";
+import { useEffect, useState } from "react";
 
 interface Measured {
   sessions: number;

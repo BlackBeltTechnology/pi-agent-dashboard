@@ -14,12 +14,12 @@
  * scheme is always prepended, and a raw backslash drive-letter import is never
  * emitted (the actual ERR_UNSUPPORTED_ESM_URL_SCHEME trigger).
  */
-import { describe, it, expect } from "vitest";
-import { buildServerLaunchTestCmd, buildServerLaunchTestEnv, selectServerLaunchTestLoader } from "../doctor.js";
+import { describe, expect, it } from "vitest";
+import { buildServerLaunchTestCmd, buildServerLaunchTestEnv, resolveServerLaunchTestLoader } from "../doctor.js";
 
 describe("buildServerLaunchTestCmd", () => {
   const nodeBin = "/bundled/node";
-  const loaderUrl = "file:///bundled/jiti-register.mjs";
+  const loaderUrl = "file:///bundled/native-ts-register.mjs";
 
   // The probe embeds the script inside `-e "..."`, so the inner import quotes
   // are shell-escaped to \". Assert on the unescaped logical `-e` script.
@@ -44,7 +44,7 @@ describe("buildServerLaunchTestCmd", () => {
     expect(cmd).not.toContain('import "/Users/test');
   });
 
-  it("preserves the node/jiti/setTimeout shell template", () => {
+  it("preserves the node/--import/setTimeout shell template", () => {
     const cmd = buildServerLaunchTestCmd({ nodeBin, loaderUrl, testCli: "/Users/test/cli.ts" });
     expect(cmd).toBe(
       `"${nodeBin}" --import "${loaderUrl}" -e "import \\"file:///Users/test/cli.ts\\"; setTimeout(() => process.exit(0), 100)"`,
@@ -68,17 +68,15 @@ describe("buildServerLaunchTestEnv (#720)", () => {
 });
 
 /**
- * E30 (Electron half) — the Server launch test probes with the SELECTED
- * loader: native by default (no "No jiti loader" even when jiti is absent);
- * the jiti opt-in keeps today's "No jiti loader (install pi)".
- * See change: fix-appimage-cold-boot-latency (design D4).
+ * E30 (Electron half) — the Server launch test probes with the Node-native
+ * register module, the only server loader (no jiti row, no env selection).
+ * See change: strip-only-native-ts-loader.
  */
-describe("selectServerLaunchTestLoader (E30)", () => {
+describe("resolveServerLaunchTestLoader (E30)", () => {
   const NATIVE = "file:///b/pi-dashboard-shared/src/platform/native-ts-register.mjs";
-  const deps = (env: NodeJS.ProcessEnv) => ({ env, resolveJiti: () => null, resolveNative: () => NATIVE });
 
-  it("env unset + no jiti → native probe, nothing missing", () => {
-    const sel = selectServerLaunchTestLoader(deps({}));
+  it("native register resolves → native probe, nothing missing", () => {
+    const sel = resolveServerLaunchTestLoader({ resolveNative: () => NATIVE });
     expect(sel).toEqual({ loaderUrl: NATIVE, missing: null });
     const cmd = buildServerLaunchTestCmd({ nodeBin: "/b/node", loaderUrl: sel.loaderUrl!, testCli: "/b/cli.ts" });
     expect(cmd).toContain(`--import "${NATIVE}"`);
@@ -86,19 +84,11 @@ describe("selectServerLaunchTestLoader (E30)", () => {
   });
 
   it("a native register that cannot be located becomes a missing component, not a throw", () => {
-    const sel = selectServerLaunchTestLoader({
-      env: {},
-      resolveJiti: () => null,
+    const sel = resolveServerLaunchTestLoader({
       resolveNative: () => { throw new Error("cannot locate native-ts-register.mjs"); },
     });
     expect(sel.loaderUrl).toBeNull();
     expect(sel.missing).toMatch(/No native TypeScript loader/);
-  });
-
-  it("jiti opt-in + no jiti → 'No jiti loader (install pi)'", () => {
-    expect(selectServerLaunchTestLoader(deps({ PI_DASHBOARD_TS_LOADER: "jiti" }))).toEqual({
-      loaderUrl: null,
-      missing: "No jiti loader (install pi)",
-    });
+    expect(sel.missing).not.toMatch(/jiti|tsx/i);
   });
 });

@@ -10,11 +10,12 @@
  *
  * See design D4 in openspec/changes/fix-electron-server-launch-node-bin/design.md.
  */
-import { describe, it, expect } from "vitest";
+
+import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
-import { Dirent } from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 
 /**
  * The only file in packages/electron/src/lib/ that may reference

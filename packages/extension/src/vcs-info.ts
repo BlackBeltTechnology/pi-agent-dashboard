@@ -182,9 +182,12 @@ const sameFacts = (a: StaticGitFacts, b: StaticGitFacts) =>
 /** Per-cwd cache of {@link StaticGitFacts}. */
 export class GitFactsCache {
   private readonly map = new Map<string, StaticGitFacts>();
+  private readonly deps: GitFactsDeps;
   constructor(
-    private readonly deps: GitFactsDeps = { evaluate: evaluateFacts, evaluateAsync: evaluateFactsAsync, stamp: (c, r) => dotGitStampOf(c, r) },
-  ) {}
+    deps: GitFactsDeps = { evaluate: evaluateFacts, evaluateAsync: evaluateFactsAsync, stamp: (c, r) => dotGitStampOf(c, r) },
+  ) {
+    this.deps = deps;
+  }
 
   /** Synchronous probe + store. */
   evaluate(cwd: string): StaticGitFacts {

@@ -33,10 +33,13 @@ function firstVersion(text: string): string | undefined {
 }
 
 export class RuntimeDetector {
+  private readonly deps: RuntimeDetectDeps;
   private cache?: { at: number; reports: RuntimeReport[] };
   private inflight?: Promise<RuntimeReport[]>;
 
-  constructor(private readonly deps: RuntimeDetectDeps) {}
+  constructor(deps: RuntimeDetectDeps) {
+    this.deps = deps;
+  }
 
   async detect(): Promise<RuntimeReport[]> {
     const now = (this.deps.now ?? Date.now)();

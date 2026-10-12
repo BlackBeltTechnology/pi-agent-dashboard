@@ -26,6 +26,7 @@ describe("chat-pane row classification completeness (L1, #E2)", () => {
       "chat-view",
       "error-boundary-fallback",
       "session-banner",
+      "composer-stack-anchor",
       "composer-context-strip",
       "status-bar",
       "queue-panel",
@@ -38,6 +39,7 @@ describe("chat-pane row classification completeness (L1, #E2)", () => {
     expect(appSource).toContain("<ChatView");
     expect(appSource).toContain("ErrorBoundary");
     expect(appSource).toContain("<SessionBanner");
+    expect(appSource).toContain('data-testid="composer-stack-anchor"');
     expect(appSource).toContain('data-testid="composer-context-strip"');
     expect(appSource).toContain("<StatusBar");
     expect(appSource).toContain("<QueuePanel");

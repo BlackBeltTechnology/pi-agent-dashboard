@@ -1,81 +1,35 @@
 /**
- * `selectTsLoader` decision table + `resolveNativeTsLoader` locator.
+ * `legacyTsLoaderEnvWarning` decision table + `resolveNativeTsLoader` locator.
  * Pure-helper harness as in `node-spawn.test.ts`.
  *
- * See change: fix-appimage-cold-boot-latency (test-plan E7).
+ * See change: fix-appimage-cold-boot-latency (test-plan E7);
+ * strip-only-native-ts-loader (test-plan #E14).
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
-import { nativeTransformSupported, resolveNativeTsLoader, selectTsLoader } from "../platform/ts-loader-select.mjs";
+import { describe, expect, it } from "vitest";
+import { legacyTsLoaderEnvWarning, resolveNativeTsLoader } from "../platform/ts-loader-select.mjs";
 
-describe("selectTsLoader (E7)", () => {
-  it.each([
-    ["unset", {}, "native"],
-    ["native", { PI_DASHBOARD_TS_LOADER: "native" }, "native"],
-    ["empty", { PI_DASHBOARD_TS_LOADER: "" }, "native"],
-    ["jiti", { PI_DASHBOARD_TS_LOADER: "jiti" }, "jiti"],
-  ] as const)("%s → %s without warning", (_label, env, expected) => {
-    const warn = vi.fn();
-    expect(selectTsLoader(env, warn)).toBe(expected);
-    expect(warn).not.toHaveBeenCalled();
-  });
-
-  it("tsx → native with exactly one warning naming the var and the value", () => {
-    const warn = vi.fn();
-    expect(selectTsLoader({ PI_DASHBOARD_TS_LOADER: "tsx" }, warn)).toBe("native");
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]![0]).toContain("PI_DASHBOARD_TS_LOADER");
-    expect(warn.mock.calls[0]![0]).toContain("tsx");
-  });
-});
-
-// Node 26 dropped `stripTypeScriptTypes({ mode: "transform" })` (only "strip"),
-// and strip mode rejects parameter properties the server uses. Such a Node
-// must boot with jiti instead of crashing in the native hooks.
-describe("selectTsLoader without native transform support", () => {
+// #E14 — the jiti server loader is gone; PI_DASHBOARD_TS_LOADER is ignored.
+// Empty / "native" stay silent; any other value yields exactly one warning
+// string for the SERVER process to log. The helper never touches the env.
+describe("legacyTsLoaderEnvWarning (#E14)", () => {
   it.each([
     ["unset", {}],
+    ["empty", { PI_DASHBOARD_TS_LOADER: "" }],
     ["native", { PI_DASHBOARD_TS_LOADER: "native" }],
-    ["jiti", { PI_DASHBOARD_TS_LOADER: "jiti" }],
-  ] as const)("%s → jiti", (_label, env) => {
-    expect(selectTsLoader(env, vi.fn(), false)).toBe("jiti");
+  ] as const)("%s → no warning", (_label, env) => {
+    expect(legacyTsLoaderEnvWarning(env)).toBeNull();
   });
 
-  it("keeps native when transform is supported", () => {
-    expect(selectTsLoader({}, vi.fn(), true)).toBe("native");
-  });
-});
-
-describe("nativeTransformSupported", () => {
-  it("false when stripTypeScriptTypes is missing", () => {
-    expect(nativeTransformSupported({})).toBe(false);
-  });
-
-  it("false when transform mode is rejected (Node 26)", () => {
-    const stripTypeScriptTypes = () => {
-      throw Object.assign(new TypeError("options.mode must be one of: 'strip'"), { code: "ERR_INVALID_ARG_VALUE" });
-    };
-    expect(nativeTransformSupported({ stripTypeScriptTypes })).toBe(false);
-  });
-
-  it("true when transform mode works, and silences only the probe's ExperimentalWarning", () => {
-    const original = process.emitWarning;
-    const stripTypeScriptTypes = vi.fn((_src: string, opts: { mode: string }) => {
-      process.emitWarning("stripTypeScriptTypes is an experimental feature and might change at any time", "ExperimentalWarning");
-      return opts.mode;
-    });
-    const spy = vi.spyOn(process, "emitWarning").mockImplementation(() => {});
-    try {
-      expect(nativeTransformSupported({ stripTypeScriptTypes })).toBe(true);
-      expect(stripTypeScriptTypes.mock.calls[0]![1]).toMatchObject({ mode: "transform" });
-      expect(spy).not.toHaveBeenCalled();
-    } finally {
-      spy.mockRestore();
-      process.emitWarning = original;
-    }
+  it.each(["jiti", "tsx", "garbage"])("%s → one warning naming the variable", (value) => {
+    const env = { PI_DASHBOARD_TS_LOADER: value };
+    const msg = legacyTsLoaderEnvWarning(env);
+    expect(msg).toContain("PI_DASHBOARD_TS_LOADER is no longer supported");
+    expect(msg).toContain("native loader");
+    expect(env).toEqual({ PI_DASHBOARD_TS_LOADER: value }); // not mutated
   });
 });
 

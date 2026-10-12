@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
 
 export interface ProvidersReadyState {
@@ -8,6 +8,12 @@ export interface ProvidersReadyState {
   ready: boolean;
   /** Number of providers with a non-empty apiKey. */
   count: number;
+  /**
+   * Whether the `anthropic` subscription is authenticated: `true`/`false` from
+   * a successful status read, `null` when that read failed (unknown). Additive.
+   * See change: streamline-first-run (design D3).
+   */
+  anthropicAuthenticated: boolean | null;
 }
 
 /**
@@ -28,6 +34,7 @@ export function useProvidersReady(): ProvidersReadyState {
     loading: true,
     ready: false,
     count: 0,
+    anthropicAuthenticated: null,
   });
 
   const refetch = useCallback(() => {
@@ -59,10 +66,15 @@ export function useProvidersReady(): ProvidersReadyState {
             (s) => s?.authenticated === true,
           ).length;
         }
-        setState({ loading: false, ready: count > 0, count });
+        const anthropicAuthenticated = Array.isArray(authStatusData)
+          ? (authStatusData as Array<{ id?: string; authenticated?: boolean }>).some(
+              (s) => s?.id === "anthropic" && s.authenticated === true,
+            )
+          : null;
+        setState({ loading: false, ready: count > 0, count, anthropicAuthenticated });
       })
       .catch(() => {
-        setState({ loading: false, ready: false, count: 0 });
+        setState({ loading: false, ready: false, count: 0, anthropicAuthenticated: null });
       });
   }, []);
 
