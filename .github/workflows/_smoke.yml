@@ -205,7 +205,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
       - run: pnpm install --frozen-lockfile --config.engine-strict=false
       - run: pnpm run build
       - name: Pack workspaces (built on Node 24)
@@ -245,8 +244,9 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
+          # No dependency cache: a restored cache would run before `pnpm install` /
+          # `pnpm run build` (CodeQL actions/cache-poisoning).
           node-version: 26
-          cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - name: Pack workspaces
