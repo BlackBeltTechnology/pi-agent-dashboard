@@ -69,7 +69,7 @@
         <div class="op" aria-hidden="true">−</div>
         <div class="seg off"><b>1</b><small>turned off here</small></div>
         <div class="op" aria-hidden="true">=</div>
-        <div class="seg total"><b>Sessions here load 30 add-ons + 29 own files</b><small>Changes apply to new sessions started in this folder</small></div>
+        <div class="seg total"><b>Sessions here load 31 add-ons + 29 own files</b><small>Changes apply to new sessions started in this folder</small></div>
       </div>
 
       <details class="explain" id="explain">
@@ -162,11 +162,10 @@ function render(){
   const offOnly = document.querySelector('[data-f="off"]').getAttribute("aria-pressed")==="true";
   const hereOnly = document.querySelector('[data-f="here"]').getAttribute("aria-pressed")==="true";
   document.querySelectorAll('[data-k="here"]').forEach(r => r.classList.toggle("hidden", offOnly || (q && !r.textContent.toLowerCase().includes(q))));
-  document.getElementById("inh").innerHTML = hereOnly ? "" : INH.filter(x => (!offOnly || !x[5]) && (!q || (x[0]+x[1]+x[4].join(" ")).toLowerCase().includes(q))).map((x,i) =>
+  document.getElementById("inh").innerHTML = hereOnly ? "" : INH.filter(x => (!offOnly || !x[5]) && (!q || (x[0]+x[1]+x[4].join(" ")).toLowerCase().includes(q))).map(x =>
     '<div class="row'+(x[5]?"":" dim")+'"><div class="ico'+(x[4][0].startsWith("◧")?" plug":"")+'" aria-hidden="true">'+(x[4][0].startsWith("◧")?"◧":"⬢")+'</div>'
     + '<div style="min-width:0"><div class="nm"><b>'+x[0]+'</b><span class="badge inh">global</span>'+ob(x[2],x[3])+(x[5]?"":'<span class="badge offhere">off in this folder</span>')+'</div>'
-    + '<div class="desc">'+x[1]+'</div><div class="parts">'+x[4].map(p=>'<span class="p'+(p.startsWith("◧")?" ui":"")+'">'+p+'</span>').join("")
-    + (x[4][0].startsWith("◧") && !x[5] ? '' : '') + '</div>'
+    + '<div class="desc">'+x[1]+'</div><div class="parts">'+x[4].map(p=>'<span class="p'+(p.startsWith("◧")?" ui":"")+'">'+p+'</span>').join("")+'</div>'
     + (x[4][0].startsWith("◧") && !x[5] ? '<div class="filter-note" style="color:var(--text-tertiary)">Off here: the AI agent no longer gets this in this folder. The dashboard UI stays, because plugins are global.</div>' : '')
     + '</div><div class="acts"><span class="swl">'+(x[5]?"on here":"off here")+'</span><button class="sw" role="switch" aria-checked="'+x[5]+'" aria-label="Load '+x[0]+' in this folder" data-i="'+INH.indexOf(x)+'"></button></div></div>'
   ).join("") + (hereOnly||offOnly||q ? "" : '<div class="row"><div></div><div class="desc"><a class="link" href="#">Show 21 more from Global</a></div><div></div></div>');
