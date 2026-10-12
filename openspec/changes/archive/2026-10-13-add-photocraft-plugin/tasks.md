@@ -112,4 +112,4 @@
 
 ## 9. Manual verification (post-merge)
 
-- [ ] 9.1 Manual check M1 cli › shipped skill (recipes) (exploratory). Input: real photo, real Gemini key, pi session with the package. Trigger: ask the agent "replace the sky with a sunset". Observable: agent follows the skill (replace-region or recipe) and the result looks seamless — no automatable observable. (test-plan #M1, test-plan: manual-only)
+- [x] 9.1 Manual check M1 cli › shipped skill (recipes) (exploratory). Input: real photo, real Gemini key, pi session with the package. Trigger: ask the agent "replace the sky with a sunset". Observable: agent follows the skill (replace-region or recipe) and the result looks seamless — no automatable observable. (test-plan #M1, test-plan: manual-only)
