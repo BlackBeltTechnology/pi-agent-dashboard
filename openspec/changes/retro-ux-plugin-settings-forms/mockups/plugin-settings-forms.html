@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Retro UX — plugin settings forms (#827, #813) + KB folder pill (#829)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="asbuilt.css" />
+<script src="icons.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Plugin settings forms + KB pill — as-built vs proposed</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Side by side</button>
+    <button aria-pressed="false" data-v="asbuilt">As-built</button>
+    <button aria-pressed="false" data-v="proposed">Proposed</button>
+  </div>
+</div>
+<main id="board"></main>
+
+<script>
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+let uid = 0; const nid = (p) => `${p}-${++uid}`;
+
+/* ════════ shared PROPOSED field anatomy ════════ */
+function pField({ label, key, help, control, unit, error, state, reset }) {
+  // Layout = core FieldShell (settings-panel spec): label row (unit INSIDE the label) → control → hint BELOW the control → error.
+  const id = nid("f"), hid = nid("h"), eid = nid("e");
+  const pill = state === "default" ? `<span class="pill neutral">default</span>` : state === "changed" ? `<span class="pill info">changed</span>` : "";
+  const desc = [help ? hid : "", error ? eid : ""].filter(Boolean).join(" ");
+  const ctl = control.replaceAll("%ID", id).replaceAll("%DESC", desc).replaceAll("%INV", error ? 'aria-invalid="true"' : "");
+  return `<div class="sf-field">
+    <div class="sf-head"><label class="p-label" for="${id}">${label}${unit ? ` <span class="sf-unitchip">${unit}</span>` : ""}</label>${key ? `<code class="sf-key">${key}</code>` : ""}${pill}
+      ${reset ? `<span class="end"><button class="p-btn sm ghost">${ic("Restore")}Reset to default</button></span>` : ""}</div>
+    <div class="sf-ctl">${ctl}</div>
+    ${help ? `<p class="p-help sf-hint" id="${hid}">${help}</p>` : ""}
+    ${error ? `<p class="sf-err" id="${eid}">${ic("AlertCircleOutline")}${error}</p>` : ""}
+  </div>`;
+}
+const pNum = (v, cls = "num") => `<input id="%ID" class="p-input ${cls}" inputmode="decimal" value="${v}" aria-describedby="%DESC" %INV>`;
+const pText = (v, ph = "") => `<input id="%ID" class="p-input mono" style="max-width:360px" value="${v}" placeholder="${ph}" aria-describedby="%DESC" %INV>`;
+const pSel = (opts, v) => `<select id="%ID" class="p-input" style="width:auto;min-width:180px" aria-describedby="%DESC">${opts.map((o) => `<option ${o === v ? "selected" : ""}>${o}</option>`).join("")}</select>`;
+const pSw = (on) => `<button id="%ID" role="switch" class="sw" aria-checked="${on}" aria-describedby="%DESC"></button><span class="sw-word" aria-hidden="true">${on ? "On" : "Off"}</span>`;
+const pGroup = (title, body, { open = true, meta = "" } = {}) => `<details class="sf-grp" ${open ? "open" : ""}><summary>${ic("ChevronRight", "chev")}${title}${meta ? `<span class="meta">${meta}</span>` : ""}</summary><div class="sf-body">${body}</div></details>`;
+const pStatus = (n, extra = "") => `<div class="sf-status"><span>${n ? `<span class="pill warning" role="status">${ic("AlertOutline")}${n} unsaved change${n > 1 ? "s" : ""} — use Save below</span>` : `<span class="p-help" role="status">No changes</span>`}</span>${extra}</div>`;
+const pLoading = (what) => `<p class="p-help" role="status">${ic("Loading", "spin")} Loading ${what}…</p>`;
+const pLoadErr = (msg) => `<div class="callout error" role="alert">${ic("AlertCircleOutline")}<div class="body">${msg}<br><button class="p-btn sm secondary">Retry</button></div></div>`;
+const pFile = (path, exists = true) => `<p class="p-help">${ic("FileDocumentOutline")} <code>${path}</code> · ${exists ? "exists" : "not yet created — saving creates it"}</p>`;
+
+/* ════════ CONTEXT-MODE — as-built ════════ */
+function abCmField({ label, key, help, val, w = 170, def, err }) {
+  return `<div class="field"><div class="row between"><div class="row"><label class="t13 prim fw5">${label}</label><span class="mono t11 tert">${key}</span>${def ? `<span class="badge-def">default</span>` : ""}</div>${def ? "" : `<button class="t11 accent-blue">Reset</button>`}</div>
+    <p class="t115 tert" style="margin:6px 0 6px">${help}</p><input class="inp" style="width:${w}px" value="${val}" ${err ? 'aria-invalid="true"' : ""}>
+    ${err ? `<p class="t11 accent-red" role="alert" style="margin:4px 0 0">${err}</p>` : ""}</div>`;
+}
+function abCm(o = {}) {
+  if (o.loading) return `<div class="ab t13 muted">Loading…</div>`;
+  if (o.loadError) return `<div class="ab t13 accent-red" data-testid="cms-load-error">HTTP 503</div>`;
+  return `<div class="ab">
+    <div class="row between"><span class="t115 tert">~/.context-mode/settings.json ${o.notCreated ? "· not yet created" : "· exists"}</span><span class="t12 ${o.dirty ? "accent-yellow" : "tert"}">${o.dirty ? "Unsaved changes" : "No changes"}</span></div>
+    <div class="notice-y" style="margin-top:8px" data-testid="cms-notice-storage">Storage settings apply to new sessions only.</div>
+    <details class="grp" open><summary>Search <span class="t115 tert" style="font-weight:400">3 fields</span></summary><div class="grp-body">
+      ${abCmField({ label: "Search window (ms)", key: "search.windowMs", help: "Time window used to count search calls.", val: 60000, def: true })}
+      ${abCmField({ label: "Search soft cap", key: "search.maxResultsAfter", help: "Calls within the window after which results taper.", val: o.err ? "-2" : 5, err: o.err ? "Must be a positive integer." : "" })}
+    </div></details>
+    <details class="grp"><summary>Locale <span class="t115 tert" style="font-weight:400">2 fields</span></summary></details>
+    <div class="row" style="margin-top:8px"><button class="ghost">View raw JSON</button></div>
+  </div>`;
+}
+/* CONTEXT-MODE — proposed */
+function prCm(o = {}) {
+  if (o.loading) return pLoading("context-mode settings");
+  if (o.loadError) return pLoadErr("Could not load context-mode settings (HTTP 503).");
+  return `<div class="sf">
+    ${pStatus(o.dirty ? 1 : 0, `<button class="p-btn sm ghost">${ic("CodeJson")}View raw JSON</button>`)}
+    ${pFile("~/.context-mode/settings.json", !o.notCreated)}
+    <div class="callout info" style="margin:8px 0" data-testid="cms-notice-storage">${ic("InformationOutline")}<div class="body">Storage settings apply to new sessions only.</div></div>
+    ${pGroup("Search", pField({ label: "Search window", key: "search.windowMs", help: "Time window used to count search calls.", control: pNum(60000), unit: "ms", state: "default" })
+      + pField({ label: "Search soft cap", key: "search.maxResultsAfter", help: "Calls within the window after which results taper.", control: pNum(o.err ? "-2" : 5), state: "changed", reset: true, error: o.err ? "Must be a positive whole number." : "" }), { meta: "3 fields" })}
+    ${pGroup("Locale", "", { open: false, meta: "2 fields" })}
+  </div>`;
+}
+
+/* ════════ HERMES — as-built ════════ */
+function abHmField({ label, help, ctl, unit, err, def = true }) {
+  return `<div class="field"><div class="row between"><div class="row"><span class="t13 prim fw5">${label}</span>${def ? `<span class="badge-def">default</span>` : ""}</div>${def ? "" : `<button class="t11 accent-blue">Reset</button>`}</div>
+    <p class="t115 tert" style="margin:6px 0 6px">${help}</p><div class="row">${ctl}${unit ? `<span class="t11 tert">${unit}</span>` : ""}</div>
+    ${err ? `<p class="t11 accent-red" style="margin:4px 0 0">${err}</p>` : ""}</div>`;
+}
+function abHm(o = {}) {
+  if (o.loading) return `<div class="ab t13 muted">Loading…</div>`;
+  if (o.loadError) return `<div class="ab t13 accent-red" data-testid="hermes-load-error">ENOENT: hermes-memory-config.json</div>`;
+  if (o.modal) return `<div class="ab"><div class="overlay"><div class="modal" role="dialog" aria-modal="true"><div class="row between"><span class="t13 prim fw6">hermes-memory-config.json (~/.pi/agent/hermes-memory-config.json)</span><button class="sec">Close</button></div><pre class="mono t115 prim" style="margin:8px 0 0">{ "memoryCharLimit": 8000,\n  "nudgeInterval": 10 }</pre></div></div></div>`;
+  return `<div class="ab" style="padding-bottom:24px">
+    <div class="row between"><span class="t115 tert"><span class="accent-green mono">~/.pi/agent/hermes-memory-config.json</span> · exists</span><span class="t12 ${o.dirty ? "accent-yellow" : "tert"}" data-testid="hermes-change-status">${o.dirty ? "2 fields changed · not yet saved" : "No changes"}</span></div>
+    <details class="grp" open><summary><span class="tert">▸</span>Store size limits ${o.dirty ? `<span class="dirtydot"></span>` : ""}</summary><div class="grp-body">
+      ${abHmField({ label: "MEMORY.md limit", help: "Max characters of agent notes before overflow strategy fires.", ctl: `<input class="inp" style="width:150px" value="${o.err ? "abc" : 8000}">`, unit: "chars", def: false, err: o.err ? "Enter a number" : "" })}
+      ${abHmField({ label: "USER.md limit", help: "Max characters of the user profile.", ctl: `<input class="inp" style="width:150px" value="2000">`, unit: "chars" })}
+    </div></details>
+    <details class="grp" open><summary><span class="tert">▸</span>Background review</summary><div class="grp-body">
+      ${abHmField({ label: "Enable background learning", help: "Periodically review the conversation and extract durable memories.", ctl: `<label class="row"><input type="checkbox" checked> <span>On</span></label>` })}
+      ${abHmField({ label: "Model override", help: "Model for background consolidation / review subprocesses. Empty = inherit the session\u2019s model.", ctl: o.noModels ? `<span class="t115 tert">Model selector unavailable</span>` : `<select class="inp"><option>anthropic/claude-haiku-5-5</option></select><button class="t11 accent-blue">Inherit session model</button>`, def: false })}
+    </div></details>
+    <div class="row" style="margin-top:8px"><button class="ghost">View raw JSON</button></div>
+    <p class="tip">(labels are &lt;span&gt; — inputs have no accessible name; errors have no aria-invalid / role)</p>
+  </div>`;
+}
+/* HERMES — proposed */
+function prHm(o = {}) {
+  if (o.loading) return pLoading("memory settings");
+  if (o.loadError) return pLoadErr("Could not read <code>~/.pi/agent/hermes-memory-config.json</code> (ENOENT).");
+  if (o.modal) return `<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="hm-dlg"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h4 id="hm-dlg">hermes-memory-config.json</h4><button class="p-btn sm secondary">Close</button></div><p class="p-meta" style="margin:0 0 8px"><code>~/.pi/agent/hermes-memory-config.json</code></p><pre class="code">{ "memoryCharLimit": 8000,\n  "nudgeInterval": 10 }</pre></div></div>`;
+  return `<div class="sf">
+    ${pStatus(o.dirty ? 2 : 0, `<button class="p-btn sm ghost">${ic("CodeJson")}View raw JSON</button>`)}
+    ${pFile("~/.pi/agent/hermes-memory-config.json")}
+    <div style="margin-top:8px">${pGroup("Store size limits", pField({ label: "MEMORY.md limit", help: "Max characters of agent notes before overflow strategy fires.", control: pNum(o.err ? "abc" : 8000), unit: "chars", state: "changed", reset: true, error: o.err ? "Enter a whole number." : "" })
+      + pField({ label: "USER.md limit", help: "Max characters of the user profile.", control: pNum(2000), unit: "chars", state: "default" }), { meta: o.dirty ? "1 changed" : "" })}
+    ${pGroup("Background review", pField({ label: "Enable background learning", help: "Periodically review the conversation and extract durable memories.", control: pSw(true), state: "default" })
+      + pField({ label: "Model override", help: "Model for background consolidation / review subprocesses. Empty = inherit the session\u2019s model.", control: o.noModels ? `<div class="callout info" style="width:100%">${ic("InformationOutline")}<div class="body">Model selector unavailable — no models are configured.<br><button class="p-btn sm secondary">Open Providers</button></div></div>` : `${pSel(["anthropic/claude-haiku-5-5", "openai-codex/gpt-6-sol"], "anthropic/claude-haiku-5-5")}<button class="p-btn sm ghost">Inherit session model</button>`, state: "changed", reset: !o.noModels }), { meta: o.dirty ? "1 changed" : "" })}</div>
+  </div>`;
+}
+
+/* ════════ GMAIL — as-built ════════ */
+const STEPS = ["1. Google Cloud project + Gmail API", "2. Branding", "3. Audience + test users", "4. Desktop OAuth client", "5. Upload client_secret_*.json", "6. Test sign-in"];
+const ACCTS = [
+  { email: "anna.kovacs@blackbelt.hu", alias: "work", tier: "send", status: "ok" },
+  { email: "anna.kovacs.dev@gmail.com", alias: "", tier: "draft", status: "reauth_required", testing: true },
+];
+function abGm(o = {}) {
+  if (o.loading) return `<div class="ab t12 muted">Loading…</div>`;
+  if (o.loadError) return `<div class="ab t12 sev-err" role="alert">Could not load Gmail state: HTTP 502</div>`;
+  const conf = !o.notConfigured;
+  return `<section class="ab stack" data-testid="gmail-settings">
+    <h3 class="t14 fw6 prim" style="margin:0">Gmail</h3>
+    <details ${o.notConfigured || o.upload ? "open" : ""}><summary class="t13" data-testid="gmail-setup-summary">Google Cloud setup <span class="t12 muted">${conf ? "✓ project blackbelt-gmail-agent" : "not configured"}</span></summary>
+      <ol style="list-style:none;padding:0;margin:8px 0" data-testid="gmail-wizard">${STEPS.map((s, i) => `<li class="g-step ${(o.notConfigured && i === 0) || (o.upload && i === 4) ? "active" : ""}" data-testid="gmail-step-${i + 1}"><div class="t12 prim">${s}</div>
+        ${i === 0 ? `<label class="t12 muted">Project id <input class="g-field" value="${conf ? "blackbelt-gmail-agent" : ""}"></label>` : ""}
+        ${i === 4 ? `<label class="t12 muted">Upload the OAuth client JSON <input type="file" class="t12"></label>${o.upload ? `<div class="t12 sev-err" data-testid="gmail-upload-error">This is a "Web application" client. Create a "Desktop app" client instead. (web_client)</div>` : ""}` : ""}</li>`).join("")}</ol></details>
+    <div class="stack" data-testid="gmail-accounts"><div class="fw5 t13 prim">Accounts</div>
+      <p class="t12 muted" style="margin:0" data-testid="gmail-level-help">Levels are enforced by this plugin, not by Google: a token carries every scope Google granted (draft-level compose access could technically send), so a level limits what the agent's tools may do.</p>
+      ${o.notConfigured ? `<div class="t12 muted">No accounts connected.</div>` : ACCTS.map((a) => `<div class="row" data-testid="gmail-account-row" style="border-top:1px solid var(--border-subtle);padding-top:6px">
+        <span class="t12 prim" data-testid="gmail-account-email">${a.email}</span>${a.status === "ok" ? `<span class="g-badge-ok">ok</span>` : `<span class="g-badge-re">re-auth needed</span>`}${a.testing ? `<span class="t12 muted">testing: 7-day</span>` : ""}
+        <input class="g-field" aria-label="Alias" style="width:90px" value="${o.aliasErr && a.status === "ok" ? "personal" : a.alias}"><select class="g-field"><option>${a.tier}</option></select>
+        ${a.status !== "ok" ? `<button class="g-btn">Re-authenticate</button>` : ""}<button class="g-btn">Revoke</button>
+        ${o.aliasErr && a.status === "ok" ? `<span class="t12 sev-err" data-testid="gmail-alias-feedback">Alias already used by another account.</span>` : ""}</div>`).join("")}
+      ${o.flow ? `<div class="t12 muted" data-testid="gmail-consent-hint">Finish the sign-in in the Google window. Google may warn that the app is unverified — choose Advanced → Go to app.</div>` : ""}
+      ${o.flowErr ? `<div class="t12 sev-err" role="alert" data-testid="gmail-flow-error" data-step="3">Google blocked the sign-in: this account is not a test user of the app. (access_denied)</div>` : ""}
+      <div class="t12 muted" data-testid="gmail-cross-org-hint">Accounts outside the project's Workspace organization need an External audience.</div><div class="row"><label class="t12 muted" for="gm-nl">New account level</label><select id="gm-nl" class="g-field"><option>readonly</option></select><button class="g-btn" ${conf ? "" : "disabled"} data-testid="gmail-add-account">Add account</button></div>
+    </div></section>`;
+}
+/* GMAIL — proposed */
+function prGm(o = {}) {
+  if (o.loading) return pLoading("Gmail");
+  if (o.loadError) return pLoadErr("Could not load Gmail state (HTTP 502).");
+  const conf = !o.notConfigured;
+  const step = (i, s) => {
+    const cur = (o.notConfigured && i === 0) || (o.upload && i === 4);
+    const done = conf && !(o.upload && i >= 4);
+    const body = i === 0 ? pField({ label: "Project id", help: "The Google Cloud project that has the Gmail API enabled.", control: pText(conf ? "blackbelt-gmail-agent" : "", "my-gmail-agent") })
+      : i === 4 ? pField({ label: "OAuth client JSON", help: "The client_secret_*.json file of a Desktop app client.", control: `<input id="%ID" type="file" class="p-input" style="max-width:360px" aria-describedby="%DESC" %INV>`, error: o.upload ? `This is a "Web application" client. Create a "Desktop app" client instead.` : "" }) : "";
+    return `<li class="${done ? "done" : ""}" ${cur ? 'aria-current="step"' : ""} data-testid="gmail-step-${i + 1}"><span class="n">${done ? ic("Check") : i + 1}</span><div><div class="t">${s.replace(/^\d\. /, "")}</div>${cur ? body : ""}</div></li>`;
+  };
+  return `<section class="sf" data-testid="gmail-settings" aria-labelledby="gm-h">
+    <h3 id="gm-h" style="font-size:14px;margin:0 0 8px;color:var(--text-primary)">Gmail</h3>
+    ${pGroup(`Google Cloud setup`, `<ol class="sf-steps" data-testid="gmail-wizard">${STEPS.map((s, i) => step(i, s)).join("")}</ol>`, { open: !!(o.notConfigured || o.upload), meta: conf ? `${ic("CheckCircleOutline")} project blackbelt-gmail-agent` : "not configured" })}
+    <div style="margin-top:12px" data-testid="gmail-accounts">
+      <div class="sf-head"><span class="p-label">Accounts</span></div>
+      <p class="p-help" data-testid="gmail-level-help">Levels are enforced by this plugin, not by Google: a token carries every scope Google granted (draft-level compose access could technically send), so a level limits what the agent's tools may do.</p>
+      ${o.notConfigured ? `<p class="p-help">No accounts connected. Finish the setup above first.</p>` : `<ul class="stack" style="padding:0;margin:8px 0">${ACCTS.map((a, i) => `<li class="p-row" data-testid="gmail-account-row" style="list-style:none">
+        <div class="main"><div class="name"><span data-testid="gmail-account-email">${a.email}</span>${a.status === "ok" ? `<span class="pill success" data-testid="gmail-account-status">${ic("CheckCircleOutline")}Connected</span>` : `<span class="pill warning" data-testid="gmail-account-status">${ic("AlertOutline")}Re-auth needed</span>`}${a.testing ? `<span class="pill neutral" title="Testing-mode app: Google expires this grant after 7 days.">testing · 7-day grant</span>` : ""}</div></div>
+        <div class="acts"><label class="sr-only" for="al${i}">Alias for ${a.email}</label><input id="al${i}" class="p-input" style="width:110px;min-height:32px" placeholder="alias" value="${o.aliasErr && i === 0 ? "personal" : a.alias}" ${o.aliasErr && i === 0 ? 'aria-invalid="true" aria-describedby="al-err"' : ""}>
+          <label class="sr-only" for="lv${i}">Level for ${a.email}</label><select id="lv${i}" class="p-input" style="width:auto;min-height:32px;padding:2px 8px;font-size:12px"><option>${a.tier}</option></select>
+          ${a.status !== "ok" ? `<button class="p-btn sm secondary">Re-authenticate</button>` : ""}<button class="p-btn sm ghost" aria-label="Revoke ${a.email}">Revoke</button></div>
+        ${o.aliasErr && i === 0 ? `<p class="sub sf-err" id="al-err">${ic("AlertCircleOutline")}Alias already used by another account.</p>` : ""}</li>`).join("")}</ul>`}
+      ${o.flow ? `<div class="callout info" data-testid="gmail-consent-hint">${ic("Loading", "spin")}<div class="body">Waiting for Google… Finish the sign-in in the Google window. Google may warn that the app is unverified — choose Advanced → Go to app.</div></div>` : ""}
+      ${o.flowErr ? `<div class="callout error" role="alert" data-testid="gmail-flow-error" data-step="3">${ic("AlertCircleOutline")}<div class="body"><strong>Google blocked the sign-in.</strong> This account is not a test user of the app — add it in step 3 (Audience + test users), then try again. <code>access_denied</code></div></div>` : ""}
+      <div class="fields" style="grid-template-columns:200px max-content;align-items:end;margin-top:8px">
+        <div><label class="p-label" for="gm-nl2">New account level</label><select id="gm-nl2" class="p-input"><option>readonly</option><option>draft</option><option>send</option></select></div>
+        <button class="p-btn primary" ${conf ? "" : 'disabled aria-describedby="gm-dis"'} data-testid="gmail-add-account">${ic("Plus")}Add account</button></div>
+      <p class="p-help" data-testid="gmail-cross-org-hint" style="margin-top:4px">Accounts outside the project's Workspace organization need an External audience with the account listed as a test user (step 3).</p>
+      ${conf ? "" : `<p class="p-help" id="gm-dis" style="margin-top:4px">Add account is available after step 5.</p>`}
+    </div></section>`;
+}
+
+/* ════════ KB FOLDER PILL ════════ */
+const KB = {
+  populated: { n: "3,870", u: "chunks" }, stale: { n: "3,870", u: "chunks", stale: 3 }, indexing: { w: "indexing…", files: 412, spin: true },
+  "no-sources": { w: "no sources", act: "Configure sources" }, "not-indexed": { w: "not indexed", act: "Index now" },
+  denied: { w: "not allowed", act: "Pin folder" }, missing: { w: "folder missing", act: "Folder missing", dis: true }, error: { w: "index failed", err: true, act: "Retry" },
+};
+function abKb(id) {
+  const s = KB[id];
+  const word = { indexing: `<span class="teal-400">indexing…</span><span class="t10 fw6 tert">412 files</span>`, "no-sources": `<span class="teal-400">no sources</span>`, "not-indexed": `<span class="teal-400">not indexed</span>`,
+    denied: `<span class="tert">not allowed</span>`, missing: `<span class="tert">folder missing</span>`, error: `<span class="red-400">index failed</span>` }[id]
+    ?? `<span style="font-variant-numeric:tabular-nums">${s.n}</span><span class="t10 fw6 tert">chunks</span>${s.stale ? `<span class="t10 fw8 amber-400" data-testid="folder-kb-stale">⚠ ${s.stale} stale</span>` : ""}`;
+  return `<div class="ab"><div class="row" style="flex-wrap:nowrap" data-testid="folder-kb-section" data-state="${id}"><div class="pill"><span class="legend">Knowledge base</span><span class="glyph ${s.err ? "red" : ""}">${ic("DatabaseOutline")}</span><span class="pbody">${word}</span></div>
+    <button class="rbtn" aria-label="${s.act ?? "Reindex now"}" ${s.dis ? "disabled" : ""}>${ic(id === "denied" ? "PinOutline" : "DatabaseRefreshOutline")}</button></div></div>`;
+}
+function prKb(id) {
+  const s = KB[id];
+  const word = { indexing: `<span class="w">${ic("Loading", "spin")}indexing…</span><span class="u">412 files</span>`, "no-sources": `<span class="w">${ic("InformationOutline")}no sources</span>`, "not-indexed": `<span class="w">${ic("InformationOutline")}not indexed</span>`,
+    denied: `<span class="w">${ic("PinOutline")}not allowed</span>`, missing: `<span class="w">${ic("AlertOutline")}folder missing</span>`, error: `<span class="pill error">${ic("AlertCircleOutline")}index failed</span>` }[id]
+    ?? `<span style="font-variant-numeric:tabular-nums">${s.n}</span><span class="u">chunks</span>${s.stale ? `<span class="pill warning" data-testid="folder-kb-stale">⚠ ${s.stale} stale</span>` : ""}`;
+  return `<div class="kp-row" data-testid="folder-kb-section" data-state="${id}"><div class="kp" role="link" tabindex="0" aria-label="Knowledge base: ${s.w ?? s.n + " chunks"}${s.stale ? `, ${s.stale} stale` : ""}. Open KB settings"><span class="legend">Knowledge base</span><span class="glyph slotpill-cyan">${ic("DatabaseOutline")}</span><span class="pbody">${word}</span></div>
+    <button class="kp-btn" aria-label="${s.act ?? "Reindex now"}" title="${s.act ?? "Reindex now"}" ${s.dis ? "disabled" : ""}>${ic(id === "denied" ? "PinOutline" : "DatabaseRefreshOutline")}</button></div>`;
+}
+
+/* ════════ cross-form anatomy ════════ */
+function abAnatomy() {
+  return `<div class="ab" style="display:grid;gap:12px">
+    <div><div class="tip">context-mode</div>${abCmField({ label: "Search soft cap", key: "search.maxResultsAfter", help: "Calls within the window after which results taper.", val: "-2", err: "Must be a positive integer." })}</div>
+    <div><div class="tip">hermes-memory</div>${abHmField({ label: "MEMORY.md limit", help: "Max characters of agent notes before overflow strategy fires.", ctl: `<input class="inp" style="width:150px" value="abc">`, unit: "chars", def: false, err: "Enter a number" })}</div>
+    <div><div class="tip">gmail</div><label class="t12 muted">Project id <input class="g-field" value=""></label><p class="t12 muted" style="margin:4px 0">The Google Cloud project that has the Gmail API enabled.</p><div class="t12 sev-err">Project id is required.</div></div>
+    <div><div class="tip">host FieldShell (SettingsPanel.tsx)</div><div class="row between"><label class="t14 sec">Server heap ceiling <span class="t10 tert" style="background:var(--bg-tertiary);padding:1px 4px;border-radius:4px">MB</span></label><input class="inp" style="width:96px;text-align:right;font-family:inherit;font-size:14px;background:var(--bg-secondary)" value="1536"></div><p class="t12 tert" style="margin:4px 0 0">Old-space ceiling for the dashboard server. Raise it if health shows sustained heap use.</p></div>
+  </div>`;
+}
+function prAnatomy() {
+  return `<div class="sf">
+    ${pField({ label: "Search soft cap", key: "search.maxResultsAfter", help: "Calls within the window after which results taper.", control: pNum("-2"), state: "changed", reset: true, error: "Must be a positive whole number." })}
+    ${pField({ label: "MEMORY.md limit", help: "Max characters of agent notes before overflow strategy fires.", control: pNum("abc"), unit: "chars", state: "changed", reset: true, error: "Enter a whole number." })}
+    ${pField({ label: "Project id", help: "The Google Cloud project that has the Gmail API enabled.", control: pText(""), error: "Project id is required." })}
+    ${pField({ label: "Server heap ceiling", help: "Old-space ceiling for the dashboard server. Raise it if health shows sustained heap use.", control: pNum(1536), unit: "MB" })}
+  </div>`;
+}
+
+const BOARD = [
+  { title: "Field anatomy — the same field in each form", verdict: "four label/help/error styles today (13/12.5/11.5 px, --accent-red text, --text-muted help, no htmlFor in hermes) → one anatomy", states: [
+    ["anatomy", "label · help · control · unit · error", abAnatomy(), prAnatomy()],
+  ]},
+  { title: "Context-mode settings (#827)", verdict: "polish — host Save bar stays; status line + notices move to severity tokens", sec: "Context-mode", states: [
+    ["populated", "", abCm(), prCm()],
+    ["invalid-dirty", "validation + unsaved", abCm({ err: true, dirty: true }), prCm({ err: true, dirty: true })],
+    ["not-created", "", abCm({ notCreated: true }), prCm({ notCreated: true })],
+    ["load-error", "", abCm({ loadError: true }), prCm({ loadError: true })],
+    ["loading", "", abCm({ loading: true }), prCm({ loading: true })],
+  ]},
+  { title: "Hermes memory settings (#827)", verdict: "redesign — labels not associated, errors not announced, overlay literal", sec: "Hermes memory", states: [
+    ["populated", "", abHm(), prHm()],
+    ["invalid-dirty", "", abHm({ err: true, dirty: true }), prHm({ err: true, dirty: true })],
+    ["model-unavailable", "", abHm({ noModels: true }), prHm({ noModels: true })],
+    ["raw-json", "dialog", abHm({ modal: true }), prHm({ modal: true })],
+    ["load-error", "", abHm({ loadError: true }), prHm({ loadError: true })],
+  ]},
+  { title: "Gmail settings (#813)", verdict: "polish — immediate-save model kept; muted help → secondary; wizard step states; Add account = primary", states: [
+    ["configured", "accounts ok + re-auth + testing", abGm(), prGm()],
+    ["not-configured", "wizard step 1", abGm({ notConfigured: true }), prGm({ notConfigured: true })],
+    ["upload-error", "step 5", abGm({ upload: true }), prGm({ upload: true })],
+    ["flow-waiting", "", abGm({ flow: true }), prGm({ flow: true })],
+    ["flow-error", "", abGm({ flowErr: true }), prGm({ flowErr: true })],
+    ["alias-error", "", abGm({ aliasErr: true }), prGm({ aliasErr: true })],
+    ["load-error", "", abGm({ loadError: true }), prGm({ loadError: true })],
+  ]},
+  { title: "KB folder pill (#829) — judged against SlotPill siblings", verdict: "polish — teal/red/amber state words → text-secondary + icon / severity pills; SlotPill + SessionSubcard legends 9 → 12 px (section-heading recipe); cyan glyph accent unchanged (shared, follow-up)", states: Object.keys(KB).map((k) => [k, "", `<div class="pills">${abKb(k)}</div>`, `<div class="pills">${prKb(k)}</div>`]) },
+];
+
+document.getElementById("board").innerHTML = BOARD.map((s, si) => `<section class="surface"><h2>${s.title}</h2><p class="verdict">Verdict: ${s.verdict}</p>
+  ${s.states.map(([id, finds, ab, pr]) => `<article class="state" id="s${si}-${id}"><header><code>${id}</code><span class="finds">${finds}</span></header>
+    <div class="pair"><div class="col asbuilt"><p class="tag">As-built</p><div class="frame">${s.sec ? sec(s.sec, ab) : ab}</div></div>
+    <div class="col proposed"><p class="tag">Proposed</p><div class="frame">${s.sec ? sec(s.sec, pr) : pr}</div></div></div></article>`).join("")}
+</section>`).join("");
+function sec(title, body) { return `<div><h3 class="sec-h">${title}</h3>${body}</div>`; }
+
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") { const [pal, mode] = v.split("-"); mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme"); pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette"); }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`);
+  if (group === "view") document.body.dataset.view = v;
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); apply(seg.dataset.group, b.dataset.v); }));
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+document.querySelectorAll('[role="switch"]').forEach((b) => b.addEventListener("click", () => { const on = b.getAttribute("aria-checked") !== "true"; b.setAttribute("aria-checked", String(on)); b.nextElementSibling.textContent = on ? "On" : "Off"; }));
+</script>
+</body>
+</html>

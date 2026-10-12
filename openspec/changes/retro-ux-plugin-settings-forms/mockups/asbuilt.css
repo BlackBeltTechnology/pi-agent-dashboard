@@ -1,0 +1,52 @@
+/* AS-BUILT REPLICA — the shipped classes 1:1, INCLUDING the defects under
+   review (off-scale 13/12.5/11.5 px sizes, --accent-* as text, color-mix
+   notices, --text-muted information text, Tailwind palette classes → their v4
+   oklch defaults). These literals are the finding, not a recommendation.
+   Sources: ContextModeSettingsForm.tsx, HermesMemorySettings.tsx,
+   GmailSettings.tsx, FolderKbSection.tsx, SlotPill.tsx at develop. */
+.ab { font-size: 13px; color: var(--text-secondary); }
+.ab .t9 { font-size: 9px; } .ab .t10 { font-size: 10px; } .ab .t11 { font-size: 11px; } .ab .t115 { font-size: 11.5px; } .ab .t12 { font-size: 12px; } .ab .t125 { font-size: 12.5px; } .ab .t13 { font-size: 13px; } .ab .t14 { font-size: 14px; }
+.ab .prim { color: var(--text-primary); } .ab .sec { color: var(--text-secondary); } .ab .tert { color: var(--text-tertiary); } .ab .muted { color: var(--text-muted); }
+.ab .fw5 { font-weight: 500; } .ab .fw6 { font-weight: 600; } .ab .fw8 { font-weight: 800; }
+.ab .mono { font-family: "SF Mono", Menlo, monospace; }
+.ab .accent-red { color: var(--accent-red); } .ab .accent-yellow { color: var(--accent-yellow); } .ab .accent-blue { color: var(--accent-blue); } .ab .accent-green { color: var(--accent-green); } .ab .accent-text { color: var(--accent-text); }
+.ab .sev-err { color: var(--severity-error-fg); }
+.ab .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ab .between { justify-content: space-between; }
+.ab .stack > * + * { margin-top: 8px; }
+.ab details.grp { border: 1px solid var(--border-secondary); border-radius: 8px; margin-top: 8px; }
+.ab details.grp > summary { cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 10px 14px; font-size: 13px; font-weight: 600; color: var(--text-primary); list-style: none; }
+.ab details.grp > summary::-webkit-details-marker { display: none; }
+.ab .grp-body { padding: 4px 14px 12px; }
+.ab .field { padding: 10px 0; border-top: 1px solid var(--border-subtle); }
+.ab .inp { font-family: "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--text-primary); background: var(--bg-tertiary); border: 1px solid var(--border-secondary); border-radius: 6px; padding: 6px 10px; outline: none; }
+.ab .inp:focus { border-color: var(--accent-primary); }
+.ab .ghost { font-size: 12.5px; padding: 6px 14px; border-radius: 6px; color: var(--text-primary); }
+.ab .notice-y { border-radius: 6px; padding: 8px 10px; font-size: 11.5px; background: color-mix(in srgb, var(--accent-yellow) 12%, transparent); border: 1px solid color-mix(in srgb, var(--accent-yellow) 40%, transparent); color: var(--text-secondary); }
+.ab .badge-def { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--bg-tertiary); color: var(--text-tertiary); }
+.ab .dirtydot { width: 6px; height: 6px; border-radius: 999px; background: var(--accent-blue); display: inline-block; }
+.ab .overlay { position: relative; background: rgb(0 0 0 / .55); padding: 24px; border-radius: 8px; }
+.ab .modal { background: var(--bg-secondary); border: 1px solid var(--border-secondary); border-radius: 10px; padding: 14px; }
+/* gmail */
+.ab .g-field { border-radius: 4px; border: 1px solid var(--border-primary); background: transparent; font-size: 12px; color: var(--text-primary); padding: 3px 6px; }
+.ab .g-btn { border-radius: 4px; border: 1px solid var(--border-primary); padding: 2px 8px; font-size: 12px; }
+.ab .g-btn:disabled { opacity: .5; }
+.ab .g-badge-ok { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--severity-success-border); background: var(--severity-success-bg); color: var(--severity-success-fg); }
+.ab .g-badge-re { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--severity-warning-border); background: var(--severity-warning-bg); color: var(--severity-warning-fg); }
+.ab .g-step { border-left: 2px solid var(--border-secondary); padding: 4px 10px; }
+.ab .g-step.active { border-color: var(--accent); }
+/* kb pill (SlotPill raised) */
+.ab .pill { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 10px 10px 6px; border-radius: 11px; border: 1px solid var(--border-subtle); background: var(--bg-secondary); box-shadow: 0 1px 2px var(--shadow-card); width: 220px; }
+.ab .legend { position: absolute; top: -6px; left: 50%; transform: translateX(-50%); padding: 1px 6px; border-radius: 999px; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); font-size: 9px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-secondary); line-height: 1; white-space: nowrap; }
+.ab .glyph { width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: oklch(71.5% 0.143 215.221 / 0.1); color: oklch(78.9% 0.154 211.53); flex: none; }
+.ab .glyph.red { background: oklch(63.7% 0.237 25.331 / 0.1); color: oklch(70.4% 0.191 22.216); }
+.ab .pbody { font-size: 13px; font-weight: 800; color: var(--text-primary); display: flex; align-items: baseline; gap: 6px; min-width: 0; flex: 1; line-height: 1.2; }
+.ab .teal-400 { color: oklch(77.7% 0.152 181.912); }
+.ab .red-400 { color: oklch(70.4% 0.191 22.216); }
+.ab .amber-400 { color: oklch(82.8% 0.189 84.429); }
+.ab .rbtn { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border-subtle); color: var(--text-tertiary); flex: none; }
+.ab .tip { font-size: 10px; color: var(--text-secondary); font-style: italic; }
+/* SHARED + UNCHANGED in this change: SlotPill's cyan accent glyph (SlotPill.tsx
+   ACCENT map). Used by the proposed KB pill too, because SlotPill's palette-class
+   accents are shared by 5 folder pills and out of scope (follow-up). */
+.slotpill-cyan { background: oklch(71.5% 0.143 215.221 / 0.1) !important; color: oklch(78.9% 0.154 211.53) !important; }
