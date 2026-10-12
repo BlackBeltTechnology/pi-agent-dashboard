@@ -2635,7 +2635,16 @@ export function reduceEvent(
           ...next.messages[idx],
           toolStatus: isError ? "error" : "complete",
           result: result ? truncateOutputForDisplay(result) : next.messages[idx].result,
-          duration: msgStartedAt ? event.timestamp - msgStartedAt : undefined,
+          // pi >= 1.1.0 records the monotonic `execute()` time on the end event;
+          // prefer it over the timestamp difference (which includes queueing and
+          // transport lag). Absent/invalid → the timestamp fallback.
+          // See change: update-pi-core-1-1-adopt-apis.
+          duration:
+            typeof data.durationMs === "number" && Number.isFinite(data.durationMs) && data.durationMs >= 0
+              ? data.durationMs
+              : msgStartedAt
+                ? event.timestamp - msgStartedAt
+                : undefined,
           ...(images ? { images } : {}),
           ...(finalDetails ? { toolDetails: finalDetails } : {}),
         };

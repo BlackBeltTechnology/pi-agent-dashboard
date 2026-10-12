@@ -28,7 +28,7 @@
  * dispatch-provider-auth-event, warn-missing-anthropic-messages-peer.
  */
 
-import type { OAuthFlowStatus, ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { LegacyProviderIdEntry, OAuthFlowStatus, ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
   mdiAlert,
   mdiCheck,
@@ -149,6 +149,24 @@ async function fetchCatalogueReady(): Promise<boolean> {
   if (!res.ok) throw new Error(`catalogue-ready ${res.status}`);
   const data: any = await res.json();
   return data?.ready === true;
+}
+
+/**
+ * Provider ids pi renamed that still appear in pi's agent-dir files. Fails
+ * quiet to an empty list (older server without the route, malformed body): the
+ * notice is advisory, so its absence is the safe default.
+ * See change: update-pi-core-1-1-adopt-apis.
+ */
+async function fetchLegacyProviderIds(): Promise<LegacyProviderIdEntry[]> {
+  const res = await fetch(`${getApiBase()}/api/provider-auth/legacy-provider-ids`);
+  if (!res.ok) return [];
+  const data: any = await res.json();
+  const list: unknown = data?.legacyProviderIds;
+  if (!Array.isArray(list)) return [];
+  return list.filter(
+    (e): e is LegacyProviderIdEntry =>
+      e !== null && typeof e === "object" && typeof e.legacyId === "string" && typeof e.newId === "string" && Array.isArray(e.locations),
+  );
 }
 
 /** DELETE a provider credential, surfacing the backend error detail on failure. */
@@ -281,6 +299,8 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
   // D5 — null means "unknown" (no response yet, or the read failed): fail open,
   // consistent with the section's posture toward secondary signals.
   const [catalogueReady, setCatalogueReady] = useState<boolean | null>(null);
+  // Renamed-provider-id notice (pi 1.0.3 azure rename); advisory, never blocks rows.
+  const [legacyIds, setLegacyIds] = useState<LegacyProviderIdEntry[]>([]);
   const [loading, setLoading] = useState(true);
   // undefined = closed · null = picker · string = the selected provider's pane
   // (or the custom-endpoint sentinel).
@@ -338,7 +358,10 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     const readyPromise = fetchCatalogueReady()
       .then((ready) => setCatalogueReady(ready))
       .catch(() => setCatalogueReady(null));
-    await Promise.all([statusPromise, providersPromise, readyPromise]);
+    const legacyPromise = fetchLegacyProviderIds()
+      .then((list) => setLegacyIds(list))
+      .catch(() => setLegacyIds([]));
+    await Promise.all([statusPromise, providersPromise, readyPromise, legacyPromise]);
     setLoading(false);
   }, [refetchProviders]);
 
@@ -683,6 +706,42 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
             }
           }}
         />
+      )}
+
+      {/* pi renamed a provider id and the old one is still in pi's files. */}
+      {legacyIds.length > 0 && (
+        <InlineMessage
+          severity="warning"
+          icon={mdiAlert}
+          testId="legacy-provider-rename-notice"
+          title={i18nT("providers.legacyRename.title", undefined, "Warning: pi renamed the Azure provider")}
+        >
+          {legacyIds.map((e) => (
+            <div key={e.legacyId} className="text-xs space-y-1">
+              <p>
+                {i18nT(
+                  "providers.legacyRename.found",
+                  { legacyId: e.legacyId, newId: e.newId, locations: e.locations.join(", ") },
+                  `pi now calls this provider "${e.newId}". The old id "${e.legacyId}" is still in: ${e.locations.join(", ")}.`,
+                )}
+              </p>
+              <p>
+                {i18nT(
+                  "providers.legacyRename.consequence",
+                  undefined,
+                  "Sessions that use the old id fall back to another model and do not reuse their prompt cache.",
+                )}
+              </p>
+              <p>
+                {i18nT(
+                  "providers.legacyRename.fix",
+                  { newId: e.newId },
+                  `Rename the key or id to "${e.newId}", or sign in again with /login.`,
+                )}
+              </p>
+            </div>
+          ))}
+        </InlineMessage>
       )}
 
       {/* Add-provider — the single entry point (provider-add-flow) */}

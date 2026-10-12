@@ -5,3 +5,5 @@ Synthesizes dashboard `event_forward` messages from persisted pi session entries
 Kind-marked `stats_update` (`usageKind`, `turnUsage`, NO `contextUsage`) for `usage` entries, compaction/branch-summary usage, tool-result usage, via `usage-totals.ts`. Invariant: tool results replay as `tool_execution_end`, never `message_end` (keeps register-time replay from re-counting). See change: count-non-message-usage.
 
 toolResult `message.nestedCalls` copied onto the synthesized `tool_execution_end` (`data.nestedCalls`) — only replay trace of nested calls. See change: render-nested-tool-calls.
+
+toolResult `message.durationMs` (finite, >= 0) copied onto the synthesized `tool_execution_end` (`data.durationMs`) so a reloaded row shows the recorded duration. See change: update-pi-core-1-1-adopt-apis.

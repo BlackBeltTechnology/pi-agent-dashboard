@@ -7,7 +7,7 @@ pi 1.0.3 renamed the provider `azure-openai-responses` to `azure`. Sessions that
 - `settings.json`: `defaultProvider` equal to the old id or starting with `<old id>/`, `enabledModels` entries equal to the old id or starting with `<old id>/`, and `modelThinkingLevels` keys equal to the old id or starting with `<old id>/`;
 - `models.json` `providers` keys equal to the old id.
 
-The provider-auth status response SHALL carry `legacyProviderIds`, a list of `{ legacyId: "azure-openai-responses", newId: "azure", locations }`, where `locations` names each matched place. The list SHALL be empty when nothing matched. The scan SHALL NOT return, log or serialize any credential or setting value. A missing, unreadable or unparseable file SHALL be skipped without failing the response. The custom-endpoint API type `azure-openai-responses` SHALL NOT be reported, because it is still a valid pi-ai API.
+The server SHALL expose the result at `GET /api/provider-auth/legacy-provider-ids` as `{ legacyProviderIds }`, a list of `{ legacyId: "azure-openai-responses", newId: "azure", locations }`, where `locations` names each matched place. The list SHALL be empty when nothing matched. The `GET /api/provider-auth/status` body SHALL stay a bare array (clients pin that shape), so it does not carry the list. The scan SHALL NOT return, log or serialize any credential or setting value. A missing, unreadable or unparseable file SHALL be skipped without failing the response. The custom-endpoint API type `azure-openai-responses` SHALL NOT be reported, because it is still a valid pi-ai API.
 
 #### Scenario: Old key in auth.json
 - **WHEN** `auth.json` has a top-level key `azure-openai-responses`

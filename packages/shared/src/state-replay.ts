@@ -189,6 +189,12 @@ export function replayEntriesAsEvents(
         if (msg.nestedCalls && typeof msg.nestedCalls === "object") {
           eventData.nestedCalls = msg.nestedCalls;
         }
+        // pi >= 1.1.0 records the execution time on the tool-result message; carry
+        // it (same finite, >= 0 guard as the reducer) so a reloaded session shows
+        // the live duration. See change: update-pi-core-1-1-adopt-apis.
+        if (typeof msg.durationMs === "number" && Number.isFinite(msg.durationMs) && msg.durationMs >= 0) {
+          eventData.durationMs = msg.durationMs;
+        }
         messages.push(makeEvent(sessionId, "tool_execution_end", ts, eventData));
         openToolCalls.delete(msg.toolCallId);
       }
