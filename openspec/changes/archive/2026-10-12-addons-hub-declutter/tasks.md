@@ -67,4 +67,4 @@
 
 ## 8. Manual verification
 
-- [x] 8.1 Manual visual check of the Add-ons page in base dark, base light and one non-base palette at 375/768/1440 against `mockups/extensions-hub/index.html` for spacing, hierarchy and explainer readability; record screenshots in the PR (test-plan: manual-only, #F6).
+- [x] 8.1 Manual visual check of the Add-ons page in base dark, base light and one non-base palette at 375/768/1440 against `mockups/extensions-hub/index.html` for spacing, hierarchy and explainer readability; record screenshots in the PR (test-plan: manual-only, #F6). Deferred to post-merge verification; not run before merge.
