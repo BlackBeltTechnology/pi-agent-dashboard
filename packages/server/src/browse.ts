@@ -332,7 +332,13 @@ export async function createProjectDirectory(
     throw new CreateProjectError("root_not_a_directory", "projects root is not a directory");
   }
 
-  const target = path.join(rootReal, name);
+  // Lexical containment before any disk access (belt and braces over the name guard;
+  // the realpath check below covers links). `path.resolve` normalizes first.
+  const rootPrefix = rootReal.endsWith(path.sep) ? rootReal : rootReal + path.sep;
+  const target = path.resolve(rootReal, name);
+  if (!target.startsWith(rootPrefix)) {
+    throw new CreateProjectError("invalid_name", "invalid name");
+  }
   let created = false;
   try {
     await fs.mkdir(target, { recursive: false });
@@ -351,8 +357,7 @@ export async function createProjectDirectory(
     if (errCode(err) === "ENOENT") throw new CreateProjectError("not_a_directory", "target is not a directory");
     throw new CreateProjectError("fs_error", "could not resolve project directory");
   }
-  const prefix = rootReal.endsWith(path.sep) ? rootReal : rootReal + path.sep;
-  if (!targetReal.startsWith(prefix)) {
+  if (!targetReal.startsWith(rootPrefix)) {
     if (created) await removeCreated(target);
     throw new CreateProjectError("outside_root", "project directory resolves outside the projects root");
   }
