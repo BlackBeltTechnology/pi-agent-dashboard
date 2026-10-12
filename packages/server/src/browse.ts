@@ -16,6 +16,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isFilesystemRoot } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import { isPortableProjectName, projectNameProblem } from "@blackbelt-technology/pi-dashboard-shared/project-name.js";
 import type { BrowseEntry, BrowseFlagEntry, BrowseResult, CreateProjectErrorReason } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { createSemaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 
@@ -273,29 +274,6 @@ export class CreateProjectError extends Error {
 
 /** Default projects root directory name, inside the server user's home. */
 const PROJECTS_ROOT_NAME = "Projects";
-const MAX_PROJECT_NAME_BYTES = 255;
-// C0 + DEL + C1 control characters.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
-const CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F]/;
-const WINDOWS_FORBIDDEN_CHARS = /[:*?"<>|]/;
-// Windows device names; the superscript digits are reserved too. Matched on the
-// basename up to the first dot, so `aux.txt` is reserved like `aux`.
-const WINDOWS_RESERVED = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9\u00B9\u00B2\u00B3]|lpt[0-9\u00B9\u00B2\u00B3])$/i;
-
-function validateProjectName(name: unknown): void {
-  if (typeof name !== "string") throw new CreateProjectError("invalid_name", "invalid name");
-  if (validateMkdirName(name) !== null) throw new CreateProjectError("invalid_name", "invalid name");
-  if (CONTROL_CHARS.test(name) || WINDOWS_FORBIDDEN_CHARS.test(name) || name.endsWith(".")) {
-    throw new CreateProjectError("invalid_name", "invalid name");
-  }
-  if (WINDOWS_RESERVED.test(name.split(".")[0].trimEnd())) {
-    throw new CreateProjectError("reserved_name", "reserved name");
-  }
-  if (Buffer.byteLength(name, "utf8") > MAX_PROJECT_NAME_BYTES) {
-    throw new CreateProjectError("too_long", "name too long");
-  }
-}
-
 const errCode = (err: unknown): string | undefined => (err as NodeJS.ErrnoException | undefined)?.code;
 
 async function isDirectory(p: string): Promise<boolean> {
@@ -325,8 +303,11 @@ export async function createProjectDirectory(
   name: unknown,
   homeDir: string = os.homedir(),
 ): Promise<{ path: string; existed: boolean }> {
-  validateProjectName(name);
-  const safeName = name as string;
+  // Boolean guard first (a CodeQL path-injection barrier); the reason is only computed on failure.
+  if (!isPortableProjectName(name)) {
+    const problem = projectNameProblem(name) ?? "invalid_name";
+    throw new CreateProjectError(problem, problem === "reserved_name" ? "reserved name" : problem === "too_long" ? "name too long" : "invalid name");
+  }
 
   if (!(await isDirectory(homeDir))) {
     throw new CreateProjectError("home_missing", "home directory not found");
@@ -351,7 +332,7 @@ export async function createProjectDirectory(
     throw new CreateProjectError("root_not_a_directory", "projects root is not a directory");
   }
 
-  const target = path.join(rootReal, safeName);
+  const target = path.join(rootReal, name);
   let created = false;
   try {
     await fs.mkdir(target, { recursive: false });
