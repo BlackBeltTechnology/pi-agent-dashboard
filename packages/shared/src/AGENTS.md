@@ -77,6 +77,7 @@ Files in this directory. One row per source file.
 | `path-containment.ts` | Boundary-correct `isPathInside(parent, child, platform?)` (sibling prefix `/repo-other` is NOT inside `/repo`). Relocated from `packages/server/src/session/active-sessions-in-cwd.ts` so the shared OpenSpec detector can cwd-scope. See change: scope-openspec-auto-attach-to-session-cwd. |
 | `pi-package-resolver.ts` | Walks `~/.pi/agent/settings.json#packages[]` + per-workspace `<cwd>/.pi/settings.json`. → see `pi-package-resolver.ts.AGENTS.md` |
 | `plugin-bridge-register.ts` | Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND… → see `plugin-bridge-register.ts.AGENTS.md` |
+| `project-name.ts` | Portable project-name rules + `isPortableProjectName` guard. → see `project-name.ts.AGENTS.md` |
 | `protocol.ts` | Extension↔Server WebSocket protocol. `ExtensionToServerMessage` + `ServerToExtensionMessage` unions. → see `protocol.ts.AGENTS.md` |
 | `recovery-timing.ts` | The two cold-start recovery windows in one module so their relation is testable. → see `recovery-timing.ts.AGENTS.md` |
 | `recommended-extensions.ts` | Curated manifest of recommended pi extensions. `RecommendedExtension` (id, source, displayName, status,…). `pi-mcp-adapter` row REMOVED; the `@blackbelt-technology/pi-dashboard-mcp-client-plugin` row carries `dashboardPlugin: "mcp-client"` with NO `requires`; apple-tools unlock text says pi's built-in MCP. See change: extract-mcp-client-plugin, migrate-mcp-to-pi-builtin. → see `recommended-extensions.ts.AGENTS.md` |

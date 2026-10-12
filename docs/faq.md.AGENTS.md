@@ -19,3 +19,6 @@ Gains "Why do control routes 403 `local_proof_required` after enabling `requireL
  TS-loader rollback FAQ (PI_DASHBOARD_TS_LOADER=jiti, fresh launch, /api/restart keeps loader). See change: fix-appimage-cold-boot-latency.
 
 Gains "Server fails to start / behaves differently after the native TS loader switch — how to roll back?" → PI_DASHBOARD_TS_LOADER=jiti + fresh launch, Electron env, /api/restart keeps loader, server.log loader grep, old-Node stripTypeScriptTypes error. See change: fix-appimage-cold-boot-latency. Bare `tsc` prints Version 7 → which compiler runs. See change: migrate-typecheck-to-ts7.
+Gains "Server fails to start / behaves differently after the native TS loader switch — how to roll back?" → PI_DASHBOARD_TS_LOADER=jiti + fresh launch, Electron env, /api/restart keeps loader, server.log loader grep, old-Node stripTypeScriptTypes error. See change: fix-appimage-cold-boot-latency.
+
+See change: streamline-first-run. Claude tool-call fallback / peer auto-install FAQ.

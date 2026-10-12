@@ -52,7 +52,6 @@ import { SessionContentGate } from "./components/shell/SessionContentGate.js";
 import { ShellContent, type ShellContentRenderers } from "./components/shell/ShellContent.js";
 import { StatusBar } from "./components/shell/StatusBar.js";
 import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
-import { useEditorTabOpenListener } from "./lib/layout/editor-tab-open.js";
 import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
 import { allTagsInUse } from "./components/tags/all-tags.js";
 import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
@@ -85,6 +84,7 @@ import { applyPromptTimeout, carryInteractiveRequests, createInitialState, deriv
 import { normalizeFollowUpEntries } from "./lib/chat/followup-entries.js";
 import { nextBackfillRange } from "./lib/chat/history-gap.js";
 import { refreshChat } from "./lib/chat/refresh-chat.js";
+import { createProjectAndPin } from "./lib/create-project.js";
 import { maybeAutoInitWorktreeOnSpawn } from "./lib/git/auto-init-worktree.js";
 import { resolveWorktreeAvailability } from "./lib/git/folder-worktree-availability.js";
 import { fetchActiveInits } from "./lib/git/git-api.js";
@@ -92,6 +92,7 @@ import { refreshGitStatus } from "./lib/git/git-status-cache.js";
 import { resendActiveCwdSubscriptions, setInitSender } from "./lib/git/worktree-init-bus.js";
 import { initStore } from "./lib/git/worktree-init-store.js";
 import { CHAT_HEADER_BOUND, CHAT_HEADER_WEIGHT } from "./lib/layout/chat-pane-row-class.js";
+import { useEditorTabOpenListener } from "./lib/layout/editor-tab-open.js";
 import { getMobileDepth } from "./lib/layout/mobile-depth.js";
 import { goBack as goBackAction, returnTo } from "./lib/nav/history-back.js";
 import {
@@ -127,7 +128,10 @@ import { OpenSpecMapContext } from "./lib/openspec/OpenSpecMapContext.js";
 import { useOpenSpecConfig } from "./lib/openspec/openspec-config-api.js";
 import { computeRenderedCwds } from "./lib/openspec/rendered-cwds.js";
 import { useArchiveEntries } from "./lib/openspec/useAttachmentResolution.js";
+import { usePeerAutoInstallReset } from "./lib/package/peer-auto-install-store.js";
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
+import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
+import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
 import { buildHistoryPhaseMap, hasChatContent } from "./lib/replay/history-load-phase.js";
 import { extractUserPromptHistory } from "./lib/replay/message-history.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
@@ -138,8 +142,6 @@ import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storag
 import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
-import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
-import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
 
 // Stable tracker facade for the depth-aware back action
 // (change: fix-mobile-back-depth-aware).
@@ -827,6 +829,8 @@ export default function App() {
   const [cardSections, setCardSections] = useState<CardSectionPrefs>({});
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const providersReady = useProvidersReady();
+  // Drop the automatic-peer-install state when `anthropic` signs out (true → false).
+  usePeerAutoInstallReset(providersReady.anthropicAuthenticated);
   const [terminals, setTerminals] = useState<Map<string, TerminalSession>>(new Map());
   const pendingTerminalCwdRef = useRef<string | null>(null);
   const lastCreatedTerminalIdRef = useRef<string | null>(null);
@@ -2840,6 +2844,8 @@ export default function App() {
     renderLanding: () => (
       <LandingPage
         providersReady={providersReady.ready}
+        anthropicAuthenticated={providersReady.anthropicAuthenticated}
+        onCreateProject={(name) => createProjectAndPin(name, { send, setPinned: setPinnedDirectories })}
         pinnedCount={pinnedDirectories.length}
         sessionsCount={sessions.size}
         firstPinnedCwd={pinnedDirectories[0] ?? null}

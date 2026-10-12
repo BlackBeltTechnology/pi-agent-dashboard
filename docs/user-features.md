@@ -95,3 +95,28 @@ Curated subset of [`features.md`](features.md) that can be communicated to end u
 - Generate images (Gemini) and video storyboards (Veo)
 - UI mockup design loop with accessibility scoring
 - Optional grammar/spell check in the composer
+
+## First run: connect, create, start
+
+- Landing shows one ordered list, 3 steps: connect a model provider → create first project → start first session
+- Progress line `n of 3 done` above list
+- First pending step expanded, one primary button
+- Done steps: one line + check
+- Locked / later steps: one line, no controls — `Needs …` or `Waits for step 1`
+- Step ②: field `Project name` prefilled `my-first-project`, primary `Create project`
+- Step ②: link `Use an existing folder…` opens folder browser
+- Create makes or reuses `~/Projects/<name>`; `Projects` root created if absent; never above home
+- Project pinned automatically
+- Existing folder: done row adds "That folder already existed, so it was pinned as-is." Gone once Landing unmounts
+- Name rules: single path segment; no `/ \ : * ? " < > |`, no control chars, no trailing `.` or space, no `CON` `PRN` `AUX` `NUL` `COM0-9` `LPT0-9` (any extension), ≤255 UTF-8 bytes
+- Invalid name: error between label and field; input kept
+- Symlinked project folder must resolve inside `~/Projects`; symlinked `~/Projects` root allowed
+- Claude tool calls: finishing `anthropic` sign-in in Settings ▸ Providers auto-installs `@blackbelt-technology/pi-anthropic-messages` (global)
+- Auto-install skipped when that package already active in pi, or on probe import failure. Sign-in never blocked
+- Auto-install does not run on API-key saves, other providers, custom endpoints, or page loads while already connected
+- Install status shows on Anthropic row and Landing step ①:
+  - installing: info
+  - installed: "applies on next pi session start"
+  - failed: warning, plain sentence first, `Retry install`, raw installer output in collapsed `Details`
+- Landing `Install` appears when `anthropic` signed in and peer not active, with no auto state (e.g. sign-in finished after Settings closed)
+- Status clears on reload, sign-out, or once probe resolves

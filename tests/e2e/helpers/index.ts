@@ -15,7 +15,12 @@ export const TESTIDS = {
   // Empty-state path: the LandingPage onboarding CTAs drive the same actions
   // (open pin dialog / spawn) and are the deterministic affordances on a
   // fresh container. Step CTAs are gated on `providersReady` (seeded key).
-  onboardingStep2Cta: "onboarding-step-2-cta", // "Add folder" → opens AddFoldersDialog
+  onboardingStep2Cta: "onboarding-step-2-cta", // "Use an existing folder…" → opens AddFoldersDialog
+  // Step ② inline create form. See change: streamline-first-run.
+  onboardingStep2Create: "onboarding-step-2-create", // primary "Create project"
+  onboardingStep2Name: "onboarding-step-2-name",
+  onboardingStep2Error: "onboarding-step-2-error",
+  onboardingStep2Done: "onboarding-step-2-done",
   onboardingStep3Cta: "onboarding-step-3-cta", // "Start session" → spawns
   // The "Add folder" CTAs open the multi-select AddFoldersDialog. The former
   // single-path PinDirectoryDialog (`pin-directory-dialog`) still EXISTS and

@@ -357,6 +357,34 @@ export interface MkdirResult {
 
 export type MkdirResponse = ApiResponse<MkdirResult>;
 
+/** Request body for `POST /api/browse/create-project`. See change: streamline-first-run. */
+export interface CreateProjectRequest {
+  name: string;
+}
+
+/** Stable machine codes returned as `reason` on a failed create-project call. */
+export type CreateProjectErrorReason =
+  | "invalid_name"
+  | "reserved_name"
+  | "too_long"
+  | "not_a_directory"
+  | "root_not_a_directory"
+  | "outside_root"
+  | "home_missing"
+  | "fs_error";
+
+export interface CreateProjectResult {
+  /** Real (symlink-resolved) absolute path of the project directory. */
+  path: string;
+  /** True when the directory already existed before the call. */
+  existed: boolean;
+}
+
+/** Failure envelope: `ApiResponse` plus the machine `reason`. */
+export type CreateProjectResponse =
+  | ApiResponse<CreateProjectResult>
+  | { success: false; error: string; reason: CreateProjectErrorReason };
+
 // ── Tunnel Status ───────────────────────────────────────────────────
 
 export interface TunnelWatchdogPublicStatus {

@@ -25,11 +25,19 @@
 #
 # Scope: this models exactly that one function. It does not suppress the query.
 # See change: improve-kb-settings-sources-and-search.
+#
+# `isPortableProjectName(name)` (packages/shared/src/project-name.ts) admits a caller-supplied
+# project name ONLY when it is a single portable path segment (no separators, `..`, control
+# characters, device names, > 255 bytes). `createProjectDirectory` branches on it before joining
+# the name onto the realpath'd projects root, then re-checks realpath containment.
+# See change: streamline-first-run.
 extensions:
   - addsTo:
       pack: codeql/javascript-all
       extensible: barrierGuardModel
     data:
+      - ["@blackbelt-technology/pi-dashboard-shared/project-name.js", "Member[isPortableProjectName].Argument[0]", "true", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared/project-name", "Member[isPortableProjectName].Argument[0]", "true", "path-injection"]
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[isAllowedCwd].Argument[0]", "true", "path-injection"]
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[isAllowedCwd].Argument[0]", "true", "path-injection"]
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[admissionAllows].Argument[1]", "true", "path-injection"]
