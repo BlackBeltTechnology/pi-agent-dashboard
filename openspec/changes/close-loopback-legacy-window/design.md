@@ -104,7 +104,7 @@ so a fresh lock can never be overwritten:
   5. retry the claim.
 
   A fresh lock has different content, so it is never removed.
-- **Wait:** the server path is async (`ensureLocalTokenAsync`, `setTimeout` 50 ms; `createServer` is already `async`). The sync variant, used only for the CLI's mint-if-absent, waits with `Atomics.wait`. After 35 s (> the 30 s stale age, so a dead holder is always broken first), both throw `LocalTokenLockTimeoutError`. Server start fails loudly. `cli.ts` `safeEnsureLocalToken` re-throws this error instead of mapping it to `null`, so the CLI fails with a named message rather than a later bare 401.
+- **Wait:** the server path is async (`ensureLocalTokenAsync`, `setTimeout` 50 ms; `createServer` is already `async`). The sync variant, used only for the CLI's mint-if-absent, waits with `Atomics.wait`. After 35 s (> the 30 s stale age, so a dead holder is always broken first), both throw `LocalTokenLockTimeoutError`. Server start fails loudly. `cli.ts` `safeEnsureLocalToken` re-throws this error instead of mapping it to `null`. The CLI then exits `1` with stderr `local token lock busy (~/.pi/dashboard/local/token.lock) — another dashboard is writing the token; retry`, rather than failing later with a bare 401. The stale (30 s) and wait (35 s) bounds are module options so tests can shrink them.
 
 Case 2 takes no lock, so steady-state start cost is unchanged.
 
