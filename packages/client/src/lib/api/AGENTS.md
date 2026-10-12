@@ -4,6 +4,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
+| `api-base-fetch.ts` | `installApiBaseFetch()` — idempotent (`window.__piApiBaseFetch`) global `fetch` wrapper. Rewrites `string` inputs starting `/api/` to `${getApiBase()}${input}` when base non-empty (read per call); URL/Request/absolute/non-`/api/` pass through. Lets plugin clients (no API base) follow the ServerSelector remote. ORDERING INVARIANT: install AFTER `installDeviceAuthFetch` + `installGrantChannelFetch` (outermost) so no local bearer/grant header reaches a remote. See change: fix-remote-relative-api-fetch. |
 | `api-context.ts` | React context + module-level store for HTTP API base URL. → see `api-context.ts.AGENTS.md` |
 | `archived-sessions-api.ts` | Client-side fetch helpers for archived-session REST endpoints. Exports `fetchArchivedSessions`, `fetchArchivedSessionById`, `deleteArchivedSession`, `ArchivedSessionsPage`, `ArchivedSessionsQuery`. See change: archive-sessions-lazy-load. |
 | `auto-name-outcomes-api.ts` | Typed `fetchAutoNameOutcomes(): Promise<AutoNameOutcomeRow[]>` against `GET /api/auto-name-outcomes`. Fetched on Diagnostics mount rather than accumulated from the live broadcast, so a naming stop reported while NO client was connected is still visible. See change: fix-auto-naming-reasoning-model. |

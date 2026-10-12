@@ -51,6 +51,7 @@ import { LogBlock } from "./components/primitives/LogBlock.js";
 import { PathPickerDialog } from "./components/primitives/PathPickerDialog.js";
 import { OAuthFlowView } from "./components/settings/OAuthFlowView.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
+import { installApiBaseFetch } from "./lib/api/api-base-fetch.js";
 import { installGrantChannelFetch } from "./lib/access-grants/grant-channel.js";
 import { installDeviceAuthFetch, migrateLegacyDeviceBearer } from "./lib/pairing/device-auth.js";
 import {
@@ -186,6 +187,11 @@ void migrateLegacyDeviceBearer();
 // Echo the in-memory access-prompt capability on same-origin `/api/*` requests
 // so a denied read can be held for a verdict. See change: add-access-grant-dialog.
 installGrantChannelFetch();
+// Follow the selected server for un-prefixed root-relative `/api/` fetches (plugin
+// clients get no API base). MUST be installed AFTER the two credential wrappers
+// above (outermost) so they see the rewritten cross-origin URL and never attach
+// the local bearer / grant capability to a remote. See change: fix-remote-relative-api-fetch.
+installApiBaseFetch();
 
 // D22 dashboard-UI login: consume the login plugin's return (`#pi_handoff`,
 // `#pi_login_error`, `?pi_signed_out=1`) BEFORE <App/> mounts, stripping it from
