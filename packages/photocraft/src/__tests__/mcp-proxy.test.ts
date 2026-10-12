@@ -181,6 +181,25 @@ describe("cancellation", () => {
   });
 });
 
+describe("cancellation validation", () => {
+  it("F6 a malformed cancellation (carries an id) is forwarded untouched and drops nothing", async () => {
+    const logFile = path.join(tmpDir(), "events.jsonl");
+    const bin = nodeStub(MCP_STUB);
+    const spawn = (command: string, args: string[], options: object) =>
+      nodeSpawn(command, args, { ...options, env: { ...process.env, STUB_LOG: logFile, STUB_DROP: "1" } } as never);
+    const h = harness({ provision: async () => report(bin), spawn: spawn as never, cancelGraceMs: 200 });
+    const msg = (o: object) => `${JSON.stringify({ jsonrpc: "2.0", ...o })}\n`;
+    h.stdin.write(msg({ id: 1, method: "tools/call" }));
+    h.stdin.write(msg({ id: 2, method: "tools/call" }));
+    h.stdin.write(msg({ id: 9, method: "notifications/cancelled", params: { requestId: 2 } }));
+    h.stdin.write(msg({ method: "notifications/cancelled", params: { requestId: 1 } }));
+    h.stdin.end();
+    expect(await runMcp([], h.deps)).toBe(0);
+    const received = readLog(logFile).filter((e) => e.ev === "recv").map((e) => e.key);
+    expect(received).toEqual(["call#1", "notifications/cancelled", "notifications/cancelled", "call#2"]);
+  });
+});
+
 describe("signals", () => {
   it("X11 SIGTERM / SIGINT terminate the server child and exit 143 / 130", async () => {
     for (const [signal, code] of [["SIGTERM", 143], ["SIGINT", 130]] as const) {

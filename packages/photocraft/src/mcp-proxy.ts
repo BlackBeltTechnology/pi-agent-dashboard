@@ -159,7 +159,7 @@ export async function runMcp(argv: string[], partial: Partial<McpDeps> = {}): Pr
     const clientRl = readline.createInterface({ input: deps.stdin });
     clientRl.on("line", (line) => {
       if (line.trim() === "") return;
-      let msg: { method?: unknown; id?: unknown; params?: { requestId?: unknown } } | undefined;
+      let msg: { jsonrpc?: unknown; method?: unknown; id?: unknown; params?: { requestId?: unknown } } | undefined;
       try {
         msg = JSON.parse(line);
       } catch {
@@ -169,7 +169,12 @@ export async function runMcp(argv: string[], partial: Partial<McpDeps> = {}): Pr
       if (single?.method === "tools/call" && single.id !== undefined) {
         queue.push({ raw: line, id: single.id });
         pump();
-      } else if (single?.method === "notifications/cancelled" && single.params?.requestId !== undefined) {
+      } else if (
+        single?.method === "notifications/cancelled" &&
+        single.jsonrpc === "2.0" &&
+        single.id === undefined && // a notification carries no id; anything else passes through untouched
+        single.params?.requestId !== undefined
+      ) {
         onCancelled(single.params.requestId, line);
       } else toChild(line);
     });

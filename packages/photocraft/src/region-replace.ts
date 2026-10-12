@@ -152,8 +152,9 @@ function realish(p: string): string {
 /** Same existing file (device + inode: hard links, case-insensitive spellings), else same resolved path. */
 function sameFile(a: string, b: string): boolean {
   try {
-    const sa = fs.statSync(a);
-    const sb = fs.statSync(b);
+    // bigint: dev/ino can exceed 2^53 on some filesystems
+    const sa = fs.statSync(a, { bigint: true });
+    const sb = fs.statSync(b, { bigint: true });
     return sa.dev === sb.dev && sa.ino === sb.ino;
   } catch {
     return realish(a) === realish(b);
