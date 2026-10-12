@@ -2,9 +2,9 @@
  * Mode `new` tests — exercise the renderer with synthetic answer sets and
  * snapshot-assert the resulting in-memory tree.
  */
-import { describe, it, expect } from "vitest";
-import { render, InMemorySink } from "../render.js";
+import { describe, expect, it } from "vitest";
 import type { NewModeAnswers, SlotId } from "../render.js";
+import { type InMemorySink, render } from "../render.js";
 
 const ALL_SLOTS: SlotId[] = [
   "sidebar-folder-section",

@@ -27,14 +27,15 @@
  *              asserted — this is the number the revert gate compares against.
  *
  * Run it through `qa/tests/26-retained-hydration-block.sh`, which finds a
- * runtime that can load the server's TypeScript (jiti) — the repository's own
+ * runtime that can load the server's TypeScript (the Node-native strip-only loader) — the repository's own
  * worktrees frequently have an incomplete `node_modules`, and a perf arm that
  * silently measures nothing is worse than one that refuses.
  *
  * Deliberately NOT a spec under `packages/server/src/**\/__tests__/`: the default
  * vitest project would then pay a 44 MB fixture on every `npm test`.
  *
- * See change: offload-retained-transcript-replay (test-plan #P1, #P2).
+ * See change: offload-retained-transcript-replay (test-plan #P1, #P2);
+ *             strip-only-native-ts-loader.
  */
 
 import fs from "node:fs";
@@ -52,13 +53,9 @@ const BUDGET_MS = Number(process.env.PERF_BUDGET_MS ?? 250);
 const MODE = process.env.PERF_MODE ?? "both";
 const RESOLUTION_MS = 5;
 
-/**
- * jiti's CJS interop exposes a TypeScript module's exports on `default`, so a
- * named import is empty. Read through `default` when it is there.
- */
+/** Native ESM: a TypeScript module's named exports are on the namespace itself. */
 async function loadModule(absPath) {
-  const mod = await import(new URL(`file://${absPath}`).href);
-  return mod.default ?? mod;
+  return import(new URL(`file://${absPath}`).href);
 }
 
 /** A ~`targetBytes` JSONL transcript: a session header plus linear messages. */

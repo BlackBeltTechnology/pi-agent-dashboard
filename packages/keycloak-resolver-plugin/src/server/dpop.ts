@@ -32,12 +32,17 @@ export function base64UrlSha256(input: string): string {
  * single dashboard instance (cross-instance replay is out of scope, D6).
  */
 export class JtiReplayCache {
+  private readonly windowSeconds: number;
+  private readonly maxEntries: number;
   private readonly seen = new Map<string, number>();
 
   constructor(
-    private readonly windowSeconds: number = DEFAULT_DPOP_WINDOW_SECONDS,
-    private readonly maxEntries = 10_000,
-  ) {}
+    windowSeconds: number = DEFAULT_DPOP_WINDOW_SECONDS,
+    maxEntries = 10_000,
+  ) {
+    this.windowSeconds = windowSeconds;
+    this.maxEntries = maxEntries;
+  }
 
   /** Record a jti; returns false when it was already present (a replay). */
   checkAndRecord(jti: string, now: number = Date.now()): boolean {

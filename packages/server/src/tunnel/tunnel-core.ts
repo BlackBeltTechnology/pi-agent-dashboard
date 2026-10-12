@@ -87,13 +87,16 @@ export interface ChildProviderSpec {
  * same state machine, parameterized.
  */
 export class ChildTunnelRuntime {
+  private readonly spec: ChildProviderSpec;
   private activeProcess: ChildProcess | null = null;
   private activeTunnelUrl: string | null = null;
   /** Why the last create failed / the live tunnel died; cleared on success. */
   private lastError: string | null = null;
   private pendingCreate: Promise<string | null> | null = null;
 
-  constructor(private readonly spec: ChildProviderSpec) {}
+  constructor(spec: ChildProviderSpec) {
+    this.spec = spec;
+  }
 
   // ── PID file helpers ──────────────────────────────────────────────
   private pidPath(): string {

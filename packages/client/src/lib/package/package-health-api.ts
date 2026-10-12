@@ -13,12 +13,17 @@ import type {
 import { getApiBase } from "../api/api-context.js";
 
 class PackageHealthApiError extends Error {
+	readonly status: number;
+	readonly body: unknown;
+
 	constructor(
 		message: string,
-		readonly status: number,
-		readonly body: unknown,
+		status: number,
+		body: unknown,
 	) {
 		super(message);
+		this.status = status;
+		this.body = body;
 		this.name = "PackageHealthApiError";
 	}
 }

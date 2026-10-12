@@ -1,8 +1,7 @@
 import { Jimp, JimpMime } from "jimp";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DISPLAY_MAX_EDGE } from "../display-fit.js";
 import { createFitWorkerPool, workerExecArgv } from "../fit-worker-pool.js";
-import { vi } from "vitest";
 
 async function oversizePng(): Promise<string> {
   const img = new Jimp({ width: 1600, height: 900, color: 0x2244aaff });
@@ -106,35 +105,39 @@ describe("fit-worker-pool", () => {
 });
 
 /**
- * E17/E18 — a worker keeps an inherited TS loader (native or jiti) and gets
- * the SELECTED loader only when none is present.
- * See change: fix-appimage-cold-boot-latency (design D4).
+ * E17/E18 — a worker keeps an inherited TS loader (native, or a foreign
+ * jiti/tsx during the upgrade window) and gets the native loader only when none
+ * is present; jiti is never added (test-plan #E19).
+ * See change: fix-appimage-cold-boot-latency (design D4); strip-only-native-ts-loader.
  */
 describe("workerExecArgv", () => {
   const NATIVE = "file:///x/pi-dashboard-shared/src/platform/native-ts-register.mjs";
   const JITI = "file:///x/node_modules/jiti/lib/jiti-register.mjs";
 
-  it("E17: an inherited native loader is kept unchanged; jiti never resolved", () => {
-    const resolveJiti = vi.fn(() => JITI);
-    const inherited = ["--import", NATIVE];
-    expect(workerExecArgv("file:///w/fit-worker.ts", { execArgv: inherited, env: {}, resolveJiti })).toEqual(inherited);
-    expect(resolveJiti).not.toHaveBeenCalled();
+  it.each([
+    ["native", NATIVE],
+    ["jiti (inherited across an upgrade)", JITI],
+  ])("E17: an inherited %s loader is kept unchanged (one --import, nothing resolved)", (_label, loader) => {
+    const resolveNative = vi.fn(() => NATIVE);
+    const inherited = ["--import", loader];
+    expect(workerExecArgv("file:///w/fit-worker.ts", { execArgv: inherited, resolveNative })).toEqual(inherited);
+    expect(resolveNative).not.toHaveBeenCalled();
   });
 
-  it("E18: no inherited loader → prepends the selected loader", () => {
-    const deps = { execArgv: [], resolveJiti: () => JITI, resolveNative: () => NATIVE };
-    expect(workerExecArgv("file:///w/fit-worker.ts", { ...deps, env: {} })).toEqual(["--import", NATIVE]);
-    expect(workerExecArgv("file:///w/fit-worker.ts", { ...deps, env: { PI_DASHBOARD_TS_LOADER: "jiti" } })).toEqual(["--import", JITI]);
+  it("E18: no inherited loader → adds the native loader, never jiti", () => {
+    const out = workerExecArgv("file:///w/fit-worker.ts", { execArgv: [], resolveNative: () => NATIVE });
+    expect(out).toEqual(["--import", NATIVE]);
+    expect(out.join(" ")).not.toMatch(/jiti/);
   });
 
   it("a native register that cannot be located returns the inherited argv (documented fallback), never throws", () => {
     const inherited = ["--max-old-space-size=512"];
     const resolveNative = () => { throw new Error("cannot locate native-ts-register.mjs"); };
-    expect(workerExecArgv("file:///w/fit-worker.ts", { execArgv: inherited, env: {}, resolveNative })).toEqual(inherited);
+    expect(workerExecArgv("file:///w/fit-worker.ts", { execArgv: inherited, resolveNative })).toEqual(inherited);
   });
 
   it("E18: the default native locator yields a real register URL", () => {
-    const argv = workerExecArgv("file:///w/fit-worker.ts", { execArgv: [], env: {} });
+    const argv = workerExecArgv("file:///w/fit-worker.ts", { execArgv: [] });
     expect(argv[0]).toBe("--import");
     expect(argv[1]).toMatch(/^file:\/\/.*\/platform\/native-ts-register\.mjs$/);
   });

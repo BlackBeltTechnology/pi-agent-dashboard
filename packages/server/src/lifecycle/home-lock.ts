@@ -60,12 +60,16 @@ export type LockAcquireResult =
 /** Thrown when port is held by an unrelated process. Non-fatal to this
  *  module; caller decides (exit with message / retry / override). */
 export class InstanceLockMismatchError extends Error {
+  readonly meta: LockMetadata;
+  readonly observedIdentity: string | null;
   readonly code = "E_INSTANCE_MISMATCH";
-  constructor(readonly meta: LockMetadata, readonly observedIdentity: string | null) {
+  constructor(meta: LockMetadata, observedIdentity: string | null) {
     super(
       `Port ${meta.httpPort} is in use by an unrelated process (PID ${meta.pid}). ` +
         `Configure a different port or stop that process.`,
     );
+    this.meta = meta;
+    this.observedIdentity = observedIdentity;
   }
 }
 

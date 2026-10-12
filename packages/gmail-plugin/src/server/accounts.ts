@@ -48,8 +48,15 @@ export interface AccountSummary {
 }
 
 export class AccountError extends Error {
+  readonly code: | "not_found"
+      | "ambiguous"
+      | "alias_taken"
+      | "invalid_alias"
+      | "missing_refresh"
+      | "no_client";
+
   constructor(
-    readonly code:
+    code:
       | "not_found"
       | "ambiguous"
       | "alias_taken"
@@ -59,6 +66,7 @@ export class AccountError extends Error {
     message: string,
   ) {
     super(message);
+    this.code = code;
     this.name = "AccountError";
   }
 }
@@ -88,10 +96,13 @@ function labels(accounts: AccountRecord[]): string {
 }
 
 export class AccountStore {
+  private readonly creds: PluginCredentials;
   /** Serializes alias check+write: the store's `update()` is per-key, uniqueness is cross-key. */
   private aliasChain: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly creds: PluginCredentials) {}
+  constructor(creds: PluginCredentials) {
+    this.creds = creds;
+  }
 
   async getClient(): Promise<ClientRecord | undefined> {
     const rec = await this.creds.get(CLIENT_KEY);

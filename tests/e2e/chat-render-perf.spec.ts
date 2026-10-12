@@ -110,7 +110,7 @@ test.describe("settings surface interaction latency (advisory, PW_PERF only)", (
     // Alternate between two surfaces this change rewrote, timing each
     // navigation to a settled rendered state.
     for (let i = 0; i < SAMPLES; i++) {
-      const label = i % 2 === 0 ? "Packages" : "Providers";
+      const label = i % 2 === 0 ? "Add-ons" : "Providers";
       const t0 = Date.now();
       await rail.getByRole("button", { name: label, exact: true }).click();
       await expect(content).toBeVisible();

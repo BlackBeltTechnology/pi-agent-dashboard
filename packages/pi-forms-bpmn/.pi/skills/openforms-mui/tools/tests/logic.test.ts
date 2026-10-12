@@ -1,12 +1,12 @@
-import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { Condition, ConditionalRule } from "../src/schema/types";
-import { EvalContext, evaluateCondition, evaluateRule, resolveProperty, compareOrdinal } from "../src/logic/cnf";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+import { compareOrdinal, type EvalContext, evaluateCondition, evaluateRule, resolveProperty } from "../src/logic/cnf";
 import { evaluateFormula } from "../src/logic/formula";
+import { computeCalculatedValues, resolveFormState } from "../src/logic/state";
 import { normalizeSchema } from "../src/schema/normalize";
-import { resolveFormState, computeCalculatedValues } from "../src/logic/state";
+import type { Condition, ConditionalRule } from "../src/schema/types";
 
 function ctxOf(answers: Record<string, unknown>): EvalContext {
   return { getAnswer: (k) => (k in answers ? (answers[k] as never) : undefined) };

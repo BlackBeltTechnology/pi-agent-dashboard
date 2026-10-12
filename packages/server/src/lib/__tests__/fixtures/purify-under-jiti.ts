@@ -1,5 +1,5 @@
 // Fixture: run by purify-jiti.test.ts under the server's real loader
-// (`node --import jiti-register`). Prints the sanitized SVG or `ERR <msg>`.
+// (`node --import native-ts-register.mjs`). Prints the sanitized SVG or `ERR <msg>`.
 import { loadPurify } from "../../purify.js";
 
 try {

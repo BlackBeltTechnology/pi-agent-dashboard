@@ -853,8 +853,13 @@ export function translatePathSource(args: {
 }
 
 export class AlreadyAtDestinationError extends Error {
-  constructor(public source: string, public destScope: PackageScope) {
+  public source: string;
+  public destScope: PackageScope;
+
+  constructor(source: string, destScope: PackageScope) {
     super(`Package already installed at ${destScope} scope: ${source}`);
+    this.source = source;
+    this.destScope = destScope;
     this.name = "AlreadyAtDestinationError";
   }
 }

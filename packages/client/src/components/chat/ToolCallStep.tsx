@@ -21,6 +21,24 @@ import { type StopController, ToolStopControl, useToolStopState } from "./ToolSt
  * → render. Returns false → fall through. Throws → fail closed (false) + warn.
  * See change: wire-tool-renderer-slot.
  */
+/**
+ * The "recovered" badge for an Agent card whose real result never reached this
+ * browser: a neutral settle heal (`resultMissing`) while no subagent result is
+ * known, or a server `session_ended` orphan-close. A `subagent_stopped` heal or a
+ * settle with a known result carries the real result and is not badged.
+ * See change: finalize-agent-card-on-subagent-stop (D6).
+ */
+export function isAgentResultNotReceived(
+  toolDetails: Record<string, unknown> | undefined,
+  subagents: ReadonlyMap<string, { result?: string }> | undefined,
+): boolean {
+  if (!toolDetails) return false;
+  if (toolDetails.healedBy === "session_ended") return true;
+  if (toolDetails.resultMissing !== true) return false;
+  const agentId = typeof toolDetails.agentId === "string" ? toolDetails.agentId : undefined;
+  return !(agentId && subagents?.get(agentId)?.result);
+}
+
 function claimShouldRender(claim: ClaimEntry, toolName: string): boolean {
   if (!claim.shouldRender) return true;
   try {
@@ -101,6 +119,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   // Eviction heal: the server vouched the real end was trimmed from its store.
   // See change: distinguish-tool-result-pending-vs-gone (D4).
   const isEvicted = toolDetails?.healedBy === "result_evicted";
+  const resultNotReceived = isAgentResultNotReceived(toolDetails, context.session?.subagents);
   const isAskUser = toolName === "ask_user";
   const isFailedAskUser = isAskUser && status === "error";
   const [expanded, setExpanded] = useState(hasImages || isAgentRunning || (isAskUser && !isFailedAskUser));
@@ -187,6 +206,15 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
             data-testid="tool-superseded-badge"
             className="ml-1 shrink-0 rounded px-1 text-[10px] leading-4 bg-[var(--bg-secondary)] text-[var(--text-muted)] border border-[var(--border-subtle)]"
             title={i18nT("common.resultNotCapturedRecovered", undefined, "Result not captured — the tool finished but its output was unrecoverable; recovered from the transcript.")}
+          >
+            {i18nT("common.recovered", undefined, "recovered")}
+          </span>
+        )}
+        {resultNotReceived && (
+          <span
+            data-testid="tool-recovered-badge"
+            className="ml-1 shrink-0 rounded px-1 text-[10px] leading-4 bg-[var(--bg-secondary)] text-[var(--text-muted)] border border-[var(--border-subtle)]"
+            title={i18nT("chat.tool.subagentResultNotReceived", undefined, "Result not received — the subagent stopped but its result never reached this browser.")}
           >
             {i18nT("common.recovered", undefined, "recovered")}
           </span>

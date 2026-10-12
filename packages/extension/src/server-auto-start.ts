@@ -2,8 +2,9 @@
  * Auto-start logic for the dashboard server.
  * Uses mDNS discovery first, falls back to health check, then auto-starts.
  */
-import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+
 import { spawnReadinessBudgetMs } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import type { DashboardCheckOpts } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { appendAutoStartLog, shouldRefuseWorktreeAutoStart } from "./autostart-guard.js";
 import {
@@ -130,7 +131,7 @@ function mdnsDisabled(): boolean {
 
 /**
  * Bootstrap-aware probe settings for the resolved-port gate (D1) and the
- * post-launch attach probe (D-post). A previous instance mid-jiti-bootstrap
+ * post-launch attach probe (D-post). A previous instance mid-bootstrap
  * can block its event loop 5–15 s and false-negative the default 2 s/0-retry
  * probe, so: non-default timeout, ≥1 retry, retrying ONLY on timeout
  * (AbortError) — ECONNREFUSED is a definitive "nothing listens" and falls
@@ -462,9 +463,9 @@ async function spawnAndAttach(
 
   // Surface the log path so users can inspect the crash output without having
   // to know the convention. The bridge auto-spawn owns this file when the spawn
-  // reached the log-owning path (stdio:{logFile}); only failures that abort
-  // before the log fd opens (JitiNotFoundError → logOwned:false) skip the
-  // suffix, so we never point users at a server.log that was never written.
+  // reached the log-owning path (stdio:{logFile}); a launcher that reports
+  // logOwned:false (aborted before the log fd opened) skips the suffix, so we
+  // never point users at a server.log that was never written.
   // See change: fix-windows-server-parity, fix-bridge-server-start-diagnostics.
   deps.onLaunchEnd?.(false);
   const logSuffix = result.logOwned === false ? "" : `\nSee log: ${getDashboardServerLogPath()}`;

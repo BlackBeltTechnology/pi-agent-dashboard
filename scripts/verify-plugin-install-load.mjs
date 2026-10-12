@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 /**
  * Dynamic install-load check: pack a plugin workspace, install it OUTSIDE the
- * repository, and import its server entry under plain node+jiti with
- * `JITI_TSCONFIG_PATHS` unset and no repository `tsconfig` reachable.
+ * repository, and import its server entry under plain node with the dashboard's
+ * Node-native strip-only TypeScript loader (`--import native-ts-register.mjs`,
+ * the loader the real server uses) and no repository `tsconfig` reachable. A
+ * plugin whose TypeScript is not erasable (`enum`, constructor parameter
+ * property, runtime `namespace`) fails here, naming the offending file, instead
+ * of at a user's server boot.
  *
  * WHY DYNAMIC. `scripts/verify-published-imports.mjs` proves every shipped
  * import is *declared*; it cannot prove the import *resolves*
- * (`paths` / `resolve.alias` / `JITI_TSCONFIG_PATHS` all satisfy a static check
- * while failing a consumer). This check exercises the loader's own contract,
+ * (`paths` / `resolve.alias` all satisfy a static check while failing a
+ * consumer). This check exercises the loader's own contract,
  * `typeof mod.default === "function"`, in the environment where no alias layer
  * exists.
  *
@@ -26,12 +30,13 @@
  * Exit code: non-zero for any in-scope workspace that fails to pack, install, or
  * import; missing `server` entries are skipped.
  *
- * See change: fix-browser-plugin-vendor-specifier-resolution (D6).
+ * See change: fix-browser-plugin-vendor-specifier-resolution (D6);
+ *             strip-only-native-ts-loader (D7).
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { REPO_ROOT } from "./patch-vendor-specifiers.mjs";
 
@@ -141,40 +146,39 @@ export function packWorkspace(dir, destDir, exec = execFileSync) {
 /**
  * The child script that imports the entry and prints a JSON verdict.
  *
- * jiti is driven through its `createJiti` API, NOT the `--import jiti/register`
- * ESM hook. Both are "plain node + jiti", but only the API reproduces what the
- * server's loader sees: `loader.ts` is itself jiti-evaluated, so its
- * `await import(plugin.serverEntryPath)` goes through jiti's CJS interop and
- * yields the default export directly. Importing through the ESM hook instead
- * wraps it (`mod.default.default`) — an artifact of the harness, not a product
- * defect, and exactly the interop gap the change's proposal said to surface
- * rather than paper over.
+ * It runs as `node --import <native-ts-register URL> check.mjs ...` — exactly the
+ * loader and the plain `await import(plugin.serverEntryPath)` shape the server's
+ * plugin loader uses, so a default export is read directly and a non-erasable
+ * file raises the loader's strip error naming that file.
  *
- * `tsconfigPaths: false` is jiti's default, stated explicitly because the whole
- * point is that no repository tsconfig is reachable. Run with cwd = the temp
- * install, so `node_modules` resolves from there.
+ * The script is written INSIDE the installed plugin directory so its
+ * `import.meta.resolve` anchors where the plugin's own imports resolve from.
+ * Run with cwd = the temp install, so `node_modules` resolves from there and no
+ * repository `tsconfig` is reachable.
  */
 const CHECK_SCRIPT = `
-const path = require('node:path');
-const fs = require('node:fs');
-const [jitiLib, entryAbs, pluginDir, runtimeName, extraRel] = process.argv.slice(2);
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+const [entryAbs, runtimeName, extraAbs] = process.argv.slice(2);
 const out = { ok: false };
 try {
-  const factory = require(jitiLib);
-  const createJiti = typeof factory === 'function' ? factory : factory.createJiti;
-  const jiti = createJiti(__filename, { interopDefault: true, tsconfigPaths: false, moduleCache: false });
-  const mod = jiti(entryAbs);
+  const mod = await import(pathToFileURL(entryAbs).href);
   out.defaultType = typeof mod.default;
   out.ok = out.defaultType === 'function';
-  out.runtimeResolved = jiti.resolve(runtimeName, { paths: [pluginDir] });
-  out.runtimeVersion = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'node_modules', runtimeName, 'package.json'), 'utf-8')).version;
-  out.runtimeInsideInstall = typeof out.runtimeResolved === 'string' && out.runtimeResolved.startsWith(path.join(process.cwd(), 'node_modules'));
-  if (extraRel) {
-    jiti(path.join(pluginDir, extraRel));
+  if (extraAbs) {
+    await import(pathToFileURL(extraAbs).href);
     out.extraOk = true;
   }
 } catch (err) {
   out.error = String(err && err.message ? err.message : err);
+}
+try {
+  out.runtimeResolved = fileURLToPath(import.meta.resolve(runtimeName));
+  out.runtimeVersion = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'node_modules', runtimeName, 'package.json'), 'utf-8')).version;
+  out.runtimeInsideInstall = out.runtimeResolved.startsWith(path.join(process.cwd(), 'node_modules'));
+} catch (err) {
+  out.runtimeError = String(err && err.message ? err.message : err);
 }
 console.log(JSON.stringify(out));
 `;
@@ -183,7 +187,7 @@ console.log(JSON.stringify(out));
  * Pack, install and import one in-scope workspace. Returns a result object; the
  * caller decides how to report it.
  */
-export function verifyWorkspace(ws, { allWorkspaces, scratch, jitiLib, exec = execFileSync, node = process.execPath } = {}) {
+export function verifyWorkspace(ws, { allWorkspaces, scratch, registerUrl = resolveNativeRegisterUrl(), exec = execFileSync, node = process.execPath } = {}) {
   const tarballDir = join(scratch, "tarballs");
   mkdirSync(tarballDir, { recursive: true });
 
@@ -215,21 +219,19 @@ export function verifyWorkspace(ws, { allWorkspaces, scratch, jitiLib, exec = ex
   const entryAbs = join(pluginDir, ws.manifest.server);
   if (!existsSync(entryAbs)) return { name: ws.name, ok: false, installDir, error: `server entry not in the install: ${ws.manifest.server}` };
 
-  const checkFile = join(installDir, "check.cjs");
+  const checkFile = join(pluginDir, "__install-load-check.mjs");
   writeFileSync(checkFile, CHECK_SCRIPT);
   const extraRel =
     ws.rel === BROWSER_PLUGIN_REL
       ? "src/server/relay/vendor/playwright-core/src/tools/mcp/cdpRelay.js"
       : "";
+  const extraAbs = extraRel ? join(pluginDir, extraRel) : "";
 
-  const env = { ...process.env };
-  delete env.JITI_TSCONFIG_PATHS; // the whole point: no opt-in alias resolution
   let stdout;
   try {
-    stdout = exec(node, [checkFile, jitiLib, entryAbs, pluginDir, runtimeWorkspace.name, extraRel], {
+    stdout = exec(node, ["--import", registerUrl, checkFile, entryAbs, runtimeWorkspace.name, extraAbs], {
       cwd: installDir,
       encoding: "utf-8",
-      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (err) {
@@ -237,6 +239,9 @@ export function verifyWorkspace(ws, { allWorkspaces, scratch, jitiLib, exec = ex
   }
 
   const verdict = JSON.parse(stdout.trim().split("\n").pop());
+  // The loader's strip error names the offending file; surface it as THE error
+  // so the report line carries plugin + file.
+  if (verdict.error) return { name: ws.name, ok: false, installDir, verdict, error: `import failed: ${verdict.error}` };
 
   // X6: every first-party package in the graph, transitively, must have come
   // from its locally packed tarball — a registry copy is a stale copy, and a
@@ -258,12 +263,9 @@ export function verifyWorkspace(ws, { allWorkspaces, scratch, jitiLib, exec = ex
   return { name: ws.name, ok, verdict, installDir, localRuntime, notLocal };
 }
 
-/** Resolve the jiti CJS bundle from the repo's own dependency graph. */
-export function resolveJitiLib(root = REPO_ROOT) {
-  const local = join(root, "node_modules/jiti/lib/jiti.cjs");
-  if (existsSync(local)) return local;
-  // Worktrees may have no local node_modules; fall back to the parent checkout.
-  return resolve(root, "../../node_modules/jiti/lib/jiti.cjs");
+/** The server's Node-native TypeScript loader, as a `file://` URL for `--import`. */
+export function resolveNativeRegisterUrl(root = REPO_ROOT) {
+  return pathToFileURL(join(root, "packages/shared/src/platform/native-ts-register.mjs")).href;
 }
 
 /**
@@ -335,11 +337,11 @@ export function runInstallLoadCheck({ root = REPO_ROOT, only = null, changedBase
   }
 
   const scratch = mkdtempSync(join(tmpdir(), "install-load-"));
-  const jitiLib = resolveJitiLib(root);
+  const registerUrl = resolveNativeRegisterUrl(root);
   const results = [];
   try {
     for (const ws of selected) {
-      const result = verifyWorkspace(ws, { allWorkspaces, scratch, jitiLib });
+      const result = verifyWorkspace(ws, { allWorkspaces, scratch, registerUrl });
       results.push(result);
       reportResult(result, ws.rel, log);
     }

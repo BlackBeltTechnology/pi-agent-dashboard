@@ -43,13 +43,15 @@ export interface FakeRelayInstanceDeps {
 }
 
 export class FakeRelayInstance {
+  private readonly deps: FakeRelayInstanceDeps;
   readonly instanceId: string;
   readonly profileDirectory: string;
   private readonly viewers = new Map<number, Set<RelaySocket>>();
   private timer: unknown = undefined;
   private closed = false;
 
-  constructor(private readonly deps: FakeRelayInstanceDeps) {
+  constructor(deps: FakeRelayInstanceDeps) {
+    this.deps = deps;
     this.instanceId = deps.instanceId;
     this.profileDirectory = deps.profileDirectory ?? "Fake";
     this._tick();

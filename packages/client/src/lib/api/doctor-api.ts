@@ -6,15 +6,20 @@
 import type { DoctorReport } from "@blackbelt-technology/pi-dashboard-shared/doctor-core.js";
 import { getApiBase } from "./api-context.js";
 
-export type { DoctorReport, DoctorCheck } from "@blackbelt-technology/pi-dashboard-shared/doctor-core.js";
+export type { DoctorCheck, DoctorReport } from "@blackbelt-technology/pi-dashboard-shared/doctor-core.js";
 
 export class DoctorFetchError extends Error {
+  public readonly status: number;
+  public readonly bodyExcerpt: string;
+
   constructor(
     message: string,
-    public readonly status: number,
-    public readonly bodyExcerpt: string,
+    status: number,
+    bodyExcerpt: string,
   ) {
     super(message);
+    this.status = status;
+    this.bodyExcerpt = bodyExcerpt;
     this.name = "DoctorFetchError";
   }
 }

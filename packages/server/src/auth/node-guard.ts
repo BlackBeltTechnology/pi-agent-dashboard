@@ -22,6 +22,8 @@ import {
   isAffectedNode,
   isOutOfEnginesRange,
 } from "@blackbelt-technology/pi-dashboard-shared/node-version.js";
+import { isJitiLoader, isTsxLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
+import { legacyTsLoaderEnvWarning } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 
 export { isAffectedNode, isOutOfEnginesRange };
 
@@ -98,4 +100,45 @@ export function assertNodeVersionSupported(): void {
     console.error(buildEnginesRangeMessage(process.version));
     process.exit(1);
   }
+}
+
+/**
+ * Warning for a server that booted under a non-native TypeScript loader, or
+ * `null`. A jiti or tsx `--import` is recognised and named; any other
+ * `--import` (e.g. a tracing hook) is left alone because it is not provably a
+ * TypeScript loader. This happens when a pre-upgrade server restarts itself
+ * and hands the new process its own jiti `--import`.
+ * See change: strip-only-native-ts-loader (design D5).
+ */
+export function foreignTsLoaderWarning(execArgv: readonly string[] = process.execArgv): string | null {
+  for (let i = 0; i < execArgv.length; i++) {
+    const arg = execArgv[i] ?? "";
+    // Both `--import <url>` and the combined `--import=<url>` spellings.
+    const loader = arg === "--import" ? (execArgv[i + 1] ?? "") : arg.startsWith("--import=") ? arg.slice("--import=".length) : null;
+    if (loader === null) continue;
+    const name = isJitiLoader(loader) ? "jiti" : isTsxLoader(loader) ? "tsx" : null;
+    if (name) {
+      return (
+        `[pi-dashboard] server booted under the ${name} TypeScript loader (${loader}), which is no longer supported; ` +
+        "run `pi-dashboard stop && pi-dashboard start` to switch to the native loader."
+      );
+    }
+  }
+  return null;
+}
+
+/**
+ * Boot-time TypeScript-loader hygiene, run once by the server process: warn on
+ * a legacy `PI_DASHBOARD_TS_LOADER` value and on a foreign loader. Only the
+ * server logs these; wrappers and launchers neither warn nor rewrite the env.
+ */
+export function warnTsLoaderState(
+  env: Record<string, string | undefined> = process.env,
+  execArgv: readonly string[] = process.execArgv,
+  warn: (msg: string) => void = console.warn,
+): void {
+  const legacy = legacyTsLoaderEnvWarning(env);
+  if (legacy) warn(`[pi-dashboard] ${legacy}`);
+  const foreign = foreignTsLoaderWarning(execArgv);
+  if (foreign) warn(foreign);
 }

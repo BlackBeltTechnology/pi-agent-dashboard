@@ -65,6 +65,15 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **Settings ▸ Packages is now Add-ons.** The page lives at `/settings/add-ons` (old
+  `/settings/packages` and `?tab=packages` links redirect); the rail group is `ADD-ONS`.
+  The page explains extensions, skills and dashboard plugins (dismissible card, part
+  tooltips), hides the dashboard-managed plugin bridge rows (`index.ts`), lists each
+  recommended extension once, collapses local-override rows to one line (reset stays in
+  the `⋮` menu), and adds a filter and a local-source banner. The rail's Plugins pages
+  start collapsed. **Breaking for external TypeScript only:** the `SettingsTab` literal
+  `"packages"` is now `"add-ons"` (JSON plugin manifests with `tab: "packages"` still load).
+
 - **Subagent admission refusals ship hidden.** The durable `subagent-admission-refused`
   record now belongs to a new `diagnostics` custom event group, hidden by default (the refused
   tool call already shows its reason). Enable "Diagnostics" in the chat View popover, or in
@@ -104,6 +113,25 @@ see [`docs/release-process.md`](docs/release-process.md).
   Providers now shows a warning naming the files where the old id is still used
   (`auth.json`, `settings.json`, `models.json`) with pi's fix (rename, or `/login`).
   Backed by the new read-only `GET /api/provider-auth/legacy-provider-ids`.
+- **BREAKING: the jiti server loader is removed.** The dashboard server always runs on
+  Node's native strip-only TypeScript loader (`module.registerHooks`), on every Node from
+  22.19 to 26. `PI_DASHBOARD_TS_LOADER` is ignored: the server logs one warning at boot when
+  it is set to anything but `native`. This ends the silent jiti fallback on Node 26. To roll
+  back, install the previous version. `jiti` stays in the server package's dependencies only
+  so a pre-upgrade server's first `/api/restart` still works.
+- **BREAKING (plugin authors): plugin server TypeScript must be erasable.** No `enum`, runtime
+  `namespace` or constructor parameter properties, and type-only imports use `import type`.
+  A plugin that breaks this fails to load in isolation and the error names the file. The CI
+  plugin install-load gate now checks first-party plugins the same way. pi still loads a
+  plugin's `bridge` entry with its own jiti, which is unaffected.
+- **Node 26 CLI/npm upgrade note.** The first `/api/restart` after upgrading may bring the
+  server up under jiti; it logs a warning. Run `pi-dashboard stop && pi-dashboard start`
+  (or restart once more) to switch to the native loader.
+- **New dependency `amaro`** (exact pin, `@blackbelt-technology/pi-dashboard-shared`) strips
+  types on end-of-life Node 23.0–23.1, which have no built-in stripper. Other Node lines never
+  load it.
+- **First-party source is erasable-only.** `erasableSyntaxOnly` is on in `tsconfig.base.json`
+  (TypeScript `^5.8.0`) and Biome `useImportType` is an error. No behaviour change.
 
 ### Fixed
 

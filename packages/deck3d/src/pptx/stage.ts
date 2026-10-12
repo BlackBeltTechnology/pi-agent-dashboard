@@ -15,13 +15,19 @@ export type RenameFn = (from: string, to: string) => void;
 export const defaultWrite: WriteFn = (path, data) => writeFileSync(path, data);
 
 export class Stage {
+  readonly target: string;
+  private readonly write: WriteFn;
+  private readonly rename: RenameFn;
   readonly dir: string;
 
   constructor(
-    readonly target: string,
-    private readonly write: WriteFn = defaultWrite,
-    private readonly rename: RenameFn = renameSync,
+    target: string,
+    write: WriteFn = defaultWrite,
+    rename: RenameFn = renameSync,
   ) {
+    this.target = target;
+    this.write = write;
+    this.rename = rename;
     const parent = dirname(target);
     mkdirSync(parent, { recursive: true });
     this.dir = mkdtempSync(join(parent, `.${basename(target)}.deck3d-import-`));

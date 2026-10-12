@@ -2,10 +2,11 @@
  * Tests for spawn-preflight.ts — pure validation, no process spawning.
  * See change: spawn-failure-diagnostics.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync, chmodSync } from "node:fs";
-import path from "node:path";
+
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // We mock the ToolResolver so no binary lookup is attempted.
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js", () => ({
@@ -17,8 +18,8 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js", (
   },
 }));
 
+import type { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
-import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 
 function makeResolver(overrides: { resolvePi?: () => string[] | null; resolveNode?: () => string | null }) {
   return {

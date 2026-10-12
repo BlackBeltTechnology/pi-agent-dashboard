@@ -9,9 +9,10 @@
  *
  * Mirrors the harness in SessionList.worktree-per-change.test.tsx.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
-import React from "react";
+
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 
@@ -33,9 +34,9 @@ vi.mock("../../lib/openspec/openspec-groups-api.js", () => ({
   setAssignment: vi.fn(),
 }));
 
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { SessionList } from "../session/SessionList.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {
   const { hook } = memoryLocation({ path: "/", static: true });

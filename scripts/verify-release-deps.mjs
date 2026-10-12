@@ -36,9 +36,22 @@ const RULES = [
     dep: "jiti",
     kind: "dependencies",
     evidence:
-      "docs/repro/v0.5.3-clean-node22-linux-x64-2026-05-19.log STEP 3 — " +
-      "without jiti as a direct dep, the bin wrapper exits 1 'cannot find jiti' " +
-      "on any clean-machine npm install. See change: enable-standalone-npm-install task 7.2.",
+      "transitional upgrade aid (change: strip-only-native-ts-loader, D5) — nothing " +
+      "imports jiti any more, but a pre-upgrade server on a Node 26 CLI host runs " +
+      "under jiti and its first /api/restart reuses that jiti --import path. " +
+      "Keeping the dependency keeps that path valid until the next restart " +
+      "normalizes to the native loader. Remove in a later change (candidate: " +
+      "raise-node-floor-to-26).",
+  },
+  {
+    pkgPath: "packages/shared/package.json",
+    dep: "amaro",
+    kind: "dependencies",
+    evidence:
+      "change: strip-only-native-ts-loader (D4, tier 3) — the native loader strips " +
+      "types with the bundled amaro on EOL Node 23.0-23.1 (no stripTypeScriptTypes). " +
+      "It is loaded only there, so a later 'unused 7.6 MB dependency' cleanup would " +
+      "silently break those lines.",
   },
   {
     pkgPath: "packages/server/package.json",

@@ -167,7 +167,7 @@ echo "[smoke]   install OK"
 
 echo "[smoke] step 6/8: pi-dashboard --version"
 VERSION_OUT=$(indocker "/test/node_modules/.bin/pi-dashboard --version" 2>&1 || true)
-if [[ -z "$VERSION_OUT" ]] || echo "$VERSION_OUT" | grep -qi "cannot find jiti"; then
+if [[ -z "$VERSION_OUT" ]] || echo "$VERSION_OUT" | grep -qiE "cannot find the native TypeScript loader|corrupted"; then
   echo "[smoke] FAIL: --version did not print a version (task 7.2 regression?)" >&2
   echo "  output: $VERSION_OUT" >&2
   exit 1

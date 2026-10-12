@@ -11,7 +11,8 @@
  *
  * See change: chat-markdown-local-images-and-math.
  */
-import React, { createContext, useContext } from "react";
+import type React from "react";
+import { createContext, useContext } from "react";
 
 export type SessionAssets = Record<string, { data: string; mimeType: string }>;
 

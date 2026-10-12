@@ -58,13 +58,17 @@ export function kbSettingsUrl(cwd: string): string {
 
 /** `403 { error: "cwd not allowed" }` — the folder is not admitted; pinning is the remedy. */
 class KbCwdDeniedError extends Error {
+  readonly reason?: string;
+  readonly hint?: string;
   readonly code = "cwd_not_allowed" as const;
   constructor(
     message: string,
-    readonly reason?: string,
-    readonly hint?: string,
+    reason?: string,
+    hint?: string,
   ) {
     super(message);
+    this.reason = reason;
+    this.hint = hint;
     this.name = "KbCwdDeniedError";
   }
 }
@@ -77,12 +81,14 @@ class KbCwdDeniedError extends Error {
  */
 const KB_ADMISSION_UNAVAILABLE_ERROR = "cwd-admission-unavailable";
 class KbAdmissionUnavailableError extends Error {
+  readonly retryAfterMs?: number;
   readonly code = "admission_unavailable" as const;
   constructor(
     message: string,
-    readonly retryAfterMs?: number,
+    retryAfterMs?: number,
   ) {
     super(message);
+    this.retryAfterMs = retryAfterMs;
     this.name = "KbAdmissionUnavailableError";
   }
 }
@@ -91,11 +97,14 @@ type KbPreconditionCode = "folder_missing" | "no_sources";
 
 /** `409 { error: "folder missing" | "no sources configured" }` — a write refused by its preflight. */
 class KbPreconditionError extends Error {
+  readonly code: KbPreconditionCode;
+
   constructor(
     message: string,
-    readonly code: KbPreconditionCode,
+    code: KbPreconditionCode,
   ) {
     super(message);
+    this.code = code;
     this.name = "KbPreconditionError";
   }
 }

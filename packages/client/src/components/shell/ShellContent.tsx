@@ -29,14 +29,16 @@
  * See change: add-route-backed-overlay-dialogs.
  */
 import type { ReactNode } from "react";
-import { useRoute, useSearchParams } from "wouter";
+import { Redirect, useRoute, useSearchParams } from "wouter";
+import { buildFolderSettingsUrl } from "../../lib/nav/route-builders.js";
 import { useArchiveRoute } from "../../lib/nav/useArchiveRoute.js";
 import { decodeFolderPath } from "../../lib/util/folder-encoding.js";
 
 /** Folder-settings pages the shell will honour; anything else falls back. */
 const VALID_FOLDER_SETTINGS_PAGES = [
   "instructions",
-  "packages",
+  "add-ons",
+  "cards",
   "skills",
   "agents",
   "extensions",
@@ -126,7 +128,7 @@ export function ShellContent({ variant, frozen = false, ...render }: Props) {
   const folderSettingsPage: FolderSettingsPage =
     folderSettingsPageRaw && (VALID_FOLDER_SETTINGS_PAGES as readonly string[]).includes(folderSettingsPageRaw)
       ? (folderSettingsPageRaw as FolderSettingsPage)
-      : "packages";
+      : "add-ons";
 
   // `selectedId` mirrors App's derivation: the diff and editor routes are
   // session surfaces too, so they select the same session.
@@ -148,6 +150,9 @@ export function ShellContent({ variant, frozen = false, ...render }: Props) {
   if (piResourceFileMatch && piResourceFilePath)
     return <>{render.renderPiResourceFile(piResourceFilePath, piResourceFileTitle)}</>;
   if (piResourcesMatch && piResourcesCwd && free) return <>{render.renderPiResourcesRedirect(piResourcesCwd)}</>;
+  // Legacy `packages` page id → `add-ons` (replace). See change: addons-hub-declutter.
+  if (folderSettingsMatch && folderSettingsCwd && free && folderSettingsPageRaw === "packages")
+    return <Redirect to={buildFolderSettingsUrl(folderSettingsCwd, "add-ons")} replace />;
   if (folderSettingsMatch && folderSettingsCwd && free)
     return <>{render.renderFolderSettings(folderSettingsCwd, folderSettingsPage)}</>;
   if (openspecPreviewMatch && openspecPreviewCwd && openspecPreviewParams && openspecPreviewParams.changeName !== "archive" && free)

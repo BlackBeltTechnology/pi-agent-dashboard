@@ -39,6 +39,7 @@ Files in this directory. One row per source file.
 | `usePackageOperations.ts` | Subscriber over singleton `packageQueue`. Returns `operation`, `install`/`remove`/`update` (enqueue),… → see `usePackageOperations.ts.AGENTS.md` |
 | `usePackageSearch.ts` | Debounced npm package search via `GET /api/packages/search?q=&type=`. → see `usePackageSearch.ts.AGENTS.md` |
 | `usePendingPromptTimeout.ts` | Calls `onTimeout` after 30s if `hasPendingPrompt` stays true and `paused` is false. → see `usePendingPromptTimeout.ts.AGENTS.md` |
+| `usePersistedBoolean.ts` | Exports `usePersistedBoolean(key)` → `[boolean|null, set]`. localStorage tri-state flag (null = never chosen); storage failure degrades to memory. See change: addons-hub-declutter. |
 | `usePiChangelog.ts` | Lazy hook (enabled gate). Refetches on `pi_core_update_complete` WS event for matching `pkg`. Never throws. See change: pi-update-whats-new-panel. |
 | `usePiCompatibility.ts` | NEW. Fetches `/api/health` on mount + every 60s (instance-scoped: invoke ONCE per panel, pass fields down). → see `usePiCompatibility.ts.AGENTS.md` |
 | `usePiCoreVersions.ts` | Fetches `GET /api/pi-core/versions` into `status: PiCoreStatus` with `isLoading`/`error`/`refresh(force?)`. Polls every 30 min. Force-refreshes on `pi-core-event` `pi_core_update_complete`. |

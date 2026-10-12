@@ -40,13 +40,17 @@ export type DefinitionsRead =
   | { ok: false; corrupt: true; backupPath?: string };
 
 export class DefinitionsCorruptError extends Error {
+  readonly file: string;
+  readonly backupPath?: string;
   readonly code = "definitions-corrupt";
-  constructor(readonly file: string, readonly backupPath?: string) {
+  constructor(file: string, backupPath?: string) {
     super(
       `Refusing to write: ${file} is corrupt` +
         (backupPath ? ` (byte-exact backup: ${backupPath})` : "") +
         ". Repair or remove it manually, then try again.",
     );
+    this.file = file;
+    this.backupPath = backupPath;
   }
 }
 
@@ -76,7 +80,11 @@ function entriesOf(data: Record<string, unknown>): DefinitionEntry[] {
 }
 
 export class DefinitionsStore {
-  constructor(readonly file: string) {}
+  readonly file: string;
+
+  constructor(file: string) {
+    this.file = file;
+  }
 
   read(): DefinitionsRead {
     const exists = fs.existsSync(this.file);

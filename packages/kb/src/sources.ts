@@ -26,8 +26,11 @@ const GIT_MAX_BUFFER = 16 * 1024 * 1024;
 
 /** Thrown when a remote source has no trust record (and none was granted). Classifiable by callers. */
 export class KbUntrustedSourceError extends Error {
-  constructor(public readonly spec: SourceConfig) {
+  public readonly spec: SourceConfig;
+
+  constructor(spec: SourceConfig) {
     super(`remote source ${spec.kind ?? classifyRef(spec.ref)}:${spec.ref} not trusted — run interactively or pre-approve`);
+    this.spec = spec;
     this.name = "KbUntrustedSourceError";
   }
 }

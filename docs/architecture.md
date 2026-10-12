@@ -2098,7 +2098,7 @@ Routes:
 - `/folder/:encodedCwd/openspec/archive` — archive browser.
 - `/folder/:encodedCwd/openspec/specs` — specs browser.
 - `/folder/:encodedCwd/readme` — README preview.
-- `/folder/:encodedCwd/pi-resources` — pi resources view.
+- `/folder/:encodedCwd/pi-resources` — legacy; replace-redirect → `/folder/:encodedCwd/settings/add-ons`.
 - `/session/:id/diff` — file diff view.
 - `/pi-resource?path=&title=` — cross-folder file preview.
 
@@ -2570,9 +2570,9 @@ Observability: `DEBUG=pi-dashboard:openspec-poll` (or any `DEBUG=...pi-dashboard
 
 **Folder-head reads async (non-blocking).** Live attribution pinned the recurring ~700 ms stall to `tickOpen → tickFolderHeads`: 3 `execSync` git-HEAD spawns per folder × ~11 folders ≈ 33 blocking subprocesses on the `setInterval` turn, every tick. Fix: `readHeadDisplayAsync` (`git-operations.ts`) reads HEAD via async `execFile` (never blocks the loop; branch/sha only, skips the `.gitmodules` submodule probe the sync `readHead` keeps for the worktree dialog). `folder-head-poll.ts` `poll`/`refreshOne` now async; fan-out via `mapBounded` concurrency cap (default 4). `tickFolderHeads` kicked off without blocking, `await`ed before the openspec fan-out so per-cwd `git_head_update` still precedes `openspec_update`. Chosen over mtime-gating (which risks suppressing a same-mtime branch switch). Guard test `directory-service-folderhead-async.test.ts`: ordering + branch-switch-reflects. Post-fix live: 0 `tickOpen` spikes over ~3 ticks (was 100 % reliable). See change: attribute-openspec-poll-eventloop-stalls.
 
-**OpenSpec poll worker.** Heavy per-tick CPU work runs on a `worker_threads` pool. Main thread owns `openspec list` spawn, the FIFO semaphore, the `DirCache`, and the WebSocket broadcast. Worker owns: pre-call + post-call effective mtimes, `deriveArtifactStatus`, `buildOpenSpecData`, optional `groupId` join (`joinGroupIdsToOpenSpecData` shape, fed via `getOpenSpecGroupAssignments(cwd)`), and `JSON.stringify(data)`. Worker emits `{cwd, data, serialized, stampMtimes, racyNames}`; main thread copies `serialized` into `DirCache.serialized` and stamps per-change mtimes from `stampMtimes`, skipping entries in `racyNames` (TOCTOU racy → cache untouched, semantics unchanged from previous in-process gate). Pool sizing: fixed slots = `max(1, min(maxConcurrentSpawns, os.cpus().length))`. Lifecycle: lazy spawn per slot on first request via `new Worker(url, {execArgv: process.execArgv})` so the jiti hook propagates; `stopPolling()` calls `dispose()` (drains queue in-process then terminates workers); `reconfigurePolling()` disposes pool so it respawns lazily at the new `maxConcurrentSpawns`. Fallback: spawn fail / worker crash / non-zero exit / per-request timeout (default 10 s) terminates the slot and runs the request in-process; `pool.process()` never rejects, so the tick never drops a broadcast. `OpenSpecPollConfig.useWorker = false` (default `true`) takes the permanent in-process path — no `worker_threads` spawn ever. Serialize-once: worker stringifies `data` once; `onWatcherFired` + the periodic tick diff against `cache.serialized ?? JSON.stringify(...)`; `browserGateway.broadcastOpenSpecUpdate(cwd, serialized)` builds the envelope by string concat (`'{"type":"openspec_update","cwd":' + JSON.stringify(cwd) + ',"data":' + serialized + '}'`) — large `data` never re-stringifies per subscriber. Force-refresh path (user-clicked `refreshOpenSpec`) is unchanged: still spawns authoritative `openspec status` per change in main thread, clears `cache.serialized`, uses the legacy broadcast shape. `openspec_update` payload bytes are identical to the pre-worker shape; parity test enforces. See change: offload-openspec-poll-to-worker.
+**OpenSpec poll worker.** Heavy per-tick CPU work runs on a `worker_threads` pool. Main thread owns `openspec list` spawn, the FIFO semaphore, the `DirCache`, and the WebSocket broadcast. Worker owns: pre-call + post-call effective mtimes, `deriveArtifactStatus`, `buildOpenSpecData`, optional `groupId` join (`joinGroupIdsToOpenSpecData` shape, fed via `getOpenSpecGroupAssignments(cwd)`), and `JSON.stringify(data)`. Worker emits `{cwd, data, serialized, stampMtimes, racyNames}`; main thread copies `serialized` into `DirCache.serialized` and stamps per-change mtimes from `stampMtimes`, skipping entries in `racyNames` (TOCTOU racy → cache untouched, semantics unchanged from previous in-process gate). Pool sizing: fixed slots = `max(1, min(maxConcurrentSpawns, os.cpus().length))`. Lifecycle: lazy spawn per slot on first request via `new Worker(url, {execArgv: process.execArgv})` so the loader hook propagates; `stopPolling()` calls `dispose()` (drains queue in-process then terminates workers); `reconfigurePolling()` disposes pool so it respawns lazily at the new `maxConcurrentSpawns`. Fallback: spawn fail / worker crash / non-zero exit / per-request timeout (default 10 s) terminates the slot and runs the request in-process; `pool.process()` never rejects, so the tick never drops a broadcast. `OpenSpecPollConfig.useWorker = false` (default `true`) takes the permanent in-process path — no `worker_threads` spawn ever. Serialize-once: worker stringifies `data` once; `onWatcherFired` + the periodic tick diff against `cache.serialized ?? JSON.stringify(...)`; `browserGateway.broadcastOpenSpecUpdate(cwd, serialized)` builds the envelope by string concat (`'{"type":"openspec_update","cwd":' + JSON.stringify(cwd) + ',"data":' + serialized + '}'`) — large `data` never re-stringifies per subscriber. Force-refresh path (user-clicked `refreshOpenSpec`) is unchanged: still spawns authoritative `openspec status` per change in main thread, clears `cache.serialized`, uses the legacy broadcast shape. `openspec_update` payload bytes are identical to the pre-worker shape; parity test enforces. See change: offload-openspec-poll-to-worker.
 
-**Session-load worker.** Session-event hydration (JSONL parse + replay) runs on a `worker_threads` pool, off main event loop. `packages/server/src/session-load-worker.ts` exports `loadAndReplay(req)`: runs `loadSessionEntries` (JSONL parse + tree-walk) and `replayEntriesAsEvents(...).map(m => m.event)` projection IN-WORKER; only final `events` array crosses thread boundary. `parentPort` bootstrap wires `loadAndReplay` onto a thread; tests + fallback import function directly. Worker output `{jobId, success, events, error, entryCount?}`. `packages/server/src/session-load-worker-pool.ts` runs fixed slots = `max(1, min(maxConcurrentSpawns, os.cpus().length))`; FIFO queue when slots busy; per-request timeout default `30000ms`; lazy spawn per slot via `new Worker(url, {execArgv: process.execArgv})` so jiti hook propagates. Main thread owns per-session `loadingSet` dedup, `eventStore.insertEvent`, and `session_updated` + `event_replay` broadcast (in `directory-service.ts::loadSessionEvents` + `browser-handlers/subscription-handler.ts`); worker never touches store or sockets. `cancel(jobId)`: queued job dropped from queue, resolves `"cancelled"`; in-flight job abandoned, its result discarded on arrival, worker NOT terminated for plain cancel (only timeout/crash terminates slot). `directory-service.ts` exposes `cancelLoad(sessionId)` via `inFlightLoadJobs` map; `subscription-handler.ts` unsubscribe case calls `cancelLoad` when `getSubscribers(sessionId).length === 0`; `subscription-handler.ts` treats `result.error === "cancelled"` as no-op (no `dataUnavailable`, no replay). Fallback: spawn fail / worker crash / non-zero exit / per-request timeout → in-process `loadAndReplay` for that request; `pool.load().result` never rejects. Config: `DashboardConfig.sessions.useLoadWorker` (default `true`) in `packages/shared/src/config.ts`; `false` → permanent in-process path, no `worker_threads` spawn. Plumbed `server.ts` `ServerConfig.sessions` → `cli.ts` → `createDirectoryService` `options.useLoadWorker`. `events` bytes identical to in-process projection; parity test enforces (`packages/server/src/__tests__/session-load-worker.test.ts`). Copies `openspec-poll-worker-pool` scaffold, not extracted (rule-of-three deferred to third consumer). See change: offload-session-events-load-to-worker.
+**Session-load worker.** Session-event hydration (JSONL parse + replay) runs on a `worker_threads` pool, off main event loop. `packages/server/src/session-load-worker.ts` exports `loadAndReplay(req)`: runs `loadSessionEntries` (JSONL parse + tree-walk) and `replayEntriesAsEvents(...).map(m => m.event)` projection IN-WORKER; only final `events` array crosses thread boundary. `parentPort` bootstrap wires `loadAndReplay` onto a thread; tests + fallback import function directly. Worker output `{jobId, success, events, error, entryCount?}`. `packages/server/src/session-load-worker-pool.ts` runs fixed slots = `max(1, min(maxConcurrentSpawns, os.cpus().length))`; FIFO queue when slots busy; per-request timeout default `30000ms`; lazy spawn per slot via `new Worker(url, {execArgv: process.execArgv})` so loader hook propagates. Main thread owns per-session `loadingSet` dedup, `eventStore.insertEvent`, and `session_updated` + `event_replay` broadcast (in `directory-service.ts::loadSessionEvents` + `browser-handlers/subscription-handler.ts`); worker never touches store or sockets. `cancel(jobId)`: queued job dropped from queue, resolves `"cancelled"`; in-flight job abandoned, its result discarded on arrival, worker NOT terminated for plain cancel (only timeout/crash terminates slot). `directory-service.ts` exposes `cancelLoad(sessionId)` via `inFlightLoadJobs` map; `subscription-handler.ts` unsubscribe case calls `cancelLoad` when `getSubscribers(sessionId).length === 0`; `subscription-handler.ts` treats `result.error === "cancelled"` as no-op (no `dataUnavailable`, no replay). Fallback: spawn fail / worker crash / non-zero exit / per-request timeout → in-process `loadAndReplay` for that request; `pool.load().result` never rejects. Config: `DashboardConfig.sessions.useLoadWorker` (default `true`) in `packages/shared/src/config.ts`; `false` → permanent in-process path, no `worker_threads` spawn. Plumbed `server.ts` `ServerConfig.sessions` → `cli.ts` → `createDirectoryService` `options.useLoadWorker`. `events` bytes identical to in-process projection; parity test enforces (`packages/server/src/__tests__/session-load-worker.test.ts`). Copies `openspec-poll-worker-pool` scaffold, not extracted (rule-of-three deferred to third consumer). See change: offload-session-events-load-to-worker.
 
 ### OpenSpec Readiness (add-openspec-init-affordances)
 
@@ -2784,9 +2784,9 @@ Disabling a resource for one project writes the pi-standard settings form for th
 
 Only newly-started sessions see a change: `PackageManager.resolve()` runs at session start. `/api/resources/reload` reloads affected sessions. See change: project-scope-disable-global-resources.
 
-### Settings → Packages tab
+### Settings → Add-ons page
 
-- Settings tab renders single `<UnifiedPackagesSection>`.
+- Add-ons page renders single `<UnifiedPackagesSection>`.
 - Three sub-groups in priority order: Core → Recommended → Other.
 - **Core**: strict whitelist from `pi-core-checker.ts#CORE_PACKAGE_NAMES`. Update via the pi-core update endpoint. No Uninstall. Hidden when `launchSource === "electron"` (immutable bundle).
 - **Recommended Extensions**: rows where `isRecommended` true on `/api/packages/installed` response (server-side cross-reference against `RECOMMENDED_EXTENSIONS` manifest).
@@ -2795,12 +2795,35 @@ Only newly-started sessions see a change: `PackageManager.resolve()` runs at ses
 - All three groups render with shared `<PackageRow>` — same visual language, same affordances modulo sub-group rules.
 - See change: consolidate-packages-settings-ui.
 
-**Header badge**: `PiUpdateBadge` polls `/api/pi-core/versions` on mount + every 30 min. When `updatesAvailable > 0` it renders a small pill-shaped button next to the `ServerSelector` that navigates to `/settings?tab=packages`.
+**Add-ons page** (`/settings/add-ons`). Page id `add-ons`, label `Add-ons`, rail group `ADD-ONS`, section heading `Add-ons`. Legacy `/settings/packages` and `?tab=packages` replace-redirect via `SETTINGS_PAGE_ALIASES` (`SettingsPanel.tsx`). See change: addons-hub-declutter.
+
+**Plugin-bridge rows hidden** (`dashboardManaged`):
+- `InstalledPackage.dashboardManaged?: boolean` (`packages/shared/src/rest-api.ts`).
+- Set on user-scope row whose path = value of settings `dashboardPluginBridges` or key of `_dashboardManagedPackages`.
+- `enrichInstalledRows(rows, resourcesPath, { managedPaths })` canonical-path match (`installed-package-enricher.ts`). Project-scope rows never flagged.
+- Served by `GET /api/packages/installed?scope=global`.
+- Client: `visibleInstalledRows` (`lib/package/installed-list-helpers.ts`) drops flagged rows. Plugin bridges surface under Plugins, not Add-ons.
+
+**Recommended dedupe** (global page only): `RecommendedExtensions` `hideGlobalInstalled`.
+- Entry installed global + `activeInPi` → no card; renders once as installed row.
+- On-disk but inactive global entry → keeps card (no installed row).
+
+**Installed filter** (`UnifiedPackagesSection.tsx`):
+- Text query + chips `Local source` (`addons-chip-local`), `Update available` (`addons-chip-updates`). Chips AND with text (`filterInstalledRows`).
+- `Update available` disabled until update check completes (`updateCheckDone`); hint `Check for updates first`.
+- Local-source banner when `localSourceCount > 0` (`isLocalSourceRow`): `N add-ons run from local source instead of a published version.`
+- Explainer dismissal key: `dashboard:addons-explainer-dismissed` (`usePersistedBoolean`).
+
+**Plugins rail subtree** (`SettingsPanel.tsx`):
+- Collapsed by default. Expanded pref key `dashboard:settings-plugins-expanded` (`usePersistedBoolean`).
+- Forced open while plugin child page (`/settings/plugins/<id>`) active: `pluginsForcedOpen`. Toggle disabled. Forced state never written to pref key.
+
+**Header badge**: `PiUpdateBadge` polls `/api/pi-core/versions` on mount + every 30 min. When `updatesAvailable > 0` it renders a small pill-shaped button next to the `ServerSelector` that navigates to `/settings/add-ons`.
 
 **Client navigation stack:**
 - Puzzle icon button in folder header → PiResourcesView (content area, "Installed" / "Packages" tabs)
 - "View" button on resource → MarkdownPreviewView (`.md` as markdown, `.ts` as code block)
-- Settings → Packages tab → inline PackageBrowser for global package management
+- Settings → Add-ons page → inline PackageBrowser for global package management
 - Back buttons pop the stack: Preview → Resources → Chat
 
 ### Git Branch Selector
@@ -2897,7 +2920,7 @@ Rail = vertical stack: `ChangesRailSection` (Changes) above the project tree. `o
 
 Dashboard's first user-facing WRITE surface. Prior dashboard read-only.
 
-Entry: FolderActionBar cog → `/folder/:cwd/settings/:page?` (pages instructions/packages/resources). Legacy `/folder/:cwd/pi-resources` redirects → `…/settings/packages`.
+Entry: FolderActionBar cog → `/folder/:cwd/settings/:page?` (pages instructions/add-ons/resources). Legacy `/folder/:cwd/settings/packages` and `/folder/:cwd/pi-resources` redirect → `…/settings/add-ons`.
 
 Instructions page edits markdown. Two scopes: directory (cwd) = markdown under cwd + `.pi/` tree; global (no cwd) = `~/.pi/agent/**/*.{md,mdx}` only.
 
@@ -4402,30 +4425,46 @@ The restart endpoint accepts `{ dev: boolean }` to switch between dev/production
 
 Dashboard server spawned via `node --import <loader> <cli.ts>` from 4 call sites (`packages/server/src/cli.ts` `cmdStart`, `packages/extension/src/server-launcher.ts` `launchServer`, `packages/electron/src/lib/server-lifecycle.ts` `launchServer`, `packages/server/src/restart-helper.ts` `buildOrchestratorScript`). On Node ≥ 20, Windows's ESM loader parses **both** `--import` loader position AND entry-script position as URLs. Raw Windows path like `B:\Dev\cli.ts` parses with scheme `b:` (not in ESM loader's `file`/`data`/`node` allowlist) + crashes with `ERR_UNSUPPORTED_ESM_URL_SCHEME`. Node has drive-letter heuristic that auto-wraps common Windows paths with `file://` before URL parse in entry-script position, but heuristic has known gaps for less-common drives (`A:`, `B:`, …), so reliance unsafe.
 
-Loader position wrapped as `file://` universally; entry position wrapped per `shouldUrlWrapEntry(loader, platform)` — raw for tsx, jiti, and the native loader on every OS, `file://` only for other / unknown loaders on win32:
+Loader position wrapped as `file://` universally; entry position wrapped per `shouldUrlWrapEntry(loader, platform)` — raw for tsx and the native loader on every OS, `file://` only for other / unknown loaders on win32:
 
 - `packages/shared/src/platform/node-spawn.ts` — `toFileUrl(pathOrUrl)` (idempotent path → file:// URL, handles Windows drive letters on POSIX hosts) and `spawnNodeScript(opts)` (wraps loader; applies `shouldUrlWrapEntry` to entry before delegating to `platform/exec.ts::spawn`). Canonical chokepoint.
-- `packages/shared/src/resolve-jiti.ts` — `resolveJitiImport()` and `resolveJitiFromAnchor(anchorPath)` return `pathToFileURL(registerPath).href` for the loader position.
+- `packages/shared/src/platform/ts-loader-select.mjs` — `resolveNativeTsLoader({ anchor })` returns `file://` URL of `native-ts-register.mjs` for the loader position.
 - `packages/server/src/cli.ts` — routes through `spawnNodeScript`.
 - `packages/extension/src/server-launcher.ts`, `packages/electron/src/lib/server-lifecycle.ts`, `packages/server/src/spawn-process/restart-helper.ts` — build argv via `buildNodeImportArgvParts`, which wraps loader + applies `shouldUrlWrapEntry` to entry.
 
 The URL form is cross-platform safe (Linux/macOS accept `file://` URLs identically to raw paths). Entry wrapping is platform-gated via `shouldUrlWrapEntry`. A repo-level lint test (`packages/shared/src/__tests__/no-raw-node-import.test.ts`) refuses any new call site that passes a raw identifier as argv after `--import` / `--loader`, preventing regression. Mirrors the `platform/exec.ts` + `no-direct-child-process.test.ts` pattern. See changes: `fix-windows-server-parity` (loader position), `fix-windows-entry-script-url` (entry-script position).
 
-#### TypeScript loader (native default, jiti opt-in)
+#### TypeScript loader (single native strip-only loader)
 
-Every fresh server launch boots the Node-native TS loader by default: `@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs` (+ `native-ts-hooks.mjs`). Hooks strip types via `module.stripTypeScriptTypes` in `transform` mode. No transpile cache.
+The dashboard server has one TypeScript loader: Node-native, strip-only. Entry: `@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs` (+ `native-ts-hooks.mjs`, `native-ts-tier.mjs`). Types erased to whitespace; line/column preserved. No transform mode, no transpile fallback, no transpile cache.
 
-**Why:** jiti cache dir `resources/server/node_modules/.cache/jiti` read-only on FUSE-mounted AppImage → every launch cold-transpiles → >240 s boot on Ubuntu 22.04. Native boots in 3–5 s (spike CI runs 37285545559, 37286703495). See change: `fix-appimage-cold-boot-latency`.
+**Tiers** (`selectLoaderTier`, `native-ts-tier.mjs`):
 
-**Selection:** `selectTsLoader(env)` in `packages/shared/src/platform/ts-loader-select.mjs` (plain `.mjs`, runs pre-loader). `PI_DASHBOARD_TS_LOADER=jiti` → jiti (rollback). Unknown value → warn + native. Reads launching process env; `opts.env` overlay never selects.
+| Tier | Node | Registration | Stripper |
+|---|---|---|---|
+| 1 | 22.15+, 23.5+, 24, 25, 26 | `module.registerHooks` (sync, in-thread) | `module.stripTypeScriptTypes` |
+| 2 | 23.2–23.4 (EOL) | `module.register` (off-thread) | `module.stripTypeScriptTypes` |
+| 3 | 23.0–23.1 (EOL) | `module.register` | bundled `amaro` (exact pin `1.2.1`, dep of `pi-dashboard-shared`, lazy-loaded) |
+
+**Why strip mode on `registerHooks`:** Node 26 removes transform mode and deprecates `module.register` (DEP0205). Strip mode on `registerHooks` is the only path valid on 26 and runs sync in-thread. `ExperimentalWarning` from `stripTypeScriptTypes` suppressed (that warning only).
+
+**Why native (not jiti):** jiti cache dir `resources/server/node_modules/.cache/jiti` read-only on FUSE-mounted AppImage → every launch cold-transpiles → >240 s boot on Ubuntu 22.04. Native boots in 3–5 s (spike CI runs 37285545559, 37286703495). See changes: `fix-appimage-cold-boot-latency`, `strip-only-native-ts-loader`.
+
+**Removed:** jiti server loader. `selectTsLoader`, `nativeTransformSupported`, `ToolResolver.resolveJiti`, `JitiNotFoundError` deleted. No rollback switch.
+
+**`PI_DASHBOARD_TS_LOADER`:** ignored. Any value except empty / `native` → server process logs one line at boot to `server.log` (`PI_DASHBOARD_TS_LOADER is no longer supported (the jiti server loader was removed); using the native loader.`). Wrappers and launchers neither warn nor rewrite env.
+
+**Foreign loader:** server booted under a jiti or tsx `--import` logs `server booted under the <name> TypeScript loader (<url>), which is no longer supported; run pi-dashboard stop && pi-dashboard start`. Only jiti / tsx recognised; other `--import` left alone.
+
+**Doctor:** row `TypeScript loader` ok when native register resolves; else error `doctor.ts_loader_not_found`.
 
 **Launch sites:** `launchDashboardServer` (`packages/shared/src/server-launcher.ts`; log header `…, loader <url>)`), `packages/server/bin/pi-dashboard.mjs`, Electron `spawnFromSource`, bridge auto-start, `start-server.{sh,cmd,ps1}` (fixed bundle path `node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs`), `assert-bundled-server-plugin-load.mjs`, Electron Doctor launch test.
 
-**Workers** keep inherited loader (native or jiti); `fit-worker-pool.workerExecArgv` adds selected loader when none.
+**Workers** inherit loader from `execArgv`; `fit-worker-pool.workerExecArgv` adds native loader when none.
 
-**`/api/restart`** keeps running loader → loader switch needs fresh launch (`pi-dashboard stop && PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start`, or Electron relaunch).
+**`/api/restart`** always passes native register module to `restart-helper.ts`, whatever loader ran before. First restart after upgrade runs old process code (copies old jiti `--import`); new process boots under jiti, logs foreign-loader warning; next restart normalizes to native. `jiti` stays in `pi-dashboard-server` deps as transitional aid only (nothing imports it). Removal: later change.
 
-**Entry wrap:** entry raw for native AND jiti on every OS (`shouldUrlWrapEntry` false for both); loader position always `file://`. Why: under any `--import` loader Node `path.resolve()`s the main entry before building its URL → `file:///D:/…` entry becomes `D:\<cwd>\file:\D:\…` → `ERR_MODULE_NOT_FOUND` (win32 CI run 37347903583).
+**Entry wrap:** entry raw for native on every OS (`shouldUrlWrapEntry` false); loader position always `file://`. Why: under any `--import` loader Node `path.resolve()`s the main entry before building its URL → `file:///D:/…` entry becomes `D:\<cwd>\file:\D:\…` → `ERR_MODULE_NOT_FOUND` (win32 CI run 37347903583).
 
 **Loader-neutral source:** server-loaded TS must not use bare `require`/`__dirname`/`__filename`/`module.exports`/`exports.` nor value-import `.tsx`; use `createRequire(import.meta.url)`. Gate: `scripts/check-loader-neutral-source.mjs` (AST, wired into `npm test`).
 
@@ -4437,9 +4476,9 @@ Both server-launch call sites (`packages/server/src/cli.ts` and `packages/extens
 
 #### CJS preload for Fastify (nodejs/node#58515 mitigation)
 
-Every server-spawn call site injects `--require <preload-fastify.cjs>` BEFORE `--import <jiti-loader>` in the child's argv, as long as the resolver `resolvePreloadFastifyPath()` in `packages/shared/src/platform/preload-fastify.ts` finds the preload file. The order matters: Node processes `--require` before `--import`, so the preload runs through Node's **legacy synchronous CJS loader** (which predates and bypasses the ESM→CJS translator). The preload synchronously `require()`s `@fastify/ajv-compiler/standalone`, `@fastify/ajv-compiler`, and `fastify` — populating `require.cache` with those modules in `kEvaluated` state.
+Every server-spawn call site injects `--require <preload-fastify.cjs>` BEFORE `--import <native-loader>` in the child's argv, as long as the resolver `resolvePreloadFastifyPath()` in `packages/shared/src/platform/preload-fastify.ts` finds the preload file. The order matters: Node processes `--require` before `--import`, so the preload runs through Node's **legacy synchronous CJS loader** (which predates and bypasses the ESM→CJS translator). The preload synchronously `require()`s `@fastify/ajv-compiler/standalone`, `@fastify/ajv-compiler`, and `fastify` — populating `require.cache` with those modules in `kEvaluated` state.
 
-When jiti's ESM hook later resolves an `import "fastify"`, Node's translator finds the modules already cached and short-circuits — it never enters the recursive require chain that triggers the `Unexpected module status 3` assertion on Node 22.0.0–22.18.x / 24.1.0–24.2.x.
+When the native loader's ESM hook later resolves an `import "fastify"`, Node's translator finds the modules already cached and short-circuits — it never enters the recursive require chain that triggers the `Unexpected module status 3` assertion on Node 22.0.0–22.18.x / 24.1.0–24.2.x.
 
 This is a **race-independent fix**: it doesn't try to close the timing window, it removes the racy code path from the execution trace. All four spawn sites (CLI daemon, bridge auto-start, Electron, restart orchestrator) share the resolver and the same injection pattern. See change: `preload-fastify-cjs`.
 
@@ -5456,7 +5495,7 @@ Host OS across, path form down.
 The two broken cells map to existing repo invariants:
 
 - **Embedded path in `node -e "..."`**: avoided by porting build scripts to `.mjs` (see `packages/electron/scripts/bundle-{server,offline-packages,recommended-extensions}.mjs`).
-- **Raw path in `--import` / `--loader`**: locked by `packages/shared/src/__tests__/no-raw-node-import.test.ts`. All real call sites go through `toFileUrl` from `platform/node-spawn.ts` or `buildJitiRegisterUrl` from `resolve-jiti.ts`.
+- **Raw path in `--import` / `--loader`**: locked by `packages/shared/src/__tests__/no-raw-node-import.test.ts`. All real call sites go through `toFileUrl` from `platform/node-spawn.ts` or `resolveNativeTsLoader` from `platform/ts-loader-select.mjs`.
 
 ### Shell allowlist
 
@@ -5579,9 +5618,11 @@ When `waitForReady` returns unsuccessful, the error message is built by the pure
 
 Pre-fix, both cases shared the misleading wording "Server failed to start within 15 seconds (child exited with code 1)" — implying a timeout when the child died in <1s.
 
-### The runtime jiti version contract (Defect 2 defense)
+### The runtime jiti version contract (Defect 2 defense) — historical
 
-`shouldUrlWrapEntry()` in `packages/shared/src/platform/node-spawn.ts` decides whether the entry-script position in `node --import <loader> <entry>` argv needs `file://` URL wrapping. Entry raw for tsx, jiti, and the native loader (`platform/native-ts-register.mjs`) on every OS. Only other / unknown loaders on win32 wrap with `file://` — sidesteps Node's drive-letter URL-scheme parse (`B:`, `A:` otherwise read as URL schemes). Loader position always `file://`. See change: `fix-appimage-cold-boot-latency`.
+Superseded by `strip-only-native-ts-loader`: no server path resolves jiti. Entry-wrap rule below still current. Kept for history.
+
+`shouldUrlWrapEntry()` in `packages/shared/src/platform/node-spawn.ts` decides whether the entry-script position in `node --import <loader> <entry>` argv needs `file://` URL wrapping. Entry raw for tsx and the native loader (`platform/native-ts-register.mjs`) on every OS. Only other / unknown loaders on win32 wrap with `file://` — sidesteps Node's drive-letter URL-scheme parse (`B:`, `A:` otherwise read as URL schemes). Loader position always `file://`. See change: `fix-appimage-cold-boot-latency`.
 
 The contract holds because Defect 1's fix populates `~/.pi-dashboard/` with `pi-coding-agent` at the offline-cacache-pinned version. The runtime `resolveJitiFromPi()` chain is `managed → system`; once managed is populated with the pinned version, system pi (which may be a newer 0.71.x) is never reached.
 
@@ -5639,7 +5680,7 @@ See change: `chat-input-draft-and-history`.
 
 The Electron app treats git as a hard runtime dependency. Several core code
 paths assume git is reachable (recommended-extension installs via pi's
-`DefaultPackageManager`, Settings → Packages git/HTTPS sources, BranchPicker /
+`DefaultPackageManager`, Settings → Add-ons git/HTTPS sources, BranchPicker /
 git status in session cards, attach-proposal workflow). Before the
 `require-git-on-boot` change, missing git silently degraded these features
 with cryptic errors. The change makes git a first-class detected, prompted,

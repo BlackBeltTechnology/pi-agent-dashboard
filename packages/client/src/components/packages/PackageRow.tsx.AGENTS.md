@@ -25,3 +25,7 @@ Update button `disabled={busy \|\| queued}` — NEVER disabled because another r
 Icon import added: `mdiClockOutline`.
 
 See change: unify-pi-core-into-package-queue.
+
+## addons-hub-declutter
+
+Local/git row with published variant: one source line; source badge carries accessible description (target + version when known); no inline Reset link; menu item `Reset to published version (<version>)`, bracket-free when version unknown. Confirm + `busy||locked` gating unchanged. See change: addons-hub-declutter.

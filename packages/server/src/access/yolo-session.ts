@@ -99,6 +99,7 @@ function realpathOrNull(p: string): string | null {
 }
 
 export class YoloController {
+  private readonly deps: YoloDeps;
   private session: YoloSession | null = null;
   private readonly log: YoloLogEntry[] = [];
   /** Cumulative, unlike the bounded `log`, so `/api/health` never under-counts. */
@@ -107,7 +108,8 @@ export class YoloController {
   private readonly ladder: (base: string) => Promise<string[]>;
   private readonly emit: (line: string) => void;
 
-  constructor(private readonly deps: YoloDeps) {
+  constructor(deps: YoloDeps) {
+    this.deps = deps;
     this.now = deps.now ?? Date.now;
     this.ladder = deps.ladder ?? ((base) => offeredAncestorLadder(base));
     this.emit = deps.onLog ?? ((line) => console.error(line));

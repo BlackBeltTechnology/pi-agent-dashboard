@@ -17,10 +17,13 @@ export interface Rel {
 export type Rels = Record<string, Rel>;
 
 export class Package {
+  readonly files: Map<string, Uint8Array>;
   private xmlCache = new Map<string, XNode>();
   private relCache = new Map<string, Rels>();
 
-  constructor(readonly files: Map<string, Uint8Array>) {}
+  constructor(files: Map<string, Uint8Array>) {
+    this.files = files;
+  }
 
   has(part: string): boolean {
     return this.files.has(part);

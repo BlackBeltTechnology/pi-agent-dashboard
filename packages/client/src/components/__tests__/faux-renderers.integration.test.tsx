@@ -22,33 +22,34 @@
  *
  * See change: add-faux-model-integration-tests.
  */
-import { beforeAll, describe, expect, it, vi } from "vitest";
+
 import { render } from "@testing-library/react";
-import React from "react";
-import { ChatView } from "../chat/ChatView.js";
-import { ThemeProvider } from "../settings/ThemeProvider.js";
-import { createInitialState } from "../../lib/chat/event-reducer.js";
+import type React from "react";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { type MiniToolCall, SCENARIOS, type Scenario } from "../../../../../qa/fixtures/faux-scenarios.js";
 import type { SessionState } from "../../lib/chat/event-reducer.js";
-import type { ToolContext } from "../tool-renderers/index.js";
-import { getToolRenderer } from "../tool-renderers/registry.js";
-import { ReadToolRenderer } from "../tool-renderers/ReadToolRenderer.js";
-import { EditToolRenderer } from "../tool-renderers/EditToolRenderer.js";
-import { WriteToolRenderer } from "../tool-renderers/WriteToolRenderer.js";
-import { BashToolRenderer } from "../tool-renderers/BashToolRenderer.js";
-import { AgentToolRenderer } from "../tool-renderers/AgentToolRenderer.js";
-import { CtxToolRenderer } from "../tool-renderers/CtxToolRenderer.js";
-import { GenericToolRenderer } from "../tool-renderers/GenericToolRenderer.js";
-import { AskUserToolRenderer } from "../tool-renderers/AskUserToolRenderer.js";
-import { getInteractiveRenderer } from "../interactive-renderers/registry.js";
+import { createInitialState } from "../../lib/chat/event-reducer.js";
+import { ChatView } from "../chat/ChatView.js";
+import { BatchRenderer } from "../interactive-renderers/BatchRenderer.js";
 import { ConfirmRenderer } from "../interactive-renderers/ConfirmRenderer.js";
-import { SelectRenderer } from "../interactive-renderers/SelectRenderer.js";
-import { InputRenderer } from "../interactive-renderers/InputRenderer.js";
 import { EditorRenderer } from "../interactive-renderers/EditorRenderer.js";
+import { GenericInteractiveRenderer } from "../interactive-renderers/GenericInteractiveRenderer.js";
+import { InputRenderer } from "../interactive-renderers/InputRenderer.js";
 import { MultiselectRenderer } from "../interactive-renderers/MultiselectRenderer.js";
 import { NotifyRenderer } from "../interactive-renderers/NotifyRenderer.js";
-import { BatchRenderer } from "../interactive-renderers/BatchRenderer.js";
-import { GenericInteractiveRenderer } from "../interactive-renderers/GenericInteractiveRenderer.js";
-import { SCENARIOS, type Scenario, type MiniToolCall } from "../../../../../qa/fixtures/faux-scenarios.js";
+import { getInteractiveRenderer } from "../interactive-renderers/registry.js";
+import { SelectRenderer } from "../interactive-renderers/SelectRenderer.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { AgentToolRenderer } from "../tool-renderers/AgentToolRenderer.js";
+import { AskUserToolRenderer } from "../tool-renderers/AskUserToolRenderer.js";
+import { BashToolRenderer } from "../tool-renderers/BashToolRenderer.js";
+import { CtxToolRenderer } from "../tool-renderers/CtxToolRenderer.js";
+import { EditToolRenderer } from "../tool-renderers/EditToolRenderer.js";
+import { GenericToolRenderer } from "../tool-renderers/GenericToolRenderer.js";
+import type { ToolContext } from "../tool-renderers/index.js";
+import { ReadToolRenderer } from "../tool-renderers/ReadToolRenderer.js";
+import { getToolRenderer } from "../tool-renderers/registry.js";
+import { WriteToolRenderer } from "../tool-renderers/WriteToolRenderer.js";
 
 const defaultToolContext: ToolContext = {};
 

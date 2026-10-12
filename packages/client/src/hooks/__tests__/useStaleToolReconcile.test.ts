@@ -453,6 +453,75 @@ describe("useStaleToolReconcile hook", () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("[supersede-heal]"));
   });
 
+  // See change: finalize-agent-card-on-subagent-stop (test-plan X2, X3, design D4).
+  describe("a neutral settle heal stays recoverable", () => {
+    const ev = (eventType: string, data: Record<string, unknown>, timestamp = 0): DashboardEvent => ({
+      eventType: eventType as DashboardEvent["eventType"],
+      timestamp,
+      data,
+    });
+    /** A running Agent row whose end and subagent outcome were lost, then the turn settled. */
+    function neutralSettledState(laterInference: boolean): SessionState {
+      let s = createInitialState();
+      s = reduceEvent(s, ev("message_start", { message: { role: "assistant", content: [] } }));
+      s = reduceEvent(s, ev("tool_execution_start", { toolCallId: "t1", toolName: "Agent", args: {} }));
+      s = reduceEvent(
+        s,
+        ev("tool_execution_update", {
+          toolCallId: "t1",
+          toolName: "Agent",
+          partialResult: { content: [{ type: "text", text: "w" }], details: { agentId: "ag", status: "running" } },
+        }),
+      );
+      if (laterInference) {
+        s = reduceEvent(s, ev("message_end", { message: { role: "assistant", content: [] } }));
+        s = reduceEvent(s, ev("message_start", { message: { role: "assistant", content: [] } }));
+      }
+      s = reduceEvent(s, ev("agent_settled", {}));
+      return s;
+    }
+
+    it("X2: HTTP 200 replaces the neutral body with the real result", async () => {
+      vi.setSystemTime(STALE_TOOL_MS + 100);
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ result: "done C", isError: false }) });
+      vi.stubGlobal("fetch", fetchMock);
+      const initial = neutralSettledState(false);
+      expect(initial.messages.find((m) => m.toolCallId === "t1")?.toolDetails?.resultMissing).toBe(true);
+      const { result } = renderHook(() => useHarness(new Map([["s1", initial]])));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(RECONCILE_POLL_MS + 1);
+      });
+      const state = result.current.get("s1")!;
+      const row = state.messages.find((m) => m.toolCallId === "t1")!;
+      expect(row.result).toBe("done C");
+      expect(row.toolDetails?.healedBy).toBeUndefined();
+      expect(row.toolDetails?.resultMissing).toBeUndefined();
+      expect(state.toolCalls.get("t1")!.status).toBe("complete");
+    });
+
+    it("X3: repeated 404s fall through to the supersede heal, never back to spinning", async () => {
+      vi.setSystemTime(STALE_TOOL_MS + 100);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => ({ error: "unknown" }) });
+      vi.stubGlobal("fetch", fetchMock);
+      const { result } = renderHook(() => useHarness(new Map([["s1", neutralSettledState(true)]])));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(RECONCILE_POLL_MS + 1);
+      });
+      expect(result.current.get("s1")!.messages.find((m) => m.toolCallId === "t1")!.toolStatus).toBe("complete");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4 * (STALE_TOOL_MS + RECONCILE_POLL_MS));
+      });
+      const state = result.current.get("s1")!;
+      const row = state.messages.find((m) => m.toolCallId === "t1")!;
+      expect(row.toolStatus).toBe("complete");
+      expect(row.toolDetails?.healedBy).toBe("superseded");
+      // One badge only: the superseded heal replaces the neutral one.
+      expect(row.toolDetails?.resultMissing).toBeUndefined();
+      expect(state.toolCalls.get("t1")!.status).toBe("complete");
+    });
+  });
+
   // See change: distinguish-tool-result-pending-vs-gone (test-plan E15–E19).
   describe("pending (202) and evicted (410) answers", () => {
     const answer = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, json: async () => body });

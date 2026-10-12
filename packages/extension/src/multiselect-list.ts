@@ -54,12 +54,16 @@ export class MultiSelectList implements ComponentLike {
 
   onConfirm?: (selectedValues: string[]) => void;
   onCancel?: () => void;
+  private title: string;
+  private message?: string;
 
   constructor(
-    private title: string,
+    title: string,
     options: string[],
-    private message?: string,
+    message?: string,
   ) {
+    this.title = title;
+    this.message = message;
     this.items = options.map((opt) => ({
       value: opt,
       label: opt,

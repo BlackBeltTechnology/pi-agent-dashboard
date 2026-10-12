@@ -14,7 +14,7 @@
  * Fail-closed: an UNLISTED type (incl. plugin-registered types) is `operate`.
  * A coverage test asserts every protocol type is listed.
  */
-import { type Tier } from "./tiers.js";
+import type { Tier } from "./tiers.js";
 
 export const WS_MESSAGE_TIERS: Readonly<Record<string, Tier>> = {
   // ── observe: reads / subscriptions ──

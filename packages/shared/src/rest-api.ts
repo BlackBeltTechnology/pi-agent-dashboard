@@ -865,6 +865,14 @@ export interface InstalledPackage {
   publishedVariantSource?: string;
   /** Latest published version of `publishedVariantSource`, when known (best-effort; undefined offline). */
   publishedVariantVersion?: string;
+  /**
+   * True on a user-scope row whose path the dashboard recorded as its own
+   * plugin bridge (`dashboardPluginBridges` value or `_dashboardManagedPackages`
+   * key in the same settings file). Display-only: the entry stays in
+   * `packages[]` and keeps loading; the Add-ons page hides it.
+   * See change: addons-hub-declutter.
+   */
+  dashboardManaged?: boolean;
 }
 
 export type InstalledPackagesResponse = ApiResponse<InstalledPackage[]>;

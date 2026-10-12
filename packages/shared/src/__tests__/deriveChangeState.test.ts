@@ -12,6 +12,22 @@ function makeChange(overrides: Partial<OpenSpecChange> = {}): OpenSpecChange {
   };
 }
 
+// ChangeState is an erasable `as const` object + same-named type (not an enum),
+// with the same string values. See change: strip-only-native-ts-loader (#E12).
+describe("ChangeState values", () => {
+  it("has the 4 string values in order", () => {
+    expect(Object.values(ChangeState)).toEqual(["PLANNING", "READY", "IMPLEMENTING", "COMPLETE"]);
+    expect(Object.keys(ChangeState)).toEqual(["PLANNING", "READY", "IMPLEMENTING", "COMPLETE"]);
+  });
+
+  it("each member equals its own name", () => {
+    expect(ChangeState.READY).toBe("READY");
+    expect(ChangeState.PLANNING).toBe("PLANNING");
+    expect(ChangeState.IMPLEMENTING).toBe("IMPLEMENTING");
+    expect(ChangeState.COMPLETE).toBe("COMPLETE");
+  });
+});
+
 describe("deriveChangeState", () => {
   it("returns PLANNING when no artifacts", () => {
     expect(deriveChangeState(makeChange())).toBe(ChangeState.PLANNING);

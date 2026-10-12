@@ -69,7 +69,7 @@ An installed-package row whose server response marks it `dashboardManaged` SHALL
 
 ### Requirement: A recommended extension SHALL appear once on the Add-ons page
 
-On the global Add-ons page, a recommended extension installed at global scope (recommended entry `installed.scope === "global"`) SHALL render only in the installed list. The recommended panel in the browse area SHALL list every recommended entry that is not installed at global scope; an entry installed only in a folder SHALL keep its card with its existing folder state, so it is never invisible on the page. When every recommended entry is installed globally, the panel SHALL render a single line stating that all recommended add-ons are installed instead of an empty grid. "Install all missing" SHALL keep its existing behaviour.
+On the global Add-ons page, a recommended extension installed at global scope and active in pi (recommended entry `installed.scope === "global"` and `activeInPi`) SHALL render only in the installed list. An entry on disk at global scope but not active has no installed row, so it SHALL keep its card (Activate state). The recommended panel in the browse area SHALL list every recommended entry that is not installed at global scope; an entry installed only in a folder SHALL keep its card with its existing folder state, so it is never invisible on the page. When every recommended entry is installed globally, the panel SHALL render a single line stating that all recommended add-ons are installed instead of an empty grid. "Install all missing" SHALL keep its existing behaviour.
 
 #### Scenario: Installed recommended entry is not repeated
 - **GIVEN** `pi-flows` is recommended and installed globally

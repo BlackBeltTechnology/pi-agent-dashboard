@@ -37,7 +37,7 @@ PI_PORT="${QA_PI_PORT:-19321}"
 BASE="http://localhost:${PORT}"
 read -r -a DASH <<<"${PI_DASHBOARD_CMD:-pi-dashboard}"
 
-# The dashboard tree (for `ws` / `jiti` / the access modules), from the launcher.
+# The dashboard tree (for `ws` / the access modules / the native TS loader), from the launcher.
 if [ -n "${PI_DASHBOARD_ROOT:-}" ]; then
   ROOT="$PI_DASHBOARD_ROOT"
 elif [ "${DASH[0]}" = "node" ]; then
@@ -172,13 +172,12 @@ if [ "$(uname -s)" = "Darwin" ] && command -v hdiutil >/dev/null 2>&1; then
   mkdir -p "$CS_MOUNT/Proj/a" "$CS_MOUNT/proj"
   HOST_DIR="$WORKDIR/host-ci"
   mkdir -p "$HOST_DIR/Proj/a"
-  E19=$(node -e '
-const { createRequire } = require("node:module");
-const req = createRequire(process.argv[1]);
-const { createJiti } = req("jiti");
-const jiti = createJiti(process.argv[1]);
+  # The access module is server TypeScript: load it with the server's own
+  # Node-native strip-only loader (no jiti, no reliance on hoisting).
+  NATIVE_REGISTER_URL="$(node -e 'console.log(require("node:url").pathToFileURL(process.argv[1]).href)' "$ROOT/packages/shared/src/platform/native-ts-register.mjs")"
+  E19=$(node --import "$NATIVE_REGISTER_URL" -e '
 (async () => {
-  const m = await jiti.import(process.argv[2]);
+  const m = await import(require("node:url").pathToFileURL(process.argv[2]).href);
   const [cs, host] = process.argv.slice(3);
   // canonicalSubject returns { canonical, ... } | null; compare .canonical.
   const opt = (p) => ({ caseInsensitive: m.volumeCaseInsensitive(p) });

@@ -28,14 +28,19 @@ interface Payload<T> {
 }
 
 export class SignedChallenges<T> {
+  private readonly now: () => number;
+  private readonly ttlMs: number;
   private readonly key = crypto.randomBytes(32);
   /** consumed id → its expiry (purged once expired). */
   private readonly used = new Map<string, number>();
 
   constructor(
-    private readonly now: () => number = Date.now,
-    private readonly ttlMs = CHALLENGE_TTL_MS,
-  ) {}
+    now: () => number = Date.now,
+    ttlMs = CHALLENGE_TTL_MS,
+  ) {
+    this.now = now;
+    this.ttlMs = ttlMs;
+  }
 
   private mac(body: string): string {
     return crypto.createHmac("sha256", this.key).update(body).digest("base64url");

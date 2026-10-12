@@ -52,7 +52,7 @@ flowchart TD
         Discovery --> Mdns["mDNS browse (2s timeout)"]
         Discovery --> HealthCheck["health check on configured port"]
         Discovery --> Launch["launchServer() if autoStart=true"]
-        Launch --> SpawnCmd['spawn(process.execPath, ["--import", jiti, cli.ts])']
+        Launch --> SpawnCmd['spawn(process.execPath, ["--import", nativeLoader, cli.ts])']
         SpawnCmd --> ExecPath["process.execPath = the node running pi (from shell PATH)"]
         ExecPath --> CliPath["cli.ts = resolved relative to extension __dirname"]
         Bridge --> Conn["ConnectionManager → ws://localhost:9999"]
@@ -122,7 +122,7 @@ Install: `npm install -g @blackbelt-technology/pi-agent-dashboard`. No pre-insta
 
 pi/openspec/tsx ship as regular `dependencies` of `@blackbelt-technology/pi-dashboard-server`. npm resolves them at install time. No first-run install delay. No background install. Server starts ready.
 
-`jiti` is a direct dep of `@blackbelt-technology/pi-dashboard-server`. Bin wrapper `packages/server/bin/pi-dashboard.mjs` resolves jiti from own `node_modules/jiti` via `argv[1]` walk-up. Re-execs `node --import <jiti-url> cli.ts <args>`.
+No server source imports `jiti`. `jiti` stays a transitional dep of `@blackbelt-technology/pi-dashboard-server` (keeps pre-upgrade `execArgv` valid; removal later). Bin wrapper `packages/server/bin/pi-dashboard.mjs` resolves the native register module via `platform/ts-loader-select.mjs` and re-execs `node --import <native-url> cli.ts <args>`.
 
 `cli.ts` logs `[bootstrap] ready (pi resolved via <source>)` on successful pi resolve via `ToolRegistry`. Failure throws hard with `corrupted node_modules` hint.
 
@@ -305,7 +305,7 @@ function buildTmuxCommand(cwd, sessionExists, options, piInvocation = ["pi"]) {
 | `packages/electron/src/main.ts` | Startup flow: health check → detection → wizard → server |
 | `packages/extension/src/bridge.ts` | Bridge entry point, auto-start trigger |
 | `packages/extension/src/server-auto-start.ts` | mDNS → health check → launch chain |
-| `packages/extension/src/server-launcher.ts` | Spawns server via `process.execPath` + jiti |
+| `packages/extension/src/server-launcher.ts` | Spawns server via `process.execPath` + native register |
 | `packages/server/src/server.ts` | Server init, calls `ensureBridgeExtensionRegistered()` |
 | `packages/server/src/extension-register.ts` | Register bridge in settings.json (server-side) |
 | `packages/server/src/process-manager.ts` | `spawnPiSession()`, `buildSpawnEnv()`, `resolvePiCommand()` |

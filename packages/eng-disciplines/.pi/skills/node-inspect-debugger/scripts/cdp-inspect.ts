@@ -1,6 +1,6 @@
 #!/usr/bin/env -S npx tsx
 /**
- * cdp-inspect.ts — dependency-free CDP scope dumper for pi-dashboard's jiti stack.
+ * cdp-inspect.ts — dependency-free CDP scope dumper for pi-dashboard's native-loader (server) and jiti (pi-hosted) stacks.
  *
  * Attaches to a Node inspector target, sets a breakpoint by `.ts` URL, resumes
  * past the `--inspect-brk` entry halt, and on the first hit prints the paused
@@ -11,7 +11,7 @@
  *   e.g. npx tsx cdp-inspect.ts 9229 cli.ts 42
  *
  * No `chrome-remote-interface` dependency: uses Node 24's global `WebSocket`.
- * See the node-inspect-debugger SKILL.md for the jiti launch recipe.
+ * See the node-inspect-debugger SKILL.md for the launch recipes.
  *
  * Derived from NousResearch/hermes-agent (MIT); rewritten in TypeScript and
  * retargeted at this repo's jiti loader (line-preserving `.ts` URLs).

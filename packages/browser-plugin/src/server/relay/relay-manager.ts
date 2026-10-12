@@ -118,6 +118,7 @@ interface Entry {
 }
 
 export class RelayManager {
+  private readonly deps: RelayManagerDeps;
   private readonly byGuid = new Map<string, Entry>();
   private readonly byInstanceId = new Map<string, Entry>();
   /** Bumped by every `setEnabled(false)`; a connect in flight re-checks it. */
@@ -131,7 +132,8 @@ export class RelayManager {
   private readonly randomInstanceId: () => string;
   private readonly openChrome: (profileDirectory: string, url: string) => void;
 
-  constructor(private readonly deps: RelayManagerDeps) {
+  constructor(deps: RelayManagerDeps) {
+    this.deps = deps;
     this.timers = deps.timers ?? REAL_TIMERS;
     this.connectTimeoutMs = deps.connectTimeoutMs ?? CONNECT_TIMEOUT_MS;
     this.guidExpiryMs = deps.guidExpiryMs ?? GUID_EXPIRY_MS;

@@ -1,11 +1,12 @@
 /**
  * Tests for CloseWorktreeDialog. See change: add-worktree-lifecycle-actions.
  */
-import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { CloseWorktreeDialog } from "../worktree/CloseWorktreeDialog.js";
+
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CloseWorktreeDialog } from "../worktree/CloseWorktreeDialog.js";
 
 const removeWorktreeMock = vi.fn();
 vi.mock("../../lib/git/git-api.js", () => ({

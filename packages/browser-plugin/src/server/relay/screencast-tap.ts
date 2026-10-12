@@ -95,6 +95,7 @@ interface ScreencastFrameParams {
 }
 
 export class ScreencastTap {
+  private readonly deps: ScreencastTapDeps;
   private readonly views = new Map<number, View>();
   private readonly timers: TapTimers;
   private readonly noFramesMs: number;
@@ -102,7 +103,8 @@ export class ScreencastTap {
   /** Sessions we own a screencast on — the filter predicate for the client stream. */
   private readonly tappedSessions = new Set<string>();
 
-  constructor(private readonly deps: ScreencastTapDeps) {
+  constructor(deps: ScreencastTapDeps) {
+    this.deps = deps;
     this.timers = deps.timers ?? REAL_TIMERS;
     this.noFramesMs = deps.noFramesMs ?? NO_FRAMES_MS;
     this.backpressureBytes = deps.backpressureBytes ?? BACKPRESSURE_BYTES;

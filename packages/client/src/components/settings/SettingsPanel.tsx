@@ -26,7 +26,7 @@ import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/mod
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
@@ -34,6 +34,7 @@ import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { useLaunchSource } from "../../hooks/useLaunchSource.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
+import { usePersistedBoolean } from "../../hooks/usePersistedBoolean.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
@@ -471,6 +472,8 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
 const SETTINGS_PAGE_ALIASES: Record<string, string> = {
   advanced: "developer",
   servers: "remote",
+  // Settings ▸ Packages became Add-ons. See change: addons-hub-declutter.
+  packages: "add-ons",
 };
 // `instructions` is a built-in global Instructions page, so it is added to the
 // client-side route whitelist only, NOT to the shared VALID_SETTINGS_TABS.
@@ -675,6 +678,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
         .sort((a, b) => a.row.displayName.localeCompare(b.row.displayName)),
     [pluginRows, contributesSettings, promotions],
   );
+
+  // Plugins subtree is collapsed by default. A child page being active forces it
+  // open (derived at render, never written); only an explicit toggle persists.
+  // See change: addons-hub-declutter (D7).
+  const [pluginsExpandedPref, setPluginsExpandedPref] = usePersistedBoolean("dashboard:settings-plugins-expanded");
+  const pluginsForcedOpen = !!activePluginId;
+  const pluginsExpanded = pluginsForcedOpen || pluginsExpandedPref === true;
 
   // Global-scope resource card pages (Resources nav group). One fetch backs the
   // nav count pills + the active page grid. See change: resources-card-tabs.
@@ -1181,10 +1191,10 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
       ],
     },
     {
-      id: "extensions",
-      label: t("settings.groupExtensions", undefined, "Extensions"),
+      id: "add-ons",
+      label: t("settings.groupAddons", undefined, "Add-ons"),
       items: [
-        { id: "packages", label: t("settings.packages", undefined, "Packages"), icon: mdiPackageVariant },
+        { id: "add-ons", label: t("settings.addons", undefined, "Add-ons"), icon: mdiPackageVariant },
         { id: "plugins", label: t("settings.plugins", undefined, "Plugins"), icon: mdiPuzzle },
         { id: "openspec", label: t("settings.openspec", undefined, "OpenSpec"), icon: mdiClipboardText },
       ],
@@ -1324,10 +1334,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     : activeTab === item.id;
                 return (
                   <div key={item.id} className="contents md:block">
+                  <div className={item.id === "plugins" ? "flex items-center gap-1 md:w-full" : "contents"}>
                   <button
                     onClick={() => requestRailNavigate("/settings/" + item.id)}
                     aria-current={active ? "page" : undefined}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
+                    className={`${item.id === "plugins" ? "flex-1 min-w-0" : "w-full"} flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
                       active
                         ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
                         : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
@@ -1343,7 +1354,28 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                       />
                     )}
                   </button>
-                  {item.id === "plugins" &&
+                  {item.id === "plugins" && pluginNavChildren.length > 0 && (
+                    <button
+                      type="button"
+                      data-testid="nav-plugins-toggle"
+                      aria-expanded={pluginsExpanded}
+                      aria-controls="settings-nav-plugins-children"
+                      disabled={pluginsForcedOpen}
+                      aria-label={
+                        pluginsExpanded
+                          ? t("settings.pluginsHide", undefined, "Hide plugin pages")
+                          : t("settings.pluginsShow", { count: pluginNavChildren.length }, `Show plugin pages (${pluginNavChildren.length})`)
+                      }
+                      onClick={() => setPluginsExpandedPref(!pluginsExpanded)}
+                      className="shrink-0 flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)] disabled:opacity-60 disabled:cursor-default cursor-pointer"
+                    >
+                      {!pluginsExpanded && <span>{pluginNavChildren.length}</span>}
+                      <Icon path={pluginsExpanded ? mdiChevronDown : mdiChevronRight} size={0.6} />
+                    </button>
+                  )}
+                  </div>
+                  <div id={item.id === "plugins" ? "settings-nav-plugins-children" : undefined} className="contents md:block">
+                  {item.id === "plugins" && pluginsExpanded &&
                     pluginNavChildren.map(({ row: p, pointer }) => {
                       if (pointer) {
                         // Promoted plugin: a dimmed pointer to the same URL. A
@@ -1397,6 +1429,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                         </button>
                       );
                     })}
+                  </div>
                   </div>
                 );
               })}
@@ -2424,7 +2457,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
               </>
             )}
 
-            {activeTab === "packages" && (
+            {activeTab === "add-ons" && (
               <>
                 <ElectronRuntimeUpdates />
                 <UnifiedPackagesSection />
@@ -3905,6 +3938,9 @@ function GlobalPackagesBrowseAndDialogs() {
           // UnifiedPackagesSection above already shows global installed packages.
           // See change: unify-workspace-package-management.
           showInstalledSection={false}
+          // A recommended entry shown as an installed row is not repeated as a card.
+          // See change: addons-hub-declutter.
+          hideGlobalInstalledRecommended
         />
       </Section>
 

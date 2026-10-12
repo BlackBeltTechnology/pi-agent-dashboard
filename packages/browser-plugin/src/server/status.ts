@@ -84,13 +84,15 @@ function remoteAddressOf(ws: unknown): string | undefined {
 }
 
 export class BrowserRelayStatus {
+  private readonly deps: BrowserRelayStatusDeps;
   private readonly timers: StatusTimers;
   private readonly coalesceMs: number;
   /** Sockets that already have a close listener — registered at most once. */
   private readonly closeTracked = new WeakSet<object>();
   private timer?: unknown;
 
-  constructor(private readonly deps: BrowserRelayStatusDeps) {
+  constructor(deps: BrowserRelayStatusDeps) {
+    this.deps = deps;
     this.timers = deps.timers ?? REAL_TIMERS;
     this.coalesceMs = deps.coalesceMs ?? STATUS_COALESCE_MS;
     // Audit appends are the only change signal the manager/tap do not route
