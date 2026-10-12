@@ -1,112 +1,129 @@
-## 1. Plugin skeleton and manifests (TDD)
+## 1. Plugin skeleton and manifests
 
-- [ ] 1.1 Write `scripts/__tests__/claude-plugin-structure.test.mjs`. It asserts the spec's installability rules:
-  - `packages/claude-plugin/.claude-plugin/plugin.json` exists with `name: "pi-dashboard"` and the required fields;
-  - its keys are a subset of the D9 allowlist (no `displayName`);
-  - no top-level `bin/`, `.mcp.json` or `hooks/`;
-  - `README.md` has ≥ 40 words outside code fences;
-  - a `LICENSE` file or `license` field exists;
-  - `.claude-plugin/marketplace.json` has a `description` and a `pi-dashboard` entry whose `source` resolves to `packages/claude-plugin`.
+- [ ] 1.1 Write `scripts/__tests__/claude-plugin-structure.test.mjs` (exemplar `scripts/__tests__/skill-frontmatter.test.mjs`) asserting the plugin layout. Triple: plugin tree + `plugin.json` · structure test · required keys present, no `displayName`, no `bin/`/`.mcp.json`/`hooks/`, README ≥ 40 words outside fences, a LICENSE. Verify red first (test-plan #E1)
+- [ ] 1.2 Add to the structure test the marketplace check (exemplar as 1.1). Triple: root `.claude-plugin/marketplace.json` · structure test · `name` = `pi-agent-dashboard`, non-empty `description`, a `pi-dashboard` entry whose `source` resolves to `packages/claude-plugin` (test-plan #E2)
+- [ ] 1.3 Create `packages/claude-plugin/.claude-plugin/plugin.json` (version = the root version), `README.md` (what it does, how to install, the surfaces table, localhost-only data) and `LICENSE`. Create the root `.claude-plugin/marketplace.json`. Verify: E1 and E2 green, and `claude plugin validate packages/claude-plugin` and `claude plugin validate .` pass locally
 
-  Verify: `npx vitest run --project scripts claude-plugin-structure` fails (red).
-- [ ] 1.2 Create `packages/claude-plugin/.claude-plugin/plugin.json` (`version` = the current root version; author BlackBelt Technology; license MIT), plus `README.md` (what it does, how to install, which surfaces it works on, what data it touches: localhost only) and `LICENSE` (copy of the repo license). Verify: test 1.1 passes for the plugin part.
-- [ ] 1.3 Create the root `.claude-plugin/marketplace.json` (`name: "pi-agent-dashboard"`, owner, description, `plugins[0].source: "./packages/claude-plugin"`). Verify: test 1.1 is green, and `claude plugin validate packages/claude-plugin` and `claude plugin validate .` both pass locally.
+## 2. Bootstrap script `ensure-dashboard.sh` (TDD)
 
-## 2. `ensure-dashboard.sh` (TDD)
+All tests in this section live in `scripts/__tests__/claude-plugin-ensure-dashboard.test.mjs`.
+- **Harness exemplar:** `scripts/__tests__/rebuild-scripts-gate.test.mjs` (`spawnSync` with an injected env).
+- **Harness conventions:** the test-plan "Harness conventions" section: temp `HOME` record fixtures, stub `pi-dashboard`/`npm`/`npx`/`node`/`open`/`uname` that log argv+env, Node fixture servers, and `PIDB_TEST=1` timing overrides.
 
-- [ ] 2.1 Write `scripts/__tests__/claude-plugin-ensure-dashboard.test.mjs`.
-  - **Harness:**
-    - runs `sh ensure-dashboard.sh` with a temp `DASHBOARD_HOME`;
-    - uses a stub `PATH` dir whose `pi-dashboard`, `npm`, `npx`, `node` and `open` record their argv to a file (the `npm` stub can be configured to succeed and drop a `pi-dashboard` stub under a fake global prefix, or to fail with EACCES; the `node` stub reports a configurable version);
-    - uses a stub `SHELL` for the login-shell lookup;
-    - uses Node fixture HTTP servers on ephemeral ports.
-  - **Cases (one per spec scenario):**
-    - healthy `{ok:true}` → exit 0, `STATUS=already-running`, no launcher call;
-    - hung server (accepts, never responds) → exit 3 `BUSY`, no launcher call;
-    - foreign HTTP → exit 5 `PORT_CONFLICT`, no launcher call;
-    - refused port + stub CLI that starts a fixture → exit 0 `STATUS=started`;
-    - refused port, CLI only in the login shell → that CLI launched;
-    - no CLI, `open` stub present (darwin only) → `open -b com.blackbelt-technology.pi-dashboard` called;
-    - nothing installed, no consent → exit 4 `NOT_INSTALLED` (message names the install command and the ~1 GB size), npm/npx not called;
-    - `DASHBOARD_ALLOW_INSTALL=1`, npm install succeeds → `npm install -g @blackbelt-technology/pi-agent-dashboard@latest --allow-remote=all` called, then the installed CLI `start --port <p>`; prints `INSTALL=global`; npx not called;
-    - consent, npm install fails (EACCES) → `npx -y @blackbelt-technology/pi-agent-dashboard@latest start --port <p>` called; prints `INSTALL=npx-cache` and the non-durable warning;
-    - consent, Node 20 → exit 1 naming 22.19, npm/npx not called;
-    - consent, no npm resolvable → exit 1, nothing downloaded;
-    - CLI found only under `$(npm prefix -g)/bin` (not on PATH) after a prior install → launched without consent;
-    - every npm/npx invocation pins `@latest` (never `next` or an unpinned name);
-    - `CLAUDE_CODE_IS_COWORK=1` → exit 2 `SANDBOX`, no probe;
-    - `DASHBOARD_PORT=abc` → exit 1, no probe;
-    - config.json port is honoured;
-    - a launcher that never yields health → exit 1 naming the server log (inject a short `DASHBOARD_READY_TIMEOUT_S` test override).
+- [ ] 2.1 Build the shared harness helpers: fixture-server modes `dashboard`/`wrong-pid`/`no-pid`/`recovery`/`foreign-html`/`hung`/`refused`, the stub-bin writer, the live/dead pid helpers, and the record writers. Verify: a smoke test can start and stop each fixture mode
+- [ ] 2.2 Test the already-up path. Triple: fixture `dashboard`, lock meta pid = health pid · run · stdout exactly `STATUS=already-running` + `BASE`, exit 0, no launcher invoked (test-plan #E3)
+- [ ] 2.3 Test an ok body without a pid. Triple: fixture `no-pid` · run · `STATUS=port-conflict`, exit 5, no launcher (test-plan #E4)
+- [ ] 2.4 Test a pid that matches no record. Triple: fixture `wrong-pid`, records never match · run with record-poll override 1 s · `STATUS=port-conflict`, exit 5 (test-plan #E5)
+- [ ] 2.5 Test the record catching up. Triple: fixture `wrong-pid`, lock meta rewritten to match after 0.5 s · run · `STATUS=already-running` (test-plan #E6)
+- [ ] 2.6 Test recovery mode. Triple: fixture `recovery` · run · `STATUS=recovery`, exit 3, no launcher (test-plan #E7)
+- [ ] 2.7 Test a foreign HTML service. Triple: fixture `foreign-html` · run · `STATUS=port-conflict`, exit 5 (test-plan #E8)
+- [ ] 2.8 Test a starting server. Triple: refused port, lock meta names a live pid, fixture binds after 2 s · run · `already-running`, no launcher, `server.pid` and lock meta byte-identical (test-plan #E9)
+- [ ] 2.9 Test unusable env ports. Triple: config 18555, `DASHBOARD_PORT` ∈ {abc, 0, 65536, 70000, 1e4, " 18555 "} · run · each probes 18555 (test-plan #E10)
+- [ ] 2.10 Test the port boundaries. Triple: `DASHBOARD_PORT` ∈ {1, 65535} · run · the probed URL uses that port, read from the curl argv log (test-plan #E11)
+- [ ] 2.11 Test port precedence. Triple: combinations of `PI_DASHBOARD_PORT` / `DASHBOARD_PORT` / config / none · run · PI → DASHBOARD → config → 8000 (test-plan #E12)
+- [ ] 2.12 Test nested config keys. Triple: config with a nested `port: 9` before top-level 18555 · run · probes 18555 (test-plan #E13)
+- [ ] 2.13 Test the CLI argv and HOME. Triple: refused, no records, stub CLI · run · CLI argv exactly `start --port <resolved>`, and the stub sees the caller's `HOME` (test-plan #E14)
+- [ ] 2.14 Test the stdout protocol. Triple: stub CLI prints to stdout · start path · script stdout only `STATUS=started` + `BASE`, CLI text on stderr (test-plan #E15)
+- [ ] 2.15 Test another port with a config-sourced port. Triple: config port refuses, lock meta live on 18600 with a verified fixture · run · `already-running`, `BASE=…:18600`, no launcher (test-plan #E16)
+- [ ] 2.16 Test another port with an env-sourced port. Triple: `DASHBOARD_PORT=18999`, lock meta live on 18600 · run · `STATUS=failed`, exit 1, stderr names 18600, no launcher (test-plan #E17)
+- [ ] 2.17 Test the nvm lookup. Triple: fake nvm `v9.0.0`/`v22.19.0`/`v24.15.0` bins, no CLI on PATH · start path · the v24.15.0 executable is invoked (test-plan #E18)
+- [ ] 2.18 Test the login-shell lookup. Triple: stub `SHELL` printing noise + `/x/not-it` + `/y/bin/pi-dashboard` · run · `/y/bin/pi-dashboard` invoked, shell argv contains `-lc` and no `-i` (test-plan #E19)
+- [ ] 2.19 Test the npx-cache lookup. Triple: npx cache with a newer `0.0.0-test-x` and an older `0.9.0` · run · the 0.9.0 copy is invoked, with a non-durable note (test-plan #E20)
+- [ ] 2.20 Test the macOS app source. Triple: no CLI, stub `uname`=Darwin, stub `open` ok then fixture boots, config port · run · `open -g -b com.blackbelt-technology.pi-dashboard`, `STATUS=started` (test-plan #E21)
+- [ ] 2.21 Test that `open` is skipped. Triple: stub `uname`=Linux, or an env-sourced port · run · `open` never invoked, `STATUS=not-installed` (test-plan #E22)
+- [ ] 2.22 Test the no-consent path. Triple: no CLI, no app, no `--install` · run · `STATUS=not-installed`, exit 4, npm/npx never invoked, install command on stderr (test-plan #E23)
+- [ ] 2.23 Test the global install. Triple: `--install`, stub npm succeeds with version 0.9.0 · run · npm argv `install -g @blackbelt-technology/pi-agent-dashboard@latest` with `npm_config_allow_remote=all` in npm's env only; CLI started without it; `INSTALL=global`, `STATUS=started` (test-plan #E24)
+- [ ] 2.24 Test the prerelease refusal. Triple: `--install`, installed version `0.10.0-rc.1` · run · `STATUS=failed`, CLI never started (test-plan #E25)
+- [ ] 2.25 Test the usable-Node boundaries. Triple: `--install`, stub node v20.11.0 / v22.18.0 / v22.19.0 / v24.0.0 / v24.2.0 / v24.3.0 / v26.9.0 / v27.0.0 · run · 20.11.0, 22.18.0, 24.2.0, 27.0.0 → `failed`, exit 1, no npm; the rest → npm invoked (test-plan #E26)
+- [ ] 2.26 Test that the Node range matches the server. Triple: script source + root `package.json` + shared `isUsableNodeVersion` · static/parity test · the script constants equal `engines.node` and the gate's excluded range; the script's decision equals the gate's for every E26 version (test-plan #E27)
+- [ ] 2.27 Test the sandbox markers. Triple: each of `CLAUDE_CODE_IS_COWORK=1`, `CLAUDE_CODE_REMOTE=1`, `CLAUDE_CONFIG_DIR=/sessions/x/mnt/.claude` · run · `STATUS=sandbox`, exit 2, empty stub log, no lock dir (test-plan #E28)
+- [ ] 2.28 Test local markers. Triple: local markers only (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_SESSION_ID`) with a verified fixture · run · `already-running`, not `sandbox` (test-plan #E29)
+- [ ] 2.29 Test `--check`. Triple: fixture `dashboard` / `refused` / `wrong-pid` · `--check` · exit 0 only for `dashboard`; never a lock dir or a launcher (test-plan #E30)
+- [ ] 2.30 Test a dead-holder lock. Triple: lock dir with a holder naming a dead pid · start path · reclaimed, one launcher call, lock dir gone afterwards (test-plan #E31)
+- [ ] 2.31 Test a fresh holder-less lock. Triple: lock dir without holder, created now · run with lock-wait override 3 s · `STATUS=busy`, exit 3, no launcher, lock untouched (test-plan #E32)
+- [ ] 2.32 Test an old holder-less lock. Triple: lock dir without holder, mtime 2 min ago · run · reclaimed, launcher invoked (test-plan #E33)
+- [ ] 2.33 Static-test the script source. Triple: script source · static test · no `rm -rf` / `rm -r`; `${HOME:?}` guards on HOME-derived paths (test-plan #E34)
+- [ ] 2.34 Test the latency budget. Triple: verified fixture up, lock meta present · 5 runs each of the script and `--check` · max wall time ≤ 5 s (test-plan #P1)
+- [ ] 2.35 Test a hung server. Triple: fixture `hung` + records · run · `STATUS=busy`, exit 3, log path on stderr, no launcher, records byte-identical (test-plan #X1)
+- [ ] 2.36 Test a live pid with no answer. Triple: refused, lock meta live pid, nothing answers · run with poll override 2 s · `STATUS=busy`, exit 3, no launcher (test-plan #X2)
+- [ ] 2.37 Test corrupt metadata. Triple: refused, lock meta truncated `{"pid":` · run · no launcher, `STATUS=busy` (test-plan #X3)
+- [ ] 2.38 Test the real refusal window. Triple: refused for 3 s, then fixture binds, no window override · run · `already-running`, no launcher (test-plan #X4)
+- [ ] 2.39 Test concurrent runs. Triple: refused, no records, stub CLI boots a fixture after 2 s · two parallel runs · exactly one CLI invocation; ready statuses `started` + `already-running` (test-plan #X5)
+- [ ] 2.40 Test a failing launcher. Triple: stub CLI `start` exits 1 · run · `STATUS=failed`, exit 1, npm/npx/open never invoked (test-plan #X6)
+- [ ] 2.41 Test the readiness timeout. Triple: stub CLI exits 0, no server appears · run with readiness override 2 s · `STATUS=failed`, exit 1, `server.log` path on stderr (test-plan #X7)
+- [ ] 2.42 Test the install fallback. Triple: `--install`, stub npm `install -g` EACCES · run · prefix hint without a `sudo` recommendation; `npm exec --yes --package=…@latest -- node -e 0` with `npm_config_allow_remote=all`; `npx --yes …@latest start --port <p>` without it; `INSTALL=npx-cache` + non-durable warning (test-plan #X8)
+- [ ] 2.43 Test missing npm. Triple: `--install`, no npm resolvable · run · `STATUS=failed`, exit 1, nothing downloaded (test-plan #X9)
+- [ ] 2.44 Test a re-bound port. Triple: verified run, then the fixture is replaced by `wrong-pid` on the same port · `--check` · non-zero, `STATUS=port-conflict` (test-plan #X10)
+- [ ] 2.45 Implement `packages/claude-plugin/skills/pi-dashboard-bootstrap/scripts/ensure-dashboard.sh` per spec and design D2–D5, starting from `openspec/changes/add-claude-code-plugin/spike/ensure-dashboard.sh`. Verify: every test in 2.2–2.44 green and `sh -n` passes
+- [ ] 2.46 Write `packages/claude-plugin/skills/pi-dashboard-bootstrap/SKILL.md`:
+  - one foreground command `sh "${CLAUDE_SKILL_DIR}/scripts/ensure-dashboard.sh"` with a 600 s timeout, never in the background;
+  - per-`STATUS` instructions;
+  - the consent question (machine, ~1 GB, adds the command + bridge, decline in Cowork/web) before re-running with `--install`;
+  - no workarounds on `sandbox`;
+  - re-run after a tool timeout.
 
-  Verify: red.
-- [ ] 2.2 Implement `packages/claude-plugin/skills/pi-dashboard-bootstrap/scripts/ensure-dashboard.sh` per design D2–D5:
-  - POSIX `sh`; stdout only `STATUS=` / `BASE=`, diagnostics on stderr;
-  - curl probe 3 × 5 s, starting only on curl exit 7;
-  - launch order CLI → login-shell CLI → npm-global-prefix CLI → `open -b` → consented install (gated by `DASHBOARD_ALLOW_INSTALL=1`: prerequisite check, `npm install -g …@latest --allow-remote=all`, resolve the installed CLI, start; npx `…@latest start` only if the install fails);
-  - passes `--port` (and `--pi-port` when `DASHBOARD_PI_PORT` is set) to every launcher;
-  - readiness wait of 60 s (overridable for tests only).
+  Verify: 3.2 green for this skill
 
-  Start from `openspec/changes/add-claude-code-plugin/spike/ensure-dashboard.sh`. Verify: test 2.1 green, and `sh -n` passes.
-- [ ] 2.3 Write `packages/claude-plugin/skills/pi-dashboard-bootstrap/SKILL.md`:
-  - frontmatter `description` with the triggers: pi dashboard, pi sessions, start/open the dashboard, connection refused;
-  - one imperative command, `sh "${CLAUDE_SKILL_DIR}/scripts/ensure-dashboard.sh"`, as a single foreground call, never in the background;
-  - per-exit-code instructions, including asking for consent on exit 4 ("install the latest pi-dashboard release globally with npm, ~1 GB, about a minute; adds the `pi-dashboard` command and the pi bridge") and re-running with `DASHBOARD_ALLOW_INSTALL=1`; relaying the non-durable warning on `INSTALL=npx-cache`; no workarounds on exit 2;
-  - use the literal `BASE` URL afterwards.
+## 3. Control skill `pi-dashboard-control` (TDD)
 
-  Verify: `node scripts/check-skill-frontmatter.mjs` reports no error for it.
+- [ ] 3.1 Add to `scripts/__tests__/claude-plugin-structure.test.mjs` (exemplar `scripts/__tests__/skill-frontmatter.test.mjs`) a forbidden-reference scan. Triple: every file under `packages/claude-plugin/` · scan · none contains `dashboard-bus`, `bus-client`, `dashboard-api.sh`, `WebSocket bus`, `commands/dashboard-` (test-plan #E37)
+- [ ] 3.2 Add a skill-content contract test (exemplar as 3.1). Triple: both `SKILL.md` files · static test:
+  - bootstrap: one command, 600 s timeout, "never background";
+  - control: `token create --label claude-code --tier control`, `-H @`, `--check &&` chaining, no `-v`/`--trace`;
+  - descriptions ≤ 400 chars, valid frontmatter.
 
-## 3. Control skill derived from the extension skill (TDD)
+  (test-plan #E39)
+- [ ] 3.3 Write `scripts/__tests__/claude-plugin-parity.test.mjs` (exemplar `scripts/__tests__/skill-frontmatter.test.mjs`). Triple: source `api-reference.md` · apply the transform · the shipped file equals the source minus the "WebSocket bus verbs" section, byte for byte; the failure names `node scripts/sync-claude-plugin.mjs` (test-plan #E35)
+- [ ] 3.4 Add a missing-heading test to the parity test. Triple: a source copy with the heading renamed · run `sync-claude-plugin.mjs` on it · non-zero exit naming the missing heading (test-plan #E36)
+- [ ] 3.5 Add a route-existence test to the parity test (exemplar static scan: `scripts/__tests__/dependency-declarations.test.mjs`). Triple: every `METHOD /api/...` in the control `SKILL.md` · match against route registrations in `packages/server/src/` · each method + path is registered (test-plan #E38)
+- [ ] 3.6 Implement `scripts/sync-claude-plugin.mjs` (section drop; fail on a missing heading) and generate `packages/claude-plugin/skills/pi-dashboard-control/references/api-reference.md`. Verify: E35 and E36 green
+- [ ] 3.7 Write `packages/claude-plugin/skills/pi-dashboard-control/SKILL.md`:
+  - curl against `BASE` from the bootstrap;
+  - health, sessions, prompt, abort, spawn calls;
+  - REST is the command path;
+  - the token rules (401, or 403 `local_proof_required` → ask for a `control`-tier token; prefer the header file with `--check && curl -H @…`; never create the file; no `-v`).
 
-- [ ] 3.1 Write `scripts/__tests__/claude-plugin-parity.test.mjs`.
-  - Asserts that `references/api-reference.md`, `references/recipes.md` and `scripts/dashboard-api.sh` under `packages/claude-plugin/skills/pi-dashboard/` are byte-identical to `packages/extension/.pi/skills/pi-dashboard/`.
-  - The failure message names `node scripts/sync-claude-plugin.mjs`.
-  - Also asserts that the plugin `SKILL.md` contains no `dashboard-bus` reference and that no `commands/` directory exists.
-
-  Verify: red.
-- [ ] 3.2 Implement `scripts/sync-claude-plugin.mjs`: copy the three files and preserve the executable bit on `dashboard-api.sh`. Verify: after running it, test 3.1 is green for the byte checks.
-- [ ] 3.3 Write the plugin `skills/pi-dashboard/SKILL.md`. It is curl-first and covers:
-  - get `BASE` from the bootstrap skill first;
-  - the common read and command calls (`GET /api/sessions`, `GET /api/health`, `POST /api/session/:id/prompt|abort`, `POST /api/session/spawn`), with pointers to `references/`;
-  - an explicit statement that REST is the command path inside Claude;
-  - the token rules from the spec (on 401 / `local_proof_required`: ask for `pi-dashboard token create --label claude-code --tier <tier>`, Bearer header only, never written or echoed).
-
-  Verify: test 3.1 green; frontmatter guard clean.
-- [ ] 3.4 Confirm that every REST route the plugin `SKILL.md` names is registered on the server: a grep or a `printRoutes` check in the parity test against `packages/server/src/routes/`. Verify: the test asserts each named route exists.
+  Verify: E37, E38 and E39 green
 
 ## 4. Version lockstep
 
-- [ ] 4.1 Add a test in `scripts/__tests__/` asserting that the `plugin.json` `version` equals the root `package.json` `version`. Verify: green right after 1.2. Then confirm it goes red when the root version alone is changed in a temp copy, or via a dependency-injected fixture following the `sync-versions-spec.js` pattern.
-- [ ] 4.2 Extend `scripts/sync-versions.js` to stamp the root version into `packages/claude-plugin/.claude-plugin/plugin.json`, reporting the change like its other rewrites. Verify: a `sync-versions` test or fixture shows the stamp, and running the script on a clean tree leaves no diff.
-- [ ] 4.3 Add one line to `.pi/skills/release-cut/SKILL.md` step 5 noting that the plugin version is stamped by `sync-versions.js`. Verify: grep shows the note.
+- [ ] 4.1 Write `scripts/__tests__/claude-plugin-version.test.mjs` (exemplar `scripts/__tests__/nightly-verdaccio-publish.test.mjs`) asserting equality. Triple: `plugin.json` + root `package.json` · test · versions equal (test-plan #E40)
+- [ ] 4.2 Add a stamping test to the version test. Triple: temp repo skeleton with a bumped root version · run `sync-versions.js` · `plugin.json` = new version, and a second run makes no diff (test-plan #E41)
+- [ ] 4.3 Add a release-cut doc check to the version test. Triple: `.pi/skills/release-cut/SKILL.md` · static test · step 6 `git add` includes `packages/claude-plugin/.claude-plugin/plugin.json`, and a version-equality check precedes `git tag` (test-plan #E42)
+- [ ] 4.4 Write `packages/shared/src/__tests__/claude-plugin-publish-contract.test.ts` (exemplar `packages/shared/src/__tests__/publish-version-step-contract.test.ts`). Triple: `.github/workflows/publish.yml` · contract test · the `publish` job has a step reading `git show "$GITHUB_REF_NAME:packages/claude-plugin/.claude-plugin/plugin.json"` ordered before `node scripts/sync-versions.js` and before any publish step (test-plan #E43)
+- [ ] 4.5 Implement:
+  - the `plugin.json` stamp in `scripts/sync-versions.js`;
+  - the tag-push preflight step in `.github/workflows/publish.yml`;
+  - in `.pi/skills/release-cut/SKILL.md`: step 6 staging, the "No other files" text, a version check before `git tag`, and a manual `claude plugin validate` step.
+
+  Verify: 4.1–4.4 green; `node scripts/sync-versions.js` on a clean tree leaves no diff
 
 ## 5. Docs and DOX
 
-- [ ] 5.1 Add `packages/claude-plugin/AGENTS.md` with rows for `.claude-plugin/plugin.json`, `README.md`, `LICENSE`, the bootstrap skill and its script, and the control skill and its derived files. Add rows for the new scripts and tests to `scripts/AGENTS.md` and `scripts/__tests__/AGENTS.md`, and a row for `.claude-plugin/marketplace.json` in the root non-source area per the repo DOX convention. Verify: the `dox-byte-gate` and DOX lint scripts pass.
+- [ ] 5.1 Add `packages/claude-plugin/AGENTS.md` rows (manifest, README, LICENSE, both skills, script, derived reference). Add rows for the new scripts and tests to `scripts/AGENTS.md`, `scripts/__tests__/AGENTS.md` and `packages/shared/src/__tests__/AGENTS.md`. Add a row for `.claude-plugin/marketplace.json` per the repo DOX convention. Verify: the DOX lint and `dox-byte-gate` pass
 - [ ] 5.2 Delegate to DocScribe, in caveman style:
-  - a `docs/faq.md` entry "How do I use pi-dashboard from Claude Code / Claude Desktop?": install via marketplace, the surface table, the consent gate, BUSY/PORT_CONFLICT meanings, strict-mode tokens;
+  - a `docs/faq.md` entry "How do I use pi-dashboard from Claude Code / Claude Desktop?": marketplace install, the surfaces table, the consent question, the `STATUS` meanings, strict-mode tokens via a header file;
   - a README install-paths row.
 
-  Verify: entries present; `node scripts/check-conventions.mjs` clean.
+  Verify: `node scripts/check-conventions.mjs` clean
 
-## 6. Integration check (local, isolated instance)
+## 6. Integration check (local, isolated)
 
-- [ ] 6.1 Run the headless end-to-end check against an isolated instance (temp HOME, ports 18555/18556; never 8000):
-  ```
-  DASHBOARD_HOME=<tmp> DASHBOARD_PORT=18555 DASHBOARD_PI_PORT=18556 claude -p "Is my pi dashboard running? …" --plugin-dir packages/claude-plugin --allowedTools "Bash Skill Read"
-  ```
-  Verify:
-  - the transcript shows a single `ensure-dashboard.sh` call and then a curl to `/api/sessions`;
-  - `lsof -iTCP:8000` is unchanged;
-  - `HOME=<tmp> pi-dashboard stop --port 18555 --pi-port 18556` cleans up.
-- [ ] 6.2 Run `npm test` for the `scripts` project plus `node scripts/check-skill-frontmatter.mjs`. Verify: all green.
+- [ ] 6.1 Run the headless end to end check against a temp `HOME` and port 18555/18556 (never 8000). With `--plugin-dir packages/claude-plugin`, prompt "Is my pi dashboard running? …". Verify:
+  - the transcript shows one `ensure-dashboard.sh` call, then curl to `/api/sessions`;
+  - `lsof -iTCP:8000 -sTCP:LISTEN` is unchanged;
+  - cleanup with `HOME=<tmp> pi-dashboard stop --port 18555 --pi-port 18556`.
+- [ ] 6.2 Run `npm test` (`scripts` + `shared` projects) and `node scripts/check-skill-frontmatter.mjs`. Verify all green
 
-## 7. QA (manual, post-merge; may be marked done and tested later)
+## 7. Manual QA (post-merge)
 
-- [ ] 7.1 Claude Code: run `/plugin marketplace add BlackBeltTechnology/pi-agent-dashboard --sparse .claude-plugin packages/claude-plugin`, then `/plugin install pi-dashboard@pi-agent-dashboard`. Verify: install succeeds; "start my pi dashboard" works with the dashboard down and with it already up.
-- [ ] 7.2 Customize > Plugins > Add marketplace (same repo). Verify: the install succeeds and the plugin appears as a synced plugin in Claude Code after `/reload-plugins`. If the install fails on repo size, open the mirror-repo fallback (design D6 / Migration step 4).
-- [ ] 7.3 Cloud Cowork task "start my pi dashboard". Verify: either the `SANDBOX` message, or `NOT_INSTALLED` with a consent question; no silent install. Record the environment marker observed (closes the design Open Question).
-- [ ] 7.3a Fresh machine without pi-dashboard (or a temp HOME plus a temp npm prefix via `npm_config_prefix`): consent → global install of `@latest` → started. Verify: `INSTALL=global`; `~/.pi/agent/settings.json` bridge path points into the global prefix, not `~/.npm/_npx`; a second session starts without asking.
-- [ ] 7.4 Electron-only machine (no CLI on PATH, app installed). Verify: the app opens and `STATUS=started` is reported.
-- [ ] 7.5 Windows Claude Code with the CLI installed. Verify: the bootstrap runs under the provided shell and reports `BASE`.
-- [ ] 7.6 Strict mode (`requireLocalProof: true`): ask Claude to send a prompt to a session. Verify: Claude asks for a `token create` token, uses the Bearer header, and the token does not appear in files.
+- [ ] 7.1 claude.ai Customize > Plugins > Upload plugin (zip of `packages/claude-plugin`): accepted, both skills listed (test-plan: manual-only, #M1)
+- [ ] 7.2 Cowork/claude.ai "Add marketplace" `BlackBeltTechnology/pi-agent-dashboard` + install: succeeds despite repo size, otherwise start the mirror-repo fallback (test-plan: manual-only, #M2)
+- [ ] 7.3 `claude plugin validate` (plugin + marketplace) and `/plugin marketplace add … --sparse .claude-plugin packages/claude-plugin` + install: validation passed; inventory 2 skills, 0 agents/hooks/MCP (test-plan: manual-only, #M3)
+- [ ] 7.4 Cloud Cowork task "start my pi dashboard": either the `sandbox` message, or `not-installed` plus a consent question naming the machine; no silent install; record the env markers (test-plan: manual-only, #M4)
+- [ ] 7.5 Desktop app Code tab: `env | grep CLAUDE` shows no sandbox marker and the bootstrap works. Gates announcing the plugin (test-plan: manual-only, #M5)
+- [ ] 7.6 macOS with only pi-dashboard.app installed: the app opens in the background and the bootstrap reports `STATUS=started` (test-plan: manual-only, #M6)
+- [ ] 7.7 Windows Claude Code with the CLI (Git Bash): the bootstrap reports `BASE`; the lock and `find -mmin` behave (test-plan: manual-only, #M7)
+- [ ] 7.8 `requireLocalProof: true`, "send a prompt to session X": Claude asks for a `control`-tier token, prefers the header file, chains `--check && curl -H @…`, and does not echo the token (test-plan: manual-only, #M8)
+- [ ] 7.9 Plugin installed, dashboard down, no CLI, "is my pi dashboard running?": the bootstrap skill is chosen; one foreground call with a 600 s timeout; the consent question lists machine / size / bridge / Cowork-decline before `--install` (test-plan: manual-only, #M9)
+- [ ] 7.10 Temp `HOME` + temp npm prefix, consent → `--install`: `INSTALL=global`; the bridge path in `~/.pi/agent/settings.json` is inside the prefix; a second session starts without consent (test-plan: manual-only, #M10)
