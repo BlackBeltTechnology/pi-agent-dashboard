@@ -11,13 +11,65 @@ import type {
   PluginClaim,
   PluginManifest,
   PluginRequirements,
+  ProjectTypeRule,
   SettingsNavHint,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
+import {
+  MAX_MARKERS_PER_TYPE,
+  MAX_PROJECT_TYPES,
+  markerPatternError,
+  PROJECT_NAME_RE,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/project-markers.js";
 import {
   type SettingsTab,
   SLOT_DEFINITIONS,
   type SlotId,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
+
+/**
+ * Validate the optional `projectTypes` marker rules (fatal on any violation).
+ * See change: add-project-scoped-apps.
+ */
+function validateProjectTypes(raw: unknown, pluginId: string): ProjectTypeRule[] {
+  if (!Array.isArray(raw)) {
+    throw new ManifestValidationError(pluginId, "manifest.projectTypes must be an array if provided");
+  }
+  if (raw.length > MAX_PROJECT_TYPES) {
+    throw new ManifestValidationError(
+      pluginId,
+      `manifest.projectTypes has ${raw.length} entries (max ${MAX_PROJECT_TYPES})`,
+    );
+  }
+  return raw.map((entry, i) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new ManifestValidationError(pluginId, `manifest.projectTypes[${i}] must be an object`);
+    }
+    const e = entry as Record<string, unknown>;
+    if (typeof e.type !== "string" || !PROJECT_NAME_RE.test(e.type)) {
+      throw new ManifestValidationError(
+        pluginId,
+        `manifest.projectTypes[${i}].type must match ${PROJECT_NAME_RE.source}`,
+      );
+    }
+    if (!Array.isArray(e.markers) || e.markers.length < 1 || e.markers.length > MAX_MARKERS_PER_TYPE) {
+      throw new ManifestValidationError(
+        pluginId,
+        `manifest.projectTypes[${i}].markers must hold 1 to ${MAX_MARKERS_PER_TYPE} patterns`,
+      );
+    }
+    const markers = e.markers.map((m: unknown, j: number) => {
+      const violation = markerPatternError(m);
+      if (violation !== null) {
+        throw new ManifestValidationError(
+          pluginId,
+          `manifest.projectTypes[${i}].markers[${j}] "${String(m)}" ${violation}`,
+        );
+      }
+      return m as string;
+    });
+    return { type: e.type, markers };
+  });
+}
 
 export class ManifestValidationError extends Error {
   public readonly pluginId: string;
@@ -550,6 +602,8 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     vaultBindings = [...(m.vaultBindings as string[])];
   }
 
+  const projectTypes = m.projectTypes !== undefined ? validateProjectTypes(m.projectTypes, pluginId) : undefined;
+
   return {
     id: pluginId,
     displayName: m.displayName,
@@ -565,5 +619,7 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     ...(requires ? { requires } : {}),
     ...(dependsOn ? { dependsOn } : {}),
     ...(vaultBindings ? { vaultBindings } : {}),
+
+    ...(projectTypes ? { projectTypes } : {}),
   };
 }

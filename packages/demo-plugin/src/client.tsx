@@ -4,10 +4,16 @@
  * DO NOT use in production.
  */
 
-import { oauthFlowClient, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  folderHasProjectType,
+  oauthFlowClient,
+  useEmbeddedAppShell,
+  useUiPrimitive,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type React from "react";
 import { lazy, useCallback, useEffect, useRef, useState } from "react";
+import { useLocation } from "wouter";
 
 export interface DemoConfig {
   greeting: string;
@@ -221,3 +227,35 @@ export function DemoToolRenderer({
  * See change: add-plugin-app-host (task 2.8, D8).
  */
 export const DemoAppRoute = lazy(() => import("./demo-app/DemoAppRoute.js"));
+
+/**
+ * Project-scoped embedded fixture app (`/folder/:encodedCwd/demo-scoped/*?`),
+ * lazy for the same reason as `DemoAppRoute`. The route renders
+ * `<EmbeddedApp projectScope={{ type: "demo-scoped" }}>`.
+ * See change: add-project-scoped-apps (D8).
+ */
+export const DemoScopedAppRoute = lazy(() => import("./demo-scoped-app/DemoScopedAppRoute.js"));
+
+/**
+ * Folder-scoped claim `predicate` (named export, per the plugin codegen): true
+ * only for folders whose project resolves to type `demo-scoped` — detected from
+ * the manifest `projectTypes` marker `.pi/dashboard/demo-scoped`.
+ */
+export const isDemoScopedFolder = folderHasProjectType("demo-scoped");
+
+/** State-only `sidebar-folder-section` entry that opens the scoped demo app. */
+export function DemoScopedFolderEntry({ folder }: { folder: { cwd: string } }) {
+  const shell = useEmbeddedAppShell();
+  const [, navigate] = useLocation();
+  if (!shell) return null;
+  return (
+    <button
+      type="button"
+      data-testid="demo-scoped-folder-entry"
+      onClick={() => navigate(`/folder/${shell.encodeFolder(folder.cwd)}/demo-scoped`)}
+      style={{ fontSize: "12px", padding: "2px 8px" }}
+    >
+      Demo scoped app →
+    </button>
+  );
+}

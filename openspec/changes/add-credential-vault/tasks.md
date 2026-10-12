@@ -85,7 +85,7 @@
 
 ## 7. Manual verification
 
-- [ ] 7.1 On a Windows host, add a vault account and try to read `vault.json` as a second local user; verify access is denied (test-plan: manual-only, #X14)
+- [x] 7.1 On a Windows host, add a vault account and try to read `vault.json` as a second local user; verify access is denied (test-plan: manual-only, #X14)
 
 ## 8. Sibling changes, docs and validation
 

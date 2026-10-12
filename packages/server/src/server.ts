@@ -178,6 +178,7 @@ import {
   clientBuildSnapshotFor,
   resolveStaticClientDir,
 } from "./lib/client-dist.js";
+import { collectRuleSources } from "./lib/folder-project.js";
 import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
@@ -232,6 +233,7 @@ import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
+import { registerFolderProjectRoutes } from "./routes/folder-project-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
 import { registerHostGateRoutes } from "./routes/host-gate-routes.js";
@@ -2279,6 +2281,27 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   registerFileRoutes(fastify, { sessionManager, preferencesStore, networkGuard });
   registerGrepRoutes(fastify, { sessionManager, networkGuard });
+  // Folder project identity (declared file + plugin marker rules). Rules come
+  // only from plugins that are loaded + enabled + fixture-allowed, read per
+  // request. See change: add-project-scoped-apps.
+  registerFolderProjectRoutes(fastify, {
+    networkGuard,
+    knownCwds: () => [
+      ...sessionManager.listAll().map((s) => s.cwd),
+      ...preferencesStore.getPinnedDirectories(),
+    ],
+    getRuleSources: () => {
+      const cfg = loadConfig();
+      const store = getPluginStatusStore();
+      return collectRuleSources(discoverPlugins(), {
+        fixtureAllowed: (m) => fixtureEntryAllowed(m),
+        isLoaded: (id) => store.getStatus(id)?.loaded === true,
+        isEnabled: (m) => resolvePluginEnabled(getPluginConfigFromFile(cfg, m.id), m.defaultEnabled),
+      });
+    },
+    admitOptions: { onIndeterminate: cwdAdmissionLogger },
+    onTruncated: (cwd) => console.debug(`[folder-project] detection truncated for ${cwd}`),
+  });
   // Settings → Access review surface + the one endpoint that can create a
   // filesystem grant. See change: add-access-grants-and-review.
   registerAccessRoutes(fastify, { networkGuard, preferencesStore, writeConfigPartial });

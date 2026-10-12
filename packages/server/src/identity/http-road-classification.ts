@@ -43,6 +43,8 @@ type Family =
 const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   // workspace: folders, directory pickers, pinned dirs
   browse: "workspace",
+  // folder project identity (`GET /api/folder/project`); change: add-project-scoped-apps
+  folder: "workspace",
   "pinned-dirs": "workspace",
   // openspec
   openspec: "openspec",

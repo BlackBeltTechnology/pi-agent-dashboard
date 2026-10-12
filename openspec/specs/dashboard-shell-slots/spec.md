@@ -845,6 +845,14 @@ The shell's decision to render the `content-view` slot instead of the chat SHALL
 - **WHEN** the selected session is idle, a plugin's `content-view` predicate becomes true, and the plugin signals a slot-claims change
 - **THEN** the plugin's content view SHALL replace the chat without any other state change
 
+### Requirement: Folder-scoped slot consumers re-evaluate on slot-claims invalidation
+The `sidebar-folder-section` and `worktree-card-section` slot consumers SHALL subscribe to the slot-claims invalidation version. They SHALL re-evaluate their claims' predicates whenever the version is bumped, even when no other prop or state of the consumer or its parent has changed.
+
+#### Scenario: Bump alone reveals a gated folder entry
+- **GIVEN** a `sidebar-folder-section` claim whose predicate returned `false` for folder `billing` and now returns `true`
+- **WHEN** the slot-claims version is bumped and nothing else changes
+- **THEN** the claim's entry renders for `billing`
+
 ## Related Capabilities
 
 - `dashboard-plugin-loader` — sibling capability defining how plugins (the React-side adapter) discover, register, and bind contributions into the slots defined here.

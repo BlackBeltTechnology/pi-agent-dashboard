@@ -195,6 +195,33 @@ export interface PluginRequirements {
 }
 
 /**
+ * One project-type detection rule a plugin manifest MAY declare. `markers` are
+ * root-anchored relative path patterns (1–3 segments, `*` inside a segment
+ * only); the server matches them in one bounded, symlink-free walk of an
+ * admitted folder.
+ * See change: add-project-scoped-apps.
+ */
+export interface ProjectTypeRule {
+  /** `^[a-z][a-z0-9-]{0,63}$`. */
+  type: string;
+  /** 1–16 patterns; a type matches when at least one marker matches. */
+  markers: string[];
+}
+
+/**
+ * Wire result of `GET /api/folder/project`. `source` describes where `types`
+ * came from (not `id`, which only ever comes from the declaration file).
+ * See change: add-project-scoped-apps.
+ */
+export interface FolderProject {
+  id: string | null;
+  types: string[];
+  source: "declared" | "detected" | "none";
+  /** Present (true) when an entry/pattern budget or the deadline cut detection short. */
+  truncated?: true;
+}
+
+/**
  * The pi-dashboard-plugin manifest.
  * Declared as the `pi-dashboard-plugin` field in a package.json,
  * or as a top-level `dashboard-plugin.json` adjacent to package.json.
@@ -268,6 +295,11 @@ export interface PluginManifest {
    * See change: make-all-ui-text-i18n.
    */
   i18nCatalog?: string;
+  /**
+   * Optional project-type detection rules (max 8). Evaluated server-side, only
+   * while this plugin is loaded and enabled. See change: add-project-scoped-apps.
+   */
+  projectTypes?: ProjectTypeRule[];
 }
 
 /**

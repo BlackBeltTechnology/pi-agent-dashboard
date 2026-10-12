@@ -1,10 +1,11 @@
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, render, renderHook, screen } from "@testing-library/react";
+import { act, cleanup, render, renderHook, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createUiPrimitiveRegistry, registerUiPrimitive, UiPrimitiveProvider } from "../index.js";
 import { intentStore } from "../intent-store.js";
 import { PluginContextProvider } from "../plugin-context.js";
+import { __resetSlotClaimsVersionForTests, bumpSlotClaimsVersion } from "../slot-claims-invalidation.js";
 import {
   ComposerContextGroup,
   ComposerContextGroupSlot,
@@ -851,5 +852,60 @@ describe("isPluginVisible filter", () => {
     expect(on.result.current).toBe(true);
     const off = renderHook(() => useSlotHasVisibleClaimsForSession("session-card-badge", makeSession(), () => false), { wrapper });
     expect(off.result.current).toBe(false);
+  });
+});
+
+
+// ── Folder consumers re-evaluate on a claims-version bump (add-project-scoped-apps) ──
+
+describe("folder slot consumers + slot-claims version", () => {
+  const folder = { cwd: "/repo" };
+  type Folderish = typeof SidebarFolderSectionSlot | typeof WorktreeCardSectionSlot;
+  const cases: Array<[string, "sidebar-folder-section" | "worktree-card-section", Folderish]> = [
+    ["SidebarFolderSectionSlot", "sidebar-folder-section", SidebarFolderSectionSlot],
+    ["WorktreeCardSectionSlot", "worktree-card-section", WorktreeCardSectionSlot],
+  ];
+
+  // test-plan #F1
+  it.each(cases)("%s shows a claim whose predicate flips false→true on a bump alone", (_n, slot, Slot) => {
+    __resetSlotClaimsVersionForTests();
+    let allowed = false;
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "judo",
+      priority: 1,
+      slot,
+      predicate: () => allowed,
+      Component: () => <i data-testid="gated" />,
+    });
+    render(
+      <PluginContextProvider registry={registry}>
+        <Slot folder={folder} />
+      </PluginContextProvider>,
+    );
+    expect(screen.queryByTestId("gated")).toBeNull();
+    act(() => {
+      allowed = true;
+      bumpSlotClaimsVersion(); // no prop change, no registry change
+    });
+    expect(screen.queryByTestId("gated")).not.toBeNull();
+    __resetSlotClaimsVersionForTests();
+  });
+
+  // test-plan #F2
+  it.each(cases)("%s keeps hook order when the registry appears after first render", (_n, slot, Slot) => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const registry = createSlotRegistry();
+    registry.addClaim({ pluginId: "k", priority: 1, slot, Component: () => <i data-testid="late" /> });
+    const { rerender } = render(<Slot folder={folder} />);
+    expect(screen.queryByTestId("late")).toBeNull();
+    rerender(
+      <PluginContextProvider registry={registry}>
+        <Slot folder={folder} />
+      </PluginContextProvider>,
+    );
+    expect(screen.queryByTestId("late")).not.toBeNull();
+    expect(errorSpy.mock.calls.filter((c) => /hook|Hooks/i.test(String(c[0])))).toEqual([]);
+    errorSpy.mockRestore();
   });
 });

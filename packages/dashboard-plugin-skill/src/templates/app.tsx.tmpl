@@ -1,0 +1,32 @@
+/**
+ * {{ displayName }} — embedded app definition (derived from the demo-plugin
+ * fixture app). Reached only through `AppRoute`'s dynamic import, so its code
+ * stays out of the dashboard's initial bundle.
+ */
+import { defineDashboardApp, useAppHost } from "@blackbelt-technology/pi-dashboard-app-kit/react";
+import { useEffect } from "react";
+import { Link, Route, Switch } from "wouter";
+
+function App() {
+  const host = useAppHost();
+  useEffect(() => {
+    host.setTitle("{{ displayName }}");
+  }, [host]);
+  return (
+    <div data-testid="{{ id }}-app" style={{ padding: "12px" }}>
+      <Switch>
+        <Route path="/sub">
+          <div data-testid="{{ id }}-view-sub">Sub view</div>
+        </Route>
+        <Route>
+          <div data-testid="{{ id }}-view-home">
+            {/* TODO: replace with your app */}
+            Home view · <Link href="/sub">sub</Link>
+          </div>
+        </Route>
+      </Switch>
+    </div>
+  );
+}
+
+export const app = defineDashboardApp({ id: "{{ id }}", title: "{{ displayName }}", App });

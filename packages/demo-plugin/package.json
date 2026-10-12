@@ -47,6 +47,27 @@
         "depth": 2,
         "parentPath": "/folder/:encodedCwd",
         "presentation": "content"
+      },
+      {
+        "slot": "shell-overlay-route",
+        "component": "DemoScopedAppRoute",
+        "path": "/folder/:encodedCwd/demo-scoped/*?",
+        "depth": 2,
+        "parentPath": "/folder/:encodedCwd",
+        "presentation": "content"
+      },
+      {
+        "slot": "sidebar-folder-section",
+        "component": "DemoScopedFolderEntry",
+        "predicate": "isDemoScopedFolder"
+      }
+    ],
+    "projectTypes": [
+      {
+        "type": "demo-scoped",
+        "markers": [
+          ".pi/dashboard/demo-scoped"
+        ]
       }
     ]
   },

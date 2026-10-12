@@ -12,15 +12,26 @@
  *
  * See change: add-blackhole-session-pipeline.
  */
+
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, render } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  __resetFolderProjectsForTests,
+  clearFolderProjects,
+  FOLDER_PROJECT_ERROR_TTL_MS,
+  folderHasProjectId,
+  folderHasProjectType,
+  getFolderProject,
+  invalidateFolderProject,
+} from "../folder-project.js";
 import { PluginContextProvider } from "../plugin-context.js";
 import {
   __resetSlotClaimsVersionForTests,
   bumpSlotClaimsVersion,
   getSlotClaimsVersion,
+  subscribeSlotClaimsVersion,
 } from "../slot-claims-invalidation.js";
 import { useSlotHasClaimsForSession } from "../slot-consumers.js";
 import { createSlotRegistry } from "../slot-registry.js";
@@ -102,5 +113,167 @@ describe("slot-claims invalidation store", () => {
     expect(shouldRender.mock.calls.length).toBeGreaterThan(before);
     expect(gate.get()).toBe(false);
     __resetSlotClaimsVersionForTests();
+  });
+});
+
+
+// ── Folder project cache (change: add-project-scoped-apps) ───────────────────
+
+describe("folder project cache + predicates", () => {
+  type Body = { id: string | null; types: string[]; source: string };
+  const ok = (body: Body) => ({ ok: true, status: 200, json: async () => body }) as Response;
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let bumps: number;
+  let unsubscribe: () => void;
+  const cwdOf = (call: unknown[]) => decodeURIComponent(String(call[0]).split("cwd=")[1]);
+  const fetched = () => fetchMock.mock.calls.map(cwdOf);
+  const settle = async () => {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+  };
+
+  beforeEach(() => {
+    __resetSlotClaimsVersionForTests();
+    __resetFolderProjectsForTests();
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    bumps = 0;
+    unsubscribe = subscribeSlotClaimsVersion(() => {
+      bumps += 1;
+    });
+  });
+  afterEach(() => {
+    unsubscribe();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    __resetFolderProjectsForTests();
+    __resetSlotClaimsVersionForTests();
+  });
+
+  // test-plan #E23
+  it("predicate factories are true only for a matching ready entry", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      const cwd = decodeURIComponent(url.split("cwd=")[1]);
+      if (cwd === "/a") return Promise.resolve(ok({ id: null, types: ["judo"], source: "detected" }));
+      if (cwd === "/b") return Promise.resolve(ok({ id: "acme-erp", types: [], source: "none" }));
+      if (cwd === "/c") return new Promise(() => {});
+      return Promise.reject(new Error("net"));
+    });
+    const hasJudo = folderHasProjectType("judo");
+    const hasAcme = folderHasProjectId("acme-erp");
+    const dirs = ["/a", "/b", "/c", "/d"];
+    expect(dirs.map((cwd) => hasJudo({ cwd }))).toEqual([false, false, false, false]); // miss → false
+    await settle();
+    expect(dirs.map((cwd) => hasJudo({ cwd }))).toEqual([true, false, false, false]);
+    expect(dirs.map((cwd) => hasAcme({ cwd }))).toEqual([false, true, false, false]);
+    expect(getFolderProject("/c").state).toBe("loading");
+    expect(getFolderProject("/d").state).toBe("error");
+  });
+
+  // test-plan #E24
+  it("a miss queues one fetch after the microtask and never updates state during render", async () => {
+    fetchMock.mockResolvedValue(ok({ id: null, types: [], source: "none" }));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const gate = folderHasProjectType("judo");
+    const results: boolean[] = [];
+    function Probe() {
+      results.push(gate({ cwd: "/a" }), gate({ cwd: "/a" }), gate({ cwd: "/a" }));
+      return null;
+    }
+    render(<Probe />);
+    expect(results.slice(0, 3)).toEqual([false, false, false]);
+    expect(fetchMock).toHaveBeenCalledTimes(0); // nothing issued synchronously
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls.filter((c) => /Cannot update|setState/.test(String(c[0])))).toEqual([]);
+    errorSpy.mockRestore();
+  });
+
+  // test-plan #P4
+  it("50 folders resolving in one tick bump the claims version once", async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(ok({ id: null, types: [], source: "none" })));
+    const gate = folderHasProjectType("judo");
+    for (let i = 0; i < 50; i++) gate({ cwd: `/f${i}` });
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(50);
+    expect(bumps).toBe(1);
+  });
+
+  // test-plan #F7
+  it("a response landing after clearFolderProjects is discarded and the folder refetched", async () => {
+    const first = Promise.withResolvers<Response>();
+    fetchMock.mockReturnValueOnce(first.promise);
+    fetchMock.mockResolvedValue(ok({ id: null, types: ["fresh"], source: "detected" }));
+    const gate = folderHasProjectType("stale");
+    gate({ cwd: "/a" });
+    await settle();
+    expect(fetched()).toEqual(["/a"]);
+    clearFolderProjects();
+    first.resolve(ok({ id: null, types: ["stale"], source: "detected" }));
+    await settle();
+    expect(fetched()).toEqual(["/a", "/a"]);
+    expect(gate({ cwd: "/a" })).toBe(false); // the stale landing never populated the cache
+    expect(getFolderProject("/a")).toMatchObject({ state: "ready", project: { types: ["fresh"] } });
+  });
+
+  // test-plan #F8
+  it("invalidating one folder leaves the other's in-flight response intact", async () => {
+    const a = Promise.withResolvers<Response>();
+    const b = Promise.withResolvers<Response>();
+    fetchMock.mockImplementation((url: string) => {
+      const cwd = decodeURIComponent(url.split("cwd=")[1]);
+      if (fetched().filter((c) => c === cwd).length > 1) return Promise.resolve(ok({ id: "b2", types: [], source: "none" }));
+      return cwd === "/a" ? a.promise : b.promise;
+    });
+    getFolderProject("/a");
+    getFolderProject("/b");
+    await settle();
+    expect(fetched()).toEqual(["/a", "/b"]);
+    invalidateFolderProject("/b");
+    a.resolve(ok({ id: "a1", types: [], source: "none" }));
+    b.resolve(ok({ id: "b1", types: [], source: "none" }));
+    await settle();
+    expect(getFolderProject("/a")).toMatchObject({ state: "ready", project: { id: "a1" } });
+    expect(fetched()).toEqual(["/a", "/b", "/b"]);
+    expect(getFolderProject("/b")).toMatchObject({ state: "ready", project: { id: "b2" } });
+  });
+
+  // test-plan #X4
+  it("a network error and a 403 both fail closed and still bump on landing", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      decodeURIComponent(url.split("cwd=")[1]) === "/net"
+        ? Promise.reject(new Error("offline"))
+        : Promise.resolve({ ok: false, status: 403, json: async () => ({}) } as Response),
+    );
+    const hasJudo = folderHasProjectType("judo");
+    const hasAcme = folderHasProjectId("acme-erp");
+    hasJudo({ cwd: "/net" });
+    hasJudo({ cwd: "/denied" });
+    await settle();
+    expect(getFolderProject("/net").state).toBe("error");
+    expect(getFolderProject("/denied").state).toBe("error");
+    expect([hasJudo({ cwd: "/net" }), hasAcme({ cwd: "/denied" })]).toEqual([false, false]);
+    expect(bumps).toBeGreaterThanOrEqual(1);
+  });
+
+  // test-plan #X5
+  it("an error entry is dropped and the version bumped at 60 s, not before", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
+    fetchMock.mockResolvedValue(ok({ id: null, types: ["judo"], source: "detected" }));
+    const gate = folderHasProjectType("judo");
+    gate({ cwd: "/a" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getFolderProject("/a").state).toBe("error");
+    bumps = 0;
+    await vi.advanceTimersByTimeAsync(FOLDER_PROJECT_ERROR_TTL_MS - 1000);
+    expect(bumps).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(bumps).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // dropped, not yet refetched — no render ran
+    expect(gate({ cwd: "/a" })).toBe(false); // the next predicate call refetches
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(gate({ cwd: "/a" })).toBe(true);
   });
 });

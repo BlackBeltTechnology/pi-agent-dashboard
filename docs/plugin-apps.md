@@ -70,6 +70,7 @@ export default function WallRoute({ params, onBack }: { params: Record<string, s
 | `onBack` | yes | Claim's descriptor back action |
 | `folderParam` | no | Encoded folder token. Decodes to `folder = { cwd, name }` |
 | `standaloneUrl` | no | Enables *Open standalone*; absent → no button |
+| `projectScope` | no | `{ type?, id? }`. Mount only on matching folder project. ≥1 field. Needs `folderParam`. Scoped → no standalone. See Project-scoped apps |
 
 Route components: export `React.lazy` (see Build + lazy route).
 
@@ -168,6 +169,167 @@ flowchart LR
 | folder not found | `folderParam` decode fails | message + Back |
 | no shell | no `EmbeddedAppShellProvider` | message + Back |
 | plugin disabled | plugin off | claim absent; URL handled as unmatched (no new fallback) |
+| not available (folder) | `projectScope` mismatch or folder entry `error` | *Not available for this folder* (app title + folder name) + top bar + Back → `onBack` |
+| not available (here) | `projectScope` set, no `folderParam` | *Not available here* (app title only) |
+
+## Project-scoped apps
+
+Scope app to repo type or declared identity. Gates folder routes only. Data stays bound to admitted cwd.
+
+```mermaid
+flowchart LR
+  R[GET /api/folder/project] --> A{admitCwd}
+  A -->|no| E[403 / 503]
+  A -->|yes| D{project.json type?}
+  D -->|yes| DC[source declared, no walk]
+  D -->|no| W[shared walk ≤2000 entries, ≤2 s]
+  W --> T[source detected / none]
+```
+
+### Identity file
+
+- Path: `<cwd>/.pi/dashboard/project.json`. Dashboard namespace, beside `knowledge_base.json`.
+- Shape: `{ "schemaVersion": 1, "id"?: string, "type"?: string }`.
+- `id` / `type` regex: `^[a-z][a-z0-9-]{0,63}$`. Validated per field.
+- Bad field → absent. Other field kept.
+- Unknown fields ignored.
+- Whole file ignored when:
+  - not regular file
+  - `.pi`, `.pi/dashboard`, or file is symlink
+  - size > 64 KiB (65536 ok; read ≤ 64 KiB+1)
+  - not JSON object
+  - `schemaVersion` ≠ 1
+- Parent dev/ino re-checked after open.
+
+### Detection
+
+Plugin manifest: `projectTypes: [{ type, markers: string[] }]`. ≤8 entries. 1–16 markers each.
+
+- Marker grammar:
+  - root-anchored. 1–3 `/` segments.
+  - `*` inside segment only. = zero or more non-`/` chars.
+  - last segment needs non-`*` char.
+  - forbidden: leading/trailing `/`, `\`, `.`/`..`/`.git`/`node_modules` segments, `**`, any of `?[]{}!`.
+  - violation → fatal manifest error naming plugin + pattern.
+- Case-sensitive. Names starting `.` match normally.
+- Matches regular file or directory only.
+- Symlinks never matched or followed.
+- `.git` and `node_modules` never visited.
+
+### Resolution
+
+- Declared `type` wins → `types: [type]`, `source: "declared"`, no walk.
+- Else all matching types → sorted, unique, `source: "detected"`.
+- None matched → `source: "none"`.
+- `id` only from declaration.
+- Rules from plugins loaded + enabled + `fixtureEntryAllowed` only.
+- No rules → no walk.
+
+### Bounds
+
+One shared walk per request.
+
+- ≤2000 dir entries. Budget spent → no further read.
+- ≤256 patterns. Plugins in `(priority, id)` order. Plugin not fitting → whole plugin skipped.
+- ≤4 concurrent walks process-wide.
+- 2 s deadline. Starts when slot acquired.
+- `truncated: true` on entry budget hit, deadline hit, or plugin skipped.
+- Declare `type` → no missed deep marker.
+
+### Endpoint
+
+`GET /api/folder/project?cwd=<abs>`
+
+- 200 → `{ id: string|null, types: string[], source: "declared"|"detected"|"none", truncated?: true }`.
+- 400 missing or relative `cwd`.
+- 403 not admitted.
+- 503 + `Retry-After` + `{ error: "cwd-admission-unavailable", message, retryAfterMs }`. Indeterminate.
+- 404 admitted, folder missing.
+- Admission = `admitCwd` (session cwds + pinned dirs + git checkout roots). Runs before any fs read.
+- Never prompts. No `holdDenial`.
+- Read-only. Route tier `observe`.
+- In-flight de-dup per cwd.
+- Impl: `packages/server/src/routes/folder-project-routes.ts`, `packages/server/src/lib/folder-project.ts`.
+
+### Runtime client
+
+`@blackbelt-technology/dashboard-plugin-runtime` root exports:
+
+- `useFolderProject(cwd)`, `getFolderProject(cwd)`, `invalidateFolderProject(cwd)`, `clearFolderProjects()`.
+- `folderHasProjectType(type)`, `folderHasProjectId(id)` → `(folder: { cwd }) => boolean`.
+
+Entry state: `loading | ready | error`.
+
+- Miss → predicate false + queued. Flush on microtask. No render-time state update.
+- Landings coalesce → one `bumpSlotClaimsVersion()`.
+- `error` fails closed. Expires after 60 s (entry dropped + bump → refetch).
+- Per-folder generation + global epoch. Stale landings discarded (re-queued).
+- Cleared by `usePluginEnabledSet` only when enabled set changes.
+- Requires single runtime module instance.
+- Folder consumers (`sidebar-folder-section`, `worktree-card-section`) re-evaluate on bump (`useSlotClaimsVersion`).
+- Entry pops in after first sidebar render (same as installed-gate).
+
+Plugin exports predicate as named export of client entry, referenced by claim `predicate`:
+
+```ts
+export const isJudoFolder = folderHasProjectType("judo");
+```
+
+### Embedding
+
+```tsx
+<EmbeddedApp app={judoApp} basePath={`/folder/${params.encodedCwd}/judo`} folderParam={params.encodedCwd} projectScope={{ type: "judo" }} onBack={onBack} />
+```
+
+- `projectScope = { type?, id? }`. ≥1 field. Empty → fails closed.
+- Needs `folderParam`.
+- Mounts only on `ready` entry matching every set field.
+- `loading` → loading state.
+- Mismatch or `error` → *Not available for this folder*.
+- No `folderParam` → *Not available here*.
+- Unscoped → unchanged, no fetch.
+- Scoped → no `standaloneUrl`, no standalone entry.
+- Closes folder-route deep links. Does not gate `shell-overlay-route` in registry.
+
+### Security
+
+- Declared `id` UNAUTHENTICATED. Any repo declares any id.
+- Scoped apps MUST NOT grant privileged data by `id` alone.
+- Data stays bound to admitted cwd.
+
+### Identity vs team slug
+
+- Folder `id` (repo-declared) ≠ team-plugin `projects` slug (admin config). Independent namespaces.
+
+### Scaffold
+
+`dashboard-plugin-scaffold` mode `new`:
+
+- App scope prompt: `none|global|project-type|project-specific`.
+- Generates app + lazy route + claims.
+- `project-specific` → write `id` after final confirm: `pi-dashboard-plugin-scaffold --write-project-id <abs-folder> <id>`.
+- Write: atomic temp+rename.
+- Refuses: symlink, non-regular, oversized, non-object, `schemaVersion` ≠ 1, different existing `id`.
+
+### Reference consumer
+
+- `packages/demo-plugin` second app `demo-scoped`.
+- `projectTypes` type `demo-scoped`, marker `.pi/dashboard/demo-scoped`.
+- Route `/folder/:encodedCwd/demo-scoped/*?`.
+- Original `demo-app` unchanged.
+
+### Limits
+
+- No server cache, no file watcher. After identity edit → `invalidateFolderProject(cwd)`. Plugin-set change or reload clears.
+- No session-scoped gating.
+- No per-folder plugin enable.
+- Same-path claims from two plugins shadow by `(priority, id)`.
+
+### Rollback
+
+- Revert change.
+- Leftover `project.json` files inert.
+- External scoped consumers fail dashboard build until removed.
 
 ## Standalone
 
