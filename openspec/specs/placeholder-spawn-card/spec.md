@@ -51,7 +51,7 @@ The "New" button in a workspace group header SHALL be disabled while at least on
 - **THEN** the group's "New" button SHALL be re-enabled
 
 ### Requirement: Placeholder replaced on session added matching requestId
-When a `session_added` message arrives carrying `spawnRequestId` matching an entry in `pendingSpawns`, the system SHALL: (a) remove that entry from `pendingSpawns` (clearing the placeholder keyed by the entry's `placeholderCwd`), (b) cancel any associated timeout timer, (c) navigate to the new session's URL. The real session card SHALL render in its place via the normal session rendering pipeline.
+When a `session_added` message arrives carrying `spawnRequestId` matching an entry in `pendingSpawns`, the system SHALL: (a) remove that entry from `pendingSpawns` (clearing the placeholder keyed by the entry's `placeholderCwd`), (b) cancel any associated timeout timer, (c) navigate to the new session's URL — unless the entry carries the "no focus" intent defined by `spawn-correlation`, in which case (a) and (b) SHALL still happen and (c) SHALL NOT. The real session card SHALL render in its place via the normal session rendering pipeline.
 
 When `msg.session.hidden === true`, the system SHALL NOT clear any placeholder, SHALL NOT cancel any timeout timer, and SHALL NOT navigate, even if `spawnRequestId` matches a `pendingSpawns` entry. A hidden session is never the visible spawn a placeholder represents.
 
@@ -60,6 +60,13 @@ When `msg.session.hidden === true`, the system SHALL NOT clear any placeholder, 
 - **AND** `pendingSpawns` contains an entry with key `rq_42`
 - **THEN** the placeholder for `rq_42` SHALL be removed using the entry's `placeholderCwd`
 - **AND** the client SHALL navigate to `/session/<session.id>`
+- **AND** the real session card SHALL render in the host group's list
+
+#### Scenario: No-focus spawn replaces placeholder without navigating
+- **WHEN** a `session_added { session, spawnRequestId: "rq_50" }` message arrives
+- **AND** `pendingSpawns` contains an entry `rq_50` recorded with the "no focus" intent
+- **THEN** the placeholder for `rq_50` SHALL be removed using the entry's `placeholderCwd`
+- **AND** the client SHALL NOT change the active route
 - **AND** the real session card SHALL render in the host group's list
 
 #### Scenario: Worktree session_added clears parent-group placeholder
