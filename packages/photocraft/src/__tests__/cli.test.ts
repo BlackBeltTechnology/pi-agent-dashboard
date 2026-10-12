@@ -1,17 +1,13 @@
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
-import { createRequire } from "node:module";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { main } from "../bin/photocraft.js";
 import type { ProvisionReport } from "../provision.js";
 import { cleanupTmp, tmpDir } from "./helpers/fixtures.js";
+import { CLI, TSX } from "./helpers/paths.js";
 import { ECHO_ARGV, nodeStub } from "./helpers/stubs.js";
 
-const CLI = fileURLToPath(new URL("../bin/photocraft.ts", import.meta.url));
-// absolute: tests that change cwd must still resolve the loader
-const TSX = createRequire(import.meta.url).resolve("tsx");
 afterEach(cleanupTmp);
 
 const report = (binary: string): ProvisionReport => ({ version: "0.7.0", source: "latest", asset: "a", cacheHit: false, binary, durationMs: 1 });

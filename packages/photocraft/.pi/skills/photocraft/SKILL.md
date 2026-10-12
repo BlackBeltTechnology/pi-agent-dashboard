@@ -1,6 +1,6 @@
 ---
 name: photocraft
-description: Headless image editing with PhotoCraft (photocraft-cli, ~900 Photoshop-style commands) — select a subject, crop, resize, colour-grade, mask, composite layers, batch-convert — provisioned on demand by the pi-photocraft CLI. Combine it with pi-nano-banana for generative part-replacement (replace-region), object removal, asset insertion and background swaps with pixel-exact locality. Use when the user asks to edit, retouch, crop, resize, mask, composite, batch-process or "replace just this part of" an image.
+description: Headless image editing with PhotoCraft (~900 Photoshop-style commands), provisioned on demand by pi-photocraft - select, crop, resize, colour-grade, mask, composite, batch-convert. Pair with pi-nano-banana for generative part-replacement (replace-region), object removal, asset insertion. Use for "edit/retouch/crop/mask this image" or "replace just this part of an image".
 ---
 
 # PhotoCraft — headless local image editing

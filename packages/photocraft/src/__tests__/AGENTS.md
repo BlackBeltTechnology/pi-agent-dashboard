@@ -6,6 +6,7 @@ Files in this directory. One row per source file.
 |------|---------|
 | `cli.test.ts` | Dispatch + exit codes, `path`/`ensure` output, `exec` argv/streaming/exit propagation (subprocess with stub `PHOTOCRAFT_BIN`), no implicit `.pi/mcp.json` (E13–E17, E21, X2b). |
 | `helpers/fixtures.ts` | Fake GitHub release server (`startFixture`: latest/tags/assets/sums, 403, truncation, delay), tar.gz/crafted hostile archive builders, tmp-dir tracking. No network, no real HOME. |
+| `helpers/paths.ts` | `CLI` (absolute `src/bin/photocraft.ts`) + `TSX` (absolute loader) for subprocess tests; kept out of test files so the source-reading `@structural-pin` lint does not misfire. |
 | `helpers/png.ts` | Tiny 8-bit PNG encoder/decoder + `scene()` for pixel assertions in real-binary tests. |
 | `helpers/provision-child.ts` | Child process for the concurrent-install test (X7). |
 | `helpers/stubs.ts` | Executable node-script stubs: argv echo, fake MCP server (arrival/send log, delay, noise, hang). |

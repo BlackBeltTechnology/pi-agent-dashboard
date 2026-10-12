@@ -11,4 +11,4 @@ Files in this directory. One row per source file.
 | `package.json` | Manifest. Name `@blackbelt-technology/pi-dashboard-photocraft`. `pi.skills` → `.pi/skills/photocraft`; bin `pi-photocraft` → `bin/pi-photocraft`; `files` incl `bin/ dist/ src/`; `prepack` builds `dist`. deps nano-banana + shared; devDeps esbuild + tsx. |
 | `scripts/build.mjs` | esbuild bundle `src/bin/photocraft.ts` → `dist/photocraft.js` (ESM, node20). Bundles `@blackbelt-technology/*` raw-TS workspace code; explicit empty `external`. Run by `prepack`. |
 | `tsconfig.json` | Extends `../../tsconfig.base.json`; `types: ["node"]`, rootDir src. |
-| `vitest.config.ts` | Vitest config. Forks pool, maxWorkers 1, HOME tripwire (`setup-home.ts` globalSetup + `setup-home-perfile.ts`). |
+| `vitest.config.ts` | Vitest config. Forks pool, `PARALLEL_MAX_WORKERS`, HOME tripwire (`setup-home.ts` globalSetup + `setup-home-perfile.ts`). |

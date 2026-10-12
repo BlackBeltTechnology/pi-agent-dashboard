@@ -3,14 +3,13 @@ import { EventEmitter } from "node:events";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { PassThrough } from "node:stream";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseMcpArgs, runMcp } from "../mcp-proxy.js";
 import type { ProvisionReport } from "../provision.js";
 import { cleanupTmp, tmpDir } from "./helpers/fixtures.js";
+import { CLI, TSX } from "./helpers/paths.js";
 import { MCP_STUB, nodeStub, readLog } from "./helpers/stubs.js";
 
-const CLI = fileURLToPath(new URL("../bin/photocraft.ts", import.meta.url));
 afterEach(cleanupTmp);
 
 const report = (binary: string): ProvisionReport => ({ version: null, source: "override", asset: null, cacheHit: false, binary, durationMs: 0 });
@@ -148,7 +147,7 @@ describe("signals", () => {
       const dir = tmpDir();
       const pidFile = path.join(dir, "pid");
       const bin = nodeStub(MCP_STUB);
-      const wrapper = nodeSpawn(process.execPath, ["--import", "tsx", CLI, "mcp", "--root", dir], {
+      const wrapper = nodeSpawn(process.execPath, ["--import", TSX, CLI, "mcp", "--root", dir], {
         env: { ...process.env, NODE_OPTIONS: "", PHOTOCRAFT_BIN: bin, STUB_HANG: pidFile },
         stdio: ["pipe", "ignore", "ignore"],
       });

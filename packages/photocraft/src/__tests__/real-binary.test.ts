@@ -7,19 +7,16 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
-import { createRequire } from "node:module";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { provision } from "../provision.js";
 import { parseReplaceArgs, type ReplaceDeps, replaceRegion } from "../region-replace.js";
 import { cleanupTmp, tmpDir } from "./helpers/fixtures.js";
+import { CLI, TSX } from "./helpers/paths.js";
 import { decodePng, diff, encodePng, type Image, pixel, scene } from "./helpers/png.js";
 
 const enabled = !!process.env.PHOTOCRAFT_E2E;
 const BIN = process.env.PHOTOCRAFT_BIN as string;
-const CLI = fileURLToPath(new URL("../bin/photocraft.ts", import.meta.url));
-const TSX = createRequire(import.meta.url).resolve("tsx");
 
 afterEach(cleanupTmp);
 
