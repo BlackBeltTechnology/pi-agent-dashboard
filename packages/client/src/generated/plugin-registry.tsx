@@ -20,6 +20,7 @@ import { GmailSettings, catalog as gmail_catalog } from "@blackbelt-technology/p
 import { BrowserSettings, BrowserRelayBadge, BrowserPaneTab, BrowserTabLabel, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
+import { WebSearchEntryCard, catalog as web_access_catalog } from "@blackbelt-technology/pi-dashboard-web-access-plugin";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -703,6 +704,31 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     ],
     catalog: quota_catalog,
   },
+  {
+    manifest: {
+        "id": "web-access",
+        "displayName": "Web access",
+        "priority": 1000,
+        "claims": [
+            {
+                "slot": "custom-entry-renderer",
+                "component": "WebSearchEntryCard",
+                "customType": "web-search-results"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "i18nCatalog": "catalog",
+        "requires": {
+            "piExtensions": [
+                "pi-web-access"
+            ]
+        }
+    },
+    claims: [
+      { pluginId: "web-access", priority: 1000, slot: "custom-entry-renderer", customType: "web-search-results", Component: WebSearchEntryCard },
+    ],
+    catalog: web_access_catalog,
+  },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "534c85b94c0ae72d10d90530b57c964502e7de8dbdae97a03172e6864cd5a5b6";
+export const PLUGIN_REGISTRY_HASH = "19d940fab33487d3ee56aa16dbacdacc0923ecdcc66809032e9c157322454a80";

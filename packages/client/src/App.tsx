@@ -414,6 +414,10 @@ const EMPTY_STEERING: string[] = [];
 
 export default function App() {
   const { t, language } = useI18n();
+  // Zero-height sentinel at the top of the LIVE composer stack. State-backed
+  // (callback ref) so unmount yields `null` → CanvasDriver's safe-area fallback.
+  // See change: fix-canvas-chip-tray-overlay.
+  const [composerAnchor, setComposerAnchor] = useState<HTMLElement | null>(null);
   // Pause all CSS animations while the window is hidden to the tray /
   // backgrounded, so the renderer + GPU stop continuous compositing.
   // See change: throttle-idle-ui-animations.
@@ -2495,6 +2499,17 @@ export default function App() {
               menu + session-action groups (relocated from the retired
               StatusBar model row). Read-only archived open hides it with the
               rest of the composer (archive-sessions-lazy-load). */}
+          {/* Anchor for the floating canvas chip tray: 0 height, no gap unit, so it
+              leaves the pane's flex budget untouched. Live stack only — a frozen
+              underlay never anchors it. See change: fix-canvas-chip-tray-overlay. */}
+          {!frozen && !readOnly && (
+            <div
+              aria-hidden
+              data-testid="composer-stack-anchor"
+              className="h-0 shrink-0"
+              ref={setComposerAnchor}
+            />
+          )}
           {selectedSession && !readOnly && (
             <div
               /* `shrink-0`: thin furniture row — cannot compress below its content,
@@ -2980,7 +2995,10 @@ export default function App() {
             }}
           >
             <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} url={editorUrl} nonce={editorOpenNonce} tabs={editorTabs} />
-            <CanvasDriver state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE} />
+            <CanvasDriver
+              state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE}
+              anchor={composerAnchor}
+            />
             <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
               {children}
               {/* Non-modal "waiting for file access" toast (own tray, both layouts).

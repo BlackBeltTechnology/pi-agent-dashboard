@@ -360,6 +360,8 @@ const zhCN: Record<string, string> = {
   "common.modified": "已修改",
   "common.moreActions": "更多操作",
   "common.moreProcesses": "更多进程",
+  "customEntry.moreKeysOne": "还有 {count} 个键",
+  "customEntry.moreKeysOther": "还有 {count} 个键",
   "common.movePartiallySucceeded": "移动部分成功",
   "common.mustBeAnIntegerBetween5000": "必须是介于 5000 到 120000 之间的整数。",
   "common.nNeedYou": "{count} 个需要你",

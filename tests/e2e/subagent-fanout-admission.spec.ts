@@ -18,8 +18,9 @@ import { harnessProject } from "./lifecycle.js";
  * - #F3 the gate does NOT short-circuit the bridge's own `tool_call` forwarder:
  *       the dashboard must still receive the refused call's `tool_call`, or live
  *       view and transcript disagree (guards `emitToolCall` first-`block`-wins).
- * - #F4 the durable `subagent-admission-refused` entry renders through the
- *       existing generic custom-entry path without breaking the transcript.
+ * - #F4 the durable `subagent-admission-refused` entry is HIDDEN by default (shipped
+ *       `diagnostics` group, change: render-unclaimed-custom-entries) and renders through
+ *       the generic key/value card once "Diagnostics" is enabled in the View popover.
  * - #X4 (L2) the refusal survives an unclean process death: every refusal is a
  *       durable session entry with a distinguishable cause.
  *
@@ -54,6 +55,30 @@ function inContainer(script: string): string {
     encoding: "utf8",
     timeout: 60_000,
   }).trim();
+}
+
+/** Enable the (default-hidden) "Diagnostics" event group through the View popover. */
+async function enableDiagnosticsGroup(page: import("@playwright/test").Page): Promise<void> {
+  await expect(async () => {
+    await page.getByRole("button", { name: /view/i }).first().click();
+    const popover = page.locator('[data-testid="chat-view-popover"]');
+    await popover.waitFor({ state: "visible", timeout: 15_000 });
+    const box = popover.getByRole("checkbox", { name: "Diagnostics" });
+    await box.check();
+    await expect(box).toBeChecked();
+  }).toPass({ timeout: 20_000 });
+  await page.keyboard.press("Escape");
+}
+
+/** The refusal record is hidden by default; enabling Diagnostics reveals its key/value card. */
+async function expectRefusalHiddenThenVisible(page: import("@playwright/test").Page): Promise<void> {
+  const refusalCard = page.locator('[data-testid="custom-entry-card"]', { hasText: CUSTOM_TYPE });
+  await expect(refusalCard).toHaveCount(0);
+  await enableDiagnosticsGroup(page);
+  const card = refusalCard.first();
+  await expect(card).toBeVisible({ timeout: 30_000 });
+  await expect(card.locator("dt", { hasText: /^cause$/ })).toBeVisible();
+  await expect(card.locator("dt", { hasText: /^cap$/ })).toBeVisible();
 }
 
 interface ToolFrame {
@@ -172,11 +197,9 @@ test.describe("subagent fan-out admission (L3)", () => {
       })
       .toBe(3);
 
-    // #F4 — the durable refusal entry renders through the generic custom-entry
-    // path, transcript intact.
-    await expect(
-      page.locator('[data-testid="custom-entry-card"]', { hasText: CUSTOM_TYPE }).first(),
-    ).toBeVisible({ timeout: 30_000 });
+    // #F4 / #F16 — the durable refusal entry is hidden by default (the refused tool
+    // card above already carries the reason) and appears once Diagnostics is enabled.
+    await expectRefusalHiddenThenVisible(page);
   });
 
   test("#F2 the refusal is still terminal after a cold reload", async ({ page }) => {
@@ -199,10 +222,8 @@ test.describe("subagent fan-out admission (L3)", () => {
     await expect(page.locator('[data-testid="tool-burst-group"][data-running="true"]')).toHaveCount(0, {
       timeout: 30_000,
     });
-    // The durable entry replays too.
-    await expect(
-      page.locator('[data-testid="custom-entry-card"]', { hasText: CUSTOM_TYPE }).first(),
-    ).toBeVisible({ timeout: 30_000 });
+    // The durable entry replays too (hidden by default; visible with Diagnostics on).
+    await expectRefusalHiddenThenVisible(page);
   });
 
   test("#X4 refusals survive an unclean process death", async ({ page }) => {
