@@ -79,5 +79,5 @@
 ## 8. Validation
 
 - [x] 8.1 `openspec validate add-package-health-cleanup --strict` passes.
-- [ ] 8.2 Manual: run dashboard against a `settings.json` with each rot category and verify the panel surfaces it correctly.
-- [ ] 8.3 Manual: apply cleanup, verify `.bak` exists, verify `packages[]` shrank correctly, verify server still boots.
+- [x] 8.2 Manual: run dashboard against a `settings.json` with each rot category and verify the panel surfaces it correctly.
+- [x] 8.3 Manual: apply cleanup, verify `.bak` exists, verify `packages[]` shrank correctly, verify server still boots.
