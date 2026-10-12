@@ -48,6 +48,59 @@ function referenceMatcher(id: string): RegExp {
     : new RegExp(`(/skill:${q}\\b|\\bskill:\\s*${q}\\b|\\b${q} skill\\b)`, "i");
 }
 
+const HYPHEN_ID_RE = /^[A-Za-z0-9_-]+$/;
+const WORD_ID_RE = /^[A-Za-z0-9_]+$/;
+const isWordCode = (c: number): boolean =>
+  (c >= 48 && c <= 57) || (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c === 95;
+const isIdCode = (c: number): boolean => isWordCode(c) || c === 45;
+
+/**
+ * Per-body mention index, built in linear passes (no per-id regex):
+ *  - `idTokens`: lowercase `[a-z0-9_-]+` runs containing `-` (hyphenated ids
+ *    match a whole run — the `(^|[^A-Za-z0-9_-])id([^A-Za-z0-9_-]|$)` rule);
+ *  - `skillWords`: words in `/skill:x`, `skill: x` (no word char before
+ *    `skill`) and `x skill` (whole word, no word char after `skill`) forms.
+ */
+function mentionIndex(body: string): { idTokens: Set<string>; skillWords: Set<string> } {
+  const lower = body.toLowerCase();
+  const idTokens = new Set<string>();
+  // Only runs containing `-` can be hyphenated ids: expand each `-` to its run.
+  for (let i = lower.indexOf("-"); i !== -1; ) {
+    let a = i;
+    while (a > 0 && isIdCode(lower.charCodeAt(a - 1))) a--;
+    let b = i + 1;
+    while (b < lower.length && isIdCode(lower.charCodeAt(b))) b++;
+    idTokens.add(lower.slice(a, b));
+    i = lower.indexOf("-", b);
+  }
+  const skillWords = new Set<string>();
+  for (let i = lower.indexOf("skill"); i !== -1; i = lower.indexOf("skill", i + 1)) {
+    const after = i + 5;
+    // `skill: x` / `/skill:x`
+    if (lower.charCodeAt(after) === 58 && (i === 0 || !isWordCode(lower.charCodeAt(i - 1)))) {
+      let j = after + 1;
+      while (j < lower.length && /\s/.test(lower[j])) j++;
+      let k = j;
+      while (k < lower.length && isWordCode(lower.charCodeAt(k))) k++;
+      if (k > j) skillWords.add(lower.slice(j, k));
+    }
+    // `x skill`
+    if (i >= 2 && lower.charCodeAt(i - 1) === 32 && (after >= lower.length || !isWordCode(lower.charCodeAt(after)))) {
+      let k = i - 1;
+      while (k > 0 && isWordCode(lower.charCodeAt(k - 1))) k--;
+      if (k < i - 1) skillWords.add(lower.slice(k, i - 1));
+    }
+  }
+  return { idTokens, skillWords };
+}
+
+/** Does a body (via its index) name skill `id`? Fast path for plain ids, regex otherwise. */
+function mentions(id: string, body: string, idx: ReturnType<typeof mentionIndex>, re: () => RegExp): boolean {
+  const lower = id.toLowerCase();
+  if (id.includes("-")) return HYPHEN_ID_RE.test(id) ? idx.idTokens.has(lower) : re().test(body);
+  return WORD_ID_RE.test(id) ? idx.skillWords.has(lower) : re().test(body);
+}
+
 function toolTokens(body: string): Set<string> {
   const out = new Set<string>();
   for (const m of body.matchAll(TOOL_TOKEN_RE)) out.add(m[1]);
@@ -65,12 +118,16 @@ export function buildSkillGraph(inputs: readonly SkillGraphInput[]): SkillGraph 
   const undirected = (a: string, b: string): [string, string] => (cmp(a, b) <= 0 ? [a, b] : [b, a]);
 
   // 1. references
-  const matchers = skills
+  const targets = skills
     .filter((s) => s.id.length >= MIN_REF_ID_LENGTH)
-    .map((s) => ({ id: s.id, re: referenceMatcher(s.id) }));
+    .map((s) => {
+      let cached: RegExp | undefined;
+      return { id: s.id, re: () => (cached ??= referenceMatcher(s.id)) };
+    });
   for (const s of skills) {
-    for (const { id, re } of matchers) {
-      if (id !== s.id && re.test(s.body)) add(s.id, id, "references", `${s.id} names ${id} in its SKILL.md`);
+    const idx = mentionIndex(s.body);
+    for (const { id, re } of targets) {
+      if (id !== s.id && mentions(id, s.body, idx, re)) add(s.id, id, "references", `${s.id} names ${id} in its SKILL.md`);
     }
   }
 
