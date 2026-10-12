@@ -5138,6 +5138,14 @@ path source                → resolved absolute path
 
 **Partial-success recovery**: if install at destination succeeds but remove from origin fails, the move's `package_operation_complete` event includes `partialSuccess: { installed: true, removed: false, removeError: <message> }`. The client's `<InstalledPackagesList>` renders an inline banner with a Cleanup button that POSTs `/api/packages/remove` against `fromScope` (idempotent on retry). No HTTP-level 207 — the move endpoint is async (202 + moveId pattern), so partial-success surfaces post-202 via the WS channel.
 
+#### Package health cleanup (settings.json rot)
+
+- Scanner: `scanPackageHealth` (`packages/server/src/package/package-health-scanner.ts`). Scans global `packages[]` only. Statuses `ok` | `stale-npm` | `missing-path` | `duplicate`.
+- Routes: `GET /api/packages/health` → `{entries, summary}`; `POST /api/packages/cleanup {drop}` (`packages/server/src/routes/package-health-routes.ts`). Backup `settings.json.<ISO-ts>.bak` before write. Server never auto-removes.
+- Boot: one log line `[package-health] …` to `server.log` when issues exist. Log-only.
+
+See FAQ: How do I clean up stale entries from settings.json?
+
 ### Bundled first-party extensions (Electron installer)
 
 The Electron installer can optionally ship a curated subset of recommended pi extensions inside `resources/bundled-extensions/<id>/` so first-run works with zero network access. The set is declared by `BUNDLED_EXTENSION_IDS` in `packages/shared/src/recommended-extensions.ts` (currently `pi-anthropic-messages`, `pi-flows`) — a strict subset of `RECOMMENDED_EXTENSIONS`, enforced by a unit test.

@@ -24,14 +24,19 @@ import { computeDistHash, computeSrcHash, computeTsconfigHash, FINGERPRINT_MALFO
 const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const distCli = join(pkgRoot, "dist", "cli.js");
 
-/** Nearest typescript install walking up from the package (the workspace root
- *  in this monorepo — packages/kb declares no typescript dep of its own). */
+/** The compiler entry to spawn: the repo's TypeScript 7 wrapper
+ *  (`<repo>/scripts/tsc7.mjs`, found walking up) when present, else the nearest
+ *  `node_modules/typescript/lib/tsc.js` (the published kb tarball has no repo
+ *  `scripts/`). See change: migrate-typecheck-to-ts7. */
 function findTsc() {
-  for (let d = pkgRoot; ; d = dirname(d)) {
-    const c = join(d, "node_modules", "typescript", "lib", "tsc.js");
-    if (existsSync(c)) return c;
-    if (d === dirname(d)) return null; // filesystem root
-  }
+  const walkUp = (rel) => {
+    for (let d = pkgRoot; ; d = dirname(d)) {
+      const c = join(d, ...rel);
+      if (existsSync(c)) return c;
+      if (d === dirname(d)) return null; // filesystem root
+    }
+  };
+  return walkUp(["scripts", "tsc7.mjs"]) ?? walkUp(["node_modules", "typescript", "lib", "tsc.js"]);
 }
 
 function staleness() {

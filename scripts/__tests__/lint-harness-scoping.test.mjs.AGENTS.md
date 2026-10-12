@@ -1,0 +1,3 @@
+# __tests__/lint-harness-scoping.test.mjs — index
+
+Guards that repo-wide lint harnesses judge git-tracked SOURCE, not local-only working-tree state. Covers `parseBiomeReport`/`runBiomeRule` tolerating Biome's non-zero exit (one untracked unparseable file used to kill 4 tests in `lint-ledger` + `async-semantics-guards`), knip workspace derivation seeing only tracked manifests (leaked `.worktrees/`, gitignored `bundled-extensions/`, `.pi/npm/`), and skill-frontmatter judging only tracked `SKILL.md`. All 4 failure modes are invisible in CI's clean checkout and fire only on a developer's disk. Biome fixture lives under `node_modules/.cache/` so `npx` resolves the binary and parallel scans skip it.

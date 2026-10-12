@@ -1,0 +1,3 @@
+# merge-latest-mac.py — index
+
+Merges the arm64 + x64 `latest-mac.yml` update-metadata legs into one file (softprops dedups release assets by basename, so without a merge one arch overwrites the other). Extracted from an inline heredoc in `publish.yml` so its semantics are testable. Unions `files[]` by url; mirrors `path`/`sha512` from the first entry for legacy readers. `minimumSystemVersion` (the macOS update gate) is NOT inherited from the glob-first leg: every leg must agree or the merge FAILS, so the shipped gate cannot depend on glob order. Rewrites argv[1], deletes the rest; single-path call is a no-op. Locked by `__tests__/merge-latest-mac.test.mjs`. See change: upgrade-electron-runtime.

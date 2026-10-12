@@ -263,10 +263,15 @@ describe("UnifiedPackagesSection — visible queue (D9)", () => {
 	// See change: drop-mariozechner-pi-fork (test-plan #F2).
 	it("F2: Update All serializes the 2 Core rows FIFO with single-name POSTs", async () => {
 		const resolvers: Array<(r: Response) => void> = [];
+		// Every URL not answered here parks a resolver in FIFO order, so the
+		// section's own mount-time health fetch must be answered or it steals
+		// resolvers[0]. See change: add-package-health-cleanup.
 		const fetchMock = vi.fn(async (url: string, _init?: RequestInit) =>
 			url === "/api/packages/check-updates"
 				? jsonResponse({ success: true, data: [] })
-				: new Promise<Response>((resolve) => resolvers.push(resolve)),
+				: url === "/api/packages/health"
+					? jsonResponse({ success: true, data: { entries: [], summary: { ok: 0, staleNpm: 0, missingPath: 0, duplicateGroups: [] } } })
+					: new Promise<Response>((resolve) => resolvers.push(resolve)),
 		);
 		vi.stubGlobal("fetch", fetchMock);
 		const coreCalls = () =>

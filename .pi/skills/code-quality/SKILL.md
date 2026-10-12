@@ -29,7 +29,7 @@ One command, one exit code:
 ```bash
 npm run quality:changed
 # = biome check --changed --error-on-warnings --write  (safe-fix the diff)
-#   && tsc --noEmit                                     (type gate)
+#   && node scripts/tsc7.mjs --noEmit                   (type gate, TypeScript 7)
 #   && npm test                                         (test gate)
 ```
 
@@ -56,7 +56,7 @@ explicit path.
    - DO NOT touch files outside the diff (AGENTS.md surgical rule).
 
 3. TEST  (the gate)
-   tsc --noEmit && npm test
+   node scripts/tsc7.mjs --noEmit && npm test
    - Red? REVERT this fix batch. Never stack broken autofixes.
    - Green + 0 issues on scope? Done. Else loop.
 ```
@@ -78,7 +78,7 @@ Apply it manually with judgment; do not blanket `--unsafe`.
 
 1. **Scope** — changed-files by default (`--changed`). Whole-repo only when
    explicitly asked, and then scoped to one package + one rule-group per turn.
-2. **Test gate** — `tsc --noEmit` + `npm test` after every fix batch; revert on red.
+2. **Test gate** — `node scripts/tsc7.mjs --noEmit` (the TypeScript 7 type-check) + `npm test` after every fix batch; revert on red.
 3. **Safe-first** — auto-apply safe fixes only; unsafe + manual → reported, not
    auto-applied in a loop.
 4. **No scope creep** — never "improve" files outside the diff.

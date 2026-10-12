@@ -32,3 +32,7 @@ See change: unify-pi-core-into-package-queue.
 ## addons-hub-declutter
 
 Heading `Add-ons` (was Pi Ecosystem). Renders `AddonsExplainer` (dismissal key `dashboard:addons-explainer-dismissed`, header link reopens + focuses), installed filter (text + `Local source` + `Update available` chips; Update chip disabled until a check completes), local-source banner (`Show` resets other filters), hides `dashboardManaged` rows via `visibleInstalledRows`; empty sub-groups hidden only while filtering; unmatched query → `ADDONS_NPM_SEARCH_EVENT` handoff to PackageBrowser. See change: addons-hub-declutter.
+
+## add-package-health-cleanup
+
+Fetches `/api/packages/health` on mount; header badge `Issues (N)`; renders `PackageHealthPanel` above sub-groups; Apply → `applyPackageCleanup` → refresh installed + health → "Restart required" banner (`pkg-health-restart-banner`). See change: add-package-health-cleanup.

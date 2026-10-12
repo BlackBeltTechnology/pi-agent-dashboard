@@ -39,7 +39,7 @@
     "!**/*.AGENTS.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node ../../scripts/tsc7.mjs -p tsconfig.build.json",
     "prepack": "npm run build",
     "test": "vitest run"
   },

@@ -34,7 +34,7 @@ fi
 
 if $CHECK; then
   echo "=== Type-checking (tsc --noEmit) ==="
-  npx tsc --noEmit
+  node scripts/tsc7.mjs --noEmit
   echo "✓ Type-check passed"
 fi
 

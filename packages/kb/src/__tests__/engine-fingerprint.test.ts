@@ -5,7 +5,7 @@
 // Exemplar: packages/kb/src/__tests__/kb.test.ts (sandbox dirs via fs fixtures).
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -120,6 +120,30 @@ describe("bin shim branch table (E13)", () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toBe("DIST_STUB_OK\n"); // shim itself is silent
     expect(r.stderr).toBe("");
+  });
+
+  it("(b-wrapper) a repo scripts/tsc7.mjs found walking up is preferred over node_modules/typescript (migrate-typecheck-to-ts7 E7a)", () => {
+    const pkg = makePkg("e13b-wrapper/pkg", { tsconfig: true });
+    const wrapper = join(root, "e13b-wrapper", "scripts", "tsc7.mjs");
+    mkdirSync(dirname(wrapper), { recursive: true });
+    writeFileSync(
+      wrapper,
+      [
+        "import { writeFileSync } from 'node:fs';",
+        "import { dirname, join } from 'node:path';",
+        "const pkg = dirname(process.argv[process.argv.indexOf('-p') + 1]);",
+        "writeFileSync(join(pkg, 'dist', 'cli.js'), 'console.log(\"WRAPPER_OK\");\\n');",
+      ].join("\n"),
+    );
+    // A 5.x tsc also exists; the wrapper must win.
+    const tscDir = join(pkg, "node_modules", "typescript", "lib");
+    mkdirSync(tscDir, { recursive: true });
+    writeFileSync(join(tscDir, "tsc.js"), "throw new Error('5.x tsc must not run when the wrapper exists');\n");
+    writeFp(pkg);
+    writeFileSync(join(pkg, "src", "hello.ts"), 'export const hi = "stale now";\n');
+    const r = runBin(pkg);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("WRAPPER_OK");
   });
 
   it("(b) srcHash mismatch + tsconfig resolvable → rebuilds (dist mtime advances, fingerprint refreshed), exit 0", () => {
