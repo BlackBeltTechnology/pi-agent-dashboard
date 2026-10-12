@@ -59,7 +59,7 @@ export function unlinkedFixmes(source: string): string[] {
     /test\.fixme\(\s*([^,(]+?)\s*,\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/g;
   for (const m of source.matchAll(re)) {
     const first = m[1].trim();
-    if (/^["'`]/.test(first)) continue; // unconditional skip, not a quarantine
+    if (isStringLiteral(first)) continue; // unconditional skip, not a quarantine
     const reason = m[2].slice(1, -1);
     if (!/issues\/\d+/.test(reason)) findings.push(reason);
   }
@@ -84,27 +84,66 @@ function stringEnd(src: string, i: number): number {
   return j;
 }
 
+/** Index of the last char of the `//` or `/* *\/` comment opening at `i`; -1 when none opens there. */
+function commentEnd(src: string, i: number): number {
+  if (src[i] !== "/") return -1;
+  if (src[i + 1] === "/") {
+    const nl = src.indexOf("\n", i);
+    return nl === -1 ? src.length : nl - 1;
+  }
+  if (src[i + 1] === "*") {
+    const close = src.indexOf("*/", i + 2);
+    return close === -1 ? src.length : close + 1;
+  }
+  return -1;
+}
+
+/** A comment (dropped) or string literal (kept whole) starting at `i`, or null. */
+function atomAt(src: string, i: number): { end: number; keep: boolean } | null {
+  const comment = commentEnd(src, i);
+  if (comment !== -1) return { end: comment, keep: false };
+  if (src[i] === '"' || src[i] === "'" || src[i] === "`") return { end: stringEnd(src, i), keep: true };
+  return null;
+}
+
+function finishArgs(args: string[], last: string): string[] {
+  const all = [...args, last].map((a) => a.trim());
+  if (all.at(-1) === "") all.pop(); // trailing comma
+  return all;
+}
+
+/**
+ * Top-level arguments of the call whose `(` sits at `open`, comments removed,
+ * string literals kept whole (a `,` or paren inside either never splits or
+ * ends the call). Returns null when the call never closes.
+ */
 function callArgs(src: string, open: number): string[] | null {
   const args: string[] = [];
-  let depth = 0;
-  let start = open + 1;
-  for (let i = open; i < src.length; i++) {
-    const c = src[i];
-    if (c === '"' || c === "'" || c === "`") {
-      i = stringEnd(src, i);
-    } else if ("([{".includes(c)) {
-      depth++;
-    } else if (")]}".includes(c) && --depth === 0) {
-      args.push(src.slice(start, i));
-      const trimmed = args.map((a) => a.trim());
-      if (trimmed.at(-1) === "") trimmed.pop(); // trailing comma
-      return trimmed;
-    } else if (c === "," && depth === 1) {
-      args.push(src.slice(start, i));
-      start = i + 1;
+  let cur = "";
+  let depth = 1; // inside the call's own `(` at `open`
+  for (let i = open + 1; i < src.length; i++) {
+    const atom = atomAt(src, i);
+    if (atom) {
+      cur += atom.keep ? src.slice(i, atom.end + 1) : "";
+      i = atom.end;
+      continue;
     }
+    const c = src[i];
+    if (c === "," && depth === 1) {
+      args.push(cur);
+      cur = "";
+      continue;
+    }
+    if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c) && --depth === 0) return finishArgs(args, cur);
+    cur += c;
   }
   return null;
+}
+
+/** True when `arg` is exactly one complete string literal (the `test.x(title, body)` form). */
+function isStringLiteral(arg: string): boolean {
+  return /^(["'`])(?:\\[\s\S]|(?!\1)[^\\])*\1$/.test(arg);
 }
 
 const ID_CHAR = "[A-Za-z0-9_-]";
@@ -129,8 +168,12 @@ export function unlinkedFileSkips(source: string, jobs: readonly string[]): stri
   for (const m of source.matchAll(re)) {
     const open = (m.index ?? 0) + "test.skip".length;
     const args = callArgs(source, open);
-    if (!args || args.length === 0) continue;
-    if (/^["'`]/.test(args[0])) continue; // unconditional test.skip(title, body)
+    if (!args) {
+      findings.push("<unparsable test.skip call>"); // never let a parse miss pass silently
+      continue;
+    }
+    if (args.length === 0) continue;
+    if (isStringLiteral(args[0])) continue; // unconditional test.skip(title, body)
     const raw = args[1] ?? "";
     const reason = /^(["'`])[\s\S]*\1$/.test(raw) ? raw.slice(1, -1) : raw;
     if (!attributesSkip(reason, jobs)) findings.push(reason || source.slice(m.index ?? 0, open + 1));
@@ -161,6 +204,10 @@ describe("e2e fixme guard", () => {
     expect(
       unlinkedFixmes(`test.fixme(true, "https://github.com/o/r/issues/42");`),
     ).toEqual([]);
+  });
+
+  it("treats a quote-led fixme condition as conditional", () => {
+    expect(unlinkedFixmes(`test.fixme("ci" === process.env.MODE, "flaky");`)).toEqual(["flaky"]);
   });
 
   it("ignores the unconditional test.fixme(title, body) form", () => {
@@ -226,6 +273,20 @@ describe("e2e file-level skip guard (#701.2)", () => {
     expect(unlinkedFileSkips(src, jobs)).toEqual([]);
     // Same shape, unattributed reason → still found (proves the reason was parsed).
     expect(unlinkedFileSkips(src.replace("`e2e-browser-relay`", "relay"), jobs)).toHaveLength(1);
+  });
+
+  it("reports a multi-line call whose comment holds a stray paren (never silently skipped)", () => {
+    const src = ["test.skip(", "  !x, // ( pending setup", '  "untracked"', ");"].join("\n");
+    expect(unlinkedFileSkips(src, jobs)).toEqual(["untracked"]);
+    expect(unlinkedFileSkips("test.skip(!x, /* ( */ \"untracked\");", jobs)).toEqual(["untracked"]);
+  });
+
+  it("reports a call it cannot parse instead of skipping it", () => {
+    expect(unlinkedFileSkips("test.skip(!x, \"never closed\"", jobs)).toHaveLength(1);
+  });
+
+  it("treats a quote-led CONDITION as conditional, not as the title form", () => {
+    expect(unlinkedFileSkips(`test.skip("ci" === process.env.MODE, "untracked");`, jobs)).toEqual(["untracked"]);
   });
 
   it("(E11) ignores the unconditional test.skip(title, body) form", () => {
