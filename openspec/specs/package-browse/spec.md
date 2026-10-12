@@ -1,7 +1,9 @@
 ## Purpose
 
 A reusable inline package browser used by the workspace card's Pi Resources → Packages tab and by Settings to install, update, search, and uninstall pi packages of every source shape (npm, local-path, git URL, file:// URL).
+
 ## Requirements
+
 ### Requirement: PackageBrowser component displays searchable package grid
 The client SHALL provide a reusable `PackageBrowser` component that displays npm pi-packages in a searchable, filterable grid. It SHALL accept a `scope` prop ("global" or "local") and an optional `cwd` prop. The component SHALL render inline within the Settings panel or the Resources "Packages" tab. It SHALL include a text input for manually entering npm or git URLs for installation.
 
@@ -109,9 +111,9 @@ Each installed package card SHALL show a check-for-update button. Clicking it ch
 
 ### Requirement: PackageBrowser SHALL render an Installed Packages section by default
 
-The `PackageBrowser` component SHALL render a dedicated "Installed Packages" section above the search results when its `showInstalledSection` prop is `true` (the default). The section SHALL list every row returned by `useInstalledPackages(scope, cwd)` whose `isRecommended === false` (recommended ones already render in the existing `RecommendedExtensions` panel). Each row SHALL be a `PackageRow` and SHALL display source-type badges via `classifySource(pkg.source)`. The section SHALL render the same way regardless of source shape — `npm:`, absolute path, relative path, `file://`, `git://`, `https://...git`, and bare git URLs all SHALL produce a row with `Update` and `Uninstall` actions.
+The `PackageBrowser` component SHALL render a dedicated "Installed Packages" section above the search results when its `showInstalledSection` prop is `true` (the default). The section SHALL list every row returned by `useInstalledPackages(scope, cwd)` whose `isRecommended === false` (recommended ones already render in the existing `RecommendedExtensions` panel) and that is not flagged `dashboardManaged` (dashboard-owned plugin bridges are never listed). Each row SHALL be a `PackageRow` and SHALL display source-type badges via `classifySource(pkg.source)`. The section SHALL render the same way regardless of source shape — `npm:`, absolute path, relative path, `file://`, `git://`, `https://...git`, and bare git URLs all SHALL produce a row with `Update` and `Uninstall` actions.
 
-When `showInstalledSection` is `false`, the component SHALL NOT render the Installed Packages section. This case applies in Settings → Packages, where `UnifiedPackagesSection` (Pi Ecosystem) is the canonical global-scope manage surface and rendering both would duplicate every installed row.
+When `showInstalledSection` is `false`, the component SHALL NOT render the Installed Packages section. This case applies in Settings → Add-ons, where `UnifiedPackagesSection` (Add-ons) is the canonical global-scope manage surface and rendering both would duplicate every installed row.
 
 #### Scenario: npm-source row in workspace scope
 
@@ -143,7 +145,12 @@ When `showInstalledSection` is `false`, the component SHALL NOT render the Insta
 - **WHEN** `PackageBrowser` is mounted with `showInstalledSection={false}` and the scope has installed packages
 - **THEN** the Installed Packages section header is NOT rendered
 - **AND** no `PackageRow` for any installed package is rendered
-- **AND** Settings → Packages relies on `UnifiedPackagesSection` (Pi Ecosystem) above to manage these rows
+- **AND** Settings → Add-ons relies on `UnifiedPackagesSection` (Add-ons) above to manage these rows
+
+#### Scenario: dashboard-managed bridge rows are not listed
+
+- **WHEN** `useInstalledPackages(scope, cwd)` returns a row with `dashboardManaged: true`
+- **THEN** `PackageBrowser` SHALL NOT render a `PackageRow` for it
 
 ### Requirement: Uninstall and update calls SHALL pass `pkg.source` verbatim
 
@@ -192,4 +199,3 @@ The previous "Installed" filter pill in the type-filter row SHALL be removed. Th
 - **WHEN** a non-npm package (e.g. `/abs/path/foo`) is installed
 - **THEN** no synthetic `PackageCard` is rendered for it in the search-results grid
 - **AND** the package appears only in the Installed Packages section (as a `PackageRow`)
-
