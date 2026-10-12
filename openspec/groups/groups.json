@@ -14,87 +14,93 @@
       "order": 1
     },
     {
-      "id": "lan-pairing-trust",
-      "name": "LAN Pairing & Trust",
-      "color": "#14b8a6",
+      "id": "addons-hub",
+      "name": "Addons Hub",
+      "color": "#8b5cf6",
       "order": 2
-    },
-    {
-      "id": "client-ui-fixes",
-      "name": "Client UI fixes",
-      "color": "#eab308",
-      "order": 3
     },
     {
       "id": "update-to-node-26",
       "name": "Update to Node 26",
       "color": "#3b82f6",
+      "order": 3
+    },
+    {
+      "id": "lan-pairing-trust",
+      "name": "LAN Pairing & Trust",
+      "color": "#14b8a6",
       "order": 4
+    },
+    {
+      "id": "client-ui-fixes",
+      "name": "Client UI fixes",
+      "color": "#eab308",
+      "order": 5
     },
     {
       "id": "security",
       "name": "Security",
       "color": "#ef4444",
-      "order": 5
+      "order": 6
     },
     {
       "id": "copilot-assistant",
       "name": "Copilot / Assistant",
-      "order": 6
+      "order": 7
     },
     {
       "id": "fix-mermaid",
       "name": "Fix mermaid",
       "color": "#3b82f6",
-      "order": 7
+      "order": 8
     },
     {
       "id": "ai-team",
       "name": "AI Team",
       "color": "#a855f7",
-      "order": 8
+      "order": 9
     },
     {
       "id": "next-phase",
       "name": "Next phase",
       "color": "#3b82f6",
-      "order": 9
+      "order": 10
     },
     {
       "id": "kowledge-base",
       "name": "Kowledge Base",
       "color": "#f97316",
-      "order": 10
+      "order": 11
     },
     {
       "id": "electrun-execution",
       "name": "Electrun execution",
       "color": "#a855f7",
-      "order": 11
+      "order": 12
     },
     {
       "id": "future",
       "name": "Future",
       "color": "#f97316",
-      "order": 12
+      "order": 13
     },
     {
       "id": "separate-functions-to-plugins",
       "name": "Separate functions to plugins",
       "color": "#ef4444",
-      "order": 13
+      "order": 14
     },
     {
       "id": "ui-extensions",
       "name": "UI Extensions",
       "color": "#eab308",
-      "order": 14
+      "order": 15
     },
     {
-      "id": "addons-hub",
-      "name": "Addons Hub",
-      "color": "#8b5cf6",
-      "order": 15
+      "id": "unify-context-manager",
+      "name": "Unify Context Manager",
+      "color": "#06b6d4",
+      "order": 16
     }
   ],
   "assignments": {
@@ -132,9 +138,9 @@
     "macos-notarization": "electrun-execution",
     "add-kb-code-symbol-index": "kowledge-base",
     "add-automatic-session-kb-index": "kowledge-base",
-    "add-kb-semantic-annotation-plane": "kowledge-base",
+    "add-kb-semantic-annotation-plane": "unify-context-manager",
     "memory-retrieval-injection": "kowledge-base",
-    "add-lora-dataset-export-skill": "kowledge-base",
+    "add-lora-dataset-export-skill": "unify-context-manager",
     "security-boundary-audit": "security",
     "sanitize-untrusted-rendered-content": "security",
     "harden-untrusted-content-ingestion": "ui",
@@ -278,7 +284,7 @@
     "fix-browser-live-view-subscribe-and-reopen": "ui",
     "fix-editor-mtime-token-precision": "ui",
     "fix-terminal-session-dashboard-reload": "ui",
-    "context-manager-kernel": "ui",
+    "context-manager-kernel": "unify-context-manager",
     "add-pi-video-gen-export": "ui",
     "add-music-production-skills": "ui",
     "add-gmail-plugin": "ui",
@@ -369,7 +375,11 @@
     "addons-hub-feature-catalog": "addons-hub",
     "addons-hub-folder-view": "addons-hub",
     "add-vault-llm-delivery": "security",
-    "absorb-service-secrets-into-vault": "security"
+    "absorb-service-secrets-into-vault": "security",
+    "streamline-first-run": "ui",
+    "unify-context-manager": "unify-context-manager",
+    "add-session-step-table": "unify-context-manager",
+    "add-omni-embedding-retrieval": "unify-context-manager"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -377,9 +387,7 @@
       "add-kb-eval-regularized-gate",
       "add-microservice-pattern-selection-skill",
       "add-ntfy-push-transport",
-      "add-omni-embedding-retrieval",
       "add-plugin-capability-routes",
-      "add-session-step-table",
       "add-social-login-broker",
       "add-srt-translation-pass",
       "add-tailscale-cert-tls",
@@ -387,22 +395,18 @@
       "electron-local-link-node-compat",
       "implement-it",
       "retest-plain-language-hard-battery",
-      "unify-context-manager",
-      "ab-test-rlm-delegation-claim",
-      "streamline-first-run"
+      "ab-test-rlm-delegation-claim"
     ],
     "kowledge-base": [
       "consolidate-retrieval-planes",
-      "add-lora-dataset-export-skill",
       "add-automatic-session-kb-index",
       "add-kb-code-symbol-index",
-      "add-kb-semantic-annotation-plane",
       "memory-retrieval-injection"
     ],
     "ui": [
+      "streamline-first-run",
       "close-e2e-tooling-followups",
-      "add-acp-session-driver",
-      "context-manager-kernel"
+      "add-acp-session-driver"
     ],
     "next-phase": [
       "add-native-pi-tui-view",
@@ -470,6 +474,14 @@
       "addons-hub-declutter",
       "addons-hub-feature-catalog",
       "addons-hub-folder-view"
+    ],
+    "unify-context-manager": [
+      "unify-context-manager",
+      "context-manager-kernel",
+      "add-lora-dataset-export-skill",
+      "add-session-step-table",
+      "add-omni-embedding-retrieval",
+      "add-kb-semantic-annotation-plane"
     ]
   }
 }
