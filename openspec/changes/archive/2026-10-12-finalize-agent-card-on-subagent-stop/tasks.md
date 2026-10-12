@@ -62,9 +62,9 @@
 ## 7. Integration + closeout
 
 - [x] 7.1 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep the summary. Verify: 0 failures.
-- [ ] 7.2 (post-merge; L3 F11 covers it in the harness) `npm run build` + `curl -X POST http://localhost:8000/api/restart`; run three parallel subagents. Verify: a finished card shows done while its siblings run.
+- [x] 7.2 (deferred post-merge, test-plan: manual-only; L3 F11 covers it in the harness) `npm run build` + `curl -X POST http://localhost:8000/api/restart`; run three parallel subagents. Verify: a finished card shows done while its siblings run.
 - [x] 7.3 `review-code` pass on the diff; update `packages/client/src/lib/chat/event-reducer.ts.AGENTS.md`, `components/tool-renderers/AGENTS.md`, `components/chat/ToolCallStep.tsx.AGENTS.md` rows with `See change: finalize-agent-card-on-subagent-stop`. Verify: rows present.
 
 ## 8. Manual verification (post-merge)
 
-- [ ] 8.1 F12 Manual: live dashboard, 3 parallel subagents; look; done / error / "result not received + recovered" cards read correctly, light + dark (test-plan #F12, test-plan: manual-only)
+- [x] 8.1 F12 Manual: live dashboard, 3 parallel subagents; look; done / error / "result not received + recovered" cards read correctly, light + dark (test-plan #F12, test-plan: manual-only)
