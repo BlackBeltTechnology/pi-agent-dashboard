@@ -28,11 +28,14 @@ export interface ParsedDeck {
 }
 
 export class MarkdownParseError extends Error {
+  readonly slideId: string;
+
   constructor(
     message: string,
-    readonly slideId: string,
+    slideId: string,
   ) {
     super(message);
+    this.slideId = slideId;
     this.name = "MarkdownParseError";
   }
 }

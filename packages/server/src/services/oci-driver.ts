@@ -82,10 +82,12 @@ const LABEL_DEF_HASH = "pi.def-hash";
 const STOP_CONFIRM_MARGIN_MS = 5_000;
 
 export class OciDriver implements ServiceDriver {
+  private readonly deps: OciDriverDeps;
   readonly name: DriverName;
   private engineCache?: { at: number; result: PresenceResult };
 
-  constructor(private readonly deps: OciDriverDeps) {
+  constructor(deps: OciDriverDeps) {
+    this.deps = deps;
     this.name = `oci:${deps.runtime}`;
   }
 

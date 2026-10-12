@@ -3,17 +3,18 @@
  *
  * See change: adopt-server-driven-intent-rendering.
  */
-import React from "react";
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, fireEvent, cleanup } from "@testing-library/react";
-import { IntentRenderer, isIntentNode } from "../intent-renderer.js";
+
+import type { IntentNode } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/intent-types.js";
+import { cleanup, fireEvent, render } from "@testing-library/react";
+import type React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  UiPrimitiveProvider,
-  type UiPrimitiveRegistry,
   createUiPrimitiveRegistry,
   registerUiPrimitive,
+  UiPrimitiveProvider,
+  type UiPrimitiveRegistry,
 } from "../index.js";
-import type { IntentNode } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/intent-types.js";
+import { IntentRenderer, isIntentNode } from "../intent-renderer.js";
 
 afterEach(() => cleanup());
 

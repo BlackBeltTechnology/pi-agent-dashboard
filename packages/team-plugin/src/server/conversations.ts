@@ -158,6 +158,7 @@ function newConversationId(): string {
 }
 
 export class ConversationService {
+  private readonly d: ServiceDeps;
   private readonly inFlight = new Map<string, Promise<unknown>>();
   private readonly createLocks = new Map<string, Promise<void>>();
   /** Launches admitted but not yet bound, per user (live-cap reservation). */
@@ -170,7 +171,9 @@ export class ConversationService {
   private readonly unsubs: Array<() => void> = [];
   private sweepTimer: ReturnType<typeof setInterval> | undefined;
 
-  constructor(private readonly d: ServiceDeps) {}
+  constructor(d: ServiceDeps) {
+    this.d = d;
+  }
 
   private now(): number {
     return this.d.now?.() ?? Date.now();

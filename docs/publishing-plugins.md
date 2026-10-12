@@ -159,6 +159,16 @@ git history shows package at lockstep version (`0.4.5`); only npm sees
 `0.0.1` seed. Next release tag publishes plugin at new lockstep version
 (e.g. `0.4.6`) via regular workflow.
 
+## Plugin server TypeScript must be erasable
+
+Breaking for plugin authors (change `strip-only-native-ts-loader`). Dashboard server loads plugin server TS with the Node-native strip-only loader. No transform mode, no transpile fallback.
+
+- Erasable syntax only: no `enum`, no runtime `namespace`, no constructor parameter properties (declare explicit fields).
+- Type-only imports use `import type` (Biome `style/useImportType`).
+- Recommended: `"erasableSyntaxOnly": true` in plugin `tsconfig.json` (TypeScript `^5.8.0`).
+- Non-erasable plugin fails to load in isolation; error names the file.
+- CI gate `scripts/verify-plugin-install-load.mjs` loads plugins under the native loader.
+
 ## Verification checklist
 
 - [ ] `node scripts/sync-versions.js` exits 0 with "Lockstep invariant OK"

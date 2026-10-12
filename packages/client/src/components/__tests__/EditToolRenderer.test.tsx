@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
-import React from "react";
+import { cleanup, render } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {

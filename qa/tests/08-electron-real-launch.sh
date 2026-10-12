@@ -7,7 +7,8 @@
 #   3. ~/.pi/dashboard/server.log is non-empty (catches spawnDetached
 #      stdio[1]='ignore' regression).
 #   4. Electron parent stdout/stderr does not contain "FATAL"
-#      (catches the v0.4.6 jiti FATAL bug from a degraded managed dir).
+#      (catches the v0.4.6 loader FATAL bug from a degraded managed dir).
+#   5. server.log spawn header names native-ts-register.mjs (native TS loader).
 #
 # Skips with exit 0 when AppImage artifact is absent (common on PR
 # runs without `npm run make`). Fails with actionable message when
@@ -172,9 +173,19 @@ if [ ! -s "$SERVER_LOG" ]; then
 fi
 echo "  ✓ server.log non-empty ($(wc -c < "$SERVER_LOG") bytes)"
 
+# The bundled Node 24 server boots on the Node-native strip-only TS loader — its
+# only loader; the spawn header names it (test-plan #X5).
+# See change: strip-only-native-ts-loader.
+if ! grep -aF "launch (parent pid" "$SERVER_LOG" | tail -1 | grep -qF "native-ts-register.mjs"; then
+  echo "FAIL: server.log spawn header does not name native-ts-register.mjs:"
+  grep -aF "launch (parent pid" "$SERVER_LOG" | tail -1 || echo "  (no launch header)"
+  exit 1
+fi
+echo "  ✓ server.log header names the native TS loader"
+
 # Assert no FATAL in Electron stdout (Bug 1 regression guard).
 if grep -q "FATAL" "$ELECTRON_LOG"; then
-  echo "FAIL: FATAL found in Electron stdout (jiti FATAL regression?):"
+  echo "FAIL: FATAL found in Electron stdout (loader FATAL regression?):"
   grep -n "FATAL" "$ELECTRON_LOG" | head -5
   exit 1
 fi

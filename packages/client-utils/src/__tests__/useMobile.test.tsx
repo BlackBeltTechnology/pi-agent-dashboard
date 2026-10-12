@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import React from "react";
 import { renderHook } from "@testing-library/react";
+import type React from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MobileProvider, useMobile } from "../useMobile.js";
 
 /**

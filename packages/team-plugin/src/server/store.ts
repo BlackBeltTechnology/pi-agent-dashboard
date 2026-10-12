@@ -12,11 +12,19 @@ export interface StoreLogger {
 }
 
 export class PersonaStore {
+  private readonly paths: TeamPaths;
+  private readonly logger: StoreLogger;
+  private readonly ops: FsOps;
+
   constructor(
-    private readonly paths: TeamPaths,
-    private readonly logger: StoreLogger,
-    private readonly ops: FsOps = realFs,
-  ) {}
+    paths: TeamPaths,
+    logger: StoreLogger,
+    ops: FsOps = realFs,
+  ) {
+    this.paths = paths;
+    this.logger = logger;
+    this.ops = ops;
+  }
 
   private dirFor(scope: "shared" | "private", uk: string): string {
     return scope === "shared" ? this.paths.sharedPersonasDir() : this.paths.privatePersonasDir(uk);

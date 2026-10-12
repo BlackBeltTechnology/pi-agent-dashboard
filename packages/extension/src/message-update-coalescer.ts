@@ -110,8 +110,10 @@ export class MessageUpdateCoalescer<E = unknown> {
 
   /** Generations bound to a message object at its `message_start`. */
   private readonly genByMessage = new WeakMap<object, number>();
+  private readonly opts: MessageUpdateCoalescerOptions<E>;
 
-  constructor(private readonly opts: MessageUpdateCoalescerOptions<E>) {
+  constructor(opts: MessageUpdateCoalescerOptions<E>) {
+    this.opts = opts;
     this.windowMs = opts.windowMs ?? COALESCE_WINDOW_MS;
     this.isActive = opts.isActive ?? (() => true);
   }

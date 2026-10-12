@@ -73,8 +73,11 @@ export interface TogglePluginBlocked {
 }
 
 export class TogglePluginBlockedError extends Error {
-  constructor(public readonly blockers: string[]) {
+  public readonly blockers: string[];
+
+  constructor(blockers: string[]) {
     super(`Cannot enable plugin: missing deps ${blockers.join(", ")}`);
+    this.blockers = blockers;
     this.name = "TogglePluginBlockedError";
   }
 }

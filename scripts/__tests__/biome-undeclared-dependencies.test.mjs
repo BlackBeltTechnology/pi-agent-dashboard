@@ -15,11 +15,15 @@
  *      config. The `--only` asymmetry is pinned below so a future reader does
  *      not "simplify" the oracle back into a broken one.
  *
+ * Also hosts test-plan E11 (strip-only-native-ts-loader): a value `import` of a
+ * symbol used only as a type is a Biome ERROR (`lint/style/useImportType`),
+ * because Node's strip-only loader leaves it as a link-time SyntaxError.
+ *
  * See change: cleanup-undeclared-dependencies
- * (test-plan E15, E16, E17, E18, X4).
+ * (test-plan E15, E16, E17, E18, X4); strip-only-native-ts-loader (E11).
  */
-import { execFileSync } from 'node:child_process';
-import { globSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { globSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -192,6 +196,40 @@ describe('specification matches configuration (E18)', () => {
   });
 });
 
+/* ------------------------------------------------------------------ *
+ * E11 — type-only imports must use `import type`
+ * ------------------------------------------------------------------ */
+
+// A PRIVATE, never-published workspace (same reasoning as the oracle probe above)
+// and a non-dot directory: Biome ignores dot-directories, which would make the
+// run a vacuous "0 files processed".
+const E11_DIR = join(REPO_ROOT, 'packages', 'demo-plugin', 'src', '__e11_probe__');
+
+describe('type-only import lint rule (E11)', () => {
+  it('reports `import { Iface }` used only as a type as lint/style/useImportType at error severity', () => {
+    mkdirSync(E11_DIR, { recursive: true });
+    writeFileSync(join(E11_DIR, 'x.ts'), 'export interface Iface {\n  a: number;\n}\n');
+    writeFileSync(join(E11_DIR, 'y.ts'), 'import { Iface } from "./x.js";\nexport const v: Iface = { a: 1 };\n');
+
+    const res = spawnSync('npx', ['biome', 'lint', 'packages/demo-plugin/src/__e11_probe__/y.ts', '--reporter=json'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    expect(res.status, res.stderr).not.toBe(0);
+    const out = res.stdout;
+    const diagnostics = JSON.parse(out.slice(out.indexOf('{'))).diagnostics;
+    const hit = diagnostics.find((d) => d.category === 'lint/style/useImportType');
+    expect(hit, 'useImportType must report the type-only value import').toBeDefined();
+    expect(hit.severity).toBe('error');
+  }, 120_000);
+
+  it('the repo config sets useImportType to error', () => {
+    expect(biome.linter.rules.style.useImportType).toBe('error');
+  });
+});
+
 afterEach(() => {
   rmSync(join(REPO_ROOT, 'packages', 'demo-plugin', 'src', '__oracle_probe__.ts'), { force: true });
+  rmSync(E11_DIR, { recursive: true, force: true });
 });

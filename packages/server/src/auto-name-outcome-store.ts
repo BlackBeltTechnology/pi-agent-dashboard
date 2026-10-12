@@ -43,10 +43,13 @@ export interface RetainedOutcome {
 }
 
 export class AutoNameOutcomeStore {
+  private readonly bound: number;
   /** Insertion-ordered (Map preserves it), so the first match is the oldest. */
   private readonly entries = new Map<string, RetainedOutcome>();
 
-  constructor(private readonly bound: number = AUTO_NAME_OUTCOME_BOUND) {}
+  constructor(bound: number = AUTO_NAME_OUTCOME_BOUND) {
+    this.bound = bound;
+  }
 
   /** Retain the latest outcome for a session, replacing any previous one. */
   record(entry: RetainedOutcome): void {

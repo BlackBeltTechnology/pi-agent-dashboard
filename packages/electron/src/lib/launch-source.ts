@@ -28,20 +28,20 @@
  */
 
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import os from "node:os";
-import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { launchDashboardServer } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
+import path from "node:path";
+import type { DashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { isValidHeapMb, stampHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import { DEFAULT_SERVER_HEAP } from "@blackbelt-technology/pi-dashboard-shared/heap-limits.js";
+import type { LaunchSource, SourceKind } from "@blackbelt-technology/pi-dashboard-shared/launch-source-types.js";
+import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import type { RuntimeGateResult } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/compat.js";
+import type { EffectiveSource } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import { getRuntimeOverlayDir } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import { launchDashboardServer } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
 import { getBundledNodeDir, getResourcesPath } from "./bundled-node.js";
 import { pickNodeForServer } from "./pick-node.js";
-import type { LaunchSource, SourceKind } from "@blackbelt-technology/pi-dashboard-shared/launch-source-types.js";
-import type { DashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
-import type { EffectiveSource } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
-import type { RuntimeGateResult } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/compat.js";
-import { getRuntimeOverlayDir } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import { extensionPathFor } from "./runtime-overlay.js";
 
 export type { LaunchSource, SourceKind };
@@ -58,9 +58,9 @@ export const VALID_SOURCE_KINDS: ReadonlySet<SourceKind> = new Set<SourceKind>([
 
 // ── Server-startup deadlines ─────────────────────────────────────────────────
 //
-// Mode-aware readiness deadline. The dev-monorepo path uses jiti to compile
-// ~400 TS files on cold start — measured cold boot on dev workstations can
-// reach 25–60s. The bundled path is pre-compiled and reliably ready well
+// Mode-aware readiness deadline. The dev-monorepo path strips types from
+// ~400 TS files on cold start (Node-native loader) — measured cold boot on dev
+// workstations can reach 25–60s. The bundled path is pre-compiled and reliably ready well
 // under 15s; beyond that the failure is almost always terminal (port conflict,
 // missing loader, bad Node) and the loading page is the recovery surface.
 //
@@ -83,21 +83,27 @@ export function getServerReadyDeadlineMs(sourceKind: string): number {
 // ── Error types ───────────────────────────────────────────────────────────────
 
 export class PinnedSourceUnavailableError extends Error {
-  constructor(public readonly sourceKind: SourceKind) {
+  public readonly sourceKind: SourceKind;
+
+  constructor(sourceKind: SourceKind) {
     super(
       `Pinned source "${sourceKind}" is not available. ` +
         `Check DASHBOARD_PREFER_SOURCE or remove the override.`,
     );
+    this.sourceKind = sourceKind;
     this.name = "PinnedSourceUnavailableError";
   }
 }
 
 export class BundledServerMissingError extends Error {
-  constructor(public readonly cliPath: string) {
+  public readonly cliPath: string;
+
+  constructor(cliPath: string) {
     super(
       `Bundled dashboard server not found at "${cliPath}". ` +
         `The installation may be corrupted; reinstall the application.`,
     );
+    this.cliPath = cliPath;
     this.name = "BundledServerMissingError";
   }
 }
@@ -174,7 +180,7 @@ export interface LaunchSourceOpts {
 
 // ── Default probe implementations ─────────────────────────────────────────────
 
-import { existsSync as fsExistsSync, mkdirSync as fsMkdirSync, openSync as fsOpenSync, readFileSync as fsReadFileSync, writeSync as fsWriteSync, closeSync as fsCloseSync } from "node:fs";
+import { closeSync as fsCloseSync, existsSync as fsExistsSync, mkdirSync as fsMkdirSync, openSync as fsOpenSync, readFileSync as fsReadFileSync, writeSync as fsWriteSync } from "node:fs";
 
 function defaultHealthProbe(port: number): Promise<HealthProbeResult> {
   return fetch(`http://localhost:${port}/api/health`, {

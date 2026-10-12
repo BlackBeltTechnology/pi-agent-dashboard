@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { writeConfigPartial } from "../config-api.js";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { DiscoveredServer } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { writeConfigPartial } from "../config-api.js";
 
 describe("known-servers CRUD", () => {
   let testDir: string;
@@ -134,21 +134,21 @@ describe("known-servers CRUD", () => {
 // (test-plan #E13–#E23, #E27–#E29, #P1, #X5, #X6)
 // ════════════════════════════════════════════════════════════════════════
 import crypto from "node:crypto";
+import { EventEmitter } from "node:events";
+import { advertiseDashboard, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import { type ProveResult, proveServerIdentity } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
+import { Service } from "bonjour-service";
 import Fastify, { type FastifyInstance } from "fastify";
 import { vi } from "vitest";
-import { EventEmitter } from "node:events";
-import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { ensureServerIdentity } from "../auth/identity.js";
-import { stampLegacyHook } from "../test-support/local-credential-stamp.js";
-import { registerKnownServersRoutes } from "../routes/known-servers-routes.js";
-import { registerPairingRoutes } from "../routes/pairing-routes.js";
+import { createNetworkGuard } from "../auth/localhost-guard.js";
+import type { createKnownServerMoves } from "../known-server-moves.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { PairingManager } from "../pairing/pairing.js";
 import { buildSelfServer, wirePeerServers } from "../peer-servers.js";
-import { createKnownServerMoves } from "../known-server-moves.js";
-import { advertiseDashboard, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
-import { proveServerIdentity, type ProveResult } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
-import { Service } from "bonjour-service";
+import { registerKnownServersRoutes } from "../routes/known-servers-routes.js";
+import { registerPairingRoutes } from "../routes/pairing-routes.js";
+import { stampLegacyHook } from "../test-support/local-credential-stamp.js";
 
 const TOKEN = "ks-local-token";
 const T0 = "2026-01-01T00:00:00.000Z";

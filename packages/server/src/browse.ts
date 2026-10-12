@@ -263,11 +263,14 @@ export async function createDirectory(parent: string, name: string): Promise<str
 export type CreateProjectReason = CreateProjectErrorReason;
 
 export class CreateProjectError extends Error {
+  readonly reason: CreateProjectReason;
+
   constructor(
-    readonly reason: CreateProjectReason,
+    reason: CreateProjectReason,
     message: string,
   ) {
     super(message);
+    this.reason = reason;
     this.name = "CreateProjectError";
   }
 }

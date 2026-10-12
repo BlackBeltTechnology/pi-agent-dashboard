@@ -12,11 +12,10 @@ import {
   DEFAULT_SERVER_HEAP,
   HEALTH_CHECK_TIMEOUT_MS,
 } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { HEAP_FLAG_MARKER_ENV, stampHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { HEAP_FLAG_MARKER_ENV, stampHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import {
   EarlyExitError,
-  JitiNotFoundError,
   launchDashboardServer,
   PortConflictError,
 } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
@@ -36,14 +35,12 @@ export interface LaunchResult {
   childPid?: number;
   /**
    * Whether the spawn reached the log-owning path (i.e. `launchDashboardServer`
-   * opened `~/.pi/dashboard/server.log` before failing). `false` only for
-   * failures that abort BEFORE the log fd is opened (currently just
-   * `JitiNotFoundError` — loader resolution precedes log creation). That error
-   * is thrown only under the `PI_DASHBOARD_TS_LOADER=jiti` opt-in; the default
-   * native loader never needs jiti. Callers use this to avoid pointing users at
-   * a `server.log` that was never written.
+   * opened `~/.pi/dashboard/server.log` before failing). `launchServer` always
+   * reports `true` today; callers still honor an explicit `false` (a failure that
+   * aborts before the log fd opens) so they never point users at a `server.log`
+   * that was never written.
    * See changes: fix-bridge-server-start-diagnostics (CodeRabbit #3),
-   * fix-appimage-cold-boot-latency.
+   * strip-only-native-ts-loader.
    */
   logOwned?: boolean;
 }
@@ -175,10 +172,6 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
     });
     return { success: true, message: "Server started", childPid: result.childPid, logOwned: true };
   } catch (err: unknown) {
-    if (err instanceof JitiNotFoundError) {
-      // jiti opt-in only. Thrown before the log fd is opened — no server.log exists.
-      return { success: false, message: err.message, logOwned: false };
-    }
     if (err instanceof PortConflictError) {
       return { success: false, message: err.message, logOwned: true };
     }

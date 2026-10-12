@@ -81,20 +81,29 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 
 export class RuntimeUpdateChecker {
+  private readonly opts: {
+      readSelection: () => RuntimeSelection;
+      activeVersion: () => string;
+      feeds: RuntimeReleaseFeeds;
+      now?: () => number;
+      timeoutMs?: number;
+    };
   /** Last good result per selection key (served for 24 h, and as `lastGood` on failure). */
   private readonly good = new Map<string, RuntimeCheckStatus>();
   /** Last result of any kind, for `peek()`. */
   private last: { key: string; status: RuntimeCheckStatus } | null = null;
 
   constructor(
-    private readonly opts: {
+    opts: {
       readSelection: () => RuntimeSelection;
       activeVersion: () => string;
       feeds: RuntimeReleaseFeeds;
       now?: () => number;
       timeoutMs?: number;
     },
-  ) {}
+  ) {
+    this.opts = opts;
+  }
 
   private now(): number {
     return (this.opts.now ?? Date.now)();

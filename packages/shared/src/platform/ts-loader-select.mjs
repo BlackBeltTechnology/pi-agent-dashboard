@@ -1,20 +1,23 @@
-// TypeScript-loader selection for every dashboard-server launch site.
+// Locator for the dashboard server's Node-native TypeScript loader.
 //
 // Plain `.mjs` because the pre-loader CLI wrapper (`bin/pi-dashboard.mjs`)
 // runs before any TypeScript loader exists and must share this rule with
 // `server-launcher.ts`, the bin wrapper, workers, and Doctor.
 //
-//   - `selectTsLoader(env)` → "native" unless PI_DASHBOARD_TS_LOADER === "jiti".
-//     Unknown non-empty values warn once per call and fall back to "native".
-//     A Node without `stripTypeScriptTypes({ mode: "transform" })` (Node 26
-//     accepts only "strip", which rejects parameter properties) → "jiti".
 //   - `resolveNativeTsLoader({ anchor })` → `file://` URL of
 //     `native-ts-register.mjs`. With an anchor, resolve by package specifier
 //     from it (D2); otherwise / on failure, the copy shipped beside this file.
+//   - `legacyTsLoaderEnvWarning(env)` → the one-line deprecation message when
+//     `PI_DASHBOARD_TS_LOADER` is set to anything but empty / `native`, else
+//     `null`. Only the server process logs it; wrappers and launchers neither
+//     warn nor rewrite the environment.
 //
-// See change: fix-appimage-cold-boot-latency (design D1, D2).
+// The server has exactly one TypeScript loader. The jiti selection / fallback
+// that used to live here is gone.
+// See change: fix-appimage-cold-boot-latency (design D1, D2);
+//             strip-only-native-ts-loader (design D5).
 import { existsSync } from "node:fs";
-import nodeModule, { createRequire } from "node:module";
+import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const TS_LOADER_ENV = "PI_DASHBOARD_TS_LOADER";
@@ -22,41 +25,10 @@ const SIBLING_REGISTER = "./native-ts-register.mjs";
 export const NATIVE_TS_REGISTER_SPECIFIER =
   "@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs";
 
-let transformSupportCache;
-
-// Probe whether this Node's `stripTypeScriptTypes` accepts transform mode.
-// Silences only the probe's ExperimentalWarning. Pass a module to test.
-export function nativeTransformSupported(mod) {
-  if (mod === undefined && transformSupportCache !== undefined) return transformSupportCache;
-  const target = mod ?? nodeModule;
-  let supported = false;
-  if (typeof target.stripTypeScriptTypes === "function") {
-    const originalEmitWarning = process.emitWarning;
-    process.emitWarning = function emitWarning(warning, ...rest) {
-      const msg = typeof warning === "string" ? warning : warning?.message;
-      if (typeof msg === "string" && msg.startsWith("stripTypeScriptTypes is an experimental feature")) return;
-      return originalEmitWarning.call(process, warning, ...rest);
-    };
-    try {
-      target.stripTypeScriptTypes("", { mode: "transform" });
-      supported = true;
-    } catch {
-      supported = false;
-    } finally {
-      process.emitWarning = originalEmitWarning;
-    }
-  }
-  if (mod === undefined) transformSupportCache = supported;
-  return supported;
-}
-
-export function selectTsLoader(env = process.env, warn = console.warn, transformSupported = nativeTransformSupported()) {
+export function legacyTsLoaderEnvWarning(env = process.env) {
   const raw = env?.[TS_LOADER_ENV];
-  if (raw === "jiti" || !transformSupported) return "jiti";
-  if (raw !== undefined && raw !== "" && raw !== "native") {
-    warn(`pi-dashboard: unknown ${TS_LOADER_ENV}=${JSON.stringify(raw)}; using the native TypeScript loader (valid: native, jiti).`);
-  }
-  return "native";
+  if (raw === undefined || raw === "" || raw === "native") return null;
+  return `${TS_LOADER_ENV} is no longer supported (the jiti server loader was removed); using the native loader.`;
 }
 
 export function resolveNativeTsLoader(opts = {}) {
@@ -76,9 +48,8 @@ export function resolveNativeTsLoader(opts = {}) {
     throw new Error(
       `pi-dashboard: cannot locate ${NATIVE_TS_REGISTER_SPECIFIER}` +
         (opts.anchor ? ` from ${opts.anchor}` : "") +
-        `. Set ${TS_LOADER_ENV}=jiti to boot with the jiti loader.`,
+        ". The install looks corrupted; reinstall @blackbelt-technology/pi-dashboard-shared.",
     );
   }
   return url.href;
 }
-

@@ -35,9 +35,12 @@ interface Pending<C> {
 
 /** requestId → the connection awaiting that reply. Bounded and TTL-pruned. */
 export class ResyncRequesterRegistry<C> {
+  private readonly maxPending: number;
   private readonly pending = new Map<string, Pending<C>>();
 
-  constructor(private readonly maxPending = DEFAULT_MAX_PENDING) {}
+  constructor(maxPending = DEFAULT_MAX_PENDING) {
+    this.maxPending = maxPending;
+  }
 
   get size(): number {
     return this.pending.size;

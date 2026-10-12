@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionManager } from "../connection.js";
 
 class FakeWebSocket {
+  public url: string;
   static instances: FakeWebSocket[] = [];
   readyState = 0; // CONNECTING
   onopen: (() => void) | null = null;
@@ -28,7 +29,8 @@ class FakeWebSocket {
   onerror: ((ev: unknown) => void) | null = null;
   sent: string[] = [];
 
-  constructor(public url: string) {
+  constructor(url: string) {
+    this.url = url;
     FakeWebSocket.instances.push(this);
   }
 

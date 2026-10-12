@@ -99,11 +99,14 @@ this gate exists to avoid.
 ### Requirement: The gate's scope SHALL be a derived rule over jiti-loaded source
 
 The gate SHALL determine its file set from a **rule** — first-party TypeScript
-that **jiti** evaluates at runtime from source — rather than an enumerated list
-of workspaces. A newly added file, or a newly added workspace that meets the
+that **jiti** evaluates at runtime from source, **plus a deliberately
+conservative superset**: the dashboard server's own entry graph and plugin
+`server` entries, which the Node-native loader now evaluates but which stay in
+scope so the erasure scenarios keep testing real files — rather than an
+enumerated list of workspaces. A newly added file, or a newly added workspace that meets the
 rule, SHALL be covered with no edit to the gate.
 
-The criterion is *evaluated by jiti*, not *executed from source*. Those are not
+The criterion is *evaluated by jiti* (plus the named conservative superset), not *executed from source*. Those are not
 the same set, and conflating them was a defect in an earlier draft (see the
 `bin` exclusion below).
 
@@ -114,13 +117,14 @@ The rule SHALL be derived from package manifests plus one import walk. The
    through jiti.
 2. **The dashboard server's own entry.** `packages/server` declares
    `main: src/cli.ts`. Its `bin/pi-dashboard.mjs` wrapper re-execs Node with
-   the Node-native loader by default and with `--import <jiti-url> cli.ts`
-   when `PI_DASHBOARD_TS_LOADER=jiti`. Because the jiti fallback can evaluate
-   it, the whole of `packages/server/src/**` SHALL stay in scope. The `bin` field is `.mjs`, so no manifest limb
+   the Node-native loader only; jiti no longer evaluates it. The whole of
+   `packages/server/src/**` SHALL nevertheless stay in scope, deliberately
+   conservative: the erasure scenarios rely on server files, and narrowing
+   the scope is a separate decision. The `bin` field is `.mjs`, so no manifest limb
    keyed on `bin` can discover this — it SHALL be seeded from a workspace whose
    `main` is a `.ts` file.
 3. **`pi-dashboard-plugin` `server` and `bridge` entries** pointing at a `.ts`
-   file. `packages/dashboard-plugin-runtime/src/server/loader.ts:442` loads them
+   file. `packages/dashboard-plugin-runtime/src/server/loader.ts:478` loads them
    with `await import(plugin.serverEntryPath)` over glob-discovered paths, so
    **no static specifier exists** and no import walk can reach them. They SHALL
    be read from the manifests directly.
@@ -241,7 +245,7 @@ it is reached only through the Vite client path.
 #### Scenario: Dynamically imported plugin entries are covered
 
 - **GIVEN** the `pi-dashboard-plugin` `server` and `bridge` `.ts` entries, loaded
-  at `loader.ts:442` via `await import(plugin.serverEntryPath)` over
+  at `loader.ts:478` via `await import(plugin.serverEntryPath)` over
   glob-discovered paths
 - **WHEN** the gate computes its file set
 - **THEN** all of them SHALL be in scope
@@ -253,8 +257,7 @@ it is reached only through the Vite client path.
 #### Scenario: The dashboard server's own source is covered
 
 - **GIVEN** `packages/server`, whose `main` is `src/cli.ts` and whose
-  `bin/pi-dashboard.mjs` re-execs Node with `--import <jiti-url> cli.ts` when
-  `PI_DASHBOARD_TS_LOADER=jiti`
+  `bin/pi-dashboard.mjs` re-execs Node with `--import <native-ts-register-url> cli.ts`
 - **WHEN** the gate computes its file set
 - **THEN** `packages/server/src/**` SHALL be in scope
 - **AND** the seed SHALL key on `main` resolving to a `.ts` file, since keying on

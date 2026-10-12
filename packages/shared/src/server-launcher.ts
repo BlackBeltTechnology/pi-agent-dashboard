@@ -3,7 +3,7 @@
  * dashboard server. Used by every starter (Bridge, Standalone CLI,
  * Electron). Owns:
  *
- *   - jiti loader resolution via `ToolResolver.resolveJiti({ anchor })`
+ *   - native TypeScript loader resolution via `resolveNativeTsLoader({ anchor })`
  *   - argv construction via `spawnNodeScript` (which delegates to
  *     `buildNodeImportArgvParts` for the `--import` chunk)
  *   - env merge: `ToolResolver.buildSpawnEnv()` ∪ caller `env`
@@ -22,32 +22,22 @@
  *
  * See change: unify-server-launch-ts-loader.
  */
-import { dirname } from "node:path";
+
+import type { ChildProcess, SpawnOptions } from "node:child_process"; // ban:child_process-ok — types only
 import {
   closeSync,
   mkdirSync,
   openSync,
   writeSync,
 } from "node:fs";
-import type { ChildProcess, SpawnOptions } from "node:child_process"; // ban:child_process-ok — types only
-import { spawnNodeScript } from "./platform/node-spawn.js";
+import { dirname } from "node:path";
 import { ToolResolver } from "./platform/binary-lookup.js";
 import { normalizeEnvPathKey } from "./platform/env-path-key.js";
-import { resolveNativeTsLoader, selectTsLoader } from "./platform/ts-loader-select.mjs";
+import { spawnNodeScript } from "./platform/node-spawn.js";
+import { resolveNativeTsLoader } from "./platform/ts-loader-select.mjs";
 import { isDashboardRunning } from "./server-identity.js";
 
 // ── Errors ──────────────────────────────────────────────────────────────────
-
-/** No jiti install resolved at any anchor. */
-export class JitiNotFoundError extends Error {
-  constructor(message =
-    "Cannot find pi's TypeScript loader (jiti). " +
-    "Is @earendil-works/pi-coding-agent installed?",
-  ) {
-    super(message);
-    this.name = "JitiNotFoundError";
-  }
-}
 
 /** Target port is occupied by a non-dashboard service. */
 export class PortConflictError extends Error {
@@ -98,7 +88,7 @@ export interface LaunchOpts {
   cliPath: string;
   /** Args appended after the entry script (e.g. `--port`, `--pi-port`, `start`). */
   extraArgs?: readonly string[];
-  /** Caller-supplied jiti-resolution anchor (e.g. cliPath inside a node_modules tree). */
+  /** Caller-supplied loader-resolution anchor (e.g. cliPath inside a node_modules tree). */
   anchor?: string;
   /**
    * Caller env overrides merged ON TOP of `ToolResolver.buildSpawnEnv()`.
@@ -137,8 +127,6 @@ export interface LaunchOpts {
    */
   cwd?: string;
   // ── Test seams (production omits) ────────────────────────────────────────
-  /** Replace `ToolResolver.resolveJiti` (returns loader URL or null). */
-  _resolveJiti?: () => string | null;
   /** Replace the native-register locator (returns a `file://` URL). */
   _resolveNativeLoader?: () => string;
   /** Replace `spawnNodeScript` (returns ChildProcess). */
@@ -225,12 +213,11 @@ function compactEnv(base: NodeJS.ProcessEnv): Record<string, string> {
 /**
  * Spawn the dashboard server and wait for `/api/health` to confirm
  * identity. Resolves with `{ childPid, reportedPid, healthOk: true }`
- * on success; rejects with `JitiNotFoundError` / `PortConflictError`
+ * on success; rejects with `PortConflictError`
  * / `EarlyExitError` / readiness-timeout `Error` per the spec.
  */
 export async function launchDashboardServer(opts: LaunchOpts): Promise<LaunchResult> {
   const nodeBin = opts.nodeBin ?? process.execPath;
-  const resolveJiti = opts._resolveJiti ?? (() => new ToolResolver({ processExecPath: nodeBin }).resolveJiti({ anchor: opts.anchor }));
   const spawn = opts._spawnNodeScript ?? spawnNodeScript;
   const probe = opts._isDashboardRunning ?? isDashboardRunning;
   const pollIntervalMs = opts._pollIntervalMs ?? DEFAULT_POLL_MS;
@@ -241,18 +228,10 @@ export async function launchDashboardServer(opts: LaunchOpts): Promise<LaunchRes
   const fsClose = opts._fs?.closeSync ?? closeSync;
   const fsWrite = opts._fs?.writeSync ?? writeSync;
 
-  // 1. Loader resolution. Native by default; jiti only on
-  // PI_DASHBOARD_TS_LOADER=jiti in THIS process's env (an `opts.env` overlay
-  // never changes the selection). A missing jiti is fatal only when selected.
-  // See change: fix-appimage-cold-boot-latency (design D1, D4).
-  let loader: string;
-  if (selectTsLoader(process.env) === "jiti") {
-    const jiti = resolveJiti();
-    if (!jiti) throw new JitiNotFoundError();
-    loader = jiti;
-  } else {
-    loader = (opts._resolveNativeLoader ?? (() => resolveNativeTsLoader({ anchor: opts.cliPath })))();
-  }
+  // 1. Loader resolution: the Node-native TypeScript loader, always.
+  // See change: fix-appimage-cold-boot-latency (design D1, D4);
+  // strip-only-native-ts-loader (design D5).
+  const loader = (opts._resolveNativeLoader ?? (() => resolveNativeTsLoader({ anchor: opts.cliPath })))();
 
   // 2. Env: ToolResolver.buildSpawnEnv() merged with caller env (caller wins).
   const baseEnv = new ToolResolver({ processExecPath: nodeBin }).buildSpawnEnv(process.env);

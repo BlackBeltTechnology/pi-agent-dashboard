@@ -2,12 +2,12 @@
 /**
  * Loader-neutral source gate.
  *
- * The dashboard server boots on the Node-native TypeScript loader by default
- * (`PI_DASHBOARD_TS_LOADER=jiti` falls back to jiti). jiti transpiles
- * first-party TS to CommonJS and injects `require`, `__dirname`,
- * `__filename`; native ESM has none of them, and a bare use throws a
- * `ReferenceError` only when that (often lazy) code path runs. This gate makes
- * the class visible at test time.
+ * The dashboard server boots on the Node-native strip-only TypeScript loader —
+ * its only loader. Native ESM has no `require`, `__dirname`, `__filename` or
+ * `exports` (CommonJS transpilers such as jiti inject them, which is how code
+ * that leans on them used to pass), and a bare use throws a `ReferenceError`
+ * only when that (often lazy) code path runs. This gate makes the class visible
+ * at test time.
  *
  * Rules, AST-level (never textual — strings/templates/comments are ignored):
  *   - `require`, `__dirname`, `__filename`, `exports` referenced while the file
@@ -26,7 +26,8 @@
  *
  * Usage: node scripts/check-loader-neutral-source.mjs [--root <dir>]
  * Wired into `npm test` via scripts/__tests__/loader-neutral-source.test.mjs.
- * See change: fix-appimage-cold-boot-latency (design D5).
+ * See change: fix-appimage-cold-boot-latency (design D5);
+ *             strip-only-native-ts-loader (D6).
  */
 import { readFileSync, statSync } from "node:fs";
 import nodeModule from "node:module";

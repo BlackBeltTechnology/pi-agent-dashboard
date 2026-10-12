@@ -2,9 +2,10 @@
  * Tests for the elevated FolderSpawnButtons stack.
  * See change: elevate-folder-spawn-buttons.
  */
-import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FolderSpawnButtons } from "../folder/FolderSpawnButtons.js";
 
 afterEach(() => {

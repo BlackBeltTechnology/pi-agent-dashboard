@@ -145,12 +145,17 @@ export interface AddReview {
 }
 
 export class ServiceError extends Error {
+  readonly status: number;
+  readonly code: string;
+
   constructor(
-    readonly status: number,
-    readonly code: string,
+    status: number,
+    code: string,
     message: string,
   ) {
     super(message);
+    this.status = status;
+    this.code = code;
   }
 }
 
@@ -182,6 +187,7 @@ function fullHash(def: ServiceDefinition): string {
 }
 
 export class ServiceManager {
+  private readonly deps: ServiceManagerDeps;
   readonly definitions: DefinitionsStore;
   readonly secrets: SecretsStore;
   readonly leases: LeaseTable;
@@ -198,7 +204,8 @@ export class ServiceManager {
   private disposed = false;
   private pins = new Set<string>();
 
-  constructor(private readonly deps: ServiceManagerDeps) {
+  constructor(deps: ServiceManagerDeps) {
+    this.deps = deps;
     this.definitions = new DefinitionsStore(deps.paths.definitions);
     this.secrets = new SecretsStore(deps.paths.secrets);
     this.leases = new LeaseTable(deps.leaseTtlMs);

@@ -55,15 +55,20 @@ async function loadYolo(): Promise<YoloView | null> {
 }
 
 export class YoloStatusStore {
+  private readonly load: () => Promise<YoloView | null>;
+  private readonly pollMs: number;
   private view: YoloView | null = null;
   private key = "null";
   private readonly listeners = new Set<() => void>();
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
-    private readonly load: () => Promise<YoloView | null> = loadYolo,
-    private readonly pollMs = POLL_MS,
-  ) {}
+    load: () => Promise<YoloView | null> = loadYolo,
+    pollMs = POLL_MS,
+  ) {
+    this.load = load;
+    this.pollMs = pollMs;
+  }
 
   getSnapshot = (): YoloView | null => this.view;
 

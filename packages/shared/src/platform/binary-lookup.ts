@@ -5,117 +5,22 @@
  */
 
 import { existsSync, realpathSync } from "node:fs";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { MANAGED_BIN, MANAGED_DIR } from "../managed-paths.js";
 import { ensureWindowsSystemPath } from "./ensure-windows-path.js";
 import { normalizeEnvPathKey } from "./env-path-key.js";
 import { buildSafeArgv, execSync, spawnSync } from "./exec.js";
 import { augmentEnvWithGitSource } from "./git-source.js";
 
-// ── jiti loader resolution constants ──────────────────────────────────────
+// ── managed pi package names ──────────────────────────────────────────────
 
 /**
- * Pi-coding-agent package names searched for a managed-install jiti.
+ * Pi-coding-agent package names searched for a managed install.
  * Earendil only — the legacy fork is never an anchor.
  * See change: drop-mariozechner-pi-fork.
  */
 export const MANAGED_PI_PACKAGES = ["@earendil-works/pi-coding-agent"] as const;
-
-/**
- * jiti provider package names tried inside every anchor's resolution
- * chain. Upstream `jiti` first; legacy `@mariozechner/jiti` fallback.
- * Carried over verbatim from `resolve-jiti.ts`.
- */
-export const JITI_PACKAGES = ["jiti", "@mariozechner/jiti"] as const;
-
-/**
- * Test seam: a function that takes a package specifier (e.g.
- * `"jiti/package.json"`) and returns the resolved path. Production
- * supplies `createRequire(<anchor>).resolve`; tests supply a stub.
- * Carried over verbatim from `resolve-jiti.ts`.
- */
-export type JitiResolver = (specifier: string) => string;
-
-/**
- * Pure helper: given a jiti package.json path, return the file:// URL
- * of its register hook. Handles Windows-style drive letters regardless
- * of host OS (`pathToFileURL` on POSIX URL-encodes backslashes).
- *
- * Mirrors the prior helper from the deleted `resolve-jiti.ts`.
- */
-function jitiRegisterUrl(pkgJsonPath: string): string {
-  const isWindowsStyle = /^[A-Za-z]:[\\/]/.test(pkgJsonPath);
-  if (isWindowsStyle) {
-    const registerPath = path.win32.join(
-      path.win32.dirname(pkgJsonPath),
-      "lib",
-      "jiti-register.mjs",
-    );
-    return `file:///${registerPath.replace(/\\/g, "/")}`;
-  }
-  const registerPath = path.join(path.dirname(pkgJsonPath), "lib", "jiti-register.mjs");
-  return pathToFileURL(registerPath).href;
-}
-
-/**
- * Walk JITI_PACKAGES with the supplied resolver and return the first
- * hit's register URL. Optional `pathExists` guard rejects hits whose
- * `lib/jiti-register.mjs` is absent on disk (corrupt installs). When
- * `pathExists` is omitted, the package.json hit alone is sufficient
- * — used by the argv/system-pi anchors which already realpath'd a
- * trustworthy node_modules tree.
- */
-function walkJiti(
-  resolver: JitiResolver,
-  pathExists?: (p: string) => boolean,
-): string | null {
-  for (const jiti of JITI_PACKAGES) {
-    try {
-      const pkgJson = resolver(`${jiti}/package.json`);
-      if (pathExists) {
-        const registerPath = path.join(path.dirname(pkgJson), "lib", "jiti-register.mjs");
-        if (!pathExists(registerPath)) continue;
-      }
-      return jitiRegisterUrl(pkgJson);
-    } catch { /* next */ }
-  }
-  return null;
-}
-
-/**
- * Internal deps for `ToolResolver.resolveJiti`. Underscore-prefixed
- * fields are test seams — production callers pass only `anchor` /
- * `resolver`.
- */
-export interface ResolveJitiOpts {
-  /** Caller-supplied anchor inside a node_modules tree (e.g. cliPath). */
-  anchor?: string;
-  /**
-   * When true, skip the managed-pi / system-pi / argv anchors and try
-   * ONLY `opts.anchor`. Used for health-probing a specific extracted
-   * tree where finding jiti elsewhere does not prove the tree itself
-   * is healthy.
-   */
-  anchorOnly?: boolean;
-  /**
-   * Test seam: replaces `createRequire(<anchor>).resolve` at every
-   * probe site. Production omits — actual `createRequire` is used.
-   */
-  resolver?: JitiResolver;
-  /** Test seam: replaces `existsSync` for managed-pi pkg.json + register guards. */
-  _pathExists?: (p: string) => boolean;
-  /** Test seam: replaces `realpathSync` for system-pi + argv anchors. */
-  _realpath?: (p: string) => string;
-  /** Test seam: replaces this resolver's `which("pi")` call. */
-  _whichPi?: () => string | null;
-  /** Test seam: replaces `process.argv[1]`. */
-  _argv1?: string | undefined;
-  /** Test seam: replaces `~/.pi-dashboard` root used to probe managed-pi. */
-  _managedDir?: string;
-}
 
 // ── AppImage self-hit guard (Linux power-user mode safety) ────────────────
 
@@ -341,103 +246,6 @@ export class ToolResolver {
     }
 
     return this.which("node");
-  }
-
-  /**
-   * Resolve pi's jiti register hook as a `file://` URL.
-   *
-   * Resolution order (first hit wins):
-   *   1. Managed pi install — `~/.pi-dashboard/node_modules/<pkg>` for
-   *      every entry of `MANAGED_PI_PACKAGES` (upstream first, legacy
-   *      fallback). Each candidate's pkg.json is the createRequire
-   *      anchor; walk `JITI_PACKAGES` from there.
-   *   2. System pi via `this.which("pi")` (realpathed to escape
-   *      symlinks like `/usr/local/bin/pi → .../dist/cli.js`).
-   *   3. Caller-supplied `opts.anchor` (e.g. an electron `cliPath`).
-   *   4. `process.argv[1]` (the running pi/node entry; populated for
-   *      bridge-extension callers).
-   *
-   * Returns null when none yield a jiti install. Preserves the
-   * Windows drive-letter URL-wrapping contract that previously lived
-   * on the prior `buildJitiRegisterUrl` helper in `resolve-jiti.ts`.
-   *
-   * Tests inject `_pathExists` / `_realpath` / `_whichPi` / `_argv1`
-   * / `_managedDir` and a flat `resolver` to exercise individual
-   * anchors deterministically.
-   *
-   * Subsumes the previous `resolveJitiImport`, `resolveJitiFromAnchor`,
-   * `pickJitiRegisterUrl`, `pickJitiFromAnchor`, `buildJitiRegisterUrl`,
-   * and the duplicate `resolveJitiFromPi` wrappers in electron.
-   */
-  resolveJiti(opts: ResolveJitiOpts = {}): string | null {
-    const pathExists = opts._pathExists ?? existsSync;
-    const realpath = opts._realpath ?? realpathSync;
-    const whichPi = opts._whichPi ?? (() => this.which("pi"));
-    const argv1 = "_argv1" in opts ? opts._argv1 : process.argv[1];
-    const managedDir = opts._managedDir ?? MANAGED_DIR;
-
-    const makeResolver = (anchor: string): JitiResolver | null => {
-      if (opts.resolver) return opts.resolver;
-      try {
-        const req = createRequire(anchor);
-        return (spec) => req.resolve(spec);
-      } catch {
-        return null;
-      }
-    };
-
-    // anchor-only short-circuit: skip every anchor except opts.anchor.
-    if (opts.anchorOnly) {
-      if (!opts.anchor) return null;
-      if (!pathExists(opts.anchor)) return null;
-      const r = makeResolver(opts.anchor);
-      if (!r) return null;
-      return walkJiti(r, pathExists);
-    }
-
-    // 1. Managed pi installs.
-    for (const pkg of MANAGED_PI_PACKAGES) {
-      const pkgJson = path.join(managedDir, "node_modules", pkg, "package.json");
-      if (!pathExists(pkgJson)) continue;
-      const resolver = makeResolver(pkgJson);
-      if (!resolver) continue;
-      const url = walkJiti(resolver, pathExists);
-      if (url) return url;
-    }
-
-    // 2. System pi.
-    const piPath = whichPi();
-    if (piPath) {
-      let realPi: string;
-      try { realPi = realpath(piPath); } catch { realPi = piPath; }
-      const resolver = makeResolver(realPi);
-      if (resolver) {
-        const url = walkJiti(resolver, pathExists);
-        if (url) return url;
-      }
-    }
-
-    // 3. Caller-supplied anchor.
-    if (opts.anchor && pathExists(opts.anchor)) {
-      const resolver = makeResolver(opts.anchor);
-      if (resolver) {
-        const url = walkJiti(resolver, pathExists);
-        if (url) return url;
-      }
-    }
-
-    // 4. process.argv[1] (or test override).
-    if (argv1) {
-      let realArgv: string;
-      try { realArgv = realpath(argv1); } catch { realArgv = argv1; }
-      const resolver = makeResolver(realArgv);
-      if (resolver) {
-        const url = walkJiti(resolver, pathExists);
-        if (url) return url;
-      }
-    }
-
-    return null;
   }
 
   /**

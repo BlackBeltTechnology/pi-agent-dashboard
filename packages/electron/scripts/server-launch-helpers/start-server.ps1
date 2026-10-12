@@ -3,7 +3,7 @@
 #
 # Resolves bundled node.exe + the bundled TypeScript loader from THIS script's
 # location and invokes the same argv shape that the Electron main process uses.
-# Loader: Node-native (default) or jiti when PI_DASHBOARD_TS_LOADER=jiti.
+# Loader: the Node-native register module (the only server loader).
 # No system Node required.
 #
 # Usage:
@@ -14,7 +14,8 @@
 #
 # Argv contract: packages/shared/src/platform/node-spawn.ts
 #   ::buildNodeImportArgvParts
-# See changes: add-bundle-manual-launch-scripts, fix-appimage-cold-boot-latency.
+# See changes: add-bundle-manual-launch-scripts, fix-appimage-cold-boot-latency,
+# strip-only-native-ts-loader.
 # =============================================================================
 
 $ErrorActionPreference = 'Stop'
@@ -29,26 +30,17 @@ if (-not (Test-Path $nodeExe)) {
   exit 1
 }
 
-# TypeScript loader as file:// URL (forward slashes required):
-# native by default, jiti when PI_DASHBOARD_TS_LOADER=jiti.
-$useJiti = $env:PI_DASHBOARD_TS_LOADER -ceq 'jiti'
-# Unknown non-empty values warn and fall back to native (parity with selectTsLoader).
-if ($env:PI_DASHBOARD_TS_LOADER -and -not $useJiti -and $env:PI_DASHBOARD_TS_LOADER -cne 'native') {
-  Write-Warning "unknown PI_DASHBOARD_TS_LOADER=`"$($env:PI_DASHBOARD_TS_LOADER)`"; using the native TypeScript loader (valid: native, jiti)."
-}
-$loaderPath = if ($useJiti) {
-  Join-Path $svrDir 'node_modules\jiti\lib\jiti-register.mjs'
-} else {
-  Join-Path $svrDir 'node_modules\@blackbelt-technology\pi-dashboard-shared\src\platform\native-ts-register.mjs'
-}
+# TypeScript loader as file:// URL (forward slashes required): the Node-native
+# register module only.
+$loaderPath = Join-Path $svrDir 'node_modules\@blackbelt-technology\pi-dashboard-shared\src\platform\native-ts-register.mjs'
 if (-not (Test-Path $loaderPath)) {
   Write-Error "Bundled TypeScript loader not found at: $loaderPath"
   exit 1
 }
 $loaderUrl = "file:///" + ($loaderPath -replace '\\','/')
 
-# Entry: RAW Windows path for both loaders (Node path.resolve()s the main
-# entry, so a file:// entry breaks; jiti also misnormalises file:/// URLs).
+# Entry: RAW Windows path (Node path.resolve()s the main entry under any
+# --import loader, so a file:// entry breaks).
 $cli = Join-Path $svrDir 'packages\server\src\cli.ts'
 if (-not (Test-Path $cli)) {
   Write-Error "Bundled cli.ts not found at: $cli"

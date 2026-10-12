@@ -2,21 +2,21 @@
  * System REST API routes: config, health, shutdown, tunnel.
  */
 
-import { fixturePluginsEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getHeapStatistics } from "node:v8";
-import {
-  discoverPlugins,
-  getPluginStatusStore,
-} from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { 
+  discoverPlugins,fixturePluginsEnabled, 
+  getPluginStatusStore,} from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { BridgeLoadSource, PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+import { ELECTRON_RESTART_EXIT_CODE, restartsViaElectron } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
 import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
+import { resolveNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RESTART_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import type { NetworkInterface, ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
@@ -29,7 +29,6 @@ import {
   safeComputeBindReachability,
   sameReachability,
 } from "../auth/bind-reachability-service.js";
-import { ELECTRON_RESTART_EXIT_CODE, restartsViaElectron } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
 import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries } from "../auth/localhost-guard.js";
 import { getRegistryError } from "../auth/provider-auth-registry.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
@@ -69,7 +68,7 @@ import { heapFallbackStatus } from "../spawn-process/heap-args.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 import { systemOpenCapability } from "../system-open-capability.js";
-import { connectGateway, connectedProviderIds, createTunnel, gatewayProviderStatus, getZrokLastError, deleteTunnel, disconnectResolvedProviders, ensureReservedName, getProviderReadiness, getTunnelStatus, getTunnelUrl, releaseShare } from "../tunnel/tunnel.js";
+import { connectedProviderIds, connectGateway, createTunnel, deleteTunnel, disconnectResolvedProviders, ensureReservedName, gatewayProviderStatus, getProviderReadiness, getTunnelStatus, getTunnelUrl, getZrokLastError, releaseShare } from "../tunnel/tunnel.js";
 import { acceptTargetFor, blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints, liveReadinessEndpoints } from "../tunnel/tunnel-endpoints.js";
 import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
@@ -83,8 +82,7 @@ const POLL_COST_KEYS = [
   "pollGitProbesTick", "pollGitProbesTool", "pollGitProbesWatch", "pollGitProbesRefresh",
   "pollGitSpawns", "pollGitMs", "pollGitWatchersAttached",
 ] as const;
-import type { NetworkGuard } from "./route-deps.js";
-import { createRuntimeHealthProvider, redactRuntimeHealth } from "../runtime-overlay/runtime-health.js";
+
 import {
   deriveLocalIdentity,
   ensureRuntimeRequest,
@@ -92,6 +90,8 @@ import {
   readRuntimeRequest,
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import { createRuntimeHealthProvider, redactRuntimeHealth } from "../runtime-overlay/runtime-health.js";
+import type { NetworkGuard } from "./route-deps.js";
 
 /**
  * `/api/health` → `piRuntime`.
@@ -1427,9 +1427,16 @@ export function registerSystemRoutes(
       const cliPath = process.argv[1];
       if (!cliPath) return { ok: false, error: "Cannot determine CLI path" };
 
-      // Find the TypeScript loader from process.execArgv (--import <loader>)
-      const importIdx = process.execArgv.indexOf("--import");
-      const loader = importIdx >= 0 ? (process.execArgv[importIdx + 1] ?? "") : "";
+      // Always the Node-native TypeScript loader, whatever this process booted
+      // under (jiti inherited across an upgrade, tsx, or none). Copying the
+      // running `--import` verbatim would carry a foreign loader across restarts.
+      // See change: strip-only-native-ts-loader (design D5).
+      let loader: string;
+      try {
+        loader = resolveNativeTsLoader({ anchor: cliPath });
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Cannot locate the native TypeScript loader" };
+      }
 
       // Allow overriding dev mode via request body
       const useDev = request.body?.dev ?? config.dev;

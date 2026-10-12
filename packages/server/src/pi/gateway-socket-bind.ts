@@ -49,17 +49,23 @@ import properLockfile from "proper-lockfile";
 
 /** Raised instead of capturing a path that may still be serving. */
 export class GatewaySocketConflictError extends Error {
+  readonly socketPath: string;
+  readonly detail: string;
+  readonly info: { verdict?: string; ownerPid?: number | null };
   readonly code = "E_GATEWAY_SOCKET_CONFLICT";
   constructor(
-    readonly socketPath: string,
-    readonly detail: string,
+    socketPath: string,
+    detail: string,
     /** What the refusal rested on, for the server log (never for health). */
-    readonly info: { verdict?: string; ownerPid?: number | null } = {},
+    info: { verdict?: string; ownerPid?: number | null } = {},
   ) {
     super(
       `gateway socket ${socketPath} is already in use (${detail}). ` +
         `Refusing to unlink it — another dashboard instance may be serving bridges there.`,
     );
+    this.socketPath = socketPath;
+    this.detail = detail;
+    this.info = info;
   }
 }
 

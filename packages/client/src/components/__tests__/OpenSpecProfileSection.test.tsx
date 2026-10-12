@@ -1,9 +1,10 @@
 /**
  * Tests for OpenSpecProfileSection — change: add-openspec-profile-settings.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
-import React from "react";
+
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = {
   saveOpenSpecConfig: vi.fn<(...a: any[]) => Promise<void>>(async () => {}),
@@ -26,8 +27,8 @@ vi.mock("../../lib/openspec/openspec-config-api.js", () => ({
   fetchGlobalOpenSpecConfig: (...a: any[]) => api.fetchGlobalOpenSpecConfig(...a),
 }));
 
+import { type RegisteredSource, SettingsDraftProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";
-import { SettingsDraftProvider, type RegisteredSource } from "@blackbelt-technology/dashboard-plugin-runtime";
 
 // Renders the section inside a draft registry and returns the live source map
 // so tests can assert dirtiness and drive the unified-Save commit().

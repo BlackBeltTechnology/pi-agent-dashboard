@@ -116,7 +116,7 @@ Server CLI + bridge read `~/.pi/dashboard/config.json` via `src/shared/config.ts
 - Graceful Restart — `POST /api/restart` + `pi-dashboard restart`. Flush state, restart, verify health.
 - Cross-Platform Server Launch — `node --import <loader> <cli.ts>` from 4 call sites. `file://` URL wrapping.
   - stdout + stderr capture parity — both call sites capture both streams into log.
-  - CJS preload for Fastify (nodejs/node#58515) — inject `--require preload-fastify.cjs` before `--import jiti`.
+  - CJS preload for Fastify (nodejs/node#58515) — inject `--require preload-fastify.cjs` before `--import <native-loader>`.
   - Node-version preflight — `packages/shared/src/node-version.ts`. Single source of truth.
     - Floor 22.19 (`MIN_SUPPORTED_NODE`). Affected: 22.0–22.18 + 24.1–24.2 (nodejs/node#58515). Cap <27.
     - Startup guard `auth/node-guard.ts::assertNodeVersionSupported` refuses, exits(1).
@@ -207,7 +207,7 @@ OS-aware paths: pin storage, session grouping, browse.
 - LaunchSource V2 Resolution (Phase C default) — `selectLaunchSource()` (`launch-source.ts`) replaces `mode.json`. Walks 5 paths; attach=health 200 in 3s.
 - Legacy first-launch flow (LAUNCH_SOURCE_V2=false) — escape-hatch, 3 branches.
 - Server-startup deadline + cause-aware error (Defect 4) — `SERVER_READY_DEADLINE_MS=60_000`. `buildServerStartupError()`.
-- Runtime jiti version contract (Defect 2) — `shouldUrlWrapEntry()` (`node-spawn.ts`) decides entry URL-wrap.
+- Runtime jiti version contract (Defect 2) — historical; server no longer uses jiti. `shouldUrlWrapEntry()` (`node-spawn.ts`) decides entry URL-wrap.
 
 ## Chat Input State (drafts & history recall)
 - Per-session draft persistence — `CommandInput.tsx` controlled; `draft` prop from `App.tsx`. Hydrated from localStorage `chat-draft:`.

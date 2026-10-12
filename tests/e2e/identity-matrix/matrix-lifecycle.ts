@@ -2,7 +2,7 @@
  * Boot/teardown for the D21 identity setup matrix. Deliberately NOT the docker
  * harness: every scenario needs a differently-configured dashboard, and ten
  * docker boots per run would dwarf the assertions. Each scenario is a plain
- * `packages/server/src/cli.ts` process (repo `jiti/register`, no global pi) with
+ * `packages/server/src/cli.ts` process (the server's Node-native strip-only loader, no global pi) with
  * its own throwaway HOME, all against ONE in-process fake OIDC issuer that runs
  * the real interactive auth-code + PKCE flow.
  *
@@ -13,7 +13,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { type FakeOidcIssuer, startFakeOidcIssuer } from "../../../packages/shared/src/test-support/fake-oidc-issuer.js";
 import { type MatrixState, SCENARIOS, type Scenario } from "./scenarios.js";
 
@@ -119,11 +119,14 @@ function loginEnv(s: Scenario, home: string, issuer: string): NodeJS.ProcessEnv 
   return { ...base, HOME: home, PI_LOGIN_ISSUER: issuer, PI_LOGIN_BROWSER_ISSUER: issuer, PI_LOGIN_CLIENT_ID: "dashboard-web" };
 }
 
+/** The server's own TypeScript loader (the wrapper's, minus the wrapper). */
+const NATIVE_TS_REGISTER_URL = pathToFileURL(path.join(REPO_ROOT, "packages/shared/src/platform/native-ts-register.mjs")).href;
+
 function startDashboard(s: Scenario, port: number, home: string, issuer: string, log: string): ChildProcess {
   const fd = fs.openSync(log, "a");
   return spawn(
     process.execPath,
-    ["--import", "jiti/register", "packages/server/src/cli.ts", "--host", "0.0.0.0", "--port", String(port)],
+    ["--import", NATIVE_TS_REGISTER_URL, "packages/server/src/cli.ts", "--host", "0.0.0.0", "--port", String(port)],
     { cwd: REPO_ROOT, env: loginEnv(s, home, issuer), stdio: ["ignore", fd, fd] },
   );
 }

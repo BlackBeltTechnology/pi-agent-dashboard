@@ -49,8 +49,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
-      # The arm calls `pi-dashboard` on PATH. Running from source via the jiti
-      # entry keeps CI testing THIS checkout rather than a published build.
+      # The arm calls `pi-dashboard` on PATH. Running from source via the bin
+      # wrapper (native strip-only loader) keeps CI testing THIS checkout rather than a published build.
       - name: Shim pi-dashboard to this checkout
         run: |
           mkdir -p "$RUNNER_TEMP/shim"

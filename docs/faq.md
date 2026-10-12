@@ -163,13 +163,14 @@ Cross-refs:
 
 ## How do I start the dashboard server manually?
 
-Run `cli.ts` via `tsx`. Foreground process.
+Run `cli.ts` via the native loader. Foreground process. Do NOT use `npx tsx`: a tsx `--import` makes the server log the foreign-loader warning.
 
 Commands:
 ```bash
-npx tsx packages/server/src/cli.ts
-npx tsx packages/server/src/cli.ts --port 8000 --pi-port 9999
-npx tsx packages/server/src/cli.ts --dev          # proxy to Vite
+NL="file://$PWD/packages/shared/src/platform/native-ts-register.mjs"
+node --import "$NL" packages/server/src/cli.ts
+node --import "$NL" packages/server/src/cli.ts --port 8000 --pi-port 9999
+node --import "$NL" packages/server/src/cli.ts --dev          # proxy to Vite
 ```
 
 - Default ports: HTTP/browser WS `8000`, pi extension WS `9999`.
@@ -315,27 +316,55 @@ Cross-refs:
 - packages/electron/src/lib/server-lifecycle.ts
 - packages/shared/src/server-launcher.ts
 
-## Server fails to start / behaves differently after the native TS loader switch — how to roll back?
+## Server logs "PI_DASHBOARD_TS_LOADER is no longer supported" — what now?
 
-Since change `fix-appimage-cold-boot-latency` the server boots the Node-native TS loader by default. Roll back to jiti.
+Since change `strip-only-native-ts-loader` the jiti server loader is removed. `PI_DASHBOARD_TS_LOADER` is ignored. Any value except empty or `native` makes the server log one line at each boot, in `~/.pi/dashboard/server.log`:
+
+```
+PI_DASHBOARD_TS_LOADER is no longer supported (the jiti server loader was removed); using the native loader.
+```
+
+Fix: remove `PI_DASHBOARD_TS_LOADER` from the launching environment, then restart.
 
 POSIX:
 
 ```
-pi-dashboard stop && PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start
+unset PI_DASHBOARD_TS_LOADER   # and remove the export from your shell profile
+pi-dashboard stop && pi-dashboard start
 ```
 
 PowerShell:
 
 ```
-pi-dashboard stop; $env:PI_DASHBOARD_TS_LOADER = "jiti"; pi-dashboard start
+[Environment]::SetEnvironmentVariable("PI_DASHBOARD_TS_LOADER", $null, "User")
+pi-dashboard stop; pi-dashboard start
 ```
 
-Electron: set `PI_DASHBOARD_TS_LOADER=jiti` in the launching environment, then relaunch the app. Windows: `setx PI_DASHBOARD_TS_LOADER jiti` for new processes, or `$env:` before launching.
+Electron: remove the variable from the launching environment, then relaunch the app. Wrappers and launchers never warn; only the server process logs this line.
 
-`/api/restart` keeps the running loader — it does NOT switch. Fresh launch required.
+No jiti rollback path exists. Fix forward.
 
-Check which loader a launch used. Header names the loader (`native-ts-register.mjs` or jiti URL).
+## Server logs "booted under the jiti TypeScript loader" — what now?
+
+Server booted under a jiti (or tsx) `--import`. Logged warning:
+
+```
+[pi-dashboard] server booted under the jiti TypeScript loader (<url>), which is no longer supported; run `pi-dashboard stop && pi-dashboard start` to switch to the native loader.
+```
+
+Cause: first `/api/restart` after upgrade. The pre-upgrade process copies its jiti `--import` into the new process. Stale install dir (reinstall to a new prefix) deletes that absolute jiti path; the restart then fails.
+
+Fix:
+
+```
+pi-dashboard stop && pi-dashboard start
+```
+
+Electron: quit and relaunch the app. Later restarts normalize to the native loader automatically.
+
+`/api/restart` always hands the restart orchestrator the native register module. It does NOT keep a jiti loader.
+
+Check which loader a launch used. Header names the loader (`native-ts-register.mjs`).
 
 POSIX:
 
@@ -349,7 +378,7 @@ PowerShell:
 Select-String -Path "$HOME\.pi\dashboard\server.log" -SimpleMatch "launch (parent pid" | Select-Object -Last 1
 ```
 
-Node < 22.19 unsupported by the server whatever the loader — server enforces floor `>= 22.19` (`engines` `>=22.19.0`, `packages/shared/src/node-version.ts`); upgrade Node. A Node build lacking `module.stripTypeScriptTypes` (embedded/stripped builds) fails with error naming `PI_DASHBOARD_TS_LOADER=jiti` — set it to boot with jiti.
+Node < 22.19 unsupported by the server — server enforces floor `>= 22.19` (`engines` `>=22.19.0`, `packages/shared/src/node-version.ts`); upgrade Node. A Node with neither `module.registerHooks` nor `module.register` fails at boot (`native-ts-register.mjs` throws, naming the Node version). Node without `module.stripTypeScriptTypes` uses tier 2 or tier 3 (bundled `amaro` on 23.0–23.1).
 
 Cross-refs:
 - packages/shared/src/platform/ts-loader-select.mjs
@@ -815,7 +844,7 @@ Cross-refs:
 Three terminals: dashboard server `--dev`, Vite dev server, pi with bridge.
 
 Commands:
-- `npx tsx packages/server/src/cli.ts --dev` — server in dev mode (proxies to Vite, falls back to `dist/client/`)
+- `node --import "file://$PWD/packages/shared/src/platform/native-ts-register.mjs" packages/server/src/cli.ts --dev` — server in dev mode (proxies to Vite, falls back to `dist/client/`)
 - `npm run dev` — Vite HMR for web client
 - `pi -e packages/extension/src/bridge.ts` — pi with bridge extension (or plain `pi` if installed)
 
@@ -823,7 +852,7 @@ Open `http://localhost:8000` (server proxies SPA routes + assets to Vite) or `ht
 
 Deploy after changes:
 - Client (production): `npm run build` then `curl -X POST http://localhost:8000/api/restart`
-- Server: `curl -X POST http://localhost:8000/api/restart` (TS runs directly via jiti, no build)
+- Server: `curl -X POST http://localhost:8000/api/restart` (TS runs directly via native strip-only loader, no build)
 - Bridge extension: `npm run reload`
 - Full rebuild: `npm run build` + `/api/restart` + `npm run reload`
 
@@ -2129,7 +2158,8 @@ Two paths:
 **Chain 2 (TUI)**: Bridge uses `process.execPath` (the Node running pi) + relative path from extension directory:
 ```javascript
 const cli = require.resolve("@blackbelt-technology/pi-dashboard-server/cli.ts");
-spawn(process.execPath, ["--import", jiti, cli], { detached: true });
+// nativeLoader = file:// URL of platform/native-ts-register.mjs (resolveNativeTsLoader)
+spawn(process.execPath, ["--import", nativeLoader, cli], { detached: true });
 ```
 
 **Chain 1 (Electron)**: Fallback when toolPaths empty — detect via login shell or bundled path.
@@ -2467,15 +2497,15 @@ Cross-refs:
 
 ## Why does `pi-dashboard start` fail with ERR_MODULE_NOT_FOUND in a dev checkout?
 
-Root `package.json` `.bin` previously pointed `pi-dashboard` at `packages/server/src/cli.ts` directly. Node has no built-in TypeScript loader — launching a `.ts` file from a shebang requires jiti (or tsx) to be registered via `--import`, which a `#!/usr/bin/env node` line cannot interpolate dynamically. Symptom: `node:internal/modules/run_main:... ERR_MODULE_NOT_FOUND` on `cli.ts` import resolution.
+Root `package.json` `.bin` previously pointed `pi-dashboard` at `packages/server/src/cli.ts` directly. Node has no built-in TypeScript loader — launching a `.ts` file from a shebang requires a TS loader registered via `--import` (historical: jiti, now the native register module), which a `#!/usr/bin/env node` line cannot interpolate dynamically. Symptom: `node:internal/modules/run_main:... ERR_MODULE_NOT_FOUND` on `cli.ts` import resolution.
 
-Fix: `.bin` now points at `packages/server/bin/pi-dashboard.mjs`, a tiny `.mjs` wrapper that resolves jiti from pi's tree at runtime, then re-execs Node with `--import <jiti-url> cli.ts <args>`. Wrapper exits 1 with install-hint when jiti unresolvable.
+Fix: `.bin` points at `packages/server/bin/pi-dashboard.mjs`, a tiny `.mjs` wrapper that resolves the native register module by package specifier (`platform/ts-loader-select.mjs`), then re-execs Node with `--import <native-url> cli.ts <args>`. Wrapper exits 1 with corrupted-install hint when the register module unresolvable. Earlier fix used jiti (`replace-tsx-with-jiti`); jiti server path removed by `strip-only-native-ts-loader`.
 
 Cross-refs:
 - package.json (root) `.bin`
 - packages/server/bin/pi-dashboard.mjs
-- packages/shared/src/resolve-jiti.ts
-- See change: replace-tsx-with-jiti
+- packages/shared/src/platform/ts-loader-select.mjs
+- See change: replace-tsx-with-jiti, strip-only-native-ts-loader
 
 ## Why does `/api/flows-anthropic-bridge/status` show "no sessions reporting"?
 

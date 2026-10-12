@@ -14,12 +14,12 @@
  *  - nothing here allocates per frame beyond what three's own passes do.
  */
 import * as THREE from "three";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { FilmPass } from "three/examples/jsm/postprocessing/FilmPass.js";
 import { OutlinePass } from "three/examples/jsm/postprocessing/OutlinePass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { Pass, FullScreenQuad } from "three/examples/jsm/postprocessing/Pass.js";
+import { FullScreenQuad, Pass } from "three/examples/jsm/postprocessing/Pass.js";
 import { SAOPass } from "three/examples/jsm/postprocessing/SAOPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
@@ -193,6 +193,9 @@ class DeterministicFilmPass extends FilmPass {
  * uses, so the mask respects the same depth isolation as the main pass.
  */
 class SelectiveBloomPass extends Pass {
+  private readonly scene: THREE.Scene;
+  private readonly camera: THREE.Camera;
+  private readonly draw: (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => void;
   private readonly target: THREE.WebGLRenderTarget;
   private readonly bloom: UnrealBloomPass;
   private readonly mix: ShaderPass;
@@ -201,11 +204,14 @@ class SelectiveBloomPass extends Pass {
   selected = new Set<THREE.Object3D>();
 
   constructor(
-    private readonly scene: THREE.Scene,
-    private readonly camera: THREE.Camera,
-    private readonly draw: (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => void,
+    scene: THREE.Scene,
+    camera: THREE.Camera,
+    draw: (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => void,
   ) {
     super();
+    this.scene = scene;
+    this.camera = camera;
+    this.draw = draw;
     this.target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
     this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.9, 0.5, 0.15);
     this.mix = new ShaderPass(AddShader);

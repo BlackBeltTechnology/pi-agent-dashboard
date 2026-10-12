@@ -19,6 +19,7 @@ import {
  */
 
 class MockWebSocket {
+  public url: string;
   static instances: MockWebSocket[] = [];
   readyState = 0; // CONNECTING
   onopen: (() => void) | null = null;
@@ -29,7 +30,8 @@ class MockWebSocket {
 
   opts?: { headers?: Record<string, string> };
 
-  constructor(public url: string, opts?: { headers?: Record<string, string> }) {
+  constructor(url: string, opts?: { headers?: Record<string, string> }) {
+    this.url = url;
     this.opts = opts;
     MockWebSocket.instances.push(this);
   }

@@ -57,10 +57,13 @@ async function discoverJwksUri(
  * performed once on first use (or skipped when `jwksUri` is configured).
  */
 export class JwksSource {
+  private readonly config: JwksSourceConfig;
   private jwks?: JWTVerifyGetKey;
   private initializing?: Promise<JWTVerifyGetKey>;
 
-  constructor(private readonly config: JwksSourceConfig) {}
+  constructor(config: JwksSourceConfig) {
+    this.config = config;
+  }
 
   private async init(): Promise<JWTVerifyGetKey> {
     const uri =

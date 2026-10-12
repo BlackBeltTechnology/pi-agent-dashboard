@@ -141,7 +141,7 @@
     "patch-package": "^8.0.1",
     "semver": "^7.7.1",
     "tsx": "^4.21.0",
-    "typescript": "^5.7.0",
+    "typescript": "^5.8.0",
     "typescript-7": "npm:typescript@7.0.2",
     "vitest": "^4.0.0",
     "yaml": "^2.9.0"

@@ -51,6 +51,8 @@ export function recordingRunner(respond?: (file: string, args: string[]) => Part
 
 /** A driver whose world is a plain object the test scripts. */
 export class FakeDriver implements ServiceDriver {
+  readonly name: DriverName;
+  private readonly delay: (ms: number) => Promise<void>;
   presenceResult: PresenceResult = { ok: true };
   alive: boolean | "unknown" = true;
   stopOutcome: StopOutcome = "stopped";
@@ -64,7 +66,10 @@ export class FakeDriver implements ServiceDriver {
   calls = { start: 0, stop: 0, presence: 0, adopt: 0, remove: [] as Array<{ purgeData: boolean }> };
   lastCtx?: StartContext;
 
-  constructor(readonly name: DriverName = "oci:docker", private readonly delay: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))) {}
+  constructor(name: DriverName = "oci:docker", delay: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))) {
+    this.name = name;
+    this.delay = delay;
+  }
 
   async presence(): Promise<PresenceResult> {
     this.calls.presence++;

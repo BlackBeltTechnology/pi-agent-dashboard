@@ -21,9 +21,8 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
-import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { isJitiLoader, isNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
-import { resolveNativeTsLoader, selectTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
+import { isJitiLoader, isNativeTsLoader, isTsxLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
+import { resolveNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { type FitRequest, type FitResponse, fitBlocks } from "./fit-worker.js";
 
 export interface FitWorkerPoolOptions {
@@ -66,7 +65,7 @@ const DEBUG =
  *
  * The worker entry is a `.ts` file, loadable ONLY under a TypeScript loader.
  * Production inherits one (`bin/pi-dashboard.mjs` spawns the CLI with
- * `--import <native-ts-register | jiti-register>`), so this normally returns `process.execArgv`
+ * `--import <native-ts-register>`), so this normally returns `process.execArgv`
  * untouched.
  *
  * A host that does NOT supply one — vitest, or an embedder importing the
@@ -76,37 +75,33 @@ const DEBUG =
  * exactly the multi-hundred-ms stall the worker exists to prevent, with no
  * signal that it was happening. Supply the loader when it is absent.
  *
- * Any known TS loader already in `execArgv` (native or jiti) counts as
- * present. Otherwise the selected loader is added (native by default, jiti on
- * `PI_DASHBOARD_TS_LOADER=jiti`). Falls through to the inherited argv when
- * jiti is selected but cannot be resolved — the in-process fallback still
- * guarantees correctness, only not the offload.
- * See change: fix-appimage-cold-boot-latency (design D4).
+ * A TS loader of any kind already in `execArgv` (native, or a foreign jiti/tsx
+ * inherited during the upgrade window) counts as present, so no second `--import`
+ * is added. Otherwise the native loader is added; jiti is never added. Falls
+ * through to the inherited argv when the register module cannot be located — the
+ * in-process fallback still guarantees correctness, only not the offload.
+ * See change: fix-appimage-cold-boot-latency (design D4); strip-only-native-ts-loader (D5).
  */
 export interface WorkerExecArgvDeps {
   execArgv?: readonly string[];
-  env?: NodeJS.ProcessEnv;
-  resolveJiti?: () => string | null;
   resolveNative?: () => string;
 }
 
 export function workerExecArgv(workerUrl: string, deps: WorkerExecArgvDeps = {}): string[] {
   const inherited = [...(deps.execArgv ?? process.execArgv)];
   if (!workerUrl.endsWith(".ts")) return inherited;
-  if (inherited.some((a) => isJitiLoader(a) || isNativeTsLoader(a))) return inherited;
+  if (inherited.some((a) => isJitiLoader(a) || isTsxLoader(a) || isNativeTsLoader(a))) return inherited;
   const anchor = fileURLToPath(import.meta.url);
   let loader: string | null;
   try {
-    loader = selectTsLoader(deps.env ?? process.env) === "jiti"
-      ? (deps.resolveJiti ?? (() => new ToolResolver().resolveJiti({ anchor })))()
-      : (deps.resolveNative ?? (() => resolveNativeTsLoader({ anchor })))();
+    loader = (deps.resolveNative ?? (() => resolveNativeTsLoader({ anchor })))();
   } catch {
     // `resolveNativeTsLoader` throws when the register cannot be located; the
     // documented contract is the inherited argv (the pool then fits in-process
     // for this worker, rather than disabling every worker via spawnSlot's catch).
     loader = null;
   }
-  // Both locators return a `pathToFileURL(...).href` (or null) — never a raw OS
+  // The locator returns a `pathToFileURL(...).href` (or null) — never a raw OS
   // path — so the Windows drive-letter hazard `no-raw-node-import` guards is not
   // reachable here. There is no entry-script position either: the worker entry
   // is passed to `new Worker()` as a URL object, not through argv.

@@ -61,12 +61,16 @@ export class PluginForwardRegistry {
   private readonly buffer: StreamForwardBuffer;
   private counters = { rejected: 0, rejectedDeclarations: 0, conflicts: 0, forwarded: 0 };
   private disposed = false;
+  private readonly events: BusLike | undefined;
+  private readonly deps: PluginForwardDeps;
 
   constructor(
-    private readonly events: BusLike | undefined,
-    private readonly deps: PluginForwardDeps,
+    events: BusLike | undefined,
+    deps: PluginForwardDeps,
     buffer: StreamForwardBuffer = new StreamForwardBuffer(),
   ) {
+    this.events = events;
+    this.deps = deps;
     this.buffer = buffer;
   }
 

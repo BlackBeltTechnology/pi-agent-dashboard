@@ -9,3 +9,5 @@ Stop UI delegated to `<ToolStopControl>` rendered as sibling AFTER the toggle `<
 Props `nested?`, `nestedComplete?` → renders `NestedToolCallList` under the header (independent of `showResultBody`). Passed by `ChatView`, `ToolBurstGroup`, `CollapsedToolGroup`. See change: render-nested-tool-calls.
 
 `healedBy === "result_evicted"` renders `data-testid="tool-evicted-badge"` (distinct from superseded badge). See change: distinguish-tool-result-pending-vs-gone.
+
+`isAgentResultNotReceived(toolDetails, subagents)` → `data-testid="tool-recovered-badge"` (tooltip `chat.tool.subagentResultNotReceived`) for `resultMissing` without a known subagent result, and for `healedBy:"session_ended"`. `subagent_stopped` / known-result `turn_settled` unbadged. See change: finalize-agent-card-on-subagent-stop.

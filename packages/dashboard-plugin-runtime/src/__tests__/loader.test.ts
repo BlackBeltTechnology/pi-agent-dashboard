@@ -93,6 +93,14 @@ describe("discoverPlugins", () => {
     expect(plugins[0].manifest.id).toBe("my-plugin");
   });
 
+  // test-plan #E18 (change: add-project-scoped-apps)
+  it("preserves projectTypes through discovery", () => {
+    const projectTypes = [{ type: "judo", markers: ["model/*.judo", "judo.yaml"] }];
+    writePlugin("typed-plugin", { id: "typed-plugin", displayName: "Typed", claims: [], projectTypes });
+    const plugins = discoverPlugins(tmpDir);
+    expect(plugins[0].manifest.projectTypes).toEqual(projectTypes);
+  });
+
   it("skips packages without pi-dashboard-plugin field", () => {
     fs.mkdirSync(path.join(tmpDir, "packages", "utility"), { recursive: true });
     fs.writeFileSync(

@@ -12,9 +12,10 @@
  *
  * See change: fix-slot-fallback-masks-content.
  */
-import React from "react";
-import { describe, it, expect, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+
+import { cleanup, render } from "@testing-library/react";
+import type React from "react";
+import { afterEach, describe, expect, it } from "vitest";
 
 afterEach(() => cleanup());
 

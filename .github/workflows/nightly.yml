@@ -143,7 +143,7 @@ jobs:
   # The static publish-correctness check lives in ci.yml; this is the dynamic
   # half. Every plugin workspace with a `server` entry is packed with its
   # first-party workspace deps from the working tree and imported OUTSIDE the
-  # repo under node+jiti with JITI_TSCONFIG_PATHS unset and no repo tsconfig
+  # repo under node + the native strip-only loader with JITI_TSCONFIG_PATHS unset and no repo tsconfig
   # reachable — the mode where the old alias layers did not exist, which is why
   # the browser plugin failed to load for npm / managed / Electron users.
   # Budget: whole leg < 12 min (test-plan P1).

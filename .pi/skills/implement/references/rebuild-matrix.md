@@ -14,7 +14,7 @@ flowchart LR
 
 Why each has a different rebuild path:
 - **Extension** lives in pi sessions, not the server process. Pi must be told to re-`require()` it → `npm run reload`.
-- **Server** runs TS directly via jiti (pi's TypeScript loader). No compile step. Restart picks up source changes.
+- **Server** runs TS directly via Node's native strip-only TypeScript loader. No compile step. Restart picks up source changes.
 - **Client** is a Vite-bundled React app served by the server. Dev mode = Vite HMR. Prod mode = pre-built `dist/client/`.
 
 ## Per-component recipes
@@ -30,7 +30,7 @@ npm run reload:check    # type-check first, then reload
 
 ### Server — `src/server/`, `src/shared/`
 
-Server runs TS directly via jiti. No build step. Just restart:
+Server runs TS directly via the native strip-only loader. No build step. Just restart:
 
 ```bash
 # Graceful restart via API (preserves current dev/prod mode)
