@@ -21,32 +21,41 @@ Evidence and the findings that shaped this proposal are in design.md.
   - **No** `.mcp.json` and **no** hooks.
   - **No** `displayName`: Claude Code 2.1.140's validator rejects it, although the claude.com docs list it.
 - **Marketplace manifest** at the repo root, `.claude-plugin/marketplace.json` → `./packages/claude-plugin`. Users add `BlackBeltTechnology/pi-agent-dashboard` from Customize > Plugins or with `/plugin marketplace add` (`--sparse .claude-plugin packages/claude-plugin` keeps the checkout small).
-- **Bootstrap skill `pi-dashboard-bootstrap`**: a short `SKILL.md` that runs ONE script, `scripts/ensure-dashboard.sh`, as a single foreground Bash call. Prose steps with shell variables broke in the spike, because every Bash call is a fresh shell. The script is idempotent and prints `STATUS=<state>` and `BASE=<url>`.
-  - **It never starts a second dashboard.** It probes `/api/health` up to 3× with a 5 s timeout and starts ONLY when the port refuses connections.
-    - A port that is held but silent (an overloaded dashboard) → `BUSY`, no start.
-    - A non-dashboard service on the port → `PORT_CONFLICT`, no start.
-    - This keeps the plugin away from the CLI's stale-pid path, which deletes a busy server's `server.pid` and takes over its lock (see the related change below).
+- **Bootstrap skill `pi-dashboard-bootstrap`**: a short `SKILL.md` that runs ONE POSIX script, `scripts/ensure-dashboard.sh [--install|--check]`, as a single foreground Bash call with an explicit 600 s tool timeout. Prose steps with shell variables broke in the spike, because every Bash call is a fresh shell. The script is idempotent: a re-run after a killed call reports `already-running`. It writes one `STATUS=` line for every outcome (plus `BASE=` / `INSTALL=`) and has fixed exit codes.
+  - **It does not launch while anything holds the port.**
+    - **Identity:** `/api/health` 200 with `"ok":true` and a numeric `"pid"` that matches the instance's lock metadata (or `server.pid` when there is none). Credentials are only ever sent to a verified dashboard; `--check` re-verifies in the same command as every credentialed call.
+    - Held but silent → `busy`. Recovery mode → `recovery`. Any other answer → `port-conflict`. In all three cases nothing is launched.
+    - **It launches only when the port refuses for ≥10 s and no live process is recorded** in the lock metadata or `server.pid`, and no record is unreadable. A recorded live process means the server is starting or restarting, so the script waits for it. This is exactly what keeps the CLI's stale-pid path (see Related changes) from deleting a booting server's `server.pid`.
+    - **A dashboard of the same HOME on another port** is found through the lock metadata. It is reported with its own `BASE`, unless the user explicitly asked for a different port via the environment; then the script fails with guidance.
+    - **Concurrent bootstraps** serialise on a per-port `mkdir` lock (holder pid; stale only when the holder is dead, or by age via `find -mmin`; never removed recursively), with a re-check after acquiring.
+    - It never overrides `HOME`.
+  - **Port resolution follows the shared resolver:** `PI_DASHBOARD_PORT` → `DASHBOARD_PORT` → config `port` → 8000. Unusable values (outside 1–65535) are ignored. Every CLI launch passes `--port <resolved>`.
   - **Launch sources, in order:**
-    1. the `pi-dashboard` CLI on PATH, then via a login shell (Dock-launched apps lack the shell PATH), then under the npm global prefix;
-    2. the installed Electron app on macOS (`open -b com.blackbelt-technology.pi-dashboard`);
-    3. **Install the latest release once, only after the user agrees**: `npm install -g @blackbelt-technology/pi-agent-dashboard@latest`, then `pi-dashboard start`.
-       - This is a stable global install: one copy, a stable bridge path in pi's `settings.json`, upgraded by re-running the same command. `pi-dashboard` is then on PATH, so later sessions take step 1.
-       - Only when the global install fails (for example EACCES on a root-owned prefix): `npx -y @blackbelt-technology/pi-agent-dashboard@latest start`, flagged to the user as **non-durable**.
-       - Consent is required because the step downloads and runs about 1 GB of packages (measured 2026-10-12: 690 packages, 988 MB, ~58 s cold), needs Node ≥ 22.19 (prebuilt `node-pty`, no compiler), and must never run silently inside a sandbox.
-       - Always pin `@latest`: the `next` dist-tag carries test builds.
-  - Starts are detached (`pi-dashboard start` daemonizes). The script waits for readiness, bounded at 60 s.
-  - **Sandbox detection:** in Cowork or a remote session the script stops with a message telling the user to use Claude Code on their machine.
-- **Control skill `pi-dashboard`**: a plugin-authored, curl-first `SKILL.md`.
-  - Derived files are copied byte-identical from `packages/extension/.pi/skills/pi-dashboard/`: `references/api-reference.md`, `references/recipes.md`, `scripts/dashboard-api.sh`.
-  - The `dashboard-bus.ts` path (it needs workspace packages) and the pi-only `commands/` prompt templates are excluded.
-  - Auth: bare loopback is admitted by default. On 401 / `local_proof_required` (strict mode), Claude asks the user to run `pi-dashboard token create --tier <tier>` and sends `Authorization: Bearer`. The plugin never mints, stores or echoes tokens.
-- **Sync and parity**: `scripts/sync-claude-plugin.mjs` copies the derived files; a parity test fails when they drift from the source.
-- **Version lockstep**: `scripts/sync-versions.js` stamps the repo version into `plugin.json`. Claude syncs a marketplace plugin only when its version changes, so the existing `release-cut` bump publishes plugin updates with no extra step.
-- **Tests (TDD)**:
-  - a structural test of the plugin layout and manifests;
-  - a behaviour test of `ensure-dashboard.sh` against fixture servers (healthy / hung / foreign / refused), with stubbed launchers;
-  - the parity test above.
-  - The existing CI frontmatter guard already covers the new `SKILL.md` files.
+    1. the `pi-dashboard` CLI: PATH, then known install directories (npm global prefix, highest nvm version, volta, Homebrew, `/usr/local`), then `$SHELL -lc` (never `-i`), then an existing npx-cache copy (non-durable);
+    2. on macOS, the Electron app in the background (`open -g -b com.blackbelt-technology.pi-dashboard`), only when the port comes from config or the default;
+    3. **with `--install`, which the agent passes only after the user agrees**: `npm install -g @blackbelt-technology/pi-agent-dashboard@latest`, then the installed CLI's `start`.
+       - A stable global install: one copy, a stable pi-bridge path, upgraded by re-running. Later sessions take step 1.
+       - A prerelease version (from a mis-tagged `latest`) is refused.
+       - On install failure: a hint to configure a user-writable npm prefix (not `sudo`). Then the package is fetched into the npx cache with the override, and started with `npx --yes …@latest start` **without** it. This is reported as `INSTALL=npx-cache` (**non-durable**: it runs from `~/.npm/_npx` and registers the bridge there).
+       - No server process ever inherits `npm_config_allow_remote`.
+       - Consent is required because the install downloads about 1 GB (measured 2026-10-12: 690 packages, 988 MB, ~58 s cold), needs Node ≥ 22.19 (prebuilt `node-pty`, no compiler), and must never run silently inside a sandbox.
+       - Always `@latest`: the `next` dist-tag carries test builds.
+  - **Readiness wait** bounded at 60 s.
+  - **Sandbox detection:** `CLAUDE_CODE_IS_COWORK` / `CLAUDE_CODE_REMOTE`, or a `CLAUDE_CONFIG_DIR` under `/sessions/` → `sandbox`; the agent tells the user to use Claude Code on their machine.
+- **Control skill `pi-dashboard-control`** (renamed to avoid clashing with the extension's `pi-dashboard` skill): a plugin-authored, curl-first `SKILL.md` plus one derived reference.
+  - `references/api-reference.md` is the extension skill's file with its "WebSocket bus verbs" section removed.
+  - Not shipped: `dashboard-api.sh` (it sends tokens as a cookie, not Bearer), `recipes.md` and `dashboard-bus.ts` (both bus-centric), and `commands/` (pi templates).
+  - **Auth:** bare loopback is admitted by default. On 401, or 403 with `local_proof_required` (strict mode), Claude asks the user to run `pi-dashboard token create --label claude-code --tier control`.
+    - Preferred: the user saves an `Authorization: Bearer …` header file and Claude sends `curl -H @file`, so the token stays out of the conversation.
+    - Fallback: a pasted token, sent only as a Bearer header.
+    - The plugin never mints, writes or echoes tokens.
+- **Sync and parity**: `scripts/sync-claude-plugin.mjs` derives the reference; a parity test fails on drift; a route test checks that every endpoint the skill names exists.
+- **Version lockstep**:
+  - `scripts/sync-versions.js` gains a `plugin.json` stamp.
+  - The dispatched release commits it with `git add -A`. The local `release-cut` step 6 is extended to stage it; today it stages only `packages/*/package.json`.
+  - On the tag-push flow, a `publish.yml` preflight reads the **tagged** `plugin.json` (before any sync rewrites it) and fails on a mismatch. The local `release-cut` checks equality before creating the tag.
+  - Claude syncs a marketplace plugin when its version changes.
+- **Tests (TDD)**: structure, `ensure-dashboard.sh` behaviour (fixture servers and stubbed launchers), parity, routes, version, and the Node-floor constant. The existing CI frontmatter guard covers the new `SKILL.md` files.
 - **Docs**: an FAQ entry ("How do I use pi-dashboard from Claude Code?"), a README install row, a surface-support statement, and DOX rows.
 
 ### Where it works (scope boundary)
@@ -54,7 +63,7 @@ Evidence and the findings that shaped this proposal are in design.md.
 | Surface | Result |
 |---|---|
 | Claude Code CLI and the desktop app's Code tab (including plugins synced from Customize > Plugins) | Full: Bash runs on the host |
-| Cowork (cloud; the only mode on Pro/Max since 2026-10-06) | Skills load; Bash runs in Anthropic's sandbox. The script detects this and says so. Where detection misses, the install consent gate stops a silent sandbox install |
+| Cowork (cloud; the only mode on Pro/Max since 2026-10-06) | Skills load; Bash runs in Anthropic's sandbox. The script reports `sandbox`. Where detection misses, it stops at `not-installed` and the user is asked before any install |
 | claude.ai chat | Skills load; no shell |
 
 ### Later possibilities (out of scope; recorded for follow-up changes)
@@ -65,7 +74,7 @@ Evidence and the findings that shaped this proposal are in design.md.
   - relays typed tools to `POST /mcp`;
   - declares a static tool list, because `.mcp.json` is read before hooks fire.
 
-  Benefits: typed tools, enforced tier scoping, and no reliance on curl composition.
+  Benefits: typed tools, enforced tier scoping, and no reliance on curl composition. Minting tokens would amend this change's "Token handling stays with the user" requirement.
 - **B: Desktop extension (`.mcpb`) reachable from cloud Cowork.** Anthropic's admin docs imply that a cloud session reaches local MCP servers through the open Desktop app. Unverified; needs a one-hour `whereami` test. If it works, it is the only route by which Cowork itself can start the dashboard.
 - **C: Remote connector through the tunnel.** Register the zrok URL `/mcp` as a Cowork connector. It cannot start the server. It is blocked on OAuth for `/mcp`.
 - **Claude Code as an observed agent**: a hook-based bridge so Claude Code sessions appear in the dashboard. A separate product direction.
@@ -93,11 +102,12 @@ Evidence and the findings that shaped this proposal are in design.md.
 
 ### Modified Capabilities
 
-- None. `pi-dashboard-skill` requirements are unchanged; the plugin derives from that skill.
+- None. `pi-dashboard-skill` requirements are unchanged. The plugin's control skill is a separate capability with its own auth rules (Bearer tokens supplied by the user); it derives only `api-reference.md` from that skill.
 
 ## Impact
 
 - **New:** `packages/claude-plugin/**`, `.claude-plugin/marketplace.json`, `scripts/sync-claude-plugin.mjs`, and tests under `scripts/__tests__/`.
+- **Modified (CI/release, not runtime):** `.github/workflows/publish.yml` (plugin-version preflight); `.pi/skills/release-cut/SKILL.md` (step 6 staging, manual `claude plugin validate`).
 - **Modified:** `scripts/sync-versions.js` (stamps `plugin.json`), plus docs: FAQ, README and DOX rows.
 - **Read-only dependencies:** `packages/extension/.pi/skills/pi-dashboard/` (source of the derived files); the `pi-dashboard` CLI `start` / `token create` subcommands; `/api/health`; the REST routes.
 - **No server, client or extension runtime change.** No new runtime dependency, no migration. Rollback means deleting `.claude-plugin/marketplace.json`: installed copies stop updating and users remove them.

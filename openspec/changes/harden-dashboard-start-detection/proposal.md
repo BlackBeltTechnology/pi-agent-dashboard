@@ -19,6 +19,12 @@ This stub records the scope so the fix has an owner. Design and tasks are writte
    - a live-but-silent holder → report "running but not responding", exit non-zero, no spawn.
 4. **`pi-dashboard status --port N` honours the port.** Observed: under a temp HOME with `--port 18555`, `status` reported the mDNS-discovered `:8000` server of another HOME. mDNS results must be filtered to the requested port (and HOME identity, when known).
 
+5. **Reconcile spec text with shipped behaviour.** Found while planning `add-claude-code-plugin`. Each needs a decision: amend the spec, or fix the code.
+   - `instance-coordination` "HOME canonicalization" says lock paths derive from the canonical home. The code deliberately roots the lock on the `$HOME`-honouring path (`packages/server/src/lifecycle/home-lock.ts:143-155`), while the Electron reader uses the canonical home (`packages/electron/src/lib/lock-metadata.ts:31-38`).
+   - `instance-coordination` "Restart handoff" says the orchestrator waits ≤10 s for the old lock. The code kills, waits ≤5 s for the port, and spawns (`packages/server/src/spawn-process/restart-helper.ts:185-214`).
+   - `bridge-auto-start-lifecycle` "Auto-start resolves ports with environment precedence" says usable = `Number(v)` finite and > 0. The code requires integers 1–65535 (`packages/shared/src/config.ts:1177-1180`). Also, the CLI's `start` reads only `--port` / `PI_DASHBOARD_PORT` (`packages/server/src/cli.ts:191`), not `DASHBOARD_PORT`.
+   - `server-process-management` "Start fails" says 5 s; the code waits 30 s (`cli.ts:428`). "PID file tracking" says `server.pid` is written on startup; the code writes it after `listen` (`packages/server/src/server.ts:~4059-4060`).
+
 Out of scope, with a note for the design: a second instance under a *different* HOME can bind `127.0.0.1:8000` next to an existing `*:8000` on macOS (observed, without EADDRINUSE) and take over `localhost`. The per-HOME lock cannot see other HOMEs. The design decides whether a cross-HOME port probe belongs here or in the FAQ ("concurrent starts fail harmlessly" is not true across HOMEs).
 
 ## Capabilities
@@ -30,6 +36,8 @@ Out of scope, with a note for the design: a second instance under a *different* 
   - "PID file tracking": a live process's pid file is never removed on a health timeout.
   - "Status subcommand" / "mDNS as primary discovery": results filtered to the requested port.
 - `home-lock-single-instance`: "Reclaim when the holder is unreachable" requires bounded retries before reclaiming from a live PID.
+- `instance-coordination`: "HOME canonicalization", "Restart handoff" (reconcile with code, item 5).
+- `bridge-auto-start-lifecycle`: "Auto-start resolves ports with environment precedence" (usable-port rule, item 5).
 
 ## Impact
 
