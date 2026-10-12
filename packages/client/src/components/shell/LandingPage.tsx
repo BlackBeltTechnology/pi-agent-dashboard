@@ -253,6 +253,8 @@ function CreateProjectForm({
       result = { ok: false };
     }
     inFlight.current = false;
+    // Unconditional on purpose: the pin lands in App state before this continuation
+    // runs, which unmounts this form (step ② becomes done) — the existed note lives in the parent.
     if (result.ok) onCreated(result.existed);
     if (!mounted.current) return;
     setBusy(false);
