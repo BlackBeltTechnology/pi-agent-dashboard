@@ -160,7 +160,7 @@ export function UnifiedPackagesSection() {
 		}
 	}, []);
 	useEffect(() => {
-		void loadHealth();
+		loadHealth().catch(logRejection("UnifiedPackagesSection.health"));
 	}, [loadHealth]);
 	const applyHealthCleanup = useCallback(
 		async (drop: string[]) => {
@@ -387,7 +387,7 @@ export function UnifiedPackagesSection() {
 				<PackageHealthPanel
 					report={health}
 					onApply={applyHealthCleanup}
-					onRefresh={() => void loadHealth()}
+					onRefresh={() => loadHealth().catch(logRejection("UnifiedPackagesSection.healthRefresh"))}
 				/>
 			)}
 

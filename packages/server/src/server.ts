@@ -4311,7 +4311,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // Log-only health scan of settings.json packages[] (never mutates, never
       // throws). Not awaited: cold listConfiguredPackages can take seconds on
       // Windows and boot must not wait on a diagnostic. See change: add-package-health-cleanup.
-      void logPackageHealthAtBoot({ listInstalled: () => packageManagerWrapper.listInstalled("global") });
+      logPackageHealthAtBoot({ listInstalled: () => packageManagerWrapper.listInstalled("global") }).catch((err) =>
+        console.warn("[package-health] boot scan failed (non-fatal):", err),
+      );
 
       idleTimer.start();
       // Arm the ephemeral boot-parent watch (D5) — a no-op unless --ephemeral

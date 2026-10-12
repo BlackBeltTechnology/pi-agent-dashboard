@@ -18,8 +18,9 @@ import { Icon } from "@mdi/react";
 import { useEffect, useMemo, useState } from "react";
 import { t } from "../../lib/i18n/i18n.js";
 import { classifySource } from "../../lib/package/package-classifier.js";
+import { logRejection } from "../../lib/report-error.js";
 
-export const PACKAGE_HEALTH_COLLAPSED_KEY = "pi.packageHealth.collapsed";
+const PACKAGE_HEALTH_COLLAPSED_KEY = "pi.packageHealth.collapsed";
 
 export interface PackageHealthPanelProps {
 	report: PackageHealthListResponseData;
@@ -224,7 +225,7 @@ export function PackageHealthPanel({ report, onApply, onRefresh }: PackageHealth
 					)}
 					<button
 						type="button"
-						onClick={() => void apply()}
+						onClick={() => apply().catch(logRejection("PackageHealthPanel.apply"))}
 						disabled={drops.size === 0 || pending}
 						className="text-xs px-3 py-1 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30 disabled:opacity-50 flex items-center gap-1"
 						data-testid="pkg-health-apply"

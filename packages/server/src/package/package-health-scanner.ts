@@ -100,7 +100,7 @@ export function scanPackageHealth(
 }
 
 /** True when any entry is non-ok. */
-export function hasHealthIssues(summary: PackageHealthSummary): boolean {
+function hasHealthIssues(summary: PackageHealthSummary): boolean {
   return summary.staleNpm > 0 || summary.missingPath > 0 || summary.duplicateGroups.length > 0;
 }
 

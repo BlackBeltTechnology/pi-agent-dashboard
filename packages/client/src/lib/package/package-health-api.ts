@@ -12,7 +12,7 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { getApiBase } from "../api/api-context.js";
 
-export class PackageHealthApiError extends Error {
+class PackageHealthApiError extends Error {
 	constructor(
 		message: string,
 		readonly status: number,
@@ -30,7 +30,11 @@ async function parse<T>(res: Response): Promise<T> {
 }
 
 export async function fetchPackageHealth(): Promise<PackageHealthListResponseData> {
-	return parse(await fetch(`${getApiBase()}/api/packages/health`));
+	const res = await fetch(`${getApiBase()}/api/packages/health`);
+	const data = await parse<PackageHealthListResponseData>(res);
+	// Guard an older server / unexpected payload: the panel dereferences `entries`.
+	if (!Array.isArray(data.entries)) throw new PackageHealthApiError("Malformed health response", res.status, data);
+	return data;
 }
 
 export async function applyPackageCleanup(drop: string[]): Promise<PackageCleanupResponse> {
