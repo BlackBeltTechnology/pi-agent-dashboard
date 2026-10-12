@@ -17,10 +17,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AcpAgentConfig } from "@blackbelt-technology/pi-dashboard-shared/acp/acp-config.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { mintSpawnToken } from "../auth/spawn-token.js";
 import { type LocalHostDeps, startLocalAcpSession } from "../acp-bridge/local-host.js";
-import { type PreflightReason, type PreflightResult } from "./spawn-preflight.js";
+import { mintSpawnToken } from "../auth/spawn-token.js";
 import { type SpawnResult, spawnPiSession } from "./process-manager.js";
+import type { PreflightReason, PreflightResult } from "./spawn-preflight.js";
 
 const ADAPTER_BIN = fileURLToPath(new URL("../../bin/acp-bridge.mjs", import.meta.url));
 

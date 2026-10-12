@@ -96,7 +96,6 @@ export function startLocalAcpSession(
   }
   const handle = bufferedHandle(child);
 
-  // biome-ignore lint/style/useConst: socket and adapter reference each other.
   let adapter: AcpSessionAdapter;
   const socket = new LocalBridgeSocket((m) => adapter.handle(m));
   adapter = createAcpSessionAdapter({

@@ -27,7 +27,7 @@ export function scanAcpSessions(dir: string = getAcpDir()): DashboardSession[] {
     if (!id) continue;
     const sessionFile = path.join(dir, `${id}.jsonl`);
     const meta = readSessionMeta(sessionFile);
-    if (!meta || meta.driver !== "acp" || !meta.cwd || meta.archived === true) continue;
+    if (meta?.driver !== "acp" || !meta.cwd || meta.archived === true) continue;
     let startedAt = Date.now();
     try {
       startedAt = statSync(path.join(dir, file)).birthtimeMs || startedAt;

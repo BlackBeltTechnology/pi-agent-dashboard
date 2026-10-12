@@ -5,9 +5,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_ACP_SETTINGS } from "@blackbelt-technology/pi-dashboard-shared/acp/acp-config.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createEventLog, LOG_NOTICE_TYPE } from "../event-log.js";
 import { startHostB } from "../main.js";
 import { fakeAgentLauncher, SESSION_ID } from "./adapter-harness.js";
@@ -57,7 +57,7 @@ describe("event log", () => {
     expect(size).toBeLessThanOrEqual(cap / 2);
     const events = await replayAll(log);
     expect(events[0]?.eventType).toBe("custom_entry");
-    expect((events[0]?.data as { customType: string }).customType).toBe(LOG_NOTICE_TYPE);
+    expect(events[0]?.data.customType).toBe(LOG_NOTICE_TYPE);
     // whole turns only: starts right after the notice with agent_start, balanced message_start/end
     expect(events[1]?.eventType).toBe("agent_start");
     const count = (t: string) => events.filter((e) => e.eventType === t).length;
@@ -78,7 +78,7 @@ describe("event log", () => {
     }
     const events = await replayAll(log);
     expect(events.filter((e) => e.eventType === "custom_entry")).toHaveLength(1);
-    expect(Number((events[0]?.data as { acpDroppedTurns: number }).acpDroppedTurns)).toBeGreaterThan(1);
+    expect(Number(events[0]?.data.acpDroppedTurns)).toBeGreaterThan(1);
   });
 
   it("an in-progress (unsettled) tail is never cut", async () => {

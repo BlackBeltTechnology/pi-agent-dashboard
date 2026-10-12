@@ -4,7 +4,7 @@
  * See change: add-acp-session-driver.
  */
 import type { AddressInfo } from "node:net";
-import { WebSocket, WebSocketServer } from "ws";
+import { type WebSocket, WebSocketServer } from "ws";
 
 export interface FakeGateway {
   url: string;

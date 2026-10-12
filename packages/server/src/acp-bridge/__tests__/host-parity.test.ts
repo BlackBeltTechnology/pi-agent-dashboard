@@ -3,9 +3,10 @@
  * scripted agent conversation yields the same browser-visible sequence.
  * See change: add-acp-session-driver (test-plan #E49).
  */
-import { afterEach, describe, expect, it } from "vitest";
+
 import { DEFAULT_ACP_SETTINGS } from "@blackbelt-technology/pi-dashboard-shared/acp/acp-config.js";
 import type { ExtensionToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import { afterEach, describe, expect, it } from "vitest";
 import { createPiGateway } from "../../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../../session/memory-session-manager.js";
 import { startLocalAcpSession } from "../local-host.js";

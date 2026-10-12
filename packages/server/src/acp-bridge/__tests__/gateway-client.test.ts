@@ -2,8 +2,9 @@
  * Host B transport: register payload, buffering, reconnect, heartbeat.
  * See change: add-acp-session-driver (test-plan #E27, #E41, #X5).
  */
-import { afterEach, describe, expect, it } from "vitest";
+
 import { DEFAULT_ACP_SETTINGS } from "@blackbelt-technology/pi-dashboard-shared/acp/acp-config.js";
+import { afterEach, describe, expect, it } from "vitest";
 import { startHostB } from "../main.js";
 import { fakeAgentLauncher, SESSION_ID } from "./adapter-harness.js";
 import { type FakeGateway, startFakeGateway } from "./fake-gateway.js";

@@ -6,9 +6,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
 import { createV1Normalizer } from "@blackbelt-technology/pi-dashboard-shared/acp/normalize-v1.js";
 import { createDashboardEventAdapter } from "@blackbelt-technology/pi-dashboard-shared/acp/to-dashboard-events.js";
+import { describe, expect, it } from "vitest";
 import { createEventLog } from "../event-log.js";
 
 describe("performance budgets", () => {
