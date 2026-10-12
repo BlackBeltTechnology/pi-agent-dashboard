@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import { ServerSelector } from "../connectivity/ServerSelector.js";
-import { listKnownServers } from "../../lib/api/known-servers-api.js";
+import { listKnownServers, probeKnownServer } from "../../lib/api/known-servers-api.js";
 
 vi.mock("../../lib/api/known-servers-api.js", () => ({
   listKnownServers: vi.fn(async () => [
     { host: "my-pc", port: 8000, label: "my-pc" },
   ]),
+  // Server-side probe: null = unavailable/refused → "Unreachable".
+  probeKnownServer: vi.fn(async () => null),
+  acceptKnownServerMove: vi.fn(async () => true),
 }));
 
 describe("ServerSelector", () => {
@@ -121,11 +124,15 @@ describe("ServerSelector", () => {
     // A LAN-IP known server whose cross-origin probe rejects at the transport
     // layer (opaque) must surface the actionable allowlist hint, not a bare
     // "Unreachable". See change: fix-remote-connect-cors-gates.
+    // The cause now comes from the dashboard SERVER's probe (it reaches the
+    // target; the browser cannot) — not from the host's address class.
+    // See change: stabilize-mdns-server-identity.
     // Persistent (not Once) — the component loads known servers on mount AND on
     // dropdown open. Restored to the default at the end of this test.
     vi.mocked(listKnownServers).mockResolvedValue([
       { host: "192.168.16.242", port: 8000, label: "LAN box", addedAt: "2024-01-01T00:00:00Z" },
     ]);
+    vi.mocked(probeKnownServer).mockResolvedValue("reachable");
     fetchMock.mockImplementation((url: string) => {
       if (url.includes("192.168.16.242")) return Promise.reject(new Error("blocked"));
       return Promise.resolve({ ok: true, json: async () => ({ ok: true }) } as Response);
@@ -150,6 +157,7 @@ describe("ServerSelector", () => {
     const lanEntry = screen.getByText("192.168.16.242:8000").closest("button") as HTMLButtonElement;
     expect(lanEntry.disabled).toBe(true);
     expect(lanEntry.getAttribute("data-cors-blocked")).toBe("true");
+    vi.mocked(probeKnownServer).mockResolvedValue(null);
     vi.mocked(listKnownServers).mockResolvedValue([
       { host: "my-pc", port: 8000, label: "my-pc", addedAt: "2024-01-01T00:00:00Z" },
     ]);

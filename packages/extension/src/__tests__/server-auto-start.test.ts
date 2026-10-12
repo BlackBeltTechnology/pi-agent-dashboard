@@ -278,6 +278,25 @@ describe("autoStartServer", () => {
     expect(result.server).toEqual({ host: "myhost.local", port: 8000, piPort: 9999 });
   });
 
+  // #E30 (stabilize-mdns-server-identity): a local peer advertised under the
+  // dashboard-owned hostname is adopted via its IP literal, and an IPv6-only
+  // peer is probed with a bracketed authority.
+  it("#E30 adopts a derived-hostname local server via its IPv4 literal", async () => {
+    const local: DiscoveredServer = {
+      host: "192.168.1.5", port: 8000, piPort: 9999,
+      isLocal: true, source: "mdns",
+    };
+    const deps = makeDeps({
+      discoverDashboard: vi.fn().mockResolvedValue([local]),
+      isDashboardRunning: scriptedProbeDeps({
+        "localhost:8000": ["refused"],
+        "192.168.1.5:8000": [{ running: true }],
+      }).deps.isDashboardRunning,
+    });
+    const result = await autoStartServer(baseConfig, deps);
+    expect(result.server).toEqual({ host: "192.168.1.5", port: 8000, piPort: 9999 });
+  });
+
   // Change: resolve-global-prompt-templates-from-dashboard — bridge-side
   // PI_DASHBOARD_NO_MDNS opt-out (mirrors the server's gate). Required for
   // isolated runs: otherwise the bridge discovers a co-located real dashboard

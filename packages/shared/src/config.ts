@@ -406,6 +406,12 @@ export interface KnownServer {
   port: number;
   label?: string;
   addedAt: string; // ISO timestamp
+  /**
+   * Server identity pinned for this entry (`sha256:<b64url>`), set only after
+   * the server proved it through the identity challenge. At most one entry per
+   * (fingerprint, port). See change: stabilize-mdns-server-identity.
+   */
+  fingerprint?: string;
 }
 
 // ── Model Proxy ─────────────────────────────────────────────────────
@@ -1874,14 +1880,30 @@ export function parseModelProxyConfig(raw: any): ModelProxyConfig {
 
 function parseKnownServers(raw: any): KnownServer[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((entry: any) => entry && typeof entry === "object" && typeof entry.host === "string" && typeof entry.port === "number")
-    .map((entry: any) => ({
+  const seen = new Set<string>();
+  const out: KnownServer[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object" || typeof entry.host !== "string" || typeof entry.port !== "number") continue;
+    const fingerprint =
+      typeof entry.fingerprint === "string" && /^sha256:.+/.test(entry.fingerprint) ? entry.fingerprint : undefined;
+    if (fingerprint) {
+      // Duplicate (fingerprint, port): first entry wins (stabilize-mdns-server-identity D6).
+      const key = `${fingerprint}|${entry.port}`;
+      if (seen.has(key)) {
+        console.warn(`[known-servers] dropped duplicate identity entry ${entry.host}:${entry.port} (fingerprint already held)`);
+        continue;
+      }
+      seen.add(key);
+    }
+    out.push({
       host: entry.host,
       port: entry.port,
       ...(typeof entry.label === "string" ? { label: entry.label } : {}),
       addedAt: typeof entry.addedAt === "string" ? entry.addedAt : new Date().toISOString(),
-    }));
+      ...(fingerprint ? { fingerprint } : {}),
+    });
+  }
+  return out;
 }
 
 function parseTrustedNetworks(raw: any): string[] {

@@ -2,7 +2,7 @@
 
 Stage: design   Generated: 2026-10-11
 
-No clarifications outstanding: every Triple is filled from `specs/**` and `design.md` (60 s sweep, 3 missed sweeps, 10 min suggestion TTL, 60 s per-`(fp, port)` challenge rate, 3 s DNS + 2 s HTTP probe budget, 3 publish attempts 5 s apart, 4 KiB challenge body cap).
+No clarifications outstanding: every Triple is filled from `specs/**` and `design.md` (60 s sweep, 3 missed sweeps, 10 min suggestion TTL, 60 s per-`(fp, port)` challenge rate, 6 s DNS + 2 s HTTP probe budget, 3 publish attempts 5 s apart, 4 KiB challenge body cap).
 
 Operator fixtures: "operator" = a request carrying a valid local token / login session from a **non-loopback** peer (loopback is genuinely-local and therefore operator — `pairing-routes.ts:95-125`); "non-operator" = peer `192.168.16.50` admitted only by `trustedNetworks: ["192.168.16.0/24"]`, or a paired-device bearer.
 
@@ -29,7 +29,7 @@ Operator fixtures: "operator" = a request carrying a valid local token / login s
 | E13 | known-servers: REST API to add a known server (operator decision table) | decision-table | L1 | automated | operator; prover stub per row: new entry proves F; new entry fails; existing pinned F fails; hint F proves G (new); `(F,8000)` holder elsewhere still proves F; holder dead; target pinned F proves G | `POST /api/known-servers` | F pinned; no fp; F kept; G pinned, hint not stored; `409 already_known`, no write; holder host updated + `{updated:true}`, label replaced only for non-empty label, `addedAt` unchanged; `409 identity_changed {expected:F, proven:G}`, no write |
 | E14 | known-servers: Non-operator add/remove/accept/probe refused | decision-table | L1 | automated | non-operator fixtures (trusted-network peer; paired-device bearer) | POST, DELETE, accept-move, probe | each refused (401/403), prover and fetch stubs called 0 times, `knownServers` byte-identical |
 | E15 | known-servers: List states whether the caller may manage | EP | L1 | automated | non-operator / operator | `GET /api/known-servers` | `canManage:false` / `canManage:true`; entries identical in both |
-| E16 | known-servers: Server-side reachability probe (mapping) | decision-table | L1 | automated | lookup ENOTFOUND; lookup NXDOMAIN after 2.5 s; lookup hangs > 3 s; ECONNREFUSED; HTTP hangs > 2 s; 200 `{ok:true}`; 302 to `http://169.254.169.254/`; 404; 200 `text/html` | probe a persisted entry | `name-not-resolved`; `name-not-resolved`; `timeout`; `refused`; `timeout`; `reachable`; `error` + redirect target never requested; `error`; `error` |
+| E16 | known-servers: Server-side reachability probe (mapping) | decision-table | L1 | automated | lookup ENOTFOUND; lookup NXDOMAIN after 4.5 s; lookup hangs > 6 s; ECONNREFUSED; HTTP hangs > 2 s; 200 `{ok:true}`; 302 to `http://169.254.169.254/`; 404; 200 `text/html` | probe a persisted entry | `name-not-resolved`; `name-not-resolved`; `timeout`; `refused`; `timeout`; `reachable`; `error` + redirect target never requested; `error`; `error` |
 | E17 | known-servers: Unknown target refused | EP | L1 | automated | `{host:"10.0.0.1",port:22}` not in `knownServers` | operator probe | refused; fetch and lookup stubs called 0 times |
 | E18 | known-servers: Concurrent probes of one entry collapse | EP | L1 | automated | entry `home.local:8000`; probes for `Home.local`, `home.local.` while one in flight | 3 concurrent probes | one outbound lookup/fetch; all three get the same result |
 | E19 | known-servers: Unpinned reachable entry is backfilled | decision-table | L1 | automated | unpinned `192.168.16.220:8000` proving F; second case: another entry `(F, 8000)` at dead `home-imac-75112.local` | probe reports reachable | entry gains F; second case: verified entry kept with F, stale one removed, log names `home-imac-75112.local` |
@@ -49,7 +49,7 @@ Operator fixtures: "operator" = a request carrying a valid local token / login s
 
 | id | requirement | technique | level | disposition | workload | metric + threshold | window |
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
-| P1 | known-servers: probe budget (design D7) | tail-latency (bound) | L1 | automated | probe target whose lookup resolves at 2.9 s and HTTP hangs | response time ≤ 5.2 s (3 s DNS + 2 s HTTP + 0.2 s slack), fake timers | single call |
+| P1 | known-servers: probe budget (design D7) | tail-latency (bound) | L1 | automated | probe target whose lookup resolves at 5.9 s and HTTP hangs | response time ≤ 8.2 s (6 s DNS + 2 s HTTP + 0.2 s slack), scaled budgets | single call |
 
 ### Frontend-quirk
 
