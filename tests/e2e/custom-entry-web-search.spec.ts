@@ -38,7 +38,9 @@ test.describe("web-search custom entries render through the web-access plugin", 
 
     // The claimed row is TRANSPARENT to burst formation, so it lives INSIDE the burst
     // (which renders collapsed by default) instead of splitting it.
-    const burst = page.locator('[data-testid="tool-burst-group"]', { hasText: "e2e_custom_entry" });
+    // The scenario's three same-name calls collapse into ONE burst ("3 tool calls"), so the
+    // burst is addressed by test id rather than by tool name.
+    const burst = page.getByTestId("tool-burst-group");
     await expect(burst).toHaveCount(1, { timeout: 15_000 });
     await burst.getByTestId("tool-burst-header").first().click();
 
@@ -66,7 +68,7 @@ test.describe("web-search custom entries render through the web-access plugin", 
       .locator(`[data-testid="session-card-desktop"][data-session-id="${sessionId}"]`)
       .click();
     await expect(page.getByText(WEB_SEARCH_TAIL).first()).toBeVisible({ timeout: 30_000 });
-    const replayBurst = page.locator('[data-testid="tool-burst-group"]', { hasText: "e2e_custom_entry" });
+    const replayBurst = page.getByTestId("tool-burst-group");
     await replayBurst.getByTestId("tool-burst-header").first().click();
     const replayRow = replayBurst.getByTestId("web-search-entry").first();
     await expect(replayRow.getByTestId("web-search-summary")).toHaveText(WEB_SEARCH_SUMMARY, { timeout: 30_000 });
