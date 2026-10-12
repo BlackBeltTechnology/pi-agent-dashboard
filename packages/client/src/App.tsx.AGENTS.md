@@ -47,3 +47,5 @@ Calls `useFileAccessToasts(sessions, selectedId, {showToast, dismissToastByKey},
 See change: add-browser-editor-pane-tab — parses repeatable `?tab=` into `SplitRouteSync tabs`; `navigate` wrapper passes history `state` (openNonce); `useEditorTabOpenListener(overlayLocation, navigate)` acts on `editor_tab_open` only on that session's chat/editor route.
 
 Embedded plugin apps: `pluginOverlayAsDialog = matched && isPluginDialog(presentation)` (`"content"` renders in desktop content-area mount beside sidebar); `captureBackground` gated by `shouldCaptureBackground`; mobile `getMobileDepth` gets `overlayDepth` from `useShellOverlayRouteDepth` for `"content"` claims; `EmbeddedAppShellProvider` (from `createEmbeddedAppShell`) inside `PluginContextProvider`; `EmbeddedAppReturnPill` mounted next to `FileAccessToastHost` (both layouts). See change: add-plugin-app-host.
+
+`pendingSpawnsRef` typed `PendingSpawnEntry` (from `useSessionActions`). Board `WorktreeSpawnDialog.onSpawn` calls `handleSpawnSession(..., { ...opts, placeholderCwd, focus: false })` — board worktree spawns never take focus. See change: openspec-board-spawn-no-focus.

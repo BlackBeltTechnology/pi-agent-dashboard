@@ -109,7 +109,7 @@ export interface OpenSpecBoardViewProps {
   onOpenSpecs: () => void;
   onOpenArchive: () => void;
   /** Spawn a session attached to a change (+ optional worktree opts). */
-  onSpawnSession: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string }) => void;
+  onSpawnSession: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string; focus?: boolean }) => void;
   onSpawnAttachedWorktree: (cwd: string, changeName: string) => void;
   onResumeSession: (sessionId: string, mode: "continue" | "fork") => void;
   onArchiveSession: (sessionId: string) => void;
@@ -637,7 +637,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
               if (worktree) {
                 onSpawnAttachedWorktree(cwd, name);
               } else {
-                onSpawnSession(cwd, name);
+                onSpawnSession(cwd, name, { focus: false });
               }
               if (groupId !== UNGROUPED) {
                 setLocal((prev) => ({ ...prev, assignments: { ...prev.assignments, [name]: groupId } }));
@@ -1046,7 +1046,7 @@ function ProposalCard(props: {
   onReadArtifact: (changeName: string, artifactId: string) => void;
   onOpenTasks: () => void;
   onNavigateToSession: (id: string) => void;
-  onSpawnSession: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string }) => void;
+  onSpawnSession: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string; focus?: boolean }) => void;
   onSpawnAttachedWorktree: (cwd: string, changeName: string) => void;
   onResumeSession: (id: string, mode: "continue" | "fork") => void;
   onArchiveSession: (id: string) => void;
@@ -1108,7 +1108,7 @@ function ProposalCard(props: {
       <div className="flex flex-wrap gap-1.5 mt-2 pt-1.5 border-t border-[var(--border-subtle)]" onPointerDown={(e) => e.stopPropagation()}>
         <button
           type="button"
-          onClick={() => props.onSpawnSession(props.cwd, c.name)}
+          onClick={() => props.onSpawnSession(props.cwd, c.name, { focus: false })}
           className="focus-ring flex-1 inline-flex items-center justify-center gap-1 text-[12px] font-semibold px-2.5 tap-target rounded-md border whitespace-nowrap tint-action-green"
           data-testid={`card-new-session-${c.name}`}
           title={i18nT("session.spawnASessionAttachedToThis", undefined, "New session for this proposal")}

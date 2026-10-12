@@ -12,7 +12,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `hermes-model-override.spec.ts` | L3 F3 → see `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | L3 KB settings sources + search. → see `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `live-server-downloads.spec.ts` | L3 #F1/#X1 |
-| `local-credential-proof-nat.spec.ts` | L3 #X9: host proof for the published port → 401 (`binding-mismatch` in server.log only); same request in-container → 200. See change: loopback-credential-proof. |
+| `local-credential-proof-nat.spec.ts` | L3 #X9 NAT proof. → see `local-credential-proof-nat.spec.ts.AGENTS.md` |
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
@@ -118,9 +118,10 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `notify-min-level.spec.ts` | L3 spec (change: gate-notify-rows-by-level). Drives… → see `notify-min-level.spec.ts.AGENTS.md` |
 | `oauth-redirect-base.spec.ts` | L3 spec (change: config-override-oauth-redirect-base… → see `oauth-redirect-base.spec.ts.AGENTS.md` |
 | `openspec-artifact-dialog.spec.ts` | L3 openspec-artifact-dialog-desktop. → see `openspec-artifact-dialog.spec.ts.AGENTS.md` |
-| `openspec-board-drop-contrast.spec.ts` | L3 fix-openspec-board-drop-targeting: contrast. → see `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
+| `openspec-board-drop-contrast.spec.ts` | L3 contrast. → see `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
 | `openspec-board-drop-indicator.spec.ts` | L3 fix-openspec-board-drop-targeting: indicator. → see `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
 | `openspec-board-drop.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drop… → see `openspec-board-drop.spec.ts.AGENTS.md` |
+| `openspec-board-spawn-no-focus.spec.ts` | L3 board no-focus. → see `openspec-board-spawn-no-focus.spec.ts.AGENTS.md` |
 | `openspec-board-worktree-availability.spec.ts` | L3 worktree availability on OpenSpec board → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
 | `openspec-connect-coverage.spec.ts` | L3 connect coverage, fix-connect-snapshot-frame-loss… → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
 | `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice (add-openspec-init-affordances). → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
