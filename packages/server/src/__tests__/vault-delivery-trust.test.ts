@@ -21,6 +21,7 @@ let sent: Array<{ sessionId: string; msg: VaultSnapshotMessage }>;
 let enabled: boolean;
 let origins: Record<string, { local: boolean; deviceId?: string }>;
 let tls: boolean;
+let connected: boolean;
 
 const mkHub = (extra: Partial<VaultDeliveryHubDeps> = {}) =>
   createVaultDeliveryHub({
@@ -30,6 +31,7 @@ const mkHub = (extra: Partial<VaultDeliveryHubDeps> = {}) =>
     isDeliveryEnabled: () => enabled,
     getGraceHours: () => 24,
     isTls: () => tls,
+    isSessionConnected: () => connected,
     pushDelayMs: 10,
     ...extra,
   });
@@ -41,7 +43,7 @@ const req = (over: Partial<VaultSyncRequestMessage> = {}): VaultSyncRequestMessa
 beforeEach(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-hub-"));
   store = createVaultStore(path.join(dir, "vault.json"));
-  sent = []; enabled = true; tls = false;
+  sent = []; enabled = true; tls = false; connected = true;
   origins = { s1: { local: true }, r1: { local: false, deviceId: "dev-1" }, rx: { local: false, deviceId: UNATTRIBUTED_REMOTE } };
   const a = await store.addAccount({ provider: "gemini", label: "g", value: "gemini-key-001" });
   await createBinding(store, { name: "GEMINI_API_KEY", defaultAccountId: a.id });
@@ -160,6 +162,24 @@ describe("session state", () => {
     expect(st?.bindings).toEqual([{ name: "GEMINI_API_KEY", state: "revoked" }]);
     expect(typeof st?.lastContactAt).toBe("number");
     expect(JSON.stringify(st)).not.toContain("gemini-key-001");
+  });
+  it("B2: rows that held a value show hub-unreachable while the bridge is disconnected, with the last contact time", async () => {
+    const hub = mkHub();
+    await hub.handleSyncRequest("s1", req());
+    hub.handleReport("s1", { type: "vault_report", sessionId: "s1", applied: [{ name: "GEMINI_API_KEY", outcome: "delivered" }] });
+    connected = false;
+    const st = hub.getSessionState("s1");
+    expect(st?.bindings).toEqual([{ name: "GEMINI_API_KEY", state: "hub-unreachable" }]);
+    expect(typeof st?.lastContactAt).toBe("number");
+    connected = true;
+    expect(hub.getSessionState("s1")?.bindings).toEqual([{ name: "GEMINI_API_KEY", state: "delivered" }]);
+  });
+  it("a disconnected session keeps non-holding states (pending-confirmation) as they are", async () => {
+    await createGrant(store, { subject: repoSubject("github.com/acme/app"), bindingName: "GEMINI_API_KEY" });
+    const hub = mkHub();
+    await hub.handleSyncRequest("s1", req({ cwd: "/src/app", origin: "git@github.com:acme/app.git" }));
+    connected = false;
+    expect(hub.getSessionState("s1")?.bindings).toEqual([{ name: "GEMINI_API_KEY", state: "pending-confirmation" }]);
   });
   it("is undefined for an unknown session", () => {
     expect(mkHub().getSessionState("zz")).toBeUndefined();

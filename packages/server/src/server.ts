@@ -1596,6 +1596,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       return session ? originOf(session) : undefined;
     },
     send: (sessionId, msg) => piGateway.sendToSession(sessionId, msg),
+    isSessionConnected: (sessionId) => piGateway.getConnectedSessionIds().includes(sessionId),
     isDeliveryEnabled: () => loadConfig().vault.deliveryEnabled,
     getGraceHours: () => loadConfig().vault.offlineGraceHours,
   });

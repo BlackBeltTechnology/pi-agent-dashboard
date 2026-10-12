@@ -1206,7 +1206,10 @@ function initBridge(pi: ExtensionAPI) {
     try {
       return vaultRedaction.messageEnd(event) as any;
     } catch {
-      return undefined;
+      // Fail CLOSED like tool_result: record a placeholder, keep the role.
+      const message = event?.message;
+      if (!message || typeof message !== "object") return undefined;
+      return { message: { ...message, content: [{ type: "text", text: "[message withheld: vault redaction failed]" }] } } as any;
     }
   });
   pi.on("user_bash", async () => {

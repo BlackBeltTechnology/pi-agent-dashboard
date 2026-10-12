@@ -27,8 +27,12 @@ export interface MaskerState {
 interface DeepOptions {
   /** Hold back a trailing partial-prefix of each string (stream snapshots). */
   hold?: boolean;
-  /** Keys whose string values are never touched (e.g. `role`, `type`). */
-  skipKeys?: ReadonlySet<string>;
+  /**
+   * Discriminator literals that are never touched: `{ role: new Set(["assistant"]) }`
+   * skips a string only when it sits under that key AND is exactly one of those
+   * literals. A secret in a field that merely happens to be called `type` is still masked.
+   */
+  skipLiterals?: Readonly<Record<string, ReadonlySet<string>>>;
 }
 
 export interface Masker {
@@ -145,7 +149,7 @@ class MaskerImpl implements Masker {
     let changed = false;
     const out: Record<string, unknown> = {};
     for (const [k, x] of Object.entries(v)) {
-      const y = opts.skipKeys?.has(k) && typeof x === "string" ? x : this.walk(x, opts, depth + 1);
+      const y = typeof x === "string" && opts.skipLiterals?.[k]?.has(x) ? x : this.walk(x, opts, depth + 1);
       if (y !== x) changed = true;
       out[k] = y;
     }

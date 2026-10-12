@@ -45,6 +45,19 @@ function assertKeyAccount(doc: VaultDocument, accountId: string): void {
   if (a?.kind !== "key") throw new VaultError("invalid_request", "Default must be an existing key account");
 }
 
+/** A new default must share the provider of every override already granted on the binding. */
+function assertDefaultMatchesOverrides(doc: VaultDocument, bindingName: string, accountId: string): void {
+  const accounts = wellFormedAccounts(doc);
+  const provider = accounts.find((a) => a.id === accountId)?.provider;
+  for (const g of Array.isArray(doc.grants) ? doc.grants : []) {
+    if (!isRecord(g) || g.bindingName !== bindingName || typeof g.accountId !== "string") continue;
+    const overrideProvider = accounts.find((a) => a.id === g.accountId)?.provider;
+    if (overrideProvider !== undefined && overrideProvider !== provider) {
+      throw new VaultError("invalid_request", "Default must be an account of the same provider as the grants that override it");
+    }
+  }
+}
+
 export async function createBinding(store: VaultStore, input: { name: string; defaultAccountId?: string }): Promise<BindingView> {
   if (!isDeliverableEnvName(input.name)) {
     throw new VaultError("invalid_binding_name", "Invalid or reserved environment variable name");
@@ -70,6 +83,7 @@ export async function setBindingDefault(store: VaultStore, name: string, account
     if (accountId === undefined) delete b.defaultAccountId;
     else {
       assertKeyAccount(doc, accountId);
+      assertDefaultMatchesOverrides(doc, name, accountId);
       b.defaultAccountId = accountId;
     }
   });

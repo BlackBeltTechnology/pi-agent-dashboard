@@ -51,6 +51,20 @@ describe("grants — account choice (E10)", () => {
     expect(snap({ deviceId: "hub", dir: "/src/c", repoKey: "github.com/acme/c" }).entries).toEqual([]);
   });
 
+  it("the provider rule holds when the binding has no default, and a new default must match existing overrides", async () => {
+    const g1 = await store.addAccount({ provider: "gemini", label: "g1", value: "gemini-key-0001" });
+    const g2 = await store.addAccount({ provider: "gemini", label: "g2", value: "gemini-key-0002" });
+    const s1 = await store.addAccount({ provider: "soniox", label: "s1", value: "soniox-key-0001" });
+    await createBinding(store, { name: "GEMINI_API_KEY" }); // no default
+    await createGrant(store, { subject: dirSubject("hub", "/a"), bindingName: "GEMINI_API_KEY", accountId: g1.id });
+    await expect(
+      createGrant(store, { subject: dirSubject("hub", "/b"), bindingName: "GEMINI_API_KEY", accountId: s1.id }),
+    ).rejects.toMatchObject({ code: "invalid_grant" });
+    await createGrant(store, { subject: dirSubject("hub", "/b"), bindingName: "GEMINI_API_KEY", accountId: g2.id });
+    await expect(setBindingDefault(store, "GEMINI_API_KEY", s1.id)).rejects.toMatchObject({ code: "invalid_request" });
+    await setBindingDefault(store, "GEMINI_API_KEY", g2.id);
+  });
+
   it("rejects an override account of a different provider", async () => {
     await twoAccounts();
     const other = await store.addAccount({ provider: "soniox", label: "s", value: "soniox-key-001" });

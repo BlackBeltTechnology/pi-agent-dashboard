@@ -354,8 +354,11 @@ export function createVaultDelivery(deps: VaultDeliveryDeps): VaultDelivery {
         return;
       }
       // A different project must not see the previous project's values, even for
-      // the moment before the hub answers.
-      if (registry.lastCwd !== undefined && registry.lastCwd !== project.dir) withdrawAll();
+      // the moment before the hub answers. "Different" is the whole identity the
+      // hub keys on: the real path AND the raw origin (a re-pointed origin in the
+      // same directory is a different repository key).
+      const prev = registry.lastProject;
+      if (prev !== undefined && (prev.dir !== project.dir || (prev.origin ?? "") !== (project.origin ?? ""))) withdrawAll();
       registry.lastCwd = project.dir;
       registry.lastProject = project;
       sendSync(reason, project);

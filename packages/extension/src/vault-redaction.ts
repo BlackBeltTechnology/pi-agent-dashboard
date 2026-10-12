@@ -26,7 +26,11 @@ import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { createMasker, type Masker, type MaskerState } from "./vault-masker.js";
 
-const SKIP_KEYS: ReadonlySet<string> = new Set(["role", "type"]);
+/** Message/content discriminators pi relies on; every other string, whatever its key, is masked. */
+const DISCRIMINATORS: Readonly<Record<string, ReadonlySet<string>>> = {
+  role: new Set(["user", "assistant", "toolResult", "custom", "system"]),
+  type: new Set(["text", "image", "thinking", "toolCall", "toolResult", "redacted_thinking"]),
+};
 const SPILL_NAME = /^pi-[A-Za-z0-9._-]+$/;
 const CHUNK = 1024 * 1024;
 
@@ -155,7 +159,7 @@ export function createVaultRedaction(deps: VaultRedactionDeps): VaultRedaction {
     masker,
     async toolResult(event) {
       if (!masker.active()) return undefined;
-      const content = masker.maskDeep(event.content, { skipKeys: SKIP_KEYS });
+      const content = masker.maskDeep(event.content, { skipLiterals: DISCRIMINATORS });
       const details = masker.maskDeep(event.details);
       const structuredContent = masker.maskDeep(event.structuredContent);
       await rewriteSpill(event.details);
@@ -165,7 +169,7 @@ export function createVaultRedaction(deps: VaultRedactionDeps): VaultRedaction {
     },
     messageEnd(event) {
       if (!masker.active() || event.message === undefined) return undefined;
-      const message = masker.maskDeep(event.message, { skipKeys: SKIP_KEYS });
+      const message = masker.maskDeep(event.message, { skipLiterals: DISCRIMINATORS });
       return message === event.message ? undefined : { message };
     },
     async userBash() {

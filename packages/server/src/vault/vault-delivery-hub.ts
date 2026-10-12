@@ -40,7 +40,7 @@ export function decideVaultTrust(input: { origin: SessionOrigin; tls: boolean })
   return { allow: true, deviceId: origin.deviceId };
 }
 
-type SessionBindingRowState = BindingState | "delivered" | "local-override" | "inherited" | "revoked";
+type SessionBindingRowState = BindingState | "delivered" | "local-override" | "inherited" | "revoked" | "hub-unreachable";
 
 interface SessionBindingView {
   bindings: Array<{ name: string; state: SessionBindingRowState }>;
@@ -63,6 +63,12 @@ export interface VaultDeliveryHubDeps {
   getGraceHours: () => number;
   /** Does the hub have proof this session's connection is TLS? Default: never. */
   isTls?: (sessionId: string) => boolean;
+  /**
+   * Is this session's bridge connected right now? When it is not, the rows that
+   * held a value show `hub-unreachable` (the values may still be live within the
+   * bridge's offline grace; the last contact time says since when). Default: always connected.
+   */
+  isSessionConnected?: (sessionId: string) => boolean;
   now?: () => number;
   /** Debounce for change-driven pushes. Default 150 ms (well inside the 5 s budget). */
   pushDelayMs?: number;
@@ -93,6 +99,20 @@ interface SessionRecord {
   project?: SessionProject;
   states: Array<{ name: string; state: BindingState }>;
 }
+
+/** The per-binding rows for the session view. A disconnected session's value-holding rows read `hub-unreachable`. */
+function bindingRows(rec: SessionRecord, connected: boolean): SessionBindingView["bindings"] {
+  const rows: SessionBindingView["bindings"] = rec.states.map((s) => ({
+    name: s.name,
+    state: s.state === "granted" ? (rec.reported.get(s.name) ?? "delivered") : s.state,
+  }));
+  for (const n of rec.revoked) if (!rows.some((b) => b.name === n)) rows.push({ name: n, state: "revoked" });
+  if (!connected) for (const b of rows) if (HOLDING_STATES.has(b.state)) b.state = "hub-unreachable";
+  return rows;
+}
+
+/** States in which the session holds (or may hold) a delivered value. */
+const HOLDING_STATES: ReadonlySet<string> = new Set(["delivered", "local-override", "inherited"]);
 
 export function createVaultDeliveryHub(deps: VaultDeliveryHubDeps): VaultDeliveryHub {
   const now = deps.now ?? Date.now;
@@ -201,11 +221,7 @@ export function createVaultDeliveryHub(deps: VaultDeliveryHubDeps): VaultDeliver
     getSessionState(sessionId) {
       const rec = sessions.get(sessionId);
       if (!rec) return undefined;
-      const bindings: SessionBindingView["bindings"] = rec.states.map((s) => ({
-        name: s.name,
-        state: s.state === "granted" ? (rec.reported.get(s.name) ?? "delivered") : s.state,
-      }));
-      for (const n of rec.revoked) if (!bindings.some((b) => b.name === n)) bindings.push({ name: n, state: "revoked" });
+      const bindings = bindingRows(rec, deps.isSessionConnected?.(sessionId) !== false);
       return { bindings, lastContactAt: rec.lastContactAt, outcome: rec.outcome, project: rec.project && { ...rec.project } };
     },
     forget(sessionId) {

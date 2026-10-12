@@ -147,6 +147,15 @@ describe("message_end (E25)", () => {
     expect((res.message.content[1] as { arguments: { command: string } }).arguments.command).toBe(`echo ${T("GEMINI_API_KEY")}`);
     expect(JSON.stringify(message)).toContain("abcdefgh12"); // original untouched
   });
+  it("masks a secret in a field that is merely CALLED `type` or `role`, but keeps the real discriminators", () => {
+    hold("K_KEY", "abcdefgh12");
+    const res = mk().messageEnd({
+      message: { role: "assistant", content: [{ type: "toolCall", id: "t", name: "x", arguments: { type: "abcdefgh12", role: "abcdefgh12" } }] },
+    }) as { message: { role: string; content: Array<{ type: string; arguments: { type: string; role: string } }> } };
+    expect(res.message.role).toBe("assistant");
+    expect(res.message.content[0].type).toBe("toolCall");
+    expect(res.message.content[0].arguments).toEqual({ type: T("K_KEY"), role: T("K_KEY") });
+  });
   it("returns nothing when there is nothing to mask", () => {
     hold("K_KEY", "abcdefgh12");
     expect(mk().messageEnd({ message: { role: "assistant", content: [{ type: "text", text: "hi" }] } })).toBeUndefined();

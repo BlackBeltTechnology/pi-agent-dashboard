@@ -26,6 +26,7 @@ const STATE_LABEL_EN: Record<string, string> = {
   "no-account": "No account",
   "blocked-name": "Name not allowed",
   revoked: "Revoked",
+  "hub-unreachable": "Hub unreachable",
 };
 
 function stateLabel(state: string): string {
@@ -34,6 +35,7 @@ function stateLabel(state: string): string {
 
 function stateTone(state: string): string {
   if (state === "delivered" || state === "inherited") return "text-[var(--accent-green-text)]";
+  if (state === "hub-unreachable") return "text-[var(--accent-yellow-text)]";
   if (state === "local-override") return "text-[var(--text-secondary)]";
   return "text-[var(--accent-yellow-text)]";
 }

@@ -57,6 +57,16 @@ describe("VaultBindingsChip", () => {
     expect(document.body.textContent).not.toMatch(/secret|value=/i);
   });
 
+  it("B2: shows a hub-unreachable row with its label", async () => {
+    payload = { bindings: [{ name: "A_KEY", state: "hub-unreachable" }], lastContactAt: 1_700_000_000_000 };
+    render(<VaultBindingsChip sessionId="s1" />);
+    await flush();
+    fireEvent.click(screen.getByTestId("vault-chip"));
+    expect(screen.getByTestId("vault-binding-row").getAttribute("data-state")).toBe("hub-unreachable");
+    expect(screen.getByTestId("vault-binding-state").textContent).toBe("Hub unreachable");
+    expect(screen.getByTestId("vault-last-contact").textContent).toContain("Last vault contact");
+  });
+
   it("F2: offers Confirm for a pending checkout and converges to delivered without a reload", async () => {
     payload = {
       bindings: [{ name: "A_KEY", state: "pending-confirmation" }],

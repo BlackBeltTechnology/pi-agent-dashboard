@@ -170,6 +170,22 @@ describe("session replacement and cwd (X5, X6, X11)", () => {
     expect(env.GEMINI_API_KEY).toBeUndefined();
   });
 
+  it("B1: a re-pointed origin in the SAME directory scrubs the previous repository's values before any snapshot", async () => {
+    let origin: string | undefined = "git@github.com:acme/app.git";
+    const d = mk({ resolveProject: async (cwd) => ({ dir: cwd, origin }) });
+    identity(d);
+    await d.onSessionStart({ reason: "startup", getCwd: () => "/src/app" });
+    d.onServerMessage(snap([["GEMINI_API_KEY", "abcdefgh12"]]));
+    expect(env.GEMINI_API_KEY).toBe("abcdefgh12");
+    origin = "git@github.com:acme/other.git";
+    await d.onSessionStart({ reason: "reload", getCwd: () => "/src/app" });
+    expect(env.GEMINI_API_KEY).toBeUndefined(); // gone before the hub answers
+    // and an unchanged identity keeps them
+    d.onServerMessage(snap([["GEMINI_API_KEY", "abcdefgh12"]]));
+    await d.onSessionStart({ reason: "reload", getCwd: () => "/src/app" });
+    expect(env.GEMINI_API_KEY).toBe("abcdefgh12");
+  });
+
   it("X11: a reload in the same project keeps values; disabling then unsets them", async () => {
     const d = mk();
     identity(d);

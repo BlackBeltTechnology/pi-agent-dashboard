@@ -7,14 +7,13 @@
 import * as fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
 import { createBinding } from "../vault/vault-bindings.js";
 import { createGrant, dirSubject } from "../vault/vault-grants.js";
 import { createVaultStore } from "../vault/vault-store.js";
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const baseConfig: ServerConfig = {
   port: 0, piPort: 0, host: "127.0.0.1", gatewayTcp: true, dev: true, autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
 };
@@ -45,12 +44,12 @@ describe("vault delivery wiring", () => {
     await new Promise<void>((resolve) => ws.on("open", () => resolve()));
 
     ws.send(JSON.stringify({ type: "session_register", sessionId: "s1", cwd: tmp, source: "cli" }));
-    await wait(150);
-    const identity = frames.find((f) => f.type === "dashboard_identity");
-    expect(identity?.features).toContain("vault-delivery");
+    // Registration is asynchronous; poll rather than guess a delay.
+    await vi.waitFor(() => expect(frames.find((f) => f.type === "dashboard_identity")).toBeDefined(), { timeout: 5_000 });
+    expect(frames.find((f) => f.type === "dashboard_identity")?.features).toContain("vault-delivery");
 
     ws.send(JSON.stringify({ type: "vault_sync_request", sessionId: "s1", cwd: tmp, tracked: [], reason: "connect" }));
-    await wait(150);
+    await vi.waitFor(() => expect(frames.some((f) => f.type === "vault_snapshot")).toBe(true), { timeout: 5_000 });
     const first = frames.filter((f) => f.type === "vault_snapshot").at(-1);
     expect(first).toMatchObject({ status: "ok", outcome: "delivered", entries: [{ name: "GEMINI_API_KEY", value: "gemini-key-001" }] });
 
@@ -62,7 +61,7 @@ describe("vault delivery wiring", () => {
       body: JSON.stringify({ value: "rotated-key-0001" }),
     });
     expect(res.status).toBe(200);
-    await wait(600);
+    await vi.waitFor(() => expect(frames.filter((f) => f.type === "vault_snapshot").at(-1)?.entries?.[0]?.value).toBe("rotated-key-0001"), { timeout: 5_000 });
     const pushed = frames.filter((f) => f.type === "vault_snapshot").at(-1);
     expect(pushed.entries).toEqual([{ name: "GEMINI_API_KEY", value: "rotated-key-0001" }]);
   });

@@ -66,6 +66,19 @@ describe("import from upload (E16)", () => {
     expect(store.getKeyValue(accounts[0].id)).toBe("abcdefgh12");
   });
 
+  it("an uploaded JSON key file is parsed like the known-location one", async () => {
+    const res = await post("/api/vault/import/propose", { content: JSON.stringify({ SYSTEM_ONE_KEY: "abcdefgh1234", SHORT: "ab" }) });
+    expect(res.json().data.items).toEqual([{ name: "SYSTEM_ONE_KEY" }]);
+  });
+
+  it("refuses an oversized known-location file before reading it", async () => {
+    fs.writeFileSync(envFile, `A_KEY=${"x".repeat(70_000)}\n`);
+    const readFile = vi.spyOn(fs.promises, "readFile");
+    const res = await post("/api/vault/import/propose", { candidateId: "cand-env" });
+    expect(res.statusCode).toBe(400);
+    expect(readFile).not.toHaveBeenCalled();
+  });
+
   it("rejects an oversized upload", async () => {
     const res = await post("/api/vault/import/propose", { content: `A=${"x".repeat(65_537 - 2)}` });
     expect(res.statusCode).toBe(400);

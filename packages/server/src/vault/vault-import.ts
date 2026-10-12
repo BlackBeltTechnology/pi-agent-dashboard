@@ -131,14 +131,17 @@ export function createVaultImport(deps: { store: VaultStore; candidates: () => K
     async proposeFromCandidate(candidateId) {
       const c = deps.candidates().find((x) => x.id === candidateId);
       if (!c) throw new VaultError("not_found", "Unknown import candidate");
+      // Size first: an oversized source is refused before it is read into memory.
+      const { size } = await fs.promises.stat(c.path);
+      if (size > MAX_UPLOAD_BYTES) throw new VaultError("invalid_request", "Source file is too large to import");
       const body = await fs.promises.readFile(c.path, "utf8");
-      if (Buffer.byteLength(body, "utf8") > MAX_UPLOAD_BYTES) throw new VaultError("invalid_request", "Source file is too large to import");
       return propose(c.format === "json" ? parseJsonStrings(body) : parseEnvFile(body));
     },
     proposeFromUpload(content) {
       if (typeof content !== "string") throw new VaultError("invalid_request", "Upload content must be text");
       if (Buffer.byteLength(content, "utf8") > MAX_UPLOAD_BYTES) throw new VaultError("invalid_request", `Upload exceeds ${MAX_UPLOAD_BYTES} bytes`);
-      return propose(parseEnvFile(content));
+      // A browser upload may be a `.env` or a JSON key file (e.g. system-one auth.json).
+      return propose(content.trimStart().startsWith("{") ? parseJsonStrings(content) : parseEnvFile(content));
     },
     async confirm(proposalId, names) {
       const p = proposals.get(proposalId);

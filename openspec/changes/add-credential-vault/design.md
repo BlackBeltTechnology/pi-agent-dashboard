@@ -144,7 +144,7 @@ sequenceDiagram
   - The default is 24 h. The value is set on the hub, clamped to 1 h–7 d, and delivered with the snapshot.
   - The clock is the elapsed time since the last successful snapshot, taken as the **larger** of monotonic and wall-clock elapsed time. A machine that sleeps therefore cannot extend retention. The timestamps are held in the `process` registry.
   - After the grace period the bridge withdraws the values, so revocation is bounded for sessions that stay offline.
-  - The dashboard shows each session's last vault contact time. `hub-unreachable` is reported when the session reconnects.
+  - The dashboard shows each session's last vault contact time. A session whose bridge is disconnected shows its value-holding rows as `hub-unreachable` (the hub cannot reach it; values may still be live within the bridge's grace, and the last contact time says since when).
 - **Downgraded hub.** The hub advertises `vault-delivery` in `dashboard_identity.features`, the existing capability channel. When a bridge that holds delivered values connects to a hub whose identity lacks the feature, the bridge withdraws everything it delivered. Downgrading the dashboard therefore never leaves values live without a revocation path.
 - **Corrupt vault.** The hub answers with "vault unavailable", not with an empty snapshot. The bridge treats that answer like an unreachable hub, so it keeps values within the grace period.
 - **Emergency off.** The "disable delivery" switch lives in the dashboard config (`config.json`), not in the vault. It therefore still works, and withdraws from every session, while the vault file is corrupt.

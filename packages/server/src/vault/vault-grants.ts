@@ -158,8 +158,15 @@ function assertGrantable(doc: VaultDocument, input: { bindingName: string; accou
   if (input.accountId === undefined) return;
   const acc = keyAccountById(doc, input.accountId);
   if (!acc) throw new VaultError("invalid_grant", "Override must be an existing key account");
-  const def = keyAccountById(doc, binding.defaultAccountId);
-  if (def && def.provider !== acc.provider) throw new VaultError("invalid_grant", "Override must be an account of the same provider");
+  // The provider every account behind this binding must share: the default's, or,
+  // without a default, the provider of an override already granted.
+  const reference =
+    keyAccountById(doc, binding.defaultAccountId) ??
+    wellFormedGrants(doc)
+      .filter((g) => g.bindingName === input.bindingName && g.accountId !== undefined)
+      .map((g) => keyAccountById(doc, g.accountId))
+      .find((a) => a !== undefined);
+  if (reference && reference.provider !== acc.provider) throw new VaultError("invalid_grant", "Override must be an account of the same provider");
 }
 
 export async function createGrant(
