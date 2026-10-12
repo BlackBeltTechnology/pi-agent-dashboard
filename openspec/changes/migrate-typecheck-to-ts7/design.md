@@ -80,7 +80,9 @@ call the wrapper `scripts/tsc7.mjs`. TS 7's `exports` map hides `bin/tsc` and `l
 (`require.resolve("typescript-7/bin/tsc")` throws `ERR_PACKAGE_PATH_NOT_EXPORTED`), so the wrapper
 resolves `typescript-7/package.json` with `createRequire(import.meta.url)` (so it works from any
 cwd), joins its `bin.tsc`, and runs that file with `process.execPath`, forwarding argv, stdio and
-exit code (verified: prints `Version 7.0.2`). Root scripts call `node scripts/tsc7.mjs`; package scripts run
+exit code (verified: prints `Version 7.0.2`). If `typescript-7` cannot be resolved, the wrapper
+exits 1 with one stderr line naming the `typescript-7` alias and suggesting `pnpm install`,
+rather than a raw stack trace. Root scripts call `node scripts/tsc7.mjs`; package scripts run
 with the package directory as cwd and call `node ../../scripts/tsc7.mjs`. The three shell scripts and
 `send-types.test.ts` move to the wrapper. `kb.mjs`'s `findTsc()` prefers the repo wrapper
 (`<repo>/scripts/tsc7.mjs`, found by walking up) and falls back to today's
