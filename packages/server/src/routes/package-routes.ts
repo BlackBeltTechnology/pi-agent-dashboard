@@ -2,11 +2,11 @@
  * REST routes for pi package management: search, readme, installed, install, remove, update, check-updates.
  */
 
-import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   listManagedBridges,
   listManagedPackageOwnership,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
+import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import {
   attachPublishedVariants,

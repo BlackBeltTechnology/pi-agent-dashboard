@@ -622,7 +622,7 @@ describe("SettingsPanel", () => {
     // point of edit and are NOT a draft source. See change:
     // redesign-providers-settings-page (settings-panel spec, F8).
     let patchCalls = 0;
-    let stored: Record<string, any> = {};
+    const stored: Record<string, any> = {};
     global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
       if (url === "/api/config" && !options?.method) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });

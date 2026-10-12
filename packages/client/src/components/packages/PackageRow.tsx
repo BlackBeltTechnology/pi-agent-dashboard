@@ -15,8 +15,8 @@ import {
 	mdiAlertCircleOutline,
 	mdiArrowUpBold,
 	mdiCheckCircle,
-	mdiDotsVertical,
 	mdiClockOutline,
+	mdiDotsVertical,
 	mdiInformationOutline,
 	mdiLoading,
 	mdiRestore,
@@ -26,9 +26,9 @@ import { Icon } from "@mdi/react";
 import type React from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
-import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { SourceType } from "../../lib/package/package-classifier.js";
+import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 
 export interface PackageRowProps {
 	displayName: string;

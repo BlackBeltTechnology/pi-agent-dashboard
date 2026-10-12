@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import React from "react";
-import { RecommendedExtensions } from "../packages/RecommendedExtensions.js";
 import type { EnrichedRecommendedExtension } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RecommendedExtensions } from "../packages/RecommendedExtensions.js";
 
 // ── Mocks ──────────────────────────────────────────────────────────
 

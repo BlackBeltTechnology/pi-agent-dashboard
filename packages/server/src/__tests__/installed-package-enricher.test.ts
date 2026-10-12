@@ -8,16 +8,16 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, it, expect } from "vitest";
+import type { RecommendedExtension } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
+import { describe, expect, it } from "vitest";
 import {
+	computeIsBundled,
 	enrichInstalledRow,
 	enrichInstalledRows,
 	extractBasenameFromSource,
 	matchRecommendedEntry,
-	computeIsBundled,
 	type RawInstalledRow,
 } from "../package/installed-package-enricher.js";
-import type { RecommendedExtension } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
 
 const FAKE_MANIFEST: readonly RecommendedExtension[] = [
 	{

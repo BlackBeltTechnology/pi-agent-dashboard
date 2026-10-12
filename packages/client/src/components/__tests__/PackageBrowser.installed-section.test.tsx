@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import React from "react";
-import { PackageBrowser } from "../packages/PackageBrowser.js";
 import type { InstalledPackage } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PackageBrowser } from "../packages/PackageBrowser.js";
 
 // Hook mocks ---------------------------------------------------------
 

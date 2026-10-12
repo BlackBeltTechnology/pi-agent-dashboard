@@ -9,13 +9,14 @@
  *
  * See change: unify-pi-core-into-package-queue.
  */
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import React from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type {
 	InstalledPackage,
 	PiCoreStatus,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { packageQueue } from "../../lib/package/package-queue.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 

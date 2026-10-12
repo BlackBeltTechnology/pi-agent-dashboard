@@ -5,8 +5,8 @@
 import { describe, expect, it } from "vitest";
 import {
   foldSettingsLabel,
-  RESERVED_SETTINGS_LABELS,
   type PromotionRow,
+  RESERVED_SETTINGS_LABELS,
   resolveSettingsPromotions,
 } from "../settings-promotions.js";
 

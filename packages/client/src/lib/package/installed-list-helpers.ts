@@ -52,8 +52,8 @@ export function computeDestIdentity(source: string): string {
 export const ADDONS_NPM_SEARCH_EVENT = "pi-addons-npm-search";
 
 /** Rows the Add-ons UI renders: dashboard-managed plugin bridges are never listed. */
-export function visibleInstalledRows<T extends { dashboardManaged?: boolean }>(rows: readonly T[]): T[] {
-	return rows.filter((r) => r.dashboardManaged !== true);
+export function visibleInstalledRows<T extends object>(rows: readonly T[]): T[] {
+	return rows.filter((r) => (r as { dashboardManaged?: boolean }).dashboardManaged !== true);
 }
 
 /** True when the row runs from a local path or git checkout. One predicate for

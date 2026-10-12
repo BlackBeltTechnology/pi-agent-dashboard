@@ -32,8 +32,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { useLaunchSource } from "../../hooks/useLaunchSource.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
-import { usePiChangelog } from "../../hooks/usePiChangelog.js";
 import { usePersistedBoolean } from "../../hooks/usePersistedBoolean.js";
+import { usePiChangelog } from "../../hooks/usePiChangelog.js";
 import { usePiCoreVersions } from "../../hooks/usePiCoreVersions.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";

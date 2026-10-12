@@ -1,11 +1,11 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor, fireEvent, within, act } from "@testing-library/react";
-import React from "react";
-import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import type {
 	InstalledPackage,
 	PiCoreStatus,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
