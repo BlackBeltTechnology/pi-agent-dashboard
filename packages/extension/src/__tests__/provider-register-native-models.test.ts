@@ -128,6 +128,32 @@ describe("registerEntry — native models.json honored", () => {
     expect(m.contextWindow).not.toBe(128000);
   });
 
+  it("passes samplingParamsByThinkingLevel through opaquely; absent → no key (E11)", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ data: [{ id: "with" }, { id: "without" }] }), { status: 200 }),
+    ) as any;
+    writeProvidersJson(tmpHome, { newapi: { baseUrl: "https://x/v1", apiKey: "k", api: "openai-completions" } });
+    const byLevel = { high: { temperature: 0.2 } };
+    writeModelsJson(
+      tmpHome,
+      JSON.stringify({
+        providers: {
+          newapi: {
+            models: [{ id: "with", samplingParamsByThinkingLevel: byLevel }, { id: "without" }],
+          },
+        },
+      }),
+    );
+
+    const mod = await importFresh();
+    const { pi, registerProvider } = makeMockPi();
+    await mod.reloadProviders(pi);
+
+    const config = lastConfig(registerProvider, "newapi");
+    expect(modelById(config, "with").samplingParamsByThinkingLevel).toEqual(byLevel);
+    expect(modelById(config, "without")).not.toHaveProperty("samplingParamsByThinkingLevel");
+  });
+
   it("falls back to enrichment defaults when no native entry exists (E10 negative / §3.3)", async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(JSON.stringify({ data: [{ id: "plain" }] }), { status: 200 }),

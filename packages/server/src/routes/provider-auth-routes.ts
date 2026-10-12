@@ -12,6 +12,7 @@
 
 
 import type { FastifyInstance } from "fastify";
+import type { LegacyProviderIdsResponse } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { beginFlow, isPluginFlow } from "../auth/begin-flow.js";
 import {
   abortAllFlows,
@@ -27,6 +28,7 @@ import {
   type OAuthRegistryEntry,
 } from "../auth/provider-auth-handlers.js";
 import { oauthRegistryReady } from "../auth/provider-auth-registry.js";
+import { scanLegacyProviderIds } from "../auth/scan-legacy-provider-ids.js";
 import {
   type ApiKeyCredential,
   CredentialTypeConflictError,
@@ -181,6 +183,14 @@ export function registerProviderAuthRoutes(
   // redesign-providers-settings-page.
   fastify.get("/api/provider-auth/catalogue-ready", async () => {
     return { ready: isCatalogueReady() };
+  });
+
+  // Provider ids pi renamed that still appear in pi's agent-dir files. A
+  // separate route (the /status body is a bare array clients pin). Read-only,
+  // lock-free scan; ids + location tokens only. See change:
+  // update-pi-core-1-1-adopt-apis (D4).
+  fastify.get("/api/provider-auth/legacy-provider-ids", async (): Promise<LegacyProviderIdsResponse> => {
+    return { legacyProviderIds: scanLegacyProviderIds() };
   });
 
   // Start a sign-in flow of any shape. Answers once the flow produced its

@@ -186,7 +186,7 @@ import { useCardFxAttributes } from "./hooks/useCardFxAttributes.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
 import { useProvidersReady } from "./hooks/useProvidersReady.js";
-import { useSessionActions } from "./hooks/useSessionActions.js";
+import { type PendingSpawnEntry, useSessionActions } from "./hooks/useSessionActions.js";
 import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
 import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib/api/api-context.js";
 import { buildContextUsageMap } from "./lib/context-usage.js";
@@ -749,7 +749,7 @@ export default function App() {
   // back to the originating click for auto-select after spawn AND fork.
   // Lives alongside `spawningCwds` (which keeps placeholder + disabled-button
   // behavior cwd-keyed). See change: spawn-correlation-token.
-  const pendingSpawnsRef = useRef<Map<string, { cwd: string; kind: "spawn" | "resume"; placeholderCwd?: string }>>(new Map());
+  const pendingSpawnsRef = useRef<Map<string, PendingSpawnEntry>>(new Map());
   const [sessionOrderMap, setSessionOrderMap] = useState<Map<string, string[]>>(new Map());
   // ── fix-connect-snapshot-frame-loss (D7/D9) ── Snapshot-window ended
   // totals, per-group page offsets, and the snapshot generation counter that
@@ -3405,7 +3405,9 @@ export default function App() {
           onSpawn={(path, opts) => {
             const placeholderCwd = boardWorktreeForChange.cwd;
             setBoardWorktreeForChange(null);
-            handleSpawnSession(path, opts?.attachProposal, { ...opts, placeholderCwd });
+            // Board spawns never take focus (`focus: false` last so `opts` can't
+            // override it). See change: openspec-board-spawn-no-focus.
+            handleSpawnSession(path, opts?.attachProposal, { ...opts, placeholderCwd, focus: false });
             // Opt-in trusted-only worktree auto-init. See change: auto-init-worktree-on-spawn.
             void maybeAutoInitWorktreeOnSpawn(path);
           }}

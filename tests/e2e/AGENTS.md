@@ -120,9 +120,10 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `notify-min-level.spec.ts` | L3 spec (change: gate-notify-rows-by-level). Drives… → see `notify-min-level.spec.ts.AGENTS.md` |
 | `oauth-redirect-base.spec.ts` | L3 spec (change: config-override-oauth-redirect-base… → see `oauth-redirect-base.spec.ts.AGENTS.md` |
 | `openspec-artifact-dialog.spec.ts` | L3 openspec-artifact-dialog-desktop. → see `openspec-artifact-dialog.spec.ts.AGENTS.md` |
-| `openspec-board-drop-contrast.spec.ts` | L3 fix-openspec-board-drop-targeting: contrast. → see `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
-| `openspec-board-drop-indicator.spec.ts` | L3 fix-openspec-board-drop-targeting: indicator. → see `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
-| `openspec-board-drop.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drop… → see `openspec-board-drop.spec.ts.AGENTS.md` |
+| `openspec-board-drop-contrast.spec.ts` | L3 contrast. → see `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
+| `openspec-board-drop-indicator.spec.ts` | L3 indicator. → see `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
+| `openspec-board-drop.spec.ts` | L3 drop. → see `openspec-board-drop.spec.ts.AGENTS.md` |
+| `openspec-board-spawn-no-focus.spec.ts` | L3 board no-focus. → see `openspec-board-spawn-no-focus.spec.ts.AGENTS.md` |
 | `openspec-board-worktree-availability.spec.ts` | L3 worktree availability on OpenSpec board → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
 | `openspec-connect-coverage.spec.ts` | L3 connect coverage, fix-connect-snapshot-frame-loss… → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
 | `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice. → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |

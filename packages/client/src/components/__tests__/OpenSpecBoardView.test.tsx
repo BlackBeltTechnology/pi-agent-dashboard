@@ -157,7 +157,15 @@ describe("OpenSpecBoardView", () => {
     fireEvent.click(screen.getByTestId("board-new-proposal"));
     fireEvent.change(screen.getByTestId("np-name"), { target: { value: "add-thing" } });
     fireEvent.click(screen.getByTestId("np-create"));
-    expect(p.onSpawnSession).toHaveBeenCalledWith("/p", "add-thing");
+    expect(p.onSpawnSession).toHaveBeenCalledWith("/p", "add-thing", { focus: false });
+  });
+
+  // See change: openspec-board-spawn-no-focus (test-plan #E12)
+  it("card + Session spawns with the no-focus intent", () => {
+    const p = props();
+    render(<OpenSpecBoardView {...p} />);
+    fireEvent.click(screen.getByTestId("card-new-session-add-auth"));
+    expect(p.onSpawnSession).toHaveBeenCalledWith("/p", "add-auth", { focus: false });
   });
 
   it("worktree-checked create fires onSpawnAttachedWorktree", () => {
@@ -168,6 +176,8 @@ describe("OpenSpecBoardView", () => {
     fireEvent.click(screen.getByTestId("np-worktree"));
     fireEvent.click(screen.getByTestId("np-create"));
     expect(p.onSpawnAttachedWorktree).toHaveBeenCalledWith("/p", "add-thing");
+    // test-plan #E13: worktree path never goes through onSpawnSession.
+    expect(p.onSpawnSession).not.toHaveBeenCalled();
   });
 
   it("proposal cards carry a grab cursor for drag affordance", () => {

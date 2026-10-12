@@ -694,6 +694,23 @@ export interface ProviderAuthInfo {
   flowType: "auth_code" | "device_code";
 }
 
+/**
+ * A provider id pi renamed (pi 1.0.3: `azure-openai-responses` → `azure`) still
+ * present in pi's agent-dir files. Ids and location tokens only — never values.
+ * See change: update-pi-core-1-1-adopt-apis.
+ */
+export interface LegacyProviderIdEntry {
+  legacyId: string;
+  newId: string;
+  /** e.g. `auth.json`, `settings.json:defaultProvider`, `models.json:providers`. */
+  locations: string[];
+}
+
+/** `GET /api/provider-auth/legacy-provider-ids`. Empty list when nothing matched. */
+export interface LegacyProviderIdsResponse {
+  legacyProviderIds: LegacyProviderIdEntry[];
+}
+
 export interface ProviderAuthStatus {
   id: string;
   name: string;

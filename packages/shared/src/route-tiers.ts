@@ -191,6 +191,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/provider-auth/catalogue-ready", tier: "observe" },
   { method: "GET", path: "/api/provider-auth/flow/:flowId", tier: "operate" },
   { method: "GET", path: "/api/provider-auth/handlers", tier: "operate" },
+  // Names the pi config files still holding a renamed provider id (no values). See change: update-pi-core-1-1-adopt-apis.
+  { method: "GET", path: "/api/provider-auth/legacy-provider-ids", tier: "operate" },
   { method: "GET", path: "/api/provider-auth/providers", tier: "operate" },
   { method: "GET", path: "/api/provider-auth/radius/mcp", tier: "operate" },
   { method: "GET", path: "/api/provider-auth/status", tier: "operate" },

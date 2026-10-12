@@ -44,6 +44,8 @@ export interface CustomModelEntry {
   compat?: Record<string, unknown>;
   /** Arbitrary OpenAI-compatible sampling params (pi 0.84.0). Opaque passthrough. See change: update-pi-core-0-84-adopt-apis. */
   samplingParams?: Record<string, unknown>;
+  /** Per-thinking-level sampling params (pi 1.1.0). Opaque passthrough. See change: update-pi-core-1-1-adopt-apis. */
+  samplingParamsByThinkingLevel?: Record<string, Record<string, unknown>>;
   cost?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   input?: string[];
   headers?: Record<string, string>;
@@ -106,6 +108,7 @@ function toRuntimeModel(m: any): Record<string, unknown> {
     ...(m.thinkingLevelMap ? { thinkingLevelMap: m.thinkingLevelMap } : {}),
     ...(m.compat ? { compat: m.compat } : {}),
     ...(m.samplingParams ? { samplingParams: m.samplingParams } : {}),
+    ...(m.samplingParamsByThinkingLevel ? { samplingParamsByThinkingLevel: m.samplingParamsByThinkingLevel } : {}),
   };
 }
 
@@ -319,6 +322,9 @@ export class InternalRegistry {
         // pi 0.84.0 advanced custom-model sampling. Omitted when absent, so an
         // older pi sees exactly the pre-0.84 model shape.
         ...(caps?.samplingParams ? { samplingParams: caps.samplingParams } : {}),
+        ...(caps?.samplingParamsByThinkingLevel
+          ? { samplingParamsByThinkingLevel: caps.samplingParamsByThinkingLevel }
+          : {}),
         ...(headers ? { headers } : {}),
       };
       models.push(model);
