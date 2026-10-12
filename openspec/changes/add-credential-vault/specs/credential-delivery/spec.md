@@ -191,6 +191,8 @@ For each session, the dashboard SHALL show the bindings the session holds and th
 - `pending-confirmation`;
 - `hub-unreachable`;
 - `revoked`, with a note that processes already running may still hold the old value.
+- `no-account`;
+- a state that another vault capability defines.
 
 #### Scenario: Session shows its bindings
 - **WHEN** a user opens a session's details

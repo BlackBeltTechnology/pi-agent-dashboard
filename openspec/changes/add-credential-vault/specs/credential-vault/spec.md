@@ -97,7 +97,7 @@ Reserved prefixes: `LD_`, `DYLD_`, `NODE_`, `NPM_CONFIG_`, `PI_`, `PYTHON`, `PER
 - **THEN** the request is rejected with a validation error
 
 ### Requirement: Per-project grants, default deny
-The vault SHALL deliver a binding to a session only when a grant names that binding for the session's project key. A project with no grant SHALL receive nothing. A grant MAY name an account other than the binding's default, of the same provider and kind; that account is then used for that project.
+The vault SHALL deliver a binding to a session only when a grant names that binding for the session's project key. A project with no grant SHALL receive nothing. A grant names one subject: a project key, or another subject type that a vault capability defines; only project-key grants deliver to sessions. A grant MAY name an account other than the binding's default, of the same provider and kind; that account is then used for that project.
 
 The project key SHALL be one of the following:
 
