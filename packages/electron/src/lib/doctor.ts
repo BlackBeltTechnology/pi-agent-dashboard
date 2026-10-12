@@ -41,9 +41,8 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/doctor-core.js";
 // resolveOfflinePackages + installManagedNode imports removed under change:
 // eliminate-electron-runtime-install (no offline cache; bundle is immutable).
-import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { normalizeEnvPathKey } from "@blackbelt-technology/pi-dashboard-shared/platform/env-path-key.js";
-import { resolveNativeTsLoader, selectTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
+import { resolveNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { resolveSpawnRuntime } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { getBundledNodeDir, getBundledNodePath, getBundledNpmPath } from "./bundled-node.js";
 import { MANAGED_DIR } from "./managed-paths.js";
@@ -389,20 +388,14 @@ async function runDoctorInner(): Promise<DoctorReport> {
 }
 
 /**
- * Pick the Server launch test's `--import` loader with the same rule as the
- * real launch: native by default, jiti only on `PI_DASHBOARD_TS_LOADER=jiti`.
- * `missing` names the absent component (jiti opt-in only).
- * See change: fix-appimage-cold-boot-latency (design D4).
+ * Resolve the Server launch test's `--import` loader: the Node-native register
+ * module, the only server loader (no jiti, no tsx, no env selection).
+ * `missing` names the absent component when it cannot be located.
+ * See change: strip-only-native-ts-loader.
  */
-export function selectServerLaunchTestLoader(deps: {
-  env: NodeJS.ProcessEnv;
-  resolveJiti: () => string | null;
+export function resolveServerLaunchTestLoader(deps: {
   resolveNative: () => string;
 }): { loaderUrl: string | null; missing: string | null } {
-  if (selectTsLoader(deps.env) === "jiti") {
-    const jiti = deps.resolveJiti();
-    return jiti ? { loaderUrl: jiti, missing: null } : { loaderUrl: null, missing: "No jiti loader (install pi)" };
-  }
   try {
     return { loaderUrl: deps.resolveNative(), missing: null };
   } catch {
@@ -448,12 +441,7 @@ async function runServerLaunchTest(
 ): Promise<void> {
   const { hasBundledServer, bundledServerCli, bundledNode } = ctx;
   const testCli = hasBundledServer ? bundledServerCli : null;
-  // ToolResolver.resolveJiti probes the managed pi install at MANAGED_DIR
-  // automatically; no constructor arg needed for that lookup. Consulted only
-  // under the jiti opt-in — the default probe uses the native loader.
-  const { loaderUrl, missing } = selectServerLaunchTestLoader({
-    env: process.env,
-    resolveJiti: () => new ToolResolver({}).resolveJiti({ anchor: testCli ?? undefined }),
+  const { loaderUrl, missing } = resolveServerLaunchTestLoader({
     resolveNative: () => resolveNativeTsLoader({ anchor: testCli ?? undefined }),
   });
   const pick = pickNodeForServer({

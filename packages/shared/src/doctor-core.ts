@@ -15,7 +15,6 @@
 
 import dns from "node:dns";
 import { appendFileSync, existsSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { getDashboardConfigDir } from "./dashboard-paths.js";
@@ -28,19 +27,6 @@ import { buildNativeModuleManifest, findAbiMismatches, type probeNativeModuleAbi
 import { type ResolvedRuntime, resolvedFamilyEntries } from "./platform/spawn-runtime.js";
 import { resolveNativeTsLoader } from "./platform/ts-loader-select.mjs";
 import { readZrokEnvironment } from "./zrok-env.js";
-
-// Used by the TypeScript-loader check to locate bundled jiti via
-// Node's standard module resolution — finds copies under
-// `Resources/server/node_modules/` in the Electron bundle. See change:
-// fix-doctor-bundled-tool-detection.
-const doctorRequire = createRequire(import.meta.url);
-function tryResolvePkg(name: string): string | null {
-  try {
-    return doctorRequire.resolve(`${name}/package.json`);
-  } catch {
-    return null;
-  }
-}
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
@@ -539,7 +525,7 @@ export const SUGGESTIONS: Record<string, SuggestionFn> = {
   "TypeScript loader": (status) =>
     status === "ok"
       ? undefined
-      : "No TypeScript loader (jiti) found. Required to run the dashboard server. Run the setup wizard (Help → Setup).",
+      : "Native TypeScript loader (native-ts-register.mjs) not found. Required to run the dashboard server — the install looks corrupted; reinstall the dashboard.",
   "Dashboard server": (status) =>
     status === "ok"
       ? undefined
@@ -838,11 +824,11 @@ export interface SharedChecksDeps {
   /** Detector for system Node ({path, found}). */
   detectSystemNode: () => { found: boolean; path?: string };
   /**
-   * Test seam for the bundled-jiti lookup in the `TypeScript loader` check.
-   * Returns the resolved `<name>/package.json` path or `null`. Defaults to
-   * Node module resolution from this package.
+   * Test seam for the `TypeScript loader` check: resolves the native register
+   * module's `file://` URL, or throws when it cannot be located. Defaults to
+   * `resolveNativeTsLoader`.
    */
-  resolvePackageJson?: (name: string) => string | null;
+  resolveNativeLoader?: () => string;
   /**
    * Resolver for the zrok binary. When omitted, the `zrok binary` check is
    * skipped entirely. The server wires this to the same `ToolResolver`
@@ -956,11 +942,6 @@ export interface SharedChecksDeps {
     moduleName: string,
     treeRoot: string,
   ) => Promise<{ ok: boolean; detail?: string }> | { ok: boolean; detail?: string };
-  /**
-   * Env read for the TypeScript-loader selection (`PI_DASHBOARD_TS_LOADER`).
-   * Defaults to `process.env`. See change: fix-appimage-cold-boot-latency.
-   */
-  env?: NodeJS.ProcessEnv;
 }
 
 export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorCheck[]> {
@@ -1269,7 +1250,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           name: "TypeScript loader",
           section: "server",
           status: "ok",
-          message: `native (Node type stripping) at ${resolveNativeTsLoader()}`,
+          message: `native (Node type stripping) at ${(deps.resolveNativeLoader ?? resolveNativeTsLoader)()}`,
         };
       } catch (err) {
         return {

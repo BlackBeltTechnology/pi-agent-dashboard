@@ -41,7 +41,6 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import {
   EarlyExitError,
-  JitiNotFoundError,
   launchDashboardServer,
   PortConflictError,
 } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
@@ -79,7 +78,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { getDefaultRegistry, ingestInstalledSkillTools, resolveInstallRoot } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import { assertNodeVersionSupported } from "./auth/node-guard.js";
+import { assertNodeVersionSupported, warnTsLoaderState } from "./auth/node-guard.js";
 import { recordExitIntent } from "./persistence/boot-state.js";
 import { publishResolvedRuntime, readPublishedRuntimeBlock } from "./runtime-publication.js";
 import { resolveLiveSpawnRuntime } from "./runtime-resolution.js";
@@ -246,6 +245,7 @@ export function buildConfig(
  */
 async function runForeground(config: ServerConfig): Promise<void> {
   assertNodeVersionSupported();
+  warnTsLoaderState();
 
   // Dynamic-import boundary for the main server module. If a top-level
   // dependency (fastify, toad-cache, readable-stream, …) is missing, the
@@ -406,7 +406,7 @@ async function cmdStart(config: ServerConfig): Promise<void> {
   }
 
   // Spawn ourselves in foreground mode (no subcommand) as a detached process.
-  // All concerns below — jiti loader resolution, --import argv URL-wrapping,
+  // All concerns below — native TypeScript loader resolution, --import argv URL-wrapping,
   // env merge, log-file header, readiness polling, port-conflict / early-exit
   // detection — are owned by the shared `launchDashboardServer` primitive.
   const cliPath = fileURLToPath(import.meta.url);
@@ -431,10 +431,6 @@ async function cmdStart(config: ServerConfig): Promise<void> {
     const reportedPid = result.reportedPid ?? readPid() ?? result.childPid;
     console.log(`Dashboard server started (pid ${reportedPid}) at http://localhost:${config.port}`);
   } catch (err: unknown) {
-    if (err instanceof JitiNotFoundError) {
-      console.error(`[pi-dashboard] ${err.message}`);
-      process.exit(1);
-    }
     if (err instanceof PortConflictError) {
       console.error(`Port ${err.port} is occupied by another service (not the dashboard).`);
       console.error(`Change the port in ~/.pi/dashboard/config.json or use --port <n>`);

@@ -3,7 +3,7 @@
  * See change: electron-server-launch-controls (R3, task 1.8).
  *
  * NOTE: Full end-to-end coverage of the spawn path is out of scope here —
- * `ensureServer()` shells out to `tsx`/jiti and is exercised by QA harness.
+ * `ensureServer()` boots the server through the native TS loader and is exercised by QA harness.
  * These tests cover the wrapper's value-shape contract: failure-as-value,
  * concurrency-share, and the always-running short-circuit.
  */

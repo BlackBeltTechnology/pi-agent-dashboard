@@ -2,7 +2,7 @@
 #
 # Desktop-launch simulation test.
 # Runs with a MINIMAL PATH — no node/npm on system — exactly like a .desktop
-# launcher. Verifies the Electron app discovers the bundled node/jiti loader
+# launcher. Verifies the Electron app discovers the bundled node + native TS loader
 # and boots the server without a system Node.
 #
 # Rewrite scope: this script previously simulated a wizard runtime-install
@@ -10,7 +10,7 @@
 # launch through tsx. Both flows were deleted under change
 # `eliminate-electron-runtime-install` — the DEB now ships pi/openspec/tsx
 # pre-installed in the bundle, and the only launch path is the Electron
-# main process spawning `bundled-node --import <jiti> <cli.ts>`. The wizard
+# main process spawning `bundled-node --import <native-loader> <cli.ts>`. The wizard
 # + manual-tsx stages are gone; the core minimal-PATH Electron launch
 # assertion stays.
 #
@@ -84,7 +84,7 @@ echo ""; hr; echo "  Test 2: Electron app launch with desktop PATH"; hr
 
 # Launch the REAL Electron app with minimal desktop PATH.
 # The Electron app must discover bundled node via its own resource layout
-# (no PATH lookup) and spawn the server with `--import <jiti> <cli.ts>`.
+# (no PATH lookup) and spawn the server with `--import <native-loader> <cli.ts>`.
 echo "  → Starting Electron app with desktop PATH=$DESKTOP_PATH"
 env -i HOME="$HOME" PATH="$DESKTOP_PATH" DISPLAY="${DISPLAY:-}" \
   xvfb-run -a "$DEB_ROOT/pi-dashboard" --no-sandbox \

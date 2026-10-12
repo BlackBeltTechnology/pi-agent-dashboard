@@ -22,11 +22,12 @@ export interface RestartParams {
   /** Absolute path to the server CLI (typically process.argv[1]) */
   cliPath: string;
   /**
-   * Loader value from --import (e.g. file:// URL). Empty string = none.
-   * Always the RUNNING server's loader (native or jiti) — restart never
-   * re-reads `PI_DASHBOARD_TS_LOADER`, so a loader switch (incl. the jiti
-   * rollback) needs a fresh launch, not `/api/restart`.
-   * See change: fix-appimage-cold-boot-latency (design D4).
+   * Loader value for `--import` (a `file://` URL). `/api/restart` always passes
+   * the native register module, never the running process's own `--import`
+   * (which may be a foreign jiti inherited across an upgrade). Empty string =
+   * none (bare entry).
+   * See change: fix-appimage-cold-boot-latency (design D4);
+   * strip-only-native-ts-loader (design D5).
    */
   loader: string;
   /** Port the server listens on */
@@ -45,10 +46,10 @@ export interface RestartParams {
   /** Override Node binary (defaults to process.execPath) */
   execPath?: string;
   /**
-   * Whether the new server will boot in dev mode (jiti TS loader).
+   * Whether the new server will boot in dev mode.
    * Controls the health-poll deadline embedded in the orchestrator script:
-   * - prod: 15s (jiti not involved, server is up well under that)
-   * - dev:  60s (cold jiti boot of ~400 TS files can reach 25–60s)
+   * - prod: 15s (the server is up well under that)
+   * - dev:  60s (a cold dev boot loading ~400 TS files can reach 25–60s)
    * Mismatching this against the actual mode is harmless but defeats the
    * point — a too-short deadline writes a spurious failure line to
    * ~/.pi/dashboard/restart.log even though the new server is fine.

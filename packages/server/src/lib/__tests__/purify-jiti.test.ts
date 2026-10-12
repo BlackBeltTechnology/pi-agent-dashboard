@@ -1,25 +1,27 @@
 /**
- * Regression: under the server's `node --import jiti-register` loader, a
- * dynamic `import("isomorphic-dompurify")` routes jsdom's CJS through jiti and
- * breaks its interfaces.js <-> create-element.js cycle
- * (`interfaces.getInterfaceWrapper is not a function`). `loadPurify()` must
- * sanitize correctly under that same loader.
+ * Regression: `loadPurify()` must sanitize correctly under the server's real
+ * loader — `node --import native-ts-register.mjs`. Unlike the old async
+ * `module.register` hooks, `module.registerHooks` also sees CommonJS
+ * `require()`, so this pins that jsdom's interfaces.js <-> create-element.js
+ * require cycle (`createRequire` of `isomorphic-dompurify`) still works.
+ * The file keeps its historical name; the loader is native now.
+ *
+ * See change: strip-only-native-ts-loader (test-plan #E7).
  */
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { resolveNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(here, "..", "..", "..", "..", "..");
-const jitiRegister = pathToFileURL(path.join(repoRoot, "node_modules", "jiti", "lib", "jiti-register.mjs")).href;
+const nativeRegister = resolveNativeTsLoader();
 const fixture = path.join(here, "fixtures", "purify-under-jiti.ts");
 
-describe("loadPurify under jiti-register", () => {
+describe("loadPurify under the native TypeScript loader", () => {
   it("sanitizes SVG (jsdom usable) when loaded via the server loader", () => {
-    const res = spawnSync(process.execPath, ["--no-warnings", "--import", jitiRegister, fixture], {
+    const res = spawnSync(process.execPath, ["--no-warnings", "--import", nativeRegister, fixture], {
       encoding: "utf8",
-      env: { ...process.env, JITI_TSCONFIG_PATHS: "true" },
       timeout: 60_000,
     });
     expect(res.stdout.trim()).toBe("<svg><g></g></svg>");

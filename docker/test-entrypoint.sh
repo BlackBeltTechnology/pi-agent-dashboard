@@ -893,7 +893,7 @@ PIDFILE="${HOME:-/home/pi}/.pi/dashboard/server.pid"
 echo "[test-entrypoint] launching dashboard daemon via base entrypoint..."
 # The base launcher waits up to 30s for readiness then exits non-zero, but the
 # server is spawned DETACHED (unref'd) and SURVIVES that timeout — cold-start
-# via the jiti TS loader can exceed 30s on a loaded host. Tolerate a non-zero
+# on a loaded host can exceed 30s. Tolerate a non-zero
 # return; our own health poll below is the authority on readiness.
 # NO_SUPERVISE: the base entrypoint now supervises the daemon itself, which
 # would block before this script's smoke checks ever ran. We do our own
@@ -908,7 +908,7 @@ smoke_fail() {
   exit 1
 }
 
-# Confirm HTTP /api/health. Poll generously — a slow jiti cold-start may still
+# Confirm HTTP /api/health. Poll generously — a slow cold start may still
 # be initializing after the base launcher's 30s window elapsed.
 healthy=0
 for _ in $(seq 1 90); do

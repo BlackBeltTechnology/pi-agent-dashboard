@@ -154,8 +154,8 @@ jobs:
       # JITI_TSCONFIG_PATHS all satisfy a static check while failing a consumer.
       # This packs the changed plugins (+ browser-plugin, the guard's own subject)
       # with their first-party workspace deps from the working tree, installs them
-      # OUTSIDE the repo, and imports each server entry under node+jiti with the
-      # env var unset and no repo tsconfig reachable. Scoped to changed plugins so
+      # OUTSIDE the repo, and imports each server entry under node + the native
+      # strip-only loader (the server's own) with the env var unset and no repo tsconfig reachable. Scoped to changed plugins so
       # the leg stays inside the per-PR budget (test-plan P2); the nightly job runs
       # every workspace. See change: fix-browser-plugin-vendor-specifier-resolution.
       - name: Plugin install-load (changed plugins, + browser-plugin)

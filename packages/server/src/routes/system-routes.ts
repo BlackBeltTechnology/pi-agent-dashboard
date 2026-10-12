@@ -17,6 +17,7 @@ import type { BridgeLoadSource, PluginStatus } from "@blackbelt-technology/pi-da
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
+import { resolveNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RESTART_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import type { NetworkInterface, ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
@@ -1427,9 +1428,16 @@ export function registerSystemRoutes(
       const cliPath = process.argv[1];
       if (!cliPath) return { ok: false, error: "Cannot determine CLI path" };
 
-      // Find the TypeScript loader from process.execArgv (--import <loader>)
-      const importIdx = process.execArgv.indexOf("--import");
-      const loader = importIdx >= 0 ? (process.execArgv[importIdx + 1] ?? "") : "";
+      // Always the Node-native TypeScript loader, whatever this process booted
+      // under (jiti inherited across an upgrade, tsx, or none). Copying the
+      // running `--import` verbatim would carry a foreign loader across restarts.
+      // See change: strip-only-native-ts-loader (design D5).
+      let loader: string;
+      try {
+        loader = resolveNativeTsLoader({ anchor: cliPath });
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Cannot locate the native TypeScript loader" };
+      }
 
       // Allow overriding dev mode via request body
       const useDev = request.body?.dev ?? config.dev;

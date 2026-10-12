@@ -32,21 +32,23 @@ Each script uses only files that ship inside the bundle:
 │       ├── start-server.ps1                       │
 │       ├── start-server.sh                        │
 │       ├── packages/server/src/cli.ts             │ entry
-│       └── node_modules/jiti/lib/                 │
-│           └── jiti-register.mjs                  │ loader
+│       └── node_modules/@blackbelt-technology/    │
+│           pi-dashboard-shared/src/platform/      │
+│           └── native-ts-register.mjs             │ loader
 ```
 
 The argv they build matches `packages/shared/src/platform/node-spawn.ts`'s
 `buildNodeImportArgvParts`:
 
 ```
-<bundled-node> --import file:///<...>/jiti-register.mjs <raw-path-to-cli.ts> [subcommand]
+<bundled-node> --import file:///<...>/native-ts-register.mjs <raw-path-to-cli.ts> [subcommand]
 ```
 
 - **Loader position** is wrapped as `file://` URL (Node's ESM resolver requires it).
-- **Entry position** is a **raw OS path** (per the JITI VERSION CONTRACT — jiti
-  mishandles `file:///` triple-slash URLs on Windows; Node's drive-letter
-  heuristic accepts the raw path in argv position).
+- **Entry position** is a **raw OS path** (Node `path.resolve()`s the main entry
+  under any `--import` loader, so a `file://` entry fails on Windows).
+- The loader is the Node-native register module, the only server loader.
+  `PI_DASHBOARD_TS_LOADER` is not read by these scripts.
 
 This is the same shape the Electron main process uses to spawn the server, so
 if these scripts work, the Electron-spawned server should too.
@@ -60,4 +62,4 @@ if these scripts work, the Electron-spawned server should too.
   return their exit code immediately).
 - Multi-instance management is not provided. Use `stop` to terminate.
 
-See change: `add-bundle-manual-launch-scripts`.
+See changes: `add-bundle-manual-launch-scripts`, `strip-only-native-ts-loader`.

@@ -58,9 +58,9 @@ export const VALID_SOURCE_KINDS: ReadonlySet<SourceKind> = new Set<SourceKind>([
 
 // ── Server-startup deadlines ─────────────────────────────────────────────────
 //
-// Mode-aware readiness deadline. The dev-monorepo path uses jiti to compile
-// ~400 TS files on cold start — measured cold boot on dev workstations can
-// reach 25–60s. The bundled path is pre-compiled and reliably ready well
+// Mode-aware readiness deadline. The dev-monorepo path strips types from
+// ~400 TS files on cold start (Node-native loader) — measured cold boot on dev
+// workstations can reach 25–60s. The bundled path is pre-compiled and reliably ready well
 // under 15s; beyond that the failure is almost always terminal (port conflict,
 // missing loader, bad Node) and the loading page is the recovery surface.
 //

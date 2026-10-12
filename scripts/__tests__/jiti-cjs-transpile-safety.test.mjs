@@ -14,12 +14,14 @@
  * See change: fix-jiti-cjs-transpile-safety.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   checkFile,
   discoverJitiLoadedFiles,
   discoverSeeds,
+  filesUnder,
   hasCodePositionImportMeta,
   isExcludedPath,
   repoRoot,
@@ -77,14 +79,15 @@ describe("scope is a derived rule", () => {
     }
   });
 
-  it("seed 2 — a jiti-bootstrapped `main: *.ts` workspace pulls its whole src tree", () => {
+  it("seed 2 — a loader-bootstrapped `main: *.ts` workspace pulls its whole src tree", () => {
     // `packages/server` declares `main: src/cli.ts`; `bin` is the `.mjs`
     // wrapper, so a `bin`-keyed limb cannot find this.
     expect(seeds.mainTs).toContain("packages/server/src/cli.ts");
     // ...but `main: *.ts` alone is NOT the rule. `packages/bus-client` declares
     // one too and is a plain library no host re-execs through jiti; seeding on
     // `main` alone would sweep its whole `src/**` in on a mechanism it does not
-    // share. The seed additionally requires a `bin` wrapper that boots jiti.
+    // share. The seed additionally requires a `bin` wrapper that bootstraps a
+    // TypeScript loader (names the native register module / `--import`).
     expect(seeds.mainTs).not.toContain("packages/bus-client/src/index.ts");
     expect(files).toContain("packages/server/src/server.ts");
     // Non-vacuity of the erasure assertions below depends on this seed.
@@ -192,12 +195,13 @@ describe("no jiti-loaded module retains import.meta in code position", () => {
 });
 
 /**
- * E29 — seed 2 survives the native-loader default: the bin wrapper still names
- * jiti (the PI_DASHBOARD_TS_LOADER=jiti fallback), so `bootstrapsJiti` keeps
- * `packages/server/src/cli.ts` as a seed and the server tree in scope. The
- * kind tags are a pure relabel of the three seed lists, so this gate's file
- * set is unchanged by them.
- * See change: fix-appimage-cold-boot-latency (design D5).
+ * E29 — seed 2 survives the native-loader-only server: the bin wrapper no longer
+ * names jiti, so `bootstrapsTsLoader` keys on the wrapper naming the native
+ * register module / `--import`, keeping `packages/server/src/cli.ts` as a seed
+ * and the server tree in scope. The kind tags are a pure relabel of the three
+ * seed lists, so this gate's file set is unchanged by them.
+ * See change: fix-appimage-cold-boot-latency (design D5);
+ *             strip-only-native-ts-loader (design D6).
  */
 describe("seed 2 survives the native default (E29)", () => {
   it("mainTs still contains packages/server/src/cli.ts", () => {
@@ -212,5 +216,72 @@ describe("seed 2 survives the native default (E29)", () => {
     expect(byKind("piExtension")).toEqual([...seeds.piExtensions].sort());
     expect(byKind("serverMain")).toEqual([...seeds.mainTs].sort());
     expect(byKind("pluginServer", "pluginBridge")).toEqual([...seeds.pluginEntries].sort());
+  });
+
+  describe("detection does not depend on the wrapper naming jiti", () => {
+    const tmp = [];
+    afterEach(() => {
+      for (const d of tmp.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+    });
+
+    const workspace = (bin) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "seed2-"));
+      tmp.push(root);
+      const files = {
+        "packages/srv/package.json": JSON.stringify({ name: "srv", main: "src/cli.ts", bin: { srv: "bin/srv.mjs" } }),
+        "packages/srv/bin/srv.mjs": bin,
+        "packages/srv/src/cli.ts": "export const ok: boolean = true;\n",
+        "packages/lib/package.json": JSON.stringify({ name: "lib", main: "src/index.ts" }),
+        "packages/lib/src/index.ts": "export const lib = 1;\n",
+      };
+      for (const [rel, body] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+        fs.writeFileSync(path.join(root, rel), body);
+      }
+      return root;
+    };
+    const cli = path.join("packages", "srv", "src", "cli.ts");
+
+    it("a wrapper that names the native register module (and no jiti) still seeds serverMain", () => {
+      const root = workspace('import { pathToFileURL } from "node:url";\n// ... native-ts-register.mjs ...\nspawn(process.execPath, ["--import", url, cliPath]);\n');
+      const s = discoverSeeds(root);
+      expect(s.mainTs).toEqual([cli]);
+      expect(s.mainTs).not.toContain(path.join("packages", "lib", "src", "index.ts"));
+      expect(discoverJitiLoadedFiles(root)).toContain(cli);
+    });
+
+    it("a bin-less `main: *.ts` library is still not seeded", () => {
+      expect(discoverSeeds(workspace("// nothing\n")).mainTs).toEqual([]);
+    });
+  });
+});
+
+/**
+ * E25 — scope unchanged (design D6). After this change jiti no longer evaluates
+ * the server entry graph or plugin `server` entries; the rule keeps them as a
+ * deliberately conservative superset so the erasure scenarios do not pass
+ * vacuously. The "before" set is the rule's pre-change members, stated as the
+ * invariants that defined it: every non-excluded file under the server's `src/`,
+ * every file of `dashboard-plugin-runtime/src/server/`, every plugin entry seed
+ * and `pi.extensions` seed.
+ */
+describe("scope unchanged by the native-only server (E25)", () => {
+  const underDir = (rel) => filesUnder(path.join(repoRoot, rel), repoRoot);
+
+  it("includes packages/server/src/changelog/changelog-fs.ts", () => {
+    expect(files).toContain(path.join("packages", "server", "src", "changelog", "changelog-fs.ts"));
+  });
+
+  it("is a superset of the whole server src tree and of dashboard-plugin-runtime/src/server/**", () => {
+    for (const dir of ["packages/server/src", "packages/dashboard-plugin-runtime/src/server"]) {
+      const expected = underDir(dir);
+      expect(expected.length, `${dir} must have source files`).toBeGreaterThan(0);
+      const missing = expected.filter((f) => !files.includes(f));
+      expect(missing, `${dir} files dropped out of the gate's scope`).toEqual([]);
+    }
+  });
+
+  it("is a superset of every pi.extensions seed and every plugin server/bridge seed", () => {
+    for (const seed of [...seeds.piExtensions, ...seeds.pluginEntries]) expect(files).toContain(seed);
   });
 });

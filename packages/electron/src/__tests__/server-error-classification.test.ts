@@ -23,7 +23,7 @@ describe("isDeadlineOrChildExitError", () => {
   });
 
   it("returns false for configuration / terminal failures", () => {
-    expect(isDeadlineOrChildExitError("No TypeScript loader found (tsx or jiti).")).toBe(false);
+    expect(isDeadlineOrChildExitError("No native TypeScript loader found (native-ts-register.mjs not found).")).toBe(false);
     expect(isDeadlineOrChildExitError("Dashboard server CLI not found.")).toBe(false);
     expect(isDeadlineOrChildExitError("Port 8000 is in use by another service.")).toBe(false);
     expect(isDeadlineOrChildExitError("pi-dashboard CLI failed to spawn: ENOENT")).toBe(false);

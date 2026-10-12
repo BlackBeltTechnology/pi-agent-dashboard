@@ -1,9 +1,9 @@
 /**
  * Repo-lint: `packages/server/bin/pi-dashboard.mjs` MUST check
  * `process.argv` for `--version` / `-v` / `version` BEFORE invoking any
- * jiti resolution helper. Guards against regression of Bug B.
+ * loader resolution helper. Guards against regression of Bug B.
  *
- * See change: fix-electron-cold-launch-probe-cascade.
+ * See change: fix-electron-cold-launch-probe-cascade; strip-only-native-ts-loader.
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
@@ -21,19 +21,19 @@ const wrapperPath = path.resolve(
   "pi-dashboard.mjs",
 );
 
-describe("pi-dashboard.mjs — --version short-circuit before jiti (Bug B regression guard)", () => {
-  it("checks argv for --version/-v/version BEFORE calling resolveJitiUrl()", () => {
+describe("pi-dashboard.mjs — --version short-circuit before the loader (Bug B regression guard)", () => {
+  it("checks argv for --version/-v/version BEFORE calling resolveNativeTsLoader()", () => {
     const src = fs.readFileSync(wrapperPath, "utf-8");
 
     const versionRegex = /process\.argv\[2\]|--version|"version"|"-v"/;
-    const jitiRegex = /resolveJitiUrl\(|resolveJiti\(/;
+    const loaderRegex = /resolveNativeTsLoader\(/;
 
     const versionIdx = src.search(versionRegex);
-    const jitiIdx = src.search(jitiRegex);
+    const loaderIdx = src.search(loaderRegex);
 
     expect(versionIdx).toBeGreaterThan(-1);
-    expect(jitiIdx).toBeGreaterThan(-1);
-    expect(versionIdx).toBeLessThan(jitiIdx);
+    expect(loaderIdx).toBeGreaterThan(-1);
+    expect(versionIdx).toBeLessThan(loaderIdx);
 
     expect(src).toMatch(/pkg\.version|\.version/);
     expect(src).toMatch(/package\.json/);
