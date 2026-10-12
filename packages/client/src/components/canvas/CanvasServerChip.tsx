@@ -96,7 +96,10 @@ export function CanvasServerChip({ chip, onTap }: Props) {
         <span className="font-mono text-[var(--text-tertiary)]">:{chip.port}</span>
       </button>
       {message && (
-        <span data-testid="canvas-server-chip-status" className="text-xs text-[var(--accent-red)]">
+        <span
+          data-testid="canvas-server-chip-status"
+          className="rounded bg-[var(--bg-secondary)] px-2 py-0.5 text-xs text-[var(--accent-red)]"
+        >
           {message}
         </span>
       )}

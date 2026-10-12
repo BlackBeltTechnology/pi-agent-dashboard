@@ -14,7 +14,13 @@
  *
  * Server chip (Section 7) renders independently of the file target and taps
  * through the LiveServerViewer loopback-probe path.
+ *
+ * The chip tray is a corner-fixed overlay portaled to the layer root. App mounts
+ * this driver as a bare sibling ABOVE the shell root (`h-screen` / `100dvh`), so
+ * an in-flow tray pushed the whole layout down by its own height and made the
+ * page scroll (#681). See openspec spec overlay-layering.
  */
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import { isLoopbackUrl } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
 import { useCallback, useEffect, useRef } from "react";
 import { useCanvasTier } from "../../hooks/useCanvasTier.js";
@@ -98,28 +104,35 @@ export function CanvasDriver({ state }: Props) {
   if (!state.chip && !showMobileChip) return null;
 
   return (
-    <div data-testid="canvas-chip-tray" className="flex flex-wrap items-center gap-2 px-3 py-1">
-      {showMobileChip && state.target != null && (
-        <button
-          type="button"
-          data-testid="canvas-file-chip"
-          onClick={() => openTarget(state, false)}
-          className="flex min-h-[44px] items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-        >
-          <span className="font-medium">
-            {state.title ?? i18nT("canvas.openCanvas", undefined, "Open canvas")}
-          </span>
-          {state.target.kind === "file" && (
-            <span className="font-mono text-[var(--text-tertiary)]">{state.target.path}</span>
-          )}
-        </button>
-      )}
-      {state.chip && (
-        <CanvasServerChip
-          chip={state.chip}
-          onTap={(loopbackUrl) => openLiveTarget(loopbackUrl)}
-        />
-      )}
-    </div>
+    <LayerPortal>
+      <div
+        data-testid="canvas-chip-tray"
+        className="fixed bottom-4 left-4 z-toast flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-2 pointer-events-none"
+      >
+        {showMobileChip && state.target != null && (
+          <button
+            type="button"
+            data-testid="canvas-file-chip"
+            onClick={() => openTarget(state, false)}
+            className="pointer-events-auto flex min-h-[44px] items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+          >
+            <span className="font-medium">
+              {state.title ?? i18nT("canvas.openCanvas", undefined, "Open canvas")}
+            </span>
+            {state.target.kind === "file" && (
+              <span className="font-mono text-[var(--text-tertiary)]">{state.target.path}</span>
+            )}
+          </button>
+        )}
+        {state.chip && (
+          <div className="pointer-events-auto">
+            <CanvasServerChip
+              chip={state.chip}
+              onTap={(loopbackUrl) => openLiveTarget(loopbackUrl)}
+            />
+          </div>
+        )}
+      </div>
+    </LayerPortal>
   );
 }

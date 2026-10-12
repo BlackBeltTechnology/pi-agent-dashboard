@@ -122,3 +122,44 @@ describe("CanvasDriver — target withheld by the mobile gate opens once the vie
     expect(api?.paneState.openFiles ?? []).toHaveLength(0);
   });
 });
+
+describe("CanvasDriver — chip tray is an out-of-flow overlay (#681)", () => {
+  const chipState: CanvasState = {
+    ...EMPTY_CANVAS_STATE,
+    chip: { kind: "server", port: 40623, title: "Keycloak" },
+  };
+
+  it("portals the server-chip tray to the layer root instead of the layout tree", () => {
+    const { container } = render(<Harness initial={chipState} />);
+    const tray = screen.getByTestId("canvas-chip-tray");
+    // Rendered in place, the tray became a block sibling of the App shell root and
+    // pushed the whole layout down by its height.
+    expect(container.contains(tray)).toBe(false);
+    expect(tray.parentElement).toBe(document.body);
+    expect(tray.className).toMatch(/(^|\s)fixed(\s|$)/);
+    expect(tray.className).toMatch(/(^|\s)z-toast(\s|$)/);
+    expect(screen.getByTestId("canvas-server-chip")).toBeTruthy();
+  });
+
+  it("portals the mobile file-chip tray the same way", () => {
+    tier = "mobile";
+    const { container } = render(<Harness initial={fileState("b.ts")} />);
+    const tray = screen.getByTestId("canvas-chip-tray");
+    expect(container.contains(tray)).toBe(false);
+    expect(tray.parentElement).toBe(document.body);
+  });
+
+  it("the tray never swallows clicks meant for the page; the chips stay clickable", () => {
+    tier = "mobile";
+    render(<Harness initial={{ ...fileState("b.ts"), chip: chipState.chip }} />);
+    expect(screen.getByTestId("canvas-chip-tray").className).toMatch(/(^|\s)pointer-events-none(\s|$)/);
+    expect(screen.getByTestId("canvas-file-chip").className).toMatch(/(^|\s)pointer-events-auto(\s|$)/);
+    expect(screen.getByTestId("canvas-server-chip").closest(".pointer-events-auto")).toBeTruthy();
+  });
+
+  it("renders nothing (no empty overlay) when there is no chip to show", () => {
+    render(<Harness initial={EMPTY_CANVAS_STATE} />);
+    expect(screen.queryByTestId("canvas-chip-tray")).toBeNull();
+    expect(document.body.querySelector('[data-testid="canvas-chip-tray"]')).toBeNull();
+  });
+});
