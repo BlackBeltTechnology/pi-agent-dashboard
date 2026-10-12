@@ -28,3 +28,7 @@ Version-list refresh after completion comes from `usePiCoreVersions`' own indepe
 See change: unify-pi-core-into-package-queue.
 
 `PI_CORE_PKG_LEGACY` / `isPiCorePkg` removed — icon + changelog wired to `@earendil-works/pi-coding-agent` only; a stale fork row gets neither. See change: drop-mariozechner-pi-fork.
+
+## add-package-health-cleanup
+
+Fetches `/api/packages/health` on mount; header badge `Issues (N)`; renders `PackageHealthPanel` above sub-groups; Apply → `applyPackageCleanup` → refresh installed + health → "Restart required" banner (`pkg-health-restart-banner`). See change: add-package-health-cleanup.
