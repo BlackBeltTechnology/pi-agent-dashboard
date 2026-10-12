@@ -6,7 +6,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 |------|---------|
 | `CONTRIBUTING.md` | (repo root) Human-facing contribution guide. Spec-first 5-phase pipeline (EXPLORE→PLAN→BUILD→SHIP→CI). 6 Mermaid diagrams + PNGs, cross-ref docs/pipeline-map/. |
 | `architecture-notes/worker-offload-roadmap.md` | Worker offload roadmap. Main-loop CPU + sync-fs work → worker_threads. → see `architecture-notes/worker-offload-roadmap.md.AGENTS.md` |
-| `architecture.md` | Full architecture reference. → see `architecture.md.AGENTS.md` |
+| `architecture.md` | Full architecture reference. 3 components: bridge extension, Node server, React client. → see `architecture.md.AGENTS.md` See change: update-pi-core-1-0-adopt-apis, migrate-mcp-to-pi-builtin. host-gate default enforce; pairing revoke/approve operator-only. See change: harden-server-request-surfaces. `requireLocalProof` strict mode + proof bootstrap; marker-less relay; device cookie; OAuth state; config 0600. See change: harden-trust-and-credential-boundaries. Plugin-config partial write keeps omitted keys (validation clones body). See change: fix-plugin-config-partial-write. See change: harden-plugin-cwd-admission. TS loader §: single native strip-only loader (registerHooks / register+strip / register+amaro); jiti server path removed. See change: strip-only-native-ts-loader. |
 | `biome.json` | (repo root) Biome 2.5.1 config. formatter off. vcs defaultBranch develop. → see `biome.json.AGENTS.md` |
 | `chat-display-preferences.md` | `DisplayPrefs` gate chat chrome (thinking, tool cards, results, separators, stats bars). → see `chat-display-preferences.md.AGENTS.md` |
 | `chat-gateway.agent.md` | Pull-only condensed map/companion for `chat-gateway.md`. Setup, boundaries, team controls, config keys, dashboard-session `!sessions`/`!attach`/`!close` + auto-mirror. → see `chat-gateway.md` |
@@ -15,7 +15,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `code-quality.md` | Biome ratchet. Rules graduate one-way off→warn→error; cleanup lands first, severity flip second. → see `code-quality.md.AGENTS.md` |
 | `context-mode-roi-report.md` | ROI analysis. context-mode MCP plugin vs kb extension. Verdict: trim not drop. → see `context-mode-roi-report.md.AGENTS.md` |
 | `context-mode-roi-report.pdf` | Rendered PDF of context-mode-roi-report.md. 13 pages. Built via document-converter facade (DOCX) + LibreOffice (DOCX→PDF). |
-| `credential-vault.md` | Hub key vault `vault.json` 0600. Env bindings, grants, checkout confirm, env delivery, redaction. Part 1 of 3. See change: add-credential-vault. |
+| `credential-vault.md` | Hub `vault.json` 0600. Env bindings, grants, redaction. See change: add-credential-vault. |
 | `doctor-skill.md` | Modular doctor diagnostic skill. Router + 7 capability modules + _lib. → see `doctor-skill.md.AGENTS.md` |
 | `electron-bootstrap-flow.md` | Electron startup state machine. `app.whenReady()` → dashboard window. Launch kinds attach/devMonorepo/localLink/overlay/bundled. `switchRuntime` + 2 s activation watcher. → see `electron-bootstrap-flow.md.AGENTS.md` See change: electron-runtime-overlay-updates. |
 | `electron-build-methods.md` | 3 Electron build paths: local native (`npm run electron:build`), Docker cross-compile (--windows/--linux), CI publish.yml (tag push). Per-platform artifact/signing/node-pty matrix. |

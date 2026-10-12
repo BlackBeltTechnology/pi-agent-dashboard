@@ -30,13 +30,3 @@ KB retrieval pipeline (FTS5 BM25 staged rerank). Pi Gateway Transport & Identity
 
 TS loader §: single native strip-only loader; tiers 1-3 (registerHooks / register+native strip / register+amaro); jiti server path removed; `PI_DASHBOARD_TS_LOADER` ignored + boot warn; foreign jiti/tsx `--import` warn. See change: fix-appimage-cold-boot-latency, strip-only-native-ts-loader.
 - `### Plugin cwd admission`: async tri-state `admitCwd` (`admit`|`refuse`|`indeterminate`); `indeterminate` → 503 `cwd-admission-unavailable` + `Retry-After: 1`, never admits. `holdCwdDenial` seam; verdict re-run `resolveCwdVerdict`. See change: harden-plugin-cwd-admission.
-
-## Row tail — moved from docs/AGENTS.md (architecture.md)
-
-See change: update-pi-core-1-0-adopt-apis, migrate-mcp-to-pi-builtin.
-host-gate default enforce; pairing revoke/approve operator-only.
-`requireLocalProof` strict mode + proof bootstrap; marker-less relay; device cookie; OAuth state; config 0600.
-Plugin-config partial write keeps omitted keys (validation clones body).
-See change: fix-plugin-config-partial-write.
-TS loader §: single native strip-only loader (registerHooks / register+strip / register+amaro); jiti server path removed.
-See change: strip-only-native-ts-loader.
