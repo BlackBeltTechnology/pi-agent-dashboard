@@ -22,8 +22,8 @@ class PackageHealthApiError extends Error {
 		body: unknown,
 	) {
 		super(message);
-	  this.status = status;
-	  this.body = body;
+		this.status = status;
+		this.body = body;
 		this.name = "PackageHealthApiError";
 	}
 }
