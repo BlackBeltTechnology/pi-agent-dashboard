@@ -191,7 +191,7 @@ interface Props {
    * See change: archive-sessions-lazy-load.
    */
   archivedCountMap?: Map<string, number>;
-  onSpawnSession?: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string }) => void;
+  onSpawnSession?: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string; agent?: string }) => void;
   spawningCwds?: Set<string>;
   /**
    * Add/remove a cwd from the spawning set (placeholder + disabled-button).
@@ -1952,7 +1952,9 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             onRename={onRename ? (name) => onRename(session.id, name) : undefined}
             onShutdown={onShutdown}
             onResume={onResume ? (mode) => onResume(session.id, mode) : undefined}
-            onSpawnSibling={onSpawnSession ? (s) => onSpawnSession(s.cwd, s.attachedProposal || undefined) : undefined}
+            // A sibling inherits the source session's agent (ACP agent id, or pi) with no picker.
+            // See change: add-acp-session-driver (D16).
+            onSpawnSibling={onSpawnSession ? (s) => onSpawnSession(s.cwd, s.attachedProposal || undefined, s.driver === "acp" && s.acpAgentId ? { agent: s.acpAgentId } : undefined) : undefined}
             onSpawnWorktree={onSpawnSession && gitWorktreeEnabled ? (s) => {
               // Reuse existing worktree dialogs: proposal-aware path
               // when attached, plain path otherwise. No new state.
@@ -2357,9 +2359,10 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               // See changes: gate-session-worktree-button-on-git,
               // fix-openspec-board-worktree-button-gating.
               showWorktree={resolveWorktreeAvailability({ cwd: group.cwd, sessions: group.sessions, folderGitMap, gitWorktreeEnabled }).available && !!onSpawnSession}
-              onSpawnSession={() => {
+              cwd={group.cwd}
+              onSpawnSession={(agent) => {
                 if (isCollapsed) setFolderCollapsed(group.cwd, false);
-                onSpawnSession?.(group.cwd);
+                onSpawnSession?.(group.cwd, undefined, agent ? { agent } : undefined);
               }}
               onSpawnWorktree={() => {
                 if (isCollapsed) setFolderCollapsed(group.cwd, false);

@@ -18,7 +18,7 @@ import type { GoalCriterion, GoalRecordStatus } from "@blackbelt-technology/pi-d
 import { mdiArrowLeft, mdiBroom, mdiCheck, mdiClose, mdiLinkVariant, mdiOpenInNew, mdiPause, mdiPlay, mdiPlus, mdiRefresh, mdiTrashCanOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { GOAL_PLUGIN_ID } from "../shared/goal-types.js";
 import { deriveSnapshot, fmtUsd, gaugePct, resolveGoalTurns } from "./goal-state.js";
@@ -102,10 +102,29 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
   };
 
   // Running sessions in this folder not already linked → "Link existing…" options.
-  const linkable = useMemo(
+  // ACP sessions can't pursue goals: omitted from the list, with a count line so the
+  // shorter list is explained. See change: add-acp-session-driver (D17, mockup S8).
+  const folderUnlinked = useMemo(
     () => allSessions.filter((s) => s.cwd === cwd && !(goal?.sessionIds ?? []).includes(s.id)),
     [allSessions, cwd, goal?.sessionIds],
   );
+  const linkable = useMemo(() => folderUnlinked.filter((s) => (s as { driver?: string }).driver !== "acp"), [folderUnlinked]);
+  const hiddenAcpCount = folderUnlinked.length - linkable.length;
+  // `+ New session` always spawns pi; when ACP agents are configured it says so, so it
+  // doesn't look like it follows the folder's remembered ACP choice.
+  const [hasAcpAgents, setHasAcpAgents] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/acp/agents")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b: { data?: unknown[] } | null) => {
+        if (!cancelled) setHasAcpAgents(Array.isArray(b?.data) && b.data.length > 0);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const sessionLabel = (sid: string): string => {
     const s = allSessions.find((x) => x.id === sid);
@@ -292,7 +311,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
               className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border tint-action-purple disabled:opacity-50"
               data-testid="goal-new-session"
             >
-              <Icon path={mdiPlus} size={0.55} />{t("newSession", undefined, "New session")}
+              <Icon path={mdiPlus} size={0.55} />{hasAcpAgents ? t("newPiSession", undefined, "New pi session") : t("newSession", undefined, "New session")}
             </button>
             <button
               type="button"
@@ -308,6 +327,13 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
           {linking && (
             <div className="mb-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-2 space-y-1" data-testid="goal-link-picker">
               {linkable.length === 0 && <div className="text-[12px] text-[var(--text-secondary)]">{t("noRunningSessions", undefined, "No other running sessions in this folder.")}</div>}
+              {hiddenAcpCount > 0 && (
+                <div className="text-[12px] text-[var(--text-secondary)]" data-testid="goal-link-acp-hidden">
+                  {hiddenAcpCount === 1
+                    ? t("acpHiddenOne", undefined, "1 ACP session hidden — goals need pi.")
+                    : t("acpHiddenMany", { count: hiddenAcpCount }, `${hiddenAcpCount} ACP sessions hidden — goals need pi.`)}
+                </div>
+              )}
               {linkable.map((s) => (
                 <button
                   key={s.id}

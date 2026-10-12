@@ -49,7 +49,7 @@ import type { HistoryLoadPhase } from "../../lib/replay/history-load-phase.js";
 import { selectBadgeTimestamp } from "../../lib/session/session-card-time.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
 import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
-import { hasMovedAway, isRemoteOrigin } from "../../lib/session/session-origin-view.js";
+import { hasMovedAway, isAcpSession, isRemoteOrigin } from "../../lib/session/session-origin-view.js";
 import { useCardSectionActions, useCardSectionVisible, usePluginSectionFilter } from "../../lib/state/CardSectionsContext.js";
 import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 // flows-plugin components (FlowActivityBadge, SessionFlowActions) are
@@ -67,6 +67,7 @@ import { useCommitDialog } from "../worktree/CommitDialog.js";
 import { GitDirtyPill } from "../worktree/GitDirtyPill.js";
 import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
 import { ContextUsageBar } from "./ContextUsageBar.js";
+import { DriverChip } from "./DriverChip.js";
 import { PiBelowFloorWarning } from "./PiBelowFloorWarning.js";
 import { formatElapsed, SessionActivityBar, truncateCommand } from "./SessionActivityBar.js";
 import type { ContextUsageInfo } from "./SessionList.js";
@@ -1288,11 +1289,12 @@ export function SessionCard({
         )}
         <MovedBadge session={session} />
         <OriginDeviceChip session={session} />
+        <DriverChip session={session} />
         <span className="flex-1" />
         {/* Remote-origin sessions live on another host (server answers 409),
             so resume/fork are not offered at all.
             See change: add-pi-gateway-transport-identity. */}
-        {onResume && session.sessionFile && !isRemoteOrigin(session) && (
+        {onResume && session.sessionFile && !isRemoteOrigin(session) && !isAcpSession(session) && (
           <>
             {(!isAlive || isHidden) && (
               <button

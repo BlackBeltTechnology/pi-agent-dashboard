@@ -31,7 +31,7 @@ export function setLocalAcpHost(host: LocalHostDeps | null): void {
   localHost = host;
 }
 
-export function resolveAcpAgent(id: string): AcpAgentConfig | undefined {
+function resolveAcpAgent(id: string): AcpAgentConfig | undefined {
   return loadConfig().acpAgents.find((a) => a.id === id);
 }
 

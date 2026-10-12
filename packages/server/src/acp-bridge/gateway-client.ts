@@ -38,7 +38,7 @@ export interface GatewayClient {
 }
 
 /** `PI_DASHBOARD_SOCKET` / `PI_DASHBOARD_URL` pin; else the HOME-derived rendezvous endpoint. */
-export function resolveGatewayEndpoint(env: NodeJS.ProcessEnv = process.env): string | undefined {
+function resolveGatewayEndpoint(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const socket = env.PI_DASHBOARD_SOCKET?.trim();
   if (socket) return `ws+unix://${socket}:/`;
   const url = env.PI_DASHBOARD_URL?.trim();

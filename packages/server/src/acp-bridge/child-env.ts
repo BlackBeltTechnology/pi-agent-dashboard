@@ -47,7 +47,7 @@ export function assertLaunchable(command: string, platform: NodeJS.Platform = pr
   }
 }
 
-export type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
+type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
 
 export interface LaunchOptions {
   agent: Pick<AcpAgentConfig, "command" | "args" | "env">;

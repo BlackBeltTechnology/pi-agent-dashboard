@@ -15,21 +15,21 @@
  */
 import type { Readable, Writable } from "node:stream";
 
-export interface AcpConnectionCounters {
+interface AcpConnectionCounters {
   /** Non-JSON / non-object lines skipped. */
   skippedLines: number;
   /** Lines discarded for exceeding `maxLineBytes`. */
   discardedLines: number;
 }
 
-export class RpcTimeoutError extends Error {
+class RpcTimeoutError extends Error {
   constructor(method: string, ms: number) {
     super(`ACP request ${method} timed out after ${ms} ms`);
     this.name = "RpcTimeoutError";
   }
 }
 
-export class RpcError extends Error {
+class RpcError extends Error {
   readonly code: number;
   readonly data?: unknown;
   constructor(code: number, message: string, data?: unknown) {
@@ -91,7 +91,7 @@ export class LineSplitter {
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: unknown) => void; timer?: ReturnType<typeof setTimeout>; method: string };
 
-export type RequestHandler = (params: unknown) => Promise<unknown> | unknown;
+type RequestHandler = (params: unknown) => Promise<unknown> | unknown;
 
 export interface AcpConnectionOptions {
   input: Readable;

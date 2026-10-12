@@ -33,7 +33,7 @@ export interface Harness {
   received(): Array<Record<string, any>>;
 }
 
-export class StubHandle extends EventEmitter implements AgentHandle {
+class StubHandle extends EventEmitter implements AgentHandle {
   stdin: PassThrough;
   stdout: PassThrough;
   stderr = new PassThrough();

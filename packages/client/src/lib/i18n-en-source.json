@@ -989,5 +989,20 @@
   "providers.peerAutoInstallFailedTitle": "Couldn't install pi-anthropic-messages",
   "providers.peerAutoInstallFailedBody": "The install didn't finish. Try again; if it keeps failing, check your network or proxy. Chat with Claude works; tool calls need this package.",
   "providers.peerAutoInstallRetry": "Retry install",
-  "providers.peerAutoInstallDetails": "Details"
+  "providers.peerAutoInstallDetails": "Details",
+  "acp.agent": "Agent",
+  "acp.chooseAgent": "Choose agent for new session",
+  "acp.metaPi": "Default · flows, subagents, extensions",
+  "acp.metaAcp": "ACP agent",
+  "acp.driverChip": "ACP · {agent}",
+  "acp.newAgentSession": "New {agent} session",
+  "acp.newAgentSessionArrow": "New {agent} session →",
+  "acp.createAgentSession": "Create + {agent} session →",
+  "acp.endedTitle": "This {agent} session has ended",
+  "acp.endedBody": "ACP sessions can't be resumed. Start a new {agent} session in this folder to continue.",
+  "acp.modelByAgent": "Model is chosen by the agent",
+  "acp.skillNeedsPi": "Skill actions need pi",
+  "acp.goalHiddenOne": "1 ACP session hidden — goals need pi.",
+  "acp.goalHiddenMany": "{count} ACP sessions hidden — goals need pi.",
+  "acp.unsupported": "Not supported for ACP sessions"
 }

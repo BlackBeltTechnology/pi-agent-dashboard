@@ -12,7 +12,7 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 
-export type PermissionOutcome = { outcome: "selected"; optionId: string } | { outcome: "cancelled" };
+type PermissionOutcome = { outcome: "selected"; optionId: string } | { outcome: "cancelled" };
 
 interface Pending {
   frame: Extract<ExtensionToServerMessage, { type: "prompt_request" }>;

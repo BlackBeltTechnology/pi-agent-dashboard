@@ -22,7 +22,7 @@ import { type AcpSessionAdapter, type AcpSessionAdapterOptions, createAcpSession
 import { createEventLog } from "./event-log.js";
 import { createGatewayClient, type GatewayClient } from "./gateway-client.js";
 
-export function parseAgentArg(argv: readonly string[]): string | undefined {
+function parseAgentArg(argv: readonly string[]): string | undefined {
   const i = argv.indexOf("--agent");
   const v = i >= 0 ? argv[i + 1] : undefined;
   return v && !v.startsWith("--") ? v : undefined;

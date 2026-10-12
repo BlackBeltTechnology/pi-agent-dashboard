@@ -33,6 +33,7 @@ import { ZrokInstallGuide } from "./components/packages/ZrokInstallGuide.js";
 import { MarkdownPreviewView } from "./components/preview/MarkdownPreviewView.js";
 import { PreviewOverlayView } from "./components/preview/PreviewOverlayView.js";
 import { Toast, useToast } from "./components/primitives/Toast.js";
+import { AcpEndedCallout } from "./components/session/AcpEndedCallout.js";
 import { ComposerSessionActions } from "./components/session/ComposerSessionActions.js";
 import { FileAccessToastHost } from "./components/session/FileAccessToastHost.js";
 import { MissingRequiredBanner } from "./components/session/MissingRequiredBanner.js";
@@ -1826,7 +1827,9 @@ export default function App() {
   // session in the same folder. See change: stop-discarding-known-session-state.
   const handleForkPendingPrompt = useCallback(() => {
     const target = selectedId ? sessions.get(selectedId) : undefined;
-    if (target) handleSpawnSession(target.cwd);
+    // Keyboard sibling spawn inherits the source session's agent (no picker).
+    // See change: add-acp-session-driver (D16).
+    if (target) handleSpawnSession(target.cwd, undefined, target.driver === "acp" && target.acpAgentId ? { agent: target.acpAgentId } : undefined);
   }, [selectedId, sessions, handleSpawnSession]);
   const handleCollapseStreamingThinking = useCallback(() => {
     if (!selectedId) return;
@@ -2475,10 +2478,14 @@ export default function App() {
               Retry via a hidden non-user turn on the active bridge; success,
               abort, or removal hides the surface.
               See change: error-banner-observe-only, fix-retry-error-lifecycle. */}
+          {selectedId && sessions.get(selectedId)?.driver === "acp" && (
+            <AcpEndedCallout session={sessions.get(selectedId)!} onNewSession={handleForkPendingPrompt} />
+          )}
           <SessionBanner
             state={deriveBannerState(selectedState)}
             retryRevision={selectedState.lastError?.timestamp}
-            onRetry={selectedId ? () => handleRetrySession(selectedId) : undefined}
+            // Retry is pi-only (ACP sessions: no pi to re-run a turn). See change: add-acp-session-driver (D12).
+            onRetry={selectedId && sessions.get(selectedId)?.driver !== "acp" ? () => handleRetrySession(selectedId) : undefined}
             onDismiss={selectedId ? () => {
               setSessionStates((prev) => {
                 const next = new Map(prev);

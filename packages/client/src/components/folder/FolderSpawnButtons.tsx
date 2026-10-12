@@ -17,8 +17,11 @@
 import { mdiPlus, mdiSourceBranchPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { AgentSpawnPicker } from "../AgentSpawnPicker.js";
 
 interface Props {
+  /** The folder this tray spawns into (keys the remembered agent). */
+  cwd?: string;
   /** Disables `+ New Session` while a session is being spawned in this folder. */
   spawningDisabled?: boolean;
   /**
@@ -26,11 +29,13 @@ interface Props {
    * `isGitRepo && gitWorktreeEnabled && !!onSpawnWorktree`.
    */
   showWorktree: boolean;
-  onSpawnSession: () => void;
+  /** `agent` = configured ACP agent id; absent → pi (today's call, byte-identical). */
+  onSpawnSession: (agent?: string) => void;
   onSpawnWorktree?: () => void;
 }
 
 export function FolderSpawnButtons({
+  cwd = "",
   spawningDisabled,
   showWorktree,
   onSpawnSession,
@@ -38,11 +43,13 @@ export function FolderSpawnButtons({
 }: Props) {
   return (
     <div className={`grid grid-cols-1 gap-2 ${showWorktree ? "sm:grid-cols-2" : ""}`}>
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onSpawnSession(); }}
+      {/* Agent picker: renders THIS plain button unchanged when no ACP agent is configured.
+          See change: add-acp-session-driver (D16). */}
+      <AgentSpawnPicker
+        cwd={cwd}
+        onSpawn={onSpawnSession}
         disabled={spawningDisabled}
-        data-testid="folder-spawn-session-btn"
+        testId="folder-spawn-session-btn"
         className={`focus-ring w-full text-[13px] font-bold px-3 py-2.5 min-h-[44px] sm:min-h-0 rounded-xl border flex items-center justify-center gap-1.5 ${
           spawningDisabled
             ? "border-[var(--border-secondary)] text-[var(--text-secondary)] opacity-50 cursor-not-allowed"
@@ -51,7 +58,7 @@ export function FolderSpawnButtons({
         title={i18nT("session.newPiSession", undefined, "New pi session")}
       >
         <Icon path={mdiPlus} size={0.6} /> {i18nT("session.newSession2", undefined, "New Session")}
-      </button>
+      </AgentSpawnPicker>
 
       {showWorktree && (
         <button

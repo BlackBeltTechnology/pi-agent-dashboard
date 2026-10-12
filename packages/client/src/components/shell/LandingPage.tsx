@@ -2,8 +2,10 @@ import { mdiAlert, mdiCheck, mdiFolderOutline, mdiLock } from "@mdi/js";
 import Icon from "@mdi/react";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
+import { useAcpAgents } from "../../hooks/useAcpAgents.js";
 import { useAnthropicPeerProbe } from "../../hooks/useAnthropicPeerProbe.js";
 import { useRecommendedExtensions } from "../../hooks/useRecommendedExtensions.js";
+import { getRememberedAgent } from "../../lib/acp/agent-memory.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { ANTHROPIC_PEER_ENTRY_ID } from "../../lib/package/anthropic-peer.js";
 import { peerAutoInstallStore, usePeerAutoInstall } from "../../lib/package/peer-auto-install-store.js";
@@ -34,7 +36,7 @@ export interface LandingPageProps {
   /** Creates `<home>/Projects/<name>` on the server and pins it. Never rejects. */
   onCreateProject?: (name: string) => Promise<LandingCreateProjectResult>;
   /** Spawns a session in the given cwd. */
-  onSpawnSession?: (cwd: string) => void;
+  onSpawnSession?: (cwd: string, attachProposal?: string, opts?: { agent?: string }) => void;
   /** Router navigation function (e.g. wouter's navigate). */
   navigate?: (to: string) => void;
 }
@@ -346,6 +348,9 @@ export function LandingPage({
   navigate,
 }: LandingPageProps = {}) {
   const { t } = useI18n();
+  // The quick-spawn uses the folder's remembered agent (pi when none).
+  // See change: add-acp-session-driver (D16).
+  const acpAgents = useAcpAgents();
   // Page-instance state: gone once Landing unmounts (opening a session).
   const [existed, setExisted] = useState(false);
   // Legacy behaviour: if no onboarding props are supplied at all, fall back to the
@@ -510,7 +515,12 @@ export function LandingPage({
                     <button
                       type="button"
                       data-testid="onboarding-step-3-cta"
-                      onClick={() => firstPinnedCwd && onSpawnSession?.(firstPinnedCwd)}
+                      onClick={() => {
+                        if (!firstPinnedCwd) return;
+                        const agent = getRememberedAgent(firstPinnedCwd, acpAgents);
+                        if (agent) onSpawnSession?.(firstPinnedCwd, undefined, { agent });
+                        else onSpawnSession?.(firstPinnedCwd);
+                      }}
                       disabled={!firstPinnedCwd}
                       className={PRIMARY_BUTTON}
                     >
