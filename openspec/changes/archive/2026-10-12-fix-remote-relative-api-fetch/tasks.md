@@ -11,4 +11,4 @@
 ## 3. Docs + verification
 
 - [x] 3.1 Add `api-base-fetch.ts` row to `packages/client/src/lib/api/AGENTS.md`; note the ordering invariant on the `main.tsx` row
-- [ ] 3.2 Manual: client switched via ServerSelector to a remote → Quota strip/dialog shows the remote's providers; switch back to Local → local providers
+- [x] 3.2 Manual: client switched via ServerSelector to a remote → Quota strip/dialog shows the remote's providers; switch back to Local → local providers
