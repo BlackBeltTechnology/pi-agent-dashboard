@@ -272,3 +272,61 @@ describe("definitions (task 4.4)", () => {
     expect(defs[defs.length - 1]?.id).toBe(RESERVED_OTHER_GROUP_ID);
   });
 });
+
+/** First-match-wins over an ordered list, mirroring the server resolver (shared has no worker matcher). */
+function resolveType(groups: readonly { id: string; pattern: string }[], customType: string): string {
+  for (const g of groups) {
+    if (g.id === RESERVED_OTHER_GROUP_ID) break;
+    if (new RegExp(g.pattern).test(customType)) return g.id;
+  }
+  return RESERVED_OTHER_GROUP_ID;
+}
+
+describe("diagnostics group (change: render-unclaimed-custom-entries, E1–E4)", () => {
+  it("E1: refusal resolves to diagnostics (hidden); neighbours keep their groups", () => {
+    const groups = SHIPPED_CUSTOM_EVENT_GROUPS;
+    expect(resolveType(groups, "subagent-admission-refused")).toBe("diagnostics");
+    expect(resolveType(groups, "subagents:spawn")).toBe("subagents");
+    expect(resolveType(groups, "subagent-notification")).toBe("subagents");
+    expect(resolveType(groups, "web-search-results")).toBe("search");
+    expect(SHIPPED_CUSTOM_EVENT_GROUPS.find((g) => g.id === "diagnostics")?.default).toBe(false);
+  });
+
+  const OLD_IDS = ["memory", "search", "subagents", "flows", "goals"];
+  const oldShipped = () => SHIPPED_CUSTOM_EVENT_GROUPS.filter((g) => OLD_IDS.includes(g.id));
+
+  it("E2: existing config gains diagnostics appended last, hidden, and recorded", () => {
+    const p = storePath();
+    fs.writeFileSync(p, JSON.stringify({ version: 1, groups: oldShipped(), seenShippedIds: OLD_IDS }));
+    const store = new CustomEventGroupsStore({ filePath: p });
+    const list = store.list();
+    const last = list[list.length - 1];
+    expect(last?.id).toBe(RESERVED_OTHER_GROUP_ID);
+    const diag = list.find((g) => g.id === "diagnostics");
+    expect(diag).toMatchObject({ default: false });
+    expect(list.indexOf(diag!)).toBe(list.length - 2);
+    expect(readStoreFile(p).seenShippedIds).toContain("diagnostics");
+  });
+
+  it("E3: an earlier user rule keeps claiming refusals", () => {
+    const p = storePath();
+    fs.writeFileSync(
+      p,
+      JSON.stringify({
+        version: 1,
+        groups: [{ id: "mine", label: "Mine", pattern: "^subagent-", default: true }, ...oldShipped()],
+        seenShippedIds: OLD_IDS,
+      }),
+    );
+    const store = new CustomEventGroupsStore({ filePath: p });
+    expect(resolveType(store.list(), "subagent-admission-refused")).toBe("mine");
+  });
+
+  it("E4: a deleted diagnostics group stays deleted", () => {
+    const p = storePath();
+    fs.writeFileSync(p, JSON.stringify({ version: 1, groups: oldShipped(), seenShippedIds: [...OLD_IDS, "diagnostics"] }));
+    const store = new CustomEventGroupsStore({ filePath: p });
+    expect(store.list().some((g) => g.id === "diagnostics")).toBe(false);
+    expect(resolveType(store.list(), "subagent-admission-refused")).toBe(RESERVED_OTHER_GROUP_ID);
+  });
+});

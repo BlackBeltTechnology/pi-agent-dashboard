@@ -733,6 +733,8 @@ export const huCatalog: Record<string, string> = {
   "common.modified": "Módosítva",
   "common.moreActions": "További műveletek",
   "common.moreProcesses": "további folyamat",
+  "customEntry.moreKeysOne": "még {count} kulcs",
+  "customEntry.moreKeysOther": "még {count} kulcs",
   "common.movePartiallySucceeded": "Az áthelyezés részben sikerült",
   "common.mustBeAnIntegerBetween5000": "Egész számnak kell lennie 5000 és 120000 között.",
   "common.nNeedYou": "${count} igényli a figyelmét",

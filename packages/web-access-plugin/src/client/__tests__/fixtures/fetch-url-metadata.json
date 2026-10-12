@@ -1,0 +1,24 @@
+{
+  "id": "fx-fetch-1",
+  "type": "fetch",
+  "timestamp": 1700000000001,
+  "urlMetadata": [
+    {
+      "url": "https://example.com/page-1",
+      "title": "Example Page One",
+      "error": null,
+      "contentLength": 12748
+    },
+    {
+      "url": "https://example.org/page-2",
+      "title": "Example Page Two",
+      "error": "HTTP 404",
+      "contentLength": 0
+    }
+  ],
+  "fetchCache": {
+    "version": 1,
+    "key": "fx-fetch-1.json",
+    "storedAt": 1700000000002
+  }
+}

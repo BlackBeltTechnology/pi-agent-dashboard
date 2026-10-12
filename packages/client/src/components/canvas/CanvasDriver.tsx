@@ -16,7 +16,8 @@
  * through the LiveServerViewer loopback-probe path.
  */
 import { isLoopbackUrl } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
-import { useCallback, useEffect, useRef } from "react";
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useCanvasTier } from "../../hooks/useCanvasTier.js";
 import { type CanvasState, gateAllowsAutoOpen } from "../../lib/canvas/canvas-gate.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
@@ -26,6 +27,91 @@ import { useSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 interface Props {
   /** The selected session's canvas state (empty when none). */
   state: CanvasState;
+  /**
+   * Zero-height sentinel at the top of the live composer stack (App-owned).
+   * The tray floats just above its top edge. Absent / `null` → rest at the
+   * viewport's bottom-right inset (safe-area aware).
+   */
+  anchor?: HTMLElement | null;
+}
+
+/** Gap between the tray's bottom edge and the composer stack's top edge. */
+const TRAY_GAP_PX = 8;
+
+/** Resting position when there is no live composer anchor. */
+const FALLBACK_BOTTOM = "calc(1rem + env(safe-area-inset-bottom))";
+
+/**
+ * Distance (px) from the viewport bottom to just above `anchor`'s top edge,
+ * or `null` while there is no anchor / it has not been measured yet.
+ *
+ * The sentinel is 0×0, so it never resizes when the composer stack grows — the
+ * stack's growth only MOVES it. We therefore observe the sentinel (so the first
+ * measure always fires), its parent pane (a pane resize moves the stack with no
+ * row resizing) and every row in that pane — those after it (strip, StatusBar,
+ * QueuePanel, composer root, …) and those before it (a banner or header slot
+ * resizing in place) — and re-collect that set via a `childList`
+ * MutationObserver when a row mounts/unmounts.
+ */
+function useAnchorBottom(anchor: HTMLElement | null | undefined): number | null {
+  const [bottom, setBottom] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!anchor) {
+      setBottom(null);
+      return;
+    }
+    const measure = () => {
+      if (!anchor.isConnected) {
+        setBottom(null);
+        return;
+      }
+      const vv = window.visualViewport;
+      const viewportBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+      setBottom(Math.max(0, viewportBottom - anchor.getBoundingClientRect().top + TRAY_GAP_PX));
+    };
+
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    const observeRows = () => {
+      if (!ro) return;
+      ro.disconnect();
+      ro.observe(anchor);
+      // The pane itself and EVERY row in it: a pane resize, or a row above the
+      // sentinel resizing in place, can move the stack's top edge while no row
+      // after the sentinel changes size.
+      const pane = anchor.parentElement;
+      if (pane) {
+        ro.observe(pane);
+        for (const row of Array.from(pane.children)) ro.observe(row);
+      }
+    };
+    observeRows();
+
+    const parent = anchor.parentElement;
+    const mo =
+      parent && typeof MutationObserver !== "undefined"
+        ? new MutationObserver(() => {
+            observeRows();
+            measure();
+          })
+        : null;
+    mo?.observe(parent as Element, { childList: true });
+
+    window.addEventListener("resize", measure);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", measure);
+    // Without ResizeObserver there is no initial callback — measure once now.
+    if (!ro) measure();
+
+    return () => {
+      ro?.disconnect();
+      mo?.disconnect();
+      window.removeEventListener("resize", measure);
+      vv?.removeEventListener("resize", measure);
+    };
+  }, [anchor]);
+
+  return anchor ? bottom : null;
 }
 
 /**
@@ -63,8 +149,9 @@ function useOpenTarget() {
   );
 }
 
-export function CanvasDriver({ state }: Props) {
+export function CanvasDriver({ state, anchor }: Props) {
   const tier = useCanvasTier();
+  const anchorBottom = useAnchorBottom(anchor);
   const openTarget = useOpenTarget();
   const { openLiveTarget } = useSplitWorkspace();
 
@@ -97,29 +184,46 @@ export function CanvasDriver({ state }: Props) {
 
   if (!state.chip && !showMobileChip) return null;
 
+  // Anchored but not yet measured → hidden, so the tray never flashes at the
+  // fallback position over the composer.
+  const unmeasured = anchor != null && anchorBottom == null;
+
   return (
-    <div data-testid="canvas-chip-tray" className="flex flex-wrap items-center gap-2 px-3 py-1">
-      {showMobileChip && state.target != null && (
-        <button
-          type="button"
-          data-testid="canvas-file-chip"
-          onClick={() => openTarget(state, false)}
-          className="flex min-h-[44px] items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-        >
-          <span className="font-medium">
-            {state.title ?? i18nT("canvas.openCanvas", undefined, "Open canvas")}
-          </span>
-          {state.target.kind === "file" && (
-            <span className="font-mono text-[var(--text-tertiary)]">{state.target.path}</span>
-          )}
-        </button>
-      )}
-      {state.chip && (
-        <CanvasServerChip
-          chip={state.chip}
-          onTap={(loopbackUrl) => openLiveTarget(loopbackUrl)}
-        />
-      )}
-    </div>
+    <LayerPortal>
+      <div
+        data-testid="canvas-chip-tray"
+        className="pointer-events-none fixed z-overlay flex flex-col items-end gap-2"
+        style={{
+          right: "1rem",
+          maxWidth: "calc(100vw - 2rem)",
+          bottom: anchorBottom != null ? `${anchorBottom}px` : FALLBACK_BOTTOM,
+          visibility: unmeasured ? "hidden" : undefined,
+        }}
+      >
+        {showMobileChip && state.target != null && (
+          <button
+            type="button"
+            data-testid="canvas-file-chip"
+            onClick={() => openTarget(state, false)}
+            className="pointer-events-auto flex min-h-[44px] min-w-0 max-w-full items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+          >
+            <span className="min-w-0 truncate font-medium">
+              {state.title ?? i18nT("canvas.openCanvas", undefined, "Open canvas")}
+            </span>
+            {state.target.kind === "file" && (
+              <span className="min-w-0 truncate font-mono text-[var(--text-tertiary)]">
+                {state.target.path}
+              </span>
+            )}
+          </button>
+        )}
+        {state.chip && (
+          <CanvasServerChip
+            chip={state.chip}
+            onTap={(loopbackUrl) => openLiveTarget(loopbackUrl)}
+          />
+        )}
+      </div>
+    </LayerPortal>
   );
 }

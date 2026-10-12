@@ -54,8 +54,23 @@ see [`docs/release-process.md`](docs/release-process.md).
   server moves, Settings and the server selector offer a verified "Moved to …
   Update" action.
 
+- **Web search and fetch entries render as compact cards.** A new client-only `web-access`
+  plugin (`pi-dashboard-web-access-plugin`, bundled) renders `pi-web-access`'s
+  `web-search-results` entries as one line ("Web search · 2 queries · 8 results", "Web fetch ·
+  4 URLs"); expanding shows queries, answers, results and fetched URLs, with only safe `http(s)`
+  links clickable. Disabling the plugin falls back to the generic card.
+- **Generic custom-entry fallback shows JSON objects as key/value lists.** An untruncated
+  object body renders up to 50 keys as a list instead of pretty-printed JSON; everything else
+  stays plain text.
+
 ### Changed
 
+- **Subagent admission refusals ship hidden.** The durable `subagent-admission-refused`
+  record now belongs to a new `diagnostics` custom event group, hidden by default (the refused
+  tool call already shows its reason). Enable "Diagnostics" in the chat View popover, or in
+  `~/.pi/dashboard/custom-event-groups.json`, to see it again. **Rollback note:** reverting the
+  code does not unhide refusals — the `diagnostics` group stays in your
+  `custom-event-groups.json` with `default: false`; enable it or delete the entry to restore them.
 - **BREAKING: known-server changes are operator-only.** Adding, removing, updating
   (`POST`/`DELETE /api/known-servers`, `accept-move`) and probing known servers now
   require an operator credential (login, local token or a local request). Browsers
