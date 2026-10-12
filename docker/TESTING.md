@@ -82,7 +82,7 @@ Limits fit but peer up → one warning (attribution degraded). No peer + fits �
 
 Unparseable `MEM_LIMIT` or failed `docker info` → peer up: warning + proceed; no peer: silent. Never refuse on missing data.
 
-One code path in and out of CI (CI runner has one harness → no-op).
+One code path in and out of CI (CI runner has one harness → only lone cap check; silent when it fits).
 
 Tests: `scripts/__tests__/test-up-oversubscribe-guard.test.mjs`.
 

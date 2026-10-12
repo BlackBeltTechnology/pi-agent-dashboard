@@ -3179,7 +3179,7 @@ Two refusal headlines:
 
 - Peer up: `stabilize-browser-e2e: refusing to start — co-resident harness oversubscription` + `  other harness project(s): <names>`.
 - Lone harness: `stabilize-browser-e2e: refusing to start — harness memory cap exceeds the daemon`. No project names.
-- Both then print `  memory: 1 × 8 GiB = 8 GiB  >=  8 GiB MemTotal (MEM_LIMIT=8g)` and `  set PI_HARNESS_ALLOW_OVERSUBSCRIBE=1 to start anyway`.
+- Both then print `  memory: <INSTANCES> × <MEM_LIMIT> = <total>  >=  <MemTotal> MemTotal (MEM_LIMIT=…)`. Lone example: `1 × 8 GiB = 8 GiB  >=  8 GiB`. Peer example: `2 × 4 GiB = 8 GiB  >=  8 GiB`. Then `  set PI_HARNESS_ALLOW_OVERSUBSCRIBE=1 to start anyway`.
 
 Fix A: free peer harness — run `docker/test-down.sh` from other worktree.
 
