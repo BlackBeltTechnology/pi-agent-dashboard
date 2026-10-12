@@ -89,7 +89,7 @@ On the global Add-ons page, a recommended extension installed at global scope (r
 
 ### Requirement: The installed list SHALL be filterable
 
-The Add-ons installed list SHALL provide a text filter matching display name, source and description (case-insensitive substring), and toggle chips `Local source` and `Update available`. Filters SHALL combine with AND. Groups with no matching rows SHALL be hidden. When nothing matches, the list SHALL say so and offer a link that moves the query to the npm search.
+The Add-ons installed list SHALL provide a text filter matching display name, source and description (case-insensitive substring), and toggle chips `Local source` and `Update available`. Until an update check has completed in the current page session (automatic check or Check now), the `Update available` chip SHALL be disabled with the description "Check for updates first". Filters SHALL combine with AND. Groups with no matching rows SHALL be hidden. When nothing matches, the list SHALL say so and offer a link that moves the query to the npm search.
 
 #### Scenario: Text filter narrows rows
 - **WHEN** the user types `memory` into the filter
@@ -98,6 +98,12 @@ The Add-ons installed list SHALL provide a text filter matching display name, so
 #### Scenario: Local source chip
 - **WHEN** the user activates `Local source`
 - **THEN** only rows installed from a local path or git checkout SHALL remain
+
+#### Scenario: Update chip before any check
+- **GIVEN** no update check has completed since the page loaded
+- **WHEN** the installed list renders
+- **THEN** the `Update available` chip SHALL be disabled and expose the description "Check for updates first"
+- **AND** it SHALL become enabled when the check completes
 
 #### Scenario: Empty result
 - **WHEN** the filter matches no row

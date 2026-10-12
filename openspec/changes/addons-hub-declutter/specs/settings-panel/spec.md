@@ -97,7 +97,7 @@ that route renders a different component.
 
 The `plugins` entry in the settings navigation rail SHALL be expandable and SHALL sit in the `ADD-ONS` rail group. Its children SHALL be exactly those plugins that are **enabled in config** AND CONTRIBUTE SETTINGS AND are NOT PROMOTED into another nav group (see "Models nav group"), sorted alphabetically by display name. An ENABLED promoted plugin SHALL instead appear in the Plugins subtree, sorted by display name together with the children, as a pointer row naming its destination group (e.g. "Roles ↗ Models"); the pointer SHALL never be marked active, and activating it SHALL navigate to the same `/settings/plugins/<pluginId>` URL. A DISABLED promoted plugin SHALL render no Plugins pointer; it appears only in the Models group. "Contributes settings" SHALL mean the plugin registers at least one `settings-section` refs claim OR has a `settings-section` intent in the intent store — the same predicate that governs route eligibility and the activation-index affordance. `PluginRow.claims` is manifest-derived and does NOT carry intents, so a claims-only test would strand an intent-only contribution: rendered by the slot, but with no nav child and no reachable route. Each child SHALL link to `/settings/plugins/<pluginId>` and SHALL display a status dot reflecting the plugin's health (`loaded`, `not loaded`, `error`).
 
-The subtree SHALL be **collapsed by default**. The `plugins` entry SHALL show the number of children while collapsed and SHALL expose its expanded state to assistive technology. The subtree SHALL expand automatically while a child page (`/settings/plugins/<pluginId>`) is active. A user's explicit expand or collapse SHALL persist across reloads on the same browser; an automatic expansion SHALL NOT overwrite the persisted choice.
+The subtree SHALL be **collapsed by default**. The `plugins` entry SHALL show the number of children while collapsed and SHALL expose its expanded state to assistive technology. The subtree SHALL expand automatically while a child page (`/settings/plugins/<pluginId>`) is active. A user's explicit expand or collapse SHALL persist across reloads on the same browser; an automatic expansion SHALL NOT overwrite the persisted choice. The same rule SHALL apply to the mobile settings list: the `Plugins` row is collapsed by default, expands in place, and shares the persisted choice with the desktop rail.
 
 Membership SHALL key on the plugin's `enabled` flag, NOT on `loaded`. A plugin that is enabled but failed to load, or has unsatisfied requirements, SHALL remain listed.
 
@@ -113,6 +113,12 @@ A disabled plugin SHALL NOT appear as a nav child. A disabled plugin that is NOT
 - **WHEN** the user opens `/settings/plugins/flows` with the subtree collapsed
 - **THEN** the subtree SHALL render expanded with the `Flows` child marked active
 - **AND** the persisted collapsed choice SHALL remain unchanged
+
+#### Scenario: Mobile list follows the same rule
+- **GIVEN** a 375px-wide viewport and no persisted choice
+- **WHEN** the user opens the settings list
+- **THEN** the `Plugins` row SHALL render collapsed with a child count
+- **AND** tapping it SHALL expand the children in place without navigating
 
 #### Scenario: User choice persists
 - **WHEN** the user expands the subtree and reloads `/settings/general`
