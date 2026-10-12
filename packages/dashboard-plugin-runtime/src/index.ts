@@ -16,6 +16,17 @@ export {
   pluginTabRouteHref,
   useEditorPaneTabClaim,
 } from "./editor-pane-tab.js";
+export {
+  createReturnTargetStore,
+  EmbeddedAppReturnPill,
+  type EmbeddedAppShell,
+  EmbeddedAppShellProvider,
+  isSafeDashboardPath,
+  type ReturnTarget,
+  type ReturnTargetStore,
+  returnPillLabel,
+  useEmbeddedAppShell,
+} from "./embedded-app-shell.js";
 export type {
   FolderMenuContribution,
   FolderMenuGroup,
@@ -35,6 +46,17 @@ export {
   useFolderMenuRefreshRunner,
   useFolderMenuStore,
 } from "./folder-menu-contributions.js";
+export {
+  __resetFolderProjectsForTests,
+  clearFolderProjects,
+  FOLDER_PROJECT_ERROR_TTL_MS,
+  type FolderProjectEntry,
+  folderHasProjectId,
+  folderHasProjectType,
+  getFolderProject,
+  invalidateFolderProject,
+  useFolderProject,
+} from "./folder-project.js";
 export type { IntentActionSender, IntentRendererProps } from "./intent-renderer.js";
 export { IntentRenderer, isIntentNode, UnknownPrimitive } from "./intent-renderer.js";
 export type { IntentKey, IntentStoreEntry } from "./intent-store.js";
@@ -99,17 +121,6 @@ export {
   subscribeSlotClaimsVersion,
   useSlotClaimsVersion,
 } from "./slot-claims-invalidation.js";
-export {
-  createReturnTargetStore,
-  EmbeddedAppReturnPill,
-  type EmbeddedAppShell,
-  EmbeddedAppShellProvider,
-  isSafeDashboardPath,
-  type ReturnTarget,
-  type ReturnTargetStore,
-  returnPillLabel,
-  useEmbeddedAppShell,
-} from "./embedded-app-shell.js";
 export * from "./slot-consumers.js";
 export * from "./slot-error-boundary.js";
 export * from "./slot-registry.js";

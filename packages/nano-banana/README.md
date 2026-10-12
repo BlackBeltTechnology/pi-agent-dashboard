@@ -9,7 +9,9 @@ bounded-concurrency batch generation.
 Exposed two ways:
 
 - **pi skill** — `.pi/skills/nano-banana-imagegen` (auto-loads on image-gen requests).
-- **CLI bin** — `pi-nano-banana`.
+- **CLI bin** — `pi-nano-banana`: a plain-JS launcher (`bin/pi-nano-banana`) that runs the TypeScript source via
+  tsx in a checkout and an esbuild bundle (`dist/nano-banana.js`, built on `prepack`) from an npm install, so it
+  starts from any shell. Library consumers keep importing `src/*.ts` through the `exports` map.
 
 ## Usage
 
