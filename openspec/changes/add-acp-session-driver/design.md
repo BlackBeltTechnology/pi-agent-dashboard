@@ -180,5 +180,15 @@ Additive. Deploy = server restart (jiti; client rebuild for picker). Rollback = 
 
 ## Open Questions
 
-- querymt v0.3: emitted update kinds, config options, thought stream? (task 0.1)
+- querymt v0.3: emitted update kinds, config options, thought stream? (task 0.1) — **still open**: `qmtcode` was not available when group 0 ran, so fixtures under `packages/shared/src/acp/__tests__/fixtures/` are SYNTHETIC (hand-authored from `@agentclientprotocol/sdk` 1.8 schema, flagged `_synthetic`). Replace with redacted real traffic when a binary is available; the recorded update kinds still need to be written here.
 - Keep event logs of ended ACP sessions for history browsing? Proposed: yes, until hidden/deleted.
+
+## Implementation notes (groups 0–1, doubt-review of exported shared types)
+
+- **Wire shapes follow the SDK `experimental/v2` types, not the spec shorthand**: `plan_update` carries `plan:{type,planId,entries}` (flattened in the model to `{planId,type,entries}`); `config_option_update` carries the FULL `configOptions[]` set keyed by `configId` (model flattens select groups; the adapter dedupes by value so unchanged options emit nothing); `terminal_output_chunk.data` / `terminal_update.output.data` are base64 bytes (decoded per chunk — a multi-byte char split across chunks decodes lossily); the tool name field is `name`, the tool category is `kind` (model: `toolKind`, because `kind` is the union discriminant). The spec text stays valid (it names the variants, not field layout).
+- **Echo suppression contract for group 3**: the adapter drops a user echo only if `suppressUserMessage(id)` was called BEFORE that update is pushed. For v1 the id is the normaliser's synthetic id, so `session-state.ts` must inspect each normalised `user_message_chunk` and mark its `messageId` before `push` while a dashboard prompt is active; for v2 hold-and-drop happens before `push` too (adapter never sees held echoes).
+- **Group 3 surface** consumed from shared: `createV1Normalizer`, `createDashboardEventAdapter` (`push` / `suppressUserMessage` / `flush` / `getState` — commands + session title + config options for `commands_list` / `session_name_update` / `models_list` — / `counters` for the 1/min `bridge_diagnostic`), `userMessageEvents` (dashboard-originated prompt turns), `mapStopReason`.
+- **Implicit turn start**: a tool call or `requires_action` with no preceding `state_update running` emits `agent_start` (agent-initiated activity still gets a bracketed turn); chunks alone do not.
+- **Tool naming**: `toolName = name ?? title ?? toolKind ?? "tool"` (ACP has no pi tool vocabulary); renderers keyed on pi tool names fall back to the generic card. Late updates for a finished tool never re-emit `tool_execution_start`; tools still running at idle are ended (`isError` only when cancelled).
+- No additive wire fields land in groups 0–1 (those are group 2).
+
