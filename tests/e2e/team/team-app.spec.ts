@@ -6,12 +6,14 @@
  * a second user sees neither the first user's private persona nor can subscribe to their
  * session; F16 a persona edit flags the conversation and "Restart to apply" resumes it; the real
  * spawn is owner-stamped, uses pi's default per-cwd session folder (D15) and the guard extension
- * signalled ready (D7 — a session without it would have been aborted).
+ * signalled ready (D7 — a session without it would have been aborted); the pi process runs with
+ * `--no-mcp` (spawn-scope-no-mcp).
  * Model-driven behaviour (prompt round trip, guard blocking, prompt assembly) is in
  * team-llm.spec.ts.
  *
  * Needs the `pi` CLI on PATH.
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
@@ -64,6 +66,15 @@ test("admin creates a shared persona; the grid shows it; opening it spawns a rea
   const team = (await h.sessions()).find((s) => s.cwd.includes(`${path.sep}workspace`));
   expect(team, "team session registered in the user's own workspace").toBeTruthy();
   expect(team?.principalOwner?.sub).toBe("sub-anna");
+  // spawn-scope-no-mcp (test-plan #X2): the real pi process runs with built-in MCP off.
+  expect(team?.pid, "team session registered a pid").toBeTruthy();
+  // pi rewrites its own process title, so read the argv the RPC keeper (pi's parent) was
+  // handed: `PI_KEEPER_PI_ARGS` in the keeper's environment (`ps e`, BSD + procps).
+  const keeperPid = execFileSync("ps", ["-o", "ppid=", "-p", String(team?.pid)], { encoding: "utf8" }).trim();
+  const keeperEnv = execFileSync("ps", ["eww", "-p", keeperPid], { encoding: "utf8" });
+  // Assert on the one segment only: the full keeper env carries operator secrets and must never reach a failure message.
+  const piArgs = /PI_KEEPER_PI_ARGS=(\[[^\]]*\])/.exec(keeperEnv)?.[1] ?? "<PI_KEEPER_PI_ARGS not found>";
+  expect(piArgs).toContain('"--no-mcp"');
   const encoded = `--${String(team?.cwd).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
   expect(team?.sessionFile ?? "").toContain(`${path.sep}${encoded}${path.sep}`);
   const usersDir = path.join(h.inst.home, ".pi", "dashboard", "team", "users");
