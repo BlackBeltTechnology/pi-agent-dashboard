@@ -42,7 +42,7 @@ The provisioner SHALL resolve which PhotoCraft release to use from, in precedenc
 - **THEN** provisioning fails with an error naming the HTTP status or network error and suggesting `GITHUB_TOKEN` (for rate limits) or `PHOTOCRAFT_VERSION`/`PHOTOCRAFT_BIN`
 
 ### Requirement: Host platform to release asset mapping
-The provisioner SHALL map the host OS and CPU architecture to exactly one release asset, and SHALL fail with an "unsupported platform" error naming the OS and architecture for any host outside the table.
+The provisioner SHALL map the host OS and CPU architecture to exactly one release asset, and SHALL fail with an "unsupported platform" error naming the OS and architecture for any host outside the table. On linux it SHALL first require glibc ≥ 2.35 (the upstream CLI links glibc 2.35 symbols; musl cannot run it).
 
 | OS | Arch | Asset |
 |---|---|---|
@@ -66,6 +66,10 @@ The provisioner SHALL map the host OS and CPU architecture to exactly one releas
 #### Scenario: Unsupported host
 - **WHEN** the host is linux/s390x
 - **THEN** provisioning fails with an error naming `linux` and `s390x` and suggesting `PHOTOCRAFT_BIN`
+
+#### Scenario: Linux C library too old or not glibc
+- **WHEN** the host is linux and its C library is musl, or glibc older than 2.35
+- **THEN** provisioning fails before any network request with an error naming the detected C library and version, the required glibc ≥ 2.35, and `PHOTOCRAFT_BIN`
 
 #### Scenario: Asset missing from the release
 - **WHEN** the resolved release has no asset with the mapped name

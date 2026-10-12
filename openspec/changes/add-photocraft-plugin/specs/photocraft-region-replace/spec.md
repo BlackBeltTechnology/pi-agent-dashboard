@@ -5,7 +5,7 @@
 ## ADDED Requirements
 
 ### Requirement: Invocation and input validation
-`pi-photocraft replace-region <input> --prompt <text> --out <file>` SHALL accept exactly one region selector — `--rect x,y,w,h`, or `--select subject`, `--select sky`, or `--select object:x,y,w,h` — plus optional `--pad <px>` (default 32), `--feather <px>` (default 8), `--min-crop <px>` (default 256), `--layered <file.psd>`, `--keep-temp`, and the nano-banana options `--model`, `--flash` and `--backend gemini|pi`. The following SHALL be usage errors (exit code `1`, detected before provisioning or generation): missing input, prompt, output or selector; more than one selector; a rect whose `x`/`y` are not integers (negative values are allowed and clip) or whose width/height are not positive integers; negative `--pad` or `--feather`; `--min-crop` < 1; `--pad` smaller than 3 × `--feather`; `--out` or `--layered` resolving to the same file as `<input>`.
+`pi-photocraft replace-region <input> --prompt <text> --out <file>` SHALL accept exactly one region selector — `--rect x,y,w,h`, or `--select subject`, `--select sky`, or `--select object:x,y,w,h` — plus optional `--mask crop|selection` (default `crop`), `--pad <px>` (default 32), `--feather <px>` (default 8), `--min-crop <px>` (default 256), `--layered <file.psd>`, `--keep-temp`, and the nano-banana options `--model`, `--flash` and `--backend gemini|pi`. The following SHALL be usage errors (exit code `1`, detected before provisioning or generation): missing input, prompt, output or selector; more than one selector; a rect whose `x`/`y` are not integers (negative values are allowed and clip) or whose width/height are not positive integers; negative `--pad` or `--feather`; `--min-crop` < 1; `--pad` smaller than 3 × `--feather`; `--out` or `--layered` resolving to the same file as `<input>`.
 
 #### Scenario: Two selectors
 - **WHEN** both `--rect 0,0,10,10` and `--select subject` are given
@@ -24,11 +24,11 @@
 - **THEN** after the image size has been read (provisioning failure, exit `69`, takes precedence), the command fails with an error naming the rect and the image size, exit code `1`, and no generation call is made
 
 ### Requirement: Region resolution
-For `--rect`, the region SHALL be the given rectangle clipped to the image and the mask SHALL be that rectangle. For `--select …`, the region box SHALL be the bounds PhotoCraft reports for that selection and the mask SHALL be that selection. A selector that reports nothing selected (not selected, zero coverage, or zero-area bounds) SHALL fail without calling the generator.
+For `--rect`, the region box SHALL be the given rectangle clipped to the image. For `--select …`, the region box SHALL be the bounds PhotoCraft reports for that selection. The region only locates the crop; the composite mask is defined by "Composite back with locality". A selector that reports nothing selected (not selected, zero coverage, or zero-area bounds) SHALL fail without calling the generator.
 
 #### Scenario: Semantic selector
 - **WHEN** `--select object:100,50,120,100` is used on an image where PhotoCraft's object selection reports bounds `[139,96,42,8]`
-- **THEN** the region box is `x=139,y=96,w=42,h=8` and the mask is that selection, not the hint rectangle
+- **THEN** the region box is `x=139,y=96,w=42,h=8`, not the hint rectangle
 
 #### Scenario: Empty selection
 - **WHEN** `--select sky` reports `selected: false` (no sky detected)
@@ -54,11 +54,19 @@ The crop SHALL be computed in this order: the region box expanded by `--pad` on 
 - **THEN** the crop is the whole image
 
 ### Requirement: Composite back with locality
-The generated image SHALL be resized to exactly the crop's size regardless of the size the generator returned, placed at the crop's position, masked by the region mask feathered by `--feather`, and written to `--out` flattened. For a lossless input and lossless `--out`, every pixel outside the crop box SHALL be identical to the input.
+The generated image SHALL be resized to exactly the crop's size regardless of the size the generator returned, placed at the crop's position, masked, and written to `--out` flattened. With `--mask crop` (default) the mask SHALL be the crop box inset by `--pad − --feather` on every side that was not clipped by the image edge (inset 0 on clipped sides), feathered by `--feather`, so a replacement object of a different shape or size than the original is shown whole and nothing of the original object survives inside the inset box. With `--mask selection` the mask SHALL be the region's own selection (the rect for `--rect`) feathered by `--feather` — for in-place edits that keep the object's outline. For a lossless input and lossless `--out`, every pixel outside the crop box SHALL be identical to the input in both modes.
 
 #### Scenario: Generator returns a different resolution
 - **WHEN** the crop is `x=84,y=34,w=152,h=132` and the generator returns a 304×264 image
 - **THEN** the placed patch occupies exactly `x=84..236, y=34..166`
+
+#### Scenario: Default crop mask shows a differently shaped replacement whole
+- **WHEN** `--select object:…` locates a 182×182 object, the crop is `x=517,y=537,w=256,h=256` (defaults on a 1024×1024 image) and the generator draws a larger replacement object centred in the crop
+- **THEN** the mask is the rect `x=541,y=561,w=208,h=208` feathered by 8, and every pixel of the generated patch inside that rect appears unchanged in `--out`
+
+#### Scenario: Selection mask opt-in follows the object outline
+- **WHEN** `--mask selection` is given with `--select object:…`
+- **THEN** pixels outside the selection's feathered outline but inside the crop are identical to the input
 
 #### Scenario: Pixels outside the crop are untouched
 - **WHEN** `replace-region` completes on a PNG input with a PNG `--out`
