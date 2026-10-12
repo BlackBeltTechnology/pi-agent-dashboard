@@ -529,8 +529,7 @@ function packageDirModuleDef(
 
 // Tools intentionally NOT registered:
 //   - `tsx` — not a server loader and not a tool the dashboard spawns.
-//     The server boots on the Node-native loader by default; jiti is the
-//     PI_DASHBOARD_TS_LOADER=jiti opt-in.
+//     The server boots on the Node-native loader (the only server loader).
 //   - `pi-dashboard` — that's the package this code is part of.
 //     "Is it installed" is a bootstrap concern handled directly in
 //     `packages/electron/src/lib/dependency-detector.ts`.

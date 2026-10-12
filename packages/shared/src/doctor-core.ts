@@ -26,7 +26,7 @@ import { execSync } from "./platform/exec.js";
 import { getGitSourceReadout } from "./platform/git-source.js";
 import { buildNativeModuleManifest, findAbiMismatches, type probeNativeModuleAbi } from "./platform/native-module-abi.js";
 import { type ResolvedRuntime, resolvedFamilyEntries } from "./platform/spawn-runtime.js";
-import { resolveNativeTsLoader, selectTsLoader } from "./platform/ts-loader-select.mjs";
+import { resolveNativeTsLoader } from "./platform/ts-loader-select.mjs";
 import { readZrokEnvironment } from "./zrok-env.js";
 
 // Used by the TypeScript-loader check to locate bundled jiti via
@@ -1256,67 +1256,32 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
     );
   }
 
-  // TypeScript loader. The server boots on the Node-native loader by default
-  // (`platform/native-ts-register.mjs`, shipped in this package), so the row
-  // is OK without any jiti. Only under the PI_DASHBOARD_TS_LOADER=jiti opt-in
-  // does it look for jiti. tsx is never probed: the server cannot boot on it.
-  // See change: fix-appimage-cold-boot-latency (design D4).
+  // TypeScript loader. The server has exactly one: the Node-native loader
+  // (`platform/native-ts-register.mjs`, shipped in this package). The row is OK
+  // when that register module resolves; jiti and tsx are never probed because
+  // the server cannot boot on them.
+  // See change: fix-appimage-cold-boot-latency (design D4);
+  // strip-only-native-ts-loader (design D5).
   checks.push(
     await safeCheck("TypeScript loader", "server", () => {
-      if (selectTsLoader(deps.env ?? process.env) === "native") {
+      try {
         return {
           name: "TypeScript loader",
           section: "server",
           status: "ok",
           message: `native (Node type stripping) at ${resolveNativeTsLoader()}`,
         };
-      }
-      const managedJitiPkg = path.join(managedDir, "node_modules", "jiti", "package.json");
-
-      function readVersion(pkgPath: string): string | null {
-        try {
-          if (!existsSync(pkgPath)) return null;
-          const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-          return pkg.version || null;
-        } catch {
-          return null;
-        }
-      }
-      const jitiVersion = readVersion(managedJitiPkg);
-
-      // Bundled fallback: look up jiti via Node module resolution
-      // so copies inside the Electron bundle's `Resources/server/node_modules/`
-      // satisfy the check. Without this, Electron-launched servers
-      // falsely reported the loader as missing even though they were
-      // running on it.
-      const bundledJitiPkg = jitiVersion ? null : (deps.resolvePackageJson ?? tryResolvePkg)("jiti");
-      const bundledJitiVersion = bundledJitiPkg ? readVersion(bundledJitiPkg) : null;
-
-      if (jitiVersion) {
+      } catch (err) {
         return {
           name: "TypeScript loader",
           section: "server",
-          status: "ok",
-          message: `jiti v${jitiVersion} (managed) at ${path.dirname(managedJitiPkg)}`,
+          status: "error",
+          message: "Not found — required to run the dashboard server",
+          code: "doctor.ts_loader_not_found",
+          detail: err instanceof Error ? err.message : String(err),
+          fixable: true,
         };
       }
-      if (bundledJitiVersion && bundledJitiPkg) {
-        return {
-          name: "TypeScript loader",
-          section: "server",
-          status: "ok",
-          message: `jiti v${bundledJitiVersion} (bundled) at ${path.dirname(bundledJitiPkg)}`,
-        };
-      }
-      return {
-        name: "TypeScript loader",
-        section: "server",
-        status: "error",
-        message: "Not found — required to run the dashboard server",
-        code: "doctor.ts_loader_not_found",
-        detail: `Looked under ${managedJitiPkg} and bundled (server/node_modules)`,
-        fixable: true,
-      };
     }),
   );
 
