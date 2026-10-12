@@ -856,7 +856,7 @@ Prerequisites:
 
 Dev commands:
 - `npm test` / `npm run test:watch` — vitest
-- `npm run lint` — `tsc --noEmit`
+- `npm run lint` — `node scripts/tsc7.mjs --noEmit` (TS 7)
 - `npm run build` — Vite client build
 - `npm run dev` — Vite dev server
 
@@ -864,6 +864,10 @@ Cross-refs:
 - README.md:74
 - README.md:111
 - README.md:507
+
+## Bare `tsc` prints `Version 7.0.2` — which compiler runs?
+
+TS 7 native compiler. Alias `typescript-7` owns `node_modules/.bin/tsc`. Run `node scripts/tsc7.mjs --noEmit` instead of bare `tsc`. Workspace `typescript` stays 5.x for JS API.
 
 ## How do I build the Electron app?
 

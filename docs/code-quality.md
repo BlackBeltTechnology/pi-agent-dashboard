@@ -98,7 +98,7 @@ useAltText, useValidAriaProps, useValidAriaValues, useAriaPropsForRole, useButto
 
 Biome 2.5.1 ships type-aware inference. `noFloatingPromises`/`noMisusedPromises` reason about promise semantics. `noImportCycles`/`noUndeclaredDependencies` reason across files.
 
-`tsc --noEmit` proves types, not usage. Vitest proves only what it was told. Neither catches a floating promise.
+TS 7 type-check (`node scripts/tsc7.mjs --noEmit`) proves types, not usage. Vitest proves only what it was told. Neither catches a floating promise.
 
 Rules named individually in `biome.json`. NO `linter.domains` block. Domains grant future Biome rules automatically on upgrade — conflicts with one-way ratchet where every graduation is deliberate.
 
@@ -252,12 +252,24 @@ jq -r '.testResults[].assertionResults[] | select(.status=="passed" and (.failur
 - `packages/shared/src/__tests__/real-process-project-guard.test.ts`: asserts listed files exist, server config excludes list, server tests matching process-spawn predicate join list or carry `// real-process-exempt: <reason>`, and no other Vitest config sets `retry:`.
 - `packages/shared/src/__tests__/ci-vitest-report-artifact.test.ts`: asserts CI workflow uploads `test-results/vitest*.json` with `if: always()`.
 
+## Type-check — TypeScript 7
+
+- CI type-checker = TS 7.0.2 (native Go compiler). Invoke: `node scripts/tsc7.mjs --noEmit`.
+- Used by `lint`, `lint:e2e`, `quality:changed`, `packages/team-app` typecheck.
+- Wrapper `scripts/tsc7.mjs` resolves npm alias `typescript-7` by path. Forwards argv, stdio, exit code.
+- Never call bare `tsc` or `node_modules/.bin/tsc`. Alias bin owns that link → `tsc --version` prints `Version 7.0.2`.
+- `typescript` stays 5.x. JS API only: codegen (`bus-client`, `mcp-server-plugin`), 4 tests, `scripts/verify-published-imports.mjs`. TS 7 has no classic JS API.
+- Editors: VS Code uses workspace TS 5.9 unless TS 7 selected. Diagnostics can differ slightly. CI authoritative.
+- `tsc-rs` 0.3.0 evaluated: matches TS 7 diagnostics, ~2x faster (1.1 s vs 2.3 s). Not adopted: v0.3.0, single maintainer. Switch = one line in `scripts/tsc7.mjs`.
+- Rollback: point `pkgName` in `scripts/tsc7.mjs` at `typescript` (5.x).
+- See change: migrate-typecheck-to-ts7
+
 ## Oracle — `quality:changed`
 
 npm script `quality:changed`:
 
 ```
-biome check --changed --error-on-warnings --write && tsc --noEmit && npm test
+biome check --changed --error-on-warnings --write && node scripts/tsc7.mjs --noEmit && npm test
 ```
 
 - Single exit code = judge done/continue signal.
@@ -391,7 +403,7 @@ If `--write` marks rule FIXABLE but leaves it, fix unsafe.
 | `fix:changed` | `biome check --changed --write` |
 | `quality:changed` | oracle above |
 | `quality:report` | `biome lint . --reporter=github` |
-| `lint` | `tsc --noEmit` (unchanged) |
+| `lint` | `node scripts/tsc7.mjs --noEmit` (TS 7; was 5.9 `tsc`) |
 | `test:parallel` | `vitest run` (concurrent root projects) |
 | `test:coverage` | `vitest run --coverage` under isolated-HOME wrapper; writes `coverage/coverage-summary.json` (gitignored); full run only for unloaded-file accuracy; not a CI threshold |
 | `test:real-process` | `vitest run --config packages/server/vitest.real-process.config.ts` |
@@ -423,7 +435,7 @@ Biome lints whole files, not diff lines. Touch one line in 400-line legacy file 
 
 ## Known quirk — quality:changed empty diff
 
-`npm run quality:changed` exits 1 when diff contains no Biome-lintable file (e.g. only `.md` + `biome.json`): "No files were processed in the specified paths." Not a violation. Run three legs directly to verify: `npx biome lint .`, `npx tsc --noEmit`, `npm test`.
+`npm run quality:changed` exits 1 when diff contains no Biome-lintable file (e.g. only `.md` + `biome.json`): "No files were processed in the specified paths." Not a violation. Run three legs directly to verify: `npx biome lint .`, `node scripts/tsc7.mjs --noEmit`, `npm test`.
 
 ## Skill
 

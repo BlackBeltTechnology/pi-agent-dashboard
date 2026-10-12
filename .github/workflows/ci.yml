@@ -170,6 +170,11 @@ jobs:
       # fresh kb_search tool. See change: fix-kb-eval-measurement-integrity.
       - name: kb dist freshness (engine fingerprint)
         run: node scripts/check-kb-dist-fresh.mjs
+      # TypeScript 7 (native compiler) is the CI type checker; fail loudly with the
+      # resolved version if the hoisted install did not link the platform binary.
+      # See change: migrate-typecheck-to-ts7.
+      - name: TypeScript 7 compiler is installed
+        run: node scripts/tsc7.mjs --version
       - run: pnpm run lint
       # Typechecks tests/e2e + guards the reap-fixture import. The root tsconfig
       # only includes `packages/*/src`, so before change
