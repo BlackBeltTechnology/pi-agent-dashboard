@@ -12,12 +12,13 @@ There is no stable identity in the advert: a renamed server looks like a new one
 
 ## What Changes
 
-- **Dashboard-owned mDNS hostname.** The SRV target and `A`/`AAAA` records are published under a dashboard-owned name derived from the server identity (e.g. `pi-dashboard-<fp-prefix>.local`), never under `os.hostname()`. The OS hostname is no longer contested, so macOS stops renaming the machine.
-- **Identity in the advert.** TXT gains the server identity fingerprint (`fp`, from `identity.ts`) and a display `name` (machine name without the conflict suffix). The real package version is published.
-- **Advertised addresses are filtered** to interfaces the server actually serves on, given `bindHost` (consistent with the honest-advertisement rule of `fix-bridge-mdns-migration-hijack`).
-- **Peers keyed by fingerprint.** `DiscoveredServer` gains `fingerprint` and `name`; the continuous browser keys up/down by fingerprint when present (fixes the up/down key mismatch). Servers without `fp` (older versions) fall back to `host:port`.
-- **Self-healing known servers.** `KnownServer` gains an optional `fingerprint`. When a discovered peer's fingerprint matches a known server and the peer **proves** that identity (`POST /api/pair/challenge`, verified with `challengePinnedServer` from `server-pinning.ts`), the server updates the known entry's `host`/`port` and broadcasts `servers_updated`. An advert whose `fp` fails the challenge never rewrites a known entry.
-- **Honest reachability labels.** A server-side probe of **known-server entries only** (no arbitrary URLs) reports `name-not-resolved` / `refused` / `timeout` / `reachable`. The selector shows "CORS-blocked" only when the server-side probe reaches the target but the browser fetch fails; otherwise it shows the real cause (e.g. "Name not found — server may have been renamed").
+- **Dashboard-owned mDNS names.** Service instance name and SRV target/`A`/`AAAA` records use names derived from the server identity and port (`pi-dashboard-<id12>-<port>[.local]`), never `os.hostname()`. The OS hostname is no longer contested, so macOS stops renaming the machine, and a rename no longer changes the advert.
+- **Identity in the advert.** TXT gains the server identity fingerprint (`fp`, from `identity.ts`) and a display `name` (current OS hostname, display only). The real package version is published.
+- **Advertised addresses are limited** to addresses the server serves on and peers can use (specific/hostname `bindHost` honoured; IPv6 link-local dropped) — consistent with the honest-advertisement rule of `fix-bridge-mdns-migration-hijack`.
+- **Peers keyed by service instance**, symmetric for up/down (fixes the mismatch), with advert updates and a periodic re-browse refreshing addresses and removing peers that vanished without a goodbye. `DiscoveredServer` gains `fingerprint`, `name`, `addresses`; a local peer's `host` is an IPv4 literal (never an IPv6 literal).
+- **Pinned known servers with move suggestions.** `KnownServer` gains an optional `fingerprint` (unique per fingerprint + port), pinned only after the server **proves** it (`POST /api/pair/challenge`) — on operator add or backfill at the stored address; an add never clears a pin. When the stored address stops proving the identity and a discovered peer at a new address proves it, the entry gets a **verified move suggestion** ("home-imac moved to X \u2014 Update"); only an operator click rewrites `host`/`port` (re-verified, logged). An advert alone never writes config; adding an address that proves a different identity than pinned is refused (`409 identity_changed`).
+- **BREAKING (behavioral): known-server mutations are operator-only.** `POST`/`DELETE /api/known-servers`, accept-move and the probe require an operator credential (login, local proof, local token); network-trusted browsers can still list entries.
+- **Honest reachability labels.** An operator-only server-side probe of **known-server entries only** reports `name-not-resolved` / `refused` / `timeout` / `reachable`. The selector shows the CORS/network-blocked hint only when the server reaches the target but the browser cannot; otherwise the real cause (e.g. "Name not found — server may have been renamed").
 
 ## Capabilities
 
@@ -25,23 +26,23 @@ There is no stable identity in the advert: a renamed server looks like a new one
 <!-- none -->
 
 ### Modified Capabilities
-- `mdns-discovery`: advertisement hostname, TXT identity fields, address filtering, fingerprint-keyed browsing.
-- `known-servers`: optional fingerprint on entries, identity-verified host healing, server-side probe of known entries.
-- `server-selector`: reachability states distinguish name-not-resolved / refused / timeout / CORS-blocked.
+- `mdns-discovery`: identity-derived names, TXT identity fields, address filtering, instance-keyed browsing with periodic refresh, probe-conflict retry.
+- `known-servers`: pinned fingerprint on entries, operator-only mutations, backfill, verified move suggestion + operator accept, server-side probe, fingerprint-aware Network Discovery.
+- `server-selector`: reachability states distinguish name-not-resolved / moved / refused / timeout / CORS-blocked.
 
 ## Discipline Skills
 
-- `security-hardening` — an mDNS advert is untrusted input; healing a known entry from it must require the identity challenge (advert-spoof redirect). The server-side probe is an SSRF surface: restrict to persisted known entries, guard it with `networkGuard`.
+- `security-hardening` — an mDNS advert is untrusted input; a move suggestion requires the identity challenge, a dead stored address and an operator click (advert-spoof / LAN relay). The server-side probe and the add-time challenge are outbound-request surfaces: operator-only, persisted entries only, fixed URL, no redirects.
 - `doubt-driven-review` — changing the advertised hostname affects every consumer of discovery (bridge `server-auto-start`/`instance-verification`, `isLocalService`); review before it stands.
-- `observability-instrumentation` — log heal events (`fp`, old → new host) and the advertised hostname at startup.
+- `observability-instrumentation` — log move suggestions/accepts (`fp`, old → new host) and the advertised hostname at startup.
 - `review-code` — before commit.
 
 ## Impact
 
-- **Shared:** `packages/shared/src/mdns-discovery.ts` (publish host, TXT, address filter, browser keying, version), `packages/shared/src/config.ts` (`KnownServer.fingerprint?`), `packages/shared/src/rest-api.ts` (`DiscoveredServerInfo` fields, probe result type).
-- **Server:** `packages/server/src/server.ts` (advertise with identity, heal on `server-up`), `packages/server/src/routes/known-servers-routes.ts` (probe route, fingerprint field).
+- **Shared:** `packages/shared/src/mdns-discovery.ts` (names, TXT, address filter, browser keying + update events, `formatHostPort`), `packages/shared/src/server-pinning.ts` (new `proveServerIdentity`; `challengePinnedServer` unchanged), `packages/shared/src/config.ts` (`KnownServer.fingerprint?`, `parseKnownServers` pass-through + duplicate collapse), `packages/shared/src/rest-api.ts` (`DiscoveredServerInfo` fields, probe result type).
+- **Server:** `packages/server/src/server.ts` (advertise with identity + version + pre-resolved addresses, shared peer key, self-exclusion by fingerprint, move-suggestion wiring), `packages/server/src/routes/known-servers-routes.ts` (operator-only mutations, challenge on add, `409 identity_changed`, probe, accept-move, serialized writes), new move-suggestion unit.
 - **Client:** `packages/client/src/components/connectivity/ServerSelector.tsx`, `NetworkDiscoverySection.tsx`, `packages/client/src/lib/api/known-servers-api.ts`.
-- **Extension:** verify `isLocalService` / bridge discovery still recognise the local server under the new hostname (address match path).
-- **Compatibility:** additive TXT keys and config field; old peers without `fp` keep host-keyed behaviour. Old clients resolve the new SRV target normally.
-- **Rollback:** revert restores `os.hostname()` publishing; persisted `fingerprint` fields are ignored by older code.
+- **Extension:** no code change expected; verify bridge auto-start adopts the local server via its IPv4 literal.
+- **Compatibility:** additive TXT keys and config field; peers from older versions are still discovered (keyed by their own instance). Old clients resolve the new SRV target where mDNS name resolution exists. Non-operator browsers lose add/remove of known servers (breaking, release note).
+- **Rollback:** revert restores `os.hostname()` publishing; older code drops `fingerprint` on the next write; entries moved to a `pi-dashboard-*.local` host must be re-added (release note).
 - **Sequence:** 1 of 4 — prerequisite for `add-lan-knock-pairing`, `add-electron-server-windows`, `retire-trusted-networks-bypass`.

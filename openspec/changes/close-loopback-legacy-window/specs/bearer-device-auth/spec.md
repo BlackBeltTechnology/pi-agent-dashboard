@@ -149,3 +149,42 @@ When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarde
 - **WHEN** the Paired Devices list renders a `source: "manual"` row
 - **THEN** it SHALL be visually marked as manually issued
 - **AND** its revoke action SHALL behave as for pairing rows
+
+### Requirement: Genuine-local trust via IPC allowlist, not a network address check
+Auth exemption for local tooling SHALL be granted by an allowlist of genuine local
+IPC — a dedicated Unix domain socket, or a local credential proof (`X-Pi-Local-Proof`, see `local-ipc-allowlist-token`) — or by a
+genuinely-local TCP request: loopback peer AND no proxy-forwarding header
+(`x-forwarded-*`, `x-real-ip`, `forwarded`). A loopback request carrying a
+forwarding header SHALL NOT be auth-exempt. A marker-less reverse tunnel
+terminating on loopback is indistinguishable from a genuinely-local request at
+the socket level; it is closed only when `auth.requireLocalProof` is enabled, in
+which case a bare genuinely-local request SHALL be exempt only for
+`observe`-tier routes, and `control`/`operate` routes plus browser WebSocket
+upgrades SHALL additionally require a local credential proof, a local-proof cookie, or
+another credential. This SHALL be enforced at every call site (network guard,
+`onRequest` hook, and the WebSocket upgrade handlers) through one shared
+predicate.
+
+#### Scenario: Tunnel request is not auto-trusted
+- **WHEN** a request reaches the server via a header-injecting tunnel/reverse proxy (presenting as `127.0.0.1` with an `x-forwarded-*`, `x-real-ip`, or `forwarded` header) with no valid bearer/cookie
+- **THEN** the server SHALL NOT auth-exempt it and SHALL respond 401
+
+#### Scenario: Unmarked tunnel is not auto-trusted
+- **WHEN** `auth.requireLocalProof` is enabled and a request arrives over a tunnel that injects no proxy marker (e.g. an SSH reverse tunnel) for a `control`/`operate` route
+- **THEN** the server SHALL still require a credential (local credential proof, local-proof cookie, or other), because trust is not derived from the loopback address alone
+
+#### Scenario: Unmarked tunnel under default configuration
+- **WHEN** `auth.requireLocalProof` is not enabled and a request arrives over a tunnel that injects no proxy marker
+- **THEN** it SHALL be treated as genuinely local, and operator documentation SHALL state that only header-injecting tunnels are safe without `requireLocalProof`
+
+#### Scenario: Genuine local IPC still bypasses
+- **WHEN** a local tool connects over the dedicated Unix domain socket (or presents a valid local credential proof)
+- **THEN** the auth exemption SHALL apply
+
+#### Scenario: Local IPC is not exposed to other host users
+- **WHEN** the Unix socket is created or the local token is written
+- **THEN** the socket path SHALL be `0600` and the token SHALL live in a `0700` directory so other users on a shared host cannot use it
+
+#### Scenario: Existing same-host callers migrated, not broken
+- **WHEN** D10 lands
+- **THEN** the pi bridge and model-proxy SHALL connect via the local IPC allowlist (Unix socket / local credential proof); the same-desktop browser (terminal and editor views) SHALL be admitted as genuinely local, or via the local-proof cookie when `auth.requireLocalProof` is enabled

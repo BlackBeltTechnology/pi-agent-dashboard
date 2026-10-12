@@ -85,7 +85,7 @@
   select { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-secondary); border-radius: 6px; padding: 4px 6px; font-size: 12px; }
 
   /* ── Legend ── */
-  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--text-tertiary); margin-bottom: 8px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 11px; color: var(--text-tertiary); margin-bottom: 8px; }
 
   /* ── Group + rows ── */
   .grp { margin-top: 14px; }
@@ -101,17 +101,18 @@
   .parts { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
   .p { font-size: 10.5px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--border-secondary); color: var(--text-secondary); }
   .p.ui { background: var(--plug-bg); color: var(--plug-fg); border-color: transparent; }
+  .p[title], .badge[title] { cursor: help; }
   .badge { font-size: 10.5px; padding: 0 6px; border-radius: 9px; border: 1px solid var(--border-secondary); color: var(--text-tertiary); }
   .badge.local { border-color: var(--accent-blue); color: var(--accent-blue-text); }
   .badge.dash { background: var(--accent-soft); color: var(--text-primary); border-color: transparent; font-weight: 600; }
   .badge.mixed { background: var(--accent-soft); color: var(--text-primary); border-color: transparent; }
   .badge.comm { border-style: dashed; color: var(--text-secondary); }
   .badge.up { color: var(--text-secondary); }
-  .origin-sum { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--text-tertiary); margin: -4px 0 8px; }
   .badge.ok { background: var(--sev-ok-bg); color: var(--sev-ok-fg); border-color: transparent; }
   .badge.warn { background: var(--sev-warn-bg); color: var(--sev-warn-fg); border-color: transparent; }
   .badge.err { background: var(--sev-err-bg); color: var(--sev-err-fg); border-color: transparent; }
   .badge.info { background: var(--sev-info-bg); color: var(--sev-info-fg); border-color: transparent; }
+  .origin-sum { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--text-tertiary); margin: -4px 0 8px; }
   .acts { display: flex; align-items: center; gap: 6px; }
   .ver { font-size: 11px; color: var(--text-tertiary); min-width: 46px; text-align: right; }
   .sw { width: 30px; height: 17px; border-radius: 9px; background: var(--bg-surface); border: 1px solid var(--border-secondary); position: relative; padding: 0; }
@@ -150,7 +151,6 @@
   .issue h4 { margin: 0 0 6px; font-size: 13px; display: flex; gap: 8px; align-items: center; }
   .issue label { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 3px 0; }
 
-  .hidden { display: none !important; }
   /* concept explainer */
   .explain { margin: 12px 0 4px; border: 1px solid var(--border-secondary); border-radius: 10px; background: var(--bg-secondary); }
   .explain > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-weight: 600; }
@@ -175,8 +175,8 @@
   .ex-arrow { align-self: center; color: var(--text-tertiary); }
   .ex-foot { margin-top: 10px; font-size: 12px; color: var(--text-tertiary); }
   .help { background: none; border: 0; color: var(--accent-text); font-size: 12px; padding: 0; }
-  .p[title], .badge[title] { cursor: help; }
-  @media (max-width: 760px) { .ex-grid { grid-template-columns: 1fr; } }
+
+  .hidden { display: none !important; }
   .note { margin-top: 28px; padding: 12px; border: 1px dashed var(--border-strong); border-radius: 8px; color: var(--text-secondary); font-size: 12px; }
   .note h4 { margin: 0 0 6px; color: var(--text-primary); }
   @media (max-width: 760px) {
@@ -186,4 +186,5 @@
     .acts { grid-column: 2; justify-content: flex-start; }
     .det { grid-column: 1 / 3; grid-template-columns: 1fr; }
     .det .full { grid-column: 1; }
+    .ex-grid { grid-template-columns: 1fr; }
   }

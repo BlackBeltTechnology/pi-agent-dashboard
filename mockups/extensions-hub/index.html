@@ -8,7 +8,7 @@
 </head>
 <body>
 <div class="lab" role="region" aria-label="Mockup controls">
-  <b>Explore mockup</b> · Add-ons hub (packages + plugins unified)
+  <b>Explore mockup</b> · Add-ons hub (packages + plugins unified) · <a class="link" href="folder.html">folder scope →</a>
   <span class="sp"></span>
   <label>Theme <select id="themeSel"><option value="dark">Base dark</option><option value="light">Base light</option></select></label>
 </div>
@@ -45,7 +45,6 @@
         <button role="tab" aria-selected="false" data-tab="discover">Discover</button>
         <button role="tab" aria-selected="false" data-tab="issues">Issues <span class="n warn">2</span></button>
       </div>
-
 
       <details class="explain" id="explain" open>
         <summary>What are extensions and plugins? <span class="sp"></span><span class="tg"></span></summary>
@@ -146,12 +145,13 @@
 
       <div class="note">
         <h4>What this mockup changes vs. today</h4>
-        1 · One row per <b>capability</b>, not per <code>packages[]</code> entry: a dashboard plugin, its auto-registered bridge, and the pi package it requires fold into one row (e.g. <b>Goal</b> = goal plugin + bridge + <code>@ricoyudog/pi-goal-hermes</code>).<br>
-        2 · The 9 <code>…/src/bridge/index.ts</code> rows disappear (they are dashboard-owned plumbing; visible only in a row's "Parts").<br>
+        1 · One row per <b>feature</b>, not per <code>packages[]</code> entry: a dashboard plugin, its auto-registered bridge, and the pi package it requires fold into one row (e.g. <b>Goal</b> = goal plugin + bridge + <code>@ricoyudog/pi-goal-hermes</code>).<br>
+        2 · The 9 <code>…/src/bridge/index.ts</code> rows disappear (they are dashboard-owned plumbing; visible only in a row's details).<br>
         3 · Recommended packages appear <b>once</b>: installed → Installed tab; not installed → Discover. Today they render twice on the same page.<br>
-        4 · Plugins &amp; Packages merge into one nav entry, <b>Add-ons</b>, the umbrella name. "Extension" keeps its narrow meaning (the agent-side part).; plugin settings pages collapse under "Plugin settings". Resources (Skills / Agents / Extensions / Prompts / Themes) STAYS: it is the per-file view and also lists loose files that are not in any package (e.g. <code>~/.pi/agent/extensions/pi-rtk-optimizer</code>).<br>
+        4 · Plugins &amp; Packages merge into one nav entry, <b>Add-ons</b>, the umbrella name. "Extension" keeps its narrow meaning (the agent-side part). Plugin settings pages collapse under "Plugin settings". Resources (Skills / Agents / Extensions / Prompts / Themes) STAYS: it is the per-file view and also lists loose files that are not in any package (e.g. <code>~/.pi/agent/extensions/pi-rtk-optimizer</code>).<br>
+        5 · Local-override noise (path + npm + "Reset to npm" on every row) becomes one <span class="badge local">local</span> badge + one banner with a bulk reset.<br>
         6 · Every row says <b>who delivers it</b>: <span class="badge dash">pi-dashboard</span> first-party, <span class="badge mixed">dashboard UI · ext by …</span> dashboard UI on a community extension, <span class="badge comm">community</span> third party. Summary strip, filter, and "Group by who delivers it".<br>
-        5 · Local-override noise (path + npm + "Reset to npm" on every row) becomes one <span class="badge local">local</span> badge + one banner with a bulk reset.
+        7 · A plain-language explainer defines extension / skill / dashboard plugin / package, with Goal as the worked example; every part label has a tooltip.
       </div>
     </main>
   </div>
@@ -307,9 +307,9 @@ function render(){
 }
 function renderUpdates(){
   $("#updList").innerHTML = ITEMS.filter(i=>i.upd).map(it => '<div class="row">'+icon(it)
-    + '<div><div class="nm"><b>'+it.name+'</b><span class="badge">'+it.ver+' → '+it.upd+'</span></div><div class="desc">'+it.desc+' · <a class="link" href="#">What\u2019s new</a></div></div>'
+    + '<div><div class="nm"><b>'+it.name+'</b><span class="badge">'+it.ver+' → '+it.upd+'</span></div><div class="desc">'+it.desc+' · <a class="link" href="#">What’s new</a></div></div>'
     + '<div class="acts"><button class="btn sm">Update</button></div></div>').join("")
-    + '<div class="row"><div class="ico" aria-hidden="true">⬢</div><div><div class="nm"><b>pi</b><span class="badge">1.1.0 → 1.1.2</span></div><div class="desc">Core agent · reloads all sessions · <a class="link" href="#">What\u2019s new</a></div></div><div class="acts"><button class="btn sm">Update</button></div></div>';
+    + '<div class="row"><div class="ico" aria-hidden="true">⬢</div><div><div class="nm"><b>pi</b><span class="badge">1.1.0 → 1.1.2</span></div><div class="desc">Core agent · reloads all sessions · <a class="link" href="#">What’s new</a></div></div><div class="acts"><button class="btn sm">Update</button></div></div>';
 }
 const REC = [
   { n:"Image fit", d:"Resize oversized images to fit model limits", t:["⚙ extension"], src:"npm:@blackbelt-technology/pi-image-fit-extension" },
@@ -319,7 +319,7 @@ const REC = [
   { n:"Voice assistant", d:"Talk to a session from the dashboard", t:["◧ dashboard UI","⚙ extension"], src:"npm:@blackbelt-technology/pi-dashboard-voice" },
 ];
 function renderCards(){
-  $("#cards").innerHTML = REC.map(r => '<div class="card"><div class="t"><b>'+r.n+'</b><span class="badge dash">pi-dashboard</span><span class="badge">optional</span></div><p>'+r.d+'</p><div class="parts">'+r.t.map(p=>'<span class="p'+(p.startsWith("◧")?" ui":"")+'">'+p+'</span>').join("")+'</div><div class="f"><code>'+r.src+'</code><button class="btn sm primary">Install</button></div></div>').join("");
+  $("#cards").innerHTML = REC.map(r => '<div class="card"><div class="t"><b>'+r.n+'</b><span class="badge dash">pi-dashboard</span><span class="badge">optional</span></div><p>'+r.d+'</p><div class="parts">'+r.t.map(p=>'<span class="p'+(p.startsWith("◧")?" ui":"")+'" title="'+tip(p)+'">'+p+'</span>').join("")+'</div><div class="f"><code>'+r.src+'</code><button class="btn sm primary">Install</button></div></div>').join("");
 }
 
 document.addEventListener("click", e => {

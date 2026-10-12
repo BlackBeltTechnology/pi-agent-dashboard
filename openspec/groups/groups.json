@@ -89,6 +89,12 @@
       "name": "UI Extensions",
       "color": "#eab308",
       "order": 14
+    },
+    {
+      "id": "addons-hub",
+      "name": "Addons Hub",
+      "color": "#8b5cf6",
+      "order": 15
     }
   ],
   "assignments": {
@@ -358,7 +364,12 @@
     "fix-remote-relative-api-fetch": "client-ui-fixes",
     "fix-canvas-chip-tray-overlay": "client-ui-fixes",
     "render-unclaimed-custom-entries": "client-ui-fixes",
-    "add-credential-vault": "security"
+    "add-credential-vault": "security",
+    "addons-hub-declutter": "addons-hub",
+    "addons-hub-feature-catalog": "addons-hub",
+    "addons-hub-folder-view": "addons-hub",
+    "add-vault-llm-delivery": "security",
+    "absorb-service-secrets-into-vault": "security"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -415,6 +426,8 @@
     "security": [
       "close-loopback-legacy-window",
       "add-credential-vault",
+      "add-vault-llm-delivery",
+      "absorb-service-secrets-into-vault",
       "harden-server-capability-bounds",
       "harden-electron-renderer-boundary"
     ],
@@ -452,6 +465,11 @@
       "fix-remote-relative-api-fetch",
       "fix-canvas-chip-tray-overlay",
       "render-unclaimed-custom-entries"
+    ],
+    "addons-hub": [
+      "addons-hub-declutter",
+      "addons-hub-feature-catalog",
+      "addons-hub-folder-view"
     ]
   }
 }
