@@ -3508,6 +3508,27 @@ Source: `docs/architecture.md` → Auth model → Local credential proof. Change
   - Session retries inside 5 min cap. Or restart the session to retry now.
 - Docker / published port: sender sees `401` with `binding-mismatch` → BREAKING for `pi-dashboard login --local|open|token create` through the published port. Run those inside the container, or log in.
 
+## Why does Claude chat work but tool calls fall back?
+
+Peer `@blackbelt-technology/pi-anthropic-messages` missing → bridge stays in `waiting_peers` → tool calls return without executing.
+
+Auto-install runs after Anthropic sign-in (Settings ▸ Providers).
+
+- Failure: warning on Anthropic row and Landing step ① with `Retry install`. Raw installer output under `Details`.
+- Manual install:
+  - Settings ▸ Packages ▸ Recommended extensions
+  - or Landing `Install` (shows when `anthropic` signed in, peer not active)
+- `failed to load` = installed but import broken. Reinstall does not fix. Check Settings ▸ Providers.
+- Applies on next pi session start.
+
+Cross-refs:
+- docs/user-features.md §First run: connect, create, start
+- packages/client/src/components/shell/LandingPage.tsx
+- packages/client/src/components/settings/PeerAutoInstallStatus.tsx
+- packages/flows-anthropic-bridge-plugin/src/bridge/index.ts
+
+See change: streamline-first-run.
+
 ## Server shows "CORS-blocked", "Name not found" or "Moved to …" in the server selector — what does it mean?
 
 Label = cause the dashboard server observed. Browser probe fails at transport level → server probes the stored entry (`POST /api/known-servers/probe`, operator only).

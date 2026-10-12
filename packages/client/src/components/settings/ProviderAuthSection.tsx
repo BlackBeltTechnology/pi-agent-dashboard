@@ -53,9 +53,15 @@ import { PROVIDER_AUTH_EVENT } from "../../hooks/useProvidersReady.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { type ProviderHealth, testProvider } from "../../lib/api/providers-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import {
+  type PeerAutoInstallState,
+  peerAutoInstallStore,
+  usePeerAutoInstall,
+} from "../../lib/package/peer-auto-install-store.js";
 import { logRejection } from "../../lib/report-error.js";
 import { InlineMessage } from "../primitives/InlineMessage.js";
 import { Toast, type ToastVariant, useToast } from "../primitives/Toast.js";
+import { PeerAutoInstallStatus } from "./PeerAutoInstallStatus.js";
 import {
   type AddDialogFlowState,
   API_TYPE_OPTIONS,
@@ -331,7 +337,14 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
   const { messages, showToast, dismissToast } = useToast();
   // One probe read for the whole section — per-row hooks would fan out one
   // /api/health fetch per provider. See change: warn-missing-anthropic-messages-peer.
-  const { peerMissing, peerReason } = useAnthropicPeerProbe();
+  const { peerMissing, peerReason, peerResolving, importFailed } = useAnthropicPeerProbe();
+  // Automatic peer install that follows an Anthropic sign-in (module-level store,
+  // so the outcome survives this section unmounting). See change: streamline-first-run.
+  const autoInstall = usePeerAutoInstall();
+  // A mounted surface that sees the peer resolving drops installed/failed.
+  useEffect(() => {
+    if (peerResolving) peerAutoInstallStore.notifyPeerResolving();
+  }, [peerResolving, autoInstall.outcome]);
 
   const refetchProviders = useCallback(async () => {
     try {
@@ -425,6 +438,9 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     // picker entry is gone) and lands the single dispatch.
     setDialogProvider(undefined);
     handleChanged();
+    // Anthropic subscription sign-in only: decide the peer install, detached —
+    // the sign-in is never blocked (the call never throws).
+    if (id === "anthropic") void peerAutoInstallStore.ensureInstall("sign-in");
     // pi 1.0.0 `/login` follow-up: only a completed Radius sign-in asks, and
     // only when the Pi-global mcp.json is not already configured. A failed read
     // (503/409) means no offer — never an error on a sign-in that succeeded.
@@ -844,6 +860,8 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
               showToast={showToast}
               peerMissing={p.id === "anthropic" && peerMissing}
               peerReason={peerReason}
+              peerImportFailed={importFailed}
+              autoInstall={p.id === "anthropic" ? autoInstall : undefined}
               onEditKey={saveApiKey}
             />
           ))}
@@ -888,13 +906,17 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
 
 // ── Auth rows (subscription / api-key / environment) ─────────────────────────
 
-function AuthRow({ provider, kind, onChanged, showToast, peerMissing = false, peerReason, onEditKey }: {
+function AuthRow({ provider, kind, onChanged, showToast, peerMissing = false, peerReason, peerImportFailed = false, autoInstall, onEditKey }: {
   provider: ProviderAuthStatus;
   kind: RowKind;
   onChanged: () => void;
   showToast: (text: string, variant?: ToastVariant) => void;
   peerMissing?: boolean;
   peerReason?: string;
+  /** Probe reports the peer found but failing to import. */
+  peerImportFailed?: boolean;
+  /** Present only on the `anthropic` row: the automatic peer-install state. */
+  autoInstall?: PeerAutoInstallState;
   onEditKey: (id: string, key: string) => Promise<string | null>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -1033,8 +1055,30 @@ function AuthRow({ provider, kind, onChanged, showToast, peerMissing = false, pe
         </div>
       )}
 
-      {/* Bridge peer hint — only on the authenticated Anthropic subscription row. */}
-      <AnthropicPeerHint show={peerMissing && kind === "subscription" && provider.authenticated} reason={peerReason} />
+      {/* Anthropic peer surfaces — only on the authenticated Anthropic subscription row.
+          Precedence (design D3b): import-failure hint > auto-install surface > hint. */}
+      {autoInstall && kind === "subscription" && provider.authenticated && (
+        <div role="status" aria-live="polite" data-testid="anthropic-peer-autoinstall-live">
+          {autoInstall.outcome !== null && !peerImportFailed && (
+            <PeerAutoInstallStatus
+              outcome={autoInstall.outcome}
+              message={autoInstall.message}
+              onRetry={() => void peerAutoInstallStore.retry()}
+              testId="anthropic-peer-autoinstall"
+              retryTestId="anthropic-peer-autoinstall-retry"
+            />
+          )}
+        </div>
+      )}
+      <AnthropicPeerHint
+        show={
+          peerMissing &&
+          kind === "subscription" &&
+          provider.authenticated &&
+          (peerImportFailed || autoInstall?.outcome == null)
+        }
+        reason={peerReason}
+      />
 
       {error && (
         <div className="flex items-center gap-1 mt-1 text-xs text-red-400">

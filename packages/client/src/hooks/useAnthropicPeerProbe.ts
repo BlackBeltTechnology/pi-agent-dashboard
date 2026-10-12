@@ -14,51 +14,39 @@
  *
  * See change: warn-missing-anthropic-messages-peer.
  */
-import { PEER_AM_LEGACY } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin/peer-probe";
-import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
+import {
+  ANTHROPIC_PEER_SOURCE,
+  derivePeerState,
+  IMPORT_FAILURE_PREFIX,
+} from "../lib/package/anthropic-peer.js";
 import { logRejection } from "../lib/report-error.js";
 
+export { ANTHROPIC_PEER_SOURCE, IMPORT_FAILURE_PREFIX };
+
 const POLL_INTERVAL_MS = 60 * 1000;
-
-const BRIDGE_PLUGIN_ID = "flows-anthropic-bridge";
-
-/** Install source for the peer — the shipped recommended-extensions entry (D8). */
-export const ANTHROPIC_PEER_SOURCE: string =
-  RECOMMENDED_EXTENSIONS.find((e) => e.id === "pi-anthropic-messages")?.source ?? "";
-
-/** The bridge emits `import failed: …` when resolve succeeded but import threw (D6c). */
-export const IMPORT_FAILURE_PREFIX = "import failed:";
 
 export interface AnthropicPeerProbeState {
   /** True only on a strict `ok === false` from the bridge probe. */
   peerMissing: boolean;
   /** Probe `reason` verbatim (server-originated, not translatable). */
   peerReason?: string;
+  /** True only on a strict `ok === true`. Additive (streamline-first-run). */
+  peerResolving: boolean;
+  /** Missing with an `import failed:` reason. Additive (streamline-first-run). */
+  importFailed: boolean;
 }
 
-/** Narrowing read of an unknown-shaped object property. */
-function prop(value: unknown, key: string): unknown {
-  return value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
-}
+const NO_PROBE: AnthropicPeerProbeState = { peerMissing: false, peerResolving: false, importFailed: false };
 
 function derive(body: unknown): AnthropicPeerProbeState {
-  const plugins = prop(body, "plugins");
-  if (!Array.isArray(plugins)) return { peerMissing: false };
-  const row = plugins.find((p) => prop(p, "id") === BRIDGE_PLUGIN_ID);
-  const peers = prop(prop(row, "lastProbe"), "peers");
-  const peer = prop(peers, PEER_AM_LEGACY);
-  if (prop(peer, "ok") !== false) return { peerMissing: false };
-  const reason = prop(peer, "reason");
-  return {
-    peerMissing: true,
-    peerReason: typeof reason === "string" ? reason : undefined,
-  };
+  const s = derivePeerState(body);
+  return { peerMissing: s.missing, peerReason: s.reason, peerResolving: s.resolving, importFailed: s.importFailed };
 }
 
-export function useAnthropicPeerProbe(): AnthropicPeerProbeState {
-  const [state, setState] = useState<AnthropicPeerProbeState>({ peerMissing: false });
+export function useAnthropicPeerProbe(): AnthropicPeerProbeState & { refresh: () => Promise<void> } {
+  const [state, setState] = useState<AnthropicPeerProbeState>(NO_PROBE);
   const mountedRef = useRef(true);
   // Generation guard: focus + poll + package-event can fire overlapping reads,
   // and a slower earlier response must never overwrite a newer one.
@@ -70,14 +58,14 @@ export function useAnthropicPeerProbe(): AnthropicPeerProbeState {
     try {
       const res = await fetch(`${getApiBase()}/api/health`);
       if (!res.ok) {
-        if (fresh()) setState({ peerMissing: false });
+        if (fresh()) setState(NO_PROBE);
         return;
       }
       const body = await res.json();
       if (fresh()) setState(derive(body));
     } catch {
       // Fail-open: a failed read is never evidence of a missing peer.
-      if (fresh()) setState({ peerMissing: false });
+      if (fresh()) setState(NO_PROBE);
     }
   }, []);
 
@@ -105,5 +93,5 @@ export function useAnthropicPeerProbe(): AnthropicPeerProbeState {
     };
   }, [read]);
 
-  return state;
+  return { ...state, refresh: read };
 }

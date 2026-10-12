@@ -1,0 +1,3 @@
+# first-run-create-project.spec.ts — index
+
+L3 F16/F17 against the docker harness. Unpins every pin first (reads `GET /api/access/grants` → `data.pinnedDirectories`, `unpin_directory` over the bus), restores them after, so Landing Step ② renders. F16: fill `e2e-first`, click `onboarding-step-2-create`, Step ② done + sidebar `folder-body-*/Projects/e2e-first`, start a session (Step ③ CTA or sidebar spawn), bus session cwd ends `/Projects/e2e-first`. F17: submit `a/b` → `onboarding-step-2-error` shows invalid-name guidance, nothing pinned, `onboarding-step-2-cta` still opens `add-folders-dialog`. See change: streamline-first-run.
