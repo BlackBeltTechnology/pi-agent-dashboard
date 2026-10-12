@@ -340,7 +340,8 @@ export function registerKnownServersRoutes(fastify: FastifyInstance, deps: Known
         }
         log(`[known-servers] backfill merged duplicate identity: dropped ${dropped.host}:${dropped.port}`);
       }
-      writeList(list);
+      const result = writeList(list);
+      if (!result.success) log(`[known-servers] backfill write failed: ${result.error ?? "unknown"}`);
     });
   }
 

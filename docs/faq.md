@@ -3511,7 +3511,7 @@ See change: stabilize-mdns-server-identity.
 
 Cross-refs:
 - docs/architecture.md → mDNS Server Discovery → Known-server identity pinning, Move suggestions, Selector reachability labels
-- openspec/changes/stabilize-mdns-server-identity/
+- openspec/changes/archive/2026-10-12-stabilize-mdns-server-identity/
 
 ## Mac hostname keeps getting a number suffix (`-8559`) — why, and how do I stop it?
 
@@ -3525,7 +3525,7 @@ See change: stabilize-mdns-server-identity.
 
 Cross-refs:
 - docs/architecture.md → mDNS Server Discovery → Dashboard-owned names
-- openspec/changes/stabilize-mdns-server-identity/
+- openspec/changes/archive/2026-10-12-stabilize-mdns-server-identity/
 
 ## Never copy `identity.key` — what breaks and how do I fix a clone?
 

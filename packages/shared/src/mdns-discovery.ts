@@ -310,7 +310,17 @@ async function refreshAdvertisedAddresses(state: AdvertState): Promise<void> {
   } catch {
     return;
   }
-  if (!state.active || next.length === 0) return;
+  if (!state.active) return;
+  if (next.length === 0) {
+    // The host lost every advertisable address: stop claiming the old ones. State stays active,
+    // so a later sweep that finds addresses again republishes.
+    if (state.addresses.length > 0) {
+      unpublish(state);
+      state.addresses = [];
+      (state.opts.log ?? ((m: string) => console.log(m)))("mDNS: no advertisable address any more — advert withdrawn");
+    }
+    return;
+  }
   const same = next.length === state.addresses.length && next.every((a, i) => a === state.addresses[i]);
   if (same) return;
   unpublish(state);

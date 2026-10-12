@@ -315,6 +315,37 @@ describe("advertiseDashboard names and records", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(published).toHaveLength(2);
   });
+
+  it("#F3 withdraws the advert when no address is left, and republishes when one returns", async () => {
+    let tick: () => void = () => {};
+    const stops: Array<ReturnType<typeof vi.fn>> = [];
+    const published: Service[] = [];
+    const publish = (config: AdvertisePublishConfig) => {
+      const { svc, stop } = fakeService(config);
+      stops.push(stop);
+      published.push(svc);
+      return svc;
+    };
+    let next: string[] = [];
+    advertiseDashboard(8000, 9999, {
+      fingerprint: FP,
+      addresses: ["192.168.16.31"],
+      publish,
+      resolveAddresses: async () => next,
+      schedule: (fn) => {
+        tick = fn;
+        return () => {};
+      },
+      ...quiet,
+    });
+    tick();
+    await vi.waitFor(() => expect(stops[0]).toHaveBeenCalled());
+    expect(published).toHaveLength(1);
+    next = ["192.168.16.40"];
+    tick();
+    await vi.waitFor(() => expect(published).toHaveLength(2));
+    expect((published[1].records() as any[]).filter((r) => r.type === "A").map((r) => r.data)).toEqual(["192.168.16.40"]);
+  });
 });
 
 describe("resolveAdvertisedAddresses (#E5)", () => {
