@@ -6,7 +6,7 @@
  * @blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.
  */
 
-export interface SlotSectionContext {
+interface SlotSectionContext {
   /** kebab-case plugin id (for log lines, data-testid prefixes). */
   id: string;
   /** PascalCase config type name (e.g. "AcmeConfig"). */

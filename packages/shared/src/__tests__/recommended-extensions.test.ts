@@ -42,6 +42,7 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 				"@blackbelt-technology/pi-dashboard-frontend-patterns",
 				"@blackbelt-technology/pi-dashboard-video-production",
 				"@blackbelt-technology/pi-dashboard-nano-banana",
+				"@blackbelt-technology/pi-dashboard-photocraft",
 			].sort(),
 		);
 	});
@@ -211,8 +212,20 @@ describe("getRecommendedByStatus", () => {
 				"@blackbelt-technology/pi-dashboard-frontend-patterns",
 				"@blackbelt-technology/pi-dashboard-video-production",
 				"@blackbelt-technology/pi-dashboard-nano-banana",
+				"@blackbelt-technology/pi-dashboard-photocraft",
 			].sort(),
 		);
+	});
+});
+
+describe("photocraft entry", () => {
+	it("E22 is optional, npm-sourced and unlocks the skill + CLI", () => {
+		const entry = RECOMMENDED_EXTENSIONS.find((e) => e.id === "@blackbelt-technology/pi-dashboard-photocraft");
+		expect(entry).toBeDefined();
+		expect(entry?.status).toBe("optional");
+		expect(entry?.source).toBe("npm:@blackbelt-technology/pi-dashboard-photocraft");
+		expect(entry?.unlocks.join(" ")).toMatch(/photocraft skill/);
+		expect(entry?.unlocks.join(" ")).toMatch(/pi-photocraft CLI/);
 	});
 });
 

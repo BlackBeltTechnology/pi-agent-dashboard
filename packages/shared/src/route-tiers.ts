@@ -101,6 +101,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/file/sheet", tier: "observe" },
   { method: "GET", path: "/api/file/tree", tier: "observe" },
   { method: "GET", path: "/api/flows-anthropic-bridge/status", tier: "observe" },
+  { method: "GET", path: "/api/folder/project", tier: "observe" },
   { method: "GET", path: "/api/folders/goals", tier: "observe" },
   { method: "GET", path: "/api/git/branches", tier: "observe" },
   { method: "GET", path: "/api/git/changed-files", tier: "observe" },
