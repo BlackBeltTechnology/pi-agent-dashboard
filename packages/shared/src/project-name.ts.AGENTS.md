@@ -1,0 +1,3 @@
+# project-name.ts — index
+
+Portable project-name rules for `POST /api/browse/create-project`. Exports `projectNameProblem(name)` → `invalid_name`|`reserved_name`|`too_long`|`null`, boolean guard `isPortableProjectName(name)`, `MAX_PROJECT_NAME_BYTES` (255). Rules: single segment, non-empty, no edge whitespace, not `.`/`..`, no trailing `.`, none of `/ \ : * ? " < > |`, no C0/DEL/C1 control chars, no Windows device name (any extension, superscript digits too), ≤255 UTF-8 bytes. `isPortableProjectName` is a CodeQL `js/path-injection` barrier-guard model target (`.github/codeql/extensions/cwd-guard.model.yml`) — keep its name, module path and `Argument[0]` shape stable. See change: streamline-first-run.

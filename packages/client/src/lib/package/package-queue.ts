@@ -103,6 +103,12 @@ interface SuccessState {
   message: string;
 }
 
+/** Public read of one source's operation state. See `getSourceOp`. */
+interface SourceOp {
+  action: PackageAction;
+  status: "queued" | "running" | "success" | "error";
+}
+
 const RETRY_BACKOFF_MS = 500;
 const SUCCESS_AUTOCLEAR_MS = 3000;
 
@@ -111,6 +117,8 @@ class PackageQueue {
   private queue: QueuedOp[] = [];
   private successBySource = new Map<string, SuccessState>();
   private errorBySource = new Map<string, ErrorState>();
+  /** Action of the last terminal (success/error) op per source; cleared with the sticky state. */
+  private lastTerminalAction = new Map<string, PackageAction>();
   private listeners = new Set<() => void>();
   private autoClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Callbacks waiting for the running op to complete. */
@@ -138,6 +146,7 @@ class PackageQueue {
     // Clear any sticky error/success for this source on fresh enqueue.
     this.errorBySource.delete(req.source);
     this.successBySource.delete(req.source);
+    this.lastTerminalAction.delete(req.source);
     const existingTimer = this.autoClearTimers.get(req.source);
     if (existingTimer) {
       clearTimeout(existingTimer);
@@ -172,6 +181,24 @@ class PackageQueue {
     if (this.errorBySource.has(source)) return this.errorBySource.get(source)!.message;
     if (this.successBySource.has(source)) return this.successBySource.get(source)!.message;
     return "";
+  }
+
+  /**
+   * Read-only per-source operation: a pending (running/queued) op wins — an
+   * `install` over any other action — else the sticky terminal state with the
+   * action that produced it. `null` when idle (e.g. after the 3 s success
+   * auto-clear). See change: streamline-first-run (design D2/D3).
+   */
+  getSourceOp(source: string): SourceOp | null {
+    const pending: SourceOp[] = [];
+    if (this.running?.source === source) pending.push({ action: this.running.action, status: "running" });
+    for (const q of this.queue) if (q.source === source) pending.push({ action: q.action, status: "queued" });
+    if (pending.length > 0) return pending.find((p) => p.action === "install") ?? pending[0];
+    const action = this.lastTerminalAction.get(source);
+    if (!action) return null;
+    if (this.errorBySource.has(source)) return { action, status: "error" };
+    if (this.successBySource.has(source)) return { action, status: "success" };
+    return null;
   }
 
   getRunning(): RunningOp | null {
@@ -210,6 +237,7 @@ class PackageQueue {
     this.queue = [];
     this.successBySource.clear();
     this.errorBySource.clear();
+    this.lastTerminalAction.clear();
     this.pendingCompleteCallbacks = [];
     for (const t of this.autoClearTimers.values()) clearTimeout(t);
     this.autoClearTimers.clear();
@@ -438,10 +466,12 @@ class PackageQueue {
   private completeRunning(success: boolean, errorMsg?: string, successMsg?: string): void {
     if (!this.running) return;
     const source = this.running.source;
+    this.lastTerminalAction.set(source, this.running.action);
     if (success) {
       this.successBySource.set(source, { message: successMsg ?? "Done" });
       const t = setTimeout(() => {
         this.successBySource.delete(source);
+        if (!this.errorBySource.has(source)) this.lastTerminalAction.delete(source);
         this.autoClearTimers.delete(source);
         this.notify();
       }, SUCCESS_AUTOCLEAR_MS);

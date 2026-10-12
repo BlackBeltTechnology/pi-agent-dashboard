@@ -1,6 +1,6 @@
 # DOX — tests/e2e
 
-One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md`; source of truth here). See change: migrate-file-index-to-agents-tree.
+One row per file. Non-source area; source of truth here. See change: migrate-file-index-to-agents-tree.
 
 | File | Purpose |
 |------|---------|
@@ -10,6 +10,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `archived-attachment.spec.ts` | L3 F8/F11 archived attachment. → see `archived-attachment.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
+| `first-run-create-project.spec.ts` | F16/F17 → see `first-run-create-project.spec.ts.AGENTS.md` |
 | `hermes-model-override.spec.ts` | L3 F3 → see `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | L3 KB settings sources + search. → see `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `known-server-stale-name.spec.ts` | L3 stale known-server name. → see `known-server-stale-name.spec.ts.AGENTS.md` |
@@ -178,7 +179,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `session-state-honesty.spec.ts` | L3 rendered-honesty gate (change… → see `session-state-honesty.spec.ts.AGENTS.md` |
 | `session-tags.spec.ts` | E2E for change add-session-tags (task 7.2). Spawns a fresh… → see `session-tags.spec.ts.AGENTS.md` |
 | `sessions-page-stub-group.spec.ts` | L3 for the `sessions_page` stub-group paging path. → see `sessions-page-stub-group.spec.ts.AGENTS.md` |
-| `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session Default Model picker… → see `settings-default-model-catalogue.spec.ts.AGENTS.md` |
+| `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session Default… → see `settings-default-model-catalogue.spec.ts.AGENTS.md` |
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors` +… → see `severity-contrast.spec.ts.AGENTS.md` |
 | `settings-provider-auth-corrupt-authfile.spec.ts` | L3: corrupt auth.json + repair. → see `settings-provider-auth-corrupt-authfile.spec.ts.AGENTS.md` |
 | `skill-provenance.spec.ts` | L3 for the Resources skills grid (F1-F10, X7). Fulfils… → see `skill-provenance.spec.ts.AGENTS.md` |
