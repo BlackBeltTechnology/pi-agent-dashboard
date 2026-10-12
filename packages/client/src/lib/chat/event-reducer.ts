@@ -2662,13 +2662,14 @@ export function reduceEvent(
             } else if (liveAgentId) {
               // The row just learned an agent id whose subagent already stopped.
               // See change: finalize-agent-card-on-subagent-stop (D3b).
+              // Subagent state first: the common running tick does no scan.
               const sub = next.subagents.get(liveAgentId);
-              const [eligible] = findEligibleAgentRows(next, liveAgentId);
               if (
                 sub &&
                 (sub.status === "completed" || sub.status === "failed") &&
-                eligible !== undefined &&
-                next.messages[eligible].toolCallId === toolCallId
+                priorRow.toolStatus === "running" &&
+                priorRow.role === "toolResult" &&
+                next.toolCalls.get(toolCallId)?.status === "running"
               ) {
                 return finalizeAgentRowFromSubagent(next, toolCallId, sub, "subagent_stopped", event.timestamp);
               }
@@ -2770,7 +2771,8 @@ export function reduceEvent(
           // See change: finalize-agent-card-on-subagent-stop (D5b).
           const rest: Record<string, unknown> = { ...finalDetails };
           for (const key of HEAL_ONLY_DETAIL_KEYS) delete rest[key];
-          if (!endDetails) delete rest.error;
+          // Keep it on an error end: the error card shows only `details.error`.
+          if (!endDetails && !isError) delete rest.error;
           finalDetails = rest;
         }
         next.messages[idx] = {

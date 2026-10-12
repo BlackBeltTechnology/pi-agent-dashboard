@@ -250,6 +250,17 @@ describe("real end overwrites a heal", () => {
     expect(a.toolDetails?.resultMissing).toBeUndefined();
   });
 
+  it("a real error end without details keeps the subagent's error text (E17b)", () => {
+    const s = apply(
+      [failed("ag-A", "boom"), ev("tool_execution_end", { toolCallId: "A", toolName: "Agent", result: "boom", isError: true }, 5000)],
+      threeRunning(),
+    );
+    const a = row(s, "A");
+    expect(a.toolStatus).toBe("error");
+    expect(a.toolDetails?.error).toBe("boom");
+    expect(a.toolDetails?.healedBy).toBeUndefined();
+  });
+
   it("clears heal-only fields after a neutral settle (E18)", () => {
     const s = apply([settled(), realEnd("A", "real A")], threeRunning());
     const a = row(s, "A");

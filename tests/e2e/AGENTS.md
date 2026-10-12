@@ -186,6 +186,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `subagent-live-timeline.spec.ts` | L3 live subagent timeline. → see `subagent-live-timeline.spec.ts.AGENTS.md` |
 | `subagent-pull-measurements.spec.ts` | RECORDED-EVIDENCE measurement rows for the subagent pull… → see `subagent-pull-measurements.spec.ts.AGENTS.md` |
 | `subagent-pull-under-load.spec.ts` | L3 open-inspector PULL path (verify-subagent-pull-under-loa… → see `subagent-pull-under-load.spec.ts.AGENTS.md` |
+| `subagent-stop-finalize.spec.ts` | L3 F11: `routeWebSocket` drops Agent `tool_execution_end`; `[[faux:subagent-reasoning]]` card must stop spinning <10 s after parent reply (no 25 s stale reconcile), no recovered/superseded badge. Fails on pre-change client. See change: finalize-agent-card-on-subagent-stop. |
 | `subagent-thin-tick-liveness.spec.ts` | L3 subagent push/pull split: terminal fidelity after… → see `subagent-thin-tick-liveness.spec.ts.AGENTS.md` |
 | `subagent-tick-throttle.spec.ts` | L3 cadence rows for the subagent-tick throttle (change → see `subagent-tick-throttle.spec.ts.AGENTS.md` |
 | `submodule-folder-grouping.spec.ts` | L3 checkout-root resolver (change… → see `submodule-folder-grouping.spec.ts.AGENTS.md` |
