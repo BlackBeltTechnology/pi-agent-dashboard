@@ -5,7 +5,7 @@ The `pi-photocraft` command-line entry point gives agents and users two routes t
 ## ADDED Requirements
 
 ### Requirement: Subcommand dispatch and exit codes
-`pi-photocraft` SHALL accept the subcommands `ensure`, `path`, `exec`, `mcp` and `replace-region`. With no subcommand, an unknown subcommand, or `--help`, it SHALL print a usage text listing every subcommand. Exit codes SHALL be: `0` success, `1` usage error or a failed edit, `69` provisioning failure; `exec` additionally propagates the binary's own exit code (documented as possibly overlapping `1`).
+`pi-photocraft` SHALL accept the subcommands `ensure`, `path`, `exec`, `mcp` and `replace-region`. With no subcommand, an unknown subcommand, or `--help`, it SHALL print a usage text listing every subcommand. Exit codes SHALL be: `0` success, `1` usage error or a failed edit, `69` provisioning failure; `exec` additionally propagates the binary's own exit code (documented as possibly overlapping `1` or `69`).
 
 #### Scenario: Unknown subcommand
 - **WHEN** `pi-photocraft frobnicate` is run
@@ -14,6 +14,17 @@ The `pi-photocraft` command-line entry point gives agents and users two routes t
 #### Scenario: Provisioning failure exit code
 - **WHEN** any subcommand needs the binary and provisioning fails
 - **THEN** the provisioning error is printed to stderr and the exit code is `69`
+
+### Requirement: Executable from a shell
+The `pi-photocraft` bin SHALL start from a plain shell — including an agent's bash tool inside a pi session, with no TypeScript loader configured — both from the monorepo checkout and from an npm install (including pi's `~/.pi/agent/npm` prefix).
+
+#### Scenario: npm-installed bin runs without a TypeScript loader
+- **WHEN** the packed package is installed with npm into a fresh prefix and `pi-photocraft --help` is run with an empty `NODE_OPTIONS`
+- **THEN** usage is printed and the exit code is `0`
+
+#### Scenario: Workspace bin runs from the checkout
+- **WHEN** `node_modules/.bin/pi-photocraft --help` is run in the monorepo
+- **THEN** usage is printed and the exit code is `0`
 
 ### Requirement: ensure and path
 `pi-photocraft ensure` SHALL provision the binary and print the provisioning report as one JSON object on stdout. `pi-photocraft path` SHALL provision the binary and print only its absolute path.
@@ -38,7 +49,7 @@ The `pi-photocraft` command-line entry point gives agents and users two routes t
 - **THEN** `pi-photocraft exec` exits with code `1` and the binary's error text appears on stderr
 
 ### Requirement: mcp server confined to the project
-`pi-photocraft mcp` SHALL provision the binary and run its stdio MCP server, translating `--root <dir>` (default: the current working directory) into BOTH the server's automation read root and write root, and printing the root in use to stderr. It SHALL reject any other option (including direct automation-root, bridge or control-token options), SHALL NOT start the server with unrestricted path access, and SHALL never attach to a desktop app. Because the server handles requests concurrently, the wrapper SHALL forward client `tools/call` requests to the server one at a time — the next is forwarded only after the server has responded to the previous one — while forwarding every other message immediately. Server stdout lines that are not JSON SHALL be diverted to stderr, never into the MCP channel. On SIGINT/SIGTERM it SHALL terminate the server child and exit with `130` (SIGINT) or `143` (SIGTERM).
+`pi-photocraft mcp` SHALL provision the binary and run its stdio MCP server, translating `--root <dir>` (default: the current working directory) into BOTH the server's automation read root and write root, and printing the root in use to stderr. `--help`/`-h` SHALL print usage and exit `0`. It SHALL reject any other option (including direct automation-root, bridge or control-token options), SHALL NOT start the server with unrestricted path access, and SHALL never attach to a desktop app. Because the server handles requests concurrently, the wrapper SHALL forward client `tools/call` requests to the server one at a time — the next is forwarded only after the server has responded to the previous one — while forwarding every other message immediately. Server stdout lines that are not JSON SHALL be diverted to stderr, never into the MCP channel. On SIGINT/SIGTERM it SHALL terminate the server child and exit with `130` (SIGINT) or `143` (SIGTERM).
 
 #### Scenario: Default root is the cwd
 - **WHEN** `pi-photocraft mcp` is started in `/work/proj` without `--root`
@@ -61,12 +72,12 @@ The `pi-photocraft` command-line entry point gives agents and users two routes t
 - **THEN** nothing is written to stdout (the MCP channel stays clean), the error goes to stderr and the exit code is `69`
 
 ### Requirement: Opt-in MCP registration
-`pi-photocraft mcp --register` SHALL add (or update) an entry named `photocraft` in the project's `.pi/mcp.json` under `mcpServers`, whose command is the absolute path of the running Node executable and whose arguments are the absolute path of the `pi-photocraft` entry script followed by `mcp --root <absolute project dir>`, the project dir being the current working directory at registration time (so it works without `pi-photocraft` on PATH), preserving every other key and server in the file, then exit without starting a server. It SHALL print to stderr that the entry is machine-specific (absolute paths) and that pi only loads project MCP servers after the project is trusted. Registration SHALL only happen on this explicit flag, never as a side effect of any other subcommand.
+`pi-photocraft mcp --register` SHALL add (or update) an entry named `photocraft` in the project's `.pi/mcp.json` under `mcpServers`, whose command is the absolute path of the running Node executable and whose arguments are the absolute path of the `pi-photocraft` launcher followed by `mcp` (no `--root`: pi starts project stdio servers with the session directory — the project root — as the working directory, which becomes the root), preserving every other key and server in the file, then exit without starting a server. It SHALL print to stderr that the entry is machine-specific (absolute paths), that pi only loads project MCP servers after the project is trusted, and that pi must be started in the project root (a session started in a subdirectory does not load `.pi/mcp.json`). Registration SHALL only happen on this explicit flag, never as a side effect of any other subcommand.
 
 #### Scenario: Register into a missing file
 - **WHEN** `.pi/mcp.json` does not exist
-- **THEN** it is created containing only `mcpServers.photocraft`, whose command and first argument are absolute paths
-- **AND** stderr mentions the machine-specific paths and project trust
+- **THEN** it is created containing only `mcpServers.photocraft`, whose command and first argument are absolute paths and whose remaining arguments are exactly `["mcp"]`
+- **AND** stderr mentions the machine-specific paths, project trust and starting pi in the project root
 
 #### Scenario: Register preserves other servers
 - **WHEN** `.pi/mcp.json` already defines servers `filesystem` and `docs`
@@ -76,12 +87,16 @@ The `pi-photocraft` command-line entry point gives agents and users two routes t
 - **WHEN** `.pi/mcp.json` exists but is not valid JSON
 - **THEN** the file is left untouched, an error naming the file is printed, and the exit code is `1`
 
+#### Scenario: Registering outside a project root warns
+- **WHEN** `mcp --register` runs in a directory containing neither `.git` nor `.pi/`
+- **THEN** the entry is written and stderr warns that the directory does not look like a project root and that pi loads `.pi/mcp.json` only when started there
+
 #### Scenario: Other subcommands never register
 - **WHEN** `pi-photocraft mcp` (without `--register`), `ensure` or `exec` run
 - **THEN** `.pi/mcp.json` is not created or modified
 
 ### Requirement: Shipped skill
-The package SHALL ship a pi skill that teaches: provisioning via `pi-photocraft`; discovery of command ids and parameter schemas via `commands --filter` / `commands --json` before use; inspection via `info`; editing via `run` and `batch`; the bash and MCP routes and when to prefer each; that MCP tool calls must be issued sequentially (wait for each result); that MCP paths must lie under the project root; and recipes that combine with `pi-nano-banana` (replace part, remove object, insert generated asset, background swap, finishing/batch export).
+The package SHALL ship a pi skill that teaches: provisioning via `pi-photocraft`; that the MCP route needs pi started in the project root of a trusted project; discovery of command ids and parameter schemas via `commands --filter` / `commands --json` before use; inspection via `info`; editing via `run` and `batch`; the bash and MCP routes and when to prefer each; that MCP tool calls must be issued sequentially (wait for each result); that MCP paths must lie under the project root; and recipes that combine with `pi-nano-banana` (replace part, remove object, insert generated asset, background swap, finishing/batch export).
 
 #### Scenario: Skill is declared and discoverable
 - **WHEN** the package is installed in pi
