@@ -7,3 +7,7 @@ See change: align-ui-with-theme-tokens. Subagents blurb "no background sessions.
 ## cleanup-post-r3-spec-drift
 
 `BUNDLED_EXTENSION_IDS` doc-comment states the manifest is EMPTY (no installer pre-bundle path); dropped refs to `installBundledExtensions()`/`dependency-installer.ts`/`bundle-recommended-extensions.mjs`. See change: cleanup-post-r3-spec-drift.
+
+## add-photocraft-plugin
+
+Adds the `@blackbelt-technology/pi-dashboard-photocraft` optional entry (npm: source; unlocks photocraft skill + `pi-photocraft` CLI). See change: add-photocraft-plugin.
