@@ -11,16 +11,16 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  hasRouteTier,
-  ROUTE_TIERS,
-} from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
-import {
   ALLOWLISTED_CONTEXT_MEMBERS,
   DENYLIST,
   GENERATED_TOOLS,
   isDenylisted,
   MANIFEST,
 } from "@blackbelt-technology/pi-dashboard-mcp-server-plugin/manifest";
+import {
+  hasRouteTier,
+  ROUTE_TIERS,
+} from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import ts from "typescript";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer, type DashboardServer } from "../server.js";
@@ -179,6 +179,17 @@ describe("E33 — /api/push/* routes are tiered and denylisted", () => {
       expect(row?.tier, `${r.method} ${r.path}`).toBe(r.tier);
       expect(isDenylisted(r.path), r.path).toBe(true);
     }
+  });
+});
+
+// See change: streamline-first-run (test-plan #E16).
+describe("E16 — create-project is control-tier, denylisted and never a generated tool", () => {
+  it("resolves to control, is denylisted, and no tool name contains create_project", () => {
+    const row = ROUTE_TIERS.find((e) => e.method === "POST" && e.path === "/api/browse/create-project");
+    expect(row?.tier).toBe("control");
+    expect(isDenylisted("/api/browse/create-project")).toBe(true);
+    expect(GENERATED_TOOLS.some((t) => t.name.includes("create_project"))).toBe(false);
+    expect(MANIFEST.some((r) => r.name.includes("create_project"))).toBe(false);
   });
 });
 

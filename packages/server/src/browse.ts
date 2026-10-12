@@ -13,10 +13,10 @@
  * See change: split-browse-flags.
  */
 import fs from "node:fs/promises";
-import path from "node:path";
 import os from "node:os";
-import type { BrowseEntry, BrowseFlagEntry, BrowseResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import path from "node:path";
 import { isFilesystemRoot } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import type { BrowseEntry, BrowseFlagEntry, BrowseResult, CreateProjectErrorReason } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { createSemaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 
 const MAX_ENTRIES = 200;
@@ -256,4 +256,127 @@ export async function createDirectory(parent: string, name: string): Promise<str
     throw err;
   }
   return target;
+}
+
+/** Stable machine codes for `createProjectDirectory` failures (see shared/rest-api.ts). */
+export type CreateProjectReason = CreateProjectErrorReason;
+
+export class CreateProjectError extends Error {
+  constructor(
+    readonly reason: CreateProjectReason,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CreateProjectError";
+  }
+}
+
+/** Default projects root directory name, inside the server user's home. */
+const PROJECTS_ROOT_NAME = "Projects";
+const MAX_PROJECT_NAME_BYTES = 255;
+// C0 + DEL + C1 control characters.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
+const CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F]/;
+const WINDOWS_FORBIDDEN_CHARS = /[:*?"<>|]/;
+// Windows device names; the superscript digits are reserved too. Matched on the
+// basename up to the first dot, so `aux.txt` is reserved like `aux`.
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9\u00B9\u00B2\u00B3]|lpt[0-9\u00B9\u00B2\u00B3])$/i;
+
+function validateProjectName(name: unknown): void {
+  if (typeof name !== "string") throw new CreateProjectError("invalid_name", "invalid name");
+  if (validateMkdirName(name) !== null) throw new CreateProjectError("invalid_name", "invalid name");
+  if (CONTROL_CHARS.test(name) || WINDOWS_FORBIDDEN_CHARS.test(name) || name.endsWith(".")) {
+    throw new CreateProjectError("invalid_name", "invalid name");
+  }
+  if (WINDOWS_RESERVED.test(name.split(".")[0].trimEnd())) {
+    throw new CreateProjectError("reserved_name", "reserved name");
+  }
+  if (Buffer.byteLength(name, "utf8") > MAX_PROJECT_NAME_BYTES) {
+    throw new CreateProjectError("too_long", "name too long");
+  }
+}
+
+const errCode = (err: unknown): string | undefined => (err as NodeJS.ErrnoException | undefined)?.code;
+
+async function isDirectory(p: string): Promise<boolean> {
+  try {
+    return (await fs.stat(p)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** Remove a directory this request created, never following a link. */
+async function removeCreated(target: string): Promise<void> {
+  try {
+    if ((await fs.lstat(target)).isDirectory()) await fs.rmdir(target);
+  } catch {
+    /* best effort */
+  }
+}
+
+/**
+ * Create or reuse `<homeDir>/Projects/<name>` and return its real path.
+ * Nothing above `<homeDir>` is ever created; the resolved directory must be
+ * strictly inside the root's real path. Throws `CreateProjectError`.
+ * See change: streamline-first-run (design D4).
+ */
+export async function createProjectDirectory(
+  name: unknown,
+  homeDir: string = os.homedir(),
+): Promise<{ path: string; existed: boolean }> {
+  validateProjectName(name);
+  const safeName = name as string;
+
+  if (!(await isDirectory(homeDir))) {
+    throw new CreateProjectError("home_missing", "home directory not found");
+  }
+
+  const root = path.join(homeDir, PROJECTS_ROOT_NAME);
+  try {
+    await fs.mkdir(root, { recursive: false });
+  } catch (err) {
+    if (errCode(err) !== "EEXIST") throw new CreateProjectError("fs_error", "could not create projects root");
+  }
+  let rootReal: string;
+  try {
+    rootReal = await fs.realpath(root);
+  } catch (err) {
+    if (errCode(err) === "ENOENT") {
+      throw new CreateProjectError("root_not_a_directory", "projects root is not a directory");
+    }
+    throw new CreateProjectError("fs_error", "could not resolve projects root");
+  }
+  if (!(await isDirectory(rootReal))) {
+    throw new CreateProjectError("root_not_a_directory", "projects root is not a directory");
+  }
+
+  const target = path.join(rootReal, safeName);
+  let created = false;
+  try {
+    await fs.mkdir(target, { recursive: false });
+    created = true;
+  } catch (err) {
+    const code = errCode(err);
+    if (code === "ENAMETOOLONG") throw new CreateProjectError("too_long", "name too long");
+    if (code !== "EEXIST") throw new CreateProjectError("fs_error", "could not create project directory");
+  }
+
+  let targetReal: string;
+  try {
+    targetReal = await fs.realpath(target);
+  } catch (err) {
+    if (created) await removeCreated(target);
+    if (errCode(err) === "ENOENT") throw new CreateProjectError("not_a_directory", "target is not a directory");
+    throw new CreateProjectError("fs_error", "could not resolve project directory");
+  }
+  const prefix = rootReal.endsWith(path.sep) ? rootReal : rootReal + path.sep;
+  if (!targetReal.startsWith(prefix)) {
+    if (created) await removeCreated(target);
+    throw new CreateProjectError("outside_root", "project directory resolves outside the projects root");
+  }
+  if (!(await isDirectory(targetReal))) {
+    throw new CreateProjectError("not_a_directory", "target is not a directory");
+  }
+  return { path: targetReal, existed: !created };
 }
