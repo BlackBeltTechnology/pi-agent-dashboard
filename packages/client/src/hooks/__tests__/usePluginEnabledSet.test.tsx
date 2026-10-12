@@ -3,7 +3,7 @@
  * set CHANGES (test-plan F9). See change: add-project-scoped-apps.
  */
 import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePluginEnabledSet } from "../usePluginEnabledSet.js";
 
@@ -25,16 +25,26 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-const refreshEvent = () => act(async () => {
-  window.dispatchEvent(new Event("plugin-config-update"));
-  await new Promise((r) => setTimeout(r, 0));
-});
+const fetchMock = () => vi.mocked(globalThis.fetch);
+/** Dispatch a config update and wait until its `/api/health` refresh has been applied. */
+async function refreshEvent() {
+  const before = fetchMock().mock.calls.length;
+  act(() => {
+    window.dispatchEvent(new Event("plugin-config-update"));
+  });
+  await waitFor(() => expect(fetchMock().mock.calls.length).toBe(before + 1));
+  await act(async () => {
+    await fetchMock().mock.results[before]?.value;
+  });
+}
 
 describe("usePluginEnabledSet → folder project cache", () => {
   it("F9: an unchanged refresh keeps the cache; a changed set clears it", async () => {
     renderHook(() => usePluginEnabledSet(createSlotRegistry()));
-    await flush();
+    await waitFor(() => expect(fetchMock()).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await fetchMock().mock.results[0]?.value;
+    });
     expect(clearFolderProjects).not.toHaveBeenCalled(); // first load is the baseline
 
     await refreshEvent(); // same set
