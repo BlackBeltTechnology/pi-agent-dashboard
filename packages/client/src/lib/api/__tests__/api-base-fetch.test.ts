@@ -8,15 +8,11 @@
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
-import {
-  clearGrantChannel,
-  GRANT_CHANNEL_HEADER,
-  installGrantChannelFetch,
-  setGrantChannel,
-} from "../../access-grants/grant-channel.js";
-import { clearDeviceBearer, installDeviceAuthFetch, storeDeviceBearer } from "../../pairing/device-auth.js";
+import { clearGrantChannel, GRANT_CHANNEL_HEADER, setGrantChannel } from "../../access-grants/grant-channel.js";
+import { clearDeviceBearer, storeDeviceBearer } from "../../pairing/device-auth.js";
 import { getApiBase, setGlobalApiBase } from "../api-context.js";
 import { installApiBaseFetch } from "../api-base-fetch.js";
+import { installFetchWrappers } from "../install-fetch-wrappers.js";
 
 interface Seen {
   input: RequestInfo | URL;
@@ -27,19 +23,21 @@ interface Seen {
 }
 const seen: Seen[] = [];
 const REMOTE = "http://remote:8000";
+let installedFetch: typeof fetch;
 
 beforeAll(() => {
-  // Network stub at the bottom of the chain; same install order as main.tsx.
+  // Network stub at the bottom of the chain. Wrappers go on via the SAME installer
+  // main.tsx calls, so an order regression there fails these tests.
   window.fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
     seen.push({ input, url, authorization: headers.get("Authorization"), grant: headers.get(GRANT_CHANNEL_HEADER), method: init?.method });
     return Promise.resolve(new Response("{}"));
   }) as typeof fetch;
-  installDeviceAuthFetch();
-  installGrantChannelFetch();
-  installApiBaseFetch();
+  installFetchWrappers();
+  installedFetch = window.fetch;
   // Idempotent: a second install must not double-wrap.
+  installFetchWrappers();
   installApiBaseFetch();
 });
 
@@ -111,17 +109,16 @@ describe("installApiBaseFetch rewrite", () => {
     expect(seen[0].method).toBe("POST");
   });
 
-  it("is idempotent: a double install rewrites exactly once", async () => {
+  it("is idempotent: re-installing neither re-wraps fetch nor changes the result", async () => {
+    expect(window.fetch).toBe(installedFetch);
     setGlobalApiBase(REMOTE);
     await fetch("/api/quota");
-    // A double-wrap would still produce one correct URL, so assert the guard directly.
-    expect((window as unknown as { __piApiBaseFetch?: boolean }).__piApiBaseFetch).toBe(true);
-    expect(seen).toHaveLength(1);
+    expect(seen.map((s) => s.url)).toEqual([`${REMOTE}/api/quota`]);
     expect(getApiBase()).toBe(REMOTE);
   });
 });
 
-describe("credential isolation (main.tsx install order)", () => {
+describe("credential isolation (installFetchWrappers order, as used by main.tsx)", () => {
   it("attaches no local bearer to a rewritten remote request", async () => {
     storeDeviceBearer("local-device-token");
     setGlobalApiBase(REMOTE);

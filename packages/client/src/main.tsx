@@ -51,9 +51,8 @@ import { LogBlock } from "./components/primitives/LogBlock.js";
 import { PathPickerDialog } from "./components/primitives/PathPickerDialog.js";
 import { OAuthFlowView } from "./components/settings/OAuthFlowView.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
-import { installApiBaseFetch } from "./lib/api/api-base-fetch.js";
-import { installGrantChannelFetch } from "./lib/access-grants/grant-channel.js";
-import { installDeviceAuthFetch, migrateLegacyDeviceBearer } from "./lib/pairing/device-auth.js";
+import { installFetchWrappers } from "./lib/api/install-fetch-wrappers.js";
+import { migrateLegacyDeviceBearer } from "./lib/pairing/device-auth.js";
 import {
   ModelSelectorPrimitive,
   ThinkingLevelSelectorPrimitive,
@@ -176,22 +175,16 @@ registerUiPrimitive(
   ThinkingBlockPrimitive,
 );
 
-// Teach the dashboard's HTTP layer to present a paired-device bearer (if this
-// browser paired via `/pair`). Installed before any fetch fires so every
-// same-origin `/api/*` request carries the bearer.
-// See change: make-pairing-qr-camera-scannable.
-installDeviceAuthFetch();
+// Install the global fetch wrappers (single ordered seam — see
+// lib/api/install-fetch-wrappers.ts): paired-device bearer on same-origin
+// `/api/*` (make-pairing-qr-camera-scannable), access-prompt capability echo
+// (add-access-grant-dialog), then the API-base rewrite that makes un-prefixed
+// `/api/` fetches follow the selected server (fix-remote-relative-api-fetch).
+// Installed before any fetch fires.
+installFetchWrappers();
 // Move a legacy localStorage device bearer into the httpOnly cookie (same-origin only).
 // See change: harden-trust-and-credential-boundaries (D5).
 void migrateLegacyDeviceBearer();
-// Echo the in-memory access-prompt capability on same-origin `/api/*` requests
-// so a denied read can be held for a verdict. See change: add-access-grant-dialog.
-installGrantChannelFetch();
-// Follow the selected server for un-prefixed root-relative `/api/` fetches (plugin
-// clients get no API base). MUST be installed AFTER the two credential wrappers
-// above (outermost) so they see the rewritten cross-origin URL and never attach
-// the local bearer / grant capability to a remote. See change: fix-remote-relative-api-fetch.
-installApiBaseFetch();
 
 // D22 dashboard-UI login: consume the login plugin's return (`#pi_handoff`,
 // `#pi_login_error`, `?pi_signed_out=1`) BEFORE <App/> mounts, stripping it from
