@@ -184,3 +184,26 @@ describe("pluginSpawnToSessionOptions", () => {
     });
   });
 });
+
+describe("pluginSpawnToSessionOptions — noMcp (spawn-scope-no-mcp)", () => {
+  type Scope = NonNullable<PluginSpawnOptions["scope"]>;
+
+  it("E2: copies noMcp only for === true; the key is absent otherwise", () => {
+    expect(pluginSpawnToSessionOptions({ cwd: "/w", scope: { noMcp: true } }).noMcp).toBe(true);
+    for (const bad of [false, "true", 1, null, undefined]) {
+      const mapped = pluginSpawnToSessionOptions({ cwd: "/w", scope: { noMcp: bad } as unknown as Scope });
+      expect("noMcp" in mapped, String(bad)).toBe(false);
+    }
+    expect("noMcp" in pluginSpawnToSessionOptions({ cwd: "/w", scope: {} })).toBe(false);
+    expect(argvFor({ cwd: "/w", scope: { noMcp: true } })).toEqual(["--no-mcp"]);
+  });
+
+  it("E3: absent scope and empty scope emit no --no-mcp", () => {
+    expect(argvFor({ cwd: "/w", model: "m" })).toEqual(["--model", "m"]);
+    expect(argvFor({ cwd: "/w", scope: {} })).toEqual([]);
+  });
+
+  it("E4: tools-only scope emits --tools and no MCP flag", () => {
+    expect(argvFor({ cwd: "/w", scope: { tools: ["read"] } })).toEqual(["--tools", "read"]);
+  });
+});

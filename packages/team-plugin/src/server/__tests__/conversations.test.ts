@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TeamConfig } from "../types.js";
+import { PRESET_TOOLS } from "../../extension/guard.js";
 import { API, type Harness, makeHarness, persona } from "./harness.js";
 
 let h: Harness;
@@ -65,6 +66,35 @@ describe("targets and workspaces (E20, E36)", () => {
     expect(owners).toEqual(["alice", "bob"]);
     expect((await list("alice", "shared:w", "billing")).json.conversations.length).toBe(1);
     expect((await list("bob", "shared:w", "billing")).json.conversations.length).toBe(1);
+  });
+});
+
+describe("spawn wiring: no built-in MCP (spawn-scope-no-mcp)", () => {
+  it("E6: every preset spawns with noMcp and its own tools", async () => {
+    // `full` is only authorable as a shared persona in single-user mode.
+    h = await makeHarness({ mode: "single" });
+    for (const preset of ["chat", "files", "full"] as const) {
+      const key = await mkPersona(undefined, `p-${preset}`, { tools: preset, scope: "shared" });
+      expect((await create(undefined, key)).status).toBe(201);
+    }
+    expect(h.host.spawns).toHaveLength(3);
+    h.host.spawns.forEach((s, i) => {
+      const preset = (["chat", "files", "full"] as const)[i];
+      expect(s.scope?.noMcp, preset).toBe(true);
+      expect(s.scope?.tools, preset).toEqual([...PRESET_TOOLS[preset]]);
+    });
+  });
+
+  it("E7: a resume spawn keeps noMcp", async () => {
+    h = await makeHarness();
+    const key = await mkPersona("alice", "r");
+    const c = (await create("alice", key)).json;
+    const first = h.host.sessions.get(c.sessionId);
+    h.host.emit(c.sessionId, { eventType: "agent_end", timestamp: Date.now() });
+    await h.call("POST", `${API}/agents/${enc(key)}/conversations/${c.id}/restart?project=_ws`, { user: "alice" });
+    expect((await ensure("alice", key, c.id)).status).toBe(200);
+    expect(h.host.spawns[1].resume?.sessionFile).toBe(first?.sessionFile);
+    expect(h.host.spawns[1].scope?.noMcp).toBe(true);
   });
 });
 

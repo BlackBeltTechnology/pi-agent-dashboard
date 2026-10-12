@@ -323,6 +323,8 @@ export interface PluginSpawnOptions {
     noContextFiles?: boolean;
     /** `--no-approve` (bare toggle): skip trust-gated project `.pi/` resources. */
     noProjectTrust?: boolean;
+    /** `--no-mcp` (bare toggle): disable pi's built-in MCP for this run (no servers connect, no MCP tools). */
+    noMcp?: boolean;
     /** `--session-dir <abs path>`; relative / empty / NUL ⇒ dropped. */
     sessionDir?: string;
   };
@@ -495,6 +497,7 @@ export function pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpa
     if (append && append.length > 0) result.appendSystemPrompt = append;
     if (scope.noContextFiles === true) result.noContextFiles = true;
     if (scope.noProjectTrust === true) result.noProjectTrust = true;
+    if (scope.noMcp === true) result.noMcp = true;
     if (isSafeArgvString(scope.sessionDir) && isAbsolute(scope.sessionDir)) {
       result.sessionDir = scope.sessionDir;
     }
