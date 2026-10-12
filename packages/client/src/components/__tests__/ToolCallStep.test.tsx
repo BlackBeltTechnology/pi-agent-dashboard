@@ -652,6 +652,25 @@ describe("ToolCallStep lazy-mount — <RichDiff> only mounts when expanded", () 
     expect(badge?.textContent).not.toBe(supersededText);
   });
 
+  // See change: finalize-agent-card-on-subagent-stop (test-plan F9, D6).
+  it.each([
+    ["resultMissing, no subagent result", { resultMissing: true, healedBy: "turn_settled", agentId: "ag" }, undefined, true],
+    ["resultMissing, subagent result known", { resultMissing: true, healedBy: "turn_settled", agentId: "ag" }, "done", false],
+    ["session_ended orphan-close", { healedBy: "session_ended", agentId: "ag" }, undefined, true],
+    ["subagent_stopped heal", { healedBy: "subagent_stopped", agentId: "ag" }, "done", false],
+    ["turn_settled with a known result", { healedBy: "turn_settled", agentId: "ag" }, "done", false],
+  ] as const)("recovered badge for an Agent heal: %s (F9)", (_label, toolDetails, subResult, badged) => {
+    const subagents = new Map([["ag", { id: "ag", type: "t", description: "d", status: "completed", result: subResult }]]);
+    const { container } = renderStep({
+      toolName: "Agent",
+      status: "complete",
+      toolDetails: { ...toolDetails },
+      context: { session: { subagents } } as unknown as ToolContext,
+    });
+    expect(container.querySelector('[data-testid="tool-recovered-badge"]') !== null).toBe(badged);
+    expect(container.querySelector('[data-testid="tool-superseded-badge"]')).toBeNull();
+  });
+
   it("omits the 'recovered' badge for a normal completion", () => {
     const { container } = renderStep({ status: "complete" });
     expect(container.querySelector('[data-testid="tool-superseded-badge"]')).toBeNull();
