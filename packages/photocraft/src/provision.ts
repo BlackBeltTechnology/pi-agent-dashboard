@@ -355,13 +355,7 @@ function readLatestCache(root: string, now: number): string | undefined {
 function installedVersions(root: string, platform: string): string[] {
   return subdirs(root)
     .filter((d) => /^\d+\.\d+\.\d+/.test(d) && !d.startsWith("."))
-    .filter((d) => {
-      try {
-        return locateBinary(path.join(root, d), platform, d) !== undefined;
-      } catch {
-        return false;
-      }
-    })
+    .filter((d) => cachedBinary(path.join(root, d), platform) !== undefined)
     .sort((a, b) => compareSemver(b, a));
 }
 

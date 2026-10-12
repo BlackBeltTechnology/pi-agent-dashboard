@@ -24,6 +24,14 @@ Runs the PhotoCraft stdio MCP server confined to <dir> (default: the current
 directory) for both reads and writes. Register it in the project's
 .pi/mcp.json with --register (opt-in).`;
 
+/**
+ * How long a cancelled in-flight `tools/call` may keep the queue blocked. MCP lets a
+ * server drop the response to a cancelled request; without a bound, every later call
+ * would wait forever. The server may still be finishing the old command, so the slot
+ * is released late, not at once.
+ */
+export const CANCEL_GRACE_MS = 5000;
+
 export interface McpDeps {
   provision: (opts?: { probeVersion?: boolean }) => Promise<ProvisionReport>;
   spawn: (command: string, args: string[], options: { stdio: ["pipe", "pipe", "inherit"] }) => ChildProcess;
@@ -32,6 +40,7 @@ export interface McpDeps {
   stderr: (text: string) => void;
   cwd: () => string;
   onSignal: (signal: "SIGINT" | "SIGTERM", handler: () => void) => void;
+  cancelGraceMs: number;
 }
 
 export function defaultMcpDeps(): McpDeps {
@@ -45,6 +54,7 @@ export function defaultMcpDeps(): McpDeps {
     onSignal: (signal, handler) => {
       process.on(signal, handler);
     },
+    cancelGraceMs: CANCEL_GRACE_MS,
   };
 }
 
@@ -125,18 +135,42 @@ export async function runMcp(argv: string[], partial: Partial<McpDeps> = {}): Pr
       /* child gone; its exit handler reports */
     });
 
+    let cancelTimer: NodeJS.Timeout | undefined;
+    /** `notifications/cancelled`: drop a queued call; bound the wait on an in-flight one. */
+    const onCancelled = (requestId: unknown, line: string) => {
+      const queued = queue.findIndex((q) => sameId(q.id, requestId));
+      if (queued >= 0) {
+        queue.splice(queued, 1); // never reached the server: nothing to cancel there
+        return;
+      }
+      toChild(line);
+      if (hasInflight && sameId(inflight, requestId)) {
+        clearTimeout(cancelTimer);
+        cancelTimer = setTimeout(() => {
+          if (!hasInflight || !sameId(inflight, requestId)) return;
+          hasInflight = false;
+          inflight = undefined;
+          pump();
+        }, deps.cancelGraceMs);
+        cancelTimer.unref();
+      }
+    };
+
     const clientRl = readline.createInterface({ input: deps.stdin });
     clientRl.on("line", (line) => {
       if (line.trim() === "") return;
-      let msg: { method?: unknown; id?: unknown } | undefined;
+      let msg: { method?: unknown; id?: unknown; params?: { requestId?: unknown } } | undefined;
       try {
         msg = JSON.parse(line);
       } catch {
         return toChild(line);
       }
-      if (msg && !Array.isArray(msg) && msg.method === "tools/call" && msg.id !== undefined) {
-        queue.push({ raw: line, id: msg.id });
+      const single = msg && !Array.isArray(msg) ? msg : undefined;
+      if (single?.method === "tools/call" && single.id !== undefined) {
+        queue.push({ raw: line, id: single.id });
         pump();
+      } else if (single?.method === "notifications/cancelled" && single.params?.requestId !== undefined) {
+        onCancelled(single.params.requestId, line);
       } else toChild(line);
     });
     clientRl.on("close", () => {
@@ -173,6 +207,7 @@ export async function runMcp(argv: string[], partial: Partial<McpDeps> = {}): Pr
       resolve(1);
     });
     child.on("exit", (code, signal) => {
+      clearTimeout(cancelTimer);
       clientRl.close();
       // Let buffered server lines flush before reporting.
       setImmediate(() => resolve(exitOverride ?? (signal ? 1 : (code ?? 1))));

@@ -7,6 +7,7 @@ import type { ProvisionReport } from "../provision.js";
 import {
   buildCompositeArgs,
   clipRect,
+  commitOutputs,
   computeCrop,
   computeMask,
   fromCorners,
@@ -75,6 +76,15 @@ describe("argument validation", () => {
     // --layered must differ from the input and from --out
     expect(parseReplaceArgs([...base(d, ["--rect", "0,0,1,1"]), "--layered", path.join(d, "in.png")]).ok).toBe(false);
     expect(parseReplaceArgs([...base(d, ["--rect", "0,0,1,1"]), "--layered", path.join(d, "out.png")]).ok).toBe(false);
+  });
+
+  it("E24b --out / --layered that are hard links to the input are refused (identity, not path strings)", () => {
+    const d = dir();
+    fs.linkSync(path.join(d, "in.png"), path.join(d, "hard.png"));
+    const viaOut = parseReplaceArgs([path.join(d, "in.png"), "--prompt", "p", "--out", path.join(d, "hard.png"), "--rect", "0,0,1,1"]);
+    expect(viaOut.ok === false && viaOut.error).toMatch(/--out resolves to the input/);
+    const viaLayered = parseReplaceArgs([...base(d, ["--rect", "0,0,1,1"]), "--layered", path.join(d, "hard.png")]);
+    expect(viaLayered.ok === false && viaLayered.error).toMatch(/--layered resolves to the input/);
   });
 
   it("E24 the pad message states the 3 × feather rule; boundary values are accepted", () => {
@@ -355,6 +365,54 @@ describe("generator subprocess", () => {
     const lonely = path.join(tmpDir(), "a.js");
     fs.writeFileSync(lonely, "");
     expect(() => resolveNanoBananaLauncher(`file://${lonely}`)).toThrow(/pi-dashboard-nano-banana/);
+  });
+});
+
+describe("dual-output commit", () => {
+  it("X15b a --layered destination that is a directory fails before anything is replaced", async () => {
+    const h = harness();
+    const out = path.join(path.dirname(h.input), "out.png");
+    const layered = path.join(path.dirname(h.input), "layers.psd");
+    fs.writeFileSync(out, "OLD");
+    fs.mkdirSync(layered);
+    const before = fs.readdirSync(path.dirname(h.input)).sort();
+    expect(await replaceRegion(opts(h, { layered }), h.deps)).toBe(1);
+    expect(h.err.join("")).toMatch(/write step failed/);
+    expect(fs.readFileSync(out, "utf8")).toBe("OLD");
+    expect(fs.readdirSync(path.dirname(h.input)).sort()).toEqual(before);
+  });
+
+  it("X15c a failing second rename restores a pre-existing first output and removes new ones", () => {
+    const dir = tmpDir();
+    const [srcA, srcB] = [path.join(dir, "a.src"), path.join(dir, "b.src")];
+    fs.writeFileSync(srcA, "NEW-A");
+    fs.writeFileSync(srcB, "NEW-B");
+    const [destA, destB] = [path.join(dir, "out.png"), path.join(dir, "out.psd")];
+    fs.writeFileSync(destA, "OLD-A"); // pre-existing; destB is new
+    let stageRenames = 0;
+    const flaky: typeof fs.renameSync = (from, to) => {
+      if (String(from).includes(".pcr-t.tmp") && ++stageRenames === 2) throw new Error("disk says no");
+      fs.renameSync(from, to);
+    };
+    const staged: string[] = [];
+    expect(() => commitOutputs([[srcA, destA], [srcB, destB]], staged, "t", flaky)).toThrow("disk says no");
+    expect(fs.readFileSync(destA, "utf8")).toBe("OLD-A");
+    expect(fs.existsSync(destB)).toBe(false);
+    for (const s of staged) fs.rmSync(s, { force: true });
+    expect(fs.readdirSync(dir).sort()).toEqual(["a.src", "b.src", "out.png"]);
+  });
+
+  it("a successful commit replaces both outputs and leaves no backup or stage files", () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, "a.src"), "NEW-A");
+    fs.writeFileSync(path.join(dir, "b.src"), "NEW-B");
+    fs.writeFileSync(path.join(dir, "out.png"), "OLD-A");
+    const staged: string[] = [];
+    commitOutputs([[path.join(dir, "a.src"), path.join(dir, "out.png")], [path.join(dir, "b.src"), path.join(dir, "out.psd")]], staged, "t");
+    expect(fs.readFileSync(path.join(dir, "out.png"), "utf8")).toBe("NEW-A");
+    expect(fs.readFileSync(path.join(dir, "out.psd"), "utf8")).toBe("NEW-B");
+    expect(fs.readdirSync(dir).sort()).toEqual(["a.src", "b.src", "out.png", "out.psd"]);
+    expect(staged).toEqual([]);
   });
 });
 

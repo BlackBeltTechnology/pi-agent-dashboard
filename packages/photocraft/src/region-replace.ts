@@ -149,6 +149,17 @@ function realish(p: string): string {
   }
 }
 
+/** Same existing file (device + inode: hard links, case-insensitive spellings), else same resolved path. */
+function sameFile(a: string, b: string): boolean {
+  try {
+    const sa = fs.statSync(a);
+    const sb = fs.statSync(b);
+    return sa.dev === sb.dev && sa.ino === sb.ino;
+  } catch {
+    return realish(a) === realish(b);
+  }
+}
+
 interface RawArgs {
   input?: string;
   prompt?: string;
@@ -250,11 +261,10 @@ function validateArgs(raw: RawArgs): ParseResult {
   }
   if (!path.extname(out)) return fail("--out needs a file extension (it selects the output format)");
 
-  const inReal = realish(input);
-  if (realish(out) === inReal) return fail("--out resolves to the input file; refusing to overwrite the input");
+  if (sameFile(out, input)) return fail("--out resolves to the input file; refusing to overwrite the input");
   if (layered !== undefined) {
-    if (realish(layered) === inReal) return fail("--layered resolves to the input file; refusing to overwrite the input");
-    if (realish(layered) === realish(out)) return fail("--layered and --out resolve to the same file");
+    if (sameFile(layered, input)) return fail("--layered resolves to the input file; refusing to overwrite the input");
+    if (sameFile(layered, out)) return fail("--layered and --out resolve to the same file");
   }
 
   return {
@@ -447,6 +457,43 @@ function commandResult(stdout: string, prefix: string): Record<string, unknown> 
   return undefined;
 }
 
+/**
+ * Copy each source next to its destination, then move all of them into place. A
+ * failure at any point restores pre-existing destinations and removes outputs this
+ * call created, so a late error never leaves a partial result. `staged` collects the
+ * temporary files for the caller's cleanup.
+ */
+export function commitOutputs(targets: [string, string][], staged: string[], tag: string, rename: typeof fs.renameSync = fs.renameSync): void {
+  for (const [, dest] of targets) {
+    if (fs.existsSync(dest) && fs.statSync(dest).isDirectory()) throw new Error(`${dest} is a directory`);
+  }
+  const stages = targets.map(([src, dest]) => {
+    const stage = path.join(path.dirname(dest), `.${path.basename(dest)}.pcr-${tag}.tmp`);
+    fs.copyFileSync(src, stage);
+    staged.push(stage);
+    return stage;
+  });
+  const committed: { dest: string; backup?: string }[] = [];
+  try {
+    targets.forEach(([, dest], i) => {
+      const backup = fs.existsSync(dest) ? path.join(path.dirname(dest), `.${path.basename(dest)}.pcr-bak-${tag}.tmp`) : undefined;
+      if (backup) {
+        rename(dest, backup);
+      }
+      committed.push({ dest, backup });
+      rename(stages[i], dest);
+    });
+  } catch (e) {
+    for (const { dest, backup } of committed.reverse()) {
+      fs.rmSync(dest, { force: true });
+      if (backup) rename(backup, dest);
+    }
+    throw e;
+  }
+  for (const { backup } of committed) if (backup) fs.rmSync(backup, { force: true });
+  staged.length = 0;
+}
+
 /** Returns the process exit code; failures are reported on stderr. */
 export async function replaceRegion(options: ReplaceOptions, partial: Partial<ReplaceDeps> = {}): Promise<number> {
   const deps: ReplaceDeps = { ...defaultReplaceDeps(), ...partial };
@@ -539,18 +586,11 @@ export async function replaceRegion(options: ReplaceOptions, partial: Partial<Re
     const flat = path.join(tmp, `out${path.extname(outPath)}`);
     await photocraft("convert", ["convert", comp, flat]);
 
-    // write outputs: stage beside the destination, then atomic renames, last
+    // write outputs: stage beside the destination, then commit all-or-nothing
     await timed("write", async () => {
       const targets: [string, string][] = [[flat, outPath]];
       if (layeredPath) targets.push([comp, layeredPath]);
-      const pairs = targets.map(([src, dest]) => {
-        const stage = path.join(path.dirname(dest), `.${path.basename(dest)}.pcr-${process.pid}-${deps.now()}.tmp`);
-        fs.copyFileSync(src, stage);
-        staged.push(stage);
-        return [stage, dest] as const;
-      });
-      for (const [stage, dest] of pairs) fs.renameSync(stage, dest);
-      staged.length = 0;
+      commitOutputs(targets, staged, `${process.pid}-${deps.now()}`);
     });
 
     const env = deps.env.NANO_BANANA_BACKEND?.trim().toLowerCase();

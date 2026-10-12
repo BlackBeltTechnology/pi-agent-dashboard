@@ -18,6 +18,7 @@ export const ECHO_ARGV = `process.stdout.write(JSON.stringify(process.argv.slice
  * Fake MCP server. Logs `recv`/`send` events with timestamps to $STUB_LOG.
  *  - `initialize` / notifications: answered / ignored immediately
  *  - `tools/call`: answered after 200 ms (optionally preceded by a non-JSON line when $STUB_NOISE is set)
+ *  - $STUB_DROP: id of a tools/call that is swallowed (never answered)
  *  - $STUB_HANG: stay alive forever, writing the pid to that file
  *  - argv is dumped to $STUB_ARGV_LOG when set
  */
@@ -34,6 +35,7 @@ else {
     const m = JSON.parse(line);
     log({ ev: "recv", key: m.method === "tools/call" ? "call#" + m.id : m.method });
     if (m.method === "initialize") send({ jsonrpc: "2.0", id: m.id, result: { serverInfo: { name: "photocraft" } } });
+    else if (m.method === "tools/call" && String(m.id) === process.env.STUB_DROP) log({ ev: "drop", id: m.id });
     else if (m.method === "tools/call") setTimeout(() => {
       if (process.env.STUB_NOISE) process.stdout.write("warning: x\\n");
       send({ jsonrpc: "2.0", id: m.id, result: { ok: true } });

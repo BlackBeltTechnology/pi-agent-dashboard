@@ -436,6 +436,19 @@ describe("offline fallbacks", () => {
     expect(s.logs.join("\n")).toContain("0.10.0");
   });
 
+  it("X1b fallback skips damaged cache entries (empty / non-executable highest version)", async () => {
+    const s = await setup({ assets: { [ASSET]: goodArchive() }, latestStatus: 403 });
+    install(s.root, "0.7.0");
+    install(s.root, "0.9.0");
+    fs.writeFileSync(path.join(s.root, "0.9.0", "x", "bin", "photocraft-cli"), ""); // empty
+    install(s.root, "0.10.0");
+    fs.chmodSync(path.join(s.root, "0.10.0", "x", "bin", "photocraft-cli"), 0o644); // not executable
+    const r = await provision(s.deps());
+    expect(r.version).toBe("0.7.0");
+    expect(r.source).toBe("fallback-installed");
+    expect(r.cacheHit).toBe(true);
+  });
+
   it("X2 failing lookup with an empty cache names the error and the escape hatches", async () => {
     const s = await setup({ assets: { [ASSET]: goodArchive() }, latestStatus: 500 });
     const e = await asErr(provision(s.deps()));

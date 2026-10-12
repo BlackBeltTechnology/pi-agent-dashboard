@@ -141,6 +141,46 @@ describe("serialization", () => {
   });
 });
 
+describe("cancellation", () => {
+  const msg = (o: object) => `${JSON.stringify({ jsonrpc: "2.0", ...o })}\n`;
+  function setup(extra: Record<string, string>) {
+    const logFile = path.join(tmpDir(), "events.jsonl");
+    const bin = nodeStub(MCP_STUB);
+    const spawn = (command: string, args: string[], options: object) =>
+      nodeSpawn(command, args, { ...options, env: { ...process.env, STUB_LOG: logFile, ...extra } } as never);
+    return { logFile, bin, spawn };
+  }
+
+  it("F4 a cancelled in-flight call the server never answers does not block later calls forever", async () => {
+    const s = setup({ STUB_DROP: "1" });
+    const h = harness({ provision: async () => report(s.bin), spawn: s.spawn as never, cancelGraceMs: 300 });
+    h.stdin.write(msg({ id: 1, method: "tools/call" }));
+    h.stdin.write(msg({ id: 2, method: "tools/call" }));
+    h.stdin.write(msg({ method: "notifications/cancelled", params: { requestId: 1 } }));
+    h.stdin.end();
+    expect(await runMcp([], h.deps)).toBe(0);
+    const events = readLog(s.logFile);
+    expect(events.filter((e) => e.ev === "recv").map((e) => e.key)).toEqual(["call#1", "notifications/cancelled", "call#2"]);
+    expect(events.find((e) => e.ev === "send" && e.id === 2)).toBeDefined();
+    const ids = h.out().trim().split("\n").map((l) => JSON.parse(l).id);
+    expect(ids).toEqual([2]);
+  });
+
+  it("F5 a cancelled call that is still queued never reaches the server", async () => {
+    const s = setup({ STUB_DROP: "1" });
+    const h = harness({ provision: async () => report(s.bin), spawn: s.spawn as never, cancelGraceMs: 300 });
+    h.stdin.write(msg({ id: 1, method: "tools/call" }));
+    h.stdin.write(msg({ id: 2, method: "tools/call" }));
+    h.stdin.write(msg({ id: 3, method: "tools/call" }));
+    h.stdin.write(msg({ method: "notifications/cancelled", params: { requestId: 2 } }));
+    h.stdin.write(msg({ method: "notifications/cancelled", params: { requestId: 1 } }));
+    h.stdin.end();
+    expect(await runMcp([], h.deps)).toBe(0);
+    const received = readLog(s.logFile).filter((e) => e.ev === "recv").map((e) => e.key);
+    expect(received).toEqual(["call#1", "notifications/cancelled", "call#3"]);
+  });
+});
+
 describe("signals", () => {
   it("X11 SIGTERM / SIGINT terminate the server child and exit 143 / 130", async () => {
     for (const [signal, code] of [["SIGTERM", 143], ["SIGINT", 130]] as const) {
