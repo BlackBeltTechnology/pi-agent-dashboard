@@ -6,11 +6,11 @@ When the `anthropic` subscription OAuth flow completes in Provider Authenticatio
 The install SHALL be a global install of the fixed source `npm:@blackbelt-technology/pi-anthropic-messages`, the same source and scope as the hint's install affordance. Neither SHALL be derived from any response or input.
 
 The decision SHALL use fresh reads of the bridge probe and of the server's recommended-extension state, and the first matching rule SHALL apply:
-1. the probe reports the peer, under either its scoped or legacy key, as found but failing to import → no install;
-2. the probe reports the peer resolving under either key → no install;
-3. the recommended-extension state cannot be read or has no `pi-anthropic-messages` entry → no install;
+1. the probe reports the peer (key `@pi/anthropic-messages`) as found but failing to import → no install;
+2. the probe reports the peer resolving → no install;
+3. the recommended-extension state cannot be read within a bounded time, or has no `pi-anthropic-messages` entry → no install;
 4. the recommended-extension state reports the peer active in pi → no install;
-5. an operation for the peer source is already queued or running → no new operation; the automatic-install state follows that operation;
+5. an install of the peer source is already queued or running → no new operation; the automatic-install state follows that install;
 6. otherwise → enqueue the install.
 
 A later, separate completion of the same flow SHALL be decided afresh. None of the following SHALL trigger a decision:
@@ -30,7 +30,7 @@ A later, separate completion of the same flow SHALL be decided afresh. None of t
 - **THEN** no install is enqueued
 
 #### Scenario: Probe reports the peer resolving
-- **WHEN** the sign-in completes and a fresh probe reports the peer resolving (for example under its legacy name) while the recommended-extension state reports it not active
+- **WHEN** the sign-in completes and a fresh probe reports the peer resolving (for example through a workspace `node_modules`) while the recommended-extension state reports it not active
 - **THEN** no install is enqueued
 
 #### Scenario: Stale probe after an earlier install
@@ -62,12 +62,12 @@ A later, separate completion of the same flow SHALL be decided afresh. None of t
 - **THEN** the new completion is decided afresh
 
 ### Requirement: Automatic install progress and outcome are visible on the Anthropic row
-From the moment a decision starts until the page reloads or `anthropic` stops being authenticated, the authenticated `anthropic` row SHALL show the automatic install's state, whether or not a bridge probe exists:
+From the moment a decision starts until the page reloads or `anthropic` stops being authenticated, the authenticated `anthropic` row SHALL show the automatic install's state, whether or not a bridge probe exists, except where a probe reports an import failure (the missing-peer hint's import-failure form then replaces it):
 - **deciding, queued or running:** an in-progress status;
 - **succeeded:** an informational message that the peer is installed and applies on the next pi session start. It SHALL remain until the page reloads, `anthropic` stops being authenticated, or a probe reports the peer resolving;
-- **failed:** a warning whose first sentence says the install did not finish and invites a retry, mentioning the network or proxy only as a possible cause. It SHALL offer a retry install affordance, and SHALL show the raw installer output only inside a collapsed log block.
+- **failed:** until the page reloads, `anthropic` stops being authenticated, or a probe reports the peer resolving: a warning whose first sentence says the install did not finish and invites a retry, mentioning the network or proxy only as a possible cause. It SHALL offer a retry install affordance, and SHALL show the raw installer output only inside a collapsed log block.
 
-A successful install of the peer source from any surface SHALL replace a failed state with the succeeded state. A state change after the page has lost the `anthropic` connection SHALL NOT be shown. Each state change SHALL be announced politely to assistive technology. No state SHALL disable Sign Out.
+A successful install of the peer source from any surface SHALL replace a failed state with the succeeded state; a successful remove or update of that source SHALL NOT be shown as installed. `anthropic` counts as no longer authenticated only after a successful status read reports it; a failed status read SHALL leave the state unchanged. A state change after the page has lost the `anthropic` connection SHALL NOT be shown. Each state change SHALL be announced politely to assistive technology. No state SHALL disable Sign Out.
 
 #### Scenario: Install in progress on a first run
 - **GIVEN** an automatic install was enqueued and no bridge probe exists
@@ -90,6 +90,11 @@ A successful install of the peer source from any surface SHALL replace a failed 
 - **AND** the raw installer output is visible only after expanding the collapsed log block
 - **AND** the row remains Connected with Sign Out enabled
 
+#### Scenario: Failed state clears on a resolving probe
+- **GIVEN** the row shows the failed warning
+- **WHEN** a probe reports the peer resolving
+- **THEN** neither the warning nor the retry affordance is shown
+
 #### Scenario: Retry
 - **WHEN** the operator activates retry install after a failure
 - **THEN** the same global install is enqueued again, unless an operation for the source is already pending, and the row returns to the in-progress status
@@ -98,6 +103,16 @@ A successful install of the peer source from any surface SHALL replace a failed 
 - **GIVEN** the automatic install failed
 - **WHEN** the operator installs the peer successfully from another surface
 - **THEN** the row shows the informational installed message instead of the warning
+
+#### Scenario: Removal elsewhere is not shown as installed
+- **GIVEN** the automatic install failed
+- **WHEN** the operator removes the peer source from another surface and that operation succeeds
+- **THEN** the row does not show the installed message
+
+#### Scenario: Status read fails
+- **GIVEN** an automatic-install state exists
+- **WHEN** a provider-auth status read fails (network error or non-OK response)
+- **THEN** the automatic-install state is retained
 
 #### Scenario: Losing the Anthropic connection clears the state
 - **GIVEN** an automatic install is running
