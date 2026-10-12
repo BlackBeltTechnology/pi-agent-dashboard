@@ -191,7 +191,10 @@ export function createVaultDeliveryHub(deps: VaultDeliveryHubDeps): VaultDeliver
 
   function schedulePush(): void {
     if (timer) return;
-    timer = setTimeout(() => { timer = undefined; void pushNow(); }, deps.pushDelayMs ?? 150);
+    timer = setTimeout(() => {
+      timer = undefined;
+      pushNow().catch((err: unknown) => console.warn(`[vault] push failed: ${(err as Error)?.name ?? "error"}`));
+    }, deps.pushDelayMs ?? 150);
     timer.unref?.();
   }
 
