@@ -61,7 +61,7 @@ describe("PiUpdateBadge", () => {
 		render(<PiUpdateBadge />);
 		await waitFor(() => screen.getByTestId("pi-update-badge"));
 		fireEvent.click(screen.getByTestId("pi-update-badge"));
-		expect(navigateMock).toHaveBeenCalledWith("/settings/packages");
+		expect(navigateMock).toHaveBeenCalledWith("/settings/add-ons");
 	});
 
 	it("sets aria-label with plural-aware wording", async () => {

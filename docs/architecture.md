@@ -2098,7 +2098,7 @@ Routes:
 - `/folder/:encodedCwd/openspec/archive` — archive browser.
 - `/folder/:encodedCwd/openspec/specs` — specs browser.
 - `/folder/:encodedCwd/readme` — README preview.
-- `/folder/:encodedCwd/pi-resources` — pi resources view.
+- `/folder/:encodedCwd/pi-resources` — legacy; replace-redirect → `/folder/:encodedCwd/settings/add-ons`.
 - `/session/:id/diff` — file diff view.
 - `/pi-resource?path=&title=` — cross-folder file preview.
 
@@ -2784,9 +2784,9 @@ Disabling a resource for one project writes the pi-standard settings form for th
 
 Only newly-started sessions see a change: `PackageManager.resolve()` runs at session start. `/api/resources/reload` reloads affected sessions. See change: project-scope-disable-global-resources.
 
-### Settings → Packages tab
+### Settings → Add-ons page
 
-- Settings tab renders single `<UnifiedPackagesSection>`.
+- Add-ons page renders single `<UnifiedPackagesSection>`.
 - Three sub-groups in priority order: Core → Recommended → Other.
 - **Core**: strict whitelist from `pi-core-checker.ts#CORE_PACKAGE_NAMES`. Update via the pi-core update endpoint. No Uninstall. Hidden when `launchSource === "electron"` (immutable bundle).
 - **Recommended Extensions**: rows where `isRecommended` true on `/api/packages/installed` response (server-side cross-reference against `RECOMMENDED_EXTENSIONS` manifest).
@@ -2795,12 +2795,35 @@ Only newly-started sessions see a change: `PackageManager.resolve()` runs at ses
 - All three groups render with shared `<PackageRow>` — same visual language, same affordances modulo sub-group rules.
 - See change: consolidate-packages-settings-ui.
 
-**Header badge**: `PiUpdateBadge` polls `/api/pi-core/versions` on mount + every 30 min. When `updatesAvailable > 0` it renders a small pill-shaped button next to the `ServerSelector` that navigates to `/settings?tab=packages`.
+**Add-ons page** (`/settings/add-ons`). Page id `add-ons`, label `Add-ons`, rail group `ADD-ONS`, section heading `Add-ons`. Legacy `/settings/packages` and `?tab=packages` replace-redirect via `SETTINGS_PAGE_ALIASES` (`SettingsPanel.tsx`). See change: addons-hub-declutter.
+
+**Plugin-bridge rows hidden** (`dashboardManaged`):
+- `InstalledPackage.dashboardManaged?: boolean` (`packages/shared/src/rest-api.ts`).
+- Set on user-scope row whose path = value of settings `dashboardPluginBridges` or key of `_dashboardManagedPackages`.
+- `enrichInstalledRows(rows, resourcesPath, { managedPaths })` canonical-path match (`installed-package-enricher.ts`). Project-scope rows never flagged.
+- Served by `GET /api/packages/installed?scope=global`.
+- Client: `visibleInstalledRows` (`lib/package/installed-list-helpers.ts`) drops flagged rows. Plugin bridges surface under Plugins, not Add-ons.
+
+**Recommended dedupe** (global page only): `RecommendedExtensions` `hideGlobalInstalled`.
+- Entry installed global + `activeInPi` → no card; renders once as installed row.
+- On-disk but inactive global entry → keeps card (no installed row).
+
+**Installed filter** (`UnifiedPackagesSection.tsx`):
+- Text query + chips `Local source` (`addons-chip-local`), `Update available` (`addons-chip-updates`). Chips AND with text (`filterInstalledRows`).
+- `Update available` disabled until update check completes (`updateCheckDone`); hint `Check for updates first`.
+- Local-source banner when `localSourceCount > 0` (`isLocalSourceRow`): `N add-ons run from local source instead of a published version.`
+- Explainer dismissal key: `dashboard:addons-explainer-dismissed` (`usePersistedBoolean`).
+
+**Plugins rail subtree** (`SettingsPanel.tsx`):
+- Collapsed by default. Expanded pref key `dashboard:settings-plugins-expanded` (`usePersistedBoolean`).
+- Forced open while plugin child page (`/settings/plugins/<id>`) active: `pluginsForcedOpen`. Toggle disabled. Forced state never written to pref key.
+
+**Header badge**: `PiUpdateBadge` polls `/api/pi-core/versions` on mount + every 30 min. When `updatesAvailable > 0` it renders a small pill-shaped button next to the `ServerSelector` that navigates to `/settings/add-ons`.
 
 **Client navigation stack:**
 - Puzzle icon button in folder header → PiResourcesView (content area, "Installed" / "Packages" tabs)
 - "View" button on resource → MarkdownPreviewView (`.md` as markdown, `.ts` as code block)
-- Settings → Packages tab → inline PackageBrowser for global package management
+- Settings → Add-ons page → inline PackageBrowser for global package management
 - Back buttons pop the stack: Preview → Resources → Chat
 
 ### Git Branch Selector
@@ -2897,7 +2920,7 @@ Rail = vertical stack: `ChangesRailSection` (Changes) above the project tree. `o
 
 Dashboard's first user-facing WRITE surface. Prior dashboard read-only.
 
-Entry: FolderActionBar cog → `/folder/:cwd/settings/:page?` (pages instructions/packages/resources). Legacy `/folder/:cwd/pi-resources` redirects → `…/settings/packages`.
+Entry: FolderActionBar cog → `/folder/:cwd/settings/:page?` (pages instructions/add-ons/resources). Legacy `/folder/:cwd/settings/packages` and `/folder/:cwd/pi-resources` redirect → `…/settings/add-ons`.
 
 Instructions page edits markdown. Two scopes: directory (cwd) = markdown under cwd + `.pi/` tree; global (no cwd) = `~/.pi/agent/**/*.{md,mdx}` only.
 
@@ -5131,6 +5154,14 @@ path source                → resolved absolute path
 
 **Partial-success recovery**: if install at destination succeeds but remove from origin fails, the move's `package_operation_complete` event includes `partialSuccess: { installed: true, removed: false, removeError: <message> }`. The client's `<InstalledPackagesList>` renders an inline banner with a Cleanup button that POSTs `/api/packages/remove` against `fromScope` (idempotent on retry). No HTTP-level 207 — the move endpoint is async (202 + moveId pattern), so partial-success surfaces post-202 via the WS channel.
 
+#### Package health cleanup (settings.json rot)
+
+- Scanner: `scanPackageHealth` (`packages/server/src/package/package-health-scanner.ts`). Scans global `packages[]` only. Statuses `ok` | `stale-npm` | `missing-path` | `duplicate`.
+- Routes: `GET /api/packages/health` → `{entries, summary}`; `POST /api/packages/cleanup {drop}` (`packages/server/src/routes/package-health-routes.ts`). Backup `settings.json.<ISO-ts>.bak` before write. Server never auto-removes.
+- Boot: one log line `[package-health] …` to `server.log` when issues exist. Log-only.
+
+See FAQ: How do I clean up stale entries from settings.json?
+
 ### Bundled first-party extensions (Electron installer)
 
 The Electron installer can optionally ship a curated subset of recommended pi extensions inside `resources/bundled-extensions/<id>/` so first-run works with zero network access. The set is declared by `BUNDLED_EXTENSION_IDS` in `packages/shared/src/recommended-extensions.ts` (currently `pi-anthropic-messages`, `pi-flows`) — a strict subset of `RECOMMENDED_EXTENSIONS`, enforced by a unit test.
@@ -5649,7 +5680,7 @@ See change: `chat-input-draft-and-history`.
 
 The Electron app treats git as a hard runtime dependency. Several core code
 paths assume git is reachable (recommended-extension installs via pi's
-`DefaultPackageManager`, Settings → Packages git/HTTPS sources, BranchPicker /
+`DefaultPackageManager`, Settings → Add-ons git/HTTPS sources, BranchPicker /
 git status in session cards, attach-proposal workflow). Before the
 `require-git-on-boot` change, missing git silently degraded these features
 with cryptic errors. The change makes git a first-class detected, prompted,

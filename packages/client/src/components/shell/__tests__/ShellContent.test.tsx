@@ -10,10 +10,11 @@
  *
  * See change: add-route-backed-overlay-dialogs.
  */
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { Router } from "wouter";
+import { Redirect, Router, useLocation } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { buildFolderSettingsUrl } from "../../../lib/nav/route-builders.js";
 import { encodeFolderPath } from "../../../lib/util/folder-encoding.js";
 import { ShellContent, type ShellContentRenderers } from "../ShellContent.js";
 
@@ -28,7 +29,8 @@ function renderers(): ShellContentRenderers {
     renderSpecs: (cwd) => <div>specs:{cwd}</div>,
     renderDiff: (id) => <div>diff:{id}</div>,
     renderPiResourceFile: (path, title) => <div>resource:{path}:{title}</div>,
-    renderPiResourcesRedirect: (cwd) => <div>redirect:{cwd}</div>,
+    // Mirrors the App wiring: the legacy route lands on the Add-ons page.
+    renderPiResourcesRedirect: (cwd) => <Redirect to={buildFolderSettingsUrl(cwd, "add-ons")} replace />,
     renderFolderSettings: (cwd, page) => <div>folder-settings:{cwd}:{page}</div>,
     renderOpenSpecPreview: (cwd, change, artifact) => <div>preview:{cwd}:{change}:{artifact}</div>,
     renderFilePreview: (cwd, path) => <div>file:{cwd}:{path}</div>,
@@ -40,16 +42,24 @@ function renderers(): ShellContentRenderers {
   };
 }
 
+function LocationProbe() {
+  const [loc] = useLocation();
+  return <span data-testid="loc">{loc}</span>;
+}
+
 function at(location: string, variant: "desktop" | "mobile" = "desktop") {
-  const { hook, searchHook } = memoryLocation({
+  const { hook, searchHook, history } = memoryLocation({
     path: location.split("?")[0],
     searchPath: location.split("?")[1] ?? "",
+    record: true,
   });
-  return render(
+  const utils = render(
     <Router hook={hook} searchHook={searchHook}>
       <ShellContent variant={variant} {...renderers()} />
+      <LocationProbe />
     </Router>,
   );
+  return { ...utils, history };
 }
 
 describe("ShellContent branch selection", () => {
@@ -93,9 +103,34 @@ describe("ShellContent branch selection", () => {
     expect(screen.getByText(`archive:${CWD}`)).toBeTruthy();
   });
 
-  it("defaults an unknown folder-settings page to packages", () => {
+  // See change: addons-hub-declutter (test-plan E7)
+  it("E7: defaults an unknown or missing folder-settings page to add-ons", () => {
     at(`/folder/${ENC}/settings/bogus`);
-    expect(screen.getByText(`folder-settings:${CWD}:packages`)).toBeTruthy();
+    expect(screen.getByText(`folder-settings:${CWD}:add-ons`)).toBeTruthy();
+    cleanup();
+    at(`/folder/${ENC}/settings`);
+    expect(screen.getByText(`folder-settings:${CWD}:add-ons`)).toBeTruthy();
+  });
+
+  it("E7: renders add-ons and cards pages as themselves", () => {
+    at(`/folder/${ENC}/settings/add-ons`);
+    expect(screen.getByText(`folder-settings:${CWD}:add-ons`)).toBeTruthy();
+    cleanup();
+    at(`/folder/${ENC}/settings/cards`);
+    expect(screen.getByText(`folder-settings:${CWD}:cards`)).toBeTruthy();
+  });
+
+  it("E7: the legacy packages page replace-redirects to add-ons", () => {
+    const { history } = at(`/folder/${ENC}/settings/packages`);
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${ENC}/settings/add-ons`);
+    // replace: the legacy entry is not left behind in the history stack.
+    expect(history).toEqual([`/folder/${ENC}/settings/add-ons`]);
+    expect(screen.getByText(`folder-settings:${CWD}:add-ons`)).toBeTruthy();
+  });
+
+  it("E7: /pi-resources lands on the Add-ons page", () => {
+    at(`/folder/${ENC}/pi-resources`);
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${ENC}/settings/add-ons`);
   });
 
   it("honours a valid folder-settings page", () => {

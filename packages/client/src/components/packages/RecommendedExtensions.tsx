@@ -30,10 +30,17 @@ import React, { useCallback } from "react";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { useRecommendedExtensions } from "../../hooks/useRecommendedExtensions.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { PartChip, partDescription } from "./PartChip.js";
 
 interface Props {
   scope: "global" | "local";
   cwd?: string;
+  /**
+   * Global Add-ons page: an entry already shown as an installed row (installed
+   * at global scope and active) is not repeated as a card. A folder-only
+   * install keeps its card. See change: addons-hub-declutter (D4).
+   */
+  hideGlobalInstalled?: boolean;
 }
 
 function statusPillClass(status: RecommendedExtensionStatus, activeInPi: boolean): string {
@@ -66,7 +73,7 @@ function scopePillLabel(scope: "global" | "local" | null): string | null {
   return null;
 }
 
-export function RecommendedExtensions({ scope, cwd }: Props) {
+export function RecommendedExtensions({ scope, cwd, hideGlobalInstalled = false }: Props) {
   const { recommended, isLoading, error, refresh } = useRecommendedExtensions();
   const ops = usePackageOperations(scope, cwd, refresh);
 
@@ -144,6 +151,12 @@ export function RecommendedExtensions({ scope, cwd }: Props) {
 
   if (recommended.length === 0) return null;
 
+  // An on-disk-but-inactive global entry has no installed row, so it keeps its
+  // Activate card instead of vanishing.
+  const cards = hideGlobalInstalled
+    ? recommended.filter((e) => !(e.installed.scope === "global" && e.activeInPi))
+    : recommended;
+
   const missingRequired = recommended.filter(
     (e) => e.status === "required" && !e.activeInPi,
   ).length;
@@ -191,8 +204,13 @@ export function RecommendedExtensions({ scope, cwd }: Props) {
         </div>
       </header>
 
+      {cards.length === 0 && (
+        <p className="text-xs text-muted" data-testid="rec-all-installed">
+          {i18nT("packages.allRecommendedInstalled", undefined, "All recommended add-ons are installed.")}
+        </p>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {recommended.map((entry) => {
+        {cards.map((entry) => {
           const sourceStatus = ops.statusFor(entry.source);
           const isRunning = sourceStatus === "running";
           const isQueued = sourceStatus === "queued";
@@ -249,11 +267,11 @@ export function RecommendedExtensions({ scope, cwd }: Props) {
                           ? "bg-blue-500/15 text-blue-300 border-blue-500/40"
                           : "bg-[var(--bg-tertiary)] text-[var(--text-muted)] border-[var(--border-secondary)]"
                       }`}
-                      title={
+                      title={`${
                         entry.dashboardPluginInstalled
                           ? `Companion dashboard plugin "${entry.dashboardPlugin}" is installed`
                           : `Companion dashboard plugin "${entry.dashboardPlugin}" — not installed`
-                      }
+                      }. ${partDescription("dashboard-ui")}`}
                       data-testid={`recommended-companion-plugin-${entry.id}`}
                     >
                       +plugin: {entry.dashboardPlugin}
@@ -285,13 +303,11 @@ export function RecommendedExtensions({ scope, cwd }: Props) {
                   data-testid={`recommended-skills-${entry.id}`}
                 >
                   {entry.skillsRegistered.map((s) => (
-                    <span
-                      key={s}
-                      title={`Ships the "${s}" skill`}
-                      className="text-[10px] px-1.5 py-0.5 rounded border border-indigo-500/40 bg-indigo-500/15 text-indigo-400 whitespace-nowrap"
-                    >
+                    // Part label with the shared plain-language description.
+                    // See change: addons-hub-declutter.
+                    <PartChip key={s} kind="skills" testId={`part-chip-skills-${s}`}>
                       skill: {s}
-                    </span>
+                    </PartChip>
                   ))}
                 </div>
               )}

@@ -64,7 +64,7 @@ describe("route-builders", () => {
     it("appends an encodeURIComponent-encoded page segment", () => {
       const cwd = "/proj";
       const enc = encodeFolderPath(cwd);
-      expect(buildFolderSettingsUrl(cwd, "packages")).toBe(`/folder/${enc}/settings/packages`);
+      expect(buildFolderSettingsUrl(cwd, "add-ons")).toBe(`/folder/${enc}/settings/add-ons`);
       expect(buildFolderSettingsUrl(cwd, "skills")).toBe(`/folder/${enc}/settings/skills`);
     });
 

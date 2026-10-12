@@ -10,6 +10,8 @@
  * See change: unify-package-management-ui.
  */
 
+import { classifySource } from "./package-classifier.js";
+
 const PROTOCOL_PREFIXES = ["https://", "http://", "ssh://", "git://"];
 
 /**
@@ -41,4 +43,48 @@ export function computeDestIdentity(source: string): string {
 	// already unique per directory; cross-scope duplication detection
 	// happens server-side in the Move endpoint anyway.
 	return source;
+}
+
+// ── Add-ons page helpers ───────────────────────────────────────────────
+// See change: addons-hub-declutter (design D6).
+
+/** Window event: "move this query to the npm search" (installed filter → Browse panel). */
+export const ADDONS_NPM_SEARCH_EVENT = "pi-addons-npm-search";
+
+/** Rows the Add-ons UI renders: dashboard-managed plugin bridges are never listed. */
+export function visibleInstalledRows<T extends object>(rows: readonly T[]): T[] {
+	return rows.filter((r) => (r as { dashboardManaged?: boolean }).dashboardManaged !== true);
+}
+
+/** True when the row runs from a local path or git checkout. One predicate for
+ * the `Local source` chip, the banner count and the per-row badge. */
+export function isLocalSourceRow(row: { source: string }): boolean {
+	const kind = classifySource(row.source);
+	return kind === "local" || kind === "git";
+}
+
+export interface InstalledFilter {
+	text: string;
+	localOnly: boolean;
+	updateOnly: boolean;
+}
+
+export const EMPTY_INSTALLED_FILTER: InstalledFilter = { text: "", localOnly: false, updateOnly: false };
+
+export function isInstalledFilterActive(f: InstalledFilter): boolean {
+	return f.text.trim() !== "" || f.localOnly || f.updateOnly;
+}
+
+/** AND-combine the text filter (name, source, description; case-insensitive
+ * substring) with the chips. `hasUpdate` supplies the update state per row. */
+export function filterInstalledRows<
+	T extends { source: string; displayName?: string; description?: string },
+>(rows: readonly T[], filter: InstalledFilter, hasUpdate: (row: T) => boolean): T[] {
+	const needle = filter.text.trim().toLowerCase();
+	return rows.filter((row) => {
+		if (filter.localOnly && !isLocalSourceRow(row)) return false;
+		if (filter.updateOnly && !hasUpdate(row)) return false;
+		if (!needle) return true;
+		return [row.displayName, row.source, row.description].some((s) => !!s && s.toLowerCase().includes(needle));
+	});
 }

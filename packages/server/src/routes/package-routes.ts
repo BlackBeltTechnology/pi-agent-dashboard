@@ -2,6 +2,10 @@
  * REST routes for pi package management: search, readme, installed, install, remove, update, check-updates.
  */
 
+import {
+  listManagedBridges,
+  listManagedPackageOwnership,
+} from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import {
@@ -22,6 +26,23 @@ import { parseSourceKind } from "../package/package-source-helpers.js";
 
 /** npm-name lookup used for published-variant resolution. Cached in npm-search-proxy. */
 const lookupNpm = (name: string) => fetchPackageMeta(name);
+
+/** Paths the dashboard recorded as its own bridges (either record suffices).
+ * Never throws: an unreadable registry means nothing is flagged.
+ * See change: addons-hub-declutter. */
+function readManagedPaths(fastify: FastifyInstance): string[] {
+  try {
+    return [
+      ...new Set([
+        ...Object.values(listManagedBridges()),
+        ...Object.keys(listManagedPackageOwnership()),
+      ]),
+    ];
+  } catch (err: any) {
+    fastify.log.warn(`[packages] could not read the dashboard bridge registry: ${err?.message ?? err}`);
+    return [];
+  }
+}
 
 export function registerPackageRoutes(
   fastify: FastifyInstance,
@@ -78,7 +99,13 @@ export function registerPackageRoutes(
       const cwd = request.query.cwd;
       try {
         const packages = await packageManagerWrapper.listInstalled(scope, cwd);
-        const enriched = enrichInstalledRows(packages as any);
+        const managedPaths = scope === "global" ? readManagedPaths(fastify) : undefined;
+        const enriched = enrichInstalledRows(packages as any, undefined, { managedPaths });
+        if (managedPaths && managedPaths.length > 0 && !enriched.some((r) => r.dashboardManaged)) {
+          fastify.log.warn(
+            `[packages] dashboard bridge registry lists ${managedPaths.length} path(s) but none matches an installed row (settings file divergence?)`,
+          );
+        }
         // Attach publishedVariantSource/Version for local/git rows with a
         // resolvable published variant (recommended → offline; non-recommended
         // → cached npm lookup). Never blocks the list. See change: reset-override-to-npm.

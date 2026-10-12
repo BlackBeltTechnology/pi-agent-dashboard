@@ -502,6 +502,17 @@ export class PackageManagerWrapper {
     }
   }
 
+  /**
+   * Drop every cached package manager. Call after an out-of-band
+   * settings.json rewrite (e.g. package-health cleanup) so a later
+   * install/remove doesn't write a stale in-memory `packages[]` back.
+   * See change: add-package-health-cleanup.
+   */
+  invalidateAllPackageManagers(): void {
+    this.pmCache.clear();
+    this.pmPending.clear();
+  }
+
   /** Drop the cached package manager for a cwd (after install/remove/update). */
   private invalidatePackageManager(cwd?: string): void {
     const effectiveCwd = cwd ?? process.cwd();

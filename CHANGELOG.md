@@ -65,6 +65,15 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **Settings ▸ Packages is now Add-ons.** The page lives at `/settings/add-ons` (old
+  `/settings/packages` and `?tab=packages` links redirect); the rail group is `ADD-ONS`.
+  The page explains extensions, skills and dashboard plugins (dismissible card, part
+  tooltips), hides the dashboard-managed plugin bridge rows (`index.ts`), lists each
+  recommended extension once, collapses local-override rows to one line (reset stays in
+  the `⋮` menu), and adds a filter and a local-source banner. The rail's Plugins pages
+  start collapsed. **Breaking for external TypeScript only:** the `SettingsTab` literal
+  `"packages"` is now `"add-ons"` (JSON plugin manifests with `tab: "packages"` still load).
+
 - **Subagent admission refusals ship hidden.** The durable `subagent-admission-refused`
   record now belongs to a new `diagnostics` custom event group, hidden by default (the refused
   tool call already shows its reason). Enable "Diagnostics" in the chat View popover, or in

@@ -20,4 +20,6 @@ Gains "Why do control routes 403 `local_proof_required` after enabling `requireL
 
 Gains "Server logs 'PI_DASHBOARD_TS_LOADER is no longer supported'" → unset env + stop/start. Gains "Server logs 'booted under the jiti TypeScript loader'" → stop/start (upgrade continuity). server.log loader grep, old-Node error. See change: strip-only-native-ts-loader.
 
+Gains FAQ: bare `tsc` prints Version 7 → which compiler runs. See change: migrate-typecheck-to-ts7.
+
 See change: streamline-first-run. Claude tool-call fallback / peer auto-install FAQ.

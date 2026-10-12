@@ -28,6 +28,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/live-server/", reason: "live-server preview UI" },
   { pattern: "/api/node/", reason: "node runtime UI" },
   { pattern: "/api/preferences/", reason: "UI preferences" },
+  { pattern: "/api/packages/health", reason: "packages[] rot diagnostics; Settings UI-only. See change: add-package-health-cleanup" },
+  { pattern: "/api/packages/cleanup", reason: "rewrites ~/.pi/agent/settings.json packages[]; user-mediated Settings UI-only. See change: add-package-health-cleanup" },
   { pattern: "/api/grammar/", reason: "UI-only" },
   { pattern: "/api/roles/used-by", reason: "Model roles page \"used by\" overview; informational, UI-only" },
   { pattern: "/api/kb/", reason: "kb engine admin" },

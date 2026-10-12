@@ -6,3 +6,7 @@ Enriches raw `packageManagerWrapper.listInstalled()` rows with version, descript
 ## reset-override-to-npm
 
 Adds `readPackageJsonName`, `PublishedVariant`, `resolvePublishedVariant(row, {manifest, readName, lookupNpm})` (recommended \u2192 manifest source offline; non-recommended local \u2192 npm-name lookup, NAME-ONLY gate; plain-npm/identity-equal \u2192 undefined), and `attachPublishedVariants(rows, {lookupNpm})` (fills `publishedVariantSource/Version`, never blocks). See change: reset-override-to-npm.
+
+## addons-hub-declutter
+
+Adds `canonicalizePath`, `canonicalPathSet`; `enrichInstalledRows(rows, resourcesPath, { managedPaths })` flags user-scope rows `dashboardManaged` (canonical path match; project rows never; `isBundled` untouched). See change: addons-hub-declutter.

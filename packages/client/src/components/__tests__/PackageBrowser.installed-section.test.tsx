@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import React from "react";
-import { PackageBrowser } from "../packages/PackageBrowser.js";
 import type { InstalledPackage } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PackageBrowser } from "../packages/PackageBrowser.js";
 
 // Hook mocks ---------------------------------------------------------
 
@@ -109,6 +109,23 @@ describe("PackageBrowser — Installed Packages section (unify-workspace-package
 
   it("does NOT render the section header when no non-recommended packages are installed", () => {
     installedOwnPkgs = []; // empty
+    render(<PackageBrowser scope="local" cwd="/test" />);
+    expect(screen.queryByTestId("installed-packages-section")).toBeNull();
+  });
+
+  // See change: addons-hub-declutter (package-browse: dashboard-managed rows are not listed)
+  it("does not list dashboardManaged bridge rows", () => {
+    installedOwnPkgs = [
+      makePkg("/r/goal/src/bridge/index.ts", "local", { dashboardManaged: true }),
+      makePkg("/abs/path/foo", "local"),
+    ];
+    render(<PackageBrowser scope="local" cwd="/test" />);
+    expect(screen.queryByTestId("installed-row--r-goal-src-bridge-index-ts")).toBeNull();
+    expect(screen.getByTestId("installed-row--abs-path-foo")).toBeTruthy();
+  });
+
+  it("renders no section at all when every row is a dashboard-managed bridge", () => {
+    installedOwnPkgs = [makePkg("/r/goal/src/bridge/index.ts", "local", { dashboardManaged: true })];
     render(<PackageBrowser scope="local" cwd="/test" />);
     expect(screen.queryByTestId("installed-packages-section")).toBeNull();
   });

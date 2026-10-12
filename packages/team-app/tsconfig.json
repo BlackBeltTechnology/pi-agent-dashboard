@@ -5,7 +5,6 @@
     "jsx": "react-jsx",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["vite/client", "node"],
-    "baseUrl": ".",
     "paths": {
       "@blackbelt-technology/pi-dashboard-app-kit/react": ["../app-kit/src/react/index.ts"],
       "@blackbelt-technology/pi-dashboard-app-kit": ["../app-kit/src/index.ts"],

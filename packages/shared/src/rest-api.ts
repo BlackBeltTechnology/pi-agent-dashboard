@@ -865,6 +865,14 @@ export interface InstalledPackage {
   publishedVariantSource?: string;
   /** Latest published version of `publishedVariantSource`, when known (best-effort; undefined offline). */
   publishedVariantVersion?: string;
+  /**
+   * True on a user-scope row whose path the dashboard recorded as its own
+   * plugin bridge (`dashboardPluginBridges` value or `_dashboardManagedPackages`
+   * key in the same settings file). Display-only: the entry stays in
+   * `packages[]` and keeps loading; the Add-ons page hides it.
+   * See change: addons-hub-declutter.
+   */
+  dashboardManaged?: boolean;
 }
 
 export type InstalledPackagesResponse = ApiResponse<InstalledPackage[]>;
@@ -891,6 +899,65 @@ export interface PackageUpdateInfo {
 }
 
 export type CheckUpdatesResponse = ApiResponse<PackageUpdateInfo[]>;
+
+// ── Package health (settings.json packages[] rot) ────────────
+// See change: add-package-health-cleanup.
+
+/** Health classification of one `packages[]` entry. */
+export type PackageHealthStatus = "ok" | "stale-npm" | "missing-path" | "duplicate";
+
+/** One classified `packages[]` entry. */
+export interface PackageHealthReport {
+  /** Verbatim `packages[]` source string (object entries → their `source`). */
+  source: string;
+  status: PackageHealthStatus;
+  /** Resolved install dir; undefined for stale-npm / missing-path. */
+  resolvedPath?: string;
+  /** `package.json#name` when readable. */
+  packageName?: string;
+  /** `package.json#version` when readable. */
+  version?: string;
+  /** Stable group id (`dup:<lowercased name>`); set only for `duplicate`. */
+  duplicateGroupId?: string;
+  /** Install dir mtime (ISO-8601) when resolvable. */
+  mtime?: string;
+  /** Human-readable explanation for non-ok statuses. */
+  reason?: string;
+}
+
+/** One group of entries sharing a `package.json#name`. */
+export interface PackageHealthDuplicateGroup {
+  id: string;
+  packageName: string;
+  count: number;
+}
+
+export interface PackageHealthSummary {
+  ok: number;
+  staleNpm: number;
+  missingPath: number;
+  duplicateGroups: PackageHealthDuplicateGroup[];
+}
+
+export interface PackageHealthListResponseData {
+  entries: PackageHealthReport[];
+  summary: PackageHealthSummary;
+}
+
+export type PackageHealthListResponse = ApiResponse<PackageHealthListResponseData>;
+
+/** Body of `POST /api/packages/cleanup`. Each member is a verbatim `packages[]` source. */
+export interface PackageCleanupRequest {
+  drop: string[];
+}
+
+export interface PackageCleanupResponse {
+  before: number;
+  after: number;
+  dropped: string[];
+  /** Absolute path of the pre-mutation backup; empty string when nothing was dropped. */
+  backupPath: string;
+}
 
 // ── Pi core version check ────────────────────────────────────
 

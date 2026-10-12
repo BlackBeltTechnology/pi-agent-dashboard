@@ -147,6 +147,8 @@ export interface SessionFlags {
   appendSystemPrompt?: string[];
   noContextFiles?: boolean;
   noProjectTrust?: boolean;
+  /** `--no-mcp`: disable pi's built-in MCP for this run. See change: spawn-scope-no-mcp. */
+  noMcp?: boolean;
   sessionDir?: string;
 }
 
@@ -186,6 +188,7 @@ function scopeFlags(flags: SessionFlags): string[] {
   for (const p of flags.appendSystemPrompt ?? []) argv.push("--append-system-prompt", p);
   if (flags.noContextFiles) argv.push("--no-context-files");
   if (flags.noProjectTrust) argv.push("--no-approve");
+  if (flags.noMcp) argv.push("--no-mcp");
   if (flags.sessionDir) argv.push("--session-dir", flags.sessionDir);
   return argv;
 }

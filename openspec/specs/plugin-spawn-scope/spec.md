@@ -26,6 +26,7 @@ assembling argv itself.
 - `noContextFiles?: boolean` — disable `AGENTS.md` / `CLAUDE.md` context-file discovery
 - `noProjectTrust?: boolean` — ignore trust-gated project-local configuration and resources for the spawned process
 - `sessionDir?: string` — absolute directory the spawned session's file is written to
+- `noMcp?: boolean` — disable pi's built-in MCP support for the spawned process (no server connects, no MCP tool is registered)
 
 The block SHALL NOT expose a `noExtensions` / `--no-extensions` toggle: disabling extension discovery would prevent the dashboard bridge extension from loading, severing the spawned session's control channel (see the control-channel requirement below).
 
@@ -39,7 +40,11 @@ The `scope` block and every field within it SHALL be optional.
 #### Scenario: Partial scope block
 - **WHEN** a plugin sets only `scope.tools` and leaves every other `scope` field absent
 - **THEN** only the `--tools` flag SHALL be added to the argv
-- **AND** no skill, extension, built-in-tool, system-prompt, context-file, project-trust or session-dir flags SHALL be emitted
+- **AND** no skill, extension, built-in-tool, system-prompt, context-file, project-trust, session-dir or MCP flags SHALL be emitted
+
+#### Scenario: A tools allowlist alone does not remove MCP tools
+- **WHEN** a plugin sets `scope.tools` to `["read"]` and leaves `scope.noMcp` absent
+- **THEN** the argv SHALL contain `--tools read` and SHALL NOT contain `--no-mcp` (on pi ≥ 1.0.4 that session keeps pi's MCP tools; a plugin that needs none sets `scope.noMcp: true`)
 
 ### Requirement: Scope fields map 1:1 to pi CLI capability flags
 
@@ -58,8 +63,9 @@ The spawn chain SHALL forward every `scope.*` field through `pluginSpawnToSessio
 | `noContextFiles` | `--no-context-files` | boolean flag |
 | `noProjectTrust` | `--no-approve` | boolean flag |
 | `sessionDir` | `--session-dir <path>` | single flag/value pair |
+| `noMcp` | `--no-mcp` | boolean flag |
 
-Each scope field SHALL be emitted only when present (non-empty for array fields, `true` for boolean fields). An empty array SHALL emit no flag. `appendSystemPrompt`, `noContextFiles`, `noProjectTrust` and `sessionDir` SHALL NOT be read or changed by cwd-policy composition (as with `extensions`).
+Each scope field SHALL be emitted only when present (non-empty for array fields, `true` for boolean fields). An empty array SHALL emit no flag. `appendSystemPrompt`, `noContextFiles`, `noProjectTrust`, `sessionDir` and `noMcp` SHALL NOT be read or changed by cwd-policy composition (as with `extensions`).
 
 #### Scenario: Allowlist fields are comma-joined
 - **WHEN** `scope.tools` is `["read", "grep", "ls"]`
@@ -89,6 +95,14 @@ Each scope field SHALL be emitted only when present (non-empty for array fields,
 - **WHEN** `scope.noTools` is `true` and `scope.tools` is `["read"]`
 - **THEN** both `--no-tools` and `--tools read` SHALL be forwarded to pi
 - **AND** the mapper SHALL NOT reject or silently drop either field
+
+#### Scenario: noMcp emits the bare flag
+- **WHEN** `scope.noMcp` is `true`
+- **THEN** the argv SHALL contain `--no-mcp`
+
+#### Scenario: noMcp false or non-boolean emits nothing
+- **WHEN** `scope.noMcp` is `false`, `"true"` or `1`
+- **THEN** the argv SHALL NOT contain `--no-mcp`
 
 ### Requirement: Scope restrictions preserve the dashboard control channel
 

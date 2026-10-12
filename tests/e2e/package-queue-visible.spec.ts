@@ -1,7 +1,7 @@
 import { expect, test } from "./fixtures.js";
 import { byTestId, gotoDashboard } from "./helpers/index.js";
 
-// Visible-queue behaviour of Settings → Pi Ecosystem, in a real browser
+// Visible-queue behaviour of Settings → Add-ons, in a real browser
 // against the disposable harness bundle.
 //
 // Why routes are stubbed: the harness container is already at the latest
@@ -22,7 +22,7 @@ const PI = "@earendil-works/pi-coding-agent";
 const DASH = "@blackbelt-technology/pi-agent-dashboard";
 const EXT = "npm:pi-web-access";
 
-test.describe("Settings → Pi Ecosystem — visible queue", () => {
+test.describe("Settings → Add-ons — visible queue", () => {
   test("mid-flight clicks queue instead of failing, survive navigation, then drain FIFO", async ({
     page,
   }) => {
@@ -121,9 +121,9 @@ test.describe("Settings → Pi Ecosystem — visible queue", () => {
 
     // ── Open Settings → Packages ─────────────────────────────────────────
     await gotoDashboard(page);
-    await page.goto("/settings/packages");
+    await page.goto("/settings/add-ons");
     await byTestId(page, "settingsContent").waitFor({ state: "visible", timeout: 15_000 });
-    const packagesNav = page.getByRole("button", { name: "Packages", exact: true });
+    const packagesNav = page.getByRole("button", { name: "Add-ons", exact: true });
     if (await packagesNav.isVisible().catch(() => false)) await packagesNav.click();
 
     const piUpdate = page.getByTestId(`pi-core-row-${PI}-update`);

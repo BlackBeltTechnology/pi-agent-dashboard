@@ -577,12 +577,12 @@ export default function App() {
   const specsCwd = specsMatch && specsParams ? decodeFolderPath(specsParams.encodedCwd) : null;
   const piResourcesCwd = piResourcesMatch && piResourcesParams ? decodeFolderPath(piResourcesParams.encodedCwd) : null;
   const folderSettingsCwd = folderSettingsMatch && folderSettingsParams ? decodeFolderPath(folderSettingsParams.encodedCwd) : null;
-  const VALID_FOLDER_SETTINGS_PAGES = ["instructions", "packages", "cards", "skills", "agents", "extensions", "prompts", "themes"] as const;
+  const VALID_FOLDER_SETTINGS_PAGES = ["instructions", "add-ons", "cards", "skills", "agents", "extensions", "prompts", "themes"] as const;
   const folderSettingsPageRaw = folderSettingsMatch ? folderSettingsParams?.page : undefined;
   const folderSettingsPage: DirectorySettingsPage =
     folderSettingsPageRaw && (VALID_FOLDER_SETTINGS_PAGES as readonly string[]).includes(folderSettingsPageRaw)
       ? (folderSettingsPageRaw as DirectorySettingsPage)
-      : "packages";
+      : "add-ons";
   const diffSessionId = diffMatch && diffParams ? diffParams.id : null;
   const editorSessionId = editorMatch && editorParams ? editorParams.id : null;
   const editorFile = editorMatch ? fileViewSearch.get("file") : null;
@@ -2399,7 +2399,9 @@ export default function App() {
           onBack={goBack}
         />
       ) : !frozen && piResourcesMatch && piResourcesCwd ? (
-        <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
+        <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "add-ons")} replace />
+      ) : !frozen && folderSettingsMatch && folderSettingsCwd && folderSettingsPageRaw === "packages" ? (
+        <Redirect to={buildFolderSettingsUrl(folderSettingsCwd, "add-ons")} replace />
       ) : !frozen && folderSettingsMatch && folderSettingsCwd ? (
         <DirectorySettings
           cwd={folderSettingsCwd}
@@ -2809,7 +2811,7 @@ export default function App() {
     renderPiResourceFile: (filePath, title) => (
       <PiResourceFileRoute filePath={filePath} title={title} onBack={goBack} />
     ),
-    renderPiResourcesRedirect: (cwd) => <Redirect to={buildFolderSettingsUrl(cwd, "packages")} replace />,
+    renderPiResourcesRedirect: (cwd) => <Redirect to={buildFolderSettingsUrl(cwd, "add-ons")} replace />,
     renderFolderSettings: (cwd, page) => (
       <DirectorySettings cwd={cwd} page={page} onBack={goBack} />
     ),

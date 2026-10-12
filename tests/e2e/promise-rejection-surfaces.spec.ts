@@ -39,7 +39,7 @@ test.describe("promise-rejection observability per surface", () => {
   }) => {
     const watcher = await watchRejections(page);
     await openSettings(page);
-    await railGoto(page, "Packages");
+    await railGoto(page, "Add-ons");
 
     // Manual "check now" drives handleCheckUpdates + refresh — the two densest
     // rewritten call sites on this surface. REQUIRED, not best-effort: a
@@ -148,7 +148,7 @@ test.describe("promise-rejection observability per surface", () => {
     await page.route("**/api/packages**", (route) => route.abort("failed"));
 
     await openSettings(page);
-    await railGoto(page, "Packages");
+    await railGoto(page, "Add-ons");
     await page.waitForTimeout(2_000);
 
     // The failure must not surface as an unhandled rejection, and the surface

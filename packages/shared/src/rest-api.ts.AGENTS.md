@@ -6,3 +6,7 @@ REST endpoint request/response types. Sessions, events, spawn, file read/write (
 
 `CreateProjectRequest`, `CreateProjectResult` (`path`, `existed`), `CreateProjectErrorReason`, `CreateProjectResponse` next to `MkdirRequest`. See change: streamline-first-run.
 `LegacyProviderIdEntry` + `LegacyProviderIdsResponse` — body of `GET /api/provider-auth/legacy-provider-ids` (renamed provider ids still in pi files; ids + location tokens only). See change: update-pi-core-1-1-adopt-apis.
+
+## addons-hub-declutter
+
+`InstalledPackage.dashboardManaged?: boolean` — display-only flag for dashboard-recorded plugin bridge rows. See change: addons-hub-declutter.

@@ -26,7 +26,7 @@ npm run reload          # reload all connected pi sessions
 npm run reload:check    # type-check first, then reload
 ```
 
-`reload:check` is the safer default when you're not sure your TS compiles. It runs `tsc --noEmit` then reloads only if types are clean.
+`reload:check` is the safer default when you're not sure your TS compiles. It runs `node scripts/tsc7.mjs --noEmit` then reloads only if types are clean.
 
 ### Server — `src/server/`, `src/shared/`
 
