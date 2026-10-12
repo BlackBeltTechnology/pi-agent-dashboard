@@ -33,6 +33,7 @@ describe("version negotiation (E23)", () => {
         expect(init.params.clientCapabilities).toEqual({ fs: { readTextFile: false, writeTextFile: false }, terminal: false });
         await h.adapter.stop();
       } else {
+        await h.waitFor(() => h.exits.length === 1);
         expect(h.exits).toEqual([1]);
         const end = h.events().find((e) => e.eventType === "agent_end")!;
         expect(JSON.stringify(end.data)).toContain("unsupported ACP protocol version");

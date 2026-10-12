@@ -16,10 +16,10 @@
  *
  * See change: add-acp-session-driver (D1, D2).
  */
-import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { AcpAgentConfig, AcpSettings } from "@blackbelt-technology/pi-dashboard-shared/acp/acp-config.js";
 import { acpSessionFile } from "@blackbelt-technology/pi-dashboard-shared/acp/paths.js";
+import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { LocalGatewaySocket } from "../pi/pi-gateway.js";
 import { type AcpSessionAdapter, type AgentHandle, createAcpSessionAdapter } from "./acp-session-adapter.js";
 import { launchAgentProcess } from "./child-env.js";
@@ -117,7 +117,9 @@ export function startLocalAcpSession(
   });
   active.set(sessionId, adapter);
   deps.attachLocalConnection(socket);
-  setTimeout(() => void adapter.start(), 0);
+  setTimeout(() => {
+    adapter.start().catch((e) => log(`[acp:${o.agent.id}] start failed: ${e instanceof Error ? e.message : String(e)}`));
+  }, 0);
   return { success: true, message: `ACP agent "${o.agent.id}" started in-process`, sessionId, pid: child.pid, process: child };
 }
 

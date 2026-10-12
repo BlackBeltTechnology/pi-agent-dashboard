@@ -156,7 +156,7 @@ export function createAcpConnection(o: AcpConnectionOptions): AcpConnection {
   function dispatch(msg: Record<string, unknown>): void {
     const hasId = typeof msg.id === "number" || typeof msg.id === "string";
     if (typeof msg.method === "string") {
-      if (hasId) void handleRequest(msg.id as number | string, msg.method, msg.params);
+      if (hasId) handleRequest(msg.id as number | string, msg.method, msg.params).catch(() => {});
       else o.onNotification?.(msg.method, msg.params);
     } else if (hasId) handleResponse(msg);
     else skipped += 1;

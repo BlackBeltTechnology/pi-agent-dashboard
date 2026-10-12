@@ -44,7 +44,7 @@ function resolveOnPath(command: string, env: NodeJS.ProcessEnv = process.env): s
   if (command.includes("/") || command.includes("\\") || path.isAbsolute(command)) {
     return existsSync(command) ? command : undefined;
   }
-  const exts = process.platform === "win32" ? ["", ...(env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";")] : [""];
+  const exts = process.platform === "win32" ? ["", ...(env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";")] : [""]; // platform-branch-ok: PATHEXT lookup for the preflight
   for (const dir of (env.PATH ?? "").split(path.delimiter).filter(Boolean)) {
     for (const ext of exts) {
       const candidate = path.join(dir, command + ext);

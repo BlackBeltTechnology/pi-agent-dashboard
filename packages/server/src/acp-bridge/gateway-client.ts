@@ -97,7 +97,7 @@ export function createGatewayClient(o: GatewayClientOptions): GatewayClient {
     o.log(`[acp-bridge] gateway unavailable (${why}); retry in ${delay} ms`);
     retryTimer = setTimeout(() => {
       retryTimer = undefined;
-      void dial();
+      dial().catch(() => {});
     }, delay);
   }
 

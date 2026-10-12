@@ -5,8 +5,8 @@
  *
  * See change: add-acp-session-driver (D3; "Adapter launches the agent safely").
  */
-import { type ChildProcess, spawn as nodeSpawn, type SpawnOptions } from "node:child_process";
 import type { AcpAgentConfig } from "@blackbelt-technology/pi-dashboard-shared/acp/acp-config.js";
+import { type ChildProcess, type SpawnOptions, spawn as nodeSpawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 
 const ALLOWED = new Set([
   "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "TMPDIR", "TZ",

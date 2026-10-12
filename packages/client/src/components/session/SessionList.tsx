@@ -2362,7 +2362,9 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               cwd={group.cwd}
               onSpawnSession={(agent) => {
                 if (isCollapsed) setFolderCollapsed(group.cwd, false);
-                onSpawnSession?.(group.cwd, undefined, agent ? { agent } : undefined);
+                // No agent → the exact pre-change call (cwd only).
+                if (agent) onSpawnSession?.(group.cwd, undefined, { agent });
+                else onSpawnSession?.(group.cwd);
               }}
               onSpawnWorktree={() => {
                 if (isCollapsed) setFolderCollapsed(group.cwd, false);

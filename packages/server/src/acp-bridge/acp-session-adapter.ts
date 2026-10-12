@@ -326,7 +326,9 @@ export function createAcpSessionAdapter(opts: AcpSessionAdapterOptions): AcpSess
     if (startTimer) clearTimeout(startTimer);
     conn?.close(new Error("ACP session ended"));
     killAgent();
-    void (opts.eventLog?.flush() ?? Promise.resolve()).finally(() => opts.onExit(code));
+    Promise.resolve(opts.eventLog?.flush())
+      .catch(() => {})
+      .finally(() => opts.onExit(code));
   }
 
   /** Surface a failure in the session, unregister and end. */
@@ -347,6 +349,11 @@ export function createAcpSessionAdapter(opts: AcpSessionAdapterOptions): AcpSess
     proc = handle;
     handle.on("error", (err) => fail(`ACP agent failed to start: ${errText(err)}`));
     handle.on("exit", (code, signal) => fail(`ACP agent exited (${signal ? `signal ${signal}` : `code ${code}`})`));
+    // A dead agent makes writes to its stdin fail with EPIPE; an unhandled stream
+    // 'error' would crash the process (the SERVER, for host A). The exit/close
+    // handlers own the failure.
+    handle.stdin.on("error", (err) => opts.log(`[acp:${agent.id}] agent stdin error: ${errText(err)}`));
+    handle.stdout.on("error", (err) => opts.log(`[acp:${agent.id}] agent stdout error: ${errText(err)}`));
     let stderrLines = 0;
     handle.stderr?.on("data", (c: Buffer) => {
       if (stderrLines++ < 200) opts.log(`[acp:${agent.id}] stderr: ${c.toString("utf8").slice(0, 2000).trimEnd()}`);
@@ -517,7 +524,7 @@ export function createAcpSessionAdapter(opts: AcpSessionAdapterOptions): AcpSess
         resyncPrompts: (id) => permissions.resend(id),
         stop: (reason, code) => {
           opts.log(`[acp:${agent.id}] stopping: ${reason}`);
-          if (code === 0) void stop();
+          if (code === 0) stop().catch(() => {});
           else fail(reason, code);
         },
         ignored: () => {},

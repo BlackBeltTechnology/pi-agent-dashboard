@@ -57,7 +57,7 @@ export function startHostB(o: HostBOptions): HostB {
     endpoint: o.endpoint,
     log,
     onOpen: (first) => {
-      if (!first) void adapter.reconnected();
+      if (!first) adapter.reconnected().catch((e) => log(`[acp-bridge] reattach failed: ${e instanceof Error ? e.message : String(e)}`));
     },
     onMessage: (m) => adapter.handle(m),
     onClose: () => adapter.disconnected(),
@@ -83,7 +83,7 @@ export function startHostB(o: HostBOptions): HostB {
     },
   });
   client.connect();
-  void adapter.start();
+  adapter.start().catch((e) => log(`[acp-bridge] start failed: ${e instanceof Error ? e.message : String(e)}`));
   return { adapter, client, sessionId };
 }
 
@@ -105,9 +105,14 @@ async function main(): Promise<void> {
     spawnToken,
     onExit: (code) => process.exit(code),
   });
-  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.on(sig, () => void host.adapter.stop());
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.on(sig, () => {
+      host.adapter.stop().catch(() => {});
+    });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void main();
+  main().catch((e) => {
+    process.stderr.write(`acp-bridge: ${e instanceof Error ? e.message : String(e)}\n`);
+    process.exit(1);
+  });
 }

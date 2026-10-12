@@ -210,4 +210,22 @@ describe("toDashboardEvents", () => {
     expect(adapter.getState().commands).toEqual([{ name: "a" }]);
     expect(adapter.getState().title).toBe("T");
   });
+
+  it("D13: a finished turn's accumulated state is pruned (bounded memory); late updates for a finished tool never re-emit", () => {
+    const { adapter, feed } = make();
+    feed(
+      state("running"),
+      { sessionUpdate: "agent_message_chunk", messageId: "m1", content: t("x".repeat(1000)) },
+      { sessionUpdate: "tool_call_update", toolCallId: "t1", title: "Run", status: "completed", content: [{ type: "content", content: t("out") }] },
+      { sessionUpdate: "terminal_output_chunk", terminalId: "term", data: btoa("o") },
+      state("idle", "end_turn"),
+    );
+    const st = adapter.getState();
+    expect(st.messages.size).toBe(0);
+    expect(st.toolCalls.size).toBe(0);
+    expect(st.terminals.size).toBe(0);
+    // late update for the finished tool: no tool_execution_start, no end
+    const late = feed({ sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed" });
+    expect(late).toEqual([]);
+  });
 });

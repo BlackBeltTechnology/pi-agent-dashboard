@@ -105,4 +105,14 @@ describe("runtime failures", () => {
     await h.waitFor(() => h.exits.length === 1);
     expect(h.exits[0]).toBe(1);
   });
+
+  it("an EPIPE on the agent's stdin / stdout stream errors does not crash the process", async () => {
+    const h = makeHarness({ protocol: 1 });
+    await startReady(h);
+    // Unhandled stream 'error' events would throw; the adapter owns them.
+    expect(() => h.handle.stdin.emit("error", new Error("write EPIPE"))).not.toThrow();
+    expect(() => h.handle.stdout.emit("error", new Error("read ECONNRESET"))).not.toThrow();
+    expect(h.logs.some((l) => l.includes("EPIPE"))).toBe(true);
+    await h.adapter.stop();
+  });
 });

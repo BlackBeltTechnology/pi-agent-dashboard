@@ -65,7 +65,6 @@ export function runFakeAgent({ input, output, protocol = 1, knobs = {}, fixture 
     promptCounter += 1;
     const turnNo = promptCounter;
     const promptText = (promptParams?.prompt ?? []).map((b) => b.text ?? "").join("");
-    const userId = `u-agent-${turnNo}`;
     const echo = (knobs.echoUser ?? "after") !== "none";
     const echoUpdate =
       protocol === 2
@@ -116,7 +115,6 @@ export function runFakeAgent({ input, output, protocol = 1, knobs = {}, fixture 
     if (cancelled) stopReason = "cancelled";
     if (protocol === 2) sendUpdate(sessionId, { sessionUpdate: "state_update", state: "idle", stopReason });
     else send({ jsonrpc: "2.0", id: promptRpcId, result: { stopReason } });
-    void userId;
   }
 
   function handle(msg) {
@@ -136,7 +134,7 @@ export function runFakeAgent({ input, output, protocol = 1, knobs = {}, fixture 
         send({ jsonrpc: "2.0", id: msg.id, result: { ...fx.sessionNew, sessionId } });
         break;
       case "session/prompt":
-        void runTurn(msg.params, msg.id);
+        runTurn(msg.params, msg.id).catch(() => {});
         break;
       case "session/cancel":
         cancelled = true;
@@ -186,5 +184,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const protocol = get("--protocol") === "2" ? 2 : 1;
   const knobs = get("--knobs") ? JSON.parse(get("--knobs")) : {};
   const { done } = runFakeAgent({ input: process.stdin, output: process.stdout, protocol, knobs });
-  void done.then(() => process.exit(0));
+  done.then(() => process.exit(0)).catch(() => process.exit(1));
 }

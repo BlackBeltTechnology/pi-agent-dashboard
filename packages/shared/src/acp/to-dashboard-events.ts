@@ -417,6 +417,10 @@ export function createDashboardEventAdapter(opts: DashboardEventAdapterOptions):
     out.push(ev("agent_settled", {}));
     inTurn = false;
     turnMessages = [];
+    // Bound memory: a finished turn's accumulated messages / tool calls / terminal
+    // output are no longer needed (everything was emitted). Config options,
+    // commands, title and plans stay. See change: add-acp-session-driver (D13).
+    state = { ...state, messages: new Map(), toolCalls: new Map(), terminals: new Map() };
     // `tools` is deliberately NOT cleared: a late update for a finished tool must
     // not re-emit tool_execution_start (toolCallIds are unique per session).
   }
