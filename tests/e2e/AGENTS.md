@@ -1,6 +1,6 @@
 # DOX — tests/e2e
 
-One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md`; source of truth here). See change: migrate-file-index-to-agents-tree.
+One row per file. Non-source area; source of truth here. See change: migrate-file-index-to-agents-tree.
 
 | File | Purpose |
 |------|---------|
