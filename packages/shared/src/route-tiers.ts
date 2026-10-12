@@ -191,6 +191,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/provider-auth/catalogue-ready", tier: "observe" },
   { method: "GET", path: "/api/provider-auth/flow/:flowId", tier: "operate" },
   { method: "GET", path: "/api/provider-auth/handlers", tier: "operate" },
+  // Names the pi config files still holding a renamed provider id (no values). See change: update-pi-core-1-1-adopt-apis.
+  { method: "GET", path: "/api/provider-auth/legacy-provider-ids", tier: "operate" },
   { method: "GET", path: "/api/provider-auth/providers", tier: "operate" },
   { method: "GET", path: "/api/provider-auth/radius/mcp", tier: "operate" },
   { method: "GET", path: "/api/provider-auth/status", tier: "operate" },
@@ -275,6 +277,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/kb/reindex", tier: "operate" },
   { method: "POST", path: "/api/kb/source-trust", tier: "operate" },
   { method: "POST", path: "/api/known-servers", tier: "operate" },
+  { method: "POST", path: "/api/known-servers/accept-move", tier: "operate" },
+  { method: "POST", path: "/api/known-servers/probe", tier: "operate" },
   { method: "POST", path: "/api/live-server/start", tier: "operate" },
   { method: "POST", path: "/api/local-proof", tier: "operate" },
   { method: "POST", path: "/api/mcp-client/servers/:name/convert", tier: "operate" },

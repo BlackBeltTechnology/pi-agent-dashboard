@@ -7,6 +7,7 @@
     "openspec/changes/**",
     "site/**",
     "docker/fixtures/**",
+    "packages/deck3d/fixtures/**",
     "examples/**",
     "**/__tests__/fixtures/**",
     "packages/pi-forms-bpmn/.pi/skills/**",
@@ -30,6 +31,7 @@
       "entry": [
         "scripts/**/*.{mjs,cjs,ts}",
         "tests/e2e/**/*.spec.ts",
+        "tests/e2e/*/global-{setup,teardown}.ts",
         "tests/e2e-electron/**/*.spec.ts",
         "qa/**/*.{ts,mjs}",
         ".pi/skills/**/scripts/*.ts",
@@ -90,6 +92,16 @@
       "entry": [
         "src/client/index.tsx",
         "src/server/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/web-access-plugin": {
+      "entry": [
+        "src/client/index.tsx",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],

@@ -66,6 +66,11 @@ is older than the epoch this version requires — including a token with no
 recorded epoch — it SHALL replace the token with a newly minted one before any
 credential is verified or derived from it, then record the required epoch. The
 rotation SHALL happen once per required-epoch increase, not on every restart.
+Only the server's start path SHALL rotate. A running server SHALL follow a change
+of the token file on its next verification, so a rotation never strands another
+live server sharing the HOME. Every write of the token or the
+epoch SHALL be serialised across processes, so concurrent starters converge on
+one persisted token.
 
 #### Scenario: First mint when no token file exists
 
@@ -90,10 +95,32 @@ rotation SHALL happen once per required-epoch increase, not on every restart.
 - **AND** the system SHALL record the required rotation epoch only after the new token is persisted
 - **AND** a following restart SHALL reuse the new token
 
+#### Scenario: A live server follows a rotation
+
+- **WHEN** a second dashboard server of this version is running on the same HOME and the token is rotated by another server's start
+- **THEN** the running server SHALL verify proofs and local-proof cookies against the rotated token from its next verification onward, without a restart
+- **AND** a proof minted with the old token SHALL be rejected as bad-mac
+
+#### Scenario: Unreadable token file keeps the last good key
+
+- **WHEN** a running server finds the token file empty, missing or unreadable while verifying
+- **THEN** it SHALL keep verifying against the last token it read successfully
+
+#### Scenario: Concurrent starters agree on one token
+
+- **WHEN** two processes ensure the local token at the same time, on a HOME with no token or with a pre-rotation token
+- **THEN** both SHALL return the same token, equal to the value persisted on disk
+
+#### Scenario: Local tooling never rotates
+
+- **WHEN** the CLI ensures the local token on a HOME whose token predates the required epoch
+- **THEN** it SHALL use the existing token unchanged and SHALL NOT record the epoch
+
 #### Scenario: Interrupted rotation completes on next start
 
 - **WHEN** the server stopped after persisting the new token but before recording the epoch
 - **THEN** the next start SHALL rotate again and record the epoch
+- **AND** clients SHALL follow the second rotation the same way as the first
 
 #### Scenario: Current clients follow the rotated token
 
@@ -104,3 +131,41 @@ rotation SHALL happen once per required-epoch increase, not on every restart.
 
 - **WHEN** the local token is ensured and the parent directory already exists with a looser mode
 - **THEN** the system SHALL re-apply mode `0700` to the directory on a best-effort basis so only the same OS user can read the token
+
+### Requirement: Local token grants the same-host auth exemption
+
+The system SHALL treat a valid local credential proof (as defined by local token
+header verification; the raw `X-Pi-Local-Token` header is never valid) as an affirmative genuine-local credential that bypasses
+authentication on the request-auth hook, the network guard, the pairing
+operator/approval guards, the strict local-proof checks, and the WebSocket
+upgrade, independent of the request source address or proxy-forwarding
+headers. Local tooling shipped with this system (CLI, Electron main process,
+reload script) SHALL present a proof, dialled at a loopback address literal,
+and SHALL NOT transmit the raw token.
+
+#### Scenario: Token exempts an authenticated HTTP request
+
+- **WHEN** an unauthenticated HTTP request presents a valid local credential proof
+- **THEN** the request-auth hook SHALL allow the request without requiring other credentials
+- **AND** this SHALL hold even when a proxy-forwarding header is present that would otherwise disqualify the loopback-only genuine-local check
+
+#### Scenario: Token exempts a network-guarded request
+
+- **WHEN** a request that is not genuinely local and not from a trusted network presents a valid local credential proof
+- **THEN** the network guard SHALL allow the request and SHALL NOT record a denial block-event
+
+#### Scenario: Token exempts a WebSocket upgrade
+
+- **WHEN** a WebSocket upgrade request presents a valid local credential proof
+- **THEN** the upgrade SHALL be permitted under the same-host exemption
+
+#### Scenario: Absent or invalid token does not exempt
+
+- **WHEN** a request presents no valid local credential proof and is neither genuinely local nor otherwise authenticated
+- **THEN** it SHALL NOT be granted an exemption, and the request SHALL fall through to the remaining authentication and network-guard checks
+
+#### Scenario: Shipped local tooling never sends the raw token
+
+- **WHEN** the CLI, the Electron main process or the reload script calls the dashboard's HTTP API with the local credential
+- **THEN** the request SHALL carry `X-Pi-Local-Proof`
+- **AND** it SHALL NOT carry `X-Pi-Local-Token`

@@ -39,9 +39,10 @@ describe("F6 (ordering): the reporter is installed before the app renders", () =
 
   it("installs it before the other startup side effects it must observe", () => {
     const installAt = mainSrc.search(/^installUnhandledRejectionReporter\(\);$/m);
-    // Service-worker registration and the device-auth fetch shim both run
-    // promise work at startup; the reporter has to be in place first.
-    for (const marker of ["installDeviceAuthFetch()", "navigator.serviceWorker.register"]) {
+    // Service-worker registration and the fetch wrappers (device-auth shim lives
+    // inside installFetchWrappers) both run promise work at startup; the reporter
+    // has to be in place first.
+    for (const marker of ["installFetchWrappers()", "navigator.serviceWorker.register"]) {
       const at = mainSrc.indexOf(marker);
       expect(at, `${marker} not found in main.tsx`).toBeGreaterThan(-1);
       expect(installAt, `reporter must precede ${marker}`).toBeLessThan(at);

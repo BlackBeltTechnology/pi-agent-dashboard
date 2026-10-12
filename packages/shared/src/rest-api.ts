@@ -666,6 +666,23 @@ export interface ProviderAuthInfo {
   flowType: "auth_code" | "device_code";
 }
 
+/**
+ * A provider id pi renamed (pi 1.0.3: `azure-openai-responses` → `azure`) still
+ * present in pi's agent-dir files. Ids and location tokens only — never values.
+ * See change: update-pi-core-1-1-adopt-apis.
+ */
+export interface LegacyProviderIdEntry {
+  legacyId: string;
+  newId: string;
+  /** e.g. `auth.json`, `settings.json:defaultProvider`, `models.json:providers`. */
+  locations: string[];
+}
+
+/** `GET /api/provider-auth/legacy-provider-ids`. Empty list when nothing matched. */
+export interface LegacyProviderIdsResponse {
+  legacyProviderIds: LegacyProviderIdEntry[];
+}
+
 export interface ProviderAuthStatus {
   id: string;
   name: string;
@@ -891,12 +908,42 @@ export type PiCoreUpdateApiResponse = ApiResponse<PiCoreUpdateResponse>;
 
 import type { KnownServer } from "./config.js";
 
-export type KnownServersListResponse = ApiResponse<KnownServer[]>;
+/** A known server as listed, with its verified move suggestion when one exists. */
+export interface KnownServerListEntry extends KnownServer {
+  /** Verified new address of the same identity (never persisted). */
+  movedTo?: { host: string; port: number };
+}
+
+export type KnownServersListResponse = ApiResponse<KnownServerListEntry[]> & {
+  /** Caller holds an operator credential (may add/remove/update). */
+  canManage?: boolean;
+};
 
 export interface AddKnownServerRequest {
   host: string;
   port: number;
   label?: string;
+  /** Hint only — persisted solely when the identity challenge proves it. */
+  fingerprint?: string;
+}
+
+/** `POST /api/known-servers` success data when an existing entry was updated. */
+export interface AddKnownServerResult {
+  updated?: boolean;
+}
+
+/** `POST /api/known-servers/accept-move` body. */
+export interface AcceptKnownServerMoveRequest {
+  /** Current stored address of the entry. */
+  host: string;
+  port: number;
+}
+
+/** Server-side reachability of a known server (operator-only probe). */
+export type KnownServerProbeStatus = "reachable" | "name-not-resolved" | "refused" | "timeout" | "error";
+
+export interface KnownServerProbeResult {
+  status: KnownServerProbeStatus;
 }
 
 export interface RemoveKnownServerRequest {
@@ -911,6 +958,10 @@ export interface DiscoveredServerInfo {
   version: string;
   pid: number;
   isLocal: boolean;
+  /** Advertised identity fingerprint (absent on older servers). */
+  fingerprint?: string;
+  /** Advertised display name. */
+  name?: string;
 }
 
 export type DiscoverServersResponse = ApiResponse<DiscoveredServerInfo[]>;

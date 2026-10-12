@@ -71,6 +71,14 @@ function renderBurst(items: ChatItem[], prefs: DisplayPrefs = DISPLAY_PRESETS.st
 afterEach(() => cleanup());
 
 describe("ToolBurstGroup", () => {
+  it("E10 burst total sums recorded member durations when there are no start timestamps", () => {
+    const { container } = renderBurst([
+      tool({ toolName: "read", args: { path: "/a" }, startedAt: undefined, duration: 1200 }),
+      tool({ toolName: "read", args: { path: "/b" }, startedAt: undefined, duration: 800 }),
+    ]);
+    expect(container.querySelector('[data-testid="tool-burst-breakdown"]')!.textContent).toContain("2.0s");
+  });
+
   it("single completed member shows its own summary, not '1 tool calls'", () => {
     const { container } = renderBurst([
       tool({ toolName: "read", args: { path: "/a" } }),

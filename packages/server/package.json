@@ -16,8 +16,8 @@
     "node": ">=22.19.0"
   },
   "piCompatibility": {
-    "minimum": "1.0.0",
-    "recommended": "1.0.0",
+    "minimum": "1.1.0",
+    "recommended": "1.1.0",
     "maximum": null
   },
   "piDashboard": {
@@ -34,6 +34,7 @@
       "context-mode-settings-plugin",
       "grammar-plugin",
       "blackhole-plugin",
+      "web-access-plugin",
       "gmail-plugin",
       "mcp-server-plugin",
       "apple-tools",
@@ -71,7 +72,7 @@
     "@blackbelt-technology/pi-dashboard-extension": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-mcp-client-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
-    "@earendil-works/pi-coding-agent": "^1.0.0",
+    "@earendil-works/pi-coding-agent": "^1.1.0",
     "@fastify/compress": "^9.2.0",
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.0.0",

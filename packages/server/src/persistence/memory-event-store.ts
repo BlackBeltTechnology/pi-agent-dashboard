@@ -912,16 +912,12 @@ function walkArraySize(arr: unknown[], w: SizeWalk): boolean {
 /** Accumulate an object's approximate JSON size; early-exit once over cap. */
 function walkObjectSize(obj: Record<string, unknown>, w: SizeWalk): boolean {
   w.total += 2; // {}
-  // Preserved base64 image blocks (`data` string + sibling `mimeType`) are
-  // deliberately exempt from string truncation, so their bytes must not count
-  // toward the per-event ceiling either — otherwise ANY user message with a
-  // pasted image (> cap base64) collapses to the {__truncated} placeholder and
-  // vanishes from chat. Count a small constant instead of the raw bytes.
-  // See change: bound-subagent-event-serialization (image regression fix).
   // A base64 image `data` string used to be exempt (counted as 8 bytes), which
   // let a multi-megabyte image escape the ceiling and then OOM the broadcast
   // `JSON.stringify`. It now counts at its REAL byte size like any other string
-  // (short-circuited via the code-unit lower bound when huge).
+  // (short-circuited via the code-unit lower bound when huge). The exemption from
+  // `truncateStrings`' per-string cap stays: it is spec-required (#416).
+  // See change: bound-subagent-event-serialization (image regression fix).
   // See change: head-tail-truncate-subagent-event-timeline (D8).
   for (const k of Object.keys(obj)) {
     w.total += k.length + 3; // "k":

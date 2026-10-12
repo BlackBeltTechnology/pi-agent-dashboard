@@ -73,8 +73,11 @@ const RULES = [
       "devDependencies, the three workspace overrides) joins the lockstep, which " +
       "retires the per-feature version gates and the legacy pi-ai generation; " +
       "1.0.0 also adds the `openai` (ChatGPT) OAuth provider. " +
-      "See change: update-pi-core-1-0-adopt-apis.",
-    minVersion: "1.0.0",
+      "See change: update-pi-core-1-0-adopt-apis. 1.1.0 moves the lockstep " +
+      "floor once more (recorded tool durations, sampling-by-thinking-level, " +
+      "the azure-openai-responses provider-id rename the dashboard surfaces). " +
+      "See change: update-pi-core-1-1-adopt-apis.",
+    minVersion: "1.1.0",
   },
   {
     pkgPath: "packages/server/package.json",

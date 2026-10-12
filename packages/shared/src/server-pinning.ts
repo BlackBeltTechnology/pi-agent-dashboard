@@ -177,3 +177,80 @@ export async function challengePinnedServer(input: ChallengeInput): Promise<PinV
   }
   return decidePinnedIdentity({ pin: input.pin, nonce, response });
 }
+
+/** Max challenge response body accepted by {@link proveServerIdentity}. */
+const PROVE_MAX_BODY_BYTES = 4096;
+
+export type ProveResult = { proven: string } | { refused: string };
+
+/**
+ * Prove which identity answers at `baseUrl`, without a prior pin.
+ *
+ * Fresh nonce → `POST /api/pair/challenge` (`redirect: "manual"`, 4 KiB body
+ * cap, hard timeout) → fingerprint RECOMPUTED from the presented key →
+ * signature verified. Callers compare the returned fingerprint with the one
+ * they expect. `challengePinnedServer` is untouched (the remote-registration
+ * gate relies on its behaviour).
+ *
+ * See change: stabilize-mdns-server-identity (D5).
+ */
+export async function proveServerIdentity(
+  baseUrl: string,
+  opts: { timeoutMs?: number; fetchImpl?: typeof fetch } = {},
+): Promise<ProveResult> {
+  const doFetch = opts.fetchImpl ?? fetch;
+  const nonce = crypto.randomBytes(24).toString("base64url");
+  const timeoutMs = opts.timeoutMs ?? 2000;
+  const signal = AbortSignal.timeout(timeoutMs);
+  try {
+    const res = await doFetch(`${trimTrailingSlashes(baseUrl)}/api/pair/challenge`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ nonce }),
+      redirect: "manual",
+      signal,
+    });
+    if (res.status !== 200) return { refused: `challenge answered ${res.status}` };
+    const text = await readCapped(res, PROVE_MAX_BODY_BYTES, signal);
+    if (text === null) return { refused: "challenge response too large" };
+    const data = (JSON.parse(text) as { data?: Partial<ChallengeResponse> })?.data;
+    if (typeof data?.publicKey !== "string" || typeof data?.signature !== "string") {
+      return { refused: "challenge response malformed" };
+    }
+    const fingerprint = fingerprintFromPublicKeyB64(data.publicKey);
+    if (!fingerprint) return { refused: "unparseable key material" };
+    if (!verifyNonceSignature(data.publicKey, nonce, data.signature)) {
+      return { refused: "signature invalid" };
+    }
+    return { proven: fingerprint };
+  } catch {
+    return { refused: "challenge failed" };
+  }
+}
+
+/** Trim trailing `/` by scanning (a `/\/+$/` regex is polynomial on long slash runs). */
+function trimTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url.charCodeAt(end - 1) === 47) end--;
+  return url.slice(0, end);
+}
+
+/** Read a response body up to `max` bytes; `null` when it exceeds the cap. */
+async function readCapped(res: Response, max: number, signal: AbortSignal): Promise<string | null> {
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    if (signal.aborted) throw new Error("aborted");
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf-8");
+}

@@ -29,6 +29,7 @@ import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
 import { describe, expect, it } from "vitest";
+import { jobBlock, jobIds } from "./workflow-jobs.js";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -44,6 +45,11 @@ const code = codeLines(yaml);
 
 function count(re: RegExp): number {
   return (yaml.match(re) ?? []).length;
+}
+
+/** Jobs whose OWN block lacks a job-level (4-space) `timeout-minutes`. */
+function jobsWithoutTimeout(text: string): string[] {
+  return jobIds(text).filter((id) => !/^ {4}timeout-minutes:/m.test(jobBlock(text, id)));
 }
 
 describe("ci-e2e-browser.yml — triggers", () => {
@@ -113,11 +119,33 @@ describe("ci-e2e-browser.yml — shard matrix", () => {
     }
   });
 
-  it("gives every job a timeout-minutes (the only whole-run budget left)", () => {
-    const runsOn = count(/^\s+runs-on:/gm);
-    const timeouts = count(/^\s+timeout-minutes:/gm);
-    expect(runsOn).toBeGreaterThan(0);
-    expect(timeouts).toBeGreaterThanOrEqual(runsOn);
+  it("gives every job its own timeout-minutes (the only whole-run budget left)", () => {
+    // Per job, not a global count: one job with two timeouts must not mask a
+    // sibling with none (#701 review comment). See change: close-e2e-tooling-followups.
+    expect(jobIds(yaml)).toEqual(expect.arrayContaining(["e2e", "e2e-browser-relay", "merge-report"]));
+    for (const id of ["e2e", "e2e-browser-relay", "merge-report"]) {
+      expect(jobBlock(yaml, id), `job \`${id}\` has no job-level timeout-minutes`).toMatch(
+        /^ {4}timeout-minutes:/m,
+      );
+    }
+    expect(jobsWithoutTimeout(yaml)).toEqual([]);
+  });
+
+  it("flags a job without a timeout even when a sibling carries two", () => {
+    const fixture = [
+      "on: workflow_dispatch",
+      "jobs:",
+      "  a:",
+      "    runs-on: ubuntu-latest",
+      "    timeout-minutes: 10",
+      "    timeout-minutes: 20",
+      "  b:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: true",
+      "        timeout-minutes: 5",
+    ].join("\n");
+    expect(jobsWithoutTimeout(fixture)).toEqual(["b"]);
   });
 
   it("seeds the harness (PI_E2E_SEED) so scenario specs can pin + spawn", () => {
@@ -242,16 +270,13 @@ describe("ci-e2e-browser.yml — browser-relay variant leg", () => {
   // one, `browser-relay.spec.ts` skips in EVERY shard and the file's coverage
   // disappears with nothing tracking it — the invisible-hole class this
   // change's `e2e-fixme-guard` exists to prevent.
-  const lines = yaml.split("\n");
-  const header = lines.findIndex((l) => /^\s{2}e2e-browser-relay:/.test(l));
-  const end = lines.findIndex((l, i) => i > header && /^\s{2}[a-zA-Z][\w-]*:\s*$/.test(l));
-  const job = header >= 0 ? lines.slice(header, end === -1 ? undefined : end).join("\n") : "";
+  const job = jobBlock(yaml, "e2e-browser-relay");
 
   it("exists, so the relay spec is not silently dropped from CI", () => {
     expect(
-      header,
+      job,
       "no `e2e-browser-relay` job — tests/e2e/browser-relay.spec.ts would never run in CI",
-    ).toBeGreaterThanOrEqual(0);
+    ).not.toBe("");
   });
 
   it("boots the harness with the relay faucet and runs only the relay spec", () => {

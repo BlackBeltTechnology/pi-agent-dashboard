@@ -578,7 +578,7 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - `agent_settled` carries NO `messages` (verified pi 0.81.1/0.83), so tracker remembers terminal disposition via `lastEndWasError` at `agent_end`.
 - `-1` sentinels REMOVED. `maxAttempts` / `delayMs` sourced read-only from pi settings via `packages/extension/src/pi-retry-settings.ts` (defaults 3 / 2000; unreadable → `delayMs: 0` → surface renders elapsed-only).
 - pi 0.83 exposes retry lifecycle events to RPC/SDK consumers ONLY. ExtensionAPI has no `auto_retry_*` and nothing on EventBus. `willRetry` in 0.83 is compaction-only (`session_before_compact`/`session_compact`). Bridge is extension → must observe-synthesize.
-- Native `agent_settled` guaranteed at the 1.0.0 lockstep floor (`piCompatibility.minimum == recommended == 1.0.0`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
+- Native `agent_settled` guaranteed at the 1.1.0 lockstep floor (`piCompatibility.minimum == recommended == 1.1.0`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
 
 **3. Settings write + reload-on-save** (`packages/server/src/pi-agent-settings.ts`).
 
@@ -1606,11 +1606,13 @@ pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashbo
 
 `launchSource` (returned by `/api/health`) is `"electron" | "standalone" | "bridge"`, derived from `DASHBOARD_STARTER`. Client uses it via `useLaunchSource()` to hide pi-core update UI on Electron (immutable bundle has no writable target).
 
-Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "1.0.0"`, `recommended: "1.0.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths on that artifact). `piCompatibility` unchanged: a `@earendil-works/pi-coding-agent` range, a DIFFERENT artifact from the pi-ai pin below.
+Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "1.1.0"`, `recommended: "1.1.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths on that artifact). `piCompatibility` unchanged: a `@earendil-works/pi-coding-agent` range, a DIFFERENT artifact from the pi-ai pin below.
+
+1.1.0 adds: `tool_execution_end.durationMs` preferred for tool row duration; `samplingParamsByThinkingLevel` passthrough; `GET /api/provider-auth/legacy-provider-ids` (`azure-openai-responses` -> `azure` rename scan). See change: update-pi-core-1-1-adopt-apis.
 
 **Below-floor session signal.** Replaces per-feature pi version gates. Bridge `sendPiVersionIfChanged` (`packages/extension/src/model-tracker.ts`) reads the running pi argv-anchored via `readRunningPiVersion` and sends `pi_version_update`; server runs `computePiBelowFloor(version, serverPiMinimum())` (`packages/server/src/pi/pi-version-skew.ts`) → sets `DashboardSession.piBelowFloor: { minimum } | null`; client `PiBelowFloorWarning` renders on `SessionCard` + `SessionHeader`. Unknown or unparseable version → no flag. `minimum` sourced from `piCompatibility.minimum`. See change: update-pi-core-1-0-adopt-apis.
 
-**pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (pi >= 1.0.0). Supported range `>=1.0.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.0.0`. The server streams through pi-coding-agent's own **`ModelRuntime`** (ONE server runtime — see `### Single model runtime`), which owns module shape (factory API only), transcript normalization (`normalizeContext` before dispatch, else systemPrompt + tools drop silently) and OAuth relocation (`dist/oauth.js` is a TYPE-ONLY stub, never consulted; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map). `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple`. The `packages/shared/src/piai-compat/` seam (`adaptPiAi`), its `api-table.ts` / `NON_TEXT_LAZY_FILES` helpers and `packages/shared/src/test-support/piai-factory-fixture.ts` are DELETED.
+**pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (pi >= 1.1.0). Supported range `>=1.1.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.1.0`. The server streams through pi-coding-agent's own **`ModelRuntime`** (ONE server runtime — see `### Single model runtime`), which owns module shape (factory API only), transcript normalization (`normalizeContext` before dispatch, else systemPrompt + tools drop silently) and OAuth relocation (`dist/oauth.js` is a TYPE-ONLY stub, never consulted; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map). `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple`. The `packages/shared/src/piai-compat/` seam (`adaptPiAi`), its `api-table.ts` / `NON_TEXT_LAZY_FILES` helpers and `packages/shared/src/test-support/piai-factory-fixture.ts` are DELETED.
 
 See change: collapse-model-proxy-onto-modelruntime.
 
@@ -1926,7 +1928,7 @@ flowchart TD
 
 **Feedback contract** — exactly one terminal `command_feedback` per reload, `command` field always `/reload`.
 
-**Bridge side** — terminal-hosted path only; ladder step 2 wins for dashboard-spawned sessions. `BridgeCommandOptions.reload` = `terminalReload.reload` (`createTerminalReload`, `packages/extension/src/terminal-reload.ts`). `ExtensionContext` has no `reload()`; only a command handler's `ExtensionCommandContext` does. So `reload()` self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})` — pi runs `_tryExecuteExtensionCommand`, hands handler FRESH command ctx → `ctx.reload()`. No TUI bootstrap. Nothing callable captured — works every reload (retired captured-fn-on-`globalThis` path was single-use, stale ctx after first reload). No pi version gate (`update-pi-core-1-0-adopt-apis`): `supportsInProcessCommandDispatch` and `NO_RELOAD_PATH_REASON` retired — the check could never fail on a supported pi (1.0.0 floor). `BridgeCommandOptions.reload` returns `ReloadOutcome` (`{ok:true, handedOff:true}` | `{ok:false, reason}`). See change: fix-terminal-session-dashboard-reload.
+**Bridge side** — terminal-hosted path only; ladder step 2 wins for dashboard-spawned sessions. `BridgeCommandOptions.reload` = `terminalReload.reload` (`createTerminalReload`, `packages/extension/src/terminal-reload.ts`). `ExtensionContext` has no `reload()`; only a command handler's `ExtensionCommandContext` does. So `reload()` self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})` — pi runs `_tryExecuteExtensionCommand`, hands handler FRESH command ctx → `ctx.reload()`. No TUI bootstrap. Nothing callable captured — works every reload (retired captured-fn-on-`globalThis` path was single-use, stale ctx after first reload). No pi version gate (`update-pi-core-1-0-adopt-apis`): `supportsInProcessCommandDispatch` and `NO_RELOAD_PATH_REASON` retired — the check could never fail on a supported pi (1.1.0 floor). `BridgeCommandOptions.reload` returns `ReloadOutcome` (`{ok:true, handedOff:true}` | `{ok:false, reason}`). See change: fix-terminal-session-dashboard-reload.
 
 **Token handshake** — slot `process.__pi_dashboard_pending_reload__ = {token, sessionId, state, armedAt}`. State `armed → started → delivered | expired`. Transitions compare-and-set — requesting instance `error` and reloaded instance `completed` mutually exclusive. `START_TIMEOUT_MS` = 5000, `FINISH_TIMEOUT_MS` = 60000, both measured from `armedAt`.
 
@@ -4636,9 +4638,34 @@ The dashboard uses mDNS (via `bonjour-service`) for zero-config server discovery
 
 ### Server Advertisement
 - **Advertisement honesty** — `advertiseDashboard(port, piPort, {bindHost})` (`packages/shared/src/mdns-discovery.ts`). Gate: `shouldAdvertise(bindHost)`. Bind loopback (`127.x`/`::1`/`localhost`) → publish NOTHING. Unset/`0.0.0.0`/`::`/LAN → advertise. Server passes `{bindHost: config.host}` at advertise time (`packages/server/src/server.ts`). Reason: loopback-bound server advertising LAN hostname = unreachable poison record.
-- On startup, the server publishes a `_pi-dashboard._tcp` mDNS service with TXT record: `{ version, pid, piPort }`
-- On shutdown, the service is unpublished
+- On startup, the server publishes a `_pi-dashboard._tcp` mDNS service. Addresses resolved before publish (see Advertised addresses).
+- TXT: `fp` (identity fingerprint, `packages/server/src/auth/identity.ts`), `name` (display only: `dashboardName` else `os.hostname()` minus `.local`), `version` (server `pkgVersion`, not `0.0.0`), `pid`, `piPort`. See change: stabilize-mdns-server-identity.
+- On shutdown, the service is unpublished (TTL-0 teardown packet)
 - A continuous mDNS browser discovers peer servers and broadcasts updates to connected browsers via `servers_discovered`/`servers_updated` WebSocket messages
+
+### Dashboard-owned names (change: stabilize-mdns-server-identity)
+- Instance: `pi-dashboard-<id12>-<port>`. SRV target / A / AAAA owner: `pi-dashboard-<id12>-<port>.local`.
+- `<id12>` = first 12 lowercase hex of SHA-256 over UTF-8 of full fingerprint string (`"sha256:…"`). Fn: `deriveAdvertisedNames` (`packages/shared/src/mdns-discovery.ts`).
+- Never `os.hostname()`. `bonjour-service` default publishes A/AAAA under `os.hostname()` → macOS `mDNSResponder` owns that name → `will deregister … multicast conflict` → host renamed (`-75112` → `-75340`).
+- Port in name: dev + prod sharing one `identity.key` do not collide.
+- Name stable across OS renames → no up/down churn.
+- Probe conflict (name in use): `service.published` still false 3 s after publish (`PROBE_CHECK_MS`) → retry, `PROBE_MAX_ATTEMPTS` = 3, `PROBE_ATTEMPT_GAP_MS` = 5 s apart. Then fail closed; warn names instance + remediation (regenerate `identity.key` on cloned machines).
+
+### Advertised addresses (change: stabilize-mdns-server-identity)
+- Resolved in server before `advertiseDashboard`; `advertiseDashboard` stays sync.
+- Specific IP `bindHost` → that address.
+- Hostname `bindHost` → `dns.lookup(all)` results that are local interface addresses. None / lookup fail → no advertise (logged).
+- All interfaces → non-internal, non-zero MAC addresses. Drop IPv6 link-local (`fe80::/10`). Drop ifaces matching `/^(docker|br-|veth|virbr|cni|flannel)/i` (addresses like `172.17.0.1` reused across machines).
+- Loopback `bindHost` → no advertise (`shouldAdvertise`, unchanged).
+- Refresh sweep re-resolves list; changed → unpublish + republish. Local peers never keep stale literal.
+
+### Peer discovery and refresh (change: stabilize-mdns-server-identity)
+- Peer key = service fqdn. Same key for `up`, `down`, `srv-update`, `txt-update`, and `server.ts` `peerServers`.
+- `bonjour-service` never expires peers and reports no address-only change → refresh sweep every `SWEEP_INTERVAL_MS` (60 s). Each sweep: fresh browse, `SWEEP_WINDOW_MS` (3 s).
+- Peer absent from `SWEEP_MISS_LIMIT` (3) consecutive sweeps → `server-down`.
+- Local peer `host` = IP literal of a local interface address (IPv4 preferred). Remote peer `host` = advertised name.
+- Self-exclusion: `isLocal && fingerprint === own && port === config.port`. Peer without `fp` → legacy rule. Copy of `identity.key` on another machine stays listed.
+- `packages/shared/src/host-port.ts`: `formatHostPort` (brackets IPv6), `normalizeHostKey` (lowercase, strip trailing dot + brackets). Used by every URL builder that receives a discovered host.
 
 ### Bridge Discovery
 - Bridge extensions use the mDNS discovery chain instead of bare TCP port probes
@@ -4652,10 +4679,48 @@ The dashboard uses mDNS (via `bonjour-service`) for zero-config server discovery
 
 ### Known Servers
 - Users can persist remote servers in `config.json` via `knownServers: KnownServer[]`
-- Each entry has `host`, `port`, optional `label`, and `addedAt` timestamp
-- REST API: `GET/POST/DELETE /api/known-servers` for CRUD, `POST /api/discover-servers` for on-demand mDNS scan
+- Each entry has `host`, `port`, optional `label`, `addedAt` timestamp, optional `fingerprint` (`sha256:` prefix, pinned, see Identity pinning)
+- REST API: `GET /api/known-servers` (list + `canManage`, `networkGuard`), `POST`/`DELETE /api/known-servers` (operator-only), `POST /api/known-servers/accept-move` (operator), `POST /api/known-servers/probe` (operator), `POST /api/discover-servers` for on-demand mDNS scan
+- Mutations and probe are operator-only: `preHandler: [networkGuard, operatorGuard]`. Network-trusted browsers can list entries but not change them. Breaking, see release note.
 - Localhost is always implicitly available (not stored)
 - The data model is extensible for future key exchange / auth tokens
+
+### Known-server identity pinning (change: stabilize-mdns-server-identity)
+- Uniqueness key: `(fingerprint, port)`. `parseKnownServers` (`packages/shared/src/config.ts`) passes `sha256:` fingerprints through; duplicates merged on load, first entry wins, later hosts dropped (logged).
+- Proof: `proveServerIdentity(baseUrl, {timeoutMs})` (`packages/shared/src/server-pinning.ts`). Fresh nonce → `POST /api/pair/challenge`. `redirect: "manual"`. Response read with 4 KiB cap. Fingerprint recomputed from presented key. Signature verified.
+- `challengePinnedServer` unchanged (remote-registration gate relies on it).
+- Pin written only after proof. Two paths: operator add; backfill (operator probe reports `reachable` for unpinned entry).
+- Add: proof runs outside write queue. Queued write re-reads config and re-validates.
+  - Proven `F`, no conflict → pinned.
+  - `F` held by other entry at same port, holder's stored address still proves `F` → `409 already_known {host, port}`. Nothing written.
+  - `F` held, holder's stored address no longer proves `F` → holder host updated → `{updated: true}`. Label replaced only when non-empty label supplied. `addedAt` kept.
+  - Target pinned to `G ≠ F` → `409 identity_changed {expected, proven}`.
+- Add never clears or replaces a pin. Failed challenge keeps existing pin.
+- Backfill: proven `F` pinned at stored address. Existing `(F, port)` holder → merged into verified entry (label kept when verified entry has none), other entry removed, dropped host logged.
+- All known-server writes (add, delete, backfill, accept-move) → one module-level serialized queue (`known-servers-routes.ts`). Challenges run before enqueue. Each write aborts if target entry gone.
+
+### Move suggestions (change: stabilize-mdns-server-identity)
+- Trigger: `up` / `srv-update` / refresh sweep for peer whose `(fp, port)` matches pinned entry at different host.
+- Rate: one challenge per `(fp, port)` per `MOVE_CHALLENGE_INTERVAL_MS` (60 s).
+- Stored address still proves `F` → no action.
+- Else challenge peer address only if on-link (inside a subnet of a local interface, or IPv6 prefix match) and not loopback / link-local / unspecified / multicast. Else skip, logged `move-skipped`.
+- Proof → in-memory suggestion `{entry, host, port, verifiedAt}`. Not persisted. Fn: `known-server-moves.ts`.
+- `GET /api/known-servers` returns `movedTo` per entry.
+- Dropped when: stored address proves `F` again; peer disappears; not re-verified within `MOVE_SUGGESTION_TTL_MS` (10 min).
+- Advert alone never writes config.
+- Accept: `POST /api/known-servers/accept-move {host, port}` (operator). Re-verifies: stored address fails + suggested address proves `F`. Rewrites host/port; label, `fingerprint`, `addedAt` kept.
+- Logs: `[known-servers] move-suggested|move-withdrawn|move-skipped fp=<short> <old> -> <new>`; accept logs `[known-servers] moved fp=<short> <old> -> <new>`. `<short>` = fingerprint without `sha256:`, 16 chars.
+
+### Operator probe (change: stabilize-mdns-server-identity)
+- `POST /api/known-servers/probe {host, port}` (operator). Refuses unless `normalizeHostKey(host):port` matches persisted entry.
+- Order: DNS lookup first (own budget `PROBE_DNS_TIMEOUT_MS`), then `GET http://<formatHostPort>/api/health` (`redirect: "manual"`, `PROBE_HTTP_TIMEOUT_MS`). Separate budgets: slow negative `.local` lookup ≠ HTTP timeout.
+- One in-flight probe per entry.
+- States:
+  - `name-not-resolved`: `ENOTFOUND` / `EAI_NONAME`.
+  - `timeout`: DNS timeout, `EAI_AGAIN`, HTTP `AbortError` / `TimeoutError`.
+  - `refused`: `ECONNREFUSED` (`err.cause.code`).
+  - `reachable`: HTTP 200 + JSON `ok: true`.
+  - `error`: any other response or failure.
 
 ### Server Selector UI
 - The header dropdown shows persisted known servers (from config) plus localhost, not raw mDNS results
@@ -4663,6 +4728,30 @@ The dashboard uses mDNS (via `bonjour-service`) for zero-config server discovery
 - **Probe lifecycle**: availability is probed via `/api/health` **only when the dropdown opens** — once per open. No mount probe, no timer, no probing while the dropdown is closed. Current-server status is derived from the live WebSocket state, not a separate probe.
 - **Unreachable entries** are rendered with `opacity-50`, `cursor-not-allowed`, and the `disabled` attribute set; clicks are no-ops. To re-probe, close and reopen the dropdown. The transactional switch (below) still protects against races between the last probe and a click on a reachable entry.
 - Last-used server persisted in `localStorage` (`pi-dashboard-last-server`) — **only after** a successful switch (see transactional switching below).
+
+### Selector reachability labels (change: stabilize-mdns-server-identity)
+- Browser probe (`/api/health`, 2 s) decides first. Transport failure (no readable response) → server operator probe decides label. Browser cannot tell CORS block from dead name.
+- Labels (`ServerSelector.tsx`):
+  - `available`: `/api/health` `ok: true`.
+  - `denied`: 403 `network_not_allowed`.
+  - `cors-blocked` ("CORS-blocked"): server `reachable`, browser not.
+  - `name-not-resolved` ("Name not found"): server `name-not-resolved`, no move suggestion.
+  - `movedTo` ("Moved to host:port" + Update): server `name-not-resolved` + verified suggestion. Update = accept-move.
+  - `unreachable` ("Unreachable"): everything else, incl. server refusal for non-operator.
+- Non-`available` states disable switching. Update action is the only control on a moved entry.
+
+```mermaid
+flowchart TD
+  A["browser fetch /api/health"] -->|"2xx, ok: true"| AV["available"]
+  A -->|"403 network_not_allowed"| DN["denied"]
+  A -->|"non-ok or bad body"| UN["unreachable"]
+  A -->|"transport error"| S["POST /api/known-servers/probe (operator)"]
+  S -->|"reachable"| CB["cors-blocked"]
+  S -->|"name-not-resolved"| NR{"verified move suggestion?"}
+  NR -->|"yes"| MV["Moved to host:port + Update"]
+  NR -->|"no"| NF["Name not found"]
+  S -->|"refused / timeout / error / guard refusal"| UN
+```
 
 ### Transactional Server Switching
 Switching servers is a two-phase transaction that never destructs state before verifying the target is reachable. Implemented by `performServerSwitch` (`packages/client/src/lib/server-switch.ts`) + `openStagingSocket` (`packages/client/src/lib/staging-socket.ts`):
@@ -4859,7 +4948,7 @@ See change: add-radius-provider-login (D5, D6).
 
 **Non-goal.** Model proxy has no Radius OAuth refresh loader.
 
-**Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `1.0.0`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^1.0.0`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`). Every `@earendil-works` peer is `>=1.0.0` (optional, no upper bound); every `@earendil-works` devDependency is `^1.0.0`; `pnpm-workspace.yaml` overrides pin `pi-coding-agent`, `pi-ai`, `pi-tui`. See change: update-pi-core-1-0-adopt-apis.
+**Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `1.1.0`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^1.1.0`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`). Every `@earendil-works` peer is `>=1.1.0` (optional, no upper bound); every `@earendil-works` devDependency is `^1.1.0`; `pnpm-workspace.yaml` overrides pin `pi-coding-agent`, `pi-ai`, `pi-tui`. See changes: update-pi-core-1-0-adopt-apis, update-pi-core-1-1-adopt-apis; floor moved to 1.1.0 in update-pi-core-1-1-adopt-apis.
 
 **Routes** (`packages/server/src/routes/provider-auth-routes.ts`):
 
@@ -5846,6 +5935,12 @@ Two writer processes for `~/.pi/agent/auth.json`:
 Last-writer-wins on overlapping provider keys; non-overlapping providers preserved by merge. Acceptable — both writers re-read before writing; churn only occurs during concurrent OAuth refreshes (rare in practice).
 
 Refresh window: pi refreshes at 5 min remaining (`OAUTH_REFRESH_WINDOW_MS`) with a 15 s abort — was dashboard 30 s / 30 s.
+pi-ai >= 1.1.0 (`dist/auth/resolve.js` `refreshStoredOAuthCredential`): caller signal cancels only credential-lock wait.
+Started refresh ignores caller signal; bounded by `AbortSignal.timeout(15s)`; persists rotated credential.
+Reason: cancelled caller must not discard only valid refresh token.
+`InternalAuthStorage` (`packages/server/src/model-proxy/internal-auth-storage.ts`): shared per-provider flight carries no caller signal; each caller races own signal (`raceSignal`); already-aborted request starts nothing.
+Client disconnect (`model-proxy-routes.ts`) ends credential wait promptly; refresh still completes + persists.
+Old contract (abort stops refresh, nothing persisted) retired. See change: `update-pi-core-1-1-adopt-apis` (design D7).
 
 See change: `add-dashboard-model-proxy`, `collapse-model-proxy-onto-modelruntime`.
 

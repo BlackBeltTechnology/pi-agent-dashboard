@@ -57,12 +57,16 @@ The endpoint SHALL accept only a name that is valid on every supported platform:
 - **WHEN** a client posts a name such as `con`, `aux.txt`, `a:b`, `name.` or one containing a newline
 - **THEN** the response status is 400 with `success: false`
 
+#### Scenario: Name too long
+- **WHEN** a client posts a name longer than 255 bytes in UTF-8
+- **THEN** the response status is 400 with `reason: "too_long"`
+
 #### Scenario: Missing or non-string name
 - **WHEN** a client posts `{}` or `{ name: 42 }`
 - **THEN** the response status is 400 with `success: false`
 
 ### Requirement: The resolved directory stays inside the projects root
-The real path of the created or reused directory SHALL be inside the real path of the projects root (the invariant is stated against real paths: a projects root that is itself a symbolic link to a directory SHALL be accepted, and its children live under the link target). A target whose real path is outside the root's real path SHALL be rejected with status 400 and SHALL NOT be reported as success; a directory this request created before detecting the escape SHALL be removed. A target that is a symbolic link resolving to a directory inside the root SHALL be reused like any existing directory.
+The real path of the created or reused directory SHALL be strictly inside (never equal to) the real path of the projects root (the invariant is stated against real paths: a projects root that is itself a symbolic link to a directory SHALL be accepted, and its children live under the link target). A target whose real path is outside the root's real path SHALL be rejected with status 400 and SHALL NOT be reported as success; a directory this request created before detecting the escape SHALL be removed. A target that is a symbolic link resolving to a directory inside the root SHALL be reused like any existing directory.
 
 #### Scenario: Symlinked child escapes the root
 - **GIVEN** `<home>/Projects/demo` is a symbolic link to a directory outside `<home>/Projects`
@@ -73,6 +77,16 @@ The real path of the created or reused directory SHALL be inside the real path o
 - **GIVEN** `<home>/Projects/demo` is a symbolic link to `<home>/Projects/real-demo`, a directory
 - **WHEN** a client posts `{ name: "demo" }`
 - **THEN** the response is successful with `existed: true` and the real path of `real-demo`
+
+#### Scenario: Symlinked child pointing at the root itself
+- **GIVEN** `<home>/Projects/demo` is a symbolic link to `<home>/Projects`
+- **WHEN** a client posts `{ name: "demo" }`
+- **THEN** the response status is 400 with `reason: "outside_root"`
+
+#### Scenario: Dangling symlink at the projects root
+- **GIVEN** `<home>/Projects` is a symbolic link whose target does not exist
+- **WHEN** a client posts any valid name
+- **THEN** the response status is 409 with `reason: "root_not_a_directory"` and nothing is created
 
 #### Scenario: Dangling symlink at the target name
 - **GIVEN** `<home>/Projects/demo` is a symbolic link whose target does not exist

@@ -7,11 +7,13 @@ import {
   createMemoryEventStore,
   DEFAULT_MAX_CACHED_SESSIONS,
   DEFAULT_MAX_EVENT_DATA_SIZE,
+  DEFAULT_MAX_STRING_SIZE,
   __testEndSubsumes as endSubsumes,
   exceedsSerializedSize,
   globalTrimSlack,
   MEASURE_CEILING_FALLBACK,
   measureBytes,
+  truncateStrings,
 } from "../persistence/memory-event-store.js";
 
 function makeEvent(type: string = "test"): DashboardEvent {
@@ -2844,5 +2846,32 @@ describe("memory-event-store — evicted tool-end record", () => {
     store.forgetEvictedToolEnd("s", "a");
     expect(store.wasToolEndEvicted("s", "a")).toBe(false);
     store.forgetEvictedToolEnd("nope", "a"); // no throw on an unknown session
+  });
+});
+
+// #416: the `data`+mime exemption in `truncateStrings` is reachable and
+// spec-required (in-memory-event-buffer, "Image data preservation during
+// truncation"): display-fitted derivatives (≤ ~212 KB base64) are stored inline,
+// ~50× the default string cap. See change: close-e2e-tooling-followups (D7).
+describe("truncateStrings — image data exemption (#416)", () => {
+  const big = "A".repeat(DEFAULT_MAX_STRING_SIZE * 50);
+
+  it("(E15) keeps a flat {data, mimeType} image block byte-identical", () => {
+    const block = { type: "image", data: big, mimeType: "image/jpeg" };
+    const out = truncateStrings(block, DEFAULT_MAX_STRING_SIZE) as typeof block;
+    expect(out.data).toBe(big);
+  });
+
+  it("(E16) keeps a nested Anthropic {source:{media_type, data}} block byte-identical", () => {
+    const block = { type: "image", source: { type: "base64", media_type: "image/png", data: big } };
+    const out = truncateStrings(block, DEFAULT_MAX_STRING_SIZE) as typeof block;
+    expect(out.source.data).toBe(big);
+  });
+
+  it("(E17) still caps a `data` string with no mime sibling", () => {
+    const out = truncateStrings({ data: big }, DEFAULT_MAX_STRING_SIZE) as { data: string };
+    expect(out.data).not.toBe(big);
+    expect(out.data.length).toBeLessThanOrEqual(DEFAULT_MAX_STRING_SIZE + 200);
+    expect(out.data).toMatch(/…\[\d+ chars hidden\]…/);
   });
 });

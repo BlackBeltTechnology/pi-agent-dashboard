@@ -184,7 +184,7 @@ import { useCardFxAttributes } from "./hooks/useCardFxAttributes.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
 import { useProvidersReady } from "./hooks/useProvidersReady.js";
-import { useSessionActions } from "./hooks/useSessionActions.js";
+import { type PendingSpawnEntry, useSessionActions } from "./hooks/useSessionActions.js";
 import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
 import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib/api/api-context.js";
 import { buildContextUsageMap } from "./lib/context-usage.js";
@@ -412,6 +412,10 @@ const EMPTY_STEERING: string[] = [];
 
 export default function App() {
   const { t, language } = useI18n();
+  // Zero-height sentinel at the top of the LIVE composer stack. State-backed
+  // (callback ref) so unmount yields `null` → CanvasDriver's safe-area fallback.
+  // See change: fix-canvas-chip-tray-overlay.
+  const [composerAnchor, setComposerAnchor] = useState<HTMLElement | null>(null);
   // Pause all CSS animations while the window is hidden to the tray /
   // backgrounded, so the renderer + GPU stop continuous compositing.
   // See change: throttle-idle-ui-animations.
@@ -743,7 +747,7 @@ export default function App() {
   // back to the originating click for auto-select after spawn AND fork.
   // Lives alongside `spawningCwds` (which keeps placeholder + disabled-button
   // behavior cwd-keyed). See change: spawn-correlation-token.
-  const pendingSpawnsRef = useRef<Map<string, { cwd: string; kind: "spawn" | "resume"; placeholderCwd?: string }>>(new Map());
+  const pendingSpawnsRef = useRef<Map<string, PendingSpawnEntry>>(new Map());
   const [sessionOrderMap, setSessionOrderMap] = useState<Map<string, string[]>>(new Map());
   // ── fix-connect-snapshot-frame-loss (D7/D9) ── Snapshot-window ended
   // totals, per-group page offsets, and the snapshot generation counter that
@@ -2491,6 +2495,17 @@ export default function App() {
               menu + session-action groups (relocated from the retired
               StatusBar model row). Read-only archived open hides it with the
               rest of the composer (archive-sessions-lazy-load). */}
+          {/* Anchor for the floating canvas chip tray: 0 height, no gap unit, so it
+              leaves the pane's flex budget untouched. Live stack only — a frozen
+              underlay never anchors it. See change: fix-canvas-chip-tray-overlay. */}
+          {!frozen && !readOnly && (
+            <div
+              aria-hidden
+              data-testid="composer-stack-anchor"
+              className="h-0 shrink-0"
+              ref={setComposerAnchor}
+            />
+          )}
           {selectedSession && !readOnly && (
             <div
               /* `shrink-0`: thin furniture row — cannot compress below its content,
@@ -2974,7 +2989,10 @@ export default function App() {
             }}
           >
             <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} url={editorUrl} nonce={editorOpenNonce} tabs={editorTabs} />
-            <CanvasDriver state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE} />
+            <CanvasDriver
+              state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE}
+              anchor={composerAnchor}
+            />
             <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
               {children}
               {/* Non-modal "waiting for file access" toast (own tray, both layouts).
@@ -3381,7 +3399,9 @@ export default function App() {
           onSpawn={(path, opts) => {
             const placeholderCwd = boardWorktreeForChange.cwd;
             setBoardWorktreeForChange(null);
-            handleSpawnSession(path, opts?.attachProposal, { ...opts, placeholderCwd });
+            // Board spawns never take focus (`focus: false` last so `opts` can't
+            // override it). See change: openspec-board-spawn-no-focus.
+            handleSpawnSession(path, opts?.attachProposal, { ...opts, placeholderCwd, focus: false });
             // Opt-in trusted-only worktree auto-init. See change: auto-init-worktree-on-spawn.
             void maybeAutoInitWorktreeOnSpawn(path);
           }}

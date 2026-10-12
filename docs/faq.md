@@ -1431,11 +1431,11 @@ Cross-refs:
 
 ## Why does /ctx-stats work in some sessions but not others?
 
-Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.0.0 lockstep floor). No session-kind probe, no keeper UDS route.
+Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.1.0 lockstep floor). No session-kind probe, no keeper UDS route.
 
 Pi runs `_tryExecuteExtensionCommand` FIRST — before its compaction guard, before `streamingBehavior` — so headless, tmux, terminal and user-launched sessions all dispatch the same way. `deliverAs` is inert for an extension command.
 
-Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.0.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
+Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.1.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
 
 Retired by change `retire-slash-dispatch-via-expand-prompt-templates`: Path B (`pi.dispatchCommand`, never shipped upstream), Path C (headless RPC via keeper UDS), Path D (tmux / Windows Terminal error). Keeper sidecar UNCHANGED — still the durable owner of pi's stdin across dashboard restarts.
 
@@ -3169,21 +3169,33 @@ Cross-refs:
 - vitest.workers.ts
 - packages/client/src/__tests__/fixed-tick-conversion-equivalence.test.ts
 
-## Why does docker/test-up.sh refuse to start with "co-resident harness oversubscription"?
+## Why does docker/test-up.sh refuse to start ("co-resident harness oversubscription" / "harness memory cap exceeds the daemon")?
 
-Cause: `docker/test-up.sh` compares `(n+1) × MEM_LIMIT` against daemon `MemTotal`, where n = count of running peer `pi-dash-test-*` compose projects. Default `MEM_LIMIT` = `4g` (`docker/compose.yml`).
+Cause: `docker/test-up.sh` compares `INSTANCES × MEM_LIMIT` against daemon `MemTotal`. `INSTANCES` = running peer `pi-dash-test-*` compose projects + 1. Default `MEM_LIMIT` = `4g` (`docker/compose.yml`).
 
-Refuses when `(n+1) × MEM_LIMIT >= MemTotal`. Equality refuses: host must keep running. Error names other running project(s) plus arithmetic.
+Refuses when `INSTANCES × MEM_LIMIT >= MemTotal`. Equality refuses: host must keep running. Arithmetic runs with zero peers too.
+
+Two refusal headlines:
+
+- Peer up: `stabilize-browser-e2e: refusing to start — co-resident harness oversubscription` + `  other harness project(s): <names>`.
+- Lone harness: `stabilize-browser-e2e: refusing to start — harness memory cap exceeds the daemon`. No project names.
+- Both then print `  memory: <INSTANCES> × <MEM_LIMIT> = <total>  >=  <MemTotal> MemTotal (MEM_LIMIT=…)`. Lone example: `1 × 8 GiB = 8 GiB  >=  8 GiB`. Peer example: `2 × 4 GiB = 8 GiB  >=  8 GiB`. Then `  set PI_HARNESS_ALLOW_OVERSUBSCRIBE=1 to start anyway`.
 
 Fix A: free peer harness — run `docker/test-down.sh` from other worktree.
 
-Fix B: override — `PI_HARNESS_ALLOW_OVERSUBSCRIBE=1 docker/test-up.sh -d --build`.
+Fix A (lone harness): lower `MEM_LIMIT` (e.g. `MEM_LIMIT=4g`) or raise Docker VM memory.
+
+Fix B: override — `PI_HARNESS_ALLOW_OVERSUBSCRIBE=1 docker/test-up.sh -d --build`. Prints one `oversubscribed` warning, proceeds.
 
 Softer case: limits fit but peer running → one warning only (attribution degraded under contention).
 
-Missing data case: unparseable `MEM_LIMIT` or unavailable `docker info` → warning + proceed; never refuse.
+Lone harness + fits → silent.
+
+Missing data case: unparseable `MEM_LIMIT` or failed `docker info` → peer up: one warning + proceed; no peer: silent. Never refuses.
 
 Issue: #451 part 2. Change: stabilize-browser-e2e.
+
+See change: close-e2e-tooling-followups.
 
 Cross-refs:
 - docker/TESTING.md
@@ -3495,3 +3507,54 @@ Source: `docs/architecture.md` → Auth model → Local credential proof. Change
   - Pre-proof server: `curl -X POST http://localhost:8000/api/restart` with new build, then `npm run reload`.
   - Session retries inside 5 min cap. Or restart the session to retry now.
 - Docker / published port: sender sees `401` with `binding-mismatch` → BREAKING for `pi-dashboard login --local|open|token create` through the published port. Run those inside the container, or log in.
+
+## Server shows "CORS-blocked", "Name not found" or "Moved to …" in the server selector — what does it mean?
+
+Label = cause the dashboard server observed. Browser probe fails at transport level → server probes the stored entry (`POST /api/known-servers/probe`, operator only).
+
+- `CORS-blocked` — server reaches entry, this browser does not. Fix: allow this browser's network on the remote (`trustedNetworks`), or check the path from this browser.
+- `Name not found` — server cannot resolve stored host (`ENOTFOUND` / `EAI_NONAME`). Usually remote renamed its `.local` name. No move suggestion → re-add server with its current address.
+- `Moved to <host>:<port>` + Update — same server (identity proof against stored `fingerprint`) answers at new on-link address. Update = operator accepts: rewrites entry `host`/`port`; label, fingerprint, `addedAt` kept. Nothing changes without the click.
+- `Unreachable` — refused, timeout, or other error. Check server running and port.
+
+No suggestion when: entry has no `fingerprint` (added before this change), or peer not seen on LAN. Advert alone never moves an entry.
+
+See change: stabilize-mdns-server-identity.
+
+Cross-refs:
+- docs/architecture.md → mDNS Server Discovery → Known-server identity pinning, Move suggestions, Selector reachability labels
+- openspec/changes/archive/2026-10-12-stabilize-mdns-server-identity/
+
+## Mac hostname keeps getting a number suffix (`-8559`) — why, and how do I stop it?
+
+macOS appends a number to `LocalHostName` when another host claims that `.local` name. Old dashboard versions advertised under `os.hostname()` (the Mac's own `.local` name) → `mDNSResponder` multicast conflict → rename.
+
+- Current versions advertise `pi-dashboard-<id12>-<port>.local`. Dashboard no longer contests the OS name. Suffix stops growing after upgrade.
+- Existing suffix stays (`home-imac-75340`). Still resolves. Dashboard does not remove it.
+- Rename: `sudo scutil --set LocalHostName <name>`.
+
+See change: stabilize-mdns-server-identity.
+
+Cross-refs:
+- docs/architecture.md → mDNS Server Discovery → Dashboard-owned names
+- openspec/changes/archive/2026-10-12-stabilize-mdns-server-identity/
+
+## Never copy `identity.key` — what breaks and how do I fix a clone?
+
+`~/.pi/dashboard/identity.key` = server identity. Copy to a second machine → same `fingerprint` → same `<id12>` → same instance `pi-dashboard-<id12>-<port>` when port matches.
+
+- Second server detects name conflict (not published 3 s after publish), retries 3 attempts, 5 s apart. Then stops advertising. Warning names the instance and remediation.
+- Known-server pins to that fingerprint may point at the wrong machine.
+
+Fix on the clone:
+
+1. Stop the server.
+2. Delete `~/.pi/dashboard/identity.key`.
+3. Start the server. New key, new fingerprint, new `<id12>`. Startup regenerates the file.
+4. Re-add the clone in known servers (new fingerprint pin).
+
+See change: stabilize-mdns-server-identity.
+
+Cross-refs:
+- docs/architecture.md → mDNS Server Discovery → Dashboard-owned names
+- packages/server/src/auth/identity.ts

@@ -1,0 +1,48 @@
+{
+  "id": "fx-search-1",
+  "type": "search",
+  "timestamp": 1700000000000,
+  "queries": [
+    {
+      "query": "example topic overview",
+      "answer": "Neutral synthesized answer.\nSource: Example page (https://example.com/a)",
+      "results": [
+        {
+          "title": "Example page A",
+          "url": "https://example.com/a",
+          "snippet": "First neutral snippet."
+        },
+        {
+          "title": "Example page B",
+          "url": "https://example.org/b",
+          "snippet": ""
+        },
+        {
+          "title": "Example page C",
+          "url": "https://example.net/c",
+          "snippet": "Third neutral snippet."
+        }
+      ],
+      "error": null,
+      "provider": "exa"
+    },
+    {
+      "query": "example topic details",
+      "answer": "Another neutral answer.",
+      "results": [
+        {
+          "title": "Example page D",
+          "url": "https://example.com/d",
+          "snippet": "Fourth neutral snippet."
+        },
+        {
+          "title": "Example page E",
+          "url": "https://example.com/e",
+          "snippet": ""
+        }
+      ],
+      "error": null,
+      "provider": "exa"
+    }
+  ]
+}

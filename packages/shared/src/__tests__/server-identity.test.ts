@@ -8,6 +8,18 @@ describe("isDashboardRunning", () => {
     globalThis.fetch = originalFetch;
   });
 
+  it("#E30 probes an IPv6-literal host with a bracketed authority", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ ok: true, pid: 1 }),
+    });
+    await isDashboardRunning(8000, "2001:db8::5");
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://[2001:db8::5]:8000/api/health",
+      expect.anything(),
+    );
+  });
+
   it("returns running: true with pid when health endpoint responds correctly", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,

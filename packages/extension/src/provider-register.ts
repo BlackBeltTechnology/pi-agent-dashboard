@@ -78,6 +78,8 @@ export interface ModelMetadata {
    * declares none. See change: update-pi-core-0-84-adopt-apis.
    */
   samplingParams?: Record<string, unknown>;
+  /** Per-thinking-level sampling params (pi 1.1.0). Opaque passthrough; omitted when absent. See change: update-pi-core-1-1-adopt-apis. */
+  samplingParamsByThinkingLevel?: Record<string, Record<string, unknown>>;
 }
 
 /**
@@ -262,6 +264,9 @@ export function metadataFromNative(native: NativeModelEntry, api?: string): Mode
     // floor-pi session sees exactly the pre-0.84 metadata shape.
     // See change: update-pi-core-0-84-adopt-apis.
     ...(native.samplingParams ? { samplingParams: native.samplingParams } : {}),
+    ...(native.samplingParamsByThinkingLevel
+      ? { samplingParamsByThinkingLevel: native.samplingParamsByThinkingLevel }
+      : {}),
   };
 }
 

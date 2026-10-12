@@ -37,9 +37,10 @@ test.describe("custom entries — replay parity", () => {
       for (let i = 0; i < count; i++) {
         const cardEl = cards.nth(i);
         const label = (await cardEl.locator("span").first().textContent()) ?? "";
-        const pre = cardEl.locator("pre");
-        const text = (await pre.textContent()) ?? "";
-        rows.push({ label: label.trim(), truncated: text.startsWith("«") && text.includes("earlier lines hidden") });
+        // A card body is a `<pre>` (plain text) OR a key/value `<dl>` (untruncated JSON
+        // object — change: render-unclaimed-custom-entries), so read the whole card.
+        const text = (await cardEl.textContent()) ?? "";
+        rows.push({ label: label.trim(), truncated: text.includes("earlier lines hidden") });
       }
       return rows;
     }

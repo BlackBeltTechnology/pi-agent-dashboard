@@ -34,11 +34,15 @@ design and tasks are written when the 1.0.0 horizon is scheduled.
 - `local-ipc-allowlist-token`: the raw token header no longer verifies.
 - `trust-and-credential-boundaries`, `bearer-device-auth`, `qr-device-pairing`:
   drop the raw-header admission wording.
+- `cross-site-request-gate`: the Origin refusal no longer names the retired grace.
 
 ## Impact
 
-- `packages/server/src/server.ts` (the two switches), `auth/local-token.ts`
-  (rotation), plus the listed specs and the docs Auth model section.
+- `packages/server/src/server.ts` (the two switches + live-peer check), `auth/local-token.ts`
+  (locked one-shot rotation), `cli.ts` (never rotates), `auth/local-credential.ts`
+  (retired-header log), plus the listed specs and the docs Auth model section.
+- Test harnesses that send the raw header: `tests/e2e/**` helpers/specs and
+  `server/src/test-support/local-credential-stamp.ts`.
 
 ## Discipline Skills
 

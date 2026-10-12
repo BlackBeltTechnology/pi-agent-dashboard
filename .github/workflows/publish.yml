@@ -348,6 +348,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-hermes-memory-plugin"
             "@blackbelt-technology/pi-dashboard-context-mode-settings-plugin"
             "@blackbelt-technology/pi-dashboard-blackhole-plugin"
+            "@blackbelt-technology/pi-dashboard-web-access-plugin"
             "@blackbelt-technology/pi-dashboard-gmail-plugin"
             "@blackbelt-technology/pi-dashboard-system-one-plugin"
             "@blackbelt-technology/pi-dashboard-browser-plugin"

@@ -133,3 +133,13 @@ describe("flattenModelsJson — samplingParams passthrough (pi 0.84.x)", () => {
     expect(out[0].samplingParams).toBeUndefined();
   });
 });
+
+describe("flattenModelsJson — samplingParamsByThinkingLevel passthrough (pi 1.1.0)", () => {
+  it("carries the per-thinking-level map through the flattened entry", () => {
+    const byLevel = { high: { temperature: 0.2 } };
+    const out = flattenModelsJson({
+      providers: { p: { models: [{ id: "m", samplingParamsByThinkingLevel: byLevel }] } },
+    });
+    expect(out[0].samplingParamsByThinkingLevel).toEqual(byLevel);
+  });
+});

@@ -1164,7 +1164,7 @@ export function truncateLines(text: string | unknown, maxLines: number): string 
  * parity holds. See change: render-inline-reasoning-and-custom-entries
  * (security-hardening pass, advisory #2).
  */
-const CUSTOM_BODY_MAX_CHARS = 64_000;
+export const CUSTOM_BODY_MAX_CHARS = 64_000;
 
 function extractCustomEntryBody(content: unknown): string {
   const body = extractCustomEntryBodyUncapped(content);
@@ -2635,7 +2635,16 @@ export function reduceEvent(
           ...next.messages[idx],
           toolStatus: isError ? "error" : "complete",
           result: result ? truncateOutputForDisplay(result) : next.messages[idx].result,
-          duration: msgStartedAt ? event.timestamp - msgStartedAt : undefined,
+          // pi >= 1.1.0 records the monotonic `execute()` time on the end event;
+          // prefer it over the timestamp difference (which includes queueing and
+          // transport lag). Absent/invalid → the timestamp fallback.
+          // See change: update-pi-core-1-1-adopt-apis.
+          duration:
+            typeof data.durationMs === "number" && Number.isFinite(data.durationMs) && data.durationMs >= 0
+              ? data.durationMs
+              : msgStartedAt
+                ? event.timestamp - msgStartedAt
+                : undefined,
           ...(images ? { images } : {}),
           ...(finalDetails ? { toolDetails: finalDetails } : {}),
         };

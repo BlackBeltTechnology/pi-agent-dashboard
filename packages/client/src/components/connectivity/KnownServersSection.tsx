@@ -3,12 +3,13 @@
  * Shows the list with remove buttons and an inline add form.
  */
 
-import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { formatHostPort } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
+import type { KnownServerListEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { mdiCheck, mdiClose, mdiPlus, mdiServerNetwork } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { addKnownServer, listKnownServers, removeKnownServer } from "../../lib/api/known-servers-api.js";
+import { acceptKnownServerMove, addKnownServer, listKnownServersWithAccess, removeKnownServer } from "../../lib/api/known-servers-api.js";
 import { logRejection } from "../../lib/report-error.js";
 
 interface KnownServersSectionProps {
@@ -16,7 +17,9 @@ interface KnownServersSectionProps {
 }
 
 export function KnownServersSection({ onChange }: KnownServersSectionProps = {}) {
-  const [servers, setServers] = useState<KnownServer[]>([]);
+  const [servers, setServers] = useState<KnownServerListEntry[]>([]);
+  // Mutations need an operator credential; a read-only viewer sees the list only.
+  const [canManage, setCanManage] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [addHost, setAddHost] = useState("");
@@ -26,8 +29,9 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
 
   const reload = useCallback(async () => {
     try {
-      const data = await listKnownServers();
-      setServers(data);
+      const data = await listKnownServersWithAccess();
+      setServers(data.servers);
+      setCanManage(data.canManage);
     } catch {
       // ignore
     } finally {
@@ -68,6 +72,12 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
     }
   };
 
+  const handleUpdate = async (s: KnownServerListEntry) => {
+    if (!(await acceptKnownServerMove(s.host, s.port))) return;
+    await reload();
+    onChange?.();
+  };
+
   if (loading) {
     return (
       <div className="text-sm text-[var(--text-muted)]">{i18nT("status.loading2", undefined, "Loading...")}</div>
@@ -96,19 +106,34 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
             <div className="text-xs text-[var(--text-muted)]">
               {s.host}:{s.port}
             </div>
+            {s.movedTo && (
+              <div className="text-xs text-amber-400">
+                {i18nT("connection.movedTo", { address: formatHostPort(s.movedTo.host, s.movedTo.port) }, "Moved to {address}")}
+              </div>
+            )}
           </div>
-          <button
-            onClick={() => handleRemove(s.host, s.port)}
-            className="text-[var(--text-muted)] hover:text-red-400 transition-colors p-1 cursor-pointer"
-            title={i18nT("common.removeServer", undefined, "Remove server")}
-          >
-            <Icon path={mdiClose} size={0.5} />
-          </button>
+          {canManage && s.movedTo && (
+            <button
+              onClick={() => void handleUpdate(s).catch(logRejection("KnownServersSection.handleUpdate"))}
+              className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded cursor-pointer"
+            >
+              {i18nT("connection.updateServer", undefined, "Update")}
+            </button>
+          )}
+          {canManage && (
+            <button
+              onClick={() => handleRemove(s.host, s.port)}
+              className="text-[var(--text-muted)] hover:text-red-400 transition-colors p-1 cursor-pointer"
+              title={i18nT("common.removeServer", undefined, "Remove server")}
+            >
+              <Icon path={mdiClose} size={0.5} />
+            </button>
+          )}
         </div>
       ))}
 
       {/* Add form */}
-      {showAdd ? (
+      {!canManage ? null : showAdd ? (
         <div className="space-y-2 p-3 rounded bg-[var(--bg-secondary)] border border-[var(--border-secondary)]">
           <div className="flex gap-2">
             <input

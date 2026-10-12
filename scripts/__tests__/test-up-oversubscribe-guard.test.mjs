@@ -13,8 +13,11 @@
  *                                 (PI_HARNESS_ALLOW_OVERSUBSCRIBE=1);
  *   - fits, but a peer is up    → proceed with one warning (attribution is
  *                                 degraded under contention);
- *   - no peer                   → silent;
- *   - memory unreadable         → warn and proceed (never refuse on missing data).
+ *   - no peer, fits             → silent;
+ *   - no peer, oversized        → REFUSE (not "co-resident"); override → one warning
+ *                                 (#701.1 — the arithmetic runs with n = 0 too);
+ *   - memory unreadable         → peer up: warn and proceed; no peer: silent
+ *                                 (never refuse on missing data).
  *
  * `docker` is stubbed on PATH; no daemon is touched. Pattern:
  * scripts/__tests__/test-up-port-derivation.test.mjs.
@@ -163,6 +166,7 @@ describe("test-up.sh oversubscription guard (#451 part 2)", () => {
     expect(r.out).toMatch(/2 × 4 GiB/);
     expect(r.out).toMatch(/8 GiB/);
     expect(r.out).toMatch(/PI_HARNESS_ALLOW_OVERSUBSCRIBE/);
+    expect(r.out).toMatch(/co-resident/);
     // The refusal must cost nothing: no build, no `compose up`.
     expect(r.calls).not.toMatch(/\bup\b/);
     expect(r.wroteState).toBe(false);
@@ -207,6 +211,54 @@ describe("test-up.sh oversubscription guard (#451 part 2)", () => {
     const r = runTestUp({ projects: PEER, memTotal: EIGHT_GIB, memLimit: "lots" });
     expect(r.status).toBe(0);
     expect(r.out).toMatch(/MEM_LIMIT|unparse|could not/i);
+    expect(r.calls).toMatch(/\bup\b/);
+  });
+});
+
+// #701.1: the `(n+1) × MEM_LIMIT` arithmetic runs with n = 0 as well, so a lone
+// harness whose cap alone does not fit is refused. Missing data never refuses
+// and never adds noise to a lone run. See change: close-e2e-tooling-followups.
+describe("test-up.sh lone-harness memory check (#701.1)", () => {
+  const guardLines = (out) => out.split("\n").filter((l) => l.startsWith("stabilize-browser-e2e:"));
+
+  it("(E1) refuses a lone harness whose MEM_LIMIT does not fit, before compose up", () => {
+    const r = runTestUp({ projects: "", memTotal: EIGHT_GIB, memLimit: "8g" });
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(/1 × 8 GiB/);
+    expect(r.out).toMatch(/PI_HARNESS_ALLOW_OVERSUBSCRIBE=1/);
+    expect(r.out).not.toMatch(/co-resident/i);
+    expect(r.out).not.toMatch(/other harness project/i);
+    expect(r.calls).not.toMatch(/\bup\b/);
+    expect(r.wroteState).toBe(false);
+  });
+
+  it("(E2) stays silent for a lone harness that fits", () => {
+    const r = runTestUp({ projects: "", memTotal: EIGHT_GIB, memLimit: "4g" });
+    expect(r.status).toBe(0);
+    expect(guardLines(r.out)).toEqual([]);
+    expect(r.calls).toMatch(/\bup\b/);
+  });
+
+  it("(E3) admits a lone oversized harness under the override with exactly one warning", () => {
+    const r = runTestUp({ projects: "", memTotal: EIGHT_GIB, memLimit: "8g", allowOversubscribe: true });
+    expect(r.status).toBe(0);
+    const lines = guardLines(r.out);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/oversubscribed/);
+    expect(r.calls).toMatch(/\bup\b/);
+  });
+
+  it("(E4) stays silent for a lone harness when docker info fails", () => {
+    const r = runTestUp({ projects: "", infoFail: true });
+    expect(r.status).toBe(0);
+    expect(guardLines(r.out)).toEqual([]);
+    expect(r.calls).toMatch(/\bup\b/);
+  });
+
+  it("(X1) stays silent for a lone harness when MEM_LIMIT is unparsable", () => {
+    const r = runTestUp({ projects: "", memTotal: EIGHT_GIB, memLimit: "banana" });
+    expect(r.status).toBe(0);
+    expect(guardLines(r.out)).toEqual([]);
     expect(r.calls).toMatch(/\bup\b/);
   });
 });
