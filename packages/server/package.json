@@ -34,6 +34,7 @@
       "context-mode-settings-plugin",
       "grammar-plugin",
       "blackhole-plugin",
+      "web-access-plugin",
       "gmail-plugin",
       "mcp-server-plugin",
       "apple-tools",
