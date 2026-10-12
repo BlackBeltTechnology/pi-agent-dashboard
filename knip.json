@@ -7,6 +7,7 @@
     "openspec/changes/**",
     "site/**",
     "docker/fixtures/**",
+    "packages/deck3d/fixtures/**",
     "examples/**",
     "**/__tests__/fixtures/**",
     "packages/pi-forms-bpmn/.pi/skills/**",
@@ -30,6 +31,7 @@
       "entry": [
         "scripts/**/*.{mjs,cjs,ts}",
         "tests/e2e/**/*.spec.ts",
+        "tests/e2e/*/global-{setup,teardown}.ts",
         "tests/e2e-electron/**/*.spec.ts",
         "qa/**/*.{ts,mjs}",
         ".pi/skills/**/scripts/*.ts",

@@ -93,6 +93,3 @@ export function useTreeColumnWidth(): TreeColumnWidth {
 
   return { width, containerRef, startResize };
 }
-
-// Exported for testing.
-export { DEFAULT_WIDTH, MAX_WIDTH, MIN_WIDTH, WIDTH_KEY };

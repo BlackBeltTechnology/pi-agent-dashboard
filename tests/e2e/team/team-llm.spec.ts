@@ -19,7 +19,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { type FakeLlm, startFakeLlm } from "./fake-llm.js";
 import { bootTeamHarness, enc, hasPi, type TeamHarness, type User } from "./team-harness.js";
 
-test.skip(!hasPi, "needs the pi CLI on PATH to spawn real sessions");
+test.skip(!hasPi, "needs the pi CLI on PATH to spawn real sessions; runs in no CI leg yet — https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/861");
 test.describe.configure({ mode: "serial", timeout: 180_000 });
 
 let h: TeamHarness;

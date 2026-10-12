@@ -42,31 +42,44 @@ export TEST_IMAGE_TAG="$COMPOSE_PROJECT_NAME"
 # build and before the state file is written, so a refusal costs nothing and
 # leaves no half-started state. `>=` is deliberate: the host must also keep
 # running, so limits that exactly equal MemTotal are already oversubscribed.
-# One code path in and out of CI — a CI runner has one harness, so this is a
-# no-op there. See change: stabilize-browser-e2e, docker/TESTING.md.
+# One code path in and out of CI — a CI runner has one harness, so only the
+# lone-harness cap check (silent when it fits) applies there. See change: stabilize-browser-e2e, docker/TESTING.md.
 MEM_LIMIT_RAW="${MEM_LIMIT:-4g}"
 PEER_HARNESSES="$(list_running_harness_projects "$COMPOSE_PROJECT_NAME")"
+PEER_NAMES=""
+PEER_COUNT=0
 if [ -n "$PEER_HARNESSES" ]; then
   PEER_NAMES="$(printf '%s' "$PEER_HARNESSES" | tr '\n' ',' | sed 's/,$//')"
   PEER_COUNT="$(printf '%s\n' "$PEER_HARNESSES" | grep -c .)"
-  INSTANCES=$(( PEER_COUNT + 1 ))
-  LIMIT_BYTES="$(parse_memory_bytes "$MEM_LIMIT_RAW" || true)"
-  MEM_TOTAL="$(docker info --format '{{.MemTotal}}' 2>/dev/null || true)"
-  if [ -z "$LIMIT_BYTES" ] || ! [[ "$MEM_TOTAL" =~ ^[0-9]+$ ]]; then
+fi
+# The arithmetic runs with PEER_COUNT=0 too: a lone harness whose cap alone
+# does not fit is refused. A lone run never gains noise from missing data or a
+# fitting cap. See change: close-e2e-tooling-followups (#701.1, design D2).
+INSTANCES=$(( PEER_COUNT + 1 ))
+LIMIT_BYTES="$(parse_memory_bytes "$MEM_LIMIT_RAW" || true)"
+MEM_TOTAL="$(docker info --format '{{.MemTotal}}' 2>/dev/null || true)"
+if [ -z "$LIMIT_BYTES" ] || ! [[ "$MEM_TOTAL" =~ ^[0-9]+$ ]]; then
+  if [ "$PEER_COUNT" -gt 0 ]; then
     echo "stabilize-browser-e2e: cannot read memory limits (MEM_LIMIT=${MEM_LIMIT_RAW:-unset}, MemTotal=${MEM_TOTAL:-unavailable}) — another harness is up (${PEER_NAMES}); proceeding without the oversubscription check" >&2
-  else
-    REQUIRED_BYTES=$(( INSTANCES * LIMIT_BYTES ))
-    if [ "$REQUIRED_BYTES" -lt "$MEM_TOTAL" ]; then
+  fi
+else
+  REQUIRED_BYTES=$(( INSTANCES * LIMIT_BYTES ))
+  if [ "$REQUIRED_BYTES" -lt "$MEM_TOTAL" ]; then
+    if [ "$PEER_COUNT" -gt 0 ]; then
       echo "stabilize-browser-e2e: another test harness is up (${PEER_NAMES}); ${INSTANCES} × $(human_bytes "$LIMIT_BYTES") fits in $(human_bytes "$MEM_TOTAL") but a red run cannot be attributed under contention" >&2
-    elif [ "${PI_HARNESS_ALLOW_OVERSUBSCRIBE:-}" = "1" ]; then
-      echo "stabilize-browser-e2e: oversubscribed — ${INSTANCES} × $(human_bytes "$LIMIT_BYTES") = $(human_bytes "$REQUIRED_BYTES") >= $(human_bytes "$MEM_TOTAL") MemTotal; proceeding because PI_HARNESS_ALLOW_OVERSUBSCRIBE=1" >&2
-    else
+    fi
+  elif [ "${PI_HARNESS_ALLOW_OVERSUBSCRIBE:-}" = "1" ]; then
+    echo "stabilize-browser-e2e: oversubscribed — ${INSTANCES} × $(human_bytes "$LIMIT_BYTES") = $(human_bytes "$REQUIRED_BYTES") >= $(human_bytes "$MEM_TOTAL") MemTotal; proceeding because PI_HARNESS_ALLOW_OVERSUBSCRIBE=1" >&2
+  else
+    if [ "$PEER_COUNT" -gt 0 ]; then
       echo "stabilize-browser-e2e: refusing to start — co-resident harness oversubscription" >&2
       echo "  other harness project(s): ${PEER_NAMES}" >&2
-      echo "  memory: ${INSTANCES} × $(human_bytes "$LIMIT_BYTES") = $(human_bytes "$REQUIRED_BYTES")  >=  $(human_bytes "$MEM_TOTAL") MemTotal (MEM_LIMIT=${MEM_LIMIT_RAW})" >&2
-      echo "  set PI_HARNESS_ALLOW_OVERSUBSCRIBE=1 to start anyway" >&2
-      exit 1
+    else
+      echo "stabilize-browser-e2e: refusing to start — harness memory cap exceeds the daemon" >&2
     fi
+    echo "  memory: ${INSTANCES} × $(human_bytes "$LIMIT_BYTES") = $(human_bytes "$REQUIRED_BYTES")  >=  $(human_bytes "$MEM_TOTAL") MemTotal (MEM_LIMIT=${MEM_LIMIT_RAW})" >&2
+    echo "  set PI_HARNESS_ALLOW_OVERSUBSCRIBE=1 to start anyway" >&2
+    exit 1
   fi
 fi
 

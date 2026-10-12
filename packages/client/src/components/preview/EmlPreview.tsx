@@ -321,5 +321,3 @@ function AttachmentRow({ target, att }: { target: FileTarget; att: AttachmentMet
     </div>
   );
 }
-
-export default EmlPreview;
