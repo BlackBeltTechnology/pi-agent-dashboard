@@ -48,7 +48,6 @@ The two planned onboarding changes, `add-persistent-onboarding-card` and `add-we
 
 **Mockups:**
 - Mockup: mockups/index.html (in this change).
-- Mockup: mockups/extensions-hub (in this change). Adopted from the explore backlog ("unify packages and plugins into one add-ons hub"). It is reference only for this change; no task implements it.
 
 **Not in scope:**
 - Inline provider tiles on Landing (Step ① still opens settings).
