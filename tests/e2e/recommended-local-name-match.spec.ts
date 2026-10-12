@@ -15,8 +15,8 @@ import { byTestId, gotoDashboard } from "./helpers/index.js";
 // `activeSources` (not just the installed rows), because `activeInPi` is what
 // drives the card's action button:
 //
-//   activeInPi === true  -> [Remove]   (pill "Active")
-//   activeInPi === false -> [Install] / [Activate]
+//   activeInPi === true  -> installed row only (card hidden: recommended once)
+//   activeInPi === false -> [Install] / [Activate] card
 //
 // See change: match-local-installs-by-package-name.
 const ENTRY_ID = "@blackbelt-technology/pi-image-fit-extension";
@@ -35,12 +35,21 @@ test.describe("recommended extensions — local install matched by package.json 
 
     // The recommended list loads async (server enrich reads the seeded
     // package.json off disk), so allow the same generous timeout the sibling
-    // requires-probe spec uses.
-    const removeBtn = page.getByTestId(`rec-remove-${ENTRY_ID}`);
-    await expect(removeBtn).toBeVisible({ timeout: 30_000 });
+    // requires-probe spec uses. Wait on the panel's own header control.
+    await expect(page.getByTestId("rec-install-all-missing")).toBeVisible({ timeout: 30_000 });
 
-    // The bug this change fixes: the entry rendered as Install (treated as not
-    // installed) because the name fallback was never applied to activeSources.
+    // Recommended once (change: addons-hub-declutter): an entry installed
+    // globally AND active in pi renders only as an installed row — there is no
+    // card for it any more, in ANY state. The row (a recommended match, so it
+    // sits in the Recommended Extensions sub-group) proves the name fallback
+    // still resolved the local checkout.
+    const row = page.getByTestId("pkg-row--fixtures-local-pkg-image-fit-extension");
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId(`rec-remove-${ENTRY_ID}`)).toHaveCount(0);
+
+    // The bug the original change fixed: the entry rendered as Install (treated
+    // as not installed) because the name fallback was never applied to
+    // activeSources. It must still never offer Install / Activate.
     await expect(page.getByTestId(`rec-install-${ENTRY_ID}`)).toHaveCount(0);
     await expect(page.getByTestId(`rec-activate-${ENTRY_ID}`)).toHaveCount(0);
   });

@@ -34,6 +34,33 @@ test.describe("Add-ons hub", () => {
     await expect(page.getByText("index.ts", { exact: true })).toHaveCount(0);
   });
 
+  test("explainer is expanded on first load, collapsed after dismiss + reload; no recommended entry is both row and card", async ({ page }) => {
+    await gotoDashboard(page);
+    await page.goto("/settings/add-ons");
+    const toggle = page.getByTestId("addons-explainer-toggle");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true", { timeout: 30_000 });
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    await page.reload();
+    await expect(page.getByTestId("addons-explainer-toggle")).toHaveAttribute("aria-expanded", "false", { timeout: 30_000 });
+    await page.getByTestId("addons-explainer-link").click();
+    await expect(page.getByTestId("addons-explainer-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByTestId("addons-explainer-toggle")).toBeFocused();
+
+    // Recommended once: an entry with an installed row has no card in the Browse panel.
+    await page.getByTestId("package-browser").waitFor({ state: "visible", timeout: 30_000 });
+    const rowIds = await page
+      .locator("[data-testid^='pkg-row-']")
+      .evaluateAll((els) => els.map((e) => e.getAttribute("data-testid") ?? ""));
+    const cardIds = await page
+      .locator("[data-testid^='rec-remove-']")
+      .evaluateAll((els) => els.map((e) => (e.getAttribute("data-testid") ?? "").replace("rec-remove-", "")));
+    // A card with a Remove action is an installed entry; installed-globally ones must not be cards.
+    // (Folder-only installs legitimately keep a card, hence the harness has none.)
+    expect(cardIds.filter((id) => rowIds.some((r) => r.includes(id)))).toEqual([]);
+  });
+
   test("F4: Plugins subtree is collapsed by default at 375px, expands in place, persists across reload", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await gotoDashboard(page);
