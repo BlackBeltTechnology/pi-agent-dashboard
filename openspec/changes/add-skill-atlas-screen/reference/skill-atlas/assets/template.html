@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skill Atlas — every pi skill on this machine</title>
+<style>
+  :root{
+    --bg:#fbfaf8; --card:#ffffff; --line:#e3e0da; --line2:#efece7;
+    --fg:#1c1e21; --mut:#5f6672; --dim:#8b919c;
+    --accent:#0b5fa5; --accentbg:#eaf2fa;
+    --code-bg:#f4f2ee; --pre-bg:#f7f5f1;
+    --ok:#1f7a4d; --okbg:#e8f5ee; --no:#a3402f; --nobg:#fbeeeb;
+    --warn:#8a5b00; --warnbg:#fdf3df;
+    --t-yours:#1f7a4d;  --t-yours-bg:#e6f4ec;
+    --t-inhouse:#0b5fa5; --t-inhouse-bg:#e8f1fa;
+    --t-third:#8a4fc0;  --t-third-bg:#f2ecfa;
+    --t-gen:#7a6a55;    --t-gen-bg:#f2eee7;
+  }
+  html[data-theme="dark"]{
+    --bg:#14171c; --card:#1b1f26; --line:#2c323c; --line2:#242931;
+    --fg:#e6eaf0; --mut:#9aa3b1; --dim:#6f7885;
+    --accent:#6bb0ee; --accentbg:#1a2734;
+    --code-bg:#232830; --pre-bg:#1f242b;
+    --ok:#57c08a; --okbg:#17291f; --no:#e08a7a; --nobg:#2b1c19;
+    --warn:#d9ac52; --warnbg:#2b2314;
+    --t-yours:#57c08a;  --t-yours-bg:#17291f;
+    --t-inhouse:#6bb0ee; --t-inhouse-bg:#152532;
+    --t-third:#b58ae6;  --t-third-bg:#241c33;
+    --t-gen:#b9a888;    --t-gen-bg:#282318;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--fg);
+    font:15px/1.62 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  a{color:var(--accent)}
+
+  #app{display:grid;grid-template-columns:288px minmax(0,1fr);min-height:100vh}
+
+  /* ---------------- sidebar ---------------- */
+  aside{
+    position:sticky;top:0;height:100vh;overflow-y:auto;
+    background:var(--card);border-right:1px solid var(--line);
+    padding:20px 18px 40px;
+  }
+  aside h1{font-size:17px;margin:0 0 2px;letter-spacing:-.01em}
+  aside .sub{font-size:12px;color:var(--mut);margin:0 0 16px;line-height:1.45}
+  .grp{margin:20px 0 0}
+  .grp h2{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim);margin:0 0 8px;font-weight:700}
+  #q{width:100%;padding:9px 11px;background:var(--bg);border:1px solid var(--line);border-radius:8px;
+     color:var(--fg);font:inherit;font-size:13.5px;outline:none}
+  #q:focus{border-color:var(--accent)}
+  .chk{display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer;font-size:13px;user-select:none}
+  .chk input{width:14px;height:14px;flex:none;accent-color:var(--accent);cursor:pointer}
+  .chk .n{margin-left:auto;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+  .chk .dot{width:8px;height:8px;border-radius:50%;flex:none}
+  .minibtn{padding:5px 9px;border:1px solid var(--line);background:var(--bg);color:var(--mut);
+    border-radius:6px;font:inherit;font-size:11.5px;cursor:pointer}
+  .minibtn:hover{border-color:var(--accent);color:var(--accent)}
+  .row{display:flex;gap:6px;flex-wrap:wrap}
+  #toc{margin:0;padding:0;list-style:none;font-size:12.5px}
+  #toc li{margin:0}
+  #toc a{display:block;padding:2px 0;color:var(--mut);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #toc a:hover{color:var(--accent)}
+  #toc .cat{margin:11px 0 3px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+
+  /* ---------------- main ---------------- */
+  main{padding:34px 40px 120px;max-width:1020px}
+  .pagehead h1{margin:0 0 6px;font-size:28px;letter-spacing:-.02em}
+  .pagehead p{margin:0 0 4px;color:var(--mut);font-size:14px;max-width:70ch}
+  .meta{font-size:12px;color:var(--dim);margin-top:10px}
+
+  .legend{margin:22px 0 6px;padding:14px 16px;background:var(--card);border:1px solid var(--line);border-radius:10px}
+  .legend h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim)}
+  .legend dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:13px;align-items:baseline}
+  .legend dt{margin:0}
+  .legend dd{margin:0;color:var(--mut)}
+
+  h2.cathead{
+    margin:44px 0 4px;font-size:19px;letter-spacing:-.01em;
+    padding-bottom:8px;border-bottom:2px solid var(--line);
+  }
+  h2.cathead .cnt{font-size:12px;color:var(--dim);font-weight:400;margin-left:8px}
+
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:11px;
+    padding:20px 22px;margin:16px 0;scroll-margin-top:16px;
+  }
+  .card > header{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}
+  .card h3{margin:0;font-size:18px;letter-spacing:-.01em;flex:none}
+  .invoke{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:5px;padding:2px 7px;
+    color:var(--mut);cursor:pointer;
+  }
+  .invoke:hover{color:var(--accent);border-color:var(--accent)}
+  .badges{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+  .badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;letter-spacing:.01em;white-space:nowrap}
+  .b-yours{color:var(--t-yours);background:var(--t-yours-bg)}
+  .b-inhouse{color:var(--t-inhouse);background:var(--t-inhouse-bg)}
+  .b-third{color:var(--t-third);background:var(--t-third-bg)}
+  .b-gen{color:var(--t-gen);background:var(--t-gen-bg)}
+  .b-plain{color:var(--mut);background:var(--code-bg)}
+  .b-warn{color:var(--warn);background:var(--warnbg)}
+
+  .oneliner{margin:9px 0 0;font-size:15.5px;font-weight:600;color:var(--fg);letter-spacing:-.005em}
+  .summary{margin:8px 0 0;color:var(--fg);max-width:76ch}
+  .summary code,.uw code,.steps code,.oneliner code{
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.87em;
+    background:var(--code-bg);padding:1px 4px;border-radius:4px}
+
+  .uw{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:15px 0 0}
+  @media (max-width:860px){.uw{grid-template-columns:1fr}}
+  .uw div{padding:9px 12px;border-radius:8px;font-size:13.5px;line-height:1.5}
+  .uw .yes{background:var(--okbg);border-left:3px solid var(--ok)}
+  .uw .no{background:var(--nobg);border-left:3px solid var(--no)}
+  .uw b{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px}
+  .uw .yes b{color:var(--ok)} .uw .no b{color:var(--no)}
+
+  .steps{margin:14px 0 0;padding-left:20px;font-size:13.5px;color:var(--mut)}
+  .steps li{margin:2px 0}
+  .steps li::marker{color:var(--dim);font-variant-numeric:tabular-nums}
+
+  .fields{margin:16px 0 0;display:grid;grid-template-columns:118px 1fr;gap:4px 14px;font-size:13px;align-items:baseline}
+  .fields dt{color:var(--dim);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+  .fields dd{margin:0;color:var(--mut);min-width:0;overflow-wrap:anywhere}
+  .fields dd .mono{font-size:12px;color:var(--fg)}
+  .why{color:var(--dim);font-size:12.5px;font-style:italic}
+
+  .chips{display:flex;gap:5px;flex-wrap:wrap}
+  .chip{font-size:11.5px;font-family:ui-monospace,Menlo,Consolas,monospace;
+    background:var(--code-bg);border:1px solid var(--line2);border-radius:5px;padding:1px 6px;color:var(--mut)}
+  .chip.link{cursor:pointer;text-decoration:none}
+  .chip.link:hover{border-color:var(--accent);color:var(--accent)}
+
+  .warnbox{margin:14px 0 0;padding:9px 12px;background:var(--warnbg);border-left:3px solid var(--warn);
+    border-radius:8px;font-size:13px;color:var(--warn)}
+  .warnbox ul{margin:4px 0 0;padding-left:18px}
+
+  details.src{margin:16px 0 0;border-top:1px solid var(--line2);padding-top:12px}
+  details.src > summary{
+    cursor:pointer;font-size:12.5px;color:var(--mut);list-style:none;
+    display:flex;align-items:center;gap:8px;user-select:none;
+  }
+  details.src > summary::-webkit-details-marker{display:none}
+  details.src > summary::before{content:"▸";color:var(--dim);font-size:11px;transition:transform .12s}
+  details.src[open] > summary::before{transform:rotate(90deg)}
+  details.src > summary:hover{color:var(--accent)}
+  .srcbar{display:flex;align-items:center;gap:8px;margin:10px 0 0}
+  .srcwrap{margin:10px 0 0;padding:16px 18px;background:var(--pre-bg);border:1px solid var(--line2);
+    border-radius:9px;max-height:640px;overflow:auto}
+
+  /* rendered markdown inside the fold */
+  .md{font-size:13.5px;line-height:1.6}
+  .md > :first-child{margin-top:0}
+  .md h1,.md h2,.md h3,.md h4{margin:16px 0 6px;line-height:1.3;letter-spacing:-.01em}
+  .md h1{font-size:16px} .md h2{font-size:14.5px;border-bottom:1px solid var(--line);padding-bottom:4px}
+  .md h3{font-size:13.5px} .md h4{font-size:13px;color:var(--mut)}
+  .md p{margin:7px 0}
+  .md ul,.md ol{margin:7px 0;padding-left:22px}
+  .md li{margin:1px 0}
+  .md code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:var(--code-bg);
+    padding:1px 4px;border-radius:4px}
+  .md pre{background:var(--card);border:1px solid var(--line);border-radius:7px;padding:10px 12px;
+    overflow-x:auto;margin:9px 0}
+  .md pre code{background:none;padding:0;font-size:11.5px;line-height:1.5}
+  .md blockquote{margin:9px 0;padding:2px 0 2px 12px;border-left:3px solid var(--line);color:var(--mut)}
+  .md table{border-collapse:collapse;margin:9px 0;font-size:12.5px;display:block;overflow-x:auto}
+  .md th,.md td{border:1px solid var(--line);padding:5px 9px;text-align:left;vertical-align:top}
+  .md th{background:var(--code-bg);font-weight:600}
+  .md hr{border:none;border-top:1px solid var(--line);margin:14px 0}
+  .md .fm{background:var(--code-bg);border:1px dashed var(--line);border-radius:7px;padding:9px 12px;
+    margin:0 0 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;
+    white-space:pre-wrap;color:var(--mut)}
+
+  .empty{padding:60px 0;text-align:center;color:var(--dim)}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);
+    padding:8px 16px;border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .18s;z-index:99}
+  .toast.on{opacity:1}
+
+  @media (max-width:900px){
+    #app{grid-template-columns:1fr}
+    aside{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line)}
+    main{padding:24px 18px 80px}
+  }
+  /* ---------------- view switch + graph ---------------- */
+  .viewtabs{display:flex;margin-top:12px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .viewtabs button{flex:1;padding:6px 8px;background:var(--bg);border:none;color:var(--mut);font:inherit;font-size:12.5px;cursor:pointer}
+  .viewtabs button + button{border-left:1px solid var(--line)}
+  .viewtabs button.on{background:var(--accent);color:var(--card);font-weight:600}
+  body.graph main{max-width:none}
+  body.graph .legend, body.graph .pagehead p:not(.meta), body.graph #list, body.graph #empty, body.graph .listonly{display:none}
+  body:not(.graph) #graphView, body:not(.graph) .gonly{display:none}
+  .lsample{width:26px;height:8px;flex:none}
+  .lsample line{stroke-width:2}
+
+  #graphView{position:relative;margin-top:18px}
+  #gsvg{width:100%;height:calc(100vh - 230px);min-height:460px;display:block;background:var(--card);
+    border:1px solid var(--line);border-radius:11px;cursor:grab;user-select:none;touch-action:none}
+  #gsvg:active{cursor:grabbing}
+  #gsvg .edge{stroke:var(--dim);stroke-width:1;fill:none;vector-effect:non-scaling-stroke}
+  #gsvg .edge.references{stroke:var(--accent);stroke-width:1.7;opacity:.85}
+  #gsvg .edge.bundle{stroke-dasharray:5 3;opacity:.4}
+  #gsvg .edge.shares-tool{stroke:var(--warn);stroke-dasharray:1.5 3;opacity:.6}
+  #gsvg .node{cursor:pointer}
+  #gsvg .node circle{stroke-width:2.4}
+  #gsvg .node text{font-size:10px;fill:var(--fg);text-anchor:middle;paint-order:stroke;stroke:var(--card);
+    stroke-width:3px;stroke-linejoin:round;pointer-events:none}
+  #gsvg.nolabels .node text{display:none}
+  #gsvg.nolabels .node.hl text{display:block}
+  #gsvg.hasfocus .edge:not(.hl){opacity:.05}
+  #gsvg.hasfocus .node:not(.hl){opacity:.16}
+  #gsvg .edge.hl{opacity:1;stroke-width:2.4}
+  #gsvg .node.sel circle{stroke:var(--fg)!important;stroke-width:4}
+  #gsvg .node.sel text{font-weight:700;font-size:11.5px}
+  #arr path{fill:var(--accent)}
+  .ghint{font-size:12px;color:var(--dim);margin:8px 2px 0;display:flex;gap:14px;flex-wrap:wrap}
+  .glegend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:10px 2px 0;font-size:12px;color:var(--mut);align-items:center}
+  .glegend span{display:inline-flex;align-items:center;gap:6px}
+  .glegend .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+  .glegend .ring{width:10px;height:10px;border-radius:50%;display:inline-block;border:2.5px solid;background:transparent}
+
+  #ginfo{position:absolute;top:12px;right:12px;width:340px;max-height:calc(100vh - 260px);overflow:auto;
+    background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;
+    box-shadow:0 8px 28px rgba(0,0,0,.14);font-size:13px}
+  #ginfo h3{margin:0;font-size:16px;display:flex;align-items:center;gap:8px}
+  #ginfo h3 .x{margin-left:auto;border:none;background:none;color:var(--dim);font-size:18px;cursor:pointer;line-height:1}
+  #ginfo .one{margin:6px 0 8px;font-weight:600}
+  #ginfo h4{margin:14px 0 4px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
+  #ginfo ul{margin:0;padding:0;list-style:none}
+  #ginfo li{padding:3px 0;border-bottom:1px solid var(--line2)}
+  #ginfo li a{cursor:pointer;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+  #ginfo li .why{display:block;font-size:11.5px}
+  #ginfo li.off{opacity:.45}
+  #ginfo select{font:inherit;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+
+  @media print{
+    #graphView,.viewtabs{display:none}
+    aside,.srcbar,.minibtn{display:none}
+    #app{display:block}
+    main{max-width:none;padding:0}
+    .card{break-inside:avoid;border-color:#ccc}
+    details.src[open] .srcwrap{max-height:none}
+    body{background:#fff}
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <aside>
+    <h1>Skill Atlas</h1>
+    <p class="sub" id="subtitle">…</p>
+
+    <div class="grp">
+      <input id="q" type="search" placeholder="Search name, summary, tool…" autocomplete="off">
+      <div class="row" style="margin-top:8px">
+        <button class="minibtn" id="expandAll">Open all sources</button>
+        <button class="minibtn" id="collapseAll">Close all</button>
+        <button class="minibtn" id="theme">Dark</button>
+      </div>
+      <div class="viewtabs">
+        <button data-view="list" class="on">Cards</button>
+        <button data-view="graph">Graph</button>
+      </div>
+    </div>
+
+    <div class="grp gonly">
+      <h2>Link types</h2>
+      <div id="fLinks"></div>
+      <h2 style="margin-top:14px">Graph options</h2>
+      <label class="chk"><input type="checkbox" data-opt="hideIso" checked><span>Hide skills without links</span></label>
+      <label class="chk"><input type="checkbox" data-opt="cluster" checked><span>Cluster by category</span></label>
+      <label class="chk"><input type="checkbox" data-opt="labels" checked><span>Show every name</span></label>
+      <div class="row" style="margin-top:8px">
+        <button class="minibtn" id="gfit">Fit to view</button>
+        <button class="minibtn" id="grelayout">Re-layout</button>
+      </div>
+    </div>
+
+    <div class="grp"><h2>Where it came from</h2><div id="fTier"></div></div>
+    <div class="grp"><h2>Category</h2><div id="fCat"></div></div>
+    <div class="grp" id="gLoaded"><h2>Loaded by pi</h2><div id="fLoaded"></div></div>
+    <div class="grp"><h2>Contents</h2><ul id="toc"></ul></div>
+  </aside>
+
+  <main>
+    <div class="pagehead">
+      <h1>Every pi skill on this machine</h1>
+      <p>One entry per skill: what it actually does, where it came from, whether you wrote it
+         or it arrived as a third-party plugin, and the verbatim <code>SKILL.md</code> prompt
+         the model is handed when it fires.</p>
+      <p class="meta" id="meta"></p>
+    </div>
+
+    <div id="graphView">
+      <svg id="gsvg" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+            <path d="M0,0 L10,5 L0,10 z"/>
+          </marker>
+        </defs>
+        <g id="gview"><g id="gedges"></g><g id="gnodes"></g></g>
+      </svg>
+      <div id="ginfo" hidden></div>
+      <div class="ghint">
+        <span id="gmeta"></span>
+        <span>Drag the background to pan · scroll to zoom · drag a skill to move it · click a skill for its links · double-click opens its card</span>
+      </div>
+      <div class="glegend" id="glegend"></div>
+    </div>
+
+    <div class="legend">
+      <h3>Provenance badges</h3>
+      <dl>
+        <dt><span class="badge b-yours">Yours</span></dt>
+        <dd>You or your agent authored it on this machine — <span class="mono">~/.pi/agent/skills/</span>, <span class="mono">pi-hermes-memory/</span>, or checked into one of your projects' <span class="mono">.pi/skills/</span> (shown as <em>Project: name</em>).</dd>
+        <dt><span class="badge b-inhouse">In-house</span></dt>
+        <dd>Ships with the BlackBelt <span class="mono">pi-agent-dashboard</span> project — your own org's code, installed or read from source.</dd>
+        <dt><span class="badge b-third">3rd-party plugin</span></dt>
+        <dd>Installed from npm and written by someone else. The author and repo are named on each entry.</dd>
+        <dt><span class="badge b-gen">Tool-generated</span></dt>
+        <dd>Written into this repo by a CLI (OpenSpec). Regenerated on demand — do not hand-edit.</dd>
+      </dl>
+    </div>
+
+    <div id="list"></div>
+    <div class="empty" id="empty" hidden>Nothing matches that filter.</div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script id="data" type="application/json">/*__DATA__*/</script>
+<script>
+"use strict";
+const DATA = JSON.parse(document.getElementById('data').textContent);
+const SKILLS = DATA.skills;
+
+/* ---------------------------------------------------------------- helpers */
+const esc = s => String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+const TIER = {
+  'yours':       { label:'Yours',            cls:'b-yours'   },
+  'inhouse':     { label:'In-house',         cls:'b-inhouse' },
+  'third-party': { label:'3rd-party plugin', cls:'b-third'   },
+  'generated':   { label:'Tool-generated',   cls:'b-gen'     },
+};
+const TIER_ORDER = ['yours','inhouse','third-party','generated'];
+const CAT_ORDER = ['Research','Knowledge & memory','Rigor & review','Spec workflow',
+                   'Frontend & design','Coding','Media & docs','Workspace & tooling'];
+const catRank = c => { const i = CAT_ORDER.indexOf(c); return i < 0 ? 99 : i; };
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('on');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('on'), 1400);
+}
+async function copy(text, msg){
+  try { await navigator.clipboard.writeText(text); toast(msg); }
+  catch { toast('Copy blocked by the browser'); }
+}
+
+/* ------------------------------------------------- minimal markdown render */
+/* Deliberately small: headings, fences, tables, lists, quotes, hr, inline.
+   It renders SKILL.md bodies, which are plain CommonMark-ish. Everything is
+   escaped first, so no skill body can inject markup into this page. */
+function inline(s){
+  return esc(s)
+    .replace(/`([^`]+)`/g, (_, c) => '<code>' + c + '</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+function renderMd(src){
+  const lines = String(src).split(/\r?\n/);
+  let out = '', i = 0, listTag = null;
+  const closeList = () => { if (listTag) { out += '</' + listTag + '>'; listTag = null; } };
+
+  while (i < lines.length) {
+    const ln = lines[i];
+
+    // fenced code
+    const fence = ln.match(/^\s*```+\s*([A-Za-z0-9+_-]*)\s*$/);
+    if (fence) {
+      closeList();
+      const buf = [];
+      i++;
+      while (i < lines.length && !/^\s*```+\s*$/.test(lines[i])) buf.push(lines[i++]);
+      i++;
+      out += '<pre><code>' + esc(buf.join('\n')) + '</code></pre>';
+      continue;
+    }
+
+    // table: header row + separator row
+    if (/^\s*\|/.test(ln) && /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(lines[i + 1] || '')) {
+      closeList();
+      const cells = r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+      out += '<table><thead><tr>' + cells(ln).map(c => '<th>' + inline(c) + '</th>').join('') + '</tr></thead><tbody>';
+      i += 2;
+      while (i < lines.length && /^\s*\|/.test(lines[i])) {
+        out += '<tr>' + cells(lines[i]).map(c => '<td>' + inline(c) + '</td>').join('') + '</tr>';
+        i++;
+      }
+      out += '</tbody></table>';
+      continue;
+    }
+
+    const h = ln.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { closeList(); const l = Math.min(h[1].length, 4); out += '<h' + l + '>' + inline(h[2]) + '</h' + l + '>'; i++; continue; }
+
+    if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(ln)) { closeList(); out += '<hr>'; i++; continue; }
+
+    const ul = ln.match(/^\s*[-*+]\s+(.*)$/);
+    const ol = ln.match(/^\s*\d+[.)]\s+(.*)$/);
+    if (ul || ol) {
+      const want = ul ? 'ul' : 'ol';
+      if (listTag !== want) { closeList(); out += '<' + want + '>'; listTag = want; }
+      out += '<li>' + inline((ul || ol)[1]) + '</li>';
+      i++; continue;
+    }
+
+    const bq = ln.match(/^\s*>\s?(.*)$/);
+    if (bq) {
+      closeList();
+      const buf = [bq[1]];
+      i++;
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''));
+      out += '<blockquote>' + renderMd(buf.join('\n')) + '</blockquote>';
+      continue;
+    }
+
+    if (!ln.trim()) { closeList(); i++; continue; }
+
+    // paragraph: gather until blank / block start
+    closeList();
+    const buf = [ln];
+    i++;
+    while (i < lines.length && lines[i].trim() &&
+           !/^\s*(#{1,6}\s|```|>|[-*+]\s|\d+[.)]\s|\|)/.test(lines[i])) buf.push(lines[i++]);
+    out += '<p>' + inline(buf.join('\n')) + '</p>';
+  }
+  closeList();
+  return out;
+}
+
+/* Split the verbatim SKILL.md into its YAML frontmatter (shown as-is, since it is
+   config not prose) and the markdown body (rendered). */
+function renderSkillSource(raw){
+  const m = String(raw).match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  const fm = m ? '<div class="fm">' + esc(m[1]) + '</div>' : '';
+  return fm + renderMd(m ? raw.slice(m[0].length) : raw);
+}
+
+/* ----------------------------------------------------------------- card */
+function loadedInHtml(s){
+  const li = s.loadedIn || [];
+  if (!li.length) return '<span class="why">none of the configured projects</span>';
+  const same = li.filter(l => l.same).map(l => esc(l.project));
+  const diff = li.filter(l => !l.same);
+  return (same.length ? '<div>' + same.join(', ') + ' <span class="why">\u2014 this text</span></div>' : '') +
+    diff.map(l => '<div>' + esc(l.project) + ' <span class="why" style="color:var(--warn)">\u2014 a different copy: </span><span class="mono">' + esc(l.path) + '</span></div>').join('');
+}
+function card(s){
+  const t = TIER[s.tier] || { label: s.tierLabel || 'unknown', cls: 'b-plain' };
+  const kb = (s.bytes / 1024).toFixed(1);
+
+  const badges = [
+    '<span class="badge ' + t.cls + '">' + esc(t.label) + '</span>',
+    '<span class="badge b-plain">' + esc(s.category) + '</span>',
+    s.cost === 'credits' ? '<span class="badge b-warn">spends credits</span>' : '',
+    s.cost === 'tokens' ? '<span class="badge b-plain">long / token-heavy</span>' : '',
+    s.hidden ? '<span class="badge b-plain">manual only</span>' : '',
+    RESOLVER && !s.loaded ? '<span class="badge b-plain" title="pi does not load this skill in the primary project ' + esc(RESOLVER.cwd) + '">not in primary project</span>' : '',
+    (s.loadedIn || []).some(l => !l.same) ? '<span class="badge b-warn" title="some projects load a copy with different text">differs per project</span>' : '',
+    (s.divergentPaths && s.divergentPaths.length) ? '<span class="badge b-warn" title="other copies on disk have different text">copies differ</span>' : '',
+  ].filter(Boolean).join('');
+
+  // summaries are agent-written prose that legitimately uses `backticks` for paths and
+  // tool names — run them through the inline renderer, not raw escaping
+  const uw = (s.useWhen || s.dontUse) ? '<div class="uw">' +
+      (s.useWhen ? '<div class="yes"><b>Reach for it when</b>' + inline(s.useWhen) + '</div>' : '') +
+      (s.dontUse ? '<div class="no"><b>Not the right tool when</b>' + inline(s.dontUse) + '</div>' : '') +
+    '</div>' : '';
+
+  const steps = (s.keySteps && s.keySteps.length)
+    ? '<ol class="steps">' + s.keySteps.map(x => '<li>' + inline(x) + '</li>').join('') + '</ol>' : '';
+
+  const origin = [
+    s.npmName ? '<span class="mono">' + esc(s.npmName) + (s.npmVersion ? '@' + esc(s.npmVersion) : '') + '</span>' : '',
+    s.repo ? '<a href="' + esc(s.repo) + '" target="_blank" rel="noopener">repo ↗</a>' : '',
+    s.license ? esc(s.license) : '',
+  ].filter(Boolean).join(' · ');
+
+  const div = new Set(s.divergentPaths || []);
+  const paths = (s.allPaths || [s.path]).map(p => '<div class="mono">' + esc(p) +
+      (p === s.path ? (s.loaded ? ' <span class="why">\u2190 loaded by pi, shown here</span>' : (s.allPaths.length > 1 ? ' <span class="why">\u2190 shown here</span>' : ''))
+        : (div.has(p) ? ' <span class="why" style="color:var(--warn)">\u2190 different text</span>' : ' <span class="why">\u2190 identical copy</span>')) +
+    '</div>').join('');
+
+  const tools = (s.tools && s.tools.length)
+    ? '<dt>Drives</dt><dd><div class="chips">' +
+      s.tools.map(x => '<span class="chip">' + esc(x) + '()</span>').join('') + '</div></dd>' : '';
+
+  const related = (s.related && s.related.length)
+    ? '<dt>Names</dt><dd><div class="chips">' +
+      s.related.map(x => '<a class="chip link" href="#s-' + esc(x) + '">' + esc(x) + '</a>').join('') + '</div></dd>' : '';
+
+  const warn = (s.warnings && s.warnings.length)
+    ? '<div class="warnbox"><b>Spec warnings</b><ul>' +
+      s.warnings.map(w => '<li>' + esc(w) + '</li>').join('') + '</ul></div>' : '';
+
+  return '<article class="card" id="s-' + esc(s.id) + '">' +
+    '<header>' +
+      '<h3>' + esc(s.id) + '</h3>' +
+      '<button class="invoke" data-copy="' + esc(s.invoke) + '" title="Copy">' + esc(s.invoke) + '</button>' +
+      '<div class="badges">' + badges + '</div>' +
+    '</header>' +
+    (s.oneLiner ? '<p class="oneliner">' + inline(s.oneLiner) + '</p>' : '') +
+    '<p class="summary">' + inline(s.summary || s.description || 'No description.') + '</p>' +
+    uw + steps +
+    '<dl class="fields">' +
+      '<dt>Author</dt><dd>' + esc(s.author || 'UNKNOWN') +
+        (s.authorWhy ? '<div class="why">' + esc(s.authorWhy) + '</div>' : '') + '</dd>' +
+      (origin ? '<dt>Package</dt><dd>' + origin + '</dd>' : '') +
+      '<dt>On disk</dt><dd>' + paths + '</dd>' +
+      tools + related +
+      (RESOLVER ? '<dt>Loaded in</dt><dd>' + loadedInHtml(s) + '</dd>' : '') +
+      '<dt>Graph</dt><dd><a class="chip link" href="#g-' + esc(s.id) + '">' +
+        (s.degree || 0) + ' link' + (s.degree === 1 ? '' : 's') + ' — show in graph</a></dd>' +
+      '<dt>Size</dt><dd>' + s.lines + ' lines · ' + kb + ' KB</dd>' +
+    '</dl>' +
+    warn +
+    '<details class="src"><summary>Original prompt — the verbatim SKILL.md the model receives</summary>' +
+      '<div class="srcbar">' +
+        '<button class="minibtn" data-raw="' + esc(s.id) + '">Copy raw markdown</button>' +
+        '<span class="why">' + s.lines + ' lines, rendered below</span>' +
+      '</div>' +
+      '<div class="srcwrap"><div class="md">' + renderSkillSource(s.raw || '') + '</div></div>' +
+    '</details>' +
+  '</article>';
+}
+
+/* ------------------------------------------------------------ graph data */
+/* Links come from scan.mjs:
+     references  — A's SKILL.md names B (directed, the strongest signal)
+     bundle      — shipped in the same package (packages of 2–14 skills)
+     shares-tool — both drive one distinctive tool (used by ≤ 6 skills) */
+const SKILL_IDS = new Set(SKILLS.map(s => s.id));
+const LINKS = (DATA.links || []).filter(l => SKILL_IDS.has(l.source) && SKILL_IDS.has(l.target));
+const LT = {
+  'references':  { label:'Names it',         desc:"A's SKILL.md mentions B by name — a real hand-off or dependency. The arrow points at the skill being named." },
+  'bundle':      { label:'Same package',     desc:'Shipped together in one npm package or folder.' },
+  'shares-tool': { label:'Drives same tool', desc:'Both drive the same distinctive tool (one used by six skills or fewer).' },
+};
+const LT_ORDER = ['references', 'bundle', 'shares-tool'];
+const LT_STROKE = { 'references':'var(--accent)', 'bundle':'var(--dim)', 'shares-tool':'var(--warn)' };
+const LT_DASH = { 'references':'', 'bundle':'5 3', 'shares-tool':'1.5 3' };
+const CAT_COLOR = {
+  'Research':'#e07b28', 'Knowledge & memory':'#2a9d8f', 'Rigor & review':'#c94a3d',
+  'Spec workflow':'#7b61d9', 'Frontend & design':'#d9488f', 'Coding':'#3b7fd9',
+  'Media & docs':'#b8930b', 'Workspace & tooling':'#6b7a8f',
+};
+const catColor = c => CAT_COLOR[c] || '#999';
+const TIER_STROKE = { 'yours':'var(--t-yours)', 'inhouse':'var(--t-inhouse)', 'third-party':'var(--t-third)', 'generated':'var(--t-gen)' };
+
+/* -------------------------------------------------------------- rendering */
+const state = { q:'', tiers:new Set(TIER_ORDER), cats:new Set(), view:'list',
+                ltypes:new Set(LT_ORDER), hideIso:true, cluster:true, labels:true, focus:0, sel:null,
+                proj:'*' };
+const RESOLVER = DATA.resolver && DATA.resolver.kind !== 'none' ? DATA.resolver : null;
+for (const s of SKILLS) state.cats.add(s.category);
+
+function matches(s){
+  if (!state.tiers.has(s.tier)) return false;
+  if (!state.cats.has(s.category)) return false;
+  if (RESOLVER && state.proj !== '*') {
+    const inAny = s.loadedIn && s.loadedIn.length > 0;
+    if (state.proj === '!none' ? inAny : !(s.loadedIn || []).some(l => l.project === state.proj)) return false;
+  }
+  if (!state.q) return true;
+  const hay = (s.id + ' ' + s.oneLiner + ' ' + s.summary + ' ' + s.description + ' ' +
+               s.useWhen + ' ' + (s.tools || []).join(' ') + ' ' + s.author + ' ' +
+               s.npmName + ' ' + (s.keySteps || []).join(' ')).toLowerCase();
+  return state.q.split(/\s+/).every(w => hay.includes(w));
+}
+
+function render(){
+  const shown = SKILLS.filter(matches);
+  const byCat = {};
+  for (const s of shown) (byCat[s.category] ||= []).push(s);
+  const cats = Object.keys(byCat).sort((a, b) => catRank(a) - catRank(b));
+
+  document.getElementById('list').innerHTML = cats.map(c =>
+    '<h2 class="cathead" id="c-' + c.replace(/\W+/g, '-') + '">' + esc(c) +
+      '<span class="cnt">' + byCat[c].length + '</span></h2>' +
+    byCat[c].sort((a, b) => a.id.localeCompare(b.id)).map(card).join('')
+  ).join('');
+
+  document.getElementById('toc').innerHTML = cats.map(c =>
+    '<li class="cat">' + esc(c) + '</li>' +
+    byCat[c].map(s => '<li><a href="#s-' + esc(s.id) + '">' + esc(s.id) + '</a></li>').join('')
+  ).join('');
+
+  document.getElementById('empty').hidden = shown.length > 0;
+  document.getElementById('meta').textContent =
+    shown.length + ' of ' + SKILLS.length + ' skills shown · fingerprint ' + DATA.fingerprint +
+    (DATA.generated ? ' · built ' + new Date(DATA.generated).toLocaleString() : '');
+  renderGraph();
+}
+
+/* ------------------------------------------------------------- graph view */
+/* Dependency-free force layout in SVG (the page must work from file://, no CDN).
+   93 nodes / ~330 edges: O(n\u00b2) repulsion is cheap enough. */
+const $svg = document.getElementById('gsvg');
+const $view = document.getElementById('gview');
+const $edges = document.getElementById('gedges');
+const $nodes = document.getElementById('gnodes');
+const $info = document.getElementById('ginfo');
+const G = { nodes:new Map(), vis:[], edges:[], edgeEls:[], nodeEls:[], k:1, tx:0, ty:0,
+            w:0, h:0, alpha:0, raf:0, fitPending:true, drag:null, hover:null, lastClick:null };
+const SPRING = {
+  'references':  { len:70,  k:0.20 },
+  'bundle':      { len:85,  k:0.05 },
+  'shares-tool': { len:115, k:0.03 },
+};
+
+// deterministic jitter so the same data always lays out the same way
+function seeded(id, salt){
+  let h = 2166136261 ^ salt;
+  for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return ((h >>> 0) % 10000) / 10000;
+}
+function anchor(cat, r){
+  const i = Math.max(0, CAT_ORDER.indexOf(cat));
+  const a = i / CAT_ORDER.length * 2 * Math.PI - Math.PI / 2;
+  return { x: Math.cos(a) * r, y: Math.sin(a) * r };
+}
+function seedPositions(){
+  for (const s of SKILLS) {
+    const a = anchor(s.category, 300);
+    const n = G.nodes.get(s.id) || { s, vx:0, vy:0, fixed:false, r:6 };
+    n.x = a.x + (seeded(s.id, 1) - .5) * 160;
+    n.y = a.y + (seeded(s.id, 2) - .5) * 160;
+    n.vx = n.vy = 0; n.fixed = false;
+    G.nodes.set(s.id, n);
+  }
+}
+seedPositions();
+
+/* Which nodes and edges survive the current filters. Card filters (search, tier,
+   category) pick the nodes; link-type checkboxes pick the edges; then optional
+   neighbourhood focus and "hide skills without links". */
+function graphSubset(){
+  let set = new Set(SKILLS.filter(matches).map(s => s.id));
+  let edges = LINKS.filter(l => state.ltypes.has(l.type) && set.has(l.source) && set.has(l.target));
+
+  if (state.focus && state.sel && set.has(state.sel)) {
+    const adj = new Map();
+    const add = (a, b) => { if (!adj.has(a)) adj.set(a, []); adj.get(a).push(b); };
+    for (const e of edges) { add(e.source, e.target); add(e.target, e.source); }
+    const keep = new Set([state.sel]);
+    let frontier = [state.sel];
+    for (let d = 0; d < state.focus; d++) {
+      const next = [];
+      for (const id of frontier) for (const nb of adj.get(id) || []) if (!keep.has(nb)) { keep.add(nb); next.push(nb); }
+      frontier = next;
+    }
+    set = keep;
+    edges = edges.filter(e => set.has(e.source) && set.has(e.target));
+  }
+  if (state.hideIso) {
+    const linked = new Set();
+    for (const e of edges) { linked.add(e.source); linked.add(e.target); }
+    set = new Set([...set].filter(id => linked.has(id) || id === state.sel));
+  }
+  return { ids: [...set], edges };
+}
+
+function lineSample(t){
+  return '<svg class="lsample" viewBox="0 0 26 8"><line x1="1" y1="4" x2="25" y2="4" style="stroke:' +
+    LT_STROKE[t] + '"' + (LT_DASH[t] ? ' stroke-dasharray="' + LT_DASH[t] + '"' : '') + '/></svg>';
+}
+
+function buildGraphChrome(){
+  document.getElementById('fLinks').innerHTML = LT_ORDER.map(t =>
+    '<label class="chk" title="' + esc(LT[t].desc) + '"><input type="checkbox" data-ltype="' + t + '" checked>' +
+    lineSample(t) + '<span>' + LT[t].label + '</span><span class="n" id="ln-' + t + '"></span></label>').join('');
+
+  const cats = [...new Set(SKILLS.map(s => s.category))].sort((a, b) => catRank(a) - catRank(b));
+  document.getElementById('glegend').innerHTML =
+    cats.map(c => '<span><i class="dot" style="background:' + catColor(c) + '"></i>' + esc(c) + '</span>').join('') +
+    '<span style="margin-left:8px">Ring = origin:</span>' +
+    TIER_ORDER.map(t => '<span><i class="ring" style="border-color:' + TIER_STROKE[t] + '"></i>' + TIER[t].label + '</span>').join('') +
+    '<span style="margin-left:8px">Lines:</span>' +
+    LT_ORDER.map(t => '<span>' + lineSample(t) + LT[t].label + '</span>').join('') +
+    '<span>Bigger dot = more links</span>';
+}
+
+function renderGraph(){
+  if (state.view !== 'graph') return;
+  const { ids, edges } = graphSubset();
+  G.vis = ids.map(id => G.nodes.get(id));
+  G.edges = edges.map(e => ({ e, a: G.nodes.get(e.source), b: G.nodes.get(e.target) }));
+
+  const deg = {};
+  for (const e of edges) { deg[e.source] = (deg[e.source] || 0) + 1; deg[e.target] = (deg[e.target] || 0) + 1; }
+  for (const n of G.vis) { n.deg = deg[n.s.id] || 0; n.r = 5 + Math.sqrt(n.deg) * 2.2; }
+
+  $edges.innerHTML = G.edges.map(x =>
+    '<line class="edge ' + x.e.type + '"' + (x.e.type === 'references' ? ' marker-end="url(#arr)"' : '') + '></line>').join('');
+  $nodes.innerHTML = G.vis.map(n =>
+    '<g class="node" data-id="' + esc(n.s.id) + '">' +
+      '<circle r="' + n.r.toFixed(1) + '" fill="' + catColor(n.s.category) + '" style="stroke:' + (TIER_STROKE[n.s.tier] || 'var(--dim)') + '"></circle>' +
+      '<text dy="' + (n.r + 11).toFixed(1) + '">' + esc(n.s.id) + '</text>' +
+      '<title>' + esc(n.s.id + ' \u2014 ' + (n.s.oneLiner || n.s.description || '')) + '\n' + n.deg + ' visible link(s) \u00b7 click for details</title>' +
+    '</g>').join('');
+  G.edgeEls = [...$edges.children];
+  G.nodeEls = [...$nodes.children];
+
+  // per-type counts among the skills the card filters currently allow
+  const allowed = new Set(SKILLS.filter(matches).map(s => s.id));
+  for (const t of LT_ORDER) {
+    const el = document.getElementById('ln-' + t);
+    if (el) el.textContent = LINKS.filter(l => l.type === t && allowed.has(l.source) && allowed.has(l.target)).length;
+  }
+  document.getElementById('gmeta').textContent =
+    G.vis.length + ' skills \u00b7 ' + G.edges.length + ' links shown';
+
+  applyHighlight();
+  showInfo();
+  draw();
+  reheat(0.7);
+}
+
+function step(){
+  const a = G.alpha, N = G.vis;
+  for (let i = 0; i < N.length; i++) {
+    const p = N[i];
+    for (let j = i + 1; j < N.length; j++) {
+      const q = N[j];
+      let dx = q.x - p.x, dy = q.y - p.y, d2 = dx * dx + dy * dy;
+      if (d2 > 360000) continue;
+      if (d2 < 1) { dx = seeded(p.s.id, j) - .5; dy = seeded(q.s.id, i) - .5; d2 = 1; }
+      const d = Math.sqrt(d2), f = 2000 * a / d2;
+      const fx = dx / d * f, fy = dy / d * f;
+      p.vx -= fx; p.vy -= fy; q.vx += fx; q.vy += fy;
+    }
+  }
+  for (const { e, a: p, b: q } of G.edges) {
+    const sp = SPRING[e.type] || SPRING.bundle;
+    let dx = q.x - p.x, dy = q.y - p.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const k = (d - sp.len) / d * sp.k * a;
+    dx *= k; dy *= k;
+    p.vx += dx; p.vy += dy; q.vx -= dx; q.vy -= dy;
+  }
+  const g = state.cluster ? 0.04 : 0.012;
+  for (const n of N) {
+    const t = state.cluster ? anchor(n.s.category, 320) : { x: 0, y: 0 };
+    n.vx += (t.x - n.x) * g * a; n.vy += (t.y - n.y) * g * a;
+  }
+  for (const n of N) {
+    if (n.fixed) { n.vx = n.vy = 0; continue; }
+    n.vx *= 0.55; n.vy *= 0.55;
+    n.x += n.vx; n.y += n.vy;
+  }
+}
+
+function draw(){
+  for (let i = 0; i < G.edgeEls.length; i++) {
+    const { e, a: p, b: q } = G.edges[i];
+    let x2 = q.x, y2 = q.y;
+    if (e.type === 'references') {            // stop the arrow at the target's rim
+      const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy) || 1;
+      x2 = q.x - dx / d * (q.r + 3); y2 = q.y - dy / d * (q.r + 3);
+    }
+    const el = G.edgeEls[i];
+    el.setAttribute('x1', p.x.toFixed(1)); el.setAttribute('y1', p.y.toFixed(1));
+    el.setAttribute('x2', x2.toFixed(1)); el.setAttribute('y2', y2.toFixed(1));
+  }
+  for (let i = 0; i < G.nodeEls.length; i++) {
+    const n = G.vis[i];
+    G.nodeEls[i].setAttribute('transform', 'translate(' + n.x.toFixed(1) + ',' + n.y.toFixed(1) + ')');
+  }
+  $view.setAttribute('transform', 'translate(' + G.tx.toFixed(1) + ',' + G.ty.toFixed(1) + ') scale(' + G.k.toFixed(3) + ')');
+}
+
+function loop(){
+  G.raf = 0;
+  if (state.view !== 'graph') return;
+  if (G.alpha < 0.004) { if (G.fitPending) { fit(); G.fitPending = false; } return; }
+  for (let i = 0; i < 2; i++) { step(); G.alpha *= 0.985; }
+  if (G.fitPending && G.alpha < 0.06) { fit(); G.fitPending = false; }
+  draw();
+  G.raf = requestAnimationFrame(loop);
+}
+function reheat(a){
+  G.alpha = Math.max(G.alpha, a);
+  if (!G.raf) G.raf = requestAnimationFrame(loop);
+}
+
+function sizeSvg(){
+  const r = $svg.getBoundingClientRect();
+  if (!G.w) { G.tx = r.width / 2; G.ty = r.height / 2; }
+  G.w = r.width; G.h = r.height;
+}
+function fit(){
+  if (!G.vis.length) return;
+  sizeSvg();
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const n of G.vis) { x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x); y1 = Math.max(y1, n.y); }
+  const pad = 70;
+  const k = Math.min((G.w - 2 * pad) / Math.max(x1 - x0, 1), (G.h - 2 * pad) / Math.max(y1 - y0, 1), 1.6);
+  G.k = Math.max(0.15, k);
+  // keep the selection panel from covering the graph's right edge
+  const shift = $info.hidden ? 0 : Math.min(180, G.w * 0.18);
+  G.tx = G.w / 2 - shift - (x0 + x1) / 2 * G.k;
+  G.ty = G.h / 2 - (y0 + y1) / 2 * G.k;
+  draw();
+}
+
+function applyHighlight(){
+  const focus = G.hover || state.sel;
+  const on = !!focus && G.vis.some(n => n.s.id === focus);
+  $svg.classList.toggle('hasfocus', on);
+  const nb = new Set(on ? [focus] : []);
+  G.edges.forEach((x, i) => {
+    const hit = on && (x.e.source === focus || x.e.target === focus);
+    G.edgeEls[i].classList.toggle('hl', hit);
+    if (hit) { nb.add(x.e.source); nb.add(x.e.target); }
+  });
+  G.nodeEls.forEach((el, i) => {
+    const id = G.vis[i].s.id;
+    el.classList.toggle('hl', nb.has(id));
+    el.classList.toggle('sel', id === state.sel);
+  });
+}
+
+function showInfo(){
+  const id = state.sel;
+  const s = id && SKILLS.find(x => x.id === id);
+  if (!s) { $info.hidden = true; return; }
+  const shownIds = new Set(G.vis.map(n => n.s.id));
+  const t = TIER[s.tier] || { label: s.tierLabel, cls: 'b-plain' };
+  const groups = LT_ORDER.map(type => {
+    const ls = LINKS.filter(l => l.type === type && (l.source === id || l.target === id));
+    if (!ls.length) return '';
+    const enabled = state.ltypes.has(type);
+    const items = ls.map(l => {
+      const other = l.source === id ? l.target : l.source;
+      const dir = type === 'references' ? (l.source === id ? '\u2192 names ' : '\u2190 named by ') : '';
+      const off = !enabled || !shownIds.has(other);
+      return [other, '<li' + (off ? ' class="off" title="hidden by the current filters"' : '') + '>' + dir +
+        '<a data-gsel="' + esc(other) + '">' + esc(other) + '</a>' +
+        (type === 'references' ? '' : '<span class="why">' + esc(l.why) + '</span>') + '</li>'];
+    }).sort((a, b) => a[0].localeCompare(b[0])).map(x => x[1]).join('');
+    return '<h4>' + lineSample(type) + ' ' + LT[type].label + ' \u00b7 ' + ls.length + (enabled ? '' : ' (type hidden)') + '</h4><ul>' + items + '</ul>';
+  }).join('');
+
+  $info.innerHTML =
+    '<h3>' + esc(s.id) + '<button class="x" data-gclose title="Close (Esc)">\u00d7</button></h3>' +
+    (s.oneLiner ? '<p class="one">' + inline(s.oneLiner) + '</p>' : '') +
+    '<div class="badges" style="margin:0"><span class="badge ' + t.cls + '">' + esc(t.label) + '</span>' +
+      '<span class="badge b-plain"><i class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' +
+      catColor(s.category) + '"></i> ' + esc(s.category) + '</span></div>' +
+    '<div class="row" style="margin-top:10px;align-items:center">' +
+      '<button class="minibtn" data-gopen="' + esc(s.id) + '">Open card</button>' +
+      '<label style="font-size:12px;color:var(--mut)">Show only <select id="gfocus">' +
+        [[0, 'everything'], [1, 'direct links'], [2, 'links of links']].map(([v, l]) =>
+          '<option value="' + v + '"' + (state.focus === v ? ' selected' : '') + '>' + l + '</option>').join('') +
+      '</select></label>' +
+    '</div>' +
+    (groups || '<p class="why" style="margin-top:12px">No links to other skills.</p>');
+  $info.hidden = false;
+}
+
+function select(id, fromHash){
+  if (id && !SKILL_IDS.has(id)) id = null;
+  const changed = state.sel !== id;
+  state.sel = id;
+  if (!fromHash) history.replaceState(null, '', id ? '#g-' + encodeURIComponent(id) : '#graph');
+  if (state.focus && changed) renderGraph();
+  else { applyHighlight(); showInfo(); }
+  // a hidden-by-filter node still gets its panel, but say why it is not on the canvas
+  if (id && !G.vis.some(n => n.s.id === id)) toast(id + ' is hidden by the current filters');
+}
+
+function openCard(id){
+  setView('list');
+  location.hash = '#s-' + id;
+}
+
+function setView(v){
+  state.view = v;
+  document.body.classList.toggle('graph', v === 'graph');
+  document.querySelectorAll('.viewtabs [data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+  if (v === 'graph') { sizeSvg(); renderGraph(); }
+}
+
+function toWorld(e){
+  const r = $svg.getBoundingClientRect();
+  return { x: (e.clientX - r.left - G.tx) / G.k, y: (e.clientY - r.top - G.ty) / G.k };
+}
+
+$svg.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  const g = e.target.closest('.node');
+  if (g) {
+    const n = G.nodes.get(g.dataset.id);
+    G.drag = { type:'node', n, sx:e.clientX, sy:e.clientY, moved:false };
+    n.fixed = true;
+  } else {
+    G.drag = { type:'pan', sx:e.clientX, sy:e.clientY, tx:G.tx, ty:G.ty, moved:false };
+  }
+  $svg.setPointerCapture(e.pointerId);
+});
+$svg.addEventListener('pointermove', e => {
+  const d = G.drag;
+  if (!d) {
+    const g = e.target.closest('.node');
+    const id = g ? g.dataset.id : null;
+    if (id !== G.hover) { G.hover = id; applyHighlight(); }
+    return;
+  }
+  if (Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) > 3) d.moved = true;
+  if (!d.moved) return;
+  if (d.type === 'node') {
+    const p = toWorld(e);
+    d.n.x = p.x; d.n.y = p.y;
+    reheat(0.25);
+  } else {
+    G.tx = d.tx + e.clientX - d.sx; G.ty = d.ty + e.clientY - d.sy;
+  }
+  draw();
+});
+$svg.addEventListener('pointerup', e => {
+  const d = G.drag;
+  G.drag = null;
+  if (!d) return;
+  if (d.type === 'node') {
+    d.n.fixed = false;
+    if (!d.moved) {
+      const id = d.n.s.id, now = Date.now();
+      if (G.lastClick && G.lastClick.id === id && now - G.lastClick.t < 380) { G.lastClick = null; openCard(id); return; }
+      G.lastClick = { id, t: now };
+      select(state.sel === id ? null : id);
+    }
+  } else if (!d.moved) {
+    select(null);
+  }
+});
+$svg.addEventListener('pointerleave', () => { if (G.hover) { G.hover = null; applyHighlight(); } });
+$svg.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = $svg.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  const k2 = Math.min(5, Math.max(0.15, G.k * Math.exp(-e.deltaY * 0.0015)));
+  G.tx = mx - (mx - G.tx) / G.k * k2;
+  G.ty = my - (my - G.ty) / G.k * k2;
+  G.k = k2;
+  draw();
+}, { passive:false });
+
+document.getElementById('gfit').onclick = fit;
+document.getElementById('grelayout').onclick = () => { seedPositions(); G.fitPending = true; renderGraph(); reheat(1); };
+addEventListener('resize', () => { if (state.view === 'graph') sizeSvg(); });
+addEventListener('keydown', e => {
+  if (e.key === 'Escape' && state.view === 'graph' && state.sel && document.activeElement.id !== 'q') select(null);
+});
+
+/* ------------------------------------------------------------- sidebar UI */
+function countBy(key){ const m = {}; for (const s of SKILLS) m[s[key]] = (m[s[key]] || 0) + 1; return m; }
+
+function buildFilters(){
+  const tc = countBy('tier');
+  document.getElementById('fTier').innerHTML = TIER_ORDER.filter(t => tc[t]).map(t =>
+    '<label class="chk"><input type="checkbox" data-tier="' + t + '" checked>' +
+    '<span>' + TIER[t].label + '</span><span class="n">' + tc[t] + '</span></label>').join('');
+
+  const cc = countBy('category');
+  document.getElementById('fCat').innerHTML = Object.keys(cc)
+    .sort((a, b) => catRank(a) - catRank(b)).map(c =>
+      '<label class="chk"><input type="checkbox" data-cat="' + esc(c) + '" checked>' +
+      '<span class="dot" style="background:' + catColor(c) + '"></span><span>' + esc(c) + '</span><span class="n">' + cc[c] + '</span></label>').join('');
+
+  if (RESOLVER) {
+    const projs = RESOLVER.projects || [];
+    const none = SKILLS.filter(s => !(s.loadedIn || []).length).length;
+    document.getElementById('fLoaded').innerHTML =
+      '<select id="fProj" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--fg);font:inherit;font-size:12.5px">' +
+      '<option value="*">All skills (' + SKILLS.length + ')</option>' +
+      projs.map(p => '<option value="' + esc(p.label) + '">Loaded in ' + esc(p.label) + (p.primary ? ' \u2605' : '') + ' (' + p.skills + ')</option>').join('') +
+      '<option value="!none">Loaded in none of them (' + none + ')</option></select>' +
+      '<p class="why" style="margin:6px 0 0">\u2605 primary project: its copy of each skill is the one shown and summarized.</p>';
+  } else document.getElementById('gLoaded').hidden = true;
+
+  const yours = tc.yours || 0, third = tc['third-party'] || 0;
+  document.getElementById('subtitle').textContent =
+    SKILLS.length + ' skills · ' + yours + ' yours · ' + third + ' third-party · ' +
+    ((tc.inhouse || 0) + ' in-house · ' + (tc.generated || 0) + ' generated');
+}
+
+document.addEventListener('change', e => {
+  const el = e.target;
+  if (el.dataset.ltype) { G.fitPending = true; el.checked ? state.ltypes.add(el.dataset.ltype) : state.ltypes.delete(el.dataset.ltype); renderGraph(); return; }
+  if (el.dataset.opt) {
+    state[el.dataset.opt] = el.checked;
+    if (el.dataset.opt === 'labels') $svg.classList.toggle('nolabels', !el.checked);
+    else if (el.dataset.opt === 'cluster') reheat(0.8);
+    else { G.fitPending = true; renderGraph(); }
+    return;
+  }
+  if (el.id === 'gfocus') { G.fitPending = true; state.focus = +el.value; renderGraph(); return; }
+  if (el.dataset.tier) { el.checked ? state.tiers.add(el.dataset.tier) : state.tiers.delete(el.dataset.tier); render(); }
+  if (el.id === 'fProj') { state.proj = el.value; render(); return; }
+  if (el.dataset.cat)  { el.checked ? state.cats.add(el.dataset.cat)  : state.cats.delete(el.dataset.cat);  render(); }
+});
+
+document.getElementById('q').addEventListener('input', e => {
+  state.q = e.target.value.trim().toLowerCase();
+  render();
+});
+
+document.addEventListener('click', e => {
+  const vt = e.target.closest('[data-view]');
+  if (vt) { setView(vt.dataset.view); history.replaceState(null, '', vt.dataset.view === 'graph' ? '#graph' : location.pathname); return; }
+  const gs = e.target.closest('[data-gsel]');
+  if (gs) { e.preventDefault(); select(gs.dataset.gsel); return; }
+  if (e.target.closest('[data-gclose]')) { select(null); return; }
+  const oc = e.target.closest('[data-gopen]');
+  if (oc) { openCard(oc.dataset.gopen); return; }
+  // in graph view the contents rail selects a node instead of scrolling to a hidden card
+  const tl = state.view === 'graph' && e.target.closest('#toc a');
+  if (tl) { e.preventDefault(); select(tl.getAttribute('href').slice(3)); return; }
+  const inv = e.target.closest('[data-copy]');
+  if (inv) { copy(inv.dataset.copy, 'Copied ' + inv.dataset.copy); return; }
+  const raw = e.target.closest('[data-raw]');
+  if (raw) {
+    const s = SKILLS.find(x => x.id === raw.dataset.raw);
+    if (s) copy(s.raw || '', 'Copied ' + s.id + '/SKILL.md');
+  }
+});
+
+document.getElementById('expandAll').onclick  = () => document.querySelectorAll('details.src').forEach(d => d.open = true);
+document.getElementById('collapseAll').onclick = () => document.querySelectorAll('details.src').forEach(d => d.open = false);
+
+const themeBtn = document.getElementById('theme');
+function setTheme(t){
+  document.documentElement.dataset.theme = t;
+  themeBtn.textContent = t === 'dark' ? 'Light' : 'Dark';
+  try { localStorage.setItem('atlas-theme', t); } catch {}
+}
+themeBtn.onclick = () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+try { const saved = localStorage.getItem('atlas-theme'); if (saved) setTheme(saved); } catch {}
+
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && document.activeElement.id !== 'q') { e.preventDefault(); document.getElementById('q').focus(); }
+  if (e.key === 'Escape' && document.activeElement.id === 'q') { document.activeElement.blur(); }
+});
+
+// Deep link: #s-<id> jumps to a skill, #s-<id>!src also opens its source fold —
+// so a link can point straight at the prompt text.
+function gotoHash(){
+  const h = decodeURIComponent(location.hash || '');
+  if (!h) return;
+  if (h === '#graph') { setView('graph'); return; }
+  if (h.startsWith('#g-')) { setView('graph'); select(h.slice(3), true); return; }
+  if (state.view === 'graph') setView('list');
+  const wantSrc = h.endsWith('!src');
+  const el = document.getElementById((wantSrc ? h.slice(0, -4) : h).slice(1));
+  if (!el) return;
+  if (wantSrc) el.querySelector('details.src').open = true;
+  el.scrollIntoView();
+}
+
+buildFilters();
+buildGraphChrome();
+render();
+gotoHash();
+addEventListener('hashchange', gotoHash);
+</script>
+</body>
+</html>
