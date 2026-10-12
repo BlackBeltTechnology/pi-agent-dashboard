@@ -238,6 +238,10 @@ describe("foreignTsLoaderWarning (#E18)", () => {
     expect(msg).toContain("pi-dashboard stop && pi-dashboard start");
   });
 
+  it("recognises the combined --import=<url> spelling", () => {
+    expect(foreignTsLoaderWarning([`--import=${JITI}`])).toContain("jiti");
+  });
+
   it("warns for tsx, naming it", () => {
     expect(foreignTsLoaderWarning(["--import", TSX])).toContain("tsx");
   });

@@ -17,9 +17,10 @@
  *
  * See change: offload-openspec-poll-to-worker.
  */
-import { Worker } from "node:worker_threads";
+
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 import {
   deriveAndSerialize,
   type PollWorkerRequest,
@@ -65,7 +66,7 @@ const DEBUG = typeof process !== "undefined" &&
   /pi-dashboard|openspec-poll/.test(process.env.DEBUG);
 
 function defaultWorkerUrl(): string {
-  // The worker entry is a sibling .ts module; jiti (inherited via
+  // The worker entry is a sibling .ts module; the server's `--import` loader (inherited via
   // `execArgv: process.execArgv`) loads it transparently in the worker thread.
   const here = dirname(fileURLToPath(import.meta.url));
   return pathToFileURL(resolve(here, "openspec-poll-worker.ts")).href;
@@ -97,7 +98,7 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
     if (workersDisabled || disposed) return;
     try {
       const w = new Worker(new URL(workerUrl), {
-        // Inherit `--import jiti-register.mjs` so the worker can load the
+        // Inherit the server's `--import` loader so the worker can load the
         // .ts entry. Mirrors `packages/server/bin/pi-dashboard.mjs`.
         execArgv: [...process.execArgv],
       });

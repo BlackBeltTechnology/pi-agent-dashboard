@@ -111,9 +111,11 @@ export function assertNodeVersionSupported(): void {
  * See change: strip-only-native-ts-loader (design D5).
  */
 export function foreignTsLoaderWarning(execArgv: readonly string[] = process.execArgv): string | null {
-  for (let i = 0; i < execArgv.length - 1; i++) {
-    if (execArgv[i] !== "--import") continue;
-    const loader = execArgv[i + 1] ?? "";
+  for (let i = 0; i < execArgv.length; i++) {
+    const arg = execArgv[i] ?? "";
+    // Both `--import <url>` and the combined `--import=<url>` spellings.
+    const loader = arg === "--import" ? (execArgv[i + 1] ?? "") : arg.startsWith("--import=") ? arg.slice("--import=".length) : null;
+    if (loader === null) continue;
     const name = isJitiLoader(loader) ? "jiti" : isTsxLoader(loader) ? "tsx" : null;
     if (name) {
       return (

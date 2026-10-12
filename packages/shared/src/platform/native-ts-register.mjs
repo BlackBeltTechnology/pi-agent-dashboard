@@ -13,14 +13,16 @@ import nodeModule from "node:module";
 import { loadSync, resolveSync } from "./native-ts-hooks.mjs";
 import { selectLoaderTier } from "./native-ts-tier.mjs";
 
-if (typeof nodeModule.registerHooks !== "function" && typeof nodeModule.register !== "function") {
+const tier = selectLoaderTier(nodeModule);
+// The tier names the registration API it needs; fail with a readable message when
+// that exact API is missing (never happens inside the engines range).
+if (typeof (tier === 1 ? nodeModule.registerHooks : nodeModule.register) !== "function") {
   throw new Error(
-    `pi-dashboard: this Node (${process.version}) has neither module.registerHooks nor module.register, ` +
-      "which the native TypeScript loader needs. Use a supported Node (>=22.19.0 <27).",
+    `pi-dashboard: this Node (${process.version}) lacks the module hook registration API ` +
+      "(module.registerHooks / module.register) the native TypeScript loader needs. Use a supported Node (>=22.19.0 <27).",
   );
 }
 
-const tier = selectLoaderTier(nodeModule);
 if (tier === 1) {
   nodeModule.registerHooks({ resolve: resolveSync, load: loadSync });
 } else {
