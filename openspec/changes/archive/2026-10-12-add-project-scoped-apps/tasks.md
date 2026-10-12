@@ -84,4 +84,4 @@
 
 ## 8. Manual verification
 
-- [ ] 8.1 Manually verify *Not available* copy and layout: not-available state on desktop and < 640 px · human review · [judgment: message legible, top bar layout consistent with *folder not found*] (test-plan #F10, test-plan: manual-only)
+- [x] 8.1 Manually verify *Not available* copy and layout: not-available state on desktop and < 640 px · human review · [judgment: message legible, top bar layout consistent with *folder not found*] (test-plan #F10, test-plan: manual-only)
