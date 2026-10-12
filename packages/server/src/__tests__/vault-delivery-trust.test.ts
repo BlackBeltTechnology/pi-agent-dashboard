@@ -1,0 +1,167 @@
+/**
+ * Hub-side delivery: trust gate (paired device + TLS, or hub-local), snapshot per
+ * project key, config-held disable switch, corrupt vault, push on change.
+ * See change: add-credential-vault (test-plan X1, X2, X9, X10-hub).
+ */
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { VaultSnapshotMessage, VaultSyncRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
+import { createBinding } from "../vault/vault-bindings.js";
+import { createVaultDeliveryHub, decideVaultTrust, type VaultDeliveryHubDeps } from "../vault/vault-delivery-hub.js";
+import { confirmCheckout, createGrant, dirSubject, repoSubject } from "../vault/vault-grants.js";
+import { createVaultStore, type VaultStore } from "../vault/vault-store.js";
+
+let dir: string;
+let store: VaultStore;
+let sent: Array<{ sessionId: string; msg: VaultSnapshotMessage }>;
+let enabled: boolean;
+let origins: Record<string, { local: boolean; deviceId?: string }>;
+let tls: boolean;
+
+const mkHub = (extra: Partial<VaultDeliveryHubDeps> = {}) =>
+  createVaultDeliveryHub({
+    store,
+    getOrigin: (id) => origins[id],
+    send: (sessionId, msg) => { sent.push({ sessionId, msg: msg as VaultSnapshotMessage }); return true; },
+    isDeliveryEnabled: () => enabled,
+    getGraceHours: () => 24,
+    isTls: () => tls,
+    pushDelayMs: 10,
+    ...extra,
+  });
+
+const req = (over: Partial<VaultSyncRequestMessage> = {}): VaultSyncRequestMessage => ({
+  type: "vault_sync_request", sessionId: "s1", cwd: "/work/p", tracked: [], reason: "connect", ...over,
+});
+
+beforeEach(async () => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-hub-"));
+  store = createVaultStore(path.join(dir, "vault.json"));
+  sent = []; enabled = true; tls = false;
+  origins = { s1: { local: true }, r1: { local: false, deviceId: "dev-1" }, rx: { local: false, deviceId: UNATTRIBUTED_REMOTE } };
+  const a = await store.addAccount({ provider: "gemini", label: "g", value: "gemini-key-001" });
+  await createBinding(store, { name: "GEMINI_API_KEY", defaultAccountId: a.id });
+  await createGrant(store, { subject: dirSubject("hub", "/work/p"), bindingName: "GEMINI_API_KEY" });
+  await createGrant(store, { subject: dirSubject("dev-1", "/work/p"), bindingName: "GEMINI_API_KEY" });
+});
+afterEach(() => { vi.useRealTimers(); fs.rmSync(dir, { recursive: true, force: true }); });
+
+describe("trust gate", () => {
+  it("hub-local sessions are trusted as device `hub`", () => {
+    expect(decideVaultTrust({ origin: { local: true }, tls: false })).toEqual({ allow: true, deviceId: "hub" });
+  });
+  it("X1: a remote paired device over plain ws gets nothing: transport-insecure", async () => {
+    const hub = mkHub();
+    expect(await hub.handleSyncRequest("r1", req({ sessionId: "r1" }))).toBe("transport-insecure");
+    expect(sent.at(-1)?.msg).toMatchObject({ status: "denied", outcome: "transport-insecure", entries: [] });
+  });
+  it("a remote paired device over TLS is delivered under its own device id", async () => {
+    tls = true;
+    const hub = mkHub();
+    expect(await hub.handleSyncRequest("r1", req({ sessionId: "r1" }))).toBe("delivered");
+    expect(sent.at(-1)?.msg.entries).toEqual([{ name: "GEMINI_API_KEY", value: "gemini-key-001" }]);
+  });
+  it("X2: a remote connection without a paired-device ticket gets nothing", async () => {
+    tls = true;
+    const hub = mkHub();
+    expect(await hub.handleSyncRequest("rx", req({ sessionId: "rx" }))).toBe("untrusted");
+    expect(sent.at(-1)?.msg).toMatchObject({ status: "denied", outcome: "untrusted", entries: [] });
+  });
+  it("an unknown session gets nothing", async () => {
+    expect(await mkHub().handleSyncRequest("ghost", req({ sessionId: "ghost" }))).toBe("untrusted");
+  });
+});
+
+describe("snapshot", () => {
+  it("delivers the values granted to the session's directory key", async () => {
+    expect(await mkHub().handleSyncRequest("s1", req())).toBe("delivered");
+    expect(sent.at(-1)?.msg).toMatchObject({ status: "ok", graceHours: 24, entries: [{ name: "GEMINI_API_KEY", value: "gemini-key-001" }] });
+  });
+  it("nothing for a project without a grant, and nothing without a cwd", async () => {
+    const hub = mkHub();
+    await hub.handleSyncRequest("s1", req({ cwd: "/work/other" }));
+    expect(sent.at(-1)?.msg.entries).toEqual([]);
+    expect(await hub.handleSyncRequest("s1", req({ cwd: undefined }))).toBe("no-project");
+    expect(sent.at(-1)?.msg).toMatchObject({ status: "denied", outcome: "no-project" });
+  });
+  it("a repository grant needs the checkout confirmed", async () => {
+    await createGrant(store, { subject: repoSubject("github.com/acme/app"), bindingName: "GEMINI_API_KEY" });
+    const hub = mkHub();
+    const r = req({ cwd: "/src/app", origin: "git@github.com:acme/app.git" });
+    await hub.handleSyncRequest("s1", r);
+    expect(sent.at(-1)?.msg.entries).toEqual([]);
+    expect(hub.getSessionState("s1")?.bindings).toEqual([{ name: "GEMINI_API_KEY", state: "pending-confirmation" }]);
+    await confirmCheckout(store, { deviceId: "hub", dir: "/src/app", repoKey: "github.com/acme/app" });
+    await vi.waitFor(() => expect(sent.at(-1)?.msg.entries).toHaveLength(1));
+  });
+  it("clamps the grace it advertises", async () => {
+    await mkHub({ getGraceHours: () => 9999 }).handleSyncRequest("s1", req());
+    expect(sent.at(-1)?.msg.graceHours).toBe(168);
+  });
+});
+
+describe("X9: switch and corruption", () => {
+  it("a corrupt vault answers `unavailable`, not an empty snapshot", async () => {
+    fs.writeFileSync(store.filePath, '{"a":"sk-live-ABCDEFGH');
+    const hub = mkHub();
+    expect(await hub.handleSyncRequest("s1", req())).toBe("vault-unavailable");
+    expect(sent.at(-1)?.msg).toMatchObject({ status: "unavailable", entries: [] });
+    expect(JSON.stringify(sent)).not.toContain("sk-live");
+  });
+  it("the config switch wins even while the vault is corrupt, and pushes to connected sessions", async () => {
+    const hub = mkHub();
+    await hub.handleSyncRequest("s1", req());
+    fs.writeFileSync(store.filePath, "not json");
+    enabled = false;
+    sent.length = 0;
+    await hub.pushNow();
+    expect(sent.at(-1)?.msg).toMatchObject({ status: "denied", outcome: "disabled", entries: [] });
+  });
+});
+
+describe("push on change (hub half of X10)", () => {
+  it("a rotation reaches the connected session well inside 5 s", async () => {
+    vi.useFakeTimers();
+    const hub = mkHub();
+    await hub.handleSyncRequest("s1", req());
+    sent.length = 0;
+    const acc = (await store.listAccounts())[0];
+    await store.rotateAccount(acc.id, "rotated-key-0001");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(sent.at(-1)?.msg.entries).toEqual([{ name: "GEMINI_API_KEY", value: "rotated-key-0001" }]);
+    hub.dispose();
+  });
+  it("forget stops pushes to a closed session", async () => {
+    vi.useFakeTimers();
+    const hub = mkHub();
+    await hub.handleSyncRequest("s1", req());
+    hub.forget("s1");
+    sent.length = 0;
+    await store.rotateAccount((await store.listAccounts())[0].id, "rotated-key-0002");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(sent).toEqual([]);
+    hub.dispose();
+  });
+});
+
+describe("session state", () => {
+  it("merges the bridge report and marks withdrawn names revoked", async () => {
+    const hub = mkHub();
+    await hub.handleSyncRequest("s1", req());
+    hub.handleReport("s1", { type: "vault_report", sessionId: "s1", applied: [{ name: "GEMINI_API_KEY", outcome: "local-override" }] });
+    expect(hub.getSessionState("s1")?.bindings).toEqual([{ name: "GEMINI_API_KEY", state: "local-override" }]);
+    await store.update((d) => { d.grants = []; });
+    await hub.pushNow();
+    const st = hub.getSessionState("s1");
+    expect(st?.bindings).toEqual([{ name: "GEMINI_API_KEY", state: "revoked" }]);
+    expect(typeof st?.lastContactAt).toBe("number");
+    expect(JSON.stringify(st)).not.toContain("gemini-key-001");
+  });
+  it("is undefined for an unknown session", () => {
+    expect(mkHub().getSessionState("zz")).toBeUndefined();
+  });
+});

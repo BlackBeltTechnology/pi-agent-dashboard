@@ -63,6 +63,7 @@ const BUILT_IN_SETTINGS_LABELS: ReadonlyArray<readonly [string, string]> = [
   ["settings.security", "Security"],
   ["settings.access", "Access"],
   ["settings.providers", "Providers"],
+  ["settings.vault", "Vault"],
   ["settings.addons", "Add-ons"],
   ["settings.plugins", "Plugins"],
   ["settings.openspec", "OpenSpec"],

@@ -238,6 +238,13 @@ export interface PluginManifest {
    */
   requires?: PluginRequirements;
   /**
+   * Env-style vault binding names this plugin reads through `ctx.vault`. A name
+   * is readable only after the user approves the declaration in Settings; a
+   * declaration added by an update needs its own approval. Capability contract,
+   * not isolation. See change: add-credential-vault (D4).
+   */
+  vaultBindings?: string[];
+  /**
    * Other plugin ids this plugin requires (hard, transitive). When a
    * dependency is missing from discovery or disabled in config, the loader
    * SHALL skip this plugin's server entry and surface the gap via

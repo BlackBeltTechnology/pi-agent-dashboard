@@ -14,6 +14,8 @@ import type {
 
 export const DEMO_ACCOUNT_KEY = "demo-account";
 export const DEMO_ECHO_TYPE = "demo/echo";
+/** The vault binding the demo manifest declares (`vaultBindings`). See change: add-credential-vault. */
+export const DEMO_VAULT_BINDING = "POLY_PIZZA_KEY";
 
 /** Fake login: auth URL + paste prompt; the answer `ok` yields a dummy credential. */
 export const demoLoginFlow: PluginOAuthLoginFlow = {
@@ -56,6 +58,15 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
     } catch (err) {
       return reply.code(502).send({ error: err instanceof Error ? err.message : String(err) });
     }
+  });
+
+  // Declared + user-approved vault read. Reports presence and length only, never
+  // the value: the e2e needs to see "returns a value only while approved" without
+  // this fixture route becoming a secret oracle.
+  // See change: add-credential-vault (task 6.2).
+  ctx.fastify.get("/api/plugins/demo/vault-read", async () => {
+    const value = await ctx.vault?.read(DEMO_VAULT_BINDING);
+    return { binding: DEMO_VAULT_BINDING, present: typeof value === "string", length: typeof value === "string" ? value.length : null };
   });
 
   ctx.fastify.delete("/api/plugins/demo/account", async () => {

@@ -3,19 +3,23 @@
 ## ADDED Requirements
 
 ### Requirement: Managed credential store
-The connector layer SHALL store third-party credentials by reusing the existing `provider-auth-storage` machinery (proper-lockfile, atomic write, 0600 file permissions, and the existing `api_key` / `oauth` credential types), writing to a separate file `~/.pi/agent/connector-auth.json` distinct from the LLM-provider `auth.json`. The store SHALL support add, list, get, and revoke operations. List operations SHALL NOT return secret material. Secrets SHALL be held in plaintext at rest at 0600 (matching the existing provider-credential posture) and SHALL NOT appear in logs, errors, connector definitions, or any tool/REST response.
+The connector layer SHALL take third-party credentials from the credential vault (`credential-vault`): a connector's `credential_id` SHALL be the id of a vault account of kind `key`. The connector layer SHALL NOT keep its own secret file. List operations SHALL return the account id, provider and label and SHALL NOT return secret material. The value SHALL be read server-side only, at invocation time, and SHALL NOT be returned by any connector tool, façade or REST response.
 
-For this change the store SHALL support the `api_key` credential type. The existing `oauth` shape (access token, refresh token, expiry) and the existing refresh machinery SHALL be reusable for connectors in a later phase without a breaking migration.
+For this change the connector layer SHALL support vault `key` accounts. OAuth connector credentials SHALL follow the vault's OAuth accounts in a later phase without a breaking change to connector definitions.
 
-#### Scenario: Credential stored at 0600 in a separate file
-- **WHEN** a user adds an API-key credential via settings
-- **THEN** the secret SHALL be persisted to `~/.pi/agent/connector-auth.json` with 0600 permissions, not to `auth.json`
-- **AND** a subsequent `list` SHALL return the credential id and metadata but no secret material
+#### Scenario: API-key credential comes from the vault
+- **WHEN** a user adds an API-key credential in Settings → Vault and picks it for a connector
+- **THEN** the connector's `credential_id` SHALL be that vault account id and no connector-specific secret file SHALL be written
+- **AND** a subsequent `list` SHALL return the account id and metadata but no secret material
 
 #### Scenario: Revoked credential cannot be used
-- **WHEN** a credential is revoked
+- **WHEN** the vault account a connector references is revoked
 - **THEN** `get` for that id SHALL fail
 - **AND** any connector depending on it SHALL become non-invocable
+
+#### Scenario: Non-key account does not resolve
+- **WHEN** a connector references a vault account of a kind other than `key`
+- **THEN** the credential SHALL NOT resolve and the connector SHALL be non-invocable
 
 ### Requirement: Connector registry with pluggable kind
 A connector SHALL be defined as `{ id, kind, descriptor, credentialId }` where `kind` discriminates the invocation backend. The registry SHALL support kinds `http` and `openapi` in this change, and the type SHALL reserve `graphql` so a later phase can add it without a breaking migration. For `openapi` connectors the registry SHALL load operations from OpenAPI specifications and expose, per operation, an id, a summary, and a parameter JSON-schema; adding an OpenAPI provider SHALL require supplying its spec and a credential mapping, NOT hand-written connector code. The registry SHALL support a per-spec overrides mechanism to patch, hide, or correct operations from imperfect specs. Google APIs SHALL be supported in a later phase by converting Discovery Documents into `openapi`-kind connectors at ingest, reusing the `openapi` invocation path.

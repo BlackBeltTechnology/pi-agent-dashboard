@@ -11,6 +11,7 @@ import { useAttachmentResolution } from "../../lib/openspec/useAttachmentResolut
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
 import { isRemoteOrigin } from "../../lib/session/session-origin-view.js";
 import { YoloSessionIndicator } from "../access-grant/YoloIndicators.js";
+import { VaultBindingsChip } from "./VaultBindingsChip.js";
 import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
 import { FooterSegmentSlot } from "../extension-ui/FooterSegmentSlot.js";
 import { AttachmentTrace } from "../openspec/AttachmentTrace.js";
@@ -319,6 +320,7 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
       {/* Active-YOLO peer indicator: the sidebar pill is not rendered here.
           See change: add-access-grant-dialog (8b.7). */}
       <YoloSessionIndicator cwd={session.cwd} />
+      <VaultBindingsChip sessionId={session.id} />
     </div>
   );
 }
@@ -488,6 +490,8 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
       <FooterSegmentSlot session={session} />
       {/* Active-YOLO indicator when this session's cwd is in scope. See change: add-access-grant-dialog (8b.7). */}
       <YoloSessionIndicator cwd={session.cwd} />
+      {/* Vault key state for this session (hidden without bindings). See change: add-credential-vault. */}
+      <VaultBindingsChip sessionId={session.id} />
       {/* Editable user-tag strip + read-only phase chip (D5: detail-header
           primary). See change: add-session-tags. */}
       {onSetTags && (

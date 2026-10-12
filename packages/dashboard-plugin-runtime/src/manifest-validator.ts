@@ -538,6 +538,18 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     }
   }
 
+  // vaultBindings: optional list of env-style names. See change: add-credential-vault (D4).
+  let vaultBindings: string[] | undefined;
+  if (m.vaultBindings !== undefined) {
+    if (
+      !Array.isArray(m.vaultBindings) ||
+      !m.vaultBindings.every((n) => typeof n === "string" && /^[A-Z_][A-Z0-9_]*$/.test(n))
+    ) {
+      throw new ManifestValidationError(pluginId, "manifest.vaultBindings must be an array of env-style names (^[A-Z_][A-Z0-9_]*$)");
+    }
+    vaultBindings = [...(m.vaultBindings as string[])];
+  }
+
   return {
     id: pluginId,
     displayName: m.displayName,
@@ -552,5 +564,6 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     ...(m.fixture === true ? { fixture: true } : {}),
     ...(requires ? { requires } : {}),
     ...(dependsOn ? { dependsOn } : {}),
+    ...(vaultBindings ? { vaultBindings } : {}),
   };
 }

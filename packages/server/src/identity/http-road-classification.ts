@@ -87,6 +87,8 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   // user directory + passkey invites (change: add-passkey-user-auth)
   users: "access",
   "host-gate": "access",
+  // credential vault: accounts, grants, import (change: add-credential-vault)
+  vault: "access",
   // credential plumbing (change: harden-trust-and-credential-boundaries)
   "device-session": "access",
   "local-proof": "access",
