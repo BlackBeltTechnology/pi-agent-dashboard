@@ -76,13 +76,21 @@ function bufferedHandle(child: ChildProcess): AgentHandle {
 
 export function startLocalAcpSession(
   deps: LocalHostDeps,
-  o: { agent: AcpAgentConfig; settings: AcpSettings; cwd: string; spawnToken?: string; sessionId?: string },
+  o: {
+    agent: AcpAgentConfig;
+    settings: AcpSettings;
+    cwd: string;
+    spawnToken?: string;
+    sessionId?: string;
+    /** Test seam: replace the real agent spawn. */
+    launch?: () => ChildProcess;
+  },
 ): LocalAcpStart {
   const sessionId = o.sessionId ?? randomUUID();
   const log = (l: string) => deps.log(l);
   let child: ChildProcess;
   try {
-    child = launchAgentProcess({ agent: o.agent, cwd: o.cwd, warn: (w) => log(`[acp:${o.agent.id}] ${w}`) });
+    child = o.launch ? o.launch() : launchAgentProcess({ agent: o.agent, cwd: o.cwd, warn: (w) => log(`[acp:${o.agent.id}] ${w}`) });
   } catch (err) {
     return { success: false, message: err instanceof Error ? err.message : String(err) };
   }
