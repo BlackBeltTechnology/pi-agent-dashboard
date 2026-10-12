@@ -33,7 +33,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `install-invoice-bot-extension.md` | Install `@blackbelt-technology/invoicebot` (local `../pi-invoice-bot`) as global pi extension. → see `install-invoice-bot-extension.md.AGENTS.md` |
 | `installation-windows.md` | Windows 10/11 install guide. 2 paths: Electron Setup.exe NSIS (per-user, bundled Node) + tarball/npm (advanced). Runtime layout `%USERPROFILE%\.pi-dashboard\` + `%USERPROFILE%\.pi\`. |
 | `kb-read-discipline.md` | Trust verdicts on `kb_search` agents hits (FRESH/STALE/MOVED/GONE/UNVERIFIED, cap 8, ack sidecar v2) + search… → see `kb-read-discipline.md.AGENTS.md` |
-| `knip-baseline.json` | (repo root) Knip dead-code baseline. Per-class debt counts, measured 2026-08-13. Debt ceiling, not target. → see `knip-baseline.json.AGENTS.md` |
+| `knip-baseline.json` | (repo root) Knip dead-code baseline. Per-class debt counts, measured 2026-10-12. Debt ceiling, not target. → see `knip-baseline.json.AGENTS.md` |
 | `knip.json` | (repo root) Knip 6.32.2 whole-graph dead-code config. 38 workspaces. → see `knip.json.AGENTS.md` |
 | `managed-services.md` | Managed services layer. `pi.tools` vs services; `services.json` / `services-run/<id>/` files; drivers (oci:docker/oci:podman/native/attached/external); lifecycle state machine + `unavailable` reason set; leases/idle defaults; adoption; add/update/remove; secrets refs + delivery; threat model; REST + CLI; skill pattern; platform matrix. See change: add-service-registry-core. |
 | `migration/slot-pill-actions-to-folder-menu.md` | Plugin-author migration guide. `SlotPill.actions?: ReactNode` removed; replace with `useFolderMenuItem` +… → see `migration/slot-pill-actions-to-folder-menu.md.AGENTS.md` |

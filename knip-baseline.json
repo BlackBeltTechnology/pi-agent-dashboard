@@ -1,10 +1,10 @@
 {
-  "_comment": "Debt ceiling, not a target. Per-class so a drop in one class cannot mask a regression in another. Lower it as cleanup lands; raising it is rejected by `node scripts/knip-ratchet.mjs --check-baseline-diff`. Re-measured after merging origin/develop, which added packages/mcp-server-plugin and further code between this branch point and the PR: exports 227->234, types 189->193, duplicates 11->12. This is the establishing commit, so there is no prior ceiling to raise; every later change is held to these numbers. See change: add-knip-dead-code-oracle.",
-  "measuredAt": "2026-08-13",
+  "_comment": "Debt ceiling, not a target. Per-class so a drop in one class cannot mask a regression in another. Lower it as cleanup lands; raising it is rejected by `node scripts/knip-ratchet.mjs --check-baseline-diff`. Lowered by change close-e2e-tooling-followups (#510): config-gap roots (identity/identity-matrix playwright global setup/teardown, deck3d fixtures ignored), 5 dead files deleted, EmlPreview/PdfPreview duplicate aliases dropped, 10 unused exports un-exported. files 10->4, exports 234->231, types 193->189; duplicates stays 12. Established by change add-knip-dead-code-oracle.",
+  "measuredAt": "2026-10-12",
   "counts": {
-    "files": 10,
-    "exports": 234,
-    "types": 193,
+    "files": 4,
+    "exports": 231,
+    "types": 189,
     "duplicates": 12,
     "enumMembers": 0
   }
