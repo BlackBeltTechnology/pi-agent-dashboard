@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Retro UX — model selector and role refs (#834)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="asbuilt.css" />
+<script src="icons.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Model selector + role refs — as-built vs proposed</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Side by side</button>
+    <button aria-pressed="false" data-v="asbuilt">As-built</button>
+    <button aria-pressed="false" data-v="proposed">Proposed</button>
+  </div>
+</div>
+<main id="board"></main>
+
+<script>
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+/* ── sample data (real role names from shared/role-schema.ts DEFAULT_ROLE_NAMES; real provider ids) ── */
+const MODELS = [
+  { p: "anthropic", id: "claude-haiku-4-5", name: "Claude Haiku 4.5", r: true, v: true, ctx: "200k", fav: true },
+  { p: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", r: true, v: true, ctx: "1M", fav: true },
+  { p: "anthropic", id: "claude-opus-4-1", name: "Claude Opus 4.1", r: true, v: true, ctx: "200k" },
+  { p: "openai-codex", id: "gpt-6-sol", name: "GPT-6 Sol", r: true, v: true, ctx: "400k", fav: true },
+  { p: "zai", id: "glm-5.3", name: null, fallback: true, ctx: "128k" },
+];
+const CUR = "anthropic/claude-sonnet-4-5";
+const ROLES = [
+  { role: "fast", model: "anthropic/claude-haiku-4-5", level: "low" },
+  { role: "coding", model: "anthropic/claude-sonnet-4-5", level: "high" },
+  { role: "planning", model: "openai-codex/gpt-6-sol", level: "high" },
+  { role: "research", model: null },
+  { role: "propose-review-1", model: "opencode-go/muse-spark-1.3-contributor", level: "high" },
+];
+const short = (ref) => ref.split("/").slice(1).join("/") || ref;
+
+/* ═════════ AS-BUILT replica (ModelSelector.tsx @ develop) ═════════ */
+const abCap = (m) => m.fallback
+  ? `<span class="cap" title="Vision assumed — provider reported no capabilities; image input defaulted on">${ic("Eye")}<b>?</b></span><span class="cap" title="Reasoning unknown — provider reported none">${ic("Brain")}<b>?</b></span>`
+  : `${m.r ? `<span class="cap" title="Reasoning (confirmed)">${ic("Brain")}</span>` : ""}${m.v ? `<span class="cap" title="Vision-capable (confirmed)">${ic("Eye")}</span>` : ""}`;
+const abRow = (m, sel) => { const label = `${m.p}/${m.id}`; return `<div class="ms-row ${sel ? "sel" : ""} ${label === CUR ? "cur" : ""}" data-testid="model-row">
+  <button aria-label="${m.fav ? "Unfavorite" : "Favorite"}" aria-pressed="${!!m.fav}" class="${m.fav ? "amber-400" : "tert"}">${ic(m.fav ? "Star" : "StarOutline")}</button>
+  <div class="grow"><div class="nm trunc">${m.name ?? label}</div>${m.name ? `<div class="nm t10 muted trunc">${label}</div>` : ""}</div>
+  <div class="row" style="gap:4px;font-size:11px">${abCap(m)}<span class="ctx">${m.ctx}</span></div></div>`; };
+const abGroups = (list, selIdx = 0) => { let i = -1; const ps = [...new Set(list.map((m) => m.p))].sort();
+  return ps.map((p) => `<div class="ms-grp" data-testid="group-provider">${p}</div>${list.filter((m) => m.p === p).map((m) => abRow(m, (i += 1) === selIdx)).join("")}`).join(""); };
+const abTabs = (tab) => `<div class="ms-tabs" role="tablist" aria-label="Model or role"><button role="tab" aria-selected="${tab === "model"}" class="ms-tab ${tab === "model" ? "on" : ""}" data-testid="model-tab-model">Model</button><button role="tab" aria-selected="${tab === "role"}" class="ms-tab ${tab === "role" ? "on" : ""}" data-testid="model-tab-role">Role</button></div>`;
+const abFilters = (favOn, val = "") => `<div class="ms-filters"><div class="r"><select class="ms-sel" data-testid="provider-filter"><option>All Providers</option></select>
+  <button class="ms-favs ${favOn ? "on amber-400 bd-amber-400" : ""}" aria-pressed="${favOn}" data-testid="favs-only-toggle">${ic(favOn ? "Star" : "StarOutline")} Favs</button></div>
+  <input class="ms-in" placeholder="Filter models…" value="${val}" data-testid="model-filter"></div>`;
+const abTrig = (text, opts = {}) => `<button class="ms-trig ${opts.disabled ? "disabled" : ""}" ${opts.disabled ? "disabled" : ""} aria-haspopup="true" aria-expanded="${!!opts.open}" data-testid="model-selector-button"><span class="lbl">${text}</span>${opts.via ? `<span class="t10 muted" data-testid="model-via-role">via ${opts.via}</span>` : ""}${opts.disabled ? "" : ic("ChevronDown")}</button>`;
+const abPanel = (body) => `<div class="ms-panel" data-testid="model-dropdown">${body}</div>`;
+const abRoleList = (rows) => `<div role="tabpanel" style="padding:4px 0" data-testid="role-list">${rows.length === 0 ? `<div class="muted" style="padding:8px 12px">No roles</div>` : rows.map((r) => `<button class="ms-role ${r.role === "fast" ? "cur" : ""}" data-testid="role-row"><span class="mono">@${r.role}</span>${r.model ? `<span class="mono t10 muted trunc" data-testid="role-resolution">${r.model}${r.level ? ` · ${r.level}` : ""}</span>` : `<span class="t10 amber-400" data-testid="role-unassigned">unassigned</span>`}</button>`).join("")}</div>`;
+function abP(s) {
+  const trig = abTrig(CUR, { open: true });
+  if (s === "models") return `<div class="ab">${trig}${abPanel(abTabs("model") + abFilters(false) + `<div>${abGroups(MODELS, 1)}</div>`)}</div>`;
+  if (s === "favs") return `<div class="ab">${trig}${abPanel(abTabs("model") + abFilters(true) + `<div>${abGroups(MODELS.filter((m) => m.fav))}</div>`)}</div>`;
+  if (s === "nomatch") return `<div class="ab">${trig}${abPanel(abTabs("model") + abFilters(false, "gpt-9") + `<div class="muted" style="padding:8px 12px">No models match</div>`)}</div>`;
+  if (s === "refreshing") return `<div class="ab">${abTrig("no model", { open: true })}${abPanel(`<div style="padding:16px 12px"><div class="row muted" data-testid="model-empty-refreshing">${ic("Loading", "spin")} Refreshing models…</div></div>`)}</div>`;
+  if (s === "empty") return `<div class="ab">${abTrig("no model", { open: true })}${abPanel(`<div style="padding:16px 12px;display:grid;gap:8px;justify-items:start" data-testid="model-empty"><div class="sec">No models available</div><button class="ms-link" data-testid="model-provider-settings-link">${ic("Cog")} Open provider settings</button><div class="t10 muted">Close and reopen to retry the refresh.</div></div>`)}</div>`;
+  if (s === "errors") return `<div class="ab">${trig}${abPanel(abTabs("model") + abFilters(false) + `<div>${abGroups(MODELS.slice(0, 3), 1)}</div><div class="ms-foot" data-testid="model-refresh-errors">${ic("AlertOutline")}<span>2 providers unavailable</span><span style="margin-left:auto"><button class="ms-link">${ic("Cog")} Providers</button></span></div>`)}</div>`;
+  if (s === "roles") return `<div class="ab">${abTrig("@fast → anthropic/claude-haiku-4-5 · low", { open: true })}${abPanel(abTabs("role") + abRoleList(ROLES))}</div>`;
+  if (s === "noroles") return `<div class="ab">${trig}${abPanel(abTabs("role") + abRoleList([]))}</div>`;
+}
+
+/* ═════════ PROPOSED ═════════ */
+/* RoleRef — the one display for an @role[:level] reference (design D2). */
+function RR(o) {
+  const full = o.model ? `${o.model}${o.level ? `, thinking ${o.level}` : ""}` : "no model assigned";
+  if (o.mode === "once") return `<span class="rr" title="${o.model} (set once from ${o.role})"><span class="rr-model">${short(o.model)}</span><span class="rr-from">from <span class="mono">${o.role}</span></span></span>`;
+  return `<span class="rr ${o.sec ? "rr-sec" : ""}" title="${o.role} → ${full}"><span class="rr-role">${o.role}</span>${o.model ? `<span class="rr-model">${short(o.model)}</span>${o.level ? `<span class="rr-lvl"><span class="sr-only">thinking </span>${o.level}</span>` : ""}` : `<span class="pill warning">${ic("AlertOutline")}No model assigned</span>`}</span>`;
+}
+const prTrig = (inner, opts = {}) => `<button class="ms-trig" aria-haspopup="dialog" aria-expanded="${!!opts.open}" ${opts.disabled ? 'aria-disabled="true"' : ""} data-testid="model-selector-button" title="Switch model">${inner}${ic("ChevronDown")}</button>`;
+const prModelTrig = (ref, open) => prTrig(`<span class="rr"><span class="rr-model">${short(ref)}</span></span>`, { open });
+const prTabs = (tab) => `<div class="ms-tabs" role="tablist" aria-label="Model or role"><button role="tab" id="t-m" aria-selected="${tab === "model"}" aria-controls="tp" tabindex="${tab === "model" ? 0 : -1}" class="ms-tab" data-testid="model-tab-model">Models</button><button role="tab" id="t-r" aria-selected="${tab === "role"}" aria-controls="tp" tabindex="${tab === "role" ? 0 : -1}" class="ms-tab" data-testid="model-tab-role">Roles</button></div>`;
+const prFilters = (favOn, val = "") => `<div class="ms-filters"><div class="r"><label class="sr-only" for="pf">Provider</label><select id="pf" class="ms-sel" data-testid="provider-filter"><option>All Providers</option></select>
+  <button class="ms-favs" aria-pressed="${favOn}" data-testid="favs-only-toggle">${ic(favOn ? "Star" : "StarOutline")}Favorites only</button></div>
+  <label class="sr-only" for="mf">Filter models</label><input id="mf" class="ms-in" role="combobox" aria-expanded="true" aria-controls="mg" aria-autocomplete="list" ${val ? "" : 'aria-activedescendant="row-1"'} placeholder="Filter models…" value="${val}" data-testid="model-filter"></div>`;
+const prCaps = (m) => `<span class="ms-caps">${m.fallback ? `${ic("Eye")}${ic("Brain")}<span>assumed</span>` : `${m.r ? ic("Brain") : ""}${m.v ? ic("Eye") : ""}`}<span class="sr-only">${m.fallback ? "capabilities not reported by the provider" : [m.r && "reasoning", m.v && "vision"].filter(Boolean).join(", ")}</span><span class="ctx">${m.ctx}</span></span>`;
+const prRow = (m, i, active) => { const label = `${m.p}/${m.id}`; const cur = label === CUR; return `<div class="ms-row ${active ? "active" : ""}" role="row" id="row-${i}" aria-selected="${cur}" data-testid="model-row">
+  <span role="gridcell" class="cell-main"><span class="chk">${cur ? ic("Check") : ""}</span><span style="min-width:0"><span class="nm" style="display:block">${m.name ?? label}</span>${m.name ? `<span class="full" style="display:block">${label}</span>` : ""}</span></span>
+  <span role="gridcell">${prCaps(m)}</span>
+  <span role="gridcell"><button class="ms-star" aria-pressed="${!!m.fav}" aria-label="Favorite ${m.name ?? label}" data-testid="model-fav-toggle">${ic(m.fav ? "Star" : "StarOutline")}</button></span></div>`; };
+const prGroups = (list, act = 1) => { let i = -1; const ps = [...new Set(list.map((m) => m.p))].sort();
+  return `<div class="ms-grid" role="grid" id="mg" aria-label="Models">${ps.map((p) => `<div role="rowgroup" aria-labelledby="g-${p}"><div class="ms-grp" id="g-${p}" data-testid="group-provider">${p}</div>${list.filter((m) => m.p === p).map((m) => { i += 1; return prRow(m, i, i === act); }).join("")}</div>`).join("")}</div>`; };
+const prPanel = (body) => `<div class="ms-panel" role="dialog" aria-modal="false" aria-label="Choose a model" data-testid="model-dropdown">${body}</div>`;
+const prRoles = (rows) => `<div class="ms-roles" role="tabpanel" id="tp" aria-labelledby="t-r" data-testid="role-list">${rows.length === 0 ? `<p class="p-help" style="padding:8px 12px;margin:0">No roles defined yet. Assign models to roles in Settings → Roles.</p>` : rows.map((r) => `<button class="ms-role" ${r.role === "fast" ? 'aria-current="true"' : ""} data-testid="role-row" data-role="${r.role}"><span class="chk" style="width:16px;flex:none">${r.role === "fast" ? ic("Check") : ""}</span>${RR({ role: "@" + r.role, model: r.model, level: r.level })}</button>`).join("")}</div>`;
+function prP(s) {
+  const trig = prModelTrig(CUR, true);
+  if (s === "models") return `${trig}${prPanel(prTabs("model") + `<div role="tabpanel" id="tp" aria-labelledby="t-m">${prFilters(false)}${prGroups(MODELS)}</div>`)}`;
+  if (s === "favs") return `${trig}${prPanel(prTabs("model") + `<div role="tabpanel" aria-labelledby="t-m">${prFilters(true)}${prGroups(MODELS.filter((m) => m.fav), 0)}</div>`)}`;
+  if (s === "nomatch") return `${trig}${prPanel(prTabs("model") + `<div role="tabpanel" aria-labelledby="t-m">${prFilters(false, "gpt-9")}<p class="p-help" role="status" style="padding:8px 12px;margin:0">No models match “gpt-9”.</p></div>`)}`;
+  if (s === "refreshing") return `${prTrig('<span class="ph">No model selected</span>', { open: true })}${prPanel(`<div class="ms-empty"><p class="p-help" role="status" style="margin:0;display:flex;gap:6px;align-items:center" data-testid="model-empty-refreshing">${ic("Loading", "spin")}Refreshing models…</p></div>`)}`;
+  if (s === "empty") return `${prTrig('<span class="ph">No model selected</span>', { open: true })}${prPanel(`<div class="ms-empty" data-testid="model-empty"><strong>No models available</strong><p class="p-help" style="margin:0">Connect a provider to see its models. If you just did, close and reopen this list to refresh it.</p><button class="p-btn sm secondary" data-testid="model-provider-settings-link">${ic("Cog")}Open provider settings</button></div>`)}`;
+  if (s === "errors") return `${trig}${prPanel(prTabs("model") + `<div role="tabpanel" aria-labelledby="t-m">${prFilters(false)}${prGroups(MODELS.slice(0, 3))}</div><div class="ms-foot" data-testid="model-refresh-errors"><span class="pill warning">${ic("AlertOutline")}2 providers unavailable</span><button class="p-btn sm ghost" style="margin-left:auto">Open providers</button></div>`)}`;
+  if (s === "roles") return `${prTrig(RR({ role: "@fast", model: "anthropic/claude-haiku-4-5", level: "low" }), { open: true })}${prPanel(prTabs("role") + prRoles(ROLES))}`;
+  if (s === "noroles") return `${trig}${prPanel(prTabs("role") + prRoles([]))}`;
+}
+
+/* ═════════ HOSTS — as-built ═════════ */
+function abH(s) {
+  if (s === "persistent") return `<div class="ab" style="display:grid;gap:10px">
+    <div class="row"><span class="sec t12" style="width:110px">Grammar check</span><div data-testid="grammar-llm-model-selector">${abTrig("@fast → anthropic/claude-haiku-4-5 · low")}</div></div>
+    <div class="row"><span class="sec t12" style="width:110px">Blackhole base</span>${abTrig("@research")}</div>
+    <p class="tip">(the resolution lives in a 200 px truncated mono line; an unassigned role shows bare “@research” with no warning)</p></div>`;
+  if (s === "once") return `<div class="ab"><div class="row" style="flex-wrap:wrap">${abTrig("anthropic/claude-haiku-4-5", { via: "@fast" })}<span class="ms-trig">${ic("Brain")} low ${ic("ChevronDown")}</span></div><p class="tip">(composer chip after picking @fast once; “via @fast” at 10 px muted)</p></div>`;
+  if (s === "notice") return `<div class="ab"><div class="row" style="flex-wrap:wrap">${abTrig("anthropic/claude-haiku-4-5", { via: "@fast" })}<span role="status" data-testid="role-pick-notice" class="t11 warn-fg">Model set from @fast; thinking level xhigh is not supported by it, so the level was left unchanged.</span></div></div>`;
+  if (s === "runconfig") return `<div class="ab"><div class="row" style="flex-wrap:wrap"><span class="t12 sec" style="font-weight:500">Runs with</span>${abTrig("session model", { disabled: true })}<span class="ms-trig">off ${ic("ChevronDown")}</span></div><p role="status" data-testid="run-config-role-notice" class="t11 warn-fg" style="margin:4px 0 0">@research has no model assigned — model unchanged.</p></div>`;
+  if (s === "automation") return `<div class="ab"><div data-testid="create-model-selector"><div class="encl"><div style="display:grid;gap:2px;min-width:0;flex:1"><span class="t12 fw6 sec">Model</span>${abTrig("@coding → anthropic/claude-sonnet-4-5 · high")}</div></div><p data-testid="create-model-role-level-hint" class="t12 sec" style="margin:4px 0 0">Thinking level comes from @coding — set it in Settings → Roles.</p></div></div>`;
+  if (s === "chain") return `<div class="ab"><div class="slot"><div class="summary"><span class="mono t12 prim" data-testid="blackhole-chain-observer-entry-0-role">@coding</span><span class="t11 tert">anthropic/claude-sonnet-4-5</span><span class="warn-chip" data-status="detached">detached — edited outside the dashboard</span><span style="margin-left:auto" class="sbtn accent-red">✕</span></div>
+    <div style="border-top:1px solid var(--border-subtle);padding:4px 12px 12px;display:grid;gap:8px"><div class="row t115 sec" role="group" aria-label="Model for observer entry 1"><span style="width:112px">Model</span>${abTrig("@coding → anthropic/claude-sonnet-4-5 · high")}</div>
+    <div class="row t11 sec"><span>This slot was edited outside the dashboard, so role changes no longer apply.</span><button class="sbtn prim">Reattach</button></div>
+    <div class="warn-box" data-testid="blackhole-chain-observer-0-level-drop">⚠️ Thinking level override 'xhigh' dropped: selected model does not support reasoning.</div></div></div></div>`;
+}
+
+/* ═════════ HOSTS — proposed ═════════ */
+function prH(s) {
+  if (s === "persistent") return `<div style="display:grid;gap:10px">
+    <div class="host-row"><span class="host-lbl" style="width:110px" id="gl">Grammar check</span><div data-testid="grammar-llm-model-selector">${prTrig(RR({ role: "@fast", model: "anthropic/claude-haiku-4-5", level: "low" }))}</div></div>
+    <div class="host-row"><span class="host-lbl" style="width:110px">Blackhole base</span>${prTrig(RR({ role: "@research", model: null }))}</div></div>`;
+  if (s === "once") return `<div class="host-row">${prTrig(RR({ mode: "once", role: "@fast", model: "anthropic/claude-haiku-4-5" }))}<button class="lvl-trig">${ic("Brain")}low${ic("ChevronDown")}</button></div>`;
+  if (s === "notice") return `<div class="host-row">${prTrig(RR({ mode: "once", role: "@fast", model: "anthropic/claude-haiku-4-5" }))}<button class="lvl-trig">${ic("Brain")}high${ic("ChevronDown")}</button></div>
+    <div class="callout warning" role="status" data-testid="role-pick-notice" data-kind="level-skipped" style="margin-top:6px">${ic("AlertOutline")}<div class="body">Model set from <span class="mono">@fast</span>. Its thinking level <strong>xhigh</strong> isn't supported by claude-haiku-4-5, so the level stayed at high.</div></div>`;
+  if (s === "runconfig") return `<div class="host-row"><span class="host-lbl">Runs with</span>${prTrig('<span class="ph">Session model</span>')}<button class="lvl-trig">off${ic("ChevronDown")}</button></div>
+    <div class="callout warning" role="status" data-testid="run-config-role-notice" style="margin-top:6px">${ic("AlertOutline")}<div class="body"><span class="mono">@research</span> has no model assigned, so the model is unchanged. Assign one in Settings → Roles.</div></div>`;
+  if (s === "automation") return `<div data-testid="create-model-selector"><div class="enc"><div style="flex:1"><span class="host-lbl">Model</span>${prTrig(RR({ role: "@coding", model: "anthropic/claude-sonnet-4-5", level: "high" }))}</div></div><p class="echo" data-testid="create-model-role-level-hint">Follows <span class="mono">@coding</span>: model and thinking level change when the role changes. Edit it in Settings → Roles.</p></div>`;
+  if (s === "chain") return `<div class="slot"><div class="sum">${RR({ role: "@coding", model: "anthropic/claude-sonnet-4-5", level: "high" })}<span class="pill warning" data-status="detached" data-testid="blackhole-chain-observer-entry-0-role-status">${ic("LinkVariantOff")}Detached</span><button class="p-btn sm icon ghost" style="margin-left:auto" aria-label="Remove claude-sonnet-4-5 from the observer chain">${ic("Close")}</button></div>
+    <div class="body"><div class="host-row" role="group" aria-label="Model for observer entry 1"><span class="host-lbl" style="width:112px">Model</span>${prTrig(RR({ role: "@coding", model: "anthropic/claude-sonnet-4-5", level: "high" }))}</div>
+    <div class="callout warning">${ic("LinkVariantOff")}<div class="body">This slot was edited outside the dashboard, so it no longer follows <span class="mono">@coding</span>.<div><button class="p-btn sm secondary">Reattach to @coding</button></div></div></div>
+    <div class="callout warning" data-testid="blackhole-chain-observer-0-level-drop">${ic("AlertOutline")}<div class="body">Thinking level <strong>xhigh</strong> isn't supported by claude-sonnet-4-5, so the level was dropped.</div></div></div></div>`;
+}
+
+/* ═════════ ROLES PAGE ═════════ */
+function abR(s) {
+  const pill = (r, sel, dirty) => `<button class="pill-btn ${sel ? "sel" : ""}" data-testid="roles-row-${r.role}"><span class="t11 fw6 ${sel ? "prim" : "accent-blue-70"}">@${r.role}</span>${r.model ? `<span class="t11 mono trunc grow ${sel ? "prim" : "muted"}">${short(r.model)}</span>${r.level ? `<span class="t10 mono ${sel ? "prim" : "accent-blue-70"}">:${r.level}</span>` : ""}` : `<span class="t11 accent-blue grow">+ Add model</span>`}${dirty ? '<span class="dot-warning" aria-label="unsaved"></span>' : ""}</button>`;
+  if (s === "setup") return `<div class="ab" data-testid="roles-settings" style="display:grid;gap:10px"><div class="t10 muted">global role → model assignments</div><div class="banner accent-warning" data-testid="roles-settings-setup-banner">No roles have been set up — set up now by assigning a model to a role below.</div><div class="t10 fw6 upper muted">Built-in</div><div class="grid2">${["planning", "coding", "fast", "research"].map((r) => pill({ role: r })).join("")}</div></div>`;
+  if (s === "pills") return `<div class="ab" data-testid="roles-settings" style="display:grid;gap:10px"><div class="t10 muted">global role → model assignments</div><div class="t10 fw6 upper muted">Built-in</div>
+    <div class="grid2">${pill(ROLES[0])}${pill(ROLES[1], false, true)}${pill(ROLES[2])}${pill(ROLES[3])}</div><div class="t10 fw6 upper muted">Custom</div><div class="grid2">${pill(ROLES[4])}</div>
+    <div data-testid="roles-used-by"><div class="t10 fw6 upper muted">Used by</div><ul style="list-style:none;margin:4px 0 0;padding:0;display:grid;gap:2px">
+    <li class="t11 sec"><span class="fw6 prim">@coding</span><span style="margin-left:8px">blackhole · observer #1 <span class="t10 warn-fg">(detached)</span></span><span style="margin-left:8px">automation · nightly-triage</span></li>
+    <li class="t11 sec"><span class="fw6 prim">@research</span><span style="margin-left:8px">blackhole · base model <span class="t10 warn-fg">(dangling)</span></span></li></ul></div></div>`;
+  if (s === "editor") return `<div class="ab" style="display:grid;gap:10px"><div class="grid2">${pill(ROLES[0])}${pill(ROLES[1], true)}</div><div class="box" data-testid="roles-model-picker"><div class="t11 sec" style="margin-bottom:4px">Assign model to <span class="fw6 accent-blue">@coding</span></div>
+    <div class="encl"><div style="display:grid;gap:2px;flex:1;min-width:0"><span class="t10 upper sec">Model</span>${abTrig("anthropic/claude-haiku-4-5")}</div><div style="display:grid;gap:2px"><span class="t10 upper sec">Thinking</span><span class="lvl-sel">off ${ic("ChevronDown")}</span></div></div>
+    <div class="warn-box" style="margin-top:8px" data-testid="roles-level-drop-notice">⚠ xhigh isn't supported by anthropic/claude-haiku-4-5 — level cleared.</div><div class="t10 mono sec" style="margin-top:4px" data-testid="roles-ref-echo">saves anthropic/claude-haiku-4-5</div></div></div>`;
+}
+function prR(s) {
+  const pill = (r, sel, dirty) => `<button class="role-pill" aria-pressed="${!!sel}" data-testid="roles-row-${r.role}">${RR({ role: "@" + r.role, model: r.model, level: r.level })}${dirty ? `<span class="unsaved" style="margin-left:auto">Unsaved</span>` : ""}</button>`;
+  if (s === "setup") return `<div data-testid="roles-settings" style="display:grid;gap:10px"><p class="p-help" style="margin:0">Each role points at a model. Anything set to a role follows it when you change the model here.</p><div class="callout warning" data-testid="roles-settings-setup-banner">${ic("AlertOutline")}<div class="body">No roles have been set up — set up now by assigning a model to a role below.</div></div><p class="sec-head">Built-in</p><div class="rgrid">${["planning", "coding", "fast", "research"].map((r) => pill({ role: r, model: null })).join("")}</div></div>`;
+  if (s === "pills") return `<div data-testid="roles-settings" style="display:grid;gap:10px"><p class="p-help" style="margin:0">Each role points at a model. Anything set to a role follows it when you change the model here.</p><p class="sec-head">Built-in</p>
+    <div class="rgrid">${pill(ROLES[0])}${pill(ROLES[1], false, true)}${pill(ROLES[2])}${pill(ROLES[3])}</div><p class="sec-head">Custom</p><div class="rgrid">${pill(ROLES[4])}</div>
+    <div data-testid="roles-used-by"><p class="sec-head">Used by</p><ul class="usedby">
+    <li data-testid="roles-used-by-coding"><span class="rr-role">@coding</span>Blackhole · observer #1 <span class="pill warning" data-status="detached">${ic("LinkVariantOff")}Detached</span> · Automation · nightly-triage</li>
+    <li data-testid="roles-used-by-research"><span class="rr-role">@research</span>Blackhole · base model <span class="pill warning" data-status="dangling">${ic("AlertOutline")}Role unassigned, keeps its last model</span></li></ul></div></div>`;
+  if (s === "editor") return `<div style="display:grid;gap:10px"><div class="rgrid">${pill(ROLES[0])}${pill(ROLES[1], true)}</div><div class="slot" data-testid="roles-model-picker"><div class="body" style="border-top:0"><p class="sec-head" style="margin:0">Assign a model to <span class="mono" style="color:var(--text-primary)">@coding</span></p>
+    <div class="enc"><div style="flex:1"><span class="host-lbl">Model</span>${prModelTrig("anthropic/claude-haiku-4-5")}</div><div><span class="host-lbl">Thinking</span><button class="lvl-trig">off${ic("ChevronDown")}</button></div></div>
+    <div class="callout warning" data-testid="roles-level-drop-notice">${ic("AlertOutline")}<div class="body">Thinking level <strong>xhigh</strong> isn't supported by claude-haiku-4-5, so the level was dropped.</div></div>
+    <p class="echo" data-testid="roles-ref-echo" style="margin:0">Saves <code class="mono">anthropic/claude-haiku-4-5</code></p></div></div></div>`;
+}
+
+const BOARD = [
+  { title: "Model picker dropdown (ModelSelector primitive)", verdict: "polish — keyboard grid for rows with a favourite button, current model by check mark not accent text, readable meta, Roles tab rows use the shared role ref", states: [
+    ["models", "Models tab · provider filter · current · keyboard-active row", abP("models"), prP("models")],
+    ["favs", "favourites only", abP("favs"), prP("favs")],
+    ["nomatch", "filter matches nothing", abP("nomatch"), prP("nomatch")],
+    ["refreshing", "empty catalogue while refreshing", abP("refreshing"), prP("refreshing")],
+    ["empty", "no models after refresh", abP("empty"), prP("empty")],
+    ["errors", "2 providers failed to refresh", abP("errors"), prP("errors")],
+    ["roles", "Role tab: with level, unassigned, custom role, current", abP("roles"), prP("roles")],
+    ["noroles", "Role tab: no roles", abP("noroles"), prP("noroles")],
+  ]},
+  { title: "Role ref in host triggers (#834 host matrix)", verdict: "redesign — one role-ref display; one-shot vs follows made explicit; one vocabulary for unassigned / detached / level dropped", states: [
+    ["persistent", "follows the role: grammar (assigned) · Blackhole base (unassigned)", abH("persistent"), prH("persistent")],
+    ["once", "composer after a one-shot @fast pick", abH("once"), prH("once")],
+    ["notice", "one-shot pick, level skipped", abH("notice"), prH("notice")],
+    ["runconfig", "OpenSpec run-config row, unassigned role picked", abH("runconfig"), prH("runconfig")],
+    ["automation", "automation dialog, role picked (level owned by the role)", abH("automation"), prH("automation")],
+    ["chain", "Blackhole chain slot: detached + level dropped", abH("chain"), prH("chain")],
+  ]},
+  { title: "Roles settings (RolesSettingsSection)", verdict: "polish — shared role ref in pills and Used by, readable headings, warning callouts, no undefined --accent-warning", states: [
+    ["pills", "assigned · unsaved · unassigned · Used by with statuses", abR("pills"), prR("pills")],
+    ["setup", "no role assigned yet", abR("setup"), prR("setup")],
+    ["editor", "editing @coding, level dropped", abR("editor"), prR("editor")],
+  ]},
+];
+
+function render() {
+  document.getElementById("board").innerHTML = BOARD.map((s, si) => `<section class="surface"><h2>${s.title}</h2><p class="verdict">Verdict: ${s.verdict}</p>
+  ${s.states.map(([id, finds, ab, pr]) => `<article class="state" id="s${si}-${id}"><header><code>${id}</code><span class="finds">${finds}</span></header>
+    <div class="pair"><div class="col asbuilt"><p class="tag">As-built</p><div class="frame">${ab}</div></div>
+    <div class="col proposed"><p class="tag">Proposed</p><div class="frame">${pr}</div></div></div></article>`).join("")}
+</section>`).join("");
+}
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") { const [pal, mode] = v.split("-"); mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme"); pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette"); }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`);
+  if (group === "view") document.body.dataset.view = v;
+}
+render();
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); apply(seg.dataset.group, b.dataset.v); }));
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+document.body.dataset.ready = "1";
+</script>
+</body>
+</html>

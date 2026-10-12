@@ -1,0 +1,67 @@
+/* AS-BUILT REPLICA — reproduces the shipped classes 1:1, INCLUDING the defects
+   under review (Tailwind v4 palette defaults as oklch, the undefined
+   --accent-warning falling back to #f59e0b, accent-as-text). Scope: `.ab` only.
+   Sources (develop): client/components/settings/ModelSelector.tsx,
+   client/lib/roles/useRolePick.ts, chat/CommandInput.tsx, openspec/useOpenSpecRunConfigRow.tsx,
+   grammar-plugin/GrammarSettings.tsx, automation-plugin/CreateAutomationDialog.tsx,
+   blackhole-plugin/{ChainEditor,BlackholeSettings}.tsx, roles-plugin/RolesSettingsSection.tsx. */
+.ab { font-size: 12px; }
+.ab .t9 { font-size: 9px; } .ab .t10 { font-size: 10px; } .ab .t11 { font-size: 11px; } .ab .t115 { font-size: 11.5px; } .ab .t12 { font-size: 12px; }
+.ab .muted { color: var(--text-muted); } .ab .tert { color: var(--text-tertiary); } .ab .sec { color: var(--text-secondary); } .ab .prim { color: var(--text-primary); }
+.ab .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ab .fw6 { font-weight: 600; } .ab .upper { text-transform: uppercase; letter-spacing: .05em; }
+.ab .row { display: flex; align-items: center; gap: 8px; } .ab .grow { flex: 1; min-width: 0; }
+.ab .trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ab .accent-blue { color: var(--accent-blue); }
+.ab .accent-blue-70 { color: color-mix(in srgb, var(--accent-blue) 70%, transparent); }
+.ab .accent-red { color: var(--accent-red); }
+.ab .warn-fg { color: var(--severity-warning-fg); }
+.ab .warn-box { padding: 4px 8px; border-radius: 4px; font-size: 11px; background: var(--severity-warning-bg); border: 1px solid var(--severity-warning-border); color: var(--severity-warning-fg); }
+.ab .warn-chip { font-size: 10px; border-radius: 4px; padding: 0 6px; border: 1px solid var(--severity-warning-border); color: var(--severity-warning-fg); }
+/* Tailwind v4 palette default — the contract violation */
+.ab .amber-400 { color: oklch(82.8% 0.189 84.429); }
+.ab .bd-amber-400 { border-color: oklch(82.8% 0.189 84.429) !important; }
+/* undefined --accent-warning → hex fallback always paints */
+.ab .accent-warning { color: var(--accent-warning, #f59e0b); }
+.ab .dot-warning { display: inline-block; width: 6px; height: 6px; border-radius: 999px; background: var(--accent-warning, #f59e0b); flex: none; }
+/* trigger */
+.ab .ms-trig { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 2px 8px; border-radius: 4px; color: var(--text-secondary); }
+.ab .ms-trig .lbl { font-family: ui-monospace, Menlo, monospace; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ab .ms-trig.disabled { color: var(--text-muted); }
+/* panel */
+.ab .ms-panel { margin-top: 4px; width: 320px; max-width: 100%; display: flex; flex-direction: column; background: var(--bg-secondary); border: 1px solid var(--border-secondary); border-radius: 8px; box-shadow: 0 10px 15px -3px rgb(0 0 0 / .1); overflow: hidden; }
+.ab .ms-tabs { display: flex; gap: 4px; padding: 6px 6px 0; }
+.ab .ms-tab { padding: 2px 8px; font-size: 12px; border-radius: 4px; color: var(--text-secondary); }
+.ab .ms-tab.on { background: var(--bg-tertiary); color: var(--text-primary); }
+.ab .ms-filters { padding: 6px 6px 4px; display: grid; gap: 4px; }
+.ab .ms-filters .r { display: flex; gap: 4px; }
+.ab .ms-in { width: 100%; padding: 4px 8px; font-size: 12px; background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); }
+.ab .ms-in::placeholder { color: var(--text-muted); }
+.ab .ms-sel { flex: 1; min-width: 0; padding: 4px 8px; font-size: 12px; background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: 4px; color: var(--text-primary); }
+.ab .ms-favs { display: flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 12px; border-radius: 4px; border: 1px solid var(--border-primary); background: var(--bg-tertiary); color: var(--text-secondary); white-space: nowrap; }
+.ab .ms-favs.on { background: transparent; }
+.ab .ms-grp { padding: 4px 12px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-tertiary); background: var(--bg-primary); }
+.ab .ms-row { display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 8px; font-size: 12px; color: var(--text-secondary); }
+.ab .ms-row.sel { background: var(--bg-tertiary); }
+.ab .ms-row.cur { color: var(--accent-blue); }
+.ab .ms-row .nm { font-family: ui-monospace, Menlo, monospace; }
+.ab .ctx { padding: 0 4px; border-radius: 4px; background: var(--bg-tertiary); color: var(--text-muted); font-size: 11px; }
+.ab .cap { color: var(--text-muted); display: inline-flex; align-items: center; }
+.ab .cap b { font-size: 9px; margin: -4px 0 0 -2px; }
+.ab .ms-foot { border-top: 1px solid var(--border-secondary); padding: 6px 8px; display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
+.ab .ms-link { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-blue); }
+.ab .ms-role { display: flex; align-items: center; gap: 8px; padding: 4px 12px; font-size: 12px; color: var(--text-secondary); width: 100%; text-align: left; }
+.ab .ms-role.cur { color: var(--text-primary); background: var(--bg-tertiary); }
+/* roles page */
+.ab .pill-btn { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 4px; background: var(--bg-tertiary); text-align: left; min-width: 0; }
+.ab .pill-btn.sel { background: color-mix(in srgb, var(--accent-blue) 25%, transparent); outline: 2px solid var(--accent-blue); }
+.ab .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+@media (max-width: 640px) { .ab .grid2 { grid-template-columns: 1fr; } }
+.ab .box { border: 1px solid var(--border-primary); border-radius: 4px; padding: 8px; }
+.ab .encl { display: flex; gap: 14px; align-items: flex-end; border: 1px solid var(--border-primary); border-radius: 4px; background: var(--bg-tertiary); padding: 6px 8px; flex-wrap: wrap; }
+.ab .banner { font-size: 11px; border: 1px solid var(--border-secondary); border-radius: 4px; padding: 6px 8px; background: var(--bg-tertiary); }
+.ab .lvl-sel { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 2px 8px; border-radius: 4px; color: var(--text-secondary); }
+.ab .sbtn { padding: 2px 6px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border-secondary); }
+.ab .summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+.ab .slot { border: 1px solid var(--border-secondary); border-radius: 8px; background: var(--bg-secondary); }
+.ab .tip { font-size: 10px; color: var(--text-secondary); font-style: italic; margin: 6px 0 0; }
