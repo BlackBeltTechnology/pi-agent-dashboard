@@ -30,7 +30,7 @@ import { InstructionsPage } from "./InstructionsPage.js";
 import { PackagesPage } from "./PackagesPage.js";
 
 export type DirectorySettingsResourcePage = "skills" | "agents" | "extensions" | "prompts" | "themes";
-export type DirectorySettingsPage = "instructions" | "packages" | "cards" | DirectorySettingsResourcePage;
+export type DirectorySettingsPage = "instructions" | "add-ons" | "cards" | DirectorySettingsResourcePage;
 
 /** Resource-page id → the singular `PiResource.type` its grid renders. */
 
@@ -59,7 +59,7 @@ export function DirectorySettings({ cwd, page, onBack }: Props) {
 
   const topItems: { id: DirectorySettingsPage; label: string; icon: string }[] = [
     { id: "instructions", label: i18nT("common.instructions", undefined, "Instructions"), icon: mdiFileDocumentOutline },
-    { id: "packages", label: i18nT("packages.packages", undefined, "Packages"), icon: mdiPackageVariant },
+    { id: "add-ons", label: i18nT("settings.addons", undefined, "Add-ons"), icon: mdiPackageVariant },
     // See change: configurable-session-card-sections (D9).
     { id: "cards", label: i18nT("cardSections.pageTitle", undefined, "Session cards"), icon: mdiCardsOutline },
   ];
@@ -159,7 +159,7 @@ export function DirectorySettings({ cwd, page, onBack }: Props) {
           className="flex-1 flex flex-col min-h-0 overflow-y-auto min-w-0"
         >
           {page === "instructions" && <InstructionsPage cwd={cwd} />}
-          {page === "packages" && <PackagesPage cwd={cwd} />}
+          {page === "add-ons" && <PackagesPage cwd={cwd} />}
           {page === "cards" && <CardSectionsPage cwd={cwd} />}
           {page in RESOURCE_PAGE_TYPE && (
             <ScopedResourceGrid

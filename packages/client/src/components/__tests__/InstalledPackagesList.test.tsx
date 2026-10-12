@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Hook mocks must be hoisted before the component import.
 const mockInstalled = vi.fn();
@@ -41,6 +41,23 @@ beforeEach(() => {
 });
 
 afterEach(() => cleanup());
+
+describe("InstalledPackagesList — dashboard-managed rows", () => {
+	it("never lists a dashboardManaged row (see change: addons-hub-declutter)", () => {
+		mockInstalled.mockReturnValue({
+			packages: [
+				{ source: "/r/goal/src/bridge/index.ts", scope: "user", filtered: false, displayName: "index.ts", dashboardManaged: true },
+				{ source: "npm:pi-doom", scope: "user", filtered: false, displayName: "pi-doom" },
+			],
+			isLoading: false,
+			error: null,
+			refresh: vi.fn(),
+		});
+		render(<InstalledPackagesList scope="global" />);
+		expect(screen.queryByText("index.ts")).toBeNull();
+		expect(screen.getByText("pi-doom")).toBeTruthy();
+	});
+});
 
 describe("InstalledPackagesList", () => {
 	it("shows empty hint when no packages installed", () => {

@@ -30,7 +30,7 @@ describe("RuntimeUpdateBadge", () => {
 		render(<RuntimeUpdateBadge />);
 		fireEvent.click(await screen.findByTestId("runtime-update-badge"));
 		expect(screen.getByTestId("runtime-update-badge").textContent).toContain("0.9.1");
-		expect(navigate).toHaveBeenCalledWith("/settings/packages");
+		expect(navigate).toHaveBeenCalledWith("/settings/add-ons");
 	});
 
 	it("shows a staged pending that is not the active runtime", async () => {

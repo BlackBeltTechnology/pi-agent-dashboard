@@ -313,8 +313,16 @@ describe("UnifiedPackagesSection — visible queue (D9)", () => {
 		render(<UnifiedPackagesSection />);
 		await waitFor(() => expect(screen.getByTestId(`${extId}-update`)).toBeTruthy());
 
-		// Idle: the inline reset affordance is live.
-		expect(btn(`${extId}-reset-inline`).disabled).toBe(false);
+		// Idle: the menu's reset item is live (inline link is gone).
+		await act(async () => {
+			fireEvent.click(btn(`${extId}-menu`));
+			await flush();
+		});
+		expect(btn(`${extId}-reset-to-published`).disabled).toBe(false);
+		await act(async () => {
+			fireEvent.click(btn(`${extId}-menu`));
+			await flush();
+		});
 
 		await act(async () => {
 			fireEvent.click(btn(`pi-core-row-${PI}-update`));
@@ -322,16 +330,15 @@ describe("UnifiedPackagesSection — visible queue (D9)", () => {
 		});
 		expect(packageQueue.isAnyRunning()).toBe(true);
 
-		// Reset-to-npm is now locked, with the reason surfaced as a tooltip…
-		const reset = btn(`${extId}-reset-inline`);
-		expect(reset.disabled).toBe(true);
-		expect(reset.title).toMatch(/can't be queued yet/i);
-
-		// …and Move too (inside the kebab menu).
+		// Reset-to-published is now locked, with the reason surfaced as a tooltip,
+		// and Move too (both inside the kebab menu).
 		await act(async () => {
 			fireEvent.click(btn(`${extId}-menu`));
 			await flush();
 		});
+		const reset = btn(`${extId}-reset-to-published`);
+		expect(reset.disabled).toBe(true);
+		expect(reset.title).toMatch(/can't be queued yet/i);
 		expect(btn(`${extId}-move`).disabled).toBe(true);
 
 		// …while the queueable Update button stays enabled.

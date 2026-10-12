@@ -12,10 +12,10 @@ test.describe("runtime updates — no remote local-folder path (X14)", () => {
     const before = await (await request.get("/api/health")).json();
 
     await gotoDashboard(page);
-    await page.goto("/settings/packages");
+    await page.goto("/settings/add-ons");
     // exact: "No pi ecosystem core packages detected" also substring-matches
     // while the core check is still running after a server restart.
-    await expect(page.getByText("Pi Ecosystem", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("heading", { level: 2, name: "Add-ons" })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("runtime-updates-section")).toHaveCount(0);
     await expect(page.getByText(/Set from the app menu/)).toHaveCount(0);
 

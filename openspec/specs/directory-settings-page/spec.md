@@ -2,10 +2,12 @@
 
 ## Purpose
 Defines the directory-scoped settings page: a cog-iconed surface at `/folder/:cwd/settings/:page?` mirroring the global settings left-nav + mobile hierarchy, with Instructions, Packages, and Resources pages (Packages default). Replaces the flat two-tab Pi Resources view.
+
 ## Requirements
+
 ### Requirement: Directory surface SHALL open as a settings page
 
-The dashboard SHALL expose a route `/folder/:cwd/settings/:page?` that renders a directory-scoped settings page in the content area. The page SHALL present a left-nav (grouped, mirroring the global settings page) on wide viewports and SHALL degrade to the mobile settings hierarchy on narrow viewports. The valid pages SHALL be `instructions`, `packages`, and `resources`, with `packages` as the default when `:page?` is omitted.
+The dashboard SHALL expose a route `/folder/:cwd/settings/:page?` that renders a directory-scoped settings page in the content area. The page SHALL present a left-nav (grouped, mirroring the global settings page) on wide viewports and SHALL degrade to the mobile settings hierarchy on narrow viewports. The valid pages SHALL be `instructions`, `add-ons`, `cards` and the resource pages, with `add-ons` as the default when `:page?` is omitted. The legacy page id `packages` SHALL replace-redirect to `add-ons`.
 
 The entry-point control SHALL be an item in the folder actions menu, under the directory group, using a cog icon (`mdiCog`) and the label "Directory Settings". It SHALL NOT render as a control on the directory card itself — neither on the git row nor in the tier-0 banner.
 
@@ -14,7 +16,7 @@ The entry-point control SHALL be an item in the folder actions menu, under the d
 - **GIVEN** a folder header for cwd `/Users/u/proj`
 - **WHEN** the user opens the folder actions menu and activates the "Directory Settings" item
 - **THEN** the client SHALL navigate to that directory's settings route
-- **AND** the `packages` page SHALL render by default
+- **AND** the `add-ons` page SHALL render by default
 
 #### Scenario: No settings cog remains on the card
 
@@ -25,33 +27,27 @@ The entry-point control SHALL be an item in the folder actions menu, under the d
 
 - **GIVEN** an existing deep-link `/folder/<encoded cwd>/pi-resources`
 - **WHEN** the user navigates to it
-- **THEN** the app replace-redirects to `/folder/<encoded cwd>/settings/packages`
-- **AND** the directory settings page renders with the `packages` page active
+- **THEN** the app replace-redirects to `/folder/<encoded cwd>/settings/add-ons`
+- **AND** the directory settings page renders with the `add-ons` page active
+
+#### Scenario: Legacy packages page id redirects
+
+- **GIVEN** an existing deep-link `/folder/<encoded cwd>/settings/packages`
+- **WHEN** the user navigates to it
+- **THEN** the app replace-redirects to `/folder/<encoded cwd>/settings/add-ons`
+- **AND** no extra browser-history entry SHALL be added
 
 ### Requirement: Packages and Resources SHALL be pages, not co-equal tabs
 
-The `Packages` page SHALL render within the directory settings left-nav and
-retain the existing workspace-scope manage surface. The former single
-`Resources` page SHALL be replaced by a `RESOURCES` nav group exposing one
-dedicated page per resource type — **Skills, Agents, Extensions, Prompts,
-Themes** — each rendering a responsive **card grid** (not a collapsible tree).
-No combined/aggregate `Resources` page SHALL remain.
+The `Add-ons` page (page id `add-ons`, formerly `Packages`) SHALL render within the directory settings left-nav and retain the existing workspace-scope manage surface. Rows flagged `dashboardManaged` SHALL NOT render on it. The former single `Resources` page SHALL be replaced by a `RESOURCES` nav group exposing one dedicated page per resource type — **Skills, Agents, Extensions, Prompts, Themes** — each rendering a responsive **card grid** (not a collapsible tree). No combined/aggregate `Resources` page SHALL remain.
 
-Each per-type page SHALL render the resources of that type across both local and
-global scope as cards. Each card SHALL surface, as explicit card content rather
-than by tree position: the resource **scope** (`local`/`global` badge), its
-**source** (`loose` badge, or a `📦 <package-name>` badge for a
-package-contributed resource), the resource **file path**, and the existing
-per-resource **activation toggle**. A card SHALL open the file preview when
-clicked. The page SHALL provide a name/description **search filter** and an
-`All / Local / Global` **scope filter**.
+Each per-type page SHALL render the resources of that type across both local and global scope as cards. Each card SHALL surface, as explicit card content rather than by tree position: the resource **scope** (`local`/`global` badge), its **source** (`loose` badge, or a `📦 <package-name>` badge for a package-contributed resource), the resource **file path**, and the existing per-resource **activation toggle**. A card SHALL open the file preview when clicked. The page SHALL provide a name/description **search filter** and an `All / Local / Global` **scope filter**.
 
-The `DirectorySettingsPage` union SHALL enumerate `skills`, `agents`,
-`extensions`, `prompts`, `themes` and SHALL NOT include `resources`.
+The `DirectorySettingsPage` union SHALL enumerate `instructions`, `add-ons`, `cards`, `skills`, `agents`, `extensions`, `prompts`, `themes` and SHALL NOT include `resources` or `packages`. Every page in the union SHALL be addressable by URL.
 
 #### Scenario: Packages page preserves manage surface
 - **GIVEN** the directory settings page is open
-- **WHEN** the user selects the `packages` page
+- **WHEN** the user selects the `Add-ons` page
 - **THEN** the workspace-scope package manage surface renders (install/update/uninstall actions intact)
 
 #### Scenario: Resources group exposes per-type pages
@@ -234,4 +230,3 @@ targets at least 44px tall.
 - **WHEN** the user activates the editor's back control
 - **THEN** the URL SHALL navigate to the Instructions page route with `?file=` cleared
 - **AND** the tree SHALL fill the viewport (no default file re-selected)
-

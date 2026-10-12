@@ -38,7 +38,7 @@ import React, { useCallback, useMemo, useState } from "react";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { computeDestIdentity } from "../../lib/package/installed-list-helpers.js";
+import { computeDestIdentity, visibleInstalledRows } from "../../lib/package/installed-list-helpers.js";
 import { classifySource, isSourceOverride } from "../../lib/package/package-classifier.js";
 import { PackagePartialSuccessBanner } from "./PackagePartialSuccessBanner.js";
 import { PackageRow } from "./PackageRow.js";
@@ -132,7 +132,7 @@ export function InstalledPackagesList({
 		[scope, cwd, onResolveLocalCwd, operations],
 	);
 
-	const safePackages: InstalledPackage[] = Array.isArray(installed.packages) ? installed.packages : [];
+	const safePackages: InstalledPackage[] = Array.isArray(installed.packages) ? visibleInstalledRows(installed.packages) : [];
 	if (installed.isLoading && safePackages.length === 0) {
 		return (
 			<div className="text-[11px] text-[var(--text-muted)] italic px-2 py-1" data-testid={testId}>
