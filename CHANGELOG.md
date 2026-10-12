@@ -45,6 +45,14 @@ see [`docs/release-process.md`](docs/release-process.md).
   `N sessions` row. `folderAttentionPeek` (default `true`) controls that peek, and
   an active search or filter always forces the full list.
 - **Role-aware model refs.** Any model setting can hold `@role[:level]` instead of a concrete `provider/id`, so switching a role or preset re-routes every dependent setting from one place. `ui:model-selector` gains an opt-in `allowRoles` prop (Model | Role tabs; hidden when the roles plugin is absent). New roles-plugin service `roles.bindings` projects role-bound fields into third-party config files; blackhole is the first projector (all model slots + fallback chains, with `ok`/`dangling`/`detached` status and Reattach). Composer and OpenSpec run-dialog pickers resolve a role once at pick time ("via @role"). The Model roles page lists what follows each role. New `~/.pi/dashboard/role-bindings.json`.
+- **Stable mDNS identity for LAN discovery.** A server now advertises under its own
+  name `pi-dashboard-<id12>-<port>` (derived from its identity fingerprint), so macOS
+  stops renaming the machine (`-8559`) after multicast conflicts. The advert carries
+  the identity fingerprint, a display name and the real version, lists only addresses
+  the server serves on, and peers that vanish without a goodbye drop out after three
+  missed 60 s sweeps. Known servers can be pinned to an identity; when a pinned
+  server moves, Settings and the server selector offer a verified "Moved to …
+  Update" action.
 
 - **Web search and fetch entries render as compact cards.** A new client-only `web-access`
   plugin (`pi-dashboard-web-access-plugin`, bundled) renders `pi-web-access`'s
@@ -63,6 +71,19 @@ see [`docs/release-process.md`](docs/release-process.md).
   `~/.pi/dashboard/custom-event-groups.json`, to see it again. **Rollback note:** reverting the
   code does not unhide refusals — the `diagnostics` group stays in your
   `custom-event-groups.json` with `default: false`; enable it or delete the entry to restore them.
+- **BREAKING: known-server changes are operator-only.** Adding, removing, updating
+  (`POST`/`DELETE /api/known-servers`, `accept-move`) and probing known servers now
+  require an operator credential (login, local token or a local request). Browsers
+  admitted only by a trusted network can still list the servers. Entries whose host
+  went stale before this release cannot be repaired automatically — re-add them once.
+  Rolling back leaves entries moved to a `pi-dashboard-<id12>-<port>.local` host
+  unresolvable; re-add those.
+- **Honest server-selector labels.** A known server the browser cannot reach is now
+  labelled by what the dashboard server itself sees: "Name not found" (renamed or
+  dead hostname), "Moved to …", "Unreachable", or CORS-blocked only when the server
+  reaches it but the browser cannot. Previously every `.local` or LAN failure was
+  reported as CORS-blocked. Never copy `identity.key` between machines: two servers
+  with one key and port collide on the advertised name.
 - Grammar model may be `llm: { role: "@fast" }` (resolved per check; new error `model_role_unassigned`). Automation drops its private role dropdown for the shared picker's Role tab, and its `@role` resolution now honors a `:level` suffix on the ref. **Rollback note:** reverting leaves any `llm.role` grammar config unreadable — it falls back to "pick a model" until a model is chosen again.
 - **Team personas no longer inherit global, package or extension skills (breaking).**
   Every team session starts with `--no-skills` and only its catalog skills; legacy alias

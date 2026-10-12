@@ -1,11 +1,12 @@
-import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { formatHostPort, normalizeHostKey } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
+import type { KnownServerListEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import { mdiChevronDown, mdiCog, mdiServerNetwork } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { listKnownServers } from "../../lib/api/known-servers-api.js";
+import { acceptKnownServerMove, listKnownServers, probeKnownServer } from "../../lib/api/known-servers-api.js";
 import { logRejection } from "../../lib/report-error.js";
 
 /** Re-export for backward compat — consumers that imported this type */
@@ -71,32 +72,15 @@ export function buildServerEntries(
   return entries;
 }
 
-/** Probe outcome for a selector entry. */
-type ProbeState = "available" | "unreachable" | "denied" | "cors-blocked";
-
 /**
- * True when `host` is a private-LAN address literal (RFC-1918, CGNAT, link-
- * local, or an mDNS `.local` name). A cross-origin probe to such a host that
- * fails at the transport layer (`.catch()`, no readable response) is more
- * likely a CORS block — the remote hasn't allowlisted this origin — than a
- * genuine outage, so we surface an actionable "allowlist this origin" hint
- * instead of a bare "Unreachable". The browser cannot distinguish a CORS block
- * from connection-refused (both throw an opaque error), so this LAN heuristic
- * is the client-observable proxy for a trusted-network candidate.
- * See change: fix-remote-connect-cors-gates.
+ * Probe outcome for a selector entry.
+ *
+ * `cors-blocked` = the dashboard SERVER reaches the target but this browser
+ * cannot; `name-not-resolved` = the server cannot resolve the stored name
+ * (rendered as "Moved to …" when a verified move suggestion exists).
+ * See change: stabilize-mdns-server-identity.
  */
-export function isLanHost(host: string): boolean {
-  if (host.endsWith(".local")) return true;
-  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (!m) return false;
-  const [a, b] = [Number(m[1]), Number(m[2])];
-  if (a === 10) return true; // 10.0.0.0/8
-  if (a === 192 && b === 168) return true; // 192.168.0.0/16
-  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-  if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local
-  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 CGNAT
-  return false;
-}
+type ProbeState = "available" | "unreachable" | "denied" | "cors-blocked" | "name-not-resolved";
 
 interface Props {
   /** mDNS-discovered servers — kept for Settings panel, no longer primary data source */
@@ -122,7 +106,7 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
     minPopoverHeight: 0,
   });
   const [availability, setAvailability] = useState<Map<string, ProbeState>>(new Map());
-  const [knownServers, setKnownServers] = useState<KnownServer[]>([]);
+  const [knownServers, setKnownServers] = useState<KnownServerListEntry[]>([]);
 
   // Load known servers from API on mount and when dropdown opens
   const loadKnown = useCallback(async () => {
@@ -147,44 +131,64 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
   // Probe availability only when the dropdown opens — once per open.
   // No background probing, no periodic timer, no mount probe.
   // See openspec/changes/safe-server-switch.
+  const probeEntry = useCallback((host: string, port: number, isCancelled: () => boolean) => {
+    const key = `${host}:${port}`;
+    const set = (state: ProbeState) => {
+      if (!isCancelled()) setAvailability((prev) => new Map(prev).set(key, state));
+    };
+    fetch(`http://${formatHostPort(host, port)}/api/health`, { signal: AbortSignal.timeout(2000) })
+      .then(async (r): Promise<ProbeState> => {
+        // A guarded response (403 network_not_allowed) means the server is
+        // reachable but the client's network/auth is not permitted — a
+        // distinct "denied" state, NOT "unreachable".
+        if (r.status === 403) {
+          const body = await r.json().catch(() => null);
+          if (body?.error === "network_not_allowed") return "denied";
+          return "unreachable";
+        }
+        if (!r.ok) return "unreachable";
+        const d = await r.json().catch(() => null);
+        return d?.ok === true ? "available" : "unreachable";
+      })
+      .then(set)
+      .catch(async () => {
+        // Transport failure (no readable response): the browser cannot tell a
+        // CORS block from a dead name. Ask the dashboard server what it sees
+        // and render THAT cause. See change: stabilize-mdns-server-identity.
+        const status = await probeKnownServer(host, port);
+        set(
+          status === "reachable"
+            ? "cors-blocked"
+            : status === "name-not-resolved"
+            ? "name-not-resolved"
+            : "unreachable",
+        );
+      });
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     for (const s of entries) {
-      const key = `${s.host}:${s.port}`;
       // Current server's status is derived from `connected` — skip the probe.
-      if (key === currentKey) continue;
-      fetch(`http://${s.host}:${s.port}/api/health`, { signal: AbortSignal.timeout(2000) })
-        .then(async (r): Promise<ProbeState> => {
-          // A guarded response (403 network_not_allowed) means the server is
-          // reachable but the client's network/auth is not permitted — a
-          // distinct "denied" state, NOT "unreachable".
-          if (r.status === 403) {
-            const body = await r.json().catch(() => null);
-            if (body?.error === "network_not_allowed") return "denied";
-            return "unreachable";
-          }
-          if (!r.ok) return "unreachable";
-          const d = await r.json().catch(() => null);
-          return d?.ok === true ? "available" : "unreachable";
-        })
-        .then((state) => {
-          if (!cancelled) setAvailability((prev) => new Map(prev).set(key, state));
-        })
-        .catch(() => {
-          // Transport failure (no readable response). The browser cannot tell a
-          // CORS block from a genuine outage. For a LAN host — a trusted-network
-          // candidate — surface the actionable "allowlist this origin" hint;
-          // otherwise a plain "Unreachable". See change: fix-remote-connect-cors-gates.
-          const state: ProbeState = isLanHost(s.host) ? "cors-blocked" : "unreachable";
-          if (!cancelled) setAvailability((prev) => new Map(prev).set(key, state));
-        });
+      if (`${s.host}:${s.port}` === currentKey) continue;
+      probeEntry(s.host, s.port, () => cancelled);
     }
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  /** Accept a verified move suggestion, then re-probe the entry at its new address. */
+  const handleUpdate = useCallback(
+    async (entry: ServerEntry, movedTo: { host: string; port: number }) => {
+      if (!(await acceptKnownServerMove(entry.host, entry.port))) return;
+      await loadKnown();
+      probeEntry(movedTo.host, movedTo.port, () => false);
+    },
+    [loadKnown, probeEntry],
+  );
 
   // Close on outside click
   useEffect(() => {
@@ -255,18 +259,27 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
             const denied = !isCurrent && probe === "denied";
             const unreachable = !isCurrent && probe === "unreachable";
             const corsBlocked = !isCurrent && probe === "cors-blocked";
-            // denied, unreachable, and cors-blocked all disable switching, but render distinctly.
-            const blocked = denied || unreachable || corsBlocked;
+            const nameNotResolved = !isCurrent && probe === "name-not-resolved";
+            const movedTo = nameNotResolved
+              ? knownServers.find(
+                  (k) => k.port === entry.port && normalizeHostKey(k.host) === normalizeHostKey(entry.host),
+                )?.movedTo
+              : undefined;
+            // Every non-available state disables switching, but each renders distinctly.
+            const blocked = denied || unreachable || corsBlocked || nameNotResolved;
             const isSwitching = inFlightSwitchKey === key;
             return (
+              <div key={key} className="flex items-center">
               <button
-                key={key}
                 disabled={blocked}
+                aria-disabled={blocked ? "true" : undefined}
                 title={
                   denied
                     ? `${entry.host}:${entry.port}: network not allowed`
                     : corsBlocked
-                    ? `${entry.host}:${entry.port}: CORS-blocked — allowlist this origin on the remote (add this network to its trustedNetworks)`
+                    ? `${entry.host}:${entry.port}: reachable from the dashboard server but not from this browser (CORS or network) — the remote may need to allowlist this origin (add this network to its trustedNetworks)`
+                    : nameNotResolved
+                    ? `${entry.host}:${entry.port}: name not found — the server may have been renamed`
                     : unreachable
                     ? `${entry.host}:${entry.port} is unreachable`
                     : undefined
@@ -279,7 +292,8 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
                 data-unreachable={unreachable || undefined}
                 data-denied={denied || undefined}
                 data-cors-blocked={corsBlocked || undefined}
-                className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors ${
+                data-name-not-resolved={nameNotResolved || undefined}
+                className={`flex-1 min-w-0 flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors ${
                   isCurrent ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]"
                 } ${blocked ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--bg-tertiary)] cursor-pointer"}`}
               >
@@ -300,7 +314,7 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
                 </span>
                 {isSwitching ? (
                   <span
-                    aria-label={i18nT("common.switchingU2026", undefined, "Switching\\u2026")}
+                    aria-label={i18nT("common.switchingU2026", undefined, "Switching\u2026")}
                     className="shrink-0 w-3 h-3 rounded-full border-2 border-[var(--text-tertiary)] border-t-transparent animate-spin"
                   />
                 ) : isCurrent ? (
@@ -309,12 +323,27 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
                   <span className="shrink-0 text-[10px] text-amber-400">{i18nT("common.networkNotAllowed", undefined, "Network not allowed")}</span>
                 ) : corsBlocked ? (
                   <span className="shrink-0 text-[10px] text-amber-400">{i18nT("common.corsBlocked", undefined, "CORS-blocked")}</span>
+                ) : movedTo ? (
+                  <span className="shrink-0 text-[10px] text-amber-400">
+                    {i18nT("connection.movedTo", { address: formatHostPort(movedTo.host, movedTo.port) }, "Moved to {address}")}
+                  </span>
+                ) : nameNotResolved ? (
+                  <span className="shrink-0 text-[10px] text-amber-400">{i18nT("connection.nameNotFound", undefined, "Name not found")}</span>
                 ) : unreachable ? (
                   <span className="shrink-0 text-[10px] text-red-400">{i18nT("connection.unreachable", undefined, "Unreachable")}</span>
                 ) : probe === "available" ? (
                   <span className="shrink-0 text-[10px] text-green-500">{i18nT("common.available", undefined, "Available")}</span>
                 ) : null}
               </button>
+              {movedTo && (
+                <button
+                  onClick={() => void handleUpdate(entry, movedTo).catch(logRejection("ServerSelector.handleUpdate"))}
+                  className="shrink-0 mr-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-600 hover:bg-blue-500 text-white cursor-pointer"
+                >
+                  {i18nT("connection.updateServer", undefined, "Update")}
+                </button>
+              )}
+              </div>
             );
           })}
         </div>

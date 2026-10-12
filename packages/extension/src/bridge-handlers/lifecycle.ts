@@ -45,6 +45,7 @@ import { runUiSafely } from "../ui-stale-guard.js";
 import { sendShutdownUsageThenUnregister, type UsageDrain } from "../usage-drain.js";
 import { detectIsGitRepo } from "../vcs-info.js";
 import { buildVisibilityRegisterFields } from "../visibility-intent.js";
+import { formatHostPort } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
 import type { BridgeInstance } from "./instance.js";
 import { patchUiForPromptBus } from "./ui-prompt-patch.js";
 
@@ -756,7 +757,7 @@ export function registerSessionStart(inst: BridgeInstance): void {
     }).then((result) => {
       stopSpinner(); // safety net — covers onLaunchEnd not firing
       if (result.server && result.server.piPort !== inst.config.piPort) {
-        const candidateUrl = `ws://${result.server.host === "localhost" ? "localhost" : result.server.host}:${result.server.piPort}`;
+        const candidateUrl = `ws://${formatHostPort(result.server.host, result.server.piPort)}`;
         // fix-bridge-mdns-migration-hijack: a DISCOVERED candidate only
         // SUGGESTS. Whether the connection follows it is decided — and
         // recorded — by `ConnectionManager.retargetTo`, which refuses to
@@ -785,7 +786,7 @@ export function registerSessionStart(inst: BridgeInstance): void {
         // The health probe runs on the candidate's HTTP port — the record's
         // `port`, not the gateway port — and completes BEFORE the incumbent
         // is dropped (retargetTo owns that ordering).
-        const healthUrl = `http://${result.server.host}:${result.server.port}/api/health`;
+        const healthUrl = `http://${formatHostPort(result.server.host, result.server.port)}/api/health`;
         inst.connection
           .retargetTo(candidateUrl, {
             trigger,

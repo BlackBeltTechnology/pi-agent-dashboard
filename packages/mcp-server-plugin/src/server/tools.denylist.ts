@@ -73,6 +73,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/pair/deny", reason: "pairing ceremony" },
   { pattern: "/api/discover-servers", reason: "fleet discovery UI" },
   { pattern: "/api/known-servers", reason: "fleet discovery UI" },
+  { pattern: "/api/known-servers/accept-move", reason: "fleet discovery UI; operator-only" },
+  { pattern: "/api/known-servers/probe", reason: "fleet discovery UI; operator-only" },
   { pattern: "/api/pi/runtime", reason: "pi runtime UI" },
   { pattern: "/api/tools", reason: "tool-registry UI" },
   { pattern: "/api/open-in-system", reason: "UI-only" },

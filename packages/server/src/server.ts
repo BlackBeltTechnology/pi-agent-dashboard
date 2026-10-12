@@ -22,7 +22,10 @@ import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, lo
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
-import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, resolveAdvertisedAddresses, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import { proveServerIdentity } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
+import { createKnownServerMoves } from "./known-server-moves.js";
+import { buildSelfServer, wirePeerServers } from "./peer-servers.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import {
@@ -1109,6 +1112,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Optional second-port Fastify instance for model proxy (/v1/*)
   let secondFastify: Awaited<ReturnType<typeof import("fastify").default>> | null = null;
   const peerServers = new Map<string, DiscoveredServer>();
+  // Verified move suggestions for renamed known servers (in memory only).
+  // See change: stabilize-mdns-server-identity.
+  const knownServerMoves = createKnownServerMoves({
+    loadKnown: () => loadConfig().knownServers,
+    prove: (baseUrl) => proveServerIdentity(baseUrl, { timeoutMs: 2000 }),
+  });
 
   /** This process's place in the per-HOME rendezvous (task 2.0a). */
   let homeRendezvous: import("./lifecycle/home-rendezvous.js").HomeRendezvous | null = null;
@@ -1283,15 +1292,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   // Send this server + discovered peers to new browser connections
   browserGateway.onConnect = (ws) => {
-    const selfServer: DiscoveredServer = {
+    const selfServer = buildSelfServer({
       host: selfHostname,
       port: config.port,
       piPort: config.piPort,
       version: pkgVersion,
-      pid: process.pid,
-      isLocal: true,
-      source: "mdns",
-    };
+      fingerprint: serverIdentity.fingerprint,
+      name: loadConfig().dashboardName || selfHostname.replace(/\.local$/i, ""),
+    });
     const all = [selfServer, ...Array.from(peerServers.values())];
     browserGateway.sendToClient(ws, { type: "servers_discovered", servers: all });
     if (pendingRecoveryOffer) browserGateway.sendToClient(ws, pendingRecoveryOffer);
@@ -2648,7 +2656,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
     },
   });
-  registerKnownServersRoutes(fastify, { networkGuard, getPeerServers: () => peerServers });
+  registerKnownServersRoutes(fastify, {
+    networkGuard,
+    getPeerServers: () => peerServers,
+    localToken,
+    localTrust,
+    hostAdmission: () => getHostGateCtx().admission,
+    moves: knownServerMoves,
+  });
   registerLocalProofRoutes(fastify, { codes: localProofCodes, ctx: localTrust });
   registerPairingRoutes(fastify, {
     networkGuard,
@@ -4123,12 +4138,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           // The verdict names skips honestly: a loopback-bound server must not
           // log "advertising" when nothing was published. (CodeRabbit review,
           // fix-bridge-mdns-migration-hijack.)
-          const verdict = advertiseDashboard(config.port, config.piPort, { bindHost: config.host });
-          if (verdict.advertise) {
-            console.log(`mDNS: advertising _pi-dashboard._tcp on port ${config.port}`);
-          } else {
-            console.log(`mDNS: ${verdict.reason}`);
-          }
+          // advertiseDashboard logs the verdict itself (loopback skip, no
+          // advertisable address, or the derived instance name + addresses).
+          advertiseDashboard(config.port, config.piPort, {
+            bindHost: config.host,
+            addresses: await resolveAdvertisedAddresses(config.host),
+            fingerprint: serverIdentity.fingerprint,
+            version: pkgVersion,
+            name: () => loadConfig().dashboardName || "",
+            resolveAddresses: () => resolveAdvertisedAddresses(config.host),
+          });
         }
       } catch (err) {
         console.warn(`mDNS advertisement failed (will continue without):`, err);
@@ -4140,15 +4159,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           // skip peer discovery entirely
         } else {
         mdnsBrowser = createBrowser();
-        mdnsBrowser.on("server-up", (server: DiscoveredServer) => {
-          // Don't include ourselves
-          if (server.isLocal && server.port === config.port) return;
-          peerServers.set(`${server.host}:${server.port}`, server);
-          browserGateway.broadcast({ type: "servers_updated", servers: Array.from(peerServers.values()) });
-        });
-        mdnsBrowser.on("server-down", (server: DiscoveredServer) => {
-          peerServers.delete(`${server.host}:${server.port}`);
-          browserGateway.broadcast({ type: "servers_updated", servers: Array.from(peerServers.values()) });
+        wirePeerServers({
+          browser: mdnsBrowser,
+          peers: peerServers,
+          self: () => ({
+            host: selfHostname,
+            port: config.port,
+            piPort: config.piPort,
+            version: pkgVersion,
+            fingerprint: serverIdentity.fingerprint,
+            name: loadConfig().dashboardName || selfHostname.replace(/\.local$/i, ""),
+          }),
+          broadcast: (servers) => browserGateway.broadcast({ type: "servers_updated", servers }),
+          moves: knownServerMoves,
         });
         }
       } catch (err) {
