@@ -104,7 +104,7 @@ interface SuccessState {
 }
 
 /** Public read of one source's operation state. See `getSourceOp`. */
-export interface SourceOp {
+interface SourceOp {
   action: PackageAction;
   status: "queued" | "running" | "success" | "error";
 }

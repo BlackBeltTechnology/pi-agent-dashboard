@@ -5,7 +5,7 @@ Files in this directory. One row per source file.
 | File | Purpose |
 |------|---------|
 | `useActiveChatSelection.ts` | `useActiveChatSelection(containerRef, mapRange) → { isSelecting, isSelectingRef, selectionSpanRef,… → see `useActiveChatSelection.ts.AGENTS.md` |
-| `useAnthropicPeerProbe.ts` | `useAnthropicPeerProbe() -> { peerMissing, peerReason }` for the Anthropic OAuth row hint. → see `useAnthropicPeerProbe.ts.AGENTS.md` |
+| `useAnthropicPeerProbe.ts` | `useAnthropicPeerProbe() -> { peerMissing, peerReason, peerResolving, importFailed, refresh }` for the Anthropic OAuth row hint. → see `useAnthropicPeerProbe.ts.AGENTS.md` |
 | `useAppHidden.ts` | NEW. Exports `useAppHidden()` hook + `applyAppHiddenClass(root, hidden)`. → see `useAppHidden.ts.AGENTS.md` |
 | `useArchiveListing.ts` | Fetches `GET /api/openspec-archive?cwd=` into `entries: ArchiveEntry[]` with `isLoading`/`error`. → see `useArchiveListing.ts.AGENTS.md` |
 | `useArchivedSessions.ts` | Per-key lazy cache for archived-session listings (`<groupPath>` for folder folds, `q:<text>` for search). Exports `useArchivedSessions`, `ARCHIVE_PAGE_SIZE` (50), `ArchivedKeyState`. Loads pages, retries, invalidates on count changes. See change: archive-sessions-lazy-load. |

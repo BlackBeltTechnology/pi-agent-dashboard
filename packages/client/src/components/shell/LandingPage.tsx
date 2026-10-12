@@ -11,7 +11,7 @@ import { InlineMessage } from "../primitives/InlineMessage.js";
 import { PeerAutoInstallStatus, SECONDARY_BUTTON_CLASS } from "../settings/PeerAutoInstallStatus.js";
 
 /** Result of the app-level create-project call (see `lib/create-project.ts`). */
-export type LandingCreateProjectResult =
+type LandingCreateProjectResult =
   | { ok: true; path: string; existed: boolean }
   | { ok: false; reason?: string };
 

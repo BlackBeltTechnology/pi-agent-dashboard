@@ -11,7 +11,7 @@
 import { PEER_AM_LEGACY } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin/peer-probe";
 import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
 
-export const BRIDGE_PLUGIN_ID = "flows-anthropic-bridge";
+const BRIDGE_PLUGIN_ID = "flows-anthropic-bridge";
 
 /** Install source for the peer — the shipped recommended-extensions entry. */
 export const ANTHROPIC_PEER_SOURCE: string =

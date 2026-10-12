@@ -22,3 +22,5 @@ KB routes (observe: GET /api/kb/search, GET /api/kb/sources; operate: POST /api/
 Rows for `/api/users`, `/api/users/:id`, `/api/users/:id/revoke`, `/api/users/:id/invites`, `/api/users/invites/:inviteId`, `/api/users/credentials/impact` — all `operate`. See change: add-passkey-user-auth.
 
 `/api/services/*` (17 routes): GETs `observe`; every mutation (POST/PUT/DELETE incl. ensure/heartbeat/release) `operate`; MCP denylisted. Route itself also refuses trusted-network + observe/control callers (`canMutateServices`). See change: add-service-registry-core.
+
+`POST /api/browse/create-project` row, `control` (same tier as `/api/browse/mkdir`). See change: streamline-first-run.

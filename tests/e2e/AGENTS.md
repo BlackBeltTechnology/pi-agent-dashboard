@@ -9,10 +9,11 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `archived-attachment.spec.ts` | L3 F8/F11 archived attachment. → see `archived-attachment.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
+| `first-run-create-project.spec.ts` | L3 F16/F17 → see `first-run-create-project.spec.ts.AGENTS.md` |
 | `hermes-model-override.spec.ts` | L3 F3 → see `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | L3 KB settings sources + search. → see `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `live-server-downloads.spec.ts` | L3 #F1/#X1 |
-| `local-credential-proof-nat.spec.ts` | L3 #X9: host proof for the published port → 401 (`binding-mismatch` in server.log only); same request in-container → 200. See change: loopback-credential-proof. |
+| `local-credential-proof-nat.spec.ts` | L3 #X9 NAT proof. → see `local-credential-proof-nat.spec.ts.AGENTS.md` |
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
@@ -46,7 +47,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `chat-pane-below-floor-allocation.spec.ts` | L3 below-floor chat pane allocation. → see `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
 | `chat-render-fx.spec.ts` | Browser E2E gate for `reduce-chat-render-cpu-umbrella`… → see `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | ADVISORY opt-in perf probe for `reduce-chat-render-cpu-umbr… → see `chat-render-perf.spec.ts.AGENTS.md` |
-| `chat-transcript-virtualization.spec.ts` | L3 gate for virtualize-chat-transcript-tanstack (Phase 2… → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
+| `chat-transcript-virtualization.spec.ts` | L3 gate for virtualize-chat-transcript-tanstack… → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
 | `compaction-boundary-replay.spec.ts` | L3 for change replay-compaction-boundary (F1/F2). Real… → see `compaction-boundary-replay.spec.ts.AGENTS.md` |
 | `origin-gate.spec.ts` | L3 cross-site gates in browser reality (#F1-#F3): hostile… → see `origin-gate.spec.ts.AGENTS.md` |
 | `csp.spec.ts` | Baseline CSP e2e (§7). Asserts a CSP header (report-only… → see `csp.spec.ts.AGENTS.md` |
@@ -123,7 +124,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `openspec-board-drop.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drop… → see `openspec-board-drop.spec.ts.AGENTS.md` |
 | `openspec-board-worktree-availability.spec.ts` | L3 worktree availability on OpenSpec board → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
 | `openspec-connect-coverage.spec.ts` | L3 connect coverage, fix-connect-snapshot-frame-loss… → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
-| `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice (add-openspec-init-affordances). → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
+| `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice (add-openspec-init-affor… → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board segment… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
 | `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-attach-to-session-cwd). → see `openspec-locality-gate.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux… → see `optimistic-prompt.spec.ts.AGENTS.md` |
@@ -196,7 +197,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `tail-only-scroll-perf.spec.ts` | ADVISORY opt-in scroll-smoothness probe for `tail-only`… → see `tail-only-scroll-perf.spec.ts.AGENTS.md` |
 | `tail-only-settings.spec.ts` | L3 for the `replayWindowMode` control (F14, F15) plus X8. → see `tail-only-settings.spec.ts.AGENTS.md` |
 | `tail-only-splice-anchor.spec.ts` | L3 gate for D7a (F9, F10, F18). Asserts the anchor BY THE… → see `tail-only-splice-anchor.spec.ts.AGENTS.md` |
-| `tail-only-trigger-suppression.spec.ts` | L3 for D7's suppression model (F5, F6, F8, F20). Asserts… → see `tail-only-trigger-suppression.spec.ts.AGENTS.md` |
+| `tail-only-trigger-suppression.spec.ts` | L3 for D7's suppression model (F5, F6, F8, F20)… → see `tail-only-trigger-suppression.spec.ts.AGENTS.md` |
 | `table-copy.spec.ts` | Playwright spec (change: fix-table-copy-empty-clipboard… → see `table-copy.spec.ts.AGENTS.md` |
 | `terminal-reload-inprocess.spec.ts` | L3 terminal-hosted (tmux) `/reload`. → see `terminal-reload-inprocess.spec.ts.AGENTS.md` |
 | `terminal-tab.spec.ts` | Terminal-as-tab spec (change: terminals-in-tabbed-panes). → see `terminal-tab.spec.ts.AGENTS.md` |
