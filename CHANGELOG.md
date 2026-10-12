@@ -104,6 +104,25 @@ see [`docs/release-process.md`](docs/release-process.md).
   Providers now shows a warning naming the files where the old id is still used
   (`auth.json`, `settings.json`, `models.json`) with pi's fix (rename, or `/login`).
   Backed by the new read-only `GET /api/provider-auth/legacy-provider-ids`.
+- **BREAKING: the jiti server loader is removed.** The dashboard server always runs on
+  Node's native strip-only TypeScript loader (`module.registerHooks`), on every Node from
+  22.19 to 26. `PI_DASHBOARD_TS_LOADER` is ignored: the server logs one warning at boot when
+  it is set to anything but `native`. This ends the silent jiti fallback on Node 26. To roll
+  back, install the previous version. `jiti` stays in the server package's dependencies only
+  so a pre-upgrade server's first `/api/restart` still works.
+- **BREAKING (plugin authors): plugin server TypeScript must be erasable.** No `enum`, runtime
+  `namespace` or constructor parameter properties, and type-only imports use `import type`.
+  A plugin that breaks this fails to load in isolation and the error names the file. The CI
+  plugin install-load gate now checks first-party plugins the same way. pi still loads a
+  plugin's `bridge` entry with its own jiti, which is unaffected.
+- **Node 26 CLI/npm upgrade note.** The first `/api/restart` after upgrading may bring the
+  server up under jiti; it logs a warning. Run `pi-dashboard stop && pi-dashboard start`
+  (or restart once more) to switch to the native loader.
+- **New dependency `amaro`** (exact pin, `@blackbelt-technology/pi-dashboard-shared`) strips
+  types on end-of-life Node 23.0–23.1, which have no built-in stripper. Other Node lines never
+  load it.
+- **First-party source is erasable-only.** `erasableSyntaxOnly` is on in `tsconfig.base.json`
+  (TypeScript `^5.8.0`) and Biome `useImportType` is an error. No behaviour change.
 
 ### Fixed
 

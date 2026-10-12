@@ -18,12 +18,12 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { getManagedDir } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
-import { isJitiLoader, isTsxLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
-import { legacyTsLoaderEnvWarning } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import {
   isAffectedNode,
   isOutOfEnginesRange,
 } from "@blackbelt-technology/pi-dashboard-shared/node-version.js";
+import { isJitiLoader, isTsxLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
+import { legacyTsLoaderEnvWarning } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 
 export { isAffectedNode, isOutOfEnginesRange };
 

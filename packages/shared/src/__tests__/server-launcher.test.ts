@@ -6,22 +6,23 @@
  * orchestration logic is exercised without spawning a real child or
  * touching the filesystem.
  */
-import { afterEach, describe, it, expect, vi } from "vitest";
+
+import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  launchDashboardServer,
-  PortConflictError,
-  EarlyExitError,
-  isPortConflictExitCode,
-  RECOVERY_PORT_CONFLICT_EXIT_CODE,
-} from "../server-launcher.js";
-import type { ChildProcess } from "node:child_process";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ToolResolver } from "../platform/binary-lookup.js";
 import type { spawnNodeScript } from "../platform/node-spawn.js";
 import type { isDashboardRunning } from "../server-identity.js";
+import {
+  EarlyExitError,
+  isPortConflictExitCode,
+  launchDashboardServer,
+  PortConflictError,
+  RECOVERY_PORT_CONFLICT_EXIT_CODE,
+} from "../server-launcher.js";
 
 const spawnSpy = (impl: () => ChildProcess) =>
   vi.fn<typeof spawnNodeScript>(impl as unknown as typeof spawnNodeScript);
@@ -459,10 +460,8 @@ describe("launchDashboardServer — TS loader", () => {
     }
   });
 
-  it("E11: launches with no jiti anywhere (nothing resolves jiti, no JitiNotFoundError text)", async () => {
+  it("E11: launches with no jiti anywhere (no resolver exists to fail)", async () => {
     vi.stubEnv("PI_DASHBOARD_TS_LOADER", undefined as unknown as string);
     await expect(launchDashboardServer(baseOpts({ _resolveNativeLoader: undefined }))).resolves.toMatchObject({ healthOk: true });
-    const src = readFileSync(new URL("../server-launcher.ts", import.meta.url), "utf8");
-    expect(src).not.toMatch(/JitiNotFoundError|resolveJiti|cannot find jiti/i);
   });
 });

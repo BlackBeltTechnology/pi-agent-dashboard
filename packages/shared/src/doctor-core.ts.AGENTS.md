@@ -10,4 +10,4 @@ See change: align-ui-with-theme-tokens. Diagnostics row name "Session runtime (r
 
 ## cleanup-post-r3-spec-drift
 
-`TypeScript loader` row (jiti mode) probes jiti only (managed, then bundled); tsx is never probed (no managed/bundled/`which tsx` lookup; remediation says "jiti"). `SharedChecksDeps.resolvePackageJson?(name)` is the test seam for the bundled-jiti lookup (default: `tryResolvePkg`). tsx-only install in jiti mode now reports `error` `doctor.ts_loader_not_found`. See change: cleanup-post-r3-spec-drift.
+`TypeScript loader` row checks only the native register module (`resolveNativeTsLoader()`; test seam `SharedChecksDeps.resolveNativeLoader`): ok naming its path, else error `doctor.ts_loader_not_found`; jiti and tsx are never probed or named. `SharedChecksDeps.env` / `resolvePackageJson` REMOVED. See change: strip-only-native-ts-loader.

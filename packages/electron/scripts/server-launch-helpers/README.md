@@ -21,21 +21,13 @@ the Electron wrapper** and **without a system Node.js install**. Use them when:
 
 Each script uses only files that ship inside the bundle:
 
-```
-<unzipped-root>/
-├── resources/
-│   ├── node/
-│   │   ├── node.exe                              (Windows)
-│   │   └── bin/node                              (POSIX)
-│   └── server/                                    ← scripts live here
-│       ├── start-server.cmd                       │
-│       ├── start-server.ps1                       │
-│       ├── start-server.sh                        │
-│       ├── packages/server/src/cli.ts             │ entry
-│       └── node_modules/@blackbelt-technology/    │
-│           pi-dashboard-shared/src/platform/      │
-│           └── native-ts-register.mjs             │ loader
-```
+Bundle layout (relative to `<unzipped-root>/`):
+
+- `resources/node/node.exe` (Windows) or `resources/node/bin/node` (POSIX) — bundled Node.
+- `resources/server/` — the scripts live here:
+  - `start-server.cmd`, `start-server.ps1`, `start-server.sh`
+  - `packages/server/src/cli.ts` — entry
+  - `node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs` — loader
 
 The argv they build matches `packages/shared/src/platform/node-spawn.ts`'s
 `buildNodeImportArgvParts`:

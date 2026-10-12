@@ -5,18 +5,17 @@
  *
  * See change: replace-tsx-with-jiti; strip-only-native-ts-loader (test-plan #E14, #E21).
  */
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import url from "node:url";
-import { realpathSync, symlinkSync } from "node:fs";
 import { shouldUrlWrapEntry } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
 const wrapperPath = path.resolve(here, "..", "..", "bin", "pi-dashboard.mjs");
-const repoNodeModules = path.resolve(here, "..", "..", "..", "..", "node_modules");
 const repoNativeRegister = path.resolve(here, "..", "..", "..", "shared", "src", "platform", "native-ts-register.mjs");
 
 describe("bin/pi-dashboard.mjs wrapper", () => {

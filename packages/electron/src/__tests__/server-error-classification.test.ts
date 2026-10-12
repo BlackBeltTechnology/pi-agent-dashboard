@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { isDeadlineOrChildExitError } from "../lib/server-error-classification.js";
 import { buildServerStartupError } from "../lib/server-lifecycle.js";
 

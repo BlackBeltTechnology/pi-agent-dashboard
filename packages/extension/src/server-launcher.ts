@@ -12,8 +12,8 @@ import {
   DEFAULT_SERVER_HEAP,
   HEALTH_CHECK_TIMEOUT_MS,
 } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { HEAP_FLAG_MARKER_ENV, stampHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { HEAP_FLAG_MARKER_ENV, stampHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import {
   EarlyExitError,
   launchDashboardServer,

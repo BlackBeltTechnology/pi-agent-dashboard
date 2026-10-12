@@ -11,3 +11,5 @@
 - `pi-dashboard service <verb>` dispatches to `services/cli-service.ts` `cmdService` with `localTokenHeader` + `localExecSecretsResolver` (exec resolves secrets locally, never via REST). See change: add-service-registry-core.
 
 Local calls dial `localBase(config)` (`localDialHost(host)` literal) and send a per-request `X-Pi-Local-Proof` (`localCredentialHeaders`); the raw token is never sent. See change: loopback-credential-proof (D10).
+
+`runForeground` calls `warnTsLoaderState()` once at boot (legacy `PI_DASHBOARD_TS_LOADER`, foreign jiti/tsx loader); `cmdStart` no longer catches `JitiNotFoundError` (class removed). See change: strip-only-native-ts-loader.

@@ -1,13 +1,13 @@
-import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 import {
   buildServerSpawnOptions,
   buildServerStartupError,
-  SERVER_READY_DEADLINE_MS,
-  SERVER_READY_DEADLINE_DEV_MS,
   getServerReadyDeadlineMs,
+  SERVER_READY_DEADLINE_DEV_MS,
+  SERVER_READY_DEADLINE_MS,
 } from "../lib/server-lifecycle.js";
 
 const __filename = fileURLToPath(import.meta.url);

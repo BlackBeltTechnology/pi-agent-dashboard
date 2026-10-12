@@ -1,11 +1,12 @@
 /**
  * Tests for CLI argument parsing.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { parseArgs, buildConfig, guardTempHomePort, PRODUCTION_DEFAULT_PORT } from "../cli.js";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildConfig, guardTempHomePort, PRODUCTION_DEFAULT_PORT, parseArgs } from "../cli.js";
 
 describe("parseArgs", () => {
   it("returns null subcommand with no args", () => {

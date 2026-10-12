@@ -14,7 +14,7 @@
  * scheme is always prepended, and a raw backslash drive-letter import is never
  * emitted (the actual ERR_UNSUPPORTED_ESM_URL_SCHEME trigger).
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { buildServerLaunchTestCmd, buildServerLaunchTestEnv, resolveServerLaunchTestLoader } from "../doctor.js";
 
 describe("buildServerLaunchTestCmd", () => {

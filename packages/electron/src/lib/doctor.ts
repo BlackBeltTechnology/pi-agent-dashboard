@@ -42,8 +42,8 @@ import {
 // resolveOfflinePackages + installManagedNode imports removed under change:
 // eliminate-electron-runtime-install (no offline cache; bundle is immutable).
 import { normalizeEnvPathKey } from "@blackbelt-technology/pi-dashboard-shared/platform/env-path-key.js";
-import { resolveNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { resolveSpawnRuntime } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
+import { resolveNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { getBundledNodeDir, getBundledNodePath, getBundledNpmPath } from "./bundled-node.js";
 import { MANAGED_DIR } from "./managed-paths.js";
 import { pickNodeForServer } from "./pick-node.js";

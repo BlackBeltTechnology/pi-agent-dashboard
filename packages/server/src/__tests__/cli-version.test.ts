@@ -17,12 +17,13 @@
  *     circuit MUST NOT silently succeed with an empty string — it
  *     SHALL fall through to the loader-resolve path.
  */
-import { describe, it, expect, beforeAll } from "vitest";
+
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, cpSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import url from "node:url";
+import { beforeAll, describe, expect, it } from "vitest";
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
 const wrapperPath = path.resolve(here, "..", "..", "bin", "pi-dashboard.mjs");

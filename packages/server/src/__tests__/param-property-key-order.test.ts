@@ -27,7 +27,7 @@ describe("parameter-property rewrite preserves instance key order", () => {
       killSwitch: () => false,
       operatorChannels: () => 0,
     });
-    expect(Object.keys(c)).toEqual(["deps", "waiters", "timers", "origins", "verdicts", "registry", "now", "schedule"]);
+    expect(Object.keys(c)).toEqual(["deps", "registry", "waiters", "timers", "origins", "verdicts", "now", "schedule"]);
   });
 
   it("UserDirectory: filePath, now, then state/chain in declaration order", () => {

@@ -12,9 +12,10 @@
  * and uses a 10 s cold-start window),
  * add-configurable-readiness-timeout (window now configurable).
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { launchDashboardServer } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
+
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import type { launchDashboardServer } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { launchSpy } = vi.hoisted(() => ({
   launchSpy: vi.fn<typeof launchDashboardServer>(async () => ({ childPid: 1, reportedPid: 1, healthOk: true as const })),
@@ -22,7 +23,6 @@ const { launchSpy } = vi.hoisted(() => ({
 
 vi.mock("@blackbelt-technology/pi-dashboard-shared/server-launcher.js", () => ({
   launchDashboardServer: launchSpy,
-  JitiNotFoundError: class JitiNotFoundError extends Error {},
   PortConflictError: class PortConflictError extends Error {},
   EarlyExitError: class EarlyExitError extends Error { code: number | null = null; },
 }));

@@ -59,7 +59,7 @@ Override: `DASHBOARD_PREFER_SOURCE=attach|devMonorepo|localLink|overlay|bundled`
 
 | Kind | Deadline | Why |
 |---|---|---|
-| `devMonorepo`, `localLink` | `SERVER_READY_DEADLINE_DEV_MS = 60_000` | jiti compiles TS checkout on cold boot |
+| `devMonorepo`, `localLink` | `SERVER_READY_DEADLINE_DEV_MS = 60_000` | native strip-only loader strips TS checkout on cold boot |
 | `bundled`, `overlay`, `attach` | `SERVER_READY_DEADLINE_MS = 15_000` | installed tree, pre-compiled |
 
 ## Cold launch: fallback + retry-once

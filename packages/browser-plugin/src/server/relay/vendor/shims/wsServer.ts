@@ -32,6 +32,8 @@ export class WSServer {
   private readonly _options: WSServerOptions;
 
   constructor(_options: WSServerOptions) {
+    // Inert by design: upstream's constructor also only stores options; the
+    // HTTP server is created in listen(), which this shim never runs.
     this._options = _options;
   }
 

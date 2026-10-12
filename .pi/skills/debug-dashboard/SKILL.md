@@ -38,6 +38,10 @@ If `health-probe` says "not-running" → server isn't up. Check `server.log` for
 | New session won't start / yellow `spawn_register_timeout`, no card | `pi` crashed at startup (bad extension) OR host overload | See `references/known-issues.md` → "New session won't start" — manual `pi --mode rpc` run splits crash vs overload |
 | `Cannot connect to dashboard server` on Electron boot | `launchDashboardServer` fell back to `process.execPath` (Electron GUI binary) | See `references/known-issues.md` → "Electron Node bin selection" |
 | Fastify crashes immediately | Bad Node version (22.0–22.17.x or 24.1–24.2.x per nodejs/node#58515) | `node --version` — must be ≥ 22.18.0 |
+| `server.log`: `PI_DASHBOARD_TS_LOADER is no longer supported` | Legacy env var set; server ignores it (jiti server loader removed) | Unset `PI_DASHBOARD_TS_LOADER` from launch env; `pi-dashboard stop && pi-dashboard start` |
+| `server.log`: `server booted under the jiti TypeScript loader` | Pre-upgrade server handed its jiti `--import` on restart | `pi-dashboard stop && pi-dashboard start` (next restart normalizes to native) |
+
+Loader launch recipes: server → native register (`platform/native-ts-register.mjs`); jiti only for pi-hosted code. See `node-inspect-debugger` skill, Tier 2 / Tier 2b.
 
 Full known-issue catalogue: [`references/known-issues.md`](references/known-issues.md).
 

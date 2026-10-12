@@ -22,7 +22,7 @@ One server process reached via 3 starters (Electron, Bridge, Standalone) across 
 
 ## Tool Source Hierarchy
 - Power-user mode — prefers system: pi/openspec System PATH→Managed(`~/.pi-dashboard/`)→Bundled; node System→Bundled; tsx System→Managed→Bundled; bridge System(npm global)→Bundled→Dev; serverCli System→Bundled→Managed.
-- Standalone npm install — `npm install -g @blackbelt-technology/pi-agent-dashboard`. pi/openspec/tsx = regular `dependencies` of pi-dashboard-server. No first-run install. `jiti` direct dep; bin wrapper `packages/server/bin/pi-dashboard.mjs` resolves jiti via argv[1] walk-up, re-execs `node --import <jiti-url> cli.ts`. `cli.ts` logs `[bootstrap] ready` on resolve.
+- Standalone npm install — `npm install -g @blackbelt-technology/pi-agent-dashboard`. pi/openspec/tsx = regular `dependencies` of pi-dashboard-server. No first-run install. No server jiti use (transitional dep only); bin wrapper `packages/server/bin/pi-dashboard.mjs` resolves native register, re-execs `node --import <native-url> cli.ts`. `cli.ts` logs `[bootstrap] ready` on resolve.
 - Electron arm (immutable bundle) — all runtime deps `<resourcesPath>/server/node_modules/` read-only. node `<resourcesPath>/node/bin/node`. Update via electron-updater whole-app. Legacy `~/.pi-dashboard/` untouched; `detectLegacyManagedDir` Doctor advisory.
 
 ## Target Architecture: Persisted Tool Paths
@@ -40,7 +40,7 @@ One server process reached via 3 starters (Electron, Bridge, Standalone) across 
 - Windows (NSIS) — `resourcesPath`=`C:\Program Files\PI Dashboard\resources`, stable. No login shell (PATH global). Spawn `windowsHide:true`.
 
 ## Key Files
-`shared/src/config.ts` (DashboardConfig), electron `dependency-detector.ts`/`server-lifecycle.ts`(ensureServer,launchViaCli)/`health-check.ts`(isDashboardRunning)/`bridge-register.ts`/`wizard-ipc.ts`/`wizard-window.ts`/`renderer/wizard.html`/`main.ts`, extension `bridge.ts`/`server-auto-start.ts`(mDNS→health→launch)/`server-launcher.ts`(process.execPath+jiti), server `server.ts`(ensureBridgeExtensionRegistered)/`extension-register.ts`/`process-manager.ts`(spawnPiSession,buildSpawnEnv,resolvePiCommand)/`session-bootstrap.ts`.
+`shared/src/config.ts` (DashboardConfig), electron `dependency-detector.ts`/`server-lifecycle.ts`(ensureServer,launchViaCli)/`health-check.ts`(isDashboardRunning)/`bridge-register.ts`/`wizard-ipc.ts`/`wizard-window.ts`/`renderer/wizard.html`/`main.ts`, extension `bridge.ts`/`server-auto-start.ts`(mDNS→health→launch)/`server-launcher.ts`(process.execPath+native register), server `server.ts`(ensureBridgeExtensionRegistered)/`extension-register.ts`/`process-manager.ts`(spawnPiSession,buildSpawnEnv,resolvePiCommand)/`session-bootstrap.ts`.
 
 ## Migration Path
 `toolPaths` additive, all optional. Phase1 add schema (fallback detection). Phase2 wizard writes, server validates. Phase3 settings edit, dashboard-settings.json = "wizard completed" flag. Phase4 remove scattered detection, read from config with detect-on-miss.

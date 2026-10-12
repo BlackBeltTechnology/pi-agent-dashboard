@@ -2,8 +2,9 @@
  * Auto-start logic for the dashboard server.
  * Uses mDNS discovery first, falls back to health check, then auto-starts.
  */
-import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+
 import { spawnReadinessBudgetMs } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import type { DashboardCheckOpts } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { appendAutoStartLog, shouldRefuseWorktreeAutoStart } from "./autostart-guard.js";
 import {

@@ -22,17 +22,18 @@
  *
  * See change: unify-server-launch-ts-loader.
  */
-import { dirname } from "node:path";
+
+import type { ChildProcess, SpawnOptions } from "node:child_process"; // ban:child_process-ok — types only
 import {
   closeSync,
   mkdirSync,
   openSync,
   writeSync,
 } from "node:fs";
-import type { ChildProcess, SpawnOptions } from "node:child_process"; // ban:child_process-ok — types only
-import { spawnNodeScript } from "./platform/node-spawn.js";
+import { dirname } from "node:path";
 import { ToolResolver } from "./platform/binary-lookup.js";
 import { normalizeEnvPathKey } from "./platform/env-path-key.js";
+import { spawnNodeScript } from "./platform/node-spawn.js";
 import { resolveNativeTsLoader } from "./platform/ts-loader-select.mjs";
 import { isDashboardRunning } from "./server-identity.js";
 

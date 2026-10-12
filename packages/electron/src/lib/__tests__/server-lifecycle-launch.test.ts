@@ -7,7 +7,7 @@
  * These tests cover the wrapper's value-shape contract: failure-as-value,
  * concurrency-share, and the always-running short-circuit.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Stub the heavy imports BEFORE importing the SUT.
 vi.mock("../health-check.js", () => ({
@@ -19,8 +19,8 @@ vi.mock("../health-check.js", () => ({
 // or expect the real ensureServer to fail (no tsx in vitest env) and assert
 // the failure-as-value behaviour.
 
-import { requestServerLaunch, isManagedServerRunning } from "../server-lifecycle.js";
 import { isDashboardRunning } from "../health-check.js";
+import { isManagedServerRunning, requestServerLaunch } from "../server-lifecycle.js";
 
 const mockHealth = isDashboardRunning as unknown as ReturnType<typeof vi.fn>;
 
