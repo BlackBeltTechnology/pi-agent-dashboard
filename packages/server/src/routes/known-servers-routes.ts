@@ -40,8 +40,12 @@ import { createOperatorGuard } from "./pairing-routes.js";
 
 /** Bounds of the add-time / move identity challenge. */
 const CHALLENGE_TIMEOUT_MS = 2000;
-/** Probe budgets: DNS and HTTP are separate so a slow negative `.local` lookup is not a "timeout". */
-const PROBE_DNS_TIMEOUT_MS = 3000;
+/**
+ * Probe budgets: DNS and HTTP are separate so a slow negative `.local` lookup is not a "timeout".
+ * DNS gets 6 s: measured negative `.local` answers take ~4 s in the Docker harness and
+ * ~5 s via mDNSResponder, so a 3 s budget would label every dead `.local` name "timeout".
+ */
+const PROBE_DNS_TIMEOUT_MS = 6000;
 const PROBE_HTTP_TIMEOUT_MS = 2000;
 
 let writeChain: Promise<unknown> = Promise.resolve();
