@@ -3495,3 +3495,54 @@ Source: `docs/architecture.md` → Auth model → Local credential proof. Change
   - Pre-proof server: `curl -X POST http://localhost:8000/api/restart` with new build, then `npm run reload`.
   - Session retries inside 5 min cap. Or restart the session to retry now.
 - Docker / published port: sender sees `401` with `binding-mismatch` → BREAKING for `pi-dashboard login --local|open|token create` through the published port. Run those inside the container, or log in.
+
+## Server shows "CORS-blocked", "Name not found" or "Moved to …" in the server selector — what does it mean?
+
+Label = cause the dashboard server observed. Browser probe fails at transport level → server probes the stored entry (`POST /api/known-servers/probe`, operator only).
+
+- `CORS-blocked` — server reaches entry, this browser does not. Fix: allow this browser's network on the remote (`trustedNetworks`), or check the path from this browser.
+- `Name not found` — server cannot resolve stored host (`ENOTFOUND` / `EAI_NONAME`). Usually remote renamed its `.local` name. No move suggestion → re-add server with its current address.
+- `Moved to <host>:<port>` + Update — same server (identity proof against stored `fingerprint`) answers at new on-link address. Update = operator accepts: rewrites entry `host`/`port`; label, fingerprint, `addedAt` kept. Nothing changes without the click.
+- `Unreachable` — refused, timeout, or other error. Check server running and port.
+
+No suggestion when: entry has no `fingerprint` (added before this change), or peer not seen on LAN. Advert alone never moves an entry.
+
+See change: stabilize-mdns-server-identity.
+
+Cross-refs:
+- docs/architecture.md → mDNS Server Discovery → Known-server identity pinning, Move suggestions, Selector reachability labels
+- openspec/changes/stabilize-mdns-server-identity/
+
+## Mac hostname keeps getting a number suffix (`-8559`) — why, and how do I stop it?
+
+macOS appends a number to `LocalHostName` when another host claims that `.local` name. Old dashboard versions advertised under `os.hostname()` (the Mac's own `.local` name) → `mDNSResponder` multicast conflict → rename.
+
+- Current versions advertise `pi-dashboard-<id12>-<port>.local`. Dashboard no longer contests the OS name. Suffix stops growing after upgrade.
+- Existing suffix stays (`home-imac-75340`). Still resolves. Dashboard does not remove it.
+- Rename: `sudo scutil --set LocalHostName <name>`.
+
+See change: stabilize-mdns-server-identity.
+
+Cross-refs:
+- docs/architecture.md → mDNS Server Discovery → Dashboard-owned names
+- openspec/changes/stabilize-mdns-server-identity/
+
+## Never copy `identity.key` — what breaks and how do I fix a clone?
+
+`~/.pi/dashboard/identity.key` = server identity. Copy to a second machine → same `fingerprint` → same `<id12>` → same instance `pi-dashboard-<id12>-<port>` when port matches.
+
+- Second server detects name conflict (not published 3 s after publish), retries 3 attempts, 5 s apart. Then stops advertising. Warning names the instance and remediation.
+- Known-server pins to that fingerprint may point at the wrong machine.
+
+Fix on the clone:
+
+1. Stop the server.
+2. Delete `~/.pi/dashboard/identity.key`.
+3. Start the server. New key, new fingerprint, new `<id12>`. Startup regenerates the file.
+4. Re-add the clone in known servers (new fingerprint pin).
+
+See change: stabilize-mdns-server-identity.
+
+Cross-refs:
+- docs/architecture.md → mDNS Server Discovery → Dashboard-owned names
+- packages/server/src/auth/identity.ts

@@ -11,8 +11,9 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
 | `hermes-model-override.spec.ts` | L3 F3 → see `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | L3 KB settings sources + search. → see `kb-settings-sources-search.spec.ts.AGENTS.md` |
+| `known-server-stale-name.spec.ts` | L3 stale known-server name. → see `known-server-stale-name.spec.ts.AGENTS.md` |
 | `live-server-downloads.spec.ts` | L3 #F1/#X1 |
-| `local-credential-proof-nat.spec.ts` | L3 #X9: host proof for the published port → 401 (`binding-mismatch` in server.log only); same request in-container → 200. See change: loopback-credential-proof. |
+| `local-credential-proof-nat.spec.ts` | L3 #X9 NAT. → see `local-credential-proof-nat.spec.ts.AGENTS.md` |
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
@@ -123,7 +124,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `openspec-board-drop.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drop… → see `openspec-board-drop.spec.ts.AGENTS.md` |
 | `openspec-board-worktree-availability.spec.ts` | L3 worktree availability on OpenSpec board → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
 | `openspec-connect-coverage.spec.ts` | L3 connect coverage, fix-connect-snapshot-frame-loss… → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
-| `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice (add-openspec-init-affordances). → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
+| `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice. → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board segment… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
 | `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-attach-to-session-cwd). → see `openspec-locality-gate.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux… → see `optimistic-prompt.spec.ts.AGENTS.md` |
