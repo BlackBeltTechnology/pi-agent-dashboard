@@ -263,10 +263,8 @@ function walkFiles(dir: string, match: (name: string) => boolean, out: string[] 
     if (e.isDirectory()) {
       if (e.name === "__tests__") continue;
       const rel = relative(root, abs);
-      // Conservative dir-pruning (design D3): hard-prune only when the dir
-      // matches AND no deeper .gitignore could negate it; otherwise descend
-      // and filter files at match time so deep negations survive.
-      if (ignore?.isIgnoredDir(rel) && !ignore.hasDeeperGitignore(rel)) continue;
+      // Excluded-parent rule: an ignored dir is never descended (git semantics).
+      if (ignore?.isIgnoredDir(rel)) continue;
       walkFiles(abs, match, out, root, ignore);
     } else if (match(e.name) && !ignore?.isIgnored(relative(root, abs))) out.push(abs);
   }
@@ -347,7 +345,7 @@ export function listEmptyPurposeRows(opts: { cwd: string; dir?: string }): Empty
       if (e.isDirectory()) {
         if (e.name === "__tests__") continue; // skipped during descent, as in the `dox init` source walk
         const rel = relative(cwd, abs);
-        if (gi.isIgnoredDir(rel) && !gi.hasDeeperGitignore(rel)) continue;
+        if (gi.isIgnoredDir(rel)) continue;
         walk(abs);
       } else if (e.name === "AGENTS.md" && !gi.isIgnored(relative(cwd, abs))) {
         agentsFiles.push(abs);
@@ -576,7 +574,7 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
       if (DEFAULT_EXCLUDE.test(relative(cwd, abs))) continue;
       if (e.isDirectory()) {
         const rel = relative(cwd, abs);
-        if (gi.isIgnoredDir(rel) && !gi.hasDeeperGitignore(rel)) continue;
+        if (gi.isIgnoredDir(rel)) continue;
         walkAgents(abs);
       } else if (e.name === "AGENTS.md" && !gi.isIgnored(relative(cwd, abs))) agentsFiles.push(abs);
     }
