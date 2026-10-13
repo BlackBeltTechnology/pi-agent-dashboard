@@ -4,6 +4,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 
 | File | Purpose |
 |------|---------|
+| `acp-automation.spec.ts` | ACP L3. → see `acp-automation.spec.ts.AGENTS.md` |
 | `acp-permission.spec.ts` | ACP L3. → see `acp-permission.spec.ts.AGENTS.md` |
 | `acp-restart-midturn.spec.ts` | ACP L3. → see `acp-restart-midturn.spec.ts.AGENTS.md` |
 | `acp-session-queue.spec.ts` | ACP L3. → see `acp-session-queue.spec.ts.AGENTS.md` |
@@ -53,7 +54,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `chat-pane-below-floor-allocation.spec.ts` | L3 below-floor chat pane allocation. → see `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
 | `chat-render-fx.spec.ts` | Browser E2E gate for `reduce-chat-render-cpu-umbrella`… → see `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | ADVISORY opt-in perf probe for `re… → see `chat-render-perf.spec.ts.AGENTS.md` |
-| `chat-transcript-virtualization.spec.ts` | L3 gate for virtualize-chat-transcript-tanstac… → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
+| `chat-transcript-virtualization.spec.ts` | L3 gate for virtualize-cha… → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
 | `compaction-boundary-replay.spec.ts` | L3 for change replay-compaction-boundary (F1… → see `compaction-boundary-replay.spec.ts.AGENTS.md` |
 | `origin-gate.spec.ts` | L3 cross-site gates in browser reality (#F1-#F3): hostile… → see `origin-gate.spec.ts.AGENTS.md` |
 | `csp.spec.ts` | Baseline CSP e2e (§7). Asserts a CSP header (report-only… → see `csp.spec.ts.AGENTS.md` |
@@ -130,7 +131,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `openspec-board-drop-indicator.spec.ts` | L3 indicator. → see `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
 | `openspec-board-drop.spec.ts` | L3 drop. → see `openspec-board-drop.spec.ts.AGENTS.md` |
 | `openspec-board-spawn-no-focus.spec.ts` | L3 board no-focus. → see `openspec-board-spawn-no-focus.spec.ts.AGENTS.md` |
-| `openspec-board-worktree-availability.spec.ts` | L3 OpenSpec board worktree availability. → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
+| `openspec-board-worktree-availability.spec.ts` | L3 OpenSpec board worktree… → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
 | `openspec-connect-coverage.spec.ts` | L3 connect coverage, fix-connect-snapshot-fr… → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
 | `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice. → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board segment… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
@@ -164,7 +165,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `redesign-provider-add-flow.spec.ts` | L3: Add-provider dialog + section-owned flows. → see `redesign-provider-add-flow.spec.ts.AGENTS.md` |
 | `redesign-providers-list.spec.ts` | L3: the connected list. → see `redesign-providers-list.spec.ts.AGENTS.md` |
 | `reducer-poisoned-cache-heal.spec.ts` | L3 reducer-poisoned cache heal. → see `reducer-poisoned-cache-heal.spec.ts.AGENTS.md` |
-| `registry-shed-sidebar-convergence.spec.ts` | L3 #F7: shed registry burst, sidebar drain. → see `registry-shed-sidebar-convergence.spec.ts.AGENTS.md` |
+| `registry-shed-sidebar-convergence.spec.ts` | L3 #F7: shed registry burs… → see `registry-shed-sidebar-convergence.spec.ts.AGENTS.md` |
 | `remote-transcript-read.spec.ts` | L3 D12 READ half of add-pi-gateway-transport-identity. → see `remote-transcript-read.spec.ts.AGENTS.md` |
 | `replay-delta-on-reload.spec.ts` | Playwright spec. Strategy A: reload of seen session… → see `replay-delta-on-reload.spec.ts.AGENTS.md` |
 | `replay-in-flight-pill.spec.ts` | Playwright spec. Replay-in-flight pill: visible over a… → see `replay-in-flight-pill.spec.ts.AGENTS.md` |
@@ -185,7 +186,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `sessions-page-stub-group.spec.ts` | L3 for the `sessions_page` stub-group paging path. → see `sessions-page-stub-group.spec.ts.AGENTS.md` |
 | `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session Default… → see `settings-default-model-catalogue.spec.ts.AGENTS.md` |
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors` +… → see `severity-contrast.spec.ts.AGENTS.md` |
-| `settings-provider-auth-corrupt-authfile.spec.ts` | L3: corrupt auth.json + repair. → see `settings-provider-auth-corrupt-authfile.spec.ts.AGENTS.md` |
+| `settings-provider-auth-corrupt-authfile.spec.ts` | L3: corrupt auth.json + re… → see `settings-provider-auth-corrupt-authfile.spec.ts.AGENTS.md` |
 | `skill-provenance.spec.ts` | L3 for the Resources skills grid (F1-F10, X7). Fulfils… → see `skill-provenance.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | Smoke spec, wiring proof only. Asserts shell renders… → see `smoke.spec.ts.AGENTS.md` |
 | `spawn-correlation-recovery.spec.ts` | L3 F2–F6 late spawn register clears banner +… → see `spawn-correlation-recovery.spec.ts.AGENTS.md` |
@@ -206,7 +207,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `tail-only-scroll-perf.spec.ts` | ADVISORY opt-in scroll-smoothness probe for `tail-only`… → see `tail-only-scroll-perf.spec.ts.AGENTS.md` |
 | `tail-only-settings.spec.ts` | L3 for the `replayWindowMode` control (F14, F15) plus X8. → see `tail-only-settings.spec.ts.AGENTS.md` |
 | `tail-only-splice-anchor.spec.ts` | L3 gate for D7a (F9, F10, F18). Asserts the… → see `tail-only-splice-anchor.spec.ts.AGENTS.md` |
-| `tail-only-trigger-suppression.spec.ts` | L3 for D7's suppression model (F5, F6, F8, F20… → see `tail-only-trigger-suppression.spec.ts.AGENTS.md` |
+| `tail-only-trigger-suppression.spec.ts` | L3 for D7's suppression mo… → see `tail-only-trigger-suppression.spec.ts.AGENTS.md` |
 | `table-copy.spec.ts` | Playwright spec (change: fix-table-copy-empty-clipboard… → see `table-copy.spec.ts.AGENTS.md` |
 | `terminal-reload-inprocess.spec.ts` | L3 terminal-hosted (tmux) `/reload`. → see `terminal-reload-inprocess.spec.ts.AGENTS.md` |
 | `terminal-tab.spec.ts` | Terminal-as-tab spec (change: terminals-in-tabbed-panes). → see `terminal-tab.spec.ts.AGENTS.md` |
@@ -220,7 +221,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `ui-token-alignment.spec.ts` | L3 token-recipe gate (test-plan F1–F9, F11, E10,… → see `ui-token-alignment.spec.ts.AGENTS.md` |
 | `uncommitted-indicator-commit.spec.ts` | E2E uncommitted-indicator + commit-from-card. → see `uncommitted-indicator-commit.spec.ts.AGENTS.md` |
 | `untrusted-content-guard.spec.ts` | L3 spec. → see `untrusted-content-guard.spec.ts.AGENTS.md` |
-| `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-lost-on-remove. → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
+| `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-l… → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init fe… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 (change: support-zrok-v2, F1/F2/F3). Stubs… → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |
 | `mcp-session-token.spec.ts` | L3 MCP session token (wire-mcp-session-token). → see `mcp-session-token.spec.ts.AGENTS.md` |

@@ -253,6 +253,7 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
         fake("qmt-slow", "QueryMT Slow", { delayMs: 1200 }),
         fake("qmt-perm", "QueryMT Perm", { permission: true }),
         fake("qmt-durable", "QueryMT Durable", { delayMs: 400 }, { durable: true }),
+        fake("claude", "Claude Agent", {}),
       ];
       // Browser-relay e2e faucet (change: add-browser-relay, task 7.61): the
       // plugin is defaultEnabled:false, so the Fake instance only appears when
