@@ -1,0 +1,18 @@
+/* Operate-refusal callout — tokens only (ui-contract severity-callout recipe). */
+.ab .callout.op { font-size: 14px; padding: 12px; gap: 8px; max-width: 72ch; }
+.callout.op svg.i { width: 16px; height: 16px; flex: none; fill: currentColor; }
+.callout.op .op-title { display: block; font-weight: 600; }
+.callout.op .op-why { margin: 4px 0 0; }
+.callout.op .op-label { margin: 12px 0 4px; font-weight: 600; font-size: 12px; }
+.callout.op .remedies { list-style: none; margin: 0; padding: 0; }
+.callout.op .remedy { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; }
+.callout.op .remedy + .remedy { border-top: 1px solid var(--severity-info-border); }
+.callout.op .remedy svg.i { margin-top: 2px; }
+/* ui-contract a11y #7: a link inside a callout inherits the callout fg and is underlined. */
+.callout.op .c-link { color: inherit; text-decoration: underline; font-weight: 600; }
+.callout.op .btn-row { margin-top: 8px; }
+.callout.op .op-retry { color: inherit; }
+.callout.op .op-retry:hover { background: var(--bg-hover); }
+/* Touch floor below sm (ui-contract a11y #2). */
+body[data-w="375"] .callout.op .op-retry { min-height: 44px; }
+body[data-w="375"] .callout.op .c-link { display: inline-flex; align-items: center; min-height: 44px; }

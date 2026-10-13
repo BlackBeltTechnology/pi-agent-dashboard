@@ -530,6 +530,8 @@
   "session.refreshChat": "Refresh chat",
   "session.refreshChat2": "Refresh Chat",
   "providers.refreshModelRegistry": "Refresh model registry",
+  "providers.refreshModels": "Refresh models",
+  "providers.refreshModelsHint": "Re-fetch this provider's model list in every session",
   "common.refreshModels": "Refresh models",
   "common.refreshingModels": "Refreshing…",
   "providers.registryUnreachable": "(registry unreachable)",

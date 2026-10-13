@@ -51,6 +51,9 @@ async function probeAndCacheProvider(name: string, entry: ProviderEntry): Promis
     return;
   }
   const result = await probeProvider({ baseUrl: entry.baseUrl, apiKey: resolved.key, api: entry.api as ProbeApi });
+  // An upstream error body can echo the credential; health is served to the
+  // browser, so scrub it. See change: add-provider-models-refresh (D8).
+  if (!result.ok && resolved.key) result.error = result.error.split(resolved.key).join(REDACTED);
   setProviderHealth(name, toHealth(result));
 }
 
@@ -536,6 +539,32 @@ export function registerProviderRoutes(fastify: FastifyInstance, deps: { network
       deleteProviderHealth(name);
 
       return { success: true };
+    },
+  );
+
+  // Explicit models refresh for one saved provider: no file write. Sessions
+  // force-re-register it (re-fetch /models); the server catalogue re-discovers
+  // (detached); the probe is AWAITED so the caller gets the fresh model count.
+  // See change: add-provider-models-refresh (D1, D3, D4, D7).
+  fastify.post<{ Params: { name: string } }>(
+    "/api/providers/:name/refresh",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const name = request.params.name;
+      const read = readProvidersFileDataChecked();
+      if (read.corrupt) {
+        return reply.code(409).send(corruptProvidersRefusal(read.quarantined));
+      }
+      const providers: Record<string, ProviderEntry> = read.fileData.providers ?? {};
+      if (typeof name !== "string" || !Object.hasOwn(providers, name)) {
+        return reply.code(404).send({ success: false, error: `Provider "${name}" not found` });
+      }
+      if (piGateway) {
+        piGateway.broadcast({ type: "credentials_updated", refreshProviders: [name] });
+      }
+      refreshModelRegistry().catch(() => {});
+      await probeAndCacheProvider(name, providers[name]).catch(() => {});
+      return { success: true, health: getAllProviderHealth()[name] ?? null };
     },
   );
 

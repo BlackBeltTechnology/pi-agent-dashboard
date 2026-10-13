@@ -1,0 +1,62 @@
+/* AS-BUILT REPLICA — reproduces the shipped classes 1:1, INCLUDING the defects
+   under review. These literals are the finding, not a recommendation.
+   Scope: `.ab` subtree only.
+   Sources (develop @ e3a28e717, #882 add-credential-vault):
+   settings/vault/{vault-ui,VaultSection,VaultAccountsPanel,VaultImportPanel,
+   VaultBindingsPanel,VaultPluginsPanel}.tsx, session/VaultBindingsChip.tsx. */
+.ab { font-size: 14px; }
+.ab.space-6 > * + *, .ab .space-6 > * + * { margin-top: 24px; }
+.ab.space-2 > * + *, .ab .space-2 > * + * { margin-top: 8px; }
+.ab .space-1 > * + * { margin-top: 4px; }
+/* VaultSection header */
+.ab .h2 { font-size: 16px; font-weight: 600; color: var(--text-primary); margin: 0; }
+.ab .hint { font-size: 12px; color: var(--text-tertiary); margin: 4px 0 0; }
+/* vault-ui.tsx Panel */
+.ab .p-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 0; }
+.ab .p-hint { font-size: 12px; color: var(--text-tertiary); margin: 2px 0 0; }
+/* ErrorLine / loadFailed */
+.ab .err-xs { font-size: 12px; color: var(--accent-red-text); }
+.ab .err-sm { font-size: 14px; color: var(--accent-red-text); }
+.ab .ok-xs { font-size: 12px; color: var(--accent-green-text); }
+.ab .warn-xs { font-size: 12px; color: var(--accent-yellow-text); }
+/* LIST_CLASS / ROW_CLASS */
+.ab .list { background: var(--bg-secondary); border-radius: 4px; border: 1px solid var(--border-secondary); }
+.ab .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--border-secondary); }
+.ab .row:last-child { border-bottom: 0; }
+.ab .empty { padding: 8px; font-size: 12px; color: var(--text-tertiary); }
+.ab .form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ab .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ab .xs { font-size: 12px; } .ab .x11 { font-size: 11px; } .ab .x10 { font-size: 10px; }
+.ab .mono { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; }
+.ab .fw5 { font-weight: 500; }
+.ab .prim { color: var(--text-primary); } .ab .sec { color: var(--text-secondary); } .ab .tert { color: var(--text-tertiary); }
+/* INPUT_CLASS */
+.ab input:not([type=checkbox]):not([type=file]), .ab select {
+  font: inherit; background: var(--bg-tertiary); border: 1px solid var(--border-secondary); border-radius: 4px;
+  padding: 4px 8px; font-size: 12px; color: var(--text-primary); min-width: 0;
+}
+.ab input[type=file] { font-size: 12px; color: var(--text-secondary); }
+/* BUTTON_CLASS (disabled:opacity-50) */
+.ab .btn { font-size: 12px; padding: 4px 8px; border-radius: 4px; background: var(--bg-tertiary); border: 1px solid var(--border-secondary); color: var(--text-primary); }
+.ab .btn:hover { background: var(--bg-secondary); }
+.ab .btn:disabled { opacity: .5; }
+/* DANGER_BUTTON_CLASS */
+.ab .dbtn { font-size: 12px; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-secondary); color: var(--text-tertiary); }
+.ab .dbtn:hover { color: var(--accent-red-text); }
+.ab label.chk { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+/* corrupt banner */
+.ab .corrupt { border: 1px solid var(--accent-red); border-radius: 4px; padding: 12px; font-size: 14px; color: var(--text-primary); }
+
+/* VaultBindingsChip.tsx */
+.ab .chip { font-size: 11px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border-secondary); color: var(--text-secondary); }
+.ab .chip.pending { color: var(--accent-yellow-text); }
+.ab .backdrop { position: relative; padding: 24px 8px; background: rgb(0 0 0 / .4); border-radius: 6px; display: flex; justify-content: center; }
+.ab .dialog { background: var(--bg-primary); border: 1px solid var(--border-primary); border-radius: 6px; width: min(560px, 100%); box-shadow: 0 20px 25px -5px rgb(0 0 0 / .1), 0 8px 10px -6px rgb(0 0 0 / .1); }
+.ab .dialog .hd { padding: 8px 12px; border-bottom: 1px solid var(--border-primary); display: flex; align-items: center; justify-content: space-between; }
+.ab .dialog .close { font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border-secondary); color: var(--text-secondary); }
+.ab .dialog .bd { padding: 8px; }
+.ab .dialog .bd > * + * { margin-top: 4px; }
+.ab .brow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 11px; padding: 0 4px; }
+.ab .tone-ok { color: var(--accent-green-text); } .ab .tone-warn { color: var(--accent-yellow-text); } .ab .tone-sec { color: var(--text-secondary); }
+.ab .cbtn { font-size: 11px; padding: 4px 8px; border-radius: 4px; background: var(--bg-tertiary); border: 1px solid var(--border-secondary); color: var(--text-primary); }
+.ab .session-hdr { display: flex; gap: 8px; align-items: center; padding: 6px 8px; background: var(--bg-secondary); border-radius: 6px; font-size: 12px; color: var(--text-secondary); }

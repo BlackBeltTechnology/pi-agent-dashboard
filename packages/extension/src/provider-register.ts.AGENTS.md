@@ -9,3 +9,7 @@ Register custom LLM providers + auto-discovered models from `~/.pi/agent/provide
 `session_start` re-enrichment loop also runs on `reloadChain` (waits for startup discovery first). See change: refresh-models-on-provider-change.
 
 Native model re-registration carries `samplingParamsByThinkingLevel` unchanged; omitted when absent. See change: update-pi-core-1-1-adopt-apis.
+
+`reloadProviders(pi, {force?})` — forced name present in snapshot + providers.json takes the changed branch (unregister → `registerEntry` → re-fetch `/models` + re-read native `models.json`); absent names ignored; still serialized via `reloadChain`. Stale `enrichmentSource` keys for dropped ids are harmless (read only for registered ids). See change: add-provider-models-refresh.
+
+Forced refresh discovers BEFORE unregistering via `tryDiscoverModels` (`null` on failed fetch); failure keeps the working registration (no unregister, not in `changed`); success passes the models to `registerEntry(..., prediscovered)` (no second fetch). `discoverModels` = `tryDiscoverModels ?? []` (unforced paths unchanged). See change: add-provider-models-refresh (PR #894 review).

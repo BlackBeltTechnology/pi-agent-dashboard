@@ -27,6 +27,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `plugin-embedded-app.spec.ts` | L3 demo `"content"` embedded app (F1/F2). → see `plugin-embedded-app.spec.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | L3 demo-plugin seams, unmocked: F1 start → auth… → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
 | `preview-denial-remedy.spec.ts` | L3 preview denial remedy (#F1,#F4-#F13,#X1,#X2). → see `preview-denial-remedy.spec.ts.AGENTS.md` |
+| `provider-models-refresh.spec.ts` | L3: Refresh models row. → see `provider-models-refresh.spec.ts.AGENTS.md` |
 | `push-webhook-settings.spec.ts` | L3 #F9 push webhook. → see `push-webhook-settings.spec.ts.AGENTS.md` |
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx… → see `README.md.AGENTS.md` |
 | `fixtures/severity-baseline.json` | Severity theme-token baseline. → see `fixtures/severity-baseline.json.AGENTS.md` |
@@ -42,7 +43,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `copy-insecure-context.spec.ts` | L3 test-plan #X3 (change: fix-long-session-u… → see `copy-insecure-context.spec.ts.AGENTS.md` |
 | `drag-body-style.spec.ts` | #F23 — breakpoint flip unmounts dragger mid-drag; body… → see `drag-body-style.spec.ts.AGENTS.md` |
 | `idle-fx-pause.spec.ts` | L3 for idle FX pause (test-plan #F16-#F20): idle delay… → see `idle-fx-pause.spec.ts.AGENTS.md` |
-| `long-session-settle.spec.ts` | L3 test-plan #P4 (change: fix-long-session-ux-degradation… → see `long-session-settle.spec.ts.AGENTS.md` |
+| `long-session-settle.spec.ts` | L3 test-plan #P4. → see `long-session-settle.spec.ts.AGENTS.md` |
 | `mobile-viewport-bound.spec.ts` | L3 mobile viewport bound (test-plan F12-F15, change… → see `mobile-viewport-bound.spec.ts.AGENTS.md` |
 | `bind-reachability-advisory.spec.ts` | L3 bind-vs-trust advisory. → see `bind-reachability-advisory.spec.ts.AGENTS.md` |
 | `blackhole-settings.spec.ts` | L3 spec (change: add-blackhole-plugin). Covers test-plan… → see `blackhole-settings.spec.ts.AGENTS.md` |
@@ -79,7 +80,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `faux-text.spec.ts` | Playwright spec. Faux `[[faux:plain-text]]` roundtrip.… → see `faux-text.spec.ts.AGENTS.md` |
 | `faux-tool.spec.ts` | Faux-provider tool-call round trip. → see `faux-tool.spec.ts.AGENTS.md` |
 | `file-mention-resolve.spec.ts` | L3 server-side-file-mention-resolution (S19). → see `file-mention-resolve.spec.ts.AGENTS.md` |
-| `file-preview-survives-churn.spec.ts` | Playwright spec. Rendered-DOM regression for… → see `file-preview-survives-churn.spec.ts.AGENTS.md` |
+| `file-preview-survives-churn.spec.ts` | Playwright spec. → see `file-preview-survives-churn.spec.ts.AGENTS.md` |
 | `fixtures.ts` | The suite's `test`/`expect` entry point — EVERY spec… → see `fixtures.ts.AGENTS.md` |
 | `flow-attach-before-run.spec.ts` | L3 attach-flow-before-run F15/F16. → see `flow-attach-before-run.spec.ts.AGENTS.md` |
 | `flow-live-no-double-render.spec.ts` | L3 (change: render-inline-reasonin… → see `flow-live-no-double-render.spec.ts.AGENTS.md` |
@@ -96,7 +97,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `gateway-primary-offer.spec.ts` | F7/F8 of add-zrok-custom-reserved-name. → see `gateway-primary-offer.spec.ts.AGENTS.md` |
 | `gateway-qr-selector.spec.ts` | Browser E2E for the Gateway single-QR network selector… → see `gateway-qr-selector.spec.ts.AGENTS.md` |
 | `gateway-readiness-board.spec.ts` | F1–F6 + F9 — readiness board, poll lifecycle… → see `gateway-readiness-board.spec.ts.AGENTS.md` |
-| `gateway-reserved-name.spec.ts` | Setup step 3 — the reserved-name control and its typed… → see `gateway-reserved-name.spec.ts.AGENTS.md` |
+| `gateway-reserved-name.spec.ts` | Setup step 3. → see `gateway-reserved-name.spec.ts.AGENTS.md` |
 | `gateway-url-action.spec.ts` | L3 spec (change: config-override-oauth-redirect-base… → see `gateway-url-action.spec.ts.AGENTS.md` |
 | `git-panel.spec.ts` | Scenario 5.2 spec. Calls `ensureGitSession`. Asserts… → see `git-panel.spec.ts.AGENTS.md` |
 | `global-setup.ts` | Playwright globalSetup. `PW_E2E_USE_RUNNING=1` → only… → see `global-setup.ts.AGENTS.md` |
@@ -173,7 +174,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `registry-shed-sidebar-convergence.spec.ts` | L3 #F7: shed registry burs… → see `registry-shed-sidebar-convergence.spec.ts.AGENTS.md` |
 | `remote-transcript-read.spec.ts` | L3 D12 READ half of add-pi-gateway-transport-identity. → see `remote-transcript-read.spec.ts.AGENTS.md` |
 | `replay-delta-on-reload.spec.ts` | Playwright spec. Strategy A: reload of seen session… → see `replay-delta-on-reload.spec.ts.AGENTS.md` |
-| `replay-in-flight-pill.spec.ts` | Playwright spec. Replay-in-flight pill: visible over a… → see `replay-in-flight-pill.spec.ts.AGENTS.md` |
+| `replay-in-flight-pill.spec.ts` | Playwright spec. → see `replay-in-flight-pill.spec.ts.AGENTS.md` |
 | `replay-truncate.spec.ts` | Playwright spec. Strategy B: full replay in fresh browser… → see `replay-truncate.spec.ts.AGENTS.md` |
 | `resource-activation-trust.spec.ts` | L3 spec (change: project-scope-disable-globa… → see `resource-activation-trust.spec.ts.AGENTS.md` |
 | `resource-scope-routes.spec.ts` | S-25 scope × path decision table: the 10 resource… → see `resource-scope-routes.spec.ts.AGENTS.md` |
@@ -183,7 +184,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `session-ended-orphan-heal.spec.ts` | L3 session-end orphan heal. → see `session-ended-orphan-heal.spec.ts.AGENTS.md` |
 | `session-heap-settings.spec.ts` | L3 heap settings copy, save round-trip, coup… → see `session-heap-settings.spec.ts.AGENTS.md` |
 | `session-history-load-state.spec.ts` | Playwright spec. History-load states (F11+). → see `session-history-load-state.spec.ts.AGENTS.md` |
-| `session-list-group-by.spec.ts` | L3 Group by is server state (folder-menu radio → chip). → see `session-list-group-by.spec.ts.AGENTS.md` |
+| `session-list-group-by.spec.ts` | L3 Group by is server state. → see `session-list-group-by.spec.ts.AGENTS.md` |
 | `session-reap.spec.ts` | L3 gate on the reap fixture itself, driven headless over… → see `session-reap.spec.ts.AGENTS.md` |
 | `session-spawn.spec.ts` | Scenario spec 5.1, authoritative WS round-trip. Clears… → see `session-spawn.spec.ts.AGENTS.md` |
 | `session-state-honesty.spec.ts` | L3 rendered-honesty gate (change… → see `session-state-honesty.spec.ts.AGENTS.md` |
@@ -203,7 +204,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `subagent-pull-measurements.spec.ts` | Subagent pull measurement evidence. → see `subagent-pull-measurements.spec.ts.AGENTS.md` |
 | `subagent-pull-under-load.spec.ts` | L3 open-inspector pull under load. → see `subagent-pull-under-load.spec.ts.AGENTS.md` |
 | `subagent-stop-finalize.spec.ts` | L3 dropped Agent end → card finalizes on sub… → see `subagent-stop-finalize.spec.ts.AGENTS.md` |
-| `subagent-thin-tick-liveness.spec.ts` | L3 subagent push/pull split: terminal fideli… → see `subagent-thin-tick-liveness.spec.ts.AGENTS.md` |
+| `subagent-thin-tick-liveness.spec.ts` | L3 subagent push/pull split. → see `subagent-thin-tick-liveness.spec.ts.AGENTS.md` |
 | `subagent-tick-throttle.spec.ts` | L3 cadence rows for the subagent-tick throttle (change → see `subagent-tick-throttle.spec.ts.AGENTS.md` |
 | `submodule-folder-grouping.spec.ts` | L3 checkout-root resolver (change… → see `submodule-folder-grouping.spec.ts.AGENTS.md` |
 | `streaming-latch-heal.spec.ts` | L3 (change: fix-stuck-streaming-status-latch, test-plan… → see `streaming-latch-heal.spec.ts.AGENTS.md` |

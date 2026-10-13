@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vault — operate refusal callout (surface-operate-required-remedy)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="asbuilt.css" />
+<link rel="stylesheet" href="vault.css" />
+<link rel="stylesheet" href="callout.css" />
+<script src="icons.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Vault — operate refusal</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Side by side</button>
+    <button aria-pressed="false" data-v="proposed">Proposed only</button>
+  </div>
+</div>
+<main id="board"></main>
+<script>
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+
+/* As-built shell — VaultSection.tsx header + description + scoping note (verbatim copy). */
+const shell = (body) => `<div class="ab space-6" data-testid="vault-section"><div><h2 class="h2">Credential vault</h2>
+  <p class="hint">Keys live on this dashboard. A key reaches a session only when its project is granted it, and the dashboard never shows a stored value again after you save it.</p>
+  <p class="hint">Grants scope which sessions get a key; they are not a security boundary against code running in that project.</p></div>${body}</div>`;
+const legacy = (msg) => `<div role="alert" class="err-sm" data-testid="vault-error">Couldn't load the vault: ${msg}</div>`;
+
+const COPY = {
+  "use-host": ["Monitor", "Open the dashboard on the computer that runs it."],
+  "re-pair": ["CellphoneKey", "This device is paired with less than Operate access, and access is fixed when a device is paired. On the host, revoke it in Paired devices, then pair it again with Operate access. Pairing needs an HTTPS address of this dashboard."],
+  "sign-in": ["Login", "Sign in with an operator account."],
+};
+let n = 0;
+function callout(remedies) {
+  const id = `ops-list-${++n}`;
+  const rows = remedies.filter((r) => COPY[r]).map((r) => {
+    const [icon, text] = COPY[r];
+    const link = r === "sign-in" ? ` <a class="c-link" href="#" data-testid="vault-operate-signin">Sign in</a>` : "";
+    return `<li class="remedy" data-testid="vault-operate-remedy" data-remedy="${r}">${ic(icon)}<span>${text}${link}</span></li>`;
+  }).join("");
+  return `<div class="callout info op" role="status" data-testid="vault-operate-required">${ic("LockOutline")}<div class="body">
+    <strong class="op-title">This device can't open the vault</strong>
+    <p class="op-why">The vault shows which keys exist and where they go, so it opens only for an operator.</p>
+    <p class="op-label" id="${id}">What you can do</p>
+    <ul class="remedies" aria-labelledby="${id}">${rows}</ul>
+    <div class="btn-row"><button class="p-btn sm ghost op-retry" data-testid="vault-operate-retry">${ic("Refresh")}Try again</button></div>
+  </div></div>`;
+}
+
+const MSG = "the vault needs an operate-tier credential or a locally trusted caller";
+const MSG_TIER = "the vault needs an operate-tier credential; this device's credential has a lower tier";
+const STATES = [
+  ["lan-no-credential", "The reported case — LAN browser admitted by trusted network, no credential, no login configured · remedies [use-host]", legacy(MSG), callout(["use-host"])],
+  ["lan-with-login", "Same caller, a usable login method configured · [use-host, sign-in]", legacy(MSG), callout(["use-host", "sign-in"])],
+  ["low-tier-lan", "Paired device with Control access, from a trusted address · [use-host, re-pair]", legacy(MSG), callout(["use-host", "re-pair"])],
+  ["low-tier-host", "Observe-tier bearer on the host itself (strict off) — no use-host · [re-pair]", legacy(MSG), callout(["re-pair"])],
+  ["all", "Longest case · [use-host, re-pair, sign-in]", legacy(MSG_TIER), callout(["use-host", "re-pair", "sign-in"])],
+  ["unknown-remedy", "Newer server sends a value this client doesn't know · [use-host, request-access] → request-access dropped", legacy(MSG), callout(["use-host", "request-access"])],
+  ["older-server", "Older server: operate_required without remedies → today's line, unchanged", legacy(MSG), legacy(MSG)],
+  ["other-failure", "Network error / 500 → today's line, unchanged", legacy("HTTP 500"), legacy("HTTP 500")],
+];
+
+document.getElementById("board").innerHTML = `<section class="surface"><h2>Settings ▸ Vault — load refused with operate_required</h2>
+<p class="verdict">Verdict: replace the red one-liner with an info callout that names the cause and lists only the remedies the server sends. Supersedes retro-ux-credential-vault F1 "load-error".</p>
+${STATES.map(([id, finds, ab, pr]) => `<article class="state" id="${id}"><header><code>${id}</code><span class="finds">${finds}</span></header>
+  <div class="pair"><div class="col asbuilt"><p class="tag">As-built</p><div class="frame">${shell(ab)}</div></div>
+  <div class="col proposed"><p class="tag">Proposed</p><div class="frame">${shell(pr)}</div></div></div></article>`).join("")}
+</section>`;
+
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+  }
+  if (group === "width") { document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`); document.body.dataset.w = v; }
+  if (group === "view") document.body.dataset.view = v;
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply(seg.dataset.group, b.dataset.v);
+}));
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>

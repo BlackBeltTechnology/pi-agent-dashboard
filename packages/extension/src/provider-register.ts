@@ -546,8 +546,18 @@ interface DiscoveredModel {
 }
 
 async function discoverModels(baseUrl: string, apiKey: string): Promise<DiscoveredModel[]> {
+  return (await tryDiscoverModels(baseUrl, apiKey)) ?? [];
+}
+
+/**
+ * Like `discoverModels`, but `null` on a failed fetch (unresolved key, non-2xx,
+ * bad shape, network/timeout) so a forced refresh can keep the working
+ * registration instead of replacing it with an empty model set.
+ * See change: add-provider-models-refresh (CodeRabbit #894).
+ */
+async function tryDiscoverModels(baseUrl: string, apiKey: string): Promise<DiscoveredModel[] | null> {
   const resolved = resolveApiKey(apiKey);
-  if (!resolved) return [];
+  if (!resolved) return null;
 
   const url = baseUrl.endsWith("/") ? `${baseUrl}models` : `${baseUrl}/models`;
 
@@ -562,7 +572,7 @@ async function discoverModels(baseUrl: string, apiKey: string): Promise<Discover
 
     if (!response.ok) {
       console.warn(`[provider] Model discovery failed for ${url}: HTTP ${response.status}`);
-      return [];
+      return null;
     }
 
     const body = await response.json() as unknown;
@@ -572,12 +582,12 @@ async function discoverModels(baseUrl: string, apiKey: string): Promise<Discover
     const shaped = body as { data?: unknown; models?: unknown } | null;
     if (!Array.isArray(shaped?.data) && !Array.isArray(shaped?.models)) {
       console.warn(`[provider] Model discovery: unexpected response format from ${url}`);
-      return [];
+      return null;
     }
     return mapAdvertisedModels(body);
   } catch (err: any) {
     console.warn(`[provider] Model discovery failed for ${url}: ${err.message}`);
-    return [];
+    return null;
   }
 }
 
@@ -823,7 +833,12 @@ export function preRegisterProviderAuth(pi: ExtensionAPI, name: string, entry: P
   }
 }
 
-async function registerEntry(pi: ExtensionAPI, name: string, entry: ProviderEntry): Promise<number> {
+async function registerEntry(
+  pi: ExtensionAPI,
+  name: string,
+  entry: ProviderEntry,
+  prediscovered?: DiscoveredModel[],
+): Promise<number> {
   // Record snapshot SYNCHRONOUSLY before awaiting discovery so the very
   // first providers_list push (typically fired from `session_start`
   // shortly after `activate()` kicked off async registerEntry calls) carries
@@ -838,7 +853,7 @@ async function registerEntry(pi: ExtensionAPI, name: string, entry: ProviderEntr
     api: entry.api ?? "openai-completions",
   });
 
-  const discovered = await discoverModels(entry.baseUrl, entry.apiKey);
+  const discovered = prediscovered ?? (await discoverModels(entry.baseUrl, entry.apiKey));
 
   // Native user-authored `~/.pi/agent/models.json` entries for THIS provider
   // (read-only). These are the capability AUTHORITY — native metadata wins over
@@ -913,18 +928,25 @@ async function registerEntry(pi: ExtensionAPI, name: string, entry: ProviderEntr
  * `lastRegistered` before awaiting discovery -- an overlapping call would see
  * "no diff" and push a list missing the in-flight provider.
  * See change: refresh-models-on-provider-change (D4).
+ *
+ * `opts.force` names providers to treat as changed even when their entry is
+ * unchanged — re-registering re-fetches `/models` and re-reads native
+ * `models.json`. Names absent from providers.json are ignored.
+ * See change: add-provider-models-refresh (D2).
  */
 let reloadChain: Promise<unknown> = Promise.resolve();
 export function reloadProviders(
   pi: ExtensionAPI,
+  opts: { force?: readonly string[] } = {},
 ): Promise<{ added: string[]; removed: string[]; changed: string[] }> {
-  const run = reloadChain.then(() => reloadProvidersNow(pi));
+  const run = reloadChain.then(() => reloadProvidersNow(pi, new Set(opts.force ?? [])));
   reloadChain = run.catch(() => {});
   return run;
 }
 
 async function reloadProvidersNow(
   pi: ExtensionAPI,
+  force: ReadonlySet<string>,
 ): Promise<{ added: string[]; removed: string[]; changed: string[] }> {
   piRef = pi;
   const added: string[] = [];
@@ -938,6 +960,19 @@ async function reloadProvidersNow(
     return { added, removed, changed };
   }
 
+  // Forced refresh: discover BEFORE unregistering; a failed fetch keeps the
+  // working registration (a transient /models outage must not wipe a live
+  // session's models). See change: add-provider-models-refresh.
+  const forcedModels = new Map<string, DiscoveredModel[]>();
+  for (const name of force) {
+    const prev = lastRegistered.get(name);
+    const next = current[name];
+    if (!prev || !next || !entriesEqual(prev, next)) continue;
+    const found = await tryDiscoverModels(next.baseUrl, next.apiKey);
+    if (found) forcedModels.set(name, found);
+    else console.warn(`[dashboard] refresh of "${name}" skipped: model discovery failed; keeping current models`);
+  }
+
   // Detect removals and changes against previous snapshot.
   for (const [name, prev] of lastRegistered) {
     const next = current[name];
@@ -949,7 +984,7 @@ async function reloadProvidersNow(
       }
       lastRegistered.delete(name);
       removed.push(name);
-    } else if (!entriesEqual(prev, next)) {
+    } else if (forcedModels.has(name) || !entriesEqual(prev, next)) {
       try {
         pi.unregisterProvider(name);
       } catch (err: any) {
@@ -964,7 +999,7 @@ async function reloadProvidersNow(
   for (const [name, entry] of Object.entries(current)) {
     if (lastRegistered.has(name)) continue;
     try {
-      await registerEntry(pi, name, entry);
+      await registerEntry(pi, name, entry, forcedModels.get(name));
       if (!added.includes(name) && !changed.includes(name)) {
         added.push(name);
       }

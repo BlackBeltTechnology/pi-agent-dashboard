@@ -770,6 +770,8 @@ const zhCN: Record<string, string> = {
   "providers.loadingProviderStatus": "正在加载提供方状态…",
   "providers.reasoningUnknownProviderReportedNone": "推理未知 —— provider 未报告",
   "providers.refreshModelRegistry": "刷新模型注册表",
+  "providers.refreshModels": "刷新模型",
+  "providers.refreshModelsHint": "在所有会话中重新获取此提供商的模型列表",
   "providers.registryUnreachable": "（注册表无法访问）",
   "providers.visionAssumedProviderReportedNoCapabi": "假定支持视觉 —— provider 未报告能力；图像输入默认开启",
   "session.abortedMaxTurnsExceeded": "已中止（超出最大回合数）",

@@ -1,0 +1,137 @@
+/* PROPOSED vault recipes. Tokens only (tokens.css) — no palette class, hex or
+   rgba literal. Scoped to `.col.proposed` so the `.ab` replica never inherits
+   them. Shared primitives (p-btn, p-input, pill, callout, p-row, inset,
+   focus-ring) come from mockup.css (ui-contract.md component invariants). */
+
+.col.proposed .v-page > * + * { margin-top: 16px; }
+.col.proposed .v-title { font-size: 16px; font-weight: 600; margin: 0; }
+.col.proposed .v-lead { font-size: 12px; color: var(--text-secondary); margin: 4px 0 0; max-width: 72ch; }
+
+/* how-it-works strip */
+.col.proposed .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; list-style: none; padding: 0; margin: 8px 0 0; font-size: 12px; color: var(--text-secondary); }
+.col.proposed .flow li { display: inline-flex; align-items: center; gap: 4px; }
+.col.proposed .flow .step { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); color: var(--text-primary); font-weight: 600; }
+.col.proposed .flow .arrow { color: var(--text-secondary); }
+
+/* tabs (APG tabs, automatic activation) */
+.col.proposed .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-secondary); }
+.col.proposed .tab { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; font-size: 12px; font-weight: 600; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.col.proposed .tab[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent-primary); }
+.col.proposed .tab .count { font-size: 12px; font-weight: 600; padding: 0 6px; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-secondary); }
+.col.proposed .tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.col.proposed .sec-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin: 0; display: flex; align-items: center; gap: 6px; }
+.col.proposed .toolbar-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+
+/* variable card */
+.col.proposed .vcard { border: 1px solid var(--border-secondary); border-radius: 8px; background: var(--bg-secondary); }
+.col.proposed .vcard > header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border-subtle); }
+.col.proposed .vname { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.col.proposed .vcard > header .acts { margin-left: auto; display: flex; gap: 6px; }
+.col.proposed .vbody { padding: 10px 12px; }
+.col.proposed .vbody > * + * { margin-top: 12px; }
+.col.proposed .vfield { display: grid; grid-template-columns: minmax(120px, 160px) 1fr; gap: 4px 12px; align-items: center; }
+.col.proposed .vfield .p-label { margin: 0; }
+.col.proposed .vfield .p-input { max-width: 320px; }
+.col.proposed .vfield .p-meta { grid-column: 2; }
+.col.proposed .frame { container-type: inline-size; }
+@container (max-width: 560px) {
+  .col.proposed .vfield { grid-template-columns: 1fr; }
+  .col.proposed .vfield .p-meta { grid-column: 1; }
+  .col.proposed .vfield .p-input { max-width: none; }
+  .col.proposed .grow-row .acts { flex-basis: 100%; }
+}
+
+/* grant / project rows */
+.col.proposed .glist { list-style: none; padding: 0; margin: 0; }
+.col.proposed .glist > li + li { margin-top: 6px; }
+.col.proposed .grow-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-tertiary); }
+.col.proposed .grow-row > svg.i { margin-top: 3px; color: var(--text-secondary); }
+.col.proposed .grow-row .main { flex: 1; min-width: 0; }
+.col.proposed .grow-row .t { font-size: 14px; font-weight: 600; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.col.proposed .grow-row .s { font-size: 12px; color: var(--text-secondary); font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; }
+.col.proposed .grow-row .acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.col.proposed .checkouts { list-style: none; margin: 6px 0 0; padding: 0 0 0 4px; border-left: 2px solid var(--border-secondary); }
+.col.proposed .checkouts li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 2px 0 2px 8px; font-size: 12px; color: var(--text-secondary); }
+.col.proposed .checkouts code { color: var(--text-primary); }
+.col.proposed details.co > summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text-primary); min-height: 32px; display: inline-flex; align-items: center; gap: 4px; }
+.col.proposed details.co > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* project picker: radio group, not a listbox (no interactive content in options) */
+.col.proposed .picker { border-radius: 8px; border: 1px solid var(--border-strong); background: var(--bg-tertiary); padding: 12px; }
+.col.proposed .picker > * + * { margin-top: 10px; }
+.col.proposed .picker fieldset { border: 0; padding: 0; margin: 0; }
+.col.proposed .picker legend { font-size: 12px; font-weight: 600; color: var(--text-secondary); padding: 0; margin: 0 0 4px; }
+.col.proposed .opt { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-secondary); cursor: pointer; min-height: 44px; }
+.col.proposed .opt + .opt { margin-top: 4px; }
+.col.proposed .opt input { margin-top: 3px; accent-color: var(--accent-primary); width: 16px; height: 16px; flex: none; }
+.col.proposed .opt input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.col.proposed .opt .main { flex: 1; min-width: 0; }
+.col.proposed .opt .t { font-size: 14px; font-weight: 600; color: var(--text-primary); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.col.proposed .opt .s { font-size: 12px; color: var(--text-secondary); font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; }
+.col.proposed .opt .why { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.col.proposed .opt .r { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.col.proposed .opt:has(input:checked) { border-color: var(--accent-primary); box-shadow: inset 2px 0 0 var(--accent-primary); }
+.col.proposed .opt[aria-disabled="true"] { cursor: not-allowed; }
+.col.proposed .opt[aria-disabled="true"] .t { color: var(--text-secondary); }
+.col.proposed .opt .pill { font-size: 12px; } /* inside a label: 12 px floor (sizeFailures) */
+.col.proposed .seg2 { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 6px; overflow: hidden; }
+.col.proposed .seg2 button { min-height: 32px; padding: 0 12px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.col.proposed .seg2 button[aria-pressed="true"] { background: var(--tint-blue-bg); color: var(--tint-blue-fg); }
+.col.proposed .seg2 button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.col.proposed .seg2 button + button { border-left: 1px solid var(--border-secondary); }
+.col.proposed .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; align-items: end; }
+.col.proposed .form-grid .full { grid-column: 1 / -1; }
+.col.proposed .with-btn { display: flex; gap: 6px; }
+.col.proposed .with-btn .p-input { flex: 1; }
+.col.proposed .chk { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--text-primary); min-height: 32px; }
+.col.proposed .chk input { margin-top: 2px; width: 16px; height: 16px; accent-color: var(--accent-primary); flex: none; }
+.col.proposed .chk input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.col.proposed .chk code, .col.proposed .chk .p-meta { font-size: 12px; } /* inside a label: 12 px floor */
+.col.proposed .btn-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.col.proposed ul.impact { margin: 4px 0 0; padding-left: 18px; }
+.col.proposed ul.impact li + li { margin-top: 2px; }
+
+/* switch (plugin approval) */
+.col.proposed .switch { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.col.proposed .switch .track { width: 32px; height: 18px; border-radius: 999px; background: var(--bg-surface); border: 1px solid var(--border-strong); position: relative; flex: none; }
+.col.proposed .switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 999px; background: var(--text-secondary); }
+.col.proposed .switch[aria-checked="true"] .track { background: var(--accent-solid); border-color: var(--accent-solid); }
+.col.proposed .switch[aria-checked="true"] .track::after { left: 16px; background: var(--bg-primary); }
+.col.proposed .switch:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 6px; }
+
+/* empty / first-run */
+.col.proposed .steps { list-style: none; counter-reset: s; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+.col.proposed .steps li { counter-increment: s; border: 1px solid var(--border-secondary); border-radius: 8px; padding: 10px 12px; background: var(--bg-secondary); }
+.col.proposed .steps li::before { content: counter(s); display: inline-flex; width: 20px; height: 20px; border-radius: 999px; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; background: var(--tint-blue-bg); color: var(--tint-blue-fg); margin-bottom: 6px; }
+.col.proposed .steps .t { font-size: 14px; font-weight: 600; }
+.col.proposed .steps .d { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.col.proposed .skeleton { height: 64px; border-radius: 8px; background: var(--bg-secondary); border: 1px solid var(--border-subtle); }
+.col.proposed .skeleton + .skeleton { margin-top: 8px; }
+
+/* board-only annotation: NOT product UI */
+.board-note { border: 1px dashed var(--border-strong); border-radius: 8px; padding: 8px 10px; font-size: 12px; color: var(--text-secondary); }
+.board-note strong { color: var(--text-primary); }
+
+/* session chip + dialog (proposed) */
+.col.proposed .s-hdr { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 6px 8px; background: var(--bg-secondary); border-radius: 6px; font-size: 12px; color: var(--text-secondary); }
+.col.proposed .vchip { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.col.proposed .vchip.pending { border-color: var(--severity-warning-border); background: var(--severity-warning-bg); color: var(--severity-warning-fg); }
+.col.proposed .vchip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.col.proposed .dlg-wrap { padding: 16px 8px; border-radius: 6px; background: var(--bg-secondary); display: flex; justify-content: center; }
+.col.proposed .dlg { width: min(560px, 100%); background: var(--bg-primary); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: inset 0 1px 0 var(--elevation-rim), 0 4px 8px var(--shadow-card); }
+.col.proposed .dlg > header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border-secondary); }
+.col.proposed .dlg > header h3 { margin: 0; font-size: 14px; font-weight: 600; flex: 1; }
+.col.proposed .dlg .bd { padding: 12px; }
+.col.proposed .dlg .bd > * + * { margin-top: 10px; }
+.col.proposed .dlg > footer { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 12px; border-top: 1px solid var(--border-secondary); }
+.col.proposed .proj { font-size: 12px; color: var(--text-secondary); }
+.col.proposed .proj code { color: var(--text-primary); overflow-wrap: anywhere; }
+.col.proposed .srow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }
+.col.proposed .srow:last-child { border-bottom: 0; }
+.col.proposed .srow code { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.col.proposed .srow .d { flex-basis: 100%; font-size: 12px; color: var(--text-secondary); }
+.col.proposed .srow .acts { margin-left: auto; }
+.col.proposed .p-linkc { color: var(--link); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; min-height: 32px; text-decoration: underline; text-underline-offset: 2px; }
+.col.proposed .p-linkc:hover { color: var(--link-hover); }
+.col.proposed .p-linkc:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
