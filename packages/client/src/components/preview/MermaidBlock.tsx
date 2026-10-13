@@ -526,6 +526,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
   );
   const [focused, setFocused] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const refocusViewportRef = useRef(false);
   // Contain-fit scale, measured against the fixed-height viewport once the SVG
   // is known; the hook clamps it into [min,max] and re-seeds until user input.
   // See change: fix-markdown-remount-storm (D4).
@@ -557,6 +558,13 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
     return () => el.removeEventListener("wheel", wheelHandler);
   }, [handlers.onWheel, svg, focused]);
 
+  // After Escape deactivates the diagram, keep keyboard focus on the viewport.
+  useEffect(() => {
+    if (focused || !refocusViewportRef.current) return;
+    refocusViewportRef.current = false;
+    viewportRef.current?.focus();
+  }, [focused]);
+
   // Click-outside and Escape to deactivate
   useEffect(() => {
     if (!focused) return;
@@ -567,9 +575,10 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
     }
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        // The zoom buttons unmount on deactivation, dropping focus to <body>; the
+        // effect below moves it to the viewport once they are gone.
+        refocusViewportRef.current = true;
         setFocused(false);
-        // The zoom buttons unmount on deactivation; keep keyboard focus on the viewport.
-        viewportRef.current?.focus();
       }
     }
     document.addEventListener("mousedown", onClickOutside);

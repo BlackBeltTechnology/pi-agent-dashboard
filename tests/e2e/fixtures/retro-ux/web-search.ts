@@ -18,7 +18,10 @@ const fetchRow = (page: Page) => page.getByTestId("web-search-entry").filter({ h
 
 type Row = (page: Page) => ReturnType<typeof searchRow>;
 
-function state(id: string, label: string, row: Row, install: UiState["install"], expand: boolean): UiState {
+/** Test id that proves the expanded body reached the state (not still "Loading details…"). */
+type Ready = "web-search-detail" | "web-search-loading" | "web-search-error" | null;
+
+function state(id: string, label: string, row: Row, install: UiState["install"], ready: Ready): UiState {
   return {
     id,
     label,
@@ -27,7 +30,9 @@ function state(id: string, label: string, row: Row, install: UiState["install"],
     open: async (page) => {
       await openChat(page);
       await reveal(page, row(page));
-      if (expand) await row(page).getByTestId("web-search-toggle").click();
+      if (ready === null) return;
+      await row(page).getByTestId("web-search-toggle").click();
+      await row(page).getByTestId(ready).waitFor({ state: "visible", timeout: 15_000 });
     },
     root: row,
   };
@@ -49,22 +54,22 @@ const SKIPPED_PAYLOAD = {
 };
 
 export const webSearchStates: UiState[] = [
-  state("collapsed", "search row, collapsed", searchRow, async () => {}, false),
-  state("expanded", "answer, results, per-query error, no results", searchRow, withPayload(RETRO_UX_SEARCH_PAYLOAD), true),
-  state("fetch", "fetch row with one 404", fetchRow, withPayload(RETRO_UX_FETCH_PAYLOAD), true),
+  state("collapsed", "search row, collapsed", searchRow, async () => {}, null),
+  state("expanded", "answer, results, per-query error, no results", searchRow, withPayload(RETRO_UX_SEARCH_PAYLOAD), "web-search-detail"),
+  state("fetch", "fetch row with one 404", fetchRow, withPayload(RETRO_UX_FETCH_PAYLOAD), "web-search-detail"),
   state(
     "loading",
     "payload request pending",
     searchRow,
     (page) => stubEntryPayload(page, () => hold()),
-    true,
+    "web-search-loading",
   ),
   state(
     "evicted",
     "payload evicted (404) → stored body",
     searchRow,
     (page) => stubEntryPayload(page, (route) => route.fulfill({ status: 404, contentType: "application/json", body: "{}" })),
-    true,
+    "web-search-error",
   ),
-  state("skipped", "one malformed result", searchRow, withPayload(SKIPPED_PAYLOAD), true),
+  state("skipped", "one malformed result", searchRow, withPayload(SKIPPED_PAYLOAD), "web-search-detail"),
 ];

@@ -4,7 +4,6 @@ import { customEntryStates } from "./fixtures/retro-ux/custom-entry.js";
 import { mermaidStates } from "./fixtures/retro-ux/mermaid.js";
 import { webSearchStates } from "./fixtures/retro-ux/web-search.js";
 import { expect, type Page, test } from "./fixtures.js";
-import { setThemeMode } from "./helpers/computed-contrast.js";
 import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { type CaptureResult, captureStates, RETRO_UX_THEMES, type UiState } from "./helpers/ui-capture.js";
 
@@ -23,6 +22,9 @@ import { type CaptureResult, captureStates, RETRO_UX_THEMES, type UiState } from
  */
 
 const CHANGE = "retro-ux-chat-rendering";
+
+// The app's service worker answers hashed assets from its own cache, bypassing `page.route` (the mermaid `loading` state).
+test.use({ serviceWorkers: "block" });
 
 test.describe.configure({ mode: "serial" });
 
@@ -73,7 +75,6 @@ test.describe("retro-ux chat rendering", () => {
       test.setTimeout(120_000);
       await ensureSession(page);
       await page.setViewportSize({ width, height: 900 });
-      await setThemeMode(page, "dark", "base");
       await openChat(page);
       await reveal(page, page.getByTestId("web-search-entry"));
       await reveal(page, page.getByTestId("custom-entry-card").filter({ hasText: "e2e:kv" }));
@@ -82,18 +83,23 @@ test.describe("retro-ux chat rendering", () => {
       // that share its container: the burst body when absorbed, else the transcript itself.
       const rows = await page.evaluate(() => {
         const edge = (el: Element) => Math.round(el.getBoundingClientRect().left * 10) / 10;
-        const out: Array<{ kind: string; absorbed: boolean; left: number; toolLefts: number[] }> = [];
+        const out: Array<{ kind: string; absorbed: boolean; left: number; toolLefts: number[]; toolInfo: string[] }> = [];
         for (const row of document.querySelectorAll('[data-testid="web-search-entry"], [data-testid="custom-entry-card"]')) {
           const burst = row.closest('[data-testid="tool-burst-body"]');
           const scope = burst ?? row.closest('[data-testid="chat-scroll-container"]') ?? document.body;
           const tools = [...scope.querySelectorAll(":scope .border-l-2")].filter(
-            (t) => !row.contains(t) && !t.closest('[data-testid="web-search-entry"], [data-testid="custom-entry-card"]'),
+            (t) =>
+              !row.contains(t) &&
+              !t.closest(".items-end") && // the user's own message bubble also carries `border-l-2`
+              !t.closest('[data-testid="web-search-entry"], [data-testid="custom-entry-card"]') &&
+              (burst !== null || !t.closest('[data-testid="tool-burst-body"]')),
           );
           out.push({
             kind: row.getAttribute("data-testid") ?? "?",
             absorbed: Boolean(burst),
             left: edge(row),
             toolLefts: tools.map(edge),
+            toolInfo: tools.map((t) => `${edge(t)}:${(t.parentElement?.getAttribute("data-testid") ?? t.parentElement?.className ?? "").slice(0, 40)}:${(t.textContent ?? "").slice(0, 25)}`),
           });
         }
         return out;
@@ -102,7 +108,7 @@ test.describe("retro-ux chat rendering", () => {
       expect(rows.some((r) => r.absorbed), "an absorbed row is part of the scenario").toBe(true);
       for (const r of rows) {
         expect(r.toolLefts.length, `${r.kind} (absorbed=${r.absorbed}) has a tool row to compare with`).toBeGreaterThan(0);
-        for (const t of r.toolLefts) expect(Math.abs(t - r.left), `${r.kind} absorbed=${r.absorbed}`).toBeLessThanOrEqual(1);
+        for (const t of r.toolLefts) expect(Math.abs(t - r.left), `${r.kind} absorbed=${r.absorbed} left=${r.left} vs ${r.toolInfo.join(" | ")}`).toBeLessThanOrEqual(1);
       }
     });
   }
