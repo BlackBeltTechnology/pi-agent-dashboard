@@ -15,4 +15,6 @@ One row per file. Non-source area. Rows split out of `tests/e2e/AGENTS.md` (byte
 | `folder-collapse.ts` | Folder-collapse L3 glue: bus setup/teardown… → see `folder-collapse.ts.AGENTS.md` |
 | `index.ts` | E2E helpers. `gotoDashboard(page)` navigates `/`, waits… → see `index.ts.AGENTS.md` |
 | `openspec-board.ts` | OpenSpec-board drop-targeting E2E helpers. Fixture… → see `openspec-board.ts.AGENTS.md` |
+| `operator-session.ts` | `OperatorSession`: arms an `operate` login-session cookie for the harness browser + REST (narrows the trust-any seed, restores the snapshot). Same flow as `mcp-token-settings.spec.ts`. See change: add-credential-vault. |
+| `vault-seed.ts` | `VaultSeed` REST seeding/reset for the vault specs; `SAMPLE_GIT_SUBJECT` (`dir:hub:/fixtures/sample-git`). See change: add-credential-vault. |
 | `windowed-session.ts` | Shared glue for L3 specs needing a REAL replay window. → see `windowed-session.ts.AGENTS.md` |

@@ -36,6 +36,7 @@ import type { createPathGate } from "../path-gate/index.js";
 import type { Suppression } from "../path-gate/suppression.js";
 import type { PluginForwardRegistry } from "../plugin-event-forward-registry.js";
 import type { createPluginRequestClient } from "../plugin-request-client.js";
+import type { VaultDelivery } from "../vault-delivery.js";
 import type { PrStatusScheduler } from "../pr-status.js";
 import type { PromptBus } from "../prompt-bus.js";
 import type { RetryTracker } from "../retry-tracker.js";
@@ -184,6 +185,8 @@ export interface BridgeInstance {
   uiModulesBridgeCtx: UiModulesBridgeCtx;
   pluginRequests: ReturnType<typeof createPluginRequestClient>;
   pathGate: ReturnType<typeof createPathGate>;
+  /** Credential-vault env delivery (bridge half). See change: add-credential-vault. */
+  vaultDelivery: VaultDelivery;
   connection: ConnectionManager;
   commandHandler: ReturnType<typeof createCommandHandler>;
   syncBc: () => BridgeContext;

@@ -180,6 +180,8 @@ export function registerProjectTrust(inst: BridgeInstance): void {
   } catch { /* older pi: no project_trust event — no-op */ }
 }
 
+const VAULT_START_REASONS = new Set(["startup", "reload", "new", "resume", "fork"]);
+
 /** `session_start`: register the session, build the PromptBus, patch `ctx.ui`, arm timers. */
 export function registerSessionStart(inst: BridgeInstance): void {
   const pi = inst.pi;
@@ -189,6 +191,15 @@ export function registerSessionStart(inst: BridgeInstance): void {
     if (!inst.isActive()) return;
     const newSessionId = ctx.sessionManager.getSessionId();
     inst.pathGate.onSessionStart();
+    // Credential vault: resolve the project from THIS session's own cwd (never the
+    // launch directory) on every start reason; an unreadable cwd withdraws all.
+    // See change: add-credential-vault (D2, D3).
+    void inst.vaultDelivery
+      .onSessionStart({
+        reason: VAULT_START_REASONS.has(_event?.reason) ? _event.reason : "startup",
+        getCwd: () => ctx.sessionManager.getCwd(),
+      })
+      .catch(() => {});
     // Re-arm MCP registration for the (replacement) session; its mint below
     // registers pi-dashboard again. See change: migrate-mcp-to-pi-builtin (D1).
     inst.mcpRegistrar.onSessionStart();
@@ -814,6 +825,7 @@ export function registerSessionStart(inst: BridgeInstance): void {
     startMetricsMonitor();
     inst.heartbeatTimer = setInterval(() => {
       if (!inst.isActive()) return;
+      inst.vaultDelivery.tick();
       inst.connection.send({
         type: "session_heartbeat",
         sessionId: inst.sessionId,

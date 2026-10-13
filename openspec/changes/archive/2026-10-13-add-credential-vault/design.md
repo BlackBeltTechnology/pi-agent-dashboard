@@ -4,6 +4,17 @@ See proposal.md, section Why. This is part 1 of 3. The LLM credential and OAuth 
 
 **pi version.** The repo pins `@earendil-works/pi-coding-agent` and `pi-ai` to **1.0.0** (`pnpm-workspace.yaml:55-56`). Line citations below are for the pinned 1.0.0. Where a seam differs in 1.1.0, that is noted. Task T0 re-runs the live checks on 1.0.0.
 
+### Spike results (tasks 1.1–1.4)
+
+Run against the **pinned 1.1.0** (`pnpm-workspace.yaml:55-56` moved from 1.0.0 after this change was planned) by reading the installed `dist/` in this worktree. Every citation above still holds; the only drift is the spill-file mode, and it narrows risk.
+
+- **T0 (env, replace seams).** `getShellEnv()` spreads the live `process.env` per command (`dist/utils/shell.js:115`). `_afterToolCall` runs `tool_result` handlers before the result is recorded (`agent-session.js`). `message_end` replacement goes through `emitMessageEnd` and `_replaceMessageInPlace`. `user_bash` accepts exactly one `{operations}` or `{result}`. `createLocalBashOperations` is exported (`dist/index.d.ts:26`).
+- **Spill files on 1.1.0.** Created through `createOutputFileStream` with mode `0600` and flag `wx` (`dist/utils/output-files.js`). The 1.0.0 `0644` window therefore no longer applies on the pinned version; the rewrite of `details.fullOutputPath` stays, because the content is still plaintext.
+- **T3 (cwd).** `SessionManager` holds its own `cwd` (`session-manager.js:645`, `getCwd()` at `:770`). Every replacement session (`resume`, `new`, `fork`) is built with its own manager (`agent-session-runtime.js:141-291`). `ctx.sessionManager.getCwd()` is therefore the session's own cwd. The fail-closed path (throw → withdraw) stays as a guard.
+- **T4(a) (stream shape).** `tool_execution_update.partialResult` is a cumulative snapshot of the bash tail window (`bash.js` `onUpdate`, built from the accumulator's `truncation.content`). `message_update.message` is a cumulative partial; `assistantMessageEvent` carries the delta and a `partial`. The forwarder therefore masks every string in both fields, and holds back the trailing L−1 characters of the snapshot text, not of a delta buffer. For `assistantMessageEvent` delta events, the tail buffer is per `(message id, content index)`.
+- **T4(b) (spill-file race).** The server has no endpoint that serves a bash full-output path; the model's `read` tool is the only consumer, and it runs after `tool_result` returns. The rewrite happens inside the `tool_result` handler, before the model or dashboard can read the file.
+- **T5 (ticket scope and TLS).** The `bridge` ticket scope exists (`ws-ticket.ts`, `/ws/bridge`) and `upgradeDeviceId` carries the paired-device id into the gateway connection handler (`pi-gateway.ts`, `attributeOrigin`). **The hub cannot tell `wss://` from `ws://`:** the TCP gateway is a plain `WebSocketServer` (`pi-gateway.ts` `new WebSocketServer({port, host, verifyClient})`); TLS is terminated by a tunnel or reverse proxy, and the only evidence is `X-Forwarded-Proto`, which a client can set itself. **Outcome: remote delivery stays disabled.** The trust gate accepts a remote connection only with a TLS proof the hub itself can verify (`socket.encrypted === true`), which the gateway never provides today, so remote sessions get `transport-insecure`. Hub-local sessions are unaffected. Enabling remote delivery needs the gateway to terminate TLS or a trusted-proxy allowlist, which is a follow-up change.
+
 ### Key sinks this change addresses
 
 | Sink | Consumer | Reads env first? |
@@ -133,7 +144,7 @@ sequenceDiagram
   - The default is 24 h. The value is set on the hub, clamped to 1 h–7 d, and delivered with the snapshot.
   - The clock is the elapsed time since the last successful snapshot, taken as the **larger** of monotonic and wall-clock elapsed time. A machine that sleeps therefore cannot extend retention. The timestamps are held in the `process` registry.
   - After the grace period the bridge withdraws the values, so revocation is bounded for sessions that stay offline.
-  - The dashboard shows each session's last vault contact time. `hub-unreachable` is reported when the session reconnects.
+  - The dashboard shows each session's last vault contact time. A session whose bridge is disconnected shows its value-holding rows as `hub-unreachable` (the hub cannot reach it; values may still be live within the bridge's grace, and the last contact time says since when).
 - **Downgraded hub.** The hub advertises `vault-delivery` in `dashboard_identity.features`, the existing capability channel. When a bridge that holds delivered values connects to a hub whose identity lacks the feature, the bridge withdraws everything it delivered. Downgrading the dashboard therefore never leaves values live without a revocation path.
 - **Corrupt vault.** The hub answers with "vault unavailable", not with an empty snapshot. The bridge treats that answer like an unreachable hub, so it keeps values within the grace period.
 - **Emergency off.** The "disable delivery" switch lives in the dashboard config (`config.json`), not in the vault. It therefore still works, and withdraws from every session, while the vault file is corrupt.
@@ -326,3 +337,18 @@ The spikes below are tasks. Each can narrow a spec statement; none can widen one
 - **T5**: the paired-device ticket scope and the TLS check for remote bridges. Remote delivery ships only once both are confirmed.
 
 Follow-up, out of scope: `mcp.json` `${NAME}` resolution from the vault.
+
+## Implementation notes
+
+Where the build narrowed or specified detail the plan left open. None widens a spec statement.
+
+- **Remote delivery is off** (spike T5): the hub cannot prove TLS, so `isTls` defaults to false and remote sessions get `transport-insecure`. Enabling it needs the gateway to terminate TLS or a trusted-proxy allowlist (follow-up).
+- **The bridge resolves the project; the hub only normalises.** The sync request carries the real path of `ctx.sessionManager.getCwd()` and the raw `git remote get-url origin`. The hub never touches its own filesystem for a remote session, and `normalizeOrigin` lives in `packages/shared/src/vault-project-key.ts` for both halves.
+- **One env-name rule** (`isDeliverableEnvName`, `packages/shared/src/vault-delivery.ts`) is checked at creation, at snapshot building, and by the bridge before it touches `process.env`.
+- **Cumulative vs delta streams.** Snapshots (`tool_execution_update`, `message_update.message`) trim a trailing partial value statelessly; `assistantMessageEvent.delta` keeps a bounded per-stream carry. A held tail is flushed (re-sent, fully masked) before any other event; end events supersede it.
+- **The masking filter sits on the connection** (`ConnectionManager.outboundFilter`), so no plaintext value reaches the send buffer. A filter error drops the forwarded event (fail closed) rather than sending it raw. The `tool_result` handler also fails closed (output withheld).
+- **`.env` parsing** is a local mirror of nano-banana's `parseEnvFile` (`vault-import.ts`): the server must not depend on an optional skill package.
+- **Pushes come from the server's own store instance.** `store.onChange` fires for writes made through that instance (every management route); an out-of-process writer would not push until the next sync.
+- **Windows owner-only** (task 2.7) is the profile-ACL check in `vault-permissions.ts`; the observed access-denied check stays manual (task 7.1).
+- **E2E binding name.** The harness image already sets `GEMINI_API_KEY` in every process env, which would deliver as `local-override`. The L3 specs therefore use `VAULT_E2E_API_KEY` for the delivery/redaction runs (test-plan #F3, #X13); the behaviour under test is the same.
+

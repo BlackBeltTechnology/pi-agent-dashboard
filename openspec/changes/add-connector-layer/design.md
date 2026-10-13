@@ -23,15 +23,14 @@ Two non-negotiable constraints drive every decision here:
 
 ## Key decision 1 — one core, three façades
 
-```
-   agent (LLM) ──┐ gateway tool (default)
-   agent (LLM) ──┤ code library  ........ Phase 3 façade (designed-for, not built)
-   external ─────┤ REST routes
-                 ▼
-        ┌──────────────────┐  resolve op → read cred → inject auth → HTTP
-        │ Connector Invoker│───────────────────────────────────────────▶ provider
-        └────────┬─────────┘
-        Registry ┘  ▲ Auth Vault
+```mermaid
+flowchart LR
+  A1["agent (LLM): gateway tool (default)"] --> INV
+  A2["code library (Phase 3 facade, designed-for, not built)"] -.-> INV
+  A3["external: REST routes"] --> INV
+  INV["Connector Invoker<br/>resolve op, read cred, inject auth, HTTP"] --> P["provider"]
+  REG["Registry"] --> INV
+  V["Credential vault (key accounts)"] --> INV
 ```
 
 The Invoker is the single execution path. Façades are thin adapters that translate their input shape into an `InvokeRequest { connectorId, params }` and render the `InvokeResult`. This guarantees the LLM seam, the REST seam, and the future code seam can never diverge in behavior or auth handling.
@@ -56,15 +55,16 @@ Rejected alternative — *static enabled-subset only*: load the user's enabled c
 
 Stakeholder wants full reach: Tier-1 OpenAPI services, the Google suite (Discovery Documents, not OpenAPI), GraphQL-only services (Linear, Shopify Admin), and a generic-HTTP escape hatch. These cannot all be served by one ingestion path or one invoke path. So the registry record carries a **`kind` discriminator** and the Invoker dispatches on it:
 
-```
-   registry record: { id, kind, ...kindSpecificDescriptor, credentialId }
-                           │
-        ┌──────────┬──────────┼───────────┐
-        ▼          ▼           ▼           ▼
-      http      openapi      graphql     (google = openapi after convert)
-    generic   spec-driven   query+vars    discovery→openapi at ingest
-      └──────────┴───────────┴───────────┘
-              one invoke(InvokeRequest) core, backend-dispatched
+```mermaid
+flowchart TB
+  R["registry record: id, kind, kind-specific descriptor, credentialId"] --> H["http: generic"]
+  R --> O["openapi: spec-driven"]
+  R --> G["graphql: query + variables"]
+  R --> D["google = openapi after convert: discovery to openapi at ingest"]
+  H --> C["one invoke(InvokeRequest) core, backend-dispatched"]
+  O --> C
+  G --> C
+  D --> C
 ```
 
 - `http` and `openapi` share most of the invoke path (openapi = http + a schema). MVP ships both.
@@ -91,15 +91,15 @@ A connector is data, not code: `{ openapi_spec_ref, operation_id, credential_id 
 - **Why OpenAPI, not vendored connector code:** specs are publishable and license-clean; vendoring Pipedream components is out (relicensed to Source-Available) and vendoring n8n nodes is out (fair-code). One loader scales to any provider with a spec.
 - **Escape hatch:** provider specs vary in quality. The registry supports a per-spec *overrides* file (patch a path, fix an auth descriptor, hide noisy operations) so a bad spec never blocks a connector.
 
-## Key decision 4 — Credential store: reuse `provider-auth-storage`, do NOT invent a vault
+## Key decision 4 — Credential store: the credential vault, not a connector-specific file
 
-The repo already has a battle-tested credential store: `provider-auth-storage.ts` reads/writes `~/.pi/agent/auth.json` with `proper-lockfile` + atomic tmp+rename + 0600 perms (single-writer contract shared with running pi sessions), and `internal-auth-storage.ts` already does OAuth refresh (per-provider refresh locks, 30s preemptive buffer). Credential types `{type:"api_key",key}` and `{type:"oauth",access,refresh,...}` already exist. Inventing an AES-256-GCM vault would duplicate all of this and break the convention.
+The dashboard now has one hub-owned credential store: the vault (`add-credential-vault`, `~/.pi/dashboard/vault.json`). It is locked, 0600, corrupt-safe (byte-exact backup, writes refused), keeps unknown fields on update, rejects short values, and never returns a stored value through any management surface. A second plaintext file (`connector-auth.json`) would duplicate all of that and split rotation and revocation across two places.
 
-Decision (per stakeholder): **match the convention.** Connector secrets use the same machinery (lockfile + atomic + 0600 + existing credential types + existing refresh), but in a **separate sibling file** `~/.pi/agent/connector-auth.json` for blast-radius isolation from LLM-provider creds. Plaintext at 0600 — same posture as provider creds, no new encryption layer.
+Decision: **an API-key connector references a vault `key` account.** `credential_id` is the vault account id. The invoker reads the value server-side through the vault's delivery-only reader (`VaultStore.getKeyValue`), injects it as auth, and never returns it.
 
-- **MVP credential types:** `api_key` (reuse existing shape). OAuth (`access`/`refresh`/`expiry` + refresh) reuses the existing shape and refresh machinery in Phase 2 — zero schema churn.
-- **Injection:** the Invoker reads the resolved credential at call time via the shared read path; secrets never enter connector definitions, prompts, logs, or `search`/`schema` responses.
-- **No new crypto, no OS-keychain dependency** — the per-machine vs per-user question is moot; storage is per-home-dir, file-perms protected, exactly like provider creds.
+- **MVP credential type:** vault `key` account (kind `key`, namespace `user`). A connector needs no vault binding or grant: bindings and grants decide which *sessions* receive an env variable, and connector calls run in the server.
+- **Revocation:** revoking the account makes `get` fail, so every connector that references it becomes non-invocable (unchanged requirement).
+- **OAuth:** a later phase, after the vault gains OAuth accounts (`add-vault-llm-delivery`). No schema change to connectors: the account `kind` already discriminates.
 
 ## Key decision 5 — OAuth is NOT a spike: reuse the existing handler registry (Phase 2)
 
@@ -113,8 +113,8 @@ The dashboard's auth is layered: `auth-plugin.ts` global `onRequest` hook bypass
 
 ## Threat model (store holds live third-party secrets)
 
-- Secrets stored plaintext at 0600 in `~/.pi/agent/connector-auth.json` — same posture as existing provider creds (stakeholder decision A). Protection is file perms + the layered request auth above, not at-rest encryption.
-- Separate file isolates connector secrets from `auth.json` (smaller blast radius if one store leaks), though both share the home dir and the pi-session single-writer space.
+- Secrets live in the credential vault (`~/.pi/dashboard/vault.json`): plaintext at 0600, same posture as existing provider creds. Protection is file permissions + the layered request auth above, not at-rest encryption.
+- The vault is a separate file from `auth.json` (smaller blast radius if one store leaks), and it is dashboard-owned, so it is outside the pi-session single-writer space.
 - `search_connectors` / `get_connector_schema` / REST list endpoints **never** return secret material.
 - Invoke routes gated by `networkGuard`; loopback bypass means local single-user has no friction, remote/exposed use is gated.
 - Tool/REST results are passed through; connector definitions may mark fields redactable so obvious secret echoes are masked. (Best-effort, documented limitation.)
@@ -123,4 +123,4 @@ The dashboard's auth is layered: `auth-plugin.ts` global `onRequest` hook bypass
 
 - `search_connectors` ranking: lexical over operation id+summary is enough for MVP; revisit if the catalog grows large.
 - Where the registry's specs live: bundled seed specs in-repo vs user-importable spec files in `~/.pi/`. MVP: bundled seeds + a directory for user-added specs.
-- Whether `connector-auth.json` should ever be unified back into the model-proxy's `InternalAuthStorage` abstraction (shared refresh scheduler) or stay a parallel instance of the same machinery. MVP: parallel instance.
+- Whether connector OAuth should reuse the vault's OAuth accounts or the model-proxy's `InternalAuthStorage` refresh scheduler. Decided when the vault's OAuth phase lands.

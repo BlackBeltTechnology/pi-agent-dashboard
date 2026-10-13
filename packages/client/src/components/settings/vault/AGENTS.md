@@ -1,0 +1,12 @@
+# DOX — packages/client/src/components/settings/vault
+
+Settings → Vault page. Never receives a stored value: listings carry ids, labels, names, states.
+
+| File | Purpose |
+|------|---------|
+| `VaultAccountsPanel.tsx` | Accounts: list (provider/label only), add (password field, cleared on submit), rotate, revoke. See change: add-credential-vault. |
+| `VaultBindingsPanel.tsx` | Env bindings (default account), per-project grants (repo or directory, optional account override, `no-account` repair flag), confirmed checkouts (revoke). See change: add-credential-vault. |
+| `VaultImportPanel.tsx` | Import: existing known-location candidates (opaque ids) + file upload ≤64 KiB → names-only proposal → confirm. See change: add-credential-vault. |
+| `VaultPluginsPanel.tsx` | Plugin approvals for manifest-declared bindings (server-wide, default account). See change: add-credential-vault. |
+| `VaultSection.tsx` | Settings → Vault page (Network group, route `vault`): loads `GET /api/vault`, corrupt banner, composes the panels. Tests: `__tests__/VaultSection.test.tsx`, e2e `vault-settings.spec.ts` (F1, F5). See change: add-credential-vault. |
+| `vault-ui.tsx` | Shared panel/error/input class tokens for the vault panels (theme tokens only). See change: add-credential-vault. |

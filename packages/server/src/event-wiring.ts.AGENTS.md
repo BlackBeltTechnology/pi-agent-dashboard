@@ -38,3 +38,5 @@ Carries the one-release `dispatch_extension_command` TOMBSTONE: on receipt it `c
 - `session_name_update` guarded by `guardBridgeNameClaim`; auto-attach rename tagged `origin:"system"` + `systemRenameUpdates`; register-time `auto_name_state_restore` built by `buildAutoNameRestore` (sent when `autoNamerState` OR `nameSource`; carries session-owned provenance + witness). See change: investigate-auto-name-provenance-relabel.
 
 `EventWiringDeps.inFlightToolCalls?` (default created). Live (non-replaying) event_forward: `observeLive` + `forgetEvictedToolEnd` on top-level start. `clear` on every `session_register`, in `onEnded`, via `sessionManager.onRemoved`. See change: distinguish-tool-result-pending-vs-gone.
+
+- Optional dep `vaultDelivery`: routes `vault_sync_request`/`vault_report`, advertises `vault-delivery` in `dashboard_identity.features`, `forget()` on unregister. See change: add-credential-vault.
