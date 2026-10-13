@@ -65,3 +65,5 @@ Security tab adds a `Users` section (`UsersSection`) after Paired Devices; the `
 ## addons-hub-declutter
 
 Page id `packages` → `add-ons` (`SETTINGS_PAGE_ALIASES.packages`); rail group `add-ons` (Add-ons, Plugins, OpenSpec). Plugins children collapsed by default behind `nav-plugins-toggle` (`dashboard:settings-plugins-expanded`); forced open while a child page is active, never written. Global browse passes `hideGlobalInstalledRecommended`. See change: addons-hub-declutter.
+
+- Network-group page `vault` → `VaultSection`. See change: add-credential-vault.

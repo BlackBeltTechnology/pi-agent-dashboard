@@ -62,6 +62,11 @@ hand-write a per-theme severity color.
 | status | `--status-{needs-you,working,idle,error,notice}` | session lifecycle state only — shapes and dots, never text |
 | warn alias | `--warn-{bg,border,fg,body}` | pre-existing alias of the warning family |
 
+**Exception — invite QR quiet zone:** the Users invite QR keeps a literal
+`bg-white` panel in every theme; a QR code needs a light quiet zone
+(ISO/IEC 18004 §6.3.8). The only `bg-white` allowed in the connectivity
+components (`connectivity-token-scan.test.ts`).
+
 **Rule:** a new surface uses a *severity* or *tint* token, not `--accent-red`
 directly and never a Tailwind palette class (`text-green-400`,
 `bg-blue-500/10`, …) or a hex/`rgba(` literal. Raw accents are reserved for the
@@ -203,13 +208,27 @@ which is why they also carry a shape (below).
    | Token | dark on `--bg-primary` | light on `--bg-primary` | Safe as text? |
    |---|---|---|---|
    | `--text-secondary` | 9.07:1 | 9.74:1 | yes, both |
-   | `--text-tertiary` | 4.98:1 | **4.48:1** | **dark only** — light is under the 4.5:1 floor |
+   | `--text-tertiary` | 4.98:1 | `#636363` — passes 4.5:1 on `--bg-surface` (`index.css`) | yes in both; the earlier `#777777` / 4.48:1 figure was stale. See change: retro-ux-identity-connectivity |
    | `--text-muted` | 2.77:1 | 2.32:1 | no — decorative/disabled only |
 
-   `--text-tertiary` is #777777 in light, documented in `index.css` as an
-   *overlay boundary* under SC 1.4.11 — a **3:1 non-text** threshold. It is a
-   border token that happens to be legible, not a text token. Quiet body copy
-   that must survive both themes takes `--text-secondary`.
+   Quiet body copy that must survive every palette takes `--text-secondary`;
+   `--text-muted` never carries information text.
+7. **Severity foregrounds stay on their own background.** `--severity-X-fg` is
+   text-safe on `--severity-X-bg` (a pill or callout), not on `--bg-surface`
+   (nord dark measures 4.36:1). `--accent-text` is not text-safe on
+   `--bg-surface` in every palette (nord dark: 3.39:1, and 3.27:1 on
+   `--severity-info-bg`); menu actions use `--text-primary` plus an icon, and a
+   disclosure summary inherits its callout's fg and is underlined. See change:
+   retro-ux-identity-connectivity (audit A1, A2).
+
+**Contradiction to resolve (a11y #2 vs the primary-button recipe):** #2 says
+primary actions are ≥ 44×44 px, while the primary-button recipe is
+`min-h-[44px] sm:min-h-[36px]` (44 px below `sm`, 36 px from `sm`). The recipe
+is what ships; reconcile the wording in a follow-up.
+
+**Follow-up (needs user approval, not done here):** hide the selector's move
+"Update" item from non-operators; this needs a MODIFIED `known-servers`
+"Operator accepts a move suggestion" delta.
 
 **Known debt (do not copy):** `BranchSwitchDialog.tsx` ships with no `role`,
 `aria-modal`, or labelled title. New dialogs must not inherit that.

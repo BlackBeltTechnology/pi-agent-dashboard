@@ -20,6 +20,7 @@ import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
 import { isTier, type Tier } from "./tiers.js";
+import { clampVaultGraceHours, VAULT_GRACE_DEFAULT_HOURS } from "./vault-delivery.js";
 import {
   providerSupportsMode,
   type TunnelMode,
@@ -260,6 +261,20 @@ export interface OpenSpecPollConfig {
    */
   offerInitialization: boolean;
 }
+
+/**
+ * Credential-vault delivery switches. Held here, NOT in the vault file, so the
+ * emergency switch still works while the vault is corrupt.
+ * See change: add-credential-vault (D2).
+ */
+export interface VaultConfig {
+  /** Master delivery switch. `false` withdraws values from every connected session. Default `true`. */
+  deliveryEnabled: boolean;
+  /** Hours a bridge keeps delivered values while the hub is unreachable. Clamped to [1, 168]. Default 24. */
+  offlineGraceHours: number;
+}
+
+export const DEFAULT_VAULT_CONFIG: VaultConfig = { deliveryEnabled: true, offlineGraceHours: VAULT_GRACE_DEFAULT_HOURS };
 
 export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
   enabled: true,
@@ -799,6 +814,8 @@ export interface DashboardConfig {
   serverHeap: ServerHeapConfig;
   /** OpenSpec background polling behavior (interval, concurrency, change detection, jitter) */
   openspec: OpenSpecPollConfig;
+  /** Credential-vault delivery switches. See change: add-credential-vault. */
+  vault: VaultConfig;
   /** Session behavior — hydration worker offload toggle. */
   sessions: SessionsConfig;
   /** Session-list archival policy (age threshold + sweep interval). */
@@ -1348,6 +1365,7 @@ const DEFAULTS: DashboardConfig = {
   sessionHeap: { ...DEFAULT_SESSION_HEAP },
   serverHeap: { ...DEFAULT_SERVER_HEAP },
   openspec: { ...DEFAULT_OPENSPEC_POLL },
+  vault: { ...DEFAULT_VAULT_CONFIG },
   sessions: { ...DEFAULT_SESSIONS },
   sessionList: { ...DEFAULT_SESSION_LIST },
   embedLifecycle: { ...DEFAULT_EMBED_LIFECYCLE },
@@ -1462,6 +1480,14 @@ function clampNumber(raw: any, fallback: number, min: number, max: number): numb
   if (n < min) return min;
   if (n > max) return max;
   return n;
+}
+
+export function parseVaultConfig(raw: any): VaultConfig {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_VAULT_CONFIG };
+  return {
+    deliveryEnabled: typeof raw.deliveryEnabled === "boolean" ? raw.deliveryEnabled : DEFAULT_VAULT_CONFIG.deliveryEnabled,
+    offlineGraceHours: clampVaultGraceHours(raw.offlineGraceHours),
+  };
 }
 
 export function parseEmbedLifecycleConfig(raw: any): EmbedLifecycleConfig {
@@ -2142,6 +2168,7 @@ export function loadConfig(): DashboardConfig {
       sessionHeap: parseSessionHeap(parsed.sessionHeap),
       serverHeap: parseServerHeap(parsed.serverHeap),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
+      vault: parseVaultConfig(parsed.vault),
       sessions: parseSessionsConfig(parsed.sessions),
       sessionList: parseSessionListConfig(parsed.sessionList),
       embedLifecycle: parseEmbedLifecycleConfig(parsed.embedLifecycle),

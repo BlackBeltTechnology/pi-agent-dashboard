@@ -616,6 +616,21 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 			"pi-nano-banana CLI",
 		],
 	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-photocraft",
+		source: "npm:@blackbelt-technology/pi-dashboard-photocraft",
+		displayName: "pi-dashboard-photocraft",
+		fallbackDescription:
+			"Headless PhotoCraft image editing: provisions the photocraft-cli binary " +
+			"on demand, exposes it over bash and a project-confined MCP server, and " +
+			"adds replace-region (pixel-exact generative part-replacement with " +
+			"pi-nano-banana). Exposes the pi-photocraft CLI.",
+		status: "optional",
+		unlocks: [
+			"photocraft skill (headless local image editing, combined with nano-banana)",
+			"pi-photocraft CLI",
+		],
+	},
 ];
 
 /**

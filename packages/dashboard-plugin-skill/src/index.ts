@@ -1,9 +1,11 @@
-export { render, FsSink, InMemorySink } from "./render.js";
+export type { WriteProjectIdResult } from "./project-identity.js";
+export { writeProjectId } from "./project-identity.js";
 export type {
-  Answers,
-  NewModeAnswers,
+  Answers,AppScopeAnswers, 
   AugmentModeAnswers,
   AugmentProposal,
-  WriteSink,
+  NewModeAnswers,
   SlotId,
+  WriteSink
 } from "./render.js";
+export { FsSink, InMemorySink, render, validateAppScope } from "./render.js";

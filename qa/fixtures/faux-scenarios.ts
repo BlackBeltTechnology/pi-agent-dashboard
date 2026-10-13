@@ -908,6 +908,59 @@ export const SCENARIOS: Record<string, Scenario> = {
     content: `<!doctype html>\n<!-- ${"A".repeat(6000)} -->\n<h1>big out of cwd</h1>\n`,
   }),
   "tool-bash": toolScenario("bash", { command: "ls -la" }),
+  // Credential-vault e2e (change: add-credential-vault). Two-step so the agent
+  // terminates after the tool result.
+  //    (`VAULT_E2E_API_KEY`, not `GEMINI_API_KEY`: the harness image already sets
+  //    `GEMINI_API_KEY` in every process env, which would be a local-override.)
+  //  - vault-printenv: prints the delivered key; the transcript, the model's view
+  //    and the dashboard DOM must show `[REDACTED:VAULT_E2E_API_KEY]` only (F3).
+  //  - vault-env-length: a child process reads the live env and prints only the
+  //    value's length (`undefined` before a grant, `10` after) (X13).
+  //  - vault-set-origin / vault-unset-origin: point the sample repo's `origin` at a
+  //    granted repository for the confirmation flow (F2); the bridge reads origin at
+  //    session start, so this runs in a throwaway session BEFORE the one under test.
+  "vault-printenv": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "printenv VAULT_E2E_API_KEY" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("printenv done")]),
+    ],
+    expect: { toolName: "bash", text: "printenv done" },
+  },
+  "vault-env-length": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("bash", { command: "echo \"LEN=$(node -e 'console.log(String(process.env.VAULT_E2E_API_KEY?.length))')\"" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("env length done")]),
+    ],
+    expect: { toolName: "bash", text: "env length done" },
+  },
+  "vault-set-origin": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("bash", {
+            command:
+              "git -C /fixtures/sample-git remote remove origin 2>/dev/null; git -C /fixtures/sample-git remote add origin git@github.com:acme/vault-e2e.git && echo origin-set",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("origin set")]),
+    ],
+    expect: { toolName: "bash", text: "origin set" },
+  },
+  "vault-unset-origin": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("bash", { command: "git -C /fixtures/sample-git remote remove origin 2>/dev/null; echo origin-unset" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("origin unset")]),
+    ],
+    expect: { toolName: "bash", text: "origin unset" },
+  },
   // A bash call that backgrounds a long-lived child with its stdio attached:
   // pi's bash tool keeps running until the pipe closes, so the wrapper stays a
   // live child of pi for the whole call and the process scan can capture it

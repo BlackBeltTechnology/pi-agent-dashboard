@@ -65,3 +65,6 @@ Creates the `local-credential` verifier (`acceptLegacyToken: true`), stamps at t
 Per-plugin `holdCwdDenial: createCwdHold(...)` beside `registerCwdPolicy` (`priority <= 100` gate); publishes `host.cwdAdmissionOnIndeterminate` (throttled `[cwd-admission] indeterminate` logger). See change: harden-plugin-cwd-admission.
 
 Creates `inFlightToolCalls` + `toolResultStats`; passes to `wireEvents`, `registerSessionRoutes`, `registerSystemRoutes`. See change: distinguish-tool-result-pending-vs-gone.
+
+- Builds `createVaultStore()` + `createVaultDeliveryHub` before `wireEvents`, registers `registerVaultRoutes` (+ plugin declarations via `discoverPlugins()`), `pluginVault` seam per plugin manifest, `onVaultConfigChanged → vaultDelivery.pushNow()`, `vaultDelivery.dispose()` on stop. See change: add-credential-vault.
+- Registers `registerFolderProjectRoutes` after `registerGrepRoutes`; `getRuleSources` = `collectRuleSources(discoverPlugins())` gated by `fixtureEntryAllowed` + status-store `loaded` + `resolvePluginEnabled`. See change: add-project-scoped-apps.

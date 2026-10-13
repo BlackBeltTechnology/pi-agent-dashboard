@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act, cleanup, waitFor, fireEvent } from "@testing-library/react";
-import { ServerSelector } from "../connectivity/ServerSelector.js";
+import { act, cleanup, fireEvent, render, screen, waitFor, } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listKnownServers, probeKnownServer } from "../../lib/api/known-servers-api.js";
+import { ServerSelector } from "../connectivity/ServerSelector.js";
 
 vi.mock("../../lib/api/known-servers-api.js", () => ({
   listKnownServers: vi.fn(async () => [
@@ -115,7 +115,8 @@ describe("ServerSelector", () => {
     await waitFor(() => screen.queryByText(/Unreachable/i));
     const localEntry = screen.getByText("localhost:8000").closest("button") as HTMLButtonElement;
     expect(localEntry).not.toBeNull();
-    expect(localEntry.disabled).toBe(true);
+    // aria-disabled, not `disabled`: a blocked entry stays focusable (retro-ux F6).
+    expect(localEntry.getAttribute("aria-disabled")).toBe("true");
     act(() => localEntry.click());
     expect(onSwitch).not.toHaveBeenCalled();
   });
@@ -151,11 +152,11 @@ describe("ServerSelector", () => {
     const btn = screen.getByTitle("Switch server");
     act(() => btn.click());
     await waitFor(() => {
-      expect(screen.queryAllByText(/CORS-blocked/i).length).toBeGreaterThan(0);
+      expect(screen.queryAllByText(/Blocked in this browser/i).length).toBeGreaterThan(0);
     });
     // The LAN entry is disabled and did not render a bare "Unreachable".
     const lanEntry = screen.getByText("192.168.16.242:8000").closest("button") as HTMLButtonElement;
-    expect(lanEntry.disabled).toBe(true);
+    expect(lanEntry.getAttribute("aria-disabled")).toBe("true");
     expect(lanEntry.getAttribute("data-cors-blocked")).toBe("true");
     vi.mocked(probeKnownServer).mockResolvedValue(null);
     vi.mocked(listKnownServers).mockResolvedValue([
@@ -176,8 +177,7 @@ describe("ServerSelector", () => {
     const btn = screen.getByTitle("Switch server");
     act(() => btn.click());
     await waitFor(() => {
-      const spinner = screen.queryByLabelText(/Switching/i);
-      expect(spinner).not.toBeNull();
+      expect(screen.queryAllByText(/Switching/i).length).toBeGreaterThan(0);
     });
   });
 

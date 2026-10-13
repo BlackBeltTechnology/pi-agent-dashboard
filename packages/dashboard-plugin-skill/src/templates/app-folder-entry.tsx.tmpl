@@ -1,0 +1,22 @@
+
+/**
+ * Folder-scoped claim `predicate` (named export, per the plugin codegen): true
+ * only for folders whose project {{ predicateDoc }}.
+ */
+export const is{{ Pascal }}Folder = {{ predicateFactory }};
+
+/** State-only `sidebar-folder-section` entry that opens the app. */
+export function {{ Pascal }}FolderEntry({ folder }: { folder: { cwd: string } }) {
+  const shell = useEmbeddedAppShell();
+  const [, navigate] = useLocation();
+  if (!shell) return null;
+  return (
+    <button
+      type="button"
+      data-testid="{{ id }}-folder-entry"
+      onClick={() => navigate(`/folder/${shell.encodeFolder(folder.cwd)}/{{ id }}`)}
+    >
+      {{ displayName }} →
+    </button>
+  );
+}

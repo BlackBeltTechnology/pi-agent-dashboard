@@ -2,15 +2,14 @@
 
 > MVP vertical slice: vault (API-key) → invoker → OpenAPI registry → gateway tool → REST → settings UI → 3 seed connectors. OAuth (Phase 2) and code-execution façade (Phase 3) are out of scope for this change.
 
-## 1. Credential store (reuse existing machinery)
+## 1. Credential store (the credential vault)
 
-- [ ] 1.1 Reuse the existing `api_key` / `oauth` credential types from `provider-auth-storage.ts`. Do NOT define new encrypted record types. Target a **separate sibling file** `~/.pi/agent/connector-auth.json` (not `auth.json`).
-- [ ] 1.2 Factor the read/write/lock primitives from `provider-auth-storage.ts` (proper-lockfile, atomic tmp+rename, 0600) so they can target a configurable path — OR add a thin `connector-auth-storage.ts` that calls the same lockfile/atomic helpers against the connector file. Prefer the smallest change; do not fork the logic.
-  - **Coordination (expose-plugin-credential-and-oauth-seams):** the path-parameterised primitives already exist in `packages/server/src/auth/locked-json-file.ts` (`withLockedJsonFile`, `readJsonChecked`, `writeJsonAtomic`, `corruptUnbackedRefusal`). Consume that module against `connector-auth.json`; do NOT extract a second copy.
-- [ ] 1.3 Store API-key secrets plaintext at 0600, matching the provider-creds posture (stakeholder decision A). No new crypto, no keychain dependency.
-- [ ] 1.4 Store API: `add`, `list` (no secret material), `get`, `revoke` — mirroring the provider-auth-storage surface.
-- [ ] 1.5 Tests: round-trip add/get; `list` never emits secret material; `get` of a revoked id fails; concurrent writes respect the lockfile (no corruption).
-- [ ] 1.6 (Phase 2 stub only — not built here) confirm the `oauth` shape + `internal-auth-storage.ts` refresh machinery can be pointed at `connector-auth.json` without schema change. Document, don't implement.
+- [ ] 1.1 Reference vault `key` accounts: a connector's `credential_id` is a vault account id (`add-credential-vault`). Do NOT add a connector-specific secret file or crypto.
+- [ ] 1.2 Resolve the value server-side through the vault's delivery-only reader (`VaultStore.getKeyValue`, `packages/server/src/vault/vault-store.ts`); only accounts of kind `key` resolve.
+- [ ] 1.3 Connector store API: `list` shows the vault account's id, provider and label only (never a value); `get` of a revoked or unknown account fails.
+- [ ] 1.4 Settings: adding an API-key connector credential is done in Settings → Vault (add or import), then picked by id in the connector form.
+- [ ] 1.5 Tests: `list` never emits secret material; `get` of a revoked id fails and the connector becomes non-invocable; a non-`key` account does not resolve.
+- [ ] 1.6 (Phase 2 stub only — not built here) OAuth connectors follow the vault's OAuth accounts (`add-vault-llm-delivery`); document, don't implement.
 
 ## 2. Connector Registry (OpenAPI loader)
 

@@ -788,6 +788,7 @@
   "settings.daysUnit": "days",
   "settings.minUnit": "min",
   "settings.access": "Access",
+  "settings.vault": "Vault",
   "access.title": "Access grants",
   "access.description": "Every access grant across all grant stores, labelled with the store it lives in.",
   "access.reviewOnly": "Review and revoke only — a grant is created only from the remedy attached to an actual denial, never here.",

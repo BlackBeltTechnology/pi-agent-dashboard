@@ -64,6 +64,11 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // secrets; core keeps the whole surface out of MCP (skills use the CLI).
   { pattern: "/api/services/", reason: "managed services: lifecycle + secrets; CLI/REST only in core" },
   { pattern: "/api/services", reason: "managed services: lifecycle + secrets; CLI/REST only in core" },
+  // add-credential-vault: secret store management. Never an LLM action: the
+  // vault decides which secrets reach which project, and holds the values.
+  { pattern: "/api/vault/", reason: "credential vault: accounts, grants, import; operator-only, secret-bearing" },
+  { pattern: "/api/vault", reason: "credential vault: accounts, grants, import; operator-only, secret-bearing" },
+  { pattern: "/api/session/:id/vault-bindings", reason: "vault binding state for the session view; UI-only" },
   { pattern: "/api/ws-ticket", reason: "transport credential" },
   { pattern: "/api/local-proof", reason: "mints a one-time local-proof bootstrap code; host-local credential" },
   { pattern: "/api/device-session", reason: "exchanges the device bearer for an httpOnly cookie; browser credential plumbing" },
@@ -87,6 +92,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/favorite-models", reason: "UI-only" },
   { pattern: "/api/custom-event-groups", reason: "UI-only" },
   { pattern: "/api/canvas-types", reason: "UI-only" },
+  // add-project-scoped-apps: backs the client folder-project cache (claim predicates); not an LLM action.
+  { pattern: "/api/folder/project", reason: "UI-only: folder project identity for claim predicates" },
   { pattern: "/api/diagram/render", reason: "UI-only" },
   { pattern: "/api/host-gate", reason: "host admission internals" },
   { pattern: "/api/network-interfaces", reason: "fleet enumeration UI" },
