@@ -91,6 +91,13 @@ export interface IdentityFailureReport {
 }
 
 export interface ConnectionManagerOptions {
+  /**
+   * Transform every outgoing message BEFORE it is serialized or buffered:
+   * returns the frames to send, in order. The vault's value-scoped masking
+   * (and its tail flush) lives here so no plaintext value ever sits in the send
+   * buffer. Must not throw. See change: add-credential-vault (D5).
+   */
+  outboundFilter?: (message: unknown) => unknown[];
   url: string;
   WebSocketImpl?: any;
   /**
@@ -251,6 +258,7 @@ export class ConnectionManager {
   private intentionalClose = false;
   private hasConnectedBefore = false;
   private onMessage?: (data: unknown) => void | Promise<void>;
+  private outboundFilter?: (message: unknown) => unknown[];
   private onOpen?: () => void;
   private onClose?: () => void;
   private onReconnect?: () => void;
@@ -483,6 +491,7 @@ export class ConnectionManager {
     );
     this.onWatchdogFire = options.onWatchdogFire;
     this.onMessage = options.onMessage;
+    this.outboundFilter = options.outboundFilter;
     this.onOpen = options.onOpen;
     this.onClose = options.onClose;
     this.onReconnect = options.onReconnect;
@@ -554,7 +563,7 @@ export class ConnectionManager {
   sendIfOpen(message: unknown): boolean {
     if (this.ws?.readyState !== 1) return false;
     try {
-      this.ws.send(JSON.stringify(message));
+      for (const frame of this.outbound(message)) this.ws.send(JSON.stringify(frame));
       return true;
     } catch {
       return false;
@@ -562,8 +571,22 @@ export class ConnectionManager {
   }
 
   send(message: unknown): void {
-    const data = JSON.stringify(message);
+    for (const frame of this.outbound(message)) this.sendOne(JSON.stringify(frame));
+  }
 
+  /** Frames to put on the wire for `message`: itself, unless the outbound filter rewrites or adds frames. */
+  private outbound(message: unknown): unknown[] {
+    if (!this.outboundFilter) return [message];
+    try {
+      return this.outboundFilter(message);
+    } catch {
+      // Fail CLOSED for forwarded events: an event the masker could not process
+      // might carry a value, so it is not sent. Other frames carry no values.
+      return (message as { type?: unknown } | null)?.type === "event_forward" ? [] : [message];
+    }
+  }
+
+  private sendOne(data: string): void {
     if (this.ws?.readyState === 1) {
       try {
         this.ws.send(data);

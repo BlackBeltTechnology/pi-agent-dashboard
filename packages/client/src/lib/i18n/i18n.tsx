@@ -1140,6 +1140,7 @@ const zhCN: Record<string, string> = {
   "settings.saveFailed": "保存设置失败",
   "settings.security": "安全",
   "settings.access": "访问控制",
+  "settings.vault": "密钥库",
   // Settings → Access (add-access-grants-and-review)
   "access.title": "访问授权",
   "access.description": "来自所有授权存储的每一条访问授权，并标注其所属存储。",
