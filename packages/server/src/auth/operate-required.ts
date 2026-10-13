@@ -18,7 +18,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/operate-required.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { LocalTrustContext } from "./local-proof.js";
-import { isGenuinelyLocal, isLocallyTrusted } from "./localhost-guard.js";
+import { isLocallyTrusted } from "./localhost-guard.js";
 
 /** Which route family is refusing — selects the fixed message. */
 type OperateRoute = "vault" | "services";
@@ -65,7 +65,10 @@ export function describeOperateRefusal(
   const reason: OperateRequiredReason =
     marked.authVia === "device" && marked.principalTier !== "operate" ? "tier-too-low" : "no-credential";
   const wanted = new Set<OperateRemedy>();
-  if (!isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>)) wanted.add("use-host");
+  // No strict ctx ⇒ `isLocallyTrusted` is exactly "loopback and no proxy forwarding
+  // header" (the one local-trust predicate; E18 forbids calling `isGenuinelyLocal` here).
+  // `use-host` is withheld from a caller already on the host, proof or not.
+  if (!isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> })) wanted.add("use-host");
   if (reason === "tier-too-low") wanted.add("re-pair");
   if (loginAvailable()) wanted.add("sign-in");
   return { reason, remedies: OPERATE_REMEDY_ORDER.filter((r) => wanted.has(r)) };
