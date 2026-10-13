@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -101,7 +100,9 @@ describe("server-pid", () => {
     });
 
     it("#E17 removes the pid file of a dead process", async () => {
-      const dead = spawnSync(process.execPath, ["-e", "0"]).pid!;
+      // A pid nothing runs under: probe downward from a high pid until ESRCH.
+      let dead = 4_000_000;
+      while (isProcessAlive(dead)) dead -= 1;
       fs.writeFileSync(pidPath, `${dead}\n`);
       const probe = vi.fn(async () => ({ running: false }));
       expect(await isServerRunning(8000, { ...opts, probe })).toBeNull();

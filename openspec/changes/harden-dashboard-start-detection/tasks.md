@@ -97,4 +97,4 @@
 
 ## 11. Integration verification
 
-- [ ] 11.1 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`, then `openspec validate harden-dashboard-start-detection --strict`. Verify zero failures and a valid change.
+- [x] 11.1 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`, then `openspec validate harden-dashboard-start-detection --strict`. Verify zero failures and a valid change.

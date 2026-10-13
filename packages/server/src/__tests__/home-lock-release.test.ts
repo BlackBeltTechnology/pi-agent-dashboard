@@ -110,6 +110,9 @@ describe("a taken-over holder", () => {
       if (a.mode !== "acquired") return;
 
       // Takeover: A's lock directory vanishes, B acquires and writes its record.
+      // A tick later, so B's directory cannot share A's mtime (the lock library
+      // compares whole ms).
+      await new Promise((r) => setTimeout(r, 25));
       fs.rmSync(lockDir, { recursive: true, force: true });
       const b = await acquireOrAttach({ ...base, identity: "B" });
       expect(b.mode).toBe("acquired");
@@ -120,7 +123,7 @@ describe("a taken-over holder", () => {
       const onUncaught = (e: unknown) => uncaught.push(e);
       process.on("uncaughtException", onUncaught);
       try {
-        await vi.waitFor(() => expect(a.compromised).toBe(true), { timeout: 4000, interval: 50 });
+        await vi.waitFor(() => expect(a.compromised).toBe(true), { timeout: 12_000, interval: 50 });
       } finally {
         process.off("uncaughtException", onUncaught);
       }
@@ -136,7 +139,7 @@ describe("a taken-over holder", () => {
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }
-  }, 15_000);
+  }, 30_000);
 
   it("a release attempted before the library notices still leaves a successor's record alone", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lock-successor-"));

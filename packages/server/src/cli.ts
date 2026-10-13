@@ -540,7 +540,7 @@ export async function cmdStart(config: ServerConfig, injected?: Partial<StartDep
     if (verdict.code !== 0) d.exit(verdict.code);
     return;
   }
-  console.error(`Failed to confirm the dashboard server on port ${config.port} (the spawned process (pid ${result.childPid}) is not serving it).`);
+  console.error(`Failed to confirm the dashboard server on port ${config.port} (the process launched as pid ${result.childPid} is not serving it).`);
   console.error(`Check logs at ${logPath}`);
   d.exit(1);
 }

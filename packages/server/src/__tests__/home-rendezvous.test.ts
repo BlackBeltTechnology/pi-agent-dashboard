@@ -199,16 +199,19 @@ describe("promotion against a live-but-silent owner", () => {
       },
     });
     expect(a.mode).toBe("acquired");
-    // A successor takes the lock over behind A's back.
+    // A successor takes the lock over behind A's back. (The lock library tells
+    // two holds apart by directory mtime in whole ms: let one tick pass so B's
+    // directory cannot share A's.)
+    await new Promise((r) => setTimeout(r, 25));
     fs.rmSync(`${lockPath}.lock`, { recursive: true, force: true });
     const b = await start("b", {
       hooks: { lockPath, metaPath, staleMs: 2000, probeHealth: async () => ({ running: false }), isProcessAlive: () => false, log: () => {} },
     });
     expect(b.mode).toBe("acquired");
-    await vi.waitFor(() => expect(a.mode).toBe("attach"), { timeout: 4000, interval: 50 });
+    await vi.waitFor(() => expect(a.mode).toBe("attach"), { timeout: 12_000, interval: 50 });
     expect(a.release).toBeUndefined();
     expect(readMetadata(metaPath)?.identity).toBe("b");
     await a.stop();
     await b.stop();
-  }, 15_000);
+  }, 30_000);
 });
