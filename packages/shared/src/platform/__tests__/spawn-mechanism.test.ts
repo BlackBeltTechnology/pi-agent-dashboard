@@ -166,3 +166,43 @@ describe("sessionFlagsToArgv --no-mcp (spawn-scope-no-mcp)", () => {
     expect(argv).not.toContain("--no-mcp");
   });
 });
+
+/**
+ * `sessionFlagsToArgv` — `--model` / `--thinking` on fresh + continue (E7).
+ * See change: redesign-directory-home-split.
+ */
+describe("sessionFlagsToArgv --model/--thinking (redesign-directory-home-split E7)", () => {
+  const m = "anthropic/claude-sonnet-5";
+
+  it("fresh carries --model and --thinking as discrete elements", () => {
+    expect(sessionFlagsToArgv({ model: m, thinking: "high" })).toEqual(["--model", m, "--thinking", "high"]);
+  });
+
+  it("continue carries --model and --thinking after --session", () => {
+    expect(sessionFlagsToArgv({ sessionFile: "/s.jsonl", mode: "continue", model: m, thinking: "low" })).toEqual([
+      "--session",
+      "/s.jsonl",
+      "--model",
+      m,
+      "--thinking",
+      "low",
+    ]);
+  });
+
+  it("continue without a pick is unchanged", () => {
+    expect(sessionFlagsToArgv({ sessionFile: "/s.jsonl", mode: "continue" })).toEqual(["--session", "/s.jsonl"]);
+  });
+
+  it("fork output is unchanged: thinking is not emitted", () => {
+    expect(sessionFlagsToArgv({ sessionFile: "/s.jsonl", mode: "fork", model: m, thinking: "high" })).toEqual([
+      "--fork",
+      "/s.jsonl",
+      "--model",
+      m,
+    ]);
+  });
+
+  it("thinking alone emits only --thinking", () => {
+    expect(sessionFlagsToArgv({ thinking: "medium" })).toEqual(["--thinking", "medium"]);
+  });
+});

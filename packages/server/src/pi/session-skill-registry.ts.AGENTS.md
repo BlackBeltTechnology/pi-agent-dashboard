@@ -1,3 +1,5 @@
 # session-skill-registry.ts — index
 
 Live half of the Resources skill list. `SessionCommandRegistry` retains the latest `commands_list` per session (C2 settling rule: a non-empty skill set is never replaced by an empty one); `joinSkillProvenance(scanned, reporters, folderCwd)` joins resolved vs live skills on canonicalized real paths into `active` / `not-loaded` / `loaded-elsewhere`, gives `enabled:false` precedence, and degrades to `scanOnly` when 0 or 2+ sessions report, the payload is degraded, or every retained skill command lacks `path` (`pathlessCommands`). Exports `canonicalPath` (the shared realpath helper the route's reporter filter also uses) and the module singleton `sessionCommandRegistry`. See change: fix-skill-discovery-parity.
+
+redesign-directory-home-split: registry stores `{commands, receivedAt}`; `receivedAt` stamped (strictly monotonic) only when a list is ACCEPTED (not when the settling rule drops it). New `getEntry(sessionId)`; `get()` unchanged. Feeds `folder-commands.ts` latest-live pick.

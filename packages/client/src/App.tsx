@@ -15,8 +15,8 @@ import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStat
 import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
 import { SessionDiffProvider } from "./components/diff/SessionDiffContext.js";
-import { DirectoryHomeView } from "./components/folder/DirectoryHomeView.js";
 import { FolderEditorView } from "./components/folder/FolderEditorView.js";
+import { FolderSplitProvider } from "./components/folder/FolderSplitProvider.js";
 import { ArchiveBrowserView } from "./components/openspec/ArchiveBrowserView.js";
 import { OpenSpecArtifactDialog } from "./components/openspec/OpenSpecArtifactDialog.js";
 import { OpenSpecBoardView } from "./components/openspec/OpenSpecBoardView.js";
@@ -166,6 +166,11 @@ const PairingApprovalHost = lazy(() =>
 const FileDiffView = lazy(() =>
   import("./components/diff/FileDiffView.js").then((m) => ({ default: m.FileDiffView })),
 );
+// Folder home (pre-session pane + starters + spawn choices): its own chunk, off the
+// entry gzip cap. See change: redesign-directory-home-split.
+const FolderHomeContainer = lazy(() =>
+  import("./components/folder/FolderHomeContainer.js").then((m) => ({ default: m.FolderHomeContainer })),
+);
 
 import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { ArchivedSessionSummary, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
@@ -184,6 +189,7 @@ import type { ToolContext } from "./components/tool-renderers/index.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
 import { AddFoldersDialog } from "./components/workspace/AddFoldersDialog.js";
 import { useCardFxAttributes } from "./hooks/useCardFxAttributes.js";
+import { useEndedSessionComposer } from "./hooks/useEndedSessionComposer.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
 import { useProvidersReady } from "./hooks/useProvidersReady.js";
@@ -260,6 +266,8 @@ const LAST_SERVER_KEY = "pi-dashboard-last-server";
 // Stable empty-array reference for sessions with no pending images.
 // Frozen so accidental mutation throws in strict mode.
 const EMPTY_IMAGES: readonly ImageContent[] = Object.freeze([]);
+/** Stable empty command list — a fresh `[]` per render would re-render the composer. */
+const EMPTY_COMMANDS: CommandInfo[] = Object.freeze([]) as unknown as CommandInfo[];
 
 function getInitialWsUrl(): string {
   const saved = localStorage.getItem(LAST_SERVER_KEY);
@@ -742,6 +750,21 @@ export default function App() {
   const [spawnResult, setSpawnResult] = useState<{ success: boolean; message: string } | null>(null);
   const [spawnErrors, setSpawnErrors] = useState<Map<string, import("./hooks/useMessageHandler.js").SpawnErrorDetail>>(new Map());
   const [resumeErrors, setResumeErrors] = useState<Map<string, string>>(new Map());
+  // The most recent spawn that failed after the server accepted it (failed
+  // `spawn_result` / `spawn_register_timeout` echoing its `requestId`). The
+  // folder home re-enables Start when the id is its own. `seq` makes a repeated
+  // id observable. See change: redesign-directory-home-split.
+  const [failedSpawn, setFailedSpawn] = useState<{ requestId: string; seq: number } | null>(null);
+  const onSpawnFailed = useCallback(
+    (requestId: string) => setFailedSpawn((prev) => ({ requestId, seq: (prev?.seq ?? 0) + 1 })),
+    [],
+  );
+  // Settings default model / thinking level — pre-selected (and tagged) on the
+  // folder home. Hydrated from GET /api/config, refreshed on `config_updated`.
+  const [spawnDefaults, setSpawnDefaults] = useState<{ defaultModel: string; defaultThinkingLevel: string }>({
+    defaultModel: "",
+    defaultThinkingLevel: "",
+  });
   const [spawningCwds, setSpawningCwds] = useState<Set<string>>(new Set());
   const spawningCwdsRef = useRef<Set<string>>(spawningCwds);
   spawningCwdsRef.current = spawningCwds;
@@ -1148,7 +1171,7 @@ export default function App() {
 
   const handleMessage = useMessageHandler(
     { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
-    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed },
+    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, onSpawnFailed, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed },
   );
 
   // D7: rendered cwds the OpenSpec reconciliation may pull for — non-ended
@@ -1212,6 +1235,10 @@ export default function App() {
         if (d.success) {
           setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
           if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);
+          setSpawnDefaults({
+            defaultModel: typeof d.data?.defaultModel === "string" ? d.data.defaultModel : "",
+            defaultThinkingLevel: typeof d.data?.defaultThinkingLevel === "string" ? d.data.defaultThinkingLevel : "",
+          });
         }
         // Hydrate the OpenSpec fleet switches the readiness affordances read
         // (folder-section offer suppression + menu re-enable gating).
@@ -1239,6 +1266,10 @@ export default function App() {
           if (d?.success && msg.section === "sessions") {
             setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
             if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);
+            setSpawnDefaults({
+              defaultModel: typeof d.data?.defaultModel === "string" ? d.data.defaultModel : "",
+              defaultThinkingLevel: typeof d.data?.defaultThinkingLevel === "string" ? d.data.defaultThinkingLevel : "",
+            });
           }
           const os = d?.data?.openspec;
           if (d?.success && os && typeof os === "object") {
@@ -1696,6 +1727,16 @@ export default function App() {
   // change: pluginize-flows-via-registry.
 
   const selectedSession = selectedId ? sessions.get(selectedId) : undefined;
+  // ── Ended-session composer context (no live bridge to ask) ──────────────
+  // Folder command list + model catalogue + the user's model/thinking pick for
+  // an ENDED session. See change: redesign-directory-home-split (D9).
+  const endedComposer = useEndedSessionComposer({
+    selectedId,
+    selectedSession,
+    hasOwnCommands: !!selectedId && sessionCommands.has(selectedId),
+    sessions,
+  });
+  const { getResumePick, setPickField: setResumePickField, clearPickField: clearResumePickField } = endedComposer;
   // Shared navigation to Settings → Providers — the model-selector empty-state
   // recovery link, consumed both directly (composer) and via ModelConfig (the
   // shell-bound `ui:model-selector` primitive). See change: open-empty-model-selector.
@@ -1715,11 +1756,15 @@ export default function App() {
       setModel: (label) => {
         const slashIdx = label.indexOf("/");
         if (selectedId && slashIdx > 0) {
+          clearResumePickField(selectedId, "model");
           send({ type: "set_model", sessionId: selectedId, provider: label.slice(0, slashIdx), modelId: label.slice(slashIdx + 1) });
         }
       },
       setThinkingLevel: (level) => {
-        if (selectedId) send({ type: "set_thinking_level", sessionId: selectedId, level });
+        if (selectedId) {
+          clearResumePickField(selectedId, "thinkingLevel");
+          send({ type: "set_thinking_level", sessionId: selectedId, level });
+        }
       },
       toggleFavorite: (label, makeFavorite) =>
         send({ type: makeFavorite ? "favorite_model" : "unfavorite_model", label }),
@@ -1729,7 +1774,7 @@ export default function App() {
       openProviderSettings,
       notify: (message) => showToast(message, "info"),
     }),
-    [selectedId, selectedState.model, selectedState.thinkingLevel, selectedSession?.model, selectedSession?.thinkingLevel, modelsMap, favoriteModels, send, showToast, openProviderSettings],
+    [selectedId, selectedState.model, selectedState.thinkingLevel, selectedSession?.model, selectedSession?.thinkingLevel, modelsMap, favoriteModels, send, showToast, openProviderSettings, clearResumePickField],
   );
   // Per-cwd OpenSpec workflow config — drives which action buttons render.
   // See change: redesign-session-card-and-composer (config-driven-workflow).
@@ -1770,7 +1815,7 @@ export default function App() {
     selectedId, send, navigate, setMobileOpen,
     sessions, setSessions, setSessionStates, sessionStatesRef, setSpawningCwds, setTerminals,
     clearSpawningCwd, spawnTimeoutsRef, pendingTerminalCwdRef, terminals,
-    pendingSpawnsRef,
+    pendingSpawnsRef, getResumePick,
   });
   const {
     // Queue-mutation action senders removed entirely (pi exposes no mutation
@@ -2281,7 +2326,14 @@ export default function App() {
     const selectedState = sessionStates.get(selectedId) ?? createInitialState();
     const selectedDraft = drafts.get(selectedId) ?? "";
     const selectedImages = pendingImagesMap.get(selectedId) ?? (EMPTY_IMAGES as ImageContent[]);
-    const selectedCommands = sessionCommands.get(selectedId) ?? [];
+    const ownCommands = sessionCommands.get(selectedId);
+    const folderList =
+      !ownCommands && !readOnly && sessionIdArg === liveSelectedId ? endedComposer.folderCommands : undefined;
+    const selectedCommands: CommandInfo[] = ownCommands ?? folderList?.commands ?? EMPTY_COMMANDS;
+    const selectedCommandsOrigin = folderList?.origin;
+    // An ended session's chips show the user's pending pick, else the last known value.
+    const endedView = !readOnly && sessionIdArg === liveSelectedId && endedComposer.isEnded;
+    const endedPick = endedView ? endedComposer.pick : undefined;
     const selectedContextUsage = contextUsageMap.get(selectedId) ?? selectedState.contextUsage;
     // Reuse the memoised history for the LIVE session; only a frozen underlay
     // pays the extraction, and only for a session it is actually showing.
@@ -2620,22 +2672,36 @@ export default function App() {
             }}
             onOpenInlineTerminal={selectedId && selectedCwd ? () => handleOpenInlineTerminal(selectedId, selectedCwd) : undefined}
             sessionMessages={selectedState.messages}
-            model={selectedState.model ?? selectedSession?.model}
-            models={modelsMap.get(selectedId)}
+            commandsOrigin={selectedCommandsOrigin}
+            unsetLabel={endedView ? t("directoryHome.piDefault", undefined, "pi default") : undefined}
+            model={endedPick?.model ?? selectedState.model ?? selectedSession?.model}
+            models={endedView ? endedComposer.models : modelsMap.get(selectedId)}
             favorites={favoriteModels}
             onToggleFavorite={(label, makeFavorite) =>
               send({ type: makeFavorite ? "favorite_model" : "unfavorite_model", label })
             }
-            thinkingLevel={selectedState.thinkingLevel ?? selectedSession?.thinkingLevel}
+            thinkingLevel={endedPick?.thinkingLevel ?? selectedState.thinkingLevel ?? selectedSession?.thinkingLevel}
             onSelectModel={(modelStr) => {
+              // Ended session: no bridge to `set_model` — remember the pick; it
+              // rides the resuming prompt. See change: redesign-directory-home-split.
+              if (endedView) {
+                setResumePickField(selectedId, "model", modelStr);
+                return;
+              }
               const slashIdx = modelStr.indexOf("/");
               if (slashIdx > 0) {
                 const provider = modelStr.slice(0, slashIdx);
                 const modelId = modelStr.slice(slashIdx + 1);
+                clearResumePickField(selectedId, "model");
                 send({ type: "set_model", sessionId: selectedId, provider, modelId });
               }
             }}
             onSelectThinkingLevel={(level) => {
+              if (endedView) {
+                setResumePickField(selectedId, "thinkingLevel", level);
+                return;
+              }
+              clearResumePickField(selectedId, "thinkingLevel");
               send({ type: "set_thinking_level", sessionId: selectedId, level });
             }}
             onRefreshModels={() => selectedId && send({ type: "request_models", sessionId: selectedId })}
@@ -2784,17 +2850,46 @@ export default function App() {
   // opening Settings from /folder/<cwd> put the onboarding LandingPage behind
   // the scrim instead of the folder — the opposite of what option C promises.
   // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
-  const renderDirectoryHome = (cwd: string) => (
-    <DirectoryHomeView
-      cwd={cwd}
-      sessions={allSessionsList.filter((s) => s.cwd === cwd)}
-      onSpawnSession={handleSpawnSession}
-      onSelectSession={handleSelect}
-      onOpenTerminals={(c) => navigate(buildFolderEditorUrl(c, true))}
-      onOpenEditor={(c) => navigate(buildFolderEditorUrl(c))}
-      onOpenSettings={(c) => navigate(buildFolderSettingsUrl(c))}
-    />
-  );
+  const renderDirectoryHome = (cwd: string) => {
+    const home = (
+      <Suspense fallback={<div className="flex-1" />}>
+      <FolderHomeContainer
+        cwd={cwd}
+        defaultModel={spawnDefaults.defaultModel}
+        defaultThinkingLevel={spawnDefaults.defaultThinkingLevel}
+        favorites={favoriteModels}
+        onToggleFavorite={(label, makeFavorite) =>
+          send({ type: makeFavorite ? "favorite_model" : "unfavorite_model", label })
+        }
+        onOpenProviderSettings={openProviderSettings}
+        folderGitMap={folderGitMap}
+        sessionCount={allSessionsList.filter((s) => s.cwd === cwd).length}
+        onSpawnSession={handleSpawnSession}
+        failedSpawn={failedSpawn}
+        onWorktreeSpawnStart={addSpawningCwd}
+        onWorktreeSpawnAbort={clearSpawningCwd}
+        onWorktreeSpawned={(path) => void maybeAutoInitWorktreeOnSpawn(path)}
+        onOpenSettings={(c) => navigate(buildFolderSettingsUrl(c))}
+      />
+      </Suspense>
+    );
+    // Desktop hosts the Chat | Split | Editor workspace; mobile keeps the pane
+    // alone (a mobile split is a non-goal). See change: redesign-directory-home-split.
+    if (isMobile) return home;
+    return (
+      <FolderSplitProvider
+        cwd={cwd}
+        terminals={getTerminalsForCwd(cwd)}
+        onCreateTerminal={handleCreateTerminal}
+        onKillTerminal={handleKillTerminal}
+        onRenameTerminal={handleRenameTerminal}
+        onTerminalTitle={handleTerminalTitle}
+        terminalsReady={terminalsReady}
+      >
+        {home}
+      </FolderSplitProvider>
+    );
+  };
 
   // Renderers for the route-derived content region. `ShellContent` owns the
   // branch SELECTION (so it can re-derive under a frozen router); App keeps the

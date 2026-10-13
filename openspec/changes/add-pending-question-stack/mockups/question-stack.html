@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Question stack — add-pending-question-stack</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<script src="icons.js"></script>
+</head>
+<body>
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Question stack — proposed</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="true" data-v="1440">1440</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="false" data-v="375">375</button>
+  </div>
+  <span class="seg-label" id="lbl-n">Open questions</span>
+  <div class="seg" aria-labelledby="lbl-n" data-group="count">
+    <button aria-pressed="true" data-v="8">8</button>
+    <button aria-pressed="false" data-v="3">3</button>
+    <button aria-pressed="false" data-v="1">1</button>
+    <button aria-pressed="false" data-v="0">0</button>
+  </div>
+  <button class="tb-btn" id="sim-new">Simulate new question</button>
+  <button class="tb-btn" id="sim-elsewhere">Answer open dialog on another device</button>
+</div>
+<div class="board"><div class="frame" id="frame" data-w="1440"></div></div>
+<p class="note">Click the purple pill in the sidebar header. Rows ending in <b>Go to session</b> belong to sessions on the board (navigate); rows ending in <b>Answer here</b> belong to hidden runs (dialog). Dialog states: <code>nightly-verify</code> generated summary · <code>migrate typecheck</code> summarizing → limited context · <code>#platform-ops</code> agent-provided summary + Summarize (first attempt fails → Retry) · <code>release-notes-draft</code> file access, read-only · <code>changelog-digest</code> free-text input. Esc closes; focus returns to the trigger.</p>
+
+<script>
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+/* ── fixtures (newest first) ─────────────────────────────── */
+const ALL = [
+  { id: "q-nightly", label: "nightly-verify", change: "add-credential-vault", kind: "automation", hidden: true, age: "2m",
+    type: "select", question: "Verify found 3 unchecked tasks whose tests pass. Mark them done?",
+    options: ["Mark 3 tasks done — tasks 4.2, 4.4, 5.1 in tasks.md", "Leave unchecked — report them in the run result"],
+    brief: { status: "ready", src: "generated",
+      text: "Scheduled automation run verifying the change <b>add-credential-vault</b> against its tasks.md. It ran the vitest suites for the vault store and found three tasks still unchecked although their tests pass.",
+      opts: [["Mark 3 tasks done", "edits tasks.md (4.2, 4.4, 5.1) and the run finishes green."], ["Leave unchecked", "nothing is edited; the run result lists the three tasks for you."]] },
+    ctx: { last: "Ran `npx vitest run packages/server/src/vault` — 41 passed. tasks.md still lists 4.2, 4.4, 5.1 as open; their scenarios E3, E7, X2 are covered by the passing suites.",
+      tools: [["Console", "bash  npx vitest run packages/server/src/vault"], ["FileDocumentOutline", "read  openspec/changes/add-credential-vault/tasks.md"], ["Magnify", "grep  \"E7\" packages/server/src/vault/__tests__"]] } },
+  { id: "q-ship", label: "ship-it", change: "add-credential-vault", branch: "os/add-credential-vault", kind: "session", hidden: false, age: "4m",
+    type: "select", question: "Review cap reached (3 rounds, 2 open nits). One more round or hand back?", session: "s-ship" },
+  { id: "q-goal", label: "goal: migrate typecheck to TS 7", change: "migrate-typecheck-to-ts7", kind: "goal", hidden: true, age: "6m",
+    type: "confirm", question: "Drop the @ts-expect-error in registry-singleton.ts:153 now that TS 7 infers the stream type?",
+    brief: { status: "pending", src: "generated", limited: true,
+      text: "Goal driver migrating the type-check to TS 7. The question arrived before any assistant text, so this summary is based on the question and recent tool calls only.",
+      opts: [["Yes", "removes the directive; the next tsc run must stay green."], ["No", "keeps the directive and moves on to the next file."]] },
+    ctx: { last: null, absent: "none",
+      tools: [["Console", "bash  npx tsgo --noEmit -p packages/server"], ["FileDocumentOutline", "read  packages/server/src/model-proxy/registry-singleton.ts"]] } },
+  { id: "q-chat", label: "#platform-ops", kind: "chat", hidden: true, age: "9m",
+    type: "select", question: "Restart the dashboard on robson-mbp now?",
+    options: ["Restart now", "Restart after the running ship-it finishes"],
+    brief: { status: "provided", src: "agent",
+      text: "Requested from Discord #platform-ops by @dani: the server log shows repeated [openspec-poll] slow tick warnings (> 5000 ms) since 09:40 and /api/health timed out twice. A restart clears the poller backlog; one ship-it session is mid-harness in os/add-credential-vault." },
+    ctx: { last: "Tail of ~/.pi/dashboard/server.log: [openspec-poll] slow tick: 7412ms (x6). /api/health: timeout after 5000ms at 09:52 and 09:55.",
+      tools: [["Console", "bash  tail -n 200 ~/.pi/dashboard/server.log"], ["LanConnect", "curl  http://localhost:8000/api/health"]] } },
+  { id: "q-file", label: "release-notes-draft", kind: "file", hidden: true, age: "12m",
+    type: "select", question: "Allow read of /Users/robson/.npmrc?", options: ["Allow once", "Deny"] },
+  { id: "q-flow", label: "review-pipeline", kind: "flow", hidden: false, age: "15m",
+    type: "select", question: "Triage step: 4 findings. Fix the two majors now?", session: "s-flow" },
+  { id: "q-input", label: "changelog-digest", kind: "automation", hidden: true, age: "21m",
+    type: "input", question: "Which version label should the weekly digest use?",
+    brief: { status: "ready", src: "generated",
+      text: "Weekly automation drafting the changelog digest from CHANGELOG.md [Unreleased]. It found 14 entries but no version number to put in the title.",
+      opts: [] },
+    ctx: { last: "CHANGELOG.md has 14 entries under [Unreleased]; last tag is v0.9.0.", tools: [["FileDocumentOutline", "read  CHANGELOG.md"], ["Console", "bash  git describe --tags --abbrev=0"]] } },
+  { id: "q-plan", label: "plan add-vault-llm-delivery", change: "add-vault-llm-delivery", kind: "session", hidden: false, age: "34m",
+    type: "select", question: "scenario-design gate: what is the removal propagation budget?", session: "s-plan" },
+];
+const SESSIONS = [
+  { id: "s-plan", folder: "pi-agent-dashboard", title: "plan add-vault-llm-delivery", sub: "develop · @planning", q: "q-plan" },
+  { id: "s-ship", folder: "pi-agent-dashboard", title: "ship-it", sub: "os/add-credential-vault", wt: true, q: "q-ship" },
+  { id: "s-flow", folder: "pi-agent-dashboard", title: "review-pipeline", sub: "flow · triage", q: "q-flow" },
+  { id: "s-explore", folder: "pi-agent-dashboard", title: "explore vault ux", sub: "develop · idle" },
+  { id: "s-judo", folder: "pi-judo", title: "streamline-first-run", sub: "main · working", working: true },
+];
+const KIND = {
+  automation: ["RobotOutline", "Automation"], goal: ["Target", "Goal"], chat: ["ForumOutline", "Chat gateway"],
+  file: ["ShieldAlertOutline", "File access"], flow: ["ViewDashboardOutline", "Flow"], session: null,
+};
+
+/* ── state ───────────────────────────────────────────────── */
+let open = ALL.map((q) => q.id), expanded = false, panelOpen = false, dlg = null, selected = "s-plan", arrive = false,
+  summarizeTries = 0, answeredElsewhere = false, focusQ = null, toast = "";
+const frame = document.getElementById("frame");
+const q = (id) => ALL.find((x) => x.id === id);
+const W = () => frame.dataset.w;
+
+/* ── render ──────────────────────────────────────────────── */
+function pill() {
+  if (!open.length) return "";
+  const n = open.length;
+  return `<button class="qpill focus-ring ${arrive ? "arrive" : ""}" id="qpill" data-testid="question-pill" aria-expanded="${panelOpen}"
+    aria-controls="qpanel" aria-label="${n} open question${n > 1 ? "s" : ""}" title="${n} open question${n > 1 ? "s" : ""}">${ic("CommentQuestion")}${n}</button>`;
+}
+function badges(x) {
+  const out = [];
+  if (x.hidden) out.push(`<span class="chip">${ic("EyeOffOutline")}Hidden run</span>`);
+  const k = KIND[x.kind];
+  if (k) out.push(`<span class="chip ${x.kind === "file" ? "warn" : ""}">${ic(k[0])}${k[1]}</span>`);
+  if (x.branch) out.push(`<span class="chip wt">${ic("SourceBranch")}${esc(x.branch)}</span>`);
+  return out.join("");
+}
+function row(x) {
+  const busy = x.brief?.status === "pending";
+  const route = x.hidden ? `${ic("CommentQuestionOutline")}Answer here` : `Go to session${ic("ArrowRight")}`;
+  return `<li><button class="qrow focus-ring" data-q="${x.id}" data-testid="question-row-${x.id}">
+    <span class="tl"><span class="lbl">${esc(x.label)}</span>${x.change ? `<span class="chip change">${esc(x.change)}</span>` : ""}</span>
+    <span class="age"><span class="sr-only">asked </span>${x.age}<span class="sr-only"> ago</span></span>
+    <span class="pv">${esc(x.question)}</span>
+    <span class="ft">${badges(x)}${busy ? `<span class="chip">${ic("Loading", "spin")}Summarizing…</span>` : ""}<span class="route">${route}</span></span>
+  </button></li>`;
+}
+function panel() {
+  if (!panelOpen || !open.length) return "";
+  const items = open.map(q);
+  const shown = expanded ? items : items.slice(0, 5);
+  const more = items.length - shown.length;
+  return `${W() === "375" ? `<div class="sheet-scrim" data-close="panel"></div>` : ""}
+  <section class="qpanel" id="qpanel" data-testid="question-panel" aria-label="Open questions">
+    <div class="handle" aria-hidden="true"></div>
+    <div class="qpanel-h"><h2>${ic("CommentQuestion", "glyph-needs")}<span>Needs you · ${items.length}</span></h2>
+      <button class="iconbtn focus-ring" data-close="panel" aria-label="Close">${ic("Close")}</button></div>
+    <ul class="qlist" style="${expanded ? "max-height:60vh" : ""}">${shown.map(row).join("")}</ul>
+    ${more > 0 ? `<button class="qmore focus-ring" id="qmore" data-testid="question-more">+${more} more${ic("ChevronDown")}</button>` : ""}
+  </section>`;
+}
+function sidebar() {
+  let lastFolder = "";
+  const cards = SESSIONS.map((s) => {
+    const head = s.folder !== lastFolder ? `<div class="folder">${ic("FileDocumentOutline")}${s.folder}</div>` : "";
+    lastFolder = s.folder;
+    const needs = s.q && open.includes(s.q);
+    return `${head}<div class="card ${selected === s.id ? "sel" : ""}" data-s="${s.id}" id="card-${s.id}">
+      <div class="t">${esc(s.title)}${s.wt ? `<span class="chip wt">${ic("SourceBranch")}worktree</span>` : ""}</div>
+      <div class="s">${needs ? `<span class="glyph-needs">${ic("CommentQuestion")}</span><span>Needs you</span> ·` : s.working ? `<span class="glyph-working">${ic("Loading")}</span><span>Working</span> ·` : ""}<span>${esc(s.sub)}</span></div></div>`;
+  }).join("");
+  return `<aside class="sidebar">
+    <div class="hdr">
+      <div class="row1" data-testid="header-app-bar">
+        <div class="grp"><span class="logo" aria-label="Home">π</span><span class="hicon">${ic("Cog")}</span><span class="hicon">${ic("InformationOutline")}</span></div>
+        <div class="grp right"><span class="hicon" title="Tunnel">${ic("LanConnect")}</span>${pill()}<span class="hicon">${ic("Target")}</span><span class="hicon" title="Settings">${ic("Cog")}</span></div>
+      </div>
+      <div class="row2"><input placeholder="Folder..." aria-label="Folder filter" /><input placeholder="Search..." aria-label="Search sessions" /></div>
+    </div>
+    <div class="list">${cards}</div>
+    ${panel()}
+  </aside>`;
+}
+function inlineAsk(x, flash) {
+  const opts = x.id === "q-ship" ? [["One more round", "review-gate runs round 4 on @review."], ["Hand back", "writes SHIP_IT_BLOCKED.md and stops."]]
+    : x.id === "q-flow" ? [["Fix both majors", "agent edits now, then re-runs triage."], ["Skip — record only", "findings stay in the flow summary."]]
+    : [["p95 ≤ 250 ms", ""], ["p95 ≤ 500 ms", ""], ["p95 ≤ 1 s", ""]];
+  return `<div class="ask ${flash ? "flash" : ""}" id="inline-${x.id}"><div class="ask-h">${ic("FormatListBulleted")}<span>${esc(x.question)}</span></div>
+    <div class="opts">${opts.map(([t, d]) => `<button class="opt focus-ring" data-answer="${x.id}"><span class="ot">${t}</span>${d ? `<span class="od">${d}</span>` : ""}</button>`).join("")}
+    <button class="opt cancel focus-ring" data-answer="${x.id}"><span class="ot">Cancel</span></button></div></div>`;
+}
+function main() {
+  const s = SESSIONS.find((x) => x.id === selected);
+  const x = s.q && open.includes(s.q) ? q(s.q) : null;
+  const flash = x && focusQ === x.id;
+  const flowSlot = s.id === "s-flow" && x ? `<div class="msg" style="margin-top:0">${ic("ViewDashboardOutline")} <b>Flow · review-pipeline</b> — step triage (owning slot)</div>${inlineAsk(x, flash)}` : "";
+  return `<section class="main"><div class="shdr">${esc(s.title)}<span class="meta">${esc(s.sub)}</span></div>
+    <div class="chat">${flowSlot}
+      <div class="msg user">Run ${s.id === "s-ship" ? "ship-it for add-credential-vault" : s.id === "s-plan" ? "plan-proposal for add-vault-llm-delivery" : "the review pipeline on the vault diff"}.</div>
+      <div class="msg">${s.id === "s-ship" ? "Round 3 review: 0 blockers, 2 nits (naming in vault-store.ts, missing JSDoc on sealSecret)." : "Working on it…"}</div>
+      ${x && s.id !== "s-flow" ? inlineAsk(x, flash) : ""}
+    </div><div class="composer">Message ${esc(s.title)}…</div></section>`;
+}
+function briefBlock(x) {
+  const b = x.brief;
+  if (!b) return "";
+  if (b.status === "pending") return `<div class="brief" data-testid="question-brief" aria-live="polite"><div class="brief-h">${ic("TextBoxOutline")}Summary</div>
+    <div class="busy">${ic("Loading", "spin")}Summarizing with @fast… you can answer now.</div></div>`;
+  const prov = b.src === "agent" ? `<span class="chip">From the agent</span>` : `<span class="chip">Generated · @fast</span>${b.limited ? `<span class="chip warn">${ic("AlertCircleOutline")}Limited context</span>` : ""}`;
+  const sum = b.src === "agent" && !b.regen ? `<button class="btn2 btn-sm focus-ring" id="summarize" data-testid="question-brief-summarize">Summarize</button>` : "";
+  const busy = b.busy ? `<div class="busy">${ic("Loading", "spin")}Summarizing…</div>` : "";
+  const opts = b.opts?.length ? `<ul>${b.opts.map(([o, d]) => `<li><b>${esc(o)}</b> — ${esc(d)}</li>`).join("")}</ul>` : "";
+  return `<div class="brief" data-testid="question-brief" aria-live="polite"><div class="brief-h">${ic("TextBoxOutline")}Summary<span class="sp"></span>${prov}${sum}</div>
+    <p>${b.text}</p>${opts}${busy}</div>
+    ${b.err ? `<div class="callout err" role="alert">${ic("AlertCircleOutline")}<span class="grow">Could not summarize (timed out after 20 s). The agent's own text is shown above.</span><button class="linkbtn" id="retry" data-testid="question-brief-retry">Retry</button></div>` : ""}`;
+}
+function questionBlock(x) {
+  const dis = answeredElsewhere ? "disabled" : "";
+  if (x.kind === "file") return `<div class="callout warn">${ic("ShieldAlertOutline")}<span class="grow"><b>File-access request.</b> The agent wants to read <code>/Users/robson/.npmrc</code>. File access is approved on the Access page, not here.</span><button class="linkbtn">Open Access</button></div>`;
+  if (x.type === "input") return `<div class="ask"><div class="ask-h">${ic("FormTextbox")}<span>${esc(x.question)}</span></div>
+    <div style="margin-left:24px"><label class="field-l" for="ans">Your answer</label><textarea id="ans" class="ta" ${dis} placeholder="e.g. v0.9.1"></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px"><button class="btn1 focus-ring" data-answer="${x.id}" ${dis}>Send</button><button class="btn2 focus-ring" data-answer="${x.id}" ${dis}>Cancel question</button></div></div></div>`;
+  const opts = x.type === "confirm" ? [["Yes", ""], ["No", ""]] : x.options.map((o) => { const [t, d] = o.split(" — "); return [t, d || ""]; });
+  return `<div class="ask"><div class="ask-h">${ic(x.type === "confirm" ? "HelpCircleOutline" : "FormatListBulleted")}<span>${esc(x.question)}</span></div>
+    <div class="opts">${opts.map(([t, d]) => `<button class="opt focus-ring" data-answer="${x.id}" ${dis}><span class="ot">${esc(t)}</span>${d ? `<span class="od">${esc(d)}</span>` : ""}</button>`).join("")}
+    <button class="opt cancel focus-ring" data-answer="${x.id}" ${dis}><span class="ot">Cancel</span></button></div></div>`;
+}
+function ctxBlock(x) {
+  const c = x.ctx; if (!c) return "";
+  const open_ = x.brief?.status === "pending" ? "open" : "";
+  return `<details class="ctx" data-testid="question-context" ${open_}><summary>${ic("ChevronRight", "chev")}Context from the session</summary><div class="sec">
+    <h3>Last assistant message</h3>${c.last ? `<div class="amsg">${esc(c.last)}</div>` : `<div class="absent">No assistant text before this question.</div>`}
+    <h3>Recent tool calls</h3><ul class="tools">${c.tools.map(([i, t]) => `<li>${ic(i)}${esc(t)}</li>`).join("")}</ul>
+    ${x.change ? `<h3>Change</h3><dl class="kv"><dt>Change</dt><dd>${esc(x.change)}</dd><dt>Checkout</dt><dd>${x.kind === "goal" ? "develop (primary)" : "develop (primary)"}</dd></dl>` : ""}
+  </div></details>`;
+}
+function dialog() {
+  if (!dlg) return "";
+  const x = q(dlg);
+  const k = KIND[x.kind];
+  return `<div class="scrim" data-close="dialog"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlg-t" data-testid="question-dialog">
+    <div class="dlg-h"><div style="flex:1;min-width:0"><h2 id="dlg-t">${esc(x.label)}</h2>
+      <div class="meta">${x.hidden ? `<span class="chip">${ic("EyeOffOutline")}Hidden run</span>` : ""}${k ? `<span class="chip ${x.kind === "file" ? "warn" : ""}">${ic(k[0])}${k[1]}</span>` : ""}${x.change ? `<span class="chip change">${esc(x.change)}</span>` : ""}<span>${ic("ClockOutline")} asked ${x.age} ago</span></div></div>
+      <button class="iconbtn focus-ring" data-close="dialog" aria-label="Close (Esc)">${ic("Close")}</button></div>
+    <div class="dlg-b">
+      ${answeredElsewhere ? `<div class="callout info" role="status">${ic("CheckboxMarkedOutline")}<span class="grow">Already answered on another device. Nothing more to do here.</span></div>` : ""}
+      ${briefBlock(x)}${questionBlock(x)}${ctxBlock(x)}
+    </div>
+    <div class="dlg-f"><button class="btn2 focus-ring" data-open="${x.id}" data-testid="question-open-session">${ic("OpenInNew")}Open session</button>
+      <button class="btn2 focus-ring" data-close="dialog" data-testid="question-later">${answeredElsewhere ? "Close" : "Later"}</button></div>
+  </div></div>`;
+}
+function render(focusSel) {
+  frame.innerHTML = sidebar() + main() + dialog() + (toast ? `<div class="toast" role="status">${toast}</div>` : "");
+  arrive = false;
+  if (focusSel) frame.querySelector(focusSel)?.focus();
+}
+
+/* ── behaviour ───────────────────────────────────────────── */
+let returnFocus = null;
+function openDialog(id) {
+  dlg = id; answeredElsewhere = false; panelOpen = false; returnFocus = "#qpill";
+  const x = q(id);
+  if (x.brief?.status === "pending") setTimeout(() => { x.brief.status = "ready"; if (dlg === id) render(); else render(); }, 2500);
+  render(".dlg .opt, .dlg textarea, .dlg .linkbtn, .dlg [data-close]");
+}
+function navigate(id) {
+  const x = q(id); panelOpen = false; selected = x.session; focusQ = id;
+  if (W() === "375") { toast = `Opens ${esc(x.label)} (mobile detail view) and scrolls to its question.`; }
+  render(); document.getElementById(`inline-${id}`)?.scrollIntoView({ block: "center" });
+  setTimeout(() => { focusQ = null; toast = ""; }, 1500);
+}
+function answer(id, how) {
+  open = open.filter((x) => x !== id); dlg = null; toast = `Answer sent to ${esc(q(id).label)}.`;
+  render("#qpill"); setTimeout(() => { toast = ""; render(); }, 2200);
+}
+frame.addEventListener("click", (e) => {
+  const t = e.target.closest("button, [data-close], .card");
+  if (!t) return;
+  if (t.id === "qpill") { panelOpen = !panelOpen; expanded = false; render(panelOpen ? ".qrow" : "#qpill"); return; }
+  if (t.id === "qmore") { expanded = true; render(".qrow:last-of-type"); return; }
+  if (t.dataset.close === "panel") { panelOpen = false; render("#qpill"); return; }
+  if (t.dataset.close === "dialog" && (t.tagName === "BUTTON" || e.target === t)) { dlg = null; render(returnFocus); return; }
+  if (t.dataset.q) { const x = q(t.dataset.q); x.hidden ? openDialog(x.id) : navigate(x.id); return; }
+  if (t.dataset.answer) { if (!t.disabled) answer(t.dataset.answer); return; }
+  if (t.dataset.open) { dlg = null; toast = `Reveals the hidden run's chat (read-only transcript + this question).`; render(); setTimeout(() => { toast = ""; render(); }, 2500); return; }
+  if (t.id === "summarize" || t.id === "retry") {
+    const x = q(dlg); x.brief.busy = true; x.brief.err = false; render();
+    setTimeout(() => {
+      summarizeTries++; x.brief.busy = false;
+      if (summarizeTries === 1) { x.brief.err = true; }
+      else { Object.assign(x.brief, { src: "generated", regen: true, err: false,
+        text: "A Discord user asked to restart this dashboard because the OpenSpec poller is stalling the server (health checks timing out). One ship-it session is running its docker harness right now.",
+        opts: [["Restart now", "clears the stall at once; the running ship-it harness is interrupted and must be resumed."], ["Restart after ship-it", "keeps the harness safe; the dashboard stays slow until ship-it finishes."]] }); }
+      render(t.id === "retry" ? "#retry, .dlg .opt" : ".dlg .opt");
+    }, 1400);
+    return;
+  }
+  if (t.classList.contains("card")) { selected = t.dataset.s; render(); }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (dlg) { dlg = null; render(returnFocus); } else if (panelOpen) { panelOpen = false; render("#qpill"); }
+});
+document.getElementById("sim-new").onclick = () => {
+  const id = "q-new-" + Date.now();
+  ALL.unshift({ id, label: "nightly-lint", kind: "automation", hidden: true, age: "now", type: "confirm",
+    question: "Biome found 2 new warnings in packages/client. Apply safe fixes?",
+    brief: { status: "ready", src: "generated", text: "Nightly lint automation found 2 new Biome warnings with safe auto-fixes.", opts: [["Yes", "applies the fixes on a branch."], ["No", "only reports them."]] },
+    ctx: { last: "biome check: 2 warnings (noUnusedImports).", tools: [["Console", "bash  npx biome check packages/client"]] } });
+  open.unshift(id); arrive = true; render();
+};
+document.getElementById("sim-elsewhere").onclick = () => {
+  if (!dlg) { alert("Open a hidden-run question first."); return; }
+  answeredElsewhere = true; open = open.filter((x) => x !== dlg); render();
+};
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  const g = seg.dataset.group, v = b.dataset.v;
+  if (g === "theme") { document.documentElement.dataset.theme = v === "base-light" ? "light" : "dark";
+    if (v === "nord-dark") document.documentElement.dataset.palette = "nord"; else delete document.documentElement.dataset.palette; }
+  if (g === "width") frame.dataset.w = v;
+  if (g === "count") { open = ALL.filter((x) => !x.id.startsWith("q-new")).slice(0, +v).map((x) => x.id); panelOpen = false; dlg = null; }
+  render();
+}));
+
+/* URL-addressable state for review links + Playwright scoring:
+   ?theme=base-dark|base-light|nord-dark &w=375|768|1440 (default: fit viewport)
+   &n=0|1|3|8 &panel=1 &more=1 &dlg=<question id> &summarize=fail|ok &elsewhere=1 */
+(function initFromUrl() {
+  const p = new URLSearchParams(location.search);
+  const press = (g, v) => { const b = document.querySelector(`.seg[data-group="${g}"] button[data-v="${v}"]`); if (b) b.click(); };
+  if (p.get("theme")) press("theme", p.get("theme"));
+  const w = p.get("w") || (innerWidth >= 1440 ? "1440" : innerWidth >= 768 ? "768" : "375");
+  press("width", w);
+  if (p.get("n")) press("count", p.get("n"));
+  if (p.get("panel")) { panelOpen = true; expanded = !!p.get("more"); }
+  if (p.get("dlg")) { dlg = p.get("dlg"); returnFocus = "#qpill"; const x = q(dlg);
+    if (p.get("summarize") === "fail") Object.assign(x.brief, { err: true });
+    if (p.get("summarize") === "ok") { summarizeTries = 1; }
+    if (p.get("elsewhere")) { answeredElsewhere = true; open = open.filter((y) => y !== dlg); }
+    if (x.brief?.status === "pending" && !p.get("hold")) setTimeout(() => { x.brief.status = "ready"; render(); }, 2500); }
+  if (!p.get("w")) { const b = document.querySelector(".board"); b.style.padding = "0"; frame.style.borderRadius = "0"; }
+  render();
+})();
+</script>
+</body>
+</html>

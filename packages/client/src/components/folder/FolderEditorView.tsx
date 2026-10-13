@@ -3,7 +3,7 @@
  *
  * Replaces the removed external `EditorView` (code-server iframe). Mounts the
  * in-browser `EditorPane` rooted at a folder `cwd` instead of a session, by
- * wrapping it in a `SplitWorkspaceProvider` keyed by `folderPaneId(cwd)`.
+ * wrapping it in a `FolderSplitProvider` (`SplitWorkspaceProvider` keyed by `folderPaneId(cwd)`).
  *
  * It deliberately omits the session-bound wiring: no `onWatchFiles`
  * (changed-on-disk banner), no `fileResults`, no `changedFiles`. There is no
@@ -18,10 +18,8 @@
  */
 
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
-import { useMobile } from "../../hooks/useMobile.js";
-import { folderPaneId } from "../../lib/layout/folder-pane-id.js";
 import { EditorPane } from "../editor-pane/EditorPane.js";
-import { SplitWorkspaceProvider } from "../split/SplitWorkspaceContext.js";
+import { FolderSplitProvider } from "./FolderSplitProvider.js";
 
 interface Props {
   cwd: string;
@@ -52,25 +50,21 @@ export function FolderEditorView({
   terminalsReady,
   onFocusConsumed,
 }: Props) {
-  const isMobile = useMobile();
   return (
-    <SplitWorkspaceProvider
-      sessionId={folderPaneId(cwd)}
+    <FolderSplitProvider
       cwd={cwd}
-      orientation={isMobile ? "v" : "h"}
       terminals={terminals}
-      autoSurfaceTerminals
       onCreateTerminal={onCreateTerminal}
       onKillTerminal={onKillTerminal}
       onRenameTerminal={onRenameTerminal}
       onTerminalTitle={onTerminalTitle}
-      focusOnMount={focusTerminal}
+      focusTerminal={focusTerminal}
       terminalsReady={terminalsReady}
       onFocusConsumed={onFocusConsumed}
     >
       <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, height: "100%" }}>
         <EditorPane />
       </div>
-    </SplitWorkspaceProvider>
+    </FolderSplitProvider>
   );
 }

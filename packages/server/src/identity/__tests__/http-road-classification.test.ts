@@ -79,6 +79,13 @@ describe("classifyHttpRoad — roads", () => {
     expect(a("POST", "/api/session/spawn")).toBe("workspace.write workspace");
   });
 
+  it("E15: the folder command list route shares the pi-resources road and observe tier", () => {
+    const c = classifyHttpRoad("GET", "/api/pi-resources/commands");
+    expect(c).toMatchObject({ road: "non-session", action: "packages.read" });
+    const row = ROUTE_TIERS.find((r) => r.method === "GET" && r.path === "/api/pi-resources/commands");
+    expect(row?.tier).toBe("observe");
+  });
+
   it("core plugin management is plugins.*; plugin-owned routes are namespaced plugin:<id>:<verb>", () => {
     const toggle = classifyHttpRoad("POST", "/api/plugins/:id/toggle");
     expect(toggle).toMatchObject({ road: "non-session", action: "plugins.write", resource: { kind: "plugin" } });

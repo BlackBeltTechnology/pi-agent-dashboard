@@ -80,6 +80,12 @@ export interface WatchdogArmOptions {
    * See change: spawn-correlation-token.
    */
   spawnToken?: string;
+  /**
+   * The browser `requestId` of the spawn, echoed on `spawn_register_timeout`
+   * so the originating page can re-enable its own send control.
+   * See change: redesign-directory-home-split.
+   */
+  requestId?: string;
 }
 
 interface Entry {
@@ -94,6 +100,7 @@ interface Entry {
   ws?: WebSocket;
   timeoutMs: number;
   spawnToken?: string;
+  requestId?: string;
 }
 
 interface RecentlyFiredEntry {
@@ -139,13 +146,14 @@ export class SpawnRegisterWatchdog {
     // takes effect on the next spawn without a server restart.
     // See change: spawn-failure-diagnostics (fix W1).
     const effectiveTimeout = clampSpawnRegisterTimeoutMs(opts.timeoutMs ?? this.timeoutMs);
-    const { pid, cwd, mechanism, logPath, ws, spawnToken } = opts;
+    const { pid, cwd, mechanism, logPath, ws, spawnToken, requestId } = opts;
     const cwdKey = normalizeCwdKey(cwd);
     const entry: Entry = {
       timer: null as unknown as ReturnType<typeof setTimeout>,
       cwd, cwdKey, pid, mechanism, logPath, ws,
       timeoutMs: effectiveTimeout,
       spawnToken,
+      requestId,
     };
     entry.timer = setTimeout(() => this._fireEntry(entry), effectiveTimeout);
     // Always index by cwd so a `session_register` clears the watchdog even
@@ -315,6 +323,7 @@ export class SpawnRegisterWatchdog {
       timeoutMs: entryTimeoutMs,
       ...(pid !== undefined ? { pid } : {}),
       ...(stderrTail ? { stderrTail } : {}),
+      ...(entry.requestId ? { requestId: entry.requestId } : {}),
     };
     ws.send(JSON.stringify(msg));
   }

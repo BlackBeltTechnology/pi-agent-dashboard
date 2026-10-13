@@ -8,99 +8,117 @@
       "order": 0
     },
     {
+      "id": "client-ui-fixes",
+      "name": "Client UI fixes",
+      "color": "#eab308",
+      "order": 1
+    },
+    {
       "id": "pi-update",
       "name": "Pi Update",
       "color": "#3b82f6",
-      "order": 1
+      "order": 2
     },
     {
       "id": "addons-hub",
       "name": "Addons Hub",
       "color": "#8b5cf6",
-      "order": 2
+      "order": 3
+    },
+    {
+      "id": "retro-ui",
+      "name": "Retro UI",
+      "color": "#3b82f6",
+      "order": 4
     },
     {
       "id": "update-to-node-26",
       "name": "Update to Node 26",
       "color": "#3b82f6",
-      "order": 3
+      "order": 5
     },
     {
       "id": "lan-pairing-trust",
       "name": "LAN Pairing & Trust",
       "color": "#14b8a6",
-      "order": 4
+      "order": 6
     },
     {
-      "id": "client-ui-fixes",
-      "name": "Client UI fixes",
-      "color": "#eab308",
-      "order": 5
+      "id": "vault",
+      "name": "Vault",
+      "color": "#f97316",
+      "order": 7
     },
     {
       "id": "security",
       "name": "Security",
       "color": "#ef4444",
-      "order": 6
+      "order": 8
     },
     {
       "id": "copilot-assistant",
       "name": "Copilot / Assistant",
-      "order": 7
+      "order": 9
     },
     {
       "id": "fix-mermaid",
       "name": "Fix mermaid",
       "color": "#3b82f6",
-      "order": 8
-    },
-    {
-      "id": "ai-team",
-      "name": "AI Team",
-      "color": "#a855f7",
-      "order": 9
-    },
-    {
-      "id": "next-phase",
-      "name": "Next phase",
-      "color": "#3b82f6",
       "order": 10
-    },
-    {
-      "id": "kowledge-base",
-      "name": "Kowledge Base",
-      "color": "#f97316",
-      "order": 11
-    },
-    {
-      "id": "electrun-execution",
-      "name": "Electrun execution",
-      "color": "#a855f7",
-      "order": 12
-    },
-    {
-      "id": "future",
-      "name": "Future",
-      "color": "#f97316",
-      "order": 13
-    },
-    {
-      "id": "separate-functions-to-plugins",
-      "name": "Separate functions to plugins",
-      "color": "#ef4444",
-      "order": 14
-    },
-    {
-      "id": "ui-extensions",
-      "name": "UI Extensions",
-      "color": "#eab308",
-      "order": 15
     },
     {
       "id": "unify-context-manager",
       "name": "Unify Context Manager",
       "color": "#06b6d4",
+      "order": 11
+    },
+    {
+      "id": "ai-team",
+      "name": "AI Team",
+      "color": "#a855f7",
+      "order": 12
+    },
+    {
+      "id": "next-phase",
+      "name": "Next phase",
+      "color": "#3b82f6",
+      "order": 13
+    },
+    {
+      "id": "kowledge-base",
+      "name": "Kowledge Base",
+      "color": "#f97316",
+      "order": 14
+    },
+    {
+      "id": "electrun-execution",
+      "name": "Electrun execution",
+      "color": "#a855f7",
+      "order": 15
+    },
+    {
+      "id": "future",
+      "name": "Future",
+      "color": "#f97316",
       "order": 16
+    },
+    {
+      "id": "separate-functions-to-plugins",
+      "name": "Separate functions to plugins",
+      "color": "#ef4444",
+      "order": 17
+    },
+    {
+      "id": "ui-extensions",
+      "name": "UI Extensions",
+      "color": "#eab308",
+      "order": 18
+    },
+    {
+      "id": "project-workflows",
+      "name": "Project Workflows",
+      "color": "#14b8a6",
+      "order": 19
     }
   ],
   "assignments": {
@@ -124,7 +142,7 @@
     "pi-flows-adopt-extension-ui": "ui-extensions",
     "fix-doctor-bundle-aware-probes": "electrun-execution",
     "add-bundle-mode-marker": "electrun-execution",
-    "add-package-health-cleanup": "electrun-execution",
+    "add-package-health-cleanup": "addons-hub",
     "add-extension-ui-a11y-baseline": "ui-extensions",
     "add-extension-ui-module-lifecycle": "ui-extensions",
     "add-extension-ui-safety-bounds": "ui-extensions",
@@ -370,16 +388,31 @@
     "fix-remote-relative-api-fetch": "client-ui-fixes",
     "fix-canvas-chip-tray-overlay": "client-ui-fixes",
     "render-unclaimed-custom-entries": "client-ui-fixes",
-    "add-credential-vault": "security",
+    "add-credential-vault": "vault",
     "addons-hub-declutter": "addons-hub",
     "addons-hub-feature-catalog": "addons-hub",
     "addons-hub-folder-view": "addons-hub",
-    "add-vault-llm-delivery": "security",
-    "absorb-service-secrets-into-vault": "security",
+    "add-vault-llm-delivery": "vault",
+    "absorb-service-secrets-into-vault": "vault",
     "streamline-first-run": "ui",
     "unify-context-manager": "unify-context-manager",
     "add-session-step-table": "unify-context-manager",
-    "add-omni-embedding-retrieval": "unify-context-manager"
+    "add-omni-embedding-retrieval": "unify-context-manager",
+    "openspec-board-spawn-no-focus": "ui",
+    "add-project-scoped-apps": "ui",
+    "add-photocraft-plugin": "ui",
+    "harden-dashboard-start-detection": "ui",
+    "retro-ux-identity-connectivity": "client-ui-fixes",
+    "retro-ux-model-selector": "client-ui-fixes",
+    "retro-ux-chat-rendering": "client-ui-fixes",
+    "retro-ux-plugin-settings-forms": "client-ui-fixes",
+    "add-claude-code-plugin": "ui",
+    "add-pending-question-stack": "project-workflows",
+    "add-kb-git-forge-scope": "ui",
+    "redesign-directory-home-split": "ui",
+    "add-plugin-spawn-worktree": "project-workflows",
+    "add-project-workflows": "project-workflows",
+    "add-workflow-auto-advance": "project-workflows"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -395,7 +428,8 @@
       "electron-local-link-node-compat",
       "implement-it",
       "retest-plain-language-hard-battery",
-      "ab-test-rlm-delegation-claim"
+      "ab-test-rlm-delegation-claim",
+      "fix-npm12-remote-tarball-install"
     ],
     "kowledge-base": [
       "consolidate-retrieval-planes",
@@ -404,9 +438,11 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "streamline-first-run",
-      "close-e2e-tooling-followups",
-      "add-acp-session-driver"
+      "redesign-directory-home-split",
+      "add-kb-git-forge-scope",
+      "add-acp-session-driver",
+      "add-claude-code-plugin",
+      "harden-dashboard-start-detection"
     ],
     "next-phase": [
       "add-native-pi-tui-view",
@@ -429,11 +465,11 @@
     ],
     "security": [
       "close-loopback-legacy-window",
-      "add-credential-vault",
-      "add-vault-llm-delivery",
-      "absorb-service-secrets-into-vault",
       "harden-server-capability-bounds",
-      "harden-electron-renderer-boundary"
+      "harden-electron-renderer-boundary",
+      "add-supervised-tool-approval",
+      "sanitize-untrusted-rendered-content",
+      "security-boundary-audit"
     ],
     "pi-update": [
       "update-pi-core-1-1-adopt-apis",
@@ -466,14 +502,13 @@
       "retire-trusted-networks-bypass"
     ],
     "client-ui-fixes": [
-      "fix-remote-relative-api-fetch",
-      "fix-canvas-chip-tray-overlay",
-      "render-unclaimed-custom-entries"
+      "retro-ux-identity-connectivity",
+      "retro-ux-model-selector",
+      "retro-ux-chat-rendering",
+      "retro-ux-plugin-settings-forms"
     ],
     "addons-hub": [
-      "addons-hub-declutter",
-      "addons-hub-feature-catalog",
-      "addons-hub-folder-view"
+      "add-package-health-cleanup"
     ],
     "unify-context-manager": [
       "unify-context-manager",
@@ -482,6 +517,20 @@
       "add-session-step-table",
       "add-omni-embedding-retrieval",
       "add-kb-semantic-annotation-plane"
+    ],
+    "vault": [
+      "add-credential-vault",
+      "absorb-service-secrets-into-vault",
+      "add-vault-llm-delivery"
+    ],
+    "electrun-execution": [
+      "add-bundle-immutable-health-flag"
+    ],
+    "project-workflows": [
+      "add-pending-question-stack",
+      "add-plugin-spawn-worktree",
+      "add-project-workflows",
+      "add-workflow-auto-advance"
     ]
   }
 }
