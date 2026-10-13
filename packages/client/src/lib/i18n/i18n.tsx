@@ -37,6 +37,21 @@ const detectInitialLanguage = (): Language => {
 const en: Record<string, string> = {};
 
 const zhCN: Record<string, string> = {
+  "acp.agent": "代理",
+  "acp.chooseAgent": "选择新会话的代理",
+  "acp.metaPi": "默认 · 流程、子代理、扩展",
+  "acp.metaAcp": "ACP 代理",
+  "acp.driverChip": "ACP · {agent}",
+  "acp.newAgentSession": "新建 {agent} 会话",
+  "acp.newAgentSessionArrow": "新建 {agent} 会话 →",
+  "acp.createAgentSession": "创建 + {agent} 会话 →",
+  "acp.endedTitle": "此 {agent} 会话已结束",
+  "acp.endedBody": "ACP 会话无法恢复。请在此文件夹中新建 {agent} 会话以继续。",
+  "acp.modelByAgent": "模型由代理选择",
+  "acp.skillNeedsPi": "技能操作需要 pi",
+  "acp.goalHiddenOne": "已隐藏 1 个 ACP 会话 — 目标需要 pi。",
+  "acp.goalHiddenMany": "已隐藏 {count} 个 ACP 会话 — 目标需要 pi。",
+  "acp.unsupported": "ACP 会话不支持",
   "piRuntime.outsideBundle": "此安装位于应用包之外。随包提供的 pi 是经过测试的；选择其他版本被允许但不受支持。",
 
   "chat.historyGap.countMany": "{count} 条更早的消息",
@@ -1141,6 +1156,9 @@ const zhCN: Record<string, string> = {
   "settings.maxConcurrentSubagents": "最大并发子代理数",
   "settings.hint.maxConcurrentSubagents": "允许同时运行的 Agent 子代理数量。它们在会话进程内部运行并共享其堆，因此会消耗上面的上限。",
   "settings.heap.belowFloor": "至少需要 {min} MB —— 低于该值时 V8 的固定开销会主导请求。",
+  "settingsField.default": "默认",
+  "settingsField.changed": "已更改",
+  "settingsField.reset": "重置为默认值",
   "settings.heap.aboveGuidance": "超过 {max} MB 属于异常大的值。该值仍会被保存。",
   "settings.heap.subagentCoupling": "按此组合，每个并发子代理约只剩 {mb} MB。子代理共享会话的堆；请考虑提高上限或减少并发子代理数。",
   "settings.heap.serverDivergence": "正在运行的服务器以 {mb} MB 启动。配置的值将在下次重启时生效。",

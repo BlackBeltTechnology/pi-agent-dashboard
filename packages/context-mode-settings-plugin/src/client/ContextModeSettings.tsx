@@ -14,7 +14,13 @@ const Form = lazy(() => import("./ContextModeSettingsForm.js").then((m) => ({ de
 export function ContextModeSettings(): React.ReactElement {
   const t = useT();
   return (
-    <Suspense fallback={<div className="text-[13px] text-[var(--text-muted)]">{t("loading", undefined, "Loading…")}</div>}>
+    <Suspense
+      fallback={
+        <div data-testid="cms-loading" className="text-sm text-[var(--text-secondary)]">
+          {t("loading", undefined, "Loading…")}
+        </div>
+      }
+    >
       <Form />
     </Suspense>
   );

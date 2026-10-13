@@ -24,3 +24,13 @@ export function isRemoteOrigin(session: DashboardSession): boolean {
 export function hasMovedAway(session: DashboardSession): boolean {
   return Boolean(session.movedTo);
 }
+
+/**
+ * True for an ACP-agent session. Pi-only controls (Resume, Fork, Reload, Retry,
+ * flows, terminal, file listing) are HIDDEN for it — removed, not shown then
+ * refused (Nielsen H5). Absent `driver` ≡ pi.
+ * See change: add-acp-session-driver (D12, mockup S2).
+ */
+export function isAcpSession(session: Pick<DashboardSession, "driver">): boolean {
+  return session.driver === "acp";
+}

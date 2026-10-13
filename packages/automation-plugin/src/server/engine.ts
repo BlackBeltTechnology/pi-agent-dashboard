@@ -159,6 +159,8 @@ export interface SpawnLike {
   (opts: {
     cwd: string;
     model?: string;
+    /** Configured ACP agent id (the host routes it like a UI spawn). See change: add-acp-session-driver. */
+    agent?: string;
     /** Run isolation mode (worktree|local). Honored by the host spawn hook. */
     mode?: RunMode;
     /** Sandbox level requested for the run. Honored by the host spawn hook. */
@@ -701,7 +703,12 @@ export function createEngine(deps: EngineDeps): Engine {
     void deps
       .spawnSession({
         cwd: runCwd,
-        ...(resolved.model ? { model: resolved.model } : {}),
+        // An ACP agent owns its model: never pass one alongside `agent`.
+        ...(childAutomation.config!.agent
+          ? { agent: childAutomation.config!.agent }
+          : resolved.model
+            ? { model: resolved.model }
+            : {}),
         mode: childAutomation.config!.mode,
         sandbox: childAutomation.config!.sandbox,
         // `name` → `--name` (core-reserved ref key, travels as a top-level opt).

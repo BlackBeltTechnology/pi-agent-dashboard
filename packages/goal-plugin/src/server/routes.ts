@@ -113,6 +113,18 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
     return { success: false, error: "internal error" } satisfies ApiResponse;
   }
 
+  /**
+   * ACP sessions cannot pursue goals (no `/goal` loop, no progress reporting):
+   * linking one is refused before anything is stamped or primed.
+   * See change: add-acp-session-driver (D17).
+   */
+  function isAcpSession(sessionId: string): boolean {
+    return sessionManager.listAll().some((s) => {
+      const session = s as { id?: string; driver?: string };
+      return session.id === sessionId && session.driver === "acp";
+    });
+  }
+
   /** True when `sessionId` is a known session in the same folder. */
   function sessionInCwd(sessionId: string, cwd: string): boolean {
     return sessionManager.listAll().some((s) => {
@@ -387,6 +399,14 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
       if (!sessionInCwd(sessionId, cwd!)) {
         reply.code(400);
         return { success: false, error: "sessionId is not a known session in this folder" } satisfies ApiResponse;
+      }
+      if (isAcpSession(sessionId)) {
+        reply.code(400);
+        return {
+          success: false,
+          error: "Goals need a pi session; ACP agents can't pursue goals.",
+          code: "unsupported_for_acp",
+        } as ApiResponse;
       }
       try {
         const updated = await store.linkSession(cwd!, id, sessionId);

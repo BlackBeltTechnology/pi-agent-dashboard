@@ -237,6 +237,24 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
           },
         },
       };
+      // ACP agents for the ACP-session specs (tests/e2e/acp-*.spec.ts): the
+      // scripted fake agent from the acp-bridge tests, one entry per behaviour.
+      // `qmt` is non-durable (in-process host A, the default), `qmt-durable`
+      // runs under the rpc-keeper (host B). Read at config load, so seeded
+      // BEFORE boot. See change: add-acp-session-driver.
+      const FAKE = "/app/packages/server/src/acp-bridge/__tests__/fake-acp-agent.mjs";
+      const fake = (id, name, knobs, extra) => ({
+        id, name, command: "node",
+        args: [FAKE, "--protocol", "1", "--knobs", JSON.stringify(knobs || {})],
+        ...(extra || {}),
+      });
+      cfg.acpAgents = [
+        fake("qmt", "QueryMT", {}),
+        fake("qmt-slow", "QueryMT Slow", { delayMs: 1200 }),
+        fake("qmt-perm", "QueryMT Perm", { permission: true }),
+        fake("qmt-durable", "QueryMT Durable", { delayMs: 400 }, { durable: true }),
+        fake("claude", "Claude Agent", {}),
+      ];
       // Browser-relay e2e faucet (change: add-browser-relay, task 7.61): the
       // plugin is defaultEnabled:false, so the Fake instance only appears when
       // the config enables it BEFORE boot (the server entry seeds the fake at

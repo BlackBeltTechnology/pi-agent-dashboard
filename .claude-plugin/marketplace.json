@@ -1,0 +1,14 @@
+{
+  "name": "pi-agent-dashboard",
+  "description": "Claude plugins for the pi-agent-dashboard: start the local dashboard and control pi sessions from Claude Code.",
+  "owner": {
+    "name": "BlackBelt Technology"
+  },
+  "plugins": [
+    {
+      "name": "pi-dashboard",
+      "source": "./packages/claude-plugin",
+      "description": "Start the local pi-agent-dashboard and drive pi sessions through its REST API."
+    }
+  ]
+}

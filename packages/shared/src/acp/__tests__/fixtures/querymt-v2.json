@@ -1,0 +1,236 @@
+{
+  "_synthetic": true,
+  "_note": "SYNTHETIC fixture hand-authored from the ACP SDK schema (@agentclientprotocol/sdk 1.8) \u2014 NOT recorded from a real qmtcode run (binary unavailable when task 0.1 was done). Replace with redacted real traffic when available; shapes follow the SDK types.",
+  "protocol": 2,
+  "initialize": {
+    "protocolVersion": 2,
+    "agentCapabilities": {
+      "promptCapabilities": {
+        "image": false
+      }
+    },
+    "agentInfo": {
+      "name": "qmtcode",
+      "version": "0.0.0-synthetic"
+    },
+    "authMethods": []
+  },
+  "sessionNew": {
+    "sessionId": "sess_synthetic_2",
+    "configOptions": [
+      {
+        "configId": "model",
+        "name": "Model",
+        "category": "model",
+        "type": "select",
+        "currentValue": "openai/gpt-5",
+        "options": [
+          {
+            "value": "openai/gpt-5",
+            "name": "GPT-5"
+          },
+          {
+            "value": "anthropic/claude",
+            "name": "Claude"
+          }
+        ]
+      },
+      {
+        "configId": "thought_level",
+        "name": "Thinking",
+        "category": "thought_level",
+        "type": "select",
+        "currentValue": "low",
+        "options": [
+          {
+            "value": "low",
+            "name": "Low"
+          },
+          {
+            "value": "high",
+            "name": "High"
+          }
+        ]
+      }
+    ]
+  },
+  "turn": [
+    {
+      "update": {
+        "sessionUpdate": "state_update",
+        "state": "running"
+      }
+    },
+    {
+      "update": {
+        "sessionUpdate": "agent_thought_chunk",
+        "messageId": "th1",
+        "content": {
+          "type": "text",
+          "text": "Let me look"
+        }
+      }
+    },
+    {
+      "update": {
+        "sessionUpdate": "agent_thought_chunk",
+        "messageId": "th1",
+        "content": {
+          "type": "text",
+          "text": " at the file."
+        }
+      }
+    },
+    {
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "call_1",
+        "title": "Read src/a.ts",
+        "kind": "read",
+        "status": "pending",
+        "rawInput": {
+          "path": "src/a.ts"
+        }
+      }
+    },
+    {
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "call_1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "content",
+            "content": {
+              "type": "text",
+              "text": "export const a = 1;"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "update": {
+        "sessionUpdate": "usage_update",
+        "used": 1200,
+        "size": 200000
+      }
+    },
+    {
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "messageId": "m1",
+        "content": {
+          "type": "text",
+          "text": "The file exports "
+        }
+      }
+    },
+    {
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "messageId": "m1",
+        "content": {
+          "type": "text",
+          "text": "a constant."
+        }
+      }
+    },
+    {
+      "update": {
+        "sessionUpdate": "state_update",
+        "state": "idle",
+        "stopReason": "end_turn"
+      }
+    }
+  ],
+  "result": {
+    "messageId": "u-accepted"
+  },
+  "permissionTurn": [
+    {
+      "update": {
+        "sessionUpdate": "state_update",
+        "state": "running"
+      }
+    },
+    {
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "call_2",
+        "title": "Run npm test",
+        "kind": "execute",
+        "status": "pending",
+        "rawInput": {
+          "command": "npm test"
+        }
+      }
+    },
+    {
+      "update": {
+        "sessionUpdate": "state_update",
+        "state": "requires_action"
+      }
+    },
+    {
+      "permission": {
+        "title": "Run npm test?",
+        "toolCall": {
+          "toolCallId": "call_2",
+          "title": "Run npm test"
+        },
+        "options": [
+          {
+            "optionId": "allow",
+            "name": "Allow once",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "deny",
+            "name": "Deny",
+            "kind": "reject_once"
+          }
+        ]
+      }
+    },
+    {
+      "update": {
+        "sessionUpdate": "state_update",
+        "state": "running"
+      }
+    },
+    {
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "call_2",
+        "status": "completed",
+        "content": [
+          {
+            "type": "content",
+            "content": {
+              "type": "text",
+              "text": "ok"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "messageId": "m2",
+        "content": {
+          "type": "text",
+          "text": "Tests passed."
+        }
+      }
+    },
+    {
+      "update": {
+        "sessionUpdate": "state_update",
+        "state": "idle",
+        "stopReason": "end_turn"
+      }
+    }
+  ]
+}

@@ -34,6 +34,12 @@
  * path `Index now` over empty sources is a perpetual no-op. See change:
  * add-kb-folder-slot.
  *
+ * Colour: every state word is `--text-secondary` with an icon (never an identity
+ * teal or a palette class); "index failed" and `⚠ N stale` are severity pills; the
+ * card control uses the secondary-button colours. SlotPill's own accent glyph
+ * classes are the only palette classes (shared; follow-up).
+ * See change: retro-ux-plugin-settings-forms.
+ *
  * Cwd refusal / folder presence (design D3–D6, D11). Full precedence:
  * `denied` (sub-state `pinning`) > `missing` > `error` > `indexing` (pending or
  * polled) > `loading` > `no-sources` > `not-indexed` > `stale` > `populated`.
@@ -55,7 +61,7 @@ import {
   useT,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { FolderDescriptor, SlotPlacement } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
-import { mdiDatabaseOutline, mdiDatabaseRefreshOutline, mdiPinOutline } from "@mdi/js";
+import { mdiDatabaseOutline, mdiDatabaseRefreshOutline, mdiInformationOutline, mdiLoading, mdiPinOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useCallback, useMemo } from "react";
@@ -154,28 +160,45 @@ function actionView(
   };
 }
 
-const TERTIARY = "text-[var(--text-tertiary)]";
+/** State word + icon in `--text-secondary` (informational; never a palette class). */
+function StateWord({ spin, children }: { spin?: boolean; children: React.ReactNode }): React.ReactElement {
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-semibold text-[var(--text-secondary)]">
+      <Icon path={spin ? mdiLoading : mdiInformationOutline} size={0.5} className={spin ? "animate-spin" : undefined} aria-hidden="true" />
+      {children}
+    </span>
+  );
+}
 
-/** Single-span pill labels. Denied / pinning / missing are informational, so
- *  they render in the tertiary text colour, never the error accent (design D6). */
-const SIMPLE_LABEL: Partial<Record<SectionState, { render: (t: T) => string; className: string }>> = {
-  denied: { render: (t) => t("labelNotAllowedShort", undefined, "not allowed"), className: TERTIARY },
-  pinning: { render: (t) => t("labelPinningShort", undefined, "pinning\u2026"), className: TERTIARY },
-  missing: { render: (t) => t("labelFolderMissingShort", undefined, "folder missing"), className: TERTIARY },
-  "no-sources": { render: (t) => t("labelNoSourcesShort", undefined, "no sources"), className: "text-teal-400" },
-  error: { render: (t) => t("labelIndexFailedShort", undefined, "index failed"), className: "text-red-400" },
-  "not-indexed": { render: (t) => t("labelNotIndexedShort", undefined, "not indexed"), className: "text-teal-400" },
+const PILL = "inline-flex items-center whitespace-nowrap rounded-full border px-1.5 py-px text-[11px] font-semibold";
+const UNIT = "text-[11px] font-semibold text-[var(--text-secondary)]";
+
+/** Single-span pill labels. Denied / pinning / missing / no-sources / not-indexed are
+ *  informational state words; only "index failed" is a severity pill (design D6). */
+const SIMPLE_LABEL: Partial<Record<SectionState, { render: (t: T) => string; spin?: boolean }>> = {
+  denied: { render: (t) => t("labelNotAllowedShort", undefined, "not allowed") },
+  pinning: { render: (t) => t("labelPinningShort", undefined, "pinning\u2026"), spin: true },
+  missing: { render: (t) => t("labelFolderMissingShort", undefined, "folder missing") },
+  "no-sources": { render: (t) => t("labelNoSourcesShort", undefined, "no sources") },
+  "not-indexed": { render: (t) => t("labelNotIndexedShort", undefined, "not indexed") },
 };
 
 function KbCount({ state, stats, t }: { state: SectionState; stats: KbStats | null; t: T }): React.ReactElement {
+  if (state === "error") {
+    return (
+      <span className={`${PILL} border-[var(--severity-error-border)] bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)]`}>
+        {t("labelIndexFailedShort", undefined, "index failed")}
+      </span>
+    );
+  }
   const simple = SIMPLE_LABEL[state];
-  if (simple) return <span className={simple.className}>{simple.render(t)}</span>;
+  if (simple) return <StateWord spin={simple.spin}>{simple.render(t)}</StateWord>;
   const files = stats?.files ?? 0;
   if (state === "indexing") {
     return (
       <>
-        <span className="text-teal-400">{t("labelIndexingShort", undefined, "indexing…")}</span>
-        <span className={`tabular-nums text-[10px] font-semibold ${TERTIARY}`}>{files.toLocaleString()} {t("labelFiles", undefined, "files")}</span>
+        <StateWord spin>{t("labelIndexingShort", undefined, "indexing…")}</StateWord>
+        <span className={`tabular-nums ${UNIT}`}>{files.toLocaleString()} {t("labelFiles", undefined, "files")}</span>
       </>
     );
   }
@@ -183,9 +206,12 @@ function KbCount({ state, stats, t }: { state: SectionState; stats: KbStats | nu
   return (
     <>
       <span className="tabular-nums">{(stats?.chunks ?? 0).toLocaleString()}</span>
-      <span className={`text-[10px] font-semibold ${TERTIARY}`}>{t("labelChunks", undefined, "chunks")}</span>
+      <span className={UNIT}>{t("labelChunks", undefined, "chunks")}</span>
       {state === "stale" && (
-        <span className="text-[10px] font-extrabold text-amber-400" data-testid="folder-kb-stale">
+        <span
+          className={`${PILL} border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)]`}
+          data-testid="folder-kb-stale"
+        >
           ⚠ {t("labelStale", { count: staleCount }, `${staleCount} stale`)}
         </span>
       )}
@@ -304,9 +330,9 @@ export function FolderKbSection({ folder, placement = "sidebar" }: { folder: Fol
               e.stopPropagation();
               runAction();
             }}
-            className="focus-ring shrink-0 w-6 h-6 rounded-md flex items-center justify-center border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-cyan-400 hover:border-cyan-500/45 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="focus-ring shrink-0 h-11 w-11 sm:h-8 sm:w-8 rounded-md flex items-center justify-center border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
-            <Icon path={actionIcon} size={0.55} />
+            <Icon path={actionIcon} size={0.7} />
           </button>
         </span>
       )}

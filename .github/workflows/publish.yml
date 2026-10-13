@@ -272,6 +272,23 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # The tagged tree must already carry the release version in the Claude
+      # plugin manifest. Read from git (the tag), not the working copy, and
+      # BEFORE `sync-versions.js` rewrites it — otherwise the sync would mask a
+      # stale tag. RELEASE_TAG (not GITHUB_REF_NAME): on a dispatch run the ref
+      # is the branch. See change: add-claude-code-plugin (design D9).
+      - name: Preflight — tagged Claude plugin version matches the release
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          tagged=$(git show "$RELEASE_TAG:packages/claude-plugin/.claude-plugin/plugin.json" | jq -r .version)
+          if [ "$tagged" != "$RELEASE_VERSION" ]; then
+            echo "::error::plugin.json at $RELEASE_TAG has version $tagged, expected $RELEASE_VERSION. Re-run scripts/sync-versions.js and re-tag."
+            exit 1
+          fi
+
       - name: Set version from resolved tag
         # `npm pkg set`, not `npm version`: npm@latest (OIDC) reifies on
         # `npm version` and refuses the remote-tarball xlsx dep (EALLOWREMOTE).
@@ -740,11 +757,21 @@ jobs:
           check '*.AppImage' 'latest-linux.yml' 'Linux'
           exit $fail
 
+      # The downloadable Claude plugin (claude.ai Customize > Plugins > Upload
+      # plugin). Fails when plugin.json's version differs from the release.
+      # See change: add-claude-code-plugin (design D10).
+      - name: Build Claude plugin zip
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        run: node scripts/build-claude-plugin-zip.mjs --version "$RELEASE_VERSION" --out claude-plugin-dist
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.resolve.outputs.tag }}
-          files: electron-*/**/*
+          files: |
+            electron-*/**/*
+            claude-plugin-dist/*.zip
           body_path: release-notes.md
           generate_release_notes: ${{ steps.notes.outputs.fallback == 'true' }}
           # Production tags (no SemVer prerelease segment) publish immediately so

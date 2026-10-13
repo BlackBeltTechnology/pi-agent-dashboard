@@ -90,4 +90,41 @@ describe("ContextModeSettings", () => {
     const put = fetchMock.mock.calls.find((c) => (c[1] as RequestInit)?.method === "PUT");
     expect(JSON.parse((put![1] as RequestInit).body as string)).toEqual({ "search.windowMs": 30000 });
   });
+
+  // test-plan #E11 — retro-ux-plugin-settings-forms
+  it("E11: default badge + reset ids render; an invalid edit is announced and counted", async () => {
+    const { findByTestId, getByTestId, getByRole } = mount(vi.fn(async () => jsonOk(effective({ "search.maxResultsAfter": { value: 5, isDefault: false } }))));
+    const input = (await findByTestId("cms-input-search.maxResultsAfter")) as HTMLInputElement;
+    expect(getByTestId("cms-default-badge-search.windowMs")).toBeTruthy();
+    expect(getByTestId("cms-reset-search.maxResultsAfter")).toBeTruthy();
+    fireEvent.change(input, { target: { value: "-2" } });
+    await waitFor(() => expect(getByTestId("cms-error-search.maxResultsAfter")).toBeTruthy());
+    const err = getByTestId("cms-error-search.maxResultsAfter");
+    expect(err.getAttribute("role")).toBe("alert");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(err.id);
+    await waitFor(() => expect(getByRole("status", { name: "" }).textContent).toMatch(/1 unsaved change/));
+  });
+
+  // test-plan #F3
+  it("F3: saving PUTs the override once and the status returns to No changes", async () => {
+    const fetchMock = vi.fn(async (_u: string, _i?: RequestInit) => jsonOk(effective()));
+    const { findByTestId, sources, getByText } = mount(fetchMock);
+    fireEvent.change(await findByTestId("cms-input-search.maxResultsAfter"), { target: { value: "6" } });
+    await waitFor(() => expect(sources.get("plugin:context-mode-settings")?.isDirty).toBe(true));
+    await sources.get("plugin:context-mode-settings")!.commit();
+    const puts = fetchMock.mock.calls.filter((c) => (c[1] as RequestInit)?.method === "PUT");
+    expect(puts).toHaveLength(1);
+    expect(JSON.parse((puts[0][1] as RequestInit).body as string)).toEqual({ "search.maxResultsAfter": 6 });
+    await waitFor(() => expect(getByText("No changes")).toBeTruthy());
+  });
+
+  // test-plan #X1
+  it("X1: a failed load renders inside an error notice without an accent class", async () => {
+    const { findByTestId } = mount(vi.fn(async () => ({ ok: false, status: 503, headers: new Headers(), json: async () => ({}), text: async () => "down" }) as unknown as Response));
+    const el = await findByTestId("cms-load-error");
+    expect(el.getAttribute("data-tone")).toBe("error");
+    expect(el.className).toContain("--severity-error-fg");
+    expect(el.className).not.toContain("--accent-red");
+  });
 });

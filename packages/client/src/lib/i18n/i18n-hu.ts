@@ -2,6 +2,21 @@
 // Hungarian catalog covering the full post-migration key set. Machine-seeded;
 // grouped by structured key for human review.
 export const huCatalog: Record<string, string> = {
+  "acp.agent": "Ügynök",
+  "acp.chooseAgent": "Ügynök választása az új munkamenethez",
+  "acp.metaPi": "Alapértelmezett · folyamatok, alügynökök, bővítmények",
+  "acp.metaAcp": "ACP-ügynök",
+  "acp.driverChip": "ACP · {agent}",
+  "acp.newAgentSession": "Új {agent} munkamenet",
+  "acp.newAgentSessionArrow": "Új {agent} munkamenet →",
+  "acp.createAgentSession": "Létrehozás + {agent} munkamenet →",
+  "acp.endedTitle": "Ez a(z) {agent} munkamenet véget ért",
+  "acp.endedBody": "Az ACP-munkamenetek nem folytathatók. Indítson új {agent} munkamenetet ebben a mappában.",
+  "acp.modelByAgent": "A modellt az ügynök választja",
+  "acp.skillNeedsPi": "A képesség-műveletekhez pi szükséges",
+  "acp.goalHiddenOne": "1 ACP-munkamenet rejtve — a célokhoz pi kell.",
+  "acp.goalHiddenMany": "{count} ACP-munkamenet rejtve — a célokhoz pi kell.",
+  "acp.unsupported": "ACP-munkamenetekhez nem támogatott",
   "piRuntime.outsideBundle": "Ez a telepítés az alkalmazáscsomagon kívül van. A csomagolt pi a tesztelt; másik választása megengedett, de nem támogatott.",
 
   "chat.historyGap.announced": "{count} korábbi üzenet betöltve",
@@ -1596,6 +1611,9 @@ export const huCatalog: Record<string, string> = {
   "settings.maxConcurrentSubagents": "Egyidejű alügynökök maximuma",
   "settings.hint.maxConcurrentSubagents": "Hány Agent alügynök futhat egyszerre. A munkamenet FOLYAMATÁN BELÜL futnak és osztoznak a heapjén, tehát a fenti plafonból fogyasztanak.",
   "settings.heap.belowFloor": "Legalább {min} MB szükséges — ez alatt a V8 fix többlete uralja a kérést.",
+  "settingsField.default": "Alapértelmezett",
+  "settingsField.changed": "Módosítva",
+  "settingsField.reset": "Visszaállítás alapértelmezettre",
   "settings.heap.aboveGuidance": "A {max} MB feletti érték szokatlanul nagy. Az érték ettől még mentésre kerül.",
   "settings.heap.subagentCoupling": "Ennél a párosításnál minden egyidejű alügynöknek kb. {mb} MB marad. Az alügynökök osztoznak a munkamenet heapjén; fontold meg a plafon emelését vagy kevesebb egyidejű gyermeket.",
   "settings.heap.serverDivergence": "A futó szerver {mb} MB-tal indult. A beállított érték a következő újraindításkor lép életbe.",

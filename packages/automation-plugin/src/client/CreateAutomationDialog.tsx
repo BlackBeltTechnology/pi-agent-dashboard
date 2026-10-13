@@ -274,6 +274,22 @@ export function CreateAutomationDialog({
   const initialSplit = splitModelLevel(initialIsRole ? "" : initialModel);
   const [modelValue, setModelValue] = useState(initialIsRole ? initialModel : initialSplit.base);
   const [modelLevel, setModelLevel] = useState<string | undefined>(initialSplit.level);
+  // ACP agent (add-acp-session-driver D14): chosen from the agents the host
+  // exposes as `{id, name}`; absent → pi (model + all actions as before).
+  const [agentId, setAgentId] = useState<string>(initialConfig?.agent ?? "");
+  const [acpAgents, setAcpAgents] = useState<Array<{ id: string; name: string }>>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/acp/agents")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b: { data?: Array<{ id: string; name: string }> } | null) => {
+        if (!cancelled && Array.isArray(b?.data)) setAcpAgents(b.data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [mode, setMode] = useState<RunMode>(initialConfig?.mode ?? "local");
   const [sandbox, setSandbox] = useState<Sandbox>(initialConfig?.sandbox ?? "workspace-write");
@@ -357,7 +373,7 @@ export function CreateAutomationDialog({
   const isFile = category === "file";
   const filePathMissing = isFile && !filePath.trim();
   const submitDisabled =
-    busy || categoryPlanned || eventsMissing || (isScheduled && cronInvalid) || filePathMissing || !model || skillMissing;
+    busy || categoryPlanned || eventsMissing || (isScheduled && cronInvalid) || filePathMissing || (!model && !agentId) || skillMissing;
 
   function toggleEvent(ev: string): void {
     setSelectedEvents((prev) =>
@@ -401,7 +417,8 @@ export function CreateAutomationDialog({
         ? {
             on: onBlock,
             action: primaryBlock,
-            model,
+            ...(agentId ? { agent: agentId } : {}),
+            model: agentId ? "" : model,
             mode,
             sandbox,
             concurrency,
@@ -415,7 +432,8 @@ export function CreateAutomationDialog({
                 toActionBlock(e.actionId, { skill: e.skill, payload: e.payload, inputs: {}, count: e.count }),
               ),
             ],
-            model,
+            ...(agentId ? { agent: agentId } : {}),
+            model: agentId ? "" : model,
             mode,
             sandbox,
             concurrency,
@@ -667,7 +685,15 @@ export function CreateAutomationDialog({
         {/* ── ACTION ───────────────────────────────────────────── */}
         <Group title="Action" label={t("groupAction", undefined, "Action")}>
           <ActionPicker
-            actions={actions}
+            actions={
+              agentId
+                ? actions.map((a) =>
+                    a.id === "core.prompt"
+                      ? a
+                      : { ...a, available: false, unavailableReason: t("skillNeedsPi", undefined, "Skill actions need pi") },
+                  )
+                : actions
+            }
             selectedId={actionId}
             search={actionSearch}
             openSources={openSources}
@@ -814,6 +840,33 @@ export function CreateAutomationDialog({
             </button>
           </div>
 
+          {acpAgents.length > 0 && (
+            <Field label={t("fieldAgent", undefined, "Agent")}>
+              <select
+                value={agentId}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setAgentId(next);
+                  // ACP agents only run core.prompt; leave a skill/plugin action behind.
+                  if (next && actionId !== "core.prompt") setActionId("core.prompt");
+                }}
+                data-testid="create-agent-select"
+                className="input"
+              >
+                <option value="">pi</option>
+                {acpAgents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+          {agentId ? (
+            <p className="text-[12px] text-[var(--text-secondary)]" data-testid="create-model-by-agent">
+              {t("modelByAgent", undefined, "Model is chosen by the agent")}
+            </p>
+          ) : (
           <Field label={t("fieldModel", undefined, "Model")}>
             {/* Model + level are ONE decision: model left, level right, in one
                 enclosure, with the ref that gets written echoed below. The
@@ -881,6 +934,7 @@ export function CreateAutomationDialog({
               )}
             </div>
           </Field>
+          )}
         </Group>
 
         {/* ── ADVANCED (collapsed) ─────────────────────────────── */}

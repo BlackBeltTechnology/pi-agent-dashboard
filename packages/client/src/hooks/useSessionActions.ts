@@ -407,7 +407,7 @@ export function useSessionActions(deps: SessionActionDeps) {
   const handleSpawnSession = useCallback((
     cwd: string,
     attachProposal?: string,
-    opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string; focus?: boolean },
+    opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string; focus?: boolean; agent?: string },
   ) => {
     // The placeholder/disabled-button group cwd. For a normal spawn this is
     // the spawn cwd; for a worktree spawn the host passes the PARENT repo
@@ -459,6 +459,9 @@ export function useSessionActions(deps: SessionActionDeps) {
       // Pre-injected first prompt (e.g. `/skill:project-init` from the no-hook
       // Initialize button). See change: project-init-skill-and-profiles.
       ...(opts?.initialPrompt ? { initialPrompt: opts.initialPrompt } : {}),
+      // Configured ACP agent (picker / sibling inheritance); absent → pi, so the
+      // frame is byte-identical to before. See change: add-acp-session-driver (D16).
+      ...(opts?.agent ? { agent: opts.agent } : {}),
     });
   }, [send, clearSpawningCwd, setSpawningCwds, spawnTimeoutsRef, pendingSpawnsRef]);
 

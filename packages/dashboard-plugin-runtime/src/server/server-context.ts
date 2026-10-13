@@ -265,6 +265,13 @@ export interface PluginSpawnOptions {
   cwd: string;
   /** Optional model id (resolved provider/model) passed as `--model`. */
   model?: string;
+  /**
+   * Configured ACP agent id (`acpAgents[].id`). When set the host starts that
+   * agent instead of pi, routed exactly like a UI spawn. pi-only options
+   * (`scope`, `resume`, `model`) are REJECTED with `agent`; an unknown id is
+   * rejected. See change: add-acp-session-driver (D14).
+   */
+  agent?: string;
   /** Optional session name passed as `--name`. */
   name?: string;
   /**
