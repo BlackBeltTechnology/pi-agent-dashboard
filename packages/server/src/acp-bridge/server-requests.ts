@@ -125,6 +125,7 @@ export function handleServerMessage(m: ServerToExtensionMessage, ctx: ServerRequ
     case "plugin_emit_event":
     case "preferences_update":
     case "subagent_resync_request":
+    case "vault_snapshot":
       return ctx.ignored(m.type);
 
     default: {
