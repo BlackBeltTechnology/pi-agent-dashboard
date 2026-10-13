@@ -19,6 +19,7 @@ import type { SkillGraphResponse, SkillLink, SkillNode } from "../../shared/type
 import { AtlasSummary } from "../AtlasSummary.js";
 import { FolderAtlasMenu } from "../claims.js";
 import SkillAtlasPage from "../SkillAtlasPage.js";
+import { useSkillGraph } from "../useSkillGraph.js";
 
 let ws: EventTarget;
 beforeEach(() => {
@@ -210,6 +211,35 @@ describe("SkillAtlasPage", () => {
     await act(async () => release());
     await waitFor(() => expect(screen.getByTestId("skill-atlas-status").textContent).toContain("Up to date"));
     expect(screen.getByTestId("skill-atlas-detail").textContent).toContain("plan-proposal");
+  });
+});
+
+describe("useSkillGraph cwd matching (CodeQL js/polynomial-redos)", () => {
+  function Probe({ cwd }: { cwd: string }) {
+    const { graph } = useSkillGraph("project", cwd);
+    return <span data-testid="probe">{graph?.fingerprint ?? "none"}</span>;
+  }
+  const broadcast = (cwd: string) =>
+    act(() => {
+      ws.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ type: "skill_atlas_changed", scope: "project", cwd }) }));
+    });
+
+  it("repeated trailing separators still match the folder and trigger one refetch", async () => {
+    const f = okGraph(star());
+    render(<Shell><Probe cwd="/repo" /></Shell>);
+    await waitFor(() => expect(f).toHaveBeenCalledTimes(1));
+    broadcast("/repo///");
+    await waitFor(() => expect(f).toHaveBeenCalledTimes(2));
+  });
+
+  it("a pathological run of slashes is handled in linear time and does not match", async () => {
+    const f = okGraph(star());
+    render(<Shell><Probe cwd="/repo" /></Shell>);
+    await waitFor(() => expect(f).toHaveBeenCalledTimes(1));
+    const t0 = performance.now();
+    broadcast(`${"/".repeat(30_000)}x`);
+    expect(performance.now() - t0).toBeLessThan(50);
+    expect(f).toHaveBeenCalledTimes(1);
   });
 });
 

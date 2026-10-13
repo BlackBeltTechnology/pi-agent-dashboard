@@ -511,10 +511,16 @@
   app.addEventListener("wheel", (e) => { if (!e.target.closest("svg.graph")) return; e.preventDefault(); state.zoom = Math.max(0.5, Math.min(5, state.zoom * (e.deltaY < 0 ? 1.1 : 0.9))); render(); }, { passive: false });
 
   const qp = new URLSearchParams(location.search);
-  if (qp.get("theme")) { const sel = document.getElementById("theme"); sel.value = qp.get("theme"); sel.dispatchEvent(new Event("change")); }
-  if (qp.get("sel")) { state.sel = qp.get("sel"); state.hops = +(qp.get("hops") || 0); }
-  if (qp.get("view")) state.view = qp.get("view");
-  if (qp.get("surface")) go(qp.get("surface")); else render();
+  // URL params are untrusted: allow-list each before it can reach render()/innerHTML.
+  const pick = (v, allowed) => (allowed.includes(v) ? v : null);
+  const themeParam = pick(qp.get("theme"), [...document.getElementById("theme").options].map((o) => o.value));
+  if (themeParam) { const sel = document.getElementById("theme"); sel.value = themeParam; sel.dispatchEvent(new Event("change")); }
+  const selParam = A.skills.find((x) => x.id === qp.get("sel"));
+  if (selParam) { state.sel = selParam.id; state.hops = Math.min(2, Math.max(0, Number.parseInt(qp.get("hops") || "0", 10) || 0)); }
+  const viewParam = pick(qp.get("view"), ["cards", "graph", "links"]);
+  if (viewParam) state.view = viewParam;
+  const surfaceParam = pick(qp.get("surface"), ["skills", "project", "global", "states"]);
+  if (surfaceParam) go(surfaceParam); else render();
 })();
 </script>
 </body>

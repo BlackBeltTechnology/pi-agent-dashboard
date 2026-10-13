@@ -17,7 +17,13 @@ export interface UseSkillGraph {
   refetch: () => void;
 }
 
-const norm = (p?: string) => (p && p.length > 1 ? p.replace(/[\\/]+$/, "") : p);
+/** Strip trailing separators in linear time (a `/[\\/]+$/` regex is quadratic: CodeQL js/polynomial-redos). */
+function norm(p?: string): string | undefined {
+  if (!p) return p;
+  let end = p.length;
+  while (end > 1 && (p[end - 1] === "/" || p[end - 1] === "\\")) end--;
+  return p.slice(0, end);
+}
 
 export function useSkillGraph(scope: SkillAtlasScope, cwd?: string): UseSkillGraph {
   const [graph, setGraph] = useState<SkillGraphResponse | null>(null);
