@@ -24,6 +24,17 @@ function checkSessionFlag(row: ToolRow): boolean {
   return !impliesSessionTarget(row) || row.sessionTargeting === true;
 }
 
+// See change: add-provider-models-refresh (test-plan #E7).
+describe("provider models refresh route", () => {
+  it("is tiered operate and denylisted from MCP", async () => {
+    const { hasRouteTier } = await import("@blackbelt-technology/pi-dashboard-shared/route-tiers.js");
+    const { isDenylisted } = await import("../tools.denylist.js");
+    expect(hasRouteTier("POST", "/api/providers/:name/refresh")).toBe(true);
+    expect(routeTier("POST", "/api/providers/:name/refresh")).toBe("operate");
+    expect(isDenylisted("/api/providers/:name/refresh")).toBe(true);
+  });
+});
+
 describe("E14 — annotation and tier invariants", () => {
   it("every observe tool is read-only", () => {
     for (const t of GENERATED_TOOLS.filter((t) => t.tier === "observe")) {

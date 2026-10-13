@@ -7,3 +7,5 @@ Register custom LLM providers + auto-discovered models from `~/.pi/agent/provide
 `reloadProviders` serialized via module `reloadChain` (each call runs after prior completed); `activate()` startup registrations join the chain. Prevents overlapping re-sync seeing "no diff" mid-discovery. See change: refresh-models-on-provider-change.
 
 `session_start` re-enrichment loop also runs on `reloadChain` (waits for startup discovery first). See change: refresh-models-on-provider-change.
+
+`reloadProviders(pi, {force?})` — forced name present in snapshot + providers.json takes the changed branch (unregister → `registerEntry` → re-fetch `/models` + re-read native `models.json`); absent names ignored; still serialized via `reloadChain`. Stale `enrichmentSource` keys for dropped ids are harmless (read only for registered ids). See change: add-provider-models-refresh.

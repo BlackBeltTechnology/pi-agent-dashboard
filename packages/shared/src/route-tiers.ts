@@ -330,6 +330,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/provider-auth/flow/:flowId/input", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/radius/mcp", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/start", tier: "operate" },
+  { method: "POST", path: "/api/providers/:name/refresh", tier: "operate" },
   { method: "POST", path: "/api/providers/test", tier: "operate" },
   { method: "POST", path: "/api/push/register", tier: "operate" },
   { method: "POST", path: "/api/push/test", tier: "operate" },

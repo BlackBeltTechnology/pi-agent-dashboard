@@ -908,18 +908,25 @@ async function registerEntry(pi: ExtensionAPI, name: string, entry: ProviderEntr
  * `lastRegistered` before awaiting discovery -- an overlapping call would see
  * "no diff" and push a list missing the in-flight provider.
  * See change: refresh-models-on-provider-change (D4).
+ *
+ * `opts.force` names providers to treat as changed even when their entry is
+ * unchanged — re-registering re-fetches `/models` and re-reads native
+ * `models.json`. Names absent from providers.json are ignored.
+ * See change: add-provider-models-refresh (D2).
  */
 let reloadChain: Promise<unknown> = Promise.resolve();
 export function reloadProviders(
   pi: ExtensionAPI,
+  opts: { force?: readonly string[] } = {},
 ): Promise<{ added: string[]; removed: string[]; changed: string[] }> {
-  const run = reloadChain.then(() => reloadProvidersNow(pi));
+  const run = reloadChain.then(() => reloadProvidersNow(pi, new Set(opts.force ?? [])));
   reloadChain = run.catch(() => {});
   return run;
 }
 
 async function reloadProvidersNow(
   pi: ExtensionAPI,
+  force: ReadonlySet<string>,
 ): Promise<{ added: string[]; removed: string[]; changed: string[] }> {
   piRef = pi;
   const added: string[] = [];
@@ -944,7 +951,7 @@ async function reloadProvidersNow(
       }
       lastRegistered.delete(name);
       removed.push(name);
-    } else if (!entriesEqual(prev, next)) {
+    } else if (force.has(name) || !entriesEqual(prev, next)) {
       try {
         pi.unregisterProvider(name);
       } catch (err: any) {

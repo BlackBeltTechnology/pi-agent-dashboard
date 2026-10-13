@@ -39,6 +39,7 @@ import {
   mdiLoading,
   mdiLogout,
   mdiPencil,
+  mdiRefresh,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -51,7 +52,7 @@ import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { PROVIDER_AUTH_EVENT } from "../../hooks/useProvidersReady.js";
 import { getApiBase } from "../../lib/api/api-context.js";
-import { type ProviderHealth, testProvider } from "../../lib/api/providers-api.js";
+import { type ProviderHealth, refreshProviderModels, testProvider } from "../../lib/api/providers-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
 import { InlineMessage } from "../primitives/InlineMessage.js";
@@ -796,6 +797,8 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
               health={providers.health[name]}
               pending={pendingHealth.has(name)}
               onTest={testProvider}
+              onRefreshModels={refreshProviderModels}
+              onRefreshed={handleChanged}
               onUpdate={updateCustomEndpoint}
               onRemove={() => void removeCustomEndpoint(name).catch(logRejection("ProviderAuthSection.removeCustomEndpoint"))}
               removePending={removingCustom === name}
@@ -1070,15 +1073,38 @@ function AnthropicPeerHint({ show, reason }: { show: boolean; reason?: string })
   );
 }
 
+/** Row "Refresh models" control. See change: add-provider-models-refresh. */
+function RefreshModelsButton({ refreshing, disabled, onClick }: { refreshing: boolean; disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={refreshing || disabled}
+      data-testid="provider-refresh-models"
+      title={i18nT("providers.refreshModelsHint", undefined, "Re-fetch this provider's model list in every session")}
+      className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-secondary)] disabled:opacity-50"
+    >
+      <Icon path={refreshing ? mdiLoading : mdiRefresh} size={0.45} className={refreshing ? "animate-spin" : undefined} />
+      {refreshing
+        ? i18nT("common.refreshingModels", undefined, "Refreshing…")
+        : i18nT("providers.refreshModels", undefined, "Refresh models")}
+    </button>
+  );
+}
+
 // ── Custom-endpoint row ──────────────────────────────────────────────────────
 
-function CustomEndpointRow({ name, entry, health, pending, onTest, onUpdate, onRemove, removePending }: {
+function CustomEndpointRow({ name, entry, health, pending, onTest, onRefreshModels, onRefreshed, onUpdate, onRemove, removePending }: {
   name: string;
   entry: { baseUrl?: string; apiKey?: string; api?: string };
   health?: ProviderHealth;
   /** A write just landed; its detached probe has not been reconciled yet. */
   pending: boolean;
   onTest: typeof testProvider;
+  /** Re-fetch this provider's model list. See change: add-provider-models-refresh. */
+  onRefreshModels: typeof refreshProviderModels;
+  /** Funnel a successful refresh (catalogue refetch + provider-auth event). */
+  onRefreshed: () => void;
   onUpdate: (name: string, input: { baseUrl: string; apiKey: string; api: string }) => Promise<string | null>;
   onRemove: () => void;
   removePending: boolean;
@@ -1091,6 +1117,34 @@ function CustomEndpointRow({ name, entry, health, pending, onTest, onUpdate, onR
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [live, setLive] = useState<LiveTestResult | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  // Sync guard: a double click lands before the `refreshing` re-render.
+  const refreshingRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
+  // See change: add-provider-models-refresh (D6, D6a).
+  const refreshModels = async () => {
+    if (refreshingRef.current || removePending) return;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    setError(null);
+    const result = await onRefreshModels(name);
+    refreshingRef.current = false;
+    if (!mountedRef.current) return;
+    setRefreshing(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    const h = result.health;
+    if (h) {
+      setLive(h.ok
+        ? { ok: true, modelCount: h.modelCount ?? 0 }
+        : { ok: false, status: h.status, error: h.error ?? "Refresh failed" });
+    }
+    onRefreshed();
+  };
 
   const canTest = baseUrl.trim().length > 0 && apiKey.trim().length > 0 && !testing;
   const runTest = async () => {
@@ -1117,7 +1171,7 @@ function CustomEndpointRow({ name, entry, health, pending, onTest, onUpdate, onR
     setEditing(false);
   };
 
-  const view = derivePillView({ testing, live, pending, health });
+  const view = derivePillView({ testing: testing || refreshing, live, pending, health });
 
   return (
     <div className="flex flex-col gap-1 p-3 rounded bg-[var(--bg-tertiary)] border border-[var(--border-primary)]" data-testid="provider-row" data-row-id={name} data-row-source="custom">
@@ -1137,6 +1191,7 @@ function CustomEndpointRow({ name, entry, health, pending, onTest, onUpdate, onR
         </div>
         {!editing && (
           <div className="flex items-center gap-2">
+            <RefreshModelsButton refreshing={refreshing} disabled={removePending} onClick={() => void refreshModels()} />
             <button
               onClick={() => setEditing(true)}
               className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-secondary)]"
@@ -1225,7 +1280,7 @@ function CustomEndpointRow({ name, entry, health, pending, onTest, onUpdate, onR
       )}
 
       {error && (
-        <div className="flex items-center gap-1 mt-1 text-xs text-red-400">
+        <div className="flex items-center gap-1 mt-1 text-xs text-red-400" data-testid="provider-refresh-error">
           <Icon path={mdiAlert} size={0.45} />
           {error}
         </div>

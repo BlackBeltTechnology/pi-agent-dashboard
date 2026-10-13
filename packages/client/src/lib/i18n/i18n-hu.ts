@@ -1195,6 +1195,8 @@ export const huCatalog: Record<string, string> = {
   "providers.loadingProviderStatus": "Szolgáltató állapotának betöltése…",
   "providers.reasoningUnknownProviderReportedNone": "Gondolkodás ismeretlen — a szolgáltató nem jelzett",
   "providers.refreshModelRegistry": "Modellregiszter frissítése",
+  "providers.refreshModels": "Modellek frissítése",
+  "providers.refreshModelsHint": "A szolgáltató modell-listájának újralekérése minden munkamenetben",
   "providers.registryUnreachable": "(a regiszter nem érhető el)",
   "providers.visionAssumedProviderReportedNoCapabi": "Kép feltételezve — a szolgáltató nem jelzett képességet; a képbevitel alapból bekapcsolva",
   "session.abortedMaxTurnsExceeded": "Megszakítva (max. körök túllépve)",
