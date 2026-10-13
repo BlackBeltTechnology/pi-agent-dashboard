@@ -313,7 +313,7 @@ describe("bridge wiring (E6, E7)", () => {
     const body = src.slice(start, end);
     const consume = body.indexOf("consumePendingReloadOnSessionStart(");
     const register = body.indexOf('type: "session_register"');
-    const replay = body.indexOf("replaySessionEntries();");
+    const replay = body.indexOf("replaySessionEntries(");
     const replayComplete = body.indexOf('type: "replay_complete"');
     const completed = body.indexOf("reloadCompletedFeedback(");
     expect(consume).toBeGreaterThan(-1);

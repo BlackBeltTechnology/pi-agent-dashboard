@@ -147,3 +147,125 @@ describe("session_ended heal — reducer guards", () => {
     expect(after).toEqual(before);
   });
 });
+
+// ── A live tick disproves a `session_ended` heal ─────────────────────────────
+// A live bridge replay (old bridges / poisoned stores) can carry a fabricated
+// `session_ended` end for a call that is still running. The next live tick
+// proves the process is alive: the card and its subagent go back to running.
+// See change: fix-replay-fabricates-orphan-end-for-live-calls (D5, D6).
+const liveTick = (t: number, id: string, agentId: string): DashboardEvent => ({
+  eventType: "tool_execution_update",
+  timestamp: t,
+  data: {
+    toolCallId: id,
+    partialResult: {
+      content: [{ type: "text", text: "(running…)" }],
+      details: { agentId, subagentType: "Explore", description: "probe", status: "running", toolUses: 5 },
+    },
+  },
+});
+const realSubagentFail = (t: number, id: string): DashboardEvent => ({
+  eventType: "subagent_failed",
+  timestamp: t,
+  data: { id, error: "model refused" },
+});
+
+describe("session_ended heal — reopened by a live tick", () => {
+  const poisoned = () =>
+    apply([asstStart(1), toolStart(2, "A"), liveTick(3, "A", "ag-1"), healEnd(4, "A", "ag-1")]);
+
+  it("records the heal marker on the subagent and clears it on real writes (test-plan #F6)", () => {
+    const healed = apply([subagentStarted(1, "ag-1"), healSubagentFail(2, "ag-1")]);
+    expect(healed.subagents.get("ag-1")?.healedBy).toBe("session_ended");
+
+    const restarted = reduceEvent(healed, subagentStarted(3, "ag-1"));
+    expect(restarted.subagents.get("ag-1")?.healedBy).toBeUndefined();
+
+    const realDone = reduceEvent(healed, subagentCompleted(3, "ag-1"));
+    expect(realDone.subagents.get("ag-1")?.healedBy).toBeUndefined();
+
+    const viaEnd = apply([asstStart(1), toolStart(2, "A"), liveTick(3, "A", "ag-1"), healEnd(4, "A", "ag-1")]);
+    expect(viaEnd.subagents.get("ag-1")?.healedBy).toBe("session_ended");
+    const realBackfill = reduceEvent(viaEnd, {
+      eventType: "tool_execution_end",
+      timestamp: 5,
+      data: { toolCallId: "A", toolName: "Agent", result: "done", isError: false, details: { agentId: "ag-1" } },
+    });
+    expect(realBackfill.subagents.get("ag-1")?.healedBy).toBeUndefined();
+    expect(realBackfill.subagents.get("ag-1")?.status).toBe("completed");
+  });
+
+  it("reopens the row, the toolCalls entry and the subagent (test-plan #F1)", () => {
+    const before = poisoned();
+    expect(before.toolCalls.get("A")?.status).toBe("error");
+
+    const s = reduceEvent(before, liveTick(10, "A", "ag-1"));
+    const row = s.messages.findLast((m) => m.toolCallId === "A");
+    expect(row?.toolStatus).toBe("running");
+    expect(s.toolCalls.get("A")?.status).toBe("running");
+    expect(row?.duration).toBeUndefined();
+    expect(row?.toolDetails?.healedBy).toBeUndefined();
+    const sub = s.subagents.get("ag-1");
+    expect(sub?.status).toBe("running");
+    expect(sub?.healedBy).toBeUndefined();
+    expect(sub?.error).toBeUndefined();
+    // The "result not received" badge (`isAgentResultNotReceived`) keys on these two.
+    expect(row?.toolDetails?.healedBy).not.toBe("session_ended");
+    expect(row?.toolDetails?.resultMissing).toBeUndefined();
+  });
+
+  it("the real end after a reopen finalizes normally (test-plan #F2)", () => {
+    const reopened = reduceEvent(poisoned(), liveTick(10, "A", "ag-1"));
+    const s = reduceEvent(reopened, {
+      eventType: "tool_execution_end",
+      timestamp: 20,
+      data: { toolCallId: "A", toolName: "Agent", result: "done", isError: false, details: { agentId: "ag-1" } },
+    });
+    const row = s.messages.findLast((m) => m.toolCallId === "A");
+    expect(row?.toolStatus).toBe("complete");
+    expect(row?.result).toBe("done");
+    expect(s.subagents.get("ag-1")?.status).toBe("completed");
+  });
+
+  it("a real terminal row is not reopened (test-plan #F3)", () => {
+    const done = apply([asstStart(1), toolStart(2, "A"), liveTick(3, "A", "ag-1"), realEnd(4, "A", "done")]);
+    const s = reduceEvent(done, liveTick(5, "A", "ag-1"));
+    expect(s.messages.findLast((m) => m.toolCallId === "A")?.toolStatus).toBe("complete");
+    expect(s.toolCalls.get("A")?.status).toBe("complete");
+  });
+
+  it("a really-failed subagent is not reopened (test-plan #F4)", () => {
+    const before = apply([
+      asstStart(1),
+      toolStart(2, "A"),
+      liveTick(3, "A", "ag-1"),
+      realSubagentFail(4, "ag-1"),
+      healEnd(5, "A", "ag-1"),
+    ]);
+    const s = reduceEvent(before, liveTick(10, "A", "ag-1"));
+    expect(s.subagents.get("ag-1")?.status).toBe("failed");
+    expect(s.subagents.get("ag-1")?.error).toBe("model refused");
+  });
+
+  it("other heals keep their behaviour (test-plan #F5)", () => {
+    // turn_settled: the neutral settle heal stays finalized on a late tick.
+    const settled = apply([
+      asstStart(1),
+      toolStart(2, "A"),
+      liveTick(3, "A", "ag-1"),
+      { eventType: "agent_settled", timestamp: 4, data: {} },
+    ]);
+    const settledRow = settled.messages.findLast((m) => m.toolCallId === "A");
+    expect(settledRow?.toolDetails?.healedBy).toBe("turn_settled");
+    const s1 = reduceEvent(settled, liveTick(5, "A", "ag-1"));
+    const r1 = s1.messages.findLast((m) => m.toolCallId === "A");
+    expect(r1?.toolStatus).toBe("complete");
+    expect(r1?.toolDetails?.healedBy).toBe("turn_settled");
+
+    // subagent_stopped heal from a real subagent_completed stays terminal.
+    const stopped = apply([asstStart(1), toolStart(2, "A"), liveTick(3, "A", "ag-1"), subagentCompleted(4, "ag-1")]);
+    const s2 = reduceEvent(stopped, liveTick(5, "A", "ag-1"));
+    expect(s2.messages.findLast((m) => m.toolCallId === "A")?.toolStatus).toBe("complete");
+    expect(s2.subagents.get("ag-1")?.status).toBe("completed");
+  });
+});

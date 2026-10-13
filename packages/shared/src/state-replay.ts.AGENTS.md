@@ -7,3 +7,5 @@ Kind-marked `stats_update` (`usageKind`, `turnUsage`, NO `contextUsage`) for `us
 toolResult `message.nestedCalls` copied onto the synthesized `tool_execution_end` (`data.nestedCalls`) — only replay trace of nested calls. See change: render-nested-tool-calls.
 
 toolResult `message.durationMs` (finite, >= 0) copied onto the synthesized `tool_execution_end` (`data.durationMs`) so a reloaded row shows the recorded duration. See change: update-pi-core-1-1-adopt-apis.
+
+See change: fix-replay-fabricates-orphan-end-for-live-calls — `replayEntriesAsEvents(sessionId, entries, knownContextWindow?, opts?: {liveTailOpen?})`. `liveTailOpen` skips orphan-close for open toolCalls of the LAST assistant message (live process still running them); earlier-message orphans still close with `healedBy:"session_ended"`. Callers: `extension/src/session-sync.ts` `replaySessionEntries` (live; passes opts), `server/src/session/session-load-worker.ts` (cold; no opts → byte-identical).

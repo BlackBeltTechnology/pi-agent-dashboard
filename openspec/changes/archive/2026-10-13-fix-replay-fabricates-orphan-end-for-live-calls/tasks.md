@@ -1,0 +1,46 @@
+## 1. Shared replay — live tail stays open (D1, D2)
+
+- [x] 1.1 Add failing L1 test (test-plan #E1) in `packages/shared/src/__tests__/state-replay.test.ts` (see the existing orphan-close cases in that file): last assistant message with `toolCall` A (Agent) + B (bash), no toolResults · `replayEntriesAsEvents(id, entries, undefined, {liveTailOpen:true})` · starts for A and B, zero `tool_execution_end`.
+- [x] 1.2 Add failing L1 test (test-plan #E2) in the same file: earlier assistant `toolCall` C orphaned, later assistant `toolCall` D open · `liveTailOpen:true` · exactly one end, for C, carrying `isError:true`, `result:"parent session ended"`, `healedBy:"session_ended"`.
+- [x] 1.3 Add failing L1 test (test-plan #E3) in the same file: last assistant has E (with toolResult) + F (without) · `liveTailOpen:true` · E has its real end with no `healedBy`, F has no end.
+- [x] 1.4 Add L1 test (test-plan #E4) in the same file: E1 fixture · no opts vs `{liveTailOpen:false}` · outputs deep-equal and A/B closed with `healedBy:"session_ended"` (cold behaviour unchanged).
+- [x] 1.5 Implement the `opts?: { liveTailOpen?: boolean }` 4th param in `packages/shared/src/state-replay.ts` (track the last assistant message's toolCall ids; skip them in the orphan-close when set). Verify 1.1–1.4 pass and `packages/server/src/__tests__/session-load-worker.test.ts` parity stays green.
+
+## 2. Bridge — liveness + synthetic marker (D3, D4)
+
+- [x] 2.1 Add failing L1 test (test-plan #E5, #X3) in `packages/extension/src/__tests__/session-sync.test.ts` (copy the mock `bc` setup already used there): all 8 combos of `isAgentStreaming` ∈ {true,false} × `isIdle` ∈ {returns true, returns false, absent, throws} · `isLive(ctx, flag)` · true iff `flag===true` or `isIdle()===false`; never throws.
+- [x] 2.2 Add failing L1 test (test-plan #E6) in the same file: `cachedCtx.getBranch()` returns the E1 entries, connection spy · `replaySessionEntries(bc,{liveTailOpen:true})`, `replaySessionEntries(bc)`, `handleSessionChange(...)` · no end for A/B in the first, ends for A/B in the other two.
+- [x] 2.3 Implement `isLive` and the `opts` param in `packages/extension/src/session-sync.ts`; widen `inst.replaySessionEntries` in `packages/extension/src/bridge-handlers/instance.ts:194` and the wrapper at `packages/extension/src/bridge.ts:1856`; pass `{liveTailOpen: isLive(...)}` at `bridge.ts:1335` (onReconnect) and `bridge-handlers/lifecycle.ts:603` (session_start). Verify 2.1–2.2 pass.
+- [x] 2.4 Add failing L1 test (test-plan #E10) in `packages/extension/src/__tests__/bridge-handlers.test.ts` (reuse its lifecycle harness): `isAgentStreaming=true` · session_start replay path and onReconnect path · the `agent_start` frame after `replay_complete` carries `data.synthetic === true`. Implement `{ type: "agent_start", synthetic: true }` at `bridge.ts:1352` and `lifecycle.ts:611`; verify it passes.
+
+## 3. Server — open-call scan + tool-result route (D4, D7)
+
+- [x] 3.1 Add failing L1 tests (test-plan #E7, #E8, #E9) in `packages/server/src/session/__tests__/open-tool-calls.test.ts` (copy its fixture builders, incl. `__fixtures__/recorded-agent-tool-update.json`): (#E7) `agent_start`, start A + update agentId ag-1, `agent_start{synthetic:true}` · `findOpenToolCalls` · `[{A, Agent, agentId:"ag-1"}]`; (#E8) start C then unmarked `agent_start` · `[]`; (#E9) `agent_start`, start A twice · one entry.
+- [x] 3.2 Implement in `packages/server/src/session/open-tool-calls.ts`: an `agent_start` with `data.synthetic === true` does not break the walk; dedupe starts by `toolCallId`. Update the KNOWN GAP comment. Verify 3.1 passes.
+- [x] 3.3 Add failing L1 test (test-plan #X1) in `packages/server/src/__tests__/session-end-orphan-heal.test.ts` (reuse its onEnded harness): stored `agent_start`, start A, `agent_start{synthetic:true}`, no end; session ends · one `tool_execution_end{A, healedBy:"session_ended"}` inserted and broadcast. Verify it passes after 3.2.
+- [x] 3.4 Add failing L1 tests (test-plan #E11, #E12) in `packages/server/src/__tests__/session-routes-tool-result.test.ts` (copy its route harness): end{abc, healedBy:"session_ended"} with session (a) resident live, (b) resident ended, (c) not resident · `GET .../tool-result/abc?pending=1` · (a) not 200, (b)/(c) 200 `{result:"parent session ended", isError:true}`; and (#E12) a real end after the heal end on a live session · 200 with the real result.
+- [x] 3.5 Implement `findToolEndEvent(sessionId, toolCallId, opts?: { skipHealedBy?: string })` in `packages/server/src/persistence/memory-event-store.ts` (+ interface) and pass `skipHealedBy:"session_ended"` from `packages/server/src/routes/session-routes.ts:228` only when `sessionManager.get(id)` exists with `status !== "ended"`. Verify 3.4 passes and the existing tool-result tests stay green.
+
+## 4. Client — subagent heal marker + reopen (D5, D6)
+
+- [x] 4.1 Add optional `healedBy?: string` to `SubagentState` in `packages/subagents-plugin/src/client/types.ts` (doc comment: client-only, never sent by the producer). Verify `tsc` passes.
+- [x] 4.2 Add failing L1 test (test-plan #F6) in `packages/client/src/lib/__tests__/event-reducer.session-ended-heal.test.ts` (extend the existing cases there): `subagent_failed{ag-1, healedBy:"session_ended"}`, then (a) `subagent_started`, (b) real `subagent_completed`, (c) real Agent end backfill · `subagents.get("ag-1").healedBy === undefined` after each. Implement set and delete per design D5 in `packages/client/src/lib/chat/event-reducer.ts`; verify it passes.
+- [x] 4.3 Add failing L1 test (test-plan #F1) in the same file: start A (Agent) + update agentId ag-1, then end{A, healedBy:"session_ended", isError:true, details:{agentId:"ag-1"}} · live `tool_execution_update{A, partialResult.details:{agentId:"ag-1", status:"running"}}` · row `running`, `toolCalls` `running`, `duration` undefined, no `toolDetails.healedBy`, `ag-1` `running` without `healedBy`/`error`, `isAgentResultNotReceived` false.
+- [x] 4.4 Add failing L1 test (test-plan #F2) in the same file: F1 end state · real end{A, isError:false, result:"done", details:{agentId:"ag-1"}} · row `complete` with "done", subagent `completed`.
+- [x] 4.5 Add L1 test (test-plan #F3) in the same file: A finalized by a real end · late update · `toolStatus` stays `complete`.
+- [x] 4.6 Add failing L1 test (test-plan #F4) in the same file: real `subagent_failed{ag-1}` (no healedBy) then end{A, healedBy:"session_ended", details:{agentId:"ag-1"}} · live update for A · row reopens to running, `ag-1` stays `failed` with its original error.
+- [x] 4.7 Add L1 test (test-plan #F5) in the same file (see also `event-reducer.superseded-heal.test.ts`): `turn_settled`-healed row; row whose subagent completed via a real event · late update · terminal status, result and heal markers preserved.
+- [x] 4.8 Implement the reopen per design D6 in the `tool_execution_update` arm of `packages/client/src/lib/chat/event-reducer.ts` and correct the misleading comment near the `session_ended` exemption. Verify 4.3–4.7 pass and existing reducer suites stay green.
+- [x] 4.9 Add L1 test (test-plan #X2) in `packages/client/src/hooks/__tests__/useStaleToolReconcile.test.ts` (copy its fetch-mock harness): reopened running row older than `STALE_TOOL_MS`, fetch answers 404 · reconcile tick · no end reduced, row stays running.
+- [x] 4.10 Add L1 test (test-plan #F7) in `packages/client/src/components/__tests__/ChatView.ask-user-suppression.test.tsx` (extend its existing cases): ask_user toolResult `toolStatus:"running"` followed by pending interactiveUi · render · only the `InteractiveUiCard` is rendered.
+
+## 5. E2E + verify
+
+- [x] 5.1 Add L3 Playwright test (test-plan #F8) `tests/e2e/replay-live-tool-not-orphaned.spec.ts` (harness exemplar: `tests/e2e/session-ended-orphan-heal.spec.ts`, faux scenario `session-death-open-tool` in `qa/fixtures/faux-scenarios.ts`): session holding a long-running tool call · `POST /api/restart` while it runs, reopen the session · tool row shows running (no "failed", no "parent session ended"), then `complete` after the tool finishes. Extend the faux scenario's duration only if the restart window is too short.
+- [x] 5.2 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and grep the summary: all green.
+- [x] 5.3 Manual (test-plan: manual-only, #X4): in a real pi TUI with an `Agent` subagent running, `/reload`; the dashboard card stays running (no `!`, no failed badge) and finalizes on the real end.
+
+## 6. Docs
+
+- [x] 6.1 Update the per-file records with `See change: fix-replay-fabricates-orphan-end-for-live-calls`: `packages/shared/src/state-replay.ts.AGENTS.md` (4th param + caller table), `packages/extension/src/session-sync.ts.AGENTS.md` (`isLive`, opts), `packages/server/src/session/AGENTS.md` (`open-tool-calls.ts` row), `packages/client/src/lib/chat/event-reducer.ts.AGENTS.md`, the `memory-event-store` / `session-routes` rows, and the `packages/subagents-plugin/src/client/AGENTS.md` types row; add a `tests/e2e/` row for the new spec. Verify with `git diff --stat`.
+- [x] 6.2 Through DocScribe: edit `docs/architecture.md:906` (reconnect replay orphan-close is now cold-only) and add a `docs/faq.md` entry ("subagent card shows failed but still running after reload/restart").

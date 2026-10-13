@@ -2,7 +2,7 @@
  * Tests for session-sync: sendStateSync and handleSessionSwitch.
  */
 import { describe, it, expect, vi } from "vitest";
-import { sendStateSync, handleSessionChange } from "../session-sync.js";
+import { sendStateSync, handleSessionChange, replaySessionEntries, isLive } from "../session-sync.js";
 import type { BridgeContext } from "../bridge-context.js";
 
 function createMockBridgeContext(overrides?: Partial<BridgeContext>): BridgeContext {
@@ -358,5 +358,79 @@ describe("session file not yet created (X1)", () => {
       warn.mockRestore();
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// ── Live bridge replay: liveness + live-tail option ───────────────────────
+// See change: fix-replay-fabricates-orphan-end-for-live-calls (D3).
+describe("isLive (test-plan #E5, #X3)", () => {
+  const ctxWith = (isIdle: unknown) => (isIdle === "absent" ? {} : { isIdle });
+  const cases: Array<[boolean, unknown, boolean]> = [
+    [true, () => true, true],
+    [true, () => false, true],
+    [true, "absent", true],
+    [true, () => { throw new Error("stale ctx"); }, true],
+    [false, () => true, false],
+    [false, () => false, true],
+    [false, "absent", false],
+    [false, () => { throw new Error("stale ctx"); }, false],
+  ];
+  for (const [flag, isIdle, expected] of cases) {
+    const label = typeof isIdle === "function" ? isIdle.toString().slice(0, 30) : String(isIdle);
+    it(`flag=${flag} isIdle=${label} -> ${expected}`, () => {
+      expect(isLive(ctxWith(isIdle), flag)).toBe(expected);
+    });
+  }
+  it("tolerates an undefined ctx", () => {
+    expect(isLive(undefined, false)).toBe(false);
+    expect(isLive(undefined, true)).toBe(true);
+  });
+});
+
+describe("replaySessionEntries live tail (test-plan #E6)", () => {
+  const branch = [
+    { type: "message", id: "u1", timestamp: "2026-10-13T10:00:00.000Z", message: { role: "user", content: "go" } },
+    {
+      type: "message",
+      id: "a1",
+      parentId: "u1",
+      timestamp: "2026-10-13T10:00:01.000Z",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "A", name: "Agent", arguments: {} },
+          { type: "toolCall", id: "B", name: "bash", arguments: {} },
+        ],
+      },
+    },
+  ];
+  const endsFor = (sent: any[]) =>
+    sent.filter((m) => m.type === "event_forward" && m.event.eventType === "tool_execution_end").map((m) => m.event.data.toolCallId);
+  const mkBc = () =>
+    createMockBridgeContext({
+      cachedCtx: { sessionManager: { getBranch: () => branch } },
+    } as any);
+
+  it("sends no end for the in-flight tail when liveTailOpen", () => {
+    const bc = mkBc();
+    replaySessionEntries(bc, { liveTailOpen: true });
+    expect(endsFor((bc as any)._sent)).toEqual([]);
+  });
+
+  it("orphan-closes the tail by default", () => {
+    const bc = mkBc();
+    replaySessionEntries(bc);
+    expect(endsFor((bc as any)._sent)).toEqual(["A", "B"]);
+  });
+
+  it("handleSessionChange replays with the tail closed (new/fork/resume has no turn in flight)", () => {
+    // handleSessionChange replays from bc.cachedCtx; seed it with the branch.
+    const bc2 = createMockBridgeContext({ cachedCtx: { sessionManager: { getBranch: () => branch } } } as any);
+    handleSessionChange(
+      bc2,
+      { cwd: "/proj", sessionManager: { getSessionId: () => "s2", getSessionFile: () => "/f", getSessionDir: () => "/d", getBranch: () => branch, getEntries: () => branch } } as any,
+      () => [],
+    );
+    expect(endsFor((bc2 as any)._sent)).toEqual(["A", "B"]);
   });
 });

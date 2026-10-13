@@ -37,7 +37,7 @@ import { registerRoleModelTools } from "../role-model-tools.js";
 import { autoStartServer } from "../server-auto-start.js";
 import { launchServer } from "../server-launcher.js";
 import { loadServerPins, notePinEndpoint, serverPinsPath } from "../server-pin-store.js";
-import { handleSessionChange as _handleSessionChange, consumeSpawnToken, filterByEnabledModels } from "../session-sync.js";
+import { handleSessionChange as _handleSessionChange, consumeSpawnToken, filterByEnabledModels, isLive } from "../session-sync.js";
 import { detectSessionSource } from "../source-detector.js";
 import { consumePendingReloadOnSessionStart, releaseBridgeOwnerOnShutdown, reloadCompletedFeedback } from "../terminal-reload.js";
 import { refreshUiModules, subscribeUiInvalidate } from "../ui-modules.js";
@@ -599,8 +599,11 @@ export function registerSessionStart(inst: BridgeInstance): void {
     // subagent's detail empty. See change: fix-subagent-live-detail-reliability.
     inst.flushPendingSubagentFrames();
 
-    // Replay full session history so the dashboard has all messages
-    inst.replaySessionEntries();
+    // Replay full session history so the dashboard has all messages. A turn
+    // still running across a `/reload` keeps its in-flight calls open instead
+    // of getting a fabricated `session_ended` end. See change:
+    // fix-replay-fabricates-orphan-end-for-live-calls (D3).
+    inst.replaySessionEntries({ liveTailOpen: isLive(ctx, inst.shared.isAgentStreaming) });
     inst.connection.send({ type: "replay_complete", sessionId: inst.sessionId });
     // After replay_complete: inside the replay window the server may drop
     // forwarded events without insert or broadcast (`skipReplayInsert`).
@@ -608,7 +611,9 @@ export function registerSessionStart(inst: BridgeInstance): void {
     if (reloadDelivered) inst.connection.send(reloadCompletedFeedback(inst.sessionId));
     // If agent is mid-turn (e.g. reload during streaming), send synthetic agent_start
     if (inst.shared.isAgentStreaming) {
-      inst.connection.send(mapEventToProtocol(inst.sessionId, { type: "agent_start" }));
+      // `synthetic` lets the server's end-of-session open-call scan see past
+      // this re-announcement. See change: fix-replay-fabricates-orphan-end-for-live-calls (D4).
+      inst.connection.send(mapEventToProtocol(inst.sessionId, { type: "agent_start", synthetic: true }));
     }
 
     // Send initial commands list

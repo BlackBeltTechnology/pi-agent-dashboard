@@ -176,3 +176,29 @@ describe("findOpenToolCalls — nested calls are never healed (E16)", () => {
     expect(findOpenToolCalls(events)).toEqual([{ toolCallId: "call_1", toolName: "codemode" }]);
   });
 });
+
+// A live bridge replay leaves its in-flight tail open and re-announces the
+// running turn with a SYNTHETIC agent_start after the replay. That marked start
+// must not bound the scan, or a real death never heals the tail.
+// See change: fix-replay-fabricates-orphan-end-for-live-calls (D4).
+describe("findOpenToolCalls — synthetic reconnect agent_start", () => {
+  it("walks past a synthetic agent_start (test-plan #E7)", () => {
+    const events = stored([
+      ev("agent_start", {}),
+      start("A", "Agent"),
+      recordedUpdate("A", "ag-1"),
+      ev("agent_start", { synthetic: true }),
+    ]);
+    expect(findOpenToolCalls(events)).toEqual([{ toolCallId: "A", toolName: "Agent", agentId: "ag-1" }]);
+  });
+
+  it("an unmarked agent_start still bounds the scan (test-plan #E8)", () => {
+    const events = stored([start("C", "bash"), ev("agent_start", {})]);
+    expect(findOpenToolCalls(events)).toEqual([]);
+  });
+
+  it("dedupes a repeated open start by toolCallId (test-plan #E9)", () => {
+    const events = stored([ev("agent_start", {}), start("A", "bash"), start("A", "bash")]);
+    expect(findOpenToolCalls(events)).toEqual([{ toolCallId: "A", toolName: "bash" }]);
+  });
+});

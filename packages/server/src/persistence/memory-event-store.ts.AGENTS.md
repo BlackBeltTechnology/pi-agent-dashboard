@@ -17,3 +17,5 @@ Head+tail `reduceSubagentEvent` truncation removed (no `steps hidden` sentinel).
 `SessionBuffer.evictedToolEnds`: bounded (512) insertion-ordered set of toolCallIds whose REAL `tool_execution_end` was trimmed. Filled inside drop loops (`trimBufferToLimit` both passes, `dropNonEssentials`). Skips `healedBy` ends + ids >256 chars. Freed with buffer. Store API `wasToolEndEvicted(sid,id)`, `forgetEvictedToolEnd(sid,id)`. See change: distinguish-tool-result-pending-vs-gone.
 
 #416 verified reachable, not dead: `truncateStrings` keeps base64 `data` byte-identical when `isBase64DataCarrier(obj)` (flat `mimeType` or nested `source.media_type`) — spec `in-memory-event-buffer` "Image data preservation during truncation"; display-fitted derivatives ≤ ~212 KB ≈ 50× `DEFAULT_MAX_STRING_SIZE`. Pinned by `memory-event-store.test.ts` (E15–E17). Stale `walkObjectSize` constant-count paragraph removed; both `See change:` trailers kept. See change: close-e2e-tooling-followups.
+
+See change: fix-replay-fabricates-orphan-end-for-live-calls — `findToolEndEvent(sessionId, toolCallId, opts?: {skipHealedBy?})` skips ends carrying that `healedBy` marker.

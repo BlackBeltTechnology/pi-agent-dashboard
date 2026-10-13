@@ -65,8 +65,15 @@ export interface EventStore {
    * Find the most recent `tool_execution_end` event for a tool call. Pure
    * read; returns undefined when the call is still in flight or its event was
    * evicted under memory pressure. See change: adopt-pi-071-072-073-features.
+   * `opts.skipHealedBy` ignores ends carrying that `healedBy` marker (the
+   * tool-result route skips `session_ended` placeholders for a live session).
+   * See change: fix-replay-fabricates-orphan-end-for-live-calls (D7).
    */
-  findToolEndEvent(sessionId: string, toolCallId: string): DashboardEvent | undefined;
+  findToolEndEvent(
+    sessionId: string,
+    toolCallId: string,
+    opts?: { skipHealedBy?: string },
+  ): DashboardEvent | undefined;
   /**
    * True when a REAL `tool_execution_end` for this call was trimmed out of the
    * session buffer (bounded record; freed with the buffer). Synthesized
@@ -1851,16 +1858,19 @@ export function createMemoryEventStore(
       return entry?.event;
     },
 
-    findToolEndEvent(sessionId: string, toolCallId: string): DashboardEvent | undefined {
+    findToolEndEvent(
+      sessionId: string,
+      toolCallId: string,
+      opts?: { skipHealedBy?: string },
+    ): DashboardEvent | undefined {
       const buf = buffers.get(sessionId);
       if (!buf) return undefined;
       buf.lastAccess = Date.now();
       for (let i = buf.events.length - 1; i >= 0; i--) {
         const ev = buf.events[i].event;
-        if (
-          ev.eventType === "tool_execution_end" &&
-          (ev.data as Record<string, unknown> | undefined)?.toolCallId === toolCallId
-        ) {
+        const data = ev.data as Record<string, unknown> | undefined;
+        if (ev.eventType === "tool_execution_end" && data?.toolCallId === toolCallId) {
+          if (opts?.skipHealedBy !== undefined && data?.healedBy === opts.skipHealedBy) continue;
           return ev;
         }
       }

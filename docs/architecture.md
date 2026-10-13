@@ -903,7 +903,9 @@ Check order:
 - Opt-in (`?pending=1`): old clients treat any 2xx as finished result.
 
 **No "not in flight ⇒ gone" inference.** Not in flight does not mean gone:
-- Reconnect replay orphan-closes running calls.
+- Cold transcript replay (disk / archive / retained) and OLD bridges orphan-close running calls. Live bridge replay (`replaySessionEntries(bc, {liveTailOpen: isLive(...)})`) leaves last assistant message's open calls open.
+- Synthetic reconnect `agent_start` carries `synthetic:true`; `findOpenToolCalls` (`packages/server/src/session/open-tool-calls.ts`) walks past it — real death still heals.
+- See change: fix-replay-fabricates-orphan-end-for-live-calls.
 - Status stays `active` until synthetic `agent_start` after `replay_complete`.
 - Heartbeat reconcile can flip streaming → idle mid-turn.
 - `agent_end` is not terminal; `agent_settled` is.

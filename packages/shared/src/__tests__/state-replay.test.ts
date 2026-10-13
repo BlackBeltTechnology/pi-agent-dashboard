@@ -282,6 +282,104 @@ describe("X6/X7 — orphan-close shape", () => {
   });
 });
 
+// ── Live bridge replay leaves the in-flight tail open ─────────────────────
+// A live process replaying its own transcript (reconnect / restart / reload)
+// must not fabricate a terminal end for calls it is still executing.
+// See change: fix-replay-fabricates-orphan-end-for-live-calls (D1, D2).
+describe("liveTailOpen — live bridge replay", () => {
+  const assistantWithCalls = (
+    id: string,
+    parentId: string,
+    ts: string,
+    calls: Array<{ id: string; name: string }>,
+  ) => ({
+    type: "message",
+    id,
+    parentId,
+    timestamp: ts,
+    message: {
+      role: "assistant",
+      content: calls.map((c) => ({ type: "toolCall", id: c.id, name: c.name, arguments: {} })),
+    },
+  });
+  const toolResult = (id: string, parentId: string, ts: string, toolCallId: string) => ({
+    type: "message",
+    id,
+    parentId,
+    timestamp: ts,
+    message: { role: "toolResult", toolCallId, toolName: "bash", content: [{ type: "text", text: "ok" }] },
+  });
+  const ends = (events: ReturnType<typeof replayEntriesAsEvents>) =>
+    events.filter((e) => e.event.eventType === "tool_execution_end");
+  const tailFixture = () => [
+    userEntry("u1", "go", T("30")),
+    assistantWithCalls("a1", "u1", T("31"), [
+      { id: "A", name: "Agent" },
+      { id: "B", name: "bash" },
+    ]),
+  ];
+
+  it("leaves every open call of the last assistant message open (test-plan #E1)", () => {
+    const events = replayEntriesAsEvents("s", tailFixture(), undefined, { liveTailOpen: true });
+    const starts = events.filter((e) => e.event.eventType === "tool_execution_start").map((e) => e.event.data.toolCallId);
+    expect(starts).toEqual(["A", "B"]);
+    expect(ends(events)).toHaveLength(0);
+  });
+
+  it("still closes orphans of EARLIER assistant messages (test-plan #E2)", () => {
+    const events = replayEntriesAsEvents(
+      "s",
+      [
+        userEntry("u1", "go", T("30")),
+        assistantWithCalls("a1", "u1", T("31"), [{ id: "C", name: "bash" }]),
+        userEntry("u2", "again", T("32")),
+        assistantWithCalls("a2", "u2", T("33"), [{ id: "D", name: "bash" }]),
+      ],
+      undefined,
+      { liveTailOpen: true },
+    );
+    const e = ends(events);
+    expect(e).toHaveLength(1);
+    expect(e[0].event.data).toMatchObject({
+      toolCallId: "C",
+      isError: true,
+      result: "parent session ended",
+      healedBy: "session_ended",
+    });
+  });
+
+  it("keeps real ends in the tail and leaves only the unresulted call open (test-plan #E3)", () => {
+    const events = replayEntriesAsEvents(
+      "s",
+      [
+        userEntry("u1", "go", T("30")),
+        assistantWithCalls("a1", "u1", T("31"), [
+          { id: "E", name: "bash" },
+          { id: "F", name: "bash" },
+        ]),
+        toolResult("r1", "a1", T("32"), "E"),
+      ],
+      undefined,
+      { liveTailOpen: true },
+    );
+    const e = ends(events);
+    expect(e).toHaveLength(1);
+    expect(e[0].event.data.toolCallId).toBe("E");
+    expect(e[0].event.data.healedBy).toBeUndefined();
+  });
+
+  it("cold replay (no opts / liveTailOpen:false) is unchanged (test-plan #E4)", () => {
+    const fixture = tailFixture();
+    const cold = replayEntriesAsEvents("s", fixture);
+    const explicitFalse = replayEntriesAsEvents("s", fixture, undefined, { liveTailOpen: false });
+    const strip = (evs: typeof cold) => evs.map((e) => ({ ...e, event: { ...e.event, timestamp: 0 } }));
+    expect(strip(explicitFalse)).toEqual(strip(cold));
+    const e = ends(cold);
+    expect(e.map((x) => x.event.data.toolCallId)).toEqual(["A", "B"]);
+    for (const x of e) expect(x.event.data.healedBy).toBe("session_ended");
+  });
+});
+
 // ── E6: nested-call record survives transcript replay ─────────────────────
 // Nested calls write no transcript entries; the bounded `nestedCalls` record on
 // the root's toolResult message is the only replay trace. The synthesized top-

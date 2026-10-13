@@ -191,7 +191,8 @@ export interface BridgeInstance {
   commandHandler: ReturnType<typeof createCommandHandler>;
   syncBc: () => BridgeContext;
   applyBc: (bc: BridgeContext) => void;
-  replaySessionEntries: () => void;
+  /** `liveTailOpen`: keep in-flight tail calls open. See change: fix-replay-fabricates-orphan-end-for-live-calls. */
+  replaySessionEntries: (opts?: { liveTailOpen?: boolean }) => void;
   sendModelUpdateIfChanged: () => void;
   sendSessionNameIfChanged: () => void;
   getAutoNamer: () => AutoNamer;

@@ -230,3 +230,27 @@ describe("session-end orphan heal", () => {
     h.browser.close();
   });
 });
+
+// A live bridge replay leaves a running call open, then re-announces the turn
+// with a SYNTHETIC agent_start. If the process then really dies, the open call
+// must still be healed. See change: fix-replay-fabricates-orphan-end-for-live-calls (D4).
+describe("session-end orphan heal — across a synthetic reconnect agent_start", () => {
+  it("heals a call opened before agent_start{synthetic:true} (test-plan #X1)", async () => {
+    const SID = "heal-synthetic-start";
+    const h = await harness(SID);
+    forward(h.bridge, SID, "agent_start", {});
+    forward(h.bridge, SID, "tool_execution_start", { toolCallId: "A", toolName: "bash" });
+    forward(h.bridge, SID, "agent_start", { synthetic: true });
+    await wait(120);
+
+    h.server.sessionManager.unregister(SID);
+    await wait(150);
+
+    const heals = healFrames(h.frames).filter((f) => f.event.eventType === "tool_execution_end");
+    expect(heals).toHaveLength(1);
+    expect(heals[0].event.data).toMatchObject({ toolCallId: "A", isError: true, result: "parent session ended" });
+
+    h.bridge.close();
+    h.browser.close();
+  });
+});

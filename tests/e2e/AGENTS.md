@@ -145,6 +145,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `oversized-event-liveness.spec.ts` | L3 per-event size ceiling. → see `oversized-event-liveness.spec.ts.AGENTS.md` |
 | `package-queue-visible.spec.ts` | Browser E2E gate for `unify-pi-core-into-package-queue`… → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR (change… → see `pairing-qr.spec.ts.AGENTS.md` |
+| `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call → sidecar |
 | `runtime-extension-reload-convergence.spec.ts` | F5 → see `runtime-extension-reload-convergence.spec.ts.AGENTS.md` |
 | `runtime-updates-remote-local.spec.ts` | X14 → see `runtime-updates-remote-local.spec.ts.AGENTS.md` |
 | `security-pair-link.spec.ts` | Browser E2E for the Security→Gateway pairing link… → see `security-pair-link.spec.ts.AGENTS.md` |
