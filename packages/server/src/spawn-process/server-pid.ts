@@ -12,6 +12,8 @@ const DEFAULT_PID_PATH = path.join(os.homedir(), ".pi", "dashboard", "server.pid
 
 export interface ServerPidOptions {
   pidPath?: string;
+  /** Test seam: replaces the health probe used by `isServerRunning`. */
+  probe?: typeof isDashboardRunning;
 }
 
 /**
@@ -60,21 +62,28 @@ export function removePid(options?: ServerPidOptions): void {
 /**
  * Check if the dashboard server is currently running.
  * Returns the PID if running, null otherwise.
- * Cleans up stale PID files automatically.
+ * Cleans up PID files of DEAD processes only: a live process whose health
+ * probe stays silent (overloaded or frozen server) keeps its pid file, so the
+ * next `stop` / `status` can still find it.
+ * See change: harden-dashboard-start-detection (D3).
  */
 export async function isServerRunning(port: number, options?: ServerPidOptions): Promise<number | null> {
   const pid = readPid(options);
 
   if (pid === null) return null;
 
-  // Process alive — verify it's actually our server via health check
+  // Process alive — verify it's actually our server via health check, with
+  // bounded retries so one slow answer is not "not running".
   if (isProcessAlive(pid)) {
-    const status = await isDashboardRunning(port);
+    const probe = options?.probe ?? isDashboardRunning;
+    const status = await probe(port, undefined, { timeoutMs: 2000, retries: 2 });
     if (status.running) return pid;
-    // Process alive but dashboard not responding — could be a recycled PID, treat as stale
+    // Alive but not answering: a recycled pid or a hung server. Not ours to
+    // delete — the file stays; the caller just doesn't count it as running.
+    return null;
   }
 
-  // Stale PID file — clean up
+  // Dead process — the pid file is stale, clean it up.
   removePid(options);
   return null;
 }

@@ -40,6 +40,12 @@ export interface AutoStartDeps {
     host?: string,
     opts?: DashboardCheckOpts,
   ) => Promise<{ running: boolean; portConflict?: boolean }>;
+  // NOTE: the shared probe also reports `timedOut` (port held but silent — a
+  // frozen / overloaded dashboard). This seam deliberately does not read it:
+  // `timedOut` falls through to a launch, and the doomed child is accepted —
+  // its home-lock rendezvous hits `E_INSTANCE_UNRESPONSIVE` (logged, no lock or
+  // pid damage) and it then exits on EADDRINUSE. See change:
+  // harden-dashboard-start-detection (design Risks).
   launchServer: (config: any) => Promise<{ success: boolean; message: string; childPid?: number; logOwned?: boolean }>;
   notify: (message: string, level: "info" | "warning") => void;
   /**

@@ -71,6 +71,45 @@ async function probeHealth(
   }
 }
 
+/**
+ * The lock-metadata half of ownership proof: the recorded pid, when the record
+ * is for `port`. Shared by `stop` (port sweep) and the `start` / `status` port
+ * classifier, so the three can never disagree about the same process.
+ * See change: harden-dashboard-start-detection (D2).
+ */
+export function lockOwnedPid(meta: LockMetadata | null, port: number): number | null {
+  return meta && Number.isInteger(meta.pid) && meta.httpPort === port ? meta.pid : null;
+}
+
+/** The instance-id half of ownership proof: the health reply carries this HOME's id. */
+export function healthMatchesInstance(
+  health: { pid?: unknown; instanceId?: unknown } | null,
+  localInstanceId: string | null,
+): health is { pid: number; instanceId: string } {
+  return (
+    !!localInstanceId &&
+    !!health &&
+    health.instanceId === localInstanceId &&
+    typeof health.pid === "number" &&
+    Number.isInteger(health.pid)
+  );
+}
+
+/**
+ * Does the current HOME provably own the dashboard that just answered with
+ * `health`? Owned iff the health reply carries this HOME's instance id, OR the
+ * lock metadata records the replying pid for this port. `server.pid` is never
+ * proof (PIDs are reused across HOMEs). Pure.
+ */
+export function isOwnedHealth(
+  health: { pid?: unknown; instanceId?: unknown },
+  evidence: { meta: LockMetadata | null; localInstanceId: string | null; port: number },
+): boolean {
+  if (healthMatchesInstance(health, evidence.localInstanceId)) return true;
+  const lockPid = lockOwnedPid(evidence.meta, evidence.port);
+  return lockPid !== null && health.pid === lockPid;
+}
+
 /** Pids the current HOME can prove it owns. Empty when `config.port <= 0`. */
 export async function collectOwnedPids(
   config: OwnershipConfig,
@@ -81,8 +120,8 @@ export async function collectOwnedPids(
   if (!(config.port > 0)) return owned;
 
   try {
-    const meta = d.readLockMeta();
-    if (meta && Number.isInteger(meta.pid) && meta.httpPort === config.port) owned.add(meta.pid);
+    const lockPid = lockOwnedPid(d.readLockMeta(), config.port);
+    if (lockPid !== null) owned.add(lockPid);
   } catch {
     /* unreadable sidecar → no proof */
   }
@@ -94,9 +133,7 @@ export async function collectOwnedPids(
         `http://${healthHost(config.host)}:${config.port}/api/health`,
         d.fetchHealth,
       );
-      if (health && health.instanceId === localId && typeof health.pid === "number" && Number.isInteger(health.pid)) {
-        owned.add(health.pid);
-      }
+      if (healthMatchesInstance(health, localId)) owned.add(health.pid);
     }
   } catch {
     /* no proof */

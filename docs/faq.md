@@ -285,6 +285,34 @@ Cross-refs:
 - README.md:269
 - README.md:489
 
+## What do the `pi-dashboard start` / `status` ownership lines mean?
+
+`start` and `status` probe the port, then print one verdict line.
+
+- `Dashboard server is already running (pid N)` — healthy dashboard owned by this HOME answers `/api/health`. Works when `server.pid` missing. Exit `0`, nothing spawned.
+- `Dashboard server is starting (pid N)` — `~/.pi/dashboard/server.lock.meta.json` names live pid for this port, `startedAt` < 30 s, port still refused. Exit `0`, nothing spawned. Wait, retry.
+- `... not owned by this HOME` — dashboard answers on port, this HOME has no proof: `~/.pi/dashboard/instances/<piPort>.id` mismatch, no lock-meta pid match. Exit `1`, nothing spawned, nothing deleted. Fix: `--port <n>` for separate instance, or stop it from the HOME that started it. Do NOT `stop --force` unless sure.
+- `running but not responding (pid N)` — port held, `/api/health` gives no definitive answer (frozen SIGSTOP or blocked event loop). Exit `1`, no spawn, `server.pid` + lock metadata untouched. Fix: `pi-dashboard stop` (SIGTERM→SIGKILL), then `pi-dashboard start`. Overload: see `unwedge-dashboard-event-loop` skill. pid omitted when lock metadata has none.
+- `Dashboard server started (pid N)` — printed only when post-launch health shows owned dashboard with pid `start` spawned. Else spawned child killed, real verdict printed (e.g. `already running (pid M)`).
+- `pi-dashboard status --port N` — reports port N only. mDNS records on other ports ignored.
+- `pi-dashboard stop` — keeps `server.pid` when process survived kill.
+
+```bash
+pi-dashboard status --port 8000    # port 8000 only
+pi-dashboard start --port 8001     # separate instance
+```
+
+## Why does `server.log` show `[home-lock] could not establish the rendezvous ... E_INSTANCE_UNRESPONSIVE`?
+
+File: `~/.pi/dashboard/server.log`.
+
+- Second server found live holder of HOME lock. Holder unresponsive (`reason` `timeout`) or still starting (`reason` `starting`).
+- Second server does NOT take lock over. Frozen holders never reclaimed.
+- Second server then exits on `EADDRINUSE`.
+- Holder's lock + records intact.
+- Bridge auto-start against frozen dashboard produces this line + `EADDRINUSE` exit.
+- `reason` `timeout`: see `running but not responding` above. `reason` `starting`: wait, retry.
+
 ## How does the auto-start flow work?
 
 Bridge extension TCP-probes `piPort` on every pi session start. Spawns server detached when port closed and `autoStart: true`.
@@ -297,7 +325,8 @@ Sequence:
 5. Bridge prints `🌐 Dashboard started at http://localhost:8000` and connects.
 6. Port closed + `autoStart: false` → skip.
 
-- Concurrent spawns from multiple pi sessions fail harmlessly with `EADDRINUSE`.
+- Same HOME, multiple pi sessions: per-HOME lock `~/.pi/dashboard/server.lock` + `/api/health` check. Second start attaches or refuses. No second server.
+- Different HOME: lock is per-HOME, does NOT stop second server. macOS can bind `127.0.0.1:<port>` beside existing `*:<port>` with no `EADDRINUSE`. `pi-dashboard start` probes `127.0.0.1` + `::1` and refuses dashboard its HOME does not own.
 - Stale holder recovery: `pi-dashboard stop` (kills owned holders only) or `pi-dashboard stop --force` for an orphan nothing on disk attributes.
 - Disable via `"autoStart": false` in `~/.pi/dashboard/config.json`.
 - Bridge honours `PI_DASHBOARD_URL=ws://host:port` to point at remote server instead of localhost.

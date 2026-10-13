@@ -3,8 +3,10 @@ $ErrorActionPreference = "Stop"
 
 Write-Host "=== Test: Server start ==="
 
-# Start server in background
-$proc = Start-Process -FilePath "pi-dashboard" -ArgumentList "start" -PassThru -WindowStyle Hidden
+# Start server in background. The CLI's own verdict line is captured: the
+# start-twice check below compares it with the second start's (test-plan #X19).
+$start1Out = [System.IO.Path]::GetTempFileName()
+$proc = Start-Process -FilePath "pi-dashboard" -ArgumentList "start" -PassThru -WindowStyle Hidden -RedirectStandardOutput $start1Out
 
 # Cleanup on exit
 try {
@@ -17,6 +19,37 @@ try {
             $response = Invoke-WebRequest -Uri "http://localhost:8000/api/health" -UseBasicParsing -TimeoutSec 2
             if ($response.StatusCode -eq 200) {
                 Write-Host "Health endpoint responded HTTP 200"
+
+                # --- start twice + status (test-plan #X19) ---
+                # See change: harden-dashboard-start-detection (D4). The first
+                # start must report the server it launched; a second start must
+                # recognise that very server; status must name the same pid.
+                $proc.WaitForExit(30000) | Out-Null
+                $firstOut = (Get-Content $start1Out -Raw -ErrorAction SilentlyContinue)
+                $startedRx = "Dashboard server started \(pid (\d+)\)"
+                $runningRx = "Dashboard server is already running \(pid (\d+)\)"
+                if ($firstOut -notmatch $startedRx -and $firstOut -notmatch $runningRx) {
+                    Write-Host "FAIL (#X19): first start printed neither 'started' nor 'already running': $firstOut"
+                    exit 1
+                }
+                $firstPid = $Matches[1]
+                $secondOut = (& pi-dashboard start 2>&1 | Out-String)
+                $secondRc = $LASTEXITCODE
+                if ($secondRc -ne 0 -or $secondOut -match "Dashboard server started" -or $secondOut -notmatch $runningRx) {
+                    Write-Host "FAIL (#X19): second start (exit $secondRc) did not print 'already running (pid N)': $secondOut"
+                    exit 1
+                }
+                if ($Matches[1] -ne $firstPid) {
+                    Write-Host "FAIL (#X19): the second start named pid $($Matches[1]), the first $firstPid"
+                    exit 1
+                }
+                $statusOut = (& pi-dashboard status 2>&1 | Out-String)
+                $statusRc = $LASTEXITCODE
+                if ($statusRc -ne 0 -or $statusOut -notmatch "Dashboard server is running \(pid (\d+)\)" -or $Matches[1] -ne $firstPid) {
+                    Write-Host "FAIL (#X19): status (exit $statusRc) did not report running (pid $firstPid): $statusOut"
+                    exit 1
+                }
+                Write-Host "OK (#X19): start printed pid $firstPid; a second start and status named the same pid"
 
                 # --- Windows native-separator subpath derivation (test-plan #X13) ---
                 # See change: adopt-piai-factory-api-registry (task 6.26).

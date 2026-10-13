@@ -3161,6 +3161,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           piPort: config.piPort,
           version: pkgVersion,
           identity: ensureInstanceId(undefined, config.piPort),
+          bindHost: config.host,
           // NO signal handlers. `installReleaseHandlers` ends in
           // `process.exit(0)`, and `cli.ts` already owns SIGTERM/SIGINT
           // (`recordExitIntent` → `flush` → exit). A second exit-forcing

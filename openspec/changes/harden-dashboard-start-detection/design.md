@@ -159,3 +159,12 @@ proper-lockfile facts this decision rests on:
 
 - No data migration. Server and CLI changes take effect on restart; the Electron change ships with the next desktop build.
 - Rollback: revert the commit. The formats of `server.pid` and the lock metadata are unchanged.
+
+## Implementation notes (added while applying)
+
+Three details the apply phase added to the decisions above; none changes an observable requirement.
+
+- **D5 takeover mutex.** Compare-and-remove alone left a window: two starters that observed the same dead holder could each remove the lock directory the other had just created (observed: the winner left holding a record but no lock). The dead-holder sequence (compare, remove, acquire, claim) therefore runs under a short `mkdir` mutex, `<lockPath>.takeover/`. A mutex older than the stale window is treated as left behind by a crashed starter. A starter that loses a race releases the mutex before it re-reads the record.
+- **D5 release guard.** A hold's `release()` is skipped when it is compromised, and also when the record already names another identity, so a holder that releases before the lock library has noticed the takeover still cannot remove its successor's lock directory.
+- **D1/D2 refusal set.** Besides `ECONNREFUSED`, the probe counts `EADDRNOTAVAIL` / `ENETUNREACH` / `EAFNOSUPPORT` as a refusal, and `DashboardStatus` also carries the health body's `instanceId`. Without the first, an IPv6-less host (which refuses `::1` that way) would report every free port as "held but silent". The second lets the classifier prove ownership from the same response, with no second fetch.
+
