@@ -484,6 +484,12 @@ test.describe("folder home split (redesign-directory-home-split)", () => {
     inContainer(
       `mkdir -p ${cwd}/.pi/skills/doc-summarizer && printf -- '---\\nname: doc-summarizer\\ndescription: Summarize documents.\\n---\\nBody\\n' > ${cwd}/.pi/skills/doc-summarizer/SKILL.md`,
     );
+    // Project `.pi/` resources make the cwd trust-requiring: a headless RPC pi
+    // would BLOCK on pi's "Trust project folder?" prompt and never register.
+    // Pre-trust it the way docker/test-entrypoint.sh pre-trusts sample-git.
+    inContainer(
+      `node -e 'const fs=require("node:fs");const p="/home/pi/.pi/agent/trust.json";let d={};try{d=JSON.parse(fs.readFileSync(p,"utf8"))}catch{};d[process.argv[1]]=true;fs.writeFileSync(p,JSON.stringify(d,null,2)+"\\n")' ${cwd}`,
+    );
     await gotoDashboard(page);
     await pinDirectory(page, cwd);
     await page.goto(`/folder/${encodeFolderPath(cwd)}`);

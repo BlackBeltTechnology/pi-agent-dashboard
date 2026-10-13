@@ -229,7 +229,7 @@ export function DirectoryHomeView({
           against this pane and the card renders at natural height (#877). */}
       <div
         ref={paneRef}
-        data-testid="directory-home-pane"
+        data-testid="directory-home-prompt"
         className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       >
         <div data-testid="directory-home-starters" className="min-h-0 flex-1 overflow-auto p-6">
@@ -266,34 +266,32 @@ export function DirectoryHomeView({
           </div>
         </div>
 
-        <div data-testid="directory-home-prompt" className="shrink min-h-0 flex flex-col">
-          <CommandInput
-            commands={commands}
-            commandsOrigin={commandsOrigin}
-            onSend={onSend}
-            disabled={spawnInFlight}
-            draft={draft}
-            onDraftChange={setDraft}
-            currentCwd={cwd}
-            sendLabel={t("directoryHome.start", undefined, "Start session")}
-            models={models}
-            model={effectiveModel}
-            modelTag={effectiveModel && effectiveModel === defaultModel ? t("directoryHome.defaultTag", undefined, "default") : undefined}
-            unsetLabel={t("directoryHome.piDefault", undefined, "pi default")}
-            onSelectModel={setModelPick}
-            favorites={favorites}
-            onToggleFavorite={onToggleFavorite}
-            onOpenProviderSettings={onOpenProviderSettings}
-            thinkingLevel={effectiveThinking}
-            thinkingTag={
-              effectiveThinking && effectiveThinking === defaultThinkingLevel
-                ? t("directoryHome.defaultTag", undefined, "default")
-                : undefined
-            }
-            onSelectThinkingLevel={setThinkingPick}
-            toolbarExtra={runLocationChip}
-          />
-        </div>
+        <CommandInput
+          commands={commands}
+          commandsOrigin={commandsOrigin}
+          onSend={onSend}
+          disabled={spawnInFlight}
+          draft={draft}
+          onDraftChange={setDraft}
+          currentCwd={cwd}
+          sendLabel={t("directoryHome.start", undefined, "Start session")}
+          models={models}
+          model={effectiveModel}
+          modelTag={effectiveModel && effectiveModel === defaultModel ? t("directoryHome.defaultTag", undefined, "default") : undefined}
+          unsetLabel={t("directoryHome.piDefault", undefined, "pi default")}
+          onSelectModel={setModelPick}
+          favorites={favorites}
+          onToggleFavorite={onToggleFavorite}
+          onOpenProviderSettings={onOpenProviderSettings}
+          thinkingLevel={effectiveThinking}
+          thinkingTag={
+            effectiveThinking && effectiveThinking === defaultThinkingLevel
+              ? t("directoryHome.defaultTag", undefined, "default")
+              : undefined
+          }
+          onSelectThinkingLevel={setThinkingPick}
+          toolbarExtra={runLocationChip}
+        />
       </div>
     </PopoverBoundaryProvider>
   );

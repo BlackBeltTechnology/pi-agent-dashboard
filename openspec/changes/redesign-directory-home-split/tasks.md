@@ -76,17 +76,17 @@
 
 ## 7. E2E (docker harness)
 
-- [ ] 7.1 Test (L3, see `tests/e2e/split-composer-overflow.spec.ts`): `/folder/<cwd>` at 1440×900 and 768×900, empty draft · load · `composer-card` `scrollHeight<=clientHeight`, Start fully inside card + viewport (test-plan #F1)
-- [ ] 7.2 Test (L3, see `tests/e2e/directory-home.spec.ts`): fresh harness · load → Editor → peek → Chat → reload · Split → editor+peek → Split → chat+peek → Chat persists (test-plan #F2)
-- [ ] 7.3 Test (L3, same exemplar): Split · pane new-terminal · active `term:` tab, cwd = folder (test-plan #F3)
-- [ ] 7.4 Test (L3, same exemplar): folder with ≥2 sessions · load · no `directory-home-session-list` / `directory-home-open-*`, gear present, `LandingPage` absent (test-plan #F4)
-- [ ] 7.5 Test (L3, same exemplar): loaded page · click gear · URL `/folder/<encoded>/settings` (test-plan #F5)
-- [ ] 7.6 Test (L3, same exemplar): type `"say hi"`, defaults · Enter · Start disabled, converges to `/session/<newId>`, first user message `"say hi"` (test-plan #F6)
-- [ ] 7.7 Test (L3, see `tests/e2e/route-backed-overlay.spec.ts` for session fixtures): ended session in a cwd with skill `doc-summarizer`, no live session there · open + type `/` · popover lists `skill:doc-summarizer` with "from disk" hint (test-plan #F12)
-- [ ] 7.8 Update `tests/e2e/route-backed-overlay.spec.ts` references to removed `directory-home-*` ids — verify `npm run test:e2e` green for both specs
+- [x] 7.1 Test (L3, see `tests/e2e/split-composer-overflow.spec.ts`): `/folder/<cwd>` at 1440×900 and 768×900, empty draft · load · `composer-card` `scrollHeight<=clientHeight`, Start fully inside card + viewport (test-plan #F1)
+- [x] 7.2 Test (L3, see `tests/e2e/directory-home.spec.ts`): fresh harness · load → Editor → peek → Chat → reload · Split → editor+peek → Split → chat+peek → Chat persists (test-plan #F2)
+- [x] 7.3 Test (L3, same exemplar): Split · pane new-terminal · active `term:` tab, cwd = folder (test-plan #F3)
+- [x] 7.4 Test (L3, same exemplar): folder with ≥2 sessions · load · no `directory-home-session-list` / `directory-home-open-*`, gear present, `LandingPage` absent (test-plan #F4)
+- [x] 7.5 Test (L3, same exemplar): loaded page · click gear · URL `/folder/<encoded>/settings` (test-plan #F5)
+- [x] 7.6 Test (L3, same exemplar): type `"say hi"`, defaults · Enter · Start disabled, converges to `/session/<newId>`, first user message `"say hi"` (test-plan #F6)
+- [x] 7.7 Test (L3, see `tests/e2e/route-backed-overlay.spec.ts` for session fixtures): ended session in a cwd with skill `doc-summarizer`, no live session there · open + type `/` · popover lists `skill:doc-summarizer` with "from disk" hint (test-plan #F12)
+- [x] 7.8 Update `tests/e2e/route-backed-overlay.spec.ts` references to removed `directory-home-*` ids — verify `npm run test:e2e` green for both specs
 
 ## 8. Verification
 
-- [ ] 8.1 Full `npm test` green (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`)
+- [x] 8.1 Full `npm test` green (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`)
 - [ ] 8.2 Manual: `/folder/<cwd>` in base dark, base light, one non-base palette at 1440/768/375 vs `mockups/directory-home-split/index.html` — hierarchy, spacing, chip density match (test-plan: manual-only, #F19)
 - [ ] 8.3 Close issue #877 referencing this change
