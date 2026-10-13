@@ -184,10 +184,45 @@ function logResolvedRedirectBase(port: number, override?: string): void {
   console.log(`🔐 OAuth redirect base: ${base} (source: ${source})`);
 }
 
+/** What `registerAuthPlugin` hands back to the caller. */
+export interface AuthPluginHandle {
+  /**
+   * Live: does the CURRENT OAuth provider registry hold a provider with a
+   * non-empty `clientId` (one without cannot complete a login)? Reads the
+   * registry at call time, so a `_reloadAuth` is reflected.
+   * See change: surface-operate-required-remedy.
+   */
+  hasUsableOAuthProvider: () => boolean;
+}
+
+/** Identity-plane facts `buildLoginAvailable` reads. */
+export interface LoginIdentitySource {
+  enforced: () => boolean;
+  /** Registered browser-login descriptors (counted only while enforced). */
+  loginConfigs: () => readonly unknown[];
+}
+
+/**
+ * Compose the live "is a usable login method configured" check (drives the
+ * `sign-in` remedy) from its three sources. `oauth` is `null` when the auth
+ * plugin is not registered. Every source is read at call time — never capture
+ * the result. See change: surface-operate-required-remedy.
+ */
+export function buildLoginAvailable(
+  oauth: (() => boolean) | null,
+  passkeys: { isEnabled(): boolean } | null | undefined,
+  identity: LoginIdentitySource,
+): () => boolean {
+  return () =>
+    oauth?.() === true ||
+    passkeys?.isEnabled() === true ||
+    (identity.enforced() && identity.loginConfigs().length > 0);
+}
+
 export async function registerAuthPlugin(
   fastify: FastifyInstance,
   options: AuthPluginOptions,
-): Promise<void> {
+): Promise<AuthPluginHandle> {
   const { authConfig, port, resolvedTrustedNetworks, localToken, localTrust, passkeys } = options;
   passkeys?.configure(authConfig);
 
@@ -205,9 +240,18 @@ export async function registerAuthPlugin(
   warnOnInvalidRedirectBase(authState.redirectBaseUrl);
   logResolvedRedirectBase(port, authState.redirectBaseUrl);
 
+  // Created before the early return below so a provider-less install still gets a
+  // function (it reads false, and stays false: that path installs no reload hook).
+  const handle: AuthPluginHandle = {
+    hasUsableOAuthProvider: () =>
+      [...authState.providerRegistry.values()].some(
+        (p) => typeof p.clientId === "string" && p.clientId.trim().length > 0,
+      ),
+  };
+
   if (authState.providerRegistry.size === 0 && !passkeys?.isEnabled()) {
     console.warn("Auth configured but no providers resolved — auth disabled");
-    return;
+    return handle;
   }
 
   // Expose reload function on the fastify instance for runtime config updates
@@ -492,6 +536,7 @@ export async function registerAuthPlugin(
 
   const providerNames = Array.from(authState.providerRegistry.values()).map((p) => p.name);
   console.log(`🔐 Auth enabled with providers: ${providerNames.join(", ")}`);
+  return handle;
 }
 
 /**

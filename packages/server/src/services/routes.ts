@@ -22,7 +22,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { LocalTrustContext } from "../auth/local-proof.js";
-import { isLocallyTrusted } from "../auth/localhost-guard.js";
+import { hasOperateAuthority, sendOperateRequired } from "../auth/operate-required.js";
 import type { NetworkGuard } from "../routes/route-deps.js";
 import { ServiceError, type ServiceManager } from "./service-manager.js";
 
@@ -31,14 +31,8 @@ export interface ServiceRoutesDeps {
   networkGuard: NetworkGuard;
   /** Strict local-proof context (`requireLocalProof`). */
   localTrust?: LocalTrustContext;
-}
-
-/** May this request mutate services? (Stricter than the network guard.) */
-function canMutateServices(request: FastifyRequest, localTrust?: LocalTrustContext): boolean {
-  const via = (request as { authVia?: string }).authVia;
-  if (via === "device") return (request as { principalTier?: string }).principalTier === "operate";
-  if (via === "session" || via === "principal") return true;
-  return isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> }, localTrust);
+  /** Live: is a usable login method configured? Drives the `sign-in` remedy of a refusal. */
+  loginAvailable: () => boolean;
 }
 
 /** The request shape every handler reads (params / body / query are all optional). */
@@ -60,12 +54,8 @@ function sendError(reply: FastifyReply, err: unknown): FastifyReply {
 export function registerServiceRoutes(fastify: FastifyInstance, deps: ServiceRoutesDeps): void {
   const { manager, networkGuard } = deps;
   const mutationGuard = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    if (!canMutateServices(request, deps.localTrust)) {
-      await reply.code(403).send({
-        success: false,
-        error: "operate_required",
-        message: "service mutations need an operate-tier credential or a locally trusted caller",
-      });
+    if (!hasOperateAuthority(request, deps.localTrust)) {
+      await sendOperateRequired(request, reply, { route: "services", loginAvailable: deps.loginAvailable });
     }
   };
   const read = { preHandler: networkGuard };

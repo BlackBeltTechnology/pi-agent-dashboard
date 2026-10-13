@@ -248,3 +248,73 @@ describe("E9 validateWsUpgrade refuses relayed loopback", () => {
     ).toBe(true);
   });
 });
+
+// ── surface-operate-required-remedy ───────────────────────────────────────
+// The `sign-in` remedy asks "is a usable login method configured right now?".
+describe("E3 buildLoginAvailable composition", () => {
+  const identity = (enforced: boolean, n: number): { enforced: () => boolean; loginConfigs: () => readonly unknown[] } => ({ enforced: () => enforced, loginConfigs: () => new Array(n).fill({}) });
+  const none = identity(false, 0);
+  const on = { isEnabled: () => true };
+  const off = { isEnabled: () => false };
+
+  type Oauth = (() => boolean) | null;
+  type Passkeys = { isEnabled(): boolean } | undefined;
+  type Ident = { enforced: () => boolean; loginConfigs: () => readonly unknown[] };
+  const cases: Array<[string, Oauth, Passkeys, Ident, boolean]> = [
+    ["oauth alone", () => true, off, none, true],
+    ["passkeys alone", () => false, on, none, true],
+    ["identity enforced with a login config alone", () => false, off, identity(true, 1), true],
+    ["empty-clientId provider only (accessor false)", () => false, off, none, false],
+    ["identity not enforced, config registered", () => false, off, identity(false, 2), false],
+    ["identity enforced, no config", () => false, off, identity(true, 0), false],
+    ["all absent", () => false, off, none, false],
+    ["null oauth accessor, no passkeys", null, undefined, none, false],
+    ["null oauth accessor, passkeys on", null, on, none, true],
+  ];
+  it.each(cases)("%s → %s", async (_l, oauth, passkeys, ident, expected) => {
+    const { buildLoginAvailable } = await import("../auth/auth-plugin.js");
+    const fn = buildLoginAvailable(oauth, passkeys, ident);
+    expect(typeof fn).toBe("function");
+    expect(fn()).toBe(expected);
+  });
+
+  it("reads every source at call time", async () => {
+    const { buildLoginAvailable } = await import("../auth/auth-plugin.js");
+    let oauth = false;
+    const fn = buildLoginAvailable(() => oauth, null, { enforced: () => false, loginConfigs: () => [] });
+    expect(fn()).toBe(false);
+    oauth = true;
+    expect(fn()).toBe(true);
+  });
+
+  it("the plugin accessor ignores an empty-clientId provider and sees a reload", async () => {
+    const { default: Fastify } = await import("fastify");
+    const { registerAuthPlugin } = await import("../auth/auth-plugin.js");
+    const app = Fastify();
+    const base = { secret: "test-secret-32-chars-long-abcdef" };
+    const handle = await registerAuthPlugin(app, {
+      authConfig: { ...base, providers: { github: { clientId: "", clientSecret: "s" } } },
+      port: 8000,
+    });
+    expect(handle.hasUsableOAuthProvider()).toBe(false);
+    await (app as any)._reloadAuth({ ...base, providers: { github: { clientId: "cid", clientSecret: "s" } } });
+    expect(handle.hasUsableOAuthProvider()).toBe(true);
+    await app.close();
+  });
+});
+
+describe("E4 a boot-inert auth plugin stays false", () => {
+  it("no providers + passkeys off: accessor is a function, reads false, and a config write does not change it", async () => {
+    const { default: Fastify } = await import("fastify");
+    const { registerAuthPlugin } = await import("../auth/auth-plugin.js");
+    const app = Fastify();
+    const base = { secret: "test-secret-32-chars-long-abcdef" };
+    const handle = await registerAuthPlugin(app, { authConfig: { ...base, providers: {} }, port: 8000 });
+    expect(typeof handle.hasUsableOAuthProvider).toBe("function");
+    expect(handle.hasUsableOAuthProvider()).toBe(false);
+    // The early-return path installs no reload hook: the config write is a no-op here.
+    expect((app as any)._reloadAuth).toBeUndefined();
+    expect(handle.hasUsableOAuthProvider()).toBe(false);
+    await app.close();
+  });
+});

@@ -32,7 +32,7 @@ afterEach(async () => {
 const TRUSTED = "198.51.100.0/24";
 const sha = () => createHash("sha256").update(fs.readFileSync(path.join(root, "services.json"))).digest("hex");
 
-async function mkApp(strict: boolean) {
+async function mkApp(strict: boolean, loginAvailable: () => boolean = () => false) {
   const reg = new PairedDeviceRegistry(path.join(root, "paired.json"));
   const tokens = {
     observe: reg.add("o", "manual", "observe").token,
@@ -47,7 +47,7 @@ async function mkApp(strict: boolean) {
   app.decorateRequest("isAuthenticated", false);
   registerBearerAuth(app, { registry: reg });
   app.addHook("onRequest", createRouteTierGate({ getTrustedNetworks: () => [TRUSTED], localTrust, logRefusal: () => {} }));
-  registerServiceRoutes(app, { manager, networkGuard: createNetworkGuard([TRUSTED], { localTrust }), localTrust });
+  registerServiceRoutes(app, { manager, networkGuard: createNetworkGuard([TRUSTED], { localTrust }), localTrust, loginAvailable });
   await app.ready();
   return { app, tokens };
 }
@@ -102,6 +102,68 @@ describe("E46 — who may create an attached (argv-carrying) service", () => {
     const res = await app.inject({ method: "PUT", url: "/api/services/docling/secrets/password", remoteAddress: "198.51.100.7", payload: { value: "x" } });
     expect(res.statusCode).toBe(403);
     expect(fs.existsSync(path.join(root, "services-secrets.json"))).toBe(false);
+  });
+});
+
+// ── surface-operate-required-remedy ───────────────────────────────────────
+describe("E12 service mutations refuse with the same reason and remedies as the vault", () => {
+  const msg = {
+    none: "service mutations need an operate-tier credential or a locally trusted caller",
+    low: "service mutations need an operate-tier credential; this device's credential has a lower tier",
+  };
+
+  it("trusted-network, no credential → no-credential / use-host; service file untouched", async () => {
+    const { app } = await mkApp(false);
+    const before = sha();
+    const res = await app.inject({ method: "POST", url: "/api/services", remoteAddress: "198.51.100.7", payload: attached });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ success: false, error: "operate_required", message: msg.none, reason: "no-credential", remedies: ["use-host"] });
+    expect(sha()).toBe(before);
+  });
+
+  it("observe bearer on the host → tier-too-low / re-pair", async () => {
+    const { app, tokens } = await mkApp(false);
+    const before = sha();
+    const res = await app.inject({
+      method: "POST", url: "/api/services", remoteAddress: "127.0.0.1",
+      headers: { authorization: `Bearer ${tokens.observe}` }, payload: attached,
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ error: "operate_required", message: msg.low, reason: "tier-too-low", remedies: ["re-pair"] });
+    expect(sha()).toBe(before);
+  });
+
+  it("sign-in follows the live login accessor", async () => {
+    let login = false;
+    const { app } = await mkApp(false, () => login);
+    login = true;
+    const res = await app.inject({ method: "POST", url: "/api/services", remoteAddress: "198.51.100.7", payload: attached });
+    expect(res.json().remedies).toEqual(["use-host", "sign-in"]);
+  });
+
+  it("E13 every mutation family is guarded with the same body; reads are not", async () => {
+    writeDefinitions(root, [ociDef()]);
+    const { app } = await mkApp(false);
+    const mutations: Array<["POST" | "DELETE" | "PUT", string]> = [
+      ["POST", "/api/services"],
+      ["DELETE", "/api/services/docling"],
+      ["POST", "/api/services/docling/ensure"],
+      ["POST", "/api/services/docling/heartbeat"],
+      ["POST", "/api/services/docling/release"],
+      ["POST", "/api/services/docling/start"],
+      ["POST", "/api/services/docling/stop"],
+      ["POST", "/api/services/docling/retry"],
+      ["POST", "/api/services/docling/pin"],
+      ["POST", "/api/services/docling/unpin"],
+      ["POST", "/api/services/docling/prefetch"],
+      ["PUT", "/api/services/docling/secrets/password"],
+    ];
+    for (const [method, url] of mutations) {
+      const res = await app.inject({ method, url, remoteAddress: "198.51.100.7", payload: method === "DELETE" ? undefined : {} });
+      expect(res.statusCode, `${method} ${url}`).toBe(403);
+      expect(res.json(), `${method} ${url}`).toMatchObject({ error: "operate_required", reason: "no-credential", remedies: ["use-host"], message: msg.none });
+    }
+    expect((await app.inject({ method: "GET", url: "/api/services", remoteAddress: "198.51.100.7" })).statusCode).toBe(200);
   });
 });
 
