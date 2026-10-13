@@ -6,29 +6,185 @@
  * client-to-client multicast), a diagnostic block explains why and offers
  * an inline manual-add form so users on the same LAN can still register
  * remote dashboards by IP.
+ *
+ * See change: retro-ux-identity-connectivity (contract tokens, live status,
+ * surfaced failures, collapsed diagnostic).
  */
 
 import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { normalizeHostKey } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
 import type { DiscoveredServerInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import {
-  mdiAlertCircleOutline,
-  mdiCheck,
-  mdiClose,
-  mdiPlus,
-  mdiRefresh,
-  mdiServerNetwork,
-} from "@mdi/js";
+import { mdiAlertCircleOutline, mdiCheck, mdiInformationOutline, mdiPlus, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useState } from "react";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useCallback, useState } from "react";
 import { addKnownServer, discoverServers } from "../../lib/api/known-servers-api.js";
-import { parseHostInput } from "../../lib/util/parse-host-input.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
+import { parseHostInput } from "../../lib/util/parse-host-input.js";
+import {
+  BTN_PRIMARY,
+  BTN_SECONDARY,
+  BTN_SMALL,
+  BTN_SMALL_GHOST,
+  BTN_SMALL_PRIMARY,
+  callout,
+  errorMessage,
+  HELP,
+  INPUT,
+  INSET,
+  identityPill,
+  LABEL,
+  META,
+  ROW,
+} from "./connectivity-ui.js";
 
 interface Props {
   knownServers: KnownServer[];
   onServerAdded: () => void;
+}
+
+function DiscoveryDiagnostic() {
+  return (
+    <div className={callout("info")}>
+      <Icon path={mdiInformationOutline} size={0.6} className="mt-0.5 shrink-0" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <strong>{i18nT("connection.noDashboardsViaMdns", undefined, "No dashboards found via mDNS.")}</strong>{" "}
+        {i18nT("connection.noDashboardsHint", undefined, "Many networks block it. Add a server by address instead.")}
+        <details className="mt-1">
+          <summary className="flex min-h-8 cursor-pointer items-center font-semibold underline focus-ring">
+            {i18nT("connection.whyDiscoveryFails", undefined, "Why does discovery fail?")}
+          </summary>
+          {i18nT("tunnel.mdnsDiscoveryOftenFailsAcrossMachines", undefined, "mDNS discovery often fails across machines because of:")}
+          <ul className="mt-1 list-disc space-y-0.5 pl-4">
+            <li>{i18nT("common.wiFi", undefined, "Wi-Fi")} <strong>{i18nT("common.apClientIsolation", undefined, "AP/client isolation")}</strong> {i18nT("common.commonOnConsumerGuestNetworks", undefined, "(common on consumer & guest networks)")}</li>
+            <li>{i18nT("common.meshRoutersOrWiFiExtenders", undefined, "Mesh routers or Wi-Fi extenders that drop multicast between nodes")}</li>
+            <li>{i18nT("tunnel.differentVlansSubnetsBetweenTheTwo", undefined, "Different VLANs / subnets between the two machines")}</li>
+            <li>{i18nT("common.anActiveVpnCapturingTheDefault", undefined, "An active VPN capturing the default route")}</li>
+            <li>{i18nT("tunnel.theMacosFirewallBlockingInboundTraffi", undefined, "The macOS firewall blocking inbound traffic on the dashboard port")}</li>
+          </ul>
+          <div className="mt-2">
+            {i18nT("common.ifYouKnowTheServerS", undefined, "If you know the server's IP (e.g.")}{" "}
+            <code>192.168.16.202:8000</code>{i18nT("common.addItManuallyBelow", undefined, "),\n                  add it manually below.")}
+          </div>
+        </details>
+      </div>
+    </div>
+  );
+}
+
+function DiscoveredRow({
+  server,
+  alreadyKnown,
+  updated,
+  isAdding,
+  addLabel,
+  error,
+  onLabelChange,
+  onStart,
+  onConfirm,
+  onCancel,
+}: {
+  server: DiscoveredServerInfo;
+  alreadyKnown: boolean;
+  updated: boolean;
+  isAdding: boolean;
+  addLabel: string;
+  error: string | undefined;
+  onLabelChange: (v: string) => void;
+  onStart: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const key = `${server.host}:${server.port}`;
+  const name = server.name ?? server.host;
+  return (
+    <div className={ROW}>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-[var(--text-primary)]">
+          <span className="truncate">{name}</span>
+          <span className={identityPill(server.isLocal)}>
+            {server.isLocal ? i18nT("common.localPill", undefined, "Local") : i18nT("common.remote", undefined, "Remote")}
+          </span>
+        </div>
+        <div className={META}>
+          {server.name ? `${server.host}:${server.port}` : `:${server.port}`} {i18nT("common.v", undefined, "· v")}{server.version}
+        </div>
+      </div>
+
+      {updated ? (
+        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--severity-success-fg)]">
+          <Icon path={mdiCheck} size={0.5} aria-hidden="true" />
+          {i18nT("connection.updatedExistingEntry", undefined, "Updated existing entry")}
+        </span>
+      ) : alreadyKnown ? (
+        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--severity-success-fg)]">
+          <Icon path={mdiCheck} size={0.5} aria-hidden="true" />
+          {i18nT("common.alreadyAdded", undefined, "Already added")}
+        </span>
+      ) : isAdding ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <label htmlFor={`discovery-label-${key}`} className="sr-only">
+            {i18nT("connection.labelFor", { name }, "Label for {name}")}
+          </label>
+          <input
+            id={`discovery-label-${key}`}
+            type="text"
+            value={addLabel}
+            onChange={(e) => onLabelChange(e.target.value)}
+            placeholder={i18nT("common.label", undefined, "Label")}
+            className={`${INPUT} !min-h-[32px] !w-36 !py-0.5 !text-xs`}
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onConfirm();
+              if (e.key === "Escape") onCancel();
+            }}
+          />
+          <button
+            type="button"
+            className={BTN_SMALL_PRIMARY}
+            aria-label={i18nT("connection.confirmAdd", { name }, "Add {name}")}
+            onClick={onConfirm}
+          >
+            <Icon path={mdiCheck} size={0.5} aria-hidden="true" />
+            {i18nT("common.add2", undefined, "Add")}
+          </button>
+          <button
+            type="button"
+            className={BTN_SMALL_GHOST}
+            aria-label={i18nT("connection.cancelAdd", { name }, "Cancel adding {name}")}
+            onClick={onCancel}
+          >
+            {i18nT("common.cancel", undefined, "Cancel")}
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onStart}
+          className={BTN_SMALL}
+          aria-label={i18nT("connection.startAdd", { name, address: key }, "Add {name} ({address})")}
+        >
+          <Icon path={mdiPlus} size={0.5} aria-hidden="true" />
+          {i18nT("common.add2", undefined, "Add")}
+        </button>
+      )}
+      {error && (
+        <div className="basis-full text-[11px] text-[var(--severity-error-fg)]" role="alert">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Text for the polite live region beside the scan button. */
+function scanStatusText(o: { scanning: boolean; scanned: boolean; hasError: boolean; found: number }): string {
+  if (o.scanning) return i18nT("connection.scanning", undefined, "Scanning…");
+  if (!o.scanned) return i18nT("connection.scanIdle", undefined, "Finds other pi dashboards on this network.");
+  if (o.hasError) return "";
+  if (o.found === 0) return i18nT("connection.foundNone", undefined, "No dashboards found.");
+  if (o.found === 1) return i18nT("connection.foundOne", undefined, "Found 1 dashboard.");
+  return i18nT("connection.foundMany", { n: o.found }, "Found {n} dashboards.");
 }
 
 export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) {
@@ -39,6 +195,8 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
   const [addingKey, setAddingKey] = useState<string | null>(null);
   const [addLabel, setAddLabel] = useState("");
   const [updatedKey, setUpdatedKey] = useState<string | null>(null);
+  /** Failed add-confirm, keyed by `host:port`, shown next to that server. */
+  const [addErrors, setAddErrors] = useState<Record<string, string>>({});
 
   // Manual-add form state (shown when mDNS finds nothing)
   const [manualInput, setManualInput] = useState("");
@@ -53,10 +211,10 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
       const servers = await discoverServers();
       setDiscovered(servers);
       setScanned(true);
-    } catch (e: any) {
+    } catch (e) {
       setDiscovered([]);
       setScanned(true);
-      setScanError(e?.message ?? "Scan failed");
+      setScanError(errorMessage(e, "Scan failed"));
     } finally {
       setScanning(false);
     }
@@ -77,6 +235,11 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
   };
 
   const handleConfirmAdd = async (server: DiscoveredServerInfo) => {
+    setAddErrors((prev) => {
+      const next = { ...prev };
+      delete next[`${server.host}:${server.port}`];
+      return next;
+    });
     try {
       // The advertised fingerprint is a hint: the server pins it only if its challenge proves it.
       const { updated } = await addKnownServer(
@@ -89,8 +252,11 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
       setAddingKey(null);
       setAddLabel("");
       onServerAdded();
-    } catch {
-      // ignore
+    } catch (e) {
+      setAddErrors((prev) => ({
+        ...prev,
+        [`${server.host}:${server.port}`]: i18nT("connection.addFailed", { error: errorMessage(e) }, "Could not add: {error}"),
+      }));
     }
   };
 
@@ -116,165 +282,115 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
       setManualInput("");
       setManualLabel("");
       onServerAdded();
-    } catch (e: any) {
-      setManualError(e?.message ?? "Failed to add server");
+    } catch (e) {
+      setManualError(errorMessage(e, "Failed to add server"));
     } finally {
       setManualBusy(false);
     }
   };
 
   const showEmptyDiagnostic = scanned && discovered.length === 0;
+  const scanStatus = scanStatusText({ scanning, scanned, hasError: !!scanError, found: discovered.length });
+  const submitManual = () => void handleManualAdd().catch(logRejection("NetworkDiscoverySection.handleManualAdd"));
 
   return (
-    <div className="space-y-2">
-      {/* Scan button */}
-      <button
-        onClick={handleScan}
-        disabled={scanning}
-        className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50 cursor-pointer"
-      >
-        <Icon path={mdiRefresh} size={0.5} className={scanning ? "animate-spin" : ""} />
-        {scanning ? "Scanning..." : "Scan network"}
-      </button>
+    <div className="space-y-3">
+      {/* Scan button + live status */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={handleScan} disabled={scanning} aria-busy={scanning || undefined} className={BTN_SECONDARY}>
+          <Icon path={mdiRefresh} size={0.55} className={scanning ? "animate-spin" : ""} aria-hidden="true" />
+          {scanning
+            ? i18nT("connection.scanning", undefined, "Scanning…")
+            : scanned
+            ? i18nT("connection.scanAgain", undefined, "Scan again")
+            : i18nT("connection.scanNetwork", undefined, "Scan network")}
+        </button>
+        <span className={HELP} role="status" aria-live="polite">
+          {scanStatus}
+        </span>
+      </div>
 
       {/* Scan error */}
       {scanError && (
-        <div className="text-xs text-red-400 py-1">{i18nT("status.scanFailed", undefined, "Scan failed:")} {scanError}</div>
-      )}
-
-      {/* Empty diagnostic + manual-add fallback */}
-      {showEmptyDiagnostic && (
-        <div className="space-y-3 p-3 rounded bg-[var(--bg-secondary)] border border-[var(--border-secondary)]">
-          <div className="flex items-start gap-2">
-            <Icon
-              path={mdiAlertCircleOutline}
-              size={0.6}
-              className="text-amber-400 shrink-0 mt-0.5"
-            />
-            <div className="space-y-1">
-              <div className="text-sm text-[var(--text-primary)]">
-                {i18nT("tunnel.noServersFoundViaMdns", undefined, "No servers found via mDNS.")}
-              </div>
-              <div className="text-xs text-[var(--text-muted)] leading-relaxed">
-                {i18nT("tunnel.mdnsDiscoveryOftenFailsAcrossMachines", undefined, "mDNS discovery often fails across machines because of:")}
-                <ul className="list-disc pl-4 mt-1 space-y-0.5">
-                  <li>{i18nT("common.wiFi", undefined, "Wi-Fi")} <strong>{i18nT("common.apClientIsolation", undefined, "AP/client isolation")}</strong> {i18nT("common.commonOnConsumerGuestNetworks", undefined, "(common on consumer & guest networks)")}</li>
-                  <li>{i18nT("common.meshRoutersOrWiFiExtenders", undefined, "Mesh routers or Wi-Fi extenders that drop multicast between nodes")}</li>
-                  <li>{i18nT("tunnel.differentVlansSubnetsBetweenTheTwo", undefined, "Different VLANs / subnets between the two machines")}</li>
-                  <li>{i18nT("common.anActiveVpnCapturingTheDefault", undefined, "An active VPN capturing the default route")}</li>
-                  <li>{i18nT("tunnel.theMacosFirewallBlockingInboundTraffi", undefined, "The macOS firewall blocking inbound traffic on the dashboard port")}</li>
-                </ul>
-                <div className="mt-2">
-                  {i18nT("common.ifYouKnowTheServerS", undefined, "If you know the server's IP (e.g.")}{" "}
-                  <code className="text-[var(--text-secondary)]">192.168.16.202:8000</code>{i18nT("common.addItManuallyBelow", undefined, "),\n                  add it manually below.")}
-                </div>
-              </div>
+        <div className={callout("error")} role="alert">
+          <Icon path={mdiAlertCircleOutline} size={0.6} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            {i18nT("status.scanFailed", undefined, "Scan failed:")} {scanError}
+            <div className="mt-1">
+              <button type="button" className={BTN_SMALL} onClick={handleScan} disabled={scanning}>
+                {i18nT("common.retry", undefined, "Retry")}
+              </button>
             </div>
           </div>
+        </div>
+      )}
 
-          {/* Manual-add form */}
-          <div className="space-y-2 pt-2 border-t border-[var(--border-secondary)]">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder={i18nT("common.192168162028000Or", undefined, "192.168.16.202:8000  or  http://host:8000")}
-                value={manualInput}
-                onChange={(e) => setManualInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") void handleManualAdd().catch(logRejection("NetworkDiscoverySection.handleManualAdd")); }}
-                className="flex-1 bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
-              />
-              <input
-                type="text"
-                placeholder={i18nT("common.labelOptional", undefined, "Label (optional)")}
-                value={manualLabel}
-                onChange={(e) => setManualLabel(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") void handleManualAdd().catch(logRejection("NetworkDiscoverySection.handleManualAdd")); }}
-                className="w-32 bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
-              />
-              <button
-                onClick={handleManualAdd}
-                disabled={manualBusy || !manualInput.trim()}
-                className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded cursor-pointer"
-              >
-                <Icon path={mdiPlus} size={0.45} />
+      {/* Empty diagnostic (collapsed reasons) + manual-add fallback */}
+      {showEmptyDiagnostic && (
+        <>
+          <DiscoveryDiagnostic />
+
+          {/* Manual-add form — visible without expanding the disclosure */}
+          <form
+            className={`space-y-2 ${INSET}`}
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitManual();
+            }}
+          >
+            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_9rem_auto]">
+              <div className="min-w-0">
+                <label htmlFor="discovery-manual-address" className={LABEL}>{i18nT("connection.address", undefined, "Address")}</label>
+                <input
+                  id="discovery-manual-address"
+                  type="text"
+                  placeholder={i18nT("common.192168162028000Or", undefined, "192.168.16.202:8000  or  http://host:8000")}
+                  value={manualInput}
+                  onChange={(e) => setManualInput(e.target.value)}
+                  aria-invalid={manualError ? true : undefined}
+                  aria-describedby={manualError ? "discovery-manual-error" : undefined}
+                  className={INPUT}
+                />
+              </div>
+              <div>
+                <label htmlFor="discovery-manual-label" className={LABEL}>{i18nT("common.labelOptional", undefined, "Label (optional)")}</label>
+                <input
+                  id="discovery-manual-label"
+                  type="text"
+                  value={manualLabel}
+                  onChange={(e) => setManualLabel(e.target.value)}
+                  className={INPUT}
+                />
+              </div>
+              <button type="submit" disabled={manualBusy || !manualInput.trim()} className={BTN_PRIMARY}>
+                <Icon path={mdiPlus} size={0.5} aria-hidden="true" />
                 {i18nT("common.add2", undefined, "Add")}
               </button>
             </div>
             {manualError && (
-              <div className="text-xs text-red-400">{manualError}</div>
+              <div id="discovery-manual-error" className="text-[11px] text-[var(--severity-error-fg)]">{manualError}</div>
             )}
-          </div>
-        </div>
+          </form>
+        </>
       )}
 
       {/* Discovered servers */}
       {discovered.map((server) => {
         const key = `${server.host}:${server.port}`;
-        const alreadyKnown = isKnownServer(server);
-        const isAdding = addingKey === key;
-
         return (
-          <div
+          <DiscoveredRow
             key={key}
-            className="flex items-center gap-2 px-3 py-2 rounded bg-[var(--bg-secondary)] border border-[var(--border-secondary)]"
-          >
-            <Icon
-              path={mdiServerNetwork}
-              size={0.55}
-              className={`shrink-0 ${server.isLocal ? "text-blue-400" : "text-purple-400"}`}
-            />
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-[var(--text-primary)] truncate">
-                {server.name ?? server.host}
-              </div>
-              <div className="text-xs text-[var(--text-muted)]">
-                {server.name ? `${server.host}:${server.port}` : `:${server.port}`} {i18nT("common.v", undefined, "· v")}{server.version}
-              </div>
-            </div>
-
-            {updatedKey === key ? (
-              <span className="text-xs text-green-500 shrink-0">{i18nT("connection.updatedExistingEntry", undefined, "Updated existing entry")}</span>
-            ) : alreadyKnown ? (
-              <span className="text-xs text-green-500 shrink-0">{i18nT("common.alreadyAdded", undefined, "Already added")}</span>
-            ) : isAdding ? (
-              <div className="flex items-center gap-1 shrink-0">
-                <input
-                  type="text"
-                  value={addLabel}
-                  onChange={(e) => setAddLabel(e.target.value)}
-                  placeholder={i18nT("common.label", undefined, "Label")}
-                  className="w-28 bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded px-1.5 py-0.5 text-xs text-[var(--text-primary)]"
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void handleConfirmAdd(server).catch(logRejection("NetworkDiscoverySection.handleConfirmAdd"));
-                    if (e.key === "Escape") handleCancelAdd();
-                  }}
-                />
-                <button
-                  onClick={() => handleConfirmAdd(server)}
-                  className="text-green-400 hover:text-green-300 cursor-pointer p-0.5"
-                  title={i18nT("common.confirm", undefined, "Confirm")}
-                >
-                  <Icon path={mdiCheck} size={0.45} />
-                </button>
-                <button
-                  onClick={handleCancelAdd}
-                  className="text-[var(--text-muted)] hover:text-red-400 cursor-pointer p-0.5"
-                  title={i18nT("common.cancel", undefined, "Cancel")}
-                >
-                  <Icon path={mdiClose} size={0.45} />
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => handleStartAdd(server)}
-                className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors shrink-0 cursor-pointer"
-              >
-                <Icon path={mdiPlus} size={0.45} />
-                {i18nT("common.add2", undefined, "Add")}
-              </button>
-            )}
-          </div>
+            server={server}
+            alreadyKnown={isKnownServer(server)}
+            updated={updatedKey === key}
+            isAdding={addingKey === key}
+            addLabel={addLabel}
+            error={addErrors[key]}
+            onLabelChange={setAddLabel}
+            onStart={() => handleStartAdd(server)}
+            onConfirm={() => void handleConfirmAdd(server).catch(logRejection("NetworkDiscoverySection.handleConfirmAdd"))}
+            onCancel={handleCancelAdd}
+          />
         );
       })}
     </div>

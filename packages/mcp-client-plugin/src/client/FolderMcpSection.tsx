@@ -184,7 +184,8 @@ export function FolderMcpSection({
 
   const notAllowed = error instanceof ApiError && error.isNotAllowed;
   const otherError = error && !notAllowed ? (error as Error) : null;
-  const servers = view?.servers ?? [];
+  // An orphaned / invalid override row is a pi message, not a server: pi loads nothing for it.
+  const servers = (view?.servers ?? []).filter((s) => s.overrideIssue === undefined);
   const { accent, body } = pillContent(t, {
     parseErrorPath: view?.layers.find((l) => !l.ok)?.path,
     otherError,

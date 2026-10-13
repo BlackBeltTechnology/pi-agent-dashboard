@@ -53,7 +53,8 @@ describe("agent path gate × YOLO wiring", () => {
     send(ws, { type: "session_register", sessionId: "s1", cwd: "/tmp", source: "cli" });
     await wait(150);
     const id = frames.find((f) => f.type === "dashboard_identity");
-    expect(id?.features).toEqual(["path-yolo"]);
+    // `vault-delivery` rides the same capability list (change: add-credential-vault).
+    expect(id?.features).toEqual(expect.arrayContaining(["path-yolo"]));
     if (id && "grantStoreId" in id) expect(typeof id.grantStoreId).toBe("string");
   });
 

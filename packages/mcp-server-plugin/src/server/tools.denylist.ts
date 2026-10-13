@@ -63,6 +63,11 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // secrets; core keeps the whole surface out of MCP (skills use the CLI).
   { pattern: "/api/services/", reason: "managed services: lifecycle + secrets; CLI/REST only in core" },
   { pattern: "/api/services", reason: "managed services: lifecycle + secrets; CLI/REST only in core" },
+  // add-credential-vault: secret store management. Never an LLM action: the
+  // vault decides which secrets reach which project, and holds the values.
+  { pattern: "/api/vault/", reason: "credential vault: accounts, grants, import; operator-only, secret-bearing" },
+  { pattern: "/api/vault", reason: "credential vault: accounts, grants, import; operator-only, secret-bearing" },
+  { pattern: "/api/session/:id/vault-bindings", reason: "vault binding state for the session view; UI-only" },
   { pattern: "/api/ws-ticket", reason: "transport credential" },
   { pattern: "/api/local-proof", reason: "mints a one-time local-proof bootstrap code; host-local credential" },
   { pattern: "/api/device-session", reason: "exchanges the device bearer for an httpOnly cookie; browser credential plumbing" },

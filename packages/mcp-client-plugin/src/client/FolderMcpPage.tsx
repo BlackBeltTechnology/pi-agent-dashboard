@@ -6,23 +6,28 @@
  * effective-view request is refused (403) for a folder the host does not
  * track, so the page renders a not-allowed empty state with NO retry and no
  * data. Rows carry provenance badges (Pi global / Pi folder) and the
- * whole-entry override marker; a global row's "Override…" opens the editor
- * pre-filled with the complete global entry minus secrets + `auth`, each
- * omission flagged. An untrusted folder shows a notice (dashboard-spawned
- * headless sessions trust the folder per run) while editing stays allowed.
- * Folder writes are project-scope only; a folder enable that needs re-entered
- * secrets offers remove-or-reenter; a removal keeps an undo toast that re-PUTs
- * the removed raw entry.
+ * whole-entry replace marker; a global row's "Replace with folder entry…" opens
+ * the editor pre-filled with the complete global entry minus secrets + `auth`,
+ * each omission flagged, and its "Project settings…" opens the project-override
+ * panel (enabled + exposure, credentials untouched). An untrusted folder shows a
+ * notice (dashboard-spawned headless sessions trust the folder per run) while
+ * editing stays allowed. Folder writes are project-scope only; a folder enable
+ * of a whole-entry copy that needs re-entered secrets offers remove-or-reenter
+ * (or convert, for a legacy copy); Remove / Reset / Convert keep an undo toast
+ * that restores the exact prior entry (override rows via the project-override
+ * route, whole entries via the generic PUT).
  *
- * See change: migrate-mcp-to-pi-builtin.
+ * See change: migrate-mcp-to-pi-builtin; mcp-client-project-overrides.
  */
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useMemo, useState } from "react";
-import type { EffectiveView, Provenance, Scope } from "../core/types.js";
-import { ApiError, removeServer, saveServer, scopeToWire } from "./api.js";
-import { folderOverrideDraftOf, isFolderOwned } from "./folder-view.js";
+import { isProjectOverride } from "../core/pi-rules.js";
+import type { EffectiveServerView, EffectiveView, Provenance, Scope } from "../core/types.js";
+import { ApiError, convertToOverride, removeServer, saveServer, scopeToWire, setProjectOverride } from "./api.js";
+import { folderOverrideDraftOf, isFolderOwned, overrideRestorePatch } from "./folder-view.js";
 import { invalidateEffective, useEffectiveConfig } from "./hooks.js";
+import { ProjectSettingsPanel } from "./ProjectSettings.js";
 import { ServerEditor } from "./ServerEditor.js";
 import type { RowRef } from "./ServerList.js";
 import { ServerList } from "./ServerList.js";
@@ -104,17 +109,13 @@ interface EditingState {
 
 interface UndoState {
   name: string;
+  /** The exact prior entry: an override (restored via the override route) or a whole entry. */
   removed: Record<string, unknown>;
+  message: string;
 }
 
 interface ChoiceState {
   row: RowRef;
-  omitted: string[];
-}
-
-interface OmittedNoteState {
-  key: string;
-  name: string;
   omitted: string[];
 }
 
@@ -131,7 +132,7 @@ interface FolderActions {
   editing: EditingState | null;
   undo: UndoState | null;
   choice: ChoiceState | null;
-  omittedNote: OmittedNoteState | null;
+  projectPanel: string | null;
   actionError: string | null;
   scope: Scope;
   open: (name: string, provenance: Provenance) => void;
@@ -141,8 +142,12 @@ interface FolderActions {
   undoRemove: () => void;
   resolveChoiceRemove: () => void;
   resolveChoiceReenter: () => void;
+  resolveChoiceConvert: () => void;
   onNeedsChoice: (row: RowRef, omitted: string[]) => void;
-  onOmitted: (row: RowRef, omitted: string[]) => void;
+  openProjectSettings: (name: string) => void;
+  closeProjectSettings: () => void;
+  reset: (name: string) => void;
+  convertLegacy: (name: string) => void;
   refreshed: () => void;
 }
 
@@ -152,10 +157,11 @@ function useFolderActions(
   view: EffectiveView | null,
   reload: () => void,
 ): FolderActions {
+  const t = useT();
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [undo, setUndo] = useState<UndoState | null>(null);
   const [choice, setChoice] = useState<ChoiceState | null>(null);
-  const [omittedNote, setOmittedNote] = useState<OmittedNoteState | null>(null);
+  const [projectPanel, setProjectPanel] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const scope = useMemo<Scope>(() => ({ kind: "project", cwd }), [cwd]);
   const refreshed = (): void => {
@@ -163,13 +169,17 @@ function useFolderActions(
     reload();
   };
 
-  async function removeOverride(name: string): Promise<void> {
+  async function removeOverride(name: string, message?: string): Promise<void> {
     setActionError(null);
     try {
       const res = await removeServer(name, scopeToWire(scope));
       setEditing(null);
       setChoice(null);
-      setUndo({ name, removed: res.removed ?? {} });
+      setUndo({
+        name,
+        removed: res.removed ?? {},
+        message: message ?? t("mcpFolderOverrideRemoved", { name }, `Removed folder override for ${name}.`),
+      });
       refreshed();
     } catch (e) {
       setActionError(e instanceof ApiError ? e.message : String(e));
@@ -179,8 +189,31 @@ function useFolderActions(
   async function undoRemove(): Promise<void> {
     if (!undo) return;
     try {
-      await saveServer(undo.name, { ...scopeToWire(scope), entry: undo.removed });
+      // An override (no command/url/type) is restored through the override route
+      // with its absent keys as `null`; a whole entry goes through the generic PUT.
+      if (isProjectOverride(undo.removed)) {
+        await setProjectOverride(undo.name, overrideRestorePatch(undo.removed), scopeToWire(scope));
+      } else {
+        await saveServer(undo.name, { ...scopeToWire(scope), entry: undo.removed });
+      }
       setUndo(null);
+      refreshed();
+    } catch (e) {
+      setActionError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
+  async function convertLegacy(name: string): Promise<void> {
+    setActionError(null);
+    try {
+      const res = await convertToOverride(name, scopeToWire(scope));
+      setChoice(null);
+      // Undo re-PUTs the original copy (a full entry), which replaces the converted override.
+      setUndo({
+        name,
+        removed: res.previous,
+        message: t("mcpFolderConverted", { name }, `Converted ${name} to a project override.`),
+      });
       refreshed();
     } catch (e) {
       setActionError(e instanceof ApiError ? e.message : String(e));
@@ -191,7 +224,7 @@ function useFolderActions(
     editing,
     undo,
     choice,
-    omittedNote,
+    projectPanel,
     actionError,
     scope,
     open: (name, provenance) => {
@@ -217,13 +250,20 @@ function useFolderActions(
       setChoice(null);
       setEditing(prefillFor(server));
     },
+    resolveChoiceConvert: () => {
+      if (choice) void convertLegacy(choice.row.name);
+    },
     onNeedsChoice: (row, omitted) => setChoice({ row, omitted }),
-    onOmitted: (row, omitted) => setOmittedNote({ key: row.key, name: row.name, omitted }),
+    openProjectSettings: (name) => setProjectPanel(name),
+    closeProjectSettings: () => setProjectPanel(null),
+    reset: (name) =>
+      void removeOverride(name, t("mcpFolderResetDone", { name }, `Reset ${name} to Pi global.`)),
+    convertLegacy: (name) => void convertLegacy(name),
     refreshed,
   };
 }
 
-function UndoToast({ name, onUndo }: { name: string; onUndo: () => void }): React.ReactElement {
+function UndoToast({ message, onUndo }: { message: string; onUndo: () => void }): React.ReactElement {
   const t = useT();
   return (
     <div
@@ -231,7 +271,7 @@ function UndoToast({ name, onUndo }: { name: string; onUndo: () => void }): Reac
       role="status"
       className="flex items-center gap-2 text-[11px] px-2 py-1.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)]"
     >
-      <span>{t("mcpFolderOverrideRemoved", { name }, `Removed folder override for ${name}.`)}</span>
+      <span>{message}</span>
       <button
         type="button"
         onClick={onUndo}
@@ -250,11 +290,14 @@ function NeedsChoicePanel({
   omitted,
   onRemove,
   onReenter,
+  onConvert,
 }: {
   name: string;
   omitted: string[];
   onRemove: () => void;
   onReenter: () => void;
+  /** Present only for a legacy copy of the global entry. */
+  onConvert?: () => void;
 }): React.ReactElement {
   const t = useT();
   return (
@@ -287,6 +330,16 @@ function NeedsChoicePanel({
         >
           {t("mcpChoiceReenter", undefined, "Re-enter omitted values")}
         </button>
+        {onConvert && (
+          <button
+            type="button"
+            onClick={onConvert}
+            data-testid="mcp-choice-convert"
+            className="px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--accent-primary,#60a5fa)] text-[var(--accent-primary,#60a5fa)]"
+          >
+            {t("mcpChoiceConvert", undefined, "Convert to project override")}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -301,10 +354,23 @@ function FolderSummary({ view }: { view: EffectiveView }): React.ReactElement {
       {t(
         "mcpFolderSummary",
         { count: overrides },
-        `A folder entry replaces the global entry of the same name as a whole · ${overrides} override(s)`,
+        `A folder entry with a command or url replaces the global entry of the same name as a whole · ${overrides} replacement(s)`,
       )}
     </p>
   );
+}
+
+/** The global row the settings panel is open on, and whether the pending choice is a legacy copy. */
+function pageDerivations(
+  servers: EffectiveServerView[],
+  panelName: string | null,
+  choiceName: string | null,
+): { panelServer: EffectiveServerView | null; legacyChoice: boolean } {
+  const panelServer =
+    panelName === null ? null : (servers.find((s) => s.name === panelName && s.provenance === "pi-global") ?? null);
+  const legacyChoice =
+    choiceName !== null && servers.some((s) => s.name === choiceName && s.provenance === "pi-folder" && s.legacyCopy === true);
+  return { panelServer, legacyChoice };
 }
 
 function FolderMcpPageBody({ cwd }: { cwd: string }): React.ReactElement {
@@ -336,6 +402,7 @@ function FolderMcpPageBody({ cwd }: { cwd: string }): React.ReactElement {
   }
 
   const servers = view?.servers ?? [];
+  const { panelServer, legacyChoice } = pageDerivations(servers, actions.projectPanel, actions.choice?.row.name ?? null);
 
   return (
     <div className="space-y-2">
@@ -349,19 +416,6 @@ function FolderMcpPageBody({ cwd }: { cwd: string }): React.ReactElement {
           {actions.actionError}
         </p>
       )}
-      {actions.omittedNote && (
-        <p
-          data-testid={`mcp-folder-omitted-${actions.omittedNote.key}`}
-          role="status"
-          className="text-[11px] text-[var(--text-secondary)] m-0"
-        >
-          {t(
-            "mcpFolderOmitted",
-            { name: actions.omittedNote.name, omitted: actions.omittedNote.omitted.join(", ") },
-            `The folder copy of ${actions.omittedNote.name} omits: ${actions.omittedNote.omitted.join(", ")}. Re-enter them via Edit.`,
-          )}
-        </p>
-      )}
 
       <ServerList
         servers={servers}
@@ -372,9 +426,13 @@ function FolderMcpPageBody({ cwd }: { cwd: string }): React.ReactElement {
         onAdd={actions.openAdd}
         onChanged={actions.refreshed}
         onNeedsChoice={actions.onNeedsChoice}
-        onOmitted={actions.onOmitted}
         onRemoveOverride={actions.removeOverride}
         chipsRemovable={!narrow}
+        onProjectSettings={actions.openProjectSettings}
+        onReset={actions.reset}
+        onConvertLegacy={actions.convertLegacy}
+        untrusted={view?.trusted === false}
+        narrow={narrow}
       />
 
       {actions.choice && (
@@ -383,10 +441,22 @@ function FolderMcpPageBody({ cwd }: { cwd: string }): React.ReactElement {
           omitted={actions.choice.omitted}
           onRemove={actions.resolveChoiceRemove}
           onReenter={actions.resolveChoiceReenter}
+          {...(legacyChoice ? { onConvert: actions.resolveChoiceConvert } : {})}
         />
       )}
 
-      {actions.undo && <UndoToast name={actions.undo.name} onUndo={actions.undoRemove} />}
+      {actions.undo && <UndoToast message={actions.undo.message} onUndo={actions.undoRemove} />}
+
+      {panelServer && (
+        <ProjectSettingsPanel
+          key={panelServer.name}
+          server={panelServer}
+          scope={actions.scope as Extract<Scope, { kind: "project" }>}
+          narrow={narrow}
+          onClose={actions.closeProjectSettings}
+          onSaved={actions.refreshed}
+        />
+      )}
 
       {actions.editing && (
         <ServerEditor
