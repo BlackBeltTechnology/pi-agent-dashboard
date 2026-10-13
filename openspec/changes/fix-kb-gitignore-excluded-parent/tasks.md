@@ -1,6 +1,6 @@
 ## 0. Baseline (before any code change)
 
-- [x] 0.1 From the repo root, capture on this checkout: total chunk count (`sqlite3 .pi/dashboard/kb/index.db "select count(*) from chunks"`), the 3.1 pipeline count (expected 576, with the same git guards as 3.1), and the `kb dox lint` finding count. Record them in the PR description; §3 compares against these, not the drafting-time numbers.
+- [x] 0.1 From the repo root, capture on this checkout: total chunk count (`sqlite3 .pi/dashboard/kb/index.db "select count(*) from chunks"`), the 3.1 pipeline count (expected 576, with the same git guards as 3.1), and the `kb dox lint` finding count. Record them in the PR description; §3 compares against these, not the drafting-time numbers. _Recorded at apply (worktree index is a stale copy): chunks=37329, files=2833, `kb dox lint` findings=61 before and after._
 
 ## 1. Tests first (red) — folded from test-plan.md
 
