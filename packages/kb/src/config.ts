@@ -85,6 +85,28 @@ export interface DoctrineConfig {
   inject: "kb" | "off";
   write: boolean;
 }
+/** Forge flavours the git scope can talk to. */
+export type ForgeKind = "github" | "gitlab" | "gitea";
+/** `git` scope group (change: add-kb-git-forge-scope, design G8). `forge.hosts`
+ *  and `forge.gitea.tokenEnv` are honoured from the GLOBAL layer only. */
+export interface GitConfig {
+  enabled: boolean;
+  remote: string;
+  searchWaitMs: number;
+  commits: { maxInitial: number; maxPathsPerCommit: number };
+  forge: {
+    enabled: boolean;
+    minSyncIntervalSeconds: number;
+    hintedMinSyncIntervalSeconds: number;
+    rateFloorPercent: number;
+    firstSyncWindowDays: number;
+    firstSyncMaxItems: number;
+    pagesPerSync: number;
+    leaseSeconds: number;
+    hosts: Record<string, ForgeKind>;
+    gitea: { tokenEnv: string };
+  };
+}
 export interface KbConfig {
   sources: SourceConfig[];
   roots?: Array<{ path: string; priority?: number }>; // legacy alias → filesystem sources
@@ -111,6 +133,7 @@ export interface KbConfig {
   expand: ExpandConfig;
   rerank: RerankConfig;
   queryExpansion: QueryExpansionConfig;
+  git: GitConfig;
   dbPath: string;
 }
 
@@ -175,6 +198,24 @@ export const DEFAULTS: KbConfig = {
   // PRF is implemented engine-side but DEFAULT OFF: it is gated on coverage
   // rerank (which measures as a net regression), and adds ~3x search latency.
   queryExpansion: { mode: "off", prf: { terms: 6, topK: 10, dfCeiling: 0.1 } },
+  git: {
+    enabled: true,
+    remote: "origin",
+    searchWaitMs: 2000,
+    commits: { maxInitial: 50000, maxPathsPerCommit: 200 },
+    forge: {
+      enabled: true,
+      minSyncIntervalSeconds: 600,
+      hintedMinSyncIntervalSeconds: 60,
+      rateFloorPercent: 20,
+      firstSyncWindowDays: 365,
+      firstSyncMaxItems: 5000,
+      pagesPerSync: 5,
+      leaseSeconds: 60,
+      hosts: {},
+      gitea: { tokenEnv: "GITEA_TOKEN" },
+    },
+  },
   dbPath: ".pi/dashboard/kb/index.db",
 };
 
@@ -192,13 +233,25 @@ export function frontmatterConfigHash(fm: FrontmatterConfig): string {
   return createHash("sha256").update(JSON.stringify(norm)).digest("hex").slice(0, 16);
 }
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+/** Recursive plain-object merge (right wins on leaves). Used for the `git`
+ *  group, whose nested levels (`commits`, `forge`, `forge.gitea`) must each keep
+ *  siblings from earlier layers. */
+function deepMerge(a: Record<string, unknown>, b: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...a };
+  for (const [k, v] of Object.entries(b)) out[k] = isPlainObject(v) && isPlainObject(out[k]) ? deepMerge(out[k] as Record<string, unknown>, v) : v;
+  return out;
+}
+
 /** Layer configs left→right, deep-merging the known nested object keys. */
 export function mergeConfig(...layers: Array<Partial<KbConfig> | null | undefined>): Partial<KbConfig> {
   const out: Record<string, unknown> = {};
   for (const layer of layers) {
     if (!layer) continue;
     for (const [k, v] of Object.entries(layer)) {
-      if ((NESTED_KEYS as readonly string[]).includes(k) && v && typeof v === "object" && !Array.isArray(v) && out[k] && typeof out[k] === "object") {
+      if (k === "git" && isPlainObject(v) && isPlainObject(out[k])) {
+        out[k] = deepMerge(out[k] as Record<string, unknown>, v);
+      } else if ((NESTED_KEYS as readonly string[]).includes(k) && v && typeof v === "object" && !Array.isArray(v) && out[k] && typeof out[k] === "object") {
         out[k] = { ...(out[k] as object), ...(v as object) };
       } else {
         out[k] = v;
@@ -231,6 +284,7 @@ export function validateConfig(c: Partial<KbConfig>, origin = "config"): KbConfi
   if (typeof lq !== "number" || !Number.isFinite(lq) || lq < 0 || lq > 1) throw err("ranking.laneQuota must be a number in [0,1]");
   const llm = merged.ranking.laneLeadMargin;
   if (typeof llm !== "number" || !Number.isFinite(llm) || llm < 0 || llm > 1) throw err("ranking.laneLeadMargin must be a number in [0,1]");
+  validateGit(merged.git, err);
   const fm = merged.frontmatter;
   if (!fm || !Array.isArray(fm.searchableKeys) || fm.searchableKeys.some((k) => typeof k !== "string")) throw err("frontmatter.searchableKeys must be a string array");
   if (!Array.isArray(fm.facetKeys)) throw err("frontmatter.facetKeys must be an array");
@@ -239,6 +293,51 @@ export function validateConfig(c: Partial<KbConfig>, origin = "config"): KbConfi
     if (f.type != null && !/^(string|number|date)$/.test(f.type)) throw err(`frontmatter facet key "${f.key}" has unknown type "${f.type}"`);
   }
   return merged;
+}
+
+function validateGit(g: GitConfig | undefined, err: (m: string) => Error): void {
+  if (!isPlainObject(g)) throw err("git must be an object");
+  const posInt = (key: string, v: unknown) => {
+    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) throw err(`${key} must be a positive number`);
+  };
+  if (typeof g.enabled !== "boolean") throw err("git.enabled must be a boolean");
+  if (typeof g.remote !== "string" || !g.remote.trim()) throw err("git.remote must be a non-empty string");
+  posInt("git.searchWaitMs", g.searchWaitMs);
+  posInt("git.commits.maxInitial", g.commits?.maxInitial);
+  posInt("git.commits.maxPathsPerCommit", g.commits?.maxPathsPerCommit);
+  const f = g.forge;
+  if (!isPlainObject(f)) throw err("git.forge must be an object");
+  if (typeof f.enabled !== "boolean") throw err("git.forge.enabled must be a boolean");
+  for (const k of ["minSyncIntervalSeconds", "hintedMinSyncIntervalSeconds", "firstSyncWindowDays", "firstSyncMaxItems", "pagesPerSync", "leaseSeconds"] as const) posInt(`git.forge.${k}`, f[k]);
+  if (typeof f.rateFloorPercent !== "number" || !Number.isFinite(f.rateFloorPercent) || f.rateFloorPercent < 0 || f.rateFloorPercent > 100) throw err("git.forge.rateFloorPercent must be a number in [0,100]");
+  if (f.hintedMinSyncIntervalSeconds > f.minSyncIntervalSeconds) throw err("git.forge.hintedMinSyncIntervalSeconds must not exceed git.forge.minSyncIntervalSeconds");
+  if (!isPlainObject(f.hosts)) throw err("git.forge.hosts must be an object mapping host → github|gitlab|gitea");
+  for (const [h, kind] of Object.entries(f.hosts)) if (!/^(github|gitlab|gitea)$/.test(String(kind))) throw err(`git.forge.hosts["${h}"] "${String(kind)}" unknown (github | gitlab | gitea)`);
+  if (typeof f.gitea?.tokenEnv !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(f.gitea.tokenEnv)) throw err("git.forge.gitea.tokenEnv must be an environment variable name");
+}
+
+/** Project-layer `git.forge.hosts` / `git.forge.gitea.tokenEnv` would let an
+ *  untrusted clone add a host or pick which env var is read as a token (design
+ *  G3/G8). Drop them and warn once per config file. */
+const warnedProjectGit = new Set<string>();
+function stripGlobalOnlyGit(project: Partial<KbConfig> | null, where: string): Partial<KbConfig> | null {
+  if (!project || !isPlainObject(project.git)) return project;
+  const forge = (project.git as { forge?: Record<string, unknown> }).forge;
+  if (!isPlainObject(forge)) return project;
+  const dropped: string[] = [];
+  const nextForge: Record<string, unknown> = { ...forge };
+  if ("hosts" in nextForge) { delete nextForge.hosts; dropped.push("git.forge.hosts"); }
+  if (isPlainObject(nextForge.gitea) && "tokenEnv" in nextForge.gitea) {
+    const { tokenEnv: _drop, ...rest } = nextForge.gitea;
+    nextForge.gitea = rest;
+    dropped.push("git.forge.gitea.tokenEnv");
+  }
+  if (!dropped.length) return project;
+  if (!warnedProjectGit.has(where)) {
+    warnedProjectGit.add(where);
+    console.warn(`[kb] ignoring ${dropped.join(", ")} from project config ${where}: honoured from the global config only`);
+  }
+  return { ...project, git: { ...(project.git as object), forge: nextForge } } as Partial<KbConfig>;
 }
 
 export function projectConfigPath(cwd: string): string {
@@ -259,7 +358,9 @@ function readJson(path: string): Partial<KbConfig> | null {
 
 /** Merge: defaults < global < project (field-level fill-in). */
 export function loadConfig(cwd: string, opts: { configPath?: string } = {}): ResolvedConfig {
-  const project = opts.configPath ? readJson(opts.configPath) : readJson(projectConfigPath(cwd));
+  const projectPath = opts.configPath ?? projectConfigPath(cwd);
+  const rawProject = readJson(projectPath);
+  const project = stripGlobalOnlyGit(rawProject, projectPath);
   const global = readJson(globalConfigPath());
   const origin: ResolvedConfig["origin"] = project ? "project" : global ? "global" : "defaults";
   // KEY-presence (a non-null object, `{}` included) — NOT file-presence. A

@@ -193,6 +193,24 @@ flowchart TB
   (indexing elsewhere)`, never `fresh`.
 - Rewritten history: commits that are no longer reachable stay indexed (see
   Risks).
+- **Measured (spike 1.2, 2026-10-13, Apple silicon, local disk, forge disabled):**
+
+  | repository | commits | first index (total) | first search returned | db size | steady-state search |
+  |---|---|---|---|---|---|
+  | this repo | 3 598 | 0.85 s | 165 ms (budget 1 ms) | 23.3 MiB (6.5 KiB/commit) | 96 ms |
+  | `golang/go` (blobless clone) | 72 691 | 7.7 s | 124 ms (budget 1 ms) | 179.7 MiB (2.5 KiB/commit) | 123 ms |
+
+  `git.commits.maxInitial` stays at 50 000: a 72k-commit history indexes in seconds, so the cap bounds disk
+  use (about 130 MiB at 2.5 KiB/commit), not time.
+- **Two defects the measurement found, both fixed:**
+  - `git log --name-only` runs rename detection by default. In a partial clone that lazily fetches blobs
+    over the network, and everywhere it costs CPU. The walk passes `--no-renames` (a rename is one delete
+    path plus one add path, both searchable).
+  - `chunks` is FTS5 with UNINDEXED `root`/`path`, so `DELETE … WHERE path=?` scans the whole table. Per
+    commit that made a 72k-commit ingest quadratic (it did not finish in 5 minutes). `replaceItem` now
+    keeps the chunk rowids in `item_rows(root, path, rid)` and deletes by rowid. The 3.6k-commit run fell
+    from 5.8 s to 0.85 s.
+
 
 ### G3: Forge resolution, adapters, transport
 - **Host → forge mapping:**
@@ -241,12 +259,9 @@ flowchart TB
   (confirmed by spike 1.1). Otherwise the floor does not apply on that instance.
 - **Gitea/Forgejo/Codeberg:** HTTPS
   `GET /api/v1/repos/{o}/{r}/issues?state=all&type=all&since=<wm>&limit=50&page=<p>`.
-  The sort and the inclusivity of `since` are confirmed by spike 1.3; if no
-  ascending sort exists, the adapter runs in **descending mode**. Each round
-  pages newest-first, applying items idempotently, until it reaches items older
-  than the round's `since` or hits the cap. The cursor rules in G4 are
-  unchanged: `since` moves only when a round completes. A capped round therefore
-  costs repeated pages, but never skips an item.
+  Spike 1.3 found `sort=leastupdate` (ascending by update time) and an inclusive
+  `since`, so Gitea uses the same keyset cursor as the other forges (see "Spike
+  results" above); there is no descending mode.
   - The token is read from the env var named by global `forge.gitea.tokenEnv`
     and is sent **only** when the request host is listed in global
     `git.forge.hosts` as `gitea`. `codeberg.org` and `gitea.com` get a token only
@@ -258,6 +273,13 @@ flowchart TB
   - **Alternative:** `guardedFetch` from `net-guard.ts`. Rejected because it
     blocks private addresses, where self-hosted Gitea normally lives. The host
     allowlist replaces that protection for the token.
+- **Conditional requests, in practice:** a validator belongs to ONE exact `since`. The cursor moves to the
+  last item's `updated_at` after any sync that saw items, so the first request of the next sync is
+  unconditional and yields the validator that the sync after it can send. A 304 therefore first appears on
+  the third steady-state sync. This costs one extra 200 of one item, never a skipped item.
+- **No `rate_limit` preflight:** every list response already carries the rate headers, and a preflight would
+  add a request per sync. An expired observation is simply treated as unknown and the next permitted sync
+  proceeds (the first response refreshes it).
 - **Why CLIs for GitHub/GitLab:** they hold the user's credentials, including
   enterprise hosts and SSO, and send them only to hosts the user authenticated.
   The kb never reads, stores or logs a token.
@@ -271,6 +293,21 @@ flowchart TB
     304 can't be told apart from a real error, that adapter drops conditional
     requests.
   - 1.3: per forge, whether `since`/`updated_after` is inclusive or exclusive.
+
+#### Spike results (2026-10-13, tasks 1.1 / 1.3)
+- **GitHub (`gh api -i`, probed against `cli/cli`):**
+  - 200: exit 0; stdout is the raw HTTP head (`HTTP/2.0 200 OK`, header lines, blank line) then the JSON body. `Etag` and `X-Ratelimit-{Limit,Remaining,Reset,Used}` are present.
+  - 304 with `-H "If-None-Match: <etag>"`: **exit 1**, stdout carries `HTTP/2.0 304 Not Modified` plus headers (rate headers included) and an empty body, stderr is `gh: HTTP 304`. A 304 is told apart from a real failure by the status line on stdout, never by the exit code.
+  - 404: exit 1, stdout `HTTP/2.0 404 Not Found` + JSON body, stderr `gh: Not Found (HTTP 404)`.
+  - The `issues` list `Etag` is stable across repeated identical requests when nothing changed. Conditional requests are **kept** for GitHub.
+  - `since` is **inclusive** (an item with `updated_at == since` is returned). `sort=updated&direction=asc` is honoured.
+- **GitLab (public HTTPS API; `glab` is not installed on the dev machine, so `glab api -i` itself was not run):**
+  - `updated_after` is **inclusive**; `order_by=updated_at&sort=asc` is honoured. The response carries `etag`, `x-next-page`, and `RateLimit-Limit` / `RateLimit-Remaining` / `RateLimit-Reset` (observed on `gitlab.com`), so the rate floor applies there. Self-managed instances may omit them (X4 covers that).
+  - `glab api --include` is assumed to behave like `gh api -i` (status line + headers + body on stdout; a 304 or error exits non-zero). The adapter therefore parses the status line from stdout, exactly like the GitHub adapter, and treats an unparseable head as `forge unavailable`.
+- **Gitea / Forgejo (`codeberg.org`):**
+  - `since` is **inclusive**. `sort=leastupdate` is an **ascending-by-update** order, so the Gitea adapter uses keyset paging like the other forges. **Descending mode is not implemented** (it would be dead code); an instance that rejects `sort=leastupdate` is reported as `forge unavailable: unsupported sort`.
+  - Timestamps carry a zone offset (`2026-09-01T03:04:42+02:00`); the adapter normalises every `updated_at` to UTC `Z` before it is stored or compared.
+  - Rate info is the structured `RateLimit: "baseline";r=<remaining>;t=<window-seconds>` and `RateLimit-Policy: "baseline";q=<limit>;w=<window>` header pair (no `x-ratelimit-*`). `r`/`q` give the floor; `t` is seconds until reset.
 
 ### G4: Sync coordination: SQLite lease with fencing, lazy, budgeted
 - **The lease** is a single-row table `git_lease(owner, nonce, expiresAt)`.
@@ -310,6 +347,8 @@ flowchart TB
   - the minimum interval since `lastSyncAt` must have elapsed:
     `minSyncIntervalSeconds`, or `hintedMinSyncIntervalSeconds` when the hint
     sidecar's mtime is later than `lastSyncAt`;
+    a FAILED attempt also arms the interval (`forge.lastAttemptAt`), so a transient
+    forge error is retried after that interval, never more often;
   - and `now ≥ backoffUntil`;
   - and the stored remaining rate is not below the floor.
 - **Incremental, crash-safe cursor (per endpoint), ascending forges:**
@@ -337,16 +376,8 @@ flowchart TB
     1 s.
   - **Cap:** at most `pagesPerSync` pages per endpoint per sync. A capped sync
     leaves the cursor at the last applied page.
-- **Descending mode (Gitea without an ascending sort):**
-  - The cursor is `{since, roundStartedAt}`.
-  - A round pages newest-first from page 1 with `since` until it reaches the end
-    or the cap. Items moving to the top only push others down (duplicates,
-    never skips).
-  - `since` advances to `roundStartedAt − 60 s` only when a round completes. A
-    capped round restarts from page 1 on the next sync. That costs repeated
-    pages but never skips an item.
-- **Conditional requests:** the ETag is stored per endpoint for page 1 only. A
-  `304` advances `lastSyncAt` and costs nothing.
+- **Conditional requests:** the ETag is stored per endpoint for page 1 only, together
+  with the exact `since` it validates. A `304` advances `lastSyncAt` and costs nothing.
 - **First sync:** `since = now − firstSyncWindowDays`, stopping after
   `firstSyncMaxItems` items.
 - **Back-off:** `429`/`403` with rate exhausted or `retry-after` sets

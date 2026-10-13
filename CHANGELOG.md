@@ -12,6 +12,12 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Search a repository's git history with `kb_search`.** `kb_search({scope: "git"})` and
+  `kb_get({scope: "git", path: "commit/<sha>" | "pr/<n>" | "issue/<n>"})` cover commits,
+  pull/merge requests and issues (GitHub via `gh`, GitLab via `glab`, Gitea/Forgejo/Codeberg
+  over HTTPS). One index per repository is shared by every worktree and session; forge
+  requests are lazy, incremental and budgeted. Git results are marked untrusted. See
+  [`docs/kb-git-scope.md`](docs/kb-git-scope.md).
 - **Plugins declare which bus events the bridge forwards.** A plugin's bridge entry
   emits `dashboard:register-event-forward` with its channels and a delivery mode
   (`live`, `latest` or `stream`); core no longer hardcodes plugin channel names.
