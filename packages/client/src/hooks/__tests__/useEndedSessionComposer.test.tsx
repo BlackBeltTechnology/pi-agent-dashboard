@@ -76,6 +76,22 @@ describe("commands", () => {
 });
 
 describe("picks", () => {
+  it("F15(b): set_model / set_thinking_level for the session clears that field only", () => {
+    const { result } = renderHook(() => useEndedSessionComposer(base({})));
+    act(() => {
+      result.current.setPickField("s1", "model", "a/b");
+      result.current.setPickField("s1", "thinkingLevel", "low");
+    });
+    act(() => result.current.clearPickField("s1", "model"));
+    expect(result.current.getResumePick("s1")).toEqual({ thinkingLevel: "low" });
+    act(() => result.current.clearPickField("s1", "thinkingLevel"));
+    expect(result.current.getResumePick("s1")).toBeUndefined();
+    expect(result.current.pick).toBeUndefined();
+    // Clearing an absent pick is a no-op.
+    act(() => result.current.clearPickField("s1", "model"));
+    expect(result.current.getResumePick("s1")).toBeUndefined();
+  });
+
   it("F16/X5: a pick is per session and per field; unpicked fields stay undefined", () => {
     const { result } = renderHook(() => useEndedSessionComposer(base({ sessions: new Map([["s1", { status: "ended" }], ["s2", { status: "ended" }]]) })));
     act(() => result.current.setPickField("s1", "model", "a/b"));

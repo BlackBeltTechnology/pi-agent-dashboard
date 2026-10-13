@@ -1732,7 +1732,7 @@ export default function App() {
     hasOwnCommands: !!selectedId && sessionCommands.has(selectedId),
     sessions,
   });
-  const { getResumePick, setPickField: setResumePickField } = endedComposer;
+  const { getResumePick, setPickField: setResumePickField, clearPickField: clearResumePickField } = endedComposer;
   // Shared navigation to Settings → Providers — the model-selector empty-state
   // recovery link, consumed both directly (composer) and via ModelConfig (the
   // shell-bound `ui:model-selector` primitive). See change: open-empty-model-selector.
@@ -1752,11 +1752,15 @@ export default function App() {
       setModel: (label) => {
         const slashIdx = label.indexOf("/");
         if (selectedId && slashIdx > 0) {
+          clearResumePickField(selectedId, "model");
           send({ type: "set_model", sessionId: selectedId, provider: label.slice(0, slashIdx), modelId: label.slice(slashIdx + 1) });
         }
       },
       setThinkingLevel: (level) => {
-        if (selectedId) send({ type: "set_thinking_level", sessionId: selectedId, level });
+        if (selectedId) {
+          clearResumePickField(selectedId, "thinkingLevel");
+          send({ type: "set_thinking_level", sessionId: selectedId, level });
+        }
       },
       toggleFavorite: (label, makeFavorite) =>
         send({ type: makeFavorite ? "favorite_model" : "unfavorite_model", label }),
@@ -1766,7 +1770,7 @@ export default function App() {
       openProviderSettings,
       notify: (message) => showToast(message, "info"),
     }),
-    [selectedId, selectedState.model, selectedState.thinkingLevel, selectedSession?.model, selectedSession?.thinkingLevel, modelsMap, favoriteModels, send, showToast, openProviderSettings],
+    [selectedId, selectedState.model, selectedState.thinkingLevel, selectedSession?.model, selectedSession?.thinkingLevel, modelsMap, favoriteModels, send, showToast, openProviderSettings, clearResumePickField],
   );
   // Per-cwd OpenSpec workflow config — drives which action buttons render.
   // See change: redesign-session-card-and-composer (config-driven-workflow).
@@ -2684,6 +2688,7 @@ export default function App() {
               if (slashIdx > 0) {
                 const provider = modelStr.slice(0, slashIdx);
                 const modelId = modelStr.slice(slashIdx + 1);
+                clearResumePickField(selectedId, "model");
                 send({ type: "set_model", sessionId: selectedId, provider, modelId });
               }
             }}
@@ -2692,6 +2697,7 @@ export default function App() {
                 setResumePickField(selectedId, "thinkingLevel", level);
                 return;
               }
+              clearResumePickField(selectedId, "thinkingLevel");
               send({ type: "set_thinking_level", sessionId: selectedId, level });
             }}
             onRefreshModels={() => selectedId && send({ type: "request_models", sessionId: selectedId })}

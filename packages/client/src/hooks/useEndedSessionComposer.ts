@@ -44,6 +44,8 @@ export interface EndedSessionComposer {
   /** Stable lookup for any session id (read by the send/resume actions). */
   getResumePick: (sessionId: string) => ResumePick | undefined;
   setPickField: (sessionId: string, field: keyof ResumePick, value: string) => void;
+  /** Drop ONE field of a session's pick (a `set_model` / `set_thinking_level` for it). */
+  clearPickField: (sessionId: string, field: keyof ResumePick) => void;
 }
 
 export function useEndedSessionComposer({ selectedId, selectedSession, hasOwnCommands, sessions }: Input): EndedSessionComposer {
@@ -86,6 +88,18 @@ export function useEndedSessionComposer({ selectedId, selectedSession, hasOwnCom
     });
   }, []);
 
+  const clearPickField = useCallback((sessionId: string, field: keyof ResumePick) => {
+    setPicks((prev) => {
+      const current = prev.get(sessionId);
+      if (!current || current[field] === undefined) return prev;
+      const next = new Map(prev);
+      const { [field]: _dropped, ...rest } = current;
+      if (Object.keys(rest).length === 0) next.delete(sessionId);
+      else next.set(sessionId, rest);
+      return next;
+    });
+  }, []);
+
   return {
     isEnded,
     folderCommands: folderCwd ? folder : undefined,
@@ -93,5 +107,6 @@ export function useEndedSessionComposer({ selectedId, selectedSession, hasOwnCom
     pick: selectedId ? picks.get(selectedId) : undefined,
     getResumePick,
     setPickField,
+    clearPickField,
   };
 }
