@@ -158,4 +158,4 @@
 ## 8. Verification
 
 - [ ] 8.1 `npm test` green
-- [ ] 8.2 `openspec validate add-acp-session-driver --strict`
+- [x] 8.2 `openspec validate add-acp-session-driver --strict`
