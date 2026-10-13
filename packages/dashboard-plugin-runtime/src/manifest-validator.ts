@@ -3,28 +3,88 @@
  * Validates PluginManifest and PluginClaim objects.
  */
 
-import type {
-  PluginClaim,
-  PluginManifest,
-  PluginRequirements,
-  SettingsNavHint,
-} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import {
   PANE_TAB_PREFIX_RE,
   RESERVED_PANE_TAB_PREFIXES,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
+import type {
+  PluginClaim,
+  PluginManifest,
+  PluginRequirements,
+  ProjectTypeRule,
+  SettingsNavHint,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
+import {
+  MAX_MARKERS_PER_TYPE,
+  MAX_PROJECT_TYPES,
+  markerPatternError,
+  PROJECT_NAME_RE,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/project-markers.js";
 import {
   type SettingsTab,
   SLOT_DEFINITIONS,
   type SlotId,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 
+/** Valid `resource-page-section` `resourceType` values. See change: add-skill-atlas-screen. */
+const RESOURCE_PAGE_TYPES: ReadonlySet<string> = new Set(["skill", "agent", "extension", "prompt", "theme"]);
+
+/**
+ * Validate the optional `projectTypes` marker rules (fatal on any violation).
+ * See change: add-project-scoped-apps.
+ */
+function validateProjectTypes(raw: unknown, pluginId: string): ProjectTypeRule[] {
+  if (!Array.isArray(raw)) {
+    throw new ManifestValidationError(pluginId, "manifest.projectTypes must be an array if provided");
+  }
+  if (raw.length > MAX_PROJECT_TYPES) {
+    throw new ManifestValidationError(
+      pluginId,
+      `manifest.projectTypes has ${raw.length} entries (max ${MAX_PROJECT_TYPES})`,
+    );
+  }
+  return raw.map((entry, i) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new ManifestValidationError(pluginId, `manifest.projectTypes[${i}] must be an object`);
+    }
+    const e = entry as Record<string, unknown>;
+    if (typeof e.type !== "string" || !PROJECT_NAME_RE.test(e.type)) {
+      throw new ManifestValidationError(
+        pluginId,
+        `manifest.projectTypes[${i}].type must match ${PROJECT_NAME_RE.source}`,
+      );
+    }
+    if (!Array.isArray(e.markers) || e.markers.length < 1 || e.markers.length > MAX_MARKERS_PER_TYPE) {
+      throw new ManifestValidationError(
+        pluginId,
+        `manifest.projectTypes[${i}].markers must hold 1 to ${MAX_MARKERS_PER_TYPE} patterns`,
+      );
+    }
+    const markers = e.markers.map((m: unknown, j: number) => {
+      const violation = markerPatternError(m);
+      if (violation !== null) {
+        throw new ManifestValidationError(
+          pluginId,
+          `manifest.projectTypes[${i}].markers[${j}] "${String(m)}" ${violation}`,
+        );
+      }
+      return m as string;
+    });
+    return { type: e.type, markers };
+  });
+}
+
 export class ManifestValidationError extends Error {
+  public readonly pluginId: string;
+  public readonly reason: string;
+
   constructor(
-    public readonly pluginId: string,
-    public readonly reason: string,
+    pluginId: string,
+    reason: string,
   ) {
     super(`[plugin:${pluginId}] Manifest validation failed: ${reason}`);
+    this.pluginId = pluginId;
+    this.reason = reason;
     this.name = "ManifestValidationError";
   }
 }
@@ -276,6 +336,15 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     }
   }
 
+  // resource-page-section: optional `resourceType` must name a resource page.
+  // See change: add-skill-atlas-screen.
+  if (slotId === "resource-page-section" && c.resourceType !== undefined && !RESOURCE_PAGE_TYPES.has(c.resourceType as string)) {
+    throw new ManifestValidationError(
+      pluginId,
+      `claims[${index}] slot "resource-page-section" resourceType must be one of ${[...RESOURCE_PAGE_TYPES].join(", ")}`,
+    );
+  }
+
   // settings-section: `tab` is accepted but inert. Every `settings-section`
   // claim renders on its owning plugin's page (`/settings/plugins/<id>`), so
   // rejecting an unknown VALUE would fail a manifest over a field nothing
@@ -323,6 +392,9 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     ...(typeof c.toolName === "string" ? { toolName: c.toolName } : {}),
     ...(typeof c.customType === "string" ? { customType: c.customType } : {}),
     ...(slotId === "editor-pane-tab" && typeof c.pathPrefix === "string" ? { pathPrefix: c.pathPrefix } : {}),
+    ...(slotId === "resource-page-section" && typeof c.resourceType === "string"
+      ? { resourceType: c.resourceType as NonNullable<PluginClaim["resourceType"]> }
+      : {}),
     ...(slotId === "editor-pane-tab" && typeof c.labelComponent === "string"
       ? { labelComponent: c.labelComponent }
       : {}),
@@ -533,6 +605,20 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     }
   }
 
+  // vaultBindings: optional list of env-style names. See change: add-credential-vault (D4).
+  let vaultBindings: string[] | undefined;
+  if (m.vaultBindings !== undefined) {
+    if (
+      !Array.isArray(m.vaultBindings) ||
+      !m.vaultBindings.every((n) => typeof n === "string" && /^[A-Z_][A-Z0-9_]*$/.test(n))
+    ) {
+      throw new ManifestValidationError(pluginId, "manifest.vaultBindings must be an array of env-style names (^[A-Z_][A-Z0-9_]*$)");
+    }
+    vaultBindings = [...(m.vaultBindings as string[])];
+  }
+
+  const projectTypes = m.projectTypes !== undefined ? validateProjectTypes(m.projectTypes, pluginId) : undefined;
+
   return {
     id: pluginId,
     displayName: m.displayName,
@@ -547,5 +633,8 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     ...(m.fixture === true ? { fixture: true } : {}),
     ...(requires ? { requires } : {}),
     ...(dependsOn ? { dependsOn } : {}),
+    ...(vaultBindings ? { vaultBindings } : {}),
+
+    ...(projectTypes ? { projectTypes } : {}),
   };
 }

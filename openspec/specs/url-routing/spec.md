@@ -348,10 +348,10 @@ Where the frozen background path ceases to be valid while the overlay is open (i
 
 The guarantee this requirement makes is about **dismissal**, not visibility: dismissing a converted surface SHALL return to the route that launched it.
 
-The following surfaces SHALL be route-backed overlays. Every path below is unchanged by this requirement:
+The following surfaces SHALL be route-backed overlays. Every path pattern below is unchanged by this requirement (the folder-settings default page id is not part of the pattern; its rename is governed by `directory-settings-page`, and old page ids redirect):
 
 - `/settings/:page?/:sub?`
-- `/folder/:cwd/settings/:page?` (the page segment is optional; it defaults to `packages`)
+- `/folder/:cwd/settings/:page?` (the page segment is optional; it defaults to `add-ons`; the legacy segment `packages` replace-redirects to `add-ons`)
 - `/folder/:cwd/openspec/:changeName/:artifactId`
 - `/folder/:cwd/view?path=`
 - `/pi-view?url=`

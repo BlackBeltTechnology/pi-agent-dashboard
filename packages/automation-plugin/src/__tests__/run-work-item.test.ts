@@ -19,8 +19,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ActionRegistry } from "../server/action-registry.js";
 import { createEngine } from "../server/engine.js";
-import { automationKey } from "../server/scheduler.js";
 import { listRuns, readChildRuns } from "../server/run-store.js";
+import { automationKey } from "../server/scheduler.js";
 import { WorkSourceRegistry } from "../server/work-source-registry.js";
 import type { DiscoveredAutomation } from "../shared/automation-types.js";
 import type { LeasedHandle } from "../shared/work-source.js";
@@ -39,13 +39,17 @@ afterEach(() => {
  * share. Mirrors the semantics a real keyed source implements.
  */
 class KeyedSource {
+  public available: string[];
+  private readonly supportsTake: boolean;
   leases = new Map<string, string>(); // token → item
   byItem = new Map<string, string>(); // item → token
   private seq = 0;
   constructor(
-    public available: string[] = [],
-    private readonly supportsTake = true,
+    available: string[] = [],
+    supportsTake = true,
   ) {
+    this.available = available;
+    this.supportsTake = supportsTake;
     if (!supportsTake) this.take = undefined;
   }
 

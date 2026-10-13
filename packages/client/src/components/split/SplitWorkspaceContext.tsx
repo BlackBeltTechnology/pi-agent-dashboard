@@ -28,8 +28,8 @@ import {
   useEditorPaneState,
 } from "../../lib/layout/editor-pane-state.js";
 import { type SplitMode, type SplitOrientation, type SplitState, useSplitState } from "../../lib/layout/split-state.js";
-import { saveTreeVisible } from "../../lib/util/tree-visible.js";
 import { type TerminalPaneTabs, useTerminalPaneTabs } from "../../lib/layout/use-terminal-pane-tabs.js";
+import { saveTreeVisible } from "../../lib/util/tree-visible.js";
 import { isPseudoTabViewer } from "../editor-pane/viewer-kinds.js";
 
 export interface PendingScroll {
@@ -139,6 +139,8 @@ interface ProviderProps {
   terminals?: TerminalSession[];
   /** Folder pane auto-surfaces every cwd terminal; session split is opt-in. */
   autoSurfaceTerminals?: boolean;
+  /** Layout mode when nothing is stored for `sessionId` (default `closed`; the folder home uses `split`). */
+  defaultMode?: SplitMode;
   onCreateTerminal?: (cwd: string) => void;
   onKillTerminal?: (terminalId: string) => void;
   onRenameTerminal?: (terminalId: string, title: string) => void;
@@ -164,6 +166,7 @@ export function SplitWorkspaceProvider({
   onClearChanged,
   terminals: cwdTerminals,
   autoSurfaceTerminals = false,
+  defaultMode,
   onCreateTerminal,
   onKillTerminal,
   onRenameTerminal,
@@ -173,7 +176,7 @@ export function SplitWorkspaceProvider({
   onFocusConsumed,
   children,
 }: ProviderProps) {
-  const [split, updateSplit] = useSplitState(sessionId);
+  const [split, updateSplit] = useSplitState(sessionId, defaultMode);
   const [paneState, dispatch] = useEditorPaneState(sessionId);
   const ensurePaneOpen = useCallback(() => updateSplit({ mode: "split" }), [updateSplit]);
   const terminal = useTerminalPaneTabs({

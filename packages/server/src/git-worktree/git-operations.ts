@@ -11,6 +11,7 @@ import { execFile as nodeExecFile } from "node:child_process"; // ban:child_proc
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { collapseCheckRollup } from "@blackbelt-technology/pi-dashboard-shared/platform/check-rollup.js";
 import { type ChildProcess, execFileSync, spawn, spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import {
   checkoutRoots,
@@ -18,7 +19,6 @@ import {
   gitStatusV2,
   hasGitPathSegment,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
-import { collapseCheckRollup } from "@blackbelt-technology/pi-dashboard-shared/platform/check-rollup.js";
 import { samePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import type { GitChangedFile, GitCommitResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -201,8 +201,15 @@ export function getGitStatus(cwd: string): GitStatus | undefined {
  * so the route can surface it to the dialog without string-matching stderr.
  */
 export class GitCommitError extends Error {
+  public code: | "not-a-repo"
+      | "path-escape"
+      | "no-files"
+      | "empty-message"
+      | "stage-failed"
+      | "commit-failed";
+
   constructor(
-    public code:
+    code:
       | "not-a-repo"
       | "path-escape"
       | "no-files"
@@ -212,6 +219,7 @@ export class GitCommitError extends Error {
     message: string,
   ) {
     super(message);
+    this.code = code;
     this.name = "GitCommitError";
   }
 }

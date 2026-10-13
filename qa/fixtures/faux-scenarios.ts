@@ -471,6 +471,58 @@ export const FOOTER_ICON_KEY = "mdiCheckDecagram";
 export const OM_OBSERVATION_ALPHA = "e2e-observation-alpha";
 export const OM_OBSERVATION_BETA = "e2e-observation-beta";
 
+/**
+ * `web-search-results` ledger scenario (change: render-unclaimed-custom-entries,
+ * test-plan #F17/#F18). Emits a real `web-search-results` custom entry (2 queries,
+ * 8 results, one https link) BETWEEN two tool calls of the same burst, so the
+ * web-access `custom-entry-renderer` claim owns the row inside the burst.
+ */
+export const WEB_SEARCH_TAIL = "web search entry sent";
+export const WEB_SEARCH_LINK = "https://example.com/e2e-web-result";
+export const WEB_SEARCH_SUMMARY = "2 queries · 8 results";
+
+/**
+ * `retro-ux-chat-rendering` scenario (change: retro-ux-chat-rendering). One chat
+ * holding every row the L3 matrix probes: generic custom entries (`e2e:kv`,
+ * `e2e:more` with 53 keys, `e2e:plain`), a web-search and a web-fetch entry (each
+ * with one failure), then an assistant message with three mermaid diagrams:
+ * valid, repairable (R4) and unrepairable.
+ */
+export const RETRO_UX_CHAT_TAIL = "retro ux chat states ready";
+export const RETRO_UX_SEARCH_PAYLOAD = {
+  id: "e2e-retro-search",
+  type: "search",
+  timestamp: 1700000000000,
+  queries: [
+    {
+      query: "mermaid flowchart label quoting",
+      provider: "exa",
+      answer: "Wrap node labels that contain parentheses or other special characters in double quotes.",
+      error: null,
+      results: [
+        { title: "Flowcharts syntax | Mermaid", url: "https://mermaid.js.org/syntax/flowchart.html", snippet: "Node labels with special characters must be quoted." },
+        { title: "Entity codes to escape characters", url: "https://mermaid.js.org/syntax/flowchart.html#entity-codes", snippet: "It is possible to escape characters." },
+      ],
+    },
+    { query: "mermaid edge label arrow syntax", provider: "exa", error: "Provider timeout after 20 s", results: [] },
+    { query: "mermaid ER attribute types", provider: "brave", error: null, results: [] },
+  ],
+};
+export const RETRO_UX_FETCH_PAYLOAD = {
+  id: "e2e-retro-fetch",
+  type: "fetch",
+  timestamp: 1700000000000,
+  urlMetadata: [
+    { url: "https://mermaid.js.org/syntax/flowchart.html", title: "Flowcharts syntax | Mermaid", contentLength: 48213, error: null },
+    { url: "https://example.org/missing", title: "", contentLength: 0, error: "HTTP 404" },
+  ],
+};
+export const RETRO_UX_SEARCH_SUMMARY = "3 queries · 2 results · 1 failed";
+export const RETRO_UX_FETCH_SUMMARY = "2 URLs · 1 failed";
+export const RETRO_UX_MERMAID_OK = "graph TD\n  A[Alpha] --> B[Bravo]";
+export const RETRO_UX_MERMAID_REPAIRABLE = "graph TD\n  A -->|(x)| B";
+export const RETRO_UX_MERMAID_BROKEN = "unknownDiagram\n  A --> B";
+
 /** Read `[[fanout:N]]` from any message; default 1, clamped 1..10. */
 export function fanoutWidth(context: FauxContext): number {
   for (const message of context.messages ?? []) {
@@ -898,6 +950,59 @@ export const SCENARIOS: Record<string, Scenario> = {
     content: `<!doctype html>\n<!-- ${"A".repeat(6000)} -->\n<h1>big out of cwd</h1>\n`,
   }),
   "tool-bash": toolScenario("bash", { command: "ls -la" }),
+  // Credential-vault e2e (change: add-credential-vault). Two-step so the agent
+  // terminates after the tool result.
+  //    (`VAULT_E2E_API_KEY`, not `GEMINI_API_KEY`: the harness image already sets
+  //    `GEMINI_API_KEY` in every process env, which would be a local-override.)
+  //  - vault-printenv: prints the delivered key; the transcript, the model's view
+  //    and the dashboard DOM must show `[REDACTED:VAULT_E2E_API_KEY]` only (F3).
+  //  - vault-env-length: a child process reads the live env and prints only the
+  //    value's length (`undefined` before a grant, `10` after) (X13).
+  //  - vault-set-origin / vault-unset-origin: point the sample repo's `origin` at a
+  //    granted repository for the confirmation flow (F2); the bridge reads origin at
+  //    session start, so this runs in a throwaway session BEFORE the one under test.
+  "vault-printenv": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "printenv VAULT_E2E_API_KEY" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("printenv done")]),
+    ],
+    expect: { toolName: "bash", text: "printenv done" },
+  },
+  "vault-env-length": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("bash", { command: "echo \"LEN=$(node -e 'console.log(String(process.env.VAULT_E2E_API_KEY?.length))')\"" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("env length done")]),
+    ],
+    expect: { toolName: "bash", text: "env length done" },
+  },
+  "vault-set-origin": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("bash", {
+            command:
+              "git -C /fixtures/sample-git remote remove origin 2>/dev/null; git -C /fixtures/sample-git remote add origin git@github.com:acme/vault-e2e.git && echo origin-set",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("origin set")]),
+    ],
+    expect: { toolName: "bash", text: "origin set" },
+  },
+  "vault-unset-origin": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("bash", { command: "git -C /fixtures/sample-git remote remove origin 2>/dev/null; echo origin-unset" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("origin unset")]),
+    ],
+    expect: { toolName: "bash", text: "origin unset" },
+  },
   // A bash call that backgrounds a long-lived child with its stdio attached:
   // pi's bash tool keeps running until the pipe closes, so the wrapper stays a
   // live child of pi for the whole call and the process scan can capture it
@@ -1650,6 +1755,39 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { toolName: "canvas" },
   },
 
+  // Server declare with a >=80-char title: proves the floating chip tray stays
+  // inside a 360px viewport and truncates the label.
+  // See change: fix-canvas-chip-tray-overlay (test-plan #E2).
+  "canvas-declare-server-long": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("canvas", {
+            target: { kind: "server", port: 5173 },
+            title: "Identity topológia — Keycloak realm administration console for the staging cluster",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("long server declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
+  // Server declare followed by a slow-streaming final message, so the composer
+  // stack's StatusBar row is mounted while the chip is shown (then unmounts when
+  // the turn ends). See change: fix-canvas-chip-tray-overlay (test-plan #F2).
+  "canvas-declare-server-slow": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("canvas", { target: { kind: "server", port: 5173 }, title: "dev server" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(SLOW_TEXT)]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
   // A `canvas({ target:{ kind:"server", port } })` declare for a port nothing
   // listens on. On chip tap the loopback probe is refused → "server not
   // running" immediately, no iframe (S30). Two-step terminate.
@@ -1918,6 +2056,103 @@ export const SCENARIOS: Record<string, Scenario> = {
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage([fauxText(OM_ENTRY_TAIL)]),
+    ],
+    expect: { toolName: "e2e_custom_entry" },
+  },
+
+  /**
+   * `web-search-results` entry between two tool calls of one burst (change:
+   * render-unclaimed-custom-entries). The payload mirrors pi-web-access's
+   * `search` shape: 2 queries holding 5 + 3 results.
+   */
+  "web-search-entry": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_custom_entry", {
+            customType: "e2e:before-search",
+            data: JSON.stringify({ step: "before" }),
+          }),
+          fauxToolCall("e2e_custom_entry", {
+            customType: "web-search-results",
+            data: JSON.stringify({
+              id: "e2e-web-search-1",
+              type: "search",
+              timestamp: 1700000000000,
+              queries: [
+                {
+                  query: "e2e first query",
+                  answer: "e2e synthesized answer",
+                  provider: "exa",
+                  error: null,
+                  results: [
+                    { title: "E2E result one", url: WEB_SEARCH_LINK, snippet: "first snippet" },
+                    ...[2, 3, 4, 5].map((n) => ({ title: `E2E result ${n}`, url: `javascript:void(${n})`, snippet: "" })),
+                  ],
+                },
+                {
+                  query: "e2e second query",
+                  provider: "exa",
+                  error: null,
+                  results: [6, 7, 8].map((n) => ({ title: `E2E result ${n}`, url: `https://example.org/${n}`, snippet: "" })),
+                },
+              ],
+            }),
+          }),
+          fauxToolCall("e2e_custom_entry", {
+            customType: "e2e:after-search",
+            data: JSON.stringify({ step: "after" }),
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(WEB_SEARCH_TAIL)]),
+    ],
+    expect: { toolName: "e2e_custom_entry" },
+  },
+
+  /**
+   * Every row the retro-ux chat-rendering L3 matrix probes, in one session
+   * (change: retro-ux-chat-rendering). Payload states of the web-search rows
+   * are reached by stubbing `/api/sessions/:id/entry/:entryId`, not here.
+   */
+  "retro-ux-chat-rendering": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_custom_entry", {
+            customType: "e2e:kv",
+            data: JSON.stringify({ branch: "main", dirty: false, openSubagents: 2, lastTool: { name: "bash", ok: true }, notes: null }),
+          }),
+          fauxToolCall("e2e_custom_entry", {
+            customType: "e2e:more",
+            data: JSON.stringify(Object.fromEntries(Array.from({ length: 53 }, (_, i) => [`key${String(i).padStart(2, "0")}`, i]))),
+          }),
+          fauxToolCall("e2e_custom_entry", {
+            customType: "e2e:plain",
+            data: JSON.stringify("quota exceeded: 4 of 4 concurrent subagents in use"),
+          }),
+          fauxToolCall("e2e_custom_entry", {
+            customType: "web-search-results",
+            data: JSON.stringify(RETRO_UX_SEARCH_PAYLOAD),
+          }),
+          fauxToolCall("e2e_custom_entry", {
+            customType: "web-search-results",
+            data: JSON.stringify(RETRO_UX_FETCH_PAYLOAD),
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      // A lone custom row after the burst: the standalone (non-absorbed) placement.
+      fauxAssistantMessage(
+        [fauxToolCall("e2e_custom_entry", { customType: "e2e:solo", data: JSON.stringify({ step: "standalone" }) })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([
+        fauxText(
+          `${RETRO_UX_CHAT_TAIL}\n\n\`\`\`mermaid\n${RETRO_UX_MERMAID_OK}\n\`\`\`\n\n\`\`\`mermaid\n${RETRO_UX_MERMAID_REPAIRABLE}\n\`\`\`\n\n\`\`\`mermaid\n${RETRO_UX_MERMAID_BROKEN}\n\`\`\``,
+        ),
+      ]),
     ],
     expect: { toolName: "e2e_custom_entry" },
   },

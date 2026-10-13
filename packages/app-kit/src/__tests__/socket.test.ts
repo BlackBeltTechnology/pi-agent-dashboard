@@ -6,9 +6,12 @@ import { connectWithReconnect, type MinimalSocket, type ReconnectOptions, type R
 // (change: extract-standalone-app-kit).
 
 class FakeSocket implements MinimalSocket {
+  readonly url: string;
   sent: string[] = [];
   closed = false;
-  constructor(readonly url: string) {}
+  constructor(url: string) {
+    this.url = url;
+  }
   onopen: ((ev?: unknown) => void) | null = null;
   onmessage: ((ev: { data: unknown }) => void) | null = null;
   onclose: ((ev?: unknown) => void) | null = null;

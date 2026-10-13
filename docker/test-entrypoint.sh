@@ -237,6 +237,24 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
           },
         },
       };
+      // ACP agents for the ACP-session specs (tests/e2e/acp-*.spec.ts): the
+      // scripted fake agent from the acp-bridge tests, one entry per behaviour.
+      // `qmt` is non-durable (in-process host A, the default), `qmt-durable`
+      // runs under the rpc-keeper (host B). Read at config load, so seeded
+      // BEFORE boot. See change: add-acp-session-driver.
+      const FAKE = "/app/packages/server/src/acp-bridge/__tests__/fake-acp-agent.mjs";
+      const fake = (id, name, knobs, extra) => ({
+        id, name, command: "node",
+        args: [FAKE, "--protocol", "1", "--knobs", JSON.stringify(knobs || {})],
+        ...(extra || {}),
+      });
+      cfg.acpAgents = [
+        fake("qmt", "QueryMT", {}),
+        fake("qmt-slow", "QueryMT Slow", { delayMs: 1200 }),
+        fake("qmt-perm", "QueryMT Perm", { permission: true }),
+        fake("qmt-durable", "QueryMT Durable", { delayMs: 400 }, { durable: true }),
+        fake("claude", "Claude Agent", {}),
+      ];
       // Browser-relay e2e faucet (change: add-browser-relay, task 7.61): the
       // plugin is defaultEnabled:false, so the Fake instance only appears when
       // the config enables it BEFORE boot (the server entry seeds the fake at
@@ -893,7 +911,7 @@ PIDFILE="${HOME:-/home/pi}/.pi/dashboard/server.pid"
 echo "[test-entrypoint] launching dashboard daemon via base entrypoint..."
 # The base launcher waits up to 30s for readiness then exits non-zero, but the
 # server is spawned DETACHED (unref'd) and SURVIVES that timeout — cold-start
-# via the jiti TS loader can exceed 30s on a loaded host. Tolerate a non-zero
+# on a loaded host can exceed 30s. Tolerate a non-zero
 # return; our own health poll below is the authority on readiness.
 # NO_SUPERVISE: the base entrypoint now supervises the daemon itself, which
 # would block before this script's smoke checks ever ran. We do our own
@@ -908,7 +926,7 @@ smoke_fail() {
   exit 1
 }
 
-# Confirm HTTP /api/health. Poll generously — a slow jiti cold-start may still
+# Confirm HTTP /api/health. Poll generously — a slow cold start may still
 # be initializing after the base launcher's 30s window elapsed.
 healthy=0
 for _ in $(seq 1 90); do

@@ -123,6 +123,7 @@ const immediate = (reason: string): Hold => ({
 });
 
 export class GrantCoordinator {
+  private readonly deps: GrantCoordinatorDeps;
   readonly registry: PendingGrantRegistry;
   /** promptId -> held requests in arrival order; the first one raised the entry. */
   private readonly waiters = new Map<string, Array<(r: Resolution) => void>>();
@@ -133,7 +134,8 @@ export class GrantCoordinator {
   private readonly now: () => number;
   private readonly schedule: NonNullable<GrantCoordinatorDeps["schedule"]>;
 
-  constructor(private readonly deps: GrantCoordinatorDeps) {
+  constructor(deps: GrantCoordinatorDeps) {
+    this.deps = deps;
     this.now = deps.now ?? Date.now;
     this.schedule = deps.schedule ?? defaultSchedule;
     this.registry = new PendingGrantRegistry({

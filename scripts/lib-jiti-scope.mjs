@@ -8,14 +8,26 @@
  * `data:text/javascript;base64,…` specifier, which a Bun single-file executable
  * resolves as a package name and rejects with `NameTooLong` (issue #408).
  *
- * Scope is a DERIVED RULE — "first-party source jiti evaluates at runtime" —
- * not an enumerated workspace list, so a new extension/plugin/workspace is
- * covered with no edit here. Criterion is *evaluated by jiti*, NOT *executed
- * from source*: raw-`.ts` `bin` entries carry `#!/usr/bin/env node` and run
- * under Node's native type-stripping as ESM, so no CJS wrapper exists and the
- * fault class cannot arise — they are out of scope unless a seed reaches them.
+ * Scope is a DERIVED RULE — "first-party source jiti evaluates at runtime, PLUS
+ * a deliberately conservative superset" — not an enumerated workspace list, so a
+ * new extension/plugin/workspace is covered with no edit here. Criterion is
+ * *evaluated by jiti* (plus the named superset), NOT *executed from source*:
+ * raw-`.ts` `bin` entries carry `#!/usr/bin/env node` and run under Node's
+ * native type-stripping as ESM, so no CJS wrapper exists and the fault class
+ * cannot arise — they are out of scope unless a seed reaches them.
  *
- * See change: fix-jiti-cjs-transpile-safety.
+ * The conservative superset: the dashboard server's own entry graph (seed 2) and
+ * plugin `server` entries (seed 3) are now evaluated by the Node-native
+ * strip-only loader, not by jiti — only pi hosts (`pi.extensions` seed 1, plugin
+ * `bridge` entries) still run under jiti. Both stay in scope on purpose: the
+ * erasure scenarios rely on server files such as
+ * `packages/server/src/changelog/changelog-fs.ts`, and narrowing the scope here
+ * would make them pass vacuously. Narrowing is a separate decision.
+ *
+ * jiti stays a root dependency for exactly this reason: `transformToCjs` below
+ * drives jiti's real transform to prove the property.
+ *
+ * See change: fix-jiti-cjs-transpile-safety; strip-only-native-ts-loader (D6).
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -38,13 +50,18 @@ const SOURCE_EXT = [".ts", ".tsx", ".mts", ".cts"];
  */
 const EXCLUDED_WORKSPACES = new Set(["client", "client-utils", "shell"]);
 
-/** True when some `bin` wrapper of this workspace boots its `main` through jiti. */
-function bootstrapsJiti(dir, manifest) {
+/**
+ * True when some `bin` wrapper of this workspace re-execs its `main` through a
+ * TypeScript loader: it names the native register module or passes `--import`.
+ * (The server's wrapper no longer names jiti — it uses the native loader only.)
+ */
+const LOADER_BOOTSTRAP_RE = /native-ts-register|--import/;
+function bootstrapsTsLoader(dir, manifest) {
   const bins =
     typeof manifest.bin === "string" ? [manifest.bin] : Object.values(manifest.bin ?? {});
   return bins.some((b) => {
     try {
-      return readFileSync(path.resolve(dir, b), "utf8").includes("jiti");
+      return LOADER_BOOTSTRAP_RE.test(readFileSync(path.resolve(dir, b), "utf8"));
     } catch {
       return false;
     }
@@ -106,7 +123,8 @@ export function pluginManifestOf(dir, manifest) {
 }
 
 /**
- * Seed set: entry points jiti evaluates. Three seeds, each derived from
+ * Seed set: entry points jiti evaluates (seeds 1, 3-bridge) plus the
+ * conservative superset (seeds 2, 3-server). Three seeds, each derived from
  * manifests — see the capability spec for why one seed is not enough.
  *
  * `tagged` relabels the same entries by KIND, for gates scoped to a subset:
@@ -129,16 +147,16 @@ export function discoverSeeds(root = repoRoot) {
       }
     }
     // Seed 2 — a workspace whose `main` is a TypeScript file AND whose `bin`
-    // wrapper bootstraps jiti. `packages/server` declares `main: src/cli.ts`
-    // and its `bin/pi-dashboard.mjs` re-execs Node with `--import <loader>
-    // cli.ts` — the native loader by default, jiti on the
-    // PI_DASHBOARD_TS_LOADER=jiti fallback. Its whole `src/**` stays in jiti
-    // scope because that fallback can evaluate it (the wrapper still names
-    // jiti, which is what `bootstrapsJiti` keys on).
+    // wrapper bootstraps a TS loader. `packages/server` declares
+    // `main: src/cli.ts` and its `bin/pi-dashboard.mjs` re-execs Node with
+    // `--import <native-ts-register URL> cli.ts`. jiti no longer evaluates it;
+    // its whole `src/**` stays in scope as the deliberately conservative
+    // superset (see the header), and `bootstrapsTsLoader` keys on the wrapper
+    // naming the native register module / `--import`, not on jiti.
     // Keying on `bin` alone cannot find the entry (`bin` is the `.mjs`
     // wrapper); keying on `main` alone is too wide — it also matches plain
     // libraries like `packages/bus-client`, which no host re-execs.
-    if (isTs(manifest.main) && bootstrapsJiti(dir, manifest)) {
+    if (isTs(manifest.main) && bootstrapsTsLoader(dir, manifest)) {
       seeds.mainTs.push(rel(manifest.main));
       seeds.tagged.push({ kind: "serverMain", entry: rel(manifest.main) });
     }
@@ -239,7 +257,7 @@ export function filesUnder(absDir, root) {
 /**
  * The gate's file set: the transitive first-party import graph of every seed,
  * plus the whole `src/**` of any workspace seeded through `main` (that entire
- * tree is jiti-evaluated by the re-exec, not only what the entry imports).
+ * tree is loaded by the re-exec, not only what the entry imports).
  */
 export function discoverJitiLoadedFiles(root = repoRoot) {
   const { byName } = workspaceIndex(root);
@@ -254,7 +272,8 @@ export function discoverJitiLoadedFiles(root = repoRoot) {
   };
 
   for (const s of [...seeds.piExtensions, ...seeds.mainTs, ...seeds.pluginEntries]) push(s);
-  // A `main: *.ts` workspace is re-exec'd under jiti wholesale.
+  // A `main: *.ts` workspace is re-exec'd under a TS loader wholesale (its whole
+  // `src/**` is in scope — the conservative superset).
   for (const entry of seeds.mainTs) {
     const srcDir = path.join(root, path.dirname(entry));
     for (const f of filesUnder(srcDir, root)) push(f);

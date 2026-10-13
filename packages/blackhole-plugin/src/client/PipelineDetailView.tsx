@@ -18,9 +18,10 @@
  */
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import React, { useEffect, useState } from "react";
+import type React from "react";
+import { useEffect, useState } from "react";
 import { closePipelineDetail } from "./detail-navigation.js";
-import { getSessionPipeline, WORKER_IDS, type SessionPipelineResponse } from "./pipeline-api.js";
+import { getSessionPipeline, type SessionPipelineResponse, WORKER_IDS } from "./pipeline-api.js";
 
 export interface PipelineDetailViewProps {
   session: DashboardSession;

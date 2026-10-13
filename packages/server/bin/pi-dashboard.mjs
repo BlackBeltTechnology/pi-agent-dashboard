@@ -1,48 +1,38 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync } from "node:fs";
 /**
  * pi-dashboard CLI entry point.
  *
  * The actual CLI is `../src/cli.ts`. This wrapper exists because a
  * `#!/usr/bin/env` shebang cannot interpolate a dynamic `--import`
- * loader path. The wrapper selects the TypeScript loader at runtime and
- * re-execs Node with `--import <loader-url> cli.ts <args>`:
- *   - default: the Node-native loader shipped by
- *     `@blackbelt-technology/pi-dashboard-shared` (`platform/native-ts-register.mjs`),
- *     located by package specifier from this file;
- *   - `PI_DASHBOARD_TS_LOADER=jiti`: jiti, resolved from `process.argv[1]`.
- * Selection uses the shared `.mjs` helper `platform/ts-loader-select.mjs`
- * (plain JS — runs before any TS loader). A missing jiti is fatal only when
- * jiti is selected. See change: fix-appimage-cold-boot-latency (D1, D4, D8).
+ * loader path. It re-execs Node with `--import <loader-url> cli.ts <args>`,
+ * where the loader is the Node-native TypeScript loader shipped by
+ * `@blackbelt-technology/pi-dashboard-shared` (`platform/native-ts-register.mjs`),
+ * located by package specifier from this file via the shared `.mjs` helper
+ * `platform/ts-loader-select.mjs` (plain JS — runs before any TS loader).
  *
- * Since `@blackbelt-technology/pi-dashboard-server` declares `jiti` as
- * a direct runtime dependency, `createRequire(argv[1]).resolve("jiti/...")`
- * SHALL succeed in any well-formed npm install layout (flat, scoped,
- * hoisted, pnpm). A miss therefore indicates a corrupted install, not
- * a missing prerequisite. The error message reflects that.
+ * That loader is the only one. `PI_DASHBOARD_TS_LOADER` is ignored here (no
+ * warning, no env rewrite — only the server process logs the deprecation).
+ * A miss resolving the register module means a corrupted install, and the
+ * error says so. There is no tsx or jiti fallback.
  *
- * No tsx fallback. The jiti lookup mirrors the resolution shape in
- * `packages/shared/src/platform/binary-lookup.ts::ToolResolver.resolveJiti`
- * (cannot import the .ts module before a TS loader is registered, so
- * the lookup is inlined).
- *
- * See change: replace-tsx-with-jiti, enable-standalone-npm-install.
+ * See change: fix-appimage-cold-boot-latency (D1, D4, D8);
+ * strip-only-native-ts-loader (D5).
  */
-import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cliPath = resolve(here, "..", "src", "cli.ts");
 
-// Metadata short-circuit: --version / -v / version SHALL NOT require jiti.
+// Metadata short-circuit: --version / -v / version SHALL NOT require a TS loader.
 // See change: fix-electron-cold-launch-probe-cascade (Bug B).
 //
 // Why: every metadata-only consumer (npmGlobal probe, doctor, the user
 // asking "what's installed") was previously blocked when the wrapper
-// couldn't resolve jiti — even when the install was perfectly capable
+// couldn't resolve the loader — even when the install was perfectly capable
 // of answering the query from its sibling package.json. Reading the
 // version is a pure metadata operation; gating it on a TS loader was
 // over-aggressive.
@@ -59,84 +49,31 @@ if (metaArg === "--version" || metaArg === "-v" || metaArg === "version") {
       process.exit(0);
     }
   } catch {
-    /* fall through to jiti-resolve path so the legacy error still fires */
+    /* fall through to the loader-resolve path so the corrupted-install error still fires */
   }
 }
 
-// Mirrors packages/shared/src/platform/binary-lookup.ts JITI_PACKAGES.
-// Kept in sync by repo-lint: packages/shared/src/__tests__/jiti-packages-parity.test.ts.
-// See change: enable-standalone-npm-install task 7.3.
-const JITI_PACKAGES = ["jiti", "@mariozechner/jiti"];
-
-/** Resolve pi's jiti register hook as a file:// URL. Returns null on miss. */
-function resolveJitiUrl() {
-  const anchor = process.argv[1];
-  if (!anchor) return null;
-  let resolved;
-  try {
-    resolved = realpathSync(anchor);
-  } catch {
-    return null;
-  }
-  const req = createRequire(resolved);
-  for (const pkg of JITI_PACKAGES) {
-    try {
-      const pkgJson = req.resolve(`${pkg}/package.json`);
-      const registerPath = join(dirname(pkgJson), "lib", "jiti-register.mjs");
-      return pathToFileURL(registerPath).href;
-    } catch {
-      /* try next */
-    }
-  }
-  return null;
-}
-
-// Loader selection via the shared helper. Dynamic import so a corrupted
-// install (helper unresolvable) still reaches a readable error, and the jiti
-// opt-in still works without it.
-let tsLoaderSelect = null;
+// Resolve the native register module via the shared helper. Dynamic import so
+// a corrupted install (helper unresolvable) still reaches a readable error.
+let loader = null;
 try {
-  tsLoaderSelect = await import("@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs");
+  const tsLoaderSelect = await import("@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs");
+  loader = tsLoaderSelect.resolveNativeTsLoader({ anchor: fileURLToPath(import.meta.url) });
 } catch {
   /* handled below */
 }
-const loaderKind = tsLoaderSelect
-  ? tsLoaderSelect.selectTsLoader(process.env)
-  : process.env.PI_DASHBOARD_TS_LOADER === "jiti" ? "jiti" : null;
-if (!loaderKind) {
+if (!loader) {
   process.stderr.write(
     "pi-dashboard: cannot find the native TypeScript loader (@blackbelt-technology/pi-dashboard-shared).\n" +
       "Your install may be corrupted. Try:\n" +
       "  npm install -g @blackbelt-technology/pi-agent-dashboard\n" +
-      "Workaround: set PI_DASHBOARD_TS_LOADER=jiti to boot with the jiti loader.\n",
-  );
-  process.exit(1);
-}
-
-const loader = loaderKind === "jiti"
-  ? resolveJitiUrl()
-  : tsLoaderSelect.resolveNativeTsLoader({ anchor: fileURLToPath(import.meta.url) });
-if (!loader) {
-  // jiti is a direct dep of @blackbelt-technology/pi-dashboard-server, so a
-  // miss here means the install is corrupted (deleted node_modules entry,
-  // partial extract, etc.). The legacy "install pi globally" hint is kept
-  // as a workaround for users who can't reinstall the dashboard cleanly.
-  process.stderr.write(
-    "pi-dashboard: cannot find jiti.\n" +
-      "This is unexpected: jiti ships as a direct dependency of pi-dashboard-server.\n" +
-      "Your install may be corrupted. Try:\n" +
-      "  npm install -g @blackbelt-technology/pi-agent-dashboard\n" +
-      "Workaround: install pi globally (provides a fallback jiti):\n" +
-      "  npm install -g @earendil-works/pi-coding-agent\n" +
       "Please report at https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues\n",
   );
   process.exit(1);
 }
 
 // Mirrors shouldUrlWrapEntry() in packages/shared/src/platform/node-spawn.ts:
-// the entry is passed RAW for both loaders, on every platform. jiti
-// misnormalises file:/// URL entries on Windows (verified live on Node 22.18.0
-// + jiti 2.7.0), and with any `--import` loader Node itself runs the main
+// the entry is passed RAW on every platform. With any `--import` loader Node itself runs the main
 // entry through `path.resolve()` first, so a `file:///D:/…` entry becomes a
 // cwd-relative path (native loader, windows-latest CI run 37347903583).
 // Node's drive-letter heuristic handles raw `C:\…` entries directly.
@@ -146,7 +83,7 @@ const entry = cliPath;
 // Heap ceiling for the standalone launch path, from `serverHeap.maxOldSpaceMb`.
 //
 // Read by plain `JSON.parse` rather than by importing the shared config module:
-// this wrapper runs BEFORE jiti is registered, so it cannot load TypeScript at
+// this wrapper runs BEFORE the loader is registered, so it cannot load TypeScript at
 // all. Tolerated duplication of one integer (design D8) — the alternative is a
 // bootstrap cycle. `packages/shared/src/heap-limits.ts` holds the same literal
 // and a test asserts the two agree.
@@ -179,7 +116,7 @@ const ourPreviousFlag = process.env[HEAP_FLAG_MARKER_ENV];
 // Quote-aware option spans `[start, end)`: whitespace separates options only
 // OUTSIDE double quotes; inside, a backslash escapes the next char. Mirrors
 // `optionSpans` in packages/shared/src/heap-flags.ts (this file runs before
-// jiti and cannot import it). See change: guard-server-heap-and-store-coupling
+// the loader and cannot import it). See change: guard-server-heap-and-store-coupling
 // (CodeRabbit PR #780).
 function optionSpans(options) {
   const spans = [];
@@ -219,7 +156,7 @@ const nodeOptionTokens = optionSpans(existingNodeOptions).map(([a, b]) => existi
 // flag last-wins, so a hyphen-only detector would append our value after an
 // operator's underscore pin and silently defeat it. Kept in lockstep with
 // `MAX_OLD_SPACE_FLAG_PATTERN` in packages/shared/src/heap-flags.ts (asserted
-// by a test — this file runs before jiti and cannot import that module).
+// by a test — this file runs before the loader and cannot import that module).
 const MAX_OLD_SPACE_RE = /^--max[-_]old[-_]space[-_]size/;
 const operatorPinned = nodeOptionTokens.some(
   (t) => MAX_OLD_SPACE_RE.test(t) && t !== ourPreviousFlag,

@@ -121,7 +121,7 @@ export function OAuthFlowView({ flow, onSendInput, onCancel }: UiOAuthFlowViewPr
       {/* The link renders in EVERY pending state whenever the server has
           an authUrl — pop-up blockers and remote browsers need it. */}
       {status?.authUrl && (
-        <div className="text-[11px] text-[var(--text-muted)] break-all">
+        <div className="text-xs text-[var(--text-secondary)] break-all">
           {i18nT("providers.authUrlFallback", undefined, "If the browser did not open, use this link:")}{" "}
           <a href={status.authUrl} target="_blank" rel="noopener" className="underline break-all">{status.authUrl}</a>
         </div>

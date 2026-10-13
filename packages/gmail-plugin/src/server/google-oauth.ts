@@ -26,8 +26,11 @@ import type { ClientRecord } from "./accounts.js";
 
 /** Fixed, input-free error codes a flow can fail with (the wizard maps them to steps). */
 export class GmailFlowError extends Error {
-  constructor(readonly code: string) {
+  readonly code: string;
+
+  constructor(code: string) {
     super(code);
+    this.code = code;
     this.name = "GmailFlowError";
   }
 }

@@ -7,11 +7,14 @@
  * login flow — the exact self-lockout D21 prevents.
  */
 export class IdentityRegistrationTracker {
+  private readonly onIgnored: (pluginId: string) => void;
   private readonly byPlugin = new Map<string, Array<() => void>>();
   private isFrozen = false;
 
   /** @param onIgnored called when a plugin invokes its handle after freeze(). */
-  constructor(private readonly onIgnored: (pluginId: string) => void = () => {}) {}
+  constructor(onIgnored: (pluginId: string) => void = () => {}) {
+    this.onIgnored = onIgnored;
+  }
 
   /** True once enforcement has been decided; registrations are then immutable until restart. */
   get frozen(): boolean {

@@ -13,10 +13,11 @@ import {
   CHAT_COMPOSER_BOUND,
 } from "../../lib/layout/chat-pane-row-class.js";
 import { extractRecentUrls } from "../../lib/preview/extract-urls.js";
-import { rolePickNoticeText, useRolePick } from "../../lib/roles/useRolePick.js";
+import { useRolePick } from "../../lib/roles/useRolePick.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { ImagePreviewStrip } from "../preview/ImagePreviewStrip.js";
 import { ModelSelector } from "../settings/ModelSelector.js";
+import { RolePickNoticeCallout } from "../settings/RolePickNotice.js";
 import { ThinkingLevelSelector } from "../settings/ThinkingLevelSelector.js";
 
 /** Built-in pi commands available from the dashboard */
@@ -171,6 +172,21 @@ interface Props {
    * See change: redesign-prompt-input.
    */
   contextUsage?: { tokens: number | null; contextWindow?: number };
+
+  // --- Sessionless / spawn-mode extras (folder home, ended sessions) ---
+  // See change: redesign-directory-home-split.
+  /** Where `commands` came from; `scan` shows a "from disk" hint in the `/` popover. */
+  commandsOrigin?: "live" | "scan" | "none";
+  /** Replaces the send control's label/title (e.g. "Start session"). */
+  sendLabel?: string;
+  /** Badge on the model chip (e.g. `default`). */
+  modelTag?: string;
+  /** Badge on the thinking chip (e.g. `default`). */
+  thinkingTag?: string;
+  /** Chip text when the model / thinking level is unset (e.g. `pi default`). */
+  unsetLabel?: string;
+  /** Extra chips rendered in the settings row after the thinking chip (e.g. run location). */
+  toolbarExtra?: ReactNode;
 }
 
 const sourceIcons: Record<string, ReactNode> = {
@@ -240,7 +256,7 @@ export function shouldWalkFileQuery(query: string): boolean {
 
 type StopState = "idle" | "aborting" | "killing";
 
-export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, invalid, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, onOpenProviderSettings, modelRefreshErrors, contextUsage }: Props) {
+export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, invalid, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, onOpenProviderSettings, modelRefreshErrors, contextUsage, commandsOrigin, sendLabel, modelTag, thinkingTag, unsetLabel, toolbarExtra }: Props) {
   const { t } = useI18n();
   // One-shot `@role` pick for the model chip (resolves once; never follows later
   // role changes). See change: add-role-aware-model-refs.
@@ -826,8 +842,8 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
         onClick={() => handleSend(deliveryMode === "queue" ? "followUp" : "steer")}
         disabled={disabled || pendingIdle || !text.trim()}
         className="focus-ring flex items-center justify-center min-w-[44px] min-h-[44px] bg-blue-600 rounded-lg hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed self-end"
-        title={t("command.send", undefined, "Send")}
-        aria-label={t("command.send", undefined, "Send")}
+        title={sendLabel ?? t("command.send", undefined, "Send")}
+        aria-label={sendLabel ?? t("command.send", undefined, "Send")}
         data-testid="send-button"
       >
         <Icon path={mdiSendVariant} size={0.8} />
@@ -922,6 +938,8 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   const thinkingChip = onSelectThinkingLevel ? (
     <ThinkingLevelSelector
       current={thinkingLevel}
+      placeholder={unsetLabel}
+      tag={thinkingTag}
       onSelect={onSelectThinkingLevel}
       supportedLevels={models?.find((m) => `${m.provider}/${m.id}` === model)?.supportedThinkingLevels}
     />
@@ -992,6 +1010,14 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
               </React.Fragment>
             );
           })}
+          {commandsOrigin === "scan" && (
+            <div
+              data-testid="command-dropdown-origin"
+              className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] border-t border-[var(--border-subtle)] bg-[var(--bg-code)]"
+            >
+              {t("command.fromDisk", undefined, "from disk — extension commands appear once a session is running")}
+            </div>
+          )}
         </div>
         </LayerPortal>
       )}
@@ -1182,6 +1208,8 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
               current={model}
               models={models}
               allowRoles
+              placeholder={unsetLabel}
+              tag={modelTag}
               viaRole={rolePick.viaRole}
               onSelect={rolePick.onSelect}
               onRefresh={onRefreshModels}
@@ -1192,19 +1220,11 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             />
           )}
 
-          {rolePick.notice && (
-            <span
-              role="status"
-              data-testid="role-pick-notice"
-              data-kind={rolePick.notice.kind}
-              className="text-[11px] text-[var(--severity-warning-fg)]"
-            >
-              {rolePickNoticeText(rolePick.notice, t)}
-            </span>
-          )}
+          {rolePick.notice && <RolePickNoticeCallout notice={rolePick.notice} testId="role-pick-notice" />}
 
           {/* Thinking + delivery + terminal — desktop inline; folded into ⋯ on mobile. */}
           <span className="hidden @[44rem]:inline-flex">{thinkingChip}</span>
+          {toolbarExtra}
           <span className="hidden @[44rem]:inline-flex">{deliveryControl}</span>
 
           <span className="flex-1" />

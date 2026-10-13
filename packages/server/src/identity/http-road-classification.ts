@@ -43,6 +43,8 @@ type Family =
 const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   // workspace: folders, directory pickers, pinned dirs
   browse: "workspace",
+  // folder project identity (`GET /api/folder/project`); change: add-project-scoped-apps
+  folder: "workspace",
   "pinned-dirs": "workspace",
   // openspec
   openspec: "openspec",
@@ -87,6 +89,8 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   // user directory + passkey invites (change: add-passkey-user-auth)
   users: "access",
   "host-gate": "access",
+  // credential vault: accounts, grants, import (change: add-credential-vault)
+  vault: "access",
   // credential plumbing (change: harden-trust-and-credential-boundaries)
   "device-session": "access",
   "local-proof": "access",
@@ -104,6 +108,7 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   "network-interfaces": "gateway",
   push: "gateway",
   // system
+  acp: "workspace",
   restart: "system",
   shutdown: "system",
   doctor: "system",

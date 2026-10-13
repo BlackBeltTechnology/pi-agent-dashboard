@@ -165,7 +165,7 @@ test.describe("route-backed overlays", () => {
     await page.goto(`/folder/${cwd}`);
     await expect(page.getByTestId("directory-home")).toBeVisible({ timeout: 20_000 });
 
-    await page.getByTestId("directory-home-open-settings").click();
+    await page.getByTestId("directory-home-settings").click();
 
     const underlay = page.getByTestId("folder-settings-overlay-underlay");
     await expect(underlay).toBeVisible();

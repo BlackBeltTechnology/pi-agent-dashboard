@@ -65,6 +65,7 @@ export default defineConfig({
       "packages/untrusted-content-guard",
       "packages/mockup-loop",
       "packages/nano-banana",
+      "packages/photocraft",
       "packages/video-production",
       // music-production (change: add-music-production-skills): skill-text and
       // repo-wiring invariants. Its Python behaviour runs in ci.yml music-pytest.
@@ -103,11 +104,15 @@ export default defineConfig({
       // collected by no project, so its suite never ran. A gate no CI job runs
       // is not a gate. See change: move-slot-actions-to-menu.
       "packages/kb-plugin",
+      // skill-atlas-plugin (change: add-skill-atlas-screen).
+      "packages/skill-atlas-plugin",
       // browser-plugin (change: add-browser-relay): relay scaffold + vendor
       // integrity + manifest tests; relay-instance/manager tests land with
       // workstream 2c. A package absent here never runs its tests.
       "packages/browser-plugin",
       "packages/blackhole-plugin",
+      // web-access-plugin (change: render-unclaimed-custom-entries): pi-web-access card + parser.
+      "packages/web-access-plugin",
       "packages/gmail-plugin",
       // chat-gateway (change: add-chat-gateway): the inbound chat control plane.
       // A package absent here never runs its tests — its L1 suites (allowedRoots

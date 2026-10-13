@@ -10,6 +10,7 @@
  */
 
 import { EmptyState } from "@blackbelt-technology/pi-dashboard-client-utils/EmptyState";
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import {
   type StatusKind,
   statusPresentation,
@@ -60,8 +61,8 @@ import {
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAgentAwareSpawn } from "../../hooks/useAgentAwareSpawn.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
-import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 import type { WorktreeAvailability } from "../../lib/git/folder-worktree-availability.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import {
@@ -82,7 +83,7 @@ import { GROUP_PALETTE, resolveGroupColor } from "../../lib/openspec/openspec-gr
 import { createGroup, deleteGroup, fetchGroups, setAssignment, setChangeOrder, updateGroup } from "../../lib/openspec/openspec-groups-api.js";
 import { selectBadgeTimestamp } from "../../lib/session/session-card-time.js";
 import { deriveDotColor, deriveIconStatusColor, deriveProposalCardState, getCardPulseClass, getCardStripeFxClass, pulseClassForStatus, sourceIcons } from "../../lib/session/session-status-visuals.js";
-import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
+import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import { LazyTasksPopover } from "./lazy-openspec-dialogs.js";
 import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
@@ -109,7 +110,7 @@ export interface OpenSpecBoardViewProps {
   onOpenSpecs: () => void;
   onOpenArchive: () => void;
   /** Spawn a session attached to a change (+ optional worktree opts). */
-  onSpawnSession: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string }) => void;
+  onSpawnSession: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string; focus?: boolean; agent?: string }) => void;
   onSpawnAttachedWorktree: (cwd: string, changeName: string) => void;
   onResumeSession: (sessionId: string, mode: "continue" | "fork") => void;
   onArchiveSession: (sessionId: string) => void;
@@ -194,10 +195,12 @@ function BoardStatePill({ state, testId }: { state: ChangeState; testId?: string
 export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
   const {
     cwd, data, sessions, openspecMap, groupsState, onBack, onRefresh, onReadArtifact,
-    onNavigateToSession, onOpenSpecs, onOpenArchive, onSpawnSession, onSpawnAttachedWorktree,
+    onNavigateToSession, onOpenSpecs, onOpenArchive, onSpawnSession: rawOnSpawnSession, onSpawnAttachedWorktree,
     onResumeSession, onArchiveSession, onSendPrompt, onAttachProposal,
     onDetachProposal, onReplaceProposal, onBulkArchive, worktreeAvailability, selectedId,
   } = props;
+  // Board spawns use the folder's remembered agent (pi when none). See change: add-acp-session-driver (D16).
+  const onSpawnSession = useAgentAwareSpawn(rawOnSpawnSession) ?? rawOnSpawnSession;
 
   const openspecConfig = useOpenSpecConfig(cwd);
   const [local, setLocal] = useState<GroupsState>(groupsState ?? { groups: [], assignments: {}, changeOrder: {} });
@@ -637,7 +640,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
               if (worktree) {
                 onSpawnAttachedWorktree(cwd, name);
               } else {
-                onSpawnSession(cwd, name);
+                onSpawnSession(cwd, name, { focus: false });
               }
               if (groupId !== UNGROUPED) {
                 setLocal((prev) => ({ ...prev, assignments: { ...prev.assignments, [name]: groupId } }));
@@ -1046,7 +1049,7 @@ function ProposalCard(props: {
   onReadArtifact: (changeName: string, artifactId: string) => void;
   onOpenTasks: () => void;
   onNavigateToSession: (id: string) => void;
-  onSpawnSession: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string }) => void;
+  onSpawnSession: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string; focus?: boolean; agent?: string }) => void;
   onSpawnAttachedWorktree: (cwd: string, changeName: string) => void;
   onResumeSession: (id: string, mode: "continue" | "fork") => void;
   onArchiveSession: (id: string) => void;
@@ -1108,7 +1111,7 @@ function ProposalCard(props: {
       <div className="flex flex-wrap gap-1.5 mt-2 pt-1.5 border-t border-[var(--border-subtle)]" onPointerDown={(e) => e.stopPropagation()}>
         <button
           type="button"
-          onClick={() => props.onSpawnSession(props.cwd, c.name)}
+          onClick={() => props.onSpawnSession(props.cwd, c.name, { focus: false })}
           className="focus-ring flex-1 inline-flex items-center justify-center gap-1 text-[12px] font-semibold px-2.5 tap-target rounded-md border whitespace-nowrap tint-action-green"
           data-testid={`card-new-session-${c.name}`}
           title={i18nT("session.spawnASessionAttachedToThis", undefined, "New session for this proposal")}

@@ -19,14 +19,22 @@ fi
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
-# Start the server in background
-pi-dashboard start &
+# Start the server in background. The CLI's own verdict line is captured: the
+# start-twice check below compares it with the second start's (test-plan #X19).
+START1_OUT=$(mktemp)
+pi-dashboard start >"$START1_OUT" 2>&1 &
 SERVER_PID=$!
 
 # Cleanup on exit
+JITI_HIDDEN_FROM=""
+JITI_HIDDEN_TO=""
 cleanup() {
   pi-dashboard stop 2>/dev/null || true
   kill $SERVER_PID 2>/dev/null || true
+  # Put back the jiti directory the #X3 check moved aside.
+  if [ -n "$JITI_HIDDEN_TO" ] && [ -d "$JITI_HIDDEN_TO" ]; then
+    mv "$JITI_HIDDEN_TO" "$JITI_HIDDEN_FROM" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 
@@ -37,6 +45,62 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/health 2>/dev/null || echo "000")
   if [ "$HTTP_CODE" = "200" ]; then
     echo "Health endpoint responded HTTP 200"
+
+    # --- start twice + status (test-plan #X19) ---------------------------
+    # See change: harden-dashboard-start-detection (D4).
+    #
+    # The first `start` must report the server it launched, a second `start`
+    # must recognise that very server instead of spawning another or claiming
+    # to have started it, and `status` must name the same pid.
+    pid_of() { sed -n 's/.*(pid \([0-9][0-9]*\)).*/\1/p' | head -1; }
+    FIRST_RC=0
+    wait "$SERVER_PID" || FIRST_RC=$?
+    FIRST_OUT=$(cat "$START1_OUT")
+    if [ "$FIRST_RC" != "0" ]; then
+      echo "FAIL (#X19): first 'pi-dashboard start' exited $FIRST_RC: $FIRST_OUT"
+      exit 1
+    fi
+    # A server that was already up before this script ran legitimately answers
+    # "already running"; only a cold boot can print "started".
+    if [ "$COLD_BOOT" = "1" ]; then
+      if ! printf '%s' "$FIRST_OUT" | grep -qE "Dashboard server started \(pid [0-9]+\)"; then
+        echo "FAIL (#X19): first start did not print 'Dashboard server started (pid N)': $FIRST_OUT"
+        exit 1
+      fi
+    elif ! printf '%s' "$FIRST_OUT" | grep -qE "Dashboard server (started|is already running) \(pid [0-9]+\)"; then
+      echo "FAIL (#X19): first start printed neither 'started' nor 'already running': $FIRST_OUT"
+      exit 1
+    fi
+    FIRST_PID=$(printf '%s' "$FIRST_OUT" | pid_of)
+
+    SECOND_RC=0
+    SECOND_OUT=$(pi-dashboard start 2>&1) || SECOND_RC=$?
+    if [ "$SECOND_RC" != "0" ]; then
+      echo "FAIL (#X19): second 'pi-dashboard start' exited $SECOND_RC: $SECOND_OUT"
+      exit 1
+    fi
+    if printf '%s' "$SECOND_OUT" | grep -q "Dashboard server started"; then
+      echo "FAIL (#X19): second start claimed to have started a server: $SECOND_OUT"
+      exit 1
+    fi
+    if ! printf '%s' "$SECOND_OUT" | grep -qE "Dashboard server is already running \(pid [0-9]+\)"; then
+      echo "FAIL (#X19): second start did not print 'already running (pid N)': $SECOND_OUT"
+      exit 1
+    fi
+    SECOND_PID=$(printf '%s' "$SECOND_OUT" | pid_of)
+    if [ "$FIRST_PID" != "$SECOND_PID" ]; then
+      echo "FAIL (#X19): the second start named pid $SECOND_PID, the first $FIRST_PID"
+      exit 1
+    fi
+
+    STATUS_RC=0
+    STATUS_OUT=$(pi-dashboard status 2>&1) || STATUS_RC=$?
+    STATUS_PID=$(printf '%s' "$STATUS_OUT" | pid_of)
+    if [ "$STATUS_RC" != "0" ] || ! printf '%s' "$STATUS_OUT" | grep -qE "Dashboard server is running \(pid [0-9]+\)" || [ "$STATUS_PID" != "$FIRST_PID" ]; then
+      echo "FAIL (#X19): 'pi-dashboard status' (exit $STATUS_RC) did not report running (pid $FIRST_PID): $STATUS_OUT"
+      exit 1
+    fi
+    echo "#X19: start printed pid $FIRST_PID; a second start and status named the same pid"
 
     # See change: expand-electron-qa-coverage.
     # Catches v0.4.6 spawnDetached stdio[1]='ignore' regression where
@@ -66,16 +130,15 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     fi
     echo "No unresolved-symbol errors in server.log"
 
-    # See change: fix-appimage-cold-boot-latency. A default launch boots on the
-    # Node-native TS loader; the spawn header names the selected loader.
-    if [ "${PI_DASHBOARD_TS_LOADER:-}" != "jiti" ]; then
-      if ! grep -F "launch (parent pid" "$LOG_PATH" | tail -1 | grep -qF "native-ts-register.mjs"; then
-        echo "FAIL: the default launch's server.log header does not name native-ts-register.mjs:"
-        grep -F "launch (parent pid" "$LOG_PATH" | tail -1
-        exit 1
-      fi
-      echo "Default launch header names the native TS loader"
+    # See change: fix-appimage-cold-boot-latency, strip-only-native-ts-loader.
+    # The Node-native strip-only loader is the server's ONLY TS loader; the
+    # spawn header names it.
+    if ! grep -F "launch (parent pid" "$LOG_PATH" | tail -1 | grep -qF "native-ts-register.mjs"; then
+      echo "FAIL: the launch's server.log header does not name native-ts-register.mjs:"
+      grep -F "launch (parent pid" "$LOG_PATH" | tail -1
+      exit 1
     fi
+    echo "Launch header names the native TS loader"
 
     # The running pi must satisfy the declared compatibility floor, and the
     # health probe must not report a blocking skew error.
@@ -446,7 +509,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     # test-plan #E22, #X1, #X2, #X11
     #
     # These can only be proven against a REAL boot: the wrapper reads the config
-    # with plain `JSON.parse` before jiti exists, so no unit test covers the
+    # with plain `JSON.parse` before any TS loader exists, so no unit test covers the
     # path that actually sizes the process.
     # =========================================================================
     echo "--- Checking serverHeap ceiling from config (E22, X1, X2, X11) ---"
@@ -556,15 +619,25 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     fi
     echo "#X11: in-place restart keeps $BEFORE; a cold start adopts 3072"
 
-    # --- TS loader rollback on a FRESH launch (test-plan #X5) ---------------
-    # See change: fix-appimage-cold-boot-latency. `/api/restart` keeps the
-    # running loader, so the jiti rollback needs `stop` + a fresh `start` with
-    # PI_DASHBOARD_TS_LOADER=jiti; its spawn header must name jiti-register.mjs.
+    # --- Native loader with NO jiti installed (test-plan #X3) ----------------
+    # See change: strip-only-native-ts-loader. jiti is no longer a server loader:
+    # hide the installed copy and a fresh launch must still reach health, name
+    # native-ts-register.mjs in its header and never mention jiti in server.log.
     pi-dashboard stop >/dev/null 2>&1 || true
     sleep 2
-    # Truncate first: an earlier (possibly jiti) header must not satisfy the check.
+    PD_BIN=$(command -v pi-dashboard)
+    PD_PKG_DIR=$(dirname "$(dirname "$(node -e "console.log(require('fs').realpathSync(process.argv[1]))" "$PD_BIN")")")
+    JITI_DIR=$(node -e "try{console.log(require('path').dirname(require.resolve('jiti/package.json',{paths:[process.argv[1]]})))}catch{}" "$PD_PKG_DIR" 2>/dev/null || true)
+    if [ -n "$JITI_DIR" ] && [ -d "$JITI_DIR" ]; then
+      JITI_HIDDEN_FROM="$JITI_DIR"
+      JITI_HIDDEN_TO="${JITI_DIR}.x3-hidden"
+      mv "$JITI_DIR" "$JITI_HIDDEN_TO"
+      echo "#X3: moved $JITI_DIR aside for the launch"
+    else
+      echo "#X3: no jiti resolvable from $PD_PKG_DIR (already absent)"
+    fi
     : > "$LOG_PATH"
-    PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start >/dev/null 2>&1 &
+    pi-dashboard start >/dev/null 2>&1 &
     waited=0
     while [ $waited -lt 30 ]; do
       curl -fsS http://localhost:8000/api/health >/dev/null 2>&1 && break
@@ -572,15 +645,63 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
       waited=$((waited + 1))
     done
     if ! curl -fsS http://localhost:8000/api/health >/dev/null 2>&1; then
-      echo "FAIL (#X5): PI_DASHBOARD_TS_LOADER=jiti fresh launch never reached /api/health"
+      echo "FAIL (#X3): launch without jiti never reached /api/health"
       exit 1
     fi
-    if ! grep -F "launch (parent pid" "$LOG_PATH" | tail -1 | grep -qF "jiti-register.mjs"; then
-      echo "FAIL (#X5): the jiti launch's server.log header does not name jiti-register.mjs:"
+    if ! grep -F "launch (parent pid" "$LOG_PATH" | tail -1 | grep -qF "native-ts-register.mjs"; then
+      echo "FAIL (#X3): the header does not name native-ts-register.mjs:"
       grep -F "launch (parent pid" "$LOG_PATH" | tail -1
       exit 1
     fi
-    echo "#X5: jiti rollback on a fresh launch is healthy and its header names jiti-register.mjs"
+    if grep -qi "jiti" "$LOG_PATH"; then
+      echo "FAIL (#X3): server.log mentions jiti on a native-only launch:"
+      grep -ni "jiti" "$LOG_PATH" | head -5
+      exit 1
+    fi
+    echo "#X3: healthy without jiti installed; header names native-ts-register.mjs; no jiti in server.log"
+    pi-dashboard stop >/dev/null 2>&1 || true
+    sleep 2
+    if [ -n "$JITI_HIDDEN_TO" ] && [ -d "$JITI_HIDDEN_TO" ]; then
+      mv "$JITI_HIDDEN_TO" "$JITI_HIDDEN_FROM"
+      JITI_HIDDEN_FROM=""
+      JITI_HIDDEN_TO=""
+    fi
+
+    # --- Legacy PI_DASHBOARD_TS_LOADER is ignored with ONE server warning (#X4) -
+    # The variable no longer selects anything: health 200, the header still names
+    # the native loader, exactly one server.log line names the variable, and the
+    # wrapper/CLI output (their own stdout/stderr) carries none.
+    : > "$LOG_PATH"
+    WRAPPER_OUT=$(mktemp)
+    PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start >"$WRAPPER_OUT" 2>&1 &
+    waited=0
+    while [ $waited -lt 30 ]; do
+      curl -fsS http://localhost:8000/api/health >/dev/null 2>&1 && break
+      sleep 1
+      waited=$((waited + 1))
+    done
+    if ! curl -fsS http://localhost:8000/api/health >/dev/null 2>&1; then
+      echo "FAIL (#X4): launch with PI_DASHBOARD_TS_LOADER=jiti never reached /api/health"
+      exit 1
+    fi
+    if ! grep -F "launch (parent pid" "$LOG_PATH" | tail -1 | grep -qF "native-ts-register.mjs"; then
+      echo "FAIL (#X4): PI_DASHBOARD_TS_LOADER=jiti changed the loader; header:"
+      grep -F "launch (parent pid" "$LOG_PATH" | tail -1
+      exit 1
+    fi
+    WARN_LINES=$(grep -c "PI_DASHBOARD_TS_LOADER" "$LOG_PATH" || true)
+    if [ "$WARN_LINES" != "1" ]; then
+      echo "FAIL (#X4): expected exactly 1 server.log line naming PI_DASHBOARD_TS_LOADER, got $WARN_LINES"
+      grep -n "PI_DASHBOARD_TS_LOADER" "$LOG_PATH" || true
+      exit 1
+    fi
+    if grep -q "PI_DASHBOARD_TS_LOADER" "$WRAPPER_OUT"; then
+      echo "FAIL (#X4): the wrapper/CLI printed a PI_DASHBOARD_TS_LOADER warning (server-only):"
+      cat "$WRAPPER_OUT"
+      exit 1
+    fi
+    rm -f "$WRAPPER_OUT"
+    echo "#X4: PI_DASHBOARD_TS_LOADER=jiti is ignored — healthy, native header, one server warning, none from the wrapper"
 
     restore_config
 

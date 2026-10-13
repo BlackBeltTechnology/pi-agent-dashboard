@@ -38,11 +38,14 @@ type LeaseErrorCode =
   | "refresh_failed";
 
 class LeaseError extends Error {
+  readonly code: LeaseErrorCode;
+
   constructor(
-    readonly code: LeaseErrorCode,
+    code: LeaseErrorCode,
     detail: string,
   ) {
     super(`${code}: ${detail}`);
+    this.code = code;
     this.name = "LeaseError";
   }
 }

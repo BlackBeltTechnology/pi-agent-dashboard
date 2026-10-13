@@ -15,11 +15,14 @@ export const DEFAULT_HARVEST_TIMEOUT_MS = 60_000;
 
 /** Raised for every harvest failure; the message is the one-line CLI reason. */
 export class HarvestError extends Error {
+  readonly slideId?: string;
+
   constructor(
     message: string,
-    readonly slideId?: string,
+    slideId?: string,
   ) {
     super(message);
+    this.slideId = slideId;
     this.name = "HarvestError";
   }
 }

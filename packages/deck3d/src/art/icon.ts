@@ -74,8 +74,10 @@ const TOL = 0.1;
  * fail fast instead of allocating millions of points first.
  */
 class PointBudget {
+  readonly limit: number;
   left: number;
-  constructor(readonly limit: number) {
+  constructor(limit: number) {
+    this.limit = limit;
     this.left = limit;
   }
   take(n: number): void {

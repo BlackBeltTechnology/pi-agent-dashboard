@@ -1,15 +1,15 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
-import React from "react";
+import type { Workspace } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { DndContext } from "@dnd-kit/core";
+import { cleanup, render, screen } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { SessionList } from "../session/SessionList.js";
+import { SortableSessionCard } from "../session/SortableSessionCard.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 import { SortableWorkspace } from "../workspace/SortableWorkspace.js";
 import { SortableWorkspaceFolder } from "../workspace/SortableWorkspaceFolder.js";
-import { SortableSessionCard } from "../session/SortableSessionCard.js";
-import { DndContext } from "@dnd-kit/core";
-import type { Workspace } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {
   const { hook } = memoryLocation({ path: "/", static: true });

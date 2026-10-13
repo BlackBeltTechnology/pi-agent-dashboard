@@ -39,12 +39,12 @@
     "!**/*.AGENTS.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ../../scripts/tsc7.mjs -p tsconfig.json",
     "prepublishOnly": "npm run build",
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=1.0.0"
+    "@earendil-works/pi-coding-agent": ">=1.1.0"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {
@@ -52,6 +52,6 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^1.0.0"
+    "@earendil-works/pi-coding-agent": "^1.1.0"
   }
 }

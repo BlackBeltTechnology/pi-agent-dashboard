@@ -1,7 +1,10 @@
 name: Standalone install smoke (reusable)
 
 # Reusable workflow that runs the full standalone-install-smoke matrix
-# (Linux × 8: Node 22/24/25/26 × bookworm-slim/alpine + Windows × 1: Node 22).
+# (Linux × 8: Node 22/24/25/26 × bookworm-slim/alpine + Windows × 1: Node 22),
+# plus two Linux jobs for the Node-native TypeScript loader (change:
+# strip-only-native-ts-loader): the EOL Node 23 loader tiers and the Node 26
+# in-place upgrade continuity check.
 #
 # Consumed by:
 #   - .github/workflows/ci-smoke.yml  (on-demand manual dispatch)
@@ -170,3 +173,153 @@ jobs:
         # Windows-wide degrade. See change: electron-attach-ownership-fixes (1b.4).
         shell: pwsh
         run: npx tsx scripts/windows-liveness-smoke.ts
+
+  # EOL Node 23 loader tiers (test-plan #X2). Outside the supported-set matrix
+  # above on purpose: Node 23 is EOL and stays out of `engines`, but the
+  # Node-native loader still has to boot on it for users who have not moved.
+  #   23.1.0 -> tier 3: no `stripTypeScriptTypes`, strips with the bundled `amaro`
+  #   23.4.0 -> tier 2: `module.register` + the native stripper (no registerHooks)
+  # The workspace is BUILT and PACKED on Node 24 (the toolchain does not support
+  # 23.x), then the packed tarballs are installed and booted on the 23.x leg —
+  # the same bytes a user installs. `--engine-strict=false` mirrors the user who
+  # installs past an engines mismatch. The boot script asserts health 200, no
+  # stripTypeScriptTypes ExperimentalWarning / DEP0205 and no MODULE_NOT_FOUND
+  # for `amaro` in server.log.
+  # See change: strip-only-native-ts-loader (design D4).
+  standalone-install-smoke-eol-node23:
+    name: standalone-install-smoke-eol-node23 (node ${{ matrix.node-version }}, ${{ matrix.tier }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node-version: 23.1.0
+            tier: tier 3 (bundled amaro)
+          - node-version: 23.4.0
+            tier: tier 2 (register + native stripper)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile --config.engine-strict=false
+      - run: pnpm run build
+      - name: Pack workspaces (built on Node 24)
+        run: bash scripts/test-standalone-npm-install.sh --pack-only "$RUNNER_TEMP/packs"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install packed tarballs and boot on the EOL Node
+        run: |
+          node --version
+          bash scripts/test-standalone-npm-install.sh --port 18000 \
+            --tarballs "$RUNNER_TEMP/packs" --install-arg --engine-strict=false
+
+  # In-place upgrade continuity on Node 26 (test-plan #X7). A server started by
+  # the last release that selected jiti on Node 26 keeps `--import <jiti>` in its
+  # execArgv and carries it across `POST /api/restart`. Upgrading the install
+  # underneath it must not strand it:
+  #   restart 1 -> new code runs under the OLD loader (jiti stays installed as
+  #                the transitional dependency): healthy + a foreign-loader
+  #                warning naming jiti in server.log;
+  #   restart 2 -> the new server normalizes the restart: healthy + argv names
+  #                native-ts-register.mjs.
+  # UPGRADE_FROM_VERSION is PINNED to the last pre-change release: a floating
+  # `latest` would stop testing the jiti hand-over the moment this change ships.
+  # Bump it only to another release whose server still selects jiti on Node 26.
+  # See change: strip-only-native-ts-loader (design D5).
+  standalone-install-upgrade-continuity:
+    name: standalone-install-upgrade-continuity (node 26)
+    runs-on: ubuntu-latest
+    env:
+      UPGRADE_FROM_VERSION: "0.9.0"
+      PORT: "18000"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          # No dependency cache: a restored cache would run before `pnpm install` /
+          # `pnpm run build` (CodeQL actions/cache-poisoning).
+          node-version: 26
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - name: Pack workspaces
+        run: bash scripts/test-standalone-npm-install.sh --pack-only "$RUNNER_TEMP/packs"
+      - name: Start the previous release, upgrade in place, restart twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/home"
+          mkdir -p "$HOME/pi-dashboard-install"
+          cd "$HOME/pi-dashboard-install"
+          npm init -y >/dev/null
+          BIN="$PWD/node_modules/.bin/pi-dashboard"
+          LOG="$HOME/.pi/dashboard/server.log"
+          export PI_DASHBOARD_PORT="$PORT"
+          trap '"$BIN" stop >/dev/null 2>&1 || true; echo "--- server.log tail ---"; tail -n 80 "$LOG" 2>/dev/null || true' EXIT
+
+          ident() {
+            curl -fsS "http://localhost:$PORT/api/health" \
+              | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);process.stdout.write(j.pid+'@'+j.startedAt)})"
+          }
+          wait_healthy() {
+            for _ in $(seq 1 45); do
+              ident >/dev/null 2>&1 && return 0
+              sleep 2
+            done
+            echo "FAIL: /api/health never answered 200 within 90s"; return 1
+          }
+          # First process whose argv names cli.ts (awk, no early-exit pipe: pipefail-safe).
+          server_argv() { ps -eo args= | awk '/cli\.ts/ && !/awk/ && !n++ { print }'; }
+          # POST /api/restart, then wait for a NEW process (pid@startedAt changes).
+          restart_and_wait() {
+            local before; before=$(ident)
+            curl -fsS -X POST "http://localhost:$PORT/api/restart" >/dev/null 2>&1 || true
+            for _ in $(seq 1 45); do
+              sleep 2
+              local after; after=$(ident 2>/dev/null || true)
+              if [ -n "$after" ] && [ "$after" != "$before" ]; then return 0; fi
+            done
+            echo "FAIL: no replacement server observed after /api/restart"; return 1
+          }
+
+          echo "== install and start the previous release ($UPGRADE_FROM_VERSION) =="
+          npm install --no-audit --no-fund \
+            "@blackbelt-technology/pi-agent-dashboard@$UPGRADE_FROM_VERSION" \
+            "@blackbelt-technology/pi-dashboard-server@$UPGRADE_FROM_VERSION" 2>&1 | tail -3
+          "$BIN" start >/dev/null 2>&1 &
+          wait_healthy
+          ARGV=$(server_argv)
+          echo "argv: $ARGV"
+          if [[ "$ARGV" != *jiti* ]]; then
+            echo "FAIL: premise broken — the previous release is not running under jiti on Node 26"; exit 1
+          fi
+
+          echo "== upgrade in place to the packed tarballs =="
+          npm install --no-audit --no-fund "$RUNNER_TEMP"/packs/*.tgz 2>&1 | tail -3
+          node -e "const d=require(process.argv[1]).dependencies||{};if(!d.amaro){console.error('packed shared is missing amaro');process.exit(1)}" \
+            "$PWD/node_modules/@blackbelt-technology/pi-dashboard-shared/package.json"
+
+          echo "== restart 1: new code under the inherited jiti loader =="
+          restart_and_wait
+          wait_healthy
+          if ! awk 'tolower($0) ~ /jiti/ && /pi-dashboard stop/ { f = 1 } END { exit !f }' "$LOG"; then
+            echo "FAIL (restart 1): no foreign-loader warning naming jiti in server.log"; exit 1
+          fi
+          echo "restart 1: healthy, foreign-loader warning names jiti"
+
+          echo "== restart 2: normalized to the native loader =="
+          restart_and_wait
+          wait_healthy
+          ARGV=$(server_argv)
+          echo "argv: $ARGV"
+          if [[ "$ARGV" != *native-ts-register.mjs* ]]; then
+            echo "FAIL (restart 2): argv does not name native-ts-register.mjs"; exit 1
+          fi
+          echo "restart 2: healthy, argv names native-ts-register.mjs"

@@ -4,6 +4,7 @@
 import { existsSync } from "node:fs";
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import {
   isProcessAlive,
@@ -13,14 +14,15 @@ import {
 import {
   findPidByMarker,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
+import { mintSpawnToken } from "../auth/spawn-token.js";
 import {
   type DispatchReloadContext,
   dispatchReload,
 } from "../rpc-keeper/dispatch-reload.js";
-import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
-import { mintSpawnToken } from "../auth/spawn-token.js";
 import { createBranchedSessionFile } from "../session/session-file-reader.js";
 import { decideResume } from "../session/session-origin.js";
+import { type AcpGuardContext, endedPromptHint, refuseIfAcp, UNSUPPORTED_FOR_ACP, unsupportedMessage } from "./acp-guard.js";
+import { preflightAcpSpawn, spawnAcpSession, validateAcpAgent } from "../spawn-process/acp-spawn.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
 import { getKeeperManager, spawnPiSession } from "../spawn-process/process-manager.js";
 import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
@@ -29,6 +31,7 @@ import { deriveSpawnCorrelationTtlMs } from "../spawn-process/spawn-recovery-win
 import { armSpawnWatchdog, getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 import { isBareReloadCommand } from "./session-action-helpers.js";
+import { choiceToSpawnOptions, resolveResumeChoice, validateSpawnChoice } from "./spawn-choice.js";
 
 /**
  * Status message + code emitted when fork is attempted on a session whose
@@ -146,6 +149,14 @@ function emitCommandFeedback(
   ctx.broadcast({ type: "event", sessionId, seq, event } as any);
 }
 
+/** Guard context: refusals surface as a `command_feedback` error in the session's chat. */
+export function acpGuardCtx(ctx: ReloadHostContext): AcpGuardContext {
+  return {
+    sessionManager: ctx.sessionManager,
+    feedback: (sessionId, message, command) => emitCommandFeedback(ctx, sessionId, "error", message, command),
+  };
+}
+
 /**
  * Bind a `BrowserHandlerContext` to the reload ladder's dependency surface.
  *
@@ -227,6 +238,9 @@ export async function handleHeadlessReload(
     emitCommandFeedback(ctx, msg.sessionId, "error", "Session not found");
     return;
   }
+  // ACP sessions cannot be reloaded (no pi to respawn): refuse before any kill.
+  // See change: add-acp-session-driver (D15).
+  if (refuseIfAcp(acpGuardCtx(ctx), msg.sessionId, "/reload")) return;
   if (!session.sessionFile) {
     emitCommandFeedback(
       ctx,
@@ -313,6 +327,24 @@ export async function handleSendPrompt(
 ): Promise<void> {
   const { sessionManager, piGateway, headlessPidRegistry, pendingResumeRegistry, pendingResumeIntents, pendingDashboardSpawns, broadcast } = ctx;
 
+  // ACP sessions: a bare `/reload` is refused (nothing to reload), and a prompt
+  // to an ENDED ACP session is refused with a hint — pi must never be started
+  // for it. Everything else (incl. `/review` etc.) is plain prompt text.
+  // See change: add-acp-session-driver (D14, D15).
+  {
+    const acpSession = sessionManager.get(msg.sessionId);
+    if (acpSession?.driver === "acp") {
+      if (isBareReloadCommand(msg)) {
+        refuseIfAcp(acpGuardCtx(ctx), msg.sessionId, "/reload");
+        return;
+      }
+      if (acpSession.status === "ended") {
+        refuseIfAcp(acpGuardCtx(ctx), msg.sessionId, "send_prompt", endedPromptHint(acpSession));
+        return;
+      }
+    }
+  }
+
   // Route the bare `/reload` through the single server-side reload entry
   // point: busy → refuse, headless PID → respawn, live bridge → forward, else
   // an honest error. Routing here (rather than only in the four automated
@@ -396,10 +428,17 @@ export async function handleSendPrompt(
     sessionManager.update(msg.sessionId, { resuming: true });
     broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { resuming: true } });
     const autoResumeConfig = loadConfig();
+    // A model / thinking pick from the composer goes straight to THIS resume's
+    // spawn — never through the cwd-keyed pendingResumeRegistry, which would let
+    // it bleed into a concurrent resume in the same folder. An in-flight resume
+    // (`alreadyResuming`) returned above, so a second pick is never applied.
+    // See change: redesign-directory-home-split (D9).
+    const resumeChoice = resolveResumeChoice(msg, "continue", promptSession);
     const spawnResult = await spawnPiSession(promptSession.cwd, {
       sessionFile: promptSession.sessionFile,
       mode: "continue",
       strategy: autoResumeConfig.spawnStrategy,
+      ...choiceToSpawnOptions(resumeChoice),
     });
     // No browser socket on this path — the reclaim runs regardless.
     armSpawnWatchdog(promptSession.cwd, autoResumeConfig.spawnStrategy as any, spawnResult);
@@ -512,6 +551,12 @@ export async function handleResumeSession(
   const session = sessionManager.get(msg.sessionId);
   if (!session) {
     sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session not found", code: "resume.session_not_found", requestId: msg.requestId });
+    return;
+  }
+  // Resume / fork (incl. fork-degrade) of an ACP session: refused before any
+  // side effect. See change: add-acp-session-driver (D15).
+  if (session.driver === "acp") {
+    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: unsupportedMessage(msg.mode === "fork" ? "fork" : "resume"), code: UNSUPPORTED_FOR_ACP, requestId: msg.requestId });
     return;
   }
   // Resolve placement intent. Old browsers omit the field; default to
@@ -689,10 +734,14 @@ export async function handleResumeSession(
   //              differentiate-resume-intent-by-trigger.
   pendingResumeIntents?.record(msg.sessionId, placement);
   const resumeConfig = loadConfig();
+  // Pick fields apply to `continue` only; a fork keeps the parent model.
+  // See change: redesign-directory-home-split (D9).
+  const resumeChoice = resolveResumeChoice(msg, msg.mode, session);
   const result = await spawnPiSession(session.cwd, {
     sessionFile: forkSessionFile,
     mode: msg.mode,
     strategy: resumeConfig.spawnStrategy,
+    ...choiceToSpawnOptions(resumeChoice),
   });
   // WebSocket drag-to-resume / fork is a spawn entry point.
   const resumeTimeoutMs = armSpawnWatchdog(
@@ -787,8 +836,20 @@ export async function handleSpawnSession(
   }
 
   // ── Preflight: fast synchronous checks before spawning. See change: spawn-failure-diagnostics.
+  // ACP agent spawn (`agent` given): its own validation + preflight; pi/tmux
+  // preflight is skipped. Absent → byte-identical to before.
+  // See change: add-acp-session-driver (D2).
+  const acpAgent = msg.agent === undefined ? undefined : validateAcpAgent(msg.agent);
+  if (acpAgent && !acpAgent.ok) {
+    if (ownerSpawnToken) pendingPrincipalOwnerRegistry?.remove(ownerSpawnToken);
+    sendTo(ws, { type: "spawn_result", cwd: msg.cwd, success: false, message: acpAgent.message, requestId: msg.requestId });
+    sendTo(ws, { type: "spawn_error", cwd: msg.cwd, strategy: "headless", message: acpAgent.message, code: "SPAWN_ERRNO" });
+    return;
+  }
   const preflightResolver = new ToolResolver({ processExecPath: process.execPath, useLoginShell: false });
-  const preflight = preflightSpawn(msg.cwd, { resolver: preflightResolver });
+  const preflight = acpAgent?.ok
+    ? preflightAcpSpawn(msg.cwd, acpAgent.agent)
+    : preflightSpawn(msg.cwd, { resolver: preflightResolver });
   if (!preflight.ok) {
     const message = preflight.reasons.map((r) => r.message).join("; ");
     sendTo(ws, { type: "spawn_result", cwd: msg.cwd, success: false, message, requestId: msg.requestId });
@@ -809,7 +870,23 @@ export async function handleSpawnSession(
   // silently. Previous behaviour left the user staring at an empty state
   // when pi itself was broken in the target folder.
   try {
-    const spawnResult = await spawnPiSession(msg.cwd, { strategy, ...(ownerSpawnToken ? { spawnToken: ownerSpawnToken } : {}) });
+    // Validate browser-supplied model/thinking (drop-and-warn); a thinking-only
+    // choice is paired with the configured default model so the bridge's
+    // post-start default thinking can never overwrite it. pi-only: an ACP agent
+    // takes no pi `--model`/`--thinking` argv.
+    // See change: redesign-directory-home-split (D5, D6).
+    const choice: ReturnType<typeof validateSpawnChoice> = acpAgent?.ok ? {} : validateSpawnChoice(msg);
+    if (choice.thinking && !choice.model && config.defaultModel) {
+      const fallback = validateSpawnChoice({ model: config.defaultModel, thinkingLevel: choice.thinking });
+      if (fallback.model) choice.model = fallback.model;
+    }
+    const spawnResult = acpAgent?.ok
+      ? await spawnAcpSession(msg.cwd, { agent: acpAgent.agent.id, ...(ownerSpawnToken ? { spawnToken: ownerSpawnToken } : {}) })
+      : await spawnPiSession(msg.cwd, {
+          strategy,
+          ...choiceToSpawnOptions(choice),
+          ...(ownerSpawnToken ? { spawnToken: ownerSpawnToken } : {}),
+        });
     // A failed spawn never registers, so drop the pre-filed owner (idempotent,
     // token-keyed) rather than leave it to expire against a token no session
     // will ever present.
@@ -870,13 +947,15 @@ export async function handleSpawnSession(
       watchdog.arm({
         pid: spawnResult.pid,
         cwd: msg.cwd,
-        mechanism: strategy as import("@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js").SpawnMechanism,
+        // ACP spawns are always headless regardless of the configured strategy.
+        mechanism: (acpAgent ? "headless" : strategy) as import("@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js").SpawnMechanism,
         logPath: spawnResult.logPath,
         // Read-on-arm: pass current config value so a Settings change takes effect
         // on the next spawn without a server restart. See change: spawn-failure-diagnostics (fix W1).
         timeoutMs: config.spawnRegisterTimeoutMs,
         ws,
         spawnToken: spawnResult.spawnToken,
+        ...(msg.requestId ? { requestId: msg.requestId } : {}),
       });
     }
   } catch (err) {

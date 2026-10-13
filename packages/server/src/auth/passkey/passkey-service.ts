@@ -17,6 +17,8 @@
  *
  * See change: add-passkey-user-auth.
  */
+
+import crypto from "node:crypto";
 import {
   type AuthenticationResponseJSON,
   generateAuthenticationOptions,
@@ -27,7 +29,6 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
-import crypto from "node:crypto";
 import { SignedChallenges } from "./challenge-store.js";
 import { logPasskey } from "./passkey-log.js";
 import { PhoneSigninManager } from "./phone-signin.js";
@@ -35,11 +36,16 @@ import type { RpContext } from "./rp-context.js";
 import type { DirectoryUser, UserDirectory } from "./user-directory.js";
 
 export class PasskeyError extends Error {
+  readonly code: string;
+  readonly status: number;
+
   constructor(
-    readonly code: string,
-    readonly status: number,
+    code: string,
+    status: number,
   ) {
     super(code);
+    this.code = code;
+    this.status = status;
   }
 }
 

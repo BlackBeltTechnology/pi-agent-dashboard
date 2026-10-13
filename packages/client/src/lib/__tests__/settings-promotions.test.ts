@@ -5,8 +5,8 @@
 import { describe, expect, it } from "vitest";
 import {
   foldSettingsLabel,
-  RESERVED_SETTINGS_LABELS,
   type PromotionRow,
+  RESERVED_SETTINGS_LABELS,
   resolveSettingsPromotions,
 } from "../settings-promotions.js";
 
@@ -32,6 +32,25 @@ describe("RESERVED_SETTINGS_LABELS (task 3.1)", () => {
   });
 });
 
+// See change: addons-hub-declutter (test-plan E16)
+describe("RESERVED_SETTINGS_LABELS — Add-ons rename", () => {
+  it("E16: reserves the folded Add-ons label in every shipped locale", () => {
+    expect(RESERVED_SETTINGS_LABELS.has("add-ons")).toBe(true);
+    expect(RESERVED_SETTINGS_LABELS.has(foldSettingsLabel("Kiegészítők"))).toBe(true);
+    expect(RESERVED_SETTINGS_LABELS.has(foldSettingsLabel("附加组件"))).toBe(true);
+  });
+
+  it("E16: a promoted plugin labelled Add-ons is rejected; Resources › Extensions stays reserved", () => {
+    const map = resolveSettingsPromotions([row("x", true, { group: "models", label: "Add-ons" })], RESERVED_SETTINGS_LABELS);
+    expect(map.size).toBe(0);
+    expect(RESERVED_SETTINGS_LABELS.has("extensions")).toBe(true);
+  });
+
+  it("the retired Packages page label is no longer reserved", () => {
+    expect(RESERVED_SETTINGS_LABELS.has("packages")).toBe(false);
+  });
+});
+
 describe("resolveSettingsPromotions", () => {
   it("E12: only firstParty + allowlisted group + non-reserved label is promoted", () => {
     const rows: PromotionRow[] = [];
@@ -44,6 +63,19 @@ describe("resolveSettingsPromotions", () => {
     }
     const map = resolveSettingsPromotions(rows, RESERVED_SETTINGS_LABELS);
     expect([...map.keys()]).toEqual(["true-models-Model roles"]);
+  });
+
+  it("resources is allowlisted: first-party promoted, third-party and reserved labels ignored (add-skill-atlas-screen #E25)", () => {
+    const map = resolveSettingsPromotions(
+      [
+        row("skill-atlas", true, { group: "resources", label: "Skill Atlas" }),
+        row("acme-atlas", false, { group: "resources", label: "Acme Atlas" }),
+        row("dup-skills", true, { group: "resources", label: " Skills " }),
+      ],
+      RESERVED_SETTINGS_LABELS,
+    );
+    expect([...map.keys()]).toEqual(["skill-atlas"]);
+    expect(map.get("skill-atlas")).toMatchObject({ group: "resources", label: "Skill Atlas" });
   });
 
   it("E13: reserved labels (all locales, NFKC, trim, case) are ignored, locale-independent", () => {

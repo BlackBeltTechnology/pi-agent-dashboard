@@ -22,14 +22,23 @@ import type {
 } from "./types.js";
 
 export class ApiError extends Error {
+  public readonly status: number;
+  public readonly code: string;
+  public readonly fields?: Record<string, string>;
+  public readonly details?: Record<string, unknown>;
+
   constructor(
-    public readonly status: number,
-    public readonly code: string,
-    public readonly fields?: Record<string, string>,
+    status: number,
+    code: string,
+    fields?: Record<string, string>,
     /** Remaining body fields (e.g. the 409 `skill_not_allowed` `{skill, reason}`). */
-    public readonly details?: Record<string, unknown>,
+    details?: Record<string, unknown>,
   ) {
     super(code);
+    this.status = status;
+    this.code = code;
+    this.fields = fields;
+    this.details = details;
   }
 }
 

@@ -155,3 +155,24 @@ describe("useSplitState", () => {
     expect(loadSplitState("B").mode).toBe("closed");
   });
 });
+
+// First-visit default for the folder home. See change: redesign-directory-home-split (F17).
+describe("useSplitState defaultMode", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("uses defaultMode when nothing is stored; sessions still default to closed", () => {
+    expect(renderHook(() => useSplitState("folder:/p", "split")).result.current[0].mode).toBe("split");
+    expect(renderHook(() => useSplitState("sess-new")).result.current[0].mode).toBe("closed");
+  });
+
+  it("a stored mode wins over defaultMode", () => {
+    saveSplitState("folder:/p", { mode: "full", ratio: 0.5, orientation: "h" });
+    expect(renderHook(() => useSplitState("folder:/p", "split")).result.current[0].mode).toBe("full");
+  });
+
+  it("a corrupt stored blob falls back to defaultMode", () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    localStorage.setItem(`${SPLIT_KEY_PREFIX}folder:/p`, "{nope");
+    expect(renderHook(() => useSplitState("folder:/p", "split")).result.current[0].mode).toBe("split");
+  });
+});

@@ -92,6 +92,10 @@ export async function handleInboundMessage(inst: BridgeInstance, data: unknown):
     inst.pluginRequests.handleReply(msg);
     return;
   }
+  // Credential vault: `vault_snapshot` is consumed here (never re-emitted, never
+  // logged); `dashboard_identity` is only observed so the other consumers below
+  // still see it. See change: add-credential-vault.
+  if (inst.vaultDelivery.onServerMessage(msg)) return;
   // Agent path gate: grant-store identity + grant results (never re-emitted).
   if (inst.pathGate.onServerMessage(msg as { type?: string })) return;
   if (msg.type === "mcp_token_minted") {

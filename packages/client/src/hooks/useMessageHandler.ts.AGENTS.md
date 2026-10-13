@@ -13,3 +13,5 @@ Optional deps `markHistoryLoadFailed`, `clearHistoryLoadFailed`. `markHistoryLoa
 `case "notify"` passes `msg.ts` to `addNotify`. `history_backfill_result` splice wraps the spliced list in `reseatTimedNotifies` so a backfilled row older than a ts-placed notify ends above it (D5). See change: collapse-and-order-notify-rows.
 
 See change: add-browser-editor-pane-tab — `editor_tab_open` → `editor-tab-open` DOM event; `prompt_request` copies `metadata.plugin` into interactive request `params._pluginMeta`.
+
+`session_added` correlation honors `PendingSpawnEntry.focus === false`: Tier 1 skips `navigate`; Tiers 2/2.5 collect `kind:spawn` entries matching on `pathKey(entry.cwd)` (never `placeholderCwd`), withhold `navigate` only when ≥1 match and all no-focus (mixed → focus). Tier 2 consumes a match only when a no-focus entry is involved (default Tier 2 unchanged). Reconciled/hidden branches untouched. See change: openspec-board-spawn-no-focus.

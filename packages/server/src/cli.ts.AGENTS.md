@@ -11,3 +11,7 @@
 - `pi-dashboard service <verb>` dispatches to `services/cli-service.ts` `cmdService` with `localTokenHeader` + `localExecSecretsResolver` (exec resolves secrets locally, never via REST). See change: add-service-registry-core.
 
 Local calls dial `localBase(config)` (`localDialHost(host)` literal) and send a per-request `X-Pi-Local-Proof` (`localCredentialHeaders`); the raw token is never sent. See change: loopback-credential-proof (D10).
+
+`runForeground` calls `warnTsLoaderState()` once at boot (legacy `PI_DASHBOARD_TS_LOADER`, foreign jiti/tsx loader); `cmdStart` no longer catches `JitiNotFoundError` (class removed). See change: strip-only-native-ts-loader.
+
+`cmdStart(config, injected?)` + `cmdStatus({port,piPort,host}, injected?)` are exported and share `lifecycle/classify-dashboard-port.ts`. `start`: classify first (owned→`already running (pid N)`, starting, unowned→`not owned by this HOME`, conflict, unresponsive→`running but not responding (pid N)` exit 1; only `free` launches); after readiness re-classify and print `started` ONLY when an owned dashboard reports the spawned child pid, else kill the unconfirmed child; every early child exit is re-classified (lost bind race → `already running`, exit 0). `status`: mDNS record kept only when `isLocal && port===config.port` (hostname hint); verdict from the classifier. `cmdStop` removes `server.pid` only when the pid is not alive after the kill. See change: harden-dashboard-start-detection.

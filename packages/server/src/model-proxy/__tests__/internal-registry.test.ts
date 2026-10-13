@@ -85,6 +85,23 @@ describe("InternalRegistry.getAvailable — credential-kind filtering", () => {
   });
 });
 
+describe("InternalRegistry — samplingParamsByThinkingLevel passthrough (E12)", () => {
+  it("carries the per-thinking-level sampling map; omitted when absent", async () => {
+    const byLevel = { high: { temperature: 0.2 } };
+    const reg = makeRegistry({
+      builtins: {},
+      auth: { acme: API_KEY },
+      customModels: [
+        { id: "with", provider: "acme", samplingParamsByThinkingLevel: byLevel },
+        { id: "without", provider: "acme" },
+      ],
+    });
+    const available = await reg.getAvailable();
+    expect(available.find((m: any) => m.id === "with")).toMatchObject({ samplingParamsByThinkingLevel: byLevel });
+    expect(available.find((m: any) => m.id === "without")).not.toHaveProperty("samplingParamsByThinkingLevel");
+  });
+});
+
 describe("InternalRegistry — deterministic source precedence (dedup by fqid)", () => {
   it("collision between built-in and models.json → one entry, built-in wins", async () => {
     // Both sources produce fqid `openai/gpt-4o`; built-in carries a marker.

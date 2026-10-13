@@ -137,11 +137,15 @@ async function mount(path: string, rows: ReturnType<typeof pluginRow>[]) {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  // The Plugins rail subtree is collapsed by default; these tests assert on the
+  // children, so pre-expand it (explicit user choice). See change: addons-hub-declutter.
+  localStorage.setItem("dashboard:settings-plugins-expanded", "true");
   fetchAutoInitWorktreePref.mockResolvedValue(false);
   setAutoInitWorktreePref.mockResolvedValue(true);
 });
 afterEach(() => {
   cleanup();
+  localStorage.removeItem("dashboard:settings-plugins-expanded");
   vi.unstubAllGlobals();
   intentStore.__resetForTests();
 });

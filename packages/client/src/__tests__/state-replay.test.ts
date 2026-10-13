@@ -96,6 +96,40 @@ describe("replayEntriesAsEvents", () => {
     expect((events[0].event.data as any).isError).toBe(false);
   });
 
+  it("E9 copies a recorded toolResult durationMs onto the synthesized end and the row", () => {
+    const mk = (extra: Record<string, unknown>) => [
+      {
+        type: "message",
+        id: "e1",
+        parentId: null,
+        timestamp: "2025-01-01T00:00:00Z",
+        message: { role: "toolResult", toolCallId: "tc-1", toolName: "bash", content: [{ type: "text", text: "ok" }], ...extra },
+      },
+    ];
+    const withDuration = replayEntriesAsEvents("sess-1", mk({ durationMs: 850 }));
+    expect((withDuration[0].event.data as any).durationMs).toBe(850);
+
+    for (const bad of [-1, "850", null]) {
+      const ev = replayEntriesAsEvents("sess-1", mk({ durationMs: bad }));
+      expect(ev[0].event.data).not.toHaveProperty("durationMs");
+    }
+
+    // Reduce: start (from the assistant toolCall) then the end with the recorded duration.
+    const entries = [
+      {
+        type: "message",
+        id: "a1",
+        parentId: null,
+        timestamp: "2025-01-01T00:00:00Z",
+        message: { role: "assistant", content: [{ type: "toolCall", id: "tc-1", name: "bash", arguments: { command: "ls" } }] },
+      },
+      ...mk({ durationMs: 850 }).map((e) => ({ ...e, id: "e2", parentId: "a1", timestamp: "2025-01-01T00:00:09Z" })),
+    ];
+    let state = createInitialState();
+    for (const e of replayEntriesAsEvents("sess-1", entries)) state = reduceEvent(state, e.event as any);
+    expect(state.messages.find((m) => m.toolCallId === "tc-1")?.duration).toBe(850);
+  });
+
   it("should return empty array for empty entries", () => {
     expect(replayEntriesAsEvents("sess-1", [])).toEqual([]);
   });

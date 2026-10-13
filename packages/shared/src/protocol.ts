@@ -1,7 +1,7 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
+import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionDriver, SessionSource, TurnUsage } from "./types.js";
 import type { UsageTotals } from "./usage-totals.js";
 
 // Notify level lives in types.ts (the session record retains a notify log);
@@ -94,7 +94,13 @@ export type BridgeDiagnosticEvent =
    * registering. Delivered only over a later connection to the SAME endpoint
    * whose proof verified. See change: loopback-credential-proof (D8).
    */
-  | "server_proof_failed";
+  | "server_proof_failed"
+  /**
+   * ACP adapter: negotiated protocol version, startup/exit cause and the
+   * rate-limited skipped / discarded / dropped-update counters. `detail` is
+   * human text. See change: add-acp-session-driver (D5, D6).
+   */
+  | "acp";
 
 /**
  * Bridge -> server: how this bridge chose its endpoint, and every refusal to
@@ -234,6 +240,14 @@ export interface SessionRegisterMessage {
    * See change: count-non-message-usage.
    */
   usageSeed?: UsageTotals;
+  /**
+   * Which agent driver serves this session. Absent ≡ `"pi"`. `"acp"` is set by
+   * the ACP adapter; the server persists it and rejects pi-only operations.
+   * Additive/back-compatible. See change: add-acp-session-driver (D12).
+   */
+  driver?: SessionDriver;
+  /** Configured ACP agent id (`acpAgents[].id`) when `driver === "acp"`. */
+  acpAgentId?: string;
 }
 
 export interface SessionUnregisterMessage {
@@ -847,6 +861,46 @@ export interface PathYoloResultMessage {
   verdict: "auto-allow" | "refused" | "decline";
 }
 
+/**
+ * Bridge → server: ask for the vault values granted to this session's project.
+ * Sent on every connect and every `session_start` reason. `cwd` is the session's
+ * own cwd from `ctx.sessionManager.getCwd()`; absent when it could not be read
+ * (the hub then delivers nothing). `tracked` carries NAMES only, never values or
+ * hashes. See change: add-credential-vault (D2).
+ */
+export interface VaultSyncRequestMessage {
+  type: "vault_sync_request";
+  sessionId: string;
+  cwd?: string;
+  /** Raw `git remote get-url origin` of `cwd`; absent when there is no readable origin. The hub normalises it. */
+  origin?: string;
+  tracked: string[];
+  reason: "connect" | "startup" | "reload" | "new" | "resume" | "fork";
+}
+
+/**
+ * Server → bridge: the COMPLETE set of values granted to the session (a sync
+ * answer and a push are the same shape). `ok` replaces the granted set; `denied`
+ * means withdraw everything (disabled, untrusted, insecure transport, no project);
+ * `unavailable` means the vault could not be read, so the bridge keeps its values
+ * within the offline grace. See change: add-credential-vault (D2).
+ */
+export interface VaultSnapshotMessage {
+  type: "vault_snapshot";
+  status: "ok" | "denied" | "unavailable";
+  outcome: import("./vault-delivery.js").VaultDeliveryOutcome;
+  /** Present only when `status === "ok"`. */
+  entries: Array<{ name: string; value: string }>;
+  graceHours: number;
+}
+
+/** Bridge → server: how each granted name was applied (names and outcomes only). */
+export interface VaultReportMessage {
+  type: "vault_report";
+  sessionId: string;
+  applied: Array<{ name: string; outcome: "delivered" | "local-override" | "inherited" }>;
+}
+
 /** Bridge → server: the operator denied/dismissed a gate select prompt (fire-and-forget). */
 export interface PathGateRefusalMessage {
   type: "path_gate_refusal";
@@ -1035,6 +1089,8 @@ export type ExtensionToServerMessage =
   | PromptCancelMessage
   | PathGrantRequestMessage
   | PathYoloRequestMessage
+  | VaultSyncRequestMessage
+  | VaultReportMessage
   | PathGateRefusalMessage
   | ReplayCompleteMessage
   | FirstMessageUpdateMessage
@@ -1637,6 +1693,7 @@ export type ServerToExtensionMessage =
   | RegisterRejectedExtensionMessage
   | PathGrantResultMessage
   | PathYoloResultMessage
+  | VaultSnapshotMessage
   | DashboardIdentityMessage
   | RequestFlowsRefreshMessage
   | CredentialsUpdatedMessage

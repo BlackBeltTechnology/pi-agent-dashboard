@@ -91,6 +91,25 @@ export interface PiGatewayOptions {
   hostPressureUnresponsiveMs?: number;
 }
 
+/** How a bridge connection reached the gateway. `local` = in-process virtual socket. */
+type ConnectionTransport = "unix" | "tcp" | "local";
+
+/**
+ * The WebSocket surface the per-connection handler uses, duck-typed so an
+ * in-process host can stand in for a real socket (`LocalBridgeSocket`).
+ * `_socket` is what `isSocketAlive` probes.
+ */
+export interface LocalGatewaySocket {
+  readyState: number;
+  _socket: { destroyed: boolean; writable: boolean };
+  send(data: string): void;
+  close(): void;
+  terminate(): void;
+  ping(): void;
+  on(event: "message" | "close" | "pong", listener: (...args: any[]) => void): unknown;
+  off(event: "message" | "close" | "pong", listener: (...args: any[]) => void): unknown;
+}
+
 export interface PiGateway {
   start(port: number, host?: string, opts?: { kind?: "tcp" | "loopback" }): void;
   /**
@@ -111,6 +130,13 @@ export interface PiGateway {
    * unlinking an incumbent (D9).
    */
   startOnSocket(socketPath: string): Promise<void>;
+  /**
+   * Attach an in-process virtual connection (ACP host A) and run the SAME
+   * per-connection handling as a WebSocket bridge: registration, contention,
+   * spawn-token watchdog clearing, heartbeat, disconnect. Attributed as a local
+   * origin. See change: add-acp-session-driver (D1).
+   */
+  attachLocalConnection(socket: LocalGatewaySocket): void;
   stop(): void;
   /**
    * Resolved listening endpoint after start(): a port number for TCP, the
@@ -422,8 +448,8 @@ export function createPiGateway(
    * alike, so the transport is a per-bridge property rather than a
    * per-server mode. See change: add-pi-gateway-transport-identity.
    */
-  const attachConnectionHandler = (target: WebSocketServer, transport: "unix" | "tcp") => {
-      target.on("connection", (ws, req) => {
+  const handleConnection = (ws: WebSocket, req: IncomingMessage | undefined, transport: ConnectionTransport) => {
+      {
         // Origin evidence, derived ONLY from the connection and its credential
         // — never from anything the bridge says about itself. A unix peer
         // opened a file in this HOME's 0700 dir; a loopback TCP peer is on this
@@ -434,9 +460,13 @@ export function createPiGateway(
         // whichever transport attached the handler first — `tcp` in the shipped
         // container. Trusting it made every in-container session REMOTE, which
         // withholds Resume/Fork in the UI and is exactly backwards.
-        const connTransport = req && unixUpgrades.has(req) ? "unix" : transport;
+        // `local` = an in-process virtual connection (ACP host A): no upgrade
+        // request exists, so without the explicit label it would fail closed to
+        // remote. Same-host by construction, attributed like `unix`.
+        // See change: add-acp-session-driver (D1).
+        const connTransport: ConnectionTransport = req && unixUpgrades.has(req) ? "unix" : transport;
         const sessionOrigin = attributeOrigin({
-          transport: connTransport,
+          transport: connTransport === "tcp" ? "tcp" : "unix",
           remote:
             connTransport === "tcp" &&
             !isLoopbackAddress(
@@ -897,6 +927,13 @@ export function createPiGateway(
                 // normalization as the untrusted inputs above.
                 // See change: fix-spawn-correlation-ttl-coupling (D3).
                 dashboardSpawned: msg.dashboardSpawned === true,
+                // Untrusted socket input: only the known driver value, and a bounded
+                // agent id. See change: add-acp-session-driver (D12).
+                driver: msg.driver === "acp" ? "acp" : undefined,
+                acpAgentId:
+                  msg.driver === "acp" && typeof msg.acpAgentId === "string" && msg.acpAgentId.length > 0 && msg.acpAgentId.length <= 200
+                    ? msg.acpAgentId
+                    : undefined,
                 // Untrusted socket input: normalized to finite non-negative
                 // numbers or dropped. Applied by `register` only for an id the
                 // server has no record of. See change: count-non-message-usage.
@@ -1042,7 +1079,11 @@ export function createPiGateway(
           }
           aliveMisses.delete(ws);
         });
-      });
+      }
+  };
+
+  const attachConnectionHandler = (target: WebSocketServer, transport: "unix" | "tcp") => {
+    target.on("connection", (ws, req) => handleConnection(ws, req, transport));
   };
 
   const startTcp = (
@@ -1214,6 +1255,9 @@ export function createPiGateway(
      * upgrade/connection handler with the TCP listener, so the transport is a
      * per-bridge property rather than a per-server mode (D10).
      */
+    attachLocalConnection(socket: LocalGatewaySocket) {
+      handleConnection(socket as unknown as WebSocket, undefined, "local");
+    },
     async startOnSocket(path: string) {
       let createdWss = false;
       if (!wss) {

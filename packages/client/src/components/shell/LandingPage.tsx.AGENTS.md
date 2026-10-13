@@ -1,5 +1,9 @@
 # LandingPage.tsx — index
 
-Onboarding landing screen. Three-step gated flow: credentials → pin folder → spawn session; step states `pending`/`done`/`locked` per `design.md` D1. Falls back to minimal π placeholder when no onboarding props. Exports `LandingPage`, `LandingPageProps`.
+Onboarding landing. One ordered list (`<ol>`): connect provider → create first project → start first session. Per step `pending`/`done`/`locked` (marker + text, never colour alone); only the FIRST pending step expands with the single primary CTA; locked and later-pending rows are one line with no controls ("Needs …" / "Waits for step 1"). "n of 3 done" line + bar above. Markers use `--severity-success-*`, `--bg-tertiary`, `--accent-primary` (no raw Tailwind colours). Falls back to the π placeholder when no onboarding props. Exports `LandingPage`, `LandingPageProps`.
 
-See change: align-ui-with-theme-tokens. Add-folder description "… start new sessions inside it."
+Step ②: inline `CreateProjectForm` — field prefilled `my-first-project` (`onboarding-step-2-name`), primary `onboarding-step-2-create`, link `onboarding-step-2-cta` ("Use an existing folder…", opens `AddFoldersDialog` via `onOpenPinDialog`). Calls prop `onCreateProject(name)` (App wires `createProjectAndPin`); server validates, `reason` → localized copy (`landing.createError.*`, generic for unknown/404) between label and input, `aria-invalid`, input kept. In flight: ref guard + disabled field/button/link, `aria-busy`, "Creating…". `existed` note is component state (gone on unmount).
+
+Step ① done row: `Step1PeerStatus` mounted only when step ① done AND `anthropicAuthenticated === true` (its only fetches: health probe + recommended). First match: probe `importFailed` warning; probe resolving nothing; store deciding/running/failed → `PeerAutoInstallStatus` (Retry `onboarding-step-1-peer-retry`); installed nothing; entry not `activeInPi` → warning + secondary Install (`onboarding-step-1-peer-install` → `ensureInstall("manual")`, then re-read probe + recommended). Wrapper `onboarding-step-1-peer-status` is `role="status"` `aria-live="polite"`.
+
+Test ids: `onboarding-progress`, `onboarding-step-N`, `onboarding-step-N-cta|done|locked`, `onboarding-step-2-create|name|error|existed`. See changes: align-ui-with-theme-tokens, streamline-first-run.

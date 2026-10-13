@@ -130,6 +130,26 @@ TypeScript type definitions shared across all components:
 - `browser-protocol.ts` - Server↔Browser WebSocket messages (includes PromptBus messages: `prompt_request`, `prompt_dismiss`, `prompt_cancel`)
 - `types.ts` - Data models (Session, Workspace, Event, etc.)
 
+### ACP agent sessions (change: add-acp-session-driver)
+
+Non-pi agents via Agent Client Protocol. Code: `packages/server/src/acp-bridge/`, shared model `packages/shared/src/acp/`.
+
+- Core: `acp-session-adapter.ts`. Bridge msgs (`ExtensionToServerMessage` / `ServerToExtensionMessage`) ⇄ ACP JSON-RPC NDJSON stdio. No sockets.
+- Host A (`durable: false`): in-process. `LocalBridgeSocket` → `PiGateway.attachLocalConnection`. Ends on server stop.
+- Host B (`durable: true`): `bin/acp-bridge.mjs` under rpc-keeper. WebSocket to gateway. Survives restart; replays `~/.pi/dashboard/acp/<id>.events.jsonl`.
+- Pi-only ops refused: `acp-guard.ts` → `unsupported_for_acp`. Config: [docs/acp-sessions.md](acp-sessions.md).
+
+```mermaid
+flowchart LR
+  GW["pi-gateway"] <-->|"WebSocket (durable: true)"| AB["acp-bridge (rpc-keeper)"]
+  GW <-->|"LocalBridgeSocket (durable: false)"| HA["in-process host"]
+  AB --- CORE
+  HA --- CORE
+  CORE["AcpSessionAdapter"] <-->|"JSON-RPC NDJSON stdio, argv, allowlisted env"| AG["ACP agent"]
+```
+
+See change: add-acp-session-driver.
+
 ## Data Flow
 
 ### Event Flow (pi → browser)
@@ -578,7 +598,7 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - `agent_settled` carries NO `messages` (verified pi 0.81.1/0.83), so tracker remembers terminal disposition via `lastEndWasError` at `agent_end`.
 - `-1` sentinels REMOVED. `maxAttempts` / `delayMs` sourced read-only from pi settings via `packages/extension/src/pi-retry-settings.ts` (defaults 3 / 2000; unreadable → `delayMs: 0` → surface renders elapsed-only).
 - pi 0.83 exposes retry lifecycle events to RPC/SDK consumers ONLY. ExtensionAPI has no `auto_retry_*` and nothing on EventBus. `willRetry` in 0.83 is compaction-only (`session_before_compact`/`session_compact`). Bridge is extension → must observe-synthesize.
-- Native `agent_settled` guaranteed at the 1.0.0 lockstep floor (`piCompatibility.minimum == recommended == 1.0.0`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
+- Native `agent_settled` guaranteed at the 1.1.0 lockstep floor (`piCompatibility.minimum == recommended == 1.1.0`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
 
 **3. Settings write + reload-on-save** (`packages/server/src/pi-agent-settings.ts`).
 
@@ -1080,6 +1100,7 @@ First-party slots (React, possibly also descriptor):
 - `anchored-popover` — popover anchored to a triggering UI element (replaces `TasksPopover`).
 - `command-route` — maps a slash command or URL route to a `content-view` (replaces today's hand-wired routing in `App.tsx`).
 - `settings-section` — a section in the Settings page (replaces today's hardcoded `Background polling (OpenSpec)` section). React for first-party plugins; descriptor (RJSF/UiField) for third-party extensions.
+- `resource-page-section` — section above resource grid on Folder + Global Skills/Agents/Extensions/Prompts/Themes pages. Multiplicity `many`, react-only. Props `ResourcePageSectionProps` (`resourceType`, `scope: "folder"|"global"`, `cwd?`, `pluginContext`). Claim `resourceType` filter. First claimant: `skill-atlas`. See change: add-skill-atlas-screen; [`skill-atlas.md`](skill-atlas.md).
 - `tool-renderer` — React component for a specific `tool_call` by `toolName` (replaces today's hardcoded `tool-renderers/registry.ts`).
 
 Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `footer-segment`, `agent-metric`, `breadcrumb`, `gate`, `toast`, `rjsf-form`.
@@ -1309,6 +1330,8 @@ Client: unsatisfied `paths` requirement renders non-actionable warning pill — 
 
 **Settings consolidation.** Plugin-contributed `settings-section` claims render on owning plugin's dedicated left-nav page `/settings/plugins/<id>` — contract in `#### Plugin settings pages` below. Legacy `claim.tab` manifest field preserved for back-compat manifests but inert; `SettingsPanel` no longer consumes it. See change: add-plugin-activation-ui (settings-consolidation).
 
+**Nav promotion.** `settings-section` `nav: { group, label }` promotes entry into built-in group only if `group` ∈ `PROMOTION_GROUP_ALLOWLIST` (`packages/client/src/lib/settings-promotions.ts`) = `models`, `resources`. `resources` = built-in Skills/Agents/Extensions/Prompts/Themes group (`SettingsPanel.tsx`). Promoted items render after built-ins. Plugins subtree keeps pointer row `<label> ↗ <group>`. Same trust + reserved-label rules for every group. See change: add-skill-atlas-screen.
+
 #### Plugin settings pages (`plugin-settings-pages`)
 
 Plugin-contributed `settings-section` claims render on owning plugin's dedicated page `/settings/plugins/<id>`. One render path only: `SettingsSectionByPluginSlot` inside `PluginSettingsPage.tsx`. See change: plugin-settings-pages.
@@ -1351,6 +1374,7 @@ Generic channel. Any plugin routes pi events bridge→server→browser + request
 - `plugin_pi_message` (ExtensionToServer). Server `event-wiring` dispatches to `ServerPluginContext.registerPiHandler(messageType, handler)`.
 - `plugin_event` (ServerToBrowser). Plugin server `broadcastToSubscribers`. Shell `useMessageHandler` routes `event` → `publishSessionEvent` → plugin `useSessionEvents`.
 - New `ServerPluginContext` capabilities. `onEvent(handler)` subscribes all forwarded events. `sendToSession(sessionId, text)` sends prompt/command; `/`-prefixed text routes to extension-command dispatch (Path C keeper headless).
+- Optional host read seams: `getPiResources?(cwd?, {fresh?})` (raw `PiResourcesResult`), `onPiResourcesInvalidated?(handler)` (fires on `invalidatePiResources` + `commands_list`). See [`plugin-seams.md`](plugin-seams.md#host-read-seams-getpiresources--onpiresourcesinvalidated).
 
 ##### Private request/reply lane
 
@@ -1453,17 +1477,31 @@ New package `packages/hermes-memory-plugin` (client + server + shared). Settings
 - Runtime caveat: hermes reads config once at extension load → edits apply to newly started sessions only ("applies to new sessions" notice in the UI), not running ones.
 - Structured logging: path + field count on read/write success, failure reason on error, NEVER field values (config may hold model/provider hints).
 
-### MCP Client Plugin (`extract-mcp-client-plugin`, `migrate-mcp-to-pi-builtin`)
+### MCP Client Plugin (`extract-mcp-client-plugin`, `migrate-mcp-to-pi-builtin`, `mcp-client-project-overrides`)
 
-New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of the two Pi MCP config layers on the dashboard side. NO `pi-mcp-adapter` dependency — rebuilt on pi 1.0.0's BUILT-IN MCP. `apple-tools` and `mcp-server-plugin` consume it. See change: migrate-mcp-to-pi-builtin.
+New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of the two Pi MCP config layers on the dashboard side. NO `pi-mcp-adapter` dependency — rebuilt on pi 1.0.0's BUILT-IN MCP. `apple-tools` and `mcp-server-plugin` consume it. See change: migrate-mcp-to-pi-builtin, mcp-client-project-overrides.
 
 **Claims.** `settings-section` → `/settings/plugins/mcp-client`. Folder pill = ONE component on two slots: `sidebar-folder-section` + `worktree-card-section`. `shell-overlay-route` `/folder/:encodedCwd/mcp`, `depth: 2`, `parentPath` `/folder/:encodedCwd`.
 
 **Exports.** `./client`, `./server`, `./core`. `./core` imports NO React and NO host runtime — the hostless `pi-apple-tools-install` CLI builds the same service from it.
 
-**Two layers.** Pi global `$PI_CODING_AGENT_DIR/mcp.json` (else `~/.pi/agent/mcp.json`) + trusted `<cwd>/.pi/mcp.json`. A project entry REPLACES the global entry of the same name — whole entry, not a field merge, matching pi's own rule. Both layers parse as STRICT `JSON.parse`; a file with comments or trailing commas is an unparseable layer that pi skips WHOLE — shown as such, never written over. `src/core/layers.ts` (`LayerPaths`, `piAgentDir`, `defaultLayerPaths`, `nullProto`, `readLayer`). DELETED: adapter worker/port, adapter version floor, global-settings form, `adapterLoadTimeoutMs`, `configSchema.json`, and every shared/import layer (`.mcp.json`, `~/.config/mcp`, host imports). `pi-mcp-adapter` + `strip-json-comments` deps removed; `ajv` stays.
+**Two layers.** Pi global `$PI_CODING_AGENT_DIR/mcp.json` (else `~/.pi/agent/mcp.json`) + trusted `<cwd>/.pi/mcp.json`. Project entry = override OR whole-entry replace (see Project overrides). Whole-entry replace: `command`, `url` or `type` set → replaces global entry of same name, whole entry, not a field merge. Both layers parse as STRICT `JSON.parse`; a file with comments or trailing commas is an unparseable layer that pi skips WHOLE — shown as such, never written over. `src/core/layers.ts` (`LayerPaths`, `piAgentDir`, `defaultLayerPaths`, `nullProto`, `readLayer`). DELETED: adapter worker/port, adapter version floor, global-settings form, `adapterLoadTimeoutMs`, `configSchema.json`, and every shared/import layer (`.mcp.json`, `~/.config/mcp`, host imports). `pi-mcp-adapter` + `strip-json-comments` deps removed; `ajv` stays.
 
-**pi rules.** `src/core/pi-rules.ts` mirrors pi 1.0.0's unexported `validateMcpServerConfig`. `isValidServerName` (`[A-Za-z0-9_-]+`, ≤128, not `__proto__`/`constructor`/`prototype`); `transportOf` (HTTP when `url`, unless `type: "stdio"`); `MCP_EXPOSURES` + `MCP_EXPOSURE_ALIASES` (`codemode-deferred` → `codemode`); `ADAPTER_ONLY_KEYS` / `adapterLeftovers` / `ignoredKeys` (pi ignores unknown keys — adapter keys survive in the file, pi never acts on them); `authModeOf` (provider | header (case-insensitive `Authorization`) | oauth).
+**Project overrides (pi ≥ 1.0.1).** Override = project entry with `command`, `url` and `type` all `=== undefined` (`null` and `""` count as SET). Changes only `enabled`, `exposure`, `toolExposure` of the Pi-global server with same name. Keeps all other global fields, credentials included. Other keys → `bad-keys`. Effective entry = `{...global, ...override}`, validated by pi rules. Exempt from `-`/`_` `name-collision` and project `auth` checks. Credentials stay global.
+- Base = global entry pi KEEPS: valid + first-wins on namespace collision. One shared fn `keptGlobalOf` (`core/pi-rules.ts`) used by effective view AND every writer.
+- `classifyProjectEntry(name, value, keptGlobal?)` → `replace | orphan | bad-keys | invalid | override`.
+- No kept base → `orphan`: folder row, pi message `needs "command" or "url", or a global server to override`.
+- Bad keys → `bad-keys`: `an override can only set enabled, exposure, toolExposure`.
+- Invalid merge → `invalid`: pi validation message.
+- `orphan` / `bad-keys` / `invalid`: global entry stays in effect unchanged.
+- Messages byte-equal pi 1.1.0 text. Golden test E12 reads pi dist `extensions/mcp/config.js`.
+- Valid override = ONE row: `provenance: "pi-global"`, `entry` = merged (redacted in project views), `projectOverride: {path, keys, raw, inherited}`.
+- `orphan` / `bad-keys` / `invalid` = folder row + `overrideIssue`. Not counted by folder pill.
+- Untrusted project: global row unchanged; override → inactive folder row `project-not-trusted`.
+- Whole-entry replace unchanged: `provenance: "pi-folder"`, `overridesGlobal`.
+- `legacyCopy` flag on folder row that is exact old copy of global.
+
+**pi rules.** `src/core/pi-rules.ts` mirrors pi 1.1.0's unexported `validateMcpServerConfig`. Adds `OVERRIDE_KEYS`, `isProjectOverride`, `classifyProjectEntry`, `keptGlobalOf`. `isValidServerName` (`[A-Za-z0-9_-]+`, ≤128, not `__proto__`/`constructor`/`prototype`); `transportOf` (HTTP when `url`, unless `type: "stdio"`); `MCP_EXPOSURES` + `MCP_EXPOSURE_ALIASES` (`codemode-deferred` → `codemode`); `ADAPTER_ONLY_KEYS` / `adapterLeftovers` / `ignoredKeys` (pi ignores unknown keys — adapter keys survive in the file, pi never acts on them); `authModeOf` (provider | header (case-insensitive `Authorization`) | oauth).
 
 **Service.** `ctx.provide("mcp-client.config", …)` before any route registers. Factory `createMcpClientConfigService({ configIO, knownCwds, isProjectTrusted?, paths?, runner?, scratchCwd?, liveTimeoutMs?, liveCacheTtlMs? })` → `McpClientRuntime` = service + `getLiveState(scope, {fresh})`. Write-only paths never run `pi mcp list`.
 
@@ -1471,13 +1509,17 @@ New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of the two
 
 **Live state.** `src/core/live-state.ts` `createLiveStateReader({runner,timeoutMs,cacheTtlMs,now})` runs `pi mcp list --json` through the shared safe-spawn. `LIVE_STATE_TIMEOUT_MS` 30000, `LIVE_STATE_CACHE_TTL_MS` 30000. stdout parsed whatever the exit code — pi exits `1` whenever a server is disconnected or an entry invalid. Timeout aborts the signal → `{ok:false,reason:"timeout"}`; failures never cached. Global view spawns in an empty `mkdtemp` scratch dir so only the global layer loads.
 
-**Effective view.** `createEffectiveViewReader`. Global view = Pi-global layer only. Project view = global then folder. Rows carry provenance `pi-global`/`pi-folder`, `overridesGlobal`, `transport`, `enabled`, `exposure`, `active`, `inactiveReason` (`disabled` | `project-not-trusted` | `invalid-entry` | `name-collision` | `global-only-auth`), `piError`, `ignoredKeys`, `adapterLeftovers`, `authMode`. Server-side redaction (`redactEntry`, `isSecretKey`): GLOBAL entries shown in a project view lose `headers`/`env` → `{redacted,keys}` and `oauth.clientSecret` → `{redacted}`.
+**Effective view.** `createEffectiveViewReader`. Global view = Pi-global layer only. Project view = global then folder. Rows carry provenance `pi-global`/`pi-folder`, `overridesGlobal`, `transport`, `enabled`, `exposure`, `active`, `inactiveReason` (`disabled` | `project-not-trusted` | `invalid-entry` | `name-collision` | `global-only-auth`), `piError`, `ignoredKeys`, `adapterLeftovers`, `authMode`, `projectOverride`, `overrideIssue`, `legacyCopy`. Server-side redaction (`redactEntry`, `isSecretKey`): GLOBAL entries shown in a project view lose `headers`/`env` → `{redacted,keys}` and `oauth.clientSecret` → `{redacted}`.
 
-**Writer.** `createConfigWriter({configIO,paths,knownCwds,isProjectTrusted?})`: `targetPath`, `readServerEntry`, `ensureServerEntry` (merge fields), `saveServer` (whole entry, `previousName` rename), `removeServer`, `setEnabled`, `convertAdapterLeftovers`, `previewEnsure`, `readParseStatus`. Validation order: transport-conflict → pi rules (`invalid-entry`, pi's own message) → project `auth` on HTTP refused (global-only) → `-`/`_` `name-collision`. Collision scope: project = global + project names; global = global + every known TRUSTED folder's project names; entry being replaced excluded. `setEnabled`: write `enabled:false` or remove the key. Folder-disable of a global-only server writes a `folderCopyOf` copy WITHOUT `headers`/`env`/`oauth.clientSecret`/`auth` and returns `omitted`; re-enabling such a copy returns `action:"needs-choice"`. `ConfigRefusalCode` is CLOSED: `unparseable | entry-not-object | invalid-name | name-collision | transport-conflict | invalid-entry | write-failed`. Exports `NotAllowedCwdError`, `FOLDER_COPY_OMITTED`, `folderCopyOf`.
+**Writer.** `createConfigWriter({configIO,paths,knownCwds,isProjectTrusted?})`: `targetPath`, `readServerEntry`, `ensureServerEntry` (merge fields), `saveServer` (whole entry, `previousName` rename), `removeServer`, `setEnabled`, `setProjectOverride`, `convertLegacyCopy`, `convertAdapterLeftovers`, `previewEnsure`, `readParseStatus`. Validation order: transport-conflict → pi rules (`invalid-entry`, pi's own message) → project `auth` on HTTP refused (global-only) → `-`/`_` `name-collision`. Overrides skip last two checks. Collision scope: project = global + project names; global = global + every known TRUSTED folder's project names; entry being replaced excluded. `setEnabled` at project scope, kept global server, no folder entry → `setProjectOverride` smallest override. Existing override → same. Existing whole-entry folder entry → unchanged, `needs-choice` for whole-entry copies. Table: global on+Off → `enabled:false`; on+On → delete key; off+On → `enabled:true`; off+Off → delete key; compare `enabled ?? true`.
+`setProjectOverride(name, patch, scope)`: project scope only. Patch absent = keep, `null` = delete key, empty override deleted, no key change = no file write. Refuses `no-global-server` (unparseable wins). Atomic write.
+`saveServer` at project scope refuses override-shaped body/rename (`invalid-entry`). Global `collisionCandidates` ignores folder overrides.
+`convertLegacyCopy`: legacy = both full entries (string `command`|`url`), folder has none of `headers`/`env`/`auth`/`oauth.clientSecret`, rest equals global minus those. Keeps only override keys differing from global. Returns `previous` for undo. Old copy path (`folderCopyOf`, `omitted` result) removed.
+`ConfigRefusalCode` is CLOSED: `unparseable | entry-not-object | invalid-name | name-collision | transport-conflict | invalid-entry | write-failed | no-global-server`. Exports `NotAllowedCwdError`, `keptGlobalOf`.
 
-**Schema.** Published `schema/mcp-config.schema.json` is the pi 1.0.0 entry shape: `description`, `oauth.clientName` / `oauth.authServerMetadataUrl`, global-only `auth.provider`, `exposure` (alias included), `toolExposure`, `timeout` > 0, `enabled`. `ajv` validates every write BEFORE IO. Markers `x-secret` (redaction + masking), `x-transport`, `x-global-only` drive the editor.
+**Schema.** Published `schema/mcp-config.schema.json` is the pi 1.1.0 entry shape. `$defs.ProjectOverride` (`additionalProperties: false`) covers overrides: `description`, `oauth.clientName` / `oauth.authServerMetadataUrl`, global-only `auth.provider`, `exposure` (alias included), `toolExposure`, `timeout` > 0, `enabled`. `ajv` validates every write BEFORE IO via `validateServerEntry(entry,{kind})`. Markers `x-secret` (redaction + masking), `x-transport`, `x-global-only` drive the editor.
 
-**REST.** `GET /api/mcp-client/effective?cwd=`, `GET /api/mcp-client/live?cwd=&fresh=1`, `GET /api/mcp-client/schema`, `PUT /api/mcp-client/servers/:name` `{scope,cwd?,entry,previousName?}`, `DELETE /api/mcp-client/servers/:name?scope=&cwd=` → `{ok,removed}`, `PUT /api/mcp-client/servers/:name/enabled` `{scope,cwd?,enabled}`, `POST /api/mcp-client/servers/:name/convert` `{scope,cwd?}`. Removed: `/adapter`, `/settings`, `/disabled`. EVERY route — GET included — sits behind `networkGuard`: mutating bodies become executable config for pi and the effective view returns own-layer credentials. Path name decoded + validated and project cwd admitted (403 `not-allowed` + `reason`/`hint`) BEFORE any IO.
+**REST.** `GET /api/mcp-client/effective?cwd=`, `GET /api/mcp-client/live?cwd=&fresh=1`, `GET /api/mcp-client/schema`, `PUT /api/mcp-client/servers/:name` `{scope,cwd?,entry,previousName?}`, `DELETE /api/mcp-client/servers/:name?scope=&cwd=` → `{ok,removed}`, `PUT /api/mcp-client/servers/:name/enabled` `{scope,cwd?,enabled}`, `POST /api/mcp-client/servers/:name/convert` `{scope,cwd?}`, `PUT /api/mcp-client/servers/:name/project-override` `{enabled?,exposure?,toolExposure?}` (`null` = inherit; types + enums validated BEFORE scope parse; project only; → `{ok,override}` | `{ok,removed:true}`), `POST /api/mcp-client/servers/:name/convert-to-override` (→ `{ok,previous}`). Same networkGuard + known-folder admission. Hold origins reuse `mcp:enable` / `mcp:convert`. Removed: `/adapter`, `/settings`, `/disabled`. EVERY route — GET included — sits behind `networkGuard`: mutating bodies become executable config for pi and the effective view returns own-layer credentials. Path name decoded + validated and project cwd admitted (403 `not-allowed` + `reason`/`hint`) BEFORE any IO.
 
 **Runner.** `src/server/pi-runner.ts` `createPiMcpListRunner()`: `ToolResolver.resolvePi()` + shared `spawn` (no shell) + `buildSpawnEnvForArgv` (`ELECTRON_RUN_AS_NODE`) + SIGKILL on abort + 4 MiB stdout cap. Plugin `index.ts` consumes `host.knownFolderCwds` + `host.isProjectTrusted`; absent `isProjectTrusted` → one warning, every project untrusted.
 
@@ -1486,7 +1528,7 @@ New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of the two
 ```mermaid
 flowchart LR
   PG["Pi global mcp.json<br/>$PI_CODING_AGENT_DIR else ~/.pi/agent"] --> LV
-  PF["trusted folder .pi/mcp.json<br/>project replaces global"] --> LV
+  PF["trusted folder .pi/mcp.json<br/>project override OR whole-entry replace"] --> LV
   PI["pi mcp list --json<br/>live-state.ts 30s timeout+cache"] --> LV
   TR["host.isProjectTrusted"] --> LV
   subgraph MC ["packages/mcp-client-plugin"]
@@ -1498,6 +1540,8 @@ flowchart LR
   SVC -->|"ctx.consume (dependsOn)"| AT["apple-tools install.ts<br/>ensureServerEntry('iMCP')"]
   CORE -->|"package dep, hostless"| BIN["pi-apple-tools-install CLI"]
 ```
+
+**Folder UI** (`/folder/:cwd/mcp`). Pi-global row switch = effective state. Text badge: `Off in this folder` / `On in this folder` / `Exposure: X in this folder`. `Reset to global` = exact undo via override route. Overflow menu: `Project settings…` (radiogroup Inherit/On/Off + exposure select `Inherit (<global>)` + read-only `toolExposure`; bottom sheet <640px) and `Replace with folder entry…` (old whole-entry editor). Orphan/invalid override row: pi message + Remove only. Legacy-copy strip + `Convert to project override` with undo. Untrusted: `Saved — applies once the project is trusted`. Mobile: badges display-only; Reset/Convert in row menu; 44px targets.
 
 ### MCP Endpoint (`add-dashboard-mcp-server`, `mcp-legacy-clients-and-token-issuance`, `paginate-mcp-list-sessions`, `migrate-mcp-to-pi-builtin`)
 
@@ -1606,11 +1650,13 @@ pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashbo
 
 `launchSource` (returned by `/api/health`) is `"electron" | "standalone" | "bridge"`, derived from `DASHBOARD_STARTER`. Client uses it via `useLaunchSource()` to hide pi-core update UI on Electron (immutable bundle has no writable target).
 
-Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "1.0.0"`, `recommended: "1.0.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths on that artifact). `piCompatibility` unchanged: a `@earendil-works/pi-coding-agent` range, a DIFFERENT artifact from the pi-ai pin below.
+Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "1.1.0"`, `recommended: "1.1.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths on that artifact). `piCompatibility` unchanged: a `@earendil-works/pi-coding-agent` range, a DIFFERENT artifact from the pi-ai pin below.
+
+1.1.0 adds: `tool_execution_end.durationMs` preferred for tool row duration; `samplingParamsByThinkingLevel` passthrough; `GET /api/provider-auth/legacy-provider-ids` (`azure-openai-responses` -> `azure` rename scan). See change: update-pi-core-1-1-adopt-apis.
 
 **Below-floor session signal.** Replaces per-feature pi version gates. Bridge `sendPiVersionIfChanged` (`packages/extension/src/model-tracker.ts`) reads the running pi argv-anchored via `readRunningPiVersion` and sends `pi_version_update`; server runs `computePiBelowFloor(version, serverPiMinimum())` (`packages/server/src/pi/pi-version-skew.ts`) → sets `DashboardSession.piBelowFloor: { minimum } | null`; client `PiBelowFloorWarning` renders on `SessionCard` + `SessionHeader`. Unknown or unparseable version → no flag. `minimum` sourced from `piCompatibility.minimum`. See change: update-pi-core-1-0-adopt-apis.
 
-**pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (pi >= 1.0.0). Supported range `>=1.0.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.0.0`. The server streams through pi-coding-agent's own **`ModelRuntime`** (ONE server runtime — see `### Single model runtime`), which owns module shape (factory API only), transcript normalization (`normalizeContext` before dispatch, else systemPrompt + tools drop silently) and OAuth relocation (`dist/oauth.js` is a TYPE-ONLY stub, never consulted; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map). `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple`. The `packages/shared/src/piai-compat/` seam (`adaptPiAi`), its `api-table.ts` / `NON_TEXT_LAZY_FILES` helpers and `packages/shared/src/test-support/piai-factory-fixture.ts` are DELETED.
+**pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (pi >= 1.1.0). Supported range `>=1.1.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.1.0`. The server streams through pi-coding-agent's own **`ModelRuntime`** (ONE server runtime — see `### Single model runtime`), which owns module shape (factory API only), transcript normalization (`normalizeContext` before dispatch, else systemPrompt + tools drop silently) and OAuth relocation (`dist/oauth.js` is a TYPE-ONLY stub, never consulted; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map). `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple`. The `packages/shared/src/piai-compat/` seam (`adaptPiAi`), its `api-table.ts` / `NON_TEXT_LAZY_FILES` helpers and `packages/shared/src/test-support/piai-factory-fixture.ts` are DELETED.
 
 See change: collapse-model-proxy-onto-modelruntime.
 
@@ -1926,7 +1972,7 @@ flowchart TD
 
 **Feedback contract** — exactly one terminal `command_feedback` per reload, `command` field always `/reload`.
 
-**Bridge side** — terminal-hosted path only; ladder step 2 wins for dashboard-spawned sessions. `BridgeCommandOptions.reload` = `terminalReload.reload` (`createTerminalReload`, `packages/extension/src/terminal-reload.ts`). `ExtensionContext` has no `reload()`; only a command handler's `ExtensionCommandContext` does. So `reload()` self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})` — pi runs `_tryExecuteExtensionCommand`, hands handler FRESH command ctx → `ctx.reload()`. No TUI bootstrap. Nothing callable captured — works every reload (retired captured-fn-on-`globalThis` path was single-use, stale ctx after first reload). No pi version gate (`update-pi-core-1-0-adopt-apis`): `supportsInProcessCommandDispatch` and `NO_RELOAD_PATH_REASON` retired — the check could never fail on a supported pi (1.0.0 floor). `BridgeCommandOptions.reload` returns `ReloadOutcome` (`{ok:true, handedOff:true}` | `{ok:false, reason}`). See change: fix-terminal-session-dashboard-reload.
+**Bridge side** — terminal-hosted path only; ladder step 2 wins for dashboard-spawned sessions. `BridgeCommandOptions.reload` = `terminalReload.reload` (`createTerminalReload`, `packages/extension/src/terminal-reload.ts`). `ExtensionContext` has no `reload()`; only a command handler's `ExtensionCommandContext` does. So `reload()` self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})` — pi runs `_tryExecuteExtensionCommand`, hands handler FRESH command ctx → `ctx.reload()`. No TUI bootstrap. Nothing callable captured — works every reload (retired captured-fn-on-`globalThis` path was single-use, stale ctx after first reload). No pi version gate (`update-pi-core-1-0-adopt-apis`): `supportsInProcessCommandDispatch` and `NO_RELOAD_PATH_REASON` retired — the check could never fail on a supported pi (1.1.0 floor). `BridgeCommandOptions.reload` returns `ReloadOutcome` (`{ok:true, handedOff:true}` | `{ok:false, reason}`). See change: fix-terminal-session-dashboard-reload.
 
 **Token handshake** — slot `process.__pi_dashboard_pending_reload__ = {token, sessionId, state, armedAt}`. State `armed → started → delivered | expired`. Transitions compare-and-set — requesting instance `error` and reloaded instance `completed` mutually exclusive. `START_TIMEOUT_MS` = 5000, `FINISH_TIMEOUT_MS` = 60000, both measured from `armedAt`.
 
@@ -2096,7 +2142,7 @@ Routes:
 - `/folder/:encodedCwd/openspec/archive` — archive browser.
 - `/folder/:encodedCwd/openspec/specs` — specs browser.
 - `/folder/:encodedCwd/readme` — README preview.
-- `/folder/:encodedCwd/pi-resources` — pi resources view.
+- `/folder/:encodedCwd/pi-resources` — legacy; replace-redirect → `/folder/:encodedCwd/settings/add-ons`.
 - `/session/:id/diff` — file diff view.
 - `/pi-resource?path=&title=` — cross-folder file preview.
 
@@ -2476,7 +2522,23 @@ See change: add-git-checkout-root-resolver.
 
 ### Folder → workspace add flow (redesign-folder-workspace-add-flow)
 
-**DirectoryHomeView eligibility guard removed.** Any groupable cwd renders home page (session list + spawn prompt). Gone: props `pinnedDirectories`, `workspaceFolders`, `pinnedDirectoriesLoaded`, `workspacesLoaded`, `onPinDirectory`; testids `directory-home-loading`, `directory-home-not-pinned`; i18n keys `directoryHome.notPinnedTitle`, `notPinnedBody`, `pinCta`. App drops `workspaceFolderSet` memo + `pinnedDirsLoaded`, `workspacesLoaded` state + their `useMessageHandler` setters (handlers `pinned_dirs_updated`, `workspaces_updated` no longer flip loaded flags).
+**DirectoryHomeView eligibility guard removed.** Any groupable cwd renders home page (pre-session pane: starters + docked prompt, inside Chat|Split|Editor workspace). Gone: props `pinnedDirectories`, `workspaceFolders`, `pinnedDirectoriesLoaded`, `workspacesLoaded`, `onPinDirectory`; testids `directory-home-loading`, `directory-home-not-pinned`; i18n keys `directoryHome.notPinnedTitle`, `notPinnedBody`, `pinCta`. App drops `workspaceFolderSet` memo + `pinnedDirsLoaded`, `workspacesLoaded` state + their `useMessageHandler` setters (handlers `pinned_dirs_updated`, `workspaces_updated` no longer flip loaded flags).
+
+**Folder home split (change: redesign-directory-home-split).**
+- `/folder/:encodedCwd` renders `DirectoryHomeView` inside `FolderSplitProvider` (`SplitWorkspaceProvider` keyed `folderPaneId(cwd)`, `defaultMode="split"`; opens Split when nothing stored). Mobile: pane alone, no split.
+- Left pane: starters (`starter-cards.ts`, ≤6: folder skills → prompts → global skills; insert `/skill:<n> `, never send) + `CommandInput` docked as LAST child of column → `max-h-[40%]` budget resolves against pane → natural height (fixes #877).
+- Right pane: `EditorPane` (folder editor + terminals). Header (name, path, `LayoutModeSwitch`, gear `directory-home-settings`) sits above both panes.
+- Removed: session list, Terminals/Editor/Settings quick-action buttons, testids `directory-home-session-*`, `directory-home-open-*`.
+- `FolderHomeContainer` owns per-cwd hooks: `useFolderCommands(cwd)` (GET `/api/pi-resources/commands?cwd=`; 404/5xx/network → empty list), `useModelCatalogue()` (GET `/api/models`, module last-good cache).
+- Server `GET /api/pi-resources/commands`: tier `observe`, road `packages`, denylisted from MCP. 400 on missing/relative cwd.
+- origin `live` = latest ACCEPTED non-empty `commands_list` (`SessionCommandRegistry.getEntry().receivedAt`) among sessions with `piGateway.isSessionConnected` and cwd EXACTLY equal (trailing sep stripped + `canonicalPath`); else `scan` (enabled skills as `skill:<n>`, prompts as `<n>`); else `none`.
+- Each command carries `scope` folder|global (path in `local.*` / local-scope packages / under `<cwd>/.pi`, else global). Impl `packages/server/src/pi/folder-commands.ts`.
+- Spawn choices: `spawn_session` / `send_prompt` / `resume_session` gain optional `model`, `thinkingLevel`. Validator `packages/server/src/browser-handlers/spawn-choice.ts` (`validateSpawnChoice`, `resolveResumeChoice`): model `provider/id` ≤200 chars, charset-restricted, no empty/dash-led segment; `:<level>` suffix split only when no `thinkingLevel` field; thinkingLevel ∈ `THINKING_LEVELS`; invalid → dropped + `console.warn`.
+- Thinking-only spawn → config `defaultModel` so bridge default thinking cannot override. `SessionFlags.thinking` → `--thinking`; `--model`/`--thinking` on fresh + `continue` argv; fork keeps parent model; tmux pane escapes each token (`shellEscape`).
+- Ended-session composer (`useEndedSessionComposer`): folder command list + catalogue models replace absent bridge lists. Folder list kept until live `commands_list` arrives (no empty flash).
+- Model/thinking pick stored client-side per session; sent on resuming `send_prompt`/`resume_session` (continue only; applied to that resume's `spawnPiSession`, never via cwd-keyed `pendingResumeRegistry`); dropped once session no longer ended.
+- Spawn lifecycle: `handleSpawnSession` returns `requestId`; Start disabled until App `pendingSpawnsRef` correlation navigates. Failed `spawn_result` or `spawn_register_timeout` (optional `requestId`, via `SpawnRegisterWatchdog.arm({requestId})`) → `onSpawnFailed` → Start re-enabled, draft restored. Page never navigates.
+- Compat: protocol fields optional; old server ignores; 404 on commands route → empty list. Rollback = revert; nothing persisted changes shape.
 
 **Pin now implicit visibility primitive.** Adding folder always pins (`pin_directory`). `AddToWorkspaceMenu` + add dialog offer NO "Pin to dashboard". Safe: `visibleTopPinned`/`visibleTopUnpinned` already filter workspace-owned cwd out of top tier (renders once); redundant pin = fallback so removing from workspace leaves folder visible at root.
 
@@ -2568,9 +2630,9 @@ Observability: `DEBUG=pi-dashboard:openspec-poll` (or any `DEBUG=...pi-dashboard
 
 **Folder-head reads async (non-blocking).** Live attribution pinned the recurring ~700 ms stall to `tickOpen → tickFolderHeads`: 3 `execSync` git-HEAD spawns per folder × ~11 folders ≈ 33 blocking subprocesses on the `setInterval` turn, every tick. Fix: `readHeadDisplayAsync` (`git-operations.ts`) reads HEAD via async `execFile` (never blocks the loop; branch/sha only, skips the `.gitmodules` submodule probe the sync `readHead` keeps for the worktree dialog). `folder-head-poll.ts` `poll`/`refreshOne` now async; fan-out via `mapBounded` concurrency cap (default 4). `tickFolderHeads` kicked off without blocking, `await`ed before the openspec fan-out so per-cwd `git_head_update` still precedes `openspec_update`. Chosen over mtime-gating (which risks suppressing a same-mtime branch switch). Guard test `directory-service-folderhead-async.test.ts`: ordering + branch-switch-reflects. Post-fix live: 0 `tickOpen` spikes over ~3 ticks (was 100 % reliable). See change: attribute-openspec-poll-eventloop-stalls.
 
-**OpenSpec poll worker.** Heavy per-tick CPU work runs on a `worker_threads` pool. Main thread owns `openspec list` spawn, the FIFO semaphore, the `DirCache`, and the WebSocket broadcast. Worker owns: pre-call + post-call effective mtimes, `deriveArtifactStatus`, `buildOpenSpecData`, optional `groupId` join (`joinGroupIdsToOpenSpecData` shape, fed via `getOpenSpecGroupAssignments(cwd)`), and `JSON.stringify(data)`. Worker emits `{cwd, data, serialized, stampMtimes, racyNames}`; main thread copies `serialized` into `DirCache.serialized` and stamps per-change mtimes from `stampMtimes`, skipping entries in `racyNames` (TOCTOU racy → cache untouched, semantics unchanged from previous in-process gate). Pool sizing: fixed slots = `max(1, min(maxConcurrentSpawns, os.cpus().length))`. Lifecycle: lazy spawn per slot on first request via `new Worker(url, {execArgv: process.execArgv})` so the jiti hook propagates; `stopPolling()` calls `dispose()` (drains queue in-process then terminates workers); `reconfigurePolling()` disposes pool so it respawns lazily at the new `maxConcurrentSpawns`. Fallback: spawn fail / worker crash / non-zero exit / per-request timeout (default 10 s) terminates the slot and runs the request in-process; `pool.process()` never rejects, so the tick never drops a broadcast. `OpenSpecPollConfig.useWorker = false` (default `true`) takes the permanent in-process path — no `worker_threads` spawn ever. Serialize-once: worker stringifies `data` once; `onWatcherFired` + the periodic tick diff against `cache.serialized ?? JSON.stringify(...)`; `browserGateway.broadcastOpenSpecUpdate(cwd, serialized)` builds the envelope by string concat (`'{"type":"openspec_update","cwd":' + JSON.stringify(cwd) + ',"data":' + serialized + '}'`) — large `data` never re-stringifies per subscriber. Force-refresh path (user-clicked `refreshOpenSpec`) is unchanged: still spawns authoritative `openspec status` per change in main thread, clears `cache.serialized`, uses the legacy broadcast shape. `openspec_update` payload bytes are identical to the pre-worker shape; parity test enforces. See change: offload-openspec-poll-to-worker.
+**OpenSpec poll worker.** Heavy per-tick CPU work runs on a `worker_threads` pool. Main thread owns `openspec list` spawn, the FIFO semaphore, the `DirCache`, and the WebSocket broadcast. Worker owns: pre-call + post-call effective mtimes, `deriveArtifactStatus`, `buildOpenSpecData`, optional `groupId` join (`joinGroupIdsToOpenSpecData` shape, fed via `getOpenSpecGroupAssignments(cwd)`), and `JSON.stringify(data)`. Worker emits `{cwd, data, serialized, stampMtimes, racyNames}`; main thread copies `serialized` into `DirCache.serialized` and stamps per-change mtimes from `stampMtimes`, skipping entries in `racyNames` (TOCTOU racy → cache untouched, semantics unchanged from previous in-process gate). Pool sizing: fixed slots = `max(1, min(maxConcurrentSpawns, os.cpus().length))`. Lifecycle: lazy spawn per slot on first request via `new Worker(url, {execArgv: process.execArgv})` so the loader hook propagates; `stopPolling()` calls `dispose()` (drains queue in-process then terminates workers); `reconfigurePolling()` disposes pool so it respawns lazily at the new `maxConcurrentSpawns`. Fallback: spawn fail / worker crash / non-zero exit / per-request timeout (default 10 s) terminates the slot and runs the request in-process; `pool.process()` never rejects, so the tick never drops a broadcast. `OpenSpecPollConfig.useWorker = false` (default `true`) takes the permanent in-process path — no `worker_threads` spawn ever. Serialize-once: worker stringifies `data` once; `onWatcherFired` + the periodic tick diff against `cache.serialized ?? JSON.stringify(...)`; `browserGateway.broadcastOpenSpecUpdate(cwd, serialized)` builds the envelope by string concat (`'{"type":"openspec_update","cwd":' + JSON.stringify(cwd) + ',"data":' + serialized + '}'`) — large `data` never re-stringifies per subscriber. Force-refresh path (user-clicked `refreshOpenSpec`) is unchanged: still spawns authoritative `openspec status` per change in main thread, clears `cache.serialized`, uses the legacy broadcast shape. `openspec_update` payload bytes are identical to the pre-worker shape; parity test enforces. See change: offload-openspec-poll-to-worker.
 
-**Session-load worker.** Session-event hydration (JSONL parse + replay) runs on a `worker_threads` pool, off main event loop. `packages/server/src/session-load-worker.ts` exports `loadAndReplay(req)`: runs `loadSessionEntries` (JSONL parse + tree-walk) and `replayEntriesAsEvents(...).map(m => m.event)` projection IN-WORKER; only final `events` array crosses thread boundary. `parentPort` bootstrap wires `loadAndReplay` onto a thread; tests + fallback import function directly. Worker output `{jobId, success, events, error, entryCount?}`. `packages/server/src/session-load-worker-pool.ts` runs fixed slots = `max(1, min(maxConcurrentSpawns, os.cpus().length))`; FIFO queue when slots busy; per-request timeout default `30000ms`; lazy spawn per slot via `new Worker(url, {execArgv: process.execArgv})` so jiti hook propagates. Main thread owns per-session `loadingSet` dedup, `eventStore.insertEvent`, and `session_updated` + `event_replay` broadcast (in `directory-service.ts::loadSessionEvents` + `browser-handlers/subscription-handler.ts`); worker never touches store or sockets. `cancel(jobId)`: queued job dropped from queue, resolves `"cancelled"`; in-flight job abandoned, its result discarded on arrival, worker NOT terminated for plain cancel (only timeout/crash terminates slot). `directory-service.ts` exposes `cancelLoad(sessionId)` via `inFlightLoadJobs` map; `subscription-handler.ts` unsubscribe case calls `cancelLoad` when `getSubscribers(sessionId).length === 0`; `subscription-handler.ts` treats `result.error === "cancelled"` as no-op (no `dataUnavailable`, no replay). Fallback: spawn fail / worker crash / non-zero exit / per-request timeout → in-process `loadAndReplay` for that request; `pool.load().result` never rejects. Config: `DashboardConfig.sessions.useLoadWorker` (default `true`) in `packages/shared/src/config.ts`; `false` → permanent in-process path, no `worker_threads` spawn. Plumbed `server.ts` `ServerConfig.sessions` → `cli.ts` → `createDirectoryService` `options.useLoadWorker`. `events` bytes identical to in-process projection; parity test enforces (`packages/server/src/__tests__/session-load-worker.test.ts`). Copies `openspec-poll-worker-pool` scaffold, not extracted (rule-of-three deferred to third consumer). See change: offload-session-events-load-to-worker.
+**Session-load worker.** Session-event hydration (JSONL parse + replay) runs on a `worker_threads` pool, off main event loop. `packages/server/src/session-load-worker.ts` exports `loadAndReplay(req)`: runs `loadSessionEntries` (JSONL parse + tree-walk) and `replayEntriesAsEvents(...).map(m => m.event)` projection IN-WORKER; only final `events` array crosses thread boundary. `parentPort` bootstrap wires `loadAndReplay` onto a thread; tests + fallback import function directly. Worker output `{jobId, success, events, error, entryCount?}`. `packages/server/src/session-load-worker-pool.ts` runs fixed slots = `max(1, min(maxConcurrentSpawns, os.cpus().length))`; FIFO queue when slots busy; per-request timeout default `30000ms`; lazy spawn per slot via `new Worker(url, {execArgv: process.execArgv})` so loader hook propagates. Main thread owns per-session `loadingSet` dedup, `eventStore.insertEvent`, and `session_updated` + `event_replay` broadcast (in `directory-service.ts::loadSessionEvents` + `browser-handlers/subscription-handler.ts`); worker never touches store or sockets. `cancel(jobId)`: queued job dropped from queue, resolves `"cancelled"`; in-flight job abandoned, its result discarded on arrival, worker NOT terminated for plain cancel (only timeout/crash terminates slot). `directory-service.ts` exposes `cancelLoad(sessionId)` via `inFlightLoadJobs` map; `subscription-handler.ts` unsubscribe case calls `cancelLoad` when `getSubscribers(sessionId).length === 0`; `subscription-handler.ts` treats `result.error === "cancelled"` as no-op (no `dataUnavailable`, no replay). Fallback: spawn fail / worker crash / non-zero exit / per-request timeout → in-process `loadAndReplay` for that request; `pool.load().result` never rejects. Config: `DashboardConfig.sessions.useLoadWorker` (default `true`) in `packages/shared/src/config.ts`; `false` → permanent in-process path, no `worker_threads` spawn. Plumbed `server.ts` `ServerConfig.sessions` → `cli.ts` → `createDirectoryService` `options.useLoadWorker`. `events` bytes identical to in-process projection; parity test enforces (`packages/server/src/__tests__/session-load-worker.test.ts`). Copies `openspec-poll-worker-pool` scaffold, not extracted (rule-of-three deferred to third consumer). See change: offload-session-events-load-to-worker.
 
 ### OpenSpec Readiness (add-openspec-init-affordances)
 
@@ -2782,9 +2844,9 @@ Disabling a resource for one project writes the pi-standard settings form for th
 
 Only newly-started sessions see a change: `PackageManager.resolve()` runs at session start. `/api/resources/reload` reloads affected sessions. See change: project-scope-disable-global-resources.
 
-### Settings → Packages tab
+### Settings → Add-ons page
 
-- Settings tab renders single `<UnifiedPackagesSection>`.
+- Add-ons page renders single `<UnifiedPackagesSection>`.
 - Three sub-groups in priority order: Core → Recommended → Other.
 - **Core**: strict whitelist from `pi-core-checker.ts#CORE_PACKAGE_NAMES`. Update via the pi-core update endpoint. No Uninstall. Hidden when `launchSource === "electron"` (immutable bundle).
 - **Recommended Extensions**: rows where `isRecommended` true on `/api/packages/installed` response (server-side cross-reference against `RECOMMENDED_EXTENSIONS` manifest).
@@ -2793,12 +2855,35 @@ Only newly-started sessions see a change: `PackageManager.resolve()` runs at ses
 - All three groups render with shared `<PackageRow>` — same visual language, same affordances modulo sub-group rules.
 - See change: consolidate-packages-settings-ui.
 
-**Header badge**: `PiUpdateBadge` polls `/api/pi-core/versions` on mount + every 30 min. When `updatesAvailable > 0` it renders a small pill-shaped button next to the `ServerSelector` that navigates to `/settings?tab=packages`.
+**Add-ons page** (`/settings/add-ons`). Page id `add-ons`, label `Add-ons`, rail group `ADD-ONS`, section heading `Add-ons`. Legacy `/settings/packages` and `?tab=packages` replace-redirect via `SETTINGS_PAGE_ALIASES` (`SettingsPanel.tsx`). See change: addons-hub-declutter.
+
+**Plugin-bridge rows hidden** (`dashboardManaged`):
+- `InstalledPackage.dashboardManaged?: boolean` (`packages/shared/src/rest-api.ts`).
+- Set on user-scope row whose path = value of settings `dashboardPluginBridges` or key of `_dashboardManagedPackages`.
+- `enrichInstalledRows(rows, resourcesPath, { managedPaths })` canonical-path match (`installed-package-enricher.ts`). Project-scope rows never flagged.
+- Served by `GET /api/packages/installed?scope=global`.
+- Client: `visibleInstalledRows` (`lib/package/installed-list-helpers.ts`) drops flagged rows. Plugin bridges surface under Plugins, not Add-ons.
+
+**Recommended dedupe** (global page only): `RecommendedExtensions` `hideGlobalInstalled`.
+- Entry installed global + `activeInPi` → no card; renders once as installed row.
+- On-disk but inactive global entry → keeps card (no installed row).
+
+**Installed filter** (`UnifiedPackagesSection.tsx`):
+- Text query + chips `Local source` (`addons-chip-local`), `Update available` (`addons-chip-updates`). Chips AND with text (`filterInstalledRows`).
+- `Update available` disabled until update check completes (`updateCheckDone`); hint `Check for updates first`.
+- Local-source banner when `localSourceCount > 0` (`isLocalSourceRow`): `N add-ons run from local source instead of a published version.`
+- Explainer dismissal key: `dashboard:addons-explainer-dismissed` (`usePersistedBoolean`).
+
+**Plugins rail subtree** (`SettingsPanel.tsx`):
+- Collapsed by default. Expanded pref key `dashboard:settings-plugins-expanded` (`usePersistedBoolean`).
+- Forced open while plugin child page (`/settings/plugins/<id>`) active: `pluginsForcedOpen`. Toggle disabled. Forced state never written to pref key.
+
+**Header badge**: `PiUpdateBadge` polls `/api/pi-core/versions` on mount + every 30 min. When `updatesAvailable > 0` it renders a small pill-shaped button next to the `ServerSelector` that navigates to `/settings/add-ons`.
 
 **Client navigation stack:**
 - Puzzle icon button in folder header → PiResourcesView (content area, "Installed" / "Packages" tabs)
 - "View" button on resource → MarkdownPreviewView (`.md` as markdown, `.ts` as code block)
-- Settings → Packages tab → inline PackageBrowser for global package management
+- Settings → Add-ons page → inline PackageBrowser for global package management
 - Back buttons pop the stack: Preview → Resources → Chat
 
 ### Git Branch Selector
@@ -2895,7 +2980,7 @@ Rail = vertical stack: `ChangesRailSection` (Changes) above the project tree. `o
 
 Dashboard's first user-facing WRITE surface. Prior dashboard read-only.
 
-Entry: FolderActionBar cog → `/folder/:cwd/settings/:page?` (pages instructions/packages/resources). Legacy `/folder/:cwd/pi-resources` redirects → `…/settings/packages`.
+Entry: FolderActionBar cog → `/folder/:cwd/settings/:page?` (pages instructions/add-ons/resources). Legacy `/folder/:cwd/settings/packages` and `/folder/:cwd/pi-resources` redirect → `…/settings/add-ons`.
 
 Instructions page edits markdown. Two scopes: directory (cwd) = markdown under cwd + `.pi/` tree; global (no cwd) = `~/.pi/agent/**/*.{md,mdx}` only.
 
@@ -4400,30 +4485,46 @@ The restart endpoint accepts `{ dev: boolean }` to switch between dev/production
 
 Dashboard server spawned via `node --import <loader> <cli.ts>` from 4 call sites (`packages/server/src/cli.ts` `cmdStart`, `packages/extension/src/server-launcher.ts` `launchServer`, `packages/electron/src/lib/server-lifecycle.ts` `launchServer`, `packages/server/src/restart-helper.ts` `buildOrchestratorScript`). On Node ≥ 20, Windows's ESM loader parses **both** `--import` loader position AND entry-script position as URLs. Raw Windows path like `B:\Dev\cli.ts` parses with scheme `b:` (not in ESM loader's `file`/`data`/`node` allowlist) + crashes with `ERR_UNSUPPORTED_ESM_URL_SCHEME`. Node has drive-letter heuristic that auto-wraps common Windows paths with `file://` before URL parse in entry-script position, but heuristic has known gaps for less-common drives (`A:`, `B:`, …), so reliance unsafe.
 
-Loader position wrapped as `file://` universally; entry position wrapped per `shouldUrlWrapEntry(loader, platform)` — raw for tsx, jiti, and the native loader on every OS, `file://` only for other / unknown loaders on win32:
+Loader position wrapped as `file://` universally; entry position wrapped per `shouldUrlWrapEntry(loader, platform)` — raw for tsx and the native loader on every OS, `file://` only for other / unknown loaders on win32:
 
 - `packages/shared/src/platform/node-spawn.ts` — `toFileUrl(pathOrUrl)` (idempotent path → file:// URL, handles Windows drive letters on POSIX hosts) and `spawnNodeScript(opts)` (wraps loader; applies `shouldUrlWrapEntry` to entry before delegating to `platform/exec.ts::spawn`). Canonical chokepoint.
-- `packages/shared/src/resolve-jiti.ts` — `resolveJitiImport()` and `resolveJitiFromAnchor(anchorPath)` return `pathToFileURL(registerPath).href` for the loader position.
+- `packages/shared/src/platform/ts-loader-select.mjs` — `resolveNativeTsLoader({ anchor })` returns `file://` URL of `native-ts-register.mjs` for the loader position.
 - `packages/server/src/cli.ts` — routes through `spawnNodeScript`.
 - `packages/extension/src/server-launcher.ts`, `packages/electron/src/lib/server-lifecycle.ts`, `packages/server/src/spawn-process/restart-helper.ts` — build argv via `buildNodeImportArgvParts`, which wraps loader + applies `shouldUrlWrapEntry` to entry.
 
 The URL form is cross-platform safe (Linux/macOS accept `file://` URLs identically to raw paths). Entry wrapping is platform-gated via `shouldUrlWrapEntry`. A repo-level lint test (`packages/shared/src/__tests__/no-raw-node-import.test.ts`) refuses any new call site that passes a raw identifier as argv after `--import` / `--loader`, preventing regression. Mirrors the `platform/exec.ts` + `no-direct-child-process.test.ts` pattern. See changes: `fix-windows-server-parity` (loader position), `fix-windows-entry-script-url` (entry-script position).
 
-#### TypeScript loader (native default, jiti opt-in)
+#### TypeScript loader (single native strip-only loader)
 
-Every fresh server launch boots the Node-native TS loader by default: `@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs` (+ `native-ts-hooks.mjs`). Hooks strip types via `module.stripTypeScriptTypes` in `transform` mode. No transpile cache.
+The dashboard server has one TypeScript loader: Node-native, strip-only. Entry: `@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs` (+ `native-ts-hooks.mjs`, `native-ts-tier.mjs`). Types erased to whitespace; line/column preserved. No transform mode, no transpile fallback, no transpile cache.
 
-**Why:** jiti cache dir `resources/server/node_modules/.cache/jiti` read-only on FUSE-mounted AppImage → every launch cold-transpiles → >240 s boot on Ubuntu 22.04. Native boots in 3–5 s (spike CI runs 37285545559, 37286703495). See change: `fix-appimage-cold-boot-latency`.
+**Tiers** (`selectLoaderTier`, `native-ts-tier.mjs`):
 
-**Selection:** `selectTsLoader(env)` in `packages/shared/src/platform/ts-loader-select.mjs` (plain `.mjs`, runs pre-loader). `PI_DASHBOARD_TS_LOADER=jiti` → jiti (rollback). Unknown value → warn + native. Reads launching process env; `opts.env` overlay never selects.
+| Tier | Node | Registration | Stripper |
+|---|---|---|---|
+| 1 | 22.15+, 23.5+, 24, 25, 26 | `module.registerHooks` (sync, in-thread) | `module.stripTypeScriptTypes` |
+| 2 | 23.2–23.4 (EOL) | `module.register` (off-thread) | `module.stripTypeScriptTypes` |
+| 3 | 23.0–23.1 (EOL) | `module.register` | bundled `amaro` (exact pin `1.2.1`, dep of `pi-dashboard-shared`, lazy-loaded) |
+
+**Why strip mode on `registerHooks`:** Node 26 removes transform mode and deprecates `module.register` (DEP0205). Strip mode on `registerHooks` is the only path valid on 26 and runs sync in-thread. `ExperimentalWarning` from `stripTypeScriptTypes` suppressed (that warning only).
+
+**Why native (not jiti):** jiti cache dir `resources/server/node_modules/.cache/jiti` read-only on FUSE-mounted AppImage → every launch cold-transpiles → >240 s boot on Ubuntu 22.04. Native boots in 3–5 s (spike CI runs 37285545559, 37286703495). See changes: `fix-appimage-cold-boot-latency`, `strip-only-native-ts-loader`.
+
+**Removed:** jiti server loader. `selectTsLoader`, `nativeTransformSupported`, `ToolResolver.resolveJiti`, `JitiNotFoundError` deleted. No rollback switch.
+
+**`PI_DASHBOARD_TS_LOADER`:** ignored. Any value except empty / `native` → server process logs one line at boot to `server.log` (`PI_DASHBOARD_TS_LOADER is no longer supported (the jiti server loader was removed); using the native loader.`). Wrappers and launchers neither warn nor rewrite env.
+
+**Foreign loader:** server booted under a jiti or tsx `--import` logs `server booted under the <name> TypeScript loader (<url>), which is no longer supported; run pi-dashboard stop && pi-dashboard start`. Only jiti / tsx recognised; other `--import` left alone.
+
+**Doctor:** row `TypeScript loader` ok when native register resolves; else error `doctor.ts_loader_not_found`.
 
 **Launch sites:** `launchDashboardServer` (`packages/shared/src/server-launcher.ts`; log header `…, loader <url>)`), `packages/server/bin/pi-dashboard.mjs`, Electron `spawnFromSource`, bridge auto-start, `start-server.{sh,cmd,ps1}` (fixed bundle path `node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs`), `assert-bundled-server-plugin-load.mjs`, Electron Doctor launch test.
 
-**Workers** keep inherited loader (native or jiti); `fit-worker-pool.workerExecArgv` adds selected loader when none.
+**Workers** inherit loader from `execArgv`; `fit-worker-pool.workerExecArgv` adds native loader when none.
 
-**`/api/restart`** keeps running loader → loader switch needs fresh launch (`pi-dashboard stop && PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start`, or Electron relaunch).
+**`/api/restart`** always passes native register module to `restart-helper.ts`, whatever loader ran before. First restart after upgrade runs old process code (copies old jiti `--import`); new process boots under jiti, logs foreign-loader warning; next restart normalizes to native. `jiti` stays in `pi-dashboard-server` deps as transitional aid only (nothing imports it). Removal: later change.
 
-**Entry wrap:** entry raw for native AND jiti on every OS (`shouldUrlWrapEntry` false for both); loader position always `file://`. Why: under any `--import` loader Node `path.resolve()`s the main entry before building its URL → `file:///D:/…` entry becomes `D:\<cwd>\file:\D:\…` → `ERR_MODULE_NOT_FOUND` (win32 CI run 37347903583).
+**Entry wrap:** entry raw for native on every OS (`shouldUrlWrapEntry` false); loader position always `file://`. Why: under any `--import` loader Node `path.resolve()`s the main entry before building its URL → `file:///D:/…` entry becomes `D:\<cwd>\file:\D:\…` → `ERR_MODULE_NOT_FOUND` (win32 CI run 37347903583).
 
 **Loader-neutral source:** server-loaded TS must not use bare `require`/`__dirname`/`__filename`/`module.exports`/`exports.` nor value-import `.tsx`; use `createRequire(import.meta.url)`. Gate: `scripts/check-loader-neutral-source.mjs` (AST, wired into `npm test`).
 
@@ -4435,9 +4536,9 @@ Both server-launch call sites (`packages/server/src/cli.ts` and `packages/extens
 
 #### CJS preload for Fastify (nodejs/node#58515 mitigation)
 
-Every server-spawn call site injects `--require <preload-fastify.cjs>` BEFORE `--import <jiti-loader>` in the child's argv, as long as the resolver `resolvePreloadFastifyPath()` in `packages/shared/src/platform/preload-fastify.ts` finds the preload file. The order matters: Node processes `--require` before `--import`, so the preload runs through Node's **legacy synchronous CJS loader** (which predates and bypasses the ESM→CJS translator). The preload synchronously `require()`s `@fastify/ajv-compiler/standalone`, `@fastify/ajv-compiler`, and `fastify` — populating `require.cache` with those modules in `kEvaluated` state.
+Every server-spawn call site injects `--require <preload-fastify.cjs>` BEFORE `--import <native-loader>` in the child's argv, as long as the resolver `resolvePreloadFastifyPath()` in `packages/shared/src/platform/preload-fastify.ts` finds the preload file. The order matters: Node processes `--require` before `--import`, so the preload runs through Node's **legacy synchronous CJS loader** (which predates and bypasses the ESM→CJS translator). The preload synchronously `require()`s `@fastify/ajv-compiler/standalone`, `@fastify/ajv-compiler`, and `fastify` — populating `require.cache` with those modules in `kEvaluated` state.
 
-When jiti's ESM hook later resolves an `import "fastify"`, Node's translator finds the modules already cached and short-circuits — it never enters the recursive require chain that triggers the `Unexpected module status 3` assertion on Node 22.0.0–22.18.x / 24.1.0–24.2.x.
+When the native loader's ESM hook later resolves an `import "fastify"`, Node's translator finds the modules already cached and short-circuits — it never enters the recursive require chain that triggers the `Unexpected module status 3` assertion on Node 22.0.0–22.18.x / 24.1.0–24.2.x.
 
 This is a **race-independent fix**: it doesn't try to close the timing window, it removes the racy code path from the execution trace. All four spawn sites (CLI daemon, bridge auto-start, Electron, restart orchestrator) share the resolver and the same injection pattern. See change: `preload-fastify-cjs`.
 
@@ -4636,9 +4737,34 @@ The dashboard uses mDNS (via `bonjour-service`) for zero-config server discovery
 
 ### Server Advertisement
 - **Advertisement honesty** — `advertiseDashboard(port, piPort, {bindHost})` (`packages/shared/src/mdns-discovery.ts`). Gate: `shouldAdvertise(bindHost)`. Bind loopback (`127.x`/`::1`/`localhost`) → publish NOTHING. Unset/`0.0.0.0`/`::`/LAN → advertise. Server passes `{bindHost: config.host}` at advertise time (`packages/server/src/server.ts`). Reason: loopback-bound server advertising LAN hostname = unreachable poison record.
-- On startup, the server publishes a `_pi-dashboard._tcp` mDNS service with TXT record: `{ version, pid, piPort }`
-- On shutdown, the service is unpublished
+- On startup, the server publishes a `_pi-dashboard._tcp` mDNS service. Addresses resolved before publish (see Advertised addresses).
+- TXT: `fp` (identity fingerprint, `packages/server/src/auth/identity.ts`), `name` (display only: `dashboardName` else `os.hostname()` minus `.local`), `version` (server `pkgVersion`, not `0.0.0`), `pid`, `piPort`. See change: stabilize-mdns-server-identity.
+- On shutdown, the service is unpublished (TTL-0 teardown packet)
 - A continuous mDNS browser discovers peer servers and broadcasts updates to connected browsers via `servers_discovered`/`servers_updated` WebSocket messages
+
+### Dashboard-owned names (change: stabilize-mdns-server-identity)
+- Instance: `pi-dashboard-<id12>-<port>`. SRV target / A / AAAA owner: `pi-dashboard-<id12>-<port>.local`.
+- `<id12>` = first 12 lowercase hex of SHA-256 over UTF-8 of full fingerprint string (`"sha256:…"`). Fn: `deriveAdvertisedNames` (`packages/shared/src/mdns-discovery.ts`).
+- Never `os.hostname()`. `bonjour-service` default publishes A/AAAA under `os.hostname()` → macOS `mDNSResponder` owns that name → `will deregister … multicast conflict` → host renamed (`-75112` → `-75340`).
+- Port in name: dev + prod sharing one `identity.key` do not collide.
+- Name stable across OS renames → no up/down churn.
+- Probe conflict (name in use): `service.published` still false 3 s after publish (`PROBE_CHECK_MS`) → retry, `PROBE_MAX_ATTEMPTS` = 3, `PROBE_ATTEMPT_GAP_MS` = 5 s apart. Then fail closed; warn names instance + remediation (regenerate `identity.key` on cloned machines).
+
+### Advertised addresses (change: stabilize-mdns-server-identity)
+- Resolved in server before `advertiseDashboard`; `advertiseDashboard` stays sync.
+- Specific IP `bindHost` → that address.
+- Hostname `bindHost` → `dns.lookup(all)` results that are local interface addresses. None / lookup fail → no advertise (logged).
+- All interfaces → non-internal, non-zero MAC addresses. Drop IPv6 link-local (`fe80::/10`). Drop ifaces matching `/^(docker|br-|veth|virbr|cni|flannel)/i` (addresses like `172.17.0.1` reused across machines).
+- Loopback `bindHost` → no advertise (`shouldAdvertise`, unchanged).
+- Refresh sweep re-resolves list; changed → unpublish + republish. Local peers never keep stale literal.
+
+### Peer discovery and refresh (change: stabilize-mdns-server-identity)
+- Peer key = service fqdn. Same key for `up`, `down`, `srv-update`, `txt-update`, and `server.ts` `peerServers`.
+- `bonjour-service` never expires peers and reports no address-only change → refresh sweep every `SWEEP_INTERVAL_MS` (60 s). Each sweep: fresh browse, `SWEEP_WINDOW_MS` (3 s).
+- Peer absent from `SWEEP_MISS_LIMIT` (3) consecutive sweeps → `server-down`.
+- Local peer `host` = IP literal of a local interface address (IPv4 preferred). Remote peer `host` = advertised name.
+- Self-exclusion: `isLocal && fingerprint === own && port === config.port`. Peer without `fp` → legacy rule. Copy of `identity.key` on another machine stays listed.
+- `packages/shared/src/host-port.ts`: `formatHostPort` (brackets IPv6), `normalizeHostKey` (lowercase, strip trailing dot + brackets). Used by every URL builder that receives a discovered host.
 
 ### Bridge Discovery
 - Bridge extensions use the mDNS discovery chain instead of bare TCP port probes
@@ -4652,10 +4778,48 @@ The dashboard uses mDNS (via `bonjour-service`) for zero-config server discovery
 
 ### Known Servers
 - Users can persist remote servers in `config.json` via `knownServers: KnownServer[]`
-- Each entry has `host`, `port`, optional `label`, and `addedAt` timestamp
-- REST API: `GET/POST/DELETE /api/known-servers` for CRUD, `POST /api/discover-servers` for on-demand mDNS scan
+- Each entry has `host`, `port`, optional `label`, `addedAt` timestamp, optional `fingerprint` (`sha256:` prefix, pinned, see Identity pinning)
+- REST API: `GET /api/known-servers` (list + `canManage`, `networkGuard`), `POST`/`DELETE /api/known-servers` (operator-only), `POST /api/known-servers/accept-move` (operator), `POST /api/known-servers/probe` (operator), `POST /api/discover-servers` for on-demand mDNS scan
+- Mutations and probe are operator-only: `preHandler: [networkGuard, operatorGuard]`. Network-trusted browsers can list entries but not change them. Breaking, see release note.
 - Localhost is always implicitly available (not stored)
 - The data model is extensible for future key exchange / auth tokens
+
+### Known-server identity pinning (change: stabilize-mdns-server-identity)
+- Uniqueness key: `(fingerprint, port)`. `parseKnownServers` (`packages/shared/src/config.ts`) passes `sha256:` fingerprints through; duplicates merged on load, first entry wins, later hosts dropped (logged).
+- Proof: `proveServerIdentity(baseUrl, {timeoutMs})` (`packages/shared/src/server-pinning.ts`). Fresh nonce → `POST /api/pair/challenge`. `redirect: "manual"`. Response read with 4 KiB cap. Fingerprint recomputed from presented key. Signature verified.
+- `challengePinnedServer` unchanged (remote-registration gate relies on it).
+- Pin written only after proof. Two paths: operator add; backfill (operator probe reports `reachable` for unpinned entry).
+- Add: proof runs outside write queue. Queued write re-reads config and re-validates.
+  - Proven `F`, no conflict → pinned.
+  - `F` held by other entry at same port, holder's stored address still proves `F` → `409 already_known {host, port}`. Nothing written.
+  - `F` held, holder's stored address no longer proves `F` → holder host updated → `{updated: true}`. Label replaced only when non-empty label supplied. `addedAt` kept.
+  - Target pinned to `G ≠ F` → `409 identity_changed {expected, proven}`.
+- Add never clears or replaces a pin. Failed challenge keeps existing pin.
+- Backfill: proven `F` pinned at stored address. Existing `(F, port)` holder → merged into verified entry (label kept when verified entry has none), other entry removed, dropped host logged.
+- All known-server writes (add, delete, backfill, accept-move) → one module-level serialized queue (`known-servers-routes.ts`). Challenges run before enqueue. Each write aborts if target entry gone.
+
+### Move suggestions (change: stabilize-mdns-server-identity)
+- Trigger: `up` / `srv-update` / refresh sweep for peer whose `(fp, port)` matches pinned entry at different host.
+- Rate: one challenge per `(fp, port)` per `MOVE_CHALLENGE_INTERVAL_MS` (60 s).
+- Stored address still proves `F` → no action.
+- Else challenge peer address only if on-link (inside a subnet of a local interface, or IPv6 prefix match) and not loopback / link-local / unspecified / multicast. Else skip, logged `move-skipped`.
+- Proof → in-memory suggestion `{entry, host, port, verifiedAt}`. Not persisted. Fn: `known-server-moves.ts`.
+- `GET /api/known-servers` returns `movedTo` per entry.
+- Dropped when: stored address proves `F` again; peer disappears; not re-verified within `MOVE_SUGGESTION_TTL_MS` (10 min).
+- Advert alone never writes config.
+- Accept: `POST /api/known-servers/accept-move {host, port}` (operator). Re-verifies: stored address fails + suggested address proves `F`. Rewrites host/port; label, `fingerprint`, `addedAt` kept.
+- Logs: `[known-servers] move-suggested|move-withdrawn|move-skipped fp=<short> <old> -> <new>`; accept logs `[known-servers] moved fp=<short> <old> -> <new>`. `<short>` = fingerprint without `sha256:`, 16 chars.
+
+### Operator probe (change: stabilize-mdns-server-identity)
+- `POST /api/known-servers/probe {host, port}` (operator). Refuses unless `normalizeHostKey(host):port` matches persisted entry.
+- Order: DNS lookup first (own budget `PROBE_DNS_TIMEOUT_MS`), then `GET http://<formatHostPort>/api/health` (`redirect: "manual"`, `PROBE_HTTP_TIMEOUT_MS`). Separate budgets: slow negative `.local` lookup ≠ HTTP timeout.
+- One in-flight probe per entry.
+- States:
+  - `name-not-resolved`: `ENOTFOUND` / `EAI_NONAME`.
+  - `timeout`: DNS timeout, `EAI_AGAIN`, HTTP `AbortError` / `TimeoutError`.
+  - `refused`: `ECONNREFUSED` (`err.cause.code`).
+  - `reachable`: HTTP 200 + JSON `ok: true`.
+  - `error`: any other response or failure.
 
 ### Server Selector UI
 - The header dropdown shows persisted known servers (from config) plus localhost, not raw mDNS results
@@ -4663,6 +4827,30 @@ The dashboard uses mDNS (via `bonjour-service`) for zero-config server discovery
 - **Probe lifecycle**: availability is probed via `/api/health` **only when the dropdown opens** — once per open. No mount probe, no timer, no probing while the dropdown is closed. Current-server status is derived from the live WebSocket state, not a separate probe.
 - **Unreachable entries** are rendered with `opacity-50`, `cursor-not-allowed`, and the `disabled` attribute set; clicks are no-ops. To re-probe, close and reopen the dropdown. The transactional switch (below) still protects against races between the last probe and a click on a reachable entry.
 - Last-used server persisted in `localStorage` (`pi-dashboard-last-server`) — **only after** a successful switch (see transactional switching below).
+
+### Selector reachability labels (change: stabilize-mdns-server-identity)
+- Browser probe (`/api/health`, 2 s) decides first. Transport failure (no readable response) → server operator probe decides label. Browser cannot tell CORS block from dead name.
+- Labels (`ServerSelector.tsx`):
+  - `available`: `/api/health` `ok: true`.
+  - `denied`: 403 `network_not_allowed`.
+  - `cors-blocked` ("CORS-blocked"): server `reachable`, browser not.
+  - `name-not-resolved` ("Name not found"): server `name-not-resolved`, no move suggestion.
+  - `movedTo` ("Moved to host:port" + Update): server `name-not-resolved` + verified suggestion. Update = accept-move.
+  - `unreachable` ("Unreachable"): everything else, incl. server refusal for non-operator.
+- Non-`available` states disable switching. Update action is the only control on a moved entry.
+
+```mermaid
+flowchart TD
+  A["browser fetch /api/health"] -->|"2xx, ok: true"| AV["available"]
+  A -->|"403 network_not_allowed"| DN["denied"]
+  A -->|"non-ok or bad body"| UN["unreachable"]
+  A -->|"transport error"| S["POST /api/known-servers/probe (operator)"]
+  S -->|"reachable"| CB["cors-blocked"]
+  S -->|"name-not-resolved"| NR{"verified move suggestion?"}
+  NR -->|"yes"| MV["Moved to host:port + Update"]
+  NR -->|"no"| NF["Name not found"]
+  S -->|"refused / timeout / error / guard refusal"| UN
+```
 
 ### Transactional Server Switching
 Switching servers is a two-phase transaction that never destructs state before verifying the target is reachable. Implemented by `performServerSwitch` (`packages/client/src/lib/server-switch.ts`) + `openStagingSocket` (`packages/client/src/lib/staging-socket.ts`):
@@ -4859,7 +5047,7 @@ See change: add-radius-provider-login (D5, D6).
 
 **Non-goal.** Model proxy has no Radius OAuth refresh loader.
 
-**Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `1.0.0`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^1.0.0`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`). Every `@earendil-works` peer is `>=1.0.0` (optional, no upper bound); every `@earendil-works` devDependency is `^1.0.0`; `pnpm-workspace.yaml` overrides pin `pi-coding-agent`, `pi-ai`, `pi-tui`. See change: update-pi-core-1-0-adopt-apis.
+**Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `1.1.0`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^1.1.0`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`). Every `@earendil-works` peer is `>=1.1.0` (optional, no upper bound); every `@earendil-works` devDependency is `^1.1.0`; `pnpm-workspace.yaml` overrides pin `pi-coding-agent`, `pi-ai`, `pi-tui`. See changes: update-pi-core-1-0-adopt-apis, update-pi-core-1-1-adopt-apis; floor moved to 1.1.0 in update-pi-core-1-1-adopt-apis.
 
 **Routes** (`packages/server/src/routes/provider-auth-routes.ts`):
 
@@ -5025,6 +5213,14 @@ path source                → resolved absolute path
 **Composite progress events**: the wrapper threads an internal `moveId?: string` parameter through `executeOperation` so progress and completion events from both sub-phases share the same `moveId`. The server gateway forwards the field on every WS broadcast; the client's `move-tracker` (singleton store) groups events by `moveId` and exposes per-source state through `usePackageOperations.moveStateFor()`. Consumers that ignore `moveId` continue to render install + remove as two unrelated operations — graceful back-compat.
 
 **Partial-success recovery**: if install at destination succeeds but remove from origin fails, the move's `package_operation_complete` event includes `partialSuccess: { installed: true, removed: false, removeError: <message> }`. The client's `<InstalledPackagesList>` renders an inline banner with a Cleanup button that POSTs `/api/packages/remove` against `fromScope` (idempotent on retry). No HTTP-level 207 — the move endpoint is async (202 + moveId pattern), so partial-success surfaces post-202 via the WS channel.
+
+#### Package health cleanup (settings.json rot)
+
+- Scanner: `scanPackageHealth` (`packages/server/src/package/package-health-scanner.ts`). Scans global `packages[]` only. Statuses `ok` | `stale-npm` | `missing-path` | `duplicate`.
+- Routes: `GET /api/packages/health` → `{entries, summary}`; `POST /api/packages/cleanup {drop}` (`packages/server/src/routes/package-health-routes.ts`). Backup `settings.json.<ISO-ts>.bak` before write. Server never auto-removes.
+- Boot: one log line `[package-health] …` to `server.log` when issues exist. Log-only.
+
+See FAQ: How do I clean up stale entries from settings.json?
 
 ### Bundled first-party extensions (Electron installer)
 
@@ -5359,7 +5555,7 @@ Host OS across, path form down.
 The two broken cells map to existing repo invariants:
 
 - **Embedded path in `node -e "..."`**: avoided by porting build scripts to `.mjs` (see `packages/electron/scripts/bundle-{server,offline-packages,recommended-extensions}.mjs`).
-- **Raw path in `--import` / `--loader`**: locked by `packages/shared/src/__tests__/no-raw-node-import.test.ts`. All real call sites go through `toFileUrl` from `platform/node-spawn.ts` or `buildJitiRegisterUrl` from `resolve-jiti.ts`.
+- **Raw path in `--import` / `--loader`**: locked by `packages/shared/src/__tests__/no-raw-node-import.test.ts`. All real call sites go through `toFileUrl` from `platform/node-spawn.ts` or `resolveNativeTsLoader` from `platform/ts-loader-select.mjs`.
 
 ### Shell allowlist
 
@@ -5482,9 +5678,11 @@ When `waitForReady` returns unsuccessful, the error message is built by the pure
 
 Pre-fix, both cases shared the misleading wording "Server failed to start within 15 seconds (child exited with code 1)" — implying a timeout when the child died in <1s.
 
-### The runtime jiti version contract (Defect 2 defense)
+### The runtime jiti version contract (Defect 2 defense) — historical
 
-`shouldUrlWrapEntry()` in `packages/shared/src/platform/node-spawn.ts` decides whether the entry-script position in `node --import <loader> <entry>` argv needs `file://` URL wrapping. Entry raw for tsx, jiti, and the native loader (`platform/native-ts-register.mjs`) on every OS. Only other / unknown loaders on win32 wrap with `file://` — sidesteps Node's drive-letter URL-scheme parse (`B:`, `A:` otherwise read as URL schemes). Loader position always `file://`. See change: `fix-appimage-cold-boot-latency`.
+Superseded by `strip-only-native-ts-loader`: no server path resolves jiti. Entry-wrap rule below still current. Kept for history.
+
+`shouldUrlWrapEntry()` in `packages/shared/src/platform/node-spawn.ts` decides whether the entry-script position in `node --import <loader> <entry>` argv needs `file://` URL wrapping. Entry raw for tsx and the native loader (`platform/native-ts-register.mjs`) on every OS. Only other / unknown loaders on win32 wrap with `file://` — sidesteps Node's drive-letter URL-scheme parse (`B:`, `A:` otherwise read as URL schemes). Loader position always `file://`. See change: `fix-appimage-cold-boot-latency`.
 
 The contract holds because Defect 1's fix populates `~/.pi-dashboard/` with `pi-coding-agent` at the offline-cacache-pinned version. The runtime `resolveJitiFromPi()` chain is `managed → system`; once managed is populated with the pinned version, system pi (which may be a newer 0.71.x) is never reached.
 
@@ -5542,7 +5740,7 @@ See change: `chat-input-draft-and-history`.
 
 The Electron app treats git as a hard runtime dependency. Several core code
 paths assume git is reachable (recommended-extension installs via pi's
-`DefaultPackageManager`, Settings → Packages git/HTTPS sources, BranchPicker /
+`DefaultPackageManager`, Settings → Add-ons git/HTTPS sources, BranchPicker /
 git status in session cards, attach-proposal workflow). Before the
 `require-git-on-boot` change, missing git silently degraded these features
 with cryptic errors. The change makes git a first-class detected, prompted,
@@ -5846,6 +6044,12 @@ Two writer processes for `~/.pi/agent/auth.json`:
 Last-writer-wins on overlapping provider keys; non-overlapping providers preserved by merge. Acceptable — both writers re-read before writing; churn only occurs during concurrent OAuth refreshes (rare in practice).
 
 Refresh window: pi refreshes at 5 min remaining (`OAUTH_REFRESH_WINDOW_MS`) with a 15 s abort — was dashboard 30 s / 30 s.
+pi-ai >= 1.1.0 (`dist/auth/resolve.js` `refreshStoredOAuthCredential`): caller signal cancels only credential-lock wait.
+Started refresh ignores caller signal; bounded by `AbortSignal.timeout(15s)`; persists rotated credential.
+Reason: cancelled caller must not discard only valid refresh token.
+`InternalAuthStorage` (`packages/server/src/model-proxy/internal-auth-storage.ts`): shared per-provider flight carries no caller signal; each caller races own signal (`raceSignal`); already-aborted request starts nothing.
+Client disconnect (`model-proxy-routes.ts`) ends credential wait promptly; refresh still completes + persists.
+Old contract (abort stops refresh, nothing persisted) retired. See change: `update-pi-core-1-1-adopt-apis` (design D7).
 
 See change: `add-dashboard-model-proxy`, `collapse-model-proxy-onto-modelruntime`.
 

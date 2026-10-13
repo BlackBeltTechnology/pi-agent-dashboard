@@ -30,6 +30,7 @@ import {
   toggleTask,
 } from "../openspec/openspec-tasks.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
+import { type FolderCommandsResult, resolveFolderCommands } from "../pi/folder-commands.js";
 import { isWithinFolder, joinSkillProvenance, type SkillReporter, sessionCommandRegistry } from "../pi/session-skill-registry.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
@@ -44,11 +45,17 @@ export function registerOpenSpecRoutes(
     preferencesStore: PreferencesStore;
     directoryService: DirectoryService;
     networkGuard: NetworkGuard;
+    /**
+     * Bridge-connection probe for `GET /api/pi-resources/commands`. A session's
+     * registry entry or status alone is not "live": a crashed pi never
+     * unregisters. Absent → no session counts as live (scan only).
+     */
+    piGateway?: { isSessionConnected(sessionId: string): boolean };
     /** Optional — called after a successful toggle to trigger openspec_update. */
     onOpenSpecChanged?: OpenSpecBroadcaster;
   },
 ) {
-  const { sessionManager, preferencesStore, directoryService, networkGuard, onOpenSpecChanged } = deps;
+  const { sessionManager, preferencesStore, directoryService, networkGuard, onOpenSpecChanged, piGateway } = deps;
 
   // OpenSpec workflow config endpoint — returns the user's enabled
   // workflow commands so the client can render only the buttons /
@@ -523,6 +530,37 @@ export function registerOpenSpecRoutes(
         .filter((s) => s.status !== "ended" && isWithinFolder(s.cwd, cwd) && sessionCommandRegistry.hasReported(s.id))
         .map((s) => ({ sessionId: s.id, cwd: s.cwd, commands: sessionCommandRegistry.get(s.id) ?? [] }));
       return { success: true, data: joinSkillProvenance(data, reporters, cwd) } satisfies ApiResponse;
+    },
+  );
+
+  // Folder command list WITHOUT a live session: the latest list of a connected
+  // session in exactly this cwd, else the enabled skills/prompts from the scan.
+  // See change: redesign-directory-home-split (D3).
+  fastify.get<{ Querystring: { cwd?: string } }>(
+    "/api/pi-resources/commands",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const cwd = request.query.cwd;
+      if (typeof cwd !== "string" || cwd.length === 0 || !path.isAbsolute(cwd)) {
+        reply.code(400);
+        return { success: false, error: "cwd must be an absolute path" } satisfies ApiResponse;
+      }
+      let scan: Awaited<ReturnType<typeof directoryService.refreshPiResources>> | undefined;
+      try {
+        const cached = directoryService.getPiResources(cwd);
+        if (cached?.stale) void directoryService.refreshPiResources(cwd).catch(() => { /* next request retries */ });
+        scan = cached?.data ?? (await directoryService.refreshPiResources(cwd));
+      } catch {
+        scan = undefined; // unreadable folder → live list or `none`, never a 500
+      }
+      const data: FolderCommandsResult = resolveFolderCommands({
+        cwd,
+        scan,
+        sessions: sessionManager.listAll(),
+        registry: sessionCommandRegistry,
+        isSessionConnected: (id) => piGateway?.isSessionConnected(id) ?? false,
+      });
+      return { success: true, data } satisfies ApiResponse;
     },
   );
 

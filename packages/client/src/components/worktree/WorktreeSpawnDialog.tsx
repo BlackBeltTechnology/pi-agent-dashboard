@@ -19,6 +19,7 @@ import {
 import type { GitBranchEntry, PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAcpAgents } from "../../hooks/useAcpAgents.js";
 import {
   type CreateWorktreeError,
   cleanupOrphanWorktreePath,
@@ -33,6 +34,7 @@ import {
 } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
+import { AgentSelect } from "../AgentSelect.js";
 import { BranchCombobox } from "./BranchCombobox.js";
 import { PrCombobox } from "./PrCombobox.js";
 import { WorktreeList } from "./WorktreeList.js";
@@ -73,7 +75,7 @@ interface Props {
    */
   onSpawn: (
     worktreePath: string,
-    opts?: { gitWorktreeBase?: string; attachProposal?: string },
+    opts?: { gitWorktreeBase?: string; attachProposal?: string; agent?: string },
   ) => void;
   onCancel: () => void;
   /**
@@ -101,6 +103,10 @@ interface LoadedData {
 }
 
 export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, attachProposal, onSpawnStart, onSpawnAbort }: Props) {
+  // The ONE agent for this dialog, preselected from the PARENT folder's memory.
+  const acpAgents = useAcpAgents();
+  const [agent, setAgent] = useState<string | undefined>(undefined);
+  const agentName = agent ? acpAgents.find((a) => a.id === agent)?.name : undefined;
   const [data, setData] = useState<LoadedData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [newBranch, setNewBranch] = useState(initialBranch ?? "");
@@ -251,13 +257,16 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
   // Always include attachProposal in opts when the prop was supplied;
   // never invent it. See change: openspec-worktree-spawn-button.
   const buildOpts = useCallback(
-    (gitWorktreeBase?: string): { gitWorktreeBase?: string; attachProposal?: string } | undefined => {
-      const opts: { gitWorktreeBase?: string; attachProposal?: string } = {};
+    (gitWorktreeBase?: string): { gitWorktreeBase?: string; attachProposal?: string; agent?: string } | undefined => {
+      const opts: { gitWorktreeBase?: string; attachProposal?: string; agent?: string } = {};
       if (gitWorktreeBase) opts.gitWorktreeBase = gitWorktreeBase;
       if (attachProposal) opts.attachProposal = attachProposal;
+      // One agent for BOTH spawn actions (existing worktree + create); pi → absent.
+      // See change: add-acp-session-driver (D16, mockup S7).
+      if (agent) opts.agent = agent;
       return Object.keys(opts).length > 0 ? opts : undefined;
     },
-    [attachProposal],
+    [attachProposal, agent],
   );
   // Existing worktree rows spawn directly. Any required initialization is
   // a separate gated action (the folder-action-bar Initialize button).
@@ -452,6 +461,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
 
   return (
     <DialogChrome onCancel={onCancel} title={i18nT("worktree.worktreeSession", undefined, "+Worktree Session")}>
+      <AgentSelect cwd={cwd} onChange={setAgent} testId="worktree-dialog-agent" className="mb-4 flex items-center gap-2 text-[12px]" />
       {/* ── existing worktrees ─────────────────────────────────────── */}
       <section className="mb-6" data-testid="worktree-dialog-existing">
         <h4 className="text-[12px] font-semibold text-[var(--text-secondary)] mb-2">
@@ -462,6 +472,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
           entries={data.worktrees}
           mode="spawn"
           onSpawn={(_path, entry) => handleSpawnExisting(entry)}
+          spawnAgentLabel={agentName}
         />
       </section>
 
@@ -707,7 +718,11 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
             data-testid="worktree-dialog-create-submit"
             className="focus-ring inline-flex items-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md bg-[var(--accent-solid)] text-white hover:brightness-110 disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:hover:brightness-100 disabled:cursor-not-allowed"
           >
-            {submitting ? "Creating…" : "Create +Session →"}
+            {submitting
+              ? "Creating…"
+              : agentName
+                ? i18nT("acp.createAgentSession", { agent: agentName }, "Create + {agent} session →")
+                : "Create +Session →"}
           </button>
         </div>
 

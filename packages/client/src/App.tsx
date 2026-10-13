@@ -15,8 +15,8 @@ import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStat
 import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
 import { SessionDiffProvider } from "./components/diff/SessionDiffContext.js";
-import { DirectoryHomeView } from "./components/folder/DirectoryHomeView.js";
 import { FolderEditorView } from "./components/folder/FolderEditorView.js";
+import { FolderSplitProvider } from "./components/folder/FolderSplitProvider.js";
 import { ArchiveBrowserView } from "./components/openspec/ArchiveBrowserView.js";
 import { OpenSpecArtifactDialog } from "./components/openspec/OpenSpecArtifactDialog.js";
 import { OpenSpecBoardView } from "./components/openspec/OpenSpecBoardView.js";
@@ -33,6 +33,7 @@ import { ZrokInstallGuide } from "./components/packages/ZrokInstallGuide.js";
 import { MarkdownPreviewView } from "./components/preview/MarkdownPreviewView.js";
 import { PreviewOverlayView } from "./components/preview/PreviewOverlayView.js";
 import { Toast, useToast } from "./components/primitives/Toast.js";
+import { AcpEndedCallout } from "./components/session/AcpEndedCallout.js";
 import { ComposerSessionActions } from "./components/session/ComposerSessionActions.js";
 import { FileAccessToastHost } from "./components/session/FileAccessToastHost.js";
 import { MissingRequiredBanner } from "./components/session/MissingRequiredBanner.js";
@@ -52,7 +53,6 @@ import { SessionContentGate } from "./components/shell/SessionContentGate.js";
 import { ShellContent, type ShellContentRenderers } from "./components/shell/ShellContent.js";
 import { StatusBar } from "./components/shell/StatusBar.js";
 import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
-import { useEditorTabOpenListener } from "./lib/layout/editor-tab-open.js";
 import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
 import { allTagsInUse } from "./components/tags/all-tags.js";
 import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
@@ -85,6 +85,7 @@ import { applyPromptTimeout, carryInteractiveRequests, createInitialState, deriv
 import { normalizeFollowUpEntries } from "./lib/chat/followup-entries.js";
 import { nextBackfillRange } from "./lib/chat/history-gap.js";
 import { refreshChat } from "./lib/chat/refresh-chat.js";
+import { createProjectAndPin } from "./lib/create-project.js";
 import { maybeAutoInitWorktreeOnSpawn } from "./lib/git/auto-init-worktree.js";
 import { resolveWorktreeAvailability } from "./lib/git/folder-worktree-availability.js";
 import { fetchActiveInits } from "./lib/git/git-api.js";
@@ -92,6 +93,7 @@ import { refreshGitStatus } from "./lib/git/git-status-cache.js";
 import { resendActiveCwdSubscriptions, setInitSender } from "./lib/git/worktree-init-bus.js";
 import { initStore } from "./lib/git/worktree-init-store.js";
 import { CHAT_HEADER_BOUND, CHAT_HEADER_WEIGHT } from "./lib/layout/chat-pane-row-class.js";
+import { useEditorTabOpenListener } from "./lib/layout/editor-tab-open.js";
 import { getMobileDepth } from "./lib/layout/mobile-depth.js";
 import { goBack as goBackAction, returnTo } from "./lib/nav/history-back.js";
 import {
@@ -127,7 +129,10 @@ import { OpenSpecMapContext } from "./lib/openspec/OpenSpecMapContext.js";
 import { useOpenSpecConfig } from "./lib/openspec/openspec-config-api.js";
 import { computeRenderedCwds } from "./lib/openspec/rendered-cwds.js";
 import { useArchiveEntries } from "./lib/openspec/useAttachmentResolution.js";
+import { usePeerAutoInstallReset } from "./lib/package/peer-auto-install-store.js";
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
+import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
+import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
 import { buildHistoryPhaseMap, hasChatContent } from "./lib/replay/history-load-phase.js";
 import { extractUserPromptHistory } from "./lib/replay/message-history.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
@@ -138,8 +143,6 @@ import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storag
 import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
-import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
-import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
 
 // Stable tracker facade for the depth-aware back action
 // (change: fix-mobile-back-depth-aware).
@@ -163,6 +166,11 @@ const PairingApprovalHost = lazy(() =>
 const FileDiffView = lazy(() =>
   import("./components/diff/FileDiffView.js").then((m) => ({ default: m.FileDiffView })),
 );
+// Folder home (pre-session pane + starters + spawn choices): its own chunk, off the
+// entry gzip cap. See change: redesign-directory-home-split.
+const FolderHomeContainer = lazy(() =>
+  import("./components/folder/FolderHomeContainer.js").then((m) => ({ default: m.FolderHomeContainer })),
+);
 
 import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { ArchivedSessionSummary, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
@@ -181,10 +189,11 @@ import type { ToolContext } from "./components/tool-renderers/index.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
 import { AddFoldersDialog } from "./components/workspace/AddFoldersDialog.js";
 import { useCardFxAttributes } from "./hooks/useCardFxAttributes.js";
+import { useEndedSessionComposer } from "./hooks/useEndedSessionComposer.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
 import { useProvidersReady } from "./hooks/useProvidersReady.js";
-import { useSessionActions } from "./hooks/useSessionActions.js";
+import { type PendingSpawnEntry, useSessionActions } from "./hooks/useSessionActions.js";
 import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
 import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib/api/api-context.js";
 import { buildContextUsageMap } from "./lib/context-usage.js";
@@ -257,6 +266,8 @@ const LAST_SERVER_KEY = "pi-dashboard-last-server";
 // Stable empty-array reference for sessions with no pending images.
 // Frozen so accidental mutation throws in strict mode.
 const EMPTY_IMAGES: readonly ImageContent[] = Object.freeze([]);
+/** Stable empty command list — a fresh `[]` per render would re-render the composer. */
+const EMPTY_COMMANDS: CommandInfo[] = Object.freeze([]) as unknown as CommandInfo[];
 
 function getInitialWsUrl(): string {
   const saved = localStorage.getItem(LAST_SERVER_KEY);
@@ -412,6 +423,10 @@ const EMPTY_STEERING: string[] = [];
 
 export default function App() {
   const { t, language } = useI18n();
+  // Zero-height sentinel at the top of the LIVE composer stack. State-backed
+  // (callback ref) so unmount yields `null` → CanvasDriver's safe-area fallback.
+  // See change: fix-canvas-chip-tray-overlay.
+  const [composerAnchor, setComposerAnchor] = useState<HTMLElement | null>(null);
   // Pause all CSS animations while the window is hidden to the tray /
   // backgrounded, so the renderer + GPU stop continuous compositing.
   // See change: throttle-idle-ui-animations.
@@ -571,12 +586,12 @@ export default function App() {
   const specsCwd = specsMatch && specsParams ? decodeFolderPath(specsParams.encodedCwd) : null;
   const piResourcesCwd = piResourcesMatch && piResourcesParams ? decodeFolderPath(piResourcesParams.encodedCwd) : null;
   const folderSettingsCwd = folderSettingsMatch && folderSettingsParams ? decodeFolderPath(folderSettingsParams.encodedCwd) : null;
-  const VALID_FOLDER_SETTINGS_PAGES = ["instructions", "packages", "cards", "skills", "agents", "extensions", "prompts", "themes"] as const;
+  const VALID_FOLDER_SETTINGS_PAGES = ["instructions", "add-ons", "cards", "skills", "agents", "extensions", "prompts", "themes"] as const;
   const folderSettingsPageRaw = folderSettingsMatch ? folderSettingsParams?.page : undefined;
   const folderSettingsPage: DirectorySettingsPage =
     folderSettingsPageRaw && (VALID_FOLDER_SETTINGS_PAGES as readonly string[]).includes(folderSettingsPageRaw)
       ? (folderSettingsPageRaw as DirectorySettingsPage)
-      : "packages";
+      : "add-ons";
   const diffSessionId = diffMatch && diffParams ? diffParams.id : null;
   const editorSessionId = editorMatch && editorParams ? editorParams.id : null;
   const editorFile = editorMatch ? fileViewSearch.get("file") : null;
@@ -735,6 +750,21 @@ export default function App() {
   const [spawnResult, setSpawnResult] = useState<{ success: boolean; message: string } | null>(null);
   const [spawnErrors, setSpawnErrors] = useState<Map<string, import("./hooks/useMessageHandler.js").SpawnErrorDetail>>(new Map());
   const [resumeErrors, setResumeErrors] = useState<Map<string, string>>(new Map());
+  // The most recent spawn that failed after the server accepted it (failed
+  // `spawn_result` / `spawn_register_timeout` echoing its `requestId`). The
+  // folder home re-enables Start when the id is its own. `seq` makes a repeated
+  // id observable. See change: redesign-directory-home-split.
+  const [failedSpawn, setFailedSpawn] = useState<{ requestId: string; seq: number } | null>(null);
+  const onSpawnFailed = useCallback(
+    (requestId: string) => setFailedSpawn((prev) => ({ requestId, seq: (prev?.seq ?? 0) + 1 })),
+    [],
+  );
+  // Settings default model / thinking level — pre-selected (and tagged) on the
+  // folder home. Hydrated from GET /api/config, refreshed on `config_updated`.
+  const [spawnDefaults, setSpawnDefaults] = useState<{ defaultModel: string; defaultThinkingLevel: string }>({
+    defaultModel: "",
+    defaultThinkingLevel: "",
+  });
   const [spawningCwds, setSpawningCwds] = useState<Set<string>>(new Set());
   const spawningCwdsRef = useRef<Set<string>>(spawningCwds);
   spawningCwdsRef.current = spawningCwds;
@@ -743,7 +773,7 @@ export default function App() {
   // back to the originating click for auto-select after spawn AND fork.
   // Lives alongside `spawningCwds` (which keeps placeholder + disabled-button
   // behavior cwd-keyed). See change: spawn-correlation-token.
-  const pendingSpawnsRef = useRef<Map<string, { cwd: string; kind: "spawn" | "resume"; placeholderCwd?: string }>>(new Map());
+  const pendingSpawnsRef = useRef<Map<string, PendingSpawnEntry>>(new Map());
   const [sessionOrderMap, setSessionOrderMap] = useState<Map<string, string[]>>(new Map());
   // ── fix-connect-snapshot-frame-loss (D7/D9) ── Snapshot-window ended
   // totals, per-group page offsets, and the snapshot generation counter that
@@ -823,6 +853,8 @@ export default function App() {
   const [cardSections, setCardSections] = useState<CardSectionPrefs>({});
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const providersReady = useProvidersReady();
+  // Drop the automatic-peer-install state when `anthropic` signs out (true → false).
+  usePeerAutoInstallReset(providersReady.anthropicAuthenticated);
   const [terminals, setTerminals] = useState<Map<string, TerminalSession>>(new Map());
   const pendingTerminalCwdRef = useRef<string | null>(null);
   const lastCreatedTerminalIdRef = useRef<string | null>(null);
@@ -1139,7 +1171,7 @@ export default function App() {
 
   const handleMessage = useMessageHandler(
     { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
-    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed },
+    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, onSpawnFailed, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed },
   );
 
   // D7: rendered cwds the OpenSpec reconciliation may pull for — non-ended
@@ -1203,6 +1235,10 @@ export default function App() {
         if (d.success) {
           setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
           if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);
+          setSpawnDefaults({
+            defaultModel: typeof d.data?.defaultModel === "string" ? d.data.defaultModel : "",
+            defaultThinkingLevel: typeof d.data?.defaultThinkingLevel === "string" ? d.data.defaultThinkingLevel : "",
+          });
         }
         // Hydrate the OpenSpec fleet switches the readiness affordances read
         // (folder-section offer suppression + menu re-enable gating).
@@ -1230,6 +1266,10 @@ export default function App() {
           if (d?.success && msg.section === "sessions") {
             setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
             if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);
+            setSpawnDefaults({
+              defaultModel: typeof d.data?.defaultModel === "string" ? d.data.defaultModel : "",
+              defaultThinkingLevel: typeof d.data?.defaultThinkingLevel === "string" ? d.data.defaultThinkingLevel : "",
+            });
           }
           const os = d?.data?.openspec;
           if (d?.success && os && typeof os === "object") {
@@ -1375,8 +1415,12 @@ export default function App() {
     // bridge handler runs in pi; ended sessions have no live WS). Status
     // values: "active" | "idle" | "streaming" — anything but "ended".
     let liveSession: string | undefined;
+    // Prefer a pi session: roles are pi-only and an ACP session refuses them.
+    // See change: add-acp-session-driver.
     for (const [id, s] of sessions) {
-      if (s.status !== "ended") { liveSession = id; break; }
+      if (s.status === "ended") continue;
+      if (s.driver !== "acp") { liveSession = id; break; }
+      liveSession ??= id;
     }
     if (!liveSession) return;
     globalRefreshRequestedRef.current = true;
@@ -1683,6 +1727,16 @@ export default function App() {
   // change: pluginize-flows-via-registry.
 
   const selectedSession = selectedId ? sessions.get(selectedId) : undefined;
+  // ── Ended-session composer context (no live bridge to ask) ──────────────
+  // Folder command list + model catalogue + the user's model/thinking pick for
+  // an ENDED session. See change: redesign-directory-home-split (D9).
+  const endedComposer = useEndedSessionComposer({
+    selectedId,
+    selectedSession,
+    hasOwnCommands: !!selectedId && sessionCommands.has(selectedId),
+    sessions,
+  });
+  const { getResumePick, setPickField: setResumePickField, clearPickField: clearResumePickField } = endedComposer;
   // Shared navigation to Settings → Providers — the model-selector empty-state
   // recovery link, consumed both directly (composer) and via ModelConfig (the
   // shell-bound `ui:model-selector` primitive). See change: open-empty-model-selector.
@@ -1702,11 +1756,15 @@ export default function App() {
       setModel: (label) => {
         const slashIdx = label.indexOf("/");
         if (selectedId && slashIdx > 0) {
+          clearResumePickField(selectedId, "model");
           send({ type: "set_model", sessionId: selectedId, provider: label.slice(0, slashIdx), modelId: label.slice(slashIdx + 1) });
         }
       },
       setThinkingLevel: (level) => {
-        if (selectedId) send({ type: "set_thinking_level", sessionId: selectedId, level });
+        if (selectedId) {
+          clearResumePickField(selectedId, "thinkingLevel");
+          send({ type: "set_thinking_level", sessionId: selectedId, level });
+        }
       },
       toggleFavorite: (label, makeFavorite) =>
         send({ type: makeFavorite ? "favorite_model" : "unfavorite_model", label }),
@@ -1716,7 +1774,7 @@ export default function App() {
       openProviderSettings,
       notify: (message) => showToast(message, "info"),
     }),
-    [selectedId, selectedState.model, selectedState.thinkingLevel, selectedSession?.model, selectedSession?.thinkingLevel, modelsMap, favoriteModels, send, showToast, openProviderSettings],
+    [selectedId, selectedState.model, selectedState.thinkingLevel, selectedSession?.model, selectedSession?.thinkingLevel, modelsMap, favoriteModels, send, showToast, openProviderSettings, clearResumePickField],
   );
   // Per-cwd OpenSpec workflow config — drives which action buttons render.
   // See change: redesign-session-card-and-composer (config-driven-workflow).
@@ -1757,7 +1815,7 @@ export default function App() {
     selectedId, send, navigate, setMobileOpen,
     sessions, setSessions, setSessionStates, sessionStatesRef, setSpawningCwds, setTerminals,
     clearSpawningCwd, spawnTimeoutsRef, pendingTerminalCwdRef, terminals,
-    pendingSpawnsRef,
+    pendingSpawnsRef, getResumePick,
   });
   const {
     // Queue-mutation action senders removed entirely (pi exposes no mutation
@@ -1818,7 +1876,9 @@ export default function App() {
   // session in the same folder. See change: stop-discarding-known-session-state.
   const handleForkPendingPrompt = useCallback(() => {
     const target = selectedId ? sessions.get(selectedId) : undefined;
-    if (target) handleSpawnSession(target.cwd);
+    // Keyboard sibling spawn inherits the source session's agent (no picker).
+    // See change: add-acp-session-driver (D16).
+    if (target) handleSpawnSession(target.cwd, undefined, target.driver === "acp" && target.acpAgentId ? { agent: target.acpAgentId } : undefined);
   }, [selectedId, sessions, handleSpawnSession]);
   const handleCollapseStreamingThinking = useCallback(() => {
     if (!selectedId) return;
@@ -2266,7 +2326,14 @@ export default function App() {
     const selectedState = sessionStates.get(selectedId) ?? createInitialState();
     const selectedDraft = drafts.get(selectedId) ?? "";
     const selectedImages = pendingImagesMap.get(selectedId) ?? (EMPTY_IMAGES as ImageContent[]);
-    const selectedCommands = sessionCommands.get(selectedId) ?? [];
+    const ownCommands = sessionCommands.get(selectedId);
+    const folderList =
+      !ownCommands && !readOnly && sessionIdArg === liveSelectedId ? endedComposer.folderCommands : undefined;
+    const selectedCommands: CommandInfo[] = ownCommands ?? folderList?.commands ?? EMPTY_COMMANDS;
+    const selectedCommandsOrigin = folderList?.origin;
+    // An ended session's chips show the user's pending pick, else the last known value.
+    const endedView = !readOnly && sessionIdArg === liveSelectedId && endedComposer.isEnded;
+    const endedPick = endedView ? endedComposer.pick : undefined;
     const selectedContextUsage = contextUsageMap.get(selectedId) ?? selectedState.contextUsage;
     // Reuse the memoised history for the LIVE session; only a frozen underlay
     // pays the extraction, and only for a session it is actually showing.
@@ -2391,7 +2458,9 @@ export default function App() {
           onBack={goBack}
         />
       ) : !frozen && piResourcesMatch && piResourcesCwd ? (
-        <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
+        <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "add-ons")} replace />
+      ) : !frozen && folderSettingsMatch && folderSettingsCwd && folderSettingsPageRaw === "packages" ? (
+        <Redirect to={buildFolderSettingsUrl(folderSettingsCwd, "add-ons")} replace />
       ) : !frozen && folderSettingsMatch && folderSettingsCwd ? (
         <DirectorySettings
           cwd={folderSettingsCwd}
@@ -2465,10 +2534,14 @@ export default function App() {
               Retry via a hidden non-user turn on the active bridge; success,
               abort, or removal hides the surface.
               See change: error-banner-observe-only, fix-retry-error-lifecycle. */}
+          {selectedId && sessions.get(selectedId)?.driver === "acp" && (
+            <AcpEndedCallout session={sessions.get(selectedId)!} onNewSession={handleForkPendingPrompt} />
+          )}
           <SessionBanner
             state={deriveBannerState(selectedState)}
             retryRevision={selectedState.lastError?.timestamp}
-            onRetry={selectedId ? () => handleRetrySession(selectedId) : undefined}
+            // Retry is pi-only (ACP sessions: no pi to re-run a turn). See change: add-acp-session-driver (D12).
+            onRetry={selectedId && sessions.get(selectedId)?.driver !== "acp" ? () => handleRetrySession(selectedId) : undefined}
             onDismiss={selectedId ? () => {
               setSessionStates((prev) => {
                 const next = new Map(prev);
@@ -2491,6 +2564,17 @@ export default function App() {
               menu + session-action groups (relocated from the retired
               StatusBar model row). Read-only archived open hides it with the
               rest of the composer (archive-sessions-lazy-load). */}
+          {/* Anchor for the floating canvas chip tray: 0 height, no gap unit, so it
+              leaves the pane's flex budget untouched. Live stack only — a frozen
+              underlay never anchors it. See change: fix-canvas-chip-tray-overlay. */}
+          {!frozen && !readOnly && (
+            <div
+              aria-hidden
+              data-testid="composer-stack-anchor"
+              className="h-0 shrink-0"
+              ref={setComposerAnchor}
+            />
+          )}
           {selectedSession && !readOnly && (
             <div
               /* `shrink-0`: thin furniture row — cannot compress below its content,
@@ -2588,22 +2672,36 @@ export default function App() {
             }}
             onOpenInlineTerminal={selectedId && selectedCwd ? () => handleOpenInlineTerminal(selectedId, selectedCwd) : undefined}
             sessionMessages={selectedState.messages}
-            model={selectedState.model ?? selectedSession?.model}
-            models={modelsMap.get(selectedId)}
+            commandsOrigin={selectedCommandsOrigin}
+            unsetLabel={endedView ? t("directoryHome.piDefault", undefined, "pi default") : undefined}
+            model={endedPick?.model ?? selectedState.model ?? selectedSession?.model}
+            models={endedView ? endedComposer.models : modelsMap.get(selectedId)}
             favorites={favoriteModels}
             onToggleFavorite={(label, makeFavorite) =>
               send({ type: makeFavorite ? "favorite_model" : "unfavorite_model", label })
             }
-            thinkingLevel={selectedState.thinkingLevel ?? selectedSession?.thinkingLevel}
+            thinkingLevel={endedPick?.thinkingLevel ?? selectedState.thinkingLevel ?? selectedSession?.thinkingLevel}
             onSelectModel={(modelStr) => {
+              // Ended session: no bridge to `set_model` — remember the pick; it
+              // rides the resuming prompt. See change: redesign-directory-home-split.
+              if (endedView) {
+                setResumePickField(selectedId, "model", modelStr);
+                return;
+              }
               const slashIdx = modelStr.indexOf("/");
               if (slashIdx > 0) {
                 const provider = modelStr.slice(0, slashIdx);
                 const modelId = modelStr.slice(slashIdx + 1);
+                clearResumePickField(selectedId, "model");
                 send({ type: "set_model", sessionId: selectedId, provider, modelId });
               }
             }}
             onSelectThinkingLevel={(level) => {
+              if (endedView) {
+                setResumePickField(selectedId, "thinkingLevel", level);
+                return;
+              }
+              clearResumePickField(selectedId, "thinkingLevel");
               send({ type: "set_thinking_level", sessionId: selectedId, level });
             }}
             onRefreshModels={() => selectedId && send({ type: "request_models", sessionId: selectedId })}
@@ -2752,17 +2850,46 @@ export default function App() {
   // opening Settings from /folder/<cwd> put the onboarding LandingPage behind
   // the scrim instead of the folder — the opposite of what option C promises.
   // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
-  const renderDirectoryHome = (cwd: string) => (
-    <DirectoryHomeView
-      cwd={cwd}
-      sessions={allSessionsList.filter((s) => s.cwd === cwd)}
-      onSpawnSession={handleSpawnSession}
-      onSelectSession={handleSelect}
-      onOpenTerminals={(c) => navigate(buildFolderEditorUrl(c, true))}
-      onOpenEditor={(c) => navigate(buildFolderEditorUrl(c))}
-      onOpenSettings={(c) => navigate(buildFolderSettingsUrl(c))}
-    />
-  );
+  const renderDirectoryHome = (cwd: string) => {
+    const home = (
+      <Suspense fallback={<div className="flex-1" />}>
+      <FolderHomeContainer
+        cwd={cwd}
+        defaultModel={spawnDefaults.defaultModel}
+        defaultThinkingLevel={spawnDefaults.defaultThinkingLevel}
+        favorites={favoriteModels}
+        onToggleFavorite={(label, makeFavorite) =>
+          send({ type: makeFavorite ? "favorite_model" : "unfavorite_model", label })
+        }
+        onOpenProviderSettings={openProviderSettings}
+        folderGitMap={folderGitMap}
+        sessionCount={allSessionsList.filter((s) => s.cwd === cwd).length}
+        onSpawnSession={handleSpawnSession}
+        failedSpawn={failedSpawn}
+        onWorktreeSpawnStart={addSpawningCwd}
+        onWorktreeSpawnAbort={clearSpawningCwd}
+        onWorktreeSpawned={(path) => void maybeAutoInitWorktreeOnSpawn(path)}
+        onOpenSettings={(c) => navigate(buildFolderSettingsUrl(c))}
+      />
+      </Suspense>
+    );
+    // Desktop hosts the Chat | Split | Editor workspace; mobile keeps the pane
+    // alone (a mobile split is a non-goal). See change: redesign-directory-home-split.
+    if (isMobile) return home;
+    return (
+      <FolderSplitProvider
+        cwd={cwd}
+        terminals={getTerminalsForCwd(cwd)}
+        onCreateTerminal={handleCreateTerminal}
+        onKillTerminal={handleKillTerminal}
+        onRenameTerminal={handleRenameTerminal}
+        onTerminalTitle={handleTerminalTitle}
+        terminalsReady={terminalsReady}
+      >
+        {home}
+      </FolderSplitProvider>
+    );
+  };
 
   // Renderers for the route-derived content region. `ShellContent` owns the
   // branch SELECTION (so it can re-derive under a frozen router); App keeps the
@@ -2790,7 +2917,7 @@ export default function App() {
     renderPiResourceFile: (filePath, title) => (
       <PiResourceFileRoute filePath={filePath} title={title} onBack={goBack} />
     ),
-    renderPiResourcesRedirect: (cwd) => <Redirect to={buildFolderSettingsUrl(cwd, "packages")} replace />,
+    renderPiResourcesRedirect: (cwd) => <Redirect to={buildFolderSettingsUrl(cwd, "add-ons")} replace />,
     renderFolderSettings: (cwd, page) => (
       <DirectorySettings cwd={cwd} page={page} onBack={goBack} />
     ),
@@ -2825,6 +2952,8 @@ export default function App() {
     renderLanding: () => (
       <LandingPage
         providersReady={providersReady.ready}
+        anthropicAuthenticated={providersReady.anthropicAuthenticated}
+        onCreateProject={(name) => createProjectAndPin(name, { send, setPinned: setPinnedDirectories })}
         pinnedCount={pinnedDirectories.length}
         sessionsCount={sessions.size}
         firstPinnedCwd={pinnedDirectories[0] ?? null}
@@ -2974,7 +3103,10 @@ export default function App() {
             }}
           >
             <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} url={editorUrl} nonce={editorOpenNonce} tabs={editorTabs} />
-            <CanvasDriver state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE} />
+            <CanvasDriver
+              state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE}
+              anchor={composerAnchor}
+            />
             <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
               {children}
               {/* Non-modal "waiting for file access" toast (own tray, both layouts).
@@ -3381,7 +3513,9 @@ export default function App() {
           onSpawn={(path, opts) => {
             const placeholderCwd = boardWorktreeForChange.cwd;
             setBoardWorktreeForChange(null);
-            handleSpawnSession(path, opts?.attachProposal, { ...opts, placeholderCwd });
+            // Board spawns never take focus (`focus: false` last so `opts` can't
+            // override it). See change: openspec-board-spawn-no-focus.
+            handleSpawnSession(path, opts?.attachProposal, { ...opts, placeholderCwd, focus: false });
             // Opt-in trusted-only worktree auto-init. See change: auto-init-worktree-on-spawn.
             void maybeAutoInitWorktreeOnSpawn(path);
           }}

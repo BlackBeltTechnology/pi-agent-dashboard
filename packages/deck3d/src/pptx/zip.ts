@@ -28,12 +28,15 @@ const MiB = 1024 * 1024;
 const SLICE = 4096;
 
 export class ZipLimitError extends PptxImportError {
+  readonly inflated: number;
+
   constructor(
     message: string,
     /** Actual bytes inflated for the offending entry when the stream stopped. */
-    readonly inflated = 0,
+    inflated = 0,
   ) {
     super(message);
+    this.inflated = inflated;
     this.name = "ZipLimitError";
   }
 }

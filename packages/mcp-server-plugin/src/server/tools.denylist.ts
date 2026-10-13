@@ -21,6 +21,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   },
   // See change: add-provider-models-refresh.
   { pattern: "/api/providers/:name/refresh", reason: "UI-only Settings → Refresh models trigger" },
+  { pattern: "/api/browse/create-project", reason: "UI-only first-run convenience; agents use file_mkdir" },
   { pattern: "/api/electron/", reason: "Electron-only" },
   // Stages, activates and rolls back the dashboard runtime (downloads + runs
   // code; Electron-only). Never an LLM action. See change: electron-runtime-overlay-updates.
@@ -29,9 +30,14 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/live-server/", reason: "live-server preview UI" },
   { pattern: "/api/node/", reason: "node runtime UI" },
   { pattern: "/api/preferences/", reason: "UI preferences" },
+  { pattern: "/api/packages/health", reason: "packages[] rot diagnostics; Settings UI-only. See change: add-package-health-cleanup" },
+  { pattern: "/api/packages/cleanup", reason: "rewrites ~/.pi/agent/settings.json packages[]; user-mediated Settings UI-only. See change: add-package-health-cleanup" },
   { pattern: "/api/grammar/", reason: "UI-only" },
+  { pattern: "/api/pi-resources/commands", reason: "composer `/` list for sessionless UIs (folder home, ended session); agents use getpi_resources. See change: redesign-directory-home-split" },
   { pattern: "/api/roles/used-by", reason: "Model roles page \"used by\" overview; informational, UI-only" },
   { pattern: "/api/kb/", reason: "kb engine admin" },
+  // add-acp-session-driver: the spawn picker's {id,name} list; UI-only.
+  { pattern: "/api/acp/", reason: "ACP new-session picker agent list; UI-only" },
   // add-server-push-notifications (Decision 12).
   { pattern: "/api/push/", reason: "push management is UI/REST-only in v1" },
   // Access-grant review + creation (change: add-access-grants-and-review). The
@@ -50,6 +56,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/flows-anthropic-bridge/", reason: "bridge diagnostics" },
   { pattern: "/api/plugins/blackhole/", reason: "plugin-internal" },
   // add-team-plugin: per-user, owner-gated persona/conversation surface for the team app; not an LLM action.
+  { pattern: "/api/plugins/skill-atlas/", reason: "derived UI view over getpi_resources (skill relation graph); agents read skills directly" },
   { pattern: "/api/plugins/team/", reason: "per-user team app API (personas, projects, conversations); owner-gated, UI-only" },
   { pattern: "/api/plugins/gmail/", reason: "Google account sign-in, levels and revoke; credential-bearing, UI-only" },
   { pattern: "/api/system-one/", reason: "decision-model config, key entry and managed-process control; UI-only" },
@@ -61,6 +68,11 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // secrets; core keeps the whole surface out of MCP (skills use the CLI).
   { pattern: "/api/services/", reason: "managed services: lifecycle + secrets; CLI/REST only in core" },
   { pattern: "/api/services", reason: "managed services: lifecycle + secrets; CLI/REST only in core" },
+  // add-credential-vault: secret store management. Never an LLM action: the
+  // vault decides which secrets reach which project, and holds the values.
+  { pattern: "/api/vault/", reason: "credential vault: accounts, grants, import; operator-only, secret-bearing" },
+  { pattern: "/api/vault", reason: "credential vault: accounts, grants, import; operator-only, secret-bearing" },
+  { pattern: "/api/session/:id/vault-bindings", reason: "vault binding state for the session view; UI-only" },
   { pattern: "/api/ws-ticket", reason: "transport credential" },
   { pattern: "/api/local-proof", reason: "mints a one-time local-proof bootstrap code; host-local credential" },
   { pattern: "/api/device-session", reason: "exchanges the device bearer for an httpOnly cookie; browser credential plumbing" },
@@ -74,6 +86,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/pair/deny", reason: "pairing ceremony" },
   { pattern: "/api/discover-servers", reason: "fleet discovery UI" },
   { pattern: "/api/known-servers", reason: "fleet discovery UI" },
+  { pattern: "/api/known-servers/accept-move", reason: "fleet discovery UI; operator-only" },
+  { pattern: "/api/known-servers/probe", reason: "fleet discovery UI; operator-only" },
   { pattern: "/api/pi/runtime", reason: "pi runtime UI" },
   { pattern: "/api/tools", reason: "tool-registry UI" },
   { pattern: "/api/open-in-system", reason: "UI-only" },
@@ -82,6 +96,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/favorite-models", reason: "UI-only" },
   { pattern: "/api/custom-event-groups", reason: "UI-only" },
   { pattern: "/api/canvas-types", reason: "UI-only" },
+  // add-project-scoped-apps: backs the client folder-project cache (claim predicates); not an LLM action.
+  { pattern: "/api/folder/project", reason: "UI-only: folder project identity for claim predicates" },
   { pattern: "/api/diagram/render", reason: "UI-only" },
   { pattern: "/api/host-gate", reason: "host admission internals" },
   { pattern: "/api/network-interfaces", reason: "fleet enumeration UI" },

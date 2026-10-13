@@ -107,15 +107,19 @@ interface RecordedCommand {
  * `chrome.tabs.*` commands and can emit `chrome.debugger.onEvent` for a tab.
  */
 export class FakeExtension {
+  private readonly socket: FakeSocket;
+  private readonly tabs: FakeTab[];
   /** Every `chrome.debugger.sendCommand` (i.e. every CDP method) received. */
   readonly cdpCommands: RecordedCommand[] = [];
   /** Override a command's result by method name. */
   respond: (method: string, params: unknown) => unknown = () => ({});
 
   constructor(
-    private readonly socket: FakeSocket,
-    private readonly tabs: FakeTab[] = [],
+    socket: FakeSocket,
+    tabs: FakeTab[] = [],
   ) {
+    this.socket = socket;
+    this.tabs = tabs;
     socket.on("message", ((data: unknown) => this._onMessage(data)) as never);
   }
 

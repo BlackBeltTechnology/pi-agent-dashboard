@@ -1711,9 +1711,10 @@ The generic plugin runtime surface (`ServerPluginContext` / `server-context.ts`)
 No plugin workspace SHALL depend on monorepo-only module resolution. CI SHALL
 verify this dynamically: for each workspace whose `pi-dashboard-plugin`
 manifest declares a `server` entry, pack the workspace, extract it outside the
-repository, install its dependencies, and import the server entry under plain
-node+jiti with `JITI_TSCONFIG_PATHS` unset and no repository `tsconfig`
-reachable. The check SHALL assert `typeof mod.default === "function"`, the
+repository, install its dependencies, and import the server entry under plain Node with the dashboard's Node-native
+TypeScript loader (the same strip-only loader the server uses) and no
+repository `tsconfig` reachable, so a plugin whose TypeScript is not erasable
+fails here instead of at a user's server boot. The check SHALL assert `typeof mod.default === "function"`, the
 same contract the loader enforces.
 
 First-party workspace dependencies SHALL be installed from locally packed
@@ -1742,6 +1743,11 @@ not the script itself.
 - **GIVEN** a workspace whose `pi-dashboard-plugin` manifest declares no `server` entry
 - **WHEN** the install-load verification runs
 - **THEN** that workspace SHALL be skipped and reported as skipped
+
+#### Scenario: Plugin with non-erasable TypeScript fails CI
+- **GIVEN** a plugin whose server entry graph declares an `enum` or a constructor parameter property
+- **WHEN** the install-load verification runs
+- **THEN** it SHALL exit non-zero naming the plugin and the offending file
 
 ### Requirement: Clean-install QA boot proves plugins actually load
 
@@ -1784,6 +1790,102 @@ assert, in order:
 - **GIVEN** a monorepo checkout present on the host
 - **WHEN** the smoke boots the installed dashboard
 - **THEN** every loaded plugin path SHALL be inside the install prefix
+
+### Requirement: Plugin server TypeScript must be erasable
+A dashboard plugin's server entry and everything it imports from TypeScript source SHALL use only syntax accepted by Node's strip-only type stripping (no `enum`, runtime `namespace`, or constructor parameter properties) and SHALL import type-only symbols with `import type`, because the dashboard server loads it with the Node-native strip-only loader. A third-party plugin that violates this SHALL fail to load in isolation, per "Plugin failure does not crash the shell", with the load error naming the offending file.
+
+#### Scenario: Non-erasable third-party plugin is isolated
+- **GIVEN** an installed plugin whose server entry declares a class with a constructor parameter property
+- **WHEN** the dashboard server boots
+- **THEN** the server SHALL start and other plugins SHALL load
+- **AND** `/api/health` `plugins[]` SHALL report that plugin with an error naming the file
+
+### Requirement: Manifest `projectTypes` marker rules are validated
+A plugin manifest MAY declare `projectTypes: Array<{ type: string; markers: string[] }>` with at most 8 entries.
+
+**Fields**
+- `type` SHALL match `^[a-z][a-z0-9-]{0,63}$`.
+- `markers` SHALL hold 1 to 16 patterns.
+
+**Pattern grammar.** A marker pattern SHALL be 1 to 3 segments joined by `/`. Each segment SHALL be non-empty, and SHALL be either a literal name or a name containing `*` wildcards. The last segment SHALL contain at least one character other than `*`. A pattern SHALL NOT:
+- start or end with `/`;
+- contain `\`;
+- contain a `.`, `..`, `.git` or `node_modules` segment;
+- contain `**`;
+- contain any of `?[]{}!`.
+
+**Errors.** A violation SHALL be a fatal manifest error naming the plugin and the offending entry.
+
+**Compatibility and lifetime**
+- A manifest without `projectTypes` SHALL validate exactly as before.
+- A valid `projectTypes` SHALL be preserved in the validated manifest that discovery returns.
+- Rules from a plugin SHALL take part in project detection only while that plugin is enabled.
+
+#### Scenario: Valid rules survive discovery
+- **WHEN** a manifest declares `projectTypes: [{ "type": "judo", "markers": ["model/*.judo", "judo.yaml"] }]`
+- **THEN** the plugin loads and its discovered manifest carries the same `projectTypes`
+
+#### Scenario: Escaping pattern is fatal
+- **WHEN** a manifest declares a marker `../secrets/*.key`
+- **THEN** the plugin fails to load with a manifest error naming the plugin and the pattern
+
+#### Scenario: Recursive or wildcard-only pattern is fatal
+- **WHEN** a manifest declares a marker `**/pom.xml` or `src/*`
+- **THEN** the plugin fails to load with a manifest error naming the plugin and the pattern
+
+#### Scenario: Excluded directory is fatal
+- **WHEN** a manifest declares a marker `node_modules/judo/package.json`
+- **THEN** the plugin fails to load with a manifest error naming the plugin and the pattern
+
+### Requirement: `ServerPluginContext` exposes resolved pi resources
+
+`ServerPluginContext` SHALL expose an optional `getPiResources?(cwd?: string, opts?: { fresh?: boolean }): Promise<PiResourcesResult>`. It returns the resolved resources from the same cache `GET /api/pi-resources` uses, without the per-session provenance join that route adds:
+- a cached result SHALL be returned at once, and a stale one SHALL also trigger one background rescan;
+- a cold miss SHALL await a scan;
+- an omitted `cwd` SHALL scan relative to the server's working directory, as the route does;
+- with `fresh: true` the call SHALL resolve with a scan that started after the call; a scan already running when the call arrives SHALL NOT satisfy it.
+
+The capability SHALL be optional on the type, so contexts built without it remain valid.
+
+#### Scenario: Cached result reused
+- **WHEN** a plugin calls `getPiResources("/repo")` twice and the cache entry is fresh
+- **THEN** both calls SHALL resolve without a rescan
+
+#### Scenario: Fresh read after invalidation
+- **WHEN** the entry for `/repo` was just invalidated and a plugin calls `getPiResources("/repo", { fresh: true })`
+- **THEN** the call SHALL resolve only after a rescan and SHALL include a skill added before the invalidation
+
+#### Scenario: In-flight scan does not satisfy a fresh read
+- **WHEN** a scan of `/repo` is running, a skill is then added, and a plugin calls `getPiResources("/repo", { fresh: true })`
+- **THEN** the call SHALL resolve with a result that includes the added skill
+
+#### Scenario: Stale entry served and refreshed
+- **WHEN** the cache entry for `/repo` is stale
+- **THEN** the call SHALL resolve with the stale result and exactly one background rescan SHALL start
+
+### Requirement: `ServerPluginContext` signals pi resource invalidation
+
+`ServerPluginContext` SHALL expose an optional `onPiResourcesInvalidated?(handler: (cwd: string | undefined) => void): () => void`. The host SHALL invoke handlers:
+- when the pi-resources watcher invalidates a folder (`cwd` set) or the global scope (`cwd` undefined);
+- when any session reports its command list, with that session's working directory (nothing is emitted for a session the host does not know).
+
+A throwing handler SHALL NOT affect other handlers or the host. The returned function SHALL unsubscribe.
+
+#### Scenario: Watcher invalidation
+- **WHEN** a skill directory is added under `/repo/.pi/skills`
+- **THEN** subscribed handlers SHALL be called with `"/repo"`
+
+#### Scenario: Command list arrival
+- **WHEN** a session whose cwd is `/repo` sends its command list after a reload
+- **THEN** subscribed handlers SHALL be called with `"/repo"`
+
+#### Scenario: Global change
+- **WHEN** `~/.pi/agent/settings.json` changes
+- **THEN** subscribed handlers SHALL be called with `undefined`
+
+#### Scenario: Unsubscribe
+- **WHEN** a plugin calls the function returned by `onPiResourcesInvalidated`
+- **THEN** its handler SHALL NOT be called again
 
 ## Related Capabilities
 

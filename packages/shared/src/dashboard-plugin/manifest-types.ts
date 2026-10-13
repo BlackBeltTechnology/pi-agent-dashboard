@@ -43,6 +43,12 @@ export interface PluginClaim {
    */
   pathPrefix?: string;
   /**
+   * For `resource-page-section` slot: restrict the section to one resource
+   * page (`skill` | `agent` | `extension` | `prompt` | `theme`). Absent = every
+   * resource page. See change: add-skill-atlas-screen.
+   */
+  resourceType?: "skill" | "agent" | "extension" | "prompt" | "theme";
+  /**
    * For `editor-pane-tab` slot: optional exported component name rendered as
    * the tab-strip label (props: `{ path, session, pluginContext }`). Stays
    * mounted while the tab is in the background. See change: add-browser-editor-pane-tab.
@@ -195,6 +201,33 @@ export interface PluginRequirements {
 }
 
 /**
+ * One project-type detection rule a plugin manifest MAY declare. `markers` are
+ * root-anchored relative path patterns (1–3 segments, `*` inside a segment
+ * only); the server matches them in one bounded, symlink-free walk of an
+ * admitted folder.
+ * See change: add-project-scoped-apps.
+ */
+export interface ProjectTypeRule {
+  /** `^[a-z][a-z0-9-]{0,63}$`. */
+  type: string;
+  /** 1–16 patterns; a type matches when at least one marker matches. */
+  markers: string[];
+}
+
+/**
+ * Wire result of `GET /api/folder/project`. `source` describes where `types`
+ * came from (not `id`, which only ever comes from the declaration file).
+ * See change: add-project-scoped-apps.
+ */
+export interface FolderProject {
+  id: string | null;
+  types: string[];
+  source: "declared" | "detected" | "none";
+  /** Present (true) when an entry/pattern budget or the deadline cut detection short. */
+  truncated?: true;
+}
+
+/**
  * The pi-dashboard-plugin manifest.
  * Declared as the `pi-dashboard-plugin` field in a package.json,
  * or as a top-level `dashboard-plugin.json` adjacent to package.json.
@@ -238,6 +271,13 @@ export interface PluginManifest {
    */
   requires?: PluginRequirements;
   /**
+   * Env-style vault binding names this plugin reads through `ctx.vault`. A name
+   * is readable only after the user approves the declaration in Settings; a
+   * declaration added by an update needs its own approval. Capability contract,
+   * not isolation. See change: add-credential-vault (D4).
+   */
+  vaultBindings?: string[];
+  /**
    * Other plugin ids this plugin requires (hard, transitive). When a
    * dependency is missing from discovery or disabled in config, the loader
    * SHALL skip this plugin's server entry and surface the gap via
@@ -261,6 +301,11 @@ export interface PluginManifest {
    * See change: make-all-ui-text-i18n.
    */
   i18nCatalog?: string;
+  /**
+   * Optional project-type detection rules (max 8). Evaluated server-side, only
+   * while this plugin is loaded and enabled. See change: add-project-scoped-apps.
+   */
+  projectTypes?: ProjectTypeRule[];
 }
 
 /**

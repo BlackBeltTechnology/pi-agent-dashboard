@@ -1,0 +1,8 @@
+
+/**
+ * Embedded app route (`shell-overlay-route`, `presentation: "content"`).
+ * `React.lazy` keeps the app module out of this statically-imported client
+ * entry's chunk.
+ */
+export const {{ Pascal }}AppRoute = lazy(() => import("./app/AppRoute.js"));
+{{ folderEntry }}

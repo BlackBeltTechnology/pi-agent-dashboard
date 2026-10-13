@@ -22,7 +22,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node bin/lib/engine-fingerprint.mjs --write .",
+    "build": "node ../../scripts/tsc7.mjs -p tsconfig.json && node bin/lib/engine-fingerprint.mjs --write .",
     "prepublishOnly": "npm run build",
     "verify": "NODE_OPTIONS=--experimental-sqlite tsx verify.ts",
     "test": "NODE_OPTIONS=--experimental-sqlite vitest run"

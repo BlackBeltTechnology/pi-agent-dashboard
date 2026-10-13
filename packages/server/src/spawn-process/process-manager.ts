@@ -193,6 +193,11 @@ export interface SessionOptions {
    */
   model?: string;
   /**
+   * Optional thinking level appended as `--thinking <level>` on the fresh and
+   * continue argv. See change: redesign-directory-home-split.
+   */
+  thinking?: string;
+  /**
    * Optional session name appended as `--name <name>` (pi 0.78.0+) so a
    * worktree / flow spawn lands with an intended title at creation instead of
    * relying only on post-hoc auto-naming. See change: adopt-pi-074-080-features.
@@ -214,6 +219,8 @@ export interface SessionOptions {
   appendSystemPrompt?: string[];
   noContextFiles?: boolean;
   noProjectTrust?: boolean;
+  /** `--no-mcp`: see `SessionFlags`. See change: spawn-scope-no-mcp. */
+  noMcp?: boolean;
   sessionDir?: string;
   /**
    * Per-extension config projected to namespaced env (`PI_EXT_<NAME>_<KEY>`)
@@ -223,6 +230,14 @@ export interface SessionOptions {
    * add-plugin-spawn-scope.
    */
   extensionConfig?: Record<string, Record<string, string | string[]>>;
+  /**
+   * Replace the pi child with an arbitrary command (ACP adapter, host B):
+   * the FULL argv `[node, script, ...args]`. Forces the headless keeper
+   * mechanism and skips pi resolution, `buildHeadlessArgs`, heap and pi runtime
+   * argv shaping. Absent → every path byte-identical to before.
+   * See change: add-acp-session-driver (D2).
+   */
+  childCmd?: string[];
 }
 
 export interface SpawnResult {
@@ -787,6 +802,8 @@ function applySessionHeap(
  *   3. Windows → probe wt first; probe wsl-tmux only if wt is absent
  */
 function chooseMechanism(options?: SessionOptions, electronMode = false): SpawnMechanism {
+  // A non-pi child (ACP adapter) only ever runs under the headless keeper.
+  if (options?.childCmd?.length) return "headless";
   const userStrategy: UserSpawnStrategy = options?.strategy === "headless" ? "headless" : "tmux";
   const platform = process.platform;
 
@@ -990,6 +1007,7 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
 }
 
 async function spawnHeadless(cwd: string, options?: SessionOptions): Promise<SpawnResult> {
+  if (options?.childCmd?.length) return spawnChildCmdViaKeeper(cwd, options.childCmd, options.spawnToken);
   // Headless `--mode rpc` sessions are spawned through the RPC keeper sidecar
   // on every platform. The keeper owns pi's stdin pipe (so pi survives
   // dashboard server restarts) and exposes a per-session UDS / named pipe
@@ -1020,6 +1038,20 @@ async function spawnHeadless(cwd: string, options?: SessionOptions): Promise<Spa
   // the session simply runs uncapped.
   const heaped = applySessionHeap(piCmd, rt, "headless");
   return spawnHeadlessViaKeeper(cwd, env, args, heaped.argv);
+}
+
+/**
+ * Keeper spawn for a non-pi child (`SessionOptions.childCmd`, the ACP adapter).
+ * `piCmd = [argv0]`, `piArgs = argv.slice(1)` — never empty, so the keeper does
+ * not append its default `--mode rpc`. `argv0` rides `buildSpawnEnv` so an
+ * Electron binary gets `ELECTRON_RUN_AS_NODE`. No pi resolution (`PI_NOT_FOUND`
+ * cannot occur), no heap/runtime argv shaping.
+ * See change: add-acp-session-driver (D2).
+ */
+function spawnChildCmdViaKeeper(cwd: string, childCmd: string[], spawnToken?: string): Promise<SpawnResult> {
+  const [argv0, ...rest] = childCmd as [string, ...string[]];
+  const env = buildSpawnEnv(process.env, { spawnToken, argv0, mechanism: "headless" });
+  return spawnHeadlessViaKeeper(cwd, env, rest, [argv0]);
 }
 
 /**

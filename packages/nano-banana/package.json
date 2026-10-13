@@ -33,13 +33,16 @@
     ]
   },
   "exports": {
+    "./package.json": "./package.json",
     "./*.js": "./src/*.ts",
     "./*": "./src/*"
   },
   "bin": {
-    "pi-nano-banana": "src/bin/nano-banana.ts"
+    "pi-nano-banana": "bin/pi-nano-banana"
   },
   "files": [
+    "bin/",
+    "dist/",
     "src/",
     "!src/__tests__",
     ".pi/skills/",
@@ -48,13 +51,14 @@
     "!**/*.AGENTS.md"
   ],
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "node scripts/build.mjs"
   },
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-shared": "^0.9.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=1.0.0",
+    "@earendil-works/pi-coding-agent": ">=1.1.0",
     "typebox": ">=1.3.6"
   },
   "peerDependenciesMeta": {
@@ -63,7 +67,9 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^1.0.0",
+    "@earendil-works/pi-coding-agent": "^1.1.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.21.0",
     "typebox": ">=1.3.6",
     "vitest": "^2.1.8"
   }

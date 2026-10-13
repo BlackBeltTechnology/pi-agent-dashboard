@@ -10,14 +10,15 @@
  * Reuses the shell's `shouldReset` so a full re-replay clears the store
  * before republishing (no duplicates) while a continuation batch appends.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook } from "@testing-library/react";
-import { useMessageHandler } from "../useMessageHandler.js";
-import { type SessionState } from "../../lib/chat/event-reducer.js";
-import { getSessionEvents, clearSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
+
+import { clearSessionEvents, getSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { reduceFlowsSessionState } from "@blackbelt-technology/pi-dashboard-flows-plugin/client";
-import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { renderHook } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SessionState } from "../../lib/chat/event-reducer.js";
+import { useMessageHandler } from "../useMessageHandler.js";
 
 function flowStarted(): DashboardEvent {
   return {

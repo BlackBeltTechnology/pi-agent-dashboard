@@ -72,13 +72,18 @@ export type TransitionLogger = (line: string) => void;
  * (`init`) is logged too but is not an edge.
  */
 export class StateCell {
+  readonly id: string;
+  private readonly log: TransitionLogger;
   state: ServiceState = "stopped";
   reason?: UnavailableReason;
 
   constructor(
-    readonly id: string,
-    private readonly log: TransitionLogger,
-  ) {}
+    id: string,
+    log: TransitionLogger,
+  ) {
+    this.id = id;
+    this.log = log;
+  }
 
   init(state: ServiceState, why: string, reason?: UnavailableReason): void {
     const from = this.state;

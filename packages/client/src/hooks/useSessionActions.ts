@@ -8,7 +8,21 @@ import type { DashboardSession, ImageContent } from "@blackbelt-technology/pi-da
 import { useCallback } from "react";
 import { createInitialState, resolveInteractiveRequest, type SessionState } from "../lib/chat/event-reducer.js";
 import { encodePromptAnswer } from "../lib/chat/prompt-answer-encoder.js";
+import type { ResumePick } from "./useEndedSessionComposer.js";
 import type { SendVerdict } from "./useWebSocket.js";
+
+/**
+ * One in-flight spawn/resume awaiting its `session_added`. `focus: false`
+ * (set only when a caller opts out, e.g. the OpenSpec board) makes the
+ * correlation cleanup run WITHOUT navigating. Absent = default auto-focus.
+ * See change: openspec-board-spawn-no-focus.
+ */
+export interface PendingSpawnEntry {
+  cwd: string;
+  kind: "spawn" | "resume";
+  placeholderCwd?: string;
+  focus?: boolean;
+}
 
 export interface SessionActionDeps {
   selectedId: string | undefined;
@@ -38,15 +52,22 @@ export interface SessionActionDeps {
    * `useMessageHandler.session_added` for exact auto-select correlation.
    * See change: spawn-correlation-token.
    */
-  pendingSpawnsRef: React.MutableRefObject<Map<string, { cwd: string; kind: "spawn" | "resume"; placeholderCwd?: string }>>;
+  pendingSpawnsRef: React.MutableRefObject<Map<string, PendingSpawnEntry>>;
+  /**
+   * The model / thinking-level the user picked in an ENDED session's composer,
+   * if any. Sent on the resuming `send_prompt` / `resume_session` (continue) so
+   * the server applies it to the resumed pi. See change: redesign-directory-home-split.
+   */
+  getResumePick?: (sessionId: string) => ResumePick | undefined;
 }
+
 
 export function useSessionActions(deps: SessionActionDeps) {
   const {
     selectedId, send, navigate, setMobileOpen,
     sessions, setSessions, setSessionStates, sessionStatesRef, setSpawningCwds, setTerminals,
     clearSpawningCwd, spawnTimeoutsRef, pendingTerminalCwdRef, terminals,
-    pendingSpawnsRef,
+    pendingSpawnsRef, getResumePick,
   } = deps;
 
   // Native crypto.randomUUID is widely available; fall back to a Math.random
@@ -205,9 +226,20 @@ export function useSessionActions(deps: SessionActionDeps) {
       // See change: stop-discarding-known-session-state (task 2.3a).
       const target = sessions.get(selectedId);
       const cannotResume = target?.status === "ended" && !target.sessionFile;
+      // An ended session carries the composer's model/thinking pick so the
+      // server applies it to the resume (ignored for a live session).
+      const pick = target?.status === "ended" ? getResumePick?.(selectedId) : undefined;
       const verdict = cannotResume
         ? undefined
-        : send({ type: "send_prompt", sessionId: selectedId, text, images, delivery });
+        : send({
+            type: "send_prompt",
+            sessionId: selectedId,
+            text,
+            images,
+            delivery,
+            ...(pick?.model ? { model: pick.model } : {}),
+            ...(pick?.thinkingLevel ? { thinkingLevel: pick.thinkingLevel } : {}),
+          });
       // A verdict that says the message never left the browser is a KNOWN
       // failure: mark the bubble failed immediately and skip the 30 s safety
       // path entirely (a `failed` bubble never arms it).
@@ -244,7 +276,7 @@ export function useSessionActions(deps: SessionActionDeps) {
         return next;
       });
     }
-  }, [selectedId, send, setSessionStates, sessions]);
+  }, [selectedId, send, setSessionStates, sessions, getResumePick]);
 
   const handleSelect = useCallback((id: string) => {
     navigate(`/session/${id}`);
@@ -370,8 +402,20 @@ export function useSessionActions(deps: SessionActionDeps) {
     // Explicit "front" placement: matches today's default but makes the
     // intent visible at the wire level. See change:
     // differentiate-resume-intent-by-trigger.
-    send({ type: "resume_session", sessionId, mode, placement: "front", requestId, ...(entryId ? { entryId } : {}) });
-  }, [send, setSessions, pendingSpawnsRef]);
+    // The composer's model/thinking pick rides a `continue` only (a fork keeps
+    // the parent model; the server drops it anyway).
+    const pick = mode === "continue" ? getResumePick?.(sessionId) : undefined;
+    send({
+      type: "resume_session",
+      sessionId,
+      mode,
+      placement: "front",
+      requestId,
+      ...(entryId ? { entryId } : {}),
+      ...(pick?.model ? { model: pick.model } : {}),
+      ...(pick?.thinkingLevel ? { thinkingLevel: pick.thinkingLevel } : {}),
+    });
+  }, [send, setSessions, pendingSpawnsRef, getResumePick]);
 
   /**
    * Drag-to-resume entry point. The drop position was just persisted via
@@ -394,8 +438,17 @@ export function useSessionActions(deps: SessionActionDeps) {
   const handleSpawnSession = useCallback((
     cwd: string,
     attachProposal?: string,
-    opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string },
-  ) => {
+    opts?: {
+      gitWorktreeBase?: string;
+      placeholderCwd?: string;
+      initialPrompt?: string;
+      focus?: boolean;
+      agent?: string;
+      /** Spawn-time model (`provider/id`) and thinking level; server validates. */
+      model?: string;
+      thinkingLevel?: string;
+    },
+  ): string => {
     // The placeholder/disabled-button group cwd. For a normal spawn this is
     // the spawn cwd; for a worktree spawn the host passes the PARENT repo
     // cwd (the group that will host the new session per the grouping
@@ -422,7 +475,14 @@ export function useSessionActions(deps: SessionActionDeps) {
     // `placeholderCwd` so the clear keys on the group cwd, not the worktree
     // path. See change: add-worktree-spawn-placeholder-card.
     const requestId = mintRequestId();
-    pendingSpawnsRef.current.set(requestId, { cwd, kind: "spawn", placeholderCwd });
+    pendingSpawnsRef.current.set(requestId, {
+      cwd,
+      kind: "spawn",
+      placeholderCwd,
+      // Only record the opt-out; default entries stay byte-identical.
+      // See change: openspec-board-spawn-no-focus.
+      ...(opts?.focus === false ? { focus: false } : {}),
+    });
     // The optional `attachProposal` field is consumed server-side and applied
     // when the bridge issues `session_register`. See change:
     // add-folder-task-checker-and-spawn-attach.
@@ -439,7 +499,16 @@ export function useSessionActions(deps: SessionActionDeps) {
       // Pre-injected first prompt (e.g. `/skill:project-init` from the no-hook
       // Initialize button). See change: project-init-skill-and-profiles.
       ...(opts?.initialPrompt ? { initialPrompt: opts.initialPrompt } : {}),
+      // Spawn-time choices from the folder home. Old servers ignore them.
+      // See change: redesign-directory-home-split.
+      ...(opts?.model ? { model: opts.model } : {}),
+      ...(opts?.thinkingLevel ? { thinkingLevel: opts.thinkingLevel } : {}),
+      // Configured ACP agent (picker / sibling inheritance); absent → pi, so the
+      // frame is byte-identical to before. See change: add-acp-session-driver (D16).
+      ...(opts?.agent ? { agent: opts.agent } : {}),
     });
+    // Returned so a caller (the folder home) can recognise ITS spawn's failure.
+    return requestId;
   }, [send, clearSpawningCwd, setSpawningCwds, spawnTimeoutsRef, pendingSpawnsRef]);
 
   // archive-sessions-lazy-load: manual archive replaces manual hide. The

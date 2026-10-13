@@ -99,6 +99,16 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/web-access-plugin": {
+      "entry": [
+        "src/client/index.tsx",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
     "packages/app-kit": {
       "entry": [
         "src/index.ts",
@@ -425,7 +435,8 @@
         "src/index.ts",
         "src/cli.ts",
         "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
+        "**/__tests__/**/*.test.{ts,tsx}",
+        "src/__tests__/helpers/lease-worker.mts"
       ],
       "project": [
         "src/**/*.{ts,tsx,mjs}"
@@ -449,6 +460,18 @@
       "entry": [
         "src/extension.ts",
         "src/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/skill-atlas-plugin": {
+      "entry": [
+        "src/client/index.tsx",
+        "src/server/index.ts",
+        "src/shared/index.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -539,6 +562,18 @@
     "packages/nano-banana": {
       "entry": [
         "src/bin/nano-banana.ts",
+        "scripts/build.mjs",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/photocraft": {
+      "entry": [
+        "src/bin/photocraft.ts",
+        "scripts/build.mjs",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],

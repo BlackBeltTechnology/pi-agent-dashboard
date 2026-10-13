@@ -1,9 +1,10 @@
-import { mdiContentCopy } from "@mdi/js";
+import { mdiAlertCircleOutline, mdiAutoFix, mdiContentCopy, mdiLoading } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { type RuleId, repairMermaid } from "../../lib/preview/mermaid-repair.js";
+import { copyText } from "../../lib/util/clipboard.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
 import { mermaidConfig } from "./mermaid-config.js";
@@ -99,8 +100,12 @@ const ACCENT_VARS = [
   "--accent-orange",
 ] as const;
 
-// Fallback ramp for environments where getComputedStyle returns empty custom
-// properties (e.g. jsdom under test). In the browser the vars are always set.
+// TEST-ONLY fallback ramp, used when getComputedStyle returns empty custom
+// properties (jsdom). In the browser the vars are always set: `:root` and every
+// THEMES palette define the six accents and --text-primary as #hex, which
+// `mermaid-accent-guard.test.ts` enforces (and `rgba()` below parses hex only).
+// Documented as an exception in ui-contract.md.
+// See change: retro-ux-chat-rendering (design D2).
 const FALLBACK_ACCENTS = ["#3b82f6", "#22c55e", "#eab308", "#ef4444", "#a855f7", "#f97316"];
 
 const TINT = 0.08; // soft accent wash over the node background
@@ -200,6 +205,7 @@ async function renderOnce(mermaid: MermaidApi, id: string, code: string, resolve
     return colorizeDefaultNodes(
       clean,
       resolveAccents(),
+      // Test-only fallback literals (see FALLBACK_ACCENTS above).
       resolveVar("--text-primary", resolved === "dark" ? "#e5e7eb" : "#111827"),
     );
   } finally {
@@ -293,13 +299,72 @@ const RULE_DESCRIPTIONS: Record<RuleId, string> = {
   R7: "Replaced ; and # inside quoted labels",
 };
 
-function ErrorView({ code, message }: { code: string; message: string }) {
+/** Text button that copies `getText()`; label flips to "Copied" for 1.5 s. */
+function CopySourceButton({ getText }: { getText: () => string }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const onClick = async () => {
+    if (!(await copyText(getText()))) return;
+    setCopied(true);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      setCopied(false);
+    }, 1500);
+  };
   return (
-    <div className="rounded-md overflow-hidden mb-2">
-      <div className="text-xs text-red-400 px-3 py-1.5 bg-red-900/20">
-        {i18nT("status.failedToRenderMermaidDiagram", undefined, "Failed to render Mermaid diagram:")} {message}
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid="mermaid-copy-source"
+      className="focus-ring inline-flex items-center gap-1 rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 tap-target text-[12px] text-[var(--text-primary)]"
+    >
+      <Icon path={mdiContentCopy} size={0.6} aria-hidden="true" />
+      {copied
+        ? i18nT("preview.mermaid.copied", undefined, "Copied")
+        : i18nT("preview.mermaid.copySource", undefined, "Copy source")}
+    </button>
+  );
+}
+
+/**
+ * Error-severity callout (headline, original error in mono, optional "Copy
+ * source") followed by the raw source. Used for an unrenderable diagram and
+ * for the "show original" view of a repaired one.
+ * See change: retro-ux-chat-rendering (design D1, spec mermaid-diagram).
+ */
+function ErrorView({
+  code,
+  message,
+  headline,
+  copyable = true,
+}: {
+  code: string;
+  message: string;
+  headline: string;
+  copyable?: boolean;
+}) {
+  return (
+    <div className="mb-2" data-testid="mermaid-error">
+      <div className="flex gap-2 rounded-md border border-[var(--severity-error-border)] bg-[var(--severity-error-bg)] p-3 text-sm text-[var(--severity-error-fg)]">
+        <Icon path={mdiAlertCircleOutline} size={0.8} aria-hidden="true" className="mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <strong className="font-semibold">{headline}</strong>
+          <code className="mt-0.5 block whitespace-pre-wrap break-words font-mono text-xs">{message}</code>
+          {copyable ? (
+            <div className="mt-2">
+              <CopySourceButton getText={() => code} />
+            </div>
+          ) : null}
+        </div>
       </div>
-      <pre className="bg-[var(--bg-code)] rounded-b-md p-4 overflow-x-auto text-sm">
+      <pre className="mt-1 bg-[var(--bg-code)] rounded-md p-4 overflow-x-auto text-sm">
         <code>{code}</code>
       </pre>
     </div>
@@ -312,13 +377,11 @@ function ErrorView({ code, message }: { code: string; message: string }) {
  * See change: add-mermaid-auto-repair (D4).
  */
 function RepairBadge({
-  idPrefix,
   code,
   outcome,
   showOriginal,
   onToggle,
 }: {
-  idPrefix: string;
   code: string;
   outcome: Extract<MermaidOutcome, { kind: "repaired" }> | null;
   showOriginal: boolean;
@@ -327,45 +390,46 @@ function RepairBadge({
   if (!outcome) return null;
   return (
     <>
-      <div
-        data-testid="mermaid-repair-badge"
-        className="flex flex-wrap items-center gap-1.5 mt-2 text-xs text-[var(--text-secondary)]"
-      >
-        <span>{i18nT("preview.mermaid.autoFixed", undefined, "Auto-fixed:")}</span>
-        {outcome.applied.map((rule) => {
-          const description = i18nT(`preview.mermaid.rule.${rule}`, undefined, RULE_DESCRIPTIONS[rule]);
-          return (
-            <React.Fragment key={rule}>
-              <code
-                data-testid="mermaid-repair-rule"
-                aria-describedby={`${idPrefix}-${rule}`}
-                title={description}
-                className="px-1 rounded bg-[var(--bg-code)] text-[var(--text-primary)]"
-              >
-                {rule}
-              </code>
-              <span id={`${idPrefix}-${rule}`} className="sr-only">
-                {description}
+      <div data-testid="mermaid-repair-badge" className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-2">
+        <span className="inline-flex items-center gap-1 rounded-full border border-[var(--severity-info-border)] bg-[var(--severity-info-bg)] px-1.5 py-0.5 text-[11px] text-[var(--severity-info-fg)]">
+          <Icon path={mdiAutoFix} size={0.5} aria-hidden="true" />
+          {i18nT("preview.mermaid.autoFixed", undefined, "Auto-fixed")}
+        </span>
+        {outcome.applied.map((rule, i) => (
+          <React.Fragment key={rule}>
+            {i > 0 ? (
+              <span aria-hidden="true" className="text-xs text-[var(--text-secondary)]">
+                ·
               </span>
-            </React.Fragment>
-          );
-        })}
+            ) : null}
+            <span data-testid="mermaid-repair-rule" data-rule={rule} className="text-xs text-[var(--text-secondary)]">
+              {i18nT(`preview.mermaid.rule.${rule}`, undefined, RULE_DESCRIPTIONS[rule])}
+            </span>
+          </React.Fragment>
+        ))}
         <button
           type="button"
           aria-pressed={showOriginal}
           onClick={onToggle}
-          className="px-1.5 py-0.5 rounded hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] underline-offset-2 hover:underline"
+          className="focus-ring rounded-md px-2 tap-target text-[12px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:underline underline-offset-2"
         >
           {i18nT("preview.mermaid.showOriginal", undefined, "Show original")}
         </button>
         <CopyButton
           getText={() => outcome.code}
-          icon={<Icon path={mdiContentCopy} size={0.6} />}
+          icon={<Icon path={mdiContentCopy} size={0.6} aria-hidden="true" />}
           title={i18nT("preview.mermaid.copyFixed", undefined, "Copy fixed source")}
           testId="mermaid-copy-fixed"
         />
       </div>
-      {showOriginal && <ErrorView code={code} message={outcome.error} />}
+      {showOriginal && (
+        <ErrorView
+          code={code}
+          message={outcome.error}
+          headline={i18nT("preview.mermaid.originalError", undefined, "Original render error")}
+          copyable={false}
+        />
+      )}
     </>
   );
 }
@@ -448,7 +512,6 @@ function useMermaidOutcome(code: string, themeId: string, key: string, resolved:
 }
 
 export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = true }: Props) {
-  const reactId = useId();
   const { resolved, themeName } = useThemeContext();
   // Composite identity: accent palettes differ per named theme, so cache and
   // re-render must key on both the named theme and its light/dark resolution.
@@ -463,6 +526,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
   );
   const [focused, setFocused] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const refocusViewportRef = useRef(false);
   // Contain-fit scale, measured against the fixed-height viewport once the SVG
   // is known; the hook clamps it into [min,max] and re-seeds until user input.
   // See change: fix-markdown-remount-storm (D4).
@@ -494,6 +558,13 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
     return () => el.removeEventListener("wheel", wheelHandler);
   }, [handlers.onWheel, svg, focused]);
 
+  // After Escape deactivates the diagram, keep keyboard focus on the viewport.
+  useEffect(() => {
+    if (focused || !refocusViewportRef.current) return;
+    refocusViewportRef.current = false;
+    viewportRef.current?.focus();
+  }, [focused]);
+
   // Click-outside and Escape to deactivate
   useEffect(() => {
     if (!focused) return;
@@ -503,7 +574,16 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
       }
     }
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setFocused(false);
+      if (e.key === "Escape") {
+        // Escape pressed on an unrelated control elsewhere on the page is not ours.
+        const active = document.activeElement;
+        const vp = viewportRef.current;
+        if (active && active !== document.body && vp && !vp.contains(active)) return;
+        // The zoom buttons unmount on deactivation, dropping focus to <body>; the
+        // effect below moves it to the viewport once they are gone.
+        refocusViewportRef.current = true;
+        setFocused(false);
+      }
     }
     document.addEventListener("mousedown", onClickOutside);
     document.addEventListener("keydown", onKeyDown);
@@ -514,20 +594,25 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
   }, [focused]);
 
   if (outcome?.kind === "error") {
-    return <ErrorView code={code} message={outcome.message} />;
+    return (
+      <ErrorView
+        code={code}
+        message={outcome.message}
+        headline={i18nT("preview.mermaid.errorHeadline", undefined, "This diagram could not be rendered.")}
+      />
+    );
   }
 
   if (!svg) {
     return (
-      <div className="flex items-center justify-center py-8 text-[var(--text-muted)] text-sm">
-        {i18nT("status.loadingDiagram", undefined, "Loading diagram…")}
+      <div role="status" className="flex items-center justify-center gap-2 py-8 text-[var(--text-secondary)] text-sm">
+        <Icon path={mdiLoading} size={0.7} className="animate-spin" aria-hidden="true" />
+        {i18nT("preview.mermaid.rendering", undefined, "Rendering diagram…")}
       </div>
     );
   }
 
-  const borderColor = focused
-    ? "border-blue-500/60"
-    : "border-[var(--border-subtle)]";
+  const borderColor = focused ? "border-[var(--focus-ring)]" : "border-[var(--border-subtle)]";
 
   const toggleOriginal = () => {
     setFocused(false); // the hidden viewport must not keep zoom focus
@@ -539,7 +624,6 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
   return (
     <>
       <RepairBadge
-        idPrefix={`mermaid-rule-${reactId.replace(/:/g, "")}`}
         code={code}
         outcome={repaired}
         showOriginal={showOriginal}
@@ -551,13 +635,25 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
         <div
           ref={viewportRef}
           hidden={showOriginal}
-          className={`relative overflow-hidden rounded-md border ${borderColor} bg-[var(--bg-surface)] transition-colors`}
+          tabIndex={0}
+          role="group"
+          aria-label={i18nT(
+            "preview.mermaid.viewportName",
+            undefined,
+            "Diagram. Press Enter to zoom and pan, Escape to leave.",
+          )}
+          className={`group focus-ring relative overflow-hidden rounded-md border ${borderColor} bg-[var(--bg-surface)] transition-colors`}
           style={{
             touchAction: focused ? "none" : "auto",
             cursor: focused ? (zoom.scale > initialScale ? "grab" : "default") : "pointer",
             height: VIEWPORT_HEIGHT_CSS,
           }}
           onClick={() => { if (!focused) setFocused(true); }}
+          onKeyDown={(e) => {
+            // Enter on the viewport itself activates; tabbing through never does,
+            // and Enter on a zoom button inside it is that button's own click.
+            if (e.key === "Enter" && e.target === e.currentTarget && !focused) setFocused(true);
+          }}
           onPointerDown={focused ? handlers.onPointerDown : undefined}
           onPointerMove={focused ? handlers.onPointerMove : undefined}
           onPointerUp={focused ? handlers.onPointerUp : undefined}
@@ -572,14 +668,20 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
               onReset={reset}
               scale={zoom.scale}
               initialScale={initialScale}
+              labels={{
+                zoomIn: i18nT("preview.mermaid.zoomIn", undefined, "Zoom in"),
+                zoomOut: i18nT("preview.mermaid.zoomOut", undefined, "Zoom out"),
+                reset: i18nT("preview.mermaid.zoomReset", undefined, "Reset zoom"),
+              }}
             />
           )}
           {!focused && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/10 rounded-md">
-              <span className="text-xs text-[var(--text-secondary)] bg-[var(--bg-surface)]/90 px-2 py-1 rounded shadow">
-                {i18nT("common.clickToZoomPan", undefined, "Click to zoom & pan")}
-              </span>
-            </div>
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute top-2 right-2 z-10 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+            >
+              {i18nT("preview.mermaid.zoomHint", undefined, "Enter or click to zoom")}
+            </span>
           )}
           {/* Inner wrapper with zoom transform */}
           <div

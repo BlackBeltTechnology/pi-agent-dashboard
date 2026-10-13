@@ -113,6 +113,11 @@ export interface SessionFlags {
    */
   model?: string;
   /**
+   * Optional thinking level appended as `--thinking <level>`. Emitted on the
+   * fresh and `continue` branches (fork unchanged). See change: redesign-directory-home-split.
+   */
+  thinking?: string;
+  /**
    * Optional session name appended as `--name <name>` (pi 0.78.0+). Set the
    * pi session name AT CREATION so worktree / flow spawns land with an
    * intended title instead of relying only on post-hoc auto-naming. Composes
@@ -147,6 +152,8 @@ export interface SessionFlags {
   appendSystemPrompt?: string[];
   noContextFiles?: boolean;
   noProjectTrust?: boolean;
+  /** `--no-mcp`: disable pi's built-in MCP for this run. See change: spawn-scope-no-mcp. */
+  noMcp?: boolean;
   sessionDir?: string;
 }
 
@@ -158,12 +165,12 @@ export interface SessionFlags {
 export function sessionFlagsToArgv(flags: SessionFlags): string[] {
   const scope = scopeFlags(flags);
   if (flags.sessionFile && flags.mode === "continue") {
-    return [...nameFlag(flags), "--session", flags.sessionFile, ...scope];
+    return [...nameFlag(flags), "--session", flags.sessionFile, ...modelFlag(flags), ...thinkingFlag(flags), ...scope];
   }
   if (flags.sessionFile && flags.mode === "fork") {
     return [...nameFlag(flags), "--fork", flags.sessionFile, ...modelFlag(flags), ...scope];
   }
-  return [...nameFlag(flags), ...modelFlag(flags), ...scope];
+  return [...nameFlag(flags), ...modelFlag(flags), ...thinkingFlag(flags), ...scope];
 }
 
 /**
@@ -186,12 +193,17 @@ function scopeFlags(flags: SessionFlags): string[] {
   for (const p of flags.appendSystemPrompt ?? []) argv.push("--append-system-prompt", p);
   if (flags.noContextFiles) argv.push("--no-context-files");
   if (flags.noProjectTrust) argv.push("--no-approve");
+  if (flags.noMcp) argv.push("--no-mcp");
   if (flags.sessionDir) argv.push("--session-dir", flags.sessionDir);
   return argv;
 }
 
 function modelFlag(flags: SessionFlags): string[] {
   return flags.model ? ["--model", flags.model] : [];
+}
+
+function thinkingFlag(flags: SessionFlags): string[] {
+  return flags.thinking ? ["--thinking", flags.thinking] : [];
 }
 
 /**

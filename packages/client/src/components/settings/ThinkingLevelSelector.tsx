@@ -22,13 +22,17 @@ interface Props {
    * empty → all canonical levels. See change: adopt-pi-071-072-073-features.
    */
   supportedLevels?: string[];
+  /** Trigger text when `current` is unset. Default `off`. See change: redesign-directory-home-split. */
+  placeholder?: string;
+  /** Small badge beside the current level (e.g. `default`). See change: redesign-directory-home-split. */
+  tag?: string;
 }
 
 // Trigger→panel gap for the portaled `fixed` panel — replaces the `mt-1` /
 // `mb-1` the inline form got from flow. See change: fix-composer-popover-layering.
 const GAP = 4;
 
-export function ThinkingLevelSelector({ current, onSelect, supportedLevels }: Props) {
+export function ThinkingLevelSelector({ current, onSelect, supportedLevels, placeholder, tag }: Props) {
   const { t } = useI18n();
   const levelsToRender = supportedLevels?.length
     ? THINKING_LEVELS.filter((l) => supportedLevels.includes(l))
@@ -81,7 +85,12 @@ export function ThinkingLevelSelector({ current, onSelect, supportedLevels }: Pr
         aria-expanded={open}
         aria-controls={open ? dropdownId : undefined}
       >
-        <span className="font-mono truncate flex items-center gap-1"><Icon path={mdiHeadLightbulb} size={0.5} /> {current ?? "off"}</span>
+        <span className="font-mono truncate flex items-center gap-1"><Icon path={mdiHeadLightbulb} size={0.5} /> {current ?? placeholder ?? "off"}</span>
+        {tag && (
+          <span data-testid="thinking-tag" className="text-[10px] px-1 rounded border border-[var(--border-secondary)] text-[var(--text-muted)]">
+            {tag}
+          </span>
+        )}
       </button>
       {open && (
         // Portaled to the layer root + positioned `fixed` from the trigger's

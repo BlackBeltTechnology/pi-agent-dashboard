@@ -97,6 +97,7 @@ const admissionDelayMs = (e: unknown, attempt: number): number => {
 const isPreconditionCode = (c: string | undefined): boolean => c === "folder_missing" || c === "no_sources";
 
 export class KbStatsStore {
+  private readonly cwd: string;
   private snapshot: KbStatsSnapshot = EMPTY_SNAPSHOT;
   private readonly listeners = new Set<() => void>();
   private refs = 0;
@@ -113,7 +114,9 @@ export class KbStatsStore {
   private initialized = false;
   private disposed = false;
 
-  constructor(private readonly cwd: string) {}
+  constructor(cwd: string) {
+    this.cwd = cwd;
+  }
 
   getSnapshot = (): KbStatsSnapshot => this.snapshot;
 

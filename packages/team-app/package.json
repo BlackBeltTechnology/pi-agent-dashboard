@@ -13,7 +13,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "node ../../scripts/tsc7.mjs --noEmit"
   },
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",

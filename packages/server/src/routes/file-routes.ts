@@ -24,7 +24,15 @@ import {
   VerifiedReadRefused,
 } from "../access/verified-read.js";
 import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
-import { classifyPaths, createDirectory, listDirectories, parseFlagsQuery } from "../browse.js";
+import {
+  CreateProjectError,
+  type CreateProjectReason,
+  classifyPaths,
+  createDirectory,
+  createProjectDirectory,
+  listDirectories,
+  parseFlagsQuery,
+} from "../browse.js";
 import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
 import { renderDiagram } from "../lib/diagram-render.js";
@@ -252,6 +260,17 @@ async function gateFilePath(
   return { resolved, viaGrant: decision.viaGrant };
 }
 
+const CREATE_PROJECT_STATUS: Record<CreateProjectReason, number> = {
+  invalid_name: 400,
+  reserved_name: 400,
+  too_long: 400,
+  outside_root: 400,
+  not_a_directory: 409,
+  root_not_a_directory: 409,
+  home_missing: 500,
+  fs_error: 500,
+};
+
 export function registerFileRoutes(
   fastify: FastifyInstance,
   deps: {
@@ -394,6 +413,33 @@ export function registerFileRoutes(
         else if (msg === "already exists") reply.code(409);
         else reply.code(500);
         return { success: false, error: msg } satisfies ApiResponse;
+      }
+    },
+  );
+
+  // First-run project create: `<home>/Projects/<name>`, create-or-reuse, realpath-contained.
+  // Server-side validation only; `reason` is a stable machine code for the client.
+  // See change: streamline-first-run (design D4).
+  fastify.post<{ Body: { name?: unknown } }>(
+    "/api/browse/create-project",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const name = (request.body ?? {}).name;
+      const nameForLog =
+        typeof name === "string" ? JSON.stringify(name.slice(0, 64)) : "<non-string>";
+      const bytes = typeof name === "string" ? Buffer.byteLength(name, "utf8") : 0;
+      try {
+        const result = await createProjectDirectory(name);
+        console.log(
+          `[create-project] ${result.existed ? "reused" : "created"} name=${nameForLog} bytes=${bytes}`,
+        );
+        return { success: true, data: result } satisfies ApiResponse;
+      } catch (err) {
+        const reason: CreateProjectReason = err instanceof CreateProjectError ? err.reason : "fs_error";
+        const error = err instanceof Error ? err.message : "create-project failed";
+        console.log(`[create-project] rejected:${reason} name=${nameForLog} bytes=${bytes}`);
+        reply.code(CREATE_PROJECT_STATUS[reason]);
+        return { success: false, error, reason };
       }
     },
   );

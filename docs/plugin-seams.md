@@ -234,6 +234,23 @@ ctx.ui.confirm({ message: "Take over browser?", pluginMeta: { pluginId: "browser
 
 See change: `add-browser-editor-pane-tab`.
 
+## Host read seams (`getPiResources` / `onPiResourcesInvalidated`)
+
+Optional, additive. Absent → plugin route returns 501. See change: add-skill-atlas-screen.
+
+- `getPiResources?(cwd?: string, opts?: { fresh?: boolean }): Promise<PiResourcesResult>`.
+  - Type `GetPiResourcesFn` (`packages/dashboard-plugin-runtime/src/server/server-context.ts`).
+  - Default: cached → as is; stale → one background refresh; cold miss → await.
+  - `fresh: true` → scan started after call. Host awaits in-flight scan that predates call, then rescans.
+  - Returns raw scan result (no provenance join).
+  - Missing `cwd` → `process.cwd()`.
+- `onPiResourcesInvalidated?(handler: (cwd: string | undefined) => void): () => void`.
+  - Type `OnPiResourcesInvalidatedFn`.
+  - Fires on watcher invalidation (`cwd`, `undefined` = global) and on `commands_list` arrival (cwd from session).
+  - Per-subscriber try/catch. Returns unsubscribe.
+
+Consumer: `packages/skill-atlas-plugin` (see [`skill-atlas.md`](skill-atlas.md)).
+
 ## Trust boundary
 
 "Private" means NOT observable and NOT forgeable — NOT authenticated.

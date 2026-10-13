@@ -22,7 +22,7 @@ import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, lo
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
-import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, resolveAdvertisedAddresses, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import {
@@ -39,6 +39,7 @@ import {
   readRuntimeRequest,
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import { proveServerIdentity } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import { discoverServiceOffers } from "@blackbelt-technology/pi-dashboard-shared/services/offers.js";
 import { isRecoveryCandidate, isShutdownWindowCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { rank } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
@@ -171,11 +172,13 @@ import { getRouteOwnerRegistry } from "./identity/route-owner-registry.js";
 import { canAccessSession, isLocalOperator, markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
 import { scheduleAtExpiry } from "./identity/socket-lifetime.js";
 import { authorizeRoadUpgrade } from "./identity/upgrade-gate.js";
+import { createKnownServerMoves } from "./known-server-moves.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
   resolveStaticClientDir,
 } from "./lib/client-dist.js";
+import { collectRuleSources } from "./lib/folder-project.js";
 import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
@@ -191,11 +194,13 @@ import { getServerModelRuntime } from "./model-proxy/server-model-runtime.js";
 import { callPiAiStreamSimple } from "./model-proxy/streamer.js";
 import { currentGlobalWorkflowSignature } from "./openspec/global-signature.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
+import { logPackageHealthAtBoot } from "./package/package-health-scanner.js";
 import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import type { TieredSocket } from "./pairing/ws-tier-gate.js";
+import { buildSelfServer, wirePeerServers } from "./peer-servers.js";
 import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
@@ -215,6 +220,10 @@ import { createPreferencesStore } from "./persistence/preferences-store.js";
 import { loadHostProjectTrust } from "./pi/host-project-trust.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
+import { setLocalAcpHost, spawnAcpSession, validatePluginAcpSpawn } from "./spawn-process/acp-spawn.js";
+import { registerAcpRoutes } from "./routes/acp-routes.js";
+import { scanAcpSessions } from "./acp-bridge/acp-restore.js";
+import { stopAllLocalAcpSessions } from "./acp-bridge/local-host.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
 import { listGlobalSkills } from "./pi/pi-resource-scanner.js";
 import * as pluginEventSeam from "./plugin-event-seam.js";
@@ -228,6 +237,7 @@ import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
+import { registerFolderProjectRoutes } from "./routes/folder-project-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
 import { registerHostGateRoutes } from "./routes/host-gate-routes.js";
@@ -243,6 +253,7 @@ import { registerModelsIntrospectionRoute } from "./routes/models-introspection-
 import { registerNodeRuntimeRoutes } from "./routes/node-runtime-routes.js";
 import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { registerOpenSpecRoutes } from "./routes/openspec-routes.js";
+import { registerPackageHealthRoutes } from "./routes/package-health-routes.js";
 import { registerPackageRoutes } from "./routes/package-routes.js";
 import { PUBLIC_PAIRING_PREFIXES, registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
@@ -261,7 +272,6 @@ import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/
 import { registerResourceActivationRoutes } from "./routes/resource-activation-routes.js";
 import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
 import { registerSessionRoutes, type ToolResultStats } from "./routes/session-routes.js";
-import { createInFlightToolCalls } from "./session/in-flight-tool-calls.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
 import { registerUserRoutes } from "./routes/user-routes.js";
@@ -280,10 +290,17 @@ import { defaultCommandRunner } from "./services/command-runner.js";
 import { servicesPaths } from "./services/paths.js";
 import { registerServiceRoutes } from "./services/routes.js";
 import { ServiceManager } from "./services/service-manager.js";
+import { createVaultDeliveryHub } from "./vault/vault-delivery-hub.js";
+import { createPluginVaultReader } from "./vault/vault-plugin-read.js";
+import { createVaultImport, defaultKnownLocations } from "./vault/vault-import.js";
+import { registerVaultRoutes } from "./vault/vault-routes.js";
+import { createVaultStore } from "./vault/vault-store.js";
 import { createArchiveSweeper } from "./session/archive-sweeper.js";
+import { originOf } from "./session/session-origin.js";
 import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
 import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
+import { createInFlightToolCalls } from "./session/in-flight-tool-calls.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
 import { systemRenameUpdates } from "./session/name-provenance.js";
 import { applyPluginRef } from "./session/plugin-refs.js";
@@ -703,6 +720,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // one-shot legacy leg stamped in boot-state.json).
   // See change: archive-service-sessions-on-end.
   const scanResult = bootScanAllSessions();
+  // Ended ACP sessions live outside the pi sessions dir; restore them as ended.
+  // See change: add-acp-session-driver (D12).
+  scanResult.sessions.push(...scanAcpSessions());
   const scanMs = Date.now() - scanStartedAt;
   // Seed the archive index from the boot scan: migrated + already-archived
   // rows are indexed, never restored. The one-shot ended+hidden migration and
@@ -738,7 +758,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // reattach — after any window that could retract them. Suppress outright,
     // with no timing dependency. See change: fix-recovery-exit-intent.
     const ownerIntent = resolveExitIntent(session.liveEpoch);
-    const diskCandidate = recoveryMode !== "off" && isRecoveryCandidate({
+    // ACP sessions are never recovery candidates: nothing can resume one (D15).
+    const isAcp = session.driver === "acp";
+    const diskCandidate = !isAcp && recoveryMode !== "off" && isRecoveryCandidate({
       live: session.live,
       status: session.status,
       closedReason: session.closedReason,
@@ -750,8 +772,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // scanned (pre-normalization) session; its evidence is consumed right
     // here in EVERY mode, so it qualifies on at most one cold start.
     // See change: fix-recovery-pi-signal-unregister (D3, D5, D6).
-    const ownerBoot = session.live === true ? undefined : resolveExitRecord(session.liveEpoch);
-    const windowMatch = isShutdownWindowCandidate(session, ownerBoot, RECOVERY_SHUTDOWN_WINDOW_MS);
+    const ownerBoot = session.live === true || isAcp ? undefined : resolveExitRecord(session.liveEpoch);
+    const windowMatch = !isAcp && isShutdownWindowCandidate(session, ownerBoot, RECOVERY_SHUTDOWN_WINDOW_MS);
     if (windowMatch && session.sessionFile) {
       metaPersistence.setLiveness(session.sessionFile, { live: false, closedReason: session.closedReason });
     }
@@ -1109,6 +1131,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Optional second-port Fastify instance for model proxy (/v1/*)
   let secondFastify: Awaited<ReturnType<typeof import("fastify").default>> | null = null;
   const peerServers = new Map<string, DiscoveredServer>();
+  // Verified move suggestions for renamed known servers (in memory only).
+  // See change: stabilize-mdns-server-identity.
+  const knownServerMoves = createKnownServerMoves({
+    loadKnown: () => loadConfig().knownServers,
+    prove: (baseUrl) => proveServerIdentity(baseUrl, { timeoutMs: 2000 }),
+  });
 
   /** This process's place in the per-HOME rendezvous (task 2.0a). */
   let homeRendezvous: import("./lifecycle/home-rendezvous.js").HomeRendezvous | null = null;
@@ -1225,6 +1253,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   const liveServerManager = createLiveServerManager(preferencesStore);
 
+  // ACP host A (in-process): attach virtual connections to THIS gateway.
+  // See change: add-acp-session-driver (D1).
+  setLocalAcpHost({ attachLocalConnection: (socket) => piGateway.attachLocalConnection(socket), log: (line) => console.error(line) });
+
   const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced);
   // App-wide pairing approval dialog: a content-free hint on every pending
   // change; operator browsers refetch the guarded list (D1).
@@ -1283,15 +1315,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   // Send this server + discovered peers to new browser connections
   browserGateway.onConnect = (ws) => {
-    const selfServer: DiscoveredServer = {
+    const selfServer = buildSelfServer({
       host: selfHostname,
       port: config.port,
       piPort: config.piPort,
       version: pkgVersion,
-      pid: process.pid,
-      isLocal: true,
-      source: "mdns",
-    };
+      fingerprint: serverIdentity.fingerprint,
+      name: loadConfig().dashboardName || selfHostname.replace(/\.local$/i, ""),
+    });
     const all = [selfServer, ...Array.from(peerServers.values())];
     browserGateway.sendToClient(ws, { type: "servers_discovered", servers: all });
     if (pendingRecoveryOffer) browserGateway.sendToClient(ws, pendingRecoveryOffer);
@@ -1569,8 +1600,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // distinguish-tool-result-pending-vs-gone (D2, D6).
   const inFlightToolCalls = createInFlightToolCalls();
   const toolResultStats: ToolResultStats = { pending: 0, gone: 0 };
+  // Credential vault: store + delivery hub. The hub answers bridge sync
+  // requests and pushes on every vault write / config change; values travel only
+  // on the session-private bridge lane. See change: add-credential-vault.
+  const vaultStore = createVaultStore();
+  const vaultDelivery = createVaultDeliveryHub({
+    store: vaultStore,
+    getOrigin: (sessionId) => {
+      const session = sessionManager.get(sessionId);
+      return session ? originOf(session) : undefined;
+    },
+    send: (sessionId, msg) => piGateway.sendToSession(sessionId, msg),
+    isSessionConnected: (sessionId) => piGateway.getConnectedSessionIds().includes(sessionId),
+    isDeliveryEnabled: () => loadConfig().vault.deliveryEnabled,
+    getGraceHours: () => loadConfig().vault.offlineGraceHours,
+  });
   wireEvents({
     inFlightToolCalls,
+    vaultDelivery,
     // Lazy: `yolo` is constructed further down; a pre-init call throws and the
     // handler declines. See change: yolo-covers-agent-path-gate.
     decideAgentPath: (p) =>
@@ -2247,6 +2294,27 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   registerFileRoutes(fastify, { sessionManager, preferencesStore, networkGuard });
   registerGrepRoutes(fastify, { sessionManager, networkGuard });
+  // Folder project identity (declared file + plugin marker rules). Rules come
+  // only from plugins that are loaded + enabled + fixture-allowed, read per
+  // request. See change: add-project-scoped-apps.
+  registerFolderProjectRoutes(fastify, {
+    networkGuard,
+    knownCwds: () => [
+      ...sessionManager.listAll().map((s) => s.cwd),
+      ...preferencesStore.getPinnedDirectories(),
+    ],
+    getRuleSources: () => {
+      const cfg = loadConfig();
+      const store = getPluginStatusStore();
+      return collectRuleSources(discoverPlugins(), {
+        fixtureAllowed: (m) => fixtureEntryAllowed(m),
+        isLoaded: (id) => store.getStatus(id)?.loaded === true,
+        isEnabled: (m) => resolvePluginEnabled(getPluginConfigFromFile(cfg, m.id), m.defaultEnabled),
+      });
+    },
+    admitOptions: { onIndeterminate: cwdAdmissionLogger },
+    onTruncated: (cwd) => console.debug(`[folder-project] detection truncated for ${cwd}`),
+  });
   // Settings → Access review surface + the one endpoint that can create a
   // filesystem grant. See change: add-access-grants-and-review.
   registerAccessRoutes(fastify, { networkGuard, preferencesStore, writeConfigPartial });
@@ -2276,6 +2344,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     preferencesStore,
     directoryService,
     networkGuard,
+    piGateway,
     onOpenSpecChanged: (cwd) => {
       const data = directoryService.getOpenSpecData(cwd);
       if (data) browserGateway.broadcastToAll({ type: "openspec_update", cwd, data });
@@ -2347,7 +2416,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     console.log("[dashboard] No client build found — running in API-only mode");
   }
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
+  registerAcpRoutes(fastify);
+  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.
@@ -2385,6 +2455,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     discoverOffers: () => discoverServiceOffers(resolveInstallRoot(fileURLToPath(import.meta.url))),
   });
   registerServiceRoutes(fastify, { manager: serviceManager, networkGuard, localTrust });
+  // Credential vault: hub-owned accounts, bindings and per-project grants.
+  // Management routes need operate authority or local trust; values never leave
+  // through them. See change: add-credential-vault.
+  registerVaultRoutes(fastify, {
+    store: vaultStore,
+    importer: createVaultImport({ store: vaultStore, candidates: () => defaultKnownLocations() }),
+    networkGuard,
+    localTrust,
+    getSessionBindingState: (sessionId) => vaultDelivery.getSessionState(sessionId),
+    getPluginDeclarations: () =>
+      discoverPlugins()
+        .filter((p) => (p.manifest.vaultBindings?.length ?? 0) > 0)
+        .map((p) => ({ pluginId: p.manifest.id, displayName: p.manifest.displayName, declared: p.manifest.vaultBindings ?? [] })),
+  });
   // Pi runtime discovery + atomic dual selection. See change: select-pi-runtime-install.
   registerPiRuntimeRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
   // Node family discovery + atomic triple selection (node+npm+npx).
@@ -2482,6 +2566,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
 
   registerPackageRoutes(fastify, { packageManagerWrapper });
+  registerPackageHealthRoutes(fastify, { packageManagerWrapper });
   registerResourceActivationRoutes(fastify, {
     networkGuard,
     piGateway,
@@ -2648,7 +2733,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
     },
   });
-  registerKnownServersRoutes(fastify, { networkGuard, getPeerServers: () => peerServers });
+  registerKnownServersRoutes(fastify, {
+    networkGuard,
+    getPeerServers: () => peerServers,
+    localToken,
+    localTrust,
+    hostAdmission: () => getHostGateCtx().admission,
+    moves: knownServerMoves,
+  });
   registerLocalProofRoutes(fastify, { codes: localProofCodes, ctx: localTrust });
   registerPairingRoutes(fastify, {
     networkGuard,
@@ -3069,6 +3161,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           piPort: config.piPort,
           version: pkgVersion,
           identity: ensureInstanceId(undefined, config.piPort),
+          bindHost: config.host,
           // NO signal handlers. `installReleaseHandlers` ends in
           // `process.exit(0)`, and `cli.ts` already owns SIGTERM/SIGINT
           // (`recordExitIntent` → `flush` → exit). A second exit-forcing
@@ -3157,6 +3250,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             {
               fastify,
               isPiExtensionInstalled,
+              // pi-resources seams (design D4/D5). Default read mirrors
+              // `GET /api/pi-resources` (SWR); `fresh` = a scan started after
+              // the call. Raw scan, no provenance join. See change: add-skill-atlas-screen.
+              getPiResources: async (cwd?: string, opts?: { fresh?: boolean }) => {
+                const key = cwd ?? process.cwd();
+                if (opts?.fresh) return directoryService.refreshPiResourcesFresh(key);
+                const cached = directoryService.getPiResources(key);
+                if (cached?.stale) void directoryService.refreshPiResources(key).catch(() => { /* next read retries */ });
+                return cached?.data ?? directoryService.refreshPiResources(key);
+              },
+              onPiResourcesInvalidated: (handler: (cwd: string | undefined) => void) =>
+                directoryService.onPiResourcesInvalidated(handler),
               sessionManager: {
                 listActive: () => sessionManager.listActive(),
                 listAll: () => sessionManager.listAll(),
@@ -3253,6 +3358,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 // the ref below. The mapper is total (never throws) and
                 // sanitizes untrusted plugin input. See change:
                 // add-plugin-spawn-scope (D7).
+                // ACP agent spawn: validate BEFORE anything is filed or spawned (pi-only
+                // options rejected, unknown agent rejected). See change: add-acp-session-driver (D14).
+                const acpRejection = validatePluginAcpSpawn(opts);
+                if (acpRejection) return { success: false, message: acpRejection };
                 const sessionOptions = pluginSpawnToSessionOptions(opts);
                 // Honour a caller-supplied spawn token VERBATIM (trusted-only
                 // — this code only runs past the trusted gate). A token
@@ -3308,7 +3417,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   );
                 }
                 try {
-                  const result = await spawnPiSession(opts.cwd, { ...sessionOptions, spawnToken });
+                  const result =
+                    typeof opts.agent === "string"
+                      ? await spawnAcpSession(opts.cwd, { agent: opts.agent, spawnToken })
+                      : await spawnPiSession(opts.cwd, { ...sessionOptions, spawnToken });
                   // Plugin/automation spawn: transport-less, reclaim required.
                   armSpawnWatchdog(opts.cwd, "headless", result);
                   if (result.process && result.pid) {
@@ -3616,6 +3728,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // the calling plugin's manifest id. See change:
               // expose-plugin-credential-and-oauth-seams (D2, D3, D7).
               pluginCredentials: (id) => createPluginCredentialStore(id),
+              // Declared + user-approved vault reads, bound to this plugin's manifest.
+              // See change: add-credential-vault (D4).
+              pluginVault: (id) => createPluginVaultReader(vaultStore, id, plugin.manifest.vaultBindings ?? []),
               startPluginOAuthFlow: async (id, opts) => {
                 const res = await beginFlow({
                   provider: pluginFlowProvider(id, opts.key),
@@ -4123,12 +4238,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           // The verdict names skips honestly: a loopback-bound server must not
           // log "advertising" when nothing was published. (CodeRabbit review,
           // fix-bridge-mdns-migration-hijack.)
-          const verdict = advertiseDashboard(config.port, config.piPort, { bindHost: config.host });
-          if (verdict.advertise) {
-            console.log(`mDNS: advertising _pi-dashboard._tcp on port ${config.port}`);
-          } else {
-            console.log(`mDNS: ${verdict.reason}`);
-          }
+          // advertiseDashboard logs the verdict itself (loopback skip, no
+          // advertisable address, or the derived instance name + addresses).
+          advertiseDashboard(config.port, config.piPort, {
+            bindHost: config.host,
+            addresses: await resolveAdvertisedAddresses(config.host),
+            fingerprint: serverIdentity.fingerprint,
+            version: pkgVersion,
+            name: () => loadConfig().dashboardName || "",
+            resolveAddresses: () => resolveAdvertisedAddresses(config.host),
+          });
         }
       } catch (err) {
         console.warn(`mDNS advertisement failed (will continue without):`, err);
@@ -4140,15 +4259,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           // skip peer discovery entirely
         } else {
         mdnsBrowser = createBrowser();
-        mdnsBrowser.on("server-up", (server: DiscoveredServer) => {
-          // Don't include ourselves
-          if (server.isLocal && server.port === config.port) return;
-          peerServers.set(`${server.host}:${server.port}`, server);
-          browserGateway.broadcast({ type: "servers_updated", servers: Array.from(peerServers.values()) });
-        });
-        mdnsBrowser.on("server-down", (server: DiscoveredServer) => {
-          peerServers.delete(`${server.host}:${server.port}`);
-          browserGateway.broadcast({ type: "servers_updated", servers: Array.from(peerServers.values()) });
+        wirePeerServers({
+          browser: mdnsBrowser,
+          peers: peerServers,
+          self: () => ({
+            host: selfHostname,
+            port: config.port,
+            piPort: config.piPort,
+            version: pkgVersion,
+            fingerprint: serverIdentity.fingerprint,
+            name: loadConfig().dashboardName || selfHostname.replace(/\.local$/i, ""),
+          }),
+          broadcast: (servers) => browserGateway.broadcast({ type: "servers_updated", servers }),
+          moves: knownServerMoves,
         });
         }
       } catch (err) {
@@ -4281,6 +4404,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       } catch (err) {
         console.warn("[plugin-bridge] Reconciliation failed (non-fatal):", err);
       }
+
+      // Log-only health scan of settings.json packages[] (never mutates, never
+      // throws). Not awaited: cold listConfiguredPackages can take seconds on
+      // Windows and boot must not wait on a diagnostic. See change: add-package-health-cleanup.
+      logPackageHealthAtBoot({ listInstalled: () => packageManagerWrapper.listInstalled("global") }).catch((err) =>
+        console.warn("[package-health] boot scan failed (non-fatal):", err),
+      );
 
       idleTimer.start();
       // Arm the ephemeral boot-parent watch (D5) — a no-op unless --ephemeral
@@ -4422,6 +4552,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // wiring above; unref'd, so this is leak-hygiene not liveness).
       clearInterval(hostGateFlushTimer);
       directoryService.stopPolling();
+      // ACP host A: end in-process sessions through the gateway (unregister →
+      // ended + persisted with `driver:"acp"`), killing their agents, BEFORE the
+      // headless sweep. See change: add-acp-session-driver (D1).
+      await stopAllLocalAcpSessions();
+      await new Promise<void>((resolve) => setImmediate(resolve));
       // SIGTERMs every dashboard-spawned pi: after this the sessions below are
       // GONE and can never reattach.
       browserGateway.shutdownHeadlessProcesses();
@@ -4455,6 +4590,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
       pendingForkRegistry.dispose();
       pairingManager.dispose();
+      vaultDelivery.dispose();
       // Every pending ack holds a timer; a create/stop cycle must not leak them.
       // See change: fix-spawn-correlation-ttl-coupling (D7).
       pendingPromptAcks.dispose();

@@ -24,3 +24,11 @@ See change: fix-popover-container-clip — ModelSelector opts into the horizonta
 - `favoritesEnabled = resolvedToggle !== undefined` gates the per-row ★ button, the `favs-only-toggle`, and the `favOnly` filter. No resolvable source → stars/toggle absent, persisted `modelselector.favOnly` ignored (no empty-list stranding).
 - `PopulatedCatalogueBody` gains `favoritesEnabled` prop for the toggle gate.
 - Core Settings pickers (Sessions Default Model, Model Proxy add-model + alias target) gain working favorites with no call-site edits. `ModelSelectorPrimitive` unchanged (injects both props, so owns the pair).
+
+## retro-ux-model-selector
+
+- Models tab = APG combobox + grid: filter `role="combobox"` + `aria-activedescendant`; rows `role="row"` (model / capabilities / ★ gridcells), rowgroups labelled by provider header ids; ArrowRight at end of text → ★ cell; `useGridKeyboard`, `ModelRow`, `useCatalogueView`, `useDismissOutside` split out for complexity.
+- Trigger `aria-haspopup="dialog"`, panel `role="dialog"` + `aria-modal="false"` + label (non-modal popover: no focus trap, Escape → trigger). Tabs "Models"/"Roles" with tabpanels; `tap-target` sizing.
+- Role refs render through `RoleRef` (`dashboard-plugin-runtime`): trigger (`follows`; `viaRole` → once-mode, `model-via-role` on "from @role"), Roles tab rows (check + `aria-current`, `role-unassigned` pill). Current model = check icon + `aria-selected`.
+- Capability badge: "assumed" word + `sr-only` text; footer = warning pill + "Open providers" ghost button; empty state = headline + help + secondary button; refreshing = `role="status"`.
+

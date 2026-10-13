@@ -33,9 +33,12 @@ export interface AttachedDriverDeps {
 }
 
 export class AttachedDriver implements ServiceDriver {
+  private readonly deps: AttachedDriverDeps;
   readonly name = "attached" as const;
 
-  constructor(private readonly deps: AttachedDriverDeps) {}
+  constructor(deps: AttachedDriverDeps) {
+    this.deps = deps;
+  }
 
   private get platform(): Platform {
     return (this.deps.platform ?? process.platform) as Platform;

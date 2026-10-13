@@ -130,6 +130,10 @@ export interface RegisterSessionParams {
    * See change: fix-spawn-correlation-ttl-coupling (D3).
    */
   dashboardSpawned?: boolean;
+  /** Agent driver (normalised by the gateway; absent ≡ pi). See change: add-acp-session-driver. */
+  driver?: "pi" | "acp";
+  /** Configured ACP agent id (normalised by the gateway). */
+  acpAgentId?: string;
   /**
    * Bridge baseline totals (every kind, cache included), forwarded from
    * `SessionRegisterMessage.usageSeed` (normalized by the gateway). Applied
@@ -427,6 +431,10 @@ export function createMemorySessionManager(
         id: params.id,
         cwd: params.cwd,
         originDeviceId: params.originDeviceId,
+        // A re-register never downgrades the driver: a bridge that omits it
+        // (legacy) keeps what the record already says.
+        driver: params.driver ?? existing?.driver,
+        acpAgentId: params.acpAgentId ?? existing?.acpAgentId,
         name: params.name ?? existing?.name,
         source: params.source,
         status: "active",

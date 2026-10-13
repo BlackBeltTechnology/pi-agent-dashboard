@@ -5,6 +5,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | File | Purpose |
 |------|---------|
 | `FileAccessToastHost.tsx` | Own toast tray + `useFileAccessToasts` for the whole app (both layouts); App-level `useToast` tray renders only in the mobile branch. See change: ask-agent-file-access-in-chat. |
+| `VaultBindingsChip.tsx` | Header chip + dialog: this session's vault binding NAMES with states (delivered, local-override, inherited, pending-confirmation, no-account, revoked + running-process note), last hub contact, Confirm for a pending checkout. Hidden without bindings; polls 2.5 s. Tests: `__tests__/VaultBindingsChip.test.tsx`, e2e `vault-session-bindings.spec.ts` (F2, F4). See change: add-credential-vault. |
 | `agent-card-utils.ts` | Re-export shim. Forwards to `@blackbelt-technology/pi-dashboard-client-utils/agent-card-utils`. Symbol moved in change `complete-flows-plugin-migration` (Layer 0). |
 | `AgentCardShell.tsx` | Re-export shim. Forwards to `@blackbelt-technology/pi-dashboard-client-utils/AgentCardShell`. Symbol moved in change `complete-flows-plugin-migration` (Layer 0). |
 | `ArchivedSessionRow.tsx` | Lightweight row for an archived session inside folder `Archive (N)` fold or `Archive matches` search. Exports `ArchivedSessionRow`. Never in live `sessions` Map; click opens read-only `?archived=1`. Testids `archived-session-row`, `session-unarchive-btn`, `archived-delete-btn`. See change: archive-sessions-lazy-load. |
@@ -37,3 +38,5 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `SubcardLegendMenu.tsx` | `⋯` options menu in a subcard legend capsule: Hide {section} in this folder / everywhere (Undo toast) / Section settings… (→ `/folder/:cwd/settings/cards`). Zero-width until subcard hover/focus-within, always tabbable; portaled `role=menu`, roving arrows, Escape restores focus; all clicks `stopPropagation` (never selects card). Exports `SubcardLegendMenu`, `SubcardMenuTarget {sectionId, folderPath}`. See change: configurable-session-card-sections. |
 | `TasksPopover.tsx` | Modal popover listing parseable tasks from an attached change's `tasks.md`, grouped by heading, native… → see `TasksPopover.tsx.AGENTS.md` |
 | `TokenStatsBar.tsx` | Exports `TokenStatsBar`. Renders per-turn butterfly chart (input up / output down) + stats panel +… → see `TokenStatsBar.tsx.AGENTS.md` |
+| `AcpEndedCallout.tsx` | Info callout for an ENDED ACP session: states it can't resume; one action = new session with the same agent. See change: add-acp-session-driver. |
+| `DriverChip.tsx` | `ACP · <agent>` chip (icon+text). Nothing for pi. See change: add-acp-session-driver. |

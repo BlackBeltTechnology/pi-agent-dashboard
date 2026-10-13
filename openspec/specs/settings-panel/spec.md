@@ -26,7 +26,7 @@ When the panel holds unsaved edits, a dismissal gesture SHALL prompt before disc
 
 The navigation + content layout SHALL be responsive. The wrapper element containing the nav and the content area SHALL stack vertically on narrow (mobile) viewports and arrange side-by-side on wide (desktop, `md` breakpoint and up) viewports. On mobile the navigation SHALL render as a full-width horizontal, horizontally-scrollable tab strip positioned above the content, and the content area SHALL fill the remaining space below it with a non-zero width. On desktop the navigation SHALL render as a fixed-width vertical rail to the left of the content. At no viewport width SHALL the content area collapse to zero width or be positioned outside the visible viewport.
 
-The nav groups SHALL render in this order: Models, Dashboard, Network, Extensions, Resources, Advanced. The Models group SHALL render FIRST because it holds the settings that decide which model every session, agent and flow runs on (see "Models nav group"). The default page when no `:page` is given SHALL remain General.
+The nav groups SHALL render in this order: Models, Dashboard, Network, Add-ons, Resources, Advanced. The Models group SHALL render FIRST because it holds the settings that decide which model every session, agent and flow runs on (see "Models nav group"). The default page when no `:page` is given SHALL remain General.
 
 The panel SHALL provide these pages (nav groups in brackets):
 - **Promoted plugin pages** [Models]: plugin settings pages promoted per "Models nav group", each addressed at `/settings/plugins/<pluginId>`
@@ -37,9 +37,9 @@ The panel SHALL provide these pages (nav groups in brackets):
 - **Gateway** [Network]: tunnel provider and mode (self-managed save)
 - **Security** [Network]: `auth.providers`, `auth.allowedUsers`, `auth.bypassUrls`, `auth.bypassHosts` (Trusted Networks)
 - **Providers** [Models]: Providers (one list of everything credentialed, plus an Add-provider dialog), API Proxy
-- **Packages** [Extensions]: installed pi packages
-- **Plugins** [Extensions]: plugin activation index and per-plugin settings pages that are not promoted
-- **OpenSpec** [Extensions]: background polling tuning
+- **Add-ons** [Add-ons]: installed add-ons — extensions, skills and the packages that hold them (page id `add-ons`, formerly `Packages`)
+- **Plugins** [Add-ons]: plugin activation index and per-plugin settings pages that are not promoted
+- **OpenSpec** [Add-ons]: background polling tuning
 - **Developer** [Advanced]: `devBuildOnReload`, `keeperLog.capturePiOutput`, diagnostics, tools, spawn failures, canvas types
 
 Within a page, controls SHALL be grouped into sections by concern, and a control whose effect is gated by another control on the same page SHALL be rendered indented beneath its gating control.
@@ -51,7 +51,7 @@ A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by
 #### Scenario: Page layout with nav rail
 - **WHEN** the user navigates to `/settings/general`
 - **THEN** the panel SHALL display a fixed header (back, "Settings" title, Restart)
-- **AND** a left nav rail listing the pages grouped under Models / Dashboard / Network / Extensions / Resources / Advanced, with Models first
+- **AND** a left nav rail listing the pages grouped under Models / Dashboard / Network / Add-ons / Resources / Advanced, with Models first
 - **AND** the active page's content beside the rail
 - **AND** the General page SHALL be selected when no `:page` is given
 
@@ -147,7 +147,7 @@ A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by
 - **AND** SHALL NOT navigate to `/`
 
 ### Requirement: Canonical and legacy settings URLs
-The settings panel SHALL be addressable at the canonical path `/settings/:page?` and SHALL continue to honor the legacy query form `/settings?tab=<id>` indefinitely. Resolution SHALL run inside the single mounted panel in this order: (1) a valid route `:page`; (2) a valid legacy `?tab=<id>`, which SHALL trigger a history-`replace` navigation to `/settings/<id>`; (3) otherwise default to `/settings/general` via history-`replace`. The alias map `advanced → developer` and `servers → remote` SHALL be applied before validation so old links resolve to the new page homes.
+The settings panel SHALL be addressable at the canonical path `/settings/:page?` and SHALL continue to honor the legacy query form `/settings?tab=<id>` indefinitely. Resolution SHALL run inside the single mounted panel in this order: (1) a valid route `:page`; (2) a valid legacy `?tab=<id>`, which SHALL trigger a history-`replace` navigation to `/settings/<id>`; (3) otherwise default to `/settings/general` via history-`replace`. The alias map `advanced → developer`, `servers → remote` and `packages → add-ons` SHALL be applied before validation so old links resolve to the new page homes; an aliased route `:page` SHALL be replace-navigated to its canonical id.
 
 #### Scenario: Canonical page URL
 - **WHEN** the user opens `/settings/security`
@@ -164,6 +164,12 @@ The settings panel SHALL be addressable at the canonical path `/settings/:page?`
 - **WHEN** the user opens `/settings?tab=advanced` or `/settings?tab=servers`
 - **THEN** the panel SHALL resolve to `/settings/developer` and `/settings/remote` respectively
 
+#### Scenario: Old packages URL resolves to Add-ons
+- **WHEN** the user opens `/settings/packages` or `/settings?tab=packages`
+- **THEN** the panel SHALL `replace`-navigate to `/settings/add-ons`
+- **AND** the Add-ons page SHALL render
+- **AND** no extra browser-history entry SHALL be added
+
 #### Scenario: Unknown page falls back to general
 - **WHEN** the user opens `/settings/bogus`
 - **THEN** the panel SHALL `replace`-navigate to `/settings/general`
@@ -171,10 +177,11 @@ The settings panel SHALL be addressable at the canonical path `/settings/:page?`
 ### Requirement: Settings page-id registry contract
 
 `VALID_SETTINGS_TABS` (and the `SettingsTab` type) SHALL enumerate the full set
-of page ids: `general, server, sessions, remote, security, providers, packages,
+of page ids: `general, server, sessions, remote, security, providers, add-ons,
 plugins, openspec, skills, agents, extensions, prompts, themes, developer`. The
 five resource page ids (`skills, agents, extensions, prompts, themes`) render
-the global-scope per-type resource card grids.
+the global-scope per-type resource card grids. `packages` SHALL NOT be a page id or a
+`SettingsTab` member; it survives only as a legacy URL alias of `add-ons`.
 
 `VALID_SETTINGS_TABS` SHALL remain a closed, statically enumerated set. Plugin
 settings pages SHALL NOT be added to it; they are addressed by the sub-route
@@ -227,6 +234,10 @@ that route renders a different component.
 #### Scenario: Resource page ids resolve
 - **WHEN** the user navigates to `/settings/agents`
 - **THEN** the panel SHALL render the global-scope Agents resource card grid
+
+#### Scenario: Add-ons page id resolves
+- **WHEN** the user navigates to `/settings/add-ons`
+- **THEN** the panel SHALL render the Add-ons page
 
 ### Requirement: Trusted Networks section on Security tab
 The Security tab SHALL include a "Trusted Networks" section that edits `config.auth.bypassHosts`. The section SHALL display existing entries as individual rows with per-entry remove (✕) buttons. The section SHALL provide a "+ Add Local Network" button that opens a dropdown listing the current host's non-loopback IPv4 network interfaces (fetched from `GET /api/network-interfaces`). The dropdown SHALL render each interface's `label` rather than its raw device name, and SHALL offer that interface's `suggestions` rather than its raw `cidr`. A suggestion marked `wide` SHALL be visually distinguished from a narrow one and SHALL carry the same "grants unauthenticated access to the whole range" explanation used by the block-event trust banner.
@@ -815,7 +826,7 @@ name/description search filter SHALL be provided.
 #### Scenario: Resources group in the settings nav
 - **WHEN** the settings panel nav rail renders
 - **THEN** a `Resources` group SHALL list `Skills`, `Agents`, `Extensions`, `Prompts`, `Themes`
-- **AND** the `Resources` group SHALL be distinct from the existing `Extensions` group
+- **AND** the `Resources` group SHALL be distinct from the existing `Add-ons` group
 
 #### Scenario: Global-scope type page omits the scope filter
 - **WHEN** the user opens the `Skills` page under Settings
@@ -824,29 +835,52 @@ name/description search filter SHALL be provided.
 
 ### Requirement: Plugins nav group lists enabled plugins with settings
 
-The `plugins` entry in the settings navigation rail SHALL be expandable. Its children SHALL be exactly those plugins that are **enabled in config** AND CONTRIBUTE SETTINGS AND are NOT PROMOTED into another nav group (see "Models nav group"), sorted alphabetically by display name. An ENABLED promoted plugin SHALL instead appear in the Plugins subtree, sorted by display name together with the children, as a pointer row naming its destination group (e.g. "Roles ↗ Models"); the pointer SHALL never be marked active, and activating it SHALL navigate to the same `/settings/plugins/<pluginId>` URL. A DISABLED promoted plugin SHALL render no Plugins pointer; it appears only in the Models group. "Contributes settings" SHALL mean the plugin registers at least one `settings-section` refs claim OR has a `settings-section` intent in the intent store — the same predicate that governs route eligibility and the activation-index affordance. `PluginRow.claims` is manifest-derived and does NOT carry intents, so a claims-only test would strand an intent-only contribution: rendered by the slot, but with no nav child and no reachable route. Each child SHALL link to `/settings/plugins/<pluginId>` and SHALL display a status dot reflecting the plugin's health (`loaded`, `not loaded`, `error`).
+The `plugins` entry in the settings navigation rail SHALL be expandable and SHALL sit in the `ADD-ONS` rail group. Its children SHALL be exactly those plugins that are **enabled in config** AND CONTRIBUTE SETTINGS AND are NOT PROMOTED into another nav group (see "Models nav group"), sorted alphabetically by display name. An ENABLED promoted plugin SHALL instead appear in the Plugins subtree, sorted by display name together with the children, as a pointer row naming its destination group (e.g. "Roles ↗ Models"); the pointer SHALL never be marked active, and activating it SHALL navigate to the same `/settings/plugins/<pluginId>` URL. A DISABLED promoted plugin SHALL render no Plugins pointer; it appears only in the Models group. "Contributes settings" SHALL mean the plugin registers at least one `settings-section` refs claim OR has a `settings-section` intent in the intent store — the same predicate that governs route eligibility and the activation-index affordance. `PluginRow.claims` is manifest-derived and does NOT carry intents, so a claims-only test would strand an intent-only contribution: rendered by the slot, but with no nav child and no reachable route. Each child SHALL link to `/settings/plugins/<pluginId>` and SHALL display a status dot reflecting the plugin's health (`loaded`, `not loaded`, `error`).
+
+The subtree SHALL be **collapsed by default**. The `plugins` entry SHALL show the number of children while collapsed and SHALL expose its expanded state to assistive technology. The subtree SHALL expand automatically while a child page (`/settings/plugins/<pluginId>`) is active. A user's explicit expand or collapse SHALL persist across reloads on the same browser; an automatic expansion SHALL NOT overwrite the persisted choice. The same rule SHALL apply to the mobile settings list: the `Plugins` row is collapsed by default, expands in place, and shares the persisted choice with the desktop rail.
 
 Membership SHALL key on the plugin's `enabled` flag, NOT on `loaded`. A plugin that is enabled but failed to load, or has unsatisfied requirements, SHALL remain listed.
 
 A disabled plugin SHALL NOT appear as a nav child. A disabled plugin that is NOT promoted SHALL remain reachable from the plugin activation index, which SHALL indicate that the plugin is absent from the navigation because it is disabled. A disabled PROMOTED plugin is governed by "Models nav group" instead.
 
+#### Scenario: Subtree starts collapsed
+- **GIVEN** the user never toggled the Plugins subtree on this browser
+- **WHEN** the user opens `/settings/general`
+- **THEN** the `Plugins` entry SHALL render collapsed with a child count
+- **AND** no plugin child rows SHALL render
+
+#### Scenario: Active child expands the subtree
+- **WHEN** the user opens `/settings/plugins/flows` with the subtree collapsed
+- **THEN** the subtree SHALL render expanded with the `Flows` child marked active
+- **AND** the persisted collapsed choice SHALL remain unchanged
+
+#### Scenario: Mobile list follows the same rule
+- **GIVEN** a 375px-wide viewport and no persisted choice
+- **WHEN** the user opens the settings list
+- **THEN** the `Plugins` row SHALL render collapsed with a child count
+- **AND** tapping it SHALL expand the children in place without navigating
+
+#### Scenario: User choice persists
+- **WHEN** the user expands the subtree and reloads `/settings/general`
+- **THEN** the subtree SHALL render expanded
+
 #### Scenario: Enabled plugin with settings is listed
 - **WHEN** plugin `flows` is enabled, claims `settings-section`, and is not promoted
-- **THEN** the `Plugins` nav group SHALL contain a `Flows` child linking to `/settings/plugins/flows`
+- **THEN** the expanded `Plugins` nav group SHALL contain a `Flows` child linking to `/settings/plugins/flows`
 
 #### Scenario: Promoted plugin is a pointer, not a child
 - **WHEN** plugin `roles` is enabled and its `settings-section` claim is honoured as promoted into `models`
-- **THEN** the `Plugins` subtree SHALL render a `Roles ↗ Models` pointer row instead of a regular child
+- **THEN** the expanded `Plugins` subtree SHALL render a `Roles ↗ Models` pointer row instead of a regular child
 - **AND** the Models group SHALL contain the `Model roles` entry
 
 #### Scenario: Intent-only plugin is listed and routable
 - **WHEN** plugin `x` is enabled, registers NO `settings-section` refs claim, and a `settings-section` intent for `x` is present in the intent store
-- **THEN** the `Plugins` nav group SHALL contain an `x` child linking to `/settings/plugins/x`
+- **THEN** the expanded `Plugins` nav group SHALL contain an `x` child linking to `/settings/plugins/x`
 - **AND** `/settings/plugins/x` SHALL render the plugin page rather than falling back to the activation index
 
 #### Scenario: Enabled but failed plugin stays listed
 - **WHEN** plugin `automation` is enabled, claims `settings-section`, and its status is `{ loaded: false, error: "..." }`
-- **THEN** the `Plugins` nav group SHALL contain an `Automation` child with an error-state status dot
+- **THEN** the expanded `Plugins` nav group SHALL contain an `Automation` child with an error-state status dot
 
 #### Scenario: Disabled plugin is omitted from the rail
 - **WHEN** plugin `subagents` claims `settings-section` and is disabled in config
@@ -873,17 +907,24 @@ A disabled plugin SHALL NOT appear as a nav child. A disabled plugin that is NOT
 
 ### Requirement: Shared settings field components carry an accessible name and description
 
-The four shared settings field components in `SettingsPanel.tsx` (`ToggleField`, `SelectField`, `NumberField`, `TextField`) SHALL each:
+The shared settings field components (`FieldShell`, `ToggleField`, `SelectField`, `NumberField`, `TextField`, and `TextAreaField`) SHALL live in `@blackbelt-technology/dashboard-plugin-runtime` and SHALL be exported from its root barrel. `SettingsPanel.tsx` SHALL import them from there and SHALL keep re-exporting `ToggleField`, `SelectField`, `NumberField` and `TextField` so existing imports keep working. Plugin-contributed settings sections SHALL use the same components; plugins SHALL import them directly, not through the UI primitive registry. Each component SHALL:
 
-- associate their `<label>` with their control via `htmlFor`/`id` using generated ids, so the control has an accessible name;
+- associate its `<label>` with its control via `htmlFor`/`id` using generated ids, so the control has an accessible name;
 - accept a **required** `hint` prop of type `React.ReactNode`, render it below the control row when non-null, and reference it from the control via `aria-describedby`;
-- accept an optional `unit` string, rendered inside the `<label>` element so it forms part of the accessible name.
+- accept an optional `unit` string, rendered inside the `<label>` element as a 12 px chip so it forms part of the accessible name;
+- accept optional `state` (`"default"` or `"changed"`, rendered as a pill in the label row) and `onReset` (rendered as a "Reset to default" control in the label row), so plugin forms keep their DEFAULT badge and per-field reset;
+- accept an optional `error` string; when it is set, render it below the hint at 12 px in `--severity-error-fg` with an icon, add its element id to the control's `aria-describedby`, and set `aria-invalid="true"` on the control;
+- accept an optional `testIds` object (`control`, `state`, `reset`, `error`) and render those `data-testid`s on the matching elements, so callers keep their existing test ids (`cms-input-*`, `cms-default-badge-*`, `cms-reset-*`, `cms-error-*`, `hermes-input-*`, …);
+- render the error with `role="alert"`, and give every control the `focus-ring` utility so it shows the `--focus-ring` outline on keyboard focus;
+- render the label at 12 px semibold in `--text-primary`, the hint at 12 px in `--text-secondary`, and contain no Tailwind palette class, hex or `rgba(` literal, and no font size other than 11, 12 or 14 px.
 
-A `hint` of `null` SHALL be permitted and SHALL suppress both the hint element and the `aria-describedby` attribute. `null` is reserved for controls whose label is a term of art from an external specification (for example OAuth `Client ID`, `Client Secret`, `Issuer URL`).
+`FieldShell` SHALL accept a custom control through a render prop that receives the control id, the `aria-describedby` value and the invalid flag; the other components render their own control.
 
-Because `hint` is required, a call site that omits it SHALL fail type-checking. No separate allowlist file or source-scanning test is used.
+A `hint` of `null` SHALL be permitted and SHALL suppress both the hint element and the hint id in `aria-describedby`. `null` is reserved for controls whose label is a term of art from an external specification (for example OAuth `Client ID`, `Client Secret`, `Issuer URL`).
 
-This requirement is scoped to those four components. Bespoke controls rendered inline in `SettingsPanel.tsx`, field components belonging to sibling sections (`RetrySettingsSection`, `ModelProxySection`, `ToolsSection`, `DiagnosticsSection`), and plugin-contributed sections are OUT of scope.
+Because `hint` is required, a call site that omits it SHALL fail type-checking. No separate allowlist file or source-scanning test is used for this rule.
+
+Bespoke controls rendered inline in `SettingsPanel.tsx` and field components belonging to sibling sections (`RetrySettingsSection`, `ModelProxySection`, `ToolsSection`, `DiagnosticsSection`) are OUT of scope.
 
 #### Scenario: Control has an accessible name from its label
 - **WHEN** a `NumberField` is rendered with label `Session register timeout`
@@ -900,13 +941,29 @@ This requirement is scoped to those four components. Bespoke controls rendered i
 - **AND** the control's `aria-describedby` SHALL resolve to the element containing that hint
 
 #### Scenario: Null hint suppresses the description
-- **WHEN** a field is rendered with `hint={null}`
+- **WHEN** a field is rendered with `hint={null}` and no `error`
 - **THEN** no hint element SHALL render
 - **AND** the control SHALL NOT carry an `aria-describedby` attribute
 
 #### Scenario: Omitting the prop fails the build
-- **WHEN** a call site of one of the four components omits the `hint` prop
+- **WHEN** a call site of one of the components omits the `hint` prop
 - **THEN** type-checking SHALL fail
+
+#### Scenario: Null hint with an error links only the error
+- **WHEN** a field is rendered with `hint={null}` and an `error`
+- **THEN** no hint element SHALL render and the control's `aria-describedby` SHALL resolve to the error element only
+
+#### Scenario: Error is linked and marks the control invalid
+- **WHEN** a `NumberField` with a hint is rendered with `error="Enter a whole number."`
+- **THEN** the control has `aria-invalid="true"` and its `aria-describedby` lists the hint id and then the error id
+
+#### Scenario: Caller test ids are kept
+- **WHEN** a `NumberField` is rendered with `testIds={{ control: "cms-input-search.windowMs", error: "cms-error-search.windowMs" }}` and an error
+- **THEN** the input carries `data-testid="cms-input-search.windowMs"` and the error element carries `data-testid="cms-error-search.windowMs"` with `role="alert"`
+
+#### Scenario: Plugin imports the shared fields from the runtime
+- **WHEN** a plugin client module imports `NumberField` from `@blackbelt-technology/dashboard-plugin-runtime`
+- **THEN** the import resolves without referencing `@blackbelt-technology/pi-dashboard-client-utils` or the UI primitive registry
 
 ### Requirement: Bespoke settings controls keep their validation
 
@@ -1660,9 +1717,9 @@ non-blocking warning naming the computed per-child figure.
 
 ### Requirement: Models nav group
 
-The settings navigation SHALL render a **Models** group as its FIRST group. It SHALL contain the built-in **Providers** page followed by every PROMOTED plugin page, ordered by the promotion's `order` (ascending, default 1000), then `nav.label`, then plugin id. The group SHALL render even when no plugin is promoted (Providers alone).
+The settings navigation SHALL render a **Models** group as its FIRST group. It SHALL contain the built-in **Providers** page followed by every PROMOTED plugin page, ordered by the promotion's `order` (ascending, default 1000), then `nav.label`, then plugin id. The group SHALL render even when no plugin is promoted (Providers alone). The **Resources** group SHALL likewise list its built-in pages (Skills, Agents, Extensions, Prompts, Themes) first, followed by every plugin page PROMOTED into `resources`, in the same order. The rules below (trust, reserved labels, uniqueness, health dot, disabled handling, active entry, Save Bar label) apply to every allowlisted group; "Models" in them stands for the promoting group.
 
-A plugin page is PROMOTED into a group when ALL of the following hold: the plugin declares a `settings-section` claim carrying a `nav` hint whose `group` names that group; the group id is on the host's promotion allowlist, which SHALL contain exactly `models`; the plugin is TRUSTED — its npm package name is in the `@blackbelt-technology/` scope, the host's existing scope-based trust signal (NOT manifest `priority`, which is plugin-authored and doubles as slot render order); and `nav.label` does not collide with any RESERVED label — every built-in settings page label and every nav group label, in the English source AND in every shipped locale (a static set, so the outcome never depends on the active language) — compared after Unicode NFKC normalisation, trimming and case-folding. Among promoted hints, labels SHALL also be unique: when two promoted hints collide, the one that sorts first (by `order`, then plugin id) wins and the other plugin SHALL remain an ordinary Plugins child. First-party status SHALL be computed once by the server and exposed on the `GET /api/plugins` row as a boolean `firstParty`; the client SHALL NOT re-derive it. (`firstParty` is deliberately not named `trusted`: the server's spawn/abort hooks use a different, `priority`-based gate.) A hint failing any condition SHALL be ignored and the plugin SHALL remain an ordinary Plugins child. When a plugin declares more than one `nav`-bearing `settings-section` claim, the first one in manifest order that satisfies every condition SHALL be honoured; the rest SHALL be ignored.
+A plugin page is PROMOTED into a group when ALL of the following hold: the plugin declares a `settings-section` claim carrying a `nav` hint whose `group` names that group; the group id is on the host's promotion allowlist, which SHALL contain exactly `models` and `resources`; the plugin is TRUSTED — its npm package name is in the `@blackbelt-technology/` scope, the host's existing scope-based trust signal (NOT manifest `priority`, which is plugin-authored and doubles as slot render order); and `nav.label` does not collide with any RESERVED label — every built-in settings page label and every nav group label, in the English source AND in every shipped locale (a static set, so the outcome never depends on the active language) — compared after Unicode NFKC normalisation, trimming and case-folding. Among promoted hints, labels SHALL also be unique: when two promoted hints collide, the one that sorts first (by `order`, then plugin id) wins and the other plugin SHALL remain an ordinary Plugins child. First-party status SHALL be computed once by the server and exposed on the `GET /api/plugins` row as a boolean `firstParty`; the client SHALL NOT re-derive it. (`firstParty` is deliberately not named `trusted`: the server's spawn/abort hooks use a different, `priority`-based gate.) A hint failing any condition SHALL be ignored and the plugin SHALL remain an ordinary Plugins child. When a plugin declares more than one `nav`-bearing `settings-section` claim, the first one in manifest order that satisfies every condition SHALL be honoured; the rest SHALL be ignored.
 
 A promoted entry SHALL use `nav.label` as its rail label, the host's generic plugin icon (the hint carries no icon), and the same health dot (`loaded` / `not loaded` / `error`) a Plugins child shows, and SHALL link to `/settings/plugins/<pluginId>` — promotion changes placement, never the URL. On that URL the promoted entry, not the Plugins pointer row, SHALL be the single active nav entry.
 
@@ -1726,6 +1783,16 @@ The Save Bar dirty-page label for a promoted page SHALL read `<Group> › <nav.l
 - **WHEN** the user edits a role assignment on the promoted page without saving
 - **THEN** the Save Bar SHALL list `Models › Model roles` as dirty and the promoted entry SHALL show a dirty dot
 
+#### Scenario: Trusted plugin is promoted into Resources
+- **WHEN** plugin `skill-atlas` (package `@blackbelt-technology/pi-dashboard-skill-atlas-plugin`) is enabled and claims `{ slot: "settings-section", nav: { group: "resources", label: "Skill Atlas" } }`
+- **THEN** the Resources group SHALL list `Skills`, `Agents`, `Extensions`, `Prompts`, `Themes`, then `Skill Atlas` linking to `/settings/plugins/skill-atlas`
+- **AND** the Plugins subtree SHALL render a pointer row `Skill Atlas ↗ Resources` that is never marked active
+
+#### Scenario: Resources label colliding with a built-in page is ignored
+- **WHEN** a first-party plugin claims `nav: { group: "resources", label: "Skills" }`
+- **THEN** the Resources group SHALL NOT gain a second `Skills` entry
+- **AND** the plugin SHALL be listed as an ordinary Plugins child
+
 ### Requirement: The panel SHALL disclose the server-heap/store-budget coupling
 
 The panel SHALL surface a non-blocking warning when the store budget converted
@@ -1775,3 +1842,10 @@ SHALL surface that the running value differs.
 #### Scenario: A configured value that is not yet running is visible
 - **WHEN** the configured ceiling differs from the running process's effective ceiling
 - **THEN** the panel SHALL surface that the running value differs
+
+### Requirement: Shared settings group and notice components
+`@blackbelt-technology/dashboard-plugin-runtime` SHALL export `SettingsGroup` and `SettingsNotice`. `SettingsGroup` SHALL render a `<details>` whose summary is 14 px semibold in `--text-primary`, at least 44 px tall, with a visible `--focus-ring` outline on keyboard focus, and an optional meta text in `--text-secondary`. `SettingsNotice` SHALL render the `ui-contract.md` severity callout recipe for tones `info`, `warning`, `error` and `success`. Neither SHALL contain a Tailwind palette class, hex or `rgba(` literal.
+
+#### Scenario: Notice tone maps to the severity family
+- **WHEN** `SettingsNotice` is rendered with `tone="warning"`
+- **THEN** its computed background, border and text colours equal the active theme's `--severity-warning-bg`, `--severity-warning-border` and `--severity-warning-fg`

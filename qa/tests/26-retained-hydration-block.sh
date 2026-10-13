@@ -19,31 +19,34 @@
 # would be collected by the always-on vitest project and pay that fixture on
 # every `npm test`.
 #
-# RUNTIME: the measurement imports the server's TypeScript, which needs jiti.
-# Worktrees frequently carry an INCOMPLETE node_modules (this repo's own
+# RUNTIME: the measurement imports the server's TypeScript, which needs the
+# Node-native strip-only loader (`--import native-ts-register.mjs`, the server's
+# own loader; no jiti). Worktrees frequently carry an INCOMPLETE node_modules (this repo's own
 # `worktreeInit` hook may not have run), so this script resolves a runtime in
 # order and never pretends to have measured anything:
 #
-#   1. `node_modules/jiti/lib/jiti-register.mjs` in the repo — run locally.
+#   1. the repo's own `node_modules` (probed via `node_modules/ws`) — run locally.
 #   2. a running docker harness container (`docker/test-up.sh`) — `docker
 #      exec` the same script inside it. This is the strong arm: a real install,
 #      a real worker thread.
 #   3. otherwise SKIP with the reason, exiting 0 only because a missing runtime
 #      is an environment problem, not a regression. Treat a SKIP as unverified.
 #
-# See change: offload-retained-transcript-replay (test-plan #P1, #P2).
+# See change: offload-retained-transcript-replay (test-plan #P1, #P2);
+#             strip-only-native-ts-loader (native loader replaces jiti).
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PERF_SCRIPT="packages/server/perf/retained-hydration-block.mjs"
-JITI_REGISTER="node_modules/jiti/lib/jiti-register.mjs"
+NATIVE_REGISTER="packages/shared/src/platform/native-ts-register.mjs"
+DEPS_PROBE="node_modules/ws"
 
 echo "=== Test: retained hydration event-loop block (P1, P2) ==="
 
-if [ -f "$REPO_ROOT/$JITI_REGISTER" ]; then
-  echo "runtime: local node + jiti"
+if [ -f "$REPO_ROOT/$NATIVE_REGISTER" ] && [ -d "$REPO_ROOT/$DEPS_PROBE" ]; then
+  echo "runtime: local node + native strip-only loader"
   cd "$REPO_ROOT"
-  node --import "./$JITI_REGISTER" "./$PERF_SCRIPT"
+  node --import "./$NATIVE_REGISTER" "./$PERF_SCRIPT"
   exit $?
 fi
 
@@ -58,14 +61,14 @@ if [ -f "$HARNESS_JSON" ] && command -v docker >/dev/null 2>&1; then
     # than forcing a rebuild. The SERVER sources it imports are already there.
     docker exec "$cid" mkdir -p "/app/$(dirname "$PERF_SCRIPT")" 2>/dev/null
     docker cp "$REPO_ROOT/$PERF_SCRIPT" "$cid:/app/$PERF_SCRIPT" >/dev/null
-    docker exec "$cid" node --import "/app/$JITI_REGISTER" "/app/$PERF_SCRIPT"
+    docker exec "$cid" node --import "/app/$NATIVE_REGISTER" "/app/$PERF_SCRIPT"
     exit $?
   fi
   echo "runtime: harness file present but no container for $project is running"
 fi
 
 echo "SKIP: no runtime can load the server's TypeScript."
-echo "  This worktree has no $JITI_REGISTER (incomplete node_modules)."
+echo "  This worktree has no $DEPS_PROBE (incomplete node_modules)."
 echo "  Run the repo's worktreeInit hook, or bring up the docker harness"
 echo "  (docker/test-up.sh -d) and re-run this script. P1 is UNVERIFIED."
 exit 0

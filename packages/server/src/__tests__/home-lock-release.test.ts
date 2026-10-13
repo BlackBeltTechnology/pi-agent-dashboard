@@ -1,8 +1,13 @@
 /**
  * Unit tests for signal-handler installation. See change: single-dashboard-per-home.
  */
-import { describe, it, expect, vi } from "vitest";
+
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import { acquireOrAttach, readMetadata } from "../lifecycle/home-lock.js";
 import { installReleaseHandlers } from "../lifecycle/home-lock-release.js";
 
 function fakeProcess() {
@@ -81,5 +86,77 @@ describe("installReleaseHandlers", () => {
     await new Promise(r => setImmediate(r));
     await new Promise(r => setImmediate(r));
     expect(logs.join("\n")).toContain("boom");
+  });
+});
+
+// See change: harden-dashboard-start-detection (D5.4; test-plan X12).
+describe("a taken-over holder", () => {
+  it("X12: noticing the takeover neither crashes nor releases the successor's lock or record", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lock-compromised-"));
+    const lockPath = path.join(home, ".pi", "dashboard", "server.lock");
+    const metaPath = `${lockPath}.meta.json`;
+    const lockDir = `${lockPath}.lock`;
+    const logs: string[] = [];
+    const base = {
+      httpPort: 8000,
+      piPort: 9999,
+      version: "t",
+      hooks: { lockPath, metaPath, staleMs: 2000, probeHealth: async () => ({ running: false }), isProcessAlive: () => false, log: (m: string) => logs.push(m) },
+    };
+    try {
+      let compromisedNotified = 0;
+      const a = await acquireOrAttach({ ...base, identity: "A", onCompromised: () => { compromisedNotified += 1; } });
+      expect(a.mode).toBe("acquired");
+      if (a.mode !== "acquired") return;
+
+      // Takeover: A's lock directory vanishes, B acquires and writes its record.
+      // A tick later, so B's directory cannot share A's mtime (the lock library
+      // compares whole ms).
+      await new Promise((r) => setTimeout(r, 25));
+      fs.rmSync(lockDir, { recursive: true, force: true });
+      const b = await acquireOrAttach({ ...base, identity: "B" });
+      expect(b.mode).toBe("acquired");
+      const bMetaBefore = fs.readFileSync(metaPath);
+
+      // A's lock library notices (its refresh timer): must not throw.
+      const uncaught: unknown[] = [];
+      const onUncaught = (e: unknown) => uncaught.push(e);
+      process.on("uncaughtException", onUncaught);
+      try {
+        await vi.waitFor(() => expect(a.compromised).toBe(true), { timeout: 12_000, interval: 50 });
+      } finally {
+        process.off("uncaughtException", onUncaught);
+      }
+      expect(uncaught).toEqual([]);
+      expect(compromisedNotified).toBe(1);
+      expect(logs.join("\n")).toMatch(/taken over/);
+
+      await a.release();
+      expect(fs.existsSync(lockDir)).toBe(true);
+      expect(fs.readFileSync(metaPath).equals(bMetaBefore)).toBe(true);
+      expect(readMetadata(metaPath)?.identity).toBe("B");
+      if (b.mode === "acquired") await b.release();
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("a release attempted before the library notices still leaves a successor's record alone", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lock-successor-"));
+    const lockPath = path.join(home, ".pi", "dashboard", "server.lock");
+    const metaPath = `${lockPath}.meta.json`;
+    const base = { httpPort: 8000, piPort: 9999, version: "t", hooks: { lockPath, metaPath, probeHealth: async () => ({ running: false }), isProcessAlive: () => false, log: () => {} } };
+    try {
+      const a = await acquireOrAttach({ ...base, identity: "A" });
+      if (a.mode !== "acquired") throw new Error("expected acquired");
+      fs.rmSync(`${lockPath}.lock`, { recursive: true, force: true });
+      const b = await acquireOrAttach({ ...base, identity: "B" });
+      await a.release(); // immediately: record names B
+      expect(fs.existsSync(`${lockPath}.lock`)).toBe(true);
+      expect(readMetadata(metaPath)?.identity).toBe("B");
+      if (b.mode === "acquired") await b.release();
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
 });

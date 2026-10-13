@@ -28,7 +28,7 @@
  * dispatch-provider-auth-event, warn-missing-anthropic-messages-peer.
  */
 
-import type { OAuthFlowStatus, ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { LegacyProviderIdEntry, OAuthFlowStatus, ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
   mdiAlert,
   mdiCheck,
@@ -54,9 +54,15 @@ import { PROVIDER_AUTH_EVENT } from "../../hooks/useProvidersReady.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { type ProviderHealth, refreshProviderModels, testProvider } from "../../lib/api/providers-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import {
+  type PeerAutoInstallState,
+  peerAutoInstallStore,
+  usePeerAutoInstall,
+} from "../../lib/package/peer-auto-install-store.js";
 import { logRejection } from "../../lib/report-error.js";
 import { InlineMessage } from "../primitives/InlineMessage.js";
 import { Toast, type ToastVariant, useToast } from "../primitives/Toast.js";
+import { PeerAutoInstallStatus } from "./PeerAutoInstallStatus.js";
 import {
   type AddDialogFlowState,
   API_TYPE_OPTIONS,
@@ -150,6 +156,24 @@ async function fetchCatalogueReady(): Promise<boolean> {
   if (!res.ok) throw new Error(`catalogue-ready ${res.status}`);
   const data: any = await res.json();
   return data?.ready === true;
+}
+
+/**
+ * Provider ids pi renamed that still appear in pi's agent-dir files. Fails
+ * quiet to an empty list (older server without the route, malformed body): the
+ * notice is advisory, so its absence is the safe default.
+ * See change: update-pi-core-1-1-adopt-apis.
+ */
+async function fetchLegacyProviderIds(): Promise<LegacyProviderIdEntry[]> {
+  const res = await fetch(`${getApiBase()}/api/provider-auth/legacy-provider-ids`);
+  if (!res.ok) return [];
+  const data: any = await res.json();
+  const list: unknown = data?.legacyProviderIds;
+  if (!Array.isArray(list)) return [];
+  return list.filter(
+    (e): e is LegacyProviderIdEntry =>
+      e !== null && typeof e === "object" && typeof e.legacyId === "string" && typeof e.newId === "string" && Array.isArray(e.locations),
+  );
 }
 
 /** DELETE a provider credential, surfacing the backend error detail on failure. */
@@ -282,6 +306,8 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
   // D5 — null means "unknown" (no response yet, or the read failed): fail open,
   // consistent with the section's posture toward secondary signals.
   const [catalogueReady, setCatalogueReady] = useState<boolean | null>(null);
+  // Renamed-provider-id notice (pi 1.0.3 azure rename); advisory, never blocks rows.
+  const [legacyIds, setLegacyIds] = useState<LegacyProviderIdEntry[]>([]);
   const [loading, setLoading] = useState(true);
   // undefined = closed · null = picker · string = the selected provider's pane
   // (or the custom-endpoint sentinel).
@@ -312,7 +338,14 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
   const { messages, showToast, dismissToast } = useToast();
   // One probe read for the whole section — per-row hooks would fan out one
   // /api/health fetch per provider. See change: warn-missing-anthropic-messages-peer.
-  const { peerMissing, peerReason } = useAnthropicPeerProbe();
+  const { peerMissing, peerReason, peerResolving, importFailed } = useAnthropicPeerProbe();
+  // Automatic peer install that follows an Anthropic sign-in (module-level store,
+  // so the outcome survives this section unmounting). See change: streamline-first-run.
+  const autoInstall = usePeerAutoInstall();
+  // A mounted surface that sees the peer resolving drops installed/failed.
+  useEffect(() => {
+    if (peerResolving) peerAutoInstallStore.notifyPeerResolving();
+  }, [peerResolving, autoInstall.outcome]);
 
   const refetchProviders = useCallback(async () => {
     try {
@@ -339,7 +372,10 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     const readyPromise = fetchCatalogueReady()
       .then((ready) => setCatalogueReady(ready))
       .catch(() => setCatalogueReady(null));
-    await Promise.all([statusPromise, providersPromise, readyPromise]);
+    const legacyPromise = fetchLegacyProviderIds()
+      .then((list) => setLegacyIds(list))
+      .catch(() => setLegacyIds([]));
+    await Promise.all([statusPromise, providersPromise, readyPromise, legacyPromise]);
     setLoading(false);
   }, [refetchProviders]);
 
@@ -403,6 +439,9 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     // picker entry is gone) and lands the single dispatch.
     setDialogProvider(undefined);
     handleChanged();
+    // Anthropic subscription sign-in only: decide the peer install, detached —
+    // the sign-in is never blocked (the call never throws).
+    if (id === "anthropic") void peerAutoInstallStore.ensureInstall("sign-in");
     // pi 1.0.0 `/login` follow-up: only a completed Radius sign-in asks, and
     // only when the Pi-global mcp.json is not already configured. A failed read
     // (503/409) means no offer — never an error on a sign-in that succeeded.
@@ -686,6 +725,42 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
         />
       )}
 
+      {/* pi renamed a provider id and the old one is still in pi's files. */}
+      {legacyIds.length > 0 && (
+        <InlineMessage
+          severity="warning"
+          icon={mdiAlert}
+          testId="legacy-provider-rename-notice"
+          title={i18nT("providers.legacyRename.title", undefined, "Warning: pi renamed the Azure provider")}
+        >
+          {legacyIds.map((e) => (
+            <div key={e.legacyId} className="text-xs space-y-1">
+              <p>
+                {i18nT(
+                  "providers.legacyRename.found",
+                  { legacyId: e.legacyId, newId: e.newId, locations: e.locations.join(", ") },
+                  `pi now calls this provider "${e.newId}". The old id "${e.legacyId}" is still in: ${e.locations.join(", ")}.`,
+                )}
+              </p>
+              <p>
+                {i18nT(
+                  "providers.legacyRename.consequence",
+                  undefined,
+                  "Sessions that use the old id fall back to another model and do not reuse their prompt cache.",
+                )}
+              </p>
+              <p>
+                {i18nT(
+                  "providers.legacyRename.fix",
+                  { newId: e.newId },
+                  `Rename the key or id to "${e.newId}", or sign in again with /login.`,
+                )}
+              </p>
+            </div>
+          ))}
+        </InlineMessage>
+      )}
+
       {/* Add-provider — the single entry point (provider-add-flow) */}
       <div className="flex items-center justify-between gap-2">
         <button
@@ -786,6 +861,8 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
               showToast={showToast}
               peerMissing={p.id === "anthropic" && peerMissing}
               peerReason={peerReason}
+              peerImportFailed={importFailed}
+              autoInstall={p.id === "anthropic" ? autoInstall : undefined}
               onEditKey={saveApiKey}
             />
           ))}
@@ -832,13 +909,17 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
 
 // ── Auth rows (subscription / api-key / environment) ─────────────────────────
 
-function AuthRow({ provider, kind, onChanged, showToast, peerMissing = false, peerReason, onEditKey }: {
+function AuthRow({ provider, kind, onChanged, showToast, peerMissing = false, peerReason, peerImportFailed = false, autoInstall, onEditKey }: {
   provider: ProviderAuthStatus;
   kind: RowKind;
   onChanged: () => void;
   showToast: (text: string, variant?: ToastVariant) => void;
   peerMissing?: boolean;
   peerReason?: string;
+  /** Probe reports the peer found but failing to import. */
+  peerImportFailed?: boolean;
+  /** Present only on the `anthropic` row: the automatic peer-install state. */
+  autoInstall?: PeerAutoInstallState;
   onEditKey: (id: string, key: string) => Promise<string | null>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -977,8 +1058,30 @@ function AuthRow({ provider, kind, onChanged, showToast, peerMissing = false, pe
         </div>
       )}
 
-      {/* Bridge peer hint — only on the authenticated Anthropic subscription row. */}
-      <AnthropicPeerHint show={peerMissing && kind === "subscription" && provider.authenticated} reason={peerReason} />
+      {/* Anthropic peer surfaces — only on the authenticated Anthropic subscription row.
+          Precedence (design D3b): import-failure hint > auto-install surface > hint. */}
+      {autoInstall && kind === "subscription" && provider.authenticated && (
+        <div role="status" aria-live="polite" data-testid="anthropic-peer-autoinstall-live">
+          {autoInstall.outcome !== null && !peerImportFailed && (
+            <PeerAutoInstallStatus
+              outcome={autoInstall.outcome}
+              message={autoInstall.message}
+              onRetry={() => void peerAutoInstallStore.retry()}
+              testId="anthropic-peer-autoinstall"
+              retryTestId="anthropic-peer-autoinstall-retry"
+            />
+          )}
+        </div>
+      )}
+      <AnthropicPeerHint
+        show={
+          peerMissing &&
+          kind === "subscription" &&
+          provider.authenticated &&
+          (peerImportFailed || autoInstall?.outcome == null)
+        }
+        reason={peerReason}
+      />
 
       {error && (
         <div className="flex items-center gap-1 mt-1 text-xs text-red-400">

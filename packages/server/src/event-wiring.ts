@@ -3,6 +3,7 @@
  * Extracted from server.ts for clarity.
  */
 
+import { VAULT_DELIVERY_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
 import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
@@ -296,6 +297,12 @@ export interface EventWiringDeps {
     sessionId: string,
     identity: import("@blackbelt-technology/pi-dashboard-shared/protocol.js").BridgeExtensionIdentity | undefined,
   ) => void;
+  /**
+   * Hub half of credential-vault env delivery. Absent in minimal wirings: the
+   * hub then advertises no `vault-delivery` feature and ignores vault frames.
+   * See change: add-credential-vault.
+   */
+  vaultDelivery?: import("./vault/vault-delivery-hub.js").VaultDeliveryHub;
 }
 
 /** A bridge-supplied notify `ts` is kept only when finite and > 0. See change: collapse-and-order-notify-rows. */
@@ -577,7 +584,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       piGateway.sendToSession(sessionId, {
         type: "dashboard_identity",
         ...(grantStoreId ? { grantStoreId } : {}),
-        features: ["path-yolo"],
+        features: deps.vaultDelivery ? ["path-yolo", VAULT_DELIVERY_FEATURE] : ["path-yolo"],
       });
     }
 
@@ -670,6 +677,8 @@ export function wireEvents(deps: EventWiringDeps): void {
   };
 
   sessionManager.onUnregister = (sessionId) => {
+    // A dead session has no env to withdraw from and must not receive pushes.
+    deps.vaultDelivery?.forget(sessionId);
     // Turn-boundary reset (change: auto-canvas): a terminated session must not
     // leave stale candidates behind. No settle broadcast on termination.
     canvasAccumulator.resetTurn(sessionId);
@@ -1017,6 +1026,20 @@ export function wireEvents(deps: EventWiringDeps): void {
     // See change: ask-agent-file-access-in-chat (D3).
     if (msg.type === "path_grant_request") {
       piGateway.sendToSession(sessionId, handlePathGrantRequest(sessionId, msg, { registry: agentConfirmRegistry }));
+      return;
+    }
+
+    // Credential vault env delivery: the bridge asks for the values granted to
+    // its session's project; the answer (and every later push) is the complete
+    // set. See change: add-credential-vault (D2).
+    if (msg.type === "vault_sync_request") {
+      deps.vaultDelivery?.handleSyncRequest(sessionId, msg).catch((err: unknown) => {
+        console.warn(`[vault] sync request failed: ${(err as Error)?.name ?? "error"}`);
+      });
+      return;
+    }
+    if (msg.type === "vault_report") {
+      deps.vaultDelivery?.handleReport(sessionId, msg);
       return;
     }
 
@@ -2115,6 +2138,11 @@ export function wireEvents(deps: EventWiringDeps): void {
       // settling rule keeps a transitional reload list from emptying it.
       // See change: fix-skill-discovery-parity.
       sessionCommandRegistry.retain(sessionId, msg.commands);
+      // A reload can reveal skill changes no watcher sees (body edits, npm
+      // packages): let pi-resource subscribers (skill-atlas) re-check. Unknown
+      // session → no cwd → nothing to emit. See change: add-skill-atlas-screen (D5).
+      const reportingCwd = sessionManager.get(sessionId)?.cwd;
+      if (reportingCwd) directoryService.notifyPiResourcesInvalidated?.(reportingCwd);
       browserGateway.sendToSubscribers(sessionId, {
         type: "commands_list",
         sessionId,

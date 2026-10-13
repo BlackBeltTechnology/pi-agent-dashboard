@@ -318,3 +318,43 @@ model: x
     }
   });
 });
+
+describe("ACP agent field (add-acp-session-driver, test-plan #E52)", () => {
+  const yaml = (action: string, extra = "", model = 'model: "@fast"\n') =>
+    `on:\n  kind: schedule\n  cron: "0 9 * * 1"\n${action}\n${model}${extra}`;
+  const agents = new Set(["qmt"]);
+  const parse = (text: string) => parseAutomationYaml(text, KNOWN, new Set(["core.prompt", "core.skill", "github.issue"]), new Set(), agents);
+
+  it("agent + core.prompt is valid; model becomes optional and agent is kept", () => {
+    const { config, error } = parse(yaml("action: { kind: core.prompt, prompt: ./p.md }", "agent: qmt\n", ""));
+    expect(error).toBeUndefined();
+    expect(config?.agent).toBe("qmt");
+    expect(config?.model).toBe("");
+  });
+
+  it("bare `prompt` kind is normalised to core.prompt and accepted", () => {
+    expect(parse(yaml("action: { kind: prompt, prompt: ./p.md }", "agent: qmt\n")).error).toBeUndefined();
+  });
+
+  it("agent + core.skill is rejected, naming the action kind", () => {
+    const { error } = parse(yaml("action: { kind: core.skill, skill: $x }", "agent: qmt\n"));
+    expect(error).toContain("core.skill");
+  });
+
+  it("every entry of an `actions` list must be core.prompt", () => {
+    const { error } = parse(yaml("actions:\n  - { kind: prompt, prompt: ./a.md }\n  - { kind: github.issue }", "agent: qmt\n"));
+    expect(error).toContain("github.issue");
+  });
+
+  it("an unknown agent id is rejected, naming it", () => {
+    expect(parse(yaml("action: { kind: prompt, prompt: ./p.md }", "agent: ghost\n")).error).toContain("ghost");
+  });
+
+  it("a non-string / empty agent is rejected", () => {
+    expect(parse(yaml("action: { kind: prompt, prompt: ./p.md }", "agent: 5\n")).error).toMatch(/agent/);
+  });
+
+  it("without an agent, model stays required (unchanged)", () => {
+    expect(parse(yaml("action: { kind: prompt, prompt: ./p.md }", "", "")).error).toMatch(/model/);
+  });
+});

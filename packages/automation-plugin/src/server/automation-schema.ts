@@ -10,6 +10,7 @@
  *
  * See change: add-automation-plugin.
  */
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { parse as parseYaml } from "yaml";
 import type {
   AutomationAction,
@@ -24,6 +25,7 @@ import {
   onKindForCategory,
   TRIGGER_TAXONOMY,
 } from "./trigger-registry.js";
+import { normalizeActionKind } from "./action-registry.js";
 
 /** On-disk `on.kind` values the taxonomy recognizes (schedule, openspec, …). */
 const TAXONOMY_KINDS = new Set(
@@ -68,6 +70,8 @@ export function parseAutomationYaml(
   knownKinds: ReadonlySet<string>,
   knownActionIds: ReadonlySet<string> = new Set(),
   knownSourceIds: ReadonlySet<string> = new Set(),
+  /** Configured ACP agent ids; omitted → read from the dashboard config when `agent` is present. */
+  knownAgentIds?: ReadonlySet<string>,
 ): ParseResult {
   let doc: unknown;
   try {
@@ -182,9 +186,15 @@ export function parseAutomationYaml(
     maxConcurrentSpawns = m;
   }
 
+  // ── agent (ACP) ──────────────────────────────────────────────────────
+  const agentResult = validateAgent(doc.agent, [singleAction, ...(actions ?? [])], knownAgentIds);
+  if ("error" in agentResult) return { error: agentResult.error };
+  const agent = agentResult.agent;
+
   // ── model ────────────────────────────────────────────────────────────
-  const model = doc.model;
-  if (typeof model !== "string" || model.length === 0) {
+  // With an ACP `agent` the model is the agent's own: optional and ignored.
+  const model = doc.model === undefined && agent ? "" : doc.model;
+  if (typeof model !== "string" || (model.length === 0 && !agent)) {
     return { error: "`model` must be a non-empty string (a provider/model id or @role)" };
   }
 
@@ -217,6 +227,7 @@ export function parseAutomationYaml(
     ...(singleAction ? { action: singleAction } : {}),
     ...(actions ? { actions } : {}),
     ...(maxConcurrentSpawns !== undefined ? { maxConcurrentSpawns } : {}),
+    ...(agent ? { agent } : {}),
     model,
     mode: mode.value,
     sandbox: sandbox.value,
@@ -225,6 +236,28 @@ export function parseAutomationYaml(
     ...(disabled ? { disabled } : {}),
   };
   return { config };
+}
+
+/**
+ * `agent` selects a configured ACP agent: it must exist, and every action must
+ * be `core.prompt` (skills / plugin actions are pi-only). Absent → no-op.
+ * See change: add-acp-session-driver (D14).
+ */
+function validateAgent(
+  raw: unknown,
+  actions: Array<AutomationAction | undefined>,
+  knownAgentIds: ReadonlySet<string> | undefined,
+): { agent?: string } | { error: string } {
+  if (raw === undefined) return {};
+  if (typeof raw !== "string" || raw.length === 0) return { error: "`agent` must be a non-empty string" };
+  const known = knownAgentIds ?? new Set(loadConfig().acpAgents.map((a) => a.id));
+  if (!known.has(raw)) return { error: `unknown ACP agent: "${raw}"` };
+  for (const a of actions) {
+    if (a && normalizeActionKind(a.kind) !== "core.prompt") {
+      return { error: `an automation with \`agent\` only supports the core.prompt action (got "${a.kind}")` };
+    }
+  }
+  return { agent: raw };
 }
 
 function validateAction(

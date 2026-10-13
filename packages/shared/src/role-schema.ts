@@ -148,6 +148,9 @@ export function joinRef(model: string, level?: string): string {
 /** Canonical thinking levels — the single list every surface imports. */
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
+/** One canonical thinking level. See change: redesign-directory-home-split. */
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+
 const ROLE_REF_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
 export type ParsedModelRef =

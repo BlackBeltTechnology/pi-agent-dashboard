@@ -12,6 +12,12 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Search a repository's git history with `kb_search`.** `kb_search({scope: "git"})` and
+  `kb_get({scope: "git", path: "commit/<sha>" | "pr/<n>" | "issue/<n>"})` cover commits,
+  pull/merge requests and issues (GitHub via `gh`, GitLab via `glab`, Gitea/Forgejo/Codeberg
+  over HTTPS). One index per repository is shared by every worktree and session; forge
+  requests are lazy, incremental and budgeted. Git results are marked untrusted. See
+  [`docs/kb-git-scope.md`](docs/kb-git-scope.md).
 - **Plugins declare which bus events the bridge forwards.** A plugin's bridge entry
   emits `dashboard:register-event-forward` with its channels and a delivery mode
   (`live`, `latest` or `stream`); core no longer hardcodes plugin channel names.
@@ -45,14 +51,93 @@ see [`docs/release-process.md`](docs/release-process.md).
   `N sessions` row. `folderAttentionPeek` (default `true`) controls that peek, and
   an active search or filter always forces the full list.
 - **Role-aware model refs.** Any model setting can hold `@role[:level]` instead of a concrete `provider/id`, so switching a role or preset re-routes every dependent setting from one place. `ui:model-selector` gains an opt-in `allowRoles` prop (Model | Role tabs; hidden when the roles plugin is absent). New roles-plugin service `roles.bindings` projects role-bound fields into third-party config files; blackhole is the first projector (all model slots + fallback chains, with `ok`/`dangling`/`detached` status and Reattach). Composer and OpenSpec run-dialog pickers resolve a role once at pick time ("via @role"). The Model roles page lists what follows each role. New `~/.pi/dashboard/role-bindings.json`.
+- **Stable mDNS identity for LAN discovery.** A server now advertises under its own
+  name `pi-dashboard-<id12>-<port>` (derived from its identity fingerprint), so macOS
+  stops renaming the machine (`-8559`) after multicast conflicts. The advert carries
+  the identity fingerprint, a display name and the real version, lists only addresses
+  the server serves on, and peers that vanish without a goodbye drop out after three
+  missed 60 s sweeps. Known servers can be pinned to an identity; when a pinned
+  server moves, Settings and the server selector offer a verified "Moved to …
+  Update" action.
+
+- **Web search and fetch entries render as compact cards.** A new client-only `web-access`
+  plugin (`pi-dashboard-web-access-plugin`, bundled) renders `pi-web-access`'s
+  `web-search-results` entries as one line ("Web search · 2 queries · 8 results", "Web fetch ·
+  4 URLs"); expanding shows queries, answers, results and fetched URLs, with only safe `http(s)`
+  links clickable. Disabling the plugin falls back to the generic card.
+- **Generic custom-entry fallback shows JSON objects as key/value lists.** An untruncated
+  object body renders up to 50 keys as a list instead of pretty-printed JSON; everything else
+  stays plain text.
 
 ### Changed
 
+- **Settings ▸ Packages is now Add-ons.** The page lives at `/settings/add-ons` (old
+  `/settings/packages` and `?tab=packages` links redirect); the rail group is `ADD-ONS`.
+  The page explains extensions, skills and dashboard plugins (dismissible card, part
+  tooltips), hides the dashboard-managed plugin bridge rows (`index.ts`), lists each
+  recommended extension once, collapses local-override rows to one line (reset stays in
+  the `⋮` menu), and adds a filter and a local-source banner. The rail's Plugins pages
+  start collapsed. **Breaking for external TypeScript only:** the `SettingsTab` literal
+  `"packages"` is now `"add-ons"` (JSON plugin manifests with `tab: "packages"` still load).
+
+- **Subagent admission refusals ship hidden.** The durable `subagent-admission-refused`
+  record now belongs to a new `diagnostics` custom event group, hidden by default (the refused
+  tool call already shows its reason). Enable "Diagnostics" in the chat View popover, or in
+  `~/.pi/dashboard/custom-event-groups.json`, to see it again. **Rollback note:** reverting the
+  code does not unhide refusals — the `diagnostics` group stays in your
+  `custom-event-groups.json` with `default: false`; enable it or delete the entry to restore them.
+- **BREAKING: known-server changes are operator-only.** Adding, removing, updating
+  (`POST`/`DELETE /api/known-servers`, `accept-move`) and probing known servers now
+  require an operator credential (login, local token or a local request). Browsers
+  admitted only by a trusted network can still list the servers. Entries whose host
+  went stale before this release cannot be repaired automatically — re-add them once.
+  Rolling back leaves entries moved to a `pi-dashboard-<id12>-<port>.local` host
+  unresolvable; re-add those.
+- **Honest server-selector labels.** A known server the browser cannot reach is now
+  labelled by what the dashboard server itself sees: "Name not found" (renamed or
+  dead hostname), "Moved to …", "Unreachable", or CORS-blocked only when the server
+  reaches it but the browser cannot. Previously every `.local` or LAN failure was
+  reported as CORS-blocked. Never copy `identity.key` between machines: two servers
+  with one key and port collide on the advertised name.
 - Grammar model may be `llm: { role: "@fast" }` (resolved per check; new error `model_role_unassigned`). Automation drops its private role dropdown for the shared picker's Role tab, and its `@role` resolution now honors a `:level` suffix on the ref. **Rollback note:** reverting leaves any `llm.role` grammar config unreadable — it falls back to "pick a model" until a model is chosen again.
 - **Team personas no longer inherit global, package or extension skills (breaking).**
   Every team session starts with `--no-skills` and only its catalog skills; legacy alias
   keys and single-file (`.md`) `skillCatalog` entries become invalid. `/skill:<name>`
   works in the team chat for granted skills only.
+- **BREAKING (pi peers): the supported pi floor is now 1.1.0.** `piCompatibility`
+  `minimum`/`recommended`, the server dependency, every `@earendil-works` pi peer
+  (`>=1.1.0`) and devDependency (`^1.1.0`), the three workspace overrides and the Docker
+  image all move to pi 1.1.0. A session on pi below 1.1.0 (including 1.0.x) shows the
+  below-floor warning, and `/api/health` reports an error naming both versions.
+  **Rollback:** revert the pin commit and run `pnpm install`; no data migrates.
+- **Tool durations come from pi.** A tool row shows pi's recorded execution time
+  (`durationMs`, pi 1.1.0) instead of the timestamp difference, live and after a reload;
+  older events keep the timestamp fallback.
+- **Per-thinking-level sampling parameters pass through.** `samplingParamsByThinkingLevel`
+  from `models.json` now reaches the bridge's re-registered models and the model proxy.
+- **Azure provider rename notice.** pi renamed `azure-openai-responses` to `azure`. Settings →
+  Providers now shows a warning naming the files where the old id is still used
+  (`auth.json`, `settings.json`, `models.json`) with pi's fix (rename, or `/login`).
+  Backed by the new read-only `GET /api/provider-auth/legacy-provider-ids`.
+- **BREAKING: the jiti server loader is removed.** The dashboard server always runs on
+  Node's native strip-only TypeScript loader (`module.registerHooks`), on every Node from
+  22.19 to 26. `PI_DASHBOARD_TS_LOADER` is ignored: the server logs one warning at boot when
+  it is set to anything but `native`. This ends the silent jiti fallback on Node 26. To roll
+  back, install the previous version. `jiti` stays in the server package's dependencies only
+  so a pre-upgrade server's first `/api/restart` still works.
+- **BREAKING (plugin authors): plugin server TypeScript must be erasable.** No `enum`, runtime
+  `namespace` or constructor parameter properties, and type-only imports use `import type`.
+  A plugin that breaks this fails to load in isolation and the error names the file. The CI
+  plugin install-load gate now checks first-party plugins the same way. pi still loads a
+  plugin's `bridge` entry with its own jiti, which is unaffected.
+- **Node 26 CLI/npm upgrade note.** The first `/api/restart` after upgrading may bring the
+  server up under jiti; it logs a warning. Run `pi-dashboard stop && pi-dashboard start`
+  (or restart once more) to switch to the native loader.
+- **New dependency `amaro`** (exact pin, `@blackbelt-technology/pi-dashboard-shared`) strips
+  types on end-of-life Node 23.0–23.1, which have no built-in stripper. Other Node lines never
+  load it.
+- **First-party source is erasable-only.** `erasableSyntaxOnly` is on in `tsconfig.base.json`
+  (TypeScript `^5.8.0`) and Biome `useImportType` is an error. No behaviour change.
 
 ### Fixed
 

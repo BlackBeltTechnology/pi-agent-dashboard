@@ -30,8 +30,8 @@ supervise_daemon() {
 
   # WAIT for the pidfile rather than requiring it up front. `pi-dashboard
   # start` gives up polling at 30s and returns non-zero, but the daemon it
-  # spawned is detached and still coming up — a cold jiti start routinely
-  # exceeds that window. Bailing here cost the container one full restart
+  # spawned is detached and still coming up — a slow cold start on a loaded
+  # host can exceed that window. Bailing here cost the container one full restart
   # cycle on every cold boot.
   pidfile_wait="${PIDFILE_WAIT_TICKS:-60}"   # x2s
   server_pid=""

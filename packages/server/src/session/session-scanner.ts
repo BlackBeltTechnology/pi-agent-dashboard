@@ -163,6 +163,10 @@ export function sessionFromMeta(
     // what every pre-existing sidecar correctly was.
     // See change: serve-retained-remote-transcripts.
     originDeviceId: meta.originDeviceId,
+    // Restore the driver so ended ACP sessions keep `driver:"acp"` (pi-only controls stay hidden).
+    // See change: add-acp-session-driver (D12).
+    driver: meta.driver,
+    acpAgentId: meta.acpAgentId,
     // Restore name provenance so the auto-naming lockout survives restarts.
     // See change: add-auto-session-naming.
     nameSource: meta.nameSource,

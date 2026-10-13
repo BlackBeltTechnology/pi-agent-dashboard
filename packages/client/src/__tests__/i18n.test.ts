@@ -162,10 +162,85 @@ describe("add-mermaid-auto-repair — i18n sweep (X4)", () => {
       "preview.mermaid.autoFixed",
       "preview.mermaid.showOriginal",
       "preview.mermaid.copyFixed",
+      // See change: retro-ux-chat-rendering (test-plan E19)
+      "preview.mermaid.copied",
+      "preview.mermaid.copySource",
+      "preview.mermaid.errorHeadline",
+      "preview.mermaid.originalError",
+      "preview.mermaid.rendering",
+      "preview.mermaid.viewportName",
+      "preview.mermaid.zoomHint",
+      "preview.mermaid.zoomIn",
+      "preview.mermaid.zoomOut",
+      "preview.mermaid.zoomReset",
+      "customEntry.extensionEntry",
       ...["R1", "R2", "R3", "R4", "R5", "R6", "R7"].map((r) => `preview.mermaid.rule.${r}`),
     ]) {
       expect(zh, `zh-CN: ${key}`).toContain(`"${key}":`);
       expect(hu, `hu: ${key}`).toContain(`"${key}":`);
+    }
+  });
+});
+
+describe("retro-ux-model-selector — i18n sweep (E21)", () => {
+  // Every string the change added or reworded is present in en (source JSON),
+  // zh-CN and hu — client keys by raw catalogue text, plugin keys by their
+  // `catalog` objects. `node scripts/i18n-parity.mjs` is the parity gate.
+  function findClientRoot(start: string): string {
+    const marker = join("src", "lib", "i18n", "i18n.tsx");
+    let dir = start;
+    for (let i = 0; i < 8; i++) {
+      if (existsSync(join(dir, marker))) return dir;
+      if (existsSync(join(dir, "packages", "client", marker))) return join(dir, "packages", "client");
+      const up = dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+    return start;
+  }
+  const root = findClientRoot(process.cwd());
+  const en = readFileSync(join(root, "src/lib/i18n-en-source.json"), "utf8");
+  const zh = readFileSync(join(root, "src/lib/i18n/i18n.tsx"), "utf8");
+  const hu = readFileSync(join(root, "src/lib/i18n/i18n-hu.ts"), "utf8");
+  const pluginSrc = (pkg: string) => readFileSync(join(root, "..", pkg, "src/i18n.ts"), "utf8");
+
+  it("client picker/role-ref keys exist in en, zh-CN and hu", () => {
+    for (const key of [
+      "common.modelsTab",
+      "common.rolesTab",
+      "common.favoritesOnly",
+      "common.favoriteModel",
+      "common.capabilityAssumed",
+      "common.chooseModel",
+      "common.noModelsHelp",
+      "common.openProviders",
+      "common.noModelAssigned",
+      "common.roleRefFrom",
+      "common.roleRefThinking",
+      "common.noRolesHelp",
+    ]) {
+      expect(en, `en: ${key}`).toContain(`"${key}":`);
+      expect(zh, `zh-CN: ${key}`).toContain(`"${key}":`);
+      expect(hu, `hu: ${key}`).toContain(`"${key}":`);
+    }
+  });
+
+  it("plugin keys exist in each plugin's zh-CN and hu blocks", () => {
+    const wanted: Record<string, string[]> = {
+      "roles-plugin": ["noModelAssigned", "roleRefThinking", "statusDetached", "statusDangling", "levelDropped", "unsaved"],
+      "blackhole-plugin": ["noModelAssigned", "roleRefThinking", "roleStatus_detached", "roleStatus_dangling", "levelDropped", "roleDetachedHelp", "reattachRoleTo"],
+      "automation-plugin": ["roleFollowsHint"],
+    };
+    for (const [pkg, keys] of Object.entries(wanted)) {
+      const src = pluginSrc(pkg);
+      const huStart = src.indexOf("\n  hu: {");
+      expect(huStart, `${pkg}: hu block`).toBeGreaterThan(0);
+      const zhBlock = src.slice(0, huStart);
+      const huBlock = src.slice(huStart);
+      for (const key of keys) {
+        expect(zhBlock, `${pkg} zh-CN: ${key}`).toMatch(new RegExp(`\\b${key}:`));
+        expect(huBlock, `${pkg} hu: ${key}`).toMatch(new RegExp(`\\b${key}:`));
+      }
     }
   });
 });

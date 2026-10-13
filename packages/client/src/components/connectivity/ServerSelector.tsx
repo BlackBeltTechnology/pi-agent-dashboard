@@ -1,12 +1,23 @@
-import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
-import { mdiChevronDown, mdiCog, mdiServerNetwork } from "@mdi/js";
+import { formatHostPort, normalizeHostKey } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
+import type { KnownServerListEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import {
+  mdiAlertOutline,
+  mdiCheckCircleOutline,
+  mdiChevronDown,
+  mdiCloseCircleOutline,
+  mdiCog,
+  mdiLoading,
+  mdiRefresh,
+  mdiServerNetwork,
+} from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
+import { acceptKnownServerMove, listKnownServers, probeKnownServer } from "../../lib/api/known-servers-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { listKnownServers } from "../../lib/api/known-servers-api.js";
 import { logRejection } from "../../lib/report-error.js";
+import { identityPill, type Severity, severityPill } from "./connectivity-ui.js";
 
 /** Re-export for backward compat — consumers that imported this type */
 export interface DiscoveredServerInfo {
@@ -71,32 +82,15 @@ export function buildServerEntries(
   return entries;
 }
 
-/** Probe outcome for a selector entry. */
-type ProbeState = "available" | "unreachable" | "denied" | "cors-blocked";
-
 /**
- * True when `host` is a private-LAN address literal (RFC-1918, CGNAT, link-
- * local, or an mDNS `.local` name). A cross-origin probe to such a host that
- * fails at the transport layer (`.catch()`, no readable response) is more
- * likely a CORS block — the remote hasn't allowlisted this origin — than a
- * genuine outage, so we surface an actionable "allowlist this origin" hint
- * instead of a bare "Unreachable". The browser cannot distinguish a CORS block
- * from connection-refused (both throw an opaque error), so this LAN heuristic
- * is the client-observable proxy for a trusted-network candidate.
- * See change: fix-remote-connect-cors-gates.
+ * Probe outcome for a selector entry.
+ *
+ * `cors-blocked` = the dashboard SERVER reaches the target but this browser
+ * cannot; `name-not-resolved` = the server cannot resolve the stored name
+ * (rendered as "Moved to …" when a verified move suggestion exists).
+ * See change: stabilize-mdns-server-identity.
  */
-export function isLanHost(host: string): boolean {
-  if (host.endsWith(".local")) return true;
-  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (!m) return false;
-  const [a, b] = [Number(m[1]), Number(m[2])];
-  if (a === 10) return true; // 10.0.0.0/8
-  if (a === 192 && b === 168) return true; // 192.168.0.0/16
-  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-  if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local
-  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 CGNAT
-  return false;
-}
+type ProbeState = "available" | "unreachable" | "denied" | "cors-blocked" | "name-not-resolved";
 
 interface Props {
   /** mDNS-discovered servers — kept for Settings panel, no longer primary data source */
@@ -111,18 +105,80 @@ interface Props {
   inFlightSwitchKey?: string | null;
 }
 
+type ItemState = "checking" | "available" | ProbeState | "moved";
+
+/** Pill + icon + severity + reason for each non-current entry state (text, never colour alone). */
+function stateView(state: ItemState, movedAddress?: string): { label: string; severity: Severity; icon: string; reason?: string } {
+  switch (state) {
+    case "checking":
+      return { label: i18nT("connection.checking", undefined, "Checking…"), severity: "neutral", icon: mdiLoading };
+    case "available":
+      return { label: i18nT("common.available", undefined, "Available"), severity: "success", icon: mdiCheckCircleOutline };
+    case "unreachable":
+      return {
+        label: i18nT("connection.unreachable", undefined, "Unreachable"),
+        severity: "error",
+        icon: mdiCloseCircleOutline,
+        reason: i18nT("connection.unreachableReason", undefined, "No response from this address within 2 s."),
+      };
+    case "denied":
+      return {
+        label: i18nT("common.networkNotAllowed", undefined, "Network not allowed"),
+        severity: "warning",
+        icon: mdiAlertOutline,
+        reason: i18nT(
+          "connection.deniedReason",
+          undefined,
+          "The server is up but does not allow this network. Add it to that server's trusted networks.",
+        ),
+      };
+    case "cors-blocked":
+      return {
+        label: i18nT("connection.blockedInBrowser", undefined, "Blocked in this browser"),
+        severity: "warning",
+        icon: mdiAlertOutline,
+        reason: i18nT(
+          "connection.corsReason",
+          undefined,
+          "Reachable from this dashboard, not from this browser (CORS). Allow this origin on the remote.",
+        ),
+      };
+    case "name-not-resolved":
+      return {
+        label: i18nT("connection.nameNotFound", undefined, "Name not found"),
+        severity: "warning",
+        icon: mdiAlertOutline,
+        reason: i18nT("connection.nameReason", undefined, "The name no longer resolves — the server may have been renamed."),
+      };
+    case "moved":
+      return {
+        label: i18nT("connection.moved", undefined, "Moved"),
+        severity: "warning",
+        icon: mdiAlertOutline,
+        reason: i18nT("connection.movedReason", { address: movedAddress ?? "" }, "Now at {address} — same server identity."),
+      };
+  }
+}
+
+const ITEM_BASE =
+  "focus-ring flex w-full min-h-[44px] items-start gap-2 px-3 py-1.5 text-left text-xs text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)] aria-[disabled=true]:cursor-not-allowed aria-[disabled=true]:hover:bg-transparent cursor-pointer";
+
 export function ServerSelector({ currentHost, currentPort, connected, onSwitch, onManageServers, inFlightSwitchKey }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  /** Set when the menu is opened from the keyboard: focus lands on the first item once the panel is visible. */
+  const pendingFocus = useRef(false);
   const { flipUp, maxHeight, anchorRight, maxWidth, triggerRect } = usePopoverFlip(triggerRef, {
     open,
-    estimatedWidth: 220,
+    estimatedWidth: 380,
     minPopoverHeight: 0,
   });
   const [availability, setAvailability] = useState<Map<string, ProbeState>>(new Map());
-  const [knownServers, setKnownServers] = useState<KnownServer[]>([]);
+  const [knownServers, setKnownServers] = useState<KnownServerListEntry[]>([]);
+  /** A refused move acceptance, shown inside the menu (keyed by entry). */
+  const [moveRefusal, setMoveRefusal] = useState<string | null>(null);
 
   // Load known servers from API on mount and when dropdown opens
   const loadKnown = useCallback(async () => {
@@ -147,44 +203,77 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
   // Probe availability only when the dropdown opens — once per open.
   // No background probing, no periodic timer, no mount probe.
   // See openspec/changes/safe-server-switch.
+  const probeEntry = useCallback((host: string, port: number, isCancelled: () => boolean) => {
+    const key = `${host}:${port}`;
+    const set = (state: ProbeState) => {
+      if (!isCancelled()) setAvailability((prev) => new Map(prev).set(key, state));
+    };
+    fetch(`http://${formatHostPort(host, port)}/api/health`, { signal: AbortSignal.timeout(2000) })
+      .then(async (r): Promise<ProbeState> => {
+        // A guarded response (403 network_not_allowed) means the server is
+        // reachable but the client's network/auth is not permitted — a
+        // distinct "denied" state, NOT "unreachable".
+        if (r.status === 403) {
+          const body = await r.json().catch(() => null);
+          if (body?.error === "network_not_allowed") return "denied";
+          return "unreachable";
+        }
+        if (!r.ok) return "unreachable";
+        const d = await r.json().catch(() => null);
+        return d?.ok === true ? "available" : "unreachable";
+      })
+      .then(set)
+      .catch(async () => {
+        // Transport failure (no readable response): the browser cannot tell a
+        // CORS block from a dead name. Ask the dashboard server what it sees
+        // and render THAT cause. See change: stabilize-mdns-server-identity.
+        // A rejected server probe is "unreachable" (retro-ux #X8).
+        const status = await probeKnownServer(host, port).catch(() => null);
+        set(
+          status === "reachable"
+            ? "cors-blocked"
+            : status === "name-not-resolved"
+            ? "name-not-resolved"
+            : "unreachable",
+        );
+      });
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    setAvailability(new Map()); // a reopen re-probes: show "Checking…" again, never a stale state
+    setMoveRefusal(null);
     for (const s of entries) {
-      const key = `${s.host}:${s.port}`;
       // Current server's status is derived from `connected` — skip the probe.
-      if (key === currentKey) continue;
-      fetch(`http://${s.host}:${s.port}/api/health`, { signal: AbortSignal.timeout(2000) })
-        .then(async (r): Promise<ProbeState> => {
-          // A guarded response (403 network_not_allowed) means the server is
-          // reachable but the client's network/auth is not permitted — a
-          // distinct "denied" state, NOT "unreachable".
-          if (r.status === 403) {
-            const body = await r.json().catch(() => null);
-            if (body?.error === "network_not_allowed") return "denied";
-            return "unreachable";
-          }
-          if (!r.ok) return "unreachable";
-          const d = await r.json().catch(() => null);
-          return d?.ok === true ? "available" : "unreachable";
-        })
-        .then((state) => {
-          if (!cancelled) setAvailability((prev) => new Map(prev).set(key, state));
-        })
-        .catch(() => {
-          // Transport failure (no readable response). The browser cannot tell a
-          // CORS block from a genuine outage. For a LAN host — a trusted-network
-          // candidate — surface the actionable "allowlist this origin" hint;
-          // otherwise a plain "Unreachable". See change: fix-remote-connect-cors-gates.
-          const state: ProbeState = isLanHost(s.host) ? "cors-blocked" : "unreachable";
-          if (!cancelled) setAvailability((prev) => new Map(prev).set(key, state));
-        });
+      if (`${s.host}:${s.port}` === currentKey) continue;
+      probeEntry(s.host, s.port, () => cancelled);
     }
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  /** Accept a verified move suggestion, then re-probe the entry at its new address. */
+  const handleUpdate = useCallback(
+    async (entry: ServerEntry, movedTo: { host: string; port: number }) => {
+      setMoveRefusal(null);
+      if (!(await acceptKnownServerMove(entry.host, entry.port))) {
+        setMoveRefusal(
+          i18nT(
+            "connection.moveRefused",
+            undefined,
+            "Couldn't update this server — an operator credential is needed.",
+          ),
+        );
+        return;
+      }
+      await loadKnown();
+      probeEntry(movedTo.host, movedTo.port, () => false);
+    },
+    [loadKnown, probeEntry],
+  );
 
   // Close on outside click
   useEffect(() => {
@@ -199,21 +288,97 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
+  const menuItems = useCallback(
+    (): HTMLElement[] =>
+      Array.from(panelRef.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"], [role="menuitem"]') ?? []),
+    [],
+  );
+
+  // Keyboard open: focus the first item once the portalled panel is positioned (visible).
+  useEffect(() => {
+    if (open && triggerRect && pendingFocus.current) {
+      pendingFocus.current = false;
+      menuItems()[0]?.focus();
+    }
+  }, [open, triggerRect, menuItems]);
+
+  const closeToTrigger = () => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  const onTriggerKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+      e.preventDefault();
+      pendingFocus.current = true;
+      setOpen(true);
+    } else if (e.key === "Escape" && open) {
+      e.preventDefault();
+      setOpen(false);
+    }
+  };
+
+  const onMenuKeyDown = (e: React.KeyboardEvent) => {
+    const items = menuItems();
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const go = (i: number) => {
+      e.preventDefault();
+      items[(i + items.length) % items.length]?.focus();
+    };
+    switch (e.key) {
+      case "ArrowDown": return go(at + 1);
+      case "ArrowUp": return go(at < 0 ? items.length - 1 : at - 1);
+      case "Home": return go(0);
+      case "End": return go(items.length - 1);
+      case "Escape":
+        e.preventDefault();
+        return closeToTrigger();
+      case "Tab":
+        // Focus the trigger and let the browser's own Tab move on from there.
+        setOpen(false);
+        triggerRef.current?.focus();
+        return;
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        (document.activeElement as HTMLElement | null)?.click();
+        return;
+    }
+  };
+
   // Find current entry's display label
   const currentEntry = entries.find((e) => `${e.host}:${e.port}` === currentKey);
   const displayLabel = currentEntry?.label ?? (currentEntry?.isLocal ? "Local" : currentHost);
+  const connectionWord = connected
+    ? i18nT("connection.connected", undefined, "Connected")
+    : i18nT("connection.offlineWord", undefined, "Offline");
 
   return (
     <div ref={ref} className="relative">
       <button
+        type="button"
         ref={triggerRef}
+        // Keyboard activation is handled (and its click suppressed) in onTriggerKeyDown; this is the pointer path.
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+        onKeyDown={onTriggerKeyDown}
+        onKeyUp={(e) => { if (e.key === " ") e.preventDefault(); }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={i18nT(
+          "connection.selectorLabel",
+          { server: displayLabel, state: connectionWord.toLowerCase() },
+          "Server: {server}, {state}",
+        )}
+        className="focus-ring flex min-h-8 items-center gap-1.5 rounded-md px-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
         title={i18nT("connection.switchServer", undefined, "Switch server")}
       >
         <Icon path={mdiServerNetwork} size={0.55} />
         <span className="truncate max-w-[180px]">{displayLabel}</span>
-        <span className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
+        <span
+          aria-hidden="true"
+          className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-[var(--status-idle)]" : "bg-[var(--status-error)]"}`}
+        />
+        <span>{connectionWord}</span>
         <Icon path={mdiChevronDown} size={0.45} />
       </button>
 
@@ -221,8 +386,12 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
         <LayerPortal>
         <div
           ref={panelRef}
+          role="menu"
+          aria-label={i18nT("connection.switchServer", undefined, "Switch server")}
+          onKeyDown={onMenuKeyDown}
+          onKeyUp={(e) => { if (e.key === " ") e.preventDefault(); }}
           style={{
-            minWidth: 220,
+            width: 380,
             maxHeight,
             maxWidth,
             visibility: triggerRect ? "visible" : "hidden",
@@ -237,86 +406,120 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
                 : { left: Math.round(triggerRect.left) }
               : {}),
           }}
-          className="fixed overflow-y-auto z-popover bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg shadow-xl py-1"
+          className="fixed overflow-y-auto z-popover bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-lg shadow-xl py-1"
         >
-          {onManageServers && (
-            <button
-              onClick={() => { setOpen(false); onManageServers(); }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer border-b border-[var(--border-secondary)] mb-1"
-            >
-              <Icon path={mdiCog} size={0.45} />
-              <span>{i18nT("common.manageServers", undefined, "Manage servers…")}</span>
-            </button>
-          )}
-          {entries.map((entry) => {
+          {entries.map((entry, idx) => {
             const key = `${entry.host}:${entry.port}`;
             const isCurrent = key === currentKey;
             const probe = availability.get(key);
             const denied = !isCurrent && probe === "denied";
             const unreachable = !isCurrent && probe === "unreachable";
             const corsBlocked = !isCurrent && probe === "cors-blocked";
-            // denied, unreachable, and cors-blocked all disable switching, but render distinctly.
-            const blocked = denied || unreachable || corsBlocked;
+            const nameNotResolved = !isCurrent && probe === "name-not-resolved";
+            const movedTo = nameNotResolved
+              ? knownServers.find(
+                  (k) => k.port === entry.port && normalizeHostKey(k.host) === normalizeHostKey(entry.host),
+                )?.movedTo
+              : undefined;
+            const movedAddress = movedTo ? formatHostPort(movedTo.host, movedTo.port) : undefined;
+            // Every non-available state disables switching, but each renders distinctly.
+            const blocked = denied || unreachable || corsBlocked || nameNotResolved;
             const isSwitching = inFlightSwitchKey === key;
+            const state: ItemState | null = isCurrent
+              ? null
+              : movedTo
+              ? "moved"
+              : (probe ?? "checking");
+            const view = state ? stateView(state, movedAddress) : null;
+            const name = entry.label ?? entry.host;
+            const whyId = `server-why-${idx}`;
             return (
+              <React.Fragment key={key}>
               <button
-                key={key}
-                disabled={blocked}
-                title={
-                  denied
-                    ? `${entry.host}:${entry.port}: network not allowed`
-                    : corsBlocked
-                    ? `${entry.host}:${entry.port}: CORS-blocked — allowlist this origin on the remote (add this network to its trustedNetworks)`
-                    : unreachable
-                    ? `${entry.host}:${entry.port} is unreachable`
-                    : undefined
-                }
+                type="button"
+                role="menuitemradio"
+                aria-checked={isCurrent}
+                tabIndex={-1}
+                aria-disabled={blocked ? "true" : undefined}
+                aria-describedby={blocked && view?.reason ? whyId : undefined}
                 onClick={() => {
                   if (blocked) return;
                   if (!isCurrent) onSwitch(entry.host, entry.port);
-                  setOpen(false);
+                  closeToTrigger();
                 }}
                 data-unreachable={unreachable || undefined}
                 data-denied={denied || undefined}
                 data-cors-blocked={corsBlocked || undefined}
-                className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors ${
-                  isCurrent ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]"
-                } ${blocked ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--bg-tertiary)] cursor-pointer"}`}
+                data-name-not-resolved={nameNotResolved || undefined}
+                className={`${ITEM_BASE} ${isCurrent ? "shadow-[inset_2px_0_0_var(--accent-primary)]" : ""}`}
               >
-                <div className="flex-1 min-w-0">
-                  <div className="truncate font-medium">{entry.label ?? entry.host}</div>
-                  <div className="text-[var(--text-tertiary)]">
-                    {entry.host}:{entry.port}
-                  </div>
-                </div>
-                <span
-                  className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                    entry.isLocal
-                      ? "bg-blue-500/20 text-blue-400"
-                      : "bg-purple-500/20 text-purple-400"
-                  }`}
-                >
-                  {entry.isLocal ? "Local" : "Remote"}
+                <span className="min-w-0 flex-1">
+                  <span className={`flex items-center gap-1.5 font-semibold ${blocked ? "text-[var(--text-secondary)]" : ""}`}>
+                    <span className="truncate">{name}</span>
+                    <span className={identityPill(entry.isLocal, true)}>
+                      {entry.isLocal ? "Local" : "Remote"}
+                    </span>
+                  </span>
+                  <span className="block text-xs text-[var(--text-secondary)]">{entry.host}:{entry.port}</span>
+                  {blocked && view?.reason && (
+                    <span id={whyId} className="mt-0.5 block text-xs text-[var(--text-secondary)]">{view.reason}</span>
+                  )}
                 </span>
                 {isSwitching ? (
-                  <span
-                    aria-label={i18nT("common.switchingU2026", undefined, "Switching\\u2026")}
-                    className="shrink-0 w-3 h-3 rounded-full border-2 border-[var(--text-tertiary)] border-t-transparent animate-spin"
-                  />
+                  <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-[var(--text-secondary)]">
+                    <Icon path={mdiLoading} size={0.5} className="animate-spin" aria-hidden="true" />
+                    {i18nT("common.switchingU2026", undefined, "Switching\u2026")}
+                  </span>
                 ) : isCurrent ? (
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${connected ? "bg-green-500" : "bg-red-500"}`} />
-                ) : denied ? (
-                  <span className="shrink-0 text-[10px] text-amber-400">{i18nT("common.networkNotAllowed", undefined, "Network not allowed")}</span>
-                ) : corsBlocked ? (
-                  <span className="shrink-0 text-[10px] text-amber-400">{i18nT("common.corsBlocked", undefined, "CORS-blocked")}</span>
-                ) : unreachable ? (
-                  <span className="shrink-0 text-[10px] text-red-400">{i18nT("connection.unreachable", undefined, "Unreachable")}</span>
-                ) : probe === "available" ? (
-                  <span className="shrink-0 text-[10px] text-green-500">{i18nT("common.available", undefined, "Available")}</span>
+                  <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-[var(--text-secondary)]">
+                    <span
+                      aria-hidden="true"
+                      className={`h-2 w-2 rounded-full ${connected ? "bg-[var(--status-idle)]" : "bg-[var(--status-error)]"}`}
+                    />
+                    {connectionWord}
+                  </span>
+                ) : view ? (
+                  <span className={severityPill(view.severity, true)}>
+                    <Icon path={view.icon} size={0.5} className={state === "checking" ? "animate-spin" : ""} aria-hidden="true" />
+                    {view.label}
+                  </span>
                 ) : null}
               </button>
+              {movedTo && movedAddress && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  tabIndex={-1}
+                  onClick={() => void handleUpdate(entry, movedTo).catch(logRejection("ServerSelector.handleUpdate"))}
+                  className={`${ITEM_BASE} !min-h-[36px] items-center pl-6 font-semibold`}
+                >
+                  <Icon path={mdiRefresh} size={0.5} aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    {i18nT("connection.updateTo", { name, address: movedAddress }, "Update {name} to {address}")}
+                    {moveRefusal && (
+                      <span role="alert" className="mt-0.5 block text-xs font-normal text-[var(--severity-error-fg)]">{moveRefusal}</span>
+                    )}
+                  </span>
+                </button>
+              )}
+              </React.Fragment>
             );
           })}
+          {onManageServers && (
+            <>
+              <hr className="my-1 border-0 border-t border-[var(--border-secondary)]" />
+              <button
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                onClick={() => { setOpen(false); onManageServers(); }}
+                className={`${ITEM_BASE} !min-h-[36px] items-center text-[var(--text-secondary)]`}
+              >
+                <Icon path={mdiCog} size={0.5} aria-hidden="true" />
+                <span>{i18nT("common.manageServers", undefined, "Manage servers…")}</span>
+              </button>
+            </>
+          )}
         </div>
         </LayerPortal>
       )}

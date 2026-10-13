@@ -88,3 +88,14 @@ describe("SlotPill surface variant", () => {
     }
   });
 });
+
+describe("SlotPill capsule legend (#E10)", () => {
+  it.each(["raised", "flat"] as const)("%s legend is 12 px and --text-secondary", (surface) => {
+    const root = pillRoot(`pill-legend-${surface}`, { surface });
+    const legend = root.querySelector("span") as HTMLElement;
+    expect(legend.textContent).toBe("Knowledge base");
+    expect(legend.className).toContain("text-[12px]");
+    expect(legend.className).toContain("text-[var(--text-secondary)]");
+    expect(legend.className).not.toContain("text-[9px]");
+  });
+});

@@ -180,3 +180,93 @@ describe("challengePinnedServer", () => {
     expect(b).toMatchObject({ accept: false, cause: "unreachable" });
   });
 });
+
+// ── proveServerIdentity (test-plan #X1) ────────────────────────────────────
+// See change: stabilize-mdns-server-identity
+import { proveServerIdentity } from "../server-pinning.js";
+
+describe("proveServerIdentity", () => {
+  const challengeFetch = (
+    s: ReturnType<typeof makeServer>,
+    opts: { fp?: string; badSig?: boolean; nonces?: string[] } = {},
+  ): typeof fetch =>
+    (async (_url: unknown, init?: RequestInit) => {
+      const nonce = (JSON.parse(String(init?.body)) as { nonce: string }).nonce;
+      opts.nonces?.push(nonce);
+      return new Response(
+        JSON.stringify({
+          data: {
+            fingerprint: opts.fp ?? s.fingerprint,
+            publicKey: s.publicKeyB64,
+            signature: opts.badSig ? s.sign("other") : s.sign(nonce),
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+  it("proves a genuine server and returns its fingerprint", async () => {
+    const s = makeServer();
+    const r = await proveServerIdentity("http://h:8000", { fetchImpl: challengeFetch(s) });
+    expect(r).toEqual({ proven: s.fingerprint });
+  });
+
+  it("refuses a bad signature", async () => {
+    const s = makeServer();
+    const r = await proveServerIdentity("http://h:8000", { fetchImpl: challengeFetch(s, { badSig: true }) });
+    expect("proven" in r).toBe(false);
+  });
+
+  it("derives the fingerprint from the presented key, not the body field", async () => {
+    const s = makeServer();
+    const r = await proveServerIdentity("http://h:8000", { fetchImpl: challengeFetch(s, { fp: "sha256:forged" }) });
+    expect(r).toEqual({ proven: s.fingerprint });
+  });
+
+  it("refuses a 500", async () => {
+    const f = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+    const r = await proveServerIdentity("http://h:8000", { fetchImpl: f });
+    expect("proven" in r).toBe(false);
+  });
+
+  it("refuses a redirect and sends redirect:manual", async () => {
+    let seen: RequestInit | undefined;
+    const f = (async (_u: unknown, init?: RequestInit) => {
+      seen = init;
+      return new Response(null, { status: 302, headers: { location: "http://evil/" } });
+    }) as typeof fetch;
+    const r = await proveServerIdentity("http://h:8000", { fetchImpl: f });
+    expect(seen?.redirect).toBe("manual");
+    expect("proven" in r).toBe(false);
+  });
+
+  it("refuses a body larger than 4 KiB", async () => {
+    const s = makeServer();
+    const big = JSON.stringify({
+      data: { fingerprint: s.fingerprint, publicKey: s.publicKeyB64, signature: s.sign("x"), pad: "a".repeat(5 * 1024) },
+    });
+    const f = (async () => new Response(big, { status: 200 })) as typeof fetch;
+    const r = await proveServerIdentity("http://h:8000", { fetchImpl: f });
+    expect("proven" in r).toBe(false);
+  });
+
+  it("refuses a hanging endpoint within the timeout", async () => {
+    const f = ((_u: unknown, init?: RequestInit) =>
+      new Promise((_res, rej) => {
+        init?.signal?.addEventListener("abort", () => rej(new Error("aborted")));
+      })) as typeof fetch;
+    const t0 = Date.now();
+    const r = await proveServerIdentity("http://h:8000", { fetchImpl: f, timeoutMs: 200 });
+    expect(Date.now() - t0).toBeLessThan(600);
+    expect("proven" in r).toBe(false);
+  });
+
+  it("uses a fresh nonce per call", async () => {
+    const s = makeServer();
+    const nonces: string[] = [];
+    const f = challengeFetch(s, { nonces });
+    await proveServerIdentity("http://h:8000", { fetchImpl: f });
+    await proveServerIdentity("http://h:8000", { fetchImpl: f });
+    expect(new Set(nonces).size).toBe(2);
+  });
+});

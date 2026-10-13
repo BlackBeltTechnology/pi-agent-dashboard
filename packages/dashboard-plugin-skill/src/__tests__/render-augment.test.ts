@@ -2,12 +2,13 @@
  * Mode `augment` tests — exercise the renderer against a fixture pi-extension
  * package.json on disk, then assert the resulting in-memory tree.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { render, InMemorySink } from "../render.js";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { AugmentModeAnswers } from "../render.js";
+import { type InMemorySink, render } from "../render.js";
 
 const BASE_PKG = {
   name: "@scope/sample-extension",

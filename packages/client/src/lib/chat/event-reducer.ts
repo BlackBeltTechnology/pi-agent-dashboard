@@ -702,6 +702,85 @@ export function synthesizeSupersededEnd(toolCallId: string, now: number): Dashbo
 }
 
 
+/** Result of a subagent-stop heal when the subagent reported no result. */
+export const SUBAGENT_DONE_NO_RESULT = "subagent finished";
+/** Result of a subagent-stop heal when the subagent failed without error text. */
+export const SUBAGENT_FAILED_NO_ERROR = "subagent failed";
+/** Body of the neutral settle heal: the turn ended, the subagent's outcome never arrived. */
+export const SUBAGENT_STOPPED_SENTINEL_BODY = "subagent stopped — result not received";
+
+/** Detail keys that exist only because a heal set them; a real end clears them. */
+const HEAL_ONLY_DETAIL_KEYS = ["healedBy", "resultMissing"] as const;
+
+/**
+ * Index of the newest eligible Agent row for a finalize heal (design D2):
+ * top-level `toolResult` row, `toolName:"Agent"`, row running, `toolCalls`
+ * entry running. `agentId` narrows to the row linked to that subagent.
+ */
+function findEligibleAgentRows(state: SessionState, agentId?: string): number[] {
+  const out: number[] = [];
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    const m = state.messages[i];
+    if (m.role !== "toolResult" || m.toolName !== "Agent" || m.toolStatus !== "running" || !m.toolCallId) continue;
+    if (state.toolCalls.get(m.toolCallId)?.status !== "running") continue;
+    if (agentId !== undefined && m.toolDetails?.agentId !== agentId) continue;
+    out.push(i);
+    if (agentId !== undefined) break;
+  }
+  return out;
+}
+
+/**
+ * Finalize one running Agent row from its subagent's terminal state by reducing
+ * a synthesized `tool_execution_end` through the real end arm (design D1). The
+ * timestamp is the TRIGGER's, so the same stream yields the same `duration`.
+ * A later real end overwrites it. See change: finalize-agent-card-on-subagent-stop.
+ */
+function finalizeAgentRowFromSubagent(
+  state: SessionState,
+  toolCallId: string,
+  sub: SubagentState,
+  healedBy: string,
+  timestamp: number,
+): SessionState {
+  const failedSub = sub.status === "failed";
+  const result = failedSub
+    ? sub.error || SUBAGENT_FAILED_NO_ERROR
+    : sub.result || SUBAGENT_DONE_NO_RESULT;
+  const details: Record<string, unknown> = {
+    agentId: sub.id,
+    status: failedSub ? "error" : "completed",
+    ...(failedSub ? { error: result } : {}),
+    ...(sub.durationMs !== undefined ? { durationMs: sub.durationMs } : {}),
+    ...(sub.toolUses !== undefined ? { toolUses: sub.toolUses } : {}),
+  };
+  return reduceEvent(state, {
+    eventType: "tool_execution_end",
+    timestamp,
+    data: { toolCallId, toolName: "Agent", result, isError: failedSub, healedBy, details },
+  });
+}
+
+/**
+ * Neutral settle heal (design D4): the turn ended but neither the end nor the
+ * subagent's outcome reached this client. The row stops spinning with the
+ * sentinel body and `resultMissing`; the `toolCalls` entry stays `running` so
+ * the stale reconcile can still fetch the authoritative result. No subagent
+ * backfill: an unknown subagent is not recorded as completed.
+ */
+function neutralSettleAgentRow(state: SessionState, idx: number, timestamp: number): SessionState {
+  const m = state.messages[idx];
+  const messages = [...state.messages];
+  messages[idx] = {
+    ...m,
+    toolStatus: "complete",
+    result: SUBAGENT_STOPPED_SENTINEL_BODY,
+    duration: m.startedAt ? timestamp - m.startedAt : undefined,
+    toolDetails: { ...(m.toolDetails ?? {}), status: "completed", healedBy: "turn_settled", resultMissing: true },
+  };
+  return { ...state, messages };
+}
+
 /** Body of the placeholder end synthesized for a server-vouched eviction. */
 export const EVICTED_SENTINEL_BODY = "result no longer available";
 
@@ -1164,7 +1243,7 @@ export function truncateLines(text: string | unknown, maxLines: number): string 
  * parity holds. See change: render-inline-reasoning-and-custom-entries
  * (security-hardening pass, advisory #2).
  */
-const CUSTOM_BODY_MAX_CHARS = 64_000;
+export const CUSTOM_BODY_MAX_CHARS = 64_000;
 
 function extractCustomEntryBody(content: unknown): string {
   const body = extractCustomEntryBodyUncapped(content);
@@ -1808,6 +1887,23 @@ export function reduceEvent(
       // set lastError on failure. See change: retry-forever-with-stop-control.
       next.retryState = undefined;
       next.retryCancelled = undefined;
+      // A foreground Agent call cannot outlive its parent's settle: finalize any
+      // card still spinning (its end was lost). Known terminal subagent → its
+      // outcome; otherwise a neutral heal. See change:
+      // finalize-agent-card-on-subagent-stop (D4).
+      {
+        let healed: SessionState = next;
+        for (const idx of findEligibleAgentRows(next)) {
+          const m = healed.messages[idx];
+          const agentId = typeof m.toolDetails?.agentId === "string" ? m.toolDetails.agentId : undefined;
+          const sub = agentId ? healed.subagents.get(agentId) : undefined;
+          healed =
+            sub && (sub.status === "completed" || sub.status === "failed")
+              ? finalizeAgentRowFromSubagent(healed, m.toolCallId!, sub, "turn_settled", event.timestamp)
+              : neutralSettleAgentRow(healed, idx, event.timestamp);
+        }
+        if (healed !== next) return healed;
+      }
       break;
     }
 
@@ -2488,6 +2584,7 @@ export function reduceEvent(
             const structured = partialResult as Record<string, unknown>;
             const details = structured.details as Record<string, unknown> | undefined;
             // Extract text from content array or stringify
+            const priorRow = next.messages[idx];
             let text: string | undefined;
             const content = structured.content;
             if (Array.isArray(content) && content.length > 0 && content[0]?.text) {
@@ -2539,6 +2636,43 @@ export function reduceEvent(
                 ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)),
               } as SubagentState;
               setSubagentState(next.subagents, merged);
+            }
+
+            // A finished subagent's card is not reopened by a late tick: keep
+            // the prior terminal fields, let the rest (stats) merge.
+            // See change: finalize-agent-card-on-subagent-stop (D5).
+            if (priorRow.toolName === "Agent" && priorRow.toolStatus !== "running") {
+              const priorAgentId =
+                typeof priorRow.toolDetails?.agentId === "string" ? priorRow.toolDetails.agentId : liveAgentId;
+              const priorSub = priorAgentId ? next.subagents.get(priorAgentId) : undefined;
+              // A `session_ended` orphan-close backfills the subagent as failed
+              // itself, so that status is not knowledge: such a row stays
+              // reopenable by a live tick (pre-existing behaviour).
+              const priorHeal = priorRow.toolDetails?.healedBy;
+              const subFinished =
+                priorHeal !== "session_ended" && (priorSub?.status === "completed" || priorSub?.status === "failed");
+              if (subFinished || priorHeal === "turn_settled") {
+                const kept: Record<string, unknown> = { ...(next.messages[idx].toolDetails ?? {}) };
+                for (const key of ["status", "error", ...HEAL_ONLY_DETAIL_KEYS]) {
+                  if (priorRow.toolDetails && key in priorRow.toolDetails) kept[key] = priorRow.toolDetails[key];
+                  else delete kept[key];
+                }
+                next.messages[idx] = { ...next.messages[idx], result: priorRow.result, toolDetails: kept };
+              }
+            } else if (liveAgentId) {
+              // The row just learned an agent id whose subagent already stopped.
+              // See change: finalize-agent-card-on-subagent-stop (D3b).
+              // Subagent state first: the common running tick does no scan.
+              const sub = next.subagents.get(liveAgentId);
+              if (
+                sub &&
+                (sub.status === "completed" || sub.status === "failed") &&
+                priorRow.toolStatus === "running" &&
+                priorRow.role === "toolResult" &&
+                next.toolCalls.get(toolCallId)?.status === "running"
+              ) {
+                return finalizeAgentRowFromSubagent(next, toolCallId, sub, "subagent_stopped", event.timestamp);
+              }
             }
           } else {
             // Plain string partialResult (standard tools)
@@ -2626,16 +2760,35 @@ export function reduceEvent(
         // card can prefer the subagent's real result. See change:
         // add-plugin-bridge-contributions (D10).
         if (typeof healedBy === "string" && healedBy) {
-          finalDetails = { ...(finalDetails ?? {}), healedBy };
+          // A newer heal (e.g. superseded) replaces a neutral settle heal, so the
+          // missing-result flag it stamped no longer applies.
+          // See change: finalize-agent-card-on-subagent-stop (D5b).
+          const { resultMissing: _missing, ...rest } = finalDetails ?? {};
+          finalDetails = { ...rest, healedBy };
         } else if (finalDetails && "healedBy" in finalDetails) {
-          const { healedBy: _dropped, ...rest } = finalDetails;
+          // A real end clears every heal-only field, plus an `error` that only
+          // the heal set (a real end carrying its own details replaced them).
+          // See change: finalize-agent-card-on-subagent-stop (D5b).
+          const rest: Record<string, unknown> = { ...finalDetails };
+          for (const key of HEAL_ONLY_DETAIL_KEYS) delete rest[key];
+          // Keep it on an error end: the error card shows only `details.error`.
+          if (!endDetails && !isError) delete rest.error;
           finalDetails = rest;
         }
         next.messages[idx] = {
           ...next.messages[idx],
           toolStatus: isError ? "error" : "complete",
           result: result ? truncateOutputForDisplay(result) : next.messages[idx].result,
-          duration: msgStartedAt ? event.timestamp - msgStartedAt : undefined,
+          // pi >= 1.1.0 records the monotonic `execute()` time on the end event;
+          // prefer it over the timestamp difference (which includes queueing and
+          // transport lag). Absent/invalid → the timestamp fallback.
+          // See change: update-pi-core-1-1-adopt-apis.
+          duration:
+            typeof data.durationMs === "number" && Number.isFinite(data.durationMs) && data.durationMs >= 0
+              ? data.durationMs
+              : msgStartedAt
+                ? event.timestamp - msgStartedAt
+                : undefined,
           ...(images ? { images } : {}),
           ...(finalDetails ? { toolDetails: finalDetails } : {}),
         };
@@ -3038,6 +3191,17 @@ export function reduceEvent(
         ...readSubagentDetails(details),
         liveBlock: undefined,
       });
+      // The subagent stopped: finalize its Agent card even if the tool's own end
+      // was lost. Propagates the trigger's heal marker (e.g. `session_ended`).
+      // See change: finalize-agent-card-on-subagent-stop (D3a).
+      if (typeof id === "string") {
+        const [idx] = findEligibleAgentRows(next, id);
+        const sub = next.subagents.get(id);
+        if (idx !== undefined && sub) {
+          const healedBy = typeof data.healedBy === "string" && data.healedBy ? data.healedBy : "subagent_stopped";
+          return finalizeAgentRowFromSubagent(next, next.messages[idx].toolCallId!, sub, healedBy, event.timestamp);
+        }
+      }
       break;
     }
 

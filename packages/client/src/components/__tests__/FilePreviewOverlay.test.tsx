@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
-import React from "react";
-import { FilePreviewOverlay } from "../preview/FilePreviewOverlay.js";
 import { __resetEscapeStack } from "@blackbelt-technology/pi-dashboard-client-utils/escape-stack";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { FilePreviewOverlay } from "../preview/FilePreviewOverlay.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 function renderOverlay(ui: React.ReactElement) {
@@ -144,6 +144,7 @@ describe("FilePreviewOverlay — non-blocking inspector", () => {
 });
 
 import { friendlyReadError } from "../preview/FilePreviewOverlay.js";
+
 // Rich office / document / email kinds route to their shared `preview/*`
 // renderer and MUST NOT issue the plain `/api/file?` content fetch (which
 // returns no `content` for reclassified extensions → blank overlay regression).

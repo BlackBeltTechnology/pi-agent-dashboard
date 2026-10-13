@@ -51,6 +51,12 @@ afterEach(() => {
   }
 });
 
+/** Backdate the lock directory's mtime — what a holder that stopped refreshing it looks like. */
+function ageLockDir(ageMs: number) {
+  const t = (Date.now() - ageMs) / 1000;
+  fs.utimesSync(`${lockPath}.lock`, t, t);
+}
+
 function baseConfig(overrides: Partial<Parameters<typeof acquireOrAttach>[0]> = {}) {
   return {
     httpPort: 8000,
@@ -305,7 +311,9 @@ describe("acquireOrAttach", () => {
     expect(first.mode).toBe("acquired");
     // Corrupt metadata but leave proper-lockfile in place.
     fs.writeFileSync(metaPath, "{not json");
-    await new Promise(r => setTimeout(r, 50));
+    // A live winner keeps the lock directory fresh; an abandoned one does not.
+    // Corrupt metadata is only stolen from a directory past the stale window.
+    ageLockDir(60_000);
 
     const second = await acquireOrAttach(baseConfig({
       hooks: {
@@ -536,6 +544,9 @@ describe("lock takeover under a race (defect B2)", () => {
       retries: 0,
       realpath: false,
       update: 0,
+      // A takeover removes this directory behind the library's back; its
+      // refresh timer must not throw when it notices.
+      onCompromised: () => {},
     });
     writeMetadataAtomic(deadHolder(identity), metaPath);
   };
@@ -543,9 +554,15 @@ describe("lock takeover under a race (defect B2)", () => {
   it("two starters observing one dead holder yield exactly ONE owner", async () => {
     await seedDeadHolder("dead-1");
 
+    // Only the SEEDED holder is dead; a starter that has already claimed the
+    // record is a live, answering instance.
+    const hooks = {
+      isProcessAlive: (pid: number) => pid !== deadHolder("x").pid,
+      probeHealth: async () => ({ running: true, instanceId: readMetadata(metaPath)?.identity }),
+    };
     const results = await Promise.allSettled([
-      acquireOrAttach(baseConfig({ identity: "starter-a" })),
-      acquireOrAttach(baseConfig({ identity: "starter-b" })),
+      acquireOrAttach(baseConfig({ identity: "starter-a", hooks })),
+      acquireOrAttach(baseConfig({ identity: "starter-b", hooks })),
     ]);
 
     const acquired = results.filter(
@@ -575,12 +592,16 @@ describe("lock takeover under a race (defect B2)", () => {
         identity: "latecomer",
         hooks: {
           isProcessAlive: () => true,
-          probeHealth: async () => {
-            probes += 1;
+          // One logical probe round fans out over every address; count rounds
+          // by the first address so both addresses of round 1 see "gone".
+          probeHealth: async (_port: number, host?: string) => {
+            if (host === "127.0.0.1") probes += 1;
             if (probes === 1) {
               // Our observation: the recorded holder is gone. Meanwhile a
               // winner takes over and rewrites the record.
-              writeMetadataAtomic({ ...deadHolder("winner"), pid: process.pid }, metaPath);
+              if (host === "127.0.0.1") {
+                writeMetadataAtomic({ ...deadHolder("winner"), pid: process.pid }, metaPath);
+              }
               return { running: false };
             }
             return { running: true, instanceId: "winner" };
@@ -607,7 +628,7 @@ describe("an UNREADABLE record is not a stealable one (defect B2)", () => {
     const properLockfile = (await import("proper-lockfile")).default;
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
     fs.writeFileSync(lockPath, "# seeded\n");
-    await properLockfile.lock(lockPath, { stale: 60_000, retries: 0, realpath: false, update: 0 });
+    await properLockfile.lock(lockPath, { stale: 60_000, retries: 0, realpath: false, update: 0, onCompromised: () => {} });
     writeMetadataAtomic(
       {
         pid: process.pid, ppid: 1, httpPort: 8000, piPort: 9999, startedAt: 1,
@@ -678,5 +699,204 @@ describe("stale record, foreign listener (#X16)", () => {
       probeHealth: async () => ({ running: true, pid: 777, instanceId: "some-other-instance" }),
     });
     expect(verdict).toBe("alive-mismatch");
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Takeover only through the liveness verdict.
+// See change: harden-dashboard-start-detection (D5; test-plan X3–X13, E23).
+// ──────────────────────────────────────────────────────────────────────────
+describe("liveness-gated takeover (harden-dashboard-start-detection)", () => {
+  const liveMeta = (over: Partial<LockMetadata> = {}): LockMetadata => ({
+    pid: process.pid,
+    ppid: 1,
+    httpPort: 8000,
+    piPort: 9999,
+    startedAt: Date.now() - 120_000,
+    identity: "holder-A",
+    version: "v",
+    url: "http://localhost:8000",
+    hostname: "h",
+    ...over,
+  });
+  const DEAD_PID = 2147483646;
+
+  /** A held lock exactly as another process leaves it: lock dir (+ record), optionally aged. */
+  const seedHeld = (meta: LockMetadata | null, ageMs = 0) => {
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    fs.writeFileSync(lockPath, "# seeded\n");
+    fs.mkdirSync(`${lockPath}.lock`);
+    if (meta) writeMetadataAtomic(meta, metaPath);
+    if (ageMs > 0) ageLockDir(ageMs);
+  };
+  const lockDirExists = () => fs.existsSync(`${lockPath}.lock`);
+  const hooksOf = (over: Record<string, unknown>) =>
+    baseConfig({ identity: "newcomer", hooks: { isProcessAlive: () => true, ...over } as never });
+
+  it("X3: an unresponsive live holder is never reclaimed (timeout)", async () => {
+    seedHeld(liveMeta());
+    const before = fs.readFileSync(metaPath);
+    await expect(
+      acquireOrAttach(hooksOf({ probeHealth: async () => ({ running: false, timedOut: true }) })),
+    ).rejects.toMatchObject({ code: "E_INSTANCE_UNRESPONSIVE", reason: "timeout" });
+    expect(lockDirExists()).toBe(true);
+    expect(fs.readFileSync(metaPath).equals(before)).toBe(true);
+  });
+
+  it("X4: a frozen holder past the lock library's stale window is not taken over", async () => {
+    seedHeld(liveMeta(), 60_000);
+    const before = fs.readFileSync(metaPath);
+    await expect(
+      acquireOrAttach(hooksOf({ probeHealth: async () => ({ running: false, timedOut: true }) })),
+    ).rejects.toMatchObject({ code: "E_INSTANCE_UNRESPONSIVE" });
+    expect(lockDirExists()).toBe(true);
+    expect(fs.readFileSync(metaPath).equals(before)).toBe(true);
+  });
+
+  it("X5: a holder still starting (refused, startedAt 5 s ago) is not reclaimed", async () => {
+    seedHeld(liveMeta({ startedAt: Date.now() - 5_000 }));
+    const before = fs.readFileSync(metaPath);
+    await expect(
+      acquireOrAttach(hooksOf({ probeHealth: async () => ({ running: false }) })),
+    ).rejects.toMatchObject({ code: "E_INSTANCE_UNRESPONSIVE", reason: "starting" });
+    expect(lockDirExists()).toBe(true);
+    expect(fs.readFileSync(metaPath).equals(before).valueOf()).toBe(true);
+  });
+
+  it("X6: a live but unrelated pid refusing every address past the grace is reclaimed", async () => {
+    seedHeld(liveMeta({ startedAt: Date.now() - 120_000 }));
+    const r = await acquireOrAttach(hooksOf({ probeHealth: async () => ({ running: false }) }));
+    expect(r.mode).toBe("acquired");
+    expect(readMetadata(metaPath)?.pid).toBe(process.pid);
+    expect(readMetadata(metaPath)?.identity).toBe("newcomer");
+    if (r.mode === "acquired") await r.release();
+  });
+
+  it("a refusal counts only when EVERY address refuses (one silent address → unresponsive)", async () => {
+    seedHeld(liveMeta({ startedAt: Date.now() - 120_000 }));
+    await expect(
+      acquireOrAttach(
+        hooksOf({
+          probeHealth: async (_p: number, host?: string) =>
+            host === "::1" ? { running: false, timedOut: true } : { running: false },
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "E_INSTANCE_UNRESPONSIVE", reason: "timeout" });
+  });
+
+  it("X7: the verdict honours bindHost — a holder answering only there is attached to", async () => {
+    seedHeld(liveMeta({ bindHost: "10.0.0.5" }));
+    const hosts: string[] = [];
+    const r = await acquireOrAttach(
+      hooksOf({
+        probeHealth: async (_p: number, host?: string) => {
+          hosts.push(host ?? "");
+          return host === "10.0.0.5" ? { running: true, instanceId: "holder-A" } : { running: false };
+        },
+      }),
+    );
+    expect(r.mode).toBe("attach");
+    expect(hosts).toEqual(expect.arrayContaining(["127.0.0.1", "::1", "10.0.0.5"]));
+    expect(lockDirExists()).toBe(true);
+  });
+
+  it("X8: a dead holder is reclaimed immediately even though the lock dir is fresh", async () => {
+    seedHeld(liveMeta({ pid: DEAD_PID }));
+    const t0 = Date.now();
+    const r = await acquireOrAttach(hooksOf({ isProcessAlive: (pid: number) => pid !== DEAD_PID }));
+    expect(r.mode).toBe("acquired");
+    expect(Date.now() - t0).toBeLessThan(2000); // no wait for the 10 s stale window
+    expect(readMetadata(metaPath)?.pid).toBe(process.pid);
+    if (r.mode === "acquired") await r.release();
+  });
+
+  it("X9: two concurrent starters over one dead holder → exactly one acquires", async () => {
+    seedHeld(liveMeta({ pid: DEAD_PID }));
+    const hooks = {
+      isProcessAlive: (pid: number) => pid !== DEAD_PID,
+      probeHealth: async () => ({ running: true, instanceId: readMetadata(metaPath)?.identity }),
+    };
+    const results = await Promise.allSettled([
+      acquireOrAttach(baseConfig({ identity: "racer-a", hooks })),
+      acquireOrAttach(baseConfig({ identity: "racer-b", hooks })),
+    ]);
+    const acquired = results.filter((r) => r.status === "fulfilled" && r.value.mode === "acquired");
+    expect(acquired).toHaveLength(1);
+    for (const r of results) {
+      if (r.status === "fulfilled") expect(["acquired", "attach"]).toContain(r.value.mode);
+      else expect((r.reason as { code?: string }).code).toBe("E_INSTANCE_UNRESPONSIVE");
+    }
+    const owner = (acquired[0] as PromiseFulfilledResult<{ meta: LockMetadata }>).value.meta;
+    expect(readMetadata(metaPath)?.identity).toBe(owner.identity);
+    expect(lockDirExists()).toBe(true);
+    for (const r of results) if (r.status === "fulfilled" && r.value.mode === "acquired") await r.value.release();
+  });
+
+  it("X10: missing metadata with a freshly refreshed lock is not stolen", async () => {
+    seedHeld(null);
+    await expect(acquireOrAttach(baseConfig())).rejects.toMatchObject({
+      code: "E_INSTANCE_UNRESPONSIVE",
+      reason: "starting",
+    });
+    expect(lockDirExists()).toBe(true);
+  });
+
+  it("X11: missing metadata with a lock dir past the stale window is stolen", async () => {
+    seedHeld(null, 30_000);
+    const r = await acquireOrAttach(baseConfig());
+    expect(r.mode).toBe("acquired");
+    expect(readMetadata(metaPath)?.pid).toBe(process.pid);
+    if (r.mode === "acquired") await r.release();
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "X13: unreadable metadata still refuses the takeover (regression)",
+    async () => {
+      seedHeld(liveMeta());
+      fs.chmodSync(metaPath, 0o000);
+      try {
+        await expect(acquireOrAttach(baseConfig())).rejects.toThrow(new RegExp(metaPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+        expect(lockDirExists()).toBe(true);
+      } finally {
+        fs.chmodSync(metaPath, 0o600);
+      }
+    },
+  );
+
+  it("E23: bindHost is optional metadata — records without it and with it both read back", () => {
+    const base = liveMeta();
+    writeMetadataAtomic(base, metaPath);
+    const plain = readMetadataDetailed(metaPath);
+    expect(plain.status).toBe("ok");
+    writeMetadataAtomic({ ...base, bindHost: "10.0.0.5" }, metaPath);
+    const withHost = readMetadataDetailed(metaPath);
+    expect(withHost.status).toBe("ok");
+    if (withHost.status === "ok") expect(withHost.meta.bindHost).toBe("10.0.0.5");
+  });
+
+  it("records bindHost only for a specific non-loopback bind", async () => {
+    for (const [host, expected] of [
+      ["10.0.0.5", "10.0.0.5"],
+      ["0.0.0.0", undefined],
+      ["localhost", undefined],
+      ["127.0.0.1", undefined],
+      [null, undefined],
+    ] as const) {
+      fs.rmSync(path.dirname(lockPath), { recursive: true, force: true });
+      const r = await acquireOrAttach(baseConfig({ bindHost: host }));
+      expect(r.mode).toBe("acquired");
+      expect(readMetadata(metaPath)?.bindHost).toBe(expected);
+      if (r.mode === "acquired") await r.release();
+    }
+  });
+
+  it("a verdict probe that fails outright is inconclusive — the live holder's lock is preserved", async () => {
+    seedHeld(liveMeta({ startedAt: Date.now() - 120_000 }));
+    const before = fs.readFileSync(metaPath);
+    await expect(
+      acquireOrAttach(hooksOf({ probeHealth: async () => { throw new Error("boom"); } })),
+    ).rejects.toMatchObject({ code: "E_INSTANCE_UNRESPONSIVE", reason: "timeout" });
+    expect(lockDirExists()).toBe(true);
+    expect(fs.readFileSync(metaPath).equals(before)).toBe(true);
   });
 });

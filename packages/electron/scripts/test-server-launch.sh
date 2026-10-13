@@ -126,22 +126,22 @@ while (dir !== \"/\") {
 "
 
 echo ""
-echo "=== Test 8 (VERDICT): jiti launch + /api/health probe ==="
-# This is the only test whose exit code propagates. Production launches via
-# jiti (per packages/shared/src/server-launcher.ts), not tsx. The jiti loader
-# is shipped INSIDE the bundle at node_modules/jiti/lib/jiti-register.mjs.
-JITI=/app/resources/server/node_modules/jiti/lib/jiti-register.mjs
-if [ ! -f "$JITI" ]; then
-  echo "::error::jiti loader missing at $JITI"
+echo "=== Test 8 (VERDICT): native-loader launch + /api/health probe ==="
+# This is the only test whose exit code propagates. Production launches via the
+# Node-native TypeScript loader (the only server loader; see
+# packages/shared/src/server-launcher.ts). It is shipped INSIDE the bundle.
+LOADER=/app/resources/server/node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs
+if [ ! -f "$LOADER" ]; then
+  echo "::error::native TypeScript loader missing at $LOADER"
   exit 1
 fi
-echo "jiti loader: $JITI"
+echo "native loader: $LOADER"
 
-# Background the server. jiti needs a raw path (NOT file:// URL) per
-# packages/shared/src/platform/node-spawn.ts (isJitiLoader / shouldUrlWrapEntry).
+# Background the server. The loader is a file:// URL; the entry stays a raw path
+# (Node path.resolve()s the main entry under any --import loader).
 rm -f /tmp/server.log
 node \
-  --import "$JITI" \
+  --import "file://$LOADER" \
   /app/resources/server/packages/server/src/cli.ts --port 8000 \
   > /tmp/server.log 2>&1 &
 SERVER_PID=$!
@@ -177,6 +177,6 @@ if [ "$HEALTH_OK" -ne 1 ]; then
   exit 1
 fi
 echo ""
-echo "Test 8 PASS — server bundle boots under jiti and serves /api/health."
+echo "Test 8 PASS — server bundle boots under the native loader and serves /api/health."
 exit 0
 '

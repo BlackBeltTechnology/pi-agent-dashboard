@@ -11,6 +11,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `browse-api.ts` | Client-side browse API helper for PathPicker → see `browse-api.ts.AGENTS.md` |
 | `doctor-api.ts` | Typed `fetchDoctorReport(): Promise<DoctorReport>` against `/api/doctor` via auth-aware fetch wrapper. |
 | `fetch-json.ts` | Shared client transport guard. Exports `ApiHttpError` class (`status`, `statusText`, `contentType`,… → see `fetch-json.ts.AGENTS.md` |
+| `folder-commands-api.ts` | `fetchFolderCommands(cwd)` over `GET /api/pi-resources/commands?cwd=`; never throws (404/5xx/non-JSON/network → `EMPTY_FOLDER_COMMANDS`). Exports `fetchFolderCommands`, `EMPTY_FOLDER_COMMANDS`, `FolderCommandsResult`, `FolderCommandOrigin`. See change: redesign-directory-home-split. |
 | `grep-api.ts` | `grepContents(cwd,q,regex)` → `GET /api/grep`. Returns `GrepMatch[]`. Best-effort. See change: split-editor-workspace. |
 | `install-fetch-wrappers.ts` | `installFetchWrappers()` — single ordered seam installing device-auth → grant-channel → api-base `window.fetch` wrappers (last installed runs first, so the api-base rewrite is outermost). Called by `main.tsx`; the credential-isolation test drives the same function so a reorder fails tests. See change: fix-remote-relative-api-fetch. |
 | `known-servers-api.ts` | Client fetch helpers for known-servers management. Exports `listKnownServers`, `addKnownServer(host, port,… → see `known-servers-api.ts.AGENTS.md` |

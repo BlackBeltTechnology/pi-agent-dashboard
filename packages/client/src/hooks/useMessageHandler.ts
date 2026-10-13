@@ -35,6 +35,7 @@ import { clearRecoveryOffer, setRecoveryOffer } from "../lib/state/recovery-offe
 import { pushSpawnErrorToast } from "../lib/state/spawn-error-toast-bus.js";
 import { isVisibleCwd } from "../lib/util/cwd-visibility.js";
 import type { OpenSpecGetInflight } from "./useOpenSpecReconcile.js";
+import type { PendingSpawnEntry } from "./useSessionActions.js";
 
 /**
  * Merge `carryInteractiveRequests` output into a rebuilt state: pending
@@ -246,7 +247,14 @@ export interface MessageHandlerDeps {
    * navigate to the new session) and in `case "spawn_result"` failure (when
    * `msg.requestId` matches, drop the entry). See change: spawn-correlation-token.
    */
-  pendingSpawnsRef: React.MutableRefObject<Map<string, { cwd: string; kind: "spawn" | "resume"; placeholderCwd?: string }>>;
+  pendingSpawnsRef: React.MutableRefObject<Map<string, PendingSpawnEntry>>;
+  /**
+   * Notified with the browser `requestId` of a spawn that failed after the
+   * server accepted it: a failed `spawn_result` or a `spawn_register_timeout`
+   * that echoes the id. Lets the folder home re-enable its Start control for
+   * exactly its own spawn. See change: redesign-directory-home-split.
+   */
+  onSpawnFailed?: (requestId: string) => void;
   /**
    * Safety-net timers for the per-session loading flag, owned by App.
    * `clearLoadingHistory` tears the matching timer down on every exit edge.
@@ -321,7 +329,7 @@ export function useMessageHandler(
     setEndedTotalsMap, setArchivedCountMap, setPagedCount, setSnapshotGeneration,
     setPageReplyGen, setPageExhausted,
   } = setters;
-  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed } = deps;
+  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, onSpawnFailed, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed } = deps;
   // One-shot per session: suppress a repeat auto-name toast for the same
   // session id. See change: add-auto-session-naming.
   const autoNameToastedRef = useRef<Set<string>>(new Set());
@@ -572,30 +580,45 @@ export function useMessageHandler(
             // session groups), NOT `entry.cwd` (the worktree path).
             // See change: add-worktree-spawn-placeholder-card.
             if (entry.kind === "spawn" && entry.cwd) clearSpawningCwd(entry.placeholderCwd ?? entry.cwd);
-            navigate(`/session/${msg.session.id}`);
-          } else if (spawningCwdsRef.current.has(msg.session.cwd)) {
-            // Tier 2 (legacy fallback): cwd-based heuristic for older servers
-            // that don't echo spawnRequestId. Only fires for spawn (not fork)
-            // because fork dispatches don't add to spawningCwds today.
-            clearSpawningCwd(msg.session.cwd);
-            navigate(`/session/${msg.session.id}`);
+            // A spawn that opted out of focus (OpenSpec board) cleans up but
+            // never navigates. See change: openspec-board-spawn-no-focus.
+            if (entry.focus !== false) navigate(`/session/${msg.session.id}`);
           } else {
-            // Tier 2.5 (worktree-aware fallback): no spawnRequestId matched and
-            // the session's own cwd is not in spawningCwds — true for worktree
-            // spawns, whose placeholder is keyed by the PARENT cwd, so Tier 2
-            // can never match. Scan pending spawns for a `kind: "spawn"` entry
-            // whose tracked cwd equals this session's cwd and clear its
-            // `placeholderCwd`. First-match-wins. See change:
-            // fix-worktree-spawn-placeholder-and-ordering.
+            // Tiers 2 + 2.5 (fallbacks when no `spawnRequestId` echo): match
+            // pending `spawn` entries on the SESSION's identity
+            // (`entry.cwd`, never `placeholderCwd`, so a parent-cwd session
+            // cannot consume a worktree entry). Navigation is withheld only
+            // when >=1 entry matches and ALL opted out of focus (mixed →
+            // focus, as for a default spawn). Cleanup consumes the first
+            // match. See changes: fix-worktree-spawn-placeholder-and-ordering,
+            // openspec-board-spawn-no-focus.
             const platform = inferPlatform([msg.session.cwd]);
             const sessionKey = pathKey(msg.session.cwd, platform);
-            for (const [requestId, entry] of pendingSpawnsRef.current) {
+            const matches: Array<[string, PendingSpawnEntry]> = [];
+            for (const pending of pendingSpawnsRef.current) {
+              const entry = pending[1];
               if (entry.kind === "spawn" && entry.cwd && pathKey(entry.cwd, platform) === sessionKey) {
-                pendingSpawnsRef.current.delete(requestId);
-                clearSpawningCwd(entry.placeholderCwd ?? entry.cwd);
-                navigate(`/session/${msg.session.id}`);
-                break;
+                matches.push(pending);
               }
+            }
+            const tier2 = spawningCwdsRef.current.has(msg.session.cwd);
+            // Tier 2 historically consumes no pending entry; keep that for
+            // all-default matches (zero behavior change) and consume only
+            // when a no-focus entry is involved.
+            const consume = matches.length > 0 && (!tier2 || matches.some(([, e]) => e.focus === false));
+            if (consume) {
+              const [requestId, first] = matches[0];
+              pendingSpawnsRef.current.delete(requestId);
+              clearSpawningCwd(first.placeholderCwd ?? first.cwd);
+            } else if (tier2) {
+              // Tier 2 legacy: cwd-based heuristic for older servers that
+              // don't echo spawnRequestId. Only fires for spawn (not fork)
+              // because fork dispatches don't add to spawningCwds today.
+              clearSpawningCwd(msg.session.cwd);
+            }
+            const noFocus = matches.length > 0 && matches.every(([, e]) => e.focus === false);
+            if ((tier2 || matches.length > 0) && !noFocus) {
+              navigate(`/session/${msg.session.id}`);
             }
           }
         }
@@ -1483,7 +1506,10 @@ export function useMessageHandler(
           // Drop the pending-spawn entry on failure (matched by requestId
           // when echoed; otherwise leave to be cleaned up by the 30s timeout).
           // See change: spawn-correlation-token.
-          if (msg.requestId) pendingSpawnsRef.current.delete(msg.requestId);
+          if (msg.requestId) {
+            pendingSpawnsRef.current.delete(msg.requestId);
+            onSpawnFailed?.(msg.requestId);
+          }
         } else {
           // Successful spawn clears error AND timeout banners for this cwd.
           setSpawnErrors((prev) => {
@@ -1569,6 +1595,7 @@ export function useMessageHandler(
           });
           return next;
         });
+        if (msg.requestId) onSpawnFailed?.(msg.requestId);
         break;
       }
 
@@ -2015,5 +2042,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap, setHistorySpliceRev, setEndedTotalsMap, setPagedCount, setSnapshotGeneration, setPageReplyGen, setPageExhausted, sessionsRef, openspecGetInflightRef, markHistoryLoadFailed, clearHistoryLoadFailed]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap, setHistorySpliceRev, setEndedTotalsMap, setPagedCount, setSnapshotGeneration, setPageReplyGen, setPageExhausted, sessionsRef, openspecGetInflightRef, markHistoryLoadFailed, clearHistoryLoadFailed, onSpawnFailed]);
 }

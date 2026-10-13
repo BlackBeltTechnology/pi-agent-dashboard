@@ -280,6 +280,8 @@ export function deterministicSerializePlugins(
           // serialization (and hash) is unchanged. See change: add-browser-editor-pane-tab.
           ...(c.pathPrefix !== undefined ? { pathPrefix: c.pathPrefix } : {}),
           ...(c.labelComponent !== undefined ? { labelComponent: c.labelComponent } : {}),
+          // resource-page-section page filter. See change: add-skill-atlas-screen.
+          ...(c.resourceType !== undefined ? { resourceType: c.resourceType } : {}),
         }))
         .sort((a, b) =>
           [a.slot, a.component, a.predicate, a.command, a.path]
@@ -473,7 +475,7 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
     try {
       // By file:// URL, never the raw path: native ESM rejects a raw Windows
       // `D:\…` specifier and parses a raw path as a URL everywhere (a `#` in
-      // a directory becomes a fragment). jiti tolerated both.
+      // a directory becomes a fragment).
       // See change: fix-appimage-cold-boot-latency.
       const mod = await import(url.pathToFileURL(plugin.serverEntryPath).href);
       if (typeof mod.default !== "function") {

@@ -77,11 +77,16 @@ export interface EvalReport {
 }
 
 export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+
   constructor(
-    readonly status: number,
-    readonly code: string,
+    status: number,
+    code: string,
   ) {
     super(code);
+    this.status = status;
+    this.code = code;
   }
 }
 

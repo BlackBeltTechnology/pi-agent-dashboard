@@ -159,8 +159,8 @@ describe("BuiltInRolesSettings", () => {
     // Setup banner shown; legacy pi-flows empty-state gone.
     expect(getByTestId("roles-settings-setup-banner").textContent).toContain("set up now");
     expect(queryByTestId("roles-settings-empty")).toBeNull();
-    // Default rows render, each with the unassigned "Add model" affordance.
-    expect(getByTestId("roles-row-fast").textContent).toContain("Add model");
+    // Default rows render, each with the unassigned "No model assigned" pill.
+    expect(getByTestId("roles-row-fast").textContent).toContain("No model assigned");
     expect(getByTestId("roles-row-planning")).toBeTruthy();
   });
 
@@ -176,7 +176,7 @@ describe("BuiltInRolesSettings", () => {
     });
     const { getByTestId, queryByTestId } = render(wrap(<BuiltInRolesSettings />));
     // Added role appears as an empty slot.
-    expect(getByTestId("roles-row-review").textContent).toContain("Add model");
+    expect(getByTestId("roles-row-review").textContent).toContain("No model assigned");
     // Removed default (vision) is absent.
     expect(queryByTestId("roles-row-vision")).toBeNull();
   });
@@ -843,7 +843,7 @@ describe("BuiltInRolesSettings — thinking level", () => {
     const { getByTestId } = render(wrap(<BuiltInRolesSettings />, send.fn));
     fireEvent.click(getByTestId("roles-row-architect"));
     fireEvent.click(getByTestId("roles-level-option-high"));
-    expect(getByTestId("roles-row-architect").textContent).toContain(":high");
+    expect(getByTestId("roles-row-architect").querySelector("[data-role-ref-level]")?.textContent).toContain("high");
     expect(getByTestId("roles-row-architect-dirty")).toBeTruthy();
     expect(send.messages).toEqual([]);
   });
@@ -854,7 +854,7 @@ describe("BuiltInRolesSettings — thinking level", () => {
     const { getByTestId } = render(wrap(<BuiltInRolesSettings />));
     fireEvent.click(getByTestId("roles-row-architect"));
     fireEvent.click(getByTestId("roles-level-option-off"));
-    expect(getByTestId("roles-row-architect").textContent).not.toContain(":high");
+    expect(getByTestId("roles-row-architect").querySelector("[data-role-ref-level]")).toBeNull();
     expect(getByTestId("roles-row-architect-dirty")).toBeTruthy();
   });
 
@@ -875,7 +875,7 @@ describe("BuiltInRolesSettings — thinking level", () => {
     const { getByTestId } = render(wrap(<BuiltInRolesSettings />));
     fireEvent.click(getByTestId("roles-row-architect"));
     fireEvent.click(getByTestId("roles-model-option-openai/gpt-4o"));
-    expect(getByTestId("roles-row-architect").textContent).not.toContain(":xhigh");
+    expect(getByTestId("roles-row-architect").querySelector("[data-role-ref-level]")).toBeNull();
     expect(getByTestId("mock-thinking-level").getAttribute("data-current")).toBe("");
     expect(getByTestId("roles-level-drop-notice")).toBeTruthy();
   });
@@ -885,7 +885,7 @@ describe("BuiltInRolesSettings — thinking level", () => {
     const { getByTestId, queryByTestId } = render(wrap(<BuiltInRolesSettings />));
     fireEvent.click(getByTestId("roles-row-architect"));
     fireEvent.click(getByTestId("roles-model-option-openai/gpt-4o"));
-    expect(getByTestId("roles-row-architect").textContent).toContain(":high");
+    expect(getByTestId("roles-row-architect").querySelector("[data-role-ref-level]")?.textContent).toContain("high");
     expect(queryByTestId("roles-level-drop-notice")).toBeNull();
   });
 
@@ -996,7 +996,7 @@ describe("the naming role", () => {
     // to assign a model. Unassigned must read as an empty, fillable slot — not
     // as "auto-naming is off".
     expect(row.textContent).toContain("@naming");
-    expect(row.textContent).toMatch(/Add model/i);
+    expect(row.textContent).toContain("No model assigned");
     // Clicking it must open the picker scoped to `naming`.
     fireEvent.click(row);
     expect(getByTestId("roles-model-picker")).toBeTruthy();
@@ -1051,7 +1051,7 @@ describe("BuiltInRolesSettings — used-by overview (add-role-aware-model-refs)"
     await act(async () => {});
     const row = r.getByTestId("roles-used-by-fast");
     expect(row.textContent).toContain("blackhole · observerModel");
-    expect(row.textContent).toContain("detached");
+    expect(row.textContent).toContain("Detached");
     expect(row.textContent).toContain("grammar · grammar model");
   });
 
@@ -1061,5 +1061,108 @@ describe("BuiltInRolesSettings — used-by overview (add-role-aware-model-refs)"
     seedConfig(sampleConfig);
     await act(async () => {});
     expect(r.queryByTestId("roles-used-by")).toBeNull();
+  });
+});
+
+
+// ── retro-ux-model-selector: shared RoleRef, status vocabulary, conformance ──
+describe("BuiltInRolesSettings — retro-ux presentation", () => {
+  afterEach(() => {
+    cleanup();
+    (globalThis as { fetch?: unknown }).fetch = undefined;
+    seedConfig({});
+  });
+
+  it("E13: used-by shows no pill for ok, 'Detached' for detached, the dangling sentence for dangling; role via RoleRef", async () => {
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => ({
+      ok: String(url).endsWith("/api/roles/used-by"),
+      json: async () => ({
+        usedBy: {
+          architect: [
+            { kind: "binding", owner: "a", label: "okSlot", status: "ok" },
+            { kind: "binding", owner: "blackhole", label: "observerModel", status: "detached" },
+            { kind: "binding", owner: "c", label: "danglingSlot", status: "dangling" },
+            { kind: "usage", owner: "grammar", label: "grammar model" },
+          ],
+        },
+      }),
+    });
+    const r = render(wrap(<BuiltInRolesSettings />));
+    seedConfig(sampleConfig);
+    await act(async () => {});
+    const entry = (owner: string) => r.getByTestId(`roles-used-by-architect-${owner}`);
+    expect(entry("a").textContent).toBe("a · okSlot");
+    expect(entry("blackhole").textContent).toContain("Detached");
+    expect(entry("blackhole").getAttribute("data-status")).toBe("detached");
+    expect(entry("blackhole").innerHTML).toContain("--severity-warning-bg");
+    expect(entry("c").textContent).toContain("Role unassigned, keeps its last model");
+    expect(entry("c").getAttribute("data-status")).toBe("dangling");
+    expect(entry("grammar").textContent).toBe("grammar · grammar model");
+    expect(r.getByTestId("roles-used-by-architect").querySelector("[data-role-ref]")).toBeTruthy();
+    expect(r.getByTestId("roles-used-by-architect").textContent).not.toMatch(/\((detached|dangling)\)/);
+  });
+
+  it("E17: pills render RoleRef; an unassigned pill shows 'No model assigned' and still opens the picker", () => {
+    seedConfig({
+      roles: { fast: "anthropic/claude-3-7-sonnet:low", research: "" },
+      presets: [],
+      activePreset: null,
+      models: sampleConfig.models,
+    });
+    const r = render(wrap(<BuiltInRolesSettings />));
+    const fast = r.getByTestId("roles-row-fast");
+    expect(fast.querySelector("[data-role-ref-token]")?.textContent).toBe("@fast");
+    expect(fast.querySelector("[data-role-ref-level]")?.textContent).toContain("low");
+    expect(fast.textContent).toContain("anthropic/claude-3-7-sonnet");
+    const research = r.getByTestId("roles-row-research");
+    expect(research.textContent).toContain("No model assigned");
+    expect(r.container.textContent).not.toContain("+ Add model");
+    fireEvent.click(research);
+    expect(r.getByTestId("roles-model-picker")).toBeTruthy();
+  });
+
+  it("E18: dirty → 'Unsaved' warning pill; setup → warning callout with kept copy; no --accent-warning; 12 px headings", () => {
+    seedConfig(sampleConfig);
+    const r = render(wrap(<BuiltInRolesSettings />));
+    fireEvent.click(r.getByTestId("roles-row-architect"));
+    fireEvent.click(r.getByTestId("roles-model-option-openai/gpt-4o"));
+    const dirty = r.getByTestId("roles-row-architect-dirty");
+    expect(dirty.textContent).toBe("Unsaved");
+    expect(dirty.className).toContain("--severity-warning-bg");
+    expect(r.container.innerHTML).not.toContain("--accent-warning");
+    cleanup();
+    seedConfig({ roles: { fast: "" }, presets: [], activePreset: null, models: [], builtinRoleNames: ["fast"] });
+    const s = render(wrap(<BuiltInRolesSettings />));
+    const banner = s.getByTestId("roles-settings-setup-banner");
+    expect(banner.textContent).toContain("No roles have been set up — set up now");
+    expect(banner.className).toContain("--severity-warning-bg");
+    expect(banner.querySelector("svg")).toBeTruthy();
+    expect(s.container.innerHTML).not.toContain("--accent-warning");
+    const heading = s.getByTestId("roles-group-builtin").firstElementChild as HTMLElement;
+    expect(heading.className).toContain("text-[12px]");
+    expect(heading.className).toContain("font-semibold");
+    expect(heading.className).toContain("--text-secondary");
+    // no palette class / hex / muted info text anywhere in the section
+    expect(s.container.innerHTML).not.toMatch(/(text|bg|border)-(amber|red|green|yellow|orange|purple|gray|slate)-\d|#[0-9a-f]{3,8}\b|rgba\(|--text-muted/i);
+  });
+
+  it("E18: a dropped level is a warning callout with the one-sentence copy and no emoji", () => {
+    seedConfig({
+      roles: { architect: "anthropic/claude-3-7-sonnet:high" },
+      presets: [],
+      activePreset: null,
+      models: [
+        { provider: "anthropic", id: "claude-3-7-sonnet", supportedThinkingLevels: ["off", "low", "high"] },
+        { provider: "openai", id: "gpt-4o", supportedThinkingLevels: ["off"] },
+      ],
+    });
+    const r = render(wrap(<BuiltInRolesSettings />));
+    fireEvent.click(r.getByTestId("roles-row-architect"));
+    fireEvent.click(r.getByTestId("roles-model-option-openai/gpt-4o"));
+    const notice = r.getByTestId("roles-level-drop-notice");
+    expect(notice.textContent).toBe("Thinking level high isn't supported by openai/gpt-4o, so the level was dropped.");
+    expect(notice.className).toContain("--severity-warning-bg");
+    expect(notice.querySelector("svg")).toBeTruthy();
+    expect(notice.textContent).not.toMatch(/⚠/);
   });
 });

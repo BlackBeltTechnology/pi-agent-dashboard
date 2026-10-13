@@ -144,6 +144,64 @@ pi install -l /path/to/pi-agent-dashboard       # project-local
 Cross-refs:
 - README.md:69
 
+## How do I use pi-dashboard from Claude Code / Claude Desktop?
+
+Claude plugin `pi-dashboard`. Source: `packages/claude-plugin/`. No MCP server, no hooks, no daemon. Two skills:
+- `pi-dashboard-bootstrap` — runs `ensure-dashboard.sh`, starts server if down, prints `BASE`.
+- `pi-dashboard-control` — REST over curl: sessions, prompt, abort, spawn.
+
+Install, Claude Code CLI / desktop Code tab:
+```
+/plugin marketplace add BlackBeltTechnology/pi-agent-dashboard --sparse .claude-plugin packages/claude-plugin
+/plugin install pi-dashboard@pi-agent-dashboard
+```
+
+Install, claude.ai (Customize > Plugins):
+- Upload `pi-dashboard-claude-plugin-<version>.zip`. Attached to each GitHub Release.
+- Or add marketplace `BlackBeltTechnology/pi-agent-dashboard`.
+
+| Surface | Result |
+|---|---|
+| Claude Code CLI, desktop Code tab | Full. Shell runs on your machine. |
+| Cowork (cloud) | Skills load. Script prints `STATUS=sandbox` (exit 2). |
+| claude.ai chat | Skills load. No shell. |
+
+Global install consent. Script exit 4 `not-installed` (no `pi-dashboard` command/app). Claude asks first. On yes, re-run with `--install`:
+- Global npm install of `@blackbelt-technology/pi-agent-dashboard@latest`.
+- ~1 GB, ~1 min. Adds `pi-dashboard` command + pi bridge.
+- Decline in Cowork / web.
+
+Script: `sh "${CLAUDE_SKILL_DIR}/scripts/ensure-dashboard.sh" [--install | --check]`. stdout: `STATUS=<value>`, plus `BASE=<url>` when ready.
+
+| STATUS | Exit | Meaning |
+|---|---|---|
+| `already-running` | 0 | Up. Use `BASE`. |
+| `started` | 0 | Launched detached. Use `BASE`. |
+| `failed` | 1 | Launch failed. Error lines on stderr. |
+| `sandbox` | 2 | Cowork / web session. Cannot reach dashboard. |
+| `busy` | 3 | Port held or still starting. Retry ~1 min. |
+| `recovery` | 3 | Recovery mode. Do not start. |
+| `not-installed` | 4 | No `pi-dashboard`. Needs `--install` consent. |
+| `port-conflict` | 5 | Foreign program on port. Free it or set `DASHBOARD_PORT`. |
+
+Strict mode (`requireLocalProof` on). Control calls get 401, or 403 `local_proof_required`.
+1. `pi-dashboard token create --label claude-code --tier control`.
+2. Save `Authorization: Bearer <token>` in a header file, `chmod 600`. Agent never creates it.
+3. Agent chains verify before every credentialed call:
+```
+sh "${CLAUDE_SKILL_DIR}/../pi-dashboard-bootstrap/scripts/ensure-dashboard.sh" --check && curl -s -H @/path/to/header-file BASE/api/sessions
+```
+- `--check`: verify-only. No lock, no launch. Port re-bound by other process → fails → no creds sent.
+- Pasted token fallback: stays in chat history.
+- Never `curl -v` / `--trace` on credentialed calls (prints header).
+
+Cross-refs:
+- packages/claude-plugin/README.md
+- packages/claude-plugin/skills/pi-dashboard-bootstrap/SKILL.md
+- packages/claude-plugin/skills/pi-dashboard-control/SKILL.md
+- openspec/changes/archive/2026-10-13-add-claude-code-plugin/design.md — D2-D5, D8, D10
+- See change: add-claude-code-plugin.
+
 ## What are the prerequisites for installing the dashboard?
 
 Required for paths B + C only. Path A (Electron) bundles everything.
@@ -163,13 +221,14 @@ Cross-refs:
 
 ## How do I start the dashboard server manually?
 
-Run `cli.ts` via `tsx`. Foreground process.
+Run `cli.ts` via the native loader. Foreground process. Do NOT use `npx tsx`: a tsx `--import` makes the server log the foreign-loader warning.
 
 Commands:
 ```bash
-npx tsx packages/server/src/cli.ts
-npx tsx packages/server/src/cli.ts --port 8000 --pi-port 9999
-npx tsx packages/server/src/cli.ts --dev          # proxy to Vite
+NL="file://$PWD/packages/shared/src/platform/native-ts-register.mjs"
+node --import "$NL" packages/server/src/cli.ts
+node --import "$NL" packages/server/src/cli.ts --port 8000 --pi-port 9999
+node --import "$NL" packages/server/src/cli.ts --dev          # proxy to Vite
 ```
 
 - Default ports: HTTP/browser WS `8000`, pi extension WS `9999`.
@@ -226,6 +285,34 @@ Cross-refs:
 - README.md:269
 - README.md:489
 
+## What do the `pi-dashboard start` / `status` ownership lines mean?
+
+`start` and `status` probe the port, then print one verdict line.
+
+- `Dashboard server is already running (pid N)` — healthy dashboard owned by this HOME answers `/api/health`. Works when `server.pid` missing. Exit `0`, nothing spawned.
+- `Dashboard server is starting (pid N)` — `~/.pi/dashboard/server.lock.meta.json` names live pid for this port, `startedAt` < 30 s, port still refused. Exit `0`, nothing spawned. Wait, retry.
+- `... not owned by this HOME` — dashboard answers on port, this HOME has no proof: `~/.pi/dashboard/instances/<piPort>.id` mismatch, no lock-meta pid match. Exit `1`, nothing spawned, nothing deleted. Fix: `--port <n>` for separate instance, or stop it from the HOME that started it. Do NOT `stop --force` unless sure.
+- `running but not responding (pid N)` — port held, `/api/health` gives no definitive answer (frozen SIGSTOP or blocked event loop). Exit `1`, no spawn, `server.pid` + lock metadata untouched. Fix: `pi-dashboard stop` (SIGTERM→SIGKILL), then `pi-dashboard start`. Overload: see `unwedge-dashboard-event-loop` skill. pid omitted when lock metadata has none.
+- `Dashboard server started (pid N)` — printed only when post-launch health shows owned dashboard with pid `start` spawned. Else spawned child killed, real verdict printed (e.g. `already running (pid M)`).
+- `pi-dashboard status --port N` — reports port N only. mDNS records on other ports ignored.
+- `pi-dashboard stop` — keeps `server.pid` when process survived kill.
+
+```bash
+pi-dashboard status --port 8000    # port 8000 only
+pi-dashboard start --port 8001     # separate instance
+```
+
+## Why does `server.log` show `[home-lock] could not establish the rendezvous ... E_INSTANCE_UNRESPONSIVE`?
+
+File: `~/.pi/dashboard/server.log`.
+
+- Second server found live holder of HOME lock. Holder unresponsive (`reason` `timeout`) or still starting (`reason` `starting`).
+- Second server does NOT take lock over. Frozen holders never reclaimed.
+- Second server then exits on `EADDRINUSE`.
+- Holder's lock + records intact.
+- Bridge auto-start against frozen dashboard produces this line + `EADDRINUSE` exit.
+- `reason` `timeout`: see `running but not responding` above. `reason` `starting`: wait, retry.
+
 ## How does the auto-start flow work?
 
 Bridge extension TCP-probes `piPort` on every pi session start. Spawns server detached when port closed and `autoStart: true`.
@@ -238,7 +325,8 @@ Sequence:
 5. Bridge prints `🌐 Dashboard started at http://localhost:8000` and connects.
 6. Port closed + `autoStart: false` → skip.
 
-- Concurrent spawns from multiple pi sessions fail harmlessly with `EADDRINUSE`.
+- Same HOME, multiple pi sessions: per-HOME lock `~/.pi/dashboard/server.lock` + `/api/health` check. Second start attaches or refuses. No second server.
+- Different HOME: lock is per-HOME, does NOT stop second server. macOS can bind `127.0.0.1:<port>` beside existing `*:<port>` with no `EADDRINUSE`. `pi-dashboard start` probes `127.0.0.1` + `::1` and refuses dashboard its HOME does not own.
 - Stale holder recovery: `pi-dashboard stop` (kills owned holders only) or `pi-dashboard stop --force` for an orphan nothing on disk attributes.
 - Disable via `"autoStart": false` in `~/.pi/dashboard/config.json`.
 - Bridge honours `PI_DASHBOARD_URL=ws://host:port` to point at remote server instead of localhost.
@@ -315,27 +403,55 @@ Cross-refs:
 - packages/electron/src/lib/server-lifecycle.ts
 - packages/shared/src/server-launcher.ts
 
-## Server fails to start / behaves differently after the native TS loader switch — how to roll back?
+## Server logs "PI_DASHBOARD_TS_LOADER is no longer supported" — what now?
 
-Since change `fix-appimage-cold-boot-latency` the server boots the Node-native TS loader by default. Roll back to jiti.
+Since change `strip-only-native-ts-loader` the jiti server loader is removed. `PI_DASHBOARD_TS_LOADER` is ignored. Any value except empty or `native` makes the server log one line at each boot, in `~/.pi/dashboard/server.log`:
+
+```
+PI_DASHBOARD_TS_LOADER is no longer supported (the jiti server loader was removed); using the native loader.
+```
+
+Fix: remove `PI_DASHBOARD_TS_LOADER` from the launching environment, then restart.
 
 POSIX:
 
 ```
-pi-dashboard stop && PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start
+unset PI_DASHBOARD_TS_LOADER   # and remove the export from your shell profile
+pi-dashboard stop && pi-dashboard start
 ```
 
 PowerShell:
 
 ```
-pi-dashboard stop; $env:PI_DASHBOARD_TS_LOADER = "jiti"; pi-dashboard start
+[Environment]::SetEnvironmentVariable("PI_DASHBOARD_TS_LOADER", $null, "User")
+pi-dashboard stop; pi-dashboard start
 ```
 
-Electron: set `PI_DASHBOARD_TS_LOADER=jiti` in the launching environment, then relaunch the app. Windows: `setx PI_DASHBOARD_TS_LOADER jiti` for new processes, or `$env:` before launching.
+Electron: remove the variable from the launching environment, then relaunch the app. Wrappers and launchers never warn; only the server process logs this line.
 
-`/api/restart` keeps the running loader — it does NOT switch. Fresh launch required.
+No jiti rollback path exists. Fix forward.
 
-Check which loader a launch used. Header names the loader (`native-ts-register.mjs` or jiti URL).
+## Server logs "booted under the jiti TypeScript loader" — what now?
+
+Server booted under a jiti (or tsx) `--import`. Logged warning:
+
+```
+[pi-dashboard] server booted under the jiti TypeScript loader (<url>), which is no longer supported; run `pi-dashboard stop && pi-dashboard start` to switch to the native loader.
+```
+
+Cause: first `/api/restart` after upgrade. The pre-upgrade process copies its jiti `--import` into the new process. Stale install dir (reinstall to a new prefix) deletes that absolute jiti path; the restart then fails.
+
+Fix:
+
+```
+pi-dashboard stop && pi-dashboard start
+```
+
+Electron: quit and relaunch the app. Later restarts normalize to the native loader automatically.
+
+`/api/restart` always hands the restart orchestrator the native register module. It does NOT keep a jiti loader.
+
+Check which loader a launch used. Header names the loader (`native-ts-register.mjs`).
 
 POSIX:
 
@@ -349,7 +465,7 @@ PowerShell:
 Select-String -Path "$HOME\.pi\dashboard\server.log" -SimpleMatch "launch (parent pid" | Select-Object -Last 1
 ```
 
-Node < 22.19 unsupported by the server whatever the loader — server enforces floor `>= 22.19` (`engines` `>=22.19.0`, `packages/shared/src/node-version.ts`); upgrade Node. A Node build lacking `module.stripTypeScriptTypes` (embedded/stripped builds) fails with error naming `PI_DASHBOARD_TS_LOADER=jiti` — set it to boot with jiti.
+Node < 22.19 unsupported by the server — server enforces floor `>= 22.19` (`engines` `>=22.19.0`, `packages/shared/src/node-version.ts`); upgrade Node. A Node with neither `module.registerHooks` nor `module.register` fails at boot (`native-ts-register.mjs` throws, naming the Node version). Node without `module.stripTypeScriptTypes` uses tier 2 or tier 3 (bundled `amaro` on 23.0–23.1).
 
 Cross-refs:
 - packages/shared/src/platform/ts-loader-select.mjs
@@ -810,12 +926,31 @@ Cross-refs:
 - docs/architecture.md:1151
 - docs/architecture.md:1156
 
+## How do I run a non-pi agent (ACP) in the dashboard?
+
+Add `acpAgents` to `~/.pi/dashboard/config.json`. Spawn picker then offers agent.
+
+```json
+{
+  "acpAgents": [{ "id": "qmt", "name": "querymt", "command": "qmtcode", "args": ["--stdio"] }],
+  "acp": { "protocolV2": false }
+}
+```
+
+- `durable: false` (default) → in-process. Ends on server stop.
+- `durable: true` → rpc-keeper host. Survives server restart; event log replayed on reattach.
+- Pi-only features refused (`unsupported_for_acp`): resume, fork, reload, retry, goals, flows, roles.
+- Agent runs as server user. Same-user file access NOT isolated. `acpAgents` = arbitrary command execution.
+- Windows: `.cmd` / `.bat` rejected. Use `.exe`.
+
+Full reference: [docs/acp-sessions.md](acp-sessions.md). See change: add-acp-session-driver.
+
 ## What is the typical local development workflow?
 
 Three terminals: dashboard server `--dev`, Vite dev server, pi with bridge.
 
 Commands:
-- `npx tsx packages/server/src/cli.ts --dev` — server in dev mode (proxies to Vite, falls back to `dist/client/`)
+- `node --import "file://$PWD/packages/shared/src/platform/native-ts-register.mjs" packages/server/src/cli.ts --dev` — server in dev mode (proxies to Vite, falls back to `dist/client/`)
 - `npm run dev` — Vite HMR for web client
 - `pi -e packages/extension/src/bridge.ts` — pi with bridge extension (or plain `pi` if installed)
 
@@ -823,7 +958,7 @@ Open `http://localhost:8000` (server proxies SPA routes + assets to Vite) or `ht
 
 Deploy after changes:
 - Client (production): `npm run build` then `curl -X POST http://localhost:8000/api/restart`
-- Server: `curl -X POST http://localhost:8000/api/restart` (TS runs directly via jiti, no build)
+- Server: `curl -X POST http://localhost:8000/api/restart` (TS runs directly via native strip-only loader, no build)
 - Bridge extension: `npm run reload`
 - Full rebuild: `npm run build` + `/api/restart` + `npm run reload`
 
@@ -856,7 +991,7 @@ Prerequisites:
 
 Dev commands:
 - `npm test` / `npm run test:watch` — vitest
-- `npm run lint` — `tsc --noEmit`
+- `npm run lint` — `node scripts/tsc7.mjs --noEmit` (TS 7)
 - `npm run build` — Vite client build
 - `npm run dev` — Vite dev server
 
@@ -864,6 +999,10 @@ Cross-refs:
 - README.md:74
 - README.md:111
 - README.md:507
+
+## Bare `tsc` prints `Version 7.0.2` — which compiler runs?
+
+TS 7 native compiler. Alias `typescript-7` owns `node_modules/.bin/tsc`. Run `node scripts/tsc7.mjs --noEmit` instead of bare `tsc`. Workspace `typescript` stays 5.x for JS API.
 
 ## How do I build the Electron app?
 
@@ -1431,11 +1570,11 @@ Cross-refs:
 
 ## Why does /ctx-stats work in some sessions but not others?
 
-Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.0.0 lockstep floor). No session-kind probe, no keeper UDS route.
+Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.1.0 lockstep floor). No session-kind probe, no keeper UDS route.
 
 Pi runs `_tryExecuteExtensionCommand` FIRST — before its compaction guard, before `streamingBehavior` — so headless, tmux, terminal and user-launched sessions all dispatch the same way. `deliverAs` is inert for an extension command.
 
-Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.0.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
+Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.1.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
 
 Retired by change `retire-slash-dispatch-via-expand-prompt-templates`: Path B (`pi.dispatchCommand`, never shipped upstream), Path C (headless RPC via keeper UDS), Path D (tmux / Windows Terminal error). Keeper sidecar UNCHANGED — still the durable owner of pi's stdin across dashboard restarts.
 
@@ -2125,7 +2264,8 @@ Two paths:
 **Chain 2 (TUI)**: Bridge uses `process.execPath` (the Node running pi) + relative path from extension directory:
 ```javascript
 const cli = require.resolve("@blackbelt-technology/pi-dashboard-server/cli.ts");
-spawn(process.execPath, ["--import", jiti, cli], { detached: true });
+// nativeLoader = file:// URL of platform/native-ts-register.mjs (resolveNativeTsLoader)
+spawn(process.execPath, ["--import", nativeLoader, cli], { detached: true });
 ```
 
 **Chain 1 (Electron)**: Fallback when toolPaths empty — detect via login shell or bundled path.
@@ -2463,15 +2603,15 @@ Cross-refs:
 
 ## Why does `pi-dashboard start` fail with ERR_MODULE_NOT_FOUND in a dev checkout?
 
-Root `package.json` `.bin` previously pointed `pi-dashboard` at `packages/server/src/cli.ts` directly. Node has no built-in TypeScript loader — launching a `.ts` file from a shebang requires jiti (or tsx) to be registered via `--import`, which a `#!/usr/bin/env node` line cannot interpolate dynamically. Symptom: `node:internal/modules/run_main:... ERR_MODULE_NOT_FOUND` on `cli.ts` import resolution.
+Root `package.json` `.bin` previously pointed `pi-dashboard` at `packages/server/src/cli.ts` directly. Node has no built-in TypeScript loader — launching a `.ts` file from a shebang requires a TS loader registered via `--import` (historical: jiti, now the native register module), which a `#!/usr/bin/env node` line cannot interpolate dynamically. Symptom: `node:internal/modules/run_main:... ERR_MODULE_NOT_FOUND` on `cli.ts` import resolution.
 
-Fix: `.bin` now points at `packages/server/bin/pi-dashboard.mjs`, a tiny `.mjs` wrapper that resolves jiti from pi's tree at runtime, then re-execs Node with `--import <jiti-url> cli.ts <args>`. Wrapper exits 1 with install-hint when jiti unresolvable.
+Fix: `.bin` points at `packages/server/bin/pi-dashboard.mjs`, a tiny `.mjs` wrapper that resolves the native register module by package specifier (`platform/ts-loader-select.mjs`), then re-execs Node with `--import <native-url> cli.ts <args>`. Wrapper exits 1 with corrupted-install hint when the register module unresolvable. Earlier fix used jiti (`replace-tsx-with-jiti`); jiti server path removed by `strip-only-native-ts-loader`.
 
 Cross-refs:
 - package.json (root) `.bin`
 - packages/server/bin/pi-dashboard.mjs
-- packages/shared/src/resolve-jiti.ts
-- See change: replace-tsx-with-jiti
+- packages/shared/src/platform/ts-loader-select.mjs
+- See change: replace-tsx-with-jiti, strip-only-native-ts-loader
 
 ## Why does `/api/flows-anthropic-bridge/status` show "no sessions reporting"?
 
@@ -2517,6 +2657,43 @@ See change: project-scope-disable-global-resources.
 Cross-refs:
 - packages/server/src/pi/resource-activation-toggle.ts
 - docs/architecture.md — Project-scope disable of global resources
+
+## How do I clean up stale entries from settings.json?
+
+Symptom: Settings → Packages shows `Issues (N)` badge + "Package issues" panel.
+Source: global `~/.pi/agent/settings.json#packages[]`. Only global (user) scope scanned. Project `.pi/settings.json` not scanned.
+
+Statuses:
+- `stale-npm` — `npm:` entry, package uninstalled.
+- `missing-path` — local or git path gone.
+- `duplicate` — ≥2 entries, same `package.json#name` (e.g. same extension from dev path + bundled app + managed dir).
+- Existing dir without `package.json` → `ok`. Never flagged.
+
+Fix:
+1. Open Settings → Packages → Package issues.
+2. Tick rows to drop.
+3. Apply cleanup. Sends one `POST /api/packages/cleanup {drop:[sources]}`.
+4. Restart dashboard when banner shows.
+
+- Server never auto-removes.
+- Nothing pre-ticked, except `missing-path` members of a duplicate group.
+- Backup written first: `~/.pi/agent/settings.json.<ISO-ts>.bak` (`:` and `.` → `-`). Not auto-pruned.
+- Rollback: copy `.bak` over `settings.json`.
+- Unknown source in `drop` → HTTP 400 `{unknown:[...]}`. Nothing written.
+
+Log-only boot summary (one line when issues exist):
+
+```bash
+grep package-health ~/.pi/dashboard/server.log
+# [package-health] 13 entries: 6 ok, 4 stale-npm, 2 missing-path, 1 duplicate-group (name ×2)
+```
+
+API: `GET /api/packages/health` → `{entries, summary}`.
+
+Cross-refs:
+- docs/architecture.md → Package management → Package health cleanup
+- packages/server/src/package/package-health-scanner.ts
+- packages/server/src/routes/package-health-routes.ts
 
 ## Why does abort feel slow on parallel flows?
 
@@ -3507,3 +3684,75 @@ Source: `docs/architecture.md` → Auth model → Local credential proof. Change
   - Pre-proof server: `curl -X POST http://localhost:8000/api/restart` with new build, then `npm run reload`.
   - Session retries inside 5 min cap. Or restart the session to retry now.
 - Docker / published port: sender sees `401` with `binding-mismatch` → BREAKING for `pi-dashboard login --local|open|token create` through the published port. Run those inside the container, or log in.
+
+## Why does Claude chat work but tool calls fall back?
+
+Peer `@blackbelt-technology/pi-anthropic-messages` missing → bridge stays in `waiting_peers` → tool calls return without executing.
+
+Auto-install runs after Anthropic sign-in (Settings ▸ Providers).
+
+- Failure: warning on Anthropic row and Landing step ① with `Retry install`. Raw installer output under `Details`.
+- Manual install:
+  - Settings ▸ Packages ▸ Recommended extensions
+  - or Landing `Install` (shows when `anthropic` signed in, peer not active)
+- `failed to load` = installed but import broken. Reinstall does not fix. Check Settings ▸ Providers.
+- Applies on next pi session start.
+
+Cross-refs:
+- docs/user-features.md §First run: connect, create, start
+- packages/client/src/components/shell/LandingPage.tsx
+- packages/client/src/components/settings/PeerAutoInstallStatus.tsx
+- packages/flows-anthropic-bridge-plugin/src/bridge/index.ts
+
+See change: streamline-first-run.
+
+## Server shows "CORS-blocked", "Name not found" or "Moved to …" in the server selector — what does it mean?
+
+Label = cause the dashboard server observed. Browser probe fails at transport level → server probes the stored entry (`POST /api/known-servers/probe`, operator only).
+
+- `CORS-blocked` — server reaches entry, this browser does not. Fix: allow this browser's network on the remote (`trustedNetworks`), or check the path from this browser.
+- `Name not found` — server cannot resolve stored host (`ENOTFOUND` / `EAI_NONAME`). Usually remote renamed its `.local` name. No move suggestion → re-add server with its current address.
+- `Moved to <host>:<port>` + Update — same server (identity proof against stored `fingerprint`) answers at new on-link address. Update = operator accepts: rewrites entry `host`/`port`; label, fingerprint, `addedAt` kept. Nothing changes without the click.
+- `Unreachable` — refused, timeout, or other error. Check server running and port.
+
+No suggestion when: entry has no `fingerprint` (added before this change), or peer not seen on LAN. Advert alone never moves an entry.
+
+See change: stabilize-mdns-server-identity.
+
+Cross-refs:
+- docs/architecture.md → mDNS Server Discovery → Known-server identity pinning, Move suggestions, Selector reachability labels
+- openspec/changes/archive/2026-10-12-stabilize-mdns-server-identity/
+
+## Mac hostname keeps getting a number suffix (`-8559`) — why, and how do I stop it?
+
+macOS appends a number to `LocalHostName` when another host claims that `.local` name. Old dashboard versions advertised under `os.hostname()` (the Mac's own `.local` name) → `mDNSResponder` multicast conflict → rename.
+
+- Current versions advertise `pi-dashboard-<id12>-<port>.local`. Dashboard no longer contests the OS name. Suffix stops growing after upgrade.
+- Existing suffix stays (`home-imac-75340`). Still resolves. Dashboard does not remove it.
+- Rename: `sudo scutil --set LocalHostName <name>`.
+
+See change: stabilize-mdns-server-identity.
+
+Cross-refs:
+- docs/architecture.md → mDNS Server Discovery → Dashboard-owned names
+- openspec/changes/archive/2026-10-12-stabilize-mdns-server-identity/
+
+## Never copy `identity.key` — what breaks and how do I fix a clone?
+
+`~/.pi/dashboard/identity.key` = server identity. Copy to a second machine → same `fingerprint` → same `<id12>` → same instance `pi-dashboard-<id12>-<port>` when port matches.
+
+- Second server detects name conflict (not published 3 s after publish), retries 3 attempts, 5 s apart. Then stops advertising. Warning names the instance and remediation.
+- Known-server pins to that fingerprint may point at the wrong machine.
+
+Fix on the clone:
+
+1. Stop the server.
+2. Delete `~/.pi/dashboard/identity.key`.
+3. Start the server. New key, new fingerprint, new `<id12>`. Startup regenerates the file.
+4. Re-add the clone in known servers (new fingerprint pin).
+
+See change: stabilize-mdns-server-identity.
+
+Cross-refs:
+- docs/architecture.md → mDNS Server Discovery → Dashboard-owned names
+- packages/server/src/auth/identity.ts

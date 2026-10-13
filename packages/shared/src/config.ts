@@ -2,10 +2,12 @@
  * Shared configuration module for PI Dashboard.
  * Used by both the server CLI and bridge extension.
  */
+
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { type AcpAgentConfig, type AcpSettings, DEFAULT_ACP_SETTINGS, parseAcpAgents, parseAcpSettings } from "./acp/acp-config.js";
 import {
   DEFAULT_SERVER_HEAP,
   DEFAULT_SESSION_HEAP,
@@ -14,10 +16,11 @@ import {
   type SessionHeapConfig,
 } from "./heap-limits.js";
 import type { HostGateMode } from "./host-admission.js";
-import { isTier, type Tier } from "./tiers.js";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
+import { isTier, type Tier } from "./tiers.js";
+import { clampVaultGraceHours, VAULT_GRACE_DEFAULT_HOURS } from "./vault-delivery.js";
 import {
   providerSupportsMode,
   type TunnelMode,
@@ -259,6 +262,20 @@ export interface OpenSpecPollConfig {
   offerInitialization: boolean;
 }
 
+/**
+ * Credential-vault delivery switches. Held here, NOT in the vault file, so the
+ * emergency switch still works while the vault is corrupt.
+ * See change: add-credential-vault (D2).
+ */
+export interface VaultConfig {
+  /** Master delivery switch. `false` withdraws values from every connected session. Default `true`. */
+  deliveryEnabled: boolean;
+  /** Hours a bridge keeps delivered values while the hub is unreachable. Clamped to [1, 168]. Default 24. */
+  offlineGraceHours: number;
+}
+
+export const DEFAULT_VAULT_CONFIG: VaultConfig = { deliveryEnabled: true, offlineGraceHours: VAULT_GRACE_DEFAULT_HOURS };
+
 export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
   enabled: true,
   // 60s baseline: even after local derivation kills the per-change spawn
@@ -406,6 +423,12 @@ export interface KnownServer {
   port: number;
   label?: string;
   addedAt: string; // ISO timestamp
+  /**
+   * Server identity pinned for this entry (`sha256:<b64url>`), set only after
+   * the server proved it through the identity challenge. At most one entry per
+   * (fingerprint, port). See change: stabilize-mdns-server-identity.
+   */
+  fingerprint?: string;
 }
 
 // ── Model Proxy ─────────────────────────────────────────────────────
@@ -791,6 +814,8 @@ export interface DashboardConfig {
   serverHeap: ServerHeapConfig;
   /** OpenSpec background polling behavior (interval, concurrency, change detection, jitter) */
   openspec: OpenSpecPollConfig;
+  /** Credential-vault delivery switches. See change: add-credential-vault. */
+  vault: VaultConfig;
   /** Session behavior — hydration worker offload toggle. */
   sessions: SessionsConfig;
   /** Session-list archival policy (age threshold + sweep interval). */
@@ -799,6 +824,13 @@ export interface DashboardConfig {
   embedLifecycle: EmbedLifecycleConfig;
   /** Keeper log behavior — gates capture of pi stdout/stderr into keeper-<id>.log. */
   keeperLog: KeeperLogConfig;
+  /**
+   * User-configured ACP agents (`[]` → no ACP spawn surface). Env values are
+   * secrets: `config-api` redacts/preserves them. See change: add-acp-session-driver.
+   */
+  acpAgents: AcpAgentConfig[];
+  /** ACP tuning (v2 flag, timeouts, line/log caps) — clamped. */
+  acp: AcpSettings;
   /** Server push notifications. Absent → disabled. See change: add-server-push-notifications. */
   push?: PushConfig;
   /**
@@ -1147,8 +1179,8 @@ export const DEFAULT_GATEWAY_PORT = 9999;
  * `PI_DASHBOARD_PORT` then `DASHBOARD_PORT`; gateway role reads
  * `PI_DASHBOARD_PI_PORT` then `PI_GATEWAY_PORT` (the server CLI's env names,
  * `cli.ts buildConfig`; `PI_GATEWAY_PORT` is the docker-compose spelling).
- * Parse rules are pinned to the historic private resolver: `Number(v)`
- * finite and > 0, first var of a role wins; an unusable value is ignored,
+ * A usable value is an integer in 1–65535 (`"8000.5"`, `"0"`, `"-1"` and
+ * `"70000"` are not usable); first var of a role wins; an unusable value is ignored,
  * never shadows a lower-precedence source.
  *
  * `env` and `fileConfig` are ARGUMENTS, not `process.env` reads, so the
@@ -1333,10 +1365,13 @@ const DEFAULTS: DashboardConfig = {
   sessionHeap: { ...DEFAULT_SESSION_HEAP },
   serverHeap: { ...DEFAULT_SERVER_HEAP },
   openspec: { ...DEFAULT_OPENSPEC_POLL },
+  vault: { ...DEFAULT_VAULT_CONFIG },
   sessions: { ...DEFAULT_SESSIONS },
   sessionList: { ...DEFAULT_SESSION_LIST },
   embedLifecycle: { ...DEFAULT_EMBED_LIFECYCLE },
   keeperLog: { ...DEFAULT_KEEPER_LOG },
+  acpAgents: [],
+  acp: { ...DEFAULT_ACP_SETTINGS },
   allowedHosts: [],
   hostGate: { mode: "enforce" },
   trustedNetworks: [],
@@ -1445,6 +1480,14 @@ function clampNumber(raw: any, fallback: number, min: number, max: number): numb
   if (n < min) return min;
   if (n > max) return max;
   return n;
+}
+
+export function parseVaultConfig(raw: any): VaultConfig {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_VAULT_CONFIG };
+  return {
+    deliveryEnabled: typeof raw.deliveryEnabled === "boolean" ? raw.deliveryEnabled : DEFAULT_VAULT_CONFIG.deliveryEnabled,
+    offlineGraceHours: clampVaultGraceHours(raw.offlineGraceHours),
+  };
 }
 
 export function parseEmbedLifecycleConfig(raw: any): EmbedLifecycleConfig {
@@ -1874,14 +1917,30 @@ export function parseModelProxyConfig(raw: any): ModelProxyConfig {
 
 function parseKnownServers(raw: any): KnownServer[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((entry: any) => entry && typeof entry === "object" && typeof entry.host === "string" && typeof entry.port === "number")
-    .map((entry: any) => ({
+  const seen = new Set<string>();
+  const out: KnownServer[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object" || typeof entry.host !== "string" || typeof entry.port !== "number") continue;
+    const fingerprint =
+      typeof entry.fingerprint === "string" && /^sha256:.+/.test(entry.fingerprint) ? entry.fingerprint : undefined;
+    if (fingerprint) {
+      // Duplicate (fingerprint, port): first entry wins (stabilize-mdns-server-identity D6).
+      const key = `${fingerprint}|${entry.port}`;
+      if (seen.has(key)) {
+        console.warn(`[known-servers] dropped duplicate identity entry ${entry.host}:${entry.port} (fingerprint already held)`);
+        continue;
+      }
+      seen.add(key);
+    }
+    out.push({
       host: entry.host,
       port: entry.port,
       ...(typeof entry.label === "string" ? { label: entry.label } : {}),
       addedAt: typeof entry.addedAt === "string" ? entry.addedAt : new Date().toISOString(),
-    }));
+      ...(fingerprint ? { fingerprint } : {}),
+    });
+  }
+  return out;
 }
 
 function parseTrustedNetworks(raw: any): string[] {
@@ -2109,10 +2168,13 @@ export function loadConfig(): DashboardConfig {
       sessionHeap: parseSessionHeap(parsed.sessionHeap),
       serverHeap: parseServerHeap(parsed.serverHeap),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
+      vault: parseVaultConfig(parsed.vault),
       sessions: parseSessionsConfig(parsed.sessions),
       sessionList: parseSessionListConfig(parsed.sessionList),
       embedLifecycle: parseEmbedLifecycleConfig(parsed.embedLifecycle),
       keeperLog: parseKeeperLogConfig(parsed.keeperLog),
+      acpAgents: parseAcpAgents(parsed.acpAgents),
+      acp: parseAcpSettings(parsed.acp),
       push: parsePushConfig(parsed.push),
       allowedHosts: Array.isArray(parsed.allowedHosts)
         ? parsed.allowedHosts.filter((h: unknown): h is string => typeof h === "string")

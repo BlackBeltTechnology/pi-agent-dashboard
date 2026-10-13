@@ -1,13 +1,13 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  autoStartServer,
-  selectLocalCandidate,
   type AutoStartDeps,
+  autoStartServer,
   type DiscoveredServer,
+  selectLocalCandidate,
 } from "../server-auto-start.js";
 
 /**
@@ -207,8 +207,8 @@ describe("autoStartServer", () => {
 
   // fix-bridge-server-start-diagnostics (CodeRabbit #3): the "See log:" suffix
   // must only appear when the spawn actually owned/opened the log file. A
-  // JitiNotFoundError is thrown BEFORE launchDashboardServer opens the logFile
-  // fd, so no server.log exists — pointing the user at it resurfaces issue #99.
+  // failure that aborts BEFORE launchDashboardServer opens the logFile fd leaves
+  // no server.log — pointing the user at it resurfaces issue #99.
   // launchServer signals this via logOwned:false.
   it("omits the 'See log' suffix when the failure never owned a log (logOwned:false)", async () => {
     const deps = makeDeps({
@@ -276,6 +276,25 @@ describe("autoStartServer", () => {
     const result = await autoStartServer(baseConfig, deps);
 
     expect(result.server).toEqual({ host: "myhost.local", port: 8000, piPort: 9999 });
+  });
+
+  // #E30 (stabilize-mdns-server-identity): a local peer advertised under the
+  // dashboard-owned hostname is adopted via its IP literal, and an IPv6-only
+  // peer is probed with a bracketed authority.
+  it("#E30 adopts a derived-hostname local server via its IPv4 literal", async () => {
+    const local: DiscoveredServer = {
+      host: "192.168.1.5", port: 8000, piPort: 9999,
+      isLocal: true, source: "mdns",
+    };
+    const deps = makeDeps({
+      discoverDashboard: vi.fn().mockResolvedValue([local]),
+      isDashboardRunning: scriptedProbeDeps({
+        "localhost:8000": ["refused"],
+        "192.168.1.5:8000": [{ running: true }],
+      }).deps.isDashboardRunning,
+    });
+    const result = await autoStartServer(baseConfig, deps);
+    expect(result.server).toEqual({ host: "192.168.1.5", port: 8000, piPort: 9999 });
   });
 
   // Change: resolve-global-prompt-templates-from-dashboard — bridge-side

@@ -1,5 +1,5 @@
 /**
- * Unified Settings → Packages section. Renders a single "Pi Ecosystem"
+ * Unified Settings → Add-ons section. Renders a single "Add-ons"
  * header followed by three sub-groups (Core / Recommended Extensions /
  * Other Packages), each using the same `<PackageRow>` component.
  *
@@ -12,10 +12,13 @@
  * unify-pi-core-into-package-queue.
  *
  * See change: consolidate-packages-settings-ui.
+ * See change: addons-hub-declutter (rename, explainer, filter, local banner,
+ * hidden dashboard-managed bridge rows).
  */
 
 import type {
 	InstalledPackage,NpmPackageResult, 
+	PackageHealthListResponseData,
 	PiCorePackage
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
@@ -26,22 +29,35 @@ import {
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { useLaunchSource } from "../../hooks/useLaunchSource.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
+import { usePersistedBoolean } from "../../hooks/usePersistedBoolean.js";
 import { usePiChangelog } from "../../hooks/usePiChangelog.js";
 import { usePiCoreVersions } from "../../hooks/usePiCoreVersions.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import {
+	ADDONS_NPM_SEARCH_EVENT,
+	EMPTY_INSTALLED_FILTER,
+	filterInstalledRows,
+	type InstalledFilter,
+	isInstalledFilterActive,
+	isLocalSourceRow,
+	visibleInstalledRows,
+} from "../../lib/package/installed-list-helpers.js";
+import {
 	classifySource,
 	groupInstalledPackages,
 	isSourceOverride,
 } from "../../lib/package/package-classifier.js";
+import { applyPackageCleanup, fetchPackageHealth } from "../../lib/package/package-health-api.js";
 import { piCoreSource } from "../../lib/package/package-queue.js";
 import { logRejection } from "../../lib/report-error.js";
 import { PinDirectoryDialog } from "../workspace/PinDirectoryDialog.js";
+import { AddonsExplainer } from "./AddonsExplainer.js";
+import { countHealthIssues, PackageHealthPanel } from "./PackageHealthPanel.js";
 import { PackagePartialSuccessBanner } from "./PackagePartialSuccessBanner.js";
 import { PackageReadmeDialog } from "./PackageReadmeDialog.js";
 import { PackageRow, type PackageRowProps } from "./PackageRow.js";
@@ -92,7 +108,7 @@ export function UnifiedPackagesSection() {
 	const launchSource = useLaunchSource();
 	const hideCoreGroup = launchSource === "electron";
 
-	// ── Core data (Pi Ecosystem core: pi, pi-dashboard) ──
+	// ── Core data (Add-ons core: pi, pi-dashboard) ──
 	const { status, isLoading, error, refresh } = usePiCoreVersions();
 
 	// Live tick for "last checked N min ago"
@@ -145,6 +161,41 @@ export function UnifiedPackagesSection() {
 	const [readmePkg, setReadmePkg] = useState<NpmPackageResult | null>(null);
 	const [movePickerSource, setMovePickerSource] = useState<string | null>(null);
 
+	// Installed-list filter + explainer disclosure. `Update available` stays
+	// disabled until an update check has completed in this page session.
+	const [filter, setFilter] = useState<InstalledFilter>(EMPTY_INSTALLED_FILTER);
+	const [updateCheckDone, setUpdateCheckDone] = useState(false);
+	const [explainerDismissed, setExplainerDismissed] = usePersistedBoolean("dashboard:addons-explainer-dismissed");
+	const explainerExpanded = explainerDismissed !== true;
+	const explainerToggleRef = useRef<HTMLButtonElement | null>(null);
+	const [focusExplainer, setFocusExplainer] = useState(0);
+	useEffect(() => {
+		if (focusExplainer > 0) explainerToggleRef.current?.focus();
+	}, [focusExplainer]);
+	// ── Package health (stale / missing / duplicate packages[] entries) ───
+	// See change: add-package-health-cleanup.
+	const [health, setHealth] = useState<PackageHealthListResponseData | null>(null);
+	const [restartRequired, setRestartRequired] = useState(false);
+	const loadHealth = useCallback(async () => {
+		try {
+			setHealth(await fetchPackageHealth());
+		} catch (err) {
+			logRejection("UnifiedPackagesSection.health")(err);
+		}
+	}, []);
+	useEffect(() => {
+		loadHealth().catch(logRejection("UnifiedPackagesSection.health"));
+	}, [loadHealth]);
+	const applyHealthCleanup = useCallback(
+		async (drop: string[]) => {
+			await applyPackageCleanup(drop);
+			setRestartRequired(true);
+			await Promise.all([installed.refresh(), loadHealth()]);
+		},
+		[installed.refresh, loadHealth],
+	);
+	const healthIssueCount = health ? countHealthIssues(health) : 0;
+
 	// Core "Update All" stays CLICKABLE while operations run — clicking it
 	// mid-flight fills the queue and each row shows queued → running. The
 	// queue's (source, action) dedupe makes a repeat click idempotent, so
@@ -181,6 +232,7 @@ export function UnifiedPackagesSection() {
 				const body = await res.json();
 				if (body.success) {
 					setUpdatesAvailable(new Set(body.data.map((u: any) => u.source)));
+					setUpdateCheckDone(true);
 				}
 			} catch {
 				/* swallow — next poll retries */
@@ -232,10 +284,32 @@ export function UnifiedPackagesSection() {
 
 	// Group installed rows: Core whitelist members are dropped (Core wins).
 	const coreNpmNames = useMemo(() => corePackages.map((p) => p.name), [corePackages]);
-	const { recommended, other } = useMemo(
-		() => groupInstalledPackages(installed.packages, coreNpmNames),
+	// Dashboard-managed plugin bridges never render, count or filter.
+	const { recommended: allRecommended, other: allOther } = useMemo(
+		() => groupInstalledPackages(visibleInstalledRows(installed.packages), coreNpmNames),
 		[installed.packages, coreNpmNames],
 	);
+	const localSourceCount = useMemo(
+		() => [...allRecommended, ...allOther].filter(isLocalSourceRow).length,
+		[allRecommended, allOther],
+	);
+	const filtering = isInstalledFilterActive(filter);
+	const rowHasUpdate = useCallback((row: { source: string }) => updatesAvailable.has(row.source), [updatesAvailable]);
+	const recommended = useMemo(
+		() => (filtering ? filterInstalledRows(allRecommended, filter, rowHasUpdate) : allRecommended),
+		[filtering, allRecommended, filter, rowHasUpdate],
+	);
+	const other = useMemo(
+		() => (filtering ? filterInstalledRows(allOther, filter, rowHasUpdate) : allOther),
+		[filtering, allOther, filter, rowHasUpdate],
+	);
+	const visibleCore = useMemo(() => {
+		if (!filtering) return corePackages;
+		const rows = corePackages.map((pkg) => ({ pkg, source: pkg.name, displayName: pkg.displayName }));
+		return filterInstalledRows(rows, filter, (r) => !!r.pkg.updateAvailable).map((r) => r.pkg);
+	}, [filtering, corePackages, filter]);
+	const nothingMatches =
+		filtering && recommended.length === 0 && other.length === 0 && (hideCoreGroup || visibleCore.length === 0);
 
 	const renderInstalledRow = (pkg: InstalledPackage) => {
 		const opSource = pkg.source;
@@ -306,8 +380,16 @@ export function UnifiedPackagesSection() {
 	return (
 		<div>
 			<h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3 pb-1 border-b border-[var(--border-secondary)] flex items-center justify-between">
-				<span>{t("settings.piEcosystem", undefined, "Pi Ecosystem")}</span>
+				<span>{t("addons.heading", undefined, "Add-ons")}</span>
 				<div className="flex items-center gap-2">
+					{healthIssueCount > 0 && (
+						<span
+							className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400"
+							data-testid="pkg-health-badge"
+						>
+							{t("packages.health.issuesBadge", { count: healthIssueCount }, `Issues (${healthIssueCount})`)}
+						</span>
+					)}
 					{status?.lastChecked && (
 						<span className="text-[10px] font-normal text-[var(--text-muted)]">
 								{t("settings.lastChecked", { time: relativeTime(status.lastChecked, t) }, `Last checked: ${relativeTime(status.lastChecked, t)}`)}
@@ -328,9 +410,26 @@ export function UnifiedPackagesSection() {
 				</div>
 			</h2>
 
-			<p className="text-xs text-[var(--text-tertiary)] mb-3">
-					{t("settings.piEcosystemDescription", undefined, "Pi tooling, recommended extensions, and any other packages your pi loads.")}
+			<p className="text-xs text-[var(--text-tertiary)] mb-2">
+					{t("addons.description", undefined, "Extensions, skills and plugins that your pi and this dashboard load.")}{" "}
+					<button
+						type="button"
+						onClick={() => {
+							setExplainerDismissed(false);
+							setFocusExplainer((n) => n + 1);
+						}}
+						className="text-[var(--accent-primary)] hover:underline cursor-pointer"
+						data-testid="addons-explainer-link"
+					>
+						{t("addons.explainerTitle", undefined, "What are extensions and plugins?")}
+					</button>
 			</p>
+
+			<AddonsExplainer
+				expanded={explainerExpanded}
+				onToggle={() => setExplainerDismissed(explainerExpanded)}
+				toggleRef={explainerToggleRef}
+			/>
 
 			{error && (
 				<div className="mb-2 p-2 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
@@ -339,9 +438,95 @@ export function UnifiedPackagesSection() {
 				</div>
 			)}
 
+			{restartRequired && (
+				<div
+					className="mb-2 p-2 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs"
+					role="status"
+					data-testid="pkg-health-restart-banner"
+				>
+					{t("packages.health.restartRequired", undefined, "Restart required for package changes to take effect.")}
+				</div>
+			)}
+			{health && (
+				<PackageHealthPanel
+					report={health}
+					onApply={applyHealthCleanup}
+					onRefresh={() => loadHealth().catch(logRejection("UnifiedPackagesSection.healthRefresh"))}
+				/>
+			)}
+
+			{localSourceCount > 0 && (
+				<div
+					className="mb-2 p-2 rounded border border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-xs text-[var(--text-secondary)] flex items-center justify-between gap-2"
+					data-testid="addons-local-banner"
+				>
+					<span>
+						{t(
+							"addons.localBanner",
+							{ count: localSourceCount },
+							`${localSourceCount} add-ons run from local source instead of a published version.`,
+						)}
+					</span>
+					<button
+						type="button"
+						onClick={() => setFilter({ ...EMPTY_INSTALLED_FILTER, localOnly: true })}
+						className="text-[var(--accent-primary)] hover:underline cursor-pointer shrink-0"
+						data-testid="addons-local-banner-show"
+					>
+						{t("addons.show", undefined, "Show")}
+					</button>
+				</div>
+			)}
+
+			<div className="flex items-center gap-2 flex-wrap mb-3" data-testid="addons-filter">
+				<input
+					type="search"
+					value={filter.text}
+					onChange={(e) => setFilter((f) => ({ ...f, text: e.target.value }))}
+					placeholder={t("addons.filterPlaceholder", undefined, "Filter installed add-ons")}
+					aria-label={t("addons.filterPlaceholder", undefined, "Filter installed add-ons")}
+					className="flex-1 min-w-[10rem] px-2 py-1 text-xs bg-[var(--bg-surface)] border border-[var(--border-secondary)] rounded text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
+					data-testid="addons-filter-input"
+				/>
+				<FilterChip
+					pressed={filter.localOnly}
+					onClick={() => setFilter((f) => ({ ...f, localOnly: !f.localOnly }))}
+					testId="addons-chip-local"
+				>
+					{t("addons.chipLocal", undefined, "Local source")}
+				</FilterChip>
+				<FilterChip
+					pressed={filter.updateOnly}
+					disabled={!updateCheckDone}
+					disabledHint={t("addons.chipUpdatesDisabled", undefined, "Check for updates first")}
+					onClick={() => setFilter((f) => ({ ...f, updateOnly: !f.updateOnly }))}
+					testId="addons-chip-updates"
+				>
+					{t("addons.chipUpdates", undefined, "Update available")}
+				</FilterChip>
+			</div>
+
+			{nothingMatches && (
+				<div className="mb-3 text-xs text-[var(--text-muted)]" data-testid="addons-no-match">
+					<span>{t("addons.noMatch", undefined, "Nothing matches your filter.")}</span>{" "}
+					{filter.text.trim() !== "" && (
+						<button
+							type="button"
+							onClick={() =>
+								window.dispatchEvent(new CustomEvent(ADDONS_NPM_SEARCH_EVENT, { detail: { query: filter.text.trim() } }))
+							}
+							className="text-[var(--accent-primary)] hover:underline cursor-pointer"
+							data-testid="addons-npm-search-link"
+						>
+							{t("addons.searchNpm", { query: filter.text.trim() }, `Search npm for "${filter.text.trim()}"`)}
+						</button>
+					)}
+				</div>
+			)}
+
 			{/* ── Core sub-group ─────────────────────────────────────────── */}
-			{!hideCoreGroup && <SubGroupHeader title={t("settings.core", undefined, "Core")} />}
-			{!hideCoreGroup && (corePackages.length === 0 ? (
+			{!hideCoreGroup && (!filtering || visibleCore.length > 0) && <SubGroupHeader title={t("settings.core", undefined, "Core")} />}
+			{!hideCoreGroup && (!filtering || visibleCore.length > 0) && (corePackages.length === 0 ? (
 				<EmptyHint>{t("settings.noCorePackages", undefined, "No pi ecosystem core packages detected.")}</EmptyHint>
 			) : (
 				<>
@@ -359,7 +544,7 @@ export function UnifiedPackagesSection() {
 						</div>
 					)}
 					<div className="space-y-1 mb-4">
-						{corePackages.map((pkg) => {
+						{visibleCore.map((pkg) => {
 							const isPi = pkg.name === PI_CORE_PKG;
 							const opSource = piCoreSource(pkg.name);
 							const busy = operations.runningSource === opSource;
@@ -392,16 +577,18 @@ export function UnifiedPackagesSection() {
 			))}
 
 			{/* ── Recommended Extensions sub-group ───────────────────────── */}
-			<SubGroupHeader title={t("settings.recommendedExtensions", undefined, "Recommended Extensions")} />
-			{recommended.length === 0 ? (
+			{(!filtering || recommended.length > 0) && (
+				<SubGroupHeader title={t("settings.recommendedExtensions", undefined, "Recommended Extensions")} />
+			)}
+			{filtering && recommended.length === 0 ? null : recommended.length === 0 ? (
 				<EmptyHint>{t("settings.noRecommendedExtensions", undefined, "No recommended extensions installed.")}</EmptyHint>
 			) : (
 				<div className="space-y-1 mb-4">{recommended.map(renderInstalledRow)}</div>
 			)}
 
 			{/* ── Other Packages sub-group ───────────────────────────────── */}
-			<SubGroupHeader title={t("settings.otherPackages", undefined, "Other Packages")} />
-			{other.length === 0 ? (
+			{(!filtering || other.length > 0) && <SubGroupHeader title={t("settings.otherPackages", undefined, "Other Packages")} />}
+			{filtering && other.length === 0 ? null : other.length === 0 ? (
 				<EmptyHint>{t("settings.otherPackagesHint", undefined, "Locally-developed and user-added packages will appear here.")}</EmptyHint>
 			) : (
 				<div className="space-y-1 mb-2">{other.map(renderInstalledRow)}</div>
@@ -460,6 +647,49 @@ function SubGroupHeader({ title, right }: { title: string; right?: React.ReactNo
 			</h3>
 			{right}
 		</div>
+	);
+}
+
+function FilterChip({
+	pressed,
+	onClick,
+	disabled,
+	disabledHint,
+	testId,
+	children,
+}: {
+	pressed: boolean;
+	onClick: () => void;
+	disabled?: boolean;
+	disabledHint?: string;
+	testId: string;
+	children: React.ReactNode;
+}) {
+	const hintId = useId();
+	return (
+		<>
+			<button
+				type="button"
+				aria-pressed={pressed}
+				disabled={disabled}
+				title={disabled ? disabledHint : undefined}
+				aria-describedby={disabled && disabledHint ? hintId : undefined}
+				onClick={onClick}
+				className={`text-xs px-2 py-1 rounded border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+					pressed
+						? "border-[var(--accent-primary)] bg-[var(--accent-primary)]/15 text-[var(--text-primary)]"
+						: "border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+				}`}
+				data-testid={testId}
+			>
+				{children}
+			</button>
+			{disabled && disabledHint && (
+				<span id={hintId} className="sr-only">
+					{disabledHint}
+				</span>
+			)}
+		</>
 	);
 }
 

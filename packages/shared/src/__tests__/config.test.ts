@@ -1254,6 +1254,19 @@ describe("resolveDashboardPorts", () => {
     expect(r).toEqual({ port: 8001, piPort: 9101 });
   });
 
+  // test-plan #E21 — usable = integer 1–65535, both boundaries inclusive.
+  it.each([
+    ["8000.5", 8001],
+    ["-1", 8001],
+    ["0", 8001],
+    ["65536", 8001],
+    ["70000", 8001],
+    ["1", 1],
+    ["65535", 65535],
+  ])("DASHBOARD_PORT=%s resolves to %s (integer 1–65535 rule)", (value, expected) => {
+    expect(resolveDashboardPorts({ DASHBOARD_PORT: value }, { port: 8001 }).port).toBe(expected);
+  });
+
   it("first var of a role wins (PI_DASHBOARD_PORT over DASHBOARD_PORT, PI_DASHBOARD_PI_PORT over PI_GATEWAY_PORT)", () => {
     const r = resolveDashboardPorts(
       { PI_DASHBOARD_PORT: "8001", DASHBOARD_PORT: "8002", PI_DASHBOARD_PI_PORT: "9101", PI_GATEWAY_PORT: "9102" },
@@ -1441,5 +1454,72 @@ describe("subagentTickThrottleMs default + migration marker", () => {
     const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
     expect(written.subagentTickThrottleMs).toBe(500);
     expect(written.subagentTickThrottleMigrated).toBe(true);
+  });
+});
+
+// ── knownServers fingerprint pass-through (stabilize-mdns-server-identity) ──
+describe("knownServers fingerprint (#E11 #E12 #X7)", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), "test-config-ks-"));
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    fs.rmSync(testDir, { recursive: true, force: true });
+  });
+
+  const load = (knownServers: unknown) => {
+    fs.writeFileSync(configFile, JSON.stringify({ knownServers }));
+    return loadConfig().knownServers;
+  };
+  const t = "2026-01-01T00:00:00.000Z";
+
+  it("#E11 keeps sha256: fingerprints, drops others, collapses duplicate (fp, port)", () => {
+    const out = load([
+      { host: "a", port: 1, addedAt: t, fingerprint: "sha256:x" },
+      { host: "b", port: 1, addedAt: t, fingerprint: "md5:y" },
+      { host: "c", port: 1, addedAt: t, fingerprint: 42 },
+      { host: "d", port: 8000, addedAt: t, fingerprint: "sha256:z" },
+      { host: "e", port: 8000, addedAt: t, fingerprint: "sha256:z" },
+    ]);
+    expect(out.map((e) => [e.host, e.fingerprint])).toEqual([
+      ["a", "sha256:x"],
+      ["b", undefined],
+      ["c", undefined],
+      ["d", "sha256:z"],
+    ]);
+  });
+
+  it("#E11 the same fingerprint on different ports is two entries", () => {
+    const out = load([
+      { host: "a", port: 8000, addedAt: t, fingerprint: "sha256:z" },
+      { host: "a", port: 8001, addedAt: t, fingerprint: "sha256:z" },
+    ]);
+    expect(out).toHaveLength(2);
+  });
+
+  it("#E12 a pinned entry keeps its fingerprint across a rewrite", () => {
+    const first = load([{ host: "a", port: 1, addedAt: t, fingerprint: "sha256:x" }]);
+    const rewritten = [...first, { host: "b", port: 2, addedAt: t }];
+    expect(load(rewritten).find((e) => e.host === "a")?.fingerprint).toBe("sha256:x");
+    expect(load(rewritten.filter((e) => e.host === "a")).find((e) => e.host === "a")?.fingerprint).toBe("sha256:x");
+  });
+
+  it("#X7 malformed fingerprints are dropped without throwing", () => {
+    const out = load([
+      { host: "a", port: 1, addedAt: t, fingerprint: "sha256:" },
+      { host: "b", port: 2, addedAt: t, fingerprint: {} },
+      { host: "c", port: 3, addedAt: t, fingerprint: null },
+    ]);
+    expect(out).toHaveLength(3);
+    expect(out.every((e) => !("fingerprint" in e))).toBe(true);
   });
 });

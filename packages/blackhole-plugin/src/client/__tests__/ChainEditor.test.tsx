@@ -440,3 +440,50 @@ describe("role-aware slots (add-role-aware-model-refs)", () => {
     expect(next[0]).toMatchObject({ provider: "ollama", id: "model-b" });
   });
 });
+
+// ── retro-ux-model-selector: shared RoleRef, status vocabulary, notices ──
+describe("chain slot role refs + notices (retro-ux-model-selector)", () => {
+  it("E14: role-bound summaries render RoleRef with the file value; status pills; 'No model assigned' without a value; detached callout", () => {
+    const onReattach = vi.fn();
+    const { getByTestId } = renderChain(
+      [
+        { provider: "anthropic", id: "claude-sonnet-4-5", role: "@coding", roleStatus: "detached" },
+        { provider: "anthropic", id: "claude-haiku-4-5", role: "@research", roleStatus: "dangling" },
+        { provider: "", id: "", role: "@research" },
+      ],
+      true,
+      { onReattach },
+    );
+    const e0 = getByTestId("blackhole-chain-observer-entry-0");
+    expect(getByTestId("blackhole-chain-observer-entry-0-role").textContent).toBe("@coding");
+    expect(e0.querySelector("[data-role-ref-model]")?.textContent).toContain("anthropic/claude-sonnet-4-5");
+    const s0 = getByTestId("blackhole-chain-observer-entry-0-role-status");
+    expect(s0.textContent).toBe("Detached");
+    expect(s0.getAttribute("data-status")).toBe("detached");
+    expect(s0.className).toContain("--severity-warning-bg");
+    const e1 = getByTestId("blackhole-chain-observer-entry-1");
+    expect(e1.querySelector("[data-role-ref-model]")?.textContent).toContain("claude-haiku-4-5");
+    expect(getByTestId("blackhole-chain-observer-entry-1-role-status").textContent).toBe("Role unassigned, keeps its last model");
+    const e2 = getByTestId("blackhole-chain-observer-entry-2");
+    expect(within(e2).getByText("No model assigned")).toBeTruthy();
+    expect(e2.querySelector("[data-role-ref-model]")).toBeNull();
+    // detached callout: reason + "Reattach to @coding"
+    const btn = getByTestId("blackhole-chain-observer-reattach-0");
+    expect(btn.textContent).toBe("Reattach to @coding");
+    expect(btn.parentElement?.className).toContain("--severity-warning-bg");
+    expect(btn.parentElement?.textContent).toContain("no longer follows @coding");
+    fireEvent.click(btn);
+    expect(onReattach).toHaveBeenCalledWith(0);
+  });
+
+  it("E15: the level-drop notice is a warning callout with the one-sentence copy, an icon and no emoji", () => {
+    const models: ModelInfo[] = [{ provider: "c", id: "d", reasoning: false }];
+    const { getByTestId } = renderChain([{ provider: "a", id: "b", thinking: "high" }], true, { models });
+    fireEvent.click(getByTestId("model-opt-c/d"));
+    const notice = getByTestId("blackhole-chain-observer-0-level-drop");
+    expect(notice.textContent).toBe("Thinking level high isn't supported by c/d, so the level was dropped.");
+    expect(notice.className).toContain("--severity-warning-bg");
+    expect(notice.querySelector("svg")).toBeTruthy();
+    expect(notice.textContent).not.toMatch(/[\u2600-\u27BF\u{1F300}-\u{1FAFF}]/u);
+  });
+});

@@ -1,5 +1,5 @@
-import React from "react";
-import { useAsyncAction, type UseAsyncActionOptions } from "../../hooks/useAsyncAction.js";
+import type React from "react";
+import { type UseAsyncActionOptions, useAsyncAction } from "../../hooks/useAsyncAction.js";
 
 export interface ActionButtonProps
   extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "onClick"> {

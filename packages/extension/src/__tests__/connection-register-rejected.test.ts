@@ -15,6 +15,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionManager } from "../connection.js";
 
 class MockWebSocket {
+  public url: string;
   static instances: MockWebSocket[] = [];
   readyState = 0;
   onopen: (() => void) | null = null;
@@ -23,7 +24,8 @@ class MockWebSocket {
   onerror: ((ev: unknown) => void) | null = null;
   sentMessages: string[] = [];
 
-  constructor(public url: string) {
+  constructor(url: string) {
+    this.url = url;
     MockWebSocket.instances.push(this);
   }
 

@@ -112,18 +112,18 @@ ACP v1 = what shipping agents speak (querymt, `@agentclientprotocol/claude-agent
 
 Removed in v2: client `fs/*`, `terminal/*`, `session/set_mode`, `session/load` → dashboard refuses fs/terminal with `-32601`.
 
-New `SessionDriver` seam in server. `PiDriver` = existing bridge WS. `AcpDriver` = spawn `qmtcode --stdio`.
+Adopted shape (adapter, not `SessionDriver`): transport-agnostic `AcpSessionAdapter` core mounted by host A (in-process, `PiGateway.attachLocalConnection`, `durable:false`) or host B (rpc-keeper, `bin/acp-bridge.mjs`, `durable:true`). Core speaks bridge protocol upward, ACP JSON-RPC stdio downward. See `openspec/changes/add-acp-session-driver/design.md` D1.
 
 ```mermaid
 flowchart LR
-  C[Web client] -- protocol.ts ~94 msgs --> S[Dashboard server]
-  S --> D{SessionDriver}
-  D -- "PiDriver" --> B[bridge WS]
-  B --> P[pi session]
-  D -- "AcpDriver" --> N["normalizeV1 → v2 model → toEventForward"]
-  N --> S
-  N -- "rpc-keeper (duplex)" --> Q["ACP agent"]
-  Q -- ACP --> N
+  C[Web client] -- protocol.ts --> S[Dashboard server]
+  S <-->|"PiGateway"| GW[pi-gateway]
+  GW <-->|WebSocket| PB[pi bridge ext] --> P[pi session]
+  GW <-->|"WebSocket, durable:true"| HB["acp-bridge (rpc-keeper)"]
+  GW <-->|"LocalBridgeSocket, durable:false"| HA[in-process host]
+  HB --- CORE
+  HA --- CORE
+  CORE["AcpSessionAdapter (transport-agnostic)<br/>bridge msgs ⇄ ACP v1 → v2 update model"] <-->|"JSON-RPC NDJSON stdio, argv, allowlisted env"| Q["ACP agent (qmtcode)"]
 ```
 
 - Works: chat streaming, tool cards, abort, permissions, spawn in cwd, model pick if exposed via ACP.

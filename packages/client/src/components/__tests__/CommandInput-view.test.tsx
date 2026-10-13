@@ -2,13 +2,14 @@
  * Tests for the `/view` interception and `@`-URL autocomplete additions to
  * CommandInput. See change: render-file-previews.
  */
-import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
-import { render, fireEvent, cleanup } from "@testing-library/react";
-import React from "react";
-import { CommandInput, DASHBOARD_LOCAL_COMMANDS, parseViewCommand } from "../chat/CommandInput.js";
+
 import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, fireEvent, render } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "../../lib/chat/event-reducer.js";
 import { viewTargetToEditorPath } from "../../lib/nav/view-route.js";
+import { CommandInput, DASHBOARD_LOCAL_COMMANDS, parseViewCommand } from "../chat/CommandInput.js";
 
 afterEach(() => cleanup());
 

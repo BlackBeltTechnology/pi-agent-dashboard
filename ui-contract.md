@@ -62,6 +62,19 @@ hand-write a per-theme severity color.
 | status | `--status-{needs-you,working,idle,error,notice}` | session lifecycle state only — shapes and dots, never text |
 | warn alias | `--warn-{bg,border,fg,body}` | pre-existing alias of the warning family |
 
+**Exception — invite QR quiet zone:** the Users invite QR keeps a literal
+`bg-white` panel in every theme; a QR code needs a light quiet zone
+(ISO/IEC 18004 §6.3.8). The only `bg-white` allowed in the connectivity
+components (`connectivity-token-scan.test.ts`).
+
+**Exception — mermaid fallback literals:** `FALLBACK_ACCENTS` and the
+`--text-primary` hex fallback in `MermaidBlock.tsx` are used only when
+`getComputedStyle` returns empty (jsdom); mermaid needs concrete colour strings
+and `rgba()` parses hex only. Every palette must therefore define
+`--accent-blue`, `--accent-green`, `--accent-yellow`, `--accent-red`,
+`--accent-purple`, `--accent-orange` and `--text-primary` as `#hex`, guarded by
+`mermaid-accent-guard.test.ts`.
+
 **Rule:** a new surface uses a *severity* or *tint* token, not `--accent-red`
 directly and never a Tailwind palette class (`text-green-400`,
 `bg-blue-500/10`, …) or a hex/`rgba(` literal. Raw accents are reserved for the
@@ -168,10 +181,14 @@ drop it on a raised surface.
 | chip / pill | `rounded-full px-1.5 py-0.5 text-[11px] bg-[var(--bg-tertiary)]` (identity pill: tint triple) |
 | action chip | `focus-ring inline-flex items-center gap-0.5 rounded-md border px-2.5 tap-target text-[12px] font-semibold` + `tint-action-X` |
 | severity callout | `rounded-md border bg-[var(--severity-X-bg)] border-[var(--severity-X-border)] text-[var(--severity-X-fg)]` |
+| role ref (`RoleRef`, `dashboard-plugin-runtime`) | role token `font-mono font-semibold text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded px-1.5` · model id `font-mono text-[var(--text-primary)] truncate` with the provider prefix in a `sr-only` span (so `textContent` keeps `provider/id`, no `aria-label`) · level chip `text-xs font-semibold text-[var(--text-secondary)] border rounded-full px-1.5` + `sr-only` "thinking" · one-shot picks show the model then "from @role" in `--text-secondary` · no model value → warning pill "No model assigned". Every surface that shows an `@role[:level]` ref renders it through this component. See change: retro-ux-model-selector |
+| binding status pill | `inline-flex rounded-full border px-1.5 py-0.5 text-xs` + `--severity-warning-{bg,border,fg}`; one vocabulary: `detached` → "Detached", `dangling` → "Role unassigned, keeps its last model", unassigned → "No model assigned", `ok` → nothing; the raw status stays in `data-status`. The reason and a "Reattach to @role" button sit in a warning callout. See change: retro-ux-model-selector |
 | primary button | `focus-ring rounded-md bg-[var(--accent-solid)] px-3 min-h-[44px] sm:min-h-[36px] text-white font-semibold disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)]` — `--accent-solid` is theme-invariant (white on it is 5.17:1 everywhere); `--accent-primary` is NOT a white-text fill (3.68:1) |
 | secondary button | `focus-ring rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] px-3 min-h-[44px] sm:min-h-[36px]` |
 | section heading | `text-[12px] font-semibold text-[var(--text-secondary)]` — no uppercase + `--text-muted` |
 | field label | `text-[12px] font-semibold text-[var(--text-primary)]` |
+| settings field | the runtime field family (`dashboard-plugin-runtime/src/settings-fields.tsx`): label row (`text-xs font-semibold text-[var(--text-primary)]`, `htmlFor`, unit chip inside the label) + optional key chip + state pill → control → hint (`text-xs text-[var(--text-secondary)]`, `aria-describedby`) → error (`text-xs text-[var(--severity-error-fg)]`, `role="alert"`, `aria-invalid`). **Exception to the `input` row's "label above":** settings rows keep the label beside the control (stacked only for text inputs). The 12 px unit chip inside a settings `<label>` is an exception to the 11 px chip step (text inside a `<label>` meets the 12 px interactive floor). |
+| capsule legend | `text-[12px] font-semibold uppercase text-[var(--text-secondary)]` on `SlotPill` and `SessionSubcard` — the section-heading recipe plus `uppercase` as an explicit exception. `SessionSubcard`'s border-only panel (no fill) is an exception to the inset-panel row. |
 | dialog | scrim `bg-[var(--bg-overlay)]` + panel at card recipe, `max-w-*`, one primary action |
 | input | `rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 py-1.5 text-sm` + persistent label above |
 
@@ -196,6 +213,11 @@ which is why they also carry a shape (below).
    **plus** text, not a bare coloured dot.
 5. Dialogs carry `role="dialog"`, `aria-modal`, a labelled title, focus trap,
    and Escape-to-close.
+   **Exception — non-modal popovers** (the model selector's dropdown): `role="dialog"`
+   with `aria-modal="false"` and an `aria-label`, no focus trap (the page stays
+   interactive, outside click closes it), Escape closes and returns focus to the
+   trigger. A popover that blocks the page is a modal and follows the rule above.
+   See change: retro-ux-model-selector.
 6. **The lower text ramp is not uniformly text-safe, and the failure is
    theme-asymmetric.** Verify a ramp token against BOTH themes before using it
    as text:
@@ -203,13 +225,27 @@ which is why they also carry a shape (below).
    | Token | dark on `--bg-primary` | light on `--bg-primary` | Safe as text? |
    |---|---|---|---|
    | `--text-secondary` | 9.07:1 | 9.74:1 | yes, both |
-   | `--text-tertiary` | 4.98:1 | **4.48:1** | **dark only** — light is under the 4.5:1 floor |
+   | `--text-tertiary` | 4.98:1 | `#636363` — passes 4.5:1 on `--bg-surface` (`index.css`) | yes in both; the earlier `#777777` / 4.48:1 figure was stale. See change: retro-ux-identity-connectivity |
    | `--text-muted` | 2.77:1 | 2.32:1 | no — decorative/disabled only |
 
-   `--text-tertiary` is #777777 in light, documented in `index.css` as an
-   *overlay boundary* under SC 1.4.11 — a **3:1 non-text** threshold. It is a
-   border token that happens to be legible, not a text token. Quiet body copy
-   that must survive both themes takes `--text-secondary`.
+   Quiet body copy that must survive every palette takes `--text-secondary`;
+   `--text-muted` never carries information text.
+7. **Severity foregrounds stay on their own background.** `--severity-X-fg` is
+   text-safe on `--severity-X-bg` (a pill or callout), not on `--bg-surface`
+   (nord dark measures 4.36:1). `--accent-text` is not text-safe on
+   `--bg-surface` in every palette (nord dark: 3.39:1, and 3.27:1 on
+   `--severity-info-bg`); menu actions use `--text-primary` plus an icon, and a
+   disclosure summary inherits its callout's fg and is underlined. See change:
+   retro-ux-identity-connectivity (audit A1, A2).
+
+**Contradiction to resolve (a11y #2 vs the primary-button recipe):** #2 says
+primary actions are ≥ 44×44 px, while the primary-button recipe is
+`min-h-[44px] sm:min-h-[36px]` (44 px below `sm`, 36 px from `sm`). The recipe
+is what ships; reconcile the wording in a follow-up.
+
+**Follow-up (needs user approval, not done here):** hide the selector's move
+"Update" item from non-operators; this needs a MODIFIED `known-servers`
+"Operator accepts a move suggestion" delta.
 
 **Known debt (do not copy):** `BranchSwitchDialog.tsx` ships with no `role`,
 `aria-modal`, or labelled title. New dialogs must not inherit that.

@@ -11,7 +11,7 @@
 
 `GET /api/push/vapid-public-key` → `observe`; `GET/POST /api/push/register`, `DELETE /api/push/register/:tokenId`, `POST /api/push/test` → `operate`. See change: add-server-push-notifications.
 
-Removes `GET /api/mcp-client/adapter`, `PUT /api/mcp-client/disabled`, `PUT /api/mcp-client/settings`; adds `GET /api/mcp-client/live` (operate), `PUT /api/mcp-client/servers/:name/enabled` (operate), `POST /api/mcp-client/servers/:name/convert` (operate). See change: migrate-mcp-to-pi-builtin.
+Removes `GET /api/mcp-client/adapter`, `PUT /api/mcp-client/disabled`, `PUT /api/mcp-client/settings`; adds `GET /api/mcp-client/live` (operate), `PUT /api/mcp-client/servers/:name/enabled` (operate), `POST /api/mcp-client/servers/:name/convert` (operate). See change: migrate-mcp-to-pi-builtin. Adds `PUT /api/mcp-client/servers/:name/project-override` and `POST /api/mcp-client/servers/:name/convert-to-override` (both operate). See change: mcp-client-project-overrides.
 
 KB routes (observe: GET /api/kb/search, GET /api/kb/sources; operate: POST /api/kb/source-trust). See change: improve-kb-settings-sources-and-search.
 
@@ -22,3 +22,12 @@ KB routes (observe: GET /api/kb/search, GET /api/kb/sources; operate: POST /api/
 Rows for `/api/users`, `/api/users/:id`, `/api/users/:id/revoke`, `/api/users/:id/invites`, `/api/users/invites/:inviteId`, `/api/users/credentials/impact` — all `operate`. See change: add-passkey-user-auth.
 
 `/api/services/*` (17 routes): GETs `observe`; every mutation (POST/PUT/DELETE incl. ensure/heartbeat/release) `operate`; MCP denylisted. Route itself also refuses trusted-network + observe/control callers (`canMutateServices`). See change: add-service-registry-core.
+
+`POST /api/browse/create-project` row, `control` (same tier as `/api/browse/mkdir`). See change: streamline-first-run.
+
+`GET /api/provider-auth/legacy-provider-ids` → `operate` (names pi config files holding a renamed provider id; same tier as `/status`). See change: update-pi-core-1-1-adopt-apis.
+
+- `/api/vault*` operate; `GET /api/session/:id/vault-bindings` observe. See change: add-credential-vault.
+- `GET /api/folder/project` classified `observe`. See change: add-project-scoped-apps.
+
+Row `GET /api/plugins/skill-atlas/graph` observe. See change: add-skill-atlas-screen.

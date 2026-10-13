@@ -28,6 +28,46 @@ if [ ! -d "$GLOBAL_DIR/@blackbelt-technology/pi-dashboard" ]; then
   exit 1
 fi
 
+# --- pi lockstep floor (X4; change: update-pi-core-1-1-adopt-apis) ---------
+# Every resolved copy of the governed pi packages must sit at or above the 1.1.0
+# floor; a copy left on an older pin means the lockstep (peers, overrides,
+# server dependency) did not publish coherently.
+PI_FLOOR="1.1.0"
+BELOW=$(GLOBAL_DIR="$GLOBAL_DIR" PI_FLOOR="$PI_FLOOR" node -e '
+const fs = require("fs"), path = require("path");
+const floor = process.env.PI_FLOOR.split(".").map(Number);
+const names = ["pi-coding-agent", "pi-ai", "pi-tui"];
+const below = []; let found = 0;
+(function walk(dir, depth) {
+  if (depth > 8) return;
+  let entries; try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  for (const e of entries) {
+    if (!e.isDirectory() && !e.isSymbolicLink()) continue;
+    const full = path.join(dir, e.name);
+    if (path.basename(dir) === "@earendil-works" && names.includes(e.name)) {
+      try {
+        const v = JSON.parse(fs.readFileSync(path.join(full, "package.json"), "utf8")).version;
+        found++;
+        const n = v.split("-")[0].split(".").map(Number);
+        const lt = n[0] < floor[0] || (n[0] === floor[0] && (n[1] < floor[1] || (n[1] === floor[1] && n[2] < floor[2])));
+        if (lt || v.includes("-")) below.push(full + "@" + v);
+      } catch {}
+      continue;
+    }
+    if (e.name === ".bin" || e.name === ".cache") continue;
+    walk(full, depth + 1);
+  }
+})(process.env.GLOBAL_DIR + "/@blackbelt-technology", 0);
+if (found === 0) below.push("no @earendil-works pi-coding-agent/pi-ai/pi-tui copy found");
+console.log(below.join("\n"));
+')
+if [ -n "$BELOW" ]; then
+  echo "FAIL: pi copies below the $PI_FLOOR floor (or none resolved):"
+  echo "$BELOW"
+  exit 1
+fi
+echo "Every resolved pi-coding-agent / pi-ai / pi-tui copy is at or above $PI_FLOOR"
+
 # --- mcp.json integrity against the real filesystem (J7, J8) ---------------
 # The dashboard no longer provisions mcp.json (pi sessions reach /mcp through a
 # per-session pi.registerMcpServer registration — change

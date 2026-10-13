@@ -43,3 +43,5 @@ New `ProviderRefreshError { provider, message }`; `ModelsListMessage.refreshErro
 Adds `McpTokenMintedExtensionMessage` (`mcp_token_minted`, carries the plaintext session token + optional `url` = the `/mcp` URL the bridge registers with `pi.registerMcpServer`) to `ServerToExtensionMessage` — rides the session-private bridge lane only, never re-emitted on `pi.events` (D5). See change: wire-mcp-session-token, migrate-mcp-to-pi-builtin.
 
 `DispatchExtensionCommandMessage` is `@deprecated` — the bridge dispatches in-process since change `retire-slash-dispatch-via-expand-prompt-templates`; a one-release server tombstone answers it.
+
+- `VaultSyncRequestMessage`, `VaultReportMessage` (bridge→server), `VaultSnapshotMessage` (server→bridge). See change: add-credential-vault.

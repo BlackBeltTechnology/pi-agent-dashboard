@@ -45,6 +45,7 @@ import { runUiSafely } from "../ui-stale-guard.js";
 import { sendShutdownUsageThenUnregister, type UsageDrain } from "../usage-drain.js";
 import { detectIsGitRepo } from "../vcs-info.js";
 import { buildVisibilityRegisterFields } from "../visibility-intent.js";
+import { formatHostPort } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
 import type { BridgeInstance } from "./instance.js";
 import { patchUiForPromptBus } from "./ui-prompt-patch.js";
 
@@ -179,6 +180,8 @@ export function registerProjectTrust(inst: BridgeInstance): void {
   } catch { /* older pi: no project_trust event — no-op */ }
 }
 
+const VAULT_START_REASONS = new Set(["startup", "reload", "new", "resume", "fork"]);
+
 /** `session_start`: register the session, build the PromptBus, patch `ctx.ui`, arm timers. */
 export function registerSessionStart(inst: BridgeInstance): void {
   const pi = inst.pi;
@@ -188,6 +191,15 @@ export function registerSessionStart(inst: BridgeInstance): void {
     if (!inst.isActive()) return;
     const newSessionId = ctx.sessionManager.getSessionId();
     inst.pathGate.onSessionStart();
+    // Credential vault: resolve the project from THIS session's own cwd (never the
+    // launch directory) on every start reason; an unreadable cwd withdraws all.
+    // See change: add-credential-vault (D2, D3).
+    void inst.vaultDelivery
+      .onSessionStart({
+        reason: VAULT_START_REASONS.has(_event?.reason) ? _event.reason : "startup",
+        getCwd: () => ctx.sessionManager.getCwd(),
+      })
+      .catch(() => {});
     // Re-arm MCP registration for the (replacement) session; its mint below
     // registers pi-dashboard again. See change: migrate-mcp-to-pi-builtin (D1).
     inst.mcpRegistrar.onSessionStart();
@@ -756,7 +768,7 @@ export function registerSessionStart(inst: BridgeInstance): void {
     }).then((result) => {
       stopSpinner(); // safety net — covers onLaunchEnd not firing
       if (result.server && result.server.piPort !== inst.config.piPort) {
-        const candidateUrl = `ws://${result.server.host === "localhost" ? "localhost" : result.server.host}:${result.server.piPort}`;
+        const candidateUrl = `ws://${formatHostPort(result.server.host, result.server.piPort)}`;
         // fix-bridge-mdns-migration-hijack: a DISCOVERED candidate only
         // SUGGESTS. Whether the connection follows it is decided — and
         // recorded — by `ConnectionManager.retargetTo`, which refuses to
@@ -785,7 +797,7 @@ export function registerSessionStart(inst: BridgeInstance): void {
         // The health probe runs on the candidate's HTTP port — the record's
         // `port`, not the gateway port — and completes BEFORE the incumbent
         // is dropped (retargetTo owns that ordering).
-        const healthUrl = `http://${result.server.host}:${result.server.port}/api/health`;
+        const healthUrl = `http://${formatHostPort(result.server.host, result.server.port)}/api/health`;
         inst.connection
           .retargetTo(candidateUrl, {
             trigger,
@@ -813,6 +825,7 @@ export function registerSessionStart(inst: BridgeInstance): void {
     startMetricsMonitor();
     inst.heartbeatTimer = setInterval(() => {
       if (!inst.isActive()) return;
+      inst.vaultDelivery.tick();
       inst.connection.send({
         type: "session_heartbeat",
         sessionId: inst.sessionId,

@@ -18,6 +18,7 @@ import {
   type EmbeddedAppShell,
   EmbeddedAppShellProvider,
 } from "../embedded-app-shell.js";
+import { __resetFolderProjectsForTests } from "../folder-project.js";
 
 function encodeFolder(cwd: string): string {
   return btoa(cwd).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -320,5 +321,93 @@ describe("app router is based at basePath", () => {
     });
     expect(inner).toBe("/graph/node-1");
     expect(renders).toBe(0);
+  });
+});
+
+
+// ── projectScope (change: add-project-scoped-apps) ───────────────────────────
+
+describe("projectScope", () => {
+  type Scope = { type?: string; id?: string };
+  const project = (types: string[], id: string | null) =>
+    ({ ok: true, status: 200, json: async () => ({ id, types, source: "detected" }) }) as Response;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    __resetFolderProjectsForTests();
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    __resetFolderProjectsForTests();
+  });
+
+  const settled = async () => {
+    await act(async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    });
+  };
+
+  // test-plan #E25
+  it.each<[string, Scope, { types: string[]; id: string | null }, boolean]>([
+    ["type ✓ / folder judo", { type: "judo" }, { types: ["judo"], id: null }, true],
+    ["type ✓ / folder judo+id", { type: "judo" }, { types: ["judo"], id: "acme-erp" }, true],
+    ["id ✗ / folder no id", { id: "acme-erp" }, { types: ["judo"], id: null }, false],
+    ["id ✓ / folder id", { id: "acme-erp" }, { types: ["judo"], id: "acme-erp" }, true],
+    ["type+id ✗ / folder no id", { type: "judo", id: "acme-erp" }, { types: ["judo"], id: null }, false],
+    ["type+id ✓ / folder id", { type: "judo", id: "acme-erp" }, { types: ["judo"], id: "acme-erp" }, true],
+    ["type ✗ / folder plain", { type: "erp" }, { types: ["judo"], id: null }, false],
+  ])("%s", async (_label, scope, folderProject, mounts) => {
+    fetchMock.mockResolvedValue(project(folderProject.types, folderProject.id));
+    const onBack = vi.fn();
+    mount(<EmbeddedApp app={app()} basePath={BASE} folderParam={ENC} projectScope={scope} onBack={onBack} />);
+    expect(screen.getByTestId("embedded-app-loading")).toBeTruthy();
+    expect(screen.queryByTestId("probe-app")).toBeNull();
+    await settled();
+    if (mounts) {
+      expect(screen.getByTestId("probe-app")).toBeTruthy();
+      expect(screen.queryByTestId("embedded-app-not-available")).toBeNull();
+    } else {
+      expect(screen.queryByTestId("probe-app")).toBeNull();
+      const na = screen.getByTestId("embedded-app-not-available");
+      expect(na.textContent).toContain("Not available for this folder");
+      expect(na.textContent).toContain("Wall");
+      expect(na.textContent).toContain("acme-erp");
+      expect(screen.getByTestId("embedded-app-topbar")).toBeTruthy();
+      fireEvent.click(screen.getByTestId("embedded-app-back"));
+      expect(onBack).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("an error entry fails closed: not mounted, Not available for this folder", async () => {
+    fetchMock.mockRejectedValue(new Error("offline"));
+    mount(<EmbeddedApp app={app()} basePath={BASE} folderParam={ENC} projectScope={{ type: "judo" }} onBack={() => {}} />);
+    await settled();
+    expect(screen.queryByTestId("probe-app")).toBeNull();
+    expect(screen.getByTestId("embedded-app-not-available")).toBeTruthy();
+  });
+
+  // test-plan #E26
+  it("without folderParam: Not available here, app title only, no fetch", async () => {
+    const onBack = vi.fn();
+    mount(<EmbeddedApp app={app()} basePath="/wall" projectScope={{ type: "judo" }} onBack={onBack} />);
+    await settled();
+    const na = screen.getByTestId("embedded-app-not-available-here");
+    expect(na.textContent).toContain("Not available here");
+    expect(na.textContent).toContain("Wall");
+    expect(na.textContent).not.toContain("·");
+    expect(screen.queryByTestId("probe-app")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("embedded-app-back"));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  // test-plan #E27
+  it("unscoped apps never request a folder project", async () => {
+    mount(<EmbeddedApp app={app()} basePath={BASE} folderParam={ENC} onBack={() => {}} />);
+    await settled();
+    expect(screen.getByTestId("probe-app")).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

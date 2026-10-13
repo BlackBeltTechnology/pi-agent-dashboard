@@ -30,6 +30,8 @@ interface FetchScript {
   providers?: Record<string, any>;
   health?: Record<string, any>;
   catalogueReady?: boolean;
+  /** GET /api/provider-auth/legacy-provider-ids payload; undefined = older server (404). */
+  legacyProviderIds?: any[];
   statusMode?: "ok" | "500" | "nonarray" | "reject";
   providersMode?: "ok" | "500" | "reject";
   apiKeyPut?: () => Promise<any>;
@@ -60,6 +62,10 @@ function stubFetch(script: FetchScript) {
       if (script.providersMode === "reject") throw new TypeError("simulated network failure");
       if (init?.method === "PATCH") return script.providerPatch ? await script.providerPatch() : { ok: true, json: async () => ({ success: true }) } as any;
       return { ok: true, status: 200, json: async () => ({ success: true, providers: script.providers ?? {}, health: script.health ?? {} }) } as any;
+    }
+    if (url.includes("/api/provider-auth/legacy-provider-ids")) {
+      if (script.legacyProviderIds === undefined) return { ok: false, status: 404, json: async () => ({ error: "Not Found" }) } as any;
+      return { ok: true, status: 200, json: async () => ({ legacyProviderIds: script.legacyProviderIds }) } as any;
     }
     if (url.includes("/api/provider-auth/catalogue-ready")) {
       return { ok: true, status: 200, json: async () => ({ ready: script.catalogueReady ?? true }) } as any;
@@ -791,5 +797,55 @@ describe("pi 1.0.0 provider rows (F2, F3)", () => {
     await waitFor(() => expect(rows(c)).toHaveLength(1));
     expect(badgeOf(rows(c)[0])).toBe("Account");
     expect(within(rows(c)[0] as HTMLElement).queryByRole("button", { name: /sign out/i })).not.toBeNull();
+  });
+});
+
+// ── F1/F2 — pi 1.0.3 renamed `azure-openai-responses` → `azure` ──────────────
+// See change: update-pi-core-1-1-adopt-apis (test-plan #F1, #F2).
+describe("legacy Azure provider-id rename notice (F1, F2)", () => {
+  const OLD_ENTRY = {
+    legacyId: "azure-openai-responses",
+    newId: "azure",
+    locations: ["auth.json", "settings.json:defaultProvider"],
+  };
+  const keyRow = { id: "openai", name: "OpenAI", flowType: "api_key", authenticated: true, maskedKey: "sk-…abc", configured: true, source: "stored" };
+
+  it("F1 shows a labelled warning with locations, consequence and fix; gone after an empty refresh", async () => {
+    const script: FetchScript = {
+      statusGets: 0,
+      providersGets: 0,
+      statuses: [keyRow],
+      legacyProviderIds: [OLD_ENTRY],
+      providerDelete: () => {
+        script.statuses = [];
+        script.legacyProviderIds = [];
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true }) } as any);
+      },
+    };
+    const { c } = await renderSection(script);
+
+    const notice = await c.findByTestId("legacy-provider-rename-notice");
+    const text = notice.textContent ?? "";
+    expect(text).toMatch(/warning/i); // a text label, not colour alone
+    expect(text).toContain("azure-openai-responses");
+    expect(text).toContain("auth.json");
+    expect(text).toContain("settings.json:defaultProvider");
+    expect(text).toMatch(/fall back to another model/i);
+    expect(text).toMatch(/prompt cache/i);
+    expect(text).toContain("azure");
+    expect(text).toContain("/login");
+
+    fireEvent.click(c.getByText("Remove"));
+    await waitFor(() => expect(c.queryByTestId("legacy-provider-rename-notice")).toBeNull());
+  });
+
+  it("F2 shows no notice when the list is empty or the server predates the route", async () => {
+    for (const legacyProviderIds of [[], undefined]) {
+      const script: FetchScript = { statusGets: 0, providersGets: 0, statuses: [keyRow], legacyProviderIds };
+      const { c } = await renderSection(script);
+      await waitFor(() => expect(rows(c)).toHaveLength(1));
+      expect(c.queryByTestId("legacy-provider-rename-notice")).toBeNull();
+      cleanup();
+    }
   });
 });

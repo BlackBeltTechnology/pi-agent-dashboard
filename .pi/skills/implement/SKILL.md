@@ -13,21 +13,18 @@ The skill exists because both halves are easy to get wrong:
 
 ## Quick decision tree
 
-```
-        Did you edit code?
-                │
-       ┌────────┴────────┐
-       │                 │
-       ▼                 ▼
-   src/extension/    src/server/ or src/shared/
-       │                 │
-       ▼                 ▼
-   npm run reload    curl -X POST localhost:8000/api/restart
-                     (no build step — jiti runs TS directly)
-
-   src/client/ (dev mode)   →  nothing, Vite HMR
-   src/client/ (prod mode)  →  npm run build && restart
-   Multi-component / openspec  →  npx tsx .pi/skills/implement/scripts/full-rebuild.ts
+```mermaid
+flowchart TD
+  A["Did you edit code?"] --> B["src/extension/"]
+  A --> C["src/server/ or src/shared/"]
+  A --> D["src/client/ (dev mode)"]
+  A --> E["src/client/ (prod mode)"]
+  A --> F["Multi-component / openspec"]
+  B --> B1["npm run reload"]
+  C --> C1["curl -X POST localhost:8000/api/restart<br/>(no build step: Node's native strip-only TS loader runs TS directly)"]
+  D --> D1["nothing, Vite HMR"]
+  E --> E1["npm run build && restart"]
+  F --> F1["npx tsx .pi/skills/implement/scripts/full-rebuild.ts"]
 ```
 
 Quick check current mode:

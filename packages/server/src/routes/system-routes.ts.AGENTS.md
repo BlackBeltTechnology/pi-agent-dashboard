@@ -31,3 +31,7 @@ See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustP
 - `PUT /api/config`: invalid `sessionList` → 400 via `validateSessionListConfig`, nothing persisted. See change: archive-service-sessions-on-end.
 
 `/api/health` gains `toolResult: {pending, gone}` from dep `toolResultStats` (next to `storeTrim`). See change: distinguish-tool-result-pending-vs-gone.
+
+`/api/restart` always passes the native register module (`resolveNativeTsLoader({anchor: cliPath})`) to `spawnRestart`, never the running process's own `--import` (normalizes a foreign jiti inherited across an upgrade). See change: strip-only-native-ts-loader.
+
+- Optional dep `onVaultConfigChanged`, called after a `PUT /api/config` touching `vault`. See change: add-credential-vault.

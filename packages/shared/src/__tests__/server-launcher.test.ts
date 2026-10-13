@@ -1,28 +1,28 @@
 /**
  * Unit tests for `launchDashboardServer`.
  *
- * Mocks the test seams (`_resolveJiti`, `_spawnNodeScript`,
+ * Mocks the test seams (`_resolveNativeLoader`, `_spawnNodeScript`,
  * `_isDashboardRunning`, `_fs`, `_sleep`, `_now`) so the launcher's
  * orchestration logic is exercised without spawning a real child or
  * touching the filesystem.
  */
-import { afterEach, describe, it, expect, vi } from "vitest";
+
+import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  launchDashboardServer,
-  JitiNotFoundError,
-  PortConflictError,
-  EarlyExitError,
-  isPortConflictExitCode,
-  RECOVERY_PORT_CONFLICT_EXIT_CODE,
-} from "../server-launcher.js";
-import type { ChildProcess } from "node:child_process";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ToolResolver } from "../platform/binary-lookup.js";
 import type { spawnNodeScript } from "../platform/node-spawn.js";
 import type { isDashboardRunning } from "../server-identity.js";
+import {
+  EarlyExitError,
+  isPortConflictExitCode,
+  launchDashboardServer,
+  PortConflictError,
+  RECOVERY_PORT_CONFLICT_EXIT_CODE,
+} from "../server-launcher.js";
 
 const spawnSpy = (impl: () => ChildProcess) =>
   vi.fn<typeof spawnNodeScript>(impl as unknown as typeof spawnNodeScript);
@@ -48,13 +48,15 @@ function makeFakeChild(opts: FakeChildOpts = {}): ChildProcess {
   return ee;
 }
 
+const NATIVE_LOADER = "file:///loader/platform/native-ts-register.mjs";
+
 function baseOpts(overrides: Partial<Parameters<typeof launchDashboardServer>[0]> = {}) {
   return {
     cliPath: "/srv/cli.ts",
     stdio: "ignore" as const,
     healthTimeoutMs: 5000,
     port: 8000,
-    _resolveJiti: () => "file:///loader/jiti-register.mjs",
+    _resolveNativeLoader: () => NATIVE_LOADER,
     _spawnNodeScript: spawnSpy(() => makeFakeChild()),
     _isDashboardRunning: probeSpy(async () => ({ running: true, pid: 99 })),
     _sleep: () => Promise.resolve(),
@@ -74,8 +76,6 @@ describe("launchDashboardServer — happy path", () => {
   });
 
   it("delegates argv to spawnNodeScript with loader + entry + args", async () => {
-    // jiti opt-in pins the injected `_resolveJiti` URL as the loader.
-    vi.stubEnv("PI_DASHBOARD_TS_LOADER", "jiti");
     const spy = spawnSpy(() => makeFakeChild());
     await launchDashboardServer(baseOpts({
       _spawnNodeScript: spy,
@@ -83,35 +83,12 @@ describe("launchDashboardServer — happy path", () => {
     }));
     expect(spy).toHaveBeenCalledOnce();
     const call = spy.mock.calls[0]![0]!;
-    expect(call.loader).toBe("file:///loader/jiti-register.mjs");
+    expect(call.loader).toBe(NATIVE_LOADER);
     expect(call.entry).toBe("/srv/cli.ts");
     expect(call.args).toEqual(["--port", "8000", "--pi-port", "9999"]);
     expect(call.spawnOptions?.detached).toBe(true);
     expect(call.spawnOptions?.windowsHide).toBe(true);
     expect(call.spawnOptions?.stdio).toBe("ignore");
-  });
-});
-
-describe("launchDashboardServer — jiti resolution", () => {
-  it("throws JitiNotFoundError when resolveJiti returns null (no spawn)", async () => {
-    vi.stubEnv("PI_DASHBOARD_TS_LOADER", "jiti");
-    const spawn = spawnSpy(() => makeFakeChild());
-    await expect(launchDashboardServer(baseOpts({
-      _resolveJiti: () => null,
-      _spawnNodeScript: spawn,
-    }))).rejects.toBeInstanceOf(JitiNotFoundError);
-    expect(spawn).not.toHaveBeenCalled();
-  });
-});
-
-// E14 — the loader error names only the earendil pi package.
-// See change: drop-mariozechner-pi-fork (test-plan #E14).
-describe("JitiNotFoundError default message", () => {
-  it("names @earendil-works/pi-coding-agent only", () => {
-    const msg = new JitiNotFoundError().message;
-    expect(msg).toContain("@earendil-works/pi-coding-agent");
-    expect(msg).not.toContain("@mariozechner/pi-coding-agent");
-    expect(msg).not.toContain("@oh-my-pi");
   });
 });
 
@@ -423,26 +400,26 @@ describe("launchDashboardServer — env overlay (#720)", () => {
 });
 
 /**
- * E8–E11 — TypeScript loader selection. Native is the default; jiti only on
- * PI_DASHBOARD_TS_LOADER=jiti read from the LAUNCHING process env (an
- * `opts.env` overlay never changes the selection).
- * See change: fix-appimage-cold-boot-latency (design D1, D4).
+ * E8–E11 — the server always launches on the Node-native TypeScript loader.
+ * `PI_DASHBOARD_TS_LOADER` (process env or `opts.env`) is ignored here: the
+ * launcher neither selects another loader nor warns (only the server process
+ * does). No jiti is resolved anywhere.
+ * See change: fix-appimage-cold-boot-latency (design D1, D4);
+ * strip-only-native-ts-loader (test-plan #E15, #E16).
  */
-describe("launchDashboardServer — TS loader selection", () => {
+describe("launchDashboardServer — TS loader", () => {
   const NATIVE_RE = /^file:\/\/.*\/platform\/native-ts-register\.mjs$/;
   afterEach(() => { vi.unstubAllEnvs(); });
 
-  it("E8: opts.env PI_DASHBOARD_TS_LOADER=jiti does not select jiti", async () => {
+  it("E8: opts.env PI_DASHBOARD_TS_LOADER=jiti does not select another loader", async () => {
     vi.stubEnv("PI_DASHBOARD_TS_LOADER", undefined as unknown as string);
-    const resolveJiti = vi.fn(() => "file:///j/jiti-register.mjs");
     const spawn = spawnSpy(() => makeFakeChild());
     await launchDashboardServer(baseOpts({
       env: { PI_DASHBOARD_TS_LOADER: "jiti" },
-      _resolveJiti: resolveJiti,
+      _resolveNativeLoader: undefined,
       _spawnNodeScript: spawn,
     }));
     expect(spawn.mock.calls[0]![0]!.loader).toMatch(NATIVE_RE);
-    expect(resolveJiti).not.toHaveBeenCalled();
   });
 
   it("E9: default launch uses the native register and names it in the log header", async () => {
@@ -459,6 +436,7 @@ describe("launchDashboardServer — TS loader selection", () => {
       cliPath: "/x/cli.ts",
       stdio: { logFile: "/var/log/d/server.log" },
       extraArgs: ["--port", "8000"],
+      _resolveNativeLoader: undefined,
       _fs: fsStub as any,
       _spawnNodeScript: spawn,
     }));
@@ -469,25 +447,21 @@ describe("launchDashboardServer — TS loader selection", () => {
     expect(writes[0]!.trimEnd().endsWith(`, loader ${call.loader})`)).toBe(true);
   });
 
-  it("E10: PI_DASHBOARD_TS_LOADER=jiti keeps the jiti loader and the raw entry", async () => {
-    vi.stubEnv("PI_DASHBOARD_TS_LOADER", "jiti");
-    for (const cliPath of ["/x/cli.ts", "C:\\x\\cli.ts"]) {
-      const spawn = spawnSpy(() => makeFakeChild());
-      await launchDashboardServer(baseOpts({
-        cliPath,
-        _resolveJiti: () => "file:///j/jiti-register.mjs",
-        _spawnNodeScript: spawn,
-      }));
-      const call = spawn.mock.calls[0]![0]!;
-      expect(call.loader).toBe("file:///j/jiti-register.mjs");
-      expect(call.entry).toBe(cliPath);
+  it("E10: PI_DASHBOARD_TS_LOADER=jiti in the process env still launches native with the raw entry", async () => {
+    for (const value of ["jiti", "tsx", "garbage"]) {
+      vi.stubEnv("PI_DASHBOARD_TS_LOADER", value);
+      for (const cliPath of ["/x/cli.ts", "C:\\x\\cli.ts"]) {
+        const spawn = spawnSpy(() => makeFakeChild());
+        await launchDashboardServer(baseOpts({ cliPath, _resolveNativeLoader: undefined, _spawnNodeScript: spawn }));
+        const call = spawn.mock.calls[0]![0]!;
+        expect(call.loader).toMatch(NATIVE_RE);
+        expect(call.entry).toBe(cliPath);
+      }
     }
   });
 
-  it("E11: a missing jiti is fatal only when jiti is selected", async () => {
+  it("E11: launches with no jiti anywhere (no resolver exists to fail)", async () => {
     vi.stubEnv("PI_DASHBOARD_TS_LOADER", undefined as unknown as string);
-    await expect(launchDashboardServer(baseOpts({ _resolveJiti: () => null }))).resolves.toMatchObject({ healthOk: true });
-    vi.stubEnv("PI_DASHBOARD_TS_LOADER", "jiti");
-    await expect(launchDashboardServer(baseOpts({ _resolveJiti: () => null }))).rejects.toBeInstanceOf(JitiNotFoundError);
+    await expect(launchDashboardServer(baseOpts({ _resolveNativeLoader: undefined }))).resolves.toMatchObject({ healthOk: true });
   });
 });

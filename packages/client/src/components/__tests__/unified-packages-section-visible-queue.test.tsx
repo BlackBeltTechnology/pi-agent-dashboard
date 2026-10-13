@@ -9,13 +9,14 @@
  *
  * See change: unify-pi-core-into-package-queue.
  */
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import React from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type {
 	InstalledPackage,
 	PiCoreStatus,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { packageQueue } from "../../lib/package/package-queue.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 
@@ -262,10 +263,15 @@ describe("UnifiedPackagesSection — visible queue (D9)", () => {
 	// See change: drop-mariozechner-pi-fork (test-plan #F2).
 	it("F2: Update All serializes the 2 Core rows FIFO with single-name POSTs", async () => {
 		const resolvers: Array<(r: Response) => void> = [];
+		// Every URL not answered here parks a resolver in FIFO order, so the
+		// section's own mount-time health fetch must be answered or it steals
+		// resolvers[0]. See change: add-package-health-cleanup.
 		const fetchMock = vi.fn(async (url: string, _init?: RequestInit) =>
 			url === "/api/packages/check-updates"
 				? jsonResponse({ success: true, data: [] })
-				: new Promise<Response>((resolve) => resolvers.push(resolve)),
+				: url === "/api/packages/health"
+					? jsonResponse({ success: true, data: { entries: [], summary: { ok: 0, staleNpm: 0, missingPath: 0, duplicateGroups: [] } } })
+					: new Promise<Response>((resolve) => resolvers.push(resolve)),
 		);
 		vi.stubGlobal("fetch", fetchMock);
 		const coreCalls = () =>
@@ -307,8 +313,16 @@ describe("UnifiedPackagesSection — visible queue (D9)", () => {
 		render(<UnifiedPackagesSection />);
 		await waitFor(() => expect(screen.getByTestId(`${extId}-update`)).toBeTruthy());
 
-		// Idle: the inline reset affordance is live.
-		expect(btn(`${extId}-reset-inline`).disabled).toBe(false);
+		// Idle: the menu's reset item is live (inline link is gone).
+		await act(async () => {
+			fireEvent.click(btn(`${extId}-menu`));
+			await flush();
+		});
+		expect(btn(`${extId}-reset-to-published`).disabled).toBe(false);
+		await act(async () => {
+			fireEvent.click(btn(`${extId}-menu`));
+			await flush();
+		});
 
 		await act(async () => {
 			fireEvent.click(btn(`pi-core-row-${PI}-update`));
@@ -316,16 +330,15 @@ describe("UnifiedPackagesSection — visible queue (D9)", () => {
 		});
 		expect(packageQueue.isAnyRunning()).toBe(true);
 
-		// Reset-to-npm is now locked, with the reason surfaced as a tooltip…
-		const reset = btn(`${extId}-reset-inline`);
-		expect(reset.disabled).toBe(true);
-		expect(reset.title).toMatch(/can't be queued yet/i);
-
-		// …and Move too (inside the kebab menu).
+		// Reset-to-published is now locked, with the reason surfaced as a tooltip,
+		// and Move too (both inside the kebab menu).
 		await act(async () => {
 			fireEvent.click(btn(`${extId}-menu`));
 			await flush();
 		});
+		const reset = btn(`${extId}-reset-to-published`);
+		expect(reset.disabled).toBe(true);
+		expect(reset.title).toMatch(/can't be queued yet/i);
 		expect(btn(`${extId}-move`).disabled).toBe(true);
 
 		// …while the queueable Update button stays enabled.

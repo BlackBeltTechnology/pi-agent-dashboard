@@ -7,7 +7,7 @@
  * manually: `kill <wrapper-pid>` left the server still answering /api/health
  * with no exit intent recorded.
  *
- * End-to-end: real wrapper → real jiti-loaded server → SIGTERM the wrapper →
+ * End-to-end: real wrapper → real native-loaded server → SIGTERM the wrapper →
  * the boot record must carry `"signal"` and both processes must be gone.
  *
  * See change: fix-recovery-exit-intent (task 3.5).

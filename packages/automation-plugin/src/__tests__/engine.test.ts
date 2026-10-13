@@ -298,6 +298,33 @@ describe("engine run lifecycle", () => {
     expect(runs[0]!.status).toBe("running");
   });
 
+  // test-plan #E53 (add-acp-session-driver): an automation with `agent` spawns
+  // that ACP agent, never passes a model, and completes on the forwarded reply.
+  it("ACP agent: spawns with agent and no model; run completes with the final reply as result", () => {
+    const calls: any[] = [];
+    const engine = makeEngine(calls);
+    const base = promptAutomation("acp-run", "Summarise the repo.");
+    const a: DiscoveredAutomation = { ...base, config: { ...base.config!, agent: "qmt", action: { kind: "core.prompt", prompt: "./prompt.md" } } };
+    const { runId } = engine.startRunFor(a)!;
+    expect(calls).toHaveLength(1);
+    expect(calls[0].agent).toBe("qmt");
+    expect(calls[0]).not.toHaveProperty("model");
+    expect(calls[0].pluginRef.automationRun.name).toBe("acp-run");
+    engine.onSessionRegistered("sess-acp", repo);
+    engine.onSessionEnded("sess-acp", "The repo is a dashboard.");
+    const parent = parentRun(repo, "acp-run", runId);
+    expect(parent.status).toBe("done");
+    const md = fs.readFileSync(path.join(readChildRuns(repo, parent)[0]!.dir, "result.md"), "utf-8");
+    expect(md).toContain("The repo is a dashboard.");
+  });
+
+  it("without agent the model is still passed (unchanged)", () => {
+    const calls: any[] = [];
+    makeEngine(calls).startRunFor(promptAutomation("pi-run", "x"));
+    expect(calls[0].model).toBe("anthropic/claude-haiku-4-5");
+    expect(calls[0]).not.toHaveProperty("agent");
+  });
+
   it("forwards mode + sandbox to the spawn hook", () => {
     const calls: any[] = [];
     const engine = makeEngine(calls);

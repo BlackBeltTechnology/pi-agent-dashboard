@@ -44,13 +44,15 @@ interface WireMessage {
 }
 
 export class ExtensionSocket {
+  private readonly ws: RelaySocket;
   private readonly callbacks = new Map<number, Pending>();
   private lastId = 0;
 
   onmessage?: (method: string, params: unknown) => void;
   onclose?: (reason: string) => void;
 
-  constructor(private readonly ws: RelaySocket) {
+  constructor(ws: RelaySocket) {
+    this.ws = ws;
     ws.on("message", ((data: unknown) => this._onMessage(data)) as never);
     ws.on("close", ((code: number, reason: unknown) => this._onClose(code, reason)) as never);
     ws.on("error", (() => this._dispose()) as never);

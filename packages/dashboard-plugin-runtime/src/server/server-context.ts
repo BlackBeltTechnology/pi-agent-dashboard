@@ -4,11 +4,13 @@
  * Creates a ServerPluginContext scoped to a specific plugin id,
  * with a namespaced logger and typed config accessors.
  */
-import { paneTabPrefixOf } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
+
 import { isAbsolute } from "node:path";
 import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { paneTabPrefixOf } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import type { BrowserLoginConfig, HostAccessPolicyFn, HostResource, Principal, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
+import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
 import type { WsRouteRegistration } from "./ws-route-registry.js";
@@ -160,6 +162,26 @@ export type RegisterBrowserHandlerFn = (type: string, handler: (msg: unknown, ws
 export type IsPiExtensionInstalledFn = (name: string) => Promise<boolean>;
 
 /**
+ * Resolved pi resources for a folder, from the same SWR cache
+ * `GET /api/pi-resources` uses, WITHOUT that route's per-session provenance
+ * join. Omitted `cwd` = the server's working directory (as the route does).
+ * Default read: cached entry as-is (stale also triggers one background rescan),
+ * cold miss awaits a scan. `fresh: true` resolves with a scan that STARTED
+ * AFTER the call — an in-flight scan never satisfies it. Optional: the plugin
+ * owns the fallback. See change: add-skill-atlas-screen.
+ */
+export type GetPiResourcesFn = (cwd?: string, opts?: { fresh?: boolean }) => Promise<PiResourcesResult>;
+
+/**
+ * Subscribe to pi-resource invalidation. The host calls `handler(cwd)` when the
+ * pi-resources watcher invalidates a folder, `handler(undefined)` for the global
+ * scope, and `handler(sessionCwd)` when a known session reports its command
+ * list. A throwing handler is isolated. Returns an unsubscribe function.
+ * Optional. See change: add-skill-atlas-screen.
+ */
+export type OnPiResourcesInvalidatedFn = (handler: (cwd: string | undefined) => void) => () => void;
+
+/**
  * Closed set of write-route origins a plugin may raise the `cwd` access plane
  * with. The host refuses any other string. The registry origin is recorded as
  * `plugin:<pluginId>:<origin>`. See change: harden-plugin-cwd-admission (D6).
@@ -243,6 +265,13 @@ export interface PluginSpawnOptions {
   cwd: string;
   /** Optional model id (resolved provider/model) passed as `--model`. */
   model?: string;
+  /**
+   * Configured ACP agent id (`acpAgents[].id`). When set the host starts that
+   * agent instead of pi, routed exactly like a UI spawn. pi-only options
+   * (`scope`, `resume`, `model`) are REJECTED with `agent`; an unknown id is
+   * rejected. See change: add-acp-session-driver (D14).
+   */
+  agent?: string;
   /** Optional session name passed as `--name`. */
   name?: string;
   /**
@@ -323,6 +352,8 @@ export interface PluginSpawnOptions {
     noContextFiles?: boolean;
     /** `--no-approve` (bare toggle): skip trust-gated project `.pi/` resources. */
     noProjectTrust?: boolean;
+    /** `--no-mcp` (bare toggle): disable pi's built-in MCP for this run (no servers connect, no MCP tools). */
+    noMcp?: boolean;
     /** `--session-dir <abs path>`; relative / empty / NUL ⇒ dropped. */
     sessionDir?: string;
   };
@@ -495,6 +526,7 @@ export function pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpa
     if (append && append.length > 0) result.appendSystemPrompt = append;
     if (scope.noContextFiles === true) result.noContextFiles = true;
     if (scope.noProjectTrust === true) result.noProjectTrust = true;
+    if (scope.noMcp === true) result.noMcp = true;
     if (isSafeArgvString(scope.sessionDir) && isAbsolute(scope.sessionDir)) {
       result.sessionDir = scope.sessionDir;
     }
@@ -745,6 +777,17 @@ export interface PluginProviderAuth {
 // ── Plugin credential store ─────────────────────────────────────────────────
 
 /** One stored plugin credential record: a plain JSON object. */
+/**
+ * Read access to the vault bindings this plugin's manifest declares
+ * (`vaultBindings`) and the user approved in Settings. Returns the binding's
+ * default-account value, or `undefined` when undeclared, unapproved, revoked or
+ * unconfigured. Server-wide, not project-scoped. Never lists other bindings.
+ * See change: add-credential-vault (D4).
+ */
+export interface PluginVault {
+  read(bindingName: string): Promise<string | undefined>;
+}
+
 export type PluginCredentialRecord = Record<string, unknown>;
 
 /**
@@ -1037,6 +1080,10 @@ export interface ServerPluginContext {
    * owns the fallback. See change: add-blackhole-session-pipeline.
    */
   isPiExtensionInstalled?: IsPiExtensionInstalledFn;
+  /** Resolved pi resources from the host cache (optional). See change: add-skill-atlas-screen. */
+  getPiResources?: GetPiResourcesFn;
+  /** pi-resource invalidation subscription (optional). See change: add-skill-atlas-screen. */
+  onPiResourcesInvalidated?: OnPiResourcesInvalidatedFn;
   /**
    * Raise the `cwd` access dialog from a user-initiated write route. Optional:
    * absent on hosts that do not wire it, where the plugin refuses an unknown cwd
@@ -1054,6 +1101,11 @@ export interface ServerPluginContext {
    * See change: expose-plugin-credential-and-oauth-seams (D2).
    */
   credentials?: PluginCredentials;
+  /**
+   * Declared + approved vault reads. Optional — absent on hosts that do not wire it.
+   * See change: add-credential-vault (D4).
+   */
+  vault?: PluginVault;
   /**
    * OAuth sign-in flows via the host flow store. Optional.
    * See change: expose-plugin-credential-and-oauth-seams (D3).
@@ -1217,12 +1269,18 @@ export interface ServerContextDeps {
   providerAuth?: PluginProviderAuth;
   /** Per-plugin credential store factory (optional). See change: expose-plugin-credential-and-oauth-seams. */
   pluginCredentials?: (pluginId: string) => PluginCredentials;
+  /** Per-plugin vault reader factory (optional). See change: add-credential-vault. */
+  pluginVault?: (pluginId: string) => PluginVault;
   /** Plugin OAuth flow start (optional). See change: expose-plugin-credential-and-oauth-seams. */
   startPluginOAuthFlow?: (pluginId: string, opts: PluginOAuthStartOptions) => Promise<PluginFlowStartResult>;
   /** Plugin request-lane registration (optional). See change: expose-plugin-credential-and-oauth-seams. */
   registerPiRequestHandler?: (pluginId: string, type: string, handler: PluginRequestHandler) => void;
   /** Installed-extension probe (optional). See change: add-blackhole-session-pipeline. */
   isPiExtensionInstalled?: IsPiExtensionInstalledFn;
+  /** Resolved pi resources (optional). See change: add-skill-atlas-screen. */
+  getPiResources?: GetPiResourcesFn;
+  /** pi-resource invalidation subscription (optional). See change: add-skill-atlas-screen. */
+  onPiResourcesInvalidated?: OnPiResourcesInvalidatedFn;
   /** Per-plugin `cwd` access-hold seam (optional, host-gated). See change: harden-plugin-cwd-admission. */
   holdCwdDenial?: HoldCwdDenialFn;
   /** Mint a fresh spawn-correlation token (trusted-gated). See change: relocate-goal-product-to-plugin. */
@@ -1318,6 +1376,7 @@ export function createServerPluginContext(
     modelRuntime: deps.modelRuntime,
     providerAuth: deps.providerAuth,
     credentials: deps.pluginCredentials?.(pluginId),
+    vault: deps.pluginVault?.(pluginId),
     oauth: deps.startPluginOAuthFlow
       ? {
           async startFlow(opts) {
@@ -1331,6 +1390,8 @@ export function createServerPluginContext(
       ? (type, handler) => deps.registerPiRequestHandler!(pluginId, type, handler)
       : undefined,
     isPiExtensionInstalled: deps.isPiExtensionInstalled,
+    getPiResources: deps.getPiResources,
+    onPiResourcesInvalidated: deps.onPiResourcesInvalidated,
     holdCwdDenial: deps.holdCwdDenial,
     openEditorTab,
     mintSpawnToken: deps.mintSpawnToken,

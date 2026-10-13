@@ -27,7 +27,7 @@ import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { CustomEntryRendererProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { mdiChevronDown, mdiChevronRight, mdiDeleteOutline, mdiEyeOutline, mdiLightbulbOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React from "react";
+import type React from "react";
 
 type OmKind = "observations" | "reflections" | "dropped";
 

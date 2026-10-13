@@ -10,11 +10,13 @@
  *
  * See change: adopt-server-driven-intent-rendering.
  */
-import React, { isValidElement } from "react";
+
 import type {
-  IntentNode,
   ActionDescriptor,
+  IntentNode,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/intent-types.js";
+import type React from "react";
+import { isValidElement } from "react";
 import { useUiPrimitiveOrNull } from "./ui-primitive-context.js";
 
 /**

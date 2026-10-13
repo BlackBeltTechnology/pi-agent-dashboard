@@ -10,3 +10,7 @@ Adds `reset(ResetRequest{source,publishedSource,scope,cwd?})` \u2192 `resetId`, 
 `createSafePackageManagerClass` exported (test seam). `spawnCaptureCommand` env overlay normalizes both sides' PATH key → caller PATH in any casing wins. See change: fix-windows-path-env-key-casing.
 
 `loadPiPackageManager` resolves earendil only; on `ModuleResolutionError` the message leads with "pi-coding-agent is not installed" + `npm i -g @earendil-works/pi-coding-agent` hint (instance + `.resolution` kept). See change: drop-mariozechner-pi-fork.
+
+## add-package-health-cleanup
+
+Adds public `invalidateAllPackageManagers()` — clears `pmCache` + `pmPending`. Call after out-of-band `settings.json` rewrite so a later install/remove cannot write a stale `packages[]` back. See change: add-package-health-cleanup.

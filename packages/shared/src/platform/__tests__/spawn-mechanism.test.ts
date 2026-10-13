@@ -146,3 +146,63 @@ describe("sessionFlagsToArgv capability-scope", () => {
     expect(sessionFlagsToArgv({ model: "m" })).toEqual(["--model", "m"]);
   });
 });
+
+describe("sessionFlagsToArgv --no-mcp (spawn-scope-no-mcp)", () => {
+  it("E1: noMcp emits exactly one bare --no-mcp after the name/model flags", () => {
+    const argv = sessionFlagsToArgv({ name: "n", model: "m", noMcp: true });
+    expect(argv).toEqual(["--name", "n", "--model", "m", "--no-mcp"]);
+    expect(argv.filter((a) => a === "--no-mcp")).toHaveLength(1);
+  });
+
+  it("E3: absent noMcp is byte-identical to the pre-change argv", () => {
+    expect(sessionFlagsToArgv({})).toEqual([]);
+    expect(sessionFlagsToArgv({ noMcp: false })).toEqual([]);
+    expect(sessionFlagsToArgv({ model: "m" })).toEqual(["--model", "m"]);
+  });
+
+  it("E4: a partial scope emits no MCP flag", () => {
+    const argv = sessionFlagsToArgv({ tools: ["read"] });
+    expect(argv).toEqual(["--tools", "read"]);
+    expect(argv).not.toContain("--no-mcp");
+  });
+});
+
+/**
+ * `sessionFlagsToArgv` — `--model` / `--thinking` on fresh + continue (E7).
+ * See change: redesign-directory-home-split.
+ */
+describe("sessionFlagsToArgv --model/--thinking (redesign-directory-home-split E7)", () => {
+  const m = "anthropic/claude-sonnet-5";
+
+  it("fresh carries --model and --thinking as discrete elements", () => {
+    expect(sessionFlagsToArgv({ model: m, thinking: "high" })).toEqual(["--model", m, "--thinking", "high"]);
+  });
+
+  it("continue carries --model and --thinking after --session", () => {
+    expect(sessionFlagsToArgv({ sessionFile: "/s.jsonl", mode: "continue", model: m, thinking: "low" })).toEqual([
+      "--session",
+      "/s.jsonl",
+      "--model",
+      m,
+      "--thinking",
+      "low",
+    ]);
+  });
+
+  it("continue without a pick is unchanged", () => {
+    expect(sessionFlagsToArgv({ sessionFile: "/s.jsonl", mode: "continue" })).toEqual(["--session", "/s.jsonl"]);
+  });
+
+  it("fork output is unchanged: thinking is not emitted", () => {
+    expect(sessionFlagsToArgv({ sessionFile: "/s.jsonl", mode: "fork", model: m, thinking: "high" })).toEqual([
+      "--fork",
+      "/s.jsonl",
+      "--model",
+      m,
+    ]);
+  });
+
+  it("thinking alone emits only --thinking", () => {
+    expect(sessionFlagsToArgv({ thinking: "medium" })).toEqual(["--thinking", "medium"]);
+  });
+});

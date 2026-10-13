@@ -25,7 +25,7 @@
     "!src/codegen"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ../../scripts/tsc7.mjs -p tsconfig.json",
     "prepublishOnly": "npm run build",
     "codegen": "tsx src/codegen/generate-verbs.ts",
     "test": "vitest run"

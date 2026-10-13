@@ -40,22 +40,29 @@ export function djb2(input: string): string {
 }
 
 export class SessionDiffCache<T> {
+  private readonly ttlMs: number;
+  private readonly maxEntries: number;
+  private readonly budget?: SessionDiffCacheOptions<T>;
   private readonly results = new Map<string, CacheEntry<T>>();
   private readonly inflight = new Map<string, Promise<T>>();
   private bytes = 0;
 
   constructor(
     /** Result freshness window (ms). TTL 0 disables result caching. */
-    private readonly ttlMs = 2000,
+    ttlMs = 2000,
     /** Hard cap on cached entries; oldest/expired evicted past it. */
-    private readonly maxEntries = 100,
+    maxEntries = 100,
     /**
      * Byte budget shared by all entries. Oldest evicted first; the newest
      * entry is always kept, so retention ≤ max(maxBytes, newest). See change:
      * fix-session-diff-heap-retention (D2).
      */
-    private readonly budget?: SessionDiffCacheOptions<T>,
-  ) {}
+    budget?: SessionDiffCacheOptions<T>,
+  ) {
+    this.ttlMs = ttlMs;
+    this.maxEntries = maxEntries;
+    this.budget = budget;
+  }
 
   /** Number of cached results (read-only observable). */
   get size(): number {

@@ -293,3 +293,29 @@ describe("isWithinFolder — folder membership for the reporter set", () => {
     expect(joined.scanOnly).toBeUndefined();
   });
 });
+
+// receivedAt stamping — only ACCEPTED lists are stamped, strictly monotonic.
+// See change: redesign-directory-home-split (D3, test 3.1).
+describe("SessionCommandRegistry receivedAt", () => {
+  const sk = (n: string): CommandInfo => ({ name: `skill:${n}`, source: "skill", path: `/x/${n}` });
+
+  it("stamps on accept, strictly increasing even within one millisecond", () => {
+    const reg = new SessionCommandRegistry();
+    reg.retain("a", [sk("one")]);
+    reg.retain("b", [sk("two")]);
+    expect(reg.getEntry("b")!.receivedAt).toBeGreaterThan(reg.getEntry("a")!.receivedAt);
+  });
+
+  it("does not stamp a list dropped by the settling rule", () => {
+    const reg = new SessionCommandRegistry();
+    reg.retain("a", [sk("one")]);
+    const before = reg.getEntry("a")!.receivedAt;
+    reg.retain("a", []); // transitional empty list — dropped
+    expect(reg.getEntry("a")!.receivedAt).toBe(before);
+    expect(reg.get("a")).toHaveLength(1);
+  });
+
+  it("an unknown session has no entry", () => {
+    expect(new SessionCommandRegistry().getEntry("nope")).toBeUndefined();
+  });
+});

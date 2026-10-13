@@ -64,6 +64,19 @@ arbitrary values: `text-[var(--text-primary)]`, `bg-[var(--bg-secondary)]`,
   contrast guarantee.
 - Hue is a secondary cue. Back it with a word, icon or shape.
 
+## Role refs
+
+Show an `@role[:level]` reference with the runtime's `RoleRef` component
+(`import { RoleRef } from "@blackbelt-technology/dashboard-plugin-runtime"`),
+never with your own markup: role token, short model id (the provider prefix stays
+in a `sr-only` span so the full `provider/id` is in the text content), level chip,
+and — for a one-shot pick — "from @role". With no model value it shows the
+warning pill "No model assigned". Pass your translated strings through `labels`.
+Binding statuses use one vocabulary: `detached` → "Detached", `dangling` → "Role
+unassigned, keeps its last model" (warning pills; `ok` shows nothing). A non-modal
+popover (the model selector) is `role="dialog"` with `aria-modal="false"`, no focus
+trap, Escape closes — the documented exception to the modal-dialog rule.
+
 ## Both modes
 
 Every plugin surface works in dark and light. Check both, plus one non-`base`

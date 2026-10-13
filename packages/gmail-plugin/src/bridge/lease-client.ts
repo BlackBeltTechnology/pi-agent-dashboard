@@ -15,11 +15,14 @@ import { isTier, type Op, tierAllows } from "../shared/scopes.js";
 export type LaneRequest = (pluginId: string, type: string, payload?: unknown) => Promise<PluginLaneReply>;
 
 export class GmailToolError extends Error {
+  readonly code: string;
+
   constructor(
-    readonly code: string,
+    code: string,
     message: string,
   ) {
     super(message);
+    this.code = code;
     this.name = "GmailToolError";
   }
 }
@@ -34,7 +37,11 @@ function laneError(error: string): GmailToolError {
 }
 
 export class LeaseClient {
-  constructor(private readonly request: LaneRequest = requestPluginServer) {}
+  private readonly request: LaneRequest;
+
+  constructor(request: LaneRequest = requestPluginServer) {
+    this.request = request;
+  }
 
   async lease(account: string, op: Op): Promise<LeaseReply> {
     const reply = await this.request(PLUGIN_ID, LEASE_TYPE, { account, op });

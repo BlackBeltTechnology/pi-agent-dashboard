@@ -28,3 +28,9 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 ## add-passkey-user-auth
 
 `AuthConfig.groupTiers?: Record<group, Tier>` (`parseGroupTiers` keeps valid tiers only; none ⇒ unset) + `passkeys?: {enabled}`; `passkeys.enabled` alone is an auth-relevant block. See change: add-passkey-user-auth.
+
+## stabilize-mdns-server-identity
+
+`KnownServer.fingerprint?` (`sha256:`-prefixed only; malformed dropped, entry kept). `parseKnownServers` collapses duplicate `(fingerprint, port)` — first entry wins, later logged + dropped. See change: stabilize-mdns-server-identity.
+
+- `VaultConfig {deliveryEnabled, offlineGraceHours}` + `parseVaultConfig` (grace clamped 1–168 h). See change: add-credential-vault.

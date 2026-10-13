@@ -186,8 +186,11 @@ interface ContentPolicy {
 export class ContentCache {
   private readonly map = new Map<string, { entry: ContentEntry; cost: number }>();
   private currentBytes = 0;
+  private readonly byteBudget: number;
 
-  constructor(private readonly byteBudget: number = DEFAULT_CONTENT_CACHE_BUDGET) {}
+  constructor(byteBudget: number = DEFAULT_CONTENT_CACHE_BUDGET) {
+    this.byteBudget = byteBudget;
+  }
 
   /** Content hash for a block under the given policy. */
   keyFor(base64: string, mimeType: string, p: ContentPolicy): string {

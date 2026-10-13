@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isDashboardRunning } from "../server-identity.js";
 
 describe("isDashboardRunning", () => {
@@ -6,6 +6,18 @@ describe("isDashboardRunning", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+  });
+
+  it("#E30 probes an IPv6-literal host with a bracketed authority", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ ok: true, pid: 1 }),
+    });
+    await isDashboardRunning(8000, "2001:db8::5");
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://[2001:db8::5]:8000/api/health",
+      expect.anything(),
+    );
   });
 
   it("returns running: true with pid when health endpoint responds correctly", async () => {
@@ -43,7 +55,9 @@ describe("isDashboardRunning", () => {
   });
 
   it("returns running: false when connection refused (nothing running)", async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
+    globalThis.fetch = vi.fn().mockRejectedValue(
+      Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } }),
+    );
 
     const result = await isDashboardRunning(8000);
     // Public shape stays frozen — the internal refusal flag never leaks.
@@ -56,7 +70,7 @@ describe("isDashboardRunning", () => {
     globalThis.fetch = vi.fn().mockRejectedValue(abortError);
 
     const result = await isDashboardRunning(8000);
-    expect(result).toEqual({ running: false });
+    expect(result).toEqual({ running: false, timedOut: true });
   });
 
   it("uses custom host when provided", async () => {
@@ -95,7 +109,7 @@ describe("isDashboardRunning retry semantics (cherry-pick 2)", () => {
       Object.assign(new Error("timeout"), { name: "AbortError" }),
     );
     const result = await isDashboardRunning(8000, "localhost", { _sleep: sleep });
-    expect(result).toEqual({ running: false });
+    expect(result).toEqual({ running: false, timedOut: true });
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     expect(sleep).not.toHaveBeenCalled();
   });
@@ -143,7 +157,9 @@ describe("isDashboardRunning retry semantics (cherry-pick 2)", () => {
 
   it("ECONNREFUSED with default retries=0 returns running:false without retry", async () => {
     const sleep = vi.fn().mockResolvedValue(undefined);
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
+    globalThis.fetch = vi.fn().mockRejectedValue(
+      Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } }),
+    );
 
     const result = await isDashboardRunning(8000, "localhost", { _sleep: sleep });
     expect(result).toEqual({ running: false });
@@ -203,7 +219,7 @@ describe("isDashboardRunning retry semantics (cherry-pick 2)", () => {
       retries: 3,
       _sleep: sleep,
     });
-    expect(result).toEqual({ running: false });
+    expect(result).toEqual({ running: false, timedOut: true });
     expect(globalThis.fetch).toHaveBeenCalledTimes(4); // 1 + 3 retries
     expect(sleep).toHaveBeenCalledTimes(3);
   });
@@ -235,10 +251,83 @@ describe("isDashboardRunning retry semantics (cherry-pick 2)", () => {
 
     globalThis.fetch = makeSlowFetch(50);
     const tight = await isDashboardRunning(8000, "localhost", { timeoutMs: 10 });
-    expect(tight).toEqual({ running: false });
+    expect(tight).toEqual({ running: false, timedOut: true });
 
     globalThis.fetch = makeSlowFetch(10);
     const loose = await isDashboardRunning(8000, "localhost", { timeoutMs: 200 });
     expect(loose).toEqual({ running: true, pid: 1 });
+  });
+});
+
+// test-plan #E20 — `timedOut` = "no attempt was definitive" (design D1).
+describe("isDashboardRunning timedOut partition", () => {
+  const originalFetch = globalThis.fetch;
+  const noSleep = { retries: 2, _sleep: () => Promise.resolve() };
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("every attempt AbortError → timedOut:true after 3 attempts", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(Object.assign(new Error("t"), { name: "AbortError" }));
+    expect(await isDashboardRunning(8000, "localhost", noSleep)).toEqual({ running: false, timedOut: true });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("every attempt ECONNRESET → timedOut:true", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(
+      Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } }),
+    );
+    expect(await isDashboardRunning(8000, "localhost", noSleep)).toEqual({ running: false, timedOut: true });
+  });
+
+  it("ECONNREFUSED → no timedOut key, one attempt", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(
+      Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } }),
+    );
+    const r = await isDashboardRunning(8000, "localhost", noSleep);
+    expect(r).toEqual({ running: false });
+    expect("timedOut" in r).toBe(false);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["EADDRNOTAVAIL", "ENETUNREACH", "EAFNOSUPPORT"])(
+    "%s (no such address family / route) is a refusal, not a silent port",
+    async (code) => {
+      globalThis.fetch = vi.fn().mockRejectedValue(Object.assign(new TypeError("fetch failed"), { cause: { code } }));
+      const r = await isDashboardRunning(8000, "::1", noSleep);
+      expect(r).toEqual({ running: false });
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("200 foreign JSON → portConflict, no timedOut key", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ foo: 1 }) });
+    const r = await isDashboardRunning(8000, "localhost", noSleep);
+    expect(r).toEqual({ running: false, portConflict: true });
+    expect("timedOut" in r).toBe(false);
+  });
+
+  it("200 health → running with pid, no timedOut key", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true, pid: 7 }) });
+    const r = await isDashboardRunning(8000, "localhost", noSleep);
+    expect(r).toEqual({ running: true, pid: 7 });
+    expect("timedOut" in r).toBe(false);
+  });
+
+  it("health body instanceId is surfaced for ownership checks", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ ok: true, pid: 7, instanceId: "abc" }),
+    });
+    expect(await isDashboardRunning(8000)).toEqual({ running: true, pid: 7, instanceId: "abc" });
+  });
+
+  it("a later definitive answer after a timeout wins", async () => {
+    const abort = Object.assign(new Error("t"), { name: "AbortError" });
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValueOnce(abort)
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ ok: true, pid: 9 }) });
+    expect(await isDashboardRunning(8000, "localhost", noSleep)).toEqual({ running: true, pid: 9 });
   });
 });

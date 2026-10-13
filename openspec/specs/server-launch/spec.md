@@ -8,13 +8,13 @@ Unified primitive for spawning the dashboard server across all callers (extensio
 
 ### Requirement: Single shared dashboard-server spawn primitive
 
-All runtime dashboard-server spawns SHALL go through `launchDashboardServer(opts)` exported from `packages/shared/src/server-launcher.ts`. No source file under `packages/*/src/` outside this module AND `node-spawn.ts` MAY construct dashboard-server `node --import <loader> <cli>` argv directly. Two exceptions are deliberate: the pre-loader CLI wrapper `packages/server/bin/pi-dashboard.mjs`, specified by `dashboard-server` "CLI bin entry resolves jiti at runtime", and per-line `ban:raw-node-import-ok` opt-outs for non-server Node children. Internally, `launchDashboardServer` SHALL delegate argv construction to `spawnNodeScript` in `packages/shared/src/platform/node-spawn.ts`, which itself uses the shared pure helper `buildNodeImportArgvParts({ loader, entry, args })`. The `restart-helper.ts` `node -e` orchestrator (which runs in a fresh process and cannot call `launchDashboardServer` directly) SHALL also call `buildNodeImportArgvParts` for argv construction.
+All runtime dashboard-server spawns SHALL go through `launchDashboardServer(opts)` exported from `packages/shared/src/server-launcher.ts`. No source file under `packages/*/src/` outside this module AND `node-spawn.ts` MAY construct dashboard-server `node --import <loader> <cli>` argv directly. Two exceptions are deliberate: the pre-loader CLI wrapper `packages/server/bin/pi-dashboard.mjs`, specified by `dashboard-server` "CLI bin entry uses the native TypeScript loader (no tsx fallback)", and per-line `ban:raw-node-import-ok` opt-outs for non-server Node children. Internally, `launchDashboardServer` SHALL delegate argv construction to `spawnNodeScript` in `packages/shared/src/platform/node-spawn.ts`, which itself uses the shared pure helper `buildNodeImportArgvParts({ loader, entry, args })`. The `restart-helper.ts` `node -e` orchestrator (which runs in a fresh process and cannot call `launchDashboardServer` directly) SHALL also call `buildNodeImportArgvParts` for argv construction.
 
 **Env merge contract (clarified).** `launchDashboardServer` SHALL internally compute the spawn env as `ToolResolver.buildSpawnEnv(process.env)` (yielding PATH augmented with managed-dir, bundled-node, and pi-bin prepends), then overlay any caller-supplied `opts.env` on top with caller-wins semantics. **Callers MUST NOT pass `env: { ...process.env }` (or any equivalent that re-supplies the full `process.env`), because doing so overlays the raw, un-augmented `PATH` back over the augmented base, defeating the entire purpose of `buildSpawnEnv`.** Callers SHALL pass `env` only to inject narrow overrides (e.g. `DASHBOARD_STARTER`, `ELECTRON_RUN_AS_NODE`), or, as Electron's `spawnFromSource` does, an env built from `ToolResolver.buildSpawnEnv(process.env)` plus such overrides. In all other cases `env` SHALL be omitted.
 
 #### Scenario: Entry-script URL-wrapping rule preserved
 
-- **WHEN** the loader is jiti, tsx, or the native loader (`platform/native-ts-register.mjs`), on any host platform
+- **WHEN** the loader is the native loader (`platform/native-ts-register.mjs`), or any jiti/tsx loader string the `shouldUrlWrapEntry` classifier still recognises, on any host platform
 - **THEN** the entry script is passed as a raw path (tsx rejects `file://` entries on every OS; jiti misnormalises `file:///` entries on Windows; under any `--import` loader Node runs the main entry through `path.resolve()` before building its URL, so a `file:///` entry fails on Windows)
 - **AND WHEN** the loader is none of those AND the host platform is Windows
 - **THEN** the entry script is URL-wrapped via `toFileUrl()`
@@ -124,9 +124,11 @@ The absolute log-file path is **caller-owned**. Conventions in the migrated tree
 
 ### Requirement: Removed predecessors
 
-The following symbols SHALL NOT exist. They were removed when all call sites migrated to `ToolResolver.resolveJiti`, and SHALL NOT be reintroduced:
+The following symbols SHALL NOT exist and SHALL NOT be reintroduced. The dashboard server no longer resolves or selects jiti (see "Native TypeScript loader is the only server loader"):
 
-- `packages/shared/src/resolve-jiti.ts` (file deleted; `resolveJitiImport`, `resolveJitiFromAnchor`, `buildJitiRegisterUrl`, `pickJitiRegisterUrl` and `pickJitiFromAnchor` are subsumed into `ToolResolver.resolveJiti`; the `JitiResolver` type is not removed — it moved verbatim to `packages/shared/src/platform/binary-lookup.ts` as the resolver-injection seam).
+- `packages/shared/src/resolve-jiti.ts` (file deleted; `resolveJitiImport`, `resolveJitiFromAnchor`, `buildJitiRegisterUrl`, `pickJitiRegisterUrl` and `pickJitiFromAnchor` were first subsumed into `ToolResolver.resolveJiti`, which is itself now removed).
+- `ToolResolver.resolveJiti` and the `JitiResolver` resolver-injection seam in `packages/shared/src/platform/binary-lookup.ts`.
+- `selectTsLoader` and `nativeTransformSupported` in `packages/shared/src/platform/ts-loader-select.mjs`.
 - `packages/electron/src/lib/ts-loader-resolver.ts` (file deleted).
 - `resolveJitiFromPi` export in `packages/electron/src/lib/server-lifecycle.ts`.
 - `deps.resolveJitiFromAnchor` injection seam in `packages/electron/src/lib/launch-source.ts`.
@@ -134,8 +136,9 @@ The following symbols SHALL NOT exist. They were removed when all call sites mig
 #### Scenario: Symbol-presence check
 
 - **WHEN** the source tree is checked
-- **THEN** `git grep -nwE '(resolveJitiImport|resolveJitiFromAnchor|resolveJitiFromPi|pickJitiRegisterUrl|pickJitiFromAnchor|buildJitiRegisterUrl)[[:space:]]*\(' -- packages/ ':!packages/**/dist/**' ':!packages/**/out/**' ':!packages/electron/resources/**'` returns zero matches (POSIX classes, because `git grep -E` does not honour `\b` / `\s`; call-shaped mentions in comments count as matches)
+- **THEN** `git grep -nwE '(resolveJitiImport|resolveJitiFromAnchor|resolveJitiFromPi|pickJitiRegisterUrl|pickJitiFromAnchor|buildJitiRegisterUrl|resolveJiti|selectTsLoader|nativeTransformSupported)[[:space:]]*\(' -- packages/ ':!packages/**/dist/**' ':!packages/**/out/**' ':!packages/electron/resources/**' ':!packages/**/__tests__/**'` returns zero matches (POSIX classes, because `git grep -E` does not honour `\b` / `\s`; call-shaped mentions in comments count as matches)
 - **AND** `git grep -nwE 'ts-loader-resolver' -- 'packages/**/*.ts' ':!packages/**/dist/**' ':!packages/**/out/**' ':!packages/electron/resources/**'` returns zero matches
+- **AND** `git grep -nwE '(JitiResolver|JitiNotFoundError|_?resolveJiti|selectTsLoader|nativeTransformSupported)' -- 'packages/**/*.ts' 'packages/**/*.mjs' 'packages/**/*.mts' ':!packages/**/dist/**' ':!packages/**/out/**' ':!packages/electron/resources/**' ':!packages/**/__tests__/**'` returns zero matches (word match, not call-shaped, so injection seams and type positions are caught too)
 
 ### Requirement: Electron-host callers MUST supply an explicit Node binary
 
@@ -378,79 +381,58 @@ The respawn SHALL read the ceiling from configuration at restart time, so a
 - **WHEN** the restart respawn would re-apply a ceiling the environment already pins
 - **THEN** the operator's pin SHALL remain in effect and SHALL NOT be shadowed by the re-stamp
 
-### Requirement: Unified jiti resolution via `ToolResolver` anchored at earendil pi
+### Requirement: Native TypeScript loader is the only server loader
 
-When the jiti loader is selected (`PI_DASHBOARD_TS_LOADER=jiti`), `ToolResolver.resolveJiti({ anchor?, resolver? })` SHALL be the single source of truth for resolving pi's `jiti-register.mjs`. Resolution order: managed pi install (`~/.pi-dashboard/node_modules/<pi-pkg>` for `@earendil-works/pi-coding-agent` only) → system pi via `which("pi")` → caller-supplied `opts.anchor` walked up to nearest `node_modules` → `process.argv[1]` walked up. For every anchor, the inner walk SHALL try `JITI_PACKAGES = ["jiti", "@mariozechner/jiti"]` (upstream first, namespaced-jiti fallback; `@mariozechner/jiti` is a loader package, unrelated to the dropped pi fork). Returns the register hook as a `file://` URL string (preserving the Windows drive-letter URL-wrapping contract documented on the prior `buildJitiRegisterUrl` helper) or null. The optional `resolver` parameter SHALL be the `JitiResolver` test-injection seam.
+Every dashboard-server launch (CLI wrapper, `launchDashboardServer` from CLI / Electron / bridge auto-start, Electron launch helpers, the restart orchestrator) and every server worker thread SHALL use the Node-native TypeScript loader. No launch path SHALL resolve, select, or inject jiti. Node launch sites SHALL locate the native register module by package specifier (`@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs`) from the launch anchor, not by directory arithmetic; the shell launch helpers (`start-server.{sh,cmd,ps1}`), which cannot resolve packages, SHALL use the bundle's fixed layout path to that file. The spawn log header SHALL name the loader. The bundled-server plugin-load build gate SHALL boot with the native loader. `PI_DASHBOARD_TS_LOADER` SHALL NOT influence any launch path. When it is set to a value other than empty or `native` (both silent), the **dashboard server process** SHALL log one warning at boot (to `server.log`) that the variable is no longer supported; wrappers and launchers SHALL neither warn nor rewrite the environment. `/api/restart` SHALL hand the restart orchestrator the native register module as its loader, whatever loader the running process's `execArgv` carries (for example jiti inherited from a server started before this change); the orchestrator's own argv branches are unchanged. A server that boots under a non-native TypeScript loader SHALL log a warning recommending a fresh start.
 
-#### Scenario: Managed pi present (upstream)
+#### Scenario: Launch uses the native loader
 
-- **WHEN** `~/.pi-dashboard/node_modules/@earendil-works/pi-coding-agent` exists and resolves `jiti/package.json`
-- **THEN** `resolveJiti()` returns a `file://` URL pointing at the upstream `jiti/lib/jiti-register.mjs`
-
-#### Scenario: Managed legacy fork is not an anchor
-
-- **WHEN** `~/.pi-dashboard/node_modules/` contains only `@mariozechner/pi-coding-agent`
-- **THEN** `resolveJiti()` SHALL NOT anchor at it
-- **AND** resolution SHALL continue with system pi, `opts.anchor`, then `process.argv[1]`
-
-#### Scenario: System pi only
-
-- **WHEN** managed pi is absent but `which("pi")` resolves and pi's tree contains jiti
-- **THEN** `resolveJiti()` returns the system pi's `jiti-register.mjs` as a `file://` URL
-
-#### Scenario: Anchor walk-up (Electron packaged)
-
-- **WHEN** `process.argv[1]` is empty or a flag (packaged Electron) and `opts.anchor` is a valid `cliPath` inside a `node_modules` tree containing jiti
-- **THEN** `resolveJiti({ anchor: cliPath })` returns the jiti URL resolved from that tree
-
-#### Scenario: Windows drive-letter wrapping
-
-- **WHEN** the resolved jiti path begins with `B:\` or any other URL-scheme-colliding drive letter
-- **THEN** `resolveJiti()` returns `file:///B:/.../jiti-register.mjs` (drive letter URL-wrapped, backslashes normalised to forward slashes)
-
-#### Scenario: All sources missing
-
-- **WHEN** none of managed, system, anchor, or argv yield a jiti path
-- **THEN** `resolveJiti()` returns null
-- **AND** `launchDashboardServer` raises `JitiNotFoundError` only when the jiti loader is selected and its caller did not supply a usable anchor
-
-### Requirement: TypeScript loader selection with native default
-
-Every fresh dashboard-server launch (CLI wrapper, `launchDashboardServer` from CLI / Electron / bridge auto-start, Electron launch helpers) SHALL use the Node-native TypeScript loader by default. A restart (`/api/restart`) and server worker threads SHALL keep the running server's loader; switching loaders requires a fresh launch. Setting `PI_DASHBOARD_TS_LOADER=jiti` SHALL select the jiti loader instead, resolved exactly as before. Any other value SHALL log a warning and select the native loader. Selection SHALL read the launching process's own environment (a caller's `opts.env` overlay does not change the selection) and SHALL be implemented once in a plain-JavaScript helper usable before any TypeScript loader is registered. Node launch sites SHALL locate the native register module by package specifier (`@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs`) from the launch anchor, not by directory arithmetic; the shell launch helpers (`start-server.{sh,cmd,ps1}`), which cannot resolve packages, SHALL use the bundle's fixed layout path to that file. The spawn log header SHALL name the selected loader. The bundled-server plugin-load build gate SHALL boot with the selected loader.
-
-#### Scenario: Default launch uses the native loader
-
-- **WHEN** `launchDashboardServer` runs with `PI_DASHBOARD_TS_LOADER` unset
+- **WHEN** `launchDashboardServer` runs
 - **THEN** the child argv SHALL be `--import <native-ts-register.mjs URL> <cli>`
 - **AND** the spawn log header SHALL contain `loader <native-ts-register.mjs URL>`
 
-#### Scenario: jiti opt-in restores the previous launch
+#### Scenario: Explicit native value stays silent
 
-- **WHEN** `PI_DASHBOARD_TS_LOADER=jiti`
-- **THEN** the loader SHALL be the URL returned by `ToolResolver.resolveJiti({ anchor })`
-- **AND** the argv and entry URL-wrapping SHALL match the pre-change jiti launch
+- **WHEN** `PI_DASHBOARD_TS_LOADER=native` is set
+- **THEN** no warning SHALL be logged and the native loader SHALL be used
 
-#### Scenario: Unknown loader value
+#### Scenario: Legacy loader variable is ignored with a warning
 
-- **WHEN** `PI_DASHBOARD_TS_LOADER=tsx`
-- **THEN** a warning SHALL be logged and the native loader SHALL be used
+- **WHEN** `PI_DASHBOARD_TS_LOADER=jiti` is set in the launching process environment
+- **THEN** exactly one warning naming `PI_DASHBOARD_TS_LOADER` as unsupported SHALL be logged
+- **AND** the child argv SHALL use the native register module
 
-#### Scenario: Native launch does not require jiti
+#### Scenario: No jiti installed anywhere
 
-- **WHEN** no jiti package resolves from any anchor AND the native loader is selected
-- **THEN** `launchDashboardServer` SHALL NOT throw `JitiNotFoundError`
+- **WHEN** no jiti package resolves from any anchor
+- **THEN** `launchDashboardServer`, the CLI wrapper and the bridge auto-start SHALL start the server normally
+- **AND** no "cannot find jiti" message SHALL be emitted
 
-#### Scenario: Restart keeps the running loader
+#### Scenario: Node 26 does not fall back
 
-- **WHEN** a server launched with `PI_DASHBOARD_TS_LOADER=jiti` is restarted via `/api/restart` after the variable was unset
-- **THEN** the restarted server SHALL run under jiti
+- **WHEN** the server is launched on Node 26 (no transform-mode type stripping)
+- **THEN** the native loader SHALL be used
 
-#### Scenario: Bridge auto-start uses the native loader
+#### Scenario: Only the server warns
 
-- **WHEN** the bridge extension auto-starts the server with `PI_DASHBOARD_TS_LOADER` unset and no jiti resolvable
-- **THEN** the server SHALL start under the native loader and the bridge SHALL NOT log a jiti-not-found failure
+- **WHEN** `pi-dashboard start` runs with `PI_DASHBOARD_TS_LOADER=jiti` (wrapper → CLI → `launchDashboardServer` → server)
+- **THEN** the wrapper and launcher SHALL NOT warn
+- **AND** the server SHALL write exactly one unsupported-variable warning to `server.log` at boot
 
-#### Scenario: Worker threads keep the server's loader
+#### Scenario: Restart normalizes an inherited jiti loader
 
-- **WHEN** the server was started with the native loader and a worker pool spawns a `.ts` worker
-- **THEN** the worker SHALL run under the same loader without adding jiti
+- **GIVEN** a running server whose `execArgv` contains `--import <jiti-register URL>`
+- **WHEN** `/api/restart` is invoked on a server running this change's code
+- **THEN** the orchestrator SHALL receive the native register module as its loader
+- **AND** the re-launched server's argv SHALL use the native register module
+
+#### Scenario: Server under a foreign loader warns at boot
+
+- **WHEN** the server boots with a non-native TypeScript loader in its `execArgv`
+- **THEN** it SHALL log a warning naming the loader and recommending `pi-dashboard stop && pi-dashboard start`
+
+#### Scenario: Worker threads use the native loader
+
+- **WHEN** a server running under the native loader spawns a `.ts` worker from a worker pool
+- **THEN** the worker SHALL run under the native loader inherited from the server's `execArgv`, or added when no loader is inherited
+- **AND** jiti SHALL NOT be added to the worker's `execArgv`, and an inherited loader of any kind SHALL count as present (no second `--import` is added)

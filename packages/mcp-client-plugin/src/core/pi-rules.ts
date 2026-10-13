@@ -1,13 +1,13 @@
 /**
  * mcp-client-plugin · CORE mirror of pi's built-in MCP entry rules.
  *
- * pi 1.0.0 does not export `validateMcpServerConfig` (its exports map has
+ * pi 1.1.0 does not export `validateMcpServerConfig` (its exports map has
  * only `.`, `./rpc-entry`, `./client`, `./experimental/plugin`) and this
  * package has no pi dependency, so the checks are mirrored here from
  * `dist/core/mcp-servers.js` + `dist/extensions/mcp/config.js`. The writer
  * runs them before every write so it never persists an entry pi rejects.
  *
- * See change: migrate-mcp-to-pi-builtin (D3 "Validation").
+ * See change: migrate-mcp-to-pi-builtin (D3 "Validation"); mcp-client-project-overrides (D1).
  */
 
 import { isPlainObject } from "./path-utils.js";
@@ -128,7 +128,7 @@ function validateOAuth(value: unknown): string | undefined {
 }
 
 /**
- * Mirror of pi 1.0.0 `validateMcpServerConfig(name, raw)`: `null` when pi
+ * Mirror of pi 1.1.0 `validateMcpServerConfig(name, raw)`: `null` when pi
  * accepts the entry, else pi's error message.
  */
 export function validatePiEntry(name: string, raw: unknown): string | null {
@@ -217,4 +217,81 @@ export function authModeOf(entry: Record<string, unknown>): AuthMode | undefined
     return { kind: "header" };
   }
   return { kind: "oauth" };
+}
+
+/** The only keys a project override may set (pi 1.1.0 `OVERRIDE_KEYS`). */
+export const OVERRIDE_KEYS = ["enabled", "exposure", "toolExposure"] as const;
+
+/**
+ * pi's `isOverride`: an entry that defines no server of its own. Strictly
+ * `=== undefined` — `null` and `""` count as SET, so `{url: null}` is a
+ * (broken) whole entry, never an override.
+ */
+export function isProjectOverride(value: unknown): value is Record<string, unknown> {
+  return isPlainObject(value) && value.command === undefined && value.url === undefined && value.type === undefined;
+}
+
+/** A *full* entry: a string `command` or a string `url`. */
+export function isFullEntry(value: unknown): value is Record<string, unknown> {
+  return isPlainObject(value) && (typeof value.command === "string" || typeof value.url === "string");
+}
+
+/** The global entries pi keeps: valid, and first-wins on a `-`/`_` namespace clash. */
+export interface KeptGlobal {
+  kept: Map<string, Record<string, unknown>>;
+  /** Valid entries dropped as a namespace collision → the name that won. */
+  collisions: Map<string, string>;
+}
+
+/**
+ * pi's global pass (`config.js:83-93`): an invalid or colliding global entry is
+ * never stored, so it can never be an override base. The effective view and
+ * every writer share this one function.
+ */
+export function keptGlobalOf(servers: Record<string, unknown>): KeptGlobal {
+  const kept = new Map<string, Record<string, unknown>>();
+  const collisions = new Map<string, string>();
+  const loadedNs = new Map<string, string>();
+  for (const [name, raw] of Object.entries(servers)) {
+    if (validatePiEntry(name, raw) !== null) continue;
+    const clash = loadedNs.get(mcpNamespace(name));
+    if (clash !== undefined && clash !== name) {
+      collisions.set(name, clash);
+      continue;
+    }
+    loadedNs.set(mcpNamespace(name), name);
+    kept.set(name, raw as Record<string, unknown>);
+  }
+  return { kept, collisions };
+}
+
+export type ProjectEntryClass =
+  | { kind: "replace" }
+  | { kind: "orphan"; message: string }
+  | { kind: "bad-keys"; message: string }
+  | { kind: "invalid"; message: string }
+  | { kind: "override"; merged: Record<string, unknown>; keys: string[] };
+
+/**
+ * pi 1.1.0's project pass for one entry (`config.js:65-82`). Messages are pi's
+ * text without the `<path>: ` prefix.
+ */
+export function classifyProjectEntry(
+  name: string,
+  value: unknown,
+  keptGlobal?: ReadonlyMap<string, Record<string, unknown>>,
+): ProjectEntryClass {
+  if (!isProjectOverride(value)) return { kind: "replace" };
+  const base = keptGlobal?.get(name);
+  if (!base) {
+    return { kind: "orphan", message: `server "${name}" needs "command" or "url", or a global server to override` };
+  }
+  const extra = Object.keys(value).filter((k) => !(OVERRIDE_KEYS as readonly string[]).includes(k));
+  if (extra.length > 0) {
+    return { kind: "bad-keys", message: `server "${name}": an override can only set ${OVERRIDE_KEYS.join(", ")}` };
+  }
+  const merged = { ...base, ...value };
+  const invalid = validatePiEntry(name, merged);
+  if (invalid) return { kind: "invalid", message: invalid };
+  return { kind: "override", merged, keys: Object.keys(value) };
 }

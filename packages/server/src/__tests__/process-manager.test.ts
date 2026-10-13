@@ -3,6 +3,7 @@ import { execFileSync, execSync } from "@blackbelt-technology/pi-dashboard-share
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildHeadlessArgs,
+  buildInteractivePiArgs,
   buildSpawnEnv,
   buildTmuxCommand,
   resetResolver,
@@ -219,6 +220,46 @@ describe("Process Manager", () => {
       });
       expect(cmd).toContain("new-session");
       expect(cmd[cmd.length - 1]).toBe(UNSET_PREFIX + "pi --session /path/to/session.jsonl");
+    });
+  });
+
+  // (test-plan #E9) every strategy funnels through `sessionFlagsToArgv`, so the
+  // flag reaches headless, interactive and the tmux pane command.
+  // See change: spawn-scope-no-mcp.
+  describe("noMcp passthrough (spawn-scope-no-mcp E9)", () => {
+    it("headless, interactive and tmux argv all carry --no-mcp", () => {
+      expect(buildHeadlessArgs({ noMcp: true })).toEqual(["--mode", "rpc", "--no-mcp"]);
+      expect(buildInteractivePiArgs({ noMcp: true })).toEqual(["--no-mcp"]);
+      const tmux = buildTmuxCommand("/p", false, { noMcp: true } as never);
+      expect(tmux.join(" ")).toContain(`${UNSET_PREFIX}pi --no-mcp`);
+    });
+
+    it("absent noMcp leaves every argv unchanged", () => {
+      expect(buildHeadlessArgs({})).toEqual(["--mode", "rpc"]);
+      expect(buildInteractivePiArgs({})).toEqual([]);
+      expect(buildTmuxCommand("/p", false).join(" ")).not.toContain("--no-mcp");
+    });
+  });
+
+  // (test-plan #E8) a valid model with shell-significant chars stays ONE escaped
+  // pane token. See change: redesign-directory-home-split.
+  describe("model/thinking passthrough (redesign-directory-home-split E8)", () => {
+    it("tmux pane command carries the model as one shellEscaped token", () => {
+      const cmd = buildTmuxCommand("/p", false, { model: "a/b@c+d", thinking: "high" } as never);
+      const pane = cmd[cmd.length - 1] ?? "";
+      expect(pane).toContain(`${UNSET_PREFIX}pi --model 'a/b@c+d' --thinking high`);
+      expect(pane).not.toMatch(/--model a\/b@c\+d/);
+    });
+
+    it("headless argv carries --model and --thinking", () => {
+      expect(buildHeadlessArgs({ model: "a/b", thinking: "low" })).toEqual([
+        "--mode",
+        "rpc",
+        "--model",
+        "a/b",
+        "--thinking",
+        "low",
+      ]);
     });
   });
 

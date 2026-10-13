@@ -356,7 +356,13 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
   useSubagentResyncCadence({
     key:
       agentId && sessionId && (expanded || detailOpen) && !streamComplete ? `${sessionId}:${agentId}` : undefined,
-    running: details?.status === "running" || details?.status === "queued" || sub?.status === "running",
+    // A finalized card (e.g. a neutral settle heal while the subagent is still
+    // recorded running) stops polling. See change:
+    // finalize-agent-card-on-subagent-stop (D5c).
+    running:
+      details?.status === "running" ||
+      details?.status === "queued" ||
+      (sub?.status === "running" && status === "running"),
     entryCount: sub?.entries?.length ?? 0,
     onResync: () => {
       if (agentId && sessionId && context?.send) {

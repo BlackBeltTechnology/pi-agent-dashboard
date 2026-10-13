@@ -1,4 +1,4 @@
-import { type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { FieldShell, NumberField, type RegisteredSource, SelectField, SettingsDraftProvider, type SettingsDraftRegistry, SettingsNotice, TextField, ToggleField, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
@@ -26,14 +26,16 @@ import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/mod
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { useLaunchSource } from "../../hooks/useLaunchSource.js";
+import { useModelCatalogue } from "../../hooks/useModelCatalogue.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
+import { usePersistedBoolean } from "../../hooks/usePersistedBoolean.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
@@ -41,7 +43,6 @@ import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
-import { fetchModelCatalogue, type ModelCatalogueResult } from "../../lib/api/models-api.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
 import {
   type BindReachability,
@@ -100,6 +101,13 @@ import { PushNotificationsSection } from "./PushNotificationsSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
+import { VaultSection } from "./vault/VaultSection.js";
+
+// The field family lives in the runtime so plugin settings share one contract.
+// Re-exported so existing `./SettingsPanel.js` imports keep working.
+// See change: retro-ux-plugin-settings-forms (design D2).
+export { NumberField, SelectField, TextField, ToggleField };
+
 
 interface ProviderConfig {
   clientId: string;
@@ -471,6 +479,8 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
 const SETTINGS_PAGE_ALIASES: Record<string, string> = {
   advanced: "developer",
   servers: "remote",
+  // Settings ▸ Packages became Add-ons. See change: addons-hub-declutter.
+  packages: "add-ons",
 };
 // `instructions` is a built-in global Instructions page, so it is added to the
 // client-side route whitelist only, NOT to the shared VALID_SETTINGS_TABS.
@@ -485,7 +495,9 @@ const SETTINGS_PAGE_ALIASES: Record<string, string> = {
 // `access` is a built-in Network-group page (the grant review/revoke surface),
 // added to the client route whitelist only (not a plugin-claimable slot), like
 // `gateway` above. See change: add-access-grants-and-review.
-const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "gateway", "access"]);
+// `vault` is a built-in Network-group page (the credential vault), client route
+// whitelist only. See change: add-credential-vault.
+const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "gateway", "access", "vault"]);
 
 // Global-scope resource card pages. Page id → the singular `PiResource.type` its
 // grid renders. See change: resources-card-tabs.
@@ -676,6 +688,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
     [pluginRows, contributesSettings, promotions],
   );
 
+  // Plugins subtree is collapsed by default. A child page being active forces it
+  // open (derived at render, never written); only an explicit toggle persists.
+  // See change: addons-hub-declutter (D7).
+  const [pluginsExpandedPref, setPluginsExpandedPref] = usePersistedBoolean("dashboard:settings-plugins-expanded");
+  const pluginsForcedOpen = !!activePluginId;
+  const pluginsExpanded = pluginsForcedOpen || pluginsExpandedPref === true;
+
   // Global-scope resource card pages (Resources nav group). One fetch backs the
   // nav count pills + the active page grid. See change: resources-card-tabs.
   const piResources = usePiResources(null, { globalOnly: true });
@@ -728,48 +747,22 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
     setting: string; source: string; gitPath: string | null;
     gitVersion: string | null; shellPath: string | null;
   } | null>(null);
-  // Session-independent model catalogue (GET /api/models). Owned here because
-  // this panel also owns the refetch triggers (credential writes) and the
-  // unavailable callout. `null` = no response yet (loading).
-  // See change: settings-default-model-without-session.
-  const [catalogue, setCatalogue] = useState<ModelCatalogueResult | null>(null);
-  // Last models a request actually returned. Held separately so a refetch that
-  // fails does not BLANK a catalogue that already loaded — the proxy editors
-  // would lose every option on one transient 503. The callout still fires, so
-  // the failure is reported rather than swallowed.
-  const [lastGoodModels, setLastGoodModels] = useState<ModelInfo[] | null>(null);
-  const [catalogueFetching, setCatalogueFetching] = useState(true);
-  // LAST-RESPONSE-wins, deliberately: whichever response arrives last is the
-  // rendered catalogue, even if its request was issued first. A stale payload
-  // may therefore win transiently; the next refetch corrects it. Spec'd that
-  // way so the rule is one observable sentence rather than request bookkeeping.
-  const refetchCatalogue = useCallback(() => {
-    setCatalogueFetching(true);
-    return fetchModelCatalogue()
-      .then((result) => {
-        setCatalogue(result);
-        if (result.status === "ok") setLastGoodModels(result.models);
-      })
-      .finally(() => setCatalogueFetching(false));
-  }, []);
-  useEffect(() => {
-    void refetchCatalogue();
-  }, [refetchCatalogue]);
-
-  const catalogueModels = useMemo(
-    () => (catalogue?.status === "ok" ? catalogue.models : (lastGoodModels ?? [])),
-    [catalogue, lastGoodModels],
-  );
+  // Session-independent model catalogue (GET /api/models). The panel owns the
+  // refetch triggers (credential writes) and the unavailable callout; the state
+  // itself lives in `useModelCatalogue` (shared with the sessionless composers).
+  // `loading` is the COLD state only (see the hook). See changes:
+  // settings-default-model-without-session, redesign-directory-home-split.
+  const {
+    models: catalogueModels,
+    unavailable: catalogueUnavailable,
+    loading: catalogueLoading,
+    refetch: refetchCatalogue,
+  } = useModelCatalogue();
   /** Default Model options: catalogue ∪ every session list, session row wins. */
   const defaultModelOptions = useMemo(
     () => mergeModelOptions(catalogueModels, availableModels ?? []),
     [catalogueModels, availableModels],
   );
-  const catalogueUnavailable = catalogue?.status === "unavailable";
-  // Loading is the COLD state only: once a response has landed, a refetch keeps
-  // rendering the options it has instead of flipping back to a spinner.
-  const catalogueLoading = catalogueFetching && catalogue === null;
-
   // LIVE gateway endpoint. The Pi Gateway Port field below is the CONFIGURED
   // value, and since the gateway became socket-by-default that number names a
   // port nothing is bound to — the field advertised a listener that did not
@@ -1178,13 +1171,14 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
         { id: "gateway", label: t("settings.gateway", undefined, "Gateway"), icon: mdiTunnel },
         { id: "security", label: t("settings.security", undefined, "Security"), icon: mdiLock },
         { id: "access", label: t("settings.access", undefined, "Access"), icon: mdiShieldCheck },
+        { id: "vault", label: t("settings.vault", undefined, "Vault"), icon: mdiShieldKey },
       ],
     },
     {
-      id: "extensions",
-      label: t("settings.groupExtensions", undefined, "Extensions"),
+      id: "add-ons",
+      label: t("settings.groupAddons", undefined, "Add-ons"),
       items: [
-        { id: "packages", label: t("settings.packages", undefined, "Packages"), icon: mdiPackageVariant },
+        { id: "add-ons", label: t("settings.addons", undefined, "Add-ons"), icon: mdiPackageVariant },
         { id: "plugins", label: t("settings.plugins", undefined, "Plugins"), icon: mdiPuzzle },
         { id: "openspec", label: t("settings.openspec", undefined, "OpenSpec"), icon: mdiClipboardText },
       ],
@@ -1324,10 +1318,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     : activeTab === item.id;
                 return (
                   <div key={item.id} className="contents md:block">
+                  <div className={item.id === "plugins" ? "flex items-center gap-1 md:w-full" : "contents"}>
                   <button
                     onClick={() => requestRailNavigate("/settings/" + item.id)}
                     aria-current={active ? "page" : undefined}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
+                    className={`${item.id === "plugins" ? "flex-1 min-w-0" : "w-full"} flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
                       active
                         ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
                         : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
@@ -1343,7 +1338,28 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                       />
                     )}
                   </button>
-                  {item.id === "plugins" &&
+                  {item.id === "plugins" && pluginNavChildren.length > 0 && (
+                    <button
+                      type="button"
+                      data-testid="nav-plugins-toggle"
+                      aria-expanded={pluginsExpanded}
+                      aria-controls="settings-nav-plugins-children"
+                      disabled={pluginsForcedOpen}
+                      aria-label={
+                        pluginsExpanded
+                          ? t("settings.pluginsHide", undefined, "Hide plugin pages")
+                          : t("settings.pluginsShow", { count: pluginNavChildren.length }, `Show plugin pages (${pluginNavChildren.length})`)
+                      }
+                      onClick={() => setPluginsExpandedPref(!pluginsExpanded)}
+                      className="shrink-0 flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)] disabled:opacity-60 disabled:cursor-default cursor-pointer"
+                    >
+                      {!pluginsExpanded && <span>{pluginNavChildren.length}</span>}
+                      <Icon path={pluginsExpanded ? mdiChevronDown : mdiChevronRight} size={0.6} />
+                    </button>
+                  )}
+                  </div>
+                  <div id={item.id === "plugins" ? "settings-nav-plugins-children" : undefined} className="contents md:block">
+                  {item.id === "plugins" && pluginsExpanded &&
                     pluginNavChildren.map(({ row: p, pointer }) => {
                       if (pointer) {
                         // Promoted plugin: a dimmed pointer to the same URL. A
@@ -1397,6 +1413,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                         </button>
                       );
                     })}
+                  </div>
                   </div>
                 );
               })}
@@ -2234,6 +2251,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
               </>
             )}
 
+            {activeTab === "vault" && <VaultSection />}
+
             {activeTab === "access" && (
               <>
                 <AccessPromptsSection selectedCwd={selectedCwd} />
@@ -2424,7 +2443,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
               </>
             )}
 
-            {activeTab === "packages" && (
+            {activeTab === "add-ons" && (
               <>
                 <ElectronRuntimeUpdates />
                 <UnifiedPackagesSection />
@@ -3540,29 +3559,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-// ─── Shared settings field contract ──────────────────────────────────────────
-//
-// The four field components below all owe their control an accessible NAME (a
-// label associated via htmlFor/id) and an accessible DESCRIPTION (the `hint`,
-// referenced via aria-describedby). `hint` is REQUIRED so that adding a field
-// without deciding about its description is a type error rather than a silent
-// omission — the compiler is the gate, so there is no allowlist to drift.
-// `hint={null}` is the explicit, greppable "nothing useful to add here".
-// `unit` renders inside the <label> so it forms part of the accessible name.
-// See change: reorganize-settings-pages-and-descriptions (design D1/D4/D5).
-
-type FieldContract = {
-  /** Accessible description. Required: pass `null` to state there is none. */
-  hint: React.ReactNode;
-  /** Short unit rendered as a chip inside the label (e.g. "ms", "s"). */
-  unit?: string;
-};
-
-/** True when a hint should render and be referenced by aria-describedby. */
-function hasHint(hint: React.ReactNode): boolean {
-  return hint !== null && hint !== undefined;
-}
-
 /**
  * Indents controls beneath the control that gates them, so the dependency is
  * visible instead of being implied by a `disabled` prop or a conditional
@@ -3573,52 +3569,6 @@ function GatedGroup({ children }: { children: React.ReactNode }) {
     <div data-testid="gated-group" className="ml-3 pl-3 border-l border-[var(--border-secondary)] space-y-2">
       {children}
     </div>
-  );
-}
-
-function FieldShell({ label, unit, hint, controlId, hintId, disabled, stacked, children }: FieldContract & {
-  label: string;
-  controlId: string;
-  hintId: string;
-  disabled?: boolean;
-  /** Label above the control (TextField) instead of on the same row. */
-  stacked?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={disabled ? "opacity-50" : ""}>
-      <div className={stacked ? "" : "flex items-center justify-between"}>
-        <label
-          htmlFor={controlId}
-          className={stacked ? "block text-xs text-[var(--text-tertiary)] mb-0.5" : "text-sm text-[var(--text-secondary)]"}
-        >
-          {label}
-          {unit ? (
-            <span className="ml-1.5 px-1 py-0.5 rounded text-[10px] align-middle bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">{unit}</span>
-          ) : null}
-        </label>
-        {children}
-      </div>
-      {hasHint(hint) ? <p id={hintId} className="mt-1 text-xs text-[var(--text-tertiary)]">{hint}</p> : null}
-    </div>
-  );
-}
-
-export function NumberField({ label, value, onChange, disabled, hint, unit }: FieldContract & { label: string; value: number; onChange: (v: number) => void; disabled?: boolean }) {
-  const controlId = useId();
-  const hintId = `${controlId}-hint`;
-  return (
-    <FieldShell label={label} unit={unit} hint={hint} controlId={controlId} hintId={hintId} disabled={disabled}>
-      <input
-        id={controlId}
-        aria-describedby={hasHint(hint) ? hintId : undefined}
-        type="number"
-        disabled={disabled}
-        className="w-24 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)] text-right disabled:cursor-not-allowed"
-        value={value}
-        onChange={(e) => onChange(parseInt(e.target.value, 10) || 0)}
-      />
-    </FieldShell>
   );
 }
 
@@ -3639,7 +3589,7 @@ function StoreHeapCouplingWarning({ config, testId }: { config: Config; testId: 
   if (!r.warn) return null;
   const vars = { ceiling: String(ceilingMb), heap: String(r.projectedHeapMb), crash: String(r.crashPointMb) };
   return (
-    <p data-testid={testId} role="status" className="mt-1 text-xs text-amber-400">
+    <SettingsNotice tone="warning" role="status" testId={testId} className="mt-1">
       {r.unbounded
         ? t(
             "settings.heap.storeUnbounded",
@@ -3651,7 +3601,7 @@ function StoreHeapCouplingWarning({ config, testId }: { config: Config; testId: 
             vars,
             `This event budget needs about ${r.projectedHeapMb} MB of heap, above the ~${r.crashPointMb} MB crash point of a ${ceilingMb} MB server heap ceiling. Raise the ceiling or lower Max Total Event Bytes.`,
           )}
-    </p>
+    </SettingsNotice>
   );
 }
 
@@ -3690,8 +3640,6 @@ function HeapMbField({
   hint?: React.ReactNode;
   testId?: string;
 }) {
-  const controlId = useId();
-  const hintId = `${controlId}-hint`;
   const [draft, setDraft] = useState<string | null>(null);
   const shown = draft ?? String(value);
   // NOT bare `parseInt`: it reads "64abc" as 64, so a typo would be accepted as
@@ -3705,93 +3653,51 @@ function HeapMbField({
   }, [belowFloor, onValidityChange]);
   return (
     <div>
-      <FieldShell label={label} unit="MB" hint={hint} controlId={controlId} hintId={hintId}>
-        <input
-          id={controlId}
-          data-testid={testId}
-          aria-describedby={hasHint(hint) ? hintId : undefined}
-          aria-invalid={belowFloor || undefined}
-          type="number"
-          className={`w-24 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-right ${
-            belowFloor
-              ? "border-red-500 text-red-400"
-              : "border-[var(--border-secondary)] text-[var(--text-primary)]"
-          }`}
-          value={shown}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            const raw = e.target.value.trim();
-            const v = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN;
-            // A refused value is never written to the draft config, so it can
-            // neither be saved nor mark the page dirty.
-            if (Number.isFinite(v) && v >= MIN_HEAP_MB) onChange(v);
-          }}
-          onBlur={() => setDraft(null)}
-        />
-      </FieldShell>
-      {belowFloor && (
-        <p data-testid={testId ? `${testId}-error` : undefined} className="mt-1 text-xs text-red-400">
-          {i18nT(
-            "settings.heap.belowFloor",
-            { min: String(MIN_HEAP_MB) },
-            `Must be at least ${MIN_HEAP_MB} MB — below that V8's fixed overhead dominates the request.`,
-          )}
-        </p>
-      )}
+      <FieldShell
+        label={label}
+        unit="MB"
+        hint={hint ?? null}
+        error={
+          belowFloor
+            ? i18nT(
+                "settings.heap.belowFloor",
+                { min: String(MIN_HEAP_MB) },
+                `Must be at least ${MIN_HEAP_MB} MB — below that V8's fixed overhead dominates the request.`,
+              )
+            : null
+        }
+        testIds={{ error: testId ? `${testId}-error` : undefined }}
+        control={({ id, describedBy, invalid }) => (
+          <input
+            id={id}
+            data-testid={testId}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
+            type="number"
+            className="focus-ring w-24 rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2 py-1 text-right text-sm text-[var(--text-primary)] aria-[invalid=true]:border-[var(--severity-error-border)]"
+            value={shown}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              const raw = e.target.value.trim();
+              const v = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN;
+              // A refused value is never written to the draft config, so it can
+              // neither be saved nor mark the page dirty.
+              if (Number.isFinite(v) && v >= MIN_HEAP_MB) onChange(v);
+            }}
+            onBlur={() => setDraft(null)}
+          />
+        )}
+      />
       {aboveGuidance && (
-        <p data-testid={testId ? `${testId}-warn` : undefined} className="mt-1 text-xs text-amber-400">
+        <SettingsNotice tone="warning" role="status" testId={testId ? `${testId}-warn` : undefined} className="mt-1">
           {i18nT(
             "settings.heap.aboveGuidance",
             { max: String(HEAP_WARN_ABOVE_MB) },
             `Above ${HEAP_WARN_ABOVE_MB} MB is unusually large. The value is still saved.`,
           )}
-        </p>
+        </SettingsNotice>
       )}
     </div>
-  );
-}
-
-export function ToggleField({ label, value, onChange, disabled, hint, unit }: FieldContract & { label: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
-  const controlId = useId();
-  const hintId = `${controlId}-hint`;
-  return (
-    <FieldShell label={label} unit={unit} hint={hint} controlId={controlId} hintId={hintId} disabled={disabled}>
-      {/* role="switch" + aria-checked expose the ON/OFF STATE. Without them a
-          screen-reader user hears the name and description this change added
-          but cannot tell whether the setting is on — half an a11y fix.
-          type="button" keeps it from submitting an enclosing form. */}
-      <button
-        id={controlId}
-        type="button"
-        role="switch"
-        aria-checked={value}
-        aria-describedby={hasHint(hint) ? hintId : undefined}
-        disabled={disabled}
-        onClick={() => onChange(!value)}
-        className={`relative w-10 h-5 rounded-full transition-colors disabled:cursor-not-allowed ${value ? "bg-blue-600" : "bg-[var(--bg-tertiary)]"}`}
-      >
-        <span className={`absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${value ? "translate-x-5" : "translate-x-0"}`} />
-      </button>
-    </FieldShell>
-  );
-}
-
-export function SelectField({ label, value, options, onChange, disabled, hint, unit }: FieldContract & { label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; disabled?: boolean }) {
-  const controlId = useId();
-  const hintId = `${controlId}-hint`;
-  return (
-    <FieldShell label={label} unit={unit} hint={hint} controlId={controlId} hintId={hintId} disabled={disabled}>
-      <select
-        id={controlId}
-        aria-describedby={hasHint(hint) ? hintId : undefined}
-        disabled={disabled}
-        className="bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)] disabled:cursor-not-allowed"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-    </FieldShell>
   );
 }
 
@@ -3852,25 +3758,6 @@ function ProviderSection({ providerKey, provider, onChange }: {
   );
 }
 
-export function TextField({ label, value, onChange, type = "text", placeholder, hint, unit }: FieldContract & {
-  label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string;
-}) {
-  const controlId = useId();
-  const hintId = `${controlId}-hint`;
-  return (
-    <FieldShell label={label} unit={unit} hint={hint} controlId={controlId} hintId={hintId} stacked>
-      <input
-        id={controlId}
-        aria-describedby={hasHint(hint) ? hintId : undefined}
-        type={type}
-        className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-      />
-    </FieldShell>
-  );
-}
 // ─── Global Packages Browse + Confirm-install Dialog ──────────────────────────
 //
 // The unified packages section above handles the installed-rows view
@@ -3905,6 +3792,9 @@ function GlobalPackagesBrowseAndDialogs() {
           // UnifiedPackagesSection above already shows global installed packages.
           // See change: unify-workspace-package-management.
           showInstalledSection={false}
+          // A recommended entry shown as an installed row is not repeated as a card.
+          // See change: addons-hub-declutter.
+          hideGlobalInstalledRecommended
         />
       </Section>
 

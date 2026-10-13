@@ -1,12 +1,15 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act, cleanup, waitFor, fireEvent } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { listKnownServers, probeKnownServer } from "../../lib/api/known-servers-api.js";
 import { ServerSelector } from "../connectivity/ServerSelector.js";
-import { listKnownServers } from "../../lib/api/known-servers-api.js";
 
 vi.mock("../../lib/api/known-servers-api.js", () => ({
   listKnownServers: vi.fn(async () => [
     { host: "my-pc", port: 8000, label: "my-pc" },
   ]),
+  // Server-side probe: null = unavailable/refused → "Unreachable".
+  probeKnownServer: vi.fn(async () => null),
+  acceptKnownServerMove: vi.fn(async () => true),
 }));
 
 describe("ServerSelector", () => {
@@ -112,7 +115,8 @@ describe("ServerSelector", () => {
     await waitFor(() => screen.queryByText(/Unreachable/i));
     const localEntry = screen.getByText("localhost:8000").closest("button") as HTMLButtonElement;
     expect(localEntry).not.toBeNull();
-    expect(localEntry.disabled).toBe(true);
+    // aria-disabled, not `disabled`: a blocked entry stays focusable (retro-ux F6).
+    expect(localEntry.getAttribute("aria-disabled")).toBe("true");
     act(() => localEntry.click());
     expect(onSwitch).not.toHaveBeenCalled();
   });
@@ -121,11 +125,15 @@ describe("ServerSelector", () => {
     // A LAN-IP known server whose cross-origin probe rejects at the transport
     // layer (opaque) must surface the actionable allowlist hint, not a bare
     // "Unreachable". See change: fix-remote-connect-cors-gates.
+    // The cause now comes from the dashboard SERVER's probe (it reaches the
+    // target; the browser cannot) — not from the host's address class.
+    // See change: stabilize-mdns-server-identity.
     // Persistent (not Once) — the component loads known servers on mount AND on
     // dropdown open. Restored to the default at the end of this test.
     vi.mocked(listKnownServers).mockResolvedValue([
       { host: "192.168.16.242", port: 8000, label: "LAN box", addedAt: "2024-01-01T00:00:00Z" },
     ]);
+    vi.mocked(probeKnownServer).mockResolvedValue("reachable");
     fetchMock.mockImplementation((url: string) => {
       if (url.includes("192.168.16.242")) return Promise.reject(new Error("blocked"));
       return Promise.resolve({ ok: true, json: async () => ({ ok: true }) } as Response);
@@ -144,12 +152,13 @@ describe("ServerSelector", () => {
     const btn = screen.getByTitle("Switch server");
     act(() => btn.click());
     await waitFor(() => {
-      expect(screen.queryAllByText(/CORS-blocked/i).length).toBeGreaterThan(0);
+      expect(screen.queryAllByText(/Blocked in this browser/i).length).toBeGreaterThan(0);
     });
     // The LAN entry is disabled and did not render a bare "Unreachable".
     const lanEntry = screen.getByText("192.168.16.242:8000").closest("button") as HTMLButtonElement;
-    expect(lanEntry.disabled).toBe(true);
+    expect(lanEntry.getAttribute("aria-disabled")).toBe("true");
     expect(lanEntry.getAttribute("data-cors-blocked")).toBe("true");
+    vi.mocked(probeKnownServer).mockResolvedValue(null);
     vi.mocked(listKnownServers).mockResolvedValue([
       { host: "my-pc", port: 8000, label: "my-pc", addedAt: "2024-01-01T00:00:00Z" },
     ]);
@@ -168,8 +177,7 @@ describe("ServerSelector", () => {
     const btn = screen.getByTitle("Switch server");
     act(() => btn.click());
     await waitFor(() => {
-      const spinner = screen.queryByLabelText(/Switching/i);
-      expect(spinner).not.toBeNull();
+      expect(screen.queryAllByText(/Switching/i).length).toBeGreaterThan(0);
     });
   });
 

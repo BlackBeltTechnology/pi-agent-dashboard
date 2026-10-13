@@ -14,6 +14,16 @@ import {
 } from "../package/package-manager-wrapper.js";
 import { registerPackageRoutes } from "../routes/package-routes.js";
 
+// Bridge registry readers (dashboardManaged flag). Default: empty registry.
+const registry = vi.hoisted(() => ({
+  bridges: vi.fn<() => Record<string, string>>(() => ({})),
+  ownership: vi.fn<() => Record<string, string>>(() => ({})),
+}));
+vi.mock("@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js", () => ({
+  listManagedBridges: () => registry.bridges(),
+  listManagedPackageOwnership: () => registry.ownership(),
+}));
+
 // Mock pi dependency (pulled transitively by package-manager-wrapper)
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   DefaultPackageManager: function() { return {}; },
@@ -52,6 +62,8 @@ describe("package-routes", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    registry.bridges.mockReset().mockReturnValue({});
+    registry.ownership.mockReset().mockReturnValue({});
     wrapper = createMockWrapper();
     app = Fastify();
     registerPackageRoutes(app, { packageManagerWrapper: wrapper });
@@ -128,6 +140,62 @@ describe("package-routes", () => {
       expect(row.isRecommended).toBe(true);
       // displayName comes from the recommended manifest.
       expect(row.displayName).toBe("pi-dashboard-subagents");
+    });
+
+    // See change: addons-hub-declutter (test-plan E4, X1, X2)
+    it("E4: flags a user row whose path the registry records; leaves project scope alone", async () => {
+      registry.bridges.mockReturnValue({ "dashboard-goal": "/r/goal/src/bridge/index.ts" });
+      wrapper.listInstalled.mockReturnValueOnce([
+        { source: "/r/goal/src/bridge/index.ts", scope: "user", filtered: false },
+        { source: "/r/other", scope: "user", filtered: false },
+      ]);
+      const res = await app.inject({ method: "GET", url: "/api/packages/installed?scope=global" });
+      const body = JSON.parse(res.body);
+      expect(body.data[0].dashboardManaged).toBe(true);
+      expect(body.data[1].dashboardManaged).toBeUndefined();
+    });
+
+    it("E4: ownership-map key alone flags the row", async () => {
+      registry.ownership.mockReturnValue({ "/r/goal/src/bridge/index.ts": "goal" });
+      wrapper.listInstalled.mockReturnValueOnce([{ source: "/r/goal/src/bridge/index.ts", scope: "user", filtered: false }]);
+      const res = await app.inject({ method: "GET", url: "/api/packages/installed?scope=global" });
+      expect(JSON.parse(res.body).data[0].dashboardManaged).toBe(true);
+    });
+
+    it("E4: absent registry flags nothing and does not throw", async () => {
+      const res = await app.inject({ method: "GET", url: "/api/packages/installed?scope=global" });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).data[0].dashboardManaged).toBeUndefined();
+    });
+
+    it("E4: scope=local never consults the registry", async () => {
+      registry.bridges.mockReturnValue({ "dashboard-goal": "/r/goal/src/bridge/index.ts" });
+      wrapper.listInstalled.mockReturnValueOnce([{ source: "/r/goal/src/bridge/index.ts", scope: "project", filtered: false }]);
+      const res = await app.inject({ method: "GET", url: "/api/packages/installed?scope=local&cwd=/x" });
+      expect(JSON.parse(res.body).data[0].dashboardManaged).toBeUndefined();
+      expect(registry.bridges).not.toHaveBeenCalled();
+    });
+
+    it("X1: registry reader throws → 200, rows unflagged, one warning", async () => {
+      registry.bridges.mockImplementation(() => {
+        throw new Error("boom");
+      });
+      const warn = vi.spyOn(app.log, "warn");
+      const res = await app.inject({ method: "GET", url: "/api/packages/installed?scope=global" });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(true);
+      expect(body.data[0].dashboardManaged).toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it("X2: registry lists 9 paths, none match → rows unflagged, exactly one warning naming 9", async () => {
+      registry.bridges.mockReturnValue(Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`dashboard-p${i}`, `/gone/p${i}/index.ts`])));
+      const warn = vi.spyOn(app.log, "warn");
+      const res = await app.inject({ method: "GET", url: "/api/packages/installed?scope=global" });
+      expect(JSON.parse(res.body).data[0].dashboardManaged).toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain("9 path(s)");
     });
 
     it("missing installedPath does not break enrichment", async () => {

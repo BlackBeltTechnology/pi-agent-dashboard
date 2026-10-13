@@ -69,7 +69,7 @@
       },
       "style": {
         "useConst": "warn",
-        "useImportType": "warn",
+        "useImportType": "error",
         "useTemplate": "warn"
       },
       "complexity": {

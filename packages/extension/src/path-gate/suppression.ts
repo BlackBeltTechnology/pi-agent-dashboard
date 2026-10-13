@@ -9,7 +9,10 @@ const SUPPRESSION_MS = 120_000;
 
 export class Suppression {
   private denied = new Map<string, number>();
-  constructor(private readonly now: () => number = Date.now) {}
+  private readonly now: () => number;
+  constructor(now: () => number = Date.now) {
+    this.now = now;
+  }
 
   deny(key: string): void {
     this.denied.set(key, this.now() + SUPPRESSION_MS);

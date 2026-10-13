@@ -11,7 +11,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as url from "node:url";
-import { SLOT_SECTIONS, SLOT_RENDER_ORDER } from "./templates/slot-sections.js";
+import {
+  MAX_MARKERS_PER_TYPE,
+  markerPatternError,
+  PROJECT_NAME_RE,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/project-markers.js";
+import { SLOT_RENDER_ORDER, SLOT_SECTIONS } from "./templates/slot-sections.js";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(__dirname, "templates");
@@ -28,6 +33,20 @@ export type SlotId =
   | "command-route"
   | "settings-section"
   | "tool-renderer";
+
+/**
+ * Embedded-app scope for mode `new` (the up-front batch answers).
+ *  - `none`             no app is generated.
+ *  - `global`           depth-1 content route, no folder entry.
+ *  - `project-type`     folders of a project `type` (manifest `projectTypes` markers).
+ *  - `project-specific` folders declaring project `id` (optionally written to `folderPath`).
+ * See change: add-project-scoped-apps.
+ */
+export type AppScopeAnswers =
+  | { scope: "none" }
+  | { scope: "global" }
+  | { scope: "project-type"; type: string; markers: string[] }
+  | { scope: "project-specific"; projectId: string; folderPath?: string };
 
 export interface NewModeAnswers {
   mode: "new";
@@ -53,6 +72,8 @@ export interface NewModeAnswers {
   sharedVersionRange?: string;
   /** Required-API range surfaced in the manifest. */
   requiredApi?: string;
+  /** Embedded app + scope; absent = `none`. */
+  appScope?: AppScopeAnswers;
 }
 
 export interface AugmentProposal {
@@ -93,7 +114,11 @@ export class InMemorySink implements WriteSink {
 }
 
 export class FsSink implements WriteSink {
-  constructor(private readonly root: string) {}
+  private readonly root: string;
+
+  constructor(root: string) {
+    this.root = root;
+  }
   write(relativePath: string, content: string): void {
     const abs = path.join(this.root, relativePath);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
@@ -127,6 +152,7 @@ function renderNew(a: NewModeAnswers, sink: WriteSink): void {
   const claims = buildClaims(a.slots, a.id);
   const exportsBlock = buildExportsBlock(a.server, a.bridge);
 
+  const app = a.appScope && a.appScope.scope !== "none" ? a.appScope : null;
   const pkgJson = readTpl("plugin-package.json.tmpl")
     .replace(/\{\{ packageName \}\}/g, packageName)
     .replace(/\{\{ displayName \}\}/g, a.displayName)
@@ -140,7 +166,7 @@ function renderNew(a: NewModeAnswers, sink: WriteSink): void {
     .replace(/\{\{ bridgeManifestField \}\}/g, a.bridge ? `,\n    "bridge": "./src/bridge/index.ts"` : "")
     .replace(/\{\{ configSchemaManifestField \}\}/g, a.configSchema ? `,\n    "configSchema": "./configSchema.json"` : "")
     .replace(/\{\{ claimsBlock \}\}/g, JSON.stringify(claims, null, 6).replace(/\n/g, "\n    "));
-  sink.write("package.json", pkgJson);
+  sink.write("package.json", app ? withAppManifest(pkgJson, a, app) : pkgJson);
 
   // tsconfig + vitest config
   sink.write("tsconfig.json", readTpl("tsconfig.json.tmpl"));
@@ -171,13 +197,16 @@ function renderNew(a: NewModeAnswers, sink: WriteSink): void {
 
   // src/client.tsx
   const slotSections = renderSlotSections(a.slots, a.id, ConfigTypeName);
-  sink.write(
-    "src/client.tsx",
-    readTpl("client.tsx.tmpl")
-      .replace(/\{\{ displayName \}\}/g, a.displayName)
-      .replace(/\{\{ ConfigTypeName \}\}/g, ConfigTypeName)
-      .replace(/\{\{ slotSections \}\}/g, slotSections),
-  );
+  let clientSource = readTpl("client.tsx.tmpl")
+    .replace(/\{\{ displayName \}\}/g, a.displayName)
+    .replace(/\{\{ ConfigTypeName \}\}/g, ConfigTypeName)
+    .replace(/\{\{ slotSections \}\}/g, slotSections);
+  if (app) {
+    clientSource = withAppClient(clientSource, a, app);
+    sink.write("src/app/app.tsx", fillApp(readTpl("app.tsx.tmpl"), a));
+    sink.write("src/app/AppRoute.tsx", renderAppRoute(a, app));
+  }
+  sink.write("src/client.tsx", clientSource);
 
   // src/server/index.ts (optional)
   if (a.server) {
@@ -252,7 +281,9 @@ function validateNew(a: NewModeAnswers): void {
   if (!Number.isInteger(a.priority) || a.priority < 0) {
     throw new Error(`priority must be a non-negative integer; got ${a.priority}`);
   }
-  if (!Array.isArray(a.slots) || a.slots.length === 0) {
+  validateAppScopeAnswers(a);
+  const hasApp = !!a.appScope && a.appScope.scope !== "none";
+  if (!Array.isArray(a.slots) || (a.slots.length === 0 && !hasApp)) {
     throw new Error("must claim at least one slot");
   }
   for (const s of a.slots) {
@@ -260,6 +291,168 @@ function validateNew(a: NewModeAnswers): void {
       throw new Error(`unknown slot id: ${s}`);
     }
   }
+}
+
+// ───────── embedded app (change: add-project-scoped-apps) ─────────
+
+function validateAppScopeAnswers(a: NewModeAnswers): void {
+  if (!a.appScope) return;
+  const violations = validateAppScope(a.appScope, a.displayName);
+  if (violations.length > 0) throw new Error(`invalid app scope:\n${violations.map((v) => `  - ${v}`).join("\n")}`);
+}
+
+function projectTypeViolations(scope: { type: string; markers: string[] }): string[] {
+  const out: string[] = [];
+  if (typeof scope.type !== "string" || !PROJECT_NAME_RE.test(scope.type)) {
+    out.push(`type "${String(scope.type)}" must match ${PROJECT_NAME_RE.source}`);
+  }
+  if (!Array.isArray(scope.markers) || scope.markers.length < 1 || scope.markers.length > MAX_MARKERS_PER_TYPE) {
+    out.push(`markers must hold 1 to ${MAX_MARKERS_PER_TYPE} patterns`);
+    return out;
+  }
+  for (const m of scope.markers) {
+    const v = markerPatternError(m);
+    if (v !== null) out.push(`marker "${String(m)}" ${v}`);
+  }
+  return out;
+}
+
+function projectSpecificViolations(scope: { projectId: string; folderPath?: string }): string[] {
+  const out: string[] = [];
+  if (typeof scope.projectId !== "string" || !PROJECT_NAME_RE.test(scope.projectId)) {
+    out.push(`project id "${String(scope.projectId)}" must match ${PROJECT_NAME_RE.source}`);
+  }
+  if (scope.folderPath !== undefined && scope.folderPath !== "" && !path.isAbsolute(scope.folderPath)) {
+    out.push(`folder path "${scope.folderPath}" must be absolute`);
+  }
+  return out;
+}
+
+/** Every violation of the app-scope answers, using the rules the manifest validator and the identity file apply. */
+export function validateAppScope(scope: AppScopeAnswers, displayName = ""): string[] {
+  if (scope.scope === "none") return [];
+  const out: string[] = [];
+  if (/[<>{}"'`\\$*]/.test(displayName)) {
+    out.push(`display name "${displayName}" must not contain any of < > { } " ' \` \\ $ * when an app is generated`);
+  }
+  if (scope.scope === "project-type") out.push(...projectTypeViolations(scope));
+  else if (scope.scope === "project-specific") out.push(...projectSpecificViolations(scope));
+  return out;
+}
+
+type ActiveAppScope = Exclude<AppScopeAnswers, { scope: "none" }>;
+
+const APP_DEPS: Record<string, string> = {
+  "@blackbelt-technology/pi-dashboard-app-kit": "^0.x",
+  wouter: "^3.9.0",
+};
+
+/** Add the app claims, deps and (project-type) `projectTypes` to the rendered package.json. */
+function withAppManifest(pkgJson: string, a: NewModeAnswers, app: ActiveAppScope): string {
+  const pkg = JSON.parse(pkgJson) as Record<string, unknown> & {
+    dependencies: Record<string, string>;
+    "pi-dashboard-plugin": { claims: Array<Record<string, unknown>>; projectTypes?: unknown };
+  };
+  Object.assign(pkg.dependencies, APP_DEPS);
+  const manifest = pkg["pi-dashboard-plugin"];
+  const pascal = pascalCase(a.id);
+  if (app.scope === "global") {
+    manifest.claims.push({
+      slot: "shell-overlay-route",
+      component: `${pascal}AppRoute`,
+      path: `/${a.id}/*?`,
+      depth: 1,
+      presentation: "content",
+    });
+  } else {
+    manifest.claims.push({
+      slot: "shell-overlay-route",
+      component: `${pascal}AppRoute`,
+      path: `/folder/:encodedCwd/${a.id}/*?`,
+      depth: 2,
+      parentPath: "/folder/:encodedCwd",
+      presentation: "content",
+    });
+    manifest.claims.push({
+      slot: "sidebar-folder-section",
+      component: `${pascal}FolderEntry`,
+      predicate: `is${pascal}Folder`,
+    });
+    if (app.scope === "project-type") manifest.projectTypes = [{ type: app.type, markers: app.markers }];
+  }
+  return `${JSON.stringify(pkg, null, 2)}\n`;
+}
+
+/** Splice the app's lazy route (and folder entry) into the client entry. */
+function withAppClient(client: string, a: NewModeAnswers, app: ActiveAppScope): string {
+  const pascal = pascalCase(a.id);
+  const folderScoped = app.scope !== "global";
+  const runtimeImports = [
+    ...(app.scope === "project-type" ? ["folderHasProjectType"] : app.scope === "project-specific" ? ["folderHasProjectId"] : []),
+    ...(folderScoped ? ["useEmbeddedAppShell"] : []),
+  ];
+  const imports = [
+    ...(runtimeImports.length ? [`import { ${runtimeImports.join(", ")} } from "@blackbelt-technology/dashboard-plugin-runtime";`] : []),
+    `import { lazy } from "react";`,
+    ...(folderScoped ? [`import { useLocation } from "wouter";`] : []),
+  ].join("\n");
+  const anchor = `import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props";`;
+  if (!client.includes(anchor)) throw new Error("client.tsx.tmpl lost its SlotProps import anchor");
+  const withImports = client.replace(anchor, `${anchor}\n${imports}`);
+
+  let folderEntry = "";
+  if (folderScoped) {
+    const isType = app.scope === "project-type";
+    folderEntry = readTpl("app-folder-entry.tsx.tmpl")
+      .replace(/\{\{ predicateDoc \}\}/g, isType ? `resolves to type \`${app.type}\`` : `declare project id \`${(app as { projectId: string }).projectId}\``)
+      .replace(
+        /\{\{ predicateFactory \}\}/g,
+        isType ? `folderHasProjectType("${app.type}")` : `folderHasProjectId("${(app as { projectId: string }).projectId}")`,
+      )
+      .replace(/\{\{ Pascal \}\}/g, pascal)
+      .replace(/\{\{ id \}\}/g, a.id)
+      .replace(/\{\{ displayName \}\}/g, a.displayName);
+  }
+  const section = readTpl("app-client-section.tsx.tmpl")
+    .replace(/\{\{ Pascal \}\}/g, pascal)
+    .replace(/\{\{ folderEntry \}\}/g, folderEntry);
+  return `${withImports.replace(/\n+$/, "\n")}${section}`.replace(/\n+$/, "\n");
+}
+
+function fillApp(tpl: string, a: NewModeAnswers): string {
+  return tpl.replace(/\{\{ id \}\}/g, a.id).replace(/\{\{ displayName \}\}/g, a.displayName);
+}
+
+/** The lazy route module; scoped apps pass `projectScope` and never a `standaloneUrl`. */
+function renderAppRoute(a: NewModeAnswers, app: ActiveAppScope): string {
+  let routePath: string;
+  let scopeNote: string;
+  let routeBody: string;
+  if (app.scope === "global") {
+    routePath = `\`/${a.id}/*?\``;
+    scopeNote = "Global app: no folder, no project scope.";
+    routeBody = `  void params;\n  return <EmbeddedApp app={app} basePath="/${a.id}" onBack={onBack} />;`;
+  } else {
+    const scope = app.scope === "project-type" ? `{ type: "${app.type}" }` : `{ id: "${(app as { projectId: string }).projectId}" }`;
+    routePath = `\`/folder/:encodedCwd/${a.id}/*?\``;
+    scopeNote = "Project-scoped: not mounted on a folder that does not match `projectScope`; scoped apps have no standalone host.";
+    routeBody = [
+      `  const encodedCwd = params.encodedCwd ?? "";`,
+      `  return (`,
+      `    <EmbeddedApp`,
+      `      app={app}`,
+      `      basePath={\`/folder/\${encodedCwd}/${a.id}\`}`,
+      `      folderParam={encodedCwd}`,
+      `      projectScope={${scope}}`,
+      `      onBack={onBack}`,
+      `    />`,
+      `  );`,
+    ].join("\n");
+  }
+  return fillApp(readTpl("app-route.tsx.tmpl"), a)
+    .replace(/\{\{ routePath \}\}/g, routePath)
+    .replace(/\{\{ scopeNote \}\}/g, scopeNote)
+    .replace(/\{\{ routeBody \}\}/g, routeBody);
 }
 
 // ───────── augment mode ─────────

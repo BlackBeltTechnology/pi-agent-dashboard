@@ -39,7 +39,7 @@
     "!**/*.AGENTS.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node ../../scripts/tsc7.mjs -p tsconfig.build.json",
     "prepack": "npm run build",
     "test": "vitest run"
   },
@@ -56,6 +56,6 @@
     "jsdom": "^29.0.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.8.0"
   }
 }
