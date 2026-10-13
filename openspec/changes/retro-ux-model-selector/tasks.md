@@ -73,4 +73,4 @@
 - [x] 4.32 Test in `retro-ux-model-selector.spec.ts` — same exemplars; composer trigger, ★ toggles, tabs at 375 and 1440 · measure boxes · ≥ 44 px / ≥ 32 px (test-plan #G4)
 - [x] 4.33 Test in `retro-ux-model-selector.spec.ts` — same exemplars; `@fast` in the grammar trigger, Roles tab row and roles pill · read RoleRef nodes · identical visible and accessible text (test-plan #G5)
 - [x] 4.34 Test in `retro-ux-model-selector.spec.ts` — copy the composer setup from `tests/e2e/empty-model-selector.spec.ts`; ≥ 3 models · Tab, Enter, type "son", ArrowDown, Enter · model selected, focus back on the trigger (test-plan #G6)
-- [ ] 4.35 Manual: compare `mockups/after/**` against the proposed column of `mockups/model-selector.html` side by side (test-plan: manual-only, #M1)
+- [x] 4.35 Manual: compare `mockups/after/**` against the proposed column of `mockups/model-selector.html` side by side (test-plan: manual-only, #M1)
