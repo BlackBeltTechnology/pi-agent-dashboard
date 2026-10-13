@@ -27,3 +27,15 @@ export function setByName(obj: Record<string, unknown>, path: string[], value: u
   }
   cur[path[path.length - 1]] = value;
 }
+
+/** Structural JSON equality (plain objects, arrays, primitives). */
+export function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => deepEqual(v, b[i]));
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const ka = Object.keys(a);
+    const kb = Object.keys(b);
+    return ka.length === kb.length && ka.every((k) => Object.hasOwn(b, k) && deepEqual(a[k], b[k]));
+  }
+  return false;
+}

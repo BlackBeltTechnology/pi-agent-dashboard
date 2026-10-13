@@ -109,9 +109,10 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `lifecycle.ts` | Shared E2E lifecycle module. Port dynamic: probes free… → see `lifecycle.ts.AGENTS.md` |
 | `list-models-registry-ready.spec.ts` | L3 `list_models` registry-readiness discriminator. → see `list-models-registry-ready.spec.ts.AGENTS.md` |
 | `manage-worktrees.spec.ts` | L3 for the manage-worktrees surface (test-plan F4, F3, F7… → see `manage-worktrees.spec.ts.AGENTS.md` |
-| `mcp-client-folder-mobile.spec.ts` | L3 mobile folder MCP page (extract-mcp-client-plugin). → see `mcp-client-folder-mobile.spec.ts.AGENTS.md` |
-| `mcp-client-settings-a11y.spec.ts` | L3 accessibility floor for the mcp-client settings section… → see `mcp-client-settings-a11y.spec.ts.AGENTS.md` |
-| `mcp-token-settings.spec.ts` | L3 for the Settings → Paired Devices MCP-client token flow… → see `mcp-token-settings.spec.ts.AGENTS.md` |
+| `mcp-client-folder-mobile.spec.ts` | L3 mobile folder MCP page → see `mcp-client-folder-mobile.spec.ts.AGENTS.md` |
+| `mcp-client-settings-a11y.spec.ts` | L3 mcp-client settings a11y → see `mcp-client-settings-a11y.spec.ts.AGENTS.md` |
+| `mcp-client-project-override.spec.ts` | L3 F13–F15 → see `mcp-client-project-override.spec.ts.AGENTS.md` |
+| `mcp-token-settings.spec.ts` | L3 MCP-client token flow → see `mcp-token-settings.spec.ts.AGENTS.md` |
 | `mermaid-colorize.spec.ts` | Playwright spec. Mermaid default-node colorization… → see `mermaid-colorize.spec.ts.AGENTS.md` |
 | `mermaid-repair.spec.ts` | L3 F9 mermaid auto-repair → see `mermaid-repair.spec.ts.AGENTS.md` |
 | `model-proxy-oauth-filter.spec.ts` | Playwright spec (`request` fixture, no page). Model-proxy… → see `model-proxy-oauth-filter.spec.ts.AGENTS.md` |

@@ -15,7 +15,7 @@ import type { AuthMode } from "./pi-rules.js";
 
 export type { AuthMode };
 
-/** pi's MCP server entry (1.0.0). Unknown keys are preserved, never dropped. */
+/** pi's MCP server entry (1.1.0). Unknown keys are preserved, never dropped. */
 export interface ServerEntry {
   type?: "stdio" | "http" | "streamable-http" | string;
   description?: string;
@@ -77,6 +77,7 @@ export type ConfigRefusalCode =
   | "name-collision"
   | "transport-conflict"
   | "invalid-entry"
+  | "no-global-server"
   | "write-failed";
 
 export interface ConfigRefusal {
@@ -99,15 +100,34 @@ export type RemoveResult =
   | { ok: false; refusal: ConfigRefusal };
 
 /**
- * `written` — the layer now carries the requested state. `omitted` lists the
- * secret-bearing fields a folder-scope DISABLE copy left out.
- * `needs-choice` — an ENABLE of a folder copy that lacks the global entry's
- * secrets: nothing is written; the caller offers "remove the folder entry" or
- * "re-enter the omitted values".
+ * `written` — the layer now carries the requested state (a project-scope
+ * toggle of a global server writes only a project override).
+ * `needs-choice` — an ENABLE of a whole-entry folder copy that lacks the
+ * global entry's secrets: nothing is written; the caller offers "remove the
+ * folder entry" or "re-enter the omitted values".
  */
 export type SetEnabledResult =
-  | { ok: true; action: "written"; omitted?: string[] }
+  | { ok: true; action: "written" }
   | { ok: true; action: "needs-choice"; omitted: string[] }
+  | { ok: false; refusal: ConfigRefusal };
+
+/**
+ * A project override patch: absent key = unchanged, `null` = delete the key.
+ * Exposure values may be pi's legacy aliases; they are written as given.
+ */
+export interface ProjectOverridePatch {
+  enabled?: boolean | null;
+  exposure?: string | null;
+  toolExposure?: Record<string, string> | null;
+}
+
+/** `override` is the raw entry now in the file; undefined → the entry is absent (removed or never there). */
+export type ProjectOverrideResult =
+  | { ok: true; override: Record<string, unknown> | undefined }
+  | { ok: false; refusal: ConfigRefusal };
+
+export type ConvertLegacyResult =
+  | { ok: true; previous: ServerEntry }
   | { ok: false; refusal: ConfigRefusal };
 
 /** Parse status of one config file (write-suppressed). */
@@ -122,11 +142,29 @@ export type Provenance = "pi-global" | "pi-folder";
 
 export type InactiveReason = "disabled" | "project-not-trusted" | "invalid-entry" | "name-collision" | "global-only-auth";
 
+/** Why a folder row carries an override pi does not apply. */
+export type OverrideIssue = "orphan" | "bad-keys" | "invalid";
+
 export interface EffectiveServerView {
   name: string;
   provenance: Provenance;
   /** A folder entry that replaces the global entry of the same name. */
   overridesGlobal?: boolean;
+  /**
+   * A valid project override merged onto this (global) row: the folder file,
+   * the override keys, and the raw override (override keys carry no secrets).
+   */
+  projectOverride?: {
+    path: string;
+    keys: string[];
+    raw: Record<string, unknown>;
+    /** The Pi-global values the override sits on (what "Inherit" means): `enabled`, display `exposure`. */
+    inherited: { enabled: boolean; exposure: string };
+  };
+  /** Folder row only: an override-shaped entry pi does not apply (and why). Not counted as a server. */
+  overrideIssue?: OverrideIssue;
+  /** Folder row only: a whole-entry copy of the global entry made by the old disable path. */
+  legacyCopy?: boolean;
   /**
    * The entry as written. In a project view, a GLOBAL entry's secret values
    * (`headers`, `env` → `{redacted, keys}`; `oauth.clientSecret` →
@@ -207,6 +245,10 @@ export interface McpClientConfigService {
   ): ConfigWriteResult;
   removeServer(name: string, scope: Scope): RemoveResult;
   setEnabled(name: string, enabled: boolean, scope: Scope): SetEnabledResult;
+  /** Project scope only: patch the override of a Pi-global server (read-modify-write). */
+  setProjectOverride(name: string, patch: ProjectOverridePatch, scope: Scope): ProjectOverrideResult;
+  /** Project scope only: rewrite a legacy folder copy to an override; returns the previous raw entry. */
+  convertLegacyCopy(name: string, scope: Scope): ConvertLegacyResult;
   /** `disabled: true` → `enabled: false`; drop every adapter-only key. */
   convertAdapterLeftovers(name: string, scope: Scope): ConfigWriteResult;
   /** Write-suppressed parse + (optional) dry run of `ensureServerEntry` at global scope. */

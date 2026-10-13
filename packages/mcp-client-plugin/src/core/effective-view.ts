@@ -1,9 +1,11 @@
 /**
  * mcp-client-plugin · CORE effective-view reader over pi's two MCP layers.
  *
- * Mirrors pi 1.0.0 `loadMcpConfig`: the Pi-global layer loads first, then —
+ * Mirrors pi 1.1.0 `loadMcpConfig`: the Pi-global layer loads first, then —
  * only when pi trusts the project — `<cwd>/.pi/mcp.json`, whose entries
- * REPLACE global entries of the same name as a whole. Each entry is checked
+ * REPLACE global entries of the same name as a whole, except an entry with no
+ * `command`/`url`/`type`: a project OVERRIDE of `enabled`/`exposure`/
+ * `toolExposure` merged onto the kept global entry (one row). Each entry is checked
  * with the mirrored pi rules; an entry pi would reject or drop (invalid,
  * `-`/`_` collision, project `auth`) is shown inactive with pi's message. An
  * untrusted project's entries are shown inactive ("project not trusted").
@@ -13,16 +15,20 @@
  * `{redacted}`) — the folder surface must never receive an inherited
  * credential. Own-layer entries are returned verbatim (the client masks them).
  *
- * See change: migrate-mcp-to-pi-builtin (D3); earlier: extract-mcp-client-plugin.
+ * See change: migrate-mcp-to-pi-builtin (D3); mcp-client-project-overrides (D1-D3);
+ * earlier: extract-mcp-client-plugin.
  */
 
+import { isLegacyFolderCopy } from "./config-writer.js";
 import { type LayerPaths, readLayer } from "./layers.js";
 import { getByName, isPlainObject, setByName } from "./path-utils.js";
 import {
   adapterLeftovers,
   authModeOf,
+  classifyProjectEntry,
   displayExposure,
   ignoredKeys,
+  keptGlobalOf,
   mcpNamespace,
   transportOf,
   validatePiEntry,
@@ -121,15 +127,16 @@ export function createEffectiveViewReader(deps: EffectiveViewDeps): EffectiveVie
     const isProject = scope.kind === "project";
 
     // Global layer, in pi's load order (collisions within the file: first wins).
+    // `keptGlobalOf` is the one definition of "kept" the writer shares.
     const byName = new Map<string, EffectiveServerView>();
     const loadedNs = new Map<string, string>(); // namespace → loaded name
+    const { kept, collisions } = keptGlobalOf(g.ok ? g.servers : {});
     if (g.ok) {
       for (const [name, raw] of Object.entries(g.servers)) {
         const v = describe(name, raw, "pi-global", isProject);
-        if (!v.piError) {
-          const clash = loadedNs.get(mcpNamespace(name));
-          if (clash) deactivate(v, "name-collision", `server "${name}" conflicts with "${clash}"`);
-          else loadedNs.set(mcpNamespace(name), name);
+        if (kept.has(name)) loadedNs.set(mcpNamespace(name), name);
+        else if (collisions.has(name)) {
+          deactivate(v, "name-collision", `server "${name}" conflicts with "${collisions.get(name)}"`);
         }
         byName.set(name, v);
       }
@@ -148,12 +155,39 @@ export function createEffectiveViewReader(deps: EffectiveViewDeps): EffectiveVie
     const folderRows: EffectiveServerView[] = [];
     if (pl.ok) {
       for (const [name, raw] of Object.entries(pl.servers)) {
+        const cls = classifyProjectEntry(name, raw, kept);
         const v = describe(name, raw, "pi-folder", false);
+        if (cls.kind !== "replace") {
+          // override-shaped: classified below, never "needs command or url"
+          delete v.piError;
+          delete v.inactiveReason;
+        }
         const global = byName.get(name);
         if (!trusted) {
           // pi never reads this file: the global entry (if any) stays in effect.
           deactivate(v, "project-not-trusted");
           folderRows.push(v);
+          continue;
+        }
+        if (cls.kind === "orphan" || cls.kind === "bad-keys" || cls.kind === "invalid") {
+          // pi reports the message and applies nothing: the global entry (if any) is unchanged.
+          deactivate(v, "invalid-entry", cls.message);
+          v.overrideIssue = cls.kind;
+          folderRows.push(v);
+          continue;
+        }
+        if (cls.kind === "override") {
+          // One row: the global server, merged, redacted like any global row in a project view.
+          const merged = describe(name, cls.merged, "pi-global", true);
+          const raw2 = raw as Record<string, unknown>;
+          const base = kept.get(name) as Record<string, unknown>;
+          merged.projectOverride = {
+            path: projectPath,
+            keys: cls.keys,
+            raw: { ...raw2 },
+            inherited: { enabled: base.enabled !== false, exposure: displayExposure(base.exposure) },
+          };
+          byName.set(name, merged);
           continue;
         }
         if (v.piError) {
@@ -174,7 +208,10 @@ export function createEffectiveViewReader(deps: EffectiveViewDeps): EffectiveVie
             continue;
           }
         }
-        if (global) v.overridesGlobal = true;
+        if (global) {
+          v.overridesGlobal = true;
+          if (isLegacyFolderCopy(raw, kept.get(name))) v.legacyCopy = true;
+        }
         loadedNs.set(mcpNamespace(name), name);
         byName.set(name, v); // whole-entry replace
       }
