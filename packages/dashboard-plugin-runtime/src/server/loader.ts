@@ -280,6 +280,8 @@ export function deterministicSerializePlugins(
           // serialization (and hash) is unchanged. See change: add-browser-editor-pane-tab.
           ...(c.pathPrefix !== undefined ? { pathPrefix: c.pathPrefix } : {}),
           ...(c.labelComponent !== undefined ? { labelComponent: c.labelComponent } : {}),
+          // resource-page-section page filter. See change: add-skill-atlas-screen.
+          ...(c.resourceType !== undefined ? { resourceType: c.resourceType } : {}),
         }))
         .sort((a, b) =>
           [a.slot, a.component, a.predicate, a.command, a.path]

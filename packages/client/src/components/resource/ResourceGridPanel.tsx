@@ -15,6 +15,7 @@
  */
 
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { ResourcePageSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { mdiLoading, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type { ResourceActivationController } from "../../hooks/useResourceActivation.js";
@@ -38,9 +39,11 @@ interface Props {
   /** Render a static `◇ global` pill (global-scope Settings surface). */
   globalPill?: boolean;
   onViewFile: (filePath: string, title: string) => void;
+  /** Folder cwd (folder surface only) — forwarded to `resource-page-section` claims. See change: add-skill-atlas-screen. */
+  cwd?: string;
 }
 
-export function ResourceGridPanel({ data, isLoading, error, refresh, activation, type, scopes, showScopeFilter, globalPill, onViewFile }: Props) {
+export function ResourceGridPanel({ data, isLoading, error, refresh, activation, type, scopes, showScopeFilter, globalPill, onViewFile, cwd }: Props) {
   // The folder surface is the only one whose writes land in a tracked file.
   const isFolderSurface = scopes.includes("local");
   return (
@@ -127,6 +130,10 @@ export function ResourceGridPanel({ data, isLoading, error, refresh, activation,
           onDismiss={activation.dismissTrust}
         />
       )}
+
+      {/* Plugin sections above the grid (e.g. skill atlas). `scope` names the
+          surface, not the scope filter. See change: add-skill-atlas-screen. */}
+      <ResourcePageSectionSlot resourceType={type} scope={isFolderSurface ? "folder" : "global"} cwd={isFolderSurface ? cwd : undefined} />
 
       {data && (
         <>

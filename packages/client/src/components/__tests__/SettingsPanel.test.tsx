@@ -1584,6 +1584,25 @@ describe("SettingsPanel Models nav group", () => {
     expect(active[0].textContent).toContain("General");
   });
 
+  it("Resources promotion: built-ins first, then Skill Atlas; Plugins keeps a never-active pointer (add-skill-atlas-screen #E25)", async () => {
+    const atlasRow = {
+      ...rolesRow({ firstParty: true, nav: false }),
+      id: "skill-atlas",
+      displayName: "Skill Atlas",
+      claims: [{ slot: "settings-section", component: "SkillAtlasSettings", nav: { group: "resources", label: "Skill Atlas" } }],
+      status: { id: "skill-atlas", displayName: "Skill Atlas", enabled: true, loaded: true, claims: 1 },
+    };
+    vi.stubGlobal("fetch", mockFetchWithPlugins([atlasRow]));
+    render(<SettingsPanel />);
+    const rail = await screen.findByTestId("settings-nav-rail");
+    await waitFor(() => expect(within(rail).getByTestId("nav-promoted-skill-atlas")).toBeTruthy());
+    const resources = within(rail).getByTestId("settings-nav-group-resources");
+    expect(groupItems(resources)).toEqual(["Skills", "Agents", "Extensions", "Prompts", "Themes", "Skill Atlas"]);
+    const pointer = within(rail).getByTestId("nav-plugin-pointer-skill-atlas");
+    expect(pointer.textContent).toContain("Resources");
+    expect(pointer.getAttribute("aria-current")).toBeNull();
+  });
+
   it("F4: a promoted entry carries the same error health dot a Plugins child uses", async () => {
     vi.stubGlobal(
       "fetch",

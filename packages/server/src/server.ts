@@ -3249,6 +3249,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             {
               fastify,
               isPiExtensionInstalled,
+              // pi-resources seams (design D4/D5). Default read mirrors
+              // `GET /api/pi-resources` (SWR); `fresh` = a scan started after
+              // the call. Raw scan, no provenance join. See change: add-skill-atlas-screen.
+              getPiResources: async (cwd?: string, opts?: { fresh?: boolean }) => {
+                const key = cwd ?? process.cwd();
+                if (opts?.fresh) return directoryService.refreshPiResourcesFresh(key);
+                const cached = directoryService.getPiResources(key);
+                if (cached?.stale) void directoryService.refreshPiResources(key).catch(() => { /* next read retries */ });
+                return cached?.data ?? directoryService.refreshPiResources(key);
+              },
+              onPiResourcesInvalidated: (handler: (cwd: string | undefined) => void) =>
+                directoryService.onPiResourcesInvalidated(handler),
               sessionManager: {
                 listActive: () => sessionManager.listActive(),
                 listAll: () => sessionManager.listAll(),

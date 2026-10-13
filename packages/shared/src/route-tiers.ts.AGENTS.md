@@ -29,3 +29,5 @@ Rows for `/api/users`, `/api/users/:id`, `/api/users/:id/revoke`, `/api/users/:i
 
 - `/api/vault*` operate; `GET /api/session/:id/vault-bindings` observe. See change: add-credential-vault.
 - `GET /api/folder/project` classified `observe`. See change: add-project-scoped-apps.
+
+Row `GET /api/plugins/skill-atlas/graph` observe. See change: add-skill-atlas-screen.

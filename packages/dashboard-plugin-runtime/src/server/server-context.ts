@@ -10,6 +10,7 @@ import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/co
 import { paneTabPrefixOf } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import type { BrowserLoginConfig, HostAccessPolicyFn, HostResource, Principal, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
+import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
 import type { WsRouteRegistration } from "./ws-route-registry.js";
@@ -159,6 +160,26 @@ export type RegisterBrowserHandlerFn = (type: string, handler: (msg: unknown, ws
  * fallback. See change: add-blackhole-session-pipeline.
  */
 export type IsPiExtensionInstalledFn = (name: string) => Promise<boolean>;
+
+/**
+ * Resolved pi resources for a folder, from the same SWR cache
+ * `GET /api/pi-resources` uses, WITHOUT that route's per-session provenance
+ * join. Omitted `cwd` = the server's working directory (as the route does).
+ * Default read: cached entry as-is (stale also triggers one background rescan),
+ * cold miss awaits a scan. `fresh: true` resolves with a scan that STARTED
+ * AFTER the call — an in-flight scan never satisfies it. Optional: the plugin
+ * owns the fallback. See change: add-skill-atlas-screen.
+ */
+export type GetPiResourcesFn = (cwd?: string, opts?: { fresh?: boolean }) => Promise<PiResourcesResult>;
+
+/**
+ * Subscribe to pi-resource invalidation. The host calls `handler(cwd)` when the
+ * pi-resources watcher invalidates a folder, `handler(undefined)` for the global
+ * scope, and `handler(sessionCwd)` when a known session reports its command
+ * list. A throwing handler is isolated. Returns an unsubscribe function.
+ * Optional. See change: add-skill-atlas-screen.
+ */
+export type OnPiResourcesInvalidatedFn = (handler: (cwd: string | undefined) => void) => () => void;
 
 /**
  * Closed set of write-route origins a plugin may raise the `cwd` access plane
@@ -1059,6 +1080,10 @@ export interface ServerPluginContext {
    * owns the fallback. See change: add-blackhole-session-pipeline.
    */
   isPiExtensionInstalled?: IsPiExtensionInstalledFn;
+  /** Resolved pi resources from the host cache (optional). See change: add-skill-atlas-screen. */
+  getPiResources?: GetPiResourcesFn;
+  /** pi-resource invalidation subscription (optional). See change: add-skill-atlas-screen. */
+  onPiResourcesInvalidated?: OnPiResourcesInvalidatedFn;
   /**
    * Raise the `cwd` access dialog from a user-initiated write route. Optional:
    * absent on hosts that do not wire it, where the plugin refuses an unknown cwd
@@ -1252,6 +1277,10 @@ export interface ServerContextDeps {
   registerPiRequestHandler?: (pluginId: string, type: string, handler: PluginRequestHandler) => void;
   /** Installed-extension probe (optional). See change: add-blackhole-session-pipeline. */
   isPiExtensionInstalled?: IsPiExtensionInstalledFn;
+  /** Resolved pi resources (optional). See change: add-skill-atlas-screen. */
+  getPiResources?: GetPiResourcesFn;
+  /** pi-resource invalidation subscription (optional). See change: add-skill-atlas-screen. */
+  onPiResourcesInvalidated?: OnPiResourcesInvalidatedFn;
   /** Per-plugin `cwd` access-hold seam (optional, host-gated). See change: harden-plugin-cwd-admission. */
   holdCwdDenial?: HoldCwdDenialFn;
   /** Mint a fresh spawn-correlation token (trusted-gated). See change: relocate-goal-product-to-plugin. */
@@ -1361,6 +1390,8 @@ export function createServerPluginContext(
       ? (type, handler) => deps.registerPiRequestHandler!(pluginId, type, handler)
       : undefined,
     isPiExtensionInstalled: deps.isPiExtensionInstalled,
+    getPiResources: deps.getPiResources,
+    onPiResourcesInvalidated: deps.onPiResourcesInvalidated,
     holdCwdDenial: deps.holdCwdDenial,
     openEditorTab,
     mintSpawnToken: deps.mintSpawnToken,
