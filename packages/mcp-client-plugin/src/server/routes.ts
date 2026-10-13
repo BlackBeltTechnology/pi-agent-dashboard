@@ -8,6 +8,8 @@
  *   DELETE /api/mcp-client/servers/:name?scope=&cwd=   → {ok, removed}
  *   PUT    /api/mcp-client/servers/:name/enabled  {scope, cwd?, enabled}
  *   POST   /api/mcp-client/servers/:name/convert  {scope, cwd?} — adapter leftovers → pi
+ *   PUT    /api/mcp-client/servers/:name/project-override  {scope:"project", cwd, enabled?, exposure?, toolExposure?} — null = inherit
+ *   POST   /api/mcp-client/servers/:name/convert-to-override  {scope:"project", cwd} — legacy folder copy → override
  *
  * Every route (GET included) is registered behind the host `networkGuard`
  * (cookie/token/loopback auth): a write becomes executable configuration for
@@ -15,7 +17,8 @@
  * decoded and validated, and a project cwd is admitted against the
  * known-folder set, BEFORE any file is read or written.
  *
- * See change: migrate-mcp-to-pi-builtin (D3); earlier: extract-mcp-client-plugin (D7).
+ * See change: migrate-mcp-to-pi-builtin (D3); mcp-client-project-overrides (D6);
+ * earlier: extract-mcp-client-plugin (D7).
  */
 
 import type { CwdHoldOrigin, ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
@@ -27,10 +30,10 @@ import {
   releaseAdmission,
 } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { isValidServerName } from "../core/pi-rules.js";
+import { isValidServerName, OVERRIDE_KEYS } from "../core/pi-rules.js";
 import { errorFields, mcpConfigSchema, validateServerEntry } from "../core/schema-validation.js";
 import type { McpClientRuntime } from "../core/service.js";
-import type { ConfigRefusal, Scope, ServerEntry } from "../core/types.js";
+import type { ConfigRefusal, ProjectOverridePatch, Scope, ServerEntry } from "../core/types.js";
 
 export interface McpClientRouteDeps {
   runtime: McpClientRuntime;
@@ -70,6 +73,8 @@ function refusalParts(refusal: ConfigRefusal): { status: number; body: Record<st
       return { status: 400, body };
     case "transport-conflict":
       return { status: 400, body: { ...body, fields: refusal.fields ?? [] } };
+    case "no-global-server":
+      return { status: 409, body };
     case "name-collision":
       return { status: 409, body: { ...body, ...(refusal.conflict ? { conflict: refusal.conflict } : {}) } };
     case "unparseable":
@@ -198,6 +203,30 @@ async function queryScope(request: FastifyRequest, reply: FastifyReply, deps: Mc
   return parseScope({ scope: "project", cwd: rawCwd }, deps, { request, reply });
 }
 
+/** The override patch carried by a request body, validated by type and enum (no scope or IO involved). */
+function overridePatchOf(
+  body: Record<string, unknown>,
+): { ok: true; patch: ProjectOverridePatch } | { ok: false; body: Record<string, unknown> } {
+  const patch: Record<string, unknown> = {};
+  const present: Record<string, unknown> = {};
+  for (const k of OVERRIDE_KEYS) {
+    if (body[k] === undefined) continue;
+    patch[k] = body[k];
+    if (body[k] !== null) present[k] = body[k];
+  }
+  const validation = validateServerEntry(present, { kind: "override" });
+  if (validation.ok) return { ok: true, patch: patch as ProjectOverridePatch };
+  const fields = errorFields(validation.errors);
+  return {
+    ok: false,
+    body: {
+      error: "schema",
+      message: `project override failed validation${fields.length ? ` (${fields.join(", ")})` : ""}`,
+      fields,
+    },
+  };
+}
+
 const INVALID_NAME = { error: "invalid-name", message: "invalid server name" };
 
 export function mountMcpClientRoutes(fastify: FastifyInstance, deps: McpClientRouteDeps): void {
@@ -290,6 +319,47 @@ export function mountMcpClientRoutes(fastify: FastifyInstance, deps: McpClientRo
       const result = runtime.setEnabled(name, body.enabled, parsed.scope);
       if (!result.ok) return sendRefusal(reply, result.refusal);
       return result;
+    } finally {
+      releaseScope(parsed.scope);
+    }
+  });
+
+  fastify.put(`${PREFIX}/servers/:name/project-override`, guard, async (request, reply) => {
+    const name = pathName(request);
+    if (!name) return reply.code(400).send(INVALID_NAME);
+    const body = (request.body ?? {}) as ScopeInput & Record<string, unknown>;
+    // Every field's type and enum is checked before the scope is parsed, so a bad
+    // body can neither reveal whether a folder is admitted nor raise a dialog.
+    const checked = overridePatchOf(body);
+    if (!checked.ok) return reply.code(400).send(checked.body);
+    const patch = checked.patch;
+    if (body.scope !== "project") {
+      return reply.code(400).send({ error: "invalid-body", message: "a project override requires scope 'project'" });
+    }
+    const parsed = await parseScope(body, deps, { request, reply, holdOrigin: "mcp:enable" });
+    if (!parsed.ok) return sendParseFailure(reply, parsed);
+    try {
+      const result = runtime.setProjectOverride(name, patch, parsed.scope);
+      if (!result.ok) return sendRefusal(reply, result.refusal);
+      return result.override === undefined ? { ok: true, removed: true } : { ok: true, override: result.override };
+    } finally {
+      releaseScope(parsed.scope);
+    }
+  });
+
+  fastify.post(`${PREFIX}/servers/:name/convert-to-override`, guard, async (request, reply) => {
+    const name = pathName(request);
+    if (!name) return reply.code(400).send(INVALID_NAME);
+    const body = (request.body ?? {}) as ScopeInput;
+    if (body.scope !== "project") {
+      return reply.code(400).send({ error: "invalid-body", message: "converting a folder copy requires scope 'project'" });
+    }
+    const parsed = await parseScope(body, deps, { request, reply, holdOrigin: "mcp:convert" });
+    if (!parsed.ok) return sendParseFailure(reply, parsed);
+    try {
+      const result = runtime.convertLegacyCopy(name, parsed.scope);
+      if (!result.ok) return sendRefusal(reply, result.refusal);
+      return { ok: true, previous: result.previous };
     } finally {
       releaseScope(parsed.scope);
     }

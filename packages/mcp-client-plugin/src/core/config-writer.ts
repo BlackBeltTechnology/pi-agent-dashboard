@@ -19,13 +19,29 @@
 
 import { isAllowedCwd, tokenAllows } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { type LayerPaths, type LayerRead, nullProto, readLayer } from "./layers.js";
-import { isPlainObject } from "./path-utils.js";
-import { ADAPTER_ONLY_KEYS, isValidServerName, mcpNamespace, transportOf, validatePiEntry } from "./pi-rules.js";
+import { deepEqual, isPlainObject } from "./path-utils.js";
+import {
+  ADAPTER_ONLY_KEYS,
+  classifyProjectEntry,
+  displayExposure,
+  isFullEntry,
+  isProjectOverride,
+  isValidServerName,
+  keptGlobalOf,
+  mcpNamespace,
+  OVERRIDE_KEYS,
+  transportOf,
+  validatePiEntry,
+} from "./pi-rules.js";
+import { validateServerEntry } from "./schema-validation.js";
 import type {
   ConfigIO,
   ConfigRefusal,
   ConfigWriteResult,
+  ConvertLegacyResult,
   ParseStatus,
+  ProjectOverridePatch,
+  ProjectOverrideResult,
   RemoveResult,
   Scope,
   ServerEntry,
@@ -66,6 +82,8 @@ export interface ConfigWriter {
   ): ConfigWriteResult;
   removeServer(name: string, scope: Scope): RemoveResult;
   setEnabled(name: string, enabled: boolean, scope: Scope): SetEnabledResult;
+  setProjectOverride(name: string, patch: ProjectOverridePatch, scope: Scope): ProjectOverrideResult;
+  convertLegacyCopy(name: string, scope: Scope): ConvertLegacyResult;
   convertAdapterLeftovers(name: string, scope: Scope): ConfigWriteResult;
   /** Dry run of `ensureServerEntry`: the refusal it would return, or null. */
   previewEnsure(name: string, fields: Partial<ServerEntry>, scope: Scope): ConfigRefusal | null;
@@ -92,6 +110,85 @@ export function folderCopyOf(entry: Record<string, unknown>): { copy: Record<str
     omitted.push("oauth.clientSecret");
   }
   return { copy, omitted };
+}
+
+const OVERRIDE_ROUTE_HINT = "use the project-override operation to change a global server for one folder";
+
+function omitKeys(entry: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(entry).filter(([k]) => !keys.includes(k)));
+}
+
+/**
+ * A whole-entry folder copy of `globalRaw` made by the old disable path: both
+ * are full entries, the folder entry carries none of the secret-bearing fields
+ * (a re-entered secret vetoes), and apart from the override keys it equals the
+ * global entry without those fields. See change: mcp-client-project-overrides (D7).
+ */
+export function isLegacyFolderCopy(folderRaw: unknown, globalRaw: unknown): boolean {
+  if (!isFullEntry(folderRaw) || !isFullEntry(globalRaw)) return false;
+  if (folderRaw.headers !== undefined || folderRaw.env !== undefined || folderRaw.auth !== undefined) return false;
+  if (isPlainObject(folderRaw.oauth) && folderRaw.oauth.clientSecret !== undefined) return false;
+  return deepEqual(omitKeys(folderRaw, OVERRIDE_KEYS), omitKeys(folderCopyOf(globalRaw).copy, OVERRIDE_KEYS));
+}
+
+/** `existing` override with `patch` applied: absent key = unchanged, `null` = delete the key. */
+function patchedOverride(existing: Record<string, unknown> | undefined, patch: ProjectOverridePatch): Record<string, unknown> {
+  const next = nullProto({ ...(existing ?? {}) });
+  for (const k of OVERRIDE_KEYS) {
+    const v = (patch as Record<string, unknown>)[k];
+    if (v === undefined) continue;
+    if (v === null) delete next[k];
+    else next[k] = v;
+  }
+  return next;
+}
+
+/** A legacy copy rewritten to only the override keys whose value differs from the global entry. */
+function convertedOverride(folder: Record<string, unknown>, base: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = nullProto({});
+  if (folder.enabled !== undefined && (folder.enabled !== false) !== (base.enabled !== false)) next.enabled = folder.enabled;
+  if (folder.exposure !== undefined && displayExposure(folder.exposure) !== displayExposure(base.exposure)) {
+    next.exposure = folder.exposure;
+  }
+  if (folder.toolExposure !== undefined && !deepEqual(folder.toolExposure, base.toolExposure)) {
+    next.toolExposure = folder.toolExposure;
+  }
+  return next;
+}
+
+/** Shape-check a patch BEFORE any IO: only override keys, correctly typed (`null` = delete). */
+function patchShapeRefusal(name: string, patch: unknown): ConfigRefusal | null {
+  if (!isPlainObject(patch)) {
+    return { code: "invalid-entry", message: `server "${name}": override patch must be an object` };
+  }
+  const present = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== null && v !== undefined));
+  const shape = validateServerEntry(present, { kind: "override" });
+  if (shape.ok) return null;
+  const f = shape.errors.map((e) => e.instancePath.replace(/^\//, "") || String(e.params.additionalProperty ?? "")).filter(Boolean);
+  return { code: "invalid-entry", message: `server "${name}": invalid project override${f.length ? ` (${f.join(", ")})` : ""}` };
+}
+
+function wholeEntryRefusal(name: string, path: string): { ok: false; refusal: ConfigRefusal } {
+  return {
+    ok: false,
+    refusal: {
+      code: "invalid-entry",
+      message: `server "${name}" is a whole-entry folder entry, not an override (${OVERRIDE_ROUTE_HINT})`,
+      path,
+    },
+  };
+}
+
+/** The refusal when `next` merged onto its kept global base is not a valid pi override. */
+function mergedOverrideRefusal(
+  name: string,
+  next: Record<string, unknown>,
+  kept: ReadonlyMap<string, Record<string, unknown>>,
+  path: string,
+): ConfigRefusal | null {
+  const cls = classifyProjectEntry(name, next, kept);
+  if (cls.kind === "override") return null;
+  return { code: "invalid-entry", message: cls.kind === "replace" ? OVERRIDE_ROUTE_HINT : cls.message, path };
 }
 
 export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
@@ -133,18 +230,23 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
   /** Every entry a write could collide with, and the file it lives in. */
   function collisionCandidates(scope: Scope): Array<{ name: string; path: string }> {
     const out: Array<{ name: string; path: string }> = [];
-    const add = (path: string): void => {
+    const add = (path: string, skipOverrides: boolean): void => {
       const l = readLayer(configIO, path);
-      if (l.ok) for (const n of Object.keys(l.servers)) out.push({ name: n, path });
+      if (!l.ok) return;
+      for (const [n, raw] of Object.entries(l.servers)) {
+        // pi never clash-checks a project override (it reuses the global entry's name).
+        if (skipOverrides && isProjectOverride(raw)) continue;
+        out.push({ name: n, path });
+      }
     };
-    add(paths.globalPath());
+    add(paths.globalPath(), false);
     if (scope.kind === "project") {
-      add(paths.projectPath(scope.cwd));
+      add(paths.projectPath(scope.cwd), true);
     } else {
       // pi loads the global layer first, then the trusted project layer, and
       // DROPS the project entry on a collision — so a global write must not
       // collide with any known trusted folder's entry.
-      for (const cwd of knownCwds()) if (trusted(cwd)) add(paths.projectPath(cwd));
+      for (const cwd of knownCwds()) if (trusted(cwd)) add(paths.projectPath(cwd), true);
     }
     return out;
   }
@@ -277,6 +379,13 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
       const bad = nameRefusal(prev);
       if (bad) return { ok: false, refusal: bad };
     }
+    if (scope.kind === "project") {
+      // Overrides have exactly one write path (`setProjectOverride`).
+      const prevEntry = renaming ? p.layer.servers[prev] : undefined;
+      if (isProjectOverride(entry) || isProjectOverride(prevEntry)) {
+        return { ok: false, refusal: { code: "invalid-entry", message: `server "${name}": ${OVERRIDE_ROUTE_HINT}`, path: p.path } };
+      }
+    }
     // A rename or a create never replaces another entry: one write, one entry.
     if ((renaming || opts?.create === true) && p.layer.servers[name] !== undefined) {
       return {
@@ -308,27 +417,100 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     return w.ok ? { ok: true, removed } : w;
   }
 
+  /** The kept Pi-global base for `name`, or a refusal (unparseable global wins over `no-global-server`). */
+  function keptBase(name: string): { ok: true; base: Record<string, unknown>; kept: ReadonlyMap<string, Record<string, unknown>> } | { ok: false; refusal: ConfigRefusal } {
+    const gpath = paths.globalPath();
+    const g = readLayer(configIO, gpath);
+    if (!g.ok) {
+      return { ok: false, refusal: { code: "unparseable", message: `${g.message} (pi skips this file; fix it by hand)`, path: gpath } };
+    }
+    const { kept } = keptGlobalOf(g.servers);
+    const base = kept.get(name);
+    if (!base) {
+      return {
+        ok: false,
+        refusal: {
+          code: "no-global-server",
+          message: `server "${name}" needs "command" or "url", or a global server to override`,
+          path: gpath,
+        },
+      };
+    }
+    return { ok: true, base, kept };
+  }
+
+  /** Everything an override write needs, or the refusal: scope, patch shape, target file, base. */
+  function planOverride(
+    name: string,
+    patch: ProjectOverridePatch,
+    scope: Scope,
+  ):
+    | { ok: true; p: Extract<Prepared, { ok: true }>; existing: Record<string, unknown> | undefined; kept: ReadonlyMap<string, Record<string, unknown>> }
+    | { ok: false; refusal: ConfigRefusal } {
+    if (scope.kind !== "project") {
+      return { ok: false, refusal: { code: "invalid-entry", message: "a project override can only be written at project scope" } };
+    }
+    const bad = patchShapeRefusal(name, patch);
+    if (bad) return { ok: false, refusal: bad };
+    const p = prepare(name, scope);
+    if (!p.ok) return p;
+    const existing = existingObject(p, name);
+    if (!existing.ok) return existing;
+    if (existing.entry !== undefined && !isProjectOverride(existing.entry)) return wholeEntryRefusal(name, p.path);
+    const kb = keptBase(name); // an unparseable global file wins over no-global-server
+    if (!kb.ok) return kb;
+    return { ok: true, p, existing: existing.entry, kept: kb.kept };
+  }
+
+  /** Validate `next` as a pi override of its kept base, then write it (or delete the emptied entry). */
+  function commitOverride(
+    name: string,
+    p: Extract<Prepared, { ok: true }>,
+    next: Record<string, unknown>,
+    kept: ReadonlyMap<string, Record<string, unknown>>,
+  ): ProjectOverrideResult {
+    const empty = Object.keys(next).length === 0;
+    const invalid = empty ? null : mergedOverrideRefusal(name, next, kept, p.path);
+    if (invalid) return { ok: false, refusal: invalid };
+    const servers = nullProto({ ...p.layer.servers });
+    if (empty) delete servers[name];
+    else servers[name] = next;
+    const w = write(p.path, p.layer.config, servers);
+    return w.ok ? { ok: true, override: empty ? undefined : { ...next } } : w;
+  }
+
+  function setProjectOverride(name: string, patch: ProjectOverridePatch, scope: Scope): ProjectOverrideResult {
+    const plan = planOverride(name, patch, scope);
+    if (!plan.ok) return plan;
+    const next = patchedOverride(plan.existing, patch);
+    // No key change touches no file (and creates none).
+    if (deepEqual({ ...(plan.existing ?? {}) }, { ...next })) {
+      return { ok: true, override: plan.existing === undefined ? undefined : { ...next } };
+    }
+    return commitOverride(name, plan.p, next, plan.kept);
+  }
+
   function setEnabled(name: string, enabled: boolean, scope: Scope): SetEnabledResult {
     const p = prepare(name, scope);
     if (!p.ok) return p;
     const existing = existingObject(p, name);
     if (!existing.ok) return existing;
 
-    // The global entry a folder entry replaces (project scope only).
-    let globalEntry: Record<string, unknown> | undefined;
+    // The global entry the folder layer shadows or overrides (project scope only).
+    let globalRaw: unknown;
     if (scope.kind === "project") {
       const g = readLayer(configIO, paths.globalPath());
-      const raw = g.ok ? g.servers[name] : undefined;
-      globalEntry = isPlainObject(raw) ? raw : undefined;
+      globalRaw = g.ok ? g.servers[name] : undefined;
     }
 
-    if (existing.entry !== undefined) {
+    // A whole-entry layer entry (any scope): toggle its own `enabled` key.
+    if (existing.entry !== undefined && !(scope.kind === "project" && isProjectOverride(existing.entry))) {
       const next = existing.entry;
       if (enabled) {
         // Enabling a folder copy that lacks the global entry's secrets would
         // connect without credentials: let the caller choose instead.
-        if (globalEntry !== undefined && next.enabled === false) {
-          const missing = folderCopyOf(globalEntry).omitted.filter((f) => !hasPath(next, f));
+        if (isPlainObject(globalRaw) && next.enabled === false) {
+          const missing = folderCopyOf(globalRaw).omitted.filter((f) => !hasPath(next, f));
           if (missing.length > 0) return { ok: true, action: "needs-choice", omitted: missing };
         }
         delete next.enabled;
@@ -341,21 +523,44 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
       return w.ok ? { ok: true, action: "written" } : w;
     }
 
-    if (scope.kind === "project" && globalEntry !== undefined) {
-      if (enabled) return { ok: true, action: "written" }; // the global entry already applies
-      // pi replaces entries as a whole: disabling here needs a complete copy.
-      const { copy, omitted } = folderCopyOf(globalEntry);
-      copy.enabled = false;
-      const servers = nullProto({ ...p.layer.servers });
-      servers[name] = copy;
-      const w = write(p.path, p.layer.config, servers);
-      return w.ok ? { ok: true, action: "written", ...(omitted.length ? { omitted } : {}) } : w;
+    if (scope.kind === "project" && (existing.entry !== undefined || globalRaw !== undefined)) {
+      // A global server (with or without an override): write only the smallest override.
+      const kb = keptBase(name);
+      if (!kb.ok) return kb;
+      const globalOn = kb.base.enabled !== false;
+      const r = setProjectOverride(name, { enabled: enabled === globalOn ? null : enabled }, scope);
+      return r.ok ? { ok: true, action: "written" } : r;
     }
 
     return {
       ok: false,
       refusal: { code: "invalid-entry", message: `no MCP server named "${name}" in ${p.path}`, path: p.path },
     };
+  }
+
+  function convertLegacyCopy(name: string, scope: Scope): ConvertLegacyResult {
+    if (scope.kind !== "project") {
+      return { ok: false, refusal: { code: "invalid-entry", message: "a legacy folder copy can only be converted at project scope" } };
+    }
+    const p = prepare(name, scope);
+    if (!p.ok) return p;
+    const existing = existingObject(p, name);
+    if (!existing.ok) return existing;
+    const kb = keptBase(name);
+    if (!kb.ok) return kb;
+    const raw = p.layer.servers[name];
+    if (existing.entry === undefined || !isLegacyFolderCopy(raw, kb.base)) {
+      return {
+        ok: false,
+        refusal: { code: "invalid-entry", message: `server "${name}" in ${p.path} is not a legacy copy of the global entry`, path: p.path },
+      };
+    }
+    const next = convertedOverride(existing.entry, kb.base);
+    const servers = nullProto({ ...p.layer.servers });
+    if (Object.keys(next).length === 0) delete servers[name];
+    else servers[name] = next;
+    const w = write(p.path, p.layer.config, servers);
+    return w.ok ? { ok: true, previous: raw as ServerEntry } : w;
   }
 
   function convertAdapterLeftovers(name: string, scope: Scope): ConfigWriteResult {
@@ -399,6 +604,8 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     saveServer,
     removeServer,
     setEnabled,
+    setProjectOverride,
+    convertLegacyCopy,
     convertAdapterLeftovers,
     previewEnsure,
     readParseStatus,

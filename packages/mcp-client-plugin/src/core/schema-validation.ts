@@ -37,10 +37,13 @@ function compile(ref: string): ValidateFunction {
 }
 
 const validateServer = compile("ServerEntry");
+const validateOverride = compile("ProjectOverride");
 
-export function validateServerEntry(entry: unknown): PatchValidation {
-  const valid = validateServer(entry) as boolean;
-  return { ok: valid, errors: valid ? [] : (validateServer.errors ?? []) };
+/** `kind` picks the `$defs` entry: a whole `"server"` entry (default) or a `"override"` (D8). */
+export function validateServerEntry(entry: unknown, opts?: { kind?: "server" | "override" }): PatchValidation {
+  const fn = opts?.kind === "override" ? validateOverride : validateServer;
+  const valid = fn(entry) as boolean;
+  return { ok: valid, errors: valid ? [] : (fn.errors ?? []) };
 }
 
 /** Field names from Ajv errors (drop the leading slash of `instancePath`). */

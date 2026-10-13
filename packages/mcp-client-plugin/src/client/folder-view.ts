@@ -1,15 +1,17 @@
 /**
  * mcp-client-plugin · folder-scope view helpers.
  *
- * The folder override pre-fill: pi replaces a global entry WHOLE, so
- * "Override…" starts from the complete global entry EXCEPT the secret-bearing
- * fields (`headers`, `env`, `oauth.clientSecret`) and `auth` — those are left
- * out and flagged, never copied silently (the server's redaction markers are
- * never sent back either).
+ * The "Replace with folder entry…" pre-fill: a project entry with a transport
+ * replaces a global entry WHOLE, so the editor starts from the complete global
+ * entry EXCEPT the secret-bearing fields (`headers`, `env`,
+ * `oauth.clientSecret`) and `auth` — those are left out and flagged, never
+ * copied silently (the server's redaction markers are never sent back either).
+ * Also the project-override presentation helpers (badge text, undo patch).
  *
- * See change: migrate-mcp-to-pi-builtin.
+ * See change: migrate-mcp-to-pi-builtin; mcp-client-project-overrides.
  */
-import type { Provenance } from "../core/types.js";
+import { displayExposure, OVERRIDE_KEYS } from "../core/pi-rules.js";
+import type { ProjectOverridePatch, Provenance } from "../core/types.js";
 import { stripRedacted } from "./schema.js";
 
 /**
@@ -45,7 +47,7 @@ function deletePath(draft: Record<string, unknown>, path: string[]): void {
   delete parent[path[path.length - 1] as string];
 }
 
-/** A copy of a global entry for a folder override, without secrets or `auth`. */
+/** A copy of a global entry for a whole-entry folder replace, without secrets or `auth`. */
 export function folderOverrideDraftOf(entry: Record<string, unknown>): FolderOverridePrefill {
   // Flag against the RAW entry (the server's redaction sentinels mark the
   // secret fields), then strip the markers and the flagged paths.
@@ -64,4 +66,24 @@ export function provenanceLabel(provenance: Provenance): string {
 /** True when the FOLDER layer defines the server (row editor edits it directly). */
 export function isFolderOwned(provenance: Provenance): boolean {
   return provenance === "pi-folder";
+}
+
+/** One text badge per overridden key ("Off in this folder", …) — text, never colour alone. */
+export function overrideBadges(raw: Record<string, unknown>): Array<{ key: string; text: string }> {
+  const out: Array<{ key: string; text: string }> = [];
+  if (typeof raw.enabled === "boolean") {
+    out.push({ key: "enabled", text: raw.enabled ? "On in this folder" : "Off in this folder" });
+  }
+  if (raw.exposure !== undefined) {
+    out.push({ key: "exposure", text: `Exposure: ${displayExposure(raw.exposure)} in this folder` });
+  }
+  if (raw.toolExposure !== undefined) out.push({ key: "toolExposure", text: "Tool exposure set in this folder" });
+  return out;
+}
+
+/** The patch that restores a removed override exactly: its raw keys, absent keys as `null`. */
+export function overrideRestorePatch(removed: Record<string, unknown>): ProjectOverridePatch {
+  const patch: Record<string, unknown> = {};
+  for (const k of OVERRIDE_KEYS) patch[k] = removed[k] ?? null;
+  return patch as ProjectOverridePatch;
 }
