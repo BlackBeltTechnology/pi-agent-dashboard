@@ -8,7 +8,7 @@
  * Wire shapes mirror the route handlers in `../server/routes.ts`.
  * See change: migrate-mcp-to-pi-builtin.
  */
-import type { EffectiveView, LiveState, Scope, SetEnabledResult } from "../core/types.js";
+import type { EffectiveView, LiveState, ProjectOverridePatch, Scope, SetEnabledResult } from "../core/types.js";
 
 const API_BASE = "/api/mcp-client";
 
@@ -169,3 +169,31 @@ export async function convertServer(name: string, wire: ScopeWire): Promise<void
   );
 }
 
+
+/**
+ * `PUT /servers/:name/project-override` — patch the project override of a global
+ * server (project scope only). Absent key = unchanged, `null` = delete the key.
+ * Resolves with the written override, or `removed: true` when none is left.
+ */
+export async function setProjectOverride(
+  name: string,
+  patch: ProjectOverridePatch,
+  wire: ScopeWire,
+): Promise<{ ok: true; override?: Record<string, unknown>; removed?: true }> {
+  return readJson(
+    await fetch(
+      `${API_BASE}/servers/${encodeURIComponent(name)}/project-override`,
+      methodWith("PUT", { ...wire, ...patch }),
+    ),
+  );
+}
+
+/** `POST /servers/:name/convert-to-override` — legacy folder copy → override; returns the previous raw entry. */
+export async function convertToOverride(
+  name: string,
+  wire: ScopeWire,
+): Promise<{ ok: true; previous: Record<string, unknown> }> {
+  return readJson(
+    await fetch(`${API_BASE}/servers/${encodeURIComponent(name)}/convert-to-override`, methodWith("POST", wire)),
+  );
+}
