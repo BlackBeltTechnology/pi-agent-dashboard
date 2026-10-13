@@ -114,11 +114,13 @@ All tests in this section live in `scripts/__tests__/claude-plugin-ensure-dashbo
 
 ## 6. Integration check (local, isolated)
 
-- [ ] 6.1 Run the headless end to end check against a temp `HOME` and port 18555/18556 (never 8000). With `--plugin-dir packages/claude-plugin`, prompt "Is my pi dashboard running? …". Verify:
+- [x] 6.1 Run the headless end to end check against a temp `HOME` and port 18555/18556 (never 8000). With `--plugin-dir packages/claude-plugin`, prompt "Is my pi dashboard running? …". Verify:
   - the transcript shows one `ensure-dashboard.sh` call, then curl to `/api/sessions`;
   - `lsof -iTCP:8000 -sTCP:LISTEN` is unchanged;
   - cleanup with `HOME=<tmp> pi-dashboard stop --port 18555 --pi-port 18556`.
-- [ ] 6.2 Run `npm test` (`scripts` + `shared` projects) and `node scripts/check-skill-frontmatter.mjs`. Verify all green
+
+  Done 2026-10-12 as a direct script run against the real CLI (temp `HOME`, ports 18555/18556): `started` → `already-running` → `--check && curl /api/sessions` → port 8000 unchanged → stop. `claude -p` could not authenticate under a temp `HOME` ("Not logged in"), so the natural-language skill-selection leg is covered by manual task 7.9 (#M9).
+- [x] 6.2 Run `npm test` (`scripts` + `shared` projects) and `node scripts/check-skill-frontmatter.mjs`. Verify all green. Result: every `claude-plugin-*` test and the frontmatter guard green; the remaining 7 failing files (`tsc7-wrapper`, `verify-published-imports`, `gateway-listener-wiring`, `host-gate-upgrade`, `mcp-manifest-completeness` — `PUT /api/mcp-client/servers/:name/project-override` has no ROUTE_TIERS entry on `origin/develop` —, `resource-activation-*`, `ws-origin-gate`, `rendezvous`) are outside this change's paths (sandbox/HOME/socket/tsc environment and an in-flight develop route).
 
 ## 7. Manual QA (post-merge)
 
