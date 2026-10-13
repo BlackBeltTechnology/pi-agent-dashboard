@@ -12,15 +12,16 @@
  *
  * See change: add-acp-session-driver (D2).
  */
-import { existsSync, statSync } from "node:fs";
+import { existsSync, } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AcpAgentConfig } from "@blackbelt-technology/pi-dashboard-shared/acp/acp-config.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { type LocalHostDeps, startLocalAcpSession } from "../acp-bridge/local-host.js";
 import { mintSpawnToken } from "../auth/spawn-token.js";
 import { type SpawnResult, spawnPiSession } from "./process-manager.js";
-import type { PreflightReason, PreflightResult } from "./spawn-preflight.js";
+import { type PreflightReason, type PreflightResult, preflightSpawn } from "./spawn-preflight.js";
 
 const ADAPTER_BIN = fileURLToPath(new URL("../../bin/acp-bridge.mjs", import.meta.url));
 
@@ -63,13 +64,23 @@ export function validateAcpAgent(id: unknown): { ok: true; agent: AcpAgentConfig
   return agent ? { ok: true, agent } : { ok: false, message: `Unknown ACP agent "${id}"` };
 }
 
+/**
+ * The cwd half of the shared pi preflight (exists / is a directory / writable).
+ * Reused instead of re-implementing the fs probes so a spawn cwd is validated by
+ * one code path. pi/node resolution is stubbed out: an ACP agent needs neither pi
+ * nor a pi-resolved node.
+ */
+function cwdReasons(cwd: string): PreflightReason[] {
+  const stub = { resolvePi: () => "-", resolveNode: () => "-" } as unknown as ToolResolver;
+  return preflightSpawn(cwd, { resolver: stub }).reasons;
+}
+
 /** ACP preflight (replaces the pi/tmux preflight): cwd valid, node + agent command resolvable. */
 export function preflightAcpSpawn(cwd: string, agent: AcpAgentConfig): PreflightResult {
   const reasons: PreflightReason[] = [];
-  if (!existsSync(cwd)) {
-    reasons.push({ code: "cwd_missing", message: `Directory does not exist: ${cwd}` });
-  } else if (!statSync(cwd).isDirectory()) {
-    reasons.push({ code: "cwd_not_directory", message: `Not a directory: ${cwd}` });
+  for (const r of cwdReasons(cwd)) {
+    if (r.code === "cwd_missing") reasons.push(r);
+    else if (r.code === "DIR_NOT_DIRECTORY") reasons.push({ code: "cwd_not_directory", message: r.message });
   }
   if (agent.durable && !existsSync(process.execPath)) {
     reasons.push({ code: "node_missing", message: `Node binary not found: ${process.execPath}` });
@@ -86,7 +97,8 @@ export async function spawnAcpSession(
 ): Promise<SpawnResult> {
   const agent = resolveAcpAgent(opts.agent);
   if (!agent) return { success: false, code: "SPAWN_ERRNO", message: `Unknown ACP agent "${opts.agent}"` };
-  if (!existsSync(cwd)) return { success: false, code: "DIR_MISSING", message: `Directory does not exist: ${cwd}` };
+  const missing = cwdReasons(cwd).find((r) => r.code === "cwd_missing");
+  if (missing) return { success: false, code: "DIR_MISSING", message: missing.message };
   const spawnToken = opts.spawnToken ?? mintSpawnToken();
 
   if (!agent.durable) {
