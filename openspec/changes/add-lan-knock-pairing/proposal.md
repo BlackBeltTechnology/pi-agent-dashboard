@@ -29,6 +29,8 @@ sequenceDiagram
 - **Dialog provenance.** The approval dialog distinguishes a knock ("Roberts-MacBook-Pro on 192.168.16.31 asks to connect") from a QR redemption; requester name is display text only, never an authorization input.
 - **Browser "Request access".** When a browser on a private-range address hits A without credentials (network denied), A's page offers **Request access**: it runs the knock same-origin, shows the PIN, polls, then exchanges the bearer for the httpOnly `pi_dash_device` cookie (`POST /api/device-session`). Settings ▸ Network Discovery gains **Connect** on a discovered server, which opens that server's own origin on this landing.
 
+- **Request access from an `operate_required` refusal.** Depends on `surface-operate-required-remedy`, which gives `operate_required` 403s an extensible `remedies` list and a Vault callout, deliberately without a knock remedy. This change MAY add `request-access` (and a callout row whose action starts the knock) through a MODIFIED delta of `operate-required-remedy`. Open: its presence rule must not disclose `pairing.acceptLanRequests` or per-address knock state to a credential-less caller (`canDiscloseAccessPosture`); decide the rule and its disclosure analysis when this change is planned.
+
 ## Capabilities
 
 ### New Capabilities
