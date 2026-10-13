@@ -7,13 +7,17 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ForgeRateLimited } from "../git-scope/forge/types.js";
 import { SqliteFtsStore } from "../sqlite-store.js";
-import { FakeForge, fakeClock, fakeItem, instrumentedStore, type StoreStats, scopeFor, useGitFixture } from "./helpers/git-fixture.js";
+import { FakeForge, fakeClock, fakeItem, git, instrumentedStore, type StoreStats, scopeFor, useGitFixture } from "./helpers/git-fixture.js";
 
 const fx = useGitFixture();
 const GH = "https://github.com/a/r.git";
 const search = (scope: ReturnType<typeof scopeFor>, cwd: string, query = "item") => scope.search({ query, limit: 100 }, { cwd });
 const cfg = (forge: Record<string, number> = {}) => ({ forge: { minSyncIntervalSeconds: 100, hintedMinSyncIntervalSeconds: 100, ...forge } });
 const prs = (n: number, same?: string) => Array.from({ length: n }, (_, i) => fakeItem("pr", i + 1, `item ${i + 1}`, same ? { updatedAt: same } : {}));
+const bindOf = (t: object, p: string | symbol) => {
+  const v = Reflect.get(t, p, t);
+  return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(t) : v;
+};
 const itemCount = (): { rows: number; distinct: number } => {
   const [key] = readdirSync(fx.baseDir);
   const s = new SqliteFtsStore(join(fx.baseDir, key, "index.db"));
@@ -125,6 +129,27 @@ describe("failure reporting and cached data", () => {
     });
     const r2 = await search(busy, dir);
     expect(r2.text).toContain("(git:"); // a normal result with a status footer, not a rejection
+  });
+});
+
+describe("identity reconcile under a busy database", () => {
+  it("after a remote change, a failed reconcile serves nothing from the old remote", async () => {
+    const dir = fx.repo({ remote: GH });
+    const forge = new FakeForge();
+    forge.items = [fakeItem("pr", 1, "item quokka")];
+    await search(scopeFor(fx, { adapterFor: () => forge, gitConfig: cfg() }), dir);
+    git(dir, "remote", "set-url", "origin", "https://github.com/b/r.git");
+    const busy = scopeFor(fx, {
+      openStore: (_r, _b, _m, openDefault) => {
+        const real = openDefault();
+        return new Proxy(real, { get: (t, p) => (p === "immediate" ? () => { throw new Error("database is locked"); } : bindOf(t, p)) });
+      },
+    });
+    const r = await search(busy, dir, "quokka");
+    expect(r.text).toContain("index busy while switching remote");
+    expect(r.text).not.toContain("quokka");
+    const ok = await search(scopeFor(fx, { adapterFor: () => new FakeForge(), gitConfig: cfg() }), dir, "quokka");
+    expect(ok.text).not.toContain("item quokka"); // the retry reconciled
   });
 });
 

@@ -182,7 +182,12 @@ export class GitScope {
     try {
       // identity follows the remote, NOT `forge.enabled`: disabling forge sync keeps the cached rows
       reconcileForgeIdentity(h.store, repo.forge.kind === "ok" ? repo.forge.identity : null);
-    } catch { /* database busy: the next call retries the reconcile */ }
+    } catch {
+      // Busy database. Nothing to purge on a fresh index; but once an identity is recorded, a
+      // failed reconcile means the remote changed and the cached forge rows belong to the OLD
+      // remote: serve nothing this call; the next call retries.
+      if (h.store.read!((db) => metaGet(db, "forge.identity")) !== null) return { res: unavailable("index busy while switching remote; retry shortly") };
+    }
     return { cfg: c.cfg, kbCfg: c.kbCfg, repo, h, cwd };
   }
 
