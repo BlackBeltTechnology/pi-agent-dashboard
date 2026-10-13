@@ -1382,6 +1382,12 @@ export interface RequestFlowsRefreshMessage {
 
 export interface CredentialsUpdatedMessage {
   type: "credentials_updated";
+  /**
+   * Custom providers to force-re-register (re-fetch `/models`) even when their
+   * providers.json entry is unchanged. Absent = plain re-sync. Older bridges
+   * ignore it. See change: add-provider-models-refresh.
+   */
+  refreshProviders?: string[];
 }
 
 /**

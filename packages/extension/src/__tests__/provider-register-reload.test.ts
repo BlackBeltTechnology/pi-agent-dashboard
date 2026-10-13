@@ -596,6 +596,138 @@ describe("reloadProviders", () => {
       expect(m.input).toEqual(["text", "image"]);
     }
   });
+
+  // ── Forced re-discovery. See change: add-provider-models-refresh. ──────────
+  describe("force (explicit provider models refresh)", () => {
+    const proxy = { baseUrl: "https://proxy.example.com/v1", apiKey: "sk-p", api: "openai-completions" };
+    const vllm = { baseUrl: "https://vllm.example.com/v1", apiKey: "sk-v", api: "openai-completions" };
+    const serve = (ids: string[]) =>
+      vi.fn(async () => new Response(JSON.stringify({ data: ids.map((id) => ({ id })) }), { status: 200 })) as any;
+    const ids = (call: any[]) => call[1].models.map((m: { id: string }) => m.id);
+
+    // test-plan #E9
+    it("re-registers an unchanged provider with a fresh discovery", async () => {
+      const mod = await importFresh();
+      const { pi, registerProvider, unregisterProvider } = makeMockPi();
+      writeProvidersJson(tmpHome, { proxy });
+      globalThis.fetch = serve(["m1"]);
+      await mod.reloadProviders(pi);
+      registerProvider.mockClear();
+
+      globalThis.fetch = serve(["m1", "new-model"]);
+      const diff = await mod.reloadProviders(pi, { force: ["proxy"] });
+
+      expect(diff.changed).toEqual(["proxy"]);
+      expect(unregisterProvider).toHaveBeenCalledWith("proxy");
+      expect(unregisterProvider.mock.invocationCallOrder[0]).toBeLessThan(registerProvider.mock.invocationCallOrder[0]);
+      expect(registerProvider).toHaveBeenCalledTimes(1);
+      expect(ids(registerProvider.mock.calls[0])).toEqual(["m1", "new-model"]);
+    });
+
+    // CodeRabbit #894: a transient /models failure must not wipe a live provider.
+    it("keeps the existing registration when forced discovery fails", async () => {
+      const mod = await importFresh();
+      const { pi, registerProvider, unregisterProvider } = makeMockPi();
+      writeProvidersJson(tmpHome, { proxy });
+      globalThis.fetch = serve(["m1"]);
+      await mod.reloadProviders(pi);
+      registerProvider.mockClear();
+
+      globalThis.fetch = vi.fn(async () => new Response("boom", { status: 503 })) as any;
+      const diff = await mod.reloadProviders(pi, { force: ["proxy"] });
+
+      expect(unregisterProvider).not.toHaveBeenCalled();
+      expect(registerProvider).not.toHaveBeenCalled();
+      expect(diff.changed).toEqual([]);
+
+      // A later successful refresh still re-registers (snapshot kept intact).
+      globalThis.fetch = serve(["m1", "m2"]);
+      const ok = await mod.reloadProviders(pi, { force: ["proxy"] });
+      expect(ok.changed).toEqual(["proxy"]);
+      expect(ids(registerProvider.mock.calls[0])).toEqual(["m1", "m2"]);
+    });
+
+    // test-plan #E10
+    it("re-discovers only the named provider", async () => {
+      const mod = await importFresh();
+      const { pi, unregisterProvider } = makeMockPi();
+      writeProvidersJson(tmpHome, { proxy, vllm });
+      await mod.reloadProviders(pi);
+      const fetchSpy = serve(["m1"]);
+      globalThis.fetch = fetchSpy;
+
+      await mod.reloadProviders(pi, { force: ["proxy"] });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(String((fetchSpy.mock.calls[0] as unknown[])[0])).toContain("proxy.example.com");
+      expect(unregisterProvider).not.toHaveBeenCalledWith("vllm");
+    });
+
+    // test-plan #E11
+    it("ignores a forced name absent from providers.json", async () => {
+      const mod = await importFresh();
+      const { pi } = makeMockPi();
+      writeProvidersJson(tmpHome, { proxy });
+      await mod.reloadProviders(pi);
+      const fetchSpy = serve(["m1"]);
+      globalThis.fetch = fetchSpy;
+
+      const diff = await mod.reloadProviders(pi, { force: ["missing"] });
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(diff).toEqual({ added: [], removed: [], changed: [] });
+    });
+
+    // test-plan #E12
+    it("a plain reload of an unchanged file makes no discovery request", async () => {
+      const mod = await importFresh();
+      const { pi } = makeMockPi();
+      writeProvidersJson(tmpHome, { proxy });
+      await mod.reloadProviders(pi);
+      const fetchSpy = serve(["m1"]);
+      globalThis.fetch = fetchSpy;
+
+      const diff = await mod.reloadProviders(pi);
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(diff).toEqual({ added: [], removed: [], changed: [] });
+    });
+
+    // test-plan #E13
+    it("drops a model the endpoint no longer lists", async () => {
+      const mod = await importFresh();
+      const { pi, registerProvider } = makeMockPi();
+      writeProvidersJson(tmpHome, { proxy });
+      globalThis.fetch = serve(["m1", "old-model"]);
+      await mod.reloadProviders(pi);
+      registerProvider.mockClear();
+
+      globalThis.fetch = serve(["m1"]);
+      await mod.reloadProviders(pi, { force: ["proxy"] });
+
+      expect(ids(registerProvider.mock.calls[0])).toEqual(["m1"]);
+    });
+
+    // test-plan #X4
+    it("a failing re-register is logged and does not throw or touch other providers", async () => {
+      const mod = await importFresh();
+      const { pi, registerProvider, unregisterProvider } = makeMockPi();
+      writeProvidersJson(tmpHome, { proxy, vllm });
+      await mod.reloadProviders(pi);
+      registerProvider.mockClear();
+      registerProvider.mockImplementation((name: string) => {
+        if (name === "proxy") throw new Error("boom");
+      });
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await expect(mod.reloadProviders(pi, { force: ["proxy"] })).resolves.toBeDefined();
+
+      expect(err).toHaveBeenCalledWith(expect.stringContaining("proxy"));
+      expect(unregisterProvider).not.toHaveBeenCalledWith("vllm");
+      expect(registerProvider).not.toHaveBeenCalledWith("vllm", expect.anything());
+      err.mockRestore();
+    });
+  });
 });
 
 /**

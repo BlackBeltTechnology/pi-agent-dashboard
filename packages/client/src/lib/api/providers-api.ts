@@ -28,6 +28,28 @@ export interface ProviderHealth {
   testedAt: number;
 }
 
+export type RefreshProviderModelsResult =
+  | { ok: true; health: ProviderHealth | null }
+  | { ok: false; error: string };
+
+/**
+ * POST /api/providers/:name/refresh — re-fetch one saved provider's model list
+ * (sessions re-register it; server re-probes and returns fresh health).
+ * Never throws. See change: add-provider-models-refresh.
+ */
+export async function refreshProviderModels(name: string): Promise<RefreshProviderModelsResult> {
+  try {
+    const { res, json: body } = await fetchJsonResponse<{ success?: boolean; health?: ProviderHealth | null; error?: string }>(
+      `${getApiBase()}/api/providers/${encodeURIComponent(name)}/refresh`,
+      { method: "POST" },
+    );
+    if (res.ok && body.success) return { ok: true, health: body.health ?? null };
+    return { ok: false, error: body.error ?? `HTTP ${res.status}` };
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /**
  * POST /api/providers/test — verify a provider's baseUrl + apiKey + api
  * combination against the upstream `/models`-style endpoint without saving.

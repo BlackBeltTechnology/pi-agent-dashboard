@@ -19,6 +19,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
     reason:
       "single-provider credential write; the whole-map set_providers row remains the MCP surface",
   },
+  // See change: add-provider-models-refresh.
+  { pattern: "/api/providers/:name/refresh", reason: "UI-only Settings → Refresh models trigger" },
   { pattern: "/api/browse/create-project", reason: "UI-only first-run convenience; agents use file_mkdir" },
   { pattern: "/api/electron/", reason: "Electron-only" },
   // Stages, activates and rolls back the dashboard runtime (downloads + runs

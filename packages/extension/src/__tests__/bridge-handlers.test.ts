@@ -232,6 +232,25 @@ describe("E5: inbound message dispatch — one row per accepted message type", (
     expect(sentTypes()).toEqual(["models_list", "providers_list"]);
   });
 
+  // See change: add-provider-models-refresh (test-plan #E14, #E15).
+  it("credentials_updated with refreshProviders forces those providers and pushes once", async () => {
+    const { reloadProviders } = await import("../provider-register.js");
+    vi.mocked(reloadProviders).mockClear();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await run({ type: "credentials_updated", refreshProviders: ["proxy"] });
+    expect(reloadProviders).toHaveBeenCalledWith(h.pi, { force: ["proxy"] });
+    expect(sentTypes().filter((t) => t === "models_list")).toHaveLength(1);
+  });
+
+  it("credentials_updated without refreshProviders forces nothing", async () => {
+    const { reloadProviders } = await import("../provider-register.js");
+    vi.mocked(reloadProviders).mockClear();
+    await run({ type: "credentials_updated" });
+    expect(reloadProviders).toHaveBeenCalledTimes(1);
+    const opts = vi.mocked(reloadProviders).mock.calls[0][1] as { force?: string[] } | undefined;
+    expect(opts?.force ?? []).toEqual([]);
+  });
+
   it("auto_name_state_restore adopts a restored state when no namer exists yet", async () => {
     await run({ type: "auto_name_state_restore", state: { lastSelfApplied: "Fix login" }, nameSource: "auto", nameSourceFor: "Fix login" });
     expect(h.inst.namerState).toBeDefined();

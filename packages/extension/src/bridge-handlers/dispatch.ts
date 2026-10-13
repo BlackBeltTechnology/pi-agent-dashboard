@@ -111,7 +111,14 @@ export async function handleInboundMessage(inst: BridgeInstance, data: unknown):
     try {
       // Hot-reload providers.json diff BEFORE refreshing the registry,
       // so any newly added providers are registered before getAvailable() runs.
-      const diff = await reloadProviders(pi).catch((err) => {
+      // Explicit Settings → Refresh models: force-re-register the named
+      // providers so their /models list is re-fetched. Older servers omit the
+      // field. See change: add-provider-models-refresh.
+      const force = Array.isArray(msg.refreshProviders)
+        ? msg.refreshProviders.filter((n: unknown): n is string => typeof n === "string")
+        : [];
+      if (force.length) console.log(`[dashboard] refreshing provider models: ${JSON.stringify(force)}`);
+      const diff = await (force.length ? reloadProviders(pi, { force }) : reloadProviders(pi)).catch((err) => {
         console.error("[dashboard] reloadProviders failed:", err);
         return { added: [], removed: [], changed: [] };
       });

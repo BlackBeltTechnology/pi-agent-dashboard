@@ -70,6 +70,8 @@ describe("classifyHttpRoad — roads", () => {
     expect(a("POST", "/api/file/write")).toBe("files.write files");
     expect(a("POST", "/api/config")).toBe("config.write config");
     expect(a("GET", "/api/providers")).toBe("providers.read providers");
+    // See change: add-provider-models-refresh (test-plan #E8).
+    expect(a("POST", "/api/providers/:name/refresh")).toBe("providers.write providers");
     expect(a("POST", "/api/packages/install")).toBe("packages.write packages");
     expect(a("POST", "/api/access/grants")).toBe("access.write access");
     expect(a("POST", "/api/tunnel-connect")).toBe("gateway.write gateway");
