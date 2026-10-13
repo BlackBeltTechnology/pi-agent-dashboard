@@ -28,8 +28,11 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // catches large regressions. Do not raise it again without a size win first.
 // Raised 910 → 920 KB (user-approved): develop CI measured 934,064 B (912 KB),
 // over the cap with no single offending change; red CI blocked every PR.
-// A size win is still owed before any further raise.
-const INDEX_GZ_CAP_BYTES = 920 * 1024;
+// Raised 920 → 924 KB by add-skill-atlas-screen (user-approved, shipped over the
+// hold): develop tip 939,393 B + the plugin's static client entry (2.3 KB of it
+// its zh-CN/hu catalog, imported eagerly by the generated registry). Owed: host
+// lazy per-locale plugin catalogs, which would win this back for every plugin.
+const INDEX_GZ_CAP_BYTES = 924 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");
