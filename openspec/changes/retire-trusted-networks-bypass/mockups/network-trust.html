@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>retire-trusted-networks-bypass — network trust UX</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="asbuilt.css" />
+<script src="icons.js"></script>
+<style>
+  /* Change-local recipes — tokens only (ui-contract.md). */
+  .radio-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  @media (max-width: 640px) { .radio-cards { grid-template-columns: 1fr; } }
+  .rc { display: flex; gap: 8px; align-items: flex-start; text-align: left; padding: 10px 12px; border-radius: 8px;
+        border: 1px solid var(--border-secondary); background: var(--bg-tertiary); min-height: 44px; }
+  .rc:hover { background: var(--bg-hover); }
+  .rc[aria-checked="true"] { border-color: var(--tint-blue-border); box-shadow: inset 0 0 0 1px var(--tint-blue-border); }
+  .rc .knob { width: 16px; height: 16px; border-radius: 999px; border: 2px solid var(--border-strong); margin-top: 2px; flex: none; display: grid; place-items: center; }
+  .rc[aria-checked="true"] .knob { border-color: var(--accent-primary); }
+  .rc[aria-checked="true"] .knob::after { content: ""; width: 8px; height: 8px; border-radius: 999px; background: var(--accent-primary); }
+  .rc .t { font-size: 14px; font-weight: 600; color: var(--text-primary); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .rc .d { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+  .rc:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .sub-h { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin: 0 0 6px; }
+  .netrow { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-radius: 6px; background: var(--bg-secondary); border: 1px solid var(--border-subtle); }
+  .netrow .v { font-family: "SF Mono", Menlo, monospace; font-size: 13px; flex: 1; }
+  .add-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .add-row .p-input { flex: 1; min-width: 160px; width: auto; font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
+  .app-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--bg-secondary); border-radius: 6px; font-size: 12px; color: var(--text-secondary); }
+  .deny-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--severity-warning-border);
+              background: var(--severity-warning-bg); color: var(--severity-warning-fg); font-size: 14px; }
+  .deny-bar .msg { flex: 1; min-width: 220px; display: flex; gap: 8px; align-items: flex-start; }
+  .deny-bar .msg svg.i { margin-top: 3px; }
+  .deny-bar .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .deny-bar.info { background: var(--severity-info-bg); color: var(--severity-info-fg); border-color: var(--severity-info-border); }
+  .deny-bar.error { background: var(--severity-error-bg); color: var(--severity-error-fg); border-color: var(--severity-error-border); }
+  .code { font-family: "SF Mono", Menlo, monospace; font-size: 18px; font-weight: 700; letter-spacing: 0.08em; }
+  .note { font-size: 11px; color: var(--text-secondary); font-style: italic; margin: 6px 0 0; }
+  .ab .amber-bar { background: oklch(76.9% 0.188 70.08 / 0.15); border-bottom: 1px solid oklch(76.9% 0.188 70.08 / 0.4); color: oklch(92.4% 0.12 95.746); padding: 8px 16px; font-size: 14px; display: flex; justify-content: space-between; gap: 8px; }
+  .ab .amber-btn { background: oklch(76.9% 0.188 70.08 / 0.2); color: oklch(96.2% 0.059 95.617); padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+  .ab .amber-warn { color: oklch(82.8% 0.189 84.429 / 0.8); font-size: 12px; }
+  .ab .blk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-radius: 4px; border: 1px solid #4a3c14; background: var(--amber-soft, #3a2e10); padding: 6px 10px; font-size: 12px; }
+  .ab .blk b { color: var(--amber, #e2b24a); font-family: monospace; }
+  .ab .tb { border-radius: 4px; border: 1px solid #23502f; background: var(--green-soft, #132d1c); color: #5dd67f; padding: 2px 8px; font-size: 11px; font-weight: 600; }
+  .ab .tbw { border-radius: 4px; border: 1px solid #4a3c14; color: var(--amber, #e2b24a); padding: 2px 8px; font-size: 11px; font-weight: 600; }
+  .ab .nr { display: flex; justify-content: space-between; background: var(--bg-secondary); border-radius: 4px; padding: 4px 8px; font-family: monospace; font-size: 14px; }
+</style>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Network trust → pairing — today vs proposed</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Side by side</button>
+    <button aria-pressed="false" data-v="asbuilt">Today</button>
+    <button aria-pressed="false" data-v="proposed">Proposed</button>
+  </div>
+</div>
+<main id="board"></main>
+
+<script>
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const sec = (title, body) => `<div><h3 class="sec-h">${title}</h3><div class="stack-3">${body}</div></div>`;
+
+/* ── data (real product nouns) ───────────────────────────── */
+const HOST = "home-imac";
+const LIST = ["192.168.16.0/24", "100.64.0.0/10"];
+const LEGACY_FILE = ["10.0.0.0/8"];
+const REFUSED = [{ ip: "192.168.16.31", count: 4, private: true }, { ip: "198.51.100.23", count: 1, private: false }];
+
+/* ═════════ A. Security ▸ Trusted Networks — TODAY (SettingsPanel.tsx TrustedNetworksSection) ═════════ */
+function abSecurity(o = {}) {
+  const list = o.empty ? [] : LIST;
+  return `<div class="ab stack">
+    <p class="text-xs tert">Devices matching these networks or hosts can access the dashboard without authentication. Accepts exact IP, wildcard, or CIDR.</p>
+    ${o.refused ? `<div class="blk"><span style="flex:1"><b>192.168.16.31</b> refused — not trusted (4×).</span><button class="tb">+ Trust host</button><button class="tbw">+ Trust 192.168.16.0/24</button></div>` : ""}
+    ${list.map((n) => `<div class="nr"><span>${n}</span><button class="red-400">✕</button></div>`).join("")}
+    <div class="row wrap"><button class="text-xs sec" style="background:var(--bg-tertiary);padding:4px 8px;border-radius:4px">+ Add Local Network</button>
+      <input class="in2 grow" placeholder="IP, wildcard, or CIDR" style="font-size:12px"><button class="text-xs sec" style="background:var(--bg-tertiary);padding:4px 8px;border-radius:4px;opacity:.4">Add</button></div>
+    ${o.empty ? "" : `<p class="text-xs tert">1 entry from <code>config.json</code> → <code>trustedNetworks</code> are also active. Edit them directly in that file.</p>`}
+    <p class="amber-warn">Anyone on a trusted network has full access to the dashboard without authentication. Only use on private networks you control.</p>
+    <p class="note">No mode control exists; there is no record of who depends on network trust.</p>
+  </div>`;
+}
+
+/* ═════════ A. Security ▸ Network access — PROPOSED ═════════ */
+function modeCards(selected) {
+  const card = (v, title, pill, desc) => `<button role="radio" aria-checked="${selected === v}" class="rc" data-testid="network-trust-mode-${v}">
+    <span class="knob" aria-hidden="true"></span>
+    <span><span class="t">${title} ${pill}</span><span class="d">${desc}</span></span></button>`;
+  return `<div><p class="p-label" id="mode-lbl">How devices on your network get in</p>
+    <div class="radio-cards" role="radiogroup" aria-labelledby="mode-lbl">
+      ${card("pair", "Pair each device", `<span class="pill success">${ic("ShieldCheck")}Recommended</span>`, "Every phone, laptop or browser is approved once with a code and can be revoked on its own.")}
+      ${card("legacy", "Trust whole networks", `<span class="pill neutral">Legacy</span>`, "Any device on the listed networks gets full access without signing in.")}
+    </div></div>`;
+}
+function netList(list, legacy) {
+  return `${list.length ? `<div class="stack" data-testid="trusted-networks-list">${list.map((n) => `<div class="netrow"><span class="v">${n}</span>
+      <button class="p-btn sm icon ghost" aria-label="Remove ${n}" data-testid="trusted-networks-remove-${n}">${ic("Close")}</button></div>`).join("")}</div>` : ""}
+    <div class="add-row"><button class="p-btn sm secondary" data-testid="trusted-networks-add-local">${ic("Plus")}Add local network</button>
+      <label class="sr-only" for="m-in">Network to add</label><input id="m-in" class="p-input" placeholder="IP, wildcard, or CIDR" data-testid="trusted-networks-manual-input">
+      <button class="p-btn sm secondary" disabled data-testid="trusted-networks-manual-add">Add</button></div>
+    ${legacy ? `<p class="p-help" data-testid="trusted-networks-legacy-hint">1 more entry (<code>10.0.0.0/8</code>) comes from <code>config.json</code> → <code>trustedNetworks</code>. Edit it in that file.</p>` : ""}`;
+}
+function prSecurity(o = {}) {
+  const mode = o.selected;
+  const pair = mode === "pair";
+  const list = o.empty ? [] : LIST;
+  const consequence = o.unsaved && pair
+    ? `<div class="callout warning" role="status" data-testid="network-trust-mode-consequence">${ic("AlertOutline")}<div class="body"><strong>3 device addresses used network trust in the last 7 days or since the last restart.</strong> After you save, they will be refused until each one pairs (Request access on the device, then you approve with a code). You can switch back at any time. A paired browser opens the live dashboard only with the Operate tier.
+      <p style="margin:6px 0 0">Other dashboards that switch to this one in-page lose images and previews; open this dashboard directly instead.</p>
+      <p style="margin:6px 0 0">Devices can't request access while LAN requests are off on this dashboard.</p>
+      <label style="display:flex;gap:8px;align-items:center;min-height:32px;margin-top:2px"><input type="checkbox" data-testid="network-trust-accept-lan"> Also accept access requests from devices on this network</label></div></div>`
+    : "";
+  const migration = !pair && o.networkOnly
+    ? `<div class="callout warning" role="status" data-testid="network-trust-migration">${ic("AlertOutline")}<div class="body"><strong>3 device addresses reached this dashboard by network trust alone</strong> in the last 7 days or since the last restart. Pair them, then choose <em>Pair each device</em>.</div></div>`
+    : "";
+  const refusedPair = pair && o.refused ? `<div class="stack">${REFUSED.map((r) => r.private
+      ? `<div class="callout info" data-testid="block-event-${r.ip}">${ic("InformationOutline")}<div class="body"><strong class="mono">${r.ip}</strong> was refused ${r.count}×. On that device, open this dashboard and choose <strong>Request access</strong>. You'll approve it here with a code.</div></div>`
+      : `<div class="callout info" data-testid="block-event-${r.ip}">${ic("InformationOutline")}<div class="body"><strong class="mono">${r.ip}</strong> was refused. It is outside the private ranges, so it cannot request access yet.
+          <div><button class="p-btn sm secondary" data-testid="block-event-allow-requests-198.51.100.23">${ic("Plus")}Allow requests from 198.51.100.23</button></div>
+          <div class="p-meta" style="color:inherit">This only lets devices there ask. You still approve each one.</div></div></div>`).join("")}</div>` : "";
+  const refusedLegacy = !pair && o.refused ? `<div class="callout warning" data-testid="block-event-192.168.16.31">${ic("AlertOutline")}<div class="body"><strong class="mono">192.168.16.31</strong> was refused 4× — not trusted.
+      <div class="row" style="display:flex;gap:6px;flex-wrap:wrap"><button class="p-btn sm secondary">+ Trust this host</button><button class="p-btn sm secondary">+ Trust 192.168.16.0/24 (whole range)</button></div>
+      <div class="p-meta" style="color:inherit">Trusting skips sign-in for every device it covers. Pairing the device is safer.</div></div></div>` : "";
+  return `<div class="stack-3">
+    ${modeCards(mode)}
+    ${consequence}${migration}
+    <div>
+      <p class="sub-h">${pair ? "Networks that may request access" : "Trusted networks — admitted without sign-in"}</p>
+      <p class="p-help" style="margin:0 0 8px">${pair
+        ? "Devices on private networks (192.168.x.x, 10.x.x.x, 172.16–31.x.x, Tailscale 100.64.0.0/10) can always request access. Add other ranges here. Listing a network never grants access by itself."
+        : "Accepts an exact IP, a wildcard (10.0.0.*) or a CIDR (192.168.1.0/24)."}</p>
+      <div class="stack-3">${refusedPair}${refusedLegacy}${netList(list, !o.empty)}</div>
+    </div>
+    ${pair || migration ? "" : `<div class="callout warning" data-testid="trusted-networks-warning">${ic("AlertOutline")}<div class="body"><strong>Anyone on a trusted network has full access without signing in.</strong> Use only on private networks you control.</div></div>`}
+    ${o.unsaved ? `<div class="app-bar" style="justify-content:flex-end"><span>Unsaved changes</span><button class="p-btn sm ghost">Discard</button><button class="p-btn primary">Save</button></div>` : ""}
+  </div>`;
+}
+
+/* ═════════ B. Settings ▸ Access ═════════ */
+function abAccess() {
+  return `<div class="ab stack">
+    <h3 class="text-xs upper tert" style="font-weight:700">Trusted networks — config.trustedNetworks</h3>
+    <div class="box2 row"><span class="grow" style="font-family:monospace">10.0.0.0/8</span><button class="text-xs sec">Revoke</button></div>
+    <h3 class="text-xs upper tert" style="font-weight:700">Trusted hosts — auth.bypassHosts</h3>
+    ${LIST.map((n) => `<div class="box2 row"><span class="grow" style="font-family:monospace">${n}</span><button class="text-xs sec">Revoke</button></div>`).join("")}
+  </div>`;
+}
+function prAccess(o = {}) {
+  const pair = o.mode === "pair";
+  const banner = o.mode === "legacy-derived"
+    ? `<div class="callout warning" role="status" data-testid="access-network-trust-banner">${ic("AlertOutline")}<div class="body"><strong>3 device addresses reach this dashboard by network trust only.</strong> Anyone on those networks can drive sessions and read files without signing in. Pair each device, then switch to pairing.
+        <div><a class="p-link" href="#">Open network access settings ${ic("ChevronRight")}</a></div></div></div>`
+    : o.mode === "legacy-explicit"
+      ? `<div class="callout info" role="status" data-testid="access-network-trust-banner">${ic("InformationOutline")}<div class="body"><strong>Network trust is on by your choice</strong> (set on the Security page). 3 devices used it in the last 7 days or since the last restart.
+          <div><a class="p-link" href="#">Review network access ${ic("ChevronRight")}</a></div></div></div>`
+      : "";
+  const head = (t) => `<h3 class="sec-h" style="font-size:12px;color:var(--text-secondary);border:0;margin:0 0 4px;padding:0">${t}</h3>`;
+  const row = (n) => `<div class="p-row"><div class="main"><span class="mono">${n}</span></div><button class="p-btn sm secondary" aria-label="Revoke ${n}">Revoke</button></div>`;
+  return `<div class="stack-3">${banner}
+    <div>${head(pair ? "May request access — config.trustedNetworks" : "Trusted networks — config.trustedNetworks")}<div class="stack">${row("10.0.0.0/8")}</div></div>
+    <div>${head(pair ? "May request access — auth.bypassHosts" : "Trusted hosts — auth.bypassHosts")}<div class="stack">${LIST.map(row).join("")}</div></div>
+  </div>`;
+}
+
+/* ═════════ C. Network-not-allowed banner on the DENIED device ═════════ */
+function abDeny() {
+  return `<div class="ab"><div class="amber-bar"><span><strong>Network not allowed</strong> — Add this network to trustedNetworks (Settings → Servers) or sign in.</span><button class="amber-btn">Settings → Servers</button></div>
+    <p class="note">The suggested remedy needs the dashboard this device cannot reach.</p></div>`;
+}
+function prDeny(o = {}) {
+  if (o.pending) return `<div class="deny-bar info" role="status" data-testid="network-denied-request-pending">
+      <div class="msg">${ic("Loading", "spin")}<div><strong>Waiting for approval on ${HOST}.</strong> Type <span class="code">4821 7730</span> there to let this device in. Expires in 4:32.</div></div>
+      <div class="acts"><button class="p-btn sm ghost" style="color:inherit">Cancel</button></div></div>
+      <p class="note">Hand-off point: the code + waiting screen is owned by add-lan-knock-pairing (PairLanding). On approval the page reloads paired.</p>`;
+  if (o.refused) return `<div class="deny-bar error" role="alert" data-testid="network-denied-request-refused">
+      <div class="msg">${ic("AlertCircleOutline")}<div><strong>${HOST} is not accepting access requests from this network.</strong> Ask its operator to turn on <em>Accept requests from this network</em> (Settings ▸ Gateway), or sign in.</div></div>
+      <div class="acts"><button class="p-btn sm secondary">Try again</button><button class="p-btn sm ghost" style="color:inherit">Sign in</button></div></div>`;
+  return `<div class="deny-bar" role="alert" data-testid="network-denied-banner">
+      <div class="msg">${ic("AlertOutline")}<div><strong>This device isn't paired with ${HOST}.</strong> Request access, then type the code shown here on ${HOST}.</div></div>
+      <div class="acts"><button class="p-btn primary" data-testid="network-denied-request-access">Request access</button>${o.signIn ? `<button class="p-btn sm secondary">Sign in</button>` : ""}<button class="p-btn sm ghost" style="color:inherit">Settings → Servers</button></div></div>`;
+}
+const deviceFrame = (inner) => `<div class="app-bar" aria-hidden="true">${ic("ServerNetwork")} ${HOST}.local:8000 — Roberts-iPad</div><div style="margin-top:6px">${inner}</div>`;
+
+/* ── board ───────────────────────────────────────────────── */
+const BOARD = [
+  { title: "A · Settings ▸ Security ▸ Network access", verdict: "redesign — mode radio + mode-specific copy; the list stays, its meaning changes", sec: "Network access", states: [
+    ["A1 legacy (decided at upgrade)", "existing install with a LAN list; 3 network-only devices", abSecurity({ refused: true }), prSecurity({ selected: "legacy", networkOnly: true, refused: true })],
+    ["A2 switching to pair (unsaved)", "consequence shown before Save; Nielsen #5", abSecurity(), prSecurity({ selected: "pair", unsaved: true })],
+    ["A3 pair + refused peers", "no '+ Trust'; tells the operator what the device should do", abSecurity({ refused: true }), prSecurity({ selected: "pair", refused: true })],
+    ["A4 pair, empty list (fresh install)", "boot decides pair for new installs", abSecurity({ empty: true }), prSecurity({ selected: "pair", empty: true })],
+  ]},
+  { title: "B · Settings ▸ Access", verdict: "additive banner + mode-specific store headings; revoke-only contract kept (banner links out, creates nothing)", sec: "Access", states: [
+    ["B1 legacy, origin upgrade", "migration banner (warning)", abAccess(), prAccess({ mode: "legacy-derived" })],
+    ["B2 legacy, origin operator", "operator opted in — info, not warning", abAccess(), prAccess({ mode: "legacy-explicit" })],
+    ["B3 pair", "no banner; list described as may-request-access", abAccess(), prAccess({ mode: "pair" })],
+  ]},
+  { title: "C · Network not allowed — on the denied device", verdict: "redesign — one primary action that works from the denied device; tokens replace amber palette classes", states: [
+    ["C1 pair: request access", "Request access primary; Sign in only when OAuth is configured", deviceFrame(abDeny()), deviceFrame(prDeny({ signIn: true }))],
+    ["C2 knock pending", "hand-off to add-lan-knock-pairing", deviceFrame(abDeny()), deviceFrame(prDeny({ pending: true }))],
+    ["C3 knock refused", "server refusal code → plain reason + who can fix it", deviceFrame(abDeny()), deviceFrame(prDeny({ refused: true }))],
+  ]},
+];
+
+document.getElementById("board").innerHTML = BOARD.map((s) => `<section class="surface"><h2>${s.title}</h2><p class="verdict">Verdict: ${s.verdict}</p>
+  ${s.states.map(([id, finds, ab, pr]) => `<article class="state"><header><code>${id}</code><span class="finds">${finds}</span></header>
+    <div class="pair"><div class="col asbuilt"><p class="tag">Today</p><div class="frame">${s.sec ? sec(s.sec === "Network access" ? "Trusted Networks" : s.sec, ab) : ab}</div></div>
+    <div class="col proposed"><p class="tag">Proposed</p><div class="frame">${s.sec ? sec(s.sec, pr) : pr}</div></div></div></article>`).join("")}
+</section>`).join("");
+
+/* radio cards: live keyboard behaviour (APG radio group) */
+document.querySelectorAll('[role="radiogroup"]').forEach((g) => {
+  const rs = [...g.querySelectorAll('[role="radio"]')];
+  const sel = (r) => { rs.forEach((x) => { x.setAttribute("aria-checked", String(x === r)); x.tabIndex = x === r ? 0 : -1; }); r.focus(); };
+  rs.forEach((r) => { r.tabIndex = r.getAttribute("aria-checked") === "true" ? 0 : -1; r.addEventListener("click", () => sel(r)); });
+  g.addEventListener("keydown", (e) => {
+    const i = rs.indexOf(document.activeElement);
+    if (["ArrowDown", "ArrowRight"].includes(e.key)) { e.preventDefault(); sel(rs[(i + 1) % rs.length]); }
+    if (["ArrowUp", "ArrowLeft"].includes(e.key)) { e.preventDefault(); sel(rs[(i - 1 + rs.length) % rs.length]); }
+  });
+});
+
+/* toolbar */
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+  }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`);
+  if (group === "view") document.body.dataset.view = v;
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply(seg.dataset.group, b.dataset.v);
+}));
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>
