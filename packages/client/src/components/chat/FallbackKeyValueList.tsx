@@ -12,13 +12,13 @@ export function FallbackKeyValueList({ view }: { view: FallbackObjectView }) {
       <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 font-mono">
         {view.entries.map(([key, display]) => (
           <div key={key} className="contents">
-            <dt className="text-[var(--text-tertiary)] break-all">{key}</dt>
-            <dd className="text-[var(--text-secondary)] whitespace-pre-wrap break-all">{display}</dd>
+            <dt className="text-[var(--text-secondary)] break-all">{key}</dt>
+            <dd className="text-[var(--text-primary)] whitespace-pre-wrap break-all">{display}</dd>
           </div>
         ))}
       </dl>
       {view.omitted > 0 ? (
-        <div className="mt-1 text-[var(--text-tertiary)]">
+        <div className="mt-1 text-[var(--text-secondary)]">
           {t(
             view.omitted === 1 ? "customEntry.moreKeysOne" : "customEntry.moreKeysOther",
             { count: view.omitted },

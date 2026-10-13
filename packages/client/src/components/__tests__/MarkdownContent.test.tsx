@@ -337,7 +337,7 @@ describe("MarkdownContent", () => {
     expect(highlighted).toBeNull();
     // Should have mermaid-related content (loading state or rendered)
     const text = container.textContent || "";
-    expect(text).toMatch(/loading diagram|graph TD/i);
+    expect(text).toMatch(/loading diagram|rendering diagram|graph TD/i);
   });
 
   // ASCII table fixer disabled pending refinement

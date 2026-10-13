@@ -166,7 +166,7 @@ describe("AsciiDoc diagram hydration (test-plan #E14, #F5)", () => {
     // Should render MermaidBlock error / code fallback
     await waitFor(() => {
       expect(screen.getAllByText((content) => content.includes("graph INVALID syntax")).length).toBeGreaterThan(0);
-      expect(screen.getByText((content) => content.includes("Failed to render Mermaid diagram"))).toBeTruthy();
+      expect(screen.getByText((content) => content.includes("This diagram could not be rendered."))).toBeTruthy();
     });
   });
 });

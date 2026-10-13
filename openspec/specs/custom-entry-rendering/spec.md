@@ -45,7 +45,7 @@ Custom messages sent with `display: false` (LLM-context-only by contract) SHALL 
 ### Requirement: Custom rows SHALL render as a bounded generic fallback
 The chat SHALL resolve a `role: "custom"` row's renderer as a chain: a matching
 `custom-entry-renderer` plugin claim first, then the generic fallback card. The generic
-fallback SHALL show the `customType` as a label and the payload as PLAIN TEXT (never
+fallback SHALL show the `customType` as a label (monospace, `--text-primary`, followed by the translated meta text "extension entry" in `--text-secondary`, with an `aria-hidden` header icon in `--text-secondary` and no Tailwind palette class, hex or `rgba(` literal) and the payload as PLAIN TEXT (never
 markdown-interpreted, never linkified), with the display body truncated to the same last-200-lines form the
 event store already enforces. When the display body is untruncated and parses as a JSON object,
 that plain text SHALL be laid out as a bounded key/value view (see the structured-view
@@ -162,6 +162,10 @@ applies to fallback rows.
 - **THEN** the card SHALL render the body as plain text
 - **AND** surrounding rows SHALL render normally
 
+#### Scenario: Type label is neutral
+- **WHEN** an unclaimed `my-ext:state` entry renders via the fallback
+- **THEN** "my-ext:state" is shown in monospace `--text-primary` with "extension entry" beside it, and the icon is `aria-hidden`
+
 ### Requirement: flow-event entries keep their dedicated rendering
 `customType: "flow-event"` entries SHALL continue down their existing dedicated path (seq-sorted flow-card reduction on replay, flow reducer live) and SHALL never be claimed by the generic custom-entry fallback, and SHALL never be gated by a custom event group toggle.
 
@@ -270,3 +274,18 @@ Expansion SHALL therefore never show less than the generic fallback already show
 - **WHEN** the user expands it
 - **THEN** the stored truncated body SHALL render as plain text
 - **AND** no markdown rendering or linkification SHALL be applied to it
+
+### Requirement: Generic fallback aligns with the tool timeline and passes the probes
+The generic custom-entry fallback card's left edge SHALL align with the left edge of the tool-call rows around it, both standalone and when absorbed into a tool burst; its header time SHALL be at least 12 px; and it SHALL pass the contrast, size and focus probes in `{base,dark}`, `{base,light}` and `{nord,dark}` for an object body, an object body over the 50-key bound (its "N more keys" line in `--text-secondary`), and a plain-text body.
+
+#### Scenario: Card aligns with the tool timeline
+- **WHEN** a fallback card renders between two tool-call rows, at 1440 px and at 375 px
+- **THEN** the card's left edge equals the tool-call rows' left edge
+
+#### Scenario: Absorbed card keeps the burst inset
+- **WHEN** a fallback card is absorbed into a tool burst
+- **THEN** its left edge equals the left edge of the other rows inside that burst
+
+#### Scenario: Bounded key list passes the probes
+- **WHEN** an object body with more than 50 keys renders
+- **THEN** the "N more keys" line uses `--text-secondary` and the card passes the probes in every default theme
