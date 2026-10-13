@@ -2,6 +2,21 @@
 // Hungarian catalog covering the full post-migration key set. Machine-seeded;
 // grouped by structured key for human review.
 export const huCatalog: Record<string, string> = {
+  "acp.agent": "Ügynök",
+  "acp.chooseAgent": "Ügynök választása az új munkamenethez",
+  "acp.metaPi": "Alapértelmezett · folyamatok, alügynökök, bővítmények",
+  "acp.metaAcp": "ACP-ügynök",
+  "acp.driverChip": "ACP · {agent}",
+  "acp.newAgentSession": "Új {agent} munkamenet",
+  "acp.newAgentSessionArrow": "Új {agent} munkamenet →",
+  "acp.createAgentSession": "Létrehozás + {agent} munkamenet →",
+  "acp.endedTitle": "Ez a(z) {agent} munkamenet véget ért",
+  "acp.endedBody": "Az ACP-munkamenetek nem folytathatók. Indítson új {agent} munkamenetet ebben a mappában.",
+  "acp.modelByAgent": "A modellt az ügynök választja",
+  "acp.skillNeedsPi": "A képesség-műveletekhez pi szükséges",
+  "acp.goalHiddenOne": "1 ACP-munkamenet rejtve — a célokhoz pi kell.",
+  "acp.goalHiddenMany": "{count} ACP-munkamenet rejtve — a célokhoz pi kell.",
+  "acp.unsupported": "ACP-munkamenetekhez nem támogatott",
   "piRuntime.outsideBundle": "Ez a telepítés az alkalmazáscsomagon kívül van. A csomagolt pi a tesztelt; másik választása megengedett, de nem támogatott.",
 
   "chat.historyGap.announced": "{count} korábbi üzenet betöltve",

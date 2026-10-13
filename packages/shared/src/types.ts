@@ -29,6 +29,9 @@ export interface AutoNamerPersistedState {
 }
 
 /** Source environment where a pi session is running */
+/** Agent driver behind a session. Absent ≡ pi. See change: add-acp-session-driver. */
+export type SessionDriver = "pi" | "acp";
+
 export type SessionSource =
   | "tui"
   | "zed"
@@ -177,6 +180,10 @@ export interface DashboardSession {
    */
   autoNamerState?: AutoNamerPersistedState;
   source: SessionSource;
+  /** Agent driver. Absent ≡ pi. Set from `session_register.driver`; persisted. See change: add-acp-session-driver (D12). */
+  driver?: SessionDriver;
+  /** Configured ACP agent id when `driver === "acp"`. Persisted. */
+  acpAgentId?: string;
   /**
    * Disposability marker. Absent ⇒ `"durable"`. Only `"ephemeral"` sessions
    * are governed by the idle reaper and active-session caps. Read via
@@ -773,7 +780,7 @@ export interface FlowInfo {
 export interface CommandInfo {
   name: string;
   description?: string;
-  source: "extension" | "prompt" | "skill" | "builtin";
+  source: "extension" | "prompt" | "skill" | "builtin" | "acp";
   location?: string;
   path?: string;
 }

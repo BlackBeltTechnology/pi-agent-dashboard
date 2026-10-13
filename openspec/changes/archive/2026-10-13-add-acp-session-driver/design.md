@@ -180,5 +180,34 @@ Additive. Deploy = server restart (jiti; client rebuild for picker). Rollback = 
 
 ## Open Questions
 
-- querymt v0.3: emitted update kinds, config options, thought stream? (task 0.1)
+- querymt v0.3: emitted update kinds, config options, thought stream? (task 0.1) — **still open**: `qmtcode` was not available when group 0 ran, so fixtures under `packages/shared/src/acp/__tests__/fixtures/` are SYNTHETIC (hand-authored from `@agentclientprotocol/sdk` 1.8 schema, flagged `_synthetic`). Replace with redacted real traffic when a binary is available; the recorded update kinds still need to be written here.
 - Keep event logs of ended ACP sessions for history browsing? Proposed: yes, until hidden/deleted.
+
+## Implementation notes (groups 0–1, doubt-review of exported shared types)
+
+- **Wire shapes follow the SDK `experimental/v2` types, not the spec shorthand**: `plan_update` carries `plan:{type,planId,entries}` (flattened in the model to `{planId,type,entries}`); `config_option_update` carries the FULL `configOptions[]` set keyed by `configId` (model flattens select groups; the adapter dedupes by value so unchanged options emit nothing); `terminal_output_chunk.data` / `terminal_update.output.data` are base64 bytes (decoded per chunk — a multi-byte char split across chunks decodes lossily); the tool name field is `name`, the tool category is `kind` (model: `toolKind`, because `kind` is the union discriminant). The spec text stays valid (it names the variants, not field layout).
+- **Echo suppression contract for group 3**: the adapter drops a user echo only if `suppressUserMessage(id)` was called BEFORE that update is pushed. For v1 the id is the normaliser's synthetic id, so `session-state.ts` must inspect each normalised `user_message_chunk` and mark its `messageId` before `push` while a dashboard prompt is active; for v2 hold-and-drop happens before `push` too (adapter never sees held echoes).
+- **Group 3 surface** consumed from shared: `createV1Normalizer`, `createDashboardEventAdapter` (`push` / `suppressUserMessage` / `flush` / `getState` — commands + session title + config options for `commands_list` / `session_name_update` / `models_list` — / `counters` for the 1/min `bridge_diagnostic`), `userMessageEvents` (dashboard-originated prompt turns), `mapStopReason`.
+- **Implicit turn start**: a tool call or `requires_action` with no preceding `state_update running` emits `agent_start` (agent-initiated activity still gets a bracketed turn); chunks alone do not.
+- **Tool naming**: `toolName = name ?? title ?? toolKind ?? "tool"` (ACP has no pi tool vocabulary); renderers keyed on pi tool names fall back to the generic card. Late updates for a finished tool never re-emit `tool_execution_start`; tools still running at idle are ended (`isError` only when cancelled).
+- No additive wire fields land in groups 0–1 (those are group 2).
+
+## Implementation notes (groups 2–3)
+
+- **Own JSON-RPC peer, SDK kept for types.** `acp-connection.ts` is a thin purpose-built NDJSON peer (bounded line splitter, non-JSON tolerance, per-request timeout, `-32601` for unimplemented agent requests). The SDK's `ndJsonStream` has none of the caps/tolerance/timeouts D6/D9 require. `@agentclientprotocol/sdk` stays a dependency (confirmed shippable) but is not imported at runtime yet.
+- **Meta persistence key.** The server persists `.meta.json` keyed on `sessionFile`, so both hosts register `sessionFile = ~/.pi/dashboard/acp/<uuid>.jsonl` (never written as a transcript; host B's event log is `<uuid>.events.jsonl`). Ended ACP sessions are restored at boot by `acp-restore.ts` as `ended` + `driver:"acp"`; they have NO history after a server restart (the open question "keep event logs for history browsing" stays open) and are never recovery candidates.
+- **Host A start is deferred one macrotask.** The core registers synchronously from `start()`, but spawn callers arm the register watchdog after `spawnPiSession` returns — registering first would leave the watchdog armed forever. The agent is launched immediately (its pid + `ChildProcess` form the ordinary `SpawnResult`), with a buffering handle for an early spawn `error`/`exit`. Host A never reports the server's own pid to the gateway (it feeds the force-kill path).
+- **Heartbeat + counters live in the core**, so host A needs no gateway client. Events during a disconnect (host B) are logged but not sent; `reconnected()` replays the log bounded to a size snapshot (no duplicates) and holds live events until `replay_complete`.
+- **Agent list projection** is `GET /api/acp/agents` (tier `control`, `{id,name}` only; MCP-denylisted), not `/api/config` (tier `operate`, carries command/args).
+- **Memory bound.** The shared adapter drops a finished turn's accumulated messages / tool calls / terminal output (everything was emitted); config options, commands, title and plans stay.
+- **Security pass (3.12, inline).** Env allowlist + forbidden-key filter; argv-only spawn; paths only from the minted UUID (asserted); hostile ACP session id stays in memory; `Object.hasOwn` on every agent-keyed dispatch table; stdin/stdout stream `error` handled (an EPIPE would otherwise crash the server for host A); redaction + `***` preservation by agent id + key; refusal-before-side-effect guards. Configuring `acpAgents` is arbitrary command execution by design — gated by the `operate` tier like the other config writes; documented in `docs/acp-sessions.md` (group 5).
+- **Not done in this phase:** Playwright specs (#F1–#F6, #F8–#F15) and QA smoke (#P3, #X7), manual #F7, group 5 docs, group 8, the S4 startup-failure callout, the 1:1 mockup visual pass, and an end-to-end run against a REAL ACP agent (fixtures are synthetic).
+
+## Implementation notes (harness findings)
+
+First real run against the docker harness (fake ACP agents seeded in `docker/test-entrypoint.sh`) found four defects the L1 suite could not:
+- **`replay_complete` on a fresh register.** The server holds every event of a session for 5 s after `session_register` until `replay_complete`. Only the reattach path sent it, so the first turn of a new session was invisible. `start()` now sends it right after the register.
+- **Idle `steer` was queued.** The browser's default delivery is `steer` (also when idle; pi runs it at once). The adapter queued every steer. Now only a not-ready or mid-turn prompt queues.
+- **Host B could not import the credential plan.** The server imported `@blackbelt-technology/pi-dashboard-extension/src/local-token-header.js`; the native TS loader retries `.js`→`.ts` for relative specifiers only, so the keeper-run bridge died at start. Loaded by file URL from the package root instead.
+- **Background `request_roles` produced a chat error** on ACP sessions (the client sends it through the first live session). Refused silently now, and the client prefers a pi session for that refresh.
+

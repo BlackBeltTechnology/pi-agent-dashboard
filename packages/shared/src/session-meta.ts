@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
 import type { BootRecord } from "./boot-state.js";
-import type { AutoNamerPersistedState, ClosedReason, NotifyLogEntry } from "./types.js";
+import type { AutoNamerPersistedState, ClosedReason, NotifyLogEntry, SessionDriver } from "./types.js";
 
 /**
  * Session metadata stored as a sidecar `.meta.json` file
@@ -71,6 +71,11 @@ export interface SessionMeta {
    * See change: serve-retained-remote-transcripts.
    */
   originDeviceId?: string;
+
+  /** Agent driver (`"acp"`); absent ≡ pi. See change: add-acp-session-driver (D12). */
+  driver?: SessionDriver;
+  /** Configured ACP agent id when `driver === "acp"`. */
+  acpAgentId?: string;
 
   // Cached identity & state (from .jsonl header / bridge)
   cwd?: string;

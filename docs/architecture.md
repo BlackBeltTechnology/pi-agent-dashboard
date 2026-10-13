@@ -130,6 +130,26 @@ TypeScript type definitions shared across all components:
 - `browser-protocol.ts` - Server↔Browser WebSocket messages (includes PromptBus messages: `prompt_request`, `prompt_dismiss`, `prompt_cancel`)
 - `types.ts` - Data models (Session, Workspace, Event, etc.)
 
+### ACP agent sessions (change: add-acp-session-driver)
+
+Non-pi agents via Agent Client Protocol. Code: `packages/server/src/acp-bridge/`, shared model `packages/shared/src/acp/`.
+
+- Core: `acp-session-adapter.ts`. Bridge msgs (`ExtensionToServerMessage` / `ServerToExtensionMessage`) ⇄ ACP JSON-RPC NDJSON stdio. No sockets.
+- Host A (`durable: false`): in-process. `LocalBridgeSocket` → `PiGateway.attachLocalConnection`. Ends on server stop.
+- Host B (`durable: true`): `bin/acp-bridge.mjs` under rpc-keeper. WebSocket to gateway. Survives restart; replays `~/.pi/dashboard/acp/<id>.events.jsonl`.
+- Pi-only ops refused: `acp-guard.ts` → `unsupported_for_acp`. Config: [docs/acp-sessions.md](acp-sessions.md).
+
+```mermaid
+flowchart LR
+  GW["pi-gateway"] <-->|"WebSocket (durable: true)"| AB["acp-bridge (rpc-keeper)"]
+  GW <-->|"LocalBridgeSocket (durable: false)"| HA["in-process host"]
+  AB --- CORE
+  HA --- CORE
+  CORE["AcpSessionAdapter"] <-->|"JSON-RPC NDJSON stdio, argv, allowlisted env"| AG["ACP agent"]
+```
+
+See change: add-acp-session-driver.
+
 ## Data Flow
 
 ### Event Flow (pi → browser)

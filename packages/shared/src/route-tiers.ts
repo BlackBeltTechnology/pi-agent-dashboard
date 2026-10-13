@@ -43,6 +43,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/access/prompts", tier: "observe" },
   { method: "GET", path: "/api/access/store-stats", tier: "observe" },
   { method: "GET", path: "/api/access/yolo/roots", tier: "observe" },
+  // add-acp-session-driver: the spawn picker's `{id, name}` projection. `control`
+  // = the tier that may spawn; never exposes command/args/env.
+  { method: "GET", path: "/api/acp/agents", tier: "control" },
   { method: "POST", path: "/api/access/grants", tier: "operate" },
   { method: "POST", path: "/api/access/prompts/:promptId", tier: "operate" },
   { method: "POST", path: "/api/access/yolo", tier: "operate" },

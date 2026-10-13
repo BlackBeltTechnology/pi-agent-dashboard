@@ -18,12 +18,14 @@
  * Add Folders dialog, not a toll gate.
  * See change: add-directory-home-page, redesign-folder-workspace-add-flow.
  */
+
 import type { CommandInfo, DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiCog, mdiConsole, mdiFileEdit, mdiFolderOpen } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
+import { AgentSelect } from "../AgentSelect.js";
 import { CommandInput } from "../chat/CommandInput.js";
 
 export interface DirectoryHomeViewProps {
@@ -40,7 +42,7 @@ export interface DirectoryHomeViewProps {
   onSpawnSession: (
     cwd: string,
     attachProposal?: string,
-    opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string },
+    opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string; agent?: string },
   ) => void;
   /** Select an existing session (navigates to /session/:id). */
   onSelectSession: (id: string) => void;
@@ -81,6 +83,9 @@ export function DirectoryHomeView({
   // navigates away (design D6 / risk mitigation). Sticky by intent: on success
   // the page unmounts as it navigates to the new session.
   const [spawnInFlight, setSpawnInFlight] = useState(false);
+  // Agent for the first prompt (ACP agents configured); undefined = pi.
+  // See change: add-acp-session-driver (D16).
+  const [agent, setAgent] = useState<string | undefined>(undefined);
 
   const onSend = (text: string) => {
     const trimmed = text.trim();
@@ -89,7 +94,8 @@ export function DirectoryHomeView({
     // 3-positional: (cwd, attachProposal=undefined, { initialPrompt }). Passing
     // the options object as the 2nd arg would serialize `[object Object]` as
     // the attach proposal (design D2).
-    onSpawnSession(cwd, undefined, { initialPrompt: trimmed });
+    // The remembered agent (AgentSelect below) rides along; absent → pi.
+    onSpawnSession(cwd, undefined, { initialPrompt: trimmed, ...(agent ? { agent } : {}) });
   };
 
   return (
@@ -106,6 +112,7 @@ export function DirectoryHomeView({
         </div>
 
         <div data-testid="directory-home-prompt" className="w-full max-w-2xl">
+          <AgentSelect cwd={cwd} onChange={setAgent} className="mb-2 flex items-center gap-2 text-xs" />
           <CommandInput
             commands={commands}
             onSend={onSend}

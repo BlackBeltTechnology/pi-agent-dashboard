@@ -124,6 +124,12 @@ export interface AutomationConfig {
    * See change: add-automation-concurrent-spawn.
    */
   maxConcurrentSpawns?: number;
+  /**
+   * Configured ACP agent id (`acpAgents[].id`). When set the run starts that
+   * agent instead of pi: only the `core.prompt` action is allowed and `model`
+   * is ignored (the agent owns its model). See change: add-acp-session-driver (D14).
+   */
+  agent?: string;
   model: string;
   mode: RunMode;
   sandbox: Sandbox;
