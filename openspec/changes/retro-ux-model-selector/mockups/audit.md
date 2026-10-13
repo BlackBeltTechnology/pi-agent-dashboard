@@ -38,3 +38,19 @@ Method: `retro-ux-identity-connectivity` design D4. Board: `model-selector.html`
 8. Baseline: palette classes, undefined `--accent-warning` hex, Blackhole hex fallbacks, 10 px / `--text-muted` information text → tokens (R14, R16).
 
 Fold note: the provider-filter default stays "All Providers" (as built) to avoid copy churn; the board was aligned.
+
+## After — real render
+
+Captured with `RETRO_UX_CAPTURE=1` into `mockups/after/<surface>/` (117 PNGs: `picker` 6 states, `hosts` 5 states, `roles` 2 states, each × 3 themes × 3 widths). The probes (`retro-ux-model-selector.spec.ts` G1–G3) report 0 contrast, size and focus failures in every cell, matching the board's proposed column (0). G4 (target sizes ≥ 44 px at 375, ≥ 32 px at 1440), G5 (the grammar trigger and the Roles-tab row render the same `RoleRef` text) and G6 (composer picker by keyboard) pass in the harness.
+
+Reachability notes (the board's 17 states vs the L3 fixtures):
+
+| Board state | L3 | Why |
+|---|---|---|
+| picker `refreshing`, `errors` | L1 only (E10, E12) | fed by the session's WebSocket `models_list`, which `page.route` cannot answer |
+| hosts `once`, `notice`, `runconfig`, `automation` | L1 only (E6, E7, E19) | need a live composer / OpenSpec / dialog session; the composer is driven by G6 |
+| hosts `chain` | `chain-ref`, `chain-status`, `chain-detached` | each probes only what this change touched (the chain editor's reorder/remove/cooldown controls are out of scope and fail the 11 px floor as built) |
+| roles `setup` | not reachable | the harness registry already holds assigned roles |
+
+Real-DOM differences from the board: the model list is hosted by Settings ▸ Grammar (its models come from `/api/models`, so the capability and "assumed" badges are L1-only); a favourite starred by the `favs` fixture persists in the harness container.
+

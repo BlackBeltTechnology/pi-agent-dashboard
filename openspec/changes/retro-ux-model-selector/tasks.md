@@ -12,7 +12,7 @@
 
 ## 2. Fixtures
 
-- [x] 2.1 Add `tests/e2e/fixtures/retro-ux/model-selector.ts` (page.route stubs for `GET /api/roles`, `GET /api/roles/used-by`, the model list and refresh errors) covering picker `models`, `favs`, `nomatch`, `refreshing`, `empty`, `errors`, `roles`, `noroles`; hosts `persistent`, `once`, `notice`, `runconfig`, `automation`, `chain`; roles `pills`, `setup`, `editor`
+- [x] 2.1 Add `tests/e2e/fixtures/retro-ux/model-selector.ts` (page.route stubs for `GET /api/roles`, `GET /api/roles/used-by`, the model list and refresh errors) covering picker `models`, `favs`, `nomatch`, `refreshing`, `empty`, `errors`, `roles`, `noroles`; hosts `persistent`, `once`, `notice`, `runconfig`, `automation`, `chain`; roles `pills`, `setup`, `editor` (as built: the states `page.route` can reach — picker `models`, `favs`, `nomatch`, `empty`, `roles`, `noroles`; hosts `persistent`, `unassigned`, `chain-ref`, `chain-status`, `chain-detached`; roles `pills`, `editor`. The rest are L1-covered; see `mockups/audit.md` § After)
 
 ## 3. Implementation (approved decisions)
 
@@ -34,7 +34,7 @@
   - `ModelSelector.test.tsx:533,547-548,556-557`, `OpenSpecRunConfig.test.tsx:64`, `packages/blackhole-plugin/src/client/__tests__/ChainEditor.test.tsx:339,417,429-430`, `packages/automation-plugin/src/__tests__/CreateAutomationDialog.test.tsx:388,410` (test id / direct-model echo only), `ModelSelector.test.tsx:111-126,197-230` (footer and empty-state found by test id), `tests/e2e/role-aware-model-refs.spec.ts:43-60`, `tests/e2e/model-selector-metadata-provenance.spec.ts:42` (`[title*="assumed"]`, badge title kept) keep passing (role token text, visually hidden provider, ids and `data-status` unchanged); verify, do not edit
 - [x] 3.11 i18n: every new or changed string — including `RoleRef`'s `labels` passed by each host — (Models/Roles tabs, Favorites only, Favorite <model>, assumed, empty-state help, Open providers, No model assigned, Detached, Role unassigned keeps its last model, Reattach to @role, from @role, level-drop sentence, Unsaved, setup wording, automation hint, No roles help) in the en source, `hu` and `zh-CN` catalogs of the client and each touched plugin; `node scripts/i18n-parity.mjs` passes
 - [x] 3.12 `ui-contract.md` and its derived subset `packages/dashboard-plugin-skill/.pi/skills/dashboard-plugin-scaffold/references/host-design.md`: add the `RoleRef` recipe (role token, model id, level chip, "from @role", "No model assigned"), the binding-status vocabulary, and an explicit exception to accessibility invariant 5 for non-modal popovers (`role="dialog"` + `aria-modal="false"`, no focus trap, Escape closes and returns focus)
-- [ ] 3.13 Add `tests/e2e/retro-ux-model-selector.spec.ts`; run it with `RETRO_UX_CAPTURE=1` after section 4 is green; commit `mockups/after/`; reconcile `audit.md`
+- [x] 3.13 Add `tests/e2e/retro-ux-model-selector.spec.ts`; run it with `RETRO_UX_CAPTURE=1` after section 4 is green; commit `mockups/after/`; reconcile `audit.md`
 - [x] 3.14 Update the `AGENTS.md` rows for every touched file
 
 ## 4. Tests (folded from test-plan.md — write each before its 3.x implementation, verify it fails, then pass it)

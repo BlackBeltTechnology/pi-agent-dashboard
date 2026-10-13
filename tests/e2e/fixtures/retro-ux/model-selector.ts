@@ -270,19 +270,44 @@ async function stubBlackhole(page: Page): Promise<void> {
 }
 
 const chain = (page: Page) => page.getByTestId("blackhole-chain-observer");
+const entry0 = (page: Page) => page.getByTestId("blackhole-chain-observer-entry-0");
+
+async function gotoChain(page: Page): Promise<void> {
+  await page.goto(BLACKHOLE_PATH);
+  await chain(page).waitFor({ state: "visible", timeout: 30_000 });
+  await page.getByTestId("blackhole-chain-observer-entry-0-role-status").waitFor();
+}
+
+// The chain editor also holds pre-existing controls (reorder, remove, cooldown) that this
+// change does not touch, so each state probes only what it changed: the role ref, the
+// binding-status pill, and the detached reason callout.
+const chainBase = { stubs: ["/api/roles"], install: stubBlackhole };
 
 export const chainStates: UiState[] = [
   {
-    id: "chain",
-    label: "Blackhole observer chain: detached, dangling and ok role slots",
-    stubs: ["/api/roles"],
-    install: stubBlackhole,
+    id: "chain-ref",
+    label: "Blackhole slot summary: role-bound ref (detached slot)",
+    ...chainBase,
+    open: gotoChain,
+    root: (page) => entry0(page).locator("[data-role-ref]").first(),
+  },
+  {
+    id: "chain-status",
+    label: "Blackhole slot binding-status pill",
+    ...chainBase,
+    open: gotoChain,
+    root: (page) => page.getByTestId("blackhole-chain-observer-entry-0-role-status"),
+  },
+  {
+    id: "chain-detached",
+    label: "Blackhole detached slot: reason + Reattach to @role callout",
+    ...chainBase,
     open: async (page) => {
-      await page.goto(BLACKHOLE_PATH);
-      await chain(page).waitFor({ state: "visible", timeout: 30_000 });
-      await page.getByTestId("blackhole-chain-observer-entry-0-role-status").waitFor();
+      await gotoChain(page);
+      await entry0(page).locator("summary").click();
+      await page.getByTestId("blackhole-chain-observer-reattach-0").waitFor();
     },
-    root: chain,
+    root: (page) => page.getByTestId("blackhole-chain-observer-reattach-0").locator(".."),
   },
 ];
 
