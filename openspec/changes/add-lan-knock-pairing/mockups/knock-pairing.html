@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LAN knock pairing — board (add-lan-knock-pairing)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="asbuilt.css" />
+<link rel="stylesheet" href="knock.css" />
+<script src="icons.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>LAN knock pairing</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Side by side</button>
+    <button aria-pressed="false" data-v="proposed">Proposed only</button>
+  </div>
+  <nav aria-label="Surfaces" class="seg-label">
+    <a href="#s1">1 Dialog</a> · <a href="#s2">2 Request page</a> · <a href="#s3">3 Gateway</a> · <a href="#s4">4 Discovery</a> · <a href="#s5">5 Banner</a>
+  </nav>
+</div>
+<main id="board"></main>
+<script>
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const NEW = `<p class="p-help">— No as-built counterpart: new state.</p>`;
+
+/* ───────── Surface 1 — app-wide approval dialog (PairingApprovalDialog.tsx) ───────── */
+const TIERS = [["observe", "Observe", "Read-only: list sessions, read events, diffs, files."], ["control", "Control", "Drive sessions: prompts, abort, model and thinking level."], ["operate", "Operate", "Full control: restart the server, install packages, force-kill processes."]];
+const CONSEQ = { observe: "Approving lets this browser watch the dashboard read-only (observe).", control: "Approving lets this browser drive sessions (control), but not restart or install.", operate: "Approving gives this browser full control of the dashboard (operate). You can revoke it any time." };
+const tierPick = (sel, uid) => `<fieldset class="tiers"><legend class="p-label">Access for this device</legend>${TIERS.map(([v, l, d]) => `<label class="tier"><input type="radio" name="tier-${uid}" value="${v}" ${v === sel ? "checked" : ""}/><span><strong>${l}</strong> <span class="p-help">${d}</span></span></label>`).join("")}</fieldset>`;
+const dialog = ({ title, subtitle, warn = "", details, name, queued = 0, tier = null, uid = "x" }) => `
+<div class="scrim"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="t-${title.length}">
+  <div class="dlg-h">${ic("CellphoneLink")}<h3 id="t-${title.length}">${title}</h3><button class="x focus-ring" aria-label="Close">${ic("Close")}</button></div>
+  <p class="p-help" style="font-size:14px;margin:0">${subtitle}</p>
+  ${warn}
+  <div class="row-meta"><span class="expires">Request expires in 4:41</span>${queued ? `<span class="queued">+${queued} more waiting</span>` : ""}</div>
+  <dl class="dl">${details}</dl>
+  <div><label class="p-label" for="c">Code shown on the device</label>
+    <p class="p-help" style="margin:0 0 4px">8 digits, on the other device's screen</p>
+    <input class="p-input code-input" id="c" inputmode="numeric" value="4821 77" /></div>
+  <div><label class="p-label">Device name <span class="p-help" style="font-weight:400">(optional)</span></label>
+    <p class="p-help" style="margin:0 0 4px">Shown in Settings ▸ Security ▸ Paired devices</p>
+    <input class="p-input" value="${name}" /></div>
+  ${tier ? tierPick(tier, uid) : ""}
+  <p class="p-help" style="margin:0" data-conseq>${CONSEQ[tier || "operate"]}</p>
+  <p class="p-help" style="margin:0">Close to decide later. It stays under Settings ▸ Gateway until it expires.</p>
+  <div class="dlg-f"><button class="p-btn secondary">Deny</button><button class="p-btn primary">Approve device</button></div>
+</div></div>`;
+
+const qrDetails = `<dt>Browser</dt><dd>Safari on iOS</dd><dt>Came in via</dt><dd class="mono">pi-robson.share.zrok.io</dd><dt>From</dt><dd class="mono">127.0.0.1</dd><dt>When</dt><dd>just now</dd>`;
+const knockDetails = (named) => `<dt>Address</dt><dd class="addr">192.168.16.31</dd>
+  ${named ? `<dt>Says it is</dt><dd>“<span class="said">Roberts-MacBook-Pro</span>” <span class="p-meta">(name typed on that device, not verified)</span></dd>` : ""}
+  <dt>Browser</dt><dd>Chrome on macOS</dd><dt>Came in via</dt><dd class="mono">192.168.16.204:8000</dd><dt>When</dt><dd>12 s ago</dd>`;
+const unenc = `<div class="callout warning" role="note">${ic("LockOpenVariantOutline")}<div class="body"><strong>Unencrypted on this network.</strong>
+  This request came over plain http. After you approve, someone else on this network could copy this device's access. For a protected connection, pair over the Gateway or TLS instead.</div></div>`;
+
+const S1 = [
+  ["qr-redeem (unchanged)", "Reference: QR redemption keeps its shipped presentation (spec: QR unchanged).",
+    dialog({ title: "A device wants to connect", subtitle: "Someone opened a pairing link. Approve only if it's your device.", details: qrDetails, name: "Safari on iOS" }),
+    dialog({ title: "A device wants to connect", subtitle: "Someone opened a pairing link. Approve only if it's your device.", details: qrDetails, name: "Safari on iOS" })],
+  ["knock-unencrypted", "F1 title names the source address · F2 name only as “says it is”, flagged unverified · F3 unencrypted warning in words + icon · prefill from name.",
+    NEW,
+    dialog({ title: "A device on 192.168.16.31 asks to connect", subtitle: "Someone on your network asked for access from the request page. Approve only if you expect it and the code matches the one on that device.", warn: unenc, details: knockDetails(true), name: "Roberts-MacBook-Pro", queued: 1, tier: "operate", uid: "a" })],
+  ["knock-tls-no-name (observe picked)", "Knock over https: no warning. No name sent: row omitted, name prefilled from the browser. F15 tier radio group (existing TIER_OPTIONS copy); consequence line follows the pick.",
+    NEW,
+    dialog({ title: "A device on 192.168.16.31 asks to connect", subtitle: "Someone on your network asked for access from the request page. Approve only if you expect it and the code matches the one on that device.", details: knockDetails(false), name: "Chrome on macOS", tier: "observe", uid: "b" })],
+];
+
+/* ───────── Surface 2 — /pair?request landing (PairLanding.tsx) ───────── */
+const page = (inner) => `<div class="landing">${inner}</div>`;
+const head = `<h1>Request access</h1>`;
+const intro = (http = true) => `${head}
+  <p class="p-help" style="font-size:14px;margin:0">Ask the dashboard at <span class="host">192.168.16.204:8000</span> to let this browser in. The person at that computer approves it by typing a code you'll see here.</p>
+  ${http ? `<div class="callout warning" role="note">${ic("LockOpenVariantOutline")}<div class="body"><strong>This page isn't encrypted.</strong> The request, and the access you get, travel in the clear on this network.</div></div>` : ""}
+  <div><label class="p-label" for="dn">Device name <span class="p-help" style="font-weight:400">(optional)</span></label>
+    <p class="p-help" id="dnh" style="margin:0 0 4px">Shown to the person approving, next to this device's network address.</p>
+    <input class="p-input" id="dn" aria-describedby="dnh" placeholder="e.g. Robert's laptop" value="Roberts-MacBook-Pro" /></div>`;
+const reqBtn = (label = "Request access", dis = "") => `<button class="p-btn primary btn-block" ${dis}>${label}</button>`;
+const refusal = (title, body, action = "") => `${head}
+  <div class="callout info" role="alert">${ic("InformationOutline")}<div class="body"><strong>${title}</strong><br/>${body}</div></div>${action}`;
+
+const S2 = [
+  ["intro (http)", "F4 the address replaces an unknown display name (nothing disclosed pre-auth) · F5 one primary action · unencrypted note before acting (error prevention).",
+    `<p class="p-help">As-built <code>/pair</code> without a link fragment shows: “This pairing link is missing its code. Re-scan the QR from the dashboard.” + Try again — a dead end on the LAN.</p>`,
+    page(intro(true) + reqBtn())],
+  ["sending", "Busy state: button disabled + aria-busy, label changes; no layout shift.",
+    NEW, page(intro(true) + reqBtn(`${ic("Refresh")} Sending request…`, `disabled aria-busy="true"`))],
+  ["waiting", "F6 code grouped 4+4 (chunking) · where to type it · live countdown · polite status. No Cancel: the server cannot withdraw a knock, so a Cancel would lie (see ui-plan D8).",
+    `<div class="frame-note p-help">As-built QR waiting card (reused shape):</div>` + page(`<h1>Pair this device</h1><div class="codecard"><p>Type this code on the dashboard to approve this device:</p><div class="big">48217730</div><p class="p-meta">Waiting for the operator to approve…</p></div>`),
+    page(`${head}<div class="codecard" role="status" aria-live="polite">
+      <p>On the computer running the dashboard (<span class="where host">192.168.16.204</span>), type this code in the <span class="where">“asks to connect”</span> window:</p>
+      <div class="big" aria-label="4 8 2 1, 7 7 3 0">4821<span class="gap"></span>7730</div>
+      <p class="p-help wait">${ic("ClockOutline")} Waiting for approval · expires in 4:52</p></div>
+      <p class="p-help" style="margin:0">Keep this page open. It continues on its own once approved.</p>`)],
+  ["approved", "Success in words + icon, then the dashboard loads.",
+    page(`<h1>Pair this device</h1><p class="callout" style="background:var(--severity-success-bg);border-color:var(--severity-success-border);color:var(--severity-success-fg)">Paired. Opening the dashboard…</p>`),
+    page(`${head}<div class="callout" role="status" style="background:var(--severity-success-bg);border-color:var(--severity-success-border);color:var(--severity-success-fg)">${ic("CheckCircle")}<div class="body"><strong>Approved.</strong> Opening the dashboard…</div></div>`)],
+  ["rejected", "Declined: no immediate retry (cooldown 10 min); copy no longer mentions a “pairing link”.",
+    page(`<h1>Pair this device</h1><div class="callout error" role="alert"><div class="body"><strong>The dashboard declined this device.</strong><br/>If this was a mistake, ask for a new pairing link.</div></div>`),
+    page(`${head}<div class="callout error" role="alert">${ic("Cancel")}<div class="body"><strong>The dashboard declined this request.</strong><br/>If that was a mistake, ask the person at that computer, then request again in about 10 minutes.</div></div>`)],
+  ["expired", "Nobody answered in time: one clear recovery.",
+    NEW, page(refusal("The request expired before anyone approved it.", "Make sure someone is at the dashboard computer, then send a new request.", reqBtn("Request again")))],
+  ["refused: knock_disabled", "F7 names the fix and where it lives (recovery, Nielsen #9). Try again stays available — the owner may flip it now.",
+    NEW, page(refusal("This dashboard isn't accepting requests from the network.", "Its owner can turn on <strong>Accept requests from devices on this network</strong> in Gateway ▸ Connect a device. Then try again.", `<button class="p-btn secondary btn-block">Try again</button>`))],
+  ["refused: knock_not_lan", "Outside the LAN (or via a proxy/tunnel): no retry — retrying cannot help.",
+    NEW, page(refusal("Requests are only accepted from the same local network.", "Connect this device to the same network as the dashboard, or ask its owner for a pairing link (QR)."))],
+  ["refused: knock_pending", "Same device already waiting (e.g. second tab).",
+    NEW, page(refusal("A request from this device is already waiting.", "Approve it on the dashboard computer, or wait up to 5 minutes for it to expire and request again."))],
+  ["refused: knock_rate_limited", "Retry disabled with visible time remaining (system status).",
+    NEW, page(refusal("Too many requests from this device.", "You can request again in 7 minutes.", reqBtn("Request again (in 7:00)", "disabled")))],
+  ["refused: knock_busy", "Global cap reached.",
+    NEW, page(refusal("Several devices are already waiting for approval.", "Try again in a minute.", `<button class="p-btn secondary btn-block">Try again</button>`))],
+];
+
+/* ───────── Surface 3 — Gateway ▸ Connect a device (GatewayPairQR.tsx + WaitingDevices.tsx) ───────── */
+const lanPanel = (on) => `<section class="inset stack" aria-labelledby="lan-h">
+  <h3 class="subhead" id="lan-h">Devices on this network</h3>
+  <div class="sw-row"><div class="txt">
+      <label class="p-label" id="sw-l" for="sw">Accept requests from devices on this network</label>
+      <p class="p-help" id="sw-d" style="margin:0">A device on your local network can ask to connect. You approve each request by typing the code it shows. Without the Gateway or TLS, requests and the access you grant are unencrypted.</p></div>
+    <button id="sw" class="sw-btn" role="switch" aria-checked="${on}" aria-labelledby="sw-l" aria-describedby="sw-d"><span class="sw" aria-hidden="true"></span><span class="sw-state" aria-hidden="true">${on ? "On" : "Off"}</span></button></div>
+  ${on ? `<div><p class="subhead" style="margin:0 0 4px">Request page</p>
+    <div class="urlrow"><code>http://192.168.16.204:8000/pair?request</code><button class="p-btn secondary sm">Copy</button></div>
+    <p class="p-help" style="margin:4px 0 0">Open it on the other device, or use <strong>Connect</strong> in that dashboard's Network Discovery.</p></div>` : ""}
+</section>`;
+const waitingAb = `<div><p class="p-label" style="font-weight:500;font-size:12px">Waiting devices</p><ul class="wl"><li><span class="who">Chrome on macOS <span class="mono"> · 192.168.16.204:8000</span></span><button class="p-btn ghost sm">Review</button></li></ul></div>`;
+const waitingPr = `<div><p class="subhead">Waiting devices</p><ul class="wl">
+  <li><span class="pill info">${ic("LanConnect")} Network request</span><span class="who"><b>192.168.16.31</b> · says “Roberts-MacBook-Pro” · Chrome on macOS</span>
+    <span class="pill warning">${ic("LockOpenVariantOutline")} Unencrypted</span><button class="p-btn secondary sm" aria-label="Review request from 192.168.16.31">Review</button></li>
+  <li><span class="pill neutral">${ic("CellphoneLink")} Pairing link</span><span class="who">Safari on iOS · pi-robson.share.zrok.io</span><button class="p-btn secondary sm" aria-label="Review Safari on iOS">Review</button></li></ul></div>`;
+const noRoadAb = `<div class="stack"><h3 style="margin:0;font-size:15px">No secure road to pair over yet</h3><p class="p-help" style="font-size:14px">Pairing a remote device needs a secure road (the Gateway or a publicly-trusted TLS URL). A browser on a plain-http LAN address cannot pair — the identity check requires a secure context.</p><button class="p-btn primary">Set up the Gateway</button></div>`;
+const noRoadPr = `<div class="stack"><h3 style="margin:0;font-size:15px">No secure road for a pairing link yet</h3><p class="p-help" style="font-size:14px">A QR pairing link needs a secure road (the Gateway or a publicly-trusted TLS URL). For a device on this network, turn on <strong>Accept requests from devices on this network</strong> below.</p><button class="p-btn primary">Set up the Gateway</button></div>`;
+
+const S3 = [
+  ["no-secure-road + off", "F8 the copy “a plain-http LAN browser cannot pair” becomes false; it now points to the LAN switch (consistency). Switch: label + state word, not colour alone.",
+    `<div class="stack-3">${noRoadAb}</div>`, `<div class="stack-3">${noRoadPr}${lanPanel(false)}</div>`],
+  ["switch on + waiting", "F9 copyable request URL (recognition over recall) · F10 waiting rows show provenance pill + address first + unencrypted pill (shape + word).",
+    `<div class="stack-3">${waitingAb}</div>`, `<div class="stack-3">${waitingPr}${lanPanel(true)}</div>`],
+];
+
+/* ───────── Surface 4 — Settings ▸ Network Discovery row (NetworkDiscoverySection.tsx) ───────── */
+const discRow = ({ name, addr, local, known, connect }) => `<div class="p-row"><div class="main">
+  <div class="name">${name} <span class="pill ${local ? "local" : "remote"}">${local ? "Local" : "Remote"}</span></div>
+  <div class="p-meta">${addr} · v0.9.41</div></div><div class="acts">
+  ${connect ? `<button class="p-btn secondary sm" aria-label="Connect to ${name} (opens in a new tab)">Connect ${ic("OpenInNew")}</button>` : ""}
+  ${known ? `<span class="p-meta sev-fg-success" style="font-weight:600;display:inline-flex;gap:4px;align-items:center">${ic("Check")} Already added</span>` : `<button class="p-btn secondary sm" aria-label="Add ${name} (${addr})">Add</button>`}
+  </div></div>`;
+const S4 = [
+  ["results", "F11 Connect on remote rows only, before Add; ↗ icon + accessible name announce the new tab. Local row unchanged.",
+    `<div class="stack">${discRow({ name: "home-imac", addr: "192.168.16.204:8000", known: false })}${discRow({ name: "build-box", addr: "192.168.16.220:8000", known: true })}${discRow({ name: "robson-mbp", addr: "192.168.16.31:8000", local: true, known: true })}</div>`,
+    `<div class="stack">${discRow({ name: "home-imac", addr: "192.168.16.204:8000", known: false, connect: true })}${discRow({ name: "build-box", addr: "192.168.16.220:8000", known: true, connect: true })}${discRow({ name: "robson-mbp", addr: "192.168.16.31:8000", local: true, known: true })}</div>`],
+];
+
+/* ───────── Surface 5 — network-denied banner (ConnectionStatusBanner.tsx) ───────── */
+const S5 = [
+  ["network-denied", "F12 adds Request access as the one strong action · F13 replaces the Tailwind amber palette (contract violation, fails light theme) with severity-warning tokens · F14 icon + text, wraps instead of truncating the hint on mobile.",
+    `<div class="ab-banner" role="alert"><span class="t"><strong>Network not allowed</strong> — Ask the dashboard owner to add your network to trusted networks.</span><button>Settings → Servers</button></div>`,
+    `<div class="banner" role="alert"><span class="msg">${ic("AlertOutline")}<span><strong>Network not allowed</strong> \u2014 Ask the dashboard owner to add your network to trusted networks.</span></span>
+      <span class="acts"><button class="b-btn strong">Request access</button><button class="b-btn">Settings → Servers</button></span></div>`],
+];
+
+const SURFACES = [
+  ["s1", "1 · Approval dialog (operator, any page)", "PairingApprovalDialog.tsx — knock provenance + unencrypted warning; QR path unchanged.", S1],
+  ["s2", "2 · Request page /pair?request (requesting browser)", "PairLanding.tsx request mode — new; refusal codes map 1:1 to the spec.", S2],
+  ["s3", "3 · Gateway ▸ Connect a device", "GatewayPairQR.tsx + WaitingDevices.tsx — LAN switch, request URL, waiting-row provenance.", S3],
+  ["s4", "4 · Settings ▸ Network Discovery", "NetworkDiscoverySection.tsx — Connect action.", S4],
+  ["s5", "5 · Network-not-allowed banner", "ConnectionStatusBanner.tsx — Request access action.", S5],
+];
+
+document.getElementById("board").innerHTML = SURFACES.map(([id, h, v, states]) => `<section class="surface" id="${id}"><h2>${h}</h2><p class="verdict">${v}</p>
+${states.map(([sid, finds, ab, pr]) => `<article class="state"><header><code>${sid}</code><span class="finds">${finds}</span></header>
+  <div class="pair"><div class="col asbuilt"><p class="tag">As-built</p><div class="frame">${ab}</div></div>
+  <div class="col proposed"><p class="tag">Proposed</p><div class="frame">${pr}</div></div></div></article>`).join("")}
+</section>`).join("");
+
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+  }
+  if (group === "width") { document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`); document.body.dataset.w = v; }
+  if (group === "view") document.body.dataset.view = v;
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply(seg.dataset.group, b.dataset.v);
+}));
+document.addEventListener("change", (e) => { const r = e.target.closest(".tiers input"); if (!r) return; r.closest(".dlg").querySelector("[data-conseq]").textContent = CONSEQ[r.value]; });
+document.addEventListener("click", (e) => { const s = e.target.closest(".sw-btn"); if (!s) return;
+  const on = s.getAttribute("aria-checked") !== "true"; s.setAttribute("aria-checked", String(on)); s.querySelector(".sw-state").textContent = on ? "On" : "Off"; });
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>

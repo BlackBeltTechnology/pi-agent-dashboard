@@ -1,0 +1,84 @@
+/* PROPOSED recipes specific to add-lan-knock-pairing. Tokens only (tokens.css);
+   no palette class, hex or rgba literal (white on --accent-solid excepted, as
+   in mockup.css — contract: theme-invariant 5.17:1). */
+
+/* ── dialog (Dialog.tsx shell: scrim + card recipe, size md) ─────────── */
+.scrim { background: var(--bg-overlay); padding: 24px 12px; border-radius: 8px; display: grid; place-items: start center; }
+.dlg {
+  width: 100%; max-width: 448px; border-radius: 12px; border: 1px solid var(--border-secondary);
+  background: var(--bg-secondary); box-shadow: inset 0 1px 0 var(--elevation-rim), 0 4px 8px var(--shadow-card);
+  padding: 16px; display: flex; flex-direction: column; gap: 12px;
+}
+.dlg-h { display: flex; align-items: flex-start; gap: 8px; }
+.dlg-h h3 { flex: 1; margin: 0; font-size: 18px; font-weight: 600; line-height: 1.3; }
+.dlg-h .x { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 6px; color: var(--text-secondary); }
+.dlg-f { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; padding: 8px 12px; border-radius: 4px; background: var(--bg-tertiary); border: 1px solid var(--border-secondary); margin: 0; }
+.dl dt { color: var(--text-secondary); }
+.dl dd { margin: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+.dl dd.addr { font-family: "SF Mono", Menlo, monospace; font-weight: 600; }
+.code-input { font-family: "SF Mono", Menlo, monospace; font-size: 18px; letter-spacing: 0.2em; }
+.expires { font-size: 12px; padding: 2px 6px; border-radius: 4px; background: var(--severity-info-bg); color: var(--severity-info-fg); }
+.row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.row-meta .queued { margin-left: auto; font-size: 12px; color: var(--text-secondary); }
+.said { font-style: italic; }
+
+/* ── landing (/pair, PairLanding.tsx container) ─────────────────────── */
+.landing { max-width: 448px; margin: 0 auto; padding: 24px 20px; display: flex; flex-direction: column; gap: 16px; }
+.landing h1 { font-size: 20px; font-weight: 600; margin: 0; }
+.landing .host { font-family: "SF Mono", Menlo, monospace; color: var(--text-primary); font-weight: 600; }
+.codecard { border-radius: 8px; border: 1px solid var(--accent); background: var(--accent-soft); padding: 20px; text-align: center; }
+.codecard .big { margin: 12px 0; font-family: "SF Mono", Menlo, monospace; font-size: 36px; font-weight: 700; letter-spacing: 0.08em; color: var(--text-primary); }
+.codecard .big .gap { display: inline-block; width: 0.6em; }
+.codecard p { margin: 0; font-size: 14px; color: var(--text-primary); }
+.codecard .p-meta, .codecard .p-help { color: var(--text-primary); }
+.codecard .where { font-weight: 600; }
+.wait { display: inline-flex; align-items: center; gap: 6px; }
+.btn-block { width: 100%; min-height: 44px !important; }
+
+/* ── switch (house pattern, FocusSettingsSection.tsx — palette class replaced) ── */
+.sw-row { display: flex; align-items: flex-start; gap: 12px; }
+.sw-row .txt { flex: 1; min-width: 0; }
+/* The button is the whole hit area (track + state word): ≥32px tall, 44px below sm. */
+.sw-btn { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 6px; border-radius: 6px; flex: none; }
+.sw-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@media (max-width: 639px) { .sw-btn { min-height: 44px; } }
+.sw { position: relative; flex: none; width: 40px; height: 20px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--bg-surface); }
+.sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 999px; background: var(--text-secondary); transition: transform .15s; }
+[aria-checked="true"] > .sw { background: var(--accent-solid); border-color: var(--accent-solid); }
+[aria-checked="true"] > .sw::after { transform: translateX(20px); background: #fff; } /* knob on --accent-solid: same theme-invariant pair as primary button */
+.sw-state { font-size: 12px; font-weight: 600; color: var(--text-secondary); min-width: 2em; }
+@media (prefers-reduced-motion: reduce) { .sw::after { transition: none; } }
+.urlrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.urlrow code { font-size: 12px; color: var(--text-primary); background: var(--bg-surface); border: 1px solid var(--border-secondary); border-radius: 4px; padding: 2px 6px; overflow-wrap: anywhere; }
+.subhead { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin: 0 0 4px; }
+
+/* ── banner (ConnectionStatusBanner — proposed on severity-warning) ───── */
+.banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 16px; font-size: 14px;
+  background: var(--severity-warning-bg); border-bottom: 1px solid var(--severity-warning-border); color: var(--severity-warning-fg); }
+.banner .msg { flex: 1; min-width: 12rem; display: flex; gap: 6px; align-items: flex-start; }
+.banner .msg svg.i { margin-top: 3px; }
+.banner .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.banner .b-btn { min-height: 32px; padding: 0 10px; border-radius: 6px; font-size: 12px; font-weight: 600; border: 1px solid var(--severity-warning-border); color: var(--severity-warning-fg); }
+.banner .b-btn.strong { background: var(--accent-solid); border-color: var(--accent-solid); color: #fff; }
+.banner .b-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@media (max-width: 639px) { .banner .b-btn { min-height: 44px; } .p-btn.sm { min-height: 44px; } }
+
+/* waiting list provenance */
+.wl { list-style: none; margin: 0; padding: 0; }
+.wl > li + li { margin-top: 4px; }
+.wl li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); font-size: 12px; }
+.wl li .who { flex: 1 1 14rem; min-width: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+/* Narrow: text takes its own line, pills + Review wrap around it instead of crushing it. */
+.p-row .main { flex: 1 1 12rem; }
+.dl dd.mono, .dl dd.addr { overflow-wrap: normal; word-break: break-word; }
+.wl li .who b { color: var(--text-primary); font-family: "SF Mono", Menlo, monospace; }
+
+/* tier radio group (TIER_OPTIONS copy, PairedDevicesSection.tsx:46-50) */
+.tiers { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.tiers legend { padding: 0; margin-bottom: 4px; }
+.tier { display: flex; align-items: flex-start; gap: 8px; min-height: 32px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); font-size: 12px; cursor: pointer; }
+.tier:has(input:checked) { border-color: var(--accent); }
+.tier input { margin-top: 2px; accent-color: var(--accent-solid); }
+.tier input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@media (max-width: 639px) { .tier { min-height: 44px; } }
