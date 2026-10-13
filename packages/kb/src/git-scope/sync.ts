@@ -25,6 +25,8 @@ export interface ForgeState {
   rate: RateInfo | null;
   backoffUntil: number;
   unavailable: string | null;
+  /** Last generic forge failure (own key: commit ingest owns `lastError`). */
+  lastError: string | null;
   identity: string | null;
 }
 
@@ -53,6 +55,7 @@ export function readForgeState(store: KbStore): ForgeState {
     rate: metaJson<RateInfo>(db, "forge.rate"),
     backoffUntil: Number(metaGet(db, "forge.backoffUntil") ?? 0),
     unavailable: metaGet(db, "forge.unavailable"),
+    lastError: metaGet(db, "forge.lastError"),
     identity: metaGet(db, "forge.identity"),
   }));
 }
@@ -200,6 +203,7 @@ export async function syncForge(a: ForgeSyncArgs): Promise<ForgeSyncStats> {
       metaSet(db, "forge.lastSyncAt", String(a.deps.now()));
       metaDelete(db, "forge.unavailable");
       metaDelete(db, "forge.backoffUntil");
+      metaDelete(db, "forge.lastError");
     });
   } catch (e) {
     if (e instanceof LeaseLostError || a.signal.aborted) throw e;
@@ -222,7 +226,7 @@ export async function syncForge(a: ForgeSyncArgs): Promise<ForgeSyncStats> {
     } else {
       stats.stoppedBy = "error";
       record((db) => {
-        metaSet(db, "lastError", `forge sync failed: ${(e as Error).message}`);
+        metaSet(db, "forge.lastError", `forge sync failed: ${(e as Error).message}`);
         metaSet(db, "forge.lastAttemptAt", String(now));
       });
     }

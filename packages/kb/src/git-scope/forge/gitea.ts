@@ -62,6 +62,14 @@ function mapGiteaItem(i: GtIssue): ForgeItem {
   };
 }
 
+/** Why a fetch failed, without blaming https for a timeout or a DNS error. */
+function networkReason(e: unknown, timedOut: boolean): string {
+  if (timedOut) return "request timed out";
+  const code = (e as { cause?: { code?: string } }).cause?.code;
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "host not found";
+  return "https required"; // refused / reset / TLS failure: the https endpoint is not usable
+}
+
 /** Classify a non-2xx/304 answer. */
 function statusError(res: Response, rate: RateInfo | null, hasToken: boolean, now: number): Error {
   const retryAfter = res.headers.get("retry-after");
@@ -81,12 +89,14 @@ export function createGiteaAdapter(deps: GitScopeDeps, ref: GiteaRepoRef, auth: 
     const headers: Record<string, string> = { accept: "application/json" };
     if (token) headers.authorization = `token ${token}`;
     if (etag) headers["if-none-match"] = etag;
+    const timeout = AbortSignal.timeout(deps.requestTimeoutMs);
+    const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
     let res: Response;
     try {
-      res = await deps.fetch(url, { headers, signal, redirect: "error" });
+      res = await deps.fetch(url, { headers, signal: combined, redirect: "error" });
     } catch (e) {
       if (signal?.aborted) throw e;
-      throw new ForgeUnavailable("https required");
+      throw new ForgeUnavailable(networkReason(e, timeout.aborted));
     }
     const rate = giteaRate(res.headers, deps.now());
     if (res.status === 200 || res.status === 304) return { res, rate };

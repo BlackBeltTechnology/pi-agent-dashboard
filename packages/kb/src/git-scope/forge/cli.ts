@@ -66,7 +66,7 @@ function statusError(cli: string, http: HttpResult, rate: RateInfo | null, now: 
 export async function cliRequest(deps: GitScopeDeps, call: CliCall, rateFrom: (h: Record<string, string>) => RateInfo | null, signal?: AbortSignal): Promise<HttpResult & { rate: RateInfo | null }> {
   const bin = deps.resolveBin(call.cli);
   if (!bin) throw new ForgeUnavailable(`${call.cli} is not installed`);
-  const r: CliResult = await deps.runCli(bin, call.args, { signal, timeoutMs: 30_000 });
+  const r: CliResult = await deps.runCli(bin, call.args, { signal, timeoutMs: deps.requestTimeoutMs });
   if (r.spawnError) throw new ForgeUnavailable(`${call.cli} could not be started`);
   const http = parseHttpHead(r.stdout);
   if (!http) throw headlessError(call.cli, r);

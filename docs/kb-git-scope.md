@@ -1,6 +1,6 @@
 # kb git scope
 
-Change: `add-kb-git-forge-scope`. Source: `openspec/changes/add-kb-git-forge-scope/design.md` (G1–G10), `specs/kb-git-forge-scope/spec.md`.
+Change: `add-kb-git-forge-scope`. Source: `openspec/changes/archive/2026-10-13-add-kb-git-forge-scope/design.md` (G1–G10), `openspec/specs/kb-git-forge-scope/spec.md`.
 Code: `packages/kb/src/git-scope/`, config `packages/kb/src/config.ts`, tools `packages/kb-extension/src/extension.ts`.
 
 ## What it is
@@ -163,6 +163,17 @@ Forge status:
 - `disabled` — `git.forge.enabled:false`.
 - `not synced yet`
 
+Forge error mapping:
+
+- Generic forge failure → `forge stale: <message>`.
+- Generic forge failure stored under `forge.lastError`.
+- Forge failure leaves commit status unaffected.
+- Gitea request timeout (`requestTimeoutMs`, default 30 s) → `forge unavailable: request timed out`.
+- DNS failure → `forge unavailable: host not found`.
+- Connection refused / reset / TLS failure → `forge unavailable: https required`.
+- Index cannot open (EACCES, full disk) → `(git scope unavailable: index unavailable: <cause>)`.
+- Busy database → skip identity reconcile for that call. No throw.
+
 Deviation: spec says `unsupported` bare. Code emits `unsupported (<reason>)`. Code wins.
 
 Status for `kb_get` not-indexed:
@@ -191,6 +202,8 @@ Fixed defects:
 - Find `<repoKey>`: sha256 of realpath of git common dir, first 16 hex.
 - Private issue/PR text cached on disk. Dir `0700`, file `0600`.
 - `git.forge.enabled:false` → forge sync stops. Cached forge rows remain until deleted.
+- Identity reconcile follows remote, not `forge.enabled`.
+- Re-enabling `git.forge.enabled` does not trigger full first sync.
 - `git.enabled:false` → scope disabled. No git command runs.
 
 ## Rollback

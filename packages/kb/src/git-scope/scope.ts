@@ -171,19 +171,32 @@ export class GitScope {
     const r = resolveRepo(cwd, c.cfg, this.deps);
     if (!r.ok) return { res: r.kind === "disabled" ? untrusted(`(${r.reason})`, { hits: 0 }) : unavailable(r.reason) };
     const { repo } = r;
-    let h = this.handles.get(repo.repoKey);
     const busy = Math.max(0, Math.min(250, started + c.cfg.searchWaitMs - Date.now()));
-    if (!h) {
-      const openDefault = () => openGitStore(repo, this.deps.baseDir, busy);
-      const store = this.o.openStore ? this.o.openStore(repo, this.deps.baseDir, busy, openDefault) : openDefault();
-      h = { store, phase: null, work: null, abort: null };
-      this.handles.set(repo.repoKey, h);
-    } else {
-      (h.store as { setBusyTimeout?: (ms: number) => void }).setBusyTimeout?.(busy);
+    let h: Handle;
+    try {
+      h = this.handleFor(repo, busy);
+    } catch (e) {
+      return { res: unavailable(`index unavailable: ${(e as Error).message}`) }; // EACCES, full disk, busy after retries
     }
     if (!hasGitSupport(h.store)) return { res: unavailable("store backend lacks git support") };
-    reconcileForgeIdentity(h.store, c.cfg.forge.enabled && repo.forge.kind === "ok" ? repo.forge.identity : null);
+    try {
+      // identity follows the remote, NOT `forge.enabled`: disabling forge sync keeps the cached rows
+      reconcileForgeIdentity(h.store, repo.forge.kind === "ok" ? repo.forge.identity : null);
+    } catch { /* database busy: the next call retries the reconcile */ }
     return { cfg: c.cfg, kbCfg: c.kbCfg, repo, h, cwd };
+  }
+
+  private handleFor(repo: ResolvedRepo, busy: number): Handle {
+    const known = this.handles.get(repo.repoKey);
+    if (known) {
+      (known.store as { setBusyTimeout?: (ms: number) => void }).setBusyTimeout?.(busy);
+      return known;
+    }
+    const openDefault = () => openGitStore(repo, this.deps.baseDir, busy);
+    const store = this.o.openStore ? this.o.openStore(repo, this.deps.baseDir, busy, openDefault) : openDefault();
+    const h: Handle = { store, phase: null, work: null, abort: null };
+    this.handles.set(repo.repoKey, h);
+    return h;
   }
 
   private hintMs(repo: ResolvedRepo): number | null {
@@ -301,6 +314,7 @@ export class GitScope {
     if (now < s.backoffUntil) return "stale: back-off";
     if (rateFloorActive(s.rate, cfg.forge.rateFloorPercent, now)) return "stale: rate floor";
     if (s.unavailable) return `unavailable: ${s.unavailable}`;
+    if (s.lastError && s.lastAttemptAt > s.lastSyncAt) return `stale: ${s.lastError.slice(0, 80)}`;
     if (s.lastSyncAt > 0) return `synced ${minutesAgo(now, s.lastSyncAt)}`;
     return h.work !== null || elsewhere ? "syncing elsewhere" : "not synced yet";
   }

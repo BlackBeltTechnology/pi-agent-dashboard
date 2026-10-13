@@ -5,9 +5,9 @@ Files in this directory. One row per source file. The `git` scope: commits, PRs 
 | File | Purpose |
 |------|---------|
 | `commits.ts` | Local commit ingest. `fingerprint` (for-each-ref + worktree HEADs), streamed `git log --stdin` (tips positive, recorded tips `^sha`), NUL-record `CommitStreamParser`, pages ≤500 commits or ≤1 s per fenced tx, missing-object reset, `commitChunk`. |
-| `deps.ts` | `GitScopeDeps` seams (git, spawnGit, resolveBin, runCli, fetch, now, env, baseDir, owner, log) + `defaultDeps`. `resolveBinOnPath` caches an absolute `gh`/`glab` path once per process. |
+| `deps.ts` | `GitScopeDeps` seams (git, spawnGit, resolveBin, runCli, fetch, now, requestTimeoutMs, env, baseDir, owner, log) + `defaultDeps`. `resolveBinOnPath` caches an absolute `gh`/`glab` path once per process. |
 | `forge/cli.ts` | Shared `gh api -i` / `glab api -i` transport. `parseHttpHead`, `cliRequest` classifies 200/304/rate-limit/auth/404; a 304 exits non-zero but its head is on stdout (spike 1.1). |
-| `forge/gitea.ts` | Gitea/Forgejo/Codeberg adapter over `fetch`. Always `https://<host>`; token only when host is global-allowlisted as gitea; `sort=leastupdate`; UTC-normalised timestamps; `RateLimit` header parsing. |
+| `forge/gitea.ts` | Gitea/Forgejo/Codeberg adapter over `fetch`. Always `https://<host>`; 30 s timeout per request (`requestTimeoutMs`), reasons `request timed out` / `host not found` / `https required`; token only when host is global-allowlisted as gitea; `sort=leastupdate`; UTC-normalised timestamps; `RateLimit` header parsing. |
 | `forge/github.ts` | GitHub adapter (`gh api -i --hostname`). One `issues` endpoint serves PRs + issues; `x-ratelimit-*`; no `rate_limit` preflight. |
 | `forge/gitlab.ts` | GitLab adapter (`glab api -i`). `issues` + `merge_requests`; `updated_after`; rate floor only when both `RateLimit-*` headers exist. |
 | `forge/index.ts` | `createAdapter(deps, forge, cfg)` factory. |

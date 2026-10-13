@@ -86,6 +86,48 @@ describe("observability", () => {
   });
 });
 
+describe("failure reporting and cached data", () => {
+  it("a generic forge failure is a FORGE status; commits stay fresh and the key is not shared", async () => {
+    const dir = fx.repo({ remote: GH });
+    const forge = new FakeForge();
+    forge.failWith = new Error("boom");
+    const scope = scopeFor(fx, { adapterFor: () => forge, gitConfig: cfg() });
+    const r = await search(scope, dir);
+    expect(r.text).toContain("commits fresh");
+    expect(r.text).toMatch(/forge stale: forge sync failed: boom/);
+    expect(r.text).not.toMatch(/commits stale/);
+  });
+
+  it("git.forge.enabled:false keeps the cached PRs/issues (no purge, no re-sync cost later)", async () => {
+    const dir = fx.repo({ remote: GH });
+    const forge = new FakeForge();
+    forge.items = prs(2);
+    await search(scopeFor(fx, { adapterFor: () => forge, gitConfig: cfg() }), dir);
+    const off = scopeFor(fx, { adapterFor: () => forge, gitConfig: { forge: { enabled: false } } });
+    const r = await search(off, dir);
+    expect(r.text).toContain("[git] pr #1");
+    expect(r.text).toContain("forge disabled");
+    expect(itemCount().distinct).toBe(2);
+  });
+
+  it("a store that cannot open, or a busy database, never throws out of search", async () => {
+    const dir = fx.repo({ remote: GH });
+    const broken = scopeFor(fx, { openStore: () => { throw new Error("EACCES: permission denied"); } });
+    const r1 = await search(broken, dir);
+    expect(r1.text).toContain("index unavailable: EACCES");
+    const busy = scopeFor(fx, {
+      openStore: (_r, _b, _m, openDefault) => {
+        const real = openDefault();
+        return new Proxy(real, {
+          get: (t, p) => (p === "immediate" ? () => { throw new Error("database is locked"); } : (typeof t[p as keyof typeof t] === "function" ? (t[p as keyof typeof t] as (...a: unknown[]) => unknown).bind(t) : t[p as keyof typeof t])),
+        });
+      },
+    });
+    const r2 = await search(busy, dir);
+    expect(r2.text).toContain("(git:"); // a normal result with a status footer, not a rejection
+  });
+});
+
 describe("rate floor and back-off", () => {
   it("X2/X3: below the floor no request is made; after the reset the observation expires", async () => {
     const dir = fx.repo({ remote: GH });

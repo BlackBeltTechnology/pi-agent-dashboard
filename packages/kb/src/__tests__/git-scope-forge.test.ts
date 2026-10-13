@@ -167,6 +167,21 @@ describe("forge: Gitea over HTTPS (fetch seam)", () => {
     expect(readFileSync(join(fx.home, ".pi", "dashboard", "knowledge_base.json"), "utf8")).not.toContain(marker);
   });
 
+  it("a hung server is cut off by the request timeout and reported as such (not as an https problem)", async () => {
+    writeGlobalConfig({ git: { forge: { hosts: { "codeberg.org": "gitea" } } } });
+    const dir = fx.repo({ remote: "https://codeberg.org/o/r.git" });
+    const hung = ((_url: string, init?: { signal?: AbortSignal }) => new Promise((_res, rej) => init?.signal?.addEventListener("abort", () => rej(init.signal?.reason), { once: true }))) as unknown as typeof globalThis.fetch;
+    const scope = scopeFor(fx, { fetch: hung, requestTimeoutMs: 150 });
+    const t0 = Date.now();
+    const r = await search(scope, dir, "initial");
+    await scope.idle();
+    expect(Date.now() - t0).toBeLessThan(1500);
+    const again = await search(scope, dir, "initial");
+    expect(again.text).toContain("forge unavailable: request timed out");
+    expect(again.text).toContain("initial commit");
+    void r;
+  });
+
   it("normalises zone-offset timestamps to UTC", async () => {
     writeGlobalConfig({ git: { forge: { hosts: { "codeberg.org": "gitea" } } } });
     const dir = fx.repo({ remote: "https://codeberg.org/o/r.git" });

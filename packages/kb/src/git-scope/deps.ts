@@ -30,6 +30,8 @@ export interface GitScopeDeps {
   runCli(bin: string, args: string[], opts?: CliOpts): Promise<CliResult>;
   fetch: typeof fetch;
   now(): number;
+  /** Per forge request (CLI or HTTPS), ms. */
+  requestTimeoutMs: number;
   env: NodeJS.ProcessEnv;
   /** Directory holding one sub-directory per repoKey. */
   baseDir: string;
@@ -100,6 +102,7 @@ export function defaultDeps(): GitScopeDeps {
     runCli: realRunCli,
     fetch: (...a) => globalThis.fetch(...a),
     now: () => Date.now(),
+    requestTimeoutMs: 30_000,
     env: process.env,
     baseDir: join(homedir(), ".pi", "dashboard", "kb", "git"),
     owner: `${process.pid}-${Math.random().toString(36).slice(2, 8)}`,
