@@ -114,7 +114,7 @@ function prUserRow(u, o = {}) {
   const usable = u.creds - u.orphaned;
   return `<li class="p-row" data-testid="user-${u.id}" style="list-style:none">
     <div class="main">
-      <div class="name">${esc(u.name)} ${STATUS_PILL[u.status].replace("%", u.id)}
+      <div class="name">${esc(u.name)} ${STATUS_PILL[u.status].replaceAll("%", u.id)}
         ${u.orphaned ? `<span class="pill warning" data-testid="user-orphaned-${u.id}">${ic("AlertOutline")}${u.orphaned} orphaned</span>` : ""}</div>
       <div class="p-meta">${usable} usable passkey${usable === 1 ? "" : "s"}${u.orphaned ? ` · ${u.orphaned} bound to a previous address — re-invite to restore` : ""}${u.status === "invited" ? " · waiting for the person to scan the invite" : ""}</div>
     </div>
