@@ -4,8 +4,12 @@ One row per file. Non-source area. `page.route` state fixtures for `captureState
 
 | File | Purpose |
 |------|---------|
+| `chat-session.ts` | Chat-rendering helpers: `chat` (scenario session id), `openChat`, `reveal` (expands bursts until a row shows), `stubEntryPayload` / `payloadOk` for `GET /api/sessions/:id/entry/:entryId`. See change: retro-ux-chat-rendering. |
+| `custom-entry.ts` | Unclaimed custom-entry states (kv, more, plain) from the scenario transcript. See change: retro-ux-chat-rendering. |
 | `discovery.ts` | Network Discovery states (idle, scanning, scan-error, empty-diagnostic, manual-error, results, adding, updated) via `POST /api/discover-servers`. |
 | `known-servers.ts` | Known Servers states (list, remove-confirm, row-error, read-only, add-open, add-error, empty, loading, load-error) via `/api/known-servers`. |
+| `mermaid.ts` | Mermaid states (loading via held `mermaid.core-*.js`, repaired, original, error, zoomed); `ai-*` states not covered (add-mermaid-ai-repair not landed). See change: retro-ux-chat-rendering. |
 | `server-selector.ts` | Header selector states (trigger-connected, trigger-offline, open-probing, open-mixed, switching): stubs cross-origin `/api/health` + `/api/known-servers/probe`. |
 | `stubs.ts` | Shared helpers: `stubApi` (same-origin path + method, hit counts via `hitCount`/`resetHits`), `ok`/`fail`/`hold`, `CORS`, `settingsSection`. |
 | `users.ts` | Users states (list, unstable, invite-open, copy-failed, revoke-confirm, mutation-error, bootstrap, disabled, loading, load-error) + passkey impact note (`impactStates`) via `/api/users*`. |
+| `web-search.ts` | Web search / fetch states (collapsed, expanded, fetch, loading, evicted, skipped) via payload stubs. See change: retro-ux-chat-rendering. |

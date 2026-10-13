@@ -44,6 +44,12 @@ describe("DiagramPreview", () => {
     });
   });
 
+  it("keeps the shared \"Loading diagram…\" text, unaffected by MermaidBlock's own copy (retro-ux E3)", () => {
+    global.fetch = vi.fn().mockImplementation(() => new Promise(() => {})) as any;
+    render(<DiagramPreview target={target} />);
+    expect(screen.getByTestId("diagram-preview-loading").textContent).toBe("Loading diagram…");
+  });
+
   it("inline mode sizes the viewport to the diagram instead of a fixed-height parent", async () => {
     global.fetch = vi.fn().mockImplementation(async () => ({
       ok: true,

@@ -123,7 +123,8 @@ describe("WebSearchEntryCard — expanded", () => {
     expect(anchors[0].getAttribute("href")).toBe("https://example.com/a");
     expect(anchors[0].getAttribute("target")).toBe("_blank");
     expect(anchors[0].getAttribute("rel")).toBe("noopener noreferrer");
-    expect(anchors[0].textContent).toBe("https://example.com/a");
+    // Visible text is the original URL; the screen-reader suffix is sr-only (retro-ux E13).
+    expect(anchors[0].firstElementChild!.textContent).toBe("https://example.com/a");
     expect(container.textContent).toContain("javascript:alert(1)");
     expect(container.textContent).toContain("https://t.com@evil.example/");
   });
@@ -183,7 +184,7 @@ describe("WebSearchEntryCard — expanded", () => {
 
   it("reports skipped malformed items", () => {
     render(<WebSearchEntryCard {...props({ expanded: true, payload: { type: "search", queries: [{ query: "q", results: [res("ok", "https://e.com"), null] }] } })} />);
-    expect(screen.getByTestId("web-search-skipped").textContent).toContain("1 items could not be displayed");
+    expect(screen.getByTestId("web-search-skipped").textContent).toContain("1 item could not be displayed");
   });
 
   it("toggles through the header button", () => {
@@ -191,5 +192,103 @@ describe("WebSearchEntryCard — expanded", () => {
     render(<WebSearchEntryCard {...props({ onToggle })} />);
     fireEvent.click(screen.getByTestId("web-search-toggle"));
     expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── retro-ux-chat-rendering ────────────────────────────────────────────────
+// See change: retro-ux-chat-rendering (test-plan E12–E15, X1, X2).
+const PALETTE = /\b(?:bg|text|border)-(?:red|blue|cyan|green|yellow|orange|purple|amber|slate|gray|black|white)(?:-\d+)?/;
+
+describe("WebSearchEntryCard — UI-contract conformance", () => {
+  it("E12: collapsed summary counts failed queries and issues no fetch", () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const body = JSON.stringify({
+      type: "search",
+      queries: [
+        { query: "a", results: [{}, {}] },
+        { query: "b", error: "timeout", results: [] },
+        { query: "c", results: [] },
+      ],
+    });
+    render(<WebSearchEntryCard {...props({ body })} />);
+    expect(screen.getByTestId("web-search-summary").textContent).toBe("3 queries · 2 results · 1 failed");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("E13: errors are severity pills; links are underlined --link with a sr-only new-tab suffix", () => {
+    const payload = {
+      type: "search",
+      queries: [
+        { query: "q1", error: "Provider timeout", results: [] },
+        { query: "q2", results: [res("Doc", "https://example.com/doc", "snippet")] },
+      ],
+    };
+    const { container } = render(<WebSearchEntryCard {...props({ expanded: true, payload })} />);
+    const pill = screen.getByText("Provider timeout").closest("span[class*='severity-error']") as HTMLElement;
+    expect(pill.className).toContain("bg-[var(--severity-error-bg)]");
+    expect(pill.className).toContain("text-[var(--severity-error-fg)]");
+    expect(pill.querySelector("svg")!.getAttribute("aria-hidden")).toBe("true");
+
+    const a = container.querySelector("a")!;
+    expect(a.className).toContain("text-[var(--link)]");
+    expect(a.className).toContain("hover:text-[var(--link-hover)]");
+    expect(a.className).toContain("underline");
+    expect(a.getAttribute("target")).toBe("_blank");
+    expect(a.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(a.querySelector("svg")!.getAttribute("aria-hidden")).toBe("true");
+    expect(a.querySelector(".sr-only")!.textContent).toBe(" (opens in a new tab)");
+    expect(a.firstElementChild!.textContent).toBe("https://example.com/doc");
+    expect(container.innerHTML).not.toMatch(PALETTE);
+    expect(container.innerHTML).not.toContain("--text-muted");
+  });
+
+  it("E13: a fetch error is an error pill too", () => {
+    const payload = { type: "fetch", urlMetadata: [{ url: "https://e.org/q", title: "Q", error: "HTTP 404" }] };
+    render(<WebSearchEntryCard {...props({ expanded: true, payload })} />);
+    const item = screen.getByTestId("web-search-fetch-item");
+    expect(item.querySelector("[class*='severity-error-bg']")!.textContent).toBe("HTTP 404");
+  });
+
+  it("E14: loading is a role=status line with a spinner", () => {
+    render(<WebSearchEntryCard {...props({ expanded: true, payloadLoading: true })} />);
+    const el = screen.getByTestId("web-search-loading");
+    expect(el.getAttribute("role")).toBe("status");
+    expect(el.textContent).toBe("Loading details…");
+    expect(el.querySelector("svg.animate-spin")).not.toBeNull();
+  });
+
+  it.each([
+    [1, "1 item could not be displayed"],
+    [2, "2 items could not be displayed"],
+  ])("E15: %i malformed result(s) read '%s'", (n, text) => {
+    const results = [res("ok", "https://e.com"), ...Array.from({ length: n }, () => null)];
+    render(<WebSearchEntryCard {...props({ expanded: true, payload: { type: "search", queries: [{ query: "q", results }] } })} />);
+    expect(screen.getByTestId("web-search-skipped").textContent).toBe(text);
+  });
+
+  it("X1: an evicted payload is a warning notice (not an error), then the stored body", () => {
+    render(<WebSearchEntryCard {...props({ expanded: true, payloadError: "entry evicted" })} />);
+    const notice = screen.getByTestId("web-search-error");
+    expect(notice.className).toContain("--severity-warning-bg");
+    expect(notice.className).not.toContain("severity-error");
+    expect(notice.className).not.toMatch(/text-red/);
+    expect(notice.textContent).toContain("entry evicted");
+    expect(notice.textContent).toContain("saved with the chat");
+    expect(screen.getByTestId("web-search-fallback-body").textContent).toBe(searchBody);
+  });
+
+  it("X2: a request failure names its reason; the stored body stays plain text", () => {
+    const { container } = render(<WebSearchEntryCard {...props({ expanded: true, payloadError: "boom" })} />);
+    expect(screen.getByTestId("web-search-error").textContent).toContain("boom");
+    expect(screen.getByTestId("web-search-fallback-body").textContent).toBe(searchBody);
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  it("the row carries the tool-timeline inset (mx-4, mx-2 on mobile)", () => {
+    render(<WebSearchEntryCard {...props()} />);
+    const cls = screen.getByTestId("web-search-entry").className;
+    expect(cls).toContain("mx-4");
+    expect(cls).toContain("max-md:mx-2");
   });
 });

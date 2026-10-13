@@ -162,6 +162,18 @@ describe("add-mermaid-auto-repair — i18n sweep (X4)", () => {
       "preview.mermaid.autoFixed",
       "preview.mermaid.showOriginal",
       "preview.mermaid.copyFixed",
+      // See change: retro-ux-chat-rendering (test-plan E19)
+      "preview.mermaid.copied",
+      "preview.mermaid.copySource",
+      "preview.mermaid.errorHeadline",
+      "preview.mermaid.originalError",
+      "preview.mermaid.rendering",
+      "preview.mermaid.viewportName",
+      "preview.mermaid.zoomHint",
+      "preview.mermaid.zoomIn",
+      "preview.mermaid.zoomOut",
+      "preview.mermaid.zoomReset",
+      "customEntry.extensionEntry",
       ...["R1", "R2", "R3", "R4", "R5", "R6", "R7"].map((r) => `preview.mermaid.rule.${r}`),
     ]) {
       expect(zh, `zh-CN: ${key}`).toContain(`"${key}":`);

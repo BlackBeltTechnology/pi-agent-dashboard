@@ -1,6 +1,6 @@
 # DOX — tests/e2e
 
-One row per file. Non-source area; source of truth here. See change: migrate-file-index-to-agents-tree.
+One row per file. See change: migrate-file-index-to-agents-tree.
 
 | File | Purpose |
 |------|---------|
@@ -149,7 +149,8 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-clip` (F5–F8… → see `popover-container-clip.spec.ts.AGENTS.md` |
 | `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4, change: adopt-pi-074-0… → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
 | `quota-context-strip.spec.ts` | L3 (change: move-quota-to-context-strip; F7–F9, X3). Stubs… → see `quota-context-strip.spec.ts.AGENTS.md` |
-| `retro-ux-identity-connectivity.spec.ts` | L3 retro-ux probes. → see `retro-ux-identity-connectivity.spec.ts.AGENTS.md` |
+| `retro-ux-chat-rendering.spec.ts` | L3 → see `retro-ux-chat-rendering.spec.ts.AGENTS.md` |
+| `retro-ux-identity-connectivity.spec.ts` | L3 → see `retro-ux-identity-connectivity.spec.ts.AGENTS.md` |
 | `real-flow-regression.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests, D5 follow-up). → see `real-flow-regression.spec.ts.AGENTS.md` |
 | `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested at L1 in → see `reap-core.ts.AGENTS.md` |
 | `reasoning-auto-collapse.spec.ts` | Playwright E2E for reasoning-auto-collap… → see `reasoning-auto-collapse.spec.ts.AGENTS.md` |

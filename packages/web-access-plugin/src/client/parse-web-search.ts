@@ -23,10 +23,46 @@ export interface BodySummary {
   queries?: number;
   results?: number;
   urls?: number;
+  /**
+   * Queries (search) or URL entries (fetch) carrying an `error`. Only set when
+   * the list is intact and every item is an object, and omitted when zero.
+   */
+  failed?: number;
+}
+
+const hasError = (v: unknown): boolean => isObject(v) && typeof v.error === "string" && v.error !== "";
+
+function failedCount(items: unknown[]): number | undefined {
+  if (!items.every(isObject)) return undefined;
+  const n = items.filter(hasError).length;
+  return n > 0 ? n : undefined;
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function summarizeSearch(parsed: Record<string, unknown>): BodySummary {
+  const out: BodySummary = { type: "search" };
+  const queries = parsed.queries;
+  if (!Array.isArray(queries)) return out;
+  out.queries = queries.length;
+  const failed = failedCount(queries);
+  if (failed !== undefined) out.failed = failed;
+  if (queries.every((q) => isObject(q) && Array.isArray(q.results))) {
+    out.results = queries.reduce<number>((n, q) => n + (q as { results: unknown[] }).results.length, 0);
+  }
+  return out;
+}
+
+function summarizeFetch(parsed: Record<string, unknown>): BodySummary {
+  const out: BodySummary = { type: "fetch" };
+  const list = Array.isArray(parsed.urlMetadata) ? parsed.urlMetadata : Array.isArray(parsed.urls) ? parsed.urls : null;
+  if (!list) return out;
+  out.urls = list.length;
+  const failed = failedCount(list);
+  if (failed !== undefined) out.failed = failed;
+  return out;
 }
 
 /**
@@ -39,23 +75,8 @@ export function summarizeBody(body: string): BodySummary {
     if (LINE_TRUNCATION_MARKER.test(body) || body.length >= CUSTOM_BODY_MAX_CHARS) return {};
     const parsed: unknown = JSON.parse(body);
     if (!isObject(parsed)) return {};
-    if (parsed.type === "search") {
-      const out: BodySummary = { type: "search" };
-      const queries = parsed.queries;
-      if (Array.isArray(queries)) {
-        out.queries = queries.length;
-        if (queries.every((q) => isObject(q) && Array.isArray(q.results))) {
-          out.results = queries.reduce<number>((n, q) => n + ((q as { results: unknown[] }).results.length), 0);
-        }
-      }
-      return out;
-    }
-    if (parsed.type === "fetch") {
-      const out: BodySummary = { type: "fetch" };
-      if (Array.isArray(parsed.urlMetadata)) out.urls = parsed.urlMetadata.length;
-      else if (Array.isArray(parsed.urls)) out.urls = parsed.urls.length;
-      return out;
-    }
+    if (parsed.type === "search") return summarizeSearch(parsed);
+    if (parsed.type === "fetch") return summarizeFetch(parsed);
     return {};
   } catch {
     return {};

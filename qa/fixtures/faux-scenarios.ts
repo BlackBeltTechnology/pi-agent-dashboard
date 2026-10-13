@@ -481,6 +481,48 @@ export const WEB_SEARCH_TAIL = "web search entry sent";
 export const WEB_SEARCH_LINK = "https://example.com/e2e-web-result";
 export const WEB_SEARCH_SUMMARY = "2 queries · 8 results";
 
+/**
+ * `retro-ux-chat-rendering` scenario (change: retro-ux-chat-rendering). One chat
+ * holding every row the L3 matrix probes: generic custom entries (`e2e:kv`,
+ * `e2e:more` with 53 keys, `e2e:plain`), a web-search and a web-fetch entry (each
+ * with one failure), then an assistant message with three mermaid diagrams:
+ * valid, repairable (R4) and unrepairable.
+ */
+export const RETRO_UX_CHAT_TAIL = "retro ux chat states ready";
+export const RETRO_UX_SEARCH_PAYLOAD = {
+  id: "e2e-retro-search",
+  type: "search",
+  timestamp: 1700000000000,
+  queries: [
+    {
+      query: "mermaid flowchart label quoting",
+      provider: "exa",
+      answer: "Wrap node labels that contain parentheses or other special characters in double quotes.",
+      error: null,
+      results: [
+        { title: "Flowcharts syntax | Mermaid", url: "https://mermaid.js.org/syntax/flowchart.html", snippet: "Node labels with special characters must be quoted." },
+        { title: "Entity codes to escape characters", url: "https://mermaid.js.org/syntax/flowchart.html#entity-codes", snippet: "It is possible to escape characters." },
+      ],
+    },
+    { query: "mermaid edge label arrow syntax", provider: "exa", error: "Provider timeout after 20 s", results: [] },
+    { query: "mermaid ER attribute types", provider: "brave", error: null, results: [] },
+  ],
+};
+export const RETRO_UX_FETCH_PAYLOAD = {
+  id: "e2e-retro-fetch",
+  type: "fetch",
+  timestamp: 1700000000000,
+  urlMetadata: [
+    { url: "https://mermaid.js.org/syntax/flowchart.html", title: "Flowcharts syntax | Mermaid", contentLength: 48213, error: null },
+    { url: "https://example.org/missing", title: "", contentLength: 0, error: "HTTP 404" },
+  ],
+};
+export const RETRO_UX_SEARCH_SUMMARY = "3 queries · 2 results · 1 failed";
+export const RETRO_UX_FETCH_SUMMARY = "2 URLs · 1 failed";
+export const RETRO_UX_MERMAID_OK = "graph TD\n  A[Alpha] --> B[Bravo]";
+export const RETRO_UX_MERMAID_REPAIRABLE = "graph TD\n  A -->|(x)| B";
+export const RETRO_UX_MERMAID_BROKEN = "unknownDiagram\n  A --> B";
+
 /** Read `[[fanout:N]]` from any message; default 1, clamped 1..10. */
 export function fanoutWidth(context: FauxContext): number {
   for (const message of context.messages ?? []) {
@@ -2065,6 +2107,52 @@ export const SCENARIOS: Record<string, Scenario> = {
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage([fauxText(WEB_SEARCH_TAIL)]),
+    ],
+    expect: { toolName: "e2e_custom_entry" },
+  },
+
+  /**
+   * Every row the retro-ux chat-rendering L3 matrix probes, in one session
+   * (change: retro-ux-chat-rendering). Payload states of the web-search rows
+   * are reached by stubbing `/api/sessions/:id/entry/:entryId`, not here.
+   */
+  "retro-ux-chat-rendering": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_custom_entry", {
+            customType: "e2e:kv",
+            data: JSON.stringify({ branch: "main", dirty: false, openSubagents: 2, lastTool: { name: "bash", ok: true }, notes: null }),
+          }),
+          fauxToolCall("e2e_custom_entry", {
+            customType: "e2e:more",
+            data: JSON.stringify(Object.fromEntries(Array.from({ length: 53 }, (_, i) => [`key${String(i).padStart(2, "0")}`, i]))),
+          }),
+          fauxToolCall("e2e_custom_entry", {
+            customType: "e2e:plain",
+            data: JSON.stringify("quota exceeded: 4 of 4 concurrent subagents in use"),
+          }),
+          fauxToolCall("e2e_custom_entry", {
+            customType: "web-search-results",
+            data: JSON.stringify(RETRO_UX_SEARCH_PAYLOAD),
+          }),
+          fauxToolCall("e2e_custom_entry", {
+            customType: "web-search-results",
+            data: JSON.stringify(RETRO_UX_FETCH_PAYLOAD),
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      // A lone custom row after the burst: the standalone (non-absorbed) placement.
+      fauxAssistantMessage(
+        [fauxToolCall("e2e_custom_entry", { customType: "e2e:solo", data: JSON.stringify({ step: "standalone" }) })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([
+        fauxText(
+          `${RETRO_UX_CHAT_TAIL}\n\n\`\`\`mermaid\n${RETRO_UX_MERMAID_OK}\n\`\`\`\n\n\`\`\`mermaid\n${RETRO_UX_MERMAID_REPAIRABLE}\n\`\`\`\n\n\`\`\`mermaid\n${RETRO_UX_MERMAID_BROKEN}\n\`\`\``,
+        ),
+      ]),
     ],
     expect: { toolName: "e2e_custom_entry" },
   },

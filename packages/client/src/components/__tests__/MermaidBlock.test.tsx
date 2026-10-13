@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { I18nProvider, useI18n } from "../../lib/i18n/i18n.js";
 import { ThemeProvider, useThemeContext } from "../settings/ThemeProvider.js";
 
 // Mock mermaid module
@@ -172,7 +173,7 @@ describe("MermaidBlock", () => {
     renderWithTheme(<MermaidBlock code="invalid diagram" />);
 
     await waitFor(() => {
-      expect(screen.getByText(/failed to render/i)).toBeTruthy();
+      expect(screen.getByText(/could not be rendered/i)).toBeTruthy();
     });
     expect(screen.getByText("invalid diagram")).toBeTruthy();
   });
@@ -186,7 +187,7 @@ describe("MermaidBlock", () => {
 
     // Wait for loading state to appear (confirms effect has started)
     await waitFor(() => {
-      expect(screen.getByText(/loading diagram/i)).toBeTruthy();
+      expect(screen.getByText(/rendering diagram/i)).toBeTruthy();
     });
 
     // Unmount while render is still pending
@@ -206,7 +207,7 @@ describe("MermaidBlock", () => {
     // First render — populates error cache
     const { container: c1, unmount } = renderWithTheme(<MermaidBlock code="cache-err-diagram" />);
     await waitFor(() => {
-      expect(c1.textContent).toMatch(/failed to render/i);
+      expect(c1.textContent).toMatch(/could not be rendered/i);
     });
     expect(mockRender).toHaveBeenCalledTimes(1);
 
@@ -216,8 +217,8 @@ describe("MermaidBlock", () => {
     // Remount with same code — error shows immediately, no loading flash,
     // and mermaid.render() is NOT called again.
     const { container: c2 } = renderWithTheme(<MermaidBlock code="cache-err-diagram" />);
-    expect(c2.textContent).toMatch(/failed to render/i);
-    expect(c2.textContent).not.toMatch(/loading diagram/i);
+    expect(c2.textContent).toMatch(/could not be rendered/i);
+    expect(c2.textContent).not.toMatch(/rendering diagram/i);
     expect(mockRender).not.toHaveBeenCalled();
   });
 
@@ -337,7 +338,7 @@ describe("MermaidBlock auto-repair", () => {
 
   const badge = (c: HTMLElement) => c.querySelector('[data-testid="mermaid-repair-badge"]');
   const ruleCodes = (c: HTMLElement) =>
-    [...c.querySelectorAll('[data-testid="mermaid-repair-rule"]')].map((e) => e.textContent);
+    [...c.querySelectorAll('[data-testid="mermaid-repair-rule"]')].map((e) => e.getAttribute("data-rule"));
   const toggle = () => screen.getByRole("button", { name: /show original/i });
   const viewport = (c: HTMLElement) => c.querySelector(".mermaid-diagram-inner")!.parentElement as HTMLElement;
   const scaleOf = (c: HTMLElement) =>
@@ -367,7 +368,7 @@ describe("MermaidBlock auto-repair", () => {
     it("fail + no rule → original error, 1 render call", async () => {
       mockRender.mockRejectedValueOnce(new Error("E1"));
       const { container } = renderWithTheme(<MermaidBlock code={"unknownDiagram\nA-->B"} />);
-      await waitFor(() => expect(container.textContent).toMatch(/failed to render.*E1/i));
+      await waitFor(() => expect(container.textContent).toMatch(/could not be rendered.*E1/i));
       expect(mockRender).toHaveBeenCalledTimes(1);
       expect(badge(container)).toBeNull();
     });
@@ -387,7 +388,7 @@ describe("MermaidBlock auto-repair", () => {
     it("fail + rule + fail → original error from call 1, 2 calls", async () => {
       mockRender.mockRejectedValueOnce(new Error("E1")).mockRejectedValueOnce(new Error("E2"));
       const { container } = renderWithTheme(<MermaidBlock code={REPAIRABLE} />);
-      await waitFor(() => expect(container.textContent).toMatch(/failed to render/i));
+      await waitFor(() => expect(container.textContent).toMatch(/could not be rendered/i));
       expect(mockRender).toHaveBeenCalledTimes(2);
       expect(container.textContent).toContain("E1");
       expect(badge(container)).toBeNull();
@@ -399,7 +400,7 @@ describe("MermaidBlock auto-repair", () => {
     await act(async () => {});
     expect(mockRender).not.toHaveBeenCalled();
     expect(repairMermaid).not.toHaveBeenCalled();
-    expect(screen.getByText(/loading diagram/i)).toBeTruthy();
+    expect(screen.getByText(/rendering diagram/i)).toBeTruthy();
   });
 
   it("remount with cached repaired outcome shows SVG + badge immediately (F1)", async () => {
@@ -407,7 +408,7 @@ describe("MermaidBlock auto-repair", () => {
     unmount();
     const calls = mockRender.mock.calls.length;
     const { container } = renderWithTheme(<MermaidBlock code={REPAIRABLE} />);
-    expect(container.textContent).not.toMatch(/loading diagram/i);
+    expect(container.textContent).not.toMatch(/rendering diagram/i);
     expect(container.querySelector(".mermaid-diagram svg")).not.toBeNull();
     expect(ruleCodes(container)).toEqual(["R4"]);
     expect(mockRender).toHaveBeenCalledTimes(calls);
@@ -416,12 +417,12 @@ describe("MermaidBlock auto-repair", () => {
   it("remount with cached error shows error immediately (F2)", async () => {
     mockRender.mockRejectedValue(new Error("E1"));
     const { container: c1, unmount } = renderWithTheme(<MermaidBlock code={"unknownDiagram\nA-->B"} />);
-    await waitFor(() => expect(c1.textContent).toMatch(/failed to render/i));
+    await waitFor(() => expect(c1.textContent).toMatch(/could not be rendered/i));
     unmount();
     const calls = mockRender.mock.calls.length;
     const { container } = renderWithTheme(<MermaidBlock code={"unknownDiagram\nA-->B"} />);
-    expect(container.textContent).toMatch(/failed to render.*E1/i);
-    expect(container.textContent).not.toMatch(/loading diagram/i);
+    expect(container.textContent).toMatch(/could not be rendered.*E1/i);
+    expect(container.textContent).not.toMatch(/rendering diagram/i);
     expect(mockRender).toHaveBeenCalledTimes(calls);
   });
 
@@ -432,7 +433,7 @@ describe("MermaidBlock auto-repair", () => {
     const { container } = renderWithTheme(<MermaidBlock code={raw} />);
     fireEvent.click(toggle());
     expect(container.querySelector("pre code")!.textContent).toBe(raw);
-    expect(container.textContent).toMatch(/failed to render.*E1/i);
+    expect(container.textContent).toMatch(/original render error.*E1/i);
   });
 
   it("show original hides the diagram from the keyboard (F4)", async () => {
@@ -534,14 +535,15 @@ describe("MermaidBlock auto-repair", () => {
     expect(container.querySelector("pre code")).toBeNull();
   });
 
-  it("each rule code exposes a localized description (F8)", async () => {
+  it("each rule shows its description as visible text, code only in data-rule (F8, E1)", async () => {
     const { container } = await mountRepaired("graph TD\nA[x (y)] -->|z| B");
     expect(ruleCodes(container)).toEqual(["R4", "R5"]);
-    for (const el of container.querySelectorAll('[data-testid="mermaid-repair-rule"]')) {
-      const id = el.getAttribute("aria-describedby");
-      expect(id).toBeTruthy();
-      expect(document.getElementById(id!)?.textContent?.trim()).toBeTruthy();
-    }
+    const pill = container.querySelector('[data-testid="mermaid-repair-badge"]')!;
+    expect(pill.textContent).toContain("Auto-fixed");
+    const rules = [...container.querySelectorAll('[data-testid="mermaid-repair-rule"]')];
+    expect(rules[0].textContent).toBe("Quoted an edge label");
+    expect(rules[1].textContent).toBe("Quoted a node label containing special characters");
+    for (const el of rules) expect(el.textContent).not.toMatch(/^R\d$/);
   });
 
   it("unmount during the repair retry caches the repaired outcome (F10)", async () => {
@@ -577,7 +579,7 @@ describe("MermaidBlock auto-repair", () => {
   it("unrepairable diagram keeps the error display (X1)", async () => {
     mockRender.mockRejectedValue(new Error("E1"));
     const { container } = renderWithTheme(<MermaidBlock code={"unknownDiagram\nA-->B"} />);
-    await waitFor(() => expect(container.textContent).toMatch(/failed to render.*E1/i));
+    await waitFor(() => expect(container.textContent).toMatch(/could not be rendered.*E1/i));
     expect(container.querySelector("pre code")!.textContent).toBe("unknownDiagram\nA-->B");
     expect(badge(container)).toBeNull();
     expect(mockRender).toHaveBeenCalledTimes(1);
@@ -586,7 +588,7 @@ describe("MermaidBlock auto-repair", () => {
   it("repair still failing shows the ORIGINAL error, never the retry error (X2)", async () => {
     mockRender.mockRejectedValueOnce(new Error("E1")).mockRejectedValueOnce(new Error("E2"));
     const { container } = renderWithTheme(<MermaidBlock code={REPAIRABLE} />);
-    await waitFor(() => expect(container.textContent).toMatch(/failed to render/i));
+    await waitFor(() => expect(container.textContent).toMatch(/could not be rendered/i));
     expect(container.textContent).toContain("E1");
     expect(container.textContent).not.toContain("E2");
   });
@@ -597,8 +599,204 @@ describe("MermaidBlock auto-repair", () => {
     });
     mockRender.mockRejectedValueOnce(new Error("E1"));
     const { container } = renderWithTheme(<MermaidBlock code={REPAIRABLE} />);
-    await waitFor(() => expect(container.textContent).toMatch(/failed to render.*E1/i));
+    await waitFor(() => expect(container.textContent).toMatch(/could not be rendered.*E1/i));
     expect(mockRender).toHaveBeenCalledTimes(1);
     expect(badge(container)).toBeNull();
+  });
+});
+
+
+// ── retro-ux-chat-rendering ────────────────────────────────────────────────
+// See change: retro-ux-chat-rendering (test-plan E2–E5, E9, F1–F3).
+describe("MermaidBlock retro-ux chat rendering", () => {
+  const REPAIRABLE = "graph TD\nA -->|(x)| B"; // R4
+  const SVG = '<svg viewBox="0 0 1000 400"><text>fixed</text></svg>';
+  const PALETTE = /\b(?:bg|text|border)-(?:red|blue|cyan|green|yellow|orange|purple|amber|slate|gray|black|white)(?:-\d+)?/;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _outcomeCache.clear();
+    localStorage.clear();
+  });
+
+  const viewportOf = (c: HTMLElement) =>
+    c.querySelector(".mermaid-diagram-inner")!.parentElement as HTMLElement;
+  const scaleOf = (c: HTMLElement) =>
+    (c.querySelector(".mermaid-diagram-inner") as HTMLElement).style.transform.match(/scale\(([^)]+)\)/)![1];
+
+  async function mountOk() {
+    mockRender.mockResolvedValue({ svg: SVG });
+    const utils = renderWithTheme(<MermaidBlock code={"graph TD\nA-->B"} />);
+    await waitFor(() => expect(utils.container.querySelector(".mermaid-diagram-inner")).not.toBeNull());
+    return utils;
+  }
+
+  async function mountRepaired() {
+    mockRender.mockRejectedValueOnce(new Error("E1")).mockResolvedValueOnce({ svg: SVG });
+    const utils = renderWithTheme(<MermaidBlock code={REPAIRABLE} />);
+    await waitFor(() => expect(utils.container.querySelector('[data-testid="mermaid-repair-badge"]')).not.toBeNull());
+    return utils;
+  }
+
+  it("E2: show-original is aria-pressed, copy fixed is named, badge row has no palette class", async () => {
+    const { container } = await mountRepaired();
+    const toggle = screen.getByRole("button", { name: /show original/i });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: /copy fixed source/i })).toBeTruthy();
+    const badge = container.querySelector('[data-testid="mermaid-repair-badge"]')!;
+    const classes = [badge, ...badge.querySelectorAll("*")].map((e) => e.getAttribute("class") ?? "").join(" ");
+    expect(classes).not.toMatch(PALETTE);
+  });
+
+  it("E3: loading is a role=status spinner with 'Rendering diagram…', no --text-muted", async () => {
+    // The render queue is global: settle the pending render at the end so later tests are not blocked.
+    let settle!: (v: { svg: string }) => void;
+    mockRender.mockReturnValue(new Promise<{ svg: string }>((r) => { settle = r; }));
+    const { container, unmount } = renderWithTheme(<MermaidBlock code="graph TD; A-->B" />);
+    const status = await screen.findByRole("status");
+    expect(status.textContent).toBe("Rendering diagram…");
+    expect(status.querySelector("svg.animate-spin")).not.toBeNull();
+    expect(status.className).toContain("text-[var(--text-secondary)]");
+    expect(container.innerHTML).not.toContain("--text-muted");
+    unmount();
+    await act(async () => settle({ svg: SVG }));
+  });
+
+  describe("E4: unrepairable decision table renders the error callout", () => {
+    const cases: Array<[string, string, () => void]> = [
+      ["unknown type", "unknownDiagram\nA-->B", () => mockRender.mockRejectedValue(new Error("E1"))],
+      [
+        "rules apply but retry fails",
+        REPAIRABLE,
+        () => mockRender.mockRejectedValueOnce(new Error("E1")).mockRejectedValueOnce(new Error("E2")),
+      ],
+    ];
+    it.each(cases)("%s", async (_name, code, arrange) => {
+      arrange();
+      const { container } = renderWithTheme(<MermaidBlock code={code} />);
+      await waitFor(() => expect(container.querySelector('[data-testid="mermaid-error"]')).not.toBeNull());
+      const err = container.querySelector('[data-testid="mermaid-error"]')!;
+      expect(err.textContent).toContain("This diagram could not be rendered.");
+      expect(err.textContent).toContain("E1");
+      expect(err.querySelector("pre code")!.textContent).toBe(code);
+      expect(err.innerHTML).toContain("--severity-error-bg");
+      expect(err.innerHTML).toContain("--severity-error-fg");
+      expect(err.innerHTML).toContain("--severity-error-border");
+      expect(err.innerHTML).not.toMatch(/text-red-400|bg-red-900/);
+    });
+
+    it("same failing code remounted: no loading flash and no second render", async () => {
+      mockRender.mockRejectedValue(new Error("E1"));
+      const first = renderWithTheme(<MermaidBlock code={"unknownDiagram\nA-->B"} />);
+      await waitFor(() => expect(first.container.querySelector('[data-testid="mermaid-error"]')).not.toBeNull());
+      first.unmount();
+      const calls = mockRender.mock.calls.length;
+      const second = renderWithTheme(<MermaidBlock code={"unknownDiagram\nA-->B"} />);
+      expect(second.container.querySelector('[data-testid="mermaid-error"]')).not.toBeNull();
+      expect(screen.queryByRole("status")).toBeNull();
+      expect(mockRender).toHaveBeenCalledTimes(calls);
+    });
+  });
+
+  it("E5: Copy source copies the original source once", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    mockRender.mockRejectedValue(new Error("E1"));
+    const code = "unknownDiagram\n  A-->B";
+    const { container } = renderWithTheme(<MermaidBlock code={code} />);
+    const btn = await waitFor(() => {
+      const b = container.querySelector('[data-testid="mermaid-copy-source"]');
+      expect(b).not.toBeNull();
+      return b as HTMLElement;
+    });
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(code);
+  });
+
+  it("E9: zoom buttons take their names and titles from the Hungarian catalog", async () => {
+    function SwitchToHu() {
+      const { setLanguage } = useI18n();
+      return (
+        <>
+          <button type="button" data-testid="to-hu" onClick={() => setLanguage("hu")} />
+          <button type="button" data-testid="to-en" onClick={() => setLanguage("en")} />
+        </>
+      );
+    }
+    mockRender.mockResolvedValue({ svg: SVG });
+    const { container, getByTestId } = render(
+      <I18nProvider>
+        <ThemeProvider>
+          <SwitchToHu />
+          <MermaidBlock code={"graph TD\nA-->B"} />
+        </ThemeProvider>
+      </I18nProvider>,
+    );
+    try {
+      act(() => getByTestId("to-hu").click());
+      await waitFor(() => expect(container.querySelector(".mermaid-diagram-inner")).not.toBeNull());
+      fireEvent.click(viewportOf(container));
+      for (const name of ["Nagyítás", "Kicsinyítés", "Nagyítás visszaállítása"]) {
+        const btn = container.querySelector(`button[aria-label="${name}"]`) as HTMLButtonElement | null;
+        expect(btn, name).not.toBeNull();
+        expect(btn!.title).toBe(name);
+      }
+    } finally {
+      act(() => getByTestId("to-en").click());
+    }
+  });
+
+  it("F1: viewport is a named tab stop; Enter activates, Escape leaves with focus on the viewport", async () => {
+    const { container } = await mountOk();
+    const vp = viewportOf(container);
+    expect(vp.getAttribute("tabindex")).toBe("0");
+    expect(vp.getAttribute("role")).toBe("group");
+    expect(vp.getAttribute("aria-label")).toBe("Diagram. Press Enter to zoom and pan, Escape to leave.");
+    expect(vp.querySelectorAll("button")).toHaveLength(0);
+
+    vp.focus();
+    expect(document.activeElement).toBe(vp);
+    fireEvent.keyDown(vp, { key: "Enter" });
+    const zoomIn = screen.getByRole("button", { name: "Zoom in" });
+    // Zoom buttons are inside the viewport and precede the diagram, so the next Tab lands on them.
+    expect(vp.contains(zoomIn)).toBe(true);
+    expect(vp.firstElementChild).toBe(zoomIn.parentElement);
+
+    zoomIn.focus();
+    fireEvent.keyDown(zoomIn, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "Zoom in" })).toBeNull();
+    expect(document.activeElement).toBe(vp);
+  });
+
+  it("F2: focus passing through the viewport does not activate zoom; wheel is untouched", async () => {
+    const { container } = await mountOk();
+    const vp = viewportOf(container);
+    const before = scaleOf(container);
+    vp.focus();
+    const wheel = new WheelEvent("wheel", { deltaY: -120, cancelable: true, bubbles: true });
+    vp.dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(false);
+    expect(scaleOf(container)).toBe(before);
+    vp.blur();
+    expect(screen.queryByRole("button", { name: "Zoom in" })).toBeNull();
+    expect(scaleOf(container)).toBe(before);
+  });
+
+  it("F3: hint is a pill without a scrim; the activated viewport uses --focus-ring, not blue", async () => {
+    const { container } = await mountOk();
+    const vp = viewportOf(container);
+    const hint = screen.getByText("Enter or click to zoom");
+    expect(hint.className).not.toContain("bg-black");
+    expect(hint.parentElement!.className).not.toContain("bg-black");
+    expect(vp.querySelector("[class*='bg-black']")).toBeNull();
+    fireEvent.click(vp);
+    expect(vp.className).toContain("focus-ring");
+    expect(vp.className).toContain("border-[var(--focus-ring)]");
+    expect(vp.className).not.toContain("border-blue-500");
   });
 });
