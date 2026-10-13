@@ -32,21 +32,21 @@ async function sessionIds(page: import("@playwright/test").Page): Promise<string
   return (body.data as Array<{ id: string }>).map((s) => s.id);
 }
 
-/** `instanceId` of the serving dashboard generation, or undefined while down. */
+/** `startedAt` of the serving dashboard process (changes per restart), or undefined while down. */
 async function healthInstance(): Promise<string | undefined> {
   try {
     const res = await fetch(`http://localhost:${DASHBOARD_PORT}/api/health`);
     if (!res.ok) return undefined;
-    const body = (await res.json()) as { ok?: boolean; instanceId?: string };
-    return body.ok === true ? body.instanceId : undefined;
+    const body = (await res.json()) as { ok?: boolean; startedAt?: string };
+    return body.ok === true ? body.startedAt : undefined;
   } catch {
     return undefined;
   }
 }
 
 /**
- * Restart and PROVE a new server generation serves: the health `instanceId`
- * must change. Otherwise a refused restart (old server still up) would pass the
+ * Restart and PROVE a new server process serves: the health `startedAt`
+ * must change (`instanceId` is persisted and survives a restart). Otherwise a refused restart (old server still up) would pass the
  * health poll without ever exercising the reconnect replay under test.
  */
 async function restartDashboard(): Promise<void> {
