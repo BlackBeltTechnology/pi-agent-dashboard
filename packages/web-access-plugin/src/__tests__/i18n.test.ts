@@ -14,4 +14,13 @@ describe("web-access catalog", () => {
       for (const [k, v] of Object.entries(catalog[locale])) expect(v, `${locale}.${k}`).toBeTruthy();
     }
   });
+  // See change: retro-ux-chat-rendering (test-plan E19)
+  it("E19: failed, skipped plural, new-tab suffix and details notice exist in both locales", () => {
+    for (const locale of ["zh-CN", "hu"] as const) {
+      for (const key of ["failedOne", "failedOther", "skippedItemsOne", "skippedItemsOther", "opensInNewTab", "detailsUnavailable", "loading"]) {
+        expect(catalog[locale], `${locale}.${key}`).toHaveProperty(key);
+      }
+      expect(catalog[locale]).not.toHaveProperty("skippedItems");
+    }
+  });
 });

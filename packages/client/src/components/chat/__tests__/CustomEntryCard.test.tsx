@@ -29,7 +29,14 @@ vi.mock("../FallbackKeyValueList.js", async (importOriginal) => {
   };
 });
 
-afterEach(() => cleanup());
+// E17 seam: the row inset follows useMobile, like ToolCallStep.
+const mobile = vi.hoisted(() => ({ value: false }));
+vi.mock("../../../hooks/useMobile.js", () => ({ useMobile: () => mobile.value }));
+
+afterEach(() => {
+  cleanup();
+  mobile.value = false;
+});
 
 describe("CustomEntryCard", () => {
   it("renders the customType label and the visible body", () => {
@@ -213,5 +220,43 @@ describe("CustomEntryCard structured view", () => {
     } finally {
       kv.throwing = false;
     }
+  });
+});
+
+// See change: retro-ux-chat-rendering (test-plan E16, E17)
+describe("CustomEntryCard — contract conformance", () => {
+  const PALETTE = /\b(?:bg|text|border)-(?:red|blue|cyan|green|yellow|orange|purple|amber|slate|gray|black|white)(?:-\d+)?/;
+
+  it("E16: neutral mono --text-primary type label with an 'extension entry' meta, icon aria-hidden", () => {
+    const { container } = render(
+      <CustomEntryCard customType="my-ext:state" body={'{"a":1}'} timestamp={1756300000000} />,
+    );
+    const label = screen.getByText("my-ext:state");
+    expect(label.className).toContain("font-mono");
+    expect(label.className).toContain("text-[var(--text-primary)]");
+    const meta = screen.getByText("extension entry");
+    expect(meta.className).toContain("text-[var(--text-secondary)]");
+    expect(container.querySelector("svg")!.getAttribute("aria-hidden")).toBe("true");
+    expect(container.innerHTML).not.toMatch(PALETTE);
+    expect(container.innerHTML).not.toContain("--text-tertiary");
+  });
+
+  it("E17: '3 more keys' is --text-secondary, the time is >= 12px, the inset matches the tool rows", () => {
+    const body = JSON.stringify(Object.fromEntries(Array.from({ length: 53 }, (_, i) => [`k${i}`, i])));
+    const { container } = render(<CustomEntryCard customType="x" body={body} timestamp={1756300000000} />);
+    const more = screen.getByText("3 more keys");
+    expect(more.className).toContain("text-[var(--text-secondary)]");
+    const time = screen.getByText("extension entry").nextElementSibling as HTMLElement;
+    expect(time.className).toContain("text-[12px]");
+    const root = container.querySelector('[data-testid="custom-entry-card"]') as HTMLElement;
+    expect(root.className).toContain("mx-4");
+    expect(root.className).not.toMatch(/\bmx-2\b/);
+
+    cleanup();
+    mobile.value = true;
+    const m = render(<CustomEntryCard customType="x" body={body} timestamp={1756300000000} />);
+    const mobileRoot = m.container.querySelector('[data-testid="custom-entry-card"]') as HTMLElement;
+    expect(mobileRoot.className).toMatch(/\bmx-2\b/);
+    expect(mobileRoot.className).not.toContain("mx-4");
   });
 });

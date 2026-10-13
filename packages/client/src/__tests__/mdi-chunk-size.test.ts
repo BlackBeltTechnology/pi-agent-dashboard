@@ -29,7 +29,10 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // Raised 910 → 920 KB (user-approved): develop CI measured 934,064 B (912 KB),
 // over the cap with no single offending change; red CI blocked every PR.
 // A size win is still owed before any further raise.
-const INDEX_GZ_CAP_BYTES = 920 * 1024;
+// Raised 920 → 930 KB by retro-ux-chat-rendering (user-approved): the change's
+// zh-CN/hu catalog keys, always-rendered CustomEntryCard and ZoomControls text
+// measured 942,485 B (920.4 KB) in CI; the extra 10 KB is headroom for the next change.
+const INDEX_GZ_CAP_BYTES = 930 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

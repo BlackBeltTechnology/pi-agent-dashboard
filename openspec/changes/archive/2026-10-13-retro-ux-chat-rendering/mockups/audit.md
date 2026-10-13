@@ -45,3 +45,13 @@ See `ui-plan.md` § Verdicts. Decisions needing approval: M1–M6, W1–W6, C1, 
 Doubt-review cycle 2 follow-ups (user, via `ask_user`): web-search links use `--link` rather than `--text-primary` (contract link row, matches markdown links); Escape returns focus to the diagram viewport. Board corrected to the spec: the original view shows the original render error; each repaired rule is its own `mermaid-repair-rule` element with `data-rule`; zoom buttons carry `title`. Re-probed: proposed 0 failures in all three themes, as-built 113.
 
 Design D2 (mermaid colour fallbacks): option A, keep them as a documented jsdom-only exception plus a guard test. Measurement: all 18 palette modes define the six accents and `--text-primary` as `#hex`, so the fallbacks never paint in the browser.
+
+## As-built reconciliation (implementation, 2026-10-13)
+
+`mockups/after/{mermaid,web-search,custom-entry}/` hold the real-render screenshots (`captureStates`, 3 themes × 3 widths) and the L3 probe matrix passes with 0 contrast, size and focus failures (spec `retro-ux-chat-rendering.spec.ts` G1–G3). Differences from the board, all deliberate:
+
+- Evicted payload: the host passes the plugin only a reason string, so the warning notice reads "Full details are not available (<reason>). Showing the summary that was saved with the chat." rather than naming eviction specifically.
+- The show-original view uses the headline "Original render error" and no Copy button (the Copy fixed button is in the badge row).
+- Measured probe roots: the callout's `<strong>`/`<code>` are not elements the repo's `measureText` selects; the `original` and `zoomed` states therefore probe the badge row and the zoom controls with the percentage readout.
+- `ai-*` states are not built (`add-mermaid-ai-repair` has not landed, task 0.2); the callout they sit in is.
+- Found by the L3 run: after Escape the zoom buttons unmount and drop focus to `<body>`; focus is now restored to the viewport in an effect after the state commit.
