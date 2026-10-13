@@ -1,6 +1,9 @@
 /**
  * The field family sits below the client: it must not import from
  * `packages/client` or `client-utils` (test-plan #E7).
+ *
+ * @structural-pin the runtime sits below the client, so a client import is a layering violation that only the import specifiers can show
+ *
  * See change: retro-ux-plugin-settings-forms.
  */
 import { readFileSync } from "node:fs";

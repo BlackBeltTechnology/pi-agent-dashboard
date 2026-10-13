@@ -4,6 +4,8 @@
  * (`ui-contract.md` § Colour roles). `scripts/theme-token-guard.mjs` does not
  * scan this tree, so this test is the gate (test-plan #E16).
  *
+ * @structural-pin the section must paint only through theme tokens and keep the strict model-selector lookup; neither is observable from rendered output, and theme-token-guard does not scan this tree
+ *
  * See change: retro-ux-plugin-settings-forms.
  */
 import { readFileSync } from "node:fs";

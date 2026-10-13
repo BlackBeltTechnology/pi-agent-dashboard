@@ -4,6 +4,8 @@
  * (`ui-contract.md` § Colour roles). `scripts/theme-token-guard.mjs` does not
  * scan this tree, so this test is the gate (test-plan #E12).
  *
+ * @structural-pin the form must paint only through theme tokens; no behavioural test can observe an absent palette class or --accent text colour, and theme-token-guard does not scan this tree
+ *
  * See change: retro-ux-plugin-settings-forms.
  */
 import { readFileSync } from "node:fs";
