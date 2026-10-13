@@ -286,7 +286,13 @@ import { defaultCommandRunner } from "./services/command-runner.js";
 import { servicesPaths } from "./services/paths.js";
 import { registerServiceRoutes } from "./services/routes.js";
 import { ServiceManager } from "./services/service-manager.js";
+import { createVaultDeliveryHub } from "./vault/vault-delivery-hub.js";
+import { createPluginVaultReader } from "./vault/vault-plugin-read.js";
+import { createVaultImport, defaultKnownLocations } from "./vault/vault-import.js";
+import { registerVaultRoutes } from "./vault/vault-routes.js";
+import { createVaultStore } from "./vault/vault-store.js";
 import { createArchiveSweeper } from "./session/archive-sweeper.js";
+import { originOf } from "./session/session-origin.js";
 import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
 import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
@@ -1581,8 +1587,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // distinguish-tool-result-pending-vs-gone (D2, D6).
   const inFlightToolCalls = createInFlightToolCalls();
   const toolResultStats: ToolResultStats = { pending: 0, gone: 0 };
+  // Credential vault: store + delivery hub. The hub answers bridge sync
+  // requests and pushes on every vault write / config change; values travel only
+  // on the session-private bridge lane. See change: add-credential-vault.
+  const vaultStore = createVaultStore();
+  const vaultDelivery = createVaultDeliveryHub({
+    store: vaultStore,
+    getOrigin: (sessionId) => {
+      const session = sessionManager.get(sessionId);
+      return session ? originOf(session) : undefined;
+    },
+    send: (sessionId, msg) => piGateway.sendToSession(sessionId, msg),
+    isSessionConnected: (sessionId) => piGateway.getConnectedSessionIds().includes(sessionId),
+    isDeliveryEnabled: () => loadConfig().vault.deliveryEnabled,
+    getGraceHours: () => loadConfig().vault.offlineGraceHours,
+  });
   wireEvents({
     inFlightToolCalls,
+    vaultDelivery,
     // Lazy: `yolo` is constructed further down; a pre-init call throws and the
     // handler declines. See change: yolo-covers-agent-path-gate.
     decideAgentPath: (p) =>
@@ -2380,7 +2402,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     console.log("[dashboard] No client build found — running in API-only mode");
   }
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
+  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.
@@ -2418,6 +2440,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     discoverOffers: () => discoverServiceOffers(resolveInstallRoot(fileURLToPath(import.meta.url))),
   });
   registerServiceRoutes(fastify, { manager: serviceManager, networkGuard, localTrust });
+  // Credential vault: hub-owned accounts, bindings and per-project grants.
+  // Management routes need operate authority or local trust; values never leave
+  // through them. See change: add-credential-vault.
+  registerVaultRoutes(fastify, {
+    store: vaultStore,
+    importer: createVaultImport({ store: vaultStore, candidates: () => defaultKnownLocations() }),
+    networkGuard,
+    localTrust,
+    getSessionBindingState: (sessionId) => vaultDelivery.getSessionState(sessionId),
+    getPluginDeclarations: () =>
+      discoverPlugins()
+        .filter((p) => (p.manifest.vaultBindings?.length ?? 0) > 0)
+        .map((p) => ({ pluginId: p.manifest.id, displayName: p.manifest.displayName, declared: p.manifest.vaultBindings ?? [] })),
+  });
   // Pi runtime discovery + atomic dual selection. See change: select-pi-runtime-install.
   registerPiRuntimeRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
   // Node family discovery + atomic triple selection (node+npm+npx).
@@ -3657,6 +3693,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // the calling plugin's manifest id. See change:
               // expose-plugin-credential-and-oauth-seams (D2, D3, D7).
               pluginCredentials: (id) => createPluginCredentialStore(id),
+              // Declared + user-approved vault reads, bound to this plugin's manifest.
+              // See change: add-credential-vault (D4).
+              pluginVault: (id) => createPluginVaultReader(vaultStore, id, plugin.manifest.vaultBindings ?? []),
               startPluginOAuthFlow: async (id, opts) => {
                 const res = await beginFlow({
                   provider: pluginFlowProvider(id, opts.key),
@@ -4511,6 +4550,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
       pendingForkRegistry.dispose();
       pairingManager.dispose();
+      vaultDelivery.dispose();
       // Every pending ack holds a timer; a create/stop cycle must not leak them.
       // See change: fix-spawn-correlation-ttl-coupling (D7).
       pendingPromptAcks.dispose();

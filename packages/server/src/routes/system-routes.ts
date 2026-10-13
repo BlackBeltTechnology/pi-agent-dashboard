@@ -163,6 +163,8 @@ export function registerSystemRoutes(
     networkGuard: NetworkGuard;
     version?: string;
     directoryService?: DirectoryService;
+    /** Called after a `PUT /api/config` that touched `vault`, so delivery switches apply live. See change: add-credential-vault. */
+    onVaultConfigChanged?: () => void;
     piGateway?: PiGateway;
     browserGateway?: {
       broadcastToAll: (msg: ServerToBrowserMessage) => void;
@@ -565,6 +567,9 @@ export function registerSystemRoutes(
           await (fastify as any)._reloadAuth(reloaded.auth, reloaded);
         }
       }
+      // The delivery switch and grace are read live by the vault hub; push the
+      // new state to connected sessions now (a disable withdraws their values).
+      if (partial.vault !== undefined) deps.onVaultConfigChanged?.();
       if (partial.openspec !== undefined && directoryService) {
         directoryService.reconfigurePolling(reloaded.openspec);
         // Live pages re-hydrate the fleet switches (offerInitialization /

@@ -4,9 +4,10 @@
  * Creates a ServerPluginContext scoped to a specific plugin id,
  * with a namespaced logger and typed config accessors.
  */
-import { paneTabPrefixOf } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
+
 import { isAbsolute } from "node:path";
 import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { paneTabPrefixOf } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import type { BrowserLoginConfig, HostAccessPolicyFn, HostResource, Principal, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -748,6 +749,17 @@ export interface PluginProviderAuth {
 // ── Plugin credential store ─────────────────────────────────────────────────
 
 /** One stored plugin credential record: a plain JSON object. */
+/**
+ * Read access to the vault bindings this plugin's manifest declares
+ * (`vaultBindings`) and the user approved in Settings. Returns the binding's
+ * default-account value, or `undefined` when undeclared, unapproved, revoked or
+ * unconfigured. Server-wide, not project-scoped. Never lists other bindings.
+ * See change: add-credential-vault (D4).
+ */
+export interface PluginVault {
+  read(bindingName: string): Promise<string | undefined>;
+}
+
 export type PluginCredentialRecord = Record<string, unknown>;
 
 /**
@@ -1058,6 +1070,11 @@ export interface ServerPluginContext {
    */
   credentials?: PluginCredentials;
   /**
+   * Declared + approved vault reads. Optional — absent on hosts that do not wire it.
+   * See change: add-credential-vault (D4).
+   */
+  vault?: PluginVault;
+  /**
    * OAuth sign-in flows via the host flow store. Optional.
    * See change: expose-plugin-credential-and-oauth-seams (D3).
    */
@@ -1220,6 +1237,8 @@ export interface ServerContextDeps {
   providerAuth?: PluginProviderAuth;
   /** Per-plugin credential store factory (optional). See change: expose-plugin-credential-and-oauth-seams. */
   pluginCredentials?: (pluginId: string) => PluginCredentials;
+  /** Per-plugin vault reader factory (optional). See change: add-credential-vault. */
+  pluginVault?: (pluginId: string) => PluginVault;
   /** Plugin OAuth flow start (optional). See change: expose-plugin-credential-and-oauth-seams. */
   startPluginOAuthFlow?: (pluginId: string, opts: PluginOAuthStartOptions) => Promise<PluginFlowStartResult>;
   /** Plugin request-lane registration (optional). See change: expose-plugin-credential-and-oauth-seams. */
@@ -1321,6 +1340,7 @@ export function createServerPluginContext(
     modelRuntime: deps.modelRuntime,
     providerAuth: deps.providerAuth,
     credentials: deps.pluginCredentials?.(pluginId),
+    vault: deps.pluginVault?.(pluginId),
     oauth: deps.startPluginOAuthFlow
       ? {
           async startFlow(opts) {

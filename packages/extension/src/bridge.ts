@@ -79,6 +79,9 @@ import { SubagentTickThrottle } from "./subagent-tick-throttle.js";
 import { createTransportDiagnostics } from "./transport-diagnostics.js";
 import { refreshUiModules, type UiModulesBridgeCtx } from "./ui-modules.js";
 import { createInstance, type BridgeState } from "./bridge-handlers/instance.js";
+import { createVaultDelivery } from "./vault-delivery.js";
+import { createVaultForwardFilter } from "./vault-forwarder.js";
+import { createVaultRedaction } from "./vault-redaction.js";
 import { registerSessionInfoChanged, registerProjectTrust, registerSessionStart, registerTurnEnd, registerSessionShutdown } from "./bridge-handlers/lifecycle.js";
 import { registerEnrichedForwarders, registerPassThroughForwarders } from "./bridge-handlers/forwarders.js";
 import { handleInboundMessage } from "./bridge-handlers/dispatch.js";
@@ -1164,8 +1167,63 @@ function initBridge(pi: ExtensionAPI) {
   });
   inst.pathGate = pathGate;
 
+  // Credential vault: applies the hub's granted env values to process.env and
+  // reconciles on every connect and session_start. State lives on `process`, so
+  // a reload keeps it. See change: add-credential-vault.
+  const vaultDelivery = createVaultDelivery({
+    send: (m) => inst.connection.sendIfOpen(m),
+    sessionId: () => inst.sessionId ?? "",
+    log: (line) => console.log(line),
+  });
+  inst.vaultDelivery = vaultDelivery;
+  // Redaction: the value set is vaultDelivery's process-global redaction registry,
+  // so a reload and a nested pi mask the same values. The forward filter masks
+  // every outgoing event_forward frame on a copy (with tail hold-back) and is
+  // installed at the connection, so no plaintext value reaches the send buffer.
+  const vaultRedaction = createVaultRedaction({
+    getState: () => vaultDelivery.redactionState(),
+    createLocalBashOperations: async () => {
+      try {
+        const pkg: any = await import("@earendil-works/pi-coding-agent");
+        const create: (() => unknown) | undefined = pkg.createLocalBashOperations ?? pkg.default?.createLocalBashOperations;
+        return create?.() as any;
+      } catch {
+        return undefined; // the forwarded copy is still masked
+      }
+    },
+    log: (line) => console.log(line),
+  });
+  const vaultForwardFilter = createVaultForwardFilter(vaultRedaction.masker);
+  // tool_result / message_end / user_bash: masked before pi records the result.
+  // Fail CLOSED: if masking throws, the output is withheld rather than passed raw.
+  pi.on("tool_result", async (event: any) => {
+    try {
+      return (await vaultRedaction.toolResult(event)) as any;
+    } catch {
+      return { content: [{ type: "text", text: "[output withheld: vault redaction failed]" }], details: undefined, structuredContent: undefined } as any;
+    }
+  });
+  pi.on("message_end", (event: any) => {
+    try {
+      return vaultRedaction.messageEnd(event) as any;
+    } catch {
+      // Fail CLOSED like tool_result: record a placeholder, keep the role.
+      const message = event?.message;
+      if (!message || typeof message !== "object") return undefined;
+      return { message: { ...message, content: [{ type: "text", text: "[message withheld: vault redaction failed]" }] } } as any;
+    }
+  });
+  pi.on("user_bash", async () => {
+    try {
+      return (await vaultRedaction.userBash()) as any;
+    } catch {
+      return undefined;
+    }
+  });
+
   inst.connection = new ConnectionManager({
     url: inst.dashboardUrl,
+    outboundFilter: (m) => vaultForwardFilter.filter(m),
     // fix-bridge-mdns-migration-hijack (D5): every migration decision —
     // accepted or refused, including a reversibility fallback — is reported
     // through this single chokepoint. `console.log` serves capture-enabled
@@ -1222,6 +1280,7 @@ function initBridge(pi: ExtensionAPI) {
     onOpen: () => {
       if (!isActive() || inst.connection !== primaryConnection) return;
       pluginLaneUp();
+      vaultDelivery.onOpen();
       // `onReconnect` skips the FIRST open, so plugin latest/stream messages
       // retained before it would wait for the next emission. Drain after the
       // manager flushes its buffered register frame (microtask).
@@ -1239,6 +1298,7 @@ function initBridge(pi: ExtensionAPI) {
       if (inst.connection !== primaryConnection) return;
       pluginLaneDown();
       pathGate.reset();
+      vaultDelivery.onClose();
     },
     onMessage: safe(async (data: unknown) => {
     return handleInboundMessage(inst, data);
@@ -1637,6 +1697,7 @@ function initBridge(pi: ExtensionAPI) {
           let handler: (msg: unknown) => void = () => {};
           targetManager = new ConnectionManager({
             url,
+            outboundFilter: (m) => vaultForwardFilter.filter(m),
             planDial: (base) => localCredentialPlan(base),
             onIdentityFailure: (report) => appendIdentityLog(report),
             getSessionId: () => inst.sessionId,

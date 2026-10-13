@@ -69,7 +69,7 @@ flowchart TB
   end
   subgraph STORE["storage"]
     LES["lesson files<br/>&lt;repo&gt;/.pi/lessons · ~/.pi/agent/lessons"]
-    IDX[("packages/kb index (node:sqlite)<br/>scopes: docs · code · lessons · sessions · web")]
+    IDX[("packages/kb index (node:sqlite)<br/>scopes: docs · code · lessons · sessions · web · git")]
     ST[("stats.db (disposable)")]
     JSONL[("pi session JSONL<br/>(canonical history)")]
   end
@@ -482,6 +482,39 @@ becoming lessons.
   configuration (mode, URL/key, managed install status) and a store-hygiene
   view that is read-only for the old stores.
 
+### D13: The `git` scope is absorbed, not rebuilt
+- `add-kb-git-forge-scope` ships before cutover. It indexes commits (local git
+  only), PRs and issues (GitHub via `gh`, GitLab via `glab`, Gitea/Forgejo/Codeberg
+  via HTTPS) into one kb database per git common dir, under
+  `~/.pi/dashboard/kb/git/<repoKey>/`. Worktrees share it.
+- Today it is exposed as `kb_search({scope: "git", kind?})` and
+  `kb_get({scope: "git", path: "pr/12"})`. There is no ref prefix, consistent with
+  kernel K10.
+- **In the manager:**
+  - kb-extension adds `gitSearch` / `gitGet` to its provider slot
+    (`providers["kb-extension"]`, kernel K4), next to `docsSearch`.
+  - The kernel registers `git` as a provider-backed scope, like `docs`. The
+    kernel opens no store; the provider owns the git database.
+  - `git` is outside the default scope set and searched only when named, so RRF
+    fusion cannot evict docs hits with history items.
+  - `context_get(ref, scope: "git")` maps one-to-one to `kb_get({scope, path})`.
+  - K7 fusion must set `details.untrusted` to the OR across the contributing
+    scopes. Every git result is untrusted, and a fused result must not drop the
+    flag.
+- **Invariants carried over unchanged:**
+  - one fenced sync owner per repo across processes (SQLite lease);
+  - credentials only to user-approved hosts (global-only config);
+  - sync only from a `git`-scope pull, never from a timer or a capture event;
+  - minimum interval, shortened (never bypassed) by event hints;
+  - rate-limit floor and back-off;
+  - bounded search wait;
+  - `details.untrusted` on every git-scope result.
+- **Capture tap:** the forge-command hint matcher (`gh pr create`, `git push`, …)
+  moves from kb-extension's `tool_result` hook into a chassis consumer, as
+  kb-extension's other hooks do (K4).
+- **Cues (phase 3):** a lesson may name a git ref in `anchors`. Staleness
+  verdicts over git refs are a phase-3 question, not part of this decision.
+
 ## Superseded proposals and carry-overs
 
 Four earlier changes are superseded; none had started implementation
@@ -499,7 +532,8 @@ Related but not superseded: `add-system-one-registry` (it amends D11 so the
 miner consumes its adapter; the amendment lands with that change),
 `add-kb-semantic-annotation-plane` (D4), `add-untrusted-content-guard` (D8),
 `add-codegraph-code-plane` (the `code` scope), `add-session-step-table`
-(a candidate source for task 2.1 eval cases and the miner's labels).
+(a candidate source for task 2.1 eval cases and the miner's labels),
+`add-kb-git-forge-scope` (the `git` scope, D13; ships before cutover).
 
 ## Risks / Trade-offs
 
@@ -512,6 +546,7 @@ miner consumes its adapter; the amendment lands with that change),
 | The matcher adds hot-path latency to every tool call | Globs and regexes are precompiled. The budget is measured in the lessons phase (`performance-optimization`). The System-1 relevance gate runs only after a trigger has matched. |
 | The boundary API is new (pi 0.87) | Pin the floor. Contract tests against a real `AgentSession` with a fake provider cover compaction, continuation and cancellation. |
 | Mid-migration double ownership (old packages still installed) | The manager detects the old packages by package identity (tool `sourceInfo`, never tool names) once per turn epoch, then stays inert (dispatches nothing, hides its tools) with one notice until they are removed (`context-manager-kernel` K2). |
+| `git` scope spends forge API quota from many sessions | Single sync owner per git common dir, lazy sync only on a named `git` scope, minimum interval, rate floor (`add-kb-git-forge-scope` G4). D13 makes these invariants of the absorbed scope. |
 | Team-shared lessons leak personal data | A PII/secret scrub gates writes to project scope. The miner's `sensitive` check is only advisory. |
 | System-1 expectations are too high | Opt-in only. The bake-off numbers are documented in D11. |
 

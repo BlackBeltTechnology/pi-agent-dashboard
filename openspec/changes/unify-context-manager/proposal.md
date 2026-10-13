@@ -72,6 +72,11 @@ sandbox behaviour (97% of its calls) is re-implemented cleanly.
   scope. `ctx_fetch_and_index` is dropped.
 - **Session index:** a single node:sqlite FTS index, including a message copy for
   speed, replaces hermes' better-sqlite3 `sessions.db`.
+- **Git scope (absorbed, D13):** `add-kb-git-forge-scope` ships commits, PRs and
+  issues as a `git` scope on today's kb before cutover. It covers one shared index
+  per git common dir, a lazy and budgeted forge sync with a single owner, and
+  untrusted marking of forge text. The manager registers it as a
+  kb-extension-provided scope, searched only when named; it is not rebuilt.
 - **Retrospective lesson miner:** `/lessons mine` and `/lessons import-hermes`,
   dry-run by default.
   - Pipeline: `packages/session-distiller` candidates → triage → card writing
@@ -112,7 +117,8 @@ specified by the phase changes.
 
 ### New Capabilities (specced in phase changes)
 - `context-capture-and-store`: single capture tap, unified index, scopes
-  `docs|code|lessons|sessions|web`.
+  `docs|code|lessons|sessions|web|git`. `git` is specified by
+  `add-kb-git-forge-scope` (`kb-git-forge-scope`); the kernel only registers it.
 - `context-tool-surface`: the five tools and alias deactivation.
 - `lesson-files`: file format, locations, identity, lifecycle.
 - `cue-delivery`: trigger vocabulary, channels, firing policy, stats.
@@ -135,7 +141,8 @@ specified by the phase changes.
 
 - **Code:**
   - New `packages/context-manager` and `packages/context-manager-plugin`.
-  - `packages/kb` gains the `lessons`, `sessions` and `web` scopes.
+  - `packages/kb` gains the `lessons`, `sessions` and `web` scopes. The `git`
+    scope arrives earlier via `add-kb-git-forge-scope`.
   - `packages/session-distiller` is reused.
   - hermes-memory-plugin, blackhole-plugin and kb-plugin are retired at cutover.
 - **Dependencies:** removes better-sqlite3 (×2), the MCP SDK child and the
@@ -147,9 +154,12 @@ specified by the phase changes.
   812 existing entries are imported only through the miner's triage and review.
 - **Prompts/doctrine:** AGENTS.md doctrine and skills that name `kb_search`
   etc. are updated at cutover. Aliases cover the gap for one release.
-- **Security surface:** lesson files in the repo and indexed web content are
-  delivered into model context, which makes them an injection vector. This
-  interacts with `add-untrusted-content-guard`.
+- **Security surface:** lesson files in the repo, indexed web content and
+  forge PR/issue text (`git` scope) are delivered into model context, which makes
+  them an injection vector. This interacts with `add-untrusted-content-guard`.
+- **Forge rate limits:** the `git` scope spends forge API quota. Its budget
+  (single owner per repo, lazy sync, minimum interval, rate floor) is defined in
+  `add-kb-git-forge-scope` and must survive the move behind `context_search`.
 
 ## Discipline Skills
 

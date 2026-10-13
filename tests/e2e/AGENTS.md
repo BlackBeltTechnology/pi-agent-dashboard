@@ -130,7 +130,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `openspec-connect-coverage.spec.ts` | L3 connect coverage, fix-connect-snapshot-frame-loss… → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
 | `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice. → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board segment… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
-| `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-attach-to-session-cwd). → see `openspec-locality-gate.spec.ts.AGENTS.md` |
+| `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-att… → see `openspec-locality-gate.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux… → see `optimistic-prompt.spec.ts.AGENTS.md` |
 | `out-of-cwd-session-diffs.spec.ts` | L3 spec (change: opt-in-out-of-cwd-session-diffs). Faux… → see `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |
 | `overlay-layering.spec.ts` | Browser E2E gate for `add-overlay-layering-system`… → see `overlay-layering.spec.ts.AGENTS.md` |
@@ -150,9 +150,10 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-clip` (F5–F8… → see `popover-container-clip.spec.ts.AGENTS.md` |
 | `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4, change: adopt-pi-074-0… → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
 | `quota-context-strip.spec.ts` | L3 (change: move-quota-to-context-strip; F7–F9, X3). Stubs… → see `quota-context-strip.spec.ts.AGENTS.md` |
+| `retro-ux-identity-connectivity.spec.ts` | L3 retro-ux probes. → see `retro-ux-identity-connectivity.spec.ts.AGENTS.md` |
 | `real-flow-regression.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests, D5 follow-up). → see `real-flow-regression.spec.ts.AGENTS.md` |
 | `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested at L1 in → see `reap-core.ts.AGENTS.md` |
-| `reasoning-auto-collapse.spec.ts` | Playwright E2E for reasoning-auto-collapse-timer. Two tests. → see `reasoning-auto-collapse.spec.ts.AGENTS.md` |
+| `reasoning-auto-collapse.spec.ts` | Playwright E2E for reasoning-auto-collap… → see `reasoning-auto-collapse.spec.ts.AGENTS.md` |
 | `reasoning-inline-flow.spec.ts` | L3 (change: render-inline-reasoning-and-custom-entries… → see `reasoning-inline-flow.spec.ts.AGENTS.md` |
 | `recommended-local-name-match.spec.ts` | L3 spec (test-plan #F3, change… → see `recommended-local-name-match.spec.ts.AGENTS.md` |
 | `recommended-requires.spec.ts` | Playwright E2E for recommended-extension `requires` probe… → see `recommended-requires.spec.ts.AGENTS.md` |
@@ -167,8 +168,8 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `replay-truncate.spec.ts` | Playwright spec. Strategy B: full replay in fresh browser… → see `replay-truncate.spec.ts.AGENTS.md` |
 | `resource-activation-trust.spec.ts` | L3 spec (change: project-scope-disable-global-resources). → see `resource-activation-trust.spec.ts.AGENTS.md` |
 | `resource-scope-routes.spec.ts` | S-25 scope × path decision table: the 10 resource… → see `resource-scope-routes.spec.ts.AGENTS.md` |
-| `route-backed-overlay.spec.ts` | Route-backed overlay contract: S-12/S-12b (one overlay per… → see `route-backed-overlay.spec.ts.AGENTS.md` |
-| `scroll-to-top.spec.ts` | Browser E2E gate for `fix-chat-scroll-to-top-estimate-drift… → see `scroll-to-top.spec.ts.AGENTS.md` |
+| `route-backed-overlay.spec.ts` | Route-backed overlay contract: S-12/S-12… → see `route-backed-overlay.spec.ts.AGENTS.md` |
+| `scroll-to-top.spec.ts` | Browser E2E gate for `fix-chat-scroll-to… → see `scroll-to-top.spec.ts.AGENTS.md` |
 | `session-context-injection.spec.ts` | L3 context injection via `[[faux:echo-system-context]]`. → see `session-context-injection.spec.ts.AGENTS.md` |
 | `session-ended-orphan-heal.spec.ts` | L3 session-end orphan heal. → see `session-ended-orphan-heal.spec.ts.AGENTS.md` |
 | `session-heap-settings.spec.ts` | L3 heap settings copy, save round-trip, coupling warning… → see `session-heap-settings.spec.ts.AGENTS.md` |
@@ -177,7 +178,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `session-reap.spec.ts` | L3 gate on the reap fixture itself, driven headless over… → see `session-reap.spec.ts.AGENTS.md` |
 | `session-spawn.spec.ts` | Scenario spec 5.1, authoritative WS round-trip. Clears… → see `session-spawn.spec.ts.AGENTS.md` |
 | `session-state-honesty.spec.ts` | L3 rendered-honesty gate (change… → see `session-state-honesty.spec.ts.AGENTS.md` |
-| `session-tags.spec.ts` | E2E for change add-session-tags (task 7.2). Spawns a fresh… → see `session-tags.spec.ts.AGENTS.md` |
+| `session-tags.spec.ts` | E2E for change add-session-tags (task 7.… → see `session-tags.spec.ts.AGENTS.md` |
 | `sessions-page-stub-group.spec.ts` | L3 for the `sessions_page` stub-group paging path. → see `sessions-page-stub-group.spec.ts.AGENTS.md` |
 | `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session Default… → see `settings-default-model-catalogue.spec.ts.AGENTS.md` |
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors` +… → see `severity-contrast.spec.ts.AGENTS.md` |
@@ -186,7 +187,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `smoke.spec.ts` | Smoke spec, wiring proof only. Asserts shell renders… → see `smoke.spec.ts.AGENTS.md` |
 | `spawn-correlation-recovery.spec.ts` | L3 F2–F6 late spawn register clears banner + adds card. → see `spawn-correlation-recovery.spec.ts.AGENTS.md` |
 | `split-composer-overflow.spec.ts` | Browser E2E gate for `fix-split-composer-overflow`. Opens… → see `split-composer-overflow.spec.ts.AGENTS.md` |
-| `subagent-detail-dialog.spec.ts` | Playwright spec (change: fix-subagent-live-detail-reliabili… → see `subagent-detail-dialog.spec.ts.AGENTS.md` |
+| `subagent-detail-dialog.spec.ts` | Playwright spec (change: fix-subagent-li… → see `subagent-detail-dialog.spec.ts.AGENTS.md` |
 | `subagent-inspector.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Drives… → see `subagent-inspector.spec.ts.AGENTS.md` |
 | `subagent-live-timeline.spec.ts` | L3 live subagent timeline. → see `subagent-live-timeline.spec.ts.AGENTS.md` |
 | `subagent-pull-measurements.spec.ts` | Subagent pull measurement evidence. → see `subagent-pull-measurements.spec.ts.AGENTS.md` |
@@ -198,7 +199,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `streaming-latch-heal.spec.ts` | L3 (change: fix-stuck-streaming-status-latch, test-plan… → see `streaming-latch-heal.spec.ts.AGENTS.md` |
 | `superseded-heal.spec.ts` | Playwright spec (task 7.1, change… → see `superseded-heal.spec.ts.AGENTS.md` |
 | `system-one-settings.spec.ts` | L3 Decision models settings (chang… → see `system-one-settings.spec.ts.AGENTS.md` |
-| `tail-only-loading-head.spec.ts` | L3 for the loading head's TERMINAL states (F11, F13, F16 +… → see `tail-only-loading-head.spec.ts.AGENTS.md` |
+| `tail-only-loading-head.spec.ts` | L3 for the loading head's TERMINAL state… → see `tail-only-loading-head.spec.ts.AGENTS.md` |
 | `tail-only-scroll-perf.spec.ts` | ADVISORY opt-in scroll-smoothness probe for `tail-only`… → see `tail-only-scroll-perf.spec.ts.AGENTS.md` |
 | `tail-only-settings.spec.ts` | L3 for the `replayWindowMode` control (F14, F15) plus X8. → see `tail-only-settings.spec.ts.AGENTS.md` |
 | `tail-only-splice-anchor.spec.ts` | L3 gate for D7a (F9, F10, F18). Asserts the anchor BY THE… → see `tail-only-splice-anchor.spec.ts.AGENTS.md` |
@@ -206,7 +207,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `table-copy.spec.ts` | Playwright spec (change: fix-table-copy-empty-clipboard… → see `table-copy.spec.ts.AGENTS.md` |
 | `terminal-reload-inprocess.spec.ts` | L3 terminal-hosted (tmux) `/reload`. → see `terminal-reload-inprocess.spec.ts.AGENTS.md` |
 | `terminal-tab.spec.ts` | Terminal-as-tab spec (change: terminals-in-tabbed-panes). → see `terminal-tab.spec.ts.AGENTS.md` |
-| `terminal.spec.ts` | Scenario 5.4 spec. `ensureGitSession`, clicks session card… → see `terminal.spec.ts.AGENTS.md` |
+| `terminal.spec.ts` | Scenario 5.4 spec. `ensureGitSession`, c… → see `terminal.spec.ts.AGENTS.md` |
 | `tmux-session-shutdown.spec.ts` | L3 gate for the tmux shutdown leak (test-plan #T2): spawn… → see `tmux-session-shutdown.spec.ts.AGENTS.md` |
 | `tool-burst.spec.ts` | Playwright spec for temporal burst grouping. Sends… → see `tool-burst.spec.ts.AGENTS.md` |
 | `tool-collapse-narration.spec.ts` | Playwright spec for the semantic-first composition flip.… → see `tool-collapse-narration.spec.ts.AGENTS.md` |
