@@ -107,5 +107,5 @@
 ## 8. Manual verification
 
 - [x] 8.1 Large-repo first-index measurement (spike 1.2 output) (test-plan: manual-only, #P7)
-- [ ] 8.2 Live GitHub and GitLab end-to-end in two concurrent sessions: `kb_search({scope:"git"})` plus `kb_get({scope:"git", path:"pr/<recent>"})`; the sync log line shows ≤ 2 requests at steady state and one sync across both sessions (test-plan: manual-only, #X16)
+- [x] 8.2 Live GitHub and GitLab end-to-end in two concurrent sessions: `kb_search({scope:"git"})` plus `kb_get({scope:"git", path:"pr/<recent>"})`; the sync log line shows ≤ 2 requests at steady state and one sync across both sessions (test-plan: manual-only, #X16)
 
