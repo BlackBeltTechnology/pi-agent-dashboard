@@ -22,7 +22,7 @@ import React, { Suspense, useEffect, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useAttachmentResolution } from "../../lib/openspec/useAttachmentResolution.js";
-import { isRemoteOrigin } from "../../lib/session/session-origin-view.js";
+import { isAcpSession, isRemoteOrigin } from "../../lib/session/session-origin-view.js";
 import { LazyExploreDialog, LazyNewChangeDialog } from "../openspec/lazy-openspec-dialogs.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 
@@ -183,7 +183,7 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onArchive
           {/* Resume / Fork */}
           {/* Remote-origin sessions live on another host (server answers 409). */}
           {/* See change: add-pi-gateway-transport-identity. */}
-          {onResume && session.sessionFile && !isRemoteOrigin(session) && (
+          {onResume && session.sessionFile && !isRemoteOrigin(session) && !isAcpSession(session) && (
             <>
               {(!isAlive || isHidden) && (
                 <MenuRow icon={mdiPlay} label={i18nT("session.resume", undefined, "Resume")} onClick={() => act(() => onResume("continue"))} />

@@ -218,6 +218,6 @@ test.describe("gmail plugin", () => {
 
     const again = await openGmailSettings(page);
     await expect(row(again, "a@fake.test").getByTestId("gmail-account-status")).toHaveAttribute("data-status", "reauth_required");
-    await expect(row(again, "a@fake.test").getByTestId("gmail-account-status")).toHaveText("re-auth needed");
+    await expect(row(again, "a@fake.test").getByTestId("gmail-account-status")).toHaveText("Re-auth needed");
   });
 });

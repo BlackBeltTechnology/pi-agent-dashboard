@@ -1,6 +1,6 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import React from "react";
+import { afterEach, describe, expect, it } from "vitest";
 import { SessionSubcard } from "../session/SessionSubcard.js";
 
 afterEach(() => cleanup());
@@ -54,5 +54,24 @@ describe("SessionSubcard", () => {
       <SessionSubcard title="WORKSPACE">{undefined}</SessionSubcard>,
     );
     expect(container.firstChild).toBeNull();
+  });
+});
+
+// test-plan #E9 — capsule legend is 12 px semibold --text-secondary.
+// See change: retro-ux-plugin-settings-forms.
+describe("SessionSubcard capsule legend", () => {
+  it("uses the section-heading recipe, not the 9 px tertiary legend", () => {
+    const { container } = render(
+      <SessionSubcard title="OPENSPEC">
+        <span>x</span>
+      </SessionSubcard>,
+    );
+    const legend = screen.getByText("OPENSPEC");
+    for (const token of ["text-[12px]", "font-semibold", "uppercase", "text-[var(--text-secondary)]"]) {
+      expect(legend.className).toContain(token);
+    }
+    expect(legend.className).not.toContain("text-[9px]");
+    expect(legend.className).not.toContain("text-[var(--text-tertiary)]");
+    expect((container.firstChild as HTMLElement).className).not.toContain("bg-[");
   });
 });

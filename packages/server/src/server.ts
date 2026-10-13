@@ -220,6 +220,10 @@ import { createPreferencesStore } from "./persistence/preferences-store.js";
 import { loadHostProjectTrust } from "./pi/host-project-trust.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
+import { setLocalAcpHost, spawnAcpSession, validatePluginAcpSpawn } from "./spawn-process/acp-spawn.js";
+import { registerAcpRoutes } from "./routes/acp-routes.js";
+import { scanAcpSessions } from "./acp-bridge/acp-restore.js";
+import { stopAllLocalAcpSessions } from "./acp-bridge/local-host.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
 import { listGlobalSkills } from "./pi/pi-resource-scanner.js";
 import * as pluginEventSeam from "./plugin-event-seam.js";
@@ -716,6 +720,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // one-shot legacy leg stamped in boot-state.json).
   // See change: archive-service-sessions-on-end.
   const scanResult = bootScanAllSessions();
+  // Ended ACP sessions live outside the pi sessions dir; restore them as ended.
+  // See change: add-acp-session-driver (D12).
+  scanResult.sessions.push(...scanAcpSessions());
   const scanMs = Date.now() - scanStartedAt;
   // Seed the archive index from the boot scan: migrated + already-archived
   // rows are indexed, never restored. The one-shot ended+hidden migration and
@@ -751,7 +758,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // reattach — after any window that could retract them. Suppress outright,
     // with no timing dependency. See change: fix-recovery-exit-intent.
     const ownerIntent = resolveExitIntent(session.liveEpoch);
-    const diskCandidate = recoveryMode !== "off" && isRecoveryCandidate({
+    // ACP sessions are never recovery candidates: nothing can resume one (D15).
+    const isAcp = session.driver === "acp";
+    const diskCandidate = !isAcp && recoveryMode !== "off" && isRecoveryCandidate({
       live: session.live,
       status: session.status,
       closedReason: session.closedReason,
@@ -763,8 +772,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // scanned (pre-normalization) session; its evidence is consumed right
     // here in EVERY mode, so it qualifies on at most one cold start.
     // See change: fix-recovery-pi-signal-unregister (D3, D5, D6).
-    const ownerBoot = session.live === true ? undefined : resolveExitRecord(session.liveEpoch);
-    const windowMatch = isShutdownWindowCandidate(session, ownerBoot, RECOVERY_SHUTDOWN_WINDOW_MS);
+    const ownerBoot = session.live === true || isAcp ? undefined : resolveExitRecord(session.liveEpoch);
+    const windowMatch = !isAcp && isShutdownWindowCandidate(session, ownerBoot, RECOVERY_SHUTDOWN_WINDOW_MS);
     if (windowMatch && session.sessionFile) {
       metaPersistence.setLiveness(session.sessionFile, { live: false, closedReason: session.closedReason });
     }
@@ -1243,6 +1252,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   const liveServerManager = createLiveServerManager(preferencesStore);
+
+  // ACP host A (in-process): attach virtual connections to THIS gateway.
+  // See change: add-acp-session-driver (D1).
+  setLocalAcpHost({ attachLocalConnection: (socket) => piGateway.attachLocalConnection(socket), log: (line) => console.error(line) });
 
   const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced);
   // App-wide pairing approval dialog: a content-free hint on every pending
@@ -2402,6 +2415,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     console.log("[dashboard] No client build found — running in API-only mode");
   }
 
+  registerAcpRoutes(fastify);
   registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
@@ -3330,6 +3344,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 // the ref below. The mapper is total (never throws) and
                 // sanitizes untrusted plugin input. See change:
                 // add-plugin-spawn-scope (D7).
+                // ACP agent spawn: validate BEFORE anything is filed or spawned (pi-only
+                // options rejected, unknown agent rejected). See change: add-acp-session-driver (D14).
+                const acpRejection = validatePluginAcpSpawn(opts);
+                if (acpRejection) return { success: false, message: acpRejection };
                 const sessionOptions = pluginSpawnToSessionOptions(opts);
                 // Honour a caller-supplied spawn token VERBATIM (trusted-only
                 // — this code only runs past the trusted gate). A token
@@ -3385,7 +3403,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   );
                 }
                 try {
-                  const result = await spawnPiSession(opts.cwd, { ...sessionOptions, spawnToken });
+                  const result =
+                    typeof opts.agent === "string"
+                      ? await spawnAcpSession(opts.cwd, { agent: opts.agent, spawnToken })
+                      : await spawnPiSession(opts.cwd, { ...sessionOptions, spawnToken });
                   // Plugin/automation spawn: transport-less, reclaim required.
                   armSpawnWatchdog(opts.cwd, "headless", result);
                   if (result.process && result.pid) {
@@ -4517,6 +4538,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // wiring above; unref'd, so this is leak-hygiene not liveness).
       clearInterval(hostGateFlushTimer);
       directoryService.stopPolling();
+      // ACP host A: end in-process sessions through the gateway (unregister →
+      // ended + persisted with `driver:"acp"`), killing their agents, BEFORE the
+      // headless sweep. See change: add-acp-session-driver (D1).
+      await stopAllLocalAcpSessions();
+      await new Promise<void>((resolve) => setImmediate(resolve));
       // SIGTERMs every dashboard-spawned pi: after this the sessions below are
       // GONE and can never reattach.
       browserGateway.shutdownHeadlessProcesses();

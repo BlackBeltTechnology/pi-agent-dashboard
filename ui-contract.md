@@ -187,6 +187,8 @@ drop it on a raised surface.
 | secondary button | `focus-ring rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] px-3 min-h-[44px] sm:min-h-[36px]` |
 | section heading | `text-[12px] font-semibold text-[var(--text-secondary)]` — no uppercase + `--text-muted` |
 | field label | `text-[12px] font-semibold text-[var(--text-primary)]` |
+| settings field | the runtime field family (`dashboard-plugin-runtime/src/settings-fields.tsx`): label row (`text-xs font-semibold text-[var(--text-primary)]`, `htmlFor`, unit chip inside the label) + optional key chip + state pill → control → hint (`text-xs text-[var(--text-secondary)]`, `aria-describedby`) → error (`text-xs text-[var(--severity-error-fg)]`, `role="alert"`, `aria-invalid`). **Exception to the `input` row's "label above":** settings rows keep the label beside the control (stacked only for text inputs). The 12 px unit chip inside a settings `<label>` is an exception to the 11 px chip step (text inside a `<label>` meets the 12 px interactive floor). |
+| capsule legend | `text-[12px] font-semibold uppercase text-[var(--text-secondary)]` on `SlotPill` and `SessionSubcard` — the section-heading recipe plus `uppercase` as an explicit exception. `SessionSubcard`'s border-only panel (no fill) is an exception to the inset-panel row. |
 | dialog | scrim `bg-[var(--bg-overlay)]` + panel at card recipe, `max-w-*`, one primary action |
 | input | `rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 py-1.5 text-sm` + persistent label above |
 

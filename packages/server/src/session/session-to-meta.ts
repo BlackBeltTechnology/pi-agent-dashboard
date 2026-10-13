@@ -45,6 +45,11 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // save, and a remote session silently becomes local, which is a filesystem
     // read gate (#E15). See change: serve-retained-remote-transcripts.
     originDeviceId: session.originDeviceId,
+    // Driver identity. MUST be enumerated here (full-overwrite save): omitting it
+    // wipes `driver` and an ended ACP session turns into a pi session on restart.
+    // See change: add-acp-session-driver (D12).
+    driver: session.driver,
+    acpAgentId: session.acpAgentId,
     cwd: session.cwd,
     status: session.status,
     startedAt: session.startedAt,

@@ -9,7 +9,7 @@ import type { SessionState } from "../../lib/chat/event-reducer.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useAttachmentResolution } from "../../lib/openspec/useAttachmentResolution.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
-import { isRemoteOrigin } from "../../lib/session/session-origin-view.js";
+import { isAcpSession, isRemoteOrigin } from "../../lib/session/session-origin-view.js";
 import { YoloSessionIndicator } from "../access-grant/YoloIndicators.js";
 import { VaultBindingsChip } from "./VaultBindingsChip.js";
 import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
@@ -420,7 +420,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
   // Remote-origin sessions have their files on ANOTHER host — the server
   // refuses resume/fork with HTTP 409, so the affordance is not offered.
   // See change: add-pi-gateway-transport-identity.
-  const isEnded = session.status === "ended" && Boolean(session.sessionFile) && Boolean(onResume) && !isRemoteOrigin(session);
+  const isEnded = session.status === "ended" && Boolean(session.sessionFile) && Boolean(onResume) && !isRemoteOrigin(session) && !isAcpSession(session);
 
   // Desktop: full header
   return (

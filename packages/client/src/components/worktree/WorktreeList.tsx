@@ -173,6 +173,8 @@ export interface WorktreeListProps {
   mode: "spawn" | "manage";
   /** spawn mode — one-click spawn for a row. */
   onSpawn?: (path: string, entry: WorktreeEntry) => void;
+  /** spawn mode — names the chosen ACP agent on each row ("New querymt session →"); absent → rows unchanged. */
+  spawnAgentLabel?: string;
   /** manage mode — per-row remove (`✕`). */
   onRemove?: (entry: WorktreeEntry) => void;
   /** manage mode — repo-global prune. */
@@ -189,6 +191,7 @@ export function WorktreeList({
   entries,
   mode,
   onSpawn,
+  spawnAgentLabel,
   onRemove,
   onPrune,
   onRemoveSelected,
@@ -276,6 +279,7 @@ export function WorktreeList({
             failure={failures?.[row.entry.path]}
             onToggle={toggle}
             onSpawn={onSpawn}
+            spawnAgentLabel={spawnAgentLabel}
             onRemove={onRemove}
             onPrune={onPrune}
           />
@@ -346,6 +350,7 @@ interface WorktreeRowProps {
   failure?: { code: string; message?: string; onRetry?: () => void };
   onToggle: (path: string) => void;
   onSpawn?: (path: string, entry: WorktreeEntry) => void;
+  spawnAgentLabel?: string;
   onRemove?: (entry: WorktreeEntry) => void;
   onPrune?: () => void;
 }
@@ -359,6 +364,7 @@ function WorktreeRow({
   failure,
   onToggle,
   onSpawn,
+  spawnAgentLabel,
   onRemove,
   onPrune,
 }: WorktreeRowProps) {
@@ -403,6 +409,11 @@ function WorktreeRow({
       >
         <div className="flex items-center">{identity}</div>
         {pathLine}
+        {spawnAgentLabel && (
+          <div className="mt-1 text-[12px] font-semibold text-[var(--text-secondary)]">
+            {i18nT("acp.newAgentSessionArrow", { agent: spawnAgentLabel }, "New {agent} session →")}
+          </div>
+        )}
       </button>
     );
   }
