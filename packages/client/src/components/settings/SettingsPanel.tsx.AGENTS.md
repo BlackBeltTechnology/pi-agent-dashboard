@@ -67,3 +67,5 @@ Security tab adds a `Users` section (`UsersSection`) after Paired Devices; the `
 Page id `packages` → `add-ons` (`SETTINGS_PAGE_ALIASES.packages`); rail group `add-ons` (Add-ons, Plugins, OpenSpec). Plugins children collapsed by default behind `nav-plugins-toggle` (`dashboard:settings-plugins-expanded`); forced open while a child page is active, never written. Global browse passes `hideGlobalInstalledRecommended`. See change: addons-hub-declutter.
 
 - Network-group page `vault` → `VaultSection`. See change: add-credential-vault.
+
+- Field family (`ToggleField`/`SelectField`/`NumberField`/`TextField`) now lives in `dashboard-plugin-runtime` `settings-fields.tsx`; this file imports and re-exports them. `HeapMbField` uses `FieldShell` with `error`; coupling/heap warnings are `SettingsNotice` (severity tokens, test ids kept). See change: retro-ux-plugin-settings-forms.

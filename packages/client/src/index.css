@@ -23,6 +23,8 @@
 @source "../../system-one-plugin/src/client";
 @source "../../gmail-plugin/src/client";
 @source "../../context-mode-settings-plugin/src/client";
+@source "../../hermes-memory-plugin/src/client";
+@source "../../kb-plugin/src/client";
 @source "../../team-plugin/src/client";
 @source "../../web-access-plugin/src/client";
 

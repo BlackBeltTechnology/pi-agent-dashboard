@@ -117,7 +117,7 @@ export function SlotPill({
           (matches SessionSubcard's titled panel). Centered on the full pill
           width, so long labels (e.g. "Knowledge base") never truncate as they
           did inline. See change: slot-pill-capsule-label. */}
-      <span className={`absolute -top-1.5 left-1/2 -translate-x-1/2 max-w-[calc(100%-12px)] truncate px-1.5 py-px rounded-full ${LEGEND_BG[surface]} border border-[var(--border-subtle)] text-[9px] font-semibold tracking-wider uppercase text-[var(--text-secondary)] leading-none`}>
+      <span className={`absolute -top-1.5 left-1/2 -translate-x-1/2 max-w-[calc(100%-12px)] truncate px-1.5 py-px rounded-full ${LEGEND_BG[surface]} border border-[var(--border-subtle)] text-[12px] font-semibold tracking-wider uppercase text-[var(--text-secondary)] leading-none`}>
         {label}
       </span>
       <span className={`shrink-0 w-[26px] h-[26px] rounded-lg flex items-center justify-center ${tone.glyphBg} ${tone.icon}`}>

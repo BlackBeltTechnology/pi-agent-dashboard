@@ -108,7 +108,7 @@ Refresh tokens SHALL remain in the dashboard server process and its credential s
 
 #### Scenario: Revoked grant surfaces re-auth
 - **WHEN** Google rejects the refresh token
-- **THEN** the account shows "re-auth needed" and tool calls for it fail with a re-auth error
+- **THEN** the account shows "Re-auth needed" (the settings status pill, `data-status="reauth_required"`) and tool calls for it fail with a re-auth error
 
 #### Scenario: Any session sees the same accounts
 - **WHEN** two pi sessions on the same dashboard lease the same account
@@ -187,7 +187,7 @@ Tokens, client secrets, authorization codes and pasted redirect URLs SHALL NOT a
 - **AND** the log line contains no token, authorization code, client secret, URL or email
 
 ### Requirement: Settings section is readable and guarded
-The Gmail settings section SHALL take every color from declared dashboard theme tokens so borders, status badges and errors render correctly in every named theme in light and dark mode. Account status (ok / re-auth needed) SHALL be distinguishable by color and text. Every interactive control SHALL show a visible keyboard focus indicator. Saving an alias SHALL report success or failure. The level choices SHALL each describe what the level allows, and the section SHALL keep stating that levels are enforced by the plugin rather than by Google and that any dashboard session can use every account within its level. The add-account control SHALL state that accounts outside the project's Workspace organization need an External audience.
+The Gmail settings section SHALL take every color from declared dashboard theme tokens so borders, status badges and errors render correctly in every named theme in light and dark mode; information text (labels, help, hints) SHALL use `--text-primary` or `--text-secondary`, never `--text-muted`. Account status SHALL be distinguishable by color and text: a severity pill reading "Connected" for `ok` and "Re-auth needed" for `reauth_required`, keeping `data-testid="gmail-account-status"` and its `data-status` value. Every interactive control SHALL show a visible keyboard focus indicator, and each account row SHALL name its controls after the account ("Alias for <email>", "Level for <email>", "Revoke <email>"). Saving an alias SHALL report success or failure. The level choices SHALL each describe what the level allows, and the section SHALL keep stating that levels are enforced by the plugin rather than by Google and that any dashboard session can use every account within its level. The labelled inputs (project id, client upload, new account level) SHALL use the shared settings field components (`settings-panel`). "Add account" SHALL be the section's one primary button; while it is disabled, a text reason SHALL be shown and linked by `aria-describedby`. The add-account control SHALL state that accounts outside the project's Workspace organization need an External audience.
 
 #### Scenario: Undeclared theme token rejected
 - **WHEN** the section's source references a color custom property not declared by the dashboard theme
@@ -200,6 +200,14 @@ The Gmail settings section SHALL take every color from declared dashboard theme 
 #### Scenario: Scope limit still stated
 - **WHEN** the user views the accounts list
 - **THEN** the section states that levels are enforced by the plugin, not by Google, and that any dashboard session can use every account within its level
+
+#### Scenario: Status is text, not colour alone
+- **WHEN** one account is `ok` and one is `reauth_required`
+- **THEN** their status pills read "Connected" and "Re-auth needed", with `data-status` `ok` and `reauth_required`
+
+#### Scenario: Disabled Add account explains itself
+- **WHEN** no OAuth client is configured
+- **THEN** "Add account" is disabled and its `aria-describedby` points at visible text saying when it becomes available
 
 ### Requirement: Actionable Gmail API errors
 When the Gmail API answers HTTP 403, a Gmail tool SHALL classify the failure from Google's machine-readable error reason only and SHALL NOT echo Google's free-text message. A disabled Gmail API SHALL fail with code `api_disabled` and a message naming the Google Cloud project number and the command or console page that enables the Gmail API. A token lacking the required Gmail scope SHALL fail with code `scope_insufficient` and tell the user to re-authenticate the account with every permission granted. Any other 403, or a 403 whose body cannot be parsed, SHALL keep failing with the generic `gmail_error` code. The project number SHALL be included only when it consists of digits; otherwise the `api_disabled` message SHALL omit it.
@@ -220,3 +228,14 @@ When the Gmail API answers HTTP 403, a Gmail tool SHALL classify the failure fro
 #### Scenario: Unknown or malformed 403
 - **WHEN** a Gmail tool call returns 403 with an unknown reason, a non-JSON body, or a body whose fields have unexpected types
 - **THEN** the tool fails with code `gmail_error` and the message contains none of the response body text
+
+### Requirement: Gmail setup wizard shows step progress and actionable errors
+The setup wizard SHALL number its steps with chips. The current step — the step the wizard highlights today, including the audience step it highlights after an `org_internal` report — SHALL carry `aria-current="step"`, and completed steps SHALL show a check. A failed sign-in SHALL render as a severity-error notice that names the cause and the wizard step that fixes it, keeping `gmail-flow-error` with its `data-step` and the error code. The section SHALL pass the contrast, size and focus probes in `{base,dark}`, `{base,light}` and `{nord,dark}` at 375, 768 and 1440 px in these states: loading, load error, not configured, configured with an `ok`, a `reauth_required` and a testing-mode account, client upload error, sign-in waiting, sign-in failed, and alias error. Every existing `gmail-*` test id SHALL still render in its state.
+
+#### Scenario: Current step is marked
+- **WHEN** the client is not configured
+- **THEN** step 1 has `aria-current="step"` and no step shows a check
+
+#### Scenario: Probes pass in every state
+- **WHEN** the capture spec probes each listed state in every listed theme and width
+- **THEN** every contrast, size and focus failure list is empty

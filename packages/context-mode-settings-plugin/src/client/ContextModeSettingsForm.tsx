@@ -5,10 +5,20 @@
  * Grouped accordion over the descriptor table; each field shows its effective
  * value, a DEFAULT badge when unset, a per-field reset and inline validation.
  * Edits register with the host's unified Save Bar via `useSettingsDraftSource`.
+ * Fields, groups and notices come from the shared settings field family in
+ * `dashboard-plugin-runtime`; nothing here paints with an `--accent-*` text colour.
  *
- * See change: add-context-mode-settings-plugin.
+ * See change: add-context-mode-settings-plugin, retro-ux-plugin-settings-forms.
  */
-import { useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  NumberField,
+  SettingsGroup,
+  SettingsNotice,
+  TextField,
+  ToggleField,
+  useSettingsDraftSource,
+  useT,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -103,6 +113,10 @@ export function ContextModeSettingsForm(): React.ReactElement {
     return out;
   }, [values, overridden]);
   const isDirty = !same(payload, base);
+  const changedCount = useMemo(
+    () => [...new Set([...Object.keys(payload), ...Object.keys(base)])].filter((k) => !same(payload[k], base[k])).length,
+    [payload, base],
+  );
 
   useSettingsDraftSource({
     id: "plugin:context-mode-settings",
@@ -121,95 +135,99 @@ export function ContextModeSettingsForm(): React.ReactElement {
 
   if (loadError) {
     return (
-      <div className="text-[13px] text-[var(--accent-red)]" data-testid="cms-load-error">
+      <SettingsNotice tone="error" testId="cms-load-error">
         {t("loadError", { error: loadError }, `Failed to load settings: ${loadError}`)}
-      </div>
+      </SettingsNotice>
     );
   }
   if (!effective) {
-    return <div className="text-[13px] text-[var(--text-muted)]">{t("loading", undefined, "Loading…")}</div>;
+    return (
+      <div data-testid="cms-loading" className="text-sm text-[var(--text-secondary)]">
+        {t("loading", undefined, "Loading…")}
+      </div>
+    );
   }
 
-  const notice = "flex gap-2 items-start text-[12px] rounded-lg px-2.5 py-2 mb-2 border";
-  const noticeStyle = {
-    background: "color-mix(in srgb, var(--accent-yellow) 12%, transparent)",
-    borderColor: "color-mix(in srgb, var(--accent-yellow) 40%, transparent)",
-  };
-
   return (
-    <div className="text-[13px] text-[var(--text-secondary)]">
-      <p className="text-[12px] mb-2">
-        {t("intro", undefined, "Tuning for the")} <code className="font-mono text-[11px]">context-mode</code>{" "}
+    <div data-testid="cms-root" className="text-sm text-[var(--text-secondary)]">
+      <p className="mb-2 text-xs">
+        {t("intro", undefined, "Tuning for the")} <code className="font-mono text-[12px]">context-mode</code>{" "}
         {t("introTail", undefined, "extension. Fields left at their default use context-mode's built-in value.")}
       </p>
-      <div className="font-mono text-[11px] text-[var(--text-tertiary)] flex items-center gap-1.5 mb-3">
+      <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs">
         <span>{t("file", undefined, "File:")}</span>
-        <span className="border border-[var(--border-secondary)] rounded px-1.5" data-testid="cms-file-path">
+        <span
+          className="rounded border border-[var(--border-secondary)] px-1.5 font-mono text-[12px] text-[var(--text-primary)]"
+          data-testid="cms-file-path"
+        >
           {effective.filePath}
         </span>
         <span>· {effective.exists ? t("exists", undefined, "exists") : t("notCreated", undefined, "not yet created")}</span>
       </div>
-      <div className={notice} style={noticeStyle} data-testid="cms-notice-new-sessions">
+      <SettingsNotice tone="info" testId="cms-notice-new-sessions" className="mb-2">
         {t("newSessionsNotice", undefined, "Changes apply to newly started sessions only; running sessions keep their current settings.")}
-      </div>
-      <div className={`${notice} mb-4`} style={noticeStyle} data-testid="cms-notice-precedence">
+      </SettingsNotice>
+      <SettingsNotice tone="info" testId="cms-notice-precedence" className="mb-4">
         {t(
           "precedenceNotice",
           undefined,
           "A variable already exported in the session's environment takes precedence over these settings (except a value that exists only in a tmux server's global environment).",
         )}
-      </div>
+      </SettingsNotice>
 
       {SETTING_GROUPS.map((group) => {
         const fields = CONTEXT_SETTINGS.filter((d) => d.group === group);
         if (fields.length === 0) return null;
         return (
-          <details
+          <SettingsGroup
             key={group}
-            className="border border-[var(--border-secondary)] rounded-[10px] overflow-hidden mb-2.5 bg-[var(--bg-secondary)]"
-            open
+            title={t(`group_${group}`, undefined, GROUP_TITLES[group])}
+            meta={`${fields.length} ${t("fields", undefined, "fields")}`}
           >
-            <summary className="cursor-pointer flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] font-semibold text-[var(--text-primary)] select-none list-none">
-              {t(`group_${group}`, undefined, GROUP_TITLES[group])}
-              <span className="ml-auto text-[11px] text-[var(--text-tertiary)] font-medium">
-                {fields.length} {t("fields", undefined, "fields")}
-              </span>
-            </summary>
-            <div className="px-3.5 pb-3 pt-1 border-t border-[var(--border-subtle)]">
-              {group === "storage" && (
-                <p className="text-[11.5px] text-[var(--text-tertiary)] mt-2 mb-0" data-testid="cms-notice-storage">
-                  {t(
-                    "storageNotice",
-                    undefined,
-                    "Storage settings apply to sessions started from the dashboard only. For a terminal-launched pi, export the variable in your shell.",
-                  )}
-                </p>
-              )}
-              {fields.map((d) => (
-                <FieldRow
-                  key={d.key}
-                  d={d}
-                  value={values[d.key]}
-                  isOverridden={overridden.has(d.key)}
-                  error={errors[d.key] ?? null}
-                  onChange={(v) => setField(d.key, v)}
-                  onReset={() => resetField(d.key)}
-                  t={t}
-                />
-              ))}
-            </div>
-          </details>
+            {group === "storage" && (
+              <SettingsNotice tone="info" testId="cms-notice-storage">
+                {t(
+                  "storageNotice",
+                  undefined,
+                  "Storage settings apply to sessions started from the dashboard only. For a terminal-launched pi, export the variable in your shell.",
+                )}
+              </SettingsNotice>
+            )}
+            {fields.map((d) => (
+              <Field
+                key={d.key}
+                d={d}
+                value={values[d.key]}
+                isOverridden={overridden.has(d.key)}
+                error={errors[d.key] ?? null}
+                onChange={(v) => setField(d.key, v)}
+                onReset={() => resetField(d.key)}
+                t={t}
+              />
+            ))}
+          </SettingsGroup>
         );
       })}
 
-      <div className="flex items-center gap-2.5">
-        <span className={`text-[12px] ${isDirty ? "text-[var(--accent-yellow)]" : "text-[var(--text-tertiary)]"}`}>
-          {isDirty ? t("unsaved", undefined, "Unsaved changes") : t("noChanges", undefined, "No changes")}
-        </span>
+      <div className="flex flex-wrap items-center gap-2.5">
+        {isDirty ? (
+          <span
+            role="status"
+            className="inline-flex items-center rounded-full border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] px-1.5 py-px text-[11px] font-semibold text-[var(--severity-warning-fg)]"
+          >
+            {changedCount === 1
+              ? t("unsavedOne", undefined, "1 unsaved change")
+              : t("unsavedMany", { count: changedCount }, `${changedCount} unsaved changes`)}
+          </span>
+        ) : (
+          <span role="status" className="text-xs text-[var(--text-secondary)]">
+            {t("noChanges", undefined, "No changes")}
+          </span>
+        )}
         <span className="ml-auto" />
         <button
           type="button"
-          className="text-[12.5px] px-3.5 py-1.5 rounded-md bg-transparent text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+          className="focus-ring min-h-[44px] rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 text-xs text-[var(--text-primary)] sm:min-h-[36px]"
           onClick={() => setShowRaw((v) => !v)}
         >
           {t("viewRawJson", undefined, "View raw JSON")}
@@ -217,7 +235,7 @@ export function ContextModeSettingsForm(): React.ReactElement {
       </div>
       {showRaw && (
         <pre
-          className="mt-2 font-mono text-[11.5px] text-[var(--text-secondary)] bg-[var(--bg-code)] border border-[var(--border-subtle)] rounded-lg p-3 max-h-[52vh] overflow-auto"
+          className="mt-2 max-h-[52vh] overflow-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-code)] p-3 font-mono text-[12px] text-[var(--text-secondary)]"
           data-testid="cms-raw-json"
         >
           {JSON.stringify(payload, null, 2)}
@@ -227,10 +245,7 @@ export function ContextModeSettingsForm(): React.ReactElement {
   );
 }
 
-const inputCls =
-  "font-mono text-[12.5px] text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md px-2.5 py-1.5 outline-none focus:border-[var(--accent-primary)]";
-
-function FieldRow({
+function Field({
   d,
   value,
   isOverridden,
@@ -248,88 +263,47 @@ function FieldRow({
   t: ReturnType<typeof useT>;
 }): React.ReactElement {
   const id = `cms-input-${d.key}`;
-  return (
-    <div className="py-3 border-b border-[var(--border-subtle)] last:border-b-0">
-      <div className="flex items-baseline gap-2">
-        <label htmlFor={id} className="text-[13px] text-[var(--text-primary)] font-medium">
-          {d.label}
-        </label>
-        <span className="font-mono text-[11px] text-[var(--text-tertiary)]">{d.key}</span>
-        {!isOverridden && (
-          <span
-            className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)] border border-[var(--border-secondary)] rounded px-1.5"
-            data-testid={`cms-default-badge-${d.key}`}
-          >
-            {t("defaultBadge", undefined, "default")}
-          </span>
-        )}
-        {isOverridden && (
-          <button
-            type="button"
-            className="ml-auto text-[11px] text-[var(--accent-blue)]"
-            onClick={onReset}
-            data-testid={`cms-reset-${d.key}`}
-          >
-            {t("reset", undefined, "Reset")}
-          </button>
-        )}
-      </div>
-      <p className="text-[11.5px] text-[var(--text-tertiary)] mt-1.5 mb-0">{d.help}</p>
-      <div className="mt-2">
-        <FieldControl d={d} id={id} value={value} error={error} onChange={onChange} />
-      </div>
-      {error && (
-        <p className="text-[11px] text-[var(--accent-red)] mt-1 mb-0" role="alert" data-testid={`cms-error-${d.key}`}>
-          {t(`err_${error}`, undefined, error.replace(/_/g, " "))}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function FieldControl({
-  d,
-  id,
-  value,
-  error,
-  onChange,
-}: {
-  d: SettingDescriptor;
-  id: string;
-  value: unknown;
-  error: string | null;
-  onChange: (v: unknown) => void;
-}): React.ReactElement {
+  const shared = {
+    label: d.label,
+    keyLabel: d.key,
+    hint: d.help,
+    error: error ? t(`err_${error}`, undefined, error.replace(/_/g, " ")) : null,
+    // The DEFAULT badge exists only while the value is unset; an override shows the reset control instead.
+    state: isOverridden ? undefined : ("default" as const),
+    stateLabel: t("defaultBadge", undefined, "default"),
+    onReset: isOverridden ? onReset : undefined,
+    resetLabel: t("reset", undefined, "Reset"),
+    testIds: { control: id, state: `cms-default-badge-${d.key}`, reset: `cms-reset-${d.key}`, error: `cms-error-${d.key}` },
+  };
   if (d.kind === "boolean") {
     return (
-      <label className="inline-flex items-center gap-2 cursor-pointer">
-        <input id={id} type="checkbox" checked={value === true} onChange={(e) => onChange(e.target.checked)} data-testid={id} />
-        <span className="text-[12px]">{value ? "On" : "Off"}</span>
-      </label>
+      <ToggleField
+        {...shared}
+        value={value === true}
+        onChange={onChange}
+        onLabel={t("on", undefined, "On")}
+        offLabel={t("off", undefined, "Off")}
+      />
     );
   }
   if (d.kind === "positiveNumber" || d.kind === "positiveInteger") {
     return (
-      <input
-        id={id}
-        type="number"
-        className={`${inputCls} w-[170px]`}
-        aria-invalid={error ? true : undefined}
-        value={typeof value === "number" && Number.isFinite(value) ? String(value) : ""}
-        onChange={(e) => onChange(e.target.value === "" ? Number.NaN : Number(e.target.value))}
-        data-testid={id}
+      <NumberField
+        {...shared}
+        value={typeof value === "number" ? value : Number.NaN}
+        onChange={onChange}
+        decimal={d.kind === "positiveNumber"}
+        allowEmpty
+        step={d.kind === "positiveNumber" ? "any" : 1}
       />
     );
   }
   return (
-    <input
-      id={id}
-      type="text"
-      className={`${inputCls} w-full max-w-[340px]`}
-      aria-invalid={error ? true : undefined}
+    <TextField
+      {...shared}
+      mono
       value={typeof value === "string" ? value : ""}
-      onChange={(e) => onChange(e.target.value)}
-      data-testid={id}
+      onChange={onChange}
     />
   );
 }

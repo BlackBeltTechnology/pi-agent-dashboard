@@ -42,7 +42,7 @@ describe("accounts panel", () => {
     const rows = await screen.findAllByTestId("gmail-account-row");
     expect(rows.map((r) => r.dataset.email)).toEqual(["a@x.com", "b@y.com"]);
     expect(within(rows[0] as HTMLElement).getByTestId("gmail-account-status").dataset.status).toBe("ok");
-    expect(within(rows[1] as HTMLElement).getByTestId("gmail-account-status").textContent).toBe("re-auth needed");
+    expect(within(rows[1] as HTMLElement).getByTestId("gmail-account-status").textContent).toBe("Re-auth needed");
     expect(rows[1]?.textContent).toContain("testing: 7-day");
     expect(screen.getByTestId("gmail-level-help").textContent).toMatch(/not by Google/);
   });
@@ -386,5 +386,79 @@ describe("test-plan #E10 / #E11 — level descriptions and add-account guidance"
     const hint = screen.getByTestId("gmail-cross-org-hint").textContent ?? "";
     expect(hint).toMatch(/External/);
     expect(hint).toMatch(/organization/);
+  });
+});
+
+// ── retro-ux-plugin-settings-forms ───────────────────────────────────────────
+
+describe("retro-ux — account status, names and the primary action", () => {
+  it("#E17 status pills read Connected / Re-auth needed and keep data-status", async () => {
+    flowFetch();
+    renderPanel();
+    const rows = await screen.findAllByTestId("gmail-account-row");
+    const ok = within(rows[0] as HTMLElement).getByTestId("gmail-account-status");
+    const re = within(rows[1] as HTMLElement).getByTestId("gmail-account-status");
+    expect([ok.textContent, ok.dataset.status]).toEqual(["Connected", "ok"]);
+    expect([re.textContent, re.dataset.status]).toEqual(["Re-auth needed", "reauth_required"]);
+  });
+
+  it("#E18 disabled Add account links a visible reason; per-account names; cross-org hint kept", async () => {
+    flowFetch({ state: { client: { configured: false }, accounts: [] } });
+    renderPanel();
+    const add = (await screen.findByTestId("gmail-add-account")) as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+    const reason = document.getElementById(add.getAttribute("aria-describedby") ?? "");
+    expect(reason?.textContent).toMatch(/Upload the OAuth client JSON/);
+    expect(add.className).toContain("--accent-solid");
+    cleanup();
+    flowFetch();
+    renderPanel();
+    const rows = await screen.findAllByTestId("gmail-account-row");
+    const row = within(rows[0] as HTMLElement);
+    expect(row.getByRole("textbox", { name: "Alias for a@x.com" })).toBeTruthy();
+    expect(row.getByRole("combobox", { name: "Level for a@x.com" })).toBeTruthy();
+    expect(row.getByRole("button", { name: "Revoke a@x.com" })).toBeTruthy();
+    expect(screen.getByTestId("gmail-cross-org-hint")).toBeTruthy();
+  });
+
+  it.each([
+    ["not configured", { configured: false }, [], "1"],
+    ["org_internal reported", { configured: true, clientId: "c.apps.googleusercontent.com" }, [STATE.accounts[0]], "3"],
+  ])("#E19 %s → aria-current on step %s", async (name, client, accounts, expected) => {
+    flowFetch({ state: { client, accounts } });
+    renderPanel();
+    await screen.findByTestId("gmail-wizard");
+    if (name === "org_internal reported") {
+      await startWaitingFlow();
+      fireEvent.click(screen.getByTestId("gmail-report-org_internal"));
+      await screen.findByTestId("gmail-flow-error");
+    }
+    const current = [...document.querySelectorAll('[aria-current="step"]')].map((el) => (el as HTMLElement).dataset.testid);
+    expect(current).toEqual([`gmail-step-${expected}`]);
+    if (name === "not configured") expect(document.querySelectorAll("[data-done]").length).toBe(0);
+  });
+
+  it("#X3 a failed sign-in renders inside an error notice naming the step and the code", async () => {
+    flowFetch({ statusReplies: [pendingStatus, { flowId: "f1", provider: "gmail", status: "error", error: "access_denied" }] });
+    renderPanel();
+    await startWaitingFlow();
+    const err = await screen.findByTestId("gmail-flow-error", undefined, { timeout: 2000 });
+    expect(err.dataset.step).toBe("3");
+    expect(err.textContent).toMatch(/step 3/);
+    expect(err.textContent).toContain("access_denied");
+    expect(err.closest('[data-tone="error"]')).toBeTruthy();
+  });
+
+  it("#X4 an upload error is linked by describedby and marks the input invalid", async () => {
+    flowFetch({ state: { client: { configured: false }, accounts: [] } });
+    renderPanel();
+    const input = (await screen.findByTestId("gmail-client-upload")) as HTMLInputElement;
+    const file = new File([JSON.stringify({ web: { client_id: "x.apps.googleusercontent.com", client_secret: "s" } })], "c.json", {
+      type: "application/json",
+    });
+    fireEvent.change(input, { target: { files: [file] } });
+    const err = await screen.findByTestId("gmail-upload-error");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(err.id);
   });
 });

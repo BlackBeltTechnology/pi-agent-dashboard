@@ -10,13 +10,29 @@
  * inline number/regex validation (Save disabled while invalid), conditional
  * reveal of memoryPolicyCustomText, and a prefers-reduced-motion guard.
  *
- * See change: add-hermes-memory-settings-plugin.
+ * Fields, groups and notices come from the shared settings field family in
+ * `dashboard-plugin-runtime`; nothing here paints with an `--accent-*` text colour.
+ *
+ * See change: add-hermes-memory-settings-plugin, retro-ux-plugin-settings-forms.
  */
-import { useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  FieldShell,
+  NumberField,
+  SelectField,
+  SettingsGroup,
+  SettingsNotice,
+  TextAreaField,
+  TextField,
+  ToggleField,
+  useSettingsDraftSource,
+  useT,
+  useUiPrimitive,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "wouter";
 import { DEFAULTS, FIELD_DESCRIPTORS, KNOWN_KEYS, type MemoryConfig } from "../shared/hermes-config.js";
 import { FIELD_GROUPS, type FieldMeta } from "./field-groups.js";
 import { type EffectiveConfig, getConfig, putConfig } from "./hermes-api.js";
@@ -32,6 +48,7 @@ export function HermesMemorySettings(): React.ReactElement {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
+  const rawOpenerRef = useRef<HTMLButtonElement>(null);
 
   // Editable state: current value per key + the set of user-overridden keys.
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -67,16 +84,6 @@ export function HermesMemorySettings(): React.ReactElement {
     void load(ac.signal);
     return () => ac.abort();
   }, [load]);
-
-  // Escape-to-close for the raw-JSON modal (keyboard dismissal).
-  useEffect(() => {
-    if (!showRaw) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowRaw(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [showRaw]);
 
   const setField = useCallback((key: string, value: unknown) => {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -143,103 +150,109 @@ export function HermesMemorySettings(): React.ReactElement {
 
   if (loadError) {
     return (
-      <div className="text-[13px] text-[var(--accent-red)]" data-testid="hermes-load-error">
+      <SettingsNotice tone="error" testId="hermes-load-error">
         {t("loadError", { error: loadError }, `Failed to load config: ${loadError}`)}
-      </div>
+      </SettingsNotice>
     );
   }
   if (!effective) {
-    return <div className="text-[13px] text-[var(--text-muted)]">{t("loading", undefined, "Loading…")}</div>;
+    return (
+      <div data-testid="hermes-loading" className="text-sm text-[var(--text-secondary)]">
+        {t("loading", undefined, "Loading…")}
+      </div>
+    );
   }
 
   return (
-    <div className="text-[13px] text-[var(--text-secondary)] pb-24">
+    <div data-testid="hermes-root" className="pb-24 text-sm text-[var(--text-secondary)]">
       {/* prefers-reduced-motion guard (6.3) */}
       <style>{"@media (prefers-reduced-motion: reduce){.hm-motion{transition:none !important}}"}</style>
 
-      <p className="text-[12px] text-[var(--text-secondary)] mb-2">
+      <p className="mb-2 text-xs text-[var(--text-secondary)]">
         {t("intro", undefined, "Configuration for the")}{" "}
-        <code className="font-mono text-[11px]">pi-hermes-memory</code>{" "}
+        <code className="font-mono text-[12px]">pi-hermes-memory</code>{" "}
         {t("introTail", undefined, "extension. Fields left at their default track the extension's built-in value.")}
       </p>
 
-      <div className="font-mono text-[11px] text-[var(--text-tertiary)] flex items-center gap-1.5 mb-3">
+      <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs">
         <span>{t("file", undefined, "File:")}</span>
-        <span className="border border-[var(--border-secondary)] rounded px-1.5 text-[var(--accent-green)]" data-testid="hermes-file-path">
+        <span
+          className="rounded border border-[var(--border-secondary)] px-1.5 font-mono text-[12px] text-[var(--text-primary)]"
+          data-testid="hermes-file-path"
+        >
           {effective.filePath}
         </span>
         <span>· {effective.exists ? t("exists", undefined, "exists") : t("notCreated", undefined, "not yet created")}</span>
       </div>
 
-      <div
-        className="flex gap-2 items-start text-[12px] rounded-lg px-2.5 py-2 mb-4 border"
-        style={{
-          background: "color-mix(in srgb, var(--accent-yellow) 12%, transparent)",
-          borderColor: "color-mix(in srgb, var(--accent-yellow) 40%, transparent)",
-        }}
-      >
-        <span>
-          {t(
-            "newSessionsNotice",
-            undefined,
-            "Changes apply to newly started sessions. Hermes reads its config once at extension load, so running sessions keep their current settings until restarted.",
-          )}
-        </span>
-      </div>
+      <SettingsNotice tone="info" className="mb-4">
+        {t(
+          "newSessionsNotice",
+          undefined,
+          "Changes apply to newly started sessions. Hermes reads its config once at extension load, so running sessions keep their current settings until restarted.",
+        )}
+      </SettingsNotice>
 
       {FIELD_GROUPS.map((group) => {
         const groupDirty = group.fields.some((f) => isDirty(f.key));
         return (
-          <details
+          <SettingsGroup
             key={group.title}
-            className="border border-[var(--border-secondary)] rounded-[10px] overflow-hidden mb-2.5 bg-[var(--bg-secondary)]"
+            defaultOpen={false}
+            title={
+              <>
+                {group.title}
+                {groupDirty && (
+                  <span className="rounded-full border border-[var(--severity-info-border)] bg-[var(--severity-info-bg)] px-1.5 py-px text-[11px] font-semibold text-[var(--severity-info-fg)]">
+                    {t("groupChanged", undefined, "changed")}
+                  </span>
+                )}
+              </>
+            }
+            meta={`${group.fields.length} ${t("fields", undefined, "fields")}`}
           >
-            <summary className="cursor-pointer flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] font-semibold text-[var(--text-primary)] select-none list-none">
-              <span className="hm-motion text-[var(--text-tertiary)]">▸</span>
-              {group.title}
-              {groupDirty && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-blue)]" />}
-              <span className="ml-auto text-[11px] text-[var(--text-tertiary)] font-medium">
-                {group.fields.length} {t("fields", undefined, "fields")}
-              </span>
-            </summary>
-            <div className="px-3.5 pb-3 pt-1 border-t border-[var(--border-subtle)]">
-              {group.fields.map((meta) => {
-                if (meta.key === "memoryPolicyCustomText" && !showCustomText) return null;
-                return (
-                  <FieldRow
-                    key={meta.key}
-                    meta={meta}
-                    value={values[meta.key]}
-                    isOverridden={overridden.has(meta.key)}
-                    error={overridden.has(meta.key) ? fieldError(meta.key, values[meta.key]) : null}
-                    onChange={(v) => setField(meta.key, v)}
-                    onReset={() => resetField(meta.key)}
-                    t={t}
-                  />
-                );
-              })}
-            </div>
-          </details>
+            {group.fields.map((meta) => {
+              if (meta.key === "memoryPolicyCustomText" && !showCustomText) return null;
+              return (
+                <Field
+                  key={meta.key}
+                  meta={meta}
+                  value={values[meta.key]}
+                  isOverridden={overridden.has(meta.key)}
+                  error={overridden.has(meta.key) ? fieldError(meta.key, values[meta.key], t) : null}
+                  onChange={(v) => setField(meta.key, v)}
+                  onReset={() => resetField(meta.key)}
+                  t={t}
+                />
+              );
+            })}
+          </SettingsGroup>
         );
       })}
 
       {/* No save footer: the host Settings panel owns Save/Discard through the
           global Save Bar, and a `position: fixed` bar here overlaid every
           settings page. See change: plugin-settings-pages (design D5). */}
-      <div className="flex items-center gap-2.5">
-        <span
-          className={`text-[12px] ${changedCount ? "text-[var(--accent-yellow)]" : "text-[var(--text-tertiary)]"}`}
-          data-testid="hermes-change-status"
-        >
-          {changedCount
-            ? t("nChanged", { count: changedCount }, `${changedCount} field${changedCount > 1 ? "s" : ""} changed · not yet saved`)
-            : t("noChanges", undefined, "No changes")}
-        </span>
-        {saveError && <span className="text-[12px] text-[var(--accent-red)]">{saveError}</span>}
+      <div className="flex flex-wrap items-center gap-2.5">
+        {changedCount ? (
+          <span
+            role="status"
+            data-testid="hermes-change-status"
+            className="inline-flex items-center rounded-full border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] px-1.5 py-px text-[11px] font-semibold text-[var(--severity-warning-fg)]"
+          >
+            {t("nChanged", { count: changedCount }, `${changedCount} field${changedCount > 1 ? "s" : ""} changed · not yet saved`)}
+          </span>
+        ) : (
+          <span role="status" data-testid="hermes-change-status" className="text-xs text-[var(--text-secondary)]">
+            {t("noChanges", undefined, "No changes")}
+          </span>
+        )}
+        {saveError && <SettingsNotice tone="error">{saveError}</SettingsNotice>}
         <span className="ml-auto" />
         <button
+          ref={rawOpenerRef}
           type="button"
-          className="text-[12.5px] px-3.5 py-1.5 rounded-md bg-transparent text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+          className="focus-ring min-h-[44px] rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 text-xs text-[var(--text-primary)] sm:min-h-[36px]"
           onClick={() => setShowRaw(true)}
         >
           {t("viewRawJson", undefined, "View raw JSON")}
@@ -247,37 +260,107 @@ export function HermesMemorySettings(): React.ReactElement {
       </div>
 
       {showRaw && (
-        <div
-          className="fixed inset-0 bg-black/55 flex items-center justify-center z-20"
-          onClick={() => setShowRaw(false)}
-          role="presentation"
-        >
-          <div
-            className="max-w-[640px] w-[92vw] bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-secondary)] text-[13px] font-semibold text-[var(--text-primary)]">
-              <span>hermes-memory-config.json ({t("resolved", undefined, "resolved")})</span>
-              <button type="button" className="text-[var(--text-secondary)]" onClick={() => setShowRaw(false)}>
-                {t("close", undefined, "Close")}
-              </button>
-            </div>
-            <div className="p-4">
-              <pre className="m-0 font-mono text-[11.5px] text-[var(--text-secondary)] bg-[var(--bg-code)] border border-[var(--border-subtle)] rounded-lg p-3 max-h-[52vh] overflow-auto whitespace-pre">
-                {JSON.stringify(buildResolvedConfig(values, overridden), null, 2)}
-              </pre>
-            </div>
-          </div>
-        </div>
+        <RawJsonDialog
+          json={JSON.stringify(buildResolvedConfig(values, overridden), null, 2)}
+          opener={rawOpenerRef}
+          onClose={() => setShowRaw(false)}
+          t={t}
+        />
       )}
     </div>
   );
 }
 
-// ── One field row ────────────────────────────────────────────────
-function FieldRow({
+/** Keep Tab / Shift+Tab inside `panel`: wrap at the ends, pull stray focus back in. */
+function trapTab(e: KeyboardEvent, panel: HTMLElement): void {
+  const focusable = panel.querySelectorAll<HTMLElement>("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])");
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  const inside = panel.contains(active);
+  if (e.shiftKey ? !inside || active === first : !inside || active === last) {
+    e.preventDefault();
+    (e.shiftKey ? last : first).focus();
+  }
+}
+
+// ── Raw-JSON dialog: scrim, focus trap, Escape, focus return ──────────────
+function RawJsonDialog({
+  json,
+  opener,
+  onClose,
+  t,
+}: {
+  json: string;
+  opener: React.RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+  t: ReturnType<typeof useT>;
+}): React.ReactElement {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const titleId = "hermes-raw-title";
+
+  // The parent passes an inline arrow, so depending on `onClose` would restart this effect
+  // (re-focusing Close, re-binding the listener) on every parent render.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    closeRef.current?.focus();
+    const openerEl = opener.current;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCloseRef.current();
+      } else if (e.key === "Tab" && panelRef.current) {
+        trapTab(e, panelRef.current);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      openerEl?.focus();
+    };
+  }, [opener]);
+
+  return (
+    <div className="fixed inset-0 z-20 flex items-center justify-center bg-[var(--bg-overlay)]" onClick={onClose} role="presentation">
+      <div
+        ref={panelRef}
+        className="w-[92vw] max-w-[640px] rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)]"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border-secondary)] px-4 py-3">
+          <div className="min-w-0">
+            <h3 id={titleId} className="m-0 text-sm font-semibold text-[var(--text-primary)]">
+              {t("rawTitle", undefined, "Resolved configuration")}
+            </h3>
+            <p className="m-0 font-mono text-[12px] text-[var(--text-secondary)]">hermes-memory-config.json</p>
+          </div>
+          <button
+            ref={closeRef}
+            type="button"
+            className="focus-ring min-h-[44px] rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 text-xs text-[var(--text-primary)] sm:min-h-[36px]"
+            onClick={onClose}
+          >
+            {t("close", undefined, "Close")}
+          </button>
+        </div>
+        <div className="p-4">
+          <pre className="m-0 max-h-[52vh] overflow-auto whitespace-pre rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-code)] p-3 font-mono text-[12px] text-[var(--text-secondary)]">
+            {json}
+          </pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── One field, rendered through the shared field family ───────────────────
+function Field({
   meta,
   value,
   isOverridden,
@@ -294,138 +377,79 @@ function FieldRow({
   onReset: () => void;
   t: ReturnType<typeof useT>;
 }): React.ReactElement {
-  return (
-    <div className="py-3 border-b border-[var(--border-subtle)] last:border-b-0">
-      <div className="flex items-baseline gap-2">
-        <span className="text-[13px] text-[var(--text-primary)] font-medium">{meta.label}</span>
-        <span className="font-mono text-[11px] text-[var(--text-tertiary)]">{meta.key}</span>
-        {!isOverridden && (
-          <span
-            className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)] border border-[var(--border-secondary)] rounded px-1.5"
-            data-testid={`hermes-default-badge-${meta.key}`}
-          >
-            {t("defaultBadge", undefined, "default")}
-          </span>
-        )}
-        {isOverridden && (
-          <button
-            type="button"
-            className="ml-auto text-[11px] text-[var(--accent-blue)]"
-            onClick={onReset}
-            data-testid={`hermes-reset-${meta.key}`}
-          >
-            {t("reset", undefined, "Reset")}
-          </button>
-        )}
-      </div>
-      <p className="text-[11.5px] text-[var(--text-tertiary)] mt-1.5 mb-0">{meta.help}</p>
-      <div className="mt-2 flex items-center gap-2 flex-wrap">
-        <FieldControl meta={meta} value={value} onChange={onChange} onReset={onReset} t={t} />
-        {meta.unit && <span className="text-[11px] text-[var(--text-tertiary)]">{meta.unit}</span>}
-      </div>
-      {error && <p className="text-[11px] text-[var(--accent-red)] mt-1 mb-0">{error}</p>}
-    </div>
-  );
-}
-
-// ── Control by descriptor kind ───────────────────────────────────
-const inputCls =
-  "font-mono text-[12.5px] text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md px-2.5 py-1.5 outline-none focus:border-[var(--accent-primary)]";
-
-function FieldControl({
-  meta,
-  value,
-  onChange,
-  onReset,
-  t,
-}: {
-  meta: FieldMeta;
-  value: unknown;
-  onChange: (v: unknown) => void;
-  onReset: () => void;
-  t: ReturnType<typeof useT>;
-}): React.ReactElement {
   const desc = FIELD_DESCRIPTORS[meta.key];
   const key = meta.key as keyof MemoryConfig;
+  const testId = `hermes-input-${key}`;
+  const shared = {
+    label: meta.label,
+    keyLabel: meta.key,
+    unit: meta.unit,
+    hint: meta.help,
+    error,
+    // The DEFAULT badge exists only while the value is unset; an override shows the reset control instead.
+    state: isOverridden ? undefined : ("default" as const),
+    stateLabel: t("defaultBadge", undefined, "default"),
+    onReset: isOverridden ? onReset : undefined,
+    resetLabel: t("reset", undefined, "Reset"),
+    testIds: { control: testId, state: `hermes-default-badge-${key}`, reset: `hermes-reset-${key}` },
+  };
 
   switch (desc.kind) {
     case "boolean":
       return (
-        <label className="inline-flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={value === true}
-            onChange={(e) => onChange(e.target.checked)}
-            data-testid={`hermes-input-${key}`}
-          />
-          <span className="text-[12px] text-[var(--text-secondary)]">{value ? "On" : "Off"}</span>
-        </label>
+        <ToggleField
+          {...shared}
+          value={value === true}
+          onChange={onChange}
+          onLabel={t("on", undefined, "On")}
+          offLabel={t("off", undefined, "Off")}
+        />
       );
     case "number":
       return (
-        <input
-          type="number"
-          className={`${inputCls} w-[150px]`}
-          value={typeof value === "number" && Number.isFinite(value) ? String(value) : ""}
-          onChange={(e) => onChange(e.target.value === "" ? Number.NaN : Number(e.target.value))}
-          data-testid={`hermes-input-${key}`}
+        <NumberField
+          {...shared}
+          value={typeof value === "number" ? value : Number.NaN}
+          onChange={onChange}
+          decimal
+          allowEmpty
+          step="any"
         />
       );
     case "model":
-      return <ModelField fieldKey={key} value={value} onChange={onChange} onReset={onReset} t={t} />;
+      return <ModelField {...shared} fieldKey={key} value={value} onChange={onChange} onReset={onReset} t={t} />;
     case "string":
-      return (
-        <input
-          type="text"
-          className={`${inputCls} w-full max-w-[340px]`}
-          value={typeof value === "string" ? value : ""}
-          onChange={(e) => onChange(e.target.value)}
-          data-testid={`hermes-input-${key}`}
-        />
-      );
+      return <TextField {...shared} mono value={typeof value === "string" ? value : ""} onChange={onChange} />;
     case "enum": {
       const hasNoDefault = (DEFAULTS as Record<string, unknown>)[key] === undefined;
       const current = typeof value === "string" ? value : "";
+      const options = desc.values.map((v) => ({ value: v, label: v }));
       return (
-        <select
-          className={`${inputCls} max-w-[340px]`}
+        <SelectField
+          {...shared}
           value={current}
-          onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)}
-          data-testid={`hermes-input-${key}`}
-        >
-          {hasNoDefault && <option value="">(inherit / unset)</option>}
-          {desc.values.map((v) => (
-            <option key={v} value={v}>
-              {v}
-            </option>
-          ))}
-        </select>
+          options={hasNoDefault ? [{ value: "", label: t("inheritUnset", undefined, "(inherit / unset)") }, ...options] : options}
+          onChange={(v) => onChange(v === "" ? undefined : v)}
+        />
       );
     }
     case "sessionSearch": {
-      const variant = typeof value === "object" && value !== null ? (value as { variant?: string }).variant ?? "legacy" : "legacy";
+      const variant = typeof value === "object" && value !== null ? ((value as { variant?: string }).variant ?? "legacy") : "legacy";
       return (
-        <select
-          className={`${inputCls} max-w-[340px]`}
+        <SelectField
+          {...shared}
           value={variant}
-          onChange={(e) => onChange({ variant: e.target.value })}
-          data-testid={`hermes-input-${key}`}
-        >
-          <option value="legacy">legacy</option>
-          <option value="anchors">anchors</option>
-        </select>
+          options={[
+            { value: "legacy", label: "legacy" },
+            { value: "anchors", label: "anchors" },
+          ]}
+          onChange={(v) => onChange({ variant: v })}
+        />
       );
     }
     case "stringArray":
     case "regexArray":
-      return (
-        <textarea
-          className={`${inputCls} w-full font-mono text-[11.5px] min-h-[64px] resize-y`}
-          value={arrayToLines(value)}
-          onChange={(e) => onChange(linesToArray(e.target.value))}
-          data-testid={`hermes-input-${key}`}
-        />
-      );
+      return <TextAreaField {...shared} mono value={arrayToLines(value)} onChange={(v) => onChange(linesToArray(v))} />;
   }
 }
 
@@ -449,29 +473,34 @@ function ModelField({
   fieldKey,
   value,
   onChange,
-  onReset,
+  onReset: onInherit,
   t,
+  ...shell
 }: {
   fieldKey: string;
   value: unknown;
   onChange: (v: unknown) => void;
   onReset: () => void;
   t: ReturnType<typeof useT>;
-}): React.ReactElement {
+} & Omit<React.ComponentProps<typeof FieldShell>, "control" | "stacked">): React.ReactElement {
   const ModelSelector = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
+  const [, navigate] = useLocation();
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
 
   useEffect(() => {
     const ac = new AbortController();
     void (async () => {
       try {
         const res = await fetch("/api/models", { signal: ac.signal });
-        if (!res.ok) return;
-        const json = (await res.json()) as { data?: ModelRow[] };
-        setModels(toModelInfo(Array.isArray(json.data) ? json.data : []));
+        if (res.ok) {
+          const json = (await res.json()) as { data?: ModelRow[] };
+          setModels(toModelInfo(Array.isArray(json.data) ? json.data : []));
+        }
       } catch {
         // list stays empty; the stored value is still shown via `current`
       }
+      if (!ac.signal.aborted) setModelsLoaded(true);
     })();
     return () => ac.abort();
   }, []);
@@ -479,27 +508,52 @@ function ModelField({
   // A stored value missing from the list is still passed as `current` so it
   // stays visible and round-trips unchanged.
   const current = typeof value === "string" && value !== "" ? value : undefined;
+  const noModels = modelsLoaded && models.length === 0;
   return (
-    <div className="flex items-center gap-2 flex-wrap" data-testid={`hermes-input-${fieldKey}`}>
-      {ModelSelector ? (
-        <ModelSelector
-          current={current}
-          models={models}
-          onSelect={(label: string) => onChange(label)}
-        />
-      ) : (
-        <span className="text-[12px] text-[var(--text-tertiary)]">
-          {t("modelSelectorUnavailable", undefined, "Model selector unavailable")}
-        </span>
+    <div>
+      <FieldShell
+        {...shell}
+        stacked
+        control={({ id, describedBy, invalid }) => (
+          <div
+            id={id}
+            role="group"
+            aria-label={shell.label}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
+            className="flex flex-wrap items-center gap-2"
+            data-testid={`hermes-input-${fieldKey}`}
+          >
+            {ModelSelector ? (
+              <ModelSelector current={current} models={models} onSelect={(label: string) => onChange(label)} />
+            ) : (
+              <span className="text-xs text-[var(--text-secondary)]">
+                {t("modelSelectorUnavailable", undefined, "Model selector unavailable")}
+              </span>
+            )}
+            <button
+              type="button"
+              className="focus-ring rounded text-[12px] font-semibold text-[var(--text-secondary)] underline hover:text-[var(--text-primary)]"
+              onClick={onInherit}
+              data-testid={`hermes-inherit-${fieldKey}`}
+            >
+              {t("inheritSessionModel", undefined, "Inherit session model")}
+            </button>
+          </div>
+        )}
+      />
+      {(noModels || !ModelSelector) && (
+        <SettingsNotice tone="info" testId={`hermes-no-models-${fieldKey}`} className="mt-1.5">
+          <span>{t("noModels", undefined, "No models are available. Add a provider, then choose a model.")}</span>{" "}
+          <button
+            type="button"
+            className="focus-ring rounded font-semibold underline"
+            onClick={() => navigate("/settings/providers")}
+          >
+            {t("openProviders", undefined, "Open Providers")}
+          </button>
+        </SettingsNotice>
       )}
-      <button
-        type="button"
-        className="text-[11px] text-[var(--accent-blue)]"
-        onClick={onReset}
-        data-testid={`hermes-inherit-${fieldKey}`}
-      >
-        {t("inheritSessionModel", undefined, "Inherit session model")}
-      </button>
     </div>
   );
 }
