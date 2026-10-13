@@ -70,4 +70,4 @@
 - [x] 4.29 Test in `retro-ux-chat-rendering.spec.ts` — copy the zoom setup from `mermaid-stability.spec.ts`; zoomed mermaid and zoomed `DiagramPreview` · measure button boxes · ≥ 44×44 at 375, ≥ 32×32 at 1440, readout ≥ 11 px (test-plan #G5)
   - Scope note (review round 1): the L3 test measures the mermaid host only. `DiagramPreview` renders the same shared `ZoomControls` with defaults, so its sizing, focus ring and readout are pinned by the L1 `ZoomControls` tests (E8, E10); a second-host browser measurement would need the Kroki harness and is not added.
 - [x] 4.30 Test in `retro-ux-chat-rendering.spec.ts` — same exemplar; chat diagram · Tab, Enter, Tab to "Zoom in", Enter, Escape · scale increases; focus back on the viewport; buttons hidden (test-plan #G6)
-- [ ] 4.31 Manual: compare `mockups/after/**` against the proposed column of `mockups/chat-rendering.html` side by side (test-plan: manual-only, #M1)
+- [x] 4.31 Manual: compare `mockups/after/**` against the proposed column of `mockups/chat-rendering.html` side by side (test-plan: manual-only, #M1)
