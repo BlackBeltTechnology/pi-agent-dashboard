@@ -1,11 +1,15 @@
-// gitignore-honouring walk filter for the kb dox walks + indexer (design D3,
-// fix-dox-lint-blind-rows). Best-effort git semantics, case-SENSITIVE:
-// bare names, `dir/`, `*.ext`, mid-name globs, `**` (leading/mid/trailing),
-// bare `*` + file negations, `!` negation (dir + content + root-level file
-// forms), leading-slash anchors. Last-match-wins within a file; a deeper
-// `.gitignore` overrides a shallower one. The pattern stack is seeded by an
-// up-walk from the walk start to the repo root (`.git` boundary or the project
-// cwd), so root-anchored patterns apply from nested walk roots.
+// gitignore-honouring walk filter for the kb dox walks + indexer
+// (fix-dox-lint-blind-rows, fix-kb-gitignore-excluded-parent). Best-effort git
+// semantics, case-SENSITIVE: bare names, `dir/`, `*.ext`, mid-name globs, `**`
+// (leading/mid/trailing), bare `*` + file negations, `!` negation, leading-slash
+// anchors. Last-match-wins within a file; a deeper `.gitignore` overrides a
+// shallower one. EXCLUDED-PARENT RULE (gitignore(5)): a path is ignored when any
+// ancestor directory is ignored — including ancestors above the walk root — and
+// no negation can re-include it; a `.gitignore` inside an excluded dir is never
+// read. File patterns match the file path only (a dir-only pattern never matches
+// a file). The pattern stack is seeded by an up-walk from the walk start to the
+// repo root (`.git` boundary or the project cwd), so root-anchored patterns apply
+// from nested walk roots.
 // NOT implemented (design Non-Goals): the tracked-file override and character
 // classes — brackets are matched literally; an UNbalanced-bracket line is
 // skipped without throwing (X2).
@@ -16,11 +20,9 @@ import { dirname, join, relative, sep } from "node:path";
 export interface GitignoreMatcher {
   /** File candidate: gitignore verdict for a walk-root-relative path. */
   isIgnored(relPath: string): boolean;
-  /** Directory candidate: does a pattern match this directory itself? */
+  /** Directory candidate: is this directory excluded (itself or via an
+   *  excluded ancestor)? Walks prune on this alone. */
   isIgnoredDir(relPath: string): boolean;
-  /** True when a `.gitignore` exists at or below this dir — hard-pruning the
-   *  dir would blind a deeper negation (design D3 conservative pruning). */
-  hasDeeperGitignore(relPath: string): boolean;
 }
 
 export interface GitignoreMatcherOptions {
@@ -40,11 +42,14 @@ interface Pattern {
   re: RegExp | null; // null = malformed line, skipped (X2)
 }
 
-/** Pure single-pattern test (base = ""): does this gitignore line match the
- *  path? Negation flips the loader's verdict, not the match itself. */
+/** Pure single-pattern test (base = ""): would a `.gitignore` holding only this
+ *  line exclude the path? True when any ancestor dir matches (excluded-parent
+ *  rule) or the path itself matches. Negation flips the loader's verdict, not
+ *  the match itself. */
 export function patternMatches(rawPattern: string, relPath: string, opts: { dir?: boolean } = {}): boolean {
   const pat = compile(rawPattern);
   if (!pat) return false;
+  if (ancestorsOf(relPath).some((a) => matches(pat, a, true))) return true;
   return matches(pat, relPath, opts.dir === true);
 }
 
@@ -123,22 +128,16 @@ function ancestorsOf(rel: string): string[] {
 
 function matches(pat: Pattern, rel: string, dirMode: boolean): boolean {
   if (!pat.re) return false;
-  if (dirMode) {
-    // A directory candidate matches when the pattern matches the dir path
-    // itself (dirOnly or not — a bare name ignores the dir AND its contents).
-    return pat.re.test(rel);
-  }
-  if (pat.dirOnly) return ancestorsOf(rel).some((a) => pat.re!.test(a));
-  if (pat.re.test(rel)) return true;
-  // Unanchored name also ignores the contents of a matching directory.
-  if (!pat.anchored) return ancestorsOf(rel).some((a) => pat.re!.test(a));
-  return false;
+  // Directory candidate: the pattern matches the dir path itself (dirOnly or
+  // not). File candidate: path only — a dir-only pattern never matches a file;
+  // directory exclusion is owned by the excluded-parent rule in `verdictFor`.
+  if (dirMode) return pat.re.test(rel);
+  return pat.dirOnly ? false : pat.re.test(rel);
 }
 
 export function loadGitignoreMatcher(walkRoot: string, opts: GitignoreMatcherOptions = {}): GitignoreMatcher {
   const boundary = opts.cwd;
   const sets: { baseAbs: string; patterns: Pattern[] }[] = [];
-  const nestedBases: string[] = []; // walk-root-relative dirs holding a .gitignore
 
   const parseFile = (abs: string) => {
     let text = "";
@@ -179,7 +178,6 @@ export function loadGitignoreMatcher(walkRoot: string, opts: GitignoreMatcherOpt
     if (rel && opts.prune?.(rel)) return;
     if (existsSync(join(dir, ".gitignore"))) {
       parseFile(join(dir, ".gitignore"));
-      nestedBases.push(rel);
     }
     let entries: import("node:fs").Dirent[];
     try {
@@ -188,13 +186,35 @@ export function loadGitignoreMatcher(walkRoot: string, opts: GitignoreMatcherOpt
       return;
     }
     for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (e.isDirectory() && e.name !== ".git") scan(join(dir, e.name));
+      if (!e.isDirectory() || e.name === ".git") continue;
+      const child = join(dir, e.name);
+      // Git never reads a .gitignore inside an excluded dir: test the child
+      // BEFORE recursing so its own file is never parsed. Perf only — verdicts
+      // below an excluded dir short-circuit on the ancestor anyway.
+      if (dirIgnored(child)) continue;
+      scan(child);
     }
   };
-  scan(walkRoot);
 
-  const verdictFor = (rel: string, dirMode: boolean): boolean => {
-    const abs = join(walkRoot, rel);
+  // verdictFor / dirIgnored are declared BEFORE `scan(walkRoot)` runs: `scan`
+  // consults them, and a `const` read before its declaration throws a
+  // ReferenceError (TDZ) that tsc does not flag.
+  const dirMemo = new Map<string, boolean>();
+  // Can any loaded set hold a pattern for `abs` (or an ancestor of it)?
+  const covered = (abs: string): boolean =>
+    sets.some((s) => abs === s.baseAbs || abs.startsWith(s.baseAbs + sep));
+  const dirIgnored = (abs: string): boolean => {
+    const hit = dirMemo.get(abs);
+    if (hit !== undefined) return hit;
+    const v = verdictAbs(abs, true);
+    dirMemo.set(abs, v);
+    return v;
+  };
+  // Excluded-parent rule first (shallow → deep via memoized recursion), then
+  // last-match-wins over the sets based strictly above `abs`.
+  const verdictAbs = (abs: string, dirMode: boolean): boolean => {
+    const parent = dirname(abs);
+    if (parent !== abs && covered(parent) && dirIgnored(parent)) return true;
     let verdict = false;
     for (const set of sets) {
       const baseRel = relative(set.baseAbs, abs);
@@ -206,10 +226,10 @@ export function loadGitignoreMatcher(walkRoot: string, opts: GitignoreMatcherOpt
     }
     return verdict;
   };
+  scan(walkRoot);
 
   return {
-    isIgnored: (rel) => verdictFor(rel, false),
-    isIgnoredDir: (rel) => verdictFor(rel, true),
-    hasDeeperGitignore: (rel) => nestedBases.some((b) => b === rel || b.startsWith(`${rel}/`)),
+    isIgnored: (rel) => verdictAbs(join(walkRoot, rel), false),
+    isIgnoredDir: (rel) => dirIgnored(join(walkRoot, rel)),
   };
 }

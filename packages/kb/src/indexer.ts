@@ -87,9 +87,8 @@ function walk(dir: string, base: string, out: string[] = [], ignore?: GitignoreM
     const rel = relative(base, abs);
     if (DEFAULT_EXCLUDE.test(rel)) continue;
     if (e.isDirectory()) {
-      // Conservative dir-pruning (design D3): descend unless the dir matches
-      // AND no deeper .gitignore could negate the match.
-      if (ignore?.isIgnoredDir(rel) && !ignore.hasDeeperGitignore(rel)) continue;
+      // Excluded-parent rule: an ignored dir is never descended (git semantics).
+      if (ignore?.isIgnoredDir(rel)) continue;
       walk(abs, base, out, ignore);
     } else if (SELECTABLE_RE.test(e.name) && !ignore?.isIgnored(rel)) out.push(abs);
   }

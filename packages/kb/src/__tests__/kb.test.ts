@@ -1011,7 +1011,7 @@ describe("dox: table-aware write paths (fix-dox-lint-blind-rows)", () => {
   });
 });
 
-describe("dox: gitignore-aware walks (fix-dox-lint-blind-rows)", () => {
+describe("dox: gitignore-aware walks (fix-dox-lint-blind-rows, fix-kb-gitignore-excluded-parent)", () => {
   let dir: string;
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "kb-giwalk-")); });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
@@ -1028,7 +1028,7 @@ describe("dox: gitignore-aware walks (fix-dox-lint-blind-rows)", () => {
     expect(missing).not.toContain("skills/openspec-alpha/SKILL.md");
   });
 
-  it("E15: deeper .gitignore negation overrides a shallower dir-ignore", () => {
+  it("E15: excluded parent wins — nested negation cannot re-include (git semantics)", () => {
     w(".gitignore", "vendored/\n");
     w("vendored/.gitignore", "!keep.md\n");
     w("vendored/keep.md");
@@ -1036,8 +1036,70 @@ describe("dox: gitignore-aware walks (fix-dox-lint-blind-rows)", () => {
     w("AGENTS.md", "# DOX — root\n\n" + FILE_TABLE + "\n");
     const r = doxLint({ cwd: dir });
     const missing = r.issues.filter((i) => i.kind === "missing").map((i) => i.path);
-    expect(missing).toContain("vendored/keep.md");
+    expect(missing).not.toContain("vendored/keep.md");
     expect(missing).not.toContain("vendored/other.md");
+  });
+
+  it("E16: a tracked (non-ignored) md is still reported missing", () => {
+    w(".gitignore", "vendored/\n");
+    w("vendored/.gitignore", "!keep.md\n");
+    w("vendored/keep.md");
+    w("docs/notes.md");
+    w("AGENTS.md", "# DOX — root\n\n" + FILE_TABLE + "\n");
+    const missing = doxLint({ cwd: dir }).issues.filter((i) => i.kind === "missing").map((i) => i.path);
+    expect(missing).toContain("docs/notes.md");
+    expect(missing).not.toContain("vendored/keep.md");
+  });
+
+  describe("indexer: Electron-shape excluded parent (fix-kb-gitignore-excluded-parent)", () => {
+    const electronTree = (rootIgnore: boolean) => {
+      if (rootIgnore) w(".gitignore", "packages/electron/out\n");
+      w("packages/electron/out/app/.gitignore", "!*.md\n");
+      w("packages/electron/out/app/dup.md", "# Dup\n\nbody\n");
+      w("packages/docs/real.md", "# Real\n\nbody\n");
+      mkdirSync(join(dir, ".git"), { recursive: true });
+    };
+    const withStore = async (fn: (store: SqliteFtsStore) => Promise<void>) => {
+      const store = new SqliteFtsStore(join(dir, ".kb.db"));
+      store.init();
+      try {
+        await fn(store);
+      } finally {
+        store.close();
+      }
+    };
+    const src = () => ({ root: "t", dir: join(dir, "packages") });
+
+    it("E17: gitignored vendored-bundle md is not indexed; real docs are", async () => {
+      electronTree(true);
+      await withStore(async (store) => {
+        await indexSource(store, src(), { cwd: dir });
+        const paths = store.listPaths("t");
+        expect(paths).toContain("docs/real.md");
+        expect(paths.filter((p) => p.startsWith("electron/out/"))).toEqual([]);
+      });
+    });
+
+    it("E18: newly-ignored files are removed on the next index (self-heal)", async () => {
+      electronTree(false);
+      await withStore(async (store) => {
+        await indexSource(store, src(), { cwd: dir });
+        expect(store.listPaths("t")).toContain("electron/out/app/dup.md");
+        w(".gitignore", "packages/electron/out\n");
+        const again = await indexSource(store, src(), { cwd: dir });
+        expect(store.listPaths("t").filter((p) => p.startsWith("electron/out/"))).toEqual([]);
+        expect(store.getChunks("t", "electron/out/app/dup.md")).toEqual([]);
+        expect(again.deleted).toBe(1);
+      });
+    });
+
+    it("E19: respectGitignore:false still indexes the ignored tree", async () => {
+      electronTree(true);
+      await withStore(async (store) => {
+        await indexSource(store, src(), { cwd: dir, respectGitignore: false });
+        expect(store.listPaths("t")).toContain("electron/out/app/dup.md");
+      });
+    });
   });
 
   it("E14: indexer honours gitignore from a nested walk root; respectGitignore:false opts out", async () => {
