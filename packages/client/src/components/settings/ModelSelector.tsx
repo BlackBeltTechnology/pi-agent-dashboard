@@ -775,14 +775,9 @@ function useGridKeyboard({
 }
 
 /** Fixed-position style for the portaled panel, from the flip hook's measurements. */
-function panelStyle(pos: {
-  flipUp: boolean;
-  maxHeight?: number;
-  minHeight?: number;
-  anchorRight: boolean;
-  maxWidth: number;
-  triggerRect: DOMRect | null | undefined;
-}): React.CSSProperties {
+function panelStyle(
+  pos: Pick<ReturnType<typeof usePopoverFlip>, "flipUp" | "maxHeight" | "minHeight" | "anchorRight" | "maxWidth" | "triggerRect">,
+): React.CSSProperties {
   const { flipUp, maxHeight, minHeight, anchorRight, maxWidth, triggerRect } = pos;
   const style: React.CSSProperties = {
     // Natural width 320px, capped by the pane-aware `maxWidth` (the hook flips
