@@ -488,7 +488,8 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "slot": "shell-overlay-route",
                 "component": "GlobalAtlasClaim",
                 "path": "/atlas/*?",
-                "depth": 1,
+                "depth": 2,
+                "parentPath": "/settings/skills",
                 "presentation": "content"
             },
             {
@@ -509,7 +510,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "skill-atlas", priority: 100, slot: "resource-page-section", resourceType: "skill", Component: SkillAtlasSection },
       { pluginId: "skill-atlas", priority: 100, slot: "sidebar-folder-section", Component: FolderAtlasMenu },
       { pluginId: "skill-atlas", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/atlas/*?", depth: 2, parentPath: "/folder/:encodedCwd", presentation: "content", Component: ProjectAtlasClaim },
-      { pluginId: "skill-atlas", priority: 100, slot: "shell-overlay-route", path: "/atlas/*?", depth: 1, presentation: "content", Component: GlobalAtlasClaim },
+      { pluginId: "skill-atlas", priority: 100, slot: "shell-overlay-route", path: "/atlas/*?", depth: 2, parentPath: "/settings/skills", presentation: "content", Component: GlobalAtlasClaim },
       { pluginId: "skill-atlas", priority: 100, slot: "settings-section", Component: SkillAtlasSettings },
     ],
     catalog: skill_atlas_catalog,

@@ -7,12 +7,12 @@ A typical machine has ~90 pi skills, coming from user installs, global npm packa
 - Which skills drive the same tools?
 - Which copy of a skill pi actually loads?
 
-The personal `skill-atlas` skill (vendored at [`reference/skill-atlas/`](reference/skill-atlas/)) proves the idea, but it is a static, hand-regenerated HTML file tuned to one machine (hardcoded tool vocabulary, personal category and provenance heuristics). This change generalizes it into a **dashboard plugin** whose graph is a pure function of the resolved skill state and rebuilds itself when skills are added or modified. Exploration notes: [`exploration.md`](exploration.md).
+The personal `skill-atlas` skill (at `~/.pi/agent/skills/skill-atlas/`; a snapshot was vendored here during planning and removed once its link rules were ported) proves the idea, but it is a static, hand-regenerated HTML file tuned to one machine (hardcoded tool vocabulary, personal category and provenance heuristics). This change generalizes it into a **dashboard plugin** whose graph is a pure function of the resolved skill state and rebuilds itself when skills are added or modified. Exploration notes: [`exploration.md`](exploration.md).
 
 ## What Changes
 
 - **New plugin `packages/skill-atlas-plugin`** (server + client + shared entries).
-- **Pure builder** `buildSkillGraph(skills) → { skills: SkillNode[], links: SkillLink[] }` in the plugin's `src/shared/`. The fingerprint is computed on the plugin server (design D3). No fs and no `node:` imports. Output is sorted and deterministic. Link rules are ported from `reference/skill-atlas/scripts/lib/scan.mjs`:
+- **Pure builder** `buildSkillGraph(skills) → { skills: SkillNode[], links: SkillLink[] }` in the plugin's `src/shared/`. The fingerprint is computed on the plugin server (design D3). No fs and no `node:` imports. Output is sorted and deterministic. Link rules are ported from `~/.pi/agent/skills/skill-atlas/`:
   | Type | Rule | Direction |
   |---|---|---|
   | `references` | Skill A's SKILL.md names skill B (hyphenated id, or `/skill:x` / `skill: x` / `x skill`) | A → B |
@@ -38,7 +38,7 @@ The personal `skill-atlas` skill (vendored at [`reference/skill-atlas/`](referen
   - `resource-page-section` on the Skills pages: a compact preview plus an "Open atlas" button.
 - **Routes**:
   - Project: `shell-overlay-route` `/folder/:encodedCwd/atlas/*?` (`presentation: "content"`, depth 2, parent `/folder/:encodedCwd`).
-  - Global: `/atlas/*?` (depth 1).
+  - Global: `/atlas/*?` (depth 2, parent `/settings/skills`; see design D7).
 - **Views**:
   - **Cards**: grouped by origin/package, filterable.
   - **Graph**: SVG force layout with deterministic seeding, per-relation-type toggles, and 1- or 2-hop focus.

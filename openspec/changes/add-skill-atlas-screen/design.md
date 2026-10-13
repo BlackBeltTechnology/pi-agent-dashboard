@@ -56,7 +56,7 @@ Output: `{ skills: SkillNode[], links: SkillLink[] }`.
 - No `node:` imports, no fs, no clock, no hashing. The fingerprint lives on the server (D3).
 
 Rules:
-- `references` (directed) is **ported** from `openspec/changes/add-skill-atlas-screen/reference/skill-atlas/scripts/lib/scan.mjs:357-371`.
+- `references` (directed) is **ported** from `~/.pi/agent/skills/skill-atlas/scripts/lib/scan.mjs:357-371` (personal tool; the vendored snapshot was removed after porting).
   - Ids are regex-escaped before matching. An id containing characters outside `[A-Za-z0-9 _.-]` is matched as a literal and never throws.
   - A hyphenated id matches with the exact boundary class `(^|[^A-Za-z0-9_-])<id>([^A-Za-z0-9_-]|$)`, case-insensitively. This is a deliberate change: the reference was case-sensitive here.
   - A single-word id matches only as `/skill:<id>\b`, `\bskill:\s*<id>\b`, or `\b<id> skill\b`, case-insensitively.
@@ -131,7 +131,7 @@ The claim manifest carries an optional `resourceType` filter, and the consumer r
   - Route: `shell-overlay-route`, path `/folder/:encodedCwd/atlas/*?`, `presentation:"content"`, `depth:2`, `parentPath:"/folder/:encodedCwd"`.
   - Entry: a `useFolderMenuItem` item `{id:"skill-atlas", group:"open", label:"Skill Atlas", icon: mdiGraphOutline}` contributed from a mount point that has folder scope. A `sidebar-folder-section` component calls `useFolderMenuItem` and then renders `null`, so no pill appears. Precedent: `packages/automation-plugin/src/client/FolderAutomationSection.tsx:60` registers the item, and `:81` returns `null` when there is no data.
 - **Global atlas.**
-  - Route: `shell-overlay-route` `/atlas/*?`, `presentation:"content"`, `depth:1`, no parent. This one URL claim gives the `/atlas` route the user asked for. A separate `command-route` claim would be redundant.
+  - Route: `shell-overlay-route` `/atlas/*?`, `presentation:"content"`, `depth:2`, `parentPath:"/settings/skills"`. This one URL claim gives the `/atlas` route the user asked for. A separate `command-route` claim would be redundant. *(Implementation deviation: planned as depth 1 with no parent, but `overlay-claim-underlay.test.ts` requires every overlay claim's cold-load underlay and Back target to be a real surface, never `/`. Back and underlay are now the Global Skills settings page.)*
 - **Settings entry.**
   - A `settings-section` claim with `nav: { group: "resources", label: "Skill Atlas" }` renders a compact global summary plus "Open atlas" → `/atlas`.
   - Requires adding `resources` to `PROMOTION_GROUP_ALLOWLIST` (MODIFIED `settings-panel` requirement). Promoted entries render after the built-in Resources items. The Plugins subtree keeps a pointer row "Skill Atlas ↗ Resources", as `settings-panel/spec.md:838` requires for every enabled promoted plugin.

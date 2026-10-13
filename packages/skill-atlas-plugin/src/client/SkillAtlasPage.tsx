@@ -39,7 +39,7 @@ export interface SkillAtlasPageProps {
   onBack: () => void;
 }
 
-export function SkillAtlasPage({ scope, cwd, onBack }: SkillAtlasPageProps): React.ReactElement {
+export default function SkillAtlasPage({ scope, cwd, onBack }: SkillAtlasPageProps): React.ReactElement {
   const t = useT();
   const search = useSearch();
   const initial = useMemo(() => new URLSearchParams(search), [search]);
@@ -276,4 +276,3 @@ export function SkillAtlasPage({ scope, cwd, onBack }: SkillAtlasPageProps): Rea
   );
 }
 
-export default SkillAtlasPage;

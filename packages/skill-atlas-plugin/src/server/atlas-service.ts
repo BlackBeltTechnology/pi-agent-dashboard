@@ -77,14 +77,14 @@ interface MemoEntry {
 export class AtlasRequestError extends Error {}
 
 /** Absolute, resolved, no trailing separator. Relative → AtlasRequestError. */
-export function normalizeCwd(cwd: string): string {
+function normalizeCwd(cwd: string): string {
   if (!path.isAbsolute(cwd)) throw new AtlasRequestError("cwd_must_be_absolute");
   const resolved = path.resolve(cwd);
   return resolved.length > 1 && resolved.endsWith(path.sep) ? resolved.slice(0, -1) : resolved;
 }
 
 /** True when `a` equals, contains, or lies inside `b` (path-segment wise). */
-export function pathsRelated(a: string, b: string): boolean {
+function pathsRelated(a: string, b: string): boolean {
   if (a === b) return true;
   const within = (inner: string, outer: string) => inner.startsWith(outer.endsWith(path.sep) ? outer : outer + path.sep);
   return within(a, b) || within(b, a);

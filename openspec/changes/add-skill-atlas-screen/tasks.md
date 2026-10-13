@@ -1,6 +1,6 @@
 ## 1. Plugin package scaffold
 
-- [ ] 1.1 Create `packages/skill-atlas-plugin` (npm `@blackbelt-technology/pi-dashboard-skill-atlas-plugin`, id `skill-atlas`) with `src/shared`, `src/server`, `src/client`, manifest claims per design D6/D7 (`resource-page-section` with `resourceType:"skill"`, `sidebar-folder-section`, both `shell-overlay-route` claims `/folder/:encodedCwd/atlas/*?` depth 2 and `/atlas/*?` depth 1, `settings-section` with `nav`), `AGENTS.md`, `README.md`; follow the `add-new-plugin-package-checklist` skill; verify `npm test` discovers the package and the plugin loads (`GET /api/plugins` lists `skill-atlas` loaded)
+- [ ] 1.1 Create `packages/skill-atlas-plugin` (npm `@blackbelt-technology/pi-dashboard-skill-atlas-plugin`, id `skill-atlas`) with `src/shared`, `src/server`, `src/client`, manifest claims per design D6/D7 (`resource-page-section` with `resourceType:"skill"`, `sidebar-folder-section`, both `shell-overlay-route` claims `/folder/:encodedCwd/atlas/*?` depth 2 and `/atlas/*?` depth 2 parent `/settings/skills`, `settings-section` with `nav`), `AGENTS.md`, `README.md`; follow the `add-new-plugin-package-checklist` skill; verify `npm test` discovers the package and the plugin loads (`GET /api/plugins` lists `skill-atlas` loaded)
 
 ## 2. Pure builder (shared)
 

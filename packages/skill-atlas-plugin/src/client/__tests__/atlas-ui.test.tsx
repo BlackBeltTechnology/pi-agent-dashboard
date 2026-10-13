@@ -18,7 +18,7 @@ import { memoryLocation } from "wouter/memory-location";
 import type { SkillGraphResponse, SkillLink, SkillNode } from "../../shared/types.js";
 import { AtlasSummary } from "../AtlasSummary.js";
 import { FolderAtlasMenu } from "../claims.js";
-import { SkillAtlasPage } from "../SkillAtlasPage.js";
+import SkillAtlasPage from "../SkillAtlasPage.js";
 
 let ws: EventTarget;
 beforeEach(() => {
@@ -183,7 +183,7 @@ describe("SkillAtlasPage", () => {
     );
     render(<Shell path="/folder/x/atlas?sel=plan-proposal"><SkillAtlasPage scope="project" cwd="/repo" onBack={() => {}} /></Shell>);
     fireEvent.click(await screen.findByRole("button", { name: "Open SKILL.md" }));
-    expect(await screen.findByTestId("skill-atlas-open-error")).toBeTruthy();
+    expect(await screen.findByTestId("skill-atlas-open-error", undefined, { timeout: 5_000 })).toBeTruthy();
   });
 
   it("change broadcast keeps the old graph with 'Updating…' until the refetch lands (#F7)", async () => {

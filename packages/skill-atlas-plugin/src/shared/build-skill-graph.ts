@@ -3,7 +3,7 @@
  *
  * No fs, no clock, no hashing, no `node:` imports (browser- and CLI-safe).
  * Rules (design D2):
- *  - `references` (directed): ported from reference/skill-atlas scan.mjs.
+ *  - `references` (directed): ported from the personal skill-atlas tool's scan.mjs.
  *    Hyphenated ids match with a non-id-char boundary, case-insensitively;
  *    single-word ids only as `/skill:x`, `skill: x`, `x skill`; ids < 4 chars skipped.
  *  - `bundle` (undirected): same defined `pkg`, group size 2–14.

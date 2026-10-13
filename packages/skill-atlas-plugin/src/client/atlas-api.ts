@@ -5,7 +5,7 @@
  */
 import type { SkillAtlasScope, SkillGraphResponse } from "../shared/types.js";
 
-export const GRAPH_URL = "/api/plugins/skill-atlas/graph";
+const GRAPH_URL = "/api/plugins/skill-atlas/graph";
 
 export async function fetchSkillGraph(scope: SkillAtlasScope, cwd?: string, signal?: AbortSignal): Promise<SkillGraphResponse> {
   const q = new URLSearchParams({ scope });
@@ -33,7 +33,7 @@ export function piResourceViewerUrl(filePath: string, title: string): string {
   return `/pi-resource?${q.toString()}`;
 }
 
-export function encodeFolderPath(cwd: string): string {
+function encodeFolderPath(cwd: string): string {
   const bytes = new TextEncoder().encode(cwd);
   let bin = "";
   for (const b of bytes) bin += String.fromCharCode(b);

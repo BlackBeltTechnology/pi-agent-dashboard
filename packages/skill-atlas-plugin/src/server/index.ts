@@ -11,7 +11,7 @@ import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin
 import { createAtlasService } from "./atlas-service.js";
 import { mountAtlasRoutes } from "./routes.js";
 
-export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
+export default async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   const getPiResources = ctx.getPiResources;
   if (!getPiResources) ctx.logger.warn("host lacks getPiResources; skill atlas disabled");
   const service = getPiResources
@@ -31,4 +31,3 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   await mountAtlasRoutes(ctx.fastify, service);
 }
 
-export default registerPlugin;

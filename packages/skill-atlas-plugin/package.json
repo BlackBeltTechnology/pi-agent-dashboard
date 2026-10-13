@@ -67,8 +67,9 @@
         "slot": "shell-overlay-route",
         "component": "GlobalAtlasClaim",
         "path": "/atlas/*?",
-        "depth": 1,
-        "presentation": "content"
+        "depth": 2,
+        "presentation": "content",
+        "parentPath": "/settings/skills"
       },
       {
         "slot": "settings-section",
