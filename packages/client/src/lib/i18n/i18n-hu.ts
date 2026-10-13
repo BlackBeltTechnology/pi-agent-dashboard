@@ -1599,6 +1599,7 @@ export const huCatalog: Record<string, string> = {
   "settings.secondPort": "Második port",
   "settings.security": "Biztonság",
   "settings.access": "Hozzáférés",
+  "settings.vault": "Széf",
   // Settings → Access (add-access-grants-and-review)
   "access.title": "Hozzáférési engedélyek",
   "access.description": "Minden hozzáférési engedély az összes tárból, a tároló helyének jelölésével.",

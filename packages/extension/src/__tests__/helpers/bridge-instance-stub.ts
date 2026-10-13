@@ -60,6 +60,18 @@ export function makeStubInstance(
     sessionId: "S1",
     sessionReady: true,
     connection: connection as never,
+    // Inert vault delivery: tests that exercise it pass their own.
+    vaultDelivery: {
+      onServerMessage: () => false,
+      onSessionStart: async () => {},
+      onOpen: () => {},
+      onClose: () => {},
+      tick: () => {},
+      redactionValues: () => [],
+      redactionState: () => ({ version: 0, entries: [] }),
+      withdrawAll: () => {},
+      dispose: () => {},
+    },
     ...overrides,
   });
   return { inst, pi, shared, connection };

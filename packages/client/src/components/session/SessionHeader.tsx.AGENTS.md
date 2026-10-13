@@ -11,3 +11,5 @@ Desktop (after `FooterSegmentSlot`) and mobile (below the chip row) render `Yolo
 Mounts `<PiBelowFloorWarning>` next to `pi <version>` (desktop) and as a row in `MobileHeader`, guarded on `session.piBelowFloor`. See change: update-pi-core-1-0-adopt-apis.
 
 Mobile attached chip shows `AttachmentTrace` (archived/missing/main-checkout), read-only. See change: resolve-archived-attached-proposal.
+
+- Mounts `VaultBindingsChip` (desktop + mobile). See change: add-credential-vault.

@@ -32,3 +32,5 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 ## stabilize-mdns-server-identity
 
 `KnownServer.fingerprint?` (`sha256:`-prefixed only; malformed dropped, entry kept). `parseKnownServers` collapses duplicate `(fingerprint, port)` — first entry wins, later logged + dropped. See change: stabilize-mdns-server-identity.
+
+- `VaultConfig {deliveryEnabled, offlineGraceHours}` + `parseVaultConfig` (grace clamped 1–168 h). See change: add-credential-vault.

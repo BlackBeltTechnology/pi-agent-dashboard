@@ -23,6 +23,9 @@
     "displayName": "Demo Plugin (fixture)",
     "priority": 1000,
     "fixture": true,
+    "vaultBindings": [
+      "POLY_PIZZA_KEY"
+    ],
     "client": "./src/client.tsx",
     "server": "./src/server/index.ts",
     "bridge": "./src/bridge/index.ts",

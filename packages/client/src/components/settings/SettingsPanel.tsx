@@ -26,7 +26,7 @@ import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/mod
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
@@ -81,6 +81,7 @@ import type { ResourceType } from "../resource/ResourceCardGrid.js";
 import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
 import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
+import { VaultSection } from "./vault/VaultSection.js";
 import { AgentPathGateSection } from "./AgentPathGateSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
@@ -488,7 +489,9 @@ const SETTINGS_PAGE_ALIASES: Record<string, string> = {
 // `access` is a built-in Network-group page (the grant review/revoke surface),
 // added to the client route whitelist only (not a plugin-claimable slot), like
 // `gateway` above. See change: add-access-grants-and-review.
-const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "gateway", "access"]);
+// `vault` is a built-in Network-group page (the credential vault), client route
+// whitelist only. See change: add-credential-vault.
+const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "gateway", "access", "vault"]);
 
 // Global-scope resource card pages. Page id → the singular `PiResource.type` its
 // grid renders. See change: resources-card-tabs.
@@ -1188,6 +1191,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
         { id: "gateway", label: t("settings.gateway", undefined, "Gateway"), icon: mdiTunnel },
         { id: "security", label: t("settings.security", undefined, "Security"), icon: mdiLock },
         { id: "access", label: t("settings.access", undefined, "Access"), icon: mdiShieldCheck },
+        { id: "vault", label: t("settings.vault", undefined, "Vault"), icon: mdiShieldKey },
       ],
     },
     {
@@ -2266,6 +2270,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                 <ServersTab />
               </>
             )}
+
+            {activeTab === "vault" && <VaultSection />}
 
             {activeTab === "access" && (
               <>
