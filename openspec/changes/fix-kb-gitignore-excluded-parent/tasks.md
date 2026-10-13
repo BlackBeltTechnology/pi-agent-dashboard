@@ -36,8 +36,8 @@
 
 ## 3. Verify on this checkout
 
-- [ ] 3.1 (test-plan: manual-only, #M1) From the repo root, reindex the project kb; `sqlite3 .pi/dashboard/kb/index.db "select root||'/'||path from files" | GIT_CONFIG_GLOBAL=/dev/null git -c core.excludesFile=/dev/null check-ignore --no-index --stdin | wc -l` → `0` (source labels equal repo-relative dirs here); chunk count drops by ≈1,522 vs the 0.1 baseline; `kb dox lint` finding count unchanged or reduced vs 0.1 — investigate any increase.
-- [ ] 3.2 (test-plan: manual-only, #M2) `tsx packages/kb/eval/run-fixtures.ts` — no retrieval regression (duplicates removed may only improve).
+- [x] 3.1 (test-plan: manual-only, #M1) From the repo root, reindex the project kb; `sqlite3 .pi/dashboard/kb/index.db "select root||'/'||path from files" | GIT_CONFIG_GLOBAL=/dev/null git -c core.excludesFile=/dev/null check-ignore --no-index --stdin | wc -l` → `0` (source labels equal repo-relative dirs here); chunk count drops by ≈1,522 vs the 0.1 baseline; `kb dox lint` finding count unchanged or reduced vs 0.1 — investigate any increase.
+- [x] 3.2 (test-plan: manual-only, #M2) `tsx packages/kb/eval/run-fixtures.ts` — no retrieval regression (duplicates removed may only improve).
 
 ## 4. Docs
 
