@@ -233,6 +233,7 @@ export function WebSearchEntryCard({
       <div className="space-y-1">
         <div
           data-testid="web-search-error"
+          role="status"
           className="flex gap-1.5 rounded-md border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] px-2 py-1.5 text-xs text-[var(--severity-warning-fg)] break-words"
         >
           <Icon path={mdiInformationOutline} size={0.6} aria-hidden="true" className="mt-px shrink-0" />

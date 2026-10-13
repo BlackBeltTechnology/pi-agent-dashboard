@@ -799,4 +799,18 @@ describe("MermaidBlock retro-ux chat rendering", () => {
     expect(vp.className).toContain("border-[var(--focus-ring)]");
     expect(vp.className).not.toContain("border-blue-500");
   });
+
+  it("F1b: Escape pressed on an unrelated control does not deactivate or steal focus", async () => {
+    const { container } = await mountOk();
+    const vp = viewportOf(container);
+    fireEvent.click(vp);
+    expect(screen.getByRole("button", { name: "Zoom in" })).toBeTruthy();
+    const other = document.createElement("button");
+    document.body.appendChild(other);
+    other.focus();
+    fireEvent.keyDown(other, { key: "Escape" });
+    expect(screen.getByRole("button", { name: "Zoom in" })).toBeTruthy();
+    expect(document.activeElement).toBe(other);
+    other.remove();
+  });
 });

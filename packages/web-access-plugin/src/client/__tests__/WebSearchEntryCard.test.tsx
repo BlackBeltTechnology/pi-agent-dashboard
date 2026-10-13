@@ -275,6 +275,7 @@ describe("WebSearchEntryCard — UI-contract conformance", () => {
     expect(notice.className).not.toMatch(/text-red/);
     expect(notice.textContent).toContain("entry evicted");
     expect(notice.textContent).toContain("saved with the chat");
+    expect(notice.getAttribute("role")).toBe("status");
     expect(screen.getByTestId("web-search-fallback-body").textContent).toBe(searchBody);
   });
 

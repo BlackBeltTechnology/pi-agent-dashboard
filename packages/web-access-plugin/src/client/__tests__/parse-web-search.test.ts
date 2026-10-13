@@ -35,6 +35,7 @@ describe("summarizeBody — failed count (E11)", () => {
     ["0 errors", { type: "search", queries: [{ query: "a", results: res(1) }] }, undefined],
     ["null error is not a failure", { type: "search", queries: [{ query: "a", error: null, results: [] }] }, undefined],
     ["fetch urlMetadata error", { type: "fetch", urlMetadata: [{ url: "https://e.com", error: "HTTP 404" }, { url: "https://f.com" }] }, 1],
+    ["empty-string error is still a non-null error", { type: "search", queries: [{ query: "a", error: "", results: [] }] }, 1],
     ["older urls strings", { type: "fetch", urls: ["https://e.com", "https://f.com"] }, undefined],
   ])("%s", (_name, body, failed) => {
     expect(summarizeBody(pretty(body)).failed).toBe(failed);

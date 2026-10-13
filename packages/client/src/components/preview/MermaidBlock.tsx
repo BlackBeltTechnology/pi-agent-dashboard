@@ -575,6 +575,10 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
     }
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        // Escape pressed on an unrelated control elsewhere on the page is not ours.
+        const active = document.activeElement;
+        const vp = viewportRef.current;
+        if (active && active !== document.body && vp && !vp.contains(active)) return;
         // The zoom buttons unmount on deactivation, dropping focus to <body>; the
         // effect below moves it to the viewport once they are gone.
         refocusViewportRef.current = true;

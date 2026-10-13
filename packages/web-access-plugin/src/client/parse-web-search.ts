@@ -30,7 +30,7 @@ export interface BodySummary {
   failed?: number;
 }
 
-const hasError = (v: unknown): boolean => isObject(v) && typeof v.error === "string" && v.error !== "";
+const hasError = (v: unknown): boolean => isObject(v) && v.error !== null && v.error !== undefined;
 
 function failedCount(items: unknown[]): number | undefined {
   if (!items.every(isObject)) return undefined;
