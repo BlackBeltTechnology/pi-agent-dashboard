@@ -6,6 +6,7 @@
  * See change: add-provider-models-refresh.
  */
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProviderAuthSection } from "../components/settings/ProviderAuthSection.js";
 import { PROVIDER_AUTH_EVENT } from "../hooks/useProvidersReady.js";
@@ -41,9 +42,11 @@ function route(h: Harness, url: string, method?: string) {
   return json({});
 }
 
+// StrictMode mirrors the real app root (main.tsx): dev double-mount must not
+// strand the row in "Refreshing…" (mountedRef reset on remount).
 async function mount(h: Harness, onCredentialsChanged?: () => void) {
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => route(h, url, init?.method)));
-  const c = render(<ProviderAuthSection onCredentialsChanged={onCredentialsChanged} />);
+  const c = render(<StrictMode><ProviderAuthSection onCredentialsChanged={onCredentialsChanged} /></StrictMode>);
   await waitFor(() => expect(c.container.querySelector('[data-row-id="proxy"]')).toBeTruthy());
   return c;
 }

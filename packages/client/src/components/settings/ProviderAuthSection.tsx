@@ -1224,7 +1224,12 @@ function CustomEndpointRow({ name, entry, health, pending, onTest, onRefreshMode
   // Sync guard: a double click lands before the `refreshing` re-render.
   const refreshingRef = useRef(false);
   const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  // Re-arm on (re)mount: StrictMode's dev double-mount runs the cleanup once,
+  // which would otherwise strand every later result as "unmounted".
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // See change: add-provider-models-refresh (D6, D6a).
   const refreshModels = async () => {
