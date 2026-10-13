@@ -144,6 +144,64 @@ pi install -l /path/to/pi-agent-dashboard       # project-local
 Cross-refs:
 - README.md:69
 
+## How do I use pi-dashboard from Claude Code / Claude Desktop?
+
+Claude plugin `pi-dashboard`. Source: `packages/claude-plugin/`. No MCP server, no hooks, no daemon. Two skills:
+- `pi-dashboard-bootstrap` — runs `ensure-dashboard.sh`, starts server if down, prints `BASE`.
+- `pi-dashboard-control` — REST over curl: sessions, prompt, abort, spawn.
+
+Install, Claude Code CLI / desktop Code tab:
+```
+/plugin marketplace add BlackBeltTechnology/pi-agent-dashboard --sparse .claude-plugin packages/claude-plugin
+/plugin install pi-dashboard@pi-agent-dashboard
+```
+
+Install, claude.ai (Customize > Plugins):
+- Upload `pi-dashboard-claude-plugin-<version>.zip`. Attached to each GitHub Release.
+- Or add marketplace `BlackBeltTechnology/pi-agent-dashboard`.
+
+| Surface | Result |
+|---|---|
+| Claude Code CLI, desktop Code tab | Full. Shell runs on your machine. |
+| Cowork (cloud) | Skills load. Script prints `STATUS=sandbox` (exit 2). |
+| claude.ai chat | Skills load. No shell. |
+
+Global install consent. Script exit 4 `not-installed` (no `pi-dashboard` command/app). Claude asks first. On yes, re-run with `--install`:
+- Global npm install of `@blackbelt-technology/pi-agent-dashboard@latest`.
+- ~1 GB, ~1 min. Adds `pi-dashboard` command + pi bridge.
+- Decline in Cowork / web.
+
+Script: `sh "${CLAUDE_SKILL_DIR}/scripts/ensure-dashboard.sh" [--install | --check]`. stdout: `STATUS=<value>`, plus `BASE=<url>` when ready.
+
+| STATUS | Exit | Meaning |
+|---|---|---|
+| `already-running` | 0 | Up. Use `BASE`. |
+| `started` | 0 | Launched detached. Use `BASE`. |
+| `failed` | 1 | Launch failed. Error lines on stderr. |
+| `sandbox` | 2 | Cowork / web session. Cannot reach dashboard. |
+| `busy` | 3 | Port held or still starting. Retry ~1 min. |
+| `recovery` | 3 | Recovery mode. Do not start. |
+| `not-installed` | 4 | No `pi-dashboard`. Needs `--install` consent. |
+| `port-conflict` | 5 | Foreign program on port. Free it or set `DASHBOARD_PORT`. |
+
+Strict mode (`requireLocalProof` on). Control calls get 401, or 403 `local_proof_required`.
+1. `pi-dashboard token create --label claude-code --tier control`.
+2. Save `Authorization: Bearer <token>` in a header file, `chmod 600`. Agent never creates it.
+3. Agent chains verify before every credentialed call:
+```
+sh "${CLAUDE_SKILL_DIR}/../pi-dashboard-bootstrap/scripts/ensure-dashboard.sh" --check && curl -s -H @/path/to/header-file BASE/api/sessions
+```
+- `--check`: verify-only. No lock, no launch. Port re-bound by other process → fails → no creds sent.
+- Pasted token fallback: stays in chat history.
+- Never `curl -v` / `--trace` on credentialed calls (prints header).
+
+Cross-refs:
+- packages/claude-plugin/README.md
+- packages/claude-plugin/skills/pi-dashboard-bootstrap/SKILL.md
+- packages/claude-plugin/skills/pi-dashboard-control/SKILL.md
+- openspec/changes/archive/2026-10-13-add-claude-code-plugin/design.md — D2-D5, D8, D10
+- See change: add-claude-code-plugin.
+
 ## What are the prerequisites for installing the dashboard?
 
 Required for paths B + C only. Path A (Electron) bundles everything.

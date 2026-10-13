@@ -1,8 +1,9 @@
-## Purpose
+# claude-code-plugin Specification
 
+## Purpose
 A Claude plugin (skills only) that lets a Claude Code session on the user's own machine bring the local pi-dashboard server up without starting a second instance, and then orchestrate pi sessions through the dashboard's REST API. The plugin stays installable from every Claude surface.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Plugin is installable on every Claude surface
 
@@ -377,3 +378,23 @@ A tag-push release whose tagged tree carries a different plugin version SHALL fa
 
 - **WHEN** a release tag points at a tree whose `plugin.json` version differs from the tag version
 - **THEN** the release workflow SHALL fail before running the version sync and before publishing any package
+
+### Requirement: Each release attaches an uploadable plugin package
+
+The release pipeline SHALL attach `pi-dashboard-claude-plugin-<version>.zip` to the GitHub Release. The zip SHALL contain the contents of the plugin directory with `.claude-plugin/plugin.json` at the zip root, and no `.DS_Store` entries. The build SHALL fail when the manifest `version` differs from the release version.
+
+#### Scenario: Zip layout
+
+- **WHEN** the zip build runs with the plugin's own version
+- **THEN** the archive SHALL list `.claude-plugin/plugin.json`, both `SKILL.md` files, `README.md` and `LICENSE` at its root-relative paths
+- **AND** it SHALL contain no top-level `bin/`, `.mcp.json` or `hooks/`
+
+#### Scenario: Version mismatch refused
+
+- **WHEN** the zip build runs with a version that differs from `plugin.json`
+- **THEN** it SHALL exit non-zero naming both versions and write no zip
+
+#### Scenario: Attached to the release
+
+- **WHEN** the `github-release` job runs
+- **THEN** it SHALL build the zip before creating the release, and the release's `files` SHALL include it

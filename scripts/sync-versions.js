@@ -137,6 +137,23 @@ for (const { path, data } of manifests) {
 	}
 }
 
+// 5. Stamp the Claude plugin manifest (not an npm workspace: no package.json).
+// Text edit of the `version` line only, so the file's formatting is untouched
+// and a second run is a no-op. See change: add-claude-code-plugin (design D9).
+const pluginManifestPath = join(packagesDir, "claude-plugin", ".claude-plugin", "plugin.json");
+try {
+	const rootVersion = rootPkg.data.version;
+	const text = readFileSync(pluginManifestPath, "utf8");
+	const stamped = text.replace(/("version"\s*:\s*")[^"]*(")/, `$1${rootVersion}$2`);
+	if (stamped !== text) {
+		writeFileSync(pluginManifestPath, stamped);
+		console.log(`  ✎ stamped ${relative(repoRoot, pluginManifestPath)} → ${rootVersion}`);
+		totalRewrites += 1;
+	}
+} catch (err) {
+	if (err.code !== "ENOENT") throw err;
+}
+
 if (totalRewrites === 0 && totalPreserved === 0) {
 	console.log("\nAll inter-package dependencies already in sync — no changes.");
 } else {

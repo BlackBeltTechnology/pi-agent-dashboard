@@ -72,7 +72,11 @@ Change any of these by editing the row's disposition before `ship-it`.
 | E40 | Version lockstep | static | L1 | automated | `plugin.json` + root `package.json` | test | versions equal |
 | E41 | Version lockstep | state-transition | L1 | automated | temp copy of the repo skeleton with the root version bumped | run `sync-versions.js` | `plugin.json` version = new root version; a second run produces no diff |
 | E42 | Version lockstep (local release path) | static | L1 | automated | `.pi/skills/release-cut/SKILL.md` | test | step 6 `git add` includes `packages/claude-plugin/.claude-plugin/plugin.json`; a version-equality check precedes `git tag` |
-| E43 | Version lockstep (tag-push path) | static / workflow-contract | ci | automated | `.github/workflows/publish.yml` | contract test | the `publish` job has a step reading `git show "$GITHUB_REF_NAME:packages/claude-plugin/.claude-plugin/plugin.json"` ordered **before** `node scripts/sync-versions.js` and before any publish step |
+| E43 | Version lockstep (tag-push path) | static / workflow-contract | ci | automated | `.github/workflows/publish.yml` | contract test | the `publish` job has a step reading `git show "$RELEASE_TAG:packages/claude-plugin/.claude-plugin/plugin.json"` ordered **before** `node scripts/sync-versions.js` and before any publish step |
+
+| E44 | Release zip layout | static / EP | L1 | automated | `scripts/build-claude-plugin-zip.mjs --version <plugin version>` into a temp dir | run + `zipinfo -1` | exactly one `pi-dashboard-claude-plugin-<v>.zip`; lists `.claude-plugin/plugin.json`, both `SKILL.md`, `README.md`, `LICENSE`; no `bin/`, `.mcp.json`, `hooks/`, `.DS_Store`; zipped `plugin.json` version = `<v>` |
+| E45 | Release zip version gate | BVA | L1 | automated | same script with `--version` ≠ `plugin.json` version (and a missing `--version`) | run | non-zero exit naming both versions (or the missing flag); no zip written |
+| E46 | Release zip wiring | static / workflow-contract | ci | automated | `.github/workflows/publish.yml` | contract test | the `github-release` job runs `build-claude-plugin-zip.mjs` before `Create GitHub Release`, and that step's `files` includes `claude-plugin-dist/*.zip` |
 
 ### Performance
 
@@ -99,7 +103,7 @@ Change any of these by editing the row's disposition before `ship-it`.
 
 | id | requirement | technique | level | disposition | surface | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|---------|---------|---------------------|
-| M1 | Accepted by claude.ai | exploratory | — | manual-only | claude.ai Customize > Plugins > Upload plugin (zip of `packages/claude-plugin`) | upload | accepted; both skills listed |
+| M1 | Accepted by claude.ai | exploratory | — | manual-only | claude.ai Customize > Plugins > Upload plugin (the release zip, or a local build of `build-claude-plugin-zip.mjs`) | upload | accepted; both skills listed |
 | M2 | Marketplace install | exploratory | — | manual-only | Cowork/claude.ai "Add marketplace" `BlackBeltTechnology/pi-agent-dashboard` | add + install | succeeds despite repo size, otherwise trigger the mirror-repo fallback (design D6) |
 | M3 | Validator + CLI install (A4) | exploratory | — | manual-only | `claude plugin validate packages/claude-plugin` and `.`; `/plugin marketplace add … --sparse .claude-plugin packages/claude-plugin` + install | release-cut checklist | validation passed; inventory 2 skills, 0 agents/hooks/MCP |
 | M4 | Sandbox refusal | exploratory | — | manual-only | cloud Cowork task "start my pi dashboard" | run | `sandbox` message, or `not-installed` + a consent question that names the machine; no silent install; record the env markers observed |
@@ -115,9 +119,9 @@ Change any of these by editing the row's disposition before `ship-it`.
 ## Coverage summary
 
 - Requirements covered: 12/12 (every `### Requirement` in `specs/claude-code-plugin/spec.md` has ≥ 1 automated row; "Accepted by claude.ai" and "Manifest validates" are covered by manual rows M1/M3 plus E1).
-- Scenarios by class: edge 43 · perf 1 · error 10 · manual 10
-- Scenarios by level: L1 53 · ci 1 · L2 0 · L3 0 · — 10
-- Scenarios by disposition: automated 54 · manual-only 10
+- Scenarios by class: edge 46 · perf 1 · error 10 · manual 10
+- Scenarios by level: L1 55 · ci 2 · L2 0 · L3 0 · — 10
+- Scenarios by disposition: automated 57 · manual-only 10
 
 ## New infra needed
 
