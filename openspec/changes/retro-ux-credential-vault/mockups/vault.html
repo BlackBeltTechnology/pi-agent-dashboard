@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Retro UX — credential vault (#882)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="asbuilt.css" />
+<link rel="stylesheet" href="vault.css" />
+<script src="icons.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Credential vault — as-built vs proposed</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Side by side</button>
+    <button aria-pressed="false" data-v="asbuilt">As-built</button>
+    <button aria-pressed="false" data-v="proposed">Proposed</button>
+  </div>
+</div>
+<main id="board"></main>
+
+<script>
+/* ── helpers ─────────────────────────────────────────────── */
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let uid = 0; const nid = (p) => `${p}-${++uid}`;
+
+/* ── data (real product nouns; repo keys normalised per docs/credential-vault.md §3) ── */
+const ACCOUNTS = [
+  { id: "acc_g1", provider: "gemini", label: "personal" },
+  { id: "acc_g2", provider: "gemini", label: "work" },
+  { id: "acc_s1", provider: "soniox", label: "personal" },
+  { id: "acc_o1", provider: "openai", label: "work" },
+];
+const acc = (id) => ACCOUNTS.find((a) => a.id === id);
+const accName = (id) => (acc(id) ? `${acc(id).provider} / ${acc(id).label}` : "revoked account");
+const REPO_DASH = "github.com/blackbelt-technology/pi-agent-dashboard";
+const REPO_DECK = "github.com/robson/deck3d";
+const DIR_VIDEO = "/Users/robson/Movies/video-feliratozas";
+const BINDINGS = [
+  { name: "GEMINI_API_KEY", def: "acc_g1" },
+  { name: "SONIOX_API_KEY", def: "acc_s1" },
+  { name: "OPENAI_API_KEY", def: undefined },
+];
+const GRANTS = [
+  { subject: `repo:${REPO_DASH}`, binding: "GEMINI_API_KEY", state: "ok" },
+  { subject: `repo:${REPO_DECK}`, binding: "GEMINI_API_KEY", account: "acc_g2", state: "ok" },
+  { subject: `dir:hub:${DIR_VIDEO}`, binding: "SONIOX_API_KEY", state: "ok" },
+  { subject: `dir:hub:${DIR_VIDEO}`, binding: "GEMINI_API_KEY", account: "acc_g2", state: "ok" },
+];
+const CONFIRMS = [
+  { deviceId: "hub", dir: "/Users/robson/Project/pi-agent-dashboard", repoKey: REPO_DASH },
+  { deviceId: "hub", dir: "/Users/robson/Project/pi-agent-dashboard/.worktrees/os-add-credential-vault", repoKey: REPO_DASH },
+];
+const PLUGINS = [{ pluginId: "demo", displayName: "Demo Plugin (fixture)", declared: ["POLY_PIZZA_KEY"] }];
+const CANDIDATES = [
+  { id: "skill-env:nano-banana-imagegen", label: "skill nano-banana-imagegen (.env)" },
+  { id: "skill-env:video-transcription", label: "skill video-transcription (.env)" },
+  { id: "system-one-auth", label: "system-one auth.json" },
+];
+const PROPOSAL = { items: ["GEMINI_API_KEY", "SONIOX_API_KEY", "ASSEMBLYAI_API_KEY"], skipped: [["PATH", "not a valid variable name"], ["DEBUG_TOKEN", "value shorter than 8 characters"]] };
+const LIVE = [
+  { kind: "repo", name: "pi-agent-dashboard", key: REPO_DASH, where: "2 sessions · this dashboard (hub)" },
+  { kind: "repo", name: "deck3d", key: REPO_DECK, where: "1 session · this dashboard (hub)" },
+  { kind: "dir", name: "video-feliratozas", key: DIR_VIDEO, where: "1 session · this dashboard (hub) · no git remote" },
+  { kind: "dir", name: "edge-lab", key: "/home/robson/edge-lab", where: "1 session · mac-mini-iroda", blocked: "Sessions on other devices get no keys yet: remote delivery is off (transport-insecure)." },
+];
+const RECENT = [
+  { kind: "repo", name: "compsychletter", key: "github.com/robson/compsychletter", where: "last seen 3 days ago · this dashboard (hub)" },
+  { kind: "dir", name: "scratch", key: "/Users/robson/scratch", where: "last seen 9 days ago · this dashboard (hub)" },
+];
+const subjOf = (s) => s.startsWith("repo:") ? { kind: "repo", key: s.slice(5), name: s.slice(5).split("/").pop() }
+  : { kind: "dir", key: s.split(":").slice(2).join(":"), device: s.split(":")[1], name: s.split("/").pop() };
+
+/* ════════════ AS-BUILT (VaultSection + panels, 1:1) ════════════ */
+const abHeader = () => `<div><h2 class="h2">Credential vault</h2>
+  <p class="hint">Keys live on this dashboard. A key reaches a session only when its project is granted it, and the dashboard never shows a stored value again after you save it.</p>
+  <p class="hint">Grants scope which sessions get a key; they are not a security boundary against code running in that project.</p></div>`;
+const abPanel = (title, hint, body) => `<section class="space-2"><div><h3 class="p-title">${title}</h3>${hint ? `<p class="p-hint">${hint}</p>` : ""}</div>${body}</section>`;
+const abErr = (e) => (e ? `<div role="alert" class="err-xs">${esc(e)}</div>` : "");
+const abAccOpts = (sel) => `<option value="">no default</option>${ACCOUNTS.map((a) => `<option ${a.id === sel ? "selected" : ""}>${a.provider} / ${a.label}</option>`).join("")}`;
+
+function abAccounts(o = {}) {
+  const list = o.accounts ?? ACCOUNTS;
+  return abPanel("Accounts", "Keys of at least 8 characters. You can keep several accounts per provider, for example personal and work.", `
+    ${abErr(o.error)}
+    <div class="list">${list.length === 0 ? `<div class="empty">No accounts yet.</div>` : list.map((a) => `<div class="row">
+      <span class="xs tert">${a.provider}</span><span class="xs fw5 prim grow">${a.label}</span>
+      ${o.rotating === a.id ? `<input type="password" aria-label="New value" value="••••••••••"><button class="btn">Save</button><button class="btn">Cancel</button>` : `<button class="btn">Rotate</button>`}
+      <button class="dbtn">Revoke</button></div>`).join("")}</div>
+    ${o.other ? `<p class="xs tert">${o.other} account(s) of another kind are kept and not shown here.</p>` : ""}
+    <div class="form"><input placeholder="Provider (e.g. gemini)" aria-label="Provider (e.g. gemini)" ${o.prefill ? 'value="gemini"' : ""}><input placeholder="Label (e.g. personal)" aria-label="Label (e.g. personal)" ${o.prefill ? 'value="work"' : ""}>
+      <input type="password" placeholder="Key" aria-label="Key" ${o.prefill ? 'value="AIzaSyD-ex"' : ""}><button class="btn" ${o.prefill ? "" : "disabled"}>Add account</button></div>`);
+}
+function abImport(o = {}) {
+  return abPanel("Import keys", "Reads only what you select and never changes the source file. After importing, delete the original copies yourself.", `
+    ${abErr(o.error)}
+    ${o.done ? `<div class="ok-xs">Imported ${o.done} account(s). Remember to delete the original files.</div>` : ""}
+    ${o.proposal ? `<div class="space-2"><div class="list">${PROPOSAL.items.map((n) => `<label class="row"><input type="checkbox" checked><span class="xs mono prim">${n}</span></label>`).join("")}
+      ${PROPOSAL.skipped.map(([n, r]) => `<div class="row"><span class="xs mono tert">${n}</span><span class="xs tert">${r}</span></div>`).join("")}</div>
+      <div class="form"><button class="btn">Import selected</button><button class="btn">Cancel</button></div></div>`
+    : `<div class="space-2"><div class="list">${(o.noCandidates ? [] : CANDIDATES).length === 0 ? `<div class="empty">No known key files found.</div>` : CANDIDATES.map((c) => `<div class="row"><span class="xs sec grow">${c.label}</span><button class="btn">Review</button></div>`).join("")}</div>
+      <label class="xs sec" style="display:flex;align-items:center;gap:8px">Or pick a .env / JSON file:<input type="file"></label></div>`}`);
+}
+function abBindings(o = {}) {
+  const bs = o.bindings ?? BINDINGS, gs = o.grants ?? GRANTS, cs = o.confirms ?? CONFIRMS;
+  return `<div class="space-6">${abErr(o.error)}
+  ${abPanel("Environment bindings", "The variable a granted session sees, and the account it uses by default.", `
+    <div class="list">${bs.length === 0 ? `<div class="empty">No bindings yet.</div>` : bs.map((b) => `<div class="row"><span class="xs mono prim">${b.name}</span>
+      <select aria-label="Default account">${abAccOpts(b.def)}</select>${b.def ? "" : `<span class="warn-xs">needs an account</span>`}<button class="dbtn">Delete</button></div>`).join("")}</div>
+    <div class="form"><input class="mono" placeholder="GEMINI_API_KEY" aria-label="Variable name" ${o.badName ? `value="${o.badName}"` : ""}><select aria-label="Default account">${abAccOpts()}</select><button class="btn" ${o.badName ? "" : "disabled"}>Add binding</button></div>`)}
+  ${abPanel("Project grants", "Nothing is delivered to a project until you grant it. A repository grant also needs each checkout confirmed.", `
+    <div class="list">${gs.length === 0 ? `<div class="empty">No grants yet. No project receives a key.</div>` : gs.map((g) => { const s = subjOf(g.subject); return `<div class="row">
+      <span class="xs mono prim">${g.binding}</span><span class="xs tert">→</span><span class="xs sec grow" title="${s.key}">${s.kind === "repo" ? "repository" : "directory"} ${s.kind === "repo" ? s.key : `${s.device}:${s.key}`}</span>
+      ${g.account ? `<span class="xs tert">${accName(g.account)}</span>` : ""}${g.state === "no-account" ? `<span class="warn-xs">no account: delivers nothing</span>` : ""}<button class="dbtn">Delete</button></div>`; }).join("")}</div>
+    <div class="form"><select aria-label="Variable name"><option>binding…</option>${bs.map((b) => `<option>${b.name}</option>`).join("")}</select>
+      <select aria-label="Project kind"><option ${o.dirForm ? "" : "selected"}>repository</option><option ${o.dirForm ? "selected" : ""}>directory</option></select>
+      ${o.dirForm ? `<input placeholder="hub" aria-label="Device id" value="hub"><input class="mono" placeholder="/work/project" aria-label="directory">` : `<input class="mono" placeholder="github.com/acme/app" aria-label="Repository">`}
+      <select aria-label="Account for this project"><option>binding default</option>${ACCOUNTS.map((a) => `<option>${a.provider} / ${a.label}</option>`).join("")}</select><button class="btn" disabled>Grant</button></div>`)}
+  ${abPanel("Confirmed checkouts", "A repository grant is honoured only in a checkout you confirmed (from the session's Vault chip). Revoking one withdraws the values.", `
+    <div class="list">${cs.length === 0 ? `<div class="empty">No confirmed checkouts.</div>` : cs.map((c) => `<div class="row"><span class="xs mono prim">${c.repoKey}</span><span class="xs tert grow" title="${c.dir}">${c.dir} @ ${c.deviceId}</span><button class="dbtn">Revoke</button></div>`).join("")}</div>`)}
+  </div>`;
+}
+function abPlugins(o = {}) {
+  return abPanel("Plugin access", "Plugins read the default account of a binding they declare, for the whole server rather than one project. Approve each declaration.", `
+    <div class="list">${PLUGINS.flatMap((p) => p.declared.map((n) => `<div class="row"><span class="xs sec">${p.displayName}</span><span class="xs mono prim grow">${n}</span>
+      <label class="chk"><input type="checkbox" ${o.approved ? "checked" : ""}>${o.approved ? "Approved" : "Not approved"}</label></div>`)).join("")}</div>`);
+}
+function abPage(o = {}) {
+  return `<div class="ab space-6">${abHeader()}
+    ${o.loadError ? `<div role="alert" class="err-sm">Couldn't load the vault: ${o.loadError}</div>` : ""}
+    ${o.corrupt ? `<div role="alert" class="corrupt">The vault file is corrupt and writes are refused. A byte-exact backup was kept (/Users/robson/.pi/dashboard/vault.json.corrupt-1760339462). Sessions keep the values they already hold for a limited time.</div>` : ""}
+    ${o.loading || o.loadError ? "" : `${o.only ? o.only : `${abAccounts(o.acc)}${abImport(o.imp)}${abBindings(o.bind)}${abPlugins(o.plug)}`}`}</div>`;
+}
+
+/* ════════════ PROPOSED ════════════ */
+const pill = (tone, icon, text, attrs = "") => `<span class="pill ${tone}" ${attrs}>${icon ? ic(icon) : ""}${text}</span>`;
+function prHeader(o = {}) {
+  return `<div><h2 class="v-title">Credential vault</h2>
+    <p class="v-lead">Keys live on this dashboard and are never shown again after you save them. A session gets a key only when its project is granted that key.</p>
+    <ol class="flow" aria-label="How a key reaches a session">
+      <li><span class="step">${ic("KeyVariant")}Account</span></li><li class="arrow" aria-hidden="true">${ic("ArrowRight")}</li>
+      <li><span class="step">${ic("CogOutline")}Variable</span></li><li class="arrow" aria-hidden="true">${ic("ArrowRight")}</li>
+      <li><span class="step">${ic("FolderOutline")}Project grant</span></li><li class="arrow" aria-hidden="true">${ic("ArrowRight")}</li>
+      <li><span class="step">${ic("ShieldCheckOutline")}Session env</span></li>
+    </ol>
+    ${o.noNote ? "" : `<p class="p-meta" style="margin-top:6px">Grants decide which sessions get a key. They don't protect a key from other code running in that project.</p>`}</div>`;
+}
+function prTabs(active, counts = { v: BINDINGS.length, a: ACCOUNTS.length }) {
+  const t = (id, label, icon, count) => `<button role="tab" class="tab" id="tab-${id}" aria-selected="${active === id}" tabindex="${active === id ? 0 : -1}" data-testid="vault-tab-${id}">${ic(icon)}${label}${count !== undefined ? `<span class="count">${count}</span>` : ""}</button>`;
+  return `<div class="tabs" role="tablist" aria-label="Vault">${t("variables", "Variables", "CogOutline", counts.v)}${t("accounts", "Accounts", "KeyVariant", counts.a)}${t("import", "Import", "FileImportOutline")}</div>`;
+}
+const prPage = (tab, body, o = {}) => `<div class="v-page">${prHeader(o)}${tab ? prTabs(tab, o.counts) : ""}<div role="${tab ? "tabpanel" : "region"}" ${tab ? `aria-labelledby="tab-${tab}"` : 'aria-label="Vault"'} class="stack-3">${body}</div></div>`;
+const prAccSelect = (id, sel, label, opts = {}) => `<select id="${id}" class="p-input" ${opts.invalid ? 'aria-invalid="true"' : ""}>
+  ${opts.defaultLabel ? `<option>${opts.defaultLabel}</option>` : `<option value="" ${sel ? "" : "selected"}>No default account</option>`}
+  ${ACCOUNTS.map((a) => `<option ${a.id === sel ? "selected" : ""}>${a.provider} / ${a.label}</option>`).join("")}</select>`;
+
+/* grant row inside a variable card */
+function prGrantRow(g, b, o = {}) {
+  const s = subjOf(g.subject);
+  const confirmed = s.kind === "repo" ? CONFIRMS.filter((c) => c.repoKey === s.key) : [];
+  const usesAcc = g.account ? accName(g.account) : b.def ? `variable default (${accName(b.def)})` : "variable default (none)";
+  let st, status;
+  if (g.state === "no-account") { status = "no-account"; st = pill("error", "AlertCircleOutline", "No account: delivers nothing", 'data-testid="vault-grant-no-account"'); }
+  else if (!g.account && !b.def) { status = "no-default"; st = pill("warning", "AlertOutline", "Delivers nothing until the variable has a default"); }
+  else if (s.kind === "repo" && confirmed.length === 0) { status = "pending"; st = pill("warning", "ProgressClock", "Waiting for a checkout confirmation"); }
+  else { status = "delivering"; st = pill("success", "CheckCircleOutline", "Delivering"); }
+  return `<li class="grow-row" data-testid="vault-grant-row" data-state="${g.state}" data-status="${status}">${ic(s.kind === "repo" ? "SourceRepository" : "FolderOutline")}
+    <div class="main"><div class="t">${esc(s.name)} ${st}</div>
+      <div class="s">${s.kind === "repo" ? `Repository · ${esc(s.key)}` : `Folder on ${s.device === "hub" ? "this dashboard (hub)" : esc(s.device)} · ${esc(s.key)}`}</div>
+      <div class="p-meta">Uses ${esc(usesAcc)}</div>
+      ${g.state === "no-account" ? `<div class="btn-row" style="margin-top:6px"><label class="sr-only" for="fix-${b.name}">Account for ${esc(s.name)}</label>${prAccSelect(`fix-${b.name}`, "", "", { defaultLabel: "Choose an account…" }).replace('class="p-input"', 'class="p-input" style="width:auto;min-height:32px"')}<button class="p-btn sm secondary">Use variable default</button></div>` : ""}
+      ${s.kind === "repo" ? (confirmed.length ? `<details class="co" ${o.openCheckouts ? "open" : ""}><summary>${ic("ChevronRight")}${confirmed.length} confirmed checkout${confirmed.length === 1 ? "" : "s"}</summary>
+        <ul class="checkouts">${confirmed.map((c) => `<li><code>${esc(c.dir)}</code><span>on this dashboard (hub)</span><button class="p-btn sm ghost" aria-label="Revoke checkout ${esc(c.dir)}">Revoke</button></li>`).join("")}</ul></details>`
+        : `<div class="p-meta" style="margin-top:4px">Open a session in a checkout of this repository and confirm it from the session's Vault chip.</div>`) : ""}
+    </div>
+    <div class="acts"><button class="p-btn sm ghost" aria-label="Remove ${esc(b.name)} from ${esc(s.name)}">${ic("Close")}Remove</button></div></li>`;
+}
+function prVarCard(b, o = {}) {
+  const gs = (o.grants ?? GRANTS).filter((g) => g.binding === b.name);
+  const plug = PLUGINS.filter((p) => p.declared.includes(b.name));
+  const sel = nid("def");
+  return `<article class="vcard" data-testid="vault-binding-${b.name}" aria-label="${b.name}">
+    <header><span class="vname">${b.name}</span>
+      ${b.def ? "" : pill("warning", "AlertOutline", "No default account", 'data-testid="vault-binding-repair"')}
+      <div class="acts"><button class="p-btn sm ghost" aria-label="Delete variable ${b.name}">${ic("TrashCanOutline")}Delete</button></div></header>
+    <div class="vbody">
+      ${o.confirmDelete ? `<div class="callout warning" role="alertdialog" aria-labelledby="del-${b.name}" data-testid="vault-confirm-impact">${ic("AlertOutline")}<div class="body"><strong id="del-${b.name}">Delete ${b.name}?</strong>
+        <ul class="impact"><li>Removes it from ${gs.length} project${gs.length === 1 ? "" : "s"}: ${gs.map((g) => esc(subjOf(g.subject).name)).join(", ")}.</li><li>Removes ${plug.length} plugin approval${plug.length === 1 ? "" : "s"}.</li><li>Connected sessions lose it within seconds. Processes already running keep the old value.</li></ul>
+        <div class="btn-row"><button class="p-btn sm danger">${ic("TrashCanOutline")}Delete variable</button><button class="p-btn sm secondary">Cancel</button></div></div></div>` : ""}
+      <div class="vfield"><label class="p-label" for="${sel}">Default account</label>${prAccSelect(sel, b.def)}
+        <p class="p-meta">Used by every project below that doesn't pick its own account.</p></div>
+      <div><h4 class="sec-title">${ic("FolderOutline")}Projects (${gs.length})</h4>
+        ${gs.length ? `<ul class="glist" style="margin-top:6px">${gs.map((g) => prGrantRow(g, b, o)).join("")}</ul>` : `<p class="p-help" style="margin:6px 0 0">No project gets this variable yet.</p>`}
+        ${o.picker ? `<div style="margin-top:8px">${o.picker}</div>` : `<button class="p-btn sm secondary" style="margin-top:8px">${ic("Plus")}Grant to a project</button>`}</div>
+      ${plug.length ? `<div><h4 class="sec-title">${ic("PuzzleOutline")}Plugins</h4>${plug.map((p) => prPluginRow(p, b.name, o.approved)).join("")}</div>` : ""}
+    </div></article>`;
+}
+function prPluginRow(p, name, on) {
+  return `<div class="grow-row" style="margin-top:6px" data-testid="vault-plugin-${p.pluginId}-${name}">${ic("PuzzleOutline")}<div class="main"><div class="t">${esc(p.displayName)}</div>
+    <div class="p-meta">Reads the default account of <code>${name}</code> for the whole server, not one project.</div></div>
+    <div class="acts"><label class="switch"><input type="checkbox" role="switch" class="sw-input" data-testid="vault-plugin-approve" ${on ? "checked" : ""}><span class="track" aria-hidden="true"></span>${on ? "Approved" : "Not approved"}</label></div></div>`;
+}
+
+/* project picker — the two data sources under decision D2 */
+function prOpt(p, checked, group) {
+  const id = nid("pp"), off = p.blocked || p.granted;
+  return `<label class="opt" for="${id}" ${off ? 'aria-disabled="true"' : ""}><input type="radio" name="${group}" id="${id}" ${checked ? "checked" : ""} ${off ? "disabled" : ""}>
+    <div class="main"><div class="t">${ic(p.kind === "repo" ? "SourceRepository" : "FolderOutline")}${esc(p.name)}${p.granted ? pill("neutral", "Check", "Already granted") : ""}</div>
+      <div class="s">${esc(p.key)}</div><div class="why">${esc(p.where)}</div>${p.blocked ? `<div class="why">${ic("LockOutline")} ${esc(p.blocked)}</div>` : ""}</div></label>`;
+}
+function prPicker(o = {}) {
+  const b = BINDINGS.find((x) => x.name === (o.binding ?? "SONIOX_API_KEY"));
+  const isGranted = (p) => GRANTS.some((g) => g.binding === b.name && subjOf(g.subject).key === p.key);
+  const live = LIVE.map((p) => ({ ...p, granted: isGranted(p) }));
+  const search = nid("ps"), acct = nid("pa"), grp = nid("proj");
+  return `<div class="picker" role="group" aria-label="Grant ${b.name} to a project" data-testid="vault-grant-picker">
+    ${o.manual ? prManual() : `<div><label class="p-label" for="${search}">Project</label><input id="${search}" class="p-input" type="search" placeholder="Search by name, repository or folder"></div>
+    <fieldset><legend>Open sessions on this dashboard</legend>${live.map((p) => prOpt(p, p.name === "deck3d", grp)).join("")}</fieldset>
+    ${o.recent ? `<fieldset><legend>Seen recently (remembered by this dashboard)</legend>${RECENT.map((p) => prOpt(p, false, grp)).join("")}</fieldset>` : ""}
+    <button class="p-linkc">Not listed? Enter a repository or folder</button>`}
+    <div class="vfield"><label class="p-label" for="${acct}">Account for this project</label>${prAccSelect(acct, "", "", { defaultLabel: `Variable default (${accName(b.def)})` })}</div>
+    ${o.manual ? "" : `<div class="callout info">${ic("InformationOutline")}<div class="body">deck3d is a repository. Its sessions get the key after you confirm each checkout from the session's Vault chip.</div></div>`}
+    <div class="btn-row"><button class="p-btn primary">${ic("Check")}Grant ${b.name}</button><button class="p-btn secondary">Cancel</button></div></div>`;
+}
+function prManual() {
+  const r = nid("mr"), d = nid("md"), dv = nid("mdv");
+  return `<div><span class="p-label" id="mk">Project kind</span><div class="seg2" role="group" aria-labelledby="mk"><button aria-pressed="true">Repository</button><button aria-pressed="false">Folder</button></div></div>
+    <div><label class="p-label" for="${r}">Repository</label><input id="${r}" class="p-input mono" placeholder="github.com/acme/app" value="github.com/robson/compsychletter">
+      <p class="p-meta" style="margin-top:4px">As in the git remote, without scheme or <code>.git</code>. SSH and HTTPS clones of the same repository match.</p></div>
+    <p class="p-meta">For a folder you pick the device (this dashboard is <code>hub</code>) and the exact path. Subfolders are not included.</p>`;
+}
+
+function prVariables(o = {}) {
+  const bs = o.bindings ?? BINDINGS;
+  const unknown = PLUGINS.flatMap((p) => p.declared.filter((n) => !bs.some((b) => b.name === n)).map((n) => ({ p, n })));
+  const name = nid("vn"), def = nid("vd");
+  return `${o.error ? `<div class="callout error" role="alert">${ic("AlertCircleOutline")}<div class="body">${o.error}</div></div>` : ""}
+    <div class="toolbar-row"><p class="p-help" style="margin:0">A variable is the environment name a session sees, such as <code>GEMINI_API_KEY</code>.</p>
+      <button class="p-btn sm secondary">${ic("Plus")}New variable</button></div>
+    ${o.addForm ? `<form class="inset" onsubmit="return false"><div class="form-grid">
+        <div><label class="p-label" for="${name}">Variable name</label><input id="${name}" class="p-input mono" value="${o.badName ?? ""}" placeholder="GEMINI_API_KEY" ${o.badName ? `aria-invalid="true" aria-describedby="${name}-e"` : ""}></div>
+        <div><label class="p-label" for="${def}">Default account</label>${prAccSelect(def, "")}</div>
+        <div class="btn-row"><button class="p-btn primary">${ic("Plus")}Create</button><button class="p-btn secondary">Cancel</button></div>
+        ${o.badName ? `<p id="${name}-e" class="p-meta sev-fg-error full" role="alert">${ic("AlertCircleOutline")} <code>${o.badName}</code> is reserved by the system, so a session can't receive it. Use a name like <code>MY_SERVICE_TOKEN</code>.</p>` : ""}</div></form>` : ""}
+    ${unknown.length && !o.hideUnknown ? `<div class="callout info" data-testid="vault-plugin-request">${ic("PuzzleOutline")}<div class="body"><strong>${esc(unknown[0].p.displayName)}</strong> can read <code>${unknown[0].n}</code>, but no such variable exists yet.
+      <div class="btn-row" data-testid="vault-plugin-${unknown[0].p.pluginId}-${unknown[0].n}"><button class="p-btn sm secondary">${ic("Plus")}Create ${unknown[0].n}</button><label class="switch"><input type="checkbox" role="switch" class="sw-input" data-testid="vault-plugin-approve"><span class="track" aria-hidden="true"></span>Not approved</label></div></div></div>` : ""}
+    <div data-testid="vault-bindings-list" class="stack-3"><div data-testid="vault-grants-list" class="stack-3">${bs.map((b) => prVarCard(b, { ...o, picker: o.pickerFor === b.name ? o.picker : undefined, confirmDelete: o.confirmDelete === b.name })).join("")}</div></div>`;
+}
+
+function accUsage(a) {
+  const defs = BINDINGS.filter((b) => b.def === a.id).map((b) => b.name);
+  const ov = GRANTS.filter((g) => g.account === a.id);
+  const parts = [];
+  if (defs.length) parts.push(`Default for ${defs.map((d) => `<code>${d}</code>`).join(", ")}`);
+  if (ov.length) parts.push(`${parts.length ? "chosen" : "Chosen"} by ${ov.length} project${ov.length === 1 ? "" : "s"}`);
+  return parts.length ? parts.join(" · ") : "Not used by any variable";
+}
+function prAccounts(o = {}) {
+  const prov = nid("ap"), lab = nid("al"), key = nid("ak"), mk = nid("am");
+  return `${o.error ? `<div class="callout error" role="alert">${ic("AlertCircleOutline")}<div class="body">${o.error}</div></div>` : ""}
+    <div class="toolbar-row"><p class="p-help" style="margin:0">One account per key. Keep several per provider, for example personal and work.</p>
+      <button class="p-btn sm secondary">${ic("Plus")}Add key</button></div>
+    ${o.addForm ? `<form class="inset" onsubmit="return false"><div class="form-grid">
+      <div><label class="p-label" for="${prov}">Provider</label><input id="${prov}" class="p-input" list="prov-list" value="${o.shortKey ? "gemini" : "assemblyai"}"><datalist id="prov-list"><option value="gemini"><option value="openai"><option value="anthropic"><option value="soniox"><option value="assemblyai"></datalist></div>
+      <div><label class="p-label" for="${lab}">Label</label><input id="${lab}" class="p-input" value="${o.shortKey ? "work" : "personal"}"></div>
+      <div class="full"><label class="p-label" for="${key}">Key</label><div class="with-btn"><input id="${key}" type="password" autocomplete="off" class="p-input mono" value="${o.shortKey ? "abc123" : "aai-example-value-0000"}" ${o.shortKey ? `aria-invalid="true" aria-describedby="${key}-e"` : `aria-describedby="${key}-h"`}>
+        <button class="p-btn secondary icon" aria-label="Show key" aria-pressed="false">${ic("EyeOutline")}</button></div>
+        ${o.partial ? `<div class="callout warning" role="alert" style="margin-top:6px">${ic("AlertOutline")}<div class="body"><strong>Key saved; the variable wasn't created:</strong> another request created <code>ASSEMBLYAI_API_KEY</code> first with a different default.<div class="btn-row"><button class="p-btn sm secondary">${ic("Refresh")}Retry</button></div></div></div>` : ""}
+        ${o.shortKey ? `<p id="${key}-e" class="p-meta sev-fg-error" role="alert" style="margin-top:4px">${ic("AlertCircleOutline")} A key needs at least 8 characters. This one has 6.</p>` : `<p id="${key}-h" class="p-meta" style="margin-top:4px">Saved once. The dashboard never shows it again.</p>`}</div>
+      ${o.shortKey ? `<label class="chk full" for="${mk}"><input type="checkbox" id="${mk}"><span>Make it the default of <code>GEMINI_API_KEY</code> instead of gemini / personal</span></label>`
+        : `<label class="chk full" for="${mk}"><input type="checkbox" id="${mk}" checked><span>Create the variable <code>ASSEMBLYAI_API_KEY</code> with this key as its default</span></label>`}
+      <div class="btn-row full"><button class="p-btn primary" ${o.shortKey ? "disabled" : ""}>${ic("Plus")}Add key</button><button class="p-btn secondary">Cancel</button></div></div></form>` : ""}
+    <ul class="glist">${ACCOUNTS.map((a) => {
+      const rot = o.rotating === a.id, rev = o.revoking === a.id, rid = nid("rv");
+      return `<li class="grow-row" data-testid="vault-account-${a.id}">${ic("KeyVariant")}<div class="main">
+        <div class="t">${esc(a.label)} ${pill("neutral", "", esc(a.provider))}</div><div class="p-meta">${accUsage(a)}</div>
+        ${rot ? `<div class="btn-row" style="margin-top:6px"><label class="sr-only" for="${rid}">New value for ${a.provider} / ${a.label}</label><input id="${rid}" type="password" class="p-input mono" style="max-width:280px;min-height:32px" value="••••••••••••">
+          <button class="p-btn sm primary">Save new value</button><button class="p-btn sm secondary">Cancel</button></div>
+          <p class="p-meta" style="margin-top:4px">Sessions pick up the new value on their next sync. Running processes keep the old one until restarted.</p>` : ""}
+        ${rev ? `<div class="callout warning" role="alertdialog" aria-labelledby="${rid}-h" style="margin-top:6px">${ic("AlertOutline")}<div class="body"><strong id="${rid}-h">Revoke ${a.provider} / ${a.label}?</strong>
+          <ul class="impact"><li><code>GEMINI_API_KEY</code> in <strong>deck3d</strong> and <strong>video-feliratozas</strong> will deliver nothing. It does not fall back to the variable's default.</li>
+          <li>Those 2 projects are listed under Variables for repair.</li><li>Running processes keep the old value until they restart.</li></ul>
+          <div class="btn-row"><button class="p-btn sm danger">${ic("TrashCanOutline")}Revoke account</button><button class="p-btn sm secondary">Cancel</button></div></div></div>` : ""}
+        </div>${rot || rev ? "" : `<div class="acts"><button class="p-btn sm secondary" aria-label="Rotate ${a.provider} / ${a.label}">${ic("Autorenew")}Rotate</button><button class="p-btn sm ghost" aria-label="Revoke ${a.provider} / ${a.label}">${ic("TrashCanOutline")}Revoke</button></div>`}</li>`;
+    }).join("")}</ul>
+    ${o.slots ? `<div class="board-note"><strong>Board note, not product UI:</strong> section slots for the two in-flight vault changes. They are named here so neither change invents a fifth panel.</div>
+      <div><h4 class="sec-title">${ic("AccountKeyOutline")}Sign-in accounts</h4><p class="p-help" style="margin:4px 0 0">Linked pi logins and enrolled OAuth accounts (add-vault-llm-delivery). Same row recipe: label + provider pill + usage line, never a token.</p></div>
+      <div><h4 class="sec-title">${ic("ServerOutline")}Services</h4><p class="p-help" style="margin:4px 0 0">Keys of managed services, grouped per service, names only (absorb-service-secrets-into-vault).</p></div>` : ""}`;
+}
+
+function prImport(o = {}) {
+  const f = nid("if"), mk = nid("im");
+  if (o.done) return `<div class="callout info" role="status">${ic("CheckCircleOutline")}<div class="body"><strong>Imported 3 keys</strong> as accounts and variables: <code>GEMINI_API_KEY</code>, <code>SONIOX_API_KEY</code>, <code>ASSEMBLYAI_API_KEY</code>.
+      <br>The originals are still in <strong>skill nano-banana-imagegen (.env)</strong>. Delete that copy yourself.
+      <div class="btn-row"><button class="p-btn sm secondary">${ic("ArrowRight")}Grant them to a project</button></div></div></div>`;
+  if (o.proposal) return `<form class="inset stack-3" onsubmit="return false" data-testid="vault-import-proposal"><div><h4 class="sec-title">Review: skill nano-banana-imagegen (.env)</h4><p class="p-help" style="margin:4px 0 0">Only the names are shown. Values are read on the dashboard and never sent to this page.</p></div>
+      <fieldset style="border:0;padding:0;margin:0"><legend class="p-label">Keys to import</legend>${PROPOSAL.items.map((n) => { const id = nid("ii"); return `<label class="chk" for="${id}"><input type="checkbox" id="${id}" checked><span><code>${n}</code> <span class="p-meta">→ account ${n.split("_")[0].toLowerCase()} / ${n}</span></span></label>`; }).join("")}</fieldset>
+      <div><h4 class="sec-title">Skipped (${PROPOSAL.skipped.length})</h4><ul class="glist" style="margin-top:4px">${PROPOSAL.skipped.map(([n, r]) => `<li class="p-meta"><code>${n}</code>: ${r}</li>`).join("")}</ul></div>
+      <label class="chk" for="${mk}"><input type="checkbox" id="${mk}" checked><span>Also create a variable with the same name for each new key (skipped when it already exists)</span></label>
+      <div class="btn-row"><button class="p-btn primary">${ic("FileImportOutline")}Import 3 keys</button><button class="p-btn secondary">Cancel</button></div></form>`;
+  return `<p class="p-help" style="margin:0">Import reads only what you select and never changes the source file.</p>
+    <div><h4 class="sec-title">Key files found on this dashboard</h4>
+    ${o.noCandidates ? `<p class="p-help" style="margin:6px 0 0">No known key files found.</p>` : `<ul class="glist" style="margin-top:6px">${CANDIDATES.map((c) => `<li class="grow-row">${ic("FileImportOutline")}<div class="main"><div class="t">${esc(c.label)}</div></div><div class="acts"><button class="p-btn sm secondary" aria-label="Review ${esc(c.label)}">Review</button></div></li>`).join("")}</ul>`}</div>
+    <div><label class="p-label" for="${f}">Or choose a .env or JSON file (up to 64 KiB)</label><input id="${f}" type="file" class="p-input" accept=".env,.json,text/plain,application/json"></div>`;
+}
+
+function prFirstRun() {
+  return `<div class="inset stack-3" data-testid="vault-empty"><div><h3 style="margin:0;font-size:14px">Set up your first key</h3><p class="p-help" style="margin:4px 0 0">Three steps. Nothing reaches a session before step 3.</p></div>
+    <ol class="steps"><li><div class="t">Add or import a key</div><div class="d">Paste a key or import one from a .env file you already have.</div></li>
+      <li><div class="t">Expose it as a variable</div><div class="d">Choose the name sessions see, such as <code>GEMINI_API_KEY</code>.</div></li>
+      <li><div class="t">Grant it to a project</div><div class="d">Pick a project from your open sessions.</div></li></ol>
+    <div class="btn-row"><button class="p-btn primary">${ic("FileImportOutline")}Import keys</button><button class="p-btn secondary">${ic("Plus")}Add a key</button></div>
+    <p class="p-meta">3 key files found on this dashboard: skill nano-banana-imagegen (.env), skill video-transcription (.env), system-one auth.json.</p></div>`;
+}
+
+/* session header chip + dialog */
+const SESS_OK = [["GEMINI_API_KEY", "delivered"], ["SONIOX_API_KEY", "local-override"]];
+const SESS_MIX = [["GEMINI_API_KEY", "revoked"], ["OPENAI_API_KEY", "no-account"], ["PATH", "blocked-name"], ["SONIOX_API_KEY", "inherited"]];
+const ST = {
+  delivered: ["success", "CheckCircleOutline", "Delivered", "Set in this session's environment."],
+  "local-override": ["neutral", "InformationOutline", "Local value kept", "The session already had this variable, so the vault left it alone."],
+  inherited: ["neutral", "InformationOutline", "Inherited from parent pi", "Delivered to the parent session; this one only passes it on."],
+  "pending-confirmation": ["warning", "ProgressClock", "Waiting for confirmation", "Confirm the checkout above to receive it."],
+  "no-account": ["error", "AlertCircleOutline", "No account", "The variable or this project's account has no key. Fix it in Settings → Vault."],
+  "blocked-name": ["error", "AlertCircleOutline", "Name not allowed", "This name is reserved by the system and is never delivered."],
+  revoked: ["warning", "AlertOutline", "Revoked", "Processes already running may still hold the old value."],
+};
+function abChip(rows, o = {}) {
+  const pending = rows.some(([, s]) => s === "pending-confirmation");
+  return `<div class="ab space-2"><div class="session-hdr"><span>${o.name ?? "pi-agent-dashboard"}</span><span class="tert">·</span><button class="chip ${pending ? "pending" : ""}">Vault · ${rows.length}</button></div>
+    ${o.open === false ? "" : `<div class="backdrop"><div class="dialog" role="dialog" aria-label="Vault keys for this session"><div class="hd"><span class="x11 sec">Vault keys for this session</span><button class="close">Close</button></div>
+    <div class="bd">${rows.map(([n, s]) => `<div class="brow"><span class="mono prim">${n}</span><span class="${s === "delivered" || s === "inherited" ? "tone-ok" : s === "local-override" ? "tone-sec" : "tone-warn"}">${ST[s][2] === "Waiting for confirmation" ? "Pending confirmation" : ST[s][2]}</span>${s === "revoked" ? `<span class="tert">Processes already running may still hold the old value.</span>` : ""}</div>`).join("")}
+      ${pending ? `<p class="x11 sec" style="padding:4px 4px 0;margin:0">Deliver the granted keys to ${REPO_DECK} at /Users/robson/Project/deck3d on hub?</p><button class="cbtn">Confirm this checkout</button>` : ""}
+      <p class="x10 tert" style="padding:4px 4px 0;margin:0">Last vault contact: 08:31:02</p></div></div></div>`}</div>`;
+}
+function prChip(rows, o = {}) {
+  const pending = rows.some(([, s]) => s === "pending-confirmation");
+  const repo = o.repo ?? REPO_DASH, dir = o.dir ?? "/Users/robson/Project/pi-agent-dashboard", name = repo.split("/").pop();
+  return `<div class="stack-3"><div class="s-hdr"><span>${esc(name)}</span><span aria-hidden="true">·</span>
+    <button class="vchip ${pending ? "pending" : ""}" aria-haspopup="dialog" data-testid="vault-chip" data-pending="${pending}">${ic(pending ? "ProgressClock" : "ShieldKeyOutline")}${pending ? "Vault: confirm" : `Vault · ${rows.length}`}</button></div>
+    <div class="dlg-wrap"><div class="dlg" role="dialog" aria-labelledby="dlg-${o.k}" data-testid="vault-bindings-dialog"><header><h3 id="dlg-${o.k}">Vault keys for this session</h3><button class="p-btn sm ghost icon" aria-label="Close">${ic("Close")}</button></header>
+    <div class="bd"><p class="proj">Project <code>${esc(repo)}</code><br>Checkout <code>${esc(dir)}</code> on this dashboard (hub)</p>
+      ${pending ? `<div class="callout warning">${ic("ProgressClock")}<div class="body"><strong>Confirm this checkout?</strong> Its git remote says <code>${esc(repo)}</code>, but any clone can claim that. Confirm only if you trust the code in <code>${esc(dir)}</code>. Applies to every session in this checkout.
+        <div class="btn-row"><button class="p-btn sm primary" data-testid="vault-confirm">${ic("Check")}Confirm and deliver ${rows.length} key${rows.length === 1 ? "" : "s"}</button></div></div></div>` : ""}
+      <div>${rows.map(([n, s]) => `<div class="srow" data-testid="vault-binding-row" data-state="${s}"><code>${n}</code>${pill(ST[s][0], ST[s][1], ST[s][2], 'data-testid="vault-binding-state"')}<span class="d">${ST[s][3]}</span></div>`).join("")}</div>
+      ${o.offer ? `<div data-testid="vault-ungranted"><h4 class="sec-title">${ic("CogOutline")}Not granted to this project</h4>
+        ${o.offer.map((n) => `<div class="srow"><code>${n}</code><span class="acts"><button class="p-btn sm secondary" data-testid="vault-grant-from-session" aria-label="Grant ${n} to ${esc(name)}">${ic("Plus")}Grant</button></span><span class="d">Repository grants need this checkout confirmed.</span></div>`).join("")}
+        <p class="p-meta">Shown only to operators. A repository grant still needs this checkout confirmed.</p></div>` : ""}
+    </div><footer><span class="p-meta">Last vault contact 08:31:02</span><a class="p-linkc" href="#">Manage in Settings → Vault ${ic("ArrowRight")}</a></footer></div></div></div>`;
+}
+
+/* ════════════ board model ════════════ */
+const PICK_DECK = (o) => prPicker(o);
+const BOARD = [
+  { title: "Page shell — Settings ▸ Network ▸ Vault", verdict: "fix + redesign · F1–F4", states: [
+    ["stale-server", "F1 — the reported bug: server older than the page answers /api/vault with index.html (200)", abPage({ loadError: "HTTP 200" }),
+      prPage(null, `<div class="callout error" role="alert" data-testid="vault-error">${ic("AlertCircleOutline")}<div class="body"><strong>This dashboard server doesn't have the vault yet.</strong> The page is newer than the running server. Restart the server to load the vault.
+        <div class="btn-row"><button class="p-btn sm secondary">${ic("Refresh")}Restart server</button><button class="p-btn sm ghost">Try again</button></div></div></div>`)],
+    ["load-error", "F1 — 403 operate_required · SUPERSEDED: owned by surface-operate-required-remedy (its callout ships, not this one)", abPage({ loadError: "the vault needs an operate-tier credential or a locally trusted caller" }),
+      prPage(null, `<div class="callout error" role="alert">${ic("LockOutline")}<div class="body"><strong>You can't manage the vault from this browser.</strong> It needs an operator sign-in or this machine (localhost).
+        <div class="btn-row"><button class="p-btn sm ghost">Try again</button></div></div></div>`)],
+    ["loading", "F2 — as-built shows the header and nothing else", abPage({ loading: true }), prPage("variables", `<div aria-busy="true" aria-label="Loading the vault"><div class="skeleton"></div><div class="skeleton"></div></div>`)],
+    ["first-run", "F3 — four empty panels vs one guided start", abPage({ acc: { accounts: [] }, bind: { bindings: [], grants: [], confirms: [] }, imp: { noCandidates: false } }),
+      prPage("variables", prFirstRun(), { counts: { v: 0, a: 0 } })],
+    ["corrupt", "F4", abPage({ corrupt: true, only: abAccounts() }),
+      prPage("variables", `<div class="callout error" role="alert" data-testid="vault-corrupt">${ic("AlertCircleOutline")}<div class="body"><strong>The vault file is damaged, so changes are refused.</strong> A byte-exact copy was kept at <code>/Users/robson/.pi/dashboard/vault.json.corrupt-1760339462</code>. Sessions keep the keys they already have for up to 24 hours.</div></div>
+        ${prVariables({}).replace(/<button class="p-btn sm secondary">/g, '<button class="p-btn sm secondary" disabled>')}`)],
+  ]},
+  { title: "Variables — bindings, grants, checkouts, plugin approvals in one card per variable", verdict: "redesign · F5–F13", states: [
+    ["populated", "F5 who-gets-what · F6 checkouts under their grant · F7 status pills, not colour-only text", abPage({ only: abBindings() }), prPage("variables", prVariables({ hideUnknown: true, openCheckouts: true }))],
+    ["repair", "F8 — revoked override / no default", abPage({ only: abBindings({ grants: [{ ...GRANTS[1], account: "acc_gone", state: "no-account" }, GRANTS[0]] }) }),
+      prPage("variables", prVariables({ hideUnknown: true, grants: [{ ...GRANTS[1], account: "acc_gone", state: "no-account" }, GRANTS[0]], bindings: [BINDINGS[0], BINDINGS[2]] }))],
+    ["grant-picker-live", "F9 · D2 option A — open sessions only, no new state", abPage({ only: abBindings() }), prPage("variables", prVariables({ hideUnknown: true, bindings: [BINDINGS[1]], pickerFor: "SONIOX_API_KEY", picker: PICK_DECK({}) }))],
+    ["grant-picker-recent", "F9 · D2 option B — plus projects remembered by the hub", abPage({ only: abBindings() }), prPage("variables", prVariables({ hideUnknown: true, bindings: [BINDINGS[1]], pickerFor: "SONIOX_API_KEY", picker: PICK_DECK({ recent: true }) }))],
+    ["grant-manual", "F9 — fallback for a project never opened here", abPage({ only: abBindings({ dirForm: true }) }), prPage("variables", prVariables({ hideUnknown: true, bindings: [BINDINGS[1]], pickerFor: "SONIOX_API_KEY", picker: PICK_DECK({ manual: true }) }))],
+    ["plugin-request", "F10 — plugin declares a name with no variable (real: demo → POLY_PIZZA_KEY)", abPage({ only: abPlugins() }), prPage("variables", prVariables({ bindings: [] }), { counts: { v: 0, a: 4 } })],
+    ["plugin-approve", "F10 — approval lives on the variable it reads", abPage({ only: abPlugins({ approved: true }) }),
+      prPage("variables", prVarCard({ name: "POLY_PIZZA_KEY", def: "acc_o1" }, { grants: [], approved: true }), { counts: { v: 1, a: 4 } })],
+    ["bad-name", "F11 — reserved name: generic top-of-page error vs inline field error", abPage({ only: abBindings({ badName: "PATH", error: "Invalid or reserved environment variable name" }) }), prPage("variables", prVariables({ hideUnknown: true, addForm: true, badName: "PATH", bindings: [BINDINGS[0]] }))],
+    ["delete-confirm", "F12 — as-built deletes on one click and silently drops grants + approvals", abPage({ only: abBindings() }), prPage("variables", prVariables({ hideUnknown: true, confirmDelete: "GEMINI_API_KEY", bindings: [BINDINGS[0]] }))],
+  ]},
+  { title: "Accounts", verdict: "polish · F13–F17", states: [
+    ["list", "F13 — usage line per account", abPage({ only: abAccounts() }), prPage("accounts", prAccounts())],
+    ["add", "F14 — labelled fields, show-key toggle; D3 offers the matching variable (new name → create; existing → make default, off by default)", abPage({ only: abAccounts({ prefill: true }) }), prPage("accounts", prAccounts({ addForm: true }))],
+    ["add-too-short", "F14 — server error vs inline validation", abPage({ only: abAccounts({ prefill: true, error: "value must be at least 8 characters" }) }), prPage("accounts", prAccounts({ addForm: true, shortKey: true }))],
+    ["add-partial", "D3 — account saved, variable step failed: reported, retry is idempotent", abPage({ only: abAccounts({ prefill: true, error: "Binding already exists" }) }), prPage("accounts", prAccounts({ addForm: true, partial: true }))],
+    ["rotate", "F15", abPage({ only: abAccounts({ rotating: "acc_g1" }) }), prPage("accounts", prAccounts({ rotating: "acc_g1" }))],
+    ["revoke-confirm", "F16 — as-built revokes on one click; impact only visible afterwards", abPage({ only: abAccounts() }), prPage("accounts", prAccounts({ revoking: "acc_g2" }))],
+    ["future-slots", "F17 — room for add-vault-llm-delivery + absorb-service-secrets-into-vault", abPage({ only: abAccounts({ other: 2 }) }), prPage("accounts", prAccounts({ slots: true }))],
+  ]},
+  { title: "Import", verdict: "polish · F18–F19", states: [
+    ["candidates", "F18", abPage({ only: abImport() }), prPage("import", prImport())],
+    ["review", "F18 — names only, skipped reasons, optional variables", abPage({ only: abImport({ proposal: true }) }), prPage("import", prImport({ proposal: true }))],
+    ["done", "F19 — next step after import", abPage({ only: abImport({ done: 3 }) }), prPage("import", prImport({ done: true }))],
+  ]},
+  { title: "Session header — Vault chip and dialog (project view)", verdict: "redesign · F20–F23", states: [
+    ["delivered", "F20 — 11/10 px text, colour-only state", abChip(SESS_OK), prChip(SESS_OK, { k: "a" })],
+    ["pending-confirmation", "F21 — the security decision gets context and a primary action", abChip([["GEMINI_API_KEY", "pending-confirmation"]], { name: "deck3d" }), prChip([["GEMINI_API_KEY", "pending-confirmation"]], { k: "b", repo: REPO_DECK, dir: "/Users/robson/Project/deck3d" })],
+    ["mixed", "F22 — every state explained", abChip(SESS_MIX), prChip(SESS_MIX, { k: "c" })],
+    ["grant-from-session", "F23 · D4 — direction C: grant this project from here (operators only)", abChip(SESS_OK), prChip(SESS_OK, { k: "d", offer: ["OPENAI_API_KEY"] })],
+  ]},
+];
+
+document.getElementById("board").innerHTML = BOARD.map((s) => `<section class="surface"><h2>${s.title}</h2><p class="verdict">Verdict: ${s.verdict}</p>
+  ${s.states.map(([id, finds, ab, pr]) => `<article class="state" id="${s.title.split(" ")[0].toLowerCase()}-${id}"><header><code>${id}</code><span class="finds">${finds}</span></header>
+    <div class="pair"><div class="col asbuilt"><p class="tag">As-built</p><div class="frame">${ab}</div></div>
+    <div class="col proposed"><p class="tag">Proposed</p><div class="frame">${pr}</div></div></div></article>`).join("")}
+</section>`).join("");
+
+/* ── toolbar ─────────────────────────────────────────────── */
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+  }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`);
+  if (group === "view") document.body.dataset.view = v;
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply(seg.dataset.group, b.dataset.v);
+}));
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>
