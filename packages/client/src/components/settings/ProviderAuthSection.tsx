@@ -1245,11 +1245,15 @@ function CustomEndpointRow({ name, entry, health, pending, onTest, onRefreshMode
       setError(result.error);
       return;
     }
+    // No fresh health → drop any obsolete live count; failed health → inline
+    // error too (HTTP 200 still means the endpoint failed). CodeRabbit #894.
     const h = result.health;
-    if (h) {
-      setLive(h.ok
-        ? { ok: true, modelCount: h.modelCount ?? 0 }
-        : { ok: false, status: h.status, error: h.error ?? "Refresh failed" });
+    if (!h) setLive(null);
+    else if (h.ok) setLive({ ok: true, modelCount: h.modelCount ?? 0 });
+    else {
+      const msg = h.error ?? "Refresh failed";
+      setLive({ ok: false, status: h.status, error: msg });
+      setError(msg);
     }
     onRefreshed();
   };
@@ -1302,7 +1306,8 @@ function CustomEndpointRow({ name, entry, health, pending, onTest, onRefreshMode
             <RefreshModelsButton refreshing={refreshing} disabled={removePending} onClick={() => void refreshModels()} />
             <button
               onClick={() => setEditing(true)}
-              className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-secondary)]"
+              disabled={refreshing}
+              className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-secondary)] disabled:opacity-50"
             >
               <Icon path={mdiPencil} size={0.45} />
               {i18nT("common.edit", undefined, "Edit")}

@@ -126,6 +126,40 @@ describe("Refresh models row control", () => {
     expect(pill(c).textContent).toMatch(/3 models/);
   });
 
+  // CodeRabbit #894: HTTP 200 with failed health is still a failed refresh.
+  it("a 200 with failed health shows the inline error too", async () => {
+    const h: Harness = {
+      refreshCalls: [],
+      respond: () => json({ success: true, health: { ok: false, status: 503, error: "HTTP 503", testedAt: 3 } }),
+    };
+    const c = await mount(h);
+    fireEvent.click(button(c)!);
+    await waitFor(() => expect(c.getByTestId("provider-refresh-error").textContent).toContain("503"));
+    expect(button(c)!.disabled).toBe(false);
+  });
+
+  // CodeRabbit #894: no fresh health must not leave an obsolete live count.
+  it("a refresh with no health clears an earlier live count", async () => {
+    let next: unknown = { success: true, health: { ok: true, modelCount: 7, testedAt: 2 } };
+    const c = await mount({ refreshCalls: [], respond: () => json(next) });
+    fireEvent.click(button(c)!);
+    await waitFor(() => expect(pill(c).textContent).toMatch(/7 models/));
+    next = { success: true, health: null };
+    await waitFor(() => expect(button(c)!.disabled).toBe(false));
+    fireEvent.click(button(c)!);
+    await waitFor(() => expect(pill(c).textContent).not.toMatch(/7 models/));
+  });
+
+  // CodeRabbit #894: a late result must not land on a just-edited endpoint.
+  it("Edit is disabled while a refresh is in flight", async () => {
+    const d = deferred<any>();
+    const c = await mount({ refreshCalls: [], respond: () => d.promise });
+    fireEvent.click(button(c)!);
+    await waitFor(() => expect((c.getByText("Edit").closest("button") as HTMLButtonElement).disabled).toBe(true));
+    await act(async () => { d.resolve(json({ success: true, health: { ok: true, modelCount: 7, testedAt: 2 } })); });
+    await waitFor(() => expect((c.getByText("Edit").closest("button") as HTMLButtonElement).disabled).toBe(false));
+  });
+
   it("unmounting mid-flight ignores the late result (X6)", async () => {
     const d = deferred<any>();
     const events: Event[] = [];

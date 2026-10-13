@@ -624,6 +624,29 @@ describe("reloadProviders", () => {
       expect(ids(registerProvider.mock.calls[0])).toEqual(["m1", "new-model"]);
     });
 
+    // CodeRabbit #894: a transient /models failure must not wipe a live provider.
+    it("keeps the existing registration when forced discovery fails", async () => {
+      const mod = await importFresh();
+      const { pi, registerProvider, unregisterProvider } = makeMockPi();
+      writeProvidersJson(tmpHome, { proxy });
+      globalThis.fetch = serve(["m1"]);
+      await mod.reloadProviders(pi);
+      registerProvider.mockClear();
+
+      globalThis.fetch = vi.fn(async () => new Response("boom", { status: 503 })) as any;
+      const diff = await mod.reloadProviders(pi, { force: ["proxy"] });
+
+      expect(unregisterProvider).not.toHaveBeenCalled();
+      expect(registerProvider).not.toHaveBeenCalled();
+      expect(diff.changed).toEqual([]);
+
+      // A later successful refresh still re-registers (snapshot kept intact).
+      globalThis.fetch = serve(["m1", "m2"]);
+      const ok = await mod.reloadProviders(pi, { force: ["proxy"] });
+      expect(ok.changed).toEqual(["proxy"]);
+      expect(ids(registerProvider.mock.calls[0])).toEqual(["m1", "m2"]);
+    });
+
     // test-plan #E10
     it("re-discovers only the named provider", async () => {
       const mod = await importFresh();
