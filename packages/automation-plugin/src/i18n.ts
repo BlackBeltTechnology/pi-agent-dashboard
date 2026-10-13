@@ -13,6 +13,7 @@
  */
 export const catalog = {
   "zh-CN": {
+    roleFollowsHint: "跟随 {role}：角色变化时，模型和思考级别也会随之变化。请在 设置 → 角色 中编辑。",
     // Board
     back: "← 返回",
     invalidRoute: "无效的文件夹路由。",
@@ -134,6 +135,7 @@ export const catalog = {
     payloadEmpty: "此操作不需要负载。它以自动化的文件夹范围运行。",
   },
   hu: {
+    roleFollowsHint: "Követi a(z) {role} szerepet: a szerep változásakor a modell és a gondolkodási szint is változik. Szerkesztés: Beállítások → Szerepkörök.",
     // Board
     back: "← Vissza",
     invalidRoute: "Érvénytelen mappa-útvonal.",

@@ -8,6 +8,10 @@
  *
  * See change: add-blackhole-plugin.
  */
+
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   type RegisteredSource,
   SettingsDraftProvider,
@@ -680,5 +684,13 @@ describe("role-bound slots in the draft/payload (add-role-aware-model-refs)", ()
   it("a config without bindings still round-trips as concrete refs (no role keys)", () => {
     const cfg = allDefaultConfig({ observerModel: { provider: "openrouter", id: "A" } });
     expect(buildPayload(toDraft(cfg as never)).observerModel).toEqual({ provider: "openrouter", id: "A" });
+  });
+});
+
+
+describe("BlackholeSettings token hygiene (retro-ux-model-selector)", () => {
+  it("E16: no severity token carries a hex fallback", () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "BlackholeSettings.tsx"), "utf8");
+    expect(src).not.toMatch(/var\(--severity-[a-z-]+,#/);
   });
 });

@@ -107,7 +107,7 @@ test.describe("Model roles promotion (L3)", () => {
       await page.reload();
       const pill = page.getByTestId(`roles-row-${ROLE}`);
       await expect(pill).toBeVisible({ timeout: 30_000 });
-      await expect(pill).not.toContainText("+ Add model");
+      await expect(pill).not.toContainText("No model assigned");
       // Persisted value == the staged one, not merely "some model".
       await pill.click();
       await expect(page.getByTestId("roles-ref-echo")).toHaveText(stagedRef);
