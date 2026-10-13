@@ -1,6 +1,8 @@
 import { mdiPuzzleOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useMemo } from "react";
+import { useMobile } from "../../hooks/useMobile.js";
+import { t } from "../../lib/i18n/i18n.js";
 import { formatMessageTime } from "../../lib/util/format.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { FallbackKeyValueList } from "./FallbackKeyValueList.js";
@@ -28,8 +30,13 @@ interface Props {
  * VISIBLE by default (the bug being fixed is invisibility) inside a modest
  * bounded-height region. Height-bounded + text-only = the card can neither
  * grow unbounded nor interpret (and be spoofed by) the payload.
+ *
+ * Painted through tokens only, inset like the tool rows (`mx-4`, `mx-2` on
+ * mobile) so the chat timeline stays aligned.
+ * See change: retro-ux-chat-rendering.
  */
 export function CustomEntryCard({ customType, body, timestamp }: Props) {
+  const isMobile = useMobile();
   // An untruncated JSON-object body gets a bounded key/value view; everything
   // else stays plain text. See change: render-unclaimed-custom-entries.
   const view = useMemo(() => parseFallbackObject(body), [body]);
@@ -40,13 +47,14 @@ export function CustomEntryCard({ customType, body, timestamp }: Props) {
   );
   return (
     <div
-      className="my-1 mx-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] overflow-hidden text-xs"
+      className={`my-1 ${isMobile ? "mx-2" : "mx-4"} rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] overflow-hidden text-xs`}
       data-testid="custom-entry-card"
     >
       <div className="w-full flex items-center gap-2 px-3 py-1.5">
-        <Icon path={mdiPuzzleOutline} size={0.55} className="text-cyan-400" />
-        <span className="font-mono text-cyan-400 break-all">{customType}</span>
-        <span className="ml-auto shrink-0 text-[var(--text-tertiary)]">
+        <Icon path={mdiPuzzleOutline} size={0.55} aria-hidden="true" className="text-[var(--text-secondary)]" />
+        <span className="font-mono text-[var(--text-primary)] break-all">{customType}</span>
+        <span className="text-[var(--text-secondary)]">{t("customEntry.extensionEntry", undefined, "extension entry")}</span>
+        <span className="ml-auto shrink-0 text-[12px] text-[var(--text-secondary)]">
           {formatMessageTime(timestamp)}
         </span>
       </div>

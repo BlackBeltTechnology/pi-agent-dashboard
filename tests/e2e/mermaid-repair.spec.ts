@@ -15,11 +15,13 @@ import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 async function expectRepaired(page: Page, scope: Locator, rules: string[]): Promise<void> {
   const badge = scope.getByTestId("mermaid-repair-badge").first();
   await expect(badge).toBeVisible({ timeout: 30_000 });
-  await expect(badge.getByTestId("mermaid-repair-rule")).toHaveText(rules);
+  // Rule codes live in `data-rule`; the visible text is the localized description.
+  const codes = await badge.getByTestId("mermaid-repair-rule").evaluateAll((els) => els.map((e) => e.getAttribute("data-rule")));
+  expect(codes).toEqual(rules);
   // The badge row renders as the sibling immediately before its `.mermaid-diagram`.
   const diagram = badge.locator("xpath=following-sibling::div[contains(@class,'mermaid-diagram')][1]");
   await expect(diagram.locator(".mermaid-diagram-inner > svg")).toBeVisible();
-  await expect(page.getByText(/Failed to render Mermaid diagram/i)).toHaveCount(0);
+  await expect(page.getByText(/This diagram could not be rendered/i)).toHaveCount(0);
 }
 
 test.describe("mermaid auto-repair on every surface", () => {

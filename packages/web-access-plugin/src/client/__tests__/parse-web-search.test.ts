@@ -28,6 +28,30 @@ const counts = (s: ReturnType<typeof summarizeBody>) => ({
 });
 const res = (n: number) => Array.from({ length: n }, (_, i) => ({ title: `t${i}`, url: `https://e.com/${i}`, snippet: "s" }));
 
+// See change: retro-ux-chat-rendering (test-plan E11)
+describe("summarizeBody — failed count (E11)", () => {
+  it.each([
+    ["1 query error", { type: "search", queries: [{ query: "a", results: res(1) }, { query: "b", error: "timeout", results: [] }, { query: "c", results: [] }] }, 1],
+    ["0 errors", { type: "search", queries: [{ query: "a", results: res(1) }] }, undefined],
+    ["null error is not a failure", { type: "search", queries: [{ query: "a", error: null, results: [] }] }, undefined],
+    ["fetch urlMetadata error", { type: "fetch", urlMetadata: [{ url: "https://e.com", error: "HTTP 404" }, { url: "https://f.com" }] }, 1],
+    ["empty-string error is still a non-null error", { type: "search", queries: [{ query: "a", error: "", results: [] }] }, 1],
+    ["older urls strings", { type: "fetch", urls: ["https://e.com", "https://f.com"] }, undefined],
+  ])("%s", (_name, body, failed) => {
+    expect(summarizeBody(pretty(body)).failed).toBe(failed);
+  });
+
+  it("placeholder results list + one error → failed 1, results omitted", () => {
+    const s = summarizeBody(pretty({ type: "search", queries: [{ query: "a", error: "x", results: "[truncated: deep]" }] }));
+    expect(s.failed).toBe(1);
+    expect(s.results).toBeUndefined();
+  });
+
+  it("placeholder queries list → no failed count", () => {
+    expect(summarizeBody(pretty({ type: "search", queries: "[array truncated]" })).failed).toBeUndefined();
+  });
+});
+
 describe("summarizeBody — collapsed counts are never partial (E8)", () => {
   it("search with 2 queries holding 5 + 3 results → q2 r8", () => {
     const body = pretty({ type: "search", queries: [{ query: "a", results: res(5) }, { query: "b", results: res(3) }] });

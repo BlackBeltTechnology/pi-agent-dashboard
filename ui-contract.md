@@ -67,6 +67,14 @@ hand-write a per-theme severity color.
 (ISO/IEC 18004 §6.3.8). The only `bg-white` allowed in the connectivity
 components (`connectivity-token-scan.test.ts`).
 
+**Exception — mermaid fallback literals:** `FALLBACK_ACCENTS` and the
+`--text-primary` hex fallback in `MermaidBlock.tsx` are used only when
+`getComputedStyle` returns empty (jsdom); mermaid needs concrete colour strings
+and `rgba()` parses hex only. Every palette must therefore define
+`--accent-blue`, `--accent-green`, `--accent-yellow`, `--accent-red`,
+`--accent-purple`, `--accent-orange` and `--text-primary` as `#hex`, guarded by
+`mermaid-accent-guard.test.ts`.
+
 **Rule:** a new surface uses a *severity* or *tint* token, not `--accent-red`
 directly and never a Tailwind palette class (`text-green-400`,
 `bg-blue-500/10`, …) or a hex/`rgba(` literal. Raw accents are reserved for the

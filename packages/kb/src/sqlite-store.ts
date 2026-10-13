@@ -5,7 +5,7 @@
 import { mkdirSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Chunk, FileState, Filter, GraphEdge, GraphNode, KbHit, KbStore, SearchOpts, StorePropertyRow } from "./types.js";
+import type { Chunk, FileState, Filter, GraphEdge, GraphNode, KbHit, KbStore, RawDb, SearchOpts, StorePropertyRow } from "./types.js";
 
 /** Bump when the frontmatter structural schema/behavior changes so an existing
  *  DB force-reindexes once on open (design D6). */
@@ -46,6 +46,10 @@ CREATE TABLE IF NOT EXISTS properties (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_props_uniq ON properties(root, path, key, value);
 CREATE INDEX IF NOT EXISTS idx_props_kv ON properties(key, value);
 CREATE TABLE IF NOT EXISTS kb_meta (k TEXT PRIMARY KEY, v TEXT);
+-- chunk rowids of items written by replaceItem (git scope). \`chunks\` is FTS5 with
+-- UNINDEXED root/path, so \`DELETE … WHERE path=?\` scans the whole table (O(N) per
+-- item, quadratic over a 72k-commit ingest); a rowid delete is O(log N).
+CREATE TABLE IF NOT EXISTS item_rows (root TEXT, path TEXT, rid INTEGER, PRIMARY KEY (root, path, rid));
 `;
 
 /** Build correlated EXISTS predicates for facet filters. All values are bound as
@@ -107,7 +111,7 @@ export class SqliteFtsStore implements KbStore {
    * header), and the caller must NOT call `init()` (no DDL / schema migration).
    * Prefer {@link SqliteFtsStore.openExisting}.
    */
-  constructor(dbPath: string, opts: { existingOnly?: boolean } = {}) {
+  constructor(dbPath: string, opts: { existingOnly?: boolean; busyTimeoutMs?: number } = {}) {
     this.dbPath = dbPath;
     this.existingOnly = opts.existingOnly === true;
     if (!opts.existingOnly && dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
@@ -116,7 +120,7 @@ export class SqliteFtsStore implements KbStore {
     // Let a concurrent reader (e.g. `/stats` during a reindex) wait briefly for a
     // batch's write lock instead of failing with SQLITE_BUSY. See change:
     // fix-kb-index-feedback.
-    this.db.exec("PRAGMA busy_timeout=5000");
+    this.db.exec(`PRAGMA busy_timeout=${Math.max(0, Math.trunc(opts.busyTimeoutMs ?? 5000))}`);
   }
   /**
    * Open an EXISTING db without creating, migrating or re-moding it. Returns
@@ -182,6 +186,64 @@ export class SqliteFtsStore implements KbStore {
   }
   begin() {
     this.db.exec("BEGIN");
+  }
+  /** Lower/raise the SQLITE_BUSY wait on this connection (git scope keeps it
+   *  within the search budget). See change: add-kb-git-forge-scope (G1). */
+  setBusyTimeout(ms: number): void {
+    this.db.exec(`PRAGMA busy_timeout=${Math.max(0, Math.trunc(ms))}`);
+  }
+  /** BEGIN IMMEDIATE … COMMIT around a synchronous `fn` (ROLLBACK on throw), so
+   *  the writer lock is held from the first statement to COMMIT. The existing
+   *  `begin()` is a plain BEGIN and is not used by the git scope. */
+  immediate<T>(fn: (db: RawDb) => T): T {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const r = fn(this.db as unknown as RawDb);
+      this.db.exec("COMMIT");
+      this.dfCache.clear();
+      return r;
+    } catch (e) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch { /* the failing statement may have already ended the txn */ }
+      throw e;
+    }
+  }
+  /** Plain (non-transactional) read access to the raw connection. */
+  read<T>(fn: (db: RawDb) => T): T {
+    return fn(this.db as unknown as RawDb);
+  }
+  /** Placeholder node (path NULL) so `addEdge` to a not-yet-indexed target is kept. */
+  ensureNode(id: string): void {
+    this.prep("INSERT OR IGNORE INTO nodes(type,name,path) VALUES('file',?,NULL)").run(id);
+  }
+  /** Replace chunks + OUTBOUND edges of `path`; the node (and so every inbound
+   *  edge) survives, so a re-synced PR keeps the links pointing at it. */
+  replaceItem(root: string, path: string, chunks: Chunk[], outboundEdges: GraphEdge[]): void {
+    this.dfCache.clear();
+    const old = this.prep("SELECT rid FROM item_rows WHERE root=? AND path=?").all(root, path) as Array<{ rid: number }>;
+    if (old.length) {
+      for (const r of old) this.prep("DELETE FROM chunks WHERE rowid=?").run(r.rid);
+      this.prep("DELETE FROM item_rows WHERE root=? AND path=?").run(root, path);
+    }
+    this.prep("INSERT INTO nodes(type,name,path) VALUES('file',?,?) ON CONFLICT(type,name) DO UPDATE SET path=excluded.path").run(path, path);
+    const src = this.prep("SELECT id FROM nodes WHERE type='file' AND name=?").get(path) as { id: number };
+    this.prep("DELETE FROM edges WHERE src=?").run(src.id);
+    for (const c of chunks) {
+      const r = this.insertChunkRow(c);
+      this.prep("INSERT INTO item_rows(root,path,rid) VALUES(?,?,?)").run(root, path, Number(r.lastInsertRowid));
+    }
+    for (const e of outboundEdges) {
+      this.ensureNode(e.dst);
+      const dst = this.prep("SELECT id FROM nodes WHERE type='file' AND name=?").get(e.dst) as { id: number };
+      this.prep("INSERT OR IGNORE INTO edges(src,dst,rel,weight) VALUES(?,?,?,?)").run(src.id, dst.id, e.rel, e.weight ?? 1);
+    }
+  }
+  /** Indexed (non-placeholder) item paths starting with `prefix`. Reads the
+   *  indexed `nodes(type,name)` unique key as a range, not the FTS table. */
+  findPathsByPrefix(_root: string, prefix: string, max: number): string[] {
+    const hi = `${prefix}\uffff`;
+    return (this.prep("SELECT name FROM nodes WHERE type='file' AND path IS NOT NULL AND name >= ? AND name < ? ORDER BY name LIMIT ?").all(prefix, hi, Math.max(1, Math.trunc(max))) as Array<{ name: string }>).map((r) => r.name);
   }
   commit() {
     this.db.exec("COMMIT");
@@ -289,7 +351,10 @@ export class SqliteFtsStore implements KbStore {
   }
 
   insertChunk(c: Chunk) {
-    this.prep("INSERT INTO chunks(root,path,chunk_id,doc_type,parent_chunk_id,level,body_hash,heading_path,heading,body,start_line,end_line) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
+    this.insertChunkRow(c);
+  }
+  private insertChunkRow(c: Chunk) {
+    return this.prep("INSERT INTO chunks(root,path,chunk_id,doc_type,parent_chunk_id,level,body_hash,heading_path,heading,body,start_line,end_line) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
       .run(c.root, c.path, c.chunkId, c.docType, c.parentChunkId, c.level, c.bodyHash, c.headingPath, c.heading, c.body, c.startLine ?? null, c.endLine ?? null);
   }
   addNode(n: GraphNode) {
@@ -421,6 +486,12 @@ export class SqliteFtsStore implements KbStore {
       const args: any[] = [match];
       if (opts.root) { where.push("root = ?"); args.push(opts.root); }
       if (docType) { where.push("doc_type = ?"); args.push(docType); }
+      // path-prefix restriction pushed into SQL (git scope `kind` filter): the
+      // LIMIT below must see only matching paths or the page cannot fill.
+      if (opts.pathPrefix?.length) {
+        where.push(`(${opts.pathPrefix.map(() => "path LIKE ? ESCAPE '\\'").join(" OR ")})`);
+        args.push(...opts.pathPrefix.map((p) => `${p.replace(/[\\%_]/g, "\\$&")}%`));
+      }
       // structured facet filters (opt-in; absent → no clause → identical query)
       const ff = buildFilterClauses(opts.filters, "chunks");
       where.push(...ff.clauses);

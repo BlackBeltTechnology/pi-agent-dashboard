@@ -335,3 +335,63 @@ describe("X4: SQLITE_BUSY on the debounced reindex", () => {
     }
   });
 });
+
+// --- test-plan #E44 (add-kb-git-forge-scope): the forge-command hint matcher -----------------
+import { existsSync as hintExists, readdirSync as hintReaddir, statSync as hintStat, utimesSync as hintUtimes } from "node:fs";
+import kbExtensionForHint, { isForgeCommand } from "../extension.js";
+import { useRepoFixture } from "./helpers/git-repo.js";
+
+describe("E44: git-scope hint matcher (tool_result, before the bash early return)", () => {
+  const fx = useRepoFixture();
+
+  function loadHandlers() {
+    const handlers: Array<(e: unknown, c: unknown) => unknown> = [];
+    const pi = { registerTool: () => {}, on: (n: string, h: (e: unknown, c: unknown) => unknown) => n === "tool_result" && handlers.push(h) } as unknown as Parameters<typeof kbExtensionForHint>[0];
+    kbExtensionForHint(pi, { gitScope: { log: () => {} } });
+    return async (cwd: string, event: Record<string, unknown>) => {
+      for (const h of handlers) await h({ toolName: "bash", ...event }, { cwd });
+    };
+  }
+  const hintFile = (): string | null => {
+    const base = join(fx.home, ".pi", "dashboard", "kb", "git");
+    if (!hintExists(base)) return null;
+    const [key] = hintReaddir(base);
+    return key && hintExists(join(base, key, "hint")) ? join(base, key, "hint") : null;
+  };
+
+  it("touches the sidecar for forge commands only; the rest of the hook still runs", async () => {
+    const dir = fx.repo({ remote: "https://github.com/a/r.git" });
+    const fire = loadHandlers();
+    const run = (command: string, extra: Record<string, unknown> = {}) => fire(dir, { input: { command }, content: [], ...extra });
+
+    await run("git status");
+    await run('echo "gh pr create"');
+    await run("echo gh pr create");
+    expect(hintFile()).toBeNull(); // nothing matched yet
+
+    const stamp = () => hintStat(hintFile() as string).mtimeMs;
+    for (const [i, command] of ["gh pr create -t x", "cd a && git push origin main", "glab mr merge 3"].entries()) {
+      if (hintFile()) hintUtimes(hintFile() as string, 1_000, 1_000); // age it so an advance is observable
+      await run(command);
+      expect(hintFile(), `command #${i}: ${command}`).not.toBeNull();
+      expect(stamp()).toBeGreaterThan(1_000_000);
+    }
+    // a failed command does not hint
+    hintUtimes(hintFile() as string, 1_000, 1_000);
+    await run("gh pr create -t y", { isError: true });
+    expect(stamp()).toBe(1_000_000);
+    // an indexable write still reaches the reindex logic (hint code sits before the early return only)
+    await fire(dir, { toolName: "write", input: { path: join(dir, "docs", "x.md") } });
+  });
+
+  it("isForgeCommand: segment-level matching table", () => {
+    expect(isForgeCommand("gh pr create -t x")).toBe(true);
+    expect(isForgeCommand("cd a && git push")).toBe(true);
+    expect(isForgeCommand("glab mr merge 3")).toBe(true);
+    expect(isForgeCommand("GH_TOKEN=x gh issue close 4")).toBe(true);
+    expect(isForgeCommand("git status")).toBe(false);
+    expect(isForgeCommand("echo gh pr create")).toBe(false);
+    expect(isForgeCommand("gh pr view 3")).toBe(false);
+    expect(isForgeCommand("git fetch && git pull")).toBe(false);
+  });
+});
