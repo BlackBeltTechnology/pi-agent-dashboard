@@ -225,7 +225,17 @@ export function registerSessionRoutes(
       if (!gateHttpSession(reply, active(), principalOf(request), ownerOf(sessionId))) {
         return { error: "tool call still in flight or unknown" };
       }
-      const event = eventStore.findToolEndEvent(sessionId, toolCallId);
+      // A `session_ended` placeholder is a death claim; for a resident session
+      // that is not ended it may describe a call a live bridge replay left
+      // running, so it is not served as the result there. See change:
+      // fix-replay-fabricates-orphan-end-for-live-calls (D7).
+      const resident = sessionManager.get(sessionId);
+      const live = resident !== undefined && resident.status !== "ended";
+      const event = eventStore.findToolEndEvent(
+        sessionId,
+        toolCallId,
+        live ? { skipHealedBy: "session_ended" } : undefined,
+      );
       if (!event) {
         // `410` is non-2xx, so an old client needs no opt-in. It is vouched by
         // the store's record of a trimmed REAL end, never by "not in flight".

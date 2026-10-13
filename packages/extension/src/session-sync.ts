@@ -215,13 +215,32 @@ export function sendStateSync(
 }
 
 /**
- * Replay all session entries as protocol events.
+ * Whether the live process may still be executing tool calls. Conservative OR:
+ * the bridge's own streaming flag (cleared on `session_shutdown`, so false right
+ * after a `/reload`) OR pi's runtime `ctx.isIdle() === false` (survives reload).
+ * A missing / throwing `isIdle` (stale ctx) counts as idle. Never throws.
+ * See change: fix-replay-fabricates-orphan-end-for-live-calls (D3).
  */
-export function replaySessionEntries(bc: BridgeContext): void {
+export function isLive(ctx: { isIdle?: unknown } | undefined, isAgentStreaming: boolean | undefined): boolean {
+  if (isAgentStreaming === true) return true;
+  try {
+    return typeof ctx?.isIdle === "function" && (ctx.isIdle as () => boolean)() === false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Replay all session entries as protocol events. `opts.liveTailOpen` (decided
+ * by the caller via {@link isLive}) leaves the in-flight calls of the last
+ * assistant message open instead of fabricating a `session_ended` end.
+ * See change: fix-replay-fabricates-orphan-end-for-live-calls (D1, D3).
+ */
+export function replaySessionEntries(bc: BridgeContext, opts?: { liveTailOpen?: boolean }): void {
   try {
     const entries = bc.cachedCtx?.sessionManager?.getBranch?.();
     if (!entries || entries.length === 0) return;
-    const events = replayEntriesAsEvents(bc.sessionId, entries);
+    const events = replayEntriesAsEvents(bc.sessionId, entries, undefined, opts);
     for (const msg of events) {
       bc.connection.send(msg);
     }
@@ -299,6 +318,8 @@ export function handleSessionChange(
     ...(usageSeed ? { usageSeed } : {}),
   });
 
+  // New / fork / resume: no turn in flight, and bc.cachedCtx is still the
+  // OUTGOING session's ctx here — never leave the tail open.
   replaySessionEntries(bc);
   bc.connection.send({ type: "replay_complete", sessionId: bc.sessionId });
 

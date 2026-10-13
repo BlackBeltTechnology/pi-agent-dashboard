@@ -66,7 +66,7 @@ import { activate as activateProviderRegister, buildProviderCatalogue, onProvide
 import { httpBaseUrlFor, isRemoteEndpoint } from "./remote-registration-gate.js";
 import { RetryTracker } from "./retry-tracker.js";
 import { activate as activateRoleManager, resolveNamingModel } from "./role-manager.js";
-import { replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync, filterByEnabledModels } from "./session-sync.js";
+import { replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync, filterByEnabledModels, isLive } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { UsageDrain, drainUsageAndSend, makeCacheWarmingDecisionHandler, } from "./usage-drain.js";
 import { flushBufferedSubagentFrames, } from "./subagent-forward-sites.js";
@@ -1332,7 +1332,9 @@ function initBridge(pi: ExtensionAPI) {
           sendCwdMissingIfChanged(activeCtx.cwd);
         }
       } catch { /* probe failure non-fatal */ }
-      replaySessionEntries();
+      // A live reconnect keeps in-flight calls open (no fabricated end).
+      // See change: fix-replay-fabricates-orphan-end-for-live-calls (D3).
+      replaySessionEntries({ liveTailOpen: isLive(inst.cachedCtx, getBridgeState().isAgentStreaming) });
       // Flush subagent frames buffered while the socket was down (D1). Unlike
       // session_start, a transient WS reconnect keeps `sessionReady` true, so
       // the intercept routes those frames into the per-agent buffer; drain them
@@ -1349,8 +1351,9 @@ function initBridge(pi: ExtensionAPI) {
       }
       inst.connection.send({ type: "replay_complete", sessionId: inst.sessionId });
       // If agent is mid-turn, send synthetic agent_start so server sets status to "streaming"
+      // `synthetic` lets the server's end-of-session scan see past it (D4).
       if (getBridgeState().isAgentStreaming) {
-        inst.connection.send(mapEventToProtocol(inst.sessionId, { type: "agent_start" }));
+        inst.connection.send(mapEventToProtocol(inst.sessionId, { type: "agent_start", synthetic: true }));
       }
       // Extension UI System (Phase 1): re-probe modules after every
       // reconnect so the server-side cache stays accurate. The probe is
@@ -1853,7 +1856,7 @@ function initBridge(pi: ExtensionAPI) {
 
   // Local wrappers that sync bc around extracted module calls
   function sendStateSync() { const bc = syncBc(); _sendStateSync(bc, getFlowsList); applyBc(bc); inst.connection.noteRegistered(); }
-  function replaySessionEntries() { _replaySessionEntries(syncBc()); }
+  function replaySessionEntries(opts?: { liveTailOpen?: boolean }) { _replaySessionEntries(syncBc(), opts); }
   inst.replaySessionEntries = replaySessionEntries;
   function sendModelUpdateIfChanged() { const bc = syncBc(); _sendModelUpdateIfChanged(bc); applyBc(bc); }
   inst.sendModelUpdateIfChanged = sendModelUpdateIfChanged;

@@ -45,6 +45,14 @@ export interface SubagentState {
   type: string;
   description: string;
   status: "created" | "running" | "completed" | "failed";
+  /**
+   * Client-only (never sent by the producer): the heal marker that produced the
+   * CURRENT terminal `status` (e.g. `"session_ended"`); absent for a real
+   * terminal or a running state. Lets a live tick revive a subagent a
+   * fabricated `session_ended` heal failed, without reviving a real failure.
+   * See change: fix-replay-fabricates-orphan-end-for-live-calls (D5).
+   */
+  healedBy?: string;
   result?: string;
   error?: string;
   durationMs?: number;

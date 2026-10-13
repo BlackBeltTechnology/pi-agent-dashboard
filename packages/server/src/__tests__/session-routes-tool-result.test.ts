@@ -263,3 +263,85 @@ describe("GET /api/session-change/:sessionId/:toolCallId", () => {
     expect(res.statusCode).toBe(404);
   });
 });
+
+// A `session_ended` placeholder end is a death claim. While the session is
+// still resident and not ended, a live bridge may have replayed it for a call
+// that is still running — never serve it as the call's result there.
+// See change: fix-replay-fabricates-orphan-end-for-live-calls (D7).
+describe("GET tool-result — session_ended placeholder (test-plan #E11, #E12)", () => {
+  let fastify: FastifyInstance;
+  let eventStore: EventStore;
+  let sessions: Record<string, { status: string } | undefined>;
+
+  beforeEach(async () => {
+    eventStore = createMemoryEventStore(() => false);
+    sessions = {};
+    fastify = Fastify();
+    registerSessionRoutes(fastify, {
+      sessionManager: { listAll: () => [], get: (id: string) => sessions[id] } as any,
+      eventStore,
+      networkGuard: PASSTHRU_GUARD,
+    });
+    await fastify.ready();
+  });
+
+  afterEach(async () => {
+    if (fastify) await fastify.close();
+  });
+
+  const healEnd = (sid: string, id: string) =>
+    eventStore.insertEvent(sid, {
+      eventType: "tool_execution_end",
+      timestamp: 1,
+      data: { toolCallId: id, isError: true, result: "parent session ended", healedBy: "session_ended" },
+    });
+
+  it("(a) live resident session: the placeholder is not served", async () => {
+    sessions.s1 = { status: "streaming" };
+    healEnd("s1", "abc");
+    const res = await fastify.inject({ method: "GET", url: "/api/sessions/s1/tool-result/abc?pending=1" });
+    expect(res.statusCode).not.toBe(200);
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("(b) resident ended session: the placeholder is served", async () => {
+    sessions.s1 = { status: "ended" };
+    healEnd("s1", "abc");
+    const res = await fastify.inject({ method: "GET", url: "/api/sessions/s1/tool-result/abc?pending=1" });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.payload)).toEqual({ result: "parent session ended", isError: true });
+  });
+
+  it("(c) non-resident (archived) session: the placeholder is served", async () => {
+    healEnd("s1", "abc");
+    const res = await fastify.inject({ method: "GET", url: "/api/sessions/s1/tool-result/abc?pending=1" });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.payload)).toEqual({ result: "parent session ended", isError: true });
+  });
+
+  it("a real end after the placeholder is served on a live session (#E12)", async () => {
+    sessions.s1 = { status: "streaming" };
+    healEnd("s1", "abc");
+    eventStore.insertEvent("s1", {
+      eventType: "tool_execution_end",
+      timestamp: 2,
+      data: { toolCallId: "abc", isError: false, result: "real output" },
+    });
+    const res = await fastify.inject({ method: "GET", url: "/api/sessions/s1/tool-result/abc" });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.payload)).toEqual({ result: "real output", isError: false });
+  });
+
+  it("a real end BEFORE a later placeholder is still found on a live session", async () => {
+    sessions.s1 = { status: "idle" };
+    eventStore.insertEvent("s1", {
+      eventType: "tool_execution_end",
+      timestamp: 1,
+      data: { toolCallId: "abc", isError: false, result: "real output" },
+    });
+    healEnd("s1", "abc");
+    const res = await fastify.inject({ method: "GET", url: "/api/sessions/s1/tool-result/abc" });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.payload).result).toBe("real output");
+  });
+});

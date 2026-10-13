@@ -422,6 +422,57 @@ describe("useStaleToolReconcile hook", () => {
     expect(result.current.get("s1")!.toolCalls.get("t1")!.status).toBe("running");
   });
 
+  // A row reopened from a fabricated `session_ended` end must not be
+  // re-poisoned: the route answers 404 for that placeholder on a live session
+  // (server D7), so the reconcile leaves the reopened row running.
+  // See change: fix-replay-fabricates-orphan-end-for-live-calls (test-plan #X2).
+  it("keeps a reopened session_ended row running on HTTP 404", async () => {
+    vi.setSystemTime(STALE_TOOL_MS + 100);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: "tool call still in flight or unknown" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ev = (eventType: string, timestamp: number, data: Record<string, unknown>): DashboardEvent => ({
+      eventType: eventType as DashboardEvent["eventType"],
+      timestamp,
+      data,
+    });
+    const tick = (t: number) =>
+      ev("tool_execution_update", t, {
+        toolCallId: "A",
+        partialResult: { content: [{ type: "text", text: "…" }], details: { agentId: "ag-1", status: "running" } },
+      });
+    let s = createInitialState();
+    s = reduceEvent(s, ev("message_start", 0, { message: { role: "assistant", content: [] } }));
+    s = reduceEvent(s, ev("tool_execution_start", 0, { toolCallId: "A", toolName: "Agent", args: {} }));
+    s = reduceEvent(s, tick(1));
+    s = reduceEvent(
+      s,
+      ev("tool_execution_end", 2, {
+        toolCallId: "A",
+        toolName: "Agent",
+        isError: true,
+        result: "parent session ended",
+        healedBy: "session_ended",
+        details: { agentId: "ag-1" },
+      }),
+    );
+    s = reduceEvent(s, tick(3));
+    expect(s.toolCalls.get("A")!.status).toBe("running");
+
+    const { result } = renderHook(() => useHarness(new Map([["s1", s]])));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RECONCILE_POLL_MS + 1);
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/sessions/s1/tool-result/A?pending=1");
+    expect(result.current.get("s1")!.toolCalls.get("A")!.status).toBe("running");
+    expect(result.current.get("s1")!.messages.findLast((m) => m.toolCallId === "A")?.toolStatus).toBe("running");
+  });
+
   it("finalizes an unrecoverable-but-superseded card after repeated 404s", async () => {
     vi.setSystemTime(STALE_TOOL_MS + 100);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
