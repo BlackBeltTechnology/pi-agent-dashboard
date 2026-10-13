@@ -890,12 +890,13 @@ describe("liveness-gated takeover (harden-dashboard-start-detection)", () => {
     }
   });
 
-  it("a verdict probe that fails outright is treated as a refusal, not a crash", async () => {
+  it("a verdict probe that fails outright is inconclusive — the live holder's lock is preserved", async () => {
     seedHeld(liveMeta({ startedAt: Date.now() - 120_000 }));
-    const r = await acquireOrAttach(
-      hooksOf({ probeHealth: async () => { throw new Error("boom"); } }),
-    );
-    expect(r.mode).toBe("acquired");
-    if (r.mode === "acquired") await r.release();
+    const before = fs.readFileSync(metaPath);
+    await expect(
+      acquireOrAttach(hooksOf({ probeHealth: async () => { throw new Error("boom"); } })),
+    ).rejects.toMatchObject({ code: "E_INSTANCE_UNRESPONSIVE", reason: "timeout" });
+    expect(lockDirExists()).toBe(true);
+    expect(fs.readFileSync(metaPath).equals(before)).toBe(true);
   });
 });

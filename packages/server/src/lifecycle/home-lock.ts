@@ -347,7 +347,11 @@ export async function isLockHolderResponsive(
 
   const probe = hooks.probeHealth ?? defaultProbeHealth;
   const results = await Promise.all(
-    holderProbeHosts(meta).map((host) => probe(meta.httpPort, host).catch(() => null)),
+    // A probe that REJECTS is inconclusive, never a refusal: only a definitive
+    // "nothing is listening" may lead to reclaiming a live pid's lock.
+    holderProbeHosts(meta).map((host) =>
+      probe(meta.httpPort, host).catch((): HealthProbeResult => ({ running: false, timedOut: true })),
+    ),
   );
 
   const answers = results.filter((r): r is HealthProbeResult => !!r && r.running);
