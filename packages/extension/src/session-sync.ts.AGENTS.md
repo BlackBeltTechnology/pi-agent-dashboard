@@ -9,3 +9,5 @@ Re-mint comment updated: the `mcp_token_minted` reply now re-registers `pi-dashb
 `handleSessionChange(bc, ctx, getFlowsList, usageSeed?)` sends `usageSeed` on the new session's register; `sendStateSync` (reconnect) never does. See change: count-non-message-usage.
 
 `handleSessionChange` git info now goes through `bc.gitTracker.evaluateFirst(bc, cwd)` (cached facts + HEAD branch, status omitted, fast-lane probe queued) and resets `lastGitStatusJson` too. See change: optimize-polling-hot-paths.
+
+See change: fix-replay-fabricates-orphan-end-for-live-calls — exports `isLive(ctx, isAgentStreaming)` = `isAgentStreaming===true || ctx.isIdle()===false` (missing/throwing `isIdle` → idle; never throws). `replaySessionEntries(bc, opts?: {liveTailOpen?})` forwards opts to `replayEntriesAsEvents`. `handleSessionChange` replays with tail CLOSED (bc.cachedCtx = outgoing ctx; new/fork/resume has no turn in flight).

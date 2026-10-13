@@ -12,3 +12,5 @@ See change: fix-session-diff-heap-retention — `sessionDiffCache = new SessionD
 See change: surface-denial-remedy-in-previews — Session-file read passes `disclosure: canDiscloseAccessPosture(request)`.
 
 Tool-result route order: gate → stored `200` → `wasToolEndEvicted` `410 {error:"result no longer available"}` → `isToolInFlight` + `?pending=1` exactly `202 {pending:true}` → `404`. Deps `isToolInFlight?`, `toolResultStats?: ToolResultStats {pending,gone}`. See change: distinguish-tool-result-pending-vs-gone.
+
+See change: fix-replay-fabricates-orphan-end-for-live-calls — `GET /api/sessions/:id/tool-result/:toolCallId` skips `healedBy:"session_ended"` ends while session resident + `status!=="ended"` (falls to 410/202/404); ended / non-resident sessions served as before. Stops `useStaleToolReconcile` re-poisoning a reopened card.
