@@ -91,6 +91,41 @@ afterEach(() => {
 });
 
 describe("pill summary", () => {
+  it("F11: orphan / invalid override rows are not counted; an untrusted folder row still is", async () => {
+    const cwd = nextCwd();
+    serve(
+      view(cwd, {
+        servers: [
+          row("a", { command: "a" }),
+          row("b", { command: "b" }),
+          row("ghost", { enabled: false }, { provenance: "pi-folder", active: false, inactiveReason: "invalid-entry", piError: "x", overrideIssue: "orphan" }),
+          row("bad", { enabled: false, timeout: 5 }, { provenance: "pi-folder", active: false, inactiveReason: "invalid-entry", overrideIssue: "bad-keys" }),
+        ],
+      }),
+    );
+    const { findByTestId, queryByTestId } = renderPill(cwd);
+    const pill = await findByTestId("mcp-folder-pill");
+    expect(pill.textContent).toContain("2 servers");
+    expect(queryByTestId("mcp-folder-pill-off")).toBeNull();
+    cleanup();
+    invalidateEffective();
+
+    const cwd2 = nextCwd();
+    serve(
+      view(cwd2, {
+        servers: [
+          row("a", { command: "a" }),
+          row("b", { command: "b" }),
+          row("u", { command: "u" }, { provenance: "pi-folder", active: false, inactiveReason: "project-not-trusted" }),
+        ],
+      }),
+    );
+    const second = renderPill(cwd2);
+    const pill2 = await second.findByTestId("mcp-folder-pill");
+    await second.findByTestId("mcp-folder-pill-off");
+    expect(pill2.textContent).toContain("3 servers");
+  });
+
   it("counts active servers; off counts disabled OR inactive rows", async () => {
     const cwd = nextCwd();
     serve(

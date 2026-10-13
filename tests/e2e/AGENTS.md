@@ -115,9 +115,10 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `lifecycle.ts` | Shared E2E lifecycle module. Port dynamic: probes free… → see `lifecycle.ts.AGENTS.md` |
 | `list-models-registry-ready.spec.ts` | L3 `list_models` registry-readiness discrimi… → see `list-models-registry-ready.spec.ts.AGENTS.md` |
 | `manage-worktrees.spec.ts` | L3 for the manage-worktrees surface (test-plan F4, F3, F7… → see `manage-worktrees.spec.ts.AGENTS.md` |
-| `mcp-client-folder-mobile.spec.ts` | L3 mobile folder MCP page (extract-mcp-clien… → see `mcp-client-folder-mobile.spec.ts.AGENTS.md` |
-| `mcp-client-settings-a11y.spec.ts` | L3 accessibility floor for the mcp-client se… → see `mcp-client-settings-a11y.spec.ts.AGENTS.md` |
-| `mcp-token-settings.spec.ts` | L3 for the Settings → Paired Devices MCP-client token flow… → see `mcp-token-settings.spec.ts.AGENTS.md` |
+| `mcp-client-folder-mobile.spec.ts` | L3 mobile folder MCP page → see `mcp-client-folder-mobile.spec.ts.AGENTS.md` |
+| `mcp-client-settings-a11y.spec.ts` | L3 mcp-client settings a11y → see `mcp-client-settings-a11y.spec.ts.AGENTS.md` |
+| `mcp-client-project-override.spec.ts` | L3 F13–F15 → see `mcp-client-project-override.spec.ts.AGENTS.md` |
+| `mcp-token-settings.spec.ts` | L3 MCP-client token flow → see `mcp-token-settings.spec.ts.AGENTS.md` |
 | `mermaid-colorize.spec.ts` | Playwright spec. Mermaid default-node colorization… → see `mermaid-colorize.spec.ts.AGENTS.md` |
 | `mermaid-repair.spec.ts` | L3 F9 mermaid auto-repair → see `mermaid-repair.spec.ts.AGENTS.md` |
 | `model-proxy-oauth-filter.spec.ts` | Playwright spec (`request` fixture, no page)… → see `model-proxy-oauth-filter.spec.ts.AGENTS.md` |
@@ -153,7 +154,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `plugin-hash-parity.spec.ts` | L3 F3: clientBuild matched; banner hidden. → see `plugin-hash-parity.spec.ts.AGENTS.md` |
 | `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change… → see `plugin-settings-pages.spec.ts.AGENTS.md` |
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-… → see `popover-container-clip.spec.ts.AGENTS.md` |
-| `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4, change: adopt-pi-074-0… → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
+| `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4… → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
 | `quota-context-strip.spec.ts` | L3 (change: move-quota-to-context-strip; F7–F9, X3). Stubs… → see `quota-context-strip.spec.ts.AGENTS.md` |
 | `retro-ux-identity-connectivity.spec.ts` | L3 retro-ux probes. → see `retro-ux-identity-connectivity.spec.ts.AGENTS.md` |
 | `real-flow-regression.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests, D5 follow-up). → see `real-flow-regression.spec.ts.AGENTS.md` |
@@ -187,7 +188,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `sessions-page-stub-group.spec.ts` | L3 for the `sessions_page` stub-group paging path. → see `sessions-page-stub-group.spec.ts.AGENTS.md` |
 | `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session Default… → see `settings-default-model-catalogue.spec.ts.AGENTS.md` |
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors` +… → see `severity-contrast.spec.ts.AGENTS.md` |
-| `settings-provider-auth-corrupt-authfile.spec.ts` | L3: corrupt auth.json + re… → see `settings-provider-auth-corrupt-authfile.spec.ts.AGENTS.md` |
+| `settings-provider-auth-corrupt-authfile.spec.ts` | L3: corrupt auth.json… → see `settings-provider-auth-corrupt-authfile.spec.ts.AGENTS.md` |
 | `skill-provenance.spec.ts` | L3 for the Resources skills grid (F1-F10, X7). Fulfils… → see `skill-provenance.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | Smoke spec, wiring proof only. Asserts shell renders… → see `smoke.spec.ts.AGENTS.md` |
 | `spawn-correlation-recovery.spec.ts` | L3 F2–F6 late spawn register c… → see `spawn-correlation-recovery.spec.ts.AGENTS.md` |

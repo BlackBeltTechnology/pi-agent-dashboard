@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://pi-dashboard.local/schemas/mcp-config.schema.json",
   "title": "pi built-in MCP server entry",
-  "description": "Hand-authored from pi 1.0.0 dist/core/mcp-servers.d.ts (McpServerConfig). Describes one `mcpServers.<name>` entry of ~/.pi/agent/mcp.json or <cwd>/.pi/mcp.json so the dashboard client can render editors without hard-coding field lists. Annotations: x-transport marks the two mutually exclusive transports (command xor url); x-secret marks credential-bearing fields (masked in the editor, redacted when inherited, omitted from folder copies); x-global-only marks fields pi reads only from the global file. The writer additionally mirrors pi's validateMcpServerConfig rules (pi-rules.ts).",
+  "description": "Hand-authored from pi 1.1.0 dist/core/mcp-servers.d.ts (McpServerConfig). Describes one `mcpServers.<name>` entry of ~/.pi/agent/mcp.json or <cwd>/.pi/mcp.json so the dashboard client can render editors without hard-coding field lists. Annotations: x-transport marks the two mutually exclusive transports (command xor url); x-secret marks credential-bearing fields (masked in the editor, redacted when inherited, omitted from folder copies); x-global-only marks fields pi reads only from the global file. The writer additionally mirrors pi's validateMcpServerConfig rules (pi-rules.ts).",
   "$defs": {
     "Exposure": {
       "enum": ["codemode", "deferred", "direct", "hidden", "codemode-deferred"],
@@ -27,6 +27,16 @@
       "required": ["provider"],
       "properties": {
         "provider": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ProjectOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A project-file entry with no command, url or type: overrides only enabled, exposure and toolExposure of the Pi-global server of the same name (pi >= 1.0.1).",
+      "properties": {
+        "exposure": { "$ref": "#/$defs/Exposure" },
+        "toolExposure": { "type": "object", "additionalProperties": { "$ref": "#/$defs/Exposure" } },
+        "enabled": { "type": "boolean" }
       }
     },
     "ServerEntry": {

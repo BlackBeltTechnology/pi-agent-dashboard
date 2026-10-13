@@ -80,6 +80,8 @@ const ROUTES: Array<[string, string, unknown]> = [
   ["DELETE", "/api/mcp-client/servers/a?scope=global", undefined],
   ["PUT", "/api/mcp-client/servers/a/enabled", { scope: "global", enabled: false }],
   ["POST", "/api/mcp-client/servers/a/convert", { scope: "global" }],
+  ["PUT", "/api/mcp-client/servers/a/project-override", { scope: "project", cwd: "/x", enabled: false }],
+  ["POST", "/api/mcp-client/servers/a/convert-to-override", { scope: "project", cwd: "/x" }],
 ];
 
 describe("mcp-client routes", () => {
