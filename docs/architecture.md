@@ -1080,6 +1080,7 @@ First-party slots (React, possibly also descriptor):
 - `anchored-popover` — popover anchored to a triggering UI element (replaces `TasksPopover`).
 - `command-route` — maps a slash command or URL route to a `content-view` (replaces today's hand-wired routing in `App.tsx`).
 - `settings-section` — a section in the Settings page (replaces today's hardcoded `Background polling (OpenSpec)` section). React for first-party plugins; descriptor (RJSF/UiField) for third-party extensions.
+- `resource-page-section` — section above resource grid on Folder + Global Skills/Agents/Extensions/Prompts/Themes pages. Multiplicity `many`, react-only. Props `ResourcePageSectionProps` (`resourceType`, `scope: "folder"|"global"`, `cwd?`, `pluginContext`). Claim `resourceType` filter. First claimant: `skill-atlas`. See change: add-skill-atlas-screen; [`skill-atlas.md`](skill-atlas.md).
 - `tool-renderer` — React component for a specific `tool_call` by `toolName` (replaces today's hardcoded `tool-renderers/registry.ts`).
 
 Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `footer-segment`, `agent-metric`, `breadcrumb`, `gate`, `toast`, `rjsf-form`.
@@ -1309,6 +1310,8 @@ Client: unsatisfied `paths` requirement renders non-actionable warning pill — 
 
 **Settings consolidation.** Plugin-contributed `settings-section` claims render on owning plugin's dedicated left-nav page `/settings/plugins/<id>` — contract in `#### Plugin settings pages` below. Legacy `claim.tab` manifest field preserved for back-compat manifests but inert; `SettingsPanel` no longer consumes it. See change: add-plugin-activation-ui (settings-consolidation).
 
+**Nav promotion.** `settings-section` `nav: { group, label }` promotes entry into built-in group only if `group` ∈ `PROMOTION_GROUP_ALLOWLIST` (`packages/client/src/lib/settings-promotions.ts`) = `models`, `resources`. `resources` = built-in Skills/Agents/Extensions/Prompts/Themes group (`SettingsPanel.tsx`). Promoted items render after built-ins. Plugins subtree keeps pointer row `<label> ↗ <group>`. Same trust + reserved-label rules for every group. See change: add-skill-atlas-screen.
+
 #### Plugin settings pages (`plugin-settings-pages`)
 
 Plugin-contributed `settings-section` claims render on owning plugin's dedicated page `/settings/plugins/<id>`. One render path only: `SettingsSectionByPluginSlot` inside `PluginSettingsPage.tsx`. See change: plugin-settings-pages.
@@ -1351,6 +1354,7 @@ Generic channel. Any plugin routes pi events bridge→server→browser + request
 - `plugin_pi_message` (ExtensionToServer). Server `event-wiring` dispatches to `ServerPluginContext.registerPiHandler(messageType, handler)`.
 - `plugin_event` (ServerToBrowser). Plugin server `broadcastToSubscribers`. Shell `useMessageHandler` routes `event` → `publishSessionEvent` → plugin `useSessionEvents`.
 - New `ServerPluginContext` capabilities. `onEvent(handler)` subscribes all forwarded events. `sendToSession(sessionId, text)` sends prompt/command; `/`-prefixed text routes to extension-command dispatch (Path C keeper headless).
+- Optional host read seams: `getPiResources?(cwd?, {fresh?})` (raw `PiResourcesResult`), `onPiResourcesInvalidated?(handler)` (fires on `invalidatePiResources` + `commands_list`). See [`plugin-seams.md`](plugin-seams.md#host-read-seams-getpiresources--onpiresourcesinvalidated).
 
 ##### Private request/reply lane
 
