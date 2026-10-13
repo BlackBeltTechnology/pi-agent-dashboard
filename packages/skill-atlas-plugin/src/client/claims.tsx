@@ -1,7 +1,9 @@
 /**
- * Thin slot-claim components (the generated registry imports these statically,
- * so the heavy atlas page is lazy-loaded behind its own Suspense to keep it out
- * of the cold index chunk).
+ * Thin slot-claim components. The generated registry imports these statically,
+ * so they land in the client's COLD index chunk (capped by mdi-chunk-size.test):
+ * everything heavy — the summary (+ hook + layout helpers) and the atlas page —
+ * is `lazy()` behind its own Suspense; only these wrappers, the folder-menu
+ * registration, URL helpers and the i18n catalog stay eager.
  *  - `SkillAtlasSection`  → `resource-page-section` (resourceType skill)
  *  - `SkillAtlasSettings` → `settings-section` promoted into Settings ▸ Resources
  *  - `FolderAtlasMenu`    → `sidebar-folder-section`: registers the folder
@@ -16,16 +18,25 @@ import type React from "react";
 import { lazy, Suspense, useMemo } from "react";
 import { useLocation } from "wouter";
 import { atlasUrl, decodeFolderPath } from "./atlas-api.js";
-import { AtlasSummary } from "./AtlasSummary.js";
 
 const SkillAtlasPage = lazy(() => import("./SkillAtlasPage.js"));
+const AtlasSummary = lazy(() => import("./AtlasSummary.js").then((m) => ({ default: m.AtlasSummary })));
 
+/** Summary slot: renders nothing while its chunk loads (no layout jump on an empty scope). */
 export function SkillAtlasSection({ scope, cwd }: { scope: "folder" | "global"; cwd?: string }): React.ReactElement | null {
-  return scope === "folder" && cwd ? <AtlasSummary scope="project" cwd={cwd} /> : <AtlasSummary scope="global" />;
+  return (
+    <Suspense fallback={null}>
+      {scope === "folder" && cwd ? <AtlasSummary scope="project" cwd={cwd} /> : <AtlasSummary scope="global" />}
+    </Suspense>
+  );
 }
 
 export function SkillAtlasSettings(): React.ReactElement | null {
-  return <AtlasSummary scope="global" />;
+  return (
+    <Suspense fallback={null}>
+      <AtlasSummary scope="global" />
+    </Suspense>
+  );
 }
 
 export function FolderAtlasMenu({ folder, placement }: { folder: FolderDescriptor; placement?: SlotPlacement }): null {
