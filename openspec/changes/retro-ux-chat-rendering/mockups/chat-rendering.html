@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Retro UX — chat rendering (#847 mermaid, #868 web-search + custom entries)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="asbuilt.css" />
+<script src="icons.js"></script>
+<script src="diagrams.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Chat rendering — as-built vs proposed</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Side by side</button>
+    <button aria-pressed="false" data-v="asbuilt">As-built</button>
+    <button aria-pressed="false" data-v="proposed">Proposed</button>
+  </div>
+</div>
+<main id="board"></main>
+
+<script>
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+let SVG_DARK = "", SVG_LIGHT = "";
+const diagram = () => `<div aria-hidden="true" class="diagram-dark">${SVG_DARK}</div><div aria-hidden="true" class="diagram-light">${SVG_LIGHT}</div>`; // diagram internals are themed by mermaid-config in the product; excluded from the probe on this board
+const SRC_BAD = 'graph TD\n  A[Start (init)] --> B{Session alive?}\n  B -- yes --> C[Forward events]\n  B -> D[Archive session]';
+const SRC_FIXED = 'graph TD\n  A["Start (init)"] --> B{Session alive?}\n  B -- yes --> C[Forward events]\n  B -- no --> D[Archive session]';
+const ERR = "Parse error on line 4: ...B -> D[Archive session] -----^ Expecting 'SEMI', 'NEWLINE', 'EOF', 'AMP', 'START_LINK', 'LINK', got 'MINUS'";
+const ctx = (inner, ab) => `<div class="ctx-bubble">Here is the session lifecycle as a diagram and the sources I used:</div>${inner}<div class="ctx-tool"><span class="ok">${ic("CheckCircle")}</span> bash · npm test — 412 passed</div>`;
+
+/* ════════ MERMAID — as-built ════════ */
+function abM(s) {
+  if (s === "loading") return `<div class="ab" style="display:flex;justify-content:center;padding:32px 0"><span class="tsm muted">Loading diagram…</span></div>`;
+  const badErr = (extra = "") => `<div class="ab"><div class="m-err"><div class="m-errhead red-400 bg-red-900-20">Failed to render Mermaid diagram: ${ERR}</div><pre class="m-src">${SRC_BAD.replace(/</g, "&lt;")}</pre></div>${extra}</div>`;
+  if (s === "error") return badErr();
+  if (s.startsWith("ai-")) return badErr(`<p class="tip">(add-mermaid-ai-repair not built yet — no as-built UI for this state)</p>`);
+  const repaired = s === "repaired" || s === "original";
+  return `<div class="ab"><div class="mermaid-diagram">
+      ${s === "original" ? `<div class="m-err"><div class="m-errhead red-400 bg-red-900-20">Failed to render Mermaid diagram: ${ERR}</div><pre class="m-src">${SRC_BAD.replace(/</g, "&lt;")}</pre></div>` : `<div class="viewport ${s === "zoomed" ? "bd-blue-500-60" : ""}">${diagram()}
+        ${s === "zoomed" ? `<div class="zc"><button title="Zoom in">${ic("MagnifyPlusOutline")}</button><button title="Zoom out">${ic("MagnifyMinusOutline")}</button><button title="Reset zoom">${ic("ArrowExpandAll")}</button><div class="ro">100%</div></div>` : `<div class="hint"><span>Click to zoom &amp; pan</span></div>`}</div>`}
+      ${repaired ? `<div data-testid="mermaid-repair-badge" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px" class="sec"><span>Auto-fixed:</span><code class="codechip" title="Quoted a node label containing special characters">R5</code><code class="codechip" title="Quoted an edge label">R4</code><button style="padding:2px 6px">${s === "original" ? "Show fixed" : "Show original"}</button><button title="Copy fixed source" style="padding:2px">${ic("ContentCopy")}</button></div>` : ""}
+    </div>
+    <p class="tip">${s === "zoomed" ? "(zoom only by mouse click — viewport has no tabIndex/role; Escape exits)" : "(viewport not focusable — keyboard users cannot zoom)"}</p></div>`;
+}
+/* MERMAID — proposed */
+function prM(s) {
+  if (s === "loading") return `<div role="status" class="p-help" style="display:flex;justify-content:center;align-items:center;gap:6px;padding:32px 0">${ic("Loading", "spin")} Rendering diagram…</div>`;
+  const errBox = (actions) => `<div class="callout error" role="group" aria-label="Diagram error">${ic("AlertCircleOutline")}<div class="body"><strong>This diagram could not be rendered.</strong><div class="cr-meta" style="color:inherit;margin-top:2px"><code style="white-space:pre-wrap">${ERR}</code></div>${actions}</div></div><pre class="m-src">${SRC_BAD.replace(/</g, "&lt;")}</pre>`;
+  const copySrc = `<button class="p-btn sm secondary">${ic("ContentCopy")}Copy source</button>`;
+  if (s === "error") return errBox(`<div class="m-bar">${copySrc}</div>`);
+  if (s === "ai-offer") return errBox(`<div class="m-bar"><button class="p-btn sm secondary" aria-describedby="ai-disc">${ic("CreationOutline")}Fix with AI</button>${copySrc}</div><p class="disclose" id="ai-disc" style="color:inherit;margin:4px 0 0">Sends the diagram source and the error to openai-codex/gpt-6-sol.</p>`);
+  if (s === "ai-pending") return errBox(`<div class="m-bar"><button class="p-btn sm secondary" disabled aria-busy="true">${ic("Loading", "spin")}Fixing with AI…</button>${copySrc}</div>`);
+  if (s === "ai-failed") return errBox(`<div class="m-bar"><button class="p-btn sm secondary">${ic("Refresh")}Retry AI fix</button>${copySrc}</div><p style="margin:4px 0 0" role="status">AI fix failed: the returned diagram did not render either.</p>`);
+  const ai = s === "ai-fixed";
+  const repaired = s === "repaired" || s === "original" || ai;
+  const viewport = `<div class="mv ${s === "zoomed" ? "zoomed" : ""}" tabindex="0" role="group" aria-label="Diagram. Press Enter to zoom and pan, Escape to leave.">${diagram()}
+      ${s === "zoomed" ? `<div class="zc"><button aria-label="Zoom in" title="Zoom in">${ic("MagnifyPlusOutline")}</button><button aria-label="Zoom out" title="Zoom out">${ic("MagnifyMinusOutline")}</button><button aria-label="Reset zoom" title="Reset zoom">${ic("ArrowExpandAll")}</button><span class="ro" aria-live="polite">100%</span></div>` : `<span class="hint" aria-hidden="true">Enter or click to zoom</span>`}</div>`;
+  const body = s === "original" ? `<div class="callout error" role="group" aria-label="Original render error">${ic("AlertCircleOutline")}<div class="body"><strong>Original render error</strong><div class="cr-meta" style="color:inherit;margin-top:2px"><code style="white-space:pre-wrap">${ERR}</code></div></div></div><pre class="m-src" aria-label="Original source">${SRC_BAD.replace(/</g, "&lt;")}</pre>` : viewport;
+  return `<div class="mermaid-diagram">${body}
+    ${repaired ? `<div class="m-bar" data-testid="mermaid-repair-badge">${ai ? `<span class="pill ai">${ic("CreationOutline")}AI-fixed · openai-codex/gpt-6-sol</span>` : `<span class="pill info">${ic("AutoFix")}Auto-fixed</span><span class="cr-meta" data-testid="mermaid-repair-rule" data-rule="R4">Quoted an edge label</span><span class="cr-meta" aria-hidden="true">·</span><span class="cr-meta" data-testid="mermaid-repair-rule" data-rule="R5">Quoted a node label containing special characters</span>`}
+      <button class="p-btn sm ghost" aria-pressed="${s === "original"}">${s === "original" ? "Show fixed" : "Show original"}</button>
+      <button class="p-btn sm icon ghost" aria-label="Copy fixed source" data-testid="mermaid-copy-fixed">${ic("ContentCopy")}</button></div>` : ""}</div>`;
+}
+
+/* ════════ WEB SEARCH ════════ */
+const WS = {
+  queries: [
+    { q: "mermaid flowchart label quoting", via: "exa", answer: "Wrap node labels that contain parentheses or other special characters in double quotes.", results: [
+      { t: "Flowcharts syntax | Mermaid", u: "https://mermaid.js.org/syntax/flowchart.html", s: "Node labels with special characters must be quoted…" },
+      { t: "Entity codes to escape characters", u: "https://mermaid.js.org/syntax/flowchart.html#entity-codes", s: "It is possible to escape characters using the syntax exemplified here." } ] },
+    { q: "mermaid edge label arrow syntax", via: "exa", error: "Provider timeout after 20 s" },
+    { q: "mermaid ER attribute types", via: "brave", results: [] },
+  ],
+  fetch: [ { t: "Flowcharts syntax | Mermaid", u: "https://mermaid.js.org/syntax/flowchart.html", size: "48,213 chars" }, { t: "", u: "https://example.org/missing", error: "HTTP 404" } ],
+};
+function abW(s) {
+  const fetch = s === "fetch";
+  const hdr = (exp) => `<button class="hdr" aria-expanded="${exp}" data-testid="web-search-toggle"><span class="cyan-400">${ic(fetch ? "FileDownloadOutline" : "Web")}</span><span class="fw5 sec">${fetch ? "Web fetch" : "Web search"}</span><span class="muted" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${fetch ? "2 URLs" : "3 queries · 2 results"}</span><span class="tert" style="margin-left:auto">12:04:11</span><span class="muted">${ic(exp ? "ChevronDown" : "ChevronRight")}</span></button>`;
+  if (s === "collapsed") return `<div class="ab"><div class="card" data-testid="web-search-entry">${hdr(false)}</div></div>`;
+  let body = "";
+  if (s === "loading") body = `<div class="muted italic" style="padding:4px 8px" data-testid="web-search-loading">Loading…</div>`;
+  else if (s === "evicted") body = `<div class="t11 red-400" data-testid="web-search-error">Details unavailable: entry evicted</div><pre class="pre" style="margin:4px 0 0">{"type":"search","queries":[{"query":"mermaid flowchart label quoting"…</pre>`;
+  else if (s === "skipped") body = `<div class="tile"><div class="fw5 sec">mermaid flowchart label quoting</div><div class="t11 muted">via exa</div></div><div class="t11 muted" style="padding:2px 8px" data-testid="web-search-skipped">1 items could not be displayed</div>`;
+  else if (fetch) body = WS.fetch.map((f) => `<div class="tile" style="margin-top:4px"><div class="sec">${f.t || f.u}</div><div class="t11"><a class="cyan-400" href="#">${f.u}</a></div>${f.size ? `<div class="t11 muted">${f.size}</div>` : `<div class="t11 red-400">${f.error}</div>`}</div>`).join("");
+  else body = WS.queries.map((q) => `<div class="tile" style="margin-top:8px" data-testid="web-search-query"><div class="fw5 sec">${q.q}</div><div class="t11 muted">via ${q.via}</div>
+      ${q.error ? `<div class="t11 red-400">${q.error}</div>` : ""}${q.answer ? `<div class="sec" style="margin-top:4px">${q.answer}</div>` : ""}
+      ${q.results ? (q.results.length ? `<ul style="list-style:none;margin:4px 0 0;padding:0">${q.results.map((r) => `<li style="margin-top:4px"><div class="sec">${r.t}</div><div class="t11"><a class="cyan-400" href="#">${r.u}</a></div><div class="t11 muted">${r.s}</div></li>`).join("")}</ul>` : `<div class="t11 muted">No results</div>`) : ""}</div>`).join("");
+  return `<div class="ab"><div class="card" data-testid="web-search-entry">${hdr(true)}<div style="padding:0 8px 8px;max-height:420px;overflow-y:auto" data-testid="web-search-body">${body}</div></div></div>`;
+}
+function prW(s) {
+  const fetch = s === "fetch";
+  const hdr = (exp) => `<button class="cr-hdr" aria-expanded="${exp}" aria-label="${fetch ? "Web fetch" : "Web search"}: ${exp ? "Collapse" : "Expand"} entry" data-testid="web-search-toggle">${ic(fetch ? "FileDownloadOutline" : "Web")}<span class="lbl" data-testid="web-search-label">${fetch ? "Web fetch" : "Web search"}</span><span class="sum" data-testid="web-search-summary">${fetch ? "2 URLs · 1 failed" : "3 queries · 2 results · 1 failed"}</span><span class="time">12:04:11</span>${ic(exp ? "ChevronDown" : "ChevronRight")}</button>`;
+  if (s === "collapsed") return `<div class="cr" data-testid="web-search-entry">${hdr(false)}</div>`;
+  let body = "";
+  const link = (u) => `<a class="cr-link" href="#" target="_blank" rel="noopener noreferrer">${u}${ic("OpenInNew")}<span class="sr-only"> (opens in a new tab)</span></a>`;
+  if (s === "loading") body = `<p class="p-help" role="status" style="margin:4px 0" data-testid="web-search-loading">${ic("Loading", "spin")} Loading details…</p>`;
+  else if (s === "evicted") body = `<div class="callout warning" data-testid="web-search-error">${ic("InformationOutline")}<div class="body">Full details are no longer stored (entry evicted). Showing the summary that was saved with the chat.</div></div><pre class="cr-pre" style="margin-top:6px" data-testid="web-search-fallback-body">{"type":"search","queries":[{"query":"mermaid flowchart label quoting"…</pre>`;
+  else if (s === "skipped") body = `<div class="cr-tile"><div class="q">mermaid flowchart label quoting</div><div class="cr-meta">via exa</div></div><p class="cr-meta" style="margin:6px 8px 0" data-testid="web-search-skipped">1 item could not be displayed</p>`;
+  else if (fetch) body = WS.fetch.map((f) => `<div class="cr-tile" data-testid="web-search-fetch-item"><div class="tt" style="color:var(--text-primary)">${f.t || f.u}</div><div>${link(f.u)}</div>${f.size ? `<div class="cr-meta">${f.size}</div>` : `<div class="m-bar" style="margin-top:4px"><span class="pill error">${ic("AlertCircleOutline")}${f.error}</span></div>`}</div>`).join("");
+  else body = WS.queries.map((q) => `<div class="cr-tile" data-testid="web-search-query"><div class="q">${q.q}</div><div class="cr-meta">via ${q.via}</div>
+      ${q.error ? `<div class="m-bar" style="margin-top:4px"><span class="pill error">${ic("AlertCircleOutline")}${q.error}</span></div>` : ""}${q.answer ? `<div style="margin-top:4px;color:var(--text-primary)" data-testid="web-search-answer">${q.answer}</div>` : ""}
+      ${q.results ? (q.results.length ? `<ul class="cr-res">${q.results.map((r) => `<li data-testid="web-search-result"><div class="tt">${r.t}</div><div>${link(r.u)}</div><div class="cr-meta">${r.s}</div></li>`).join("")}</ul>` : `<div class="cr-meta" style="margin-top:4px">No results</div>`) : ""}</div>`).join("");
+  return `<div class="cr" data-testid="web-search-entry">${hdr(true)}<div class="cr-body" data-testid="web-search-body">${body}</div></div>`;
+}
+
+/* ════════ CUSTOM ENTRY FALLBACK ════════ */
+const KV = [["branch", "main"], ["dirty", "false"], ["openSubagents", "2"], ["lastTool", '{"name":"bash","ok":true}'], ["notes", "null"]];
+function abC(s) {
+  const hdr = (t) => `<div class="hdr">${`<span class="cyan-400"><svg class="i" viewBox="0 0 24 24"><path d="${ICON.PuzzleOutline}"/></svg></span>`}<span class="mono cyan-400">${t}</span><span class="tert" style="margin-left:auto">12:05</span></div>`;
+  if (s === "plain") return `<div class="ab"><div class="card" data-testid="custom-entry-card">${hdr("subagent-admission-refused")}<pre class="pre">quota exceeded: 4 of 4 concurrent subagents in use</pre></div></div>`;
+  return `<div class="ab"><div class="card" data-testid="custom-entry-card">${hdr("my-ext:state")}<div class="pre" style="font-family:inherit"><dl>${KV.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>${s === "more" ? `<div class="tert" style="margin-top:4px">3 more keys</div>` : ""}</div></div></div>`;
+}
+function prC(s) {
+  const hdr = (t) => `<div class="cr-hdr">${ic("PuzzleOutline")}<span class="type">${t}</span><span class="cr-meta">extension entry</span><span class="time">12:05</span></div>`;
+  if (s === "plain") return `<div class="cr" data-testid="custom-entry-card">${hdr("subagent-admission-refused")}<div class="cr-body"><pre class="cr-pre">quota exceeded: 4 of 4 concurrent subagents in use</pre></div></div>`;
+  return `<div class="cr" data-testid="custom-entry-card">${hdr("my-ext:state")}<div class="cr-body"><dl>${KV.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>${s === "more" ? `<p class="cr-meta" style="margin:4px 8px 0">3 more keys</p>` : ""}</div></div>`;
+}
+
+const BOARD = [
+  { title: "Mermaid diagram (#847 + pending add-mermaid-ai-repair)", verdict: "redesign — error display, keyboard zoom, human-readable repair badge; AI states designed here so add-mermaid-ai-repair builds against an approved mockup", states: [
+    ["repaired", "auto-fixed badge", abM("repaired"), prM("repaired")],
+    ["original", "show original", abM("original"), prM("original")],
+    ["error", "unrepairable", abM("error"), prM("error")],
+    ["zoomed", "zoom & pan", abM("zoomed"), prM("zoomed")],
+    ["loading", "", abM("loading"), prM("loading")],
+    ["ai-offer", "AI: action + provider disclosure (pending change)", abM("ai-offer"), prM("ai-offer")],
+    ["ai-pending", "AI: request in flight", abM("ai-pending"), prM("ai-pending")],
+    ["ai-fixed", "AI: fixed, model named", abM("ai-fixed"), prM("ai-fixed")],
+    ["ai-failed", "AI: failed + retry", abM("ai-failed"), prM("ai-failed")],
+  ]},
+  { title: "Web search / fetch row (#868)", verdict: "polish — no palette classes, failures counted in the summary, errors as pills, readable meta text, plural fix", states: [
+    ["collapsed", "", ctx(abW("collapsed")), ctx(prW("collapsed"))],
+    ["expanded", "answer · results · per-query error · no results", ctx(abW("expanded")), ctx(prW("expanded"))],
+    ["fetch", "fetch with one 404", ctx(abW("fetch")), ctx(prW("fetch"))],
+    ["loading", "payload loading", ctx(abW("loading")), ctx(prW("loading"))],
+    ["evicted", "payload gone → stored body", ctx(abW("evicted")), ctx(prW("evicted"))],
+    ["skipped", "malformed item", ctx(abW("skipped")), ctx(prW("skipped"))],
+  ]},
+  { title: "Unclaimed custom entry fallback (#868)", verdict: "polish — neutral type label, aligned to the tool timeline", states: [
+    ["kv", "object body", ctx(abC("kv")), ctx(prC("kv"))],
+    ["more", "> 50 keys", ctx(abC("more")), ctx(prC("more"))],
+    ["plain", "string body", ctx(abC("plain")), ctx(prC("plain"))],
+  ]},
+];
+
+function render() {
+  document.getElementById("board").innerHTML = BOARD.map((s, si) => `<section class="surface"><h2>${s.title}</h2><p class="verdict">Verdict: ${s.verdict}</p>
+  ${s.states.map(([id, finds, ab, pr]) => `<article class="state" id="s${si}-${id}"><header><code>${id}</code><span class="finds">${finds}</span></header>
+    <div class="pair"><div class="col asbuilt"><p class="tag">As-built</p><div class="frame">${ab}</div></div>
+    <div class="col proposed"><p class="tag">Proposed</p><div class="frame">${pr}</div></div></div></article>`).join("")}
+</section>`).join("");
+}
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") { const [pal, mode] = v.split("-"); mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme"); pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette"); }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`);
+  if (group === "view") document.body.dataset.view = v;
+}
+{
+  SVG_DARK = window.SVG_DIAGRAMS.dark; SVG_LIGHT = window.SVG_DIAGRAMS.light;
+  // regenerate states that embed the diagram
+  BOARD[0].states = BOARD[0].states.map(([id, f]) => [id, f, abM(id), prM(id)]);
+  render();
+  document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); apply(seg.dataset.group, b.dataset.v); }));
+  const params = new URLSearchParams(location.search);
+  for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+  document.body.dataset.ready = "1";
+}
+</script>
+</body>
+</html>

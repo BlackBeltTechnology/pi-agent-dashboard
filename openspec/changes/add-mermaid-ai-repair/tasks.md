@@ -1,6 +1,7 @@
 ## 0. Preconditions
 
 - [ ] 0.1 Confirm `add-mermaid-auto-repair` has landed on the base branch (`MermaidOutcome` type + badge row in `MermaidBlock.tsx`); if not, stop and hand back via `SHIP_IT_BLOCKED.md`
+- [ ] 0.2 Build the AI states to the approved board `openspec/changes/retro-ux-chat-rendering/mockups/chat-rendering.html` (`ai-offer`, `ai-pending`, `ai-fixed`, `ai-failed`); if `retro-ux-chat-rendering` landed first, reuse its error callout; otherwise build that callout here too (error-severity callout, headline "This diagram could not be rendered.", mono error message, "Copy source", per its `mermaid-diagram` delta) so the AI controls never sit in the old `text-red-400` strip
 
 ## 1. Config (TDD)
 
@@ -49,7 +50,7 @@
 - [ ] 3.14 Test: failures not cached — same exemplar as 3.4; fetch 502 `provider_error` then success · click Fix → failed → unmount → remount → click Fix · 2 fetch calls, ends AI-fixed (test-plan #E16)
 - [ ] 3.15 Test: non-renderable AI result — same exemplar as 3.4; fetch → fix, render throws for fixed code · click Fix · original error kept, "AI fix failed", retry enabled, no SVG (test-plan #X8)
 - [ ] 3.16 Test: endpoint error surfaced — same exemplar as 3.4; fetch → 504 `{code:"timeout", error:"Model timed out"}` · click Fix, then retry · original error kept, "AI fix failed" with the reason, retry issues a second fetch (test-plan #X9)
-- [ ] 3.17 Verify 3.3–3.16 fail; implement config read in `App.tsx` hydration, the `aiState` machine, action button, AI-fixed badge in the badge row, provider-disclosure tooltip and page-lifetime success cache in `MermaidBlock.tsx`; verify 3.3–3.16 pass
+- [ ] 3.17 Verify 3.3–3.16 fail; implement config read in `App.tsx` hydration, the `aiState` machine, action button, AI-fixed badge in the badge row, visible provider-disclosure line (`aria-describedby`, per the approved board) and page-lifetime success cache in `MermaidBlock.tsx`; verify 3.3–3.16 pass
 - [ ] 3.18 Test: i18n parity — copy harness from `packages/client/src/__tests__/i18n.test.ts`; new action/pending/AI-fixed/failed/disclosure keys · key sweep + `node scripts/i18n-parity.mjs` · every key present in en, zh-CN, hu, parity exit 0, Hungarian UI shows Hungarian action text (test-plan #X10); add the keys and verify it passes
 
 ## 4. Security, docs, verification
