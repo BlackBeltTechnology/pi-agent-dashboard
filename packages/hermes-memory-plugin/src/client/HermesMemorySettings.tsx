@@ -301,13 +301,17 @@ function RawJsonDialog({
   const closeRef = useRef<HTMLButtonElement>(null);
   const titleId = "hermes-raw-title";
 
+  // The parent passes an inline arrow, so depending on `onClose` would restart this effect
+  // (re-focusing Close, re-binding the listener) on every parent render.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     closeRef.current?.focus();
     const openerEl = opener.current;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        onClose();
+        onCloseRef.current();
       } else if (e.key === "Tab" && panelRef.current) {
         trapTab(e, panelRef.current);
       }
@@ -317,7 +321,7 @@ function RawJsonDialog({
       document.removeEventListener("keydown", onKey);
       openerEl?.focus();
     };
-  }, [onClose, opener]);
+  }, [opener]);
 
   return (
     <div className="fixed inset-0 z-20 flex items-center justify-center bg-[var(--bg-overlay)]" onClick={onClose} role="presentation">

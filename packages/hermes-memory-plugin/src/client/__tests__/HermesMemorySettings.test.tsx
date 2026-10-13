@@ -245,6 +245,22 @@ describe("HermesMemorySettings", () => {
       expect(document.activeElement).toBe(opener);
     });
 
+    // CodeRabbit round 1: a parent re-render must not restart the dialog's focus effect.
+    it("F1b: a parent re-render does not steal focus back into the open dialog", async () => {
+      (globalThis as { fetch?: unknown }).fetch = vi.fn(async (url: string) =>
+        url === "/api/models" ? jsonOk({ data: [] }) : jsonOk(allDefaultEffective()),
+      );
+      const ui = <HermesMemorySettings />;
+      const { findByText, getByRole, rerender } = renderH(ui);
+      fireEvent.click(await findByText("View raw JSON"));
+      await waitFor(() => getByRole("dialog"));
+      const close = getByRole("button", { name: "Close" });
+      expect(document.activeElement).toBe(close);
+      close.blur();
+      rerender(withUiPrimitiveProvider({ "ui:model-selector": MockModelSelector as never }, <HermesMemorySettings />));
+      expect(document.activeElement).not.toBe(close);
+    });
+
     // test-plan #X2
     it("X2: a failed load renders inside an error notice", async () => {
       (globalThis as { fetch?: unknown }).fetch = vi.fn(async () => ({
