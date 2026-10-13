@@ -142,6 +142,23 @@ export interface SearchOpts {
   queryExpansion?: "off" | "prf" | "synonym" | "agent";
   synonyms?: Record<string, string[]>; // curated glossary for synonym expansion
   filters?: Filter[]; // structured frontmatter facet filters (opt-in; no-op when absent)
+  /** Restrict hits to paths starting with any of these prefixes, pushed into the
+   *  SQL WHERE so the page fills from SQL, not by post-filtering a LIMITed pool.
+   *  Git scope only (`kind` filter). See change: add-kb-git-forge-scope (G1). */
+  pathPrefix?: string[];
+}
+
+/** Minimal raw-connection surface handed to `KbStore.immediate` callbacks. Lets
+ *  the git scope keep its own tables (`git_meta`, `git_lease`, `git_comments`) in
+ *  the same transaction as the kb chunk writers. */
+interface RawStmt {
+  run(...params: any[]): { changes: number | bigint; lastInsertRowid: number | bigint };
+  get(...params: any[]): any;
+  all(...params: any[]): any[];
+}
+export interface RawDb {
+  prepare(sql: string): RawStmt;
+  exec(sql: string): void;
 }
 
 export interface FileState {
@@ -176,6 +193,22 @@ export interface KbStore {
   setUserVersion?(v: number): void;
   getMeta?(k: string): string | null;
   setMeta?(k: string, v: string): void;
+
+  // git-scope capabilities (optional — additive backend capabilities; the git
+  // scope reports `unavailable: store backend lacks git support` without them).
+  // See change: add-kb-git-forge-scope (G1).
+  /** Run `fn` inside BEGIN IMMEDIATE … COMMIT on the store's own connection
+   *  (ROLLBACK on throw). `fn` MUST be synchronous. */
+  immediate?<T>(fn: (db: RawDb) => T): T;
+  /** Replace the chunks and OUTBOUND edges of `path`; keep its node and every
+   *  inbound edge (unlike `deleteByPath`). */
+  replaceItem?(root: string, path: string, chunks: Chunk[], outboundEdges: GraphEdge[]): void;
+  /** Create a placeholder node so an edge to a not-yet-indexed target survives. */
+  ensureNode?(id: string): void;
+  /** Indexed item paths of `root` starting with `prefix`, at most `max`. */
+  findPathsByPrefix?(root: string, prefix: string, max: number): string[];
+  /** Run a read-only `fn` against the raw connection (no transaction, no write lock). */
+  read?<T>(fn: (db: RawDb) => T): T;
 
   // query
   search(query: string, opts?: SearchOpts): KbHit[];
