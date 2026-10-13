@@ -2331,6 +2331,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     preferencesStore,
     directoryService,
     networkGuard,
+    piGateway,
     onOpenSpecChanged: (cwd) => {
       const data = directoryService.getOpenSpecData(cwd);
       if (data) browserGateway.broadcastToAll({ type: "openspec_update", cwd, data });

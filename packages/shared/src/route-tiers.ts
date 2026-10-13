@@ -171,6 +171,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/runtime/status", tier: "observe" },
   { method: "GET", path: "/api/pi-resource-file", tier: "observe" },
   { method: "GET", path: "/api/pi-resources", tier: "observe" },
+  { method: "GET", path: "/api/pi-resources/commands", tier: "observe" },
   { method: "GET", path: "/api/pi-retry", tier: "observe" },
   { method: "GET", path: "/api/pi/installs", tier: "observe" },
   { method: "GET", path: "/api/pinned-dirs", tier: "observe" },

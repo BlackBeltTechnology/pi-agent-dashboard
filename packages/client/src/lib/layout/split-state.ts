@@ -72,22 +72,22 @@ function migrateState(v: unknown): SplitState | null {
   return { mode, ratio: clampRatio(s.ratio), orientation: s.orientation };
 }
 
-/** Read persisted state for a session; default (closed) on absence/corruption. */
-export function loadSplitState(sessionId: string): SplitState {
-  if (!sessionId) return DEFAULT_SPLIT_STATE;
+/** Read persisted state for a session; `fallback` (default: closed) on absence/corruption. */
+export function loadSplitState(sessionId: string, fallback: SplitState = DEFAULT_SPLIT_STATE): SplitState {
+  if (!sessionId) return fallback;
   try {
     const raw = globalThis.localStorage?.getItem(keyFor(sessionId));
-    if (!raw) return DEFAULT_SPLIT_STATE;
+    if (!raw) return fallback;
     const parsed = JSON.parse(raw);
     const migrated = migrateState(parsed);
     if (!migrated) {
       console.error(`[split-state] discarding corrupt state for session ${sessionId}`);
-      return DEFAULT_SPLIT_STATE;
+      return fallback;
     }
     return migrated;
   } catch (err) {
     console.error(`[split-state] failed to read state for session ${sessionId}`, err);
-    return DEFAULT_SPLIT_STATE;
+    return fallback;
   }
 }
 
@@ -108,14 +108,20 @@ export function saveSplitState(sessionId: string, state: SplitState): void {
  */
 export function useSplitState(
   sessionId: string,
+  /**
+   * Mode used when nothing is stored for `sessionId`. Sessions default to
+   * `closed`; the folder home opens in `split`. See change: redesign-directory-home-split.
+   */
+  defaultMode: SplitMode = DEFAULT_SPLIT_STATE.mode,
 ): [SplitState, (patch: Partial<SplitState>) => void] {
-  const [state, setState] = useState<SplitState>(() => loadSplitState(sessionId));
+  const fallback = useRef<SplitState>({ ...DEFAULT_SPLIT_STATE, mode: defaultMode });
+  const [state, setState] = useState<SplitState>(() => loadSplitState(sessionId, fallback.current));
   const prevSession = useRef(sessionId);
 
   useEffect(() => {
     if (prevSession.current !== sessionId) {
       prevSession.current = sessionId;
-      setState(loadSplitState(sessionId));
+      setState(loadSplitState(sessionId, fallback.current));
       return;
     }
     saveSplitState(sessionId, state);

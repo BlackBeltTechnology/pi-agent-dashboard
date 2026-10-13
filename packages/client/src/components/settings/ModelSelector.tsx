@@ -30,6 +30,13 @@ interface Props {
   placeholder?: string;
 
   /**
+   * Small badge shown beside the current model on the trigger (e.g. `default`
+   * for the Settings default pre-selected on the folder home).
+   * See change: redesign-directory-home-split.
+   */
+  tag?: string;
+
+  /**
    * Opt-in Model | Role switch. The Role tab lists built-in + custom roles
    * (from `GET /api/roles`) and emits `@role` via `onSelect`. Renders only
    * when the roles plugin answers 2xx; otherwise the picker is unchanged.
@@ -503,7 +510,7 @@ function RoleList({ rows, current, onPick }: { rows: PickerRoleRow[]; current?: 
   );
 }
 
-export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, onOpenProviderSettings, favorites, onToggleFavorite, placeholder, disabled, allowRoles, viaRole }: Props) {
+export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, onOpenProviderSettings, favorites, onToggleFavorite, placeholder, tag, disabled, allowRoles, viaRole }: Props) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -755,6 +762,11 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
         {viaRole && !pendingModel && (
           <span data-testid="model-via-role" className="text-[10px] text-[var(--text-muted)]">
             {i18nT("roles.viaRole", { role: viaRole }, `via ${viaRole}`)}
+          </span>
+        )}
+        {tag && !pendingModel && (
+          <span data-testid="model-tag" className="text-[10px] px-1 rounded border border-[var(--border-secondary)] text-[var(--text-muted)]">
+            {tag}
           </span>
         )}
         {!pendingModel && !disabled && <Icon path={mdiChevronDown} size={0.5} />}

@@ -2478,7 +2478,23 @@ See change: add-git-checkout-root-resolver.
 
 ### Folder → workspace add flow (redesign-folder-workspace-add-flow)
 
-**DirectoryHomeView eligibility guard removed.** Any groupable cwd renders home page (session list + spawn prompt). Gone: props `pinnedDirectories`, `workspaceFolders`, `pinnedDirectoriesLoaded`, `workspacesLoaded`, `onPinDirectory`; testids `directory-home-loading`, `directory-home-not-pinned`; i18n keys `directoryHome.notPinnedTitle`, `notPinnedBody`, `pinCta`. App drops `workspaceFolderSet` memo + `pinnedDirsLoaded`, `workspacesLoaded` state + their `useMessageHandler` setters (handlers `pinned_dirs_updated`, `workspaces_updated` no longer flip loaded flags).
+**DirectoryHomeView eligibility guard removed.** Any groupable cwd renders home page (pre-session pane: starters + docked prompt, inside Chat|Split|Editor workspace). Gone: props `pinnedDirectories`, `workspaceFolders`, `pinnedDirectoriesLoaded`, `workspacesLoaded`, `onPinDirectory`; testids `directory-home-loading`, `directory-home-not-pinned`; i18n keys `directoryHome.notPinnedTitle`, `notPinnedBody`, `pinCta`. App drops `workspaceFolderSet` memo + `pinnedDirsLoaded`, `workspacesLoaded` state + their `useMessageHandler` setters (handlers `pinned_dirs_updated`, `workspaces_updated` no longer flip loaded flags).
+
+**Folder home split (change: redesign-directory-home-split).**
+- `/folder/:encodedCwd` renders `DirectoryHomeView` inside `FolderSplitProvider` (`SplitWorkspaceProvider` keyed `folderPaneId(cwd)`, `defaultMode="split"`; opens Split when nothing stored). Mobile: pane alone, no split.
+- Left pane: starters (`starter-cards.ts`, ≤6: folder skills → prompts → global skills; insert `/skill:<n> `, never send) + `CommandInput` docked as LAST child of column → `max-h-[40%]` budget resolves against pane → natural height (fixes #877).
+- Right pane: `EditorPane` (folder editor + terminals). Header (name, path, `LayoutModeSwitch`, gear `directory-home-settings`) sits above both panes.
+- Removed: session list, Terminals/Editor/Settings quick-action buttons, testids `directory-home-session-*`, `directory-home-open-*`.
+- `FolderHomeContainer` owns per-cwd hooks: `useFolderCommands(cwd)` (GET `/api/pi-resources/commands?cwd=`; 404/5xx/network → empty list), `useModelCatalogue()` (GET `/api/models`, module last-good cache).
+- Server `GET /api/pi-resources/commands`: tier `observe`, road `packages`, denylisted from MCP. 400 on missing/relative cwd.
+- origin `live` = latest ACCEPTED non-empty `commands_list` (`SessionCommandRegistry.getEntry().receivedAt`) among sessions with `piGateway.isSessionConnected` and cwd EXACTLY equal (trailing sep stripped + `canonicalPath`); else `scan` (enabled skills as `skill:<n>`, prompts as `<n>`); else `none`.
+- Each command carries `scope` folder|global (path in `local.*` / local-scope packages / under `<cwd>/.pi`, else global). Impl `packages/server/src/pi/folder-commands.ts`.
+- Spawn choices: `spawn_session` / `send_prompt` / `resume_session` gain optional `model`, `thinkingLevel`. Validator `packages/server/src/browser-handlers/spawn-choice.ts` (`validateSpawnChoice`, `resolveResumeChoice`): model `provider/id` ≤200 chars, charset-restricted, no empty/dash-led segment; `:<level>` suffix split only when no `thinkingLevel` field; thinkingLevel ∈ `THINKING_LEVELS`; invalid → dropped + `console.warn`.
+- Thinking-only spawn → config `defaultModel` so bridge default thinking cannot override. `SessionFlags.thinking` → `--thinking`; `--model`/`--thinking` on fresh + `continue` argv; fork keeps parent model; tmux pane escapes each token (`shellEscape`).
+- Ended-session composer (`useEndedSessionComposer`): folder command list + catalogue models replace absent bridge lists. Folder list kept until live `commands_list` arrives (no empty flash).
+- Model/thinking pick stored client-side per session; sent on resuming `send_prompt`/`resume_session` (continue only; applied to that resume's `spawnPiSession`, never via cwd-keyed `pendingResumeRegistry`); dropped once session no longer ended.
+- Spawn lifecycle: `handleSpawnSession` returns `requestId`; Start disabled until App `pendingSpawnsRef` correlation navigates. Failed `spawn_result` or `spawn_register_timeout` (optional `requestId`, via `SpawnRegisterWatchdog.arm({requestId})`) → `onSpawnFailed` → Start re-enabled, draft restored. Page never navigates.
+- Compat: protocol fields optional; old server ignores; 404 on commands route → empty list. Rollback = revert; nothing persisted changes shape.
 
 **Pin now implicit visibility primitive.** Adding folder always pins (`pin_directory`). `AddToWorkspaceMenu` + add dialog offer NO "Pin to dashboard". Safe: `visibleTopPinned`/`visibleTopUnpinned` already filter workspace-owned cwd out of top tier (renders once); redundant pin = fallback so removing from workspace leaves folder visible at root.
 

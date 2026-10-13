@@ -13,10 +13,11 @@ function encodeFolderPath(cwd: string): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-// Browser E2E — directory home page (change: add-directory-home-page).
+// Browser E2E — directory home page (changes: add-directory-home-page,
+// redesign-directory-home-split).
 //
 // Drives the real sidebar "open" affordance → bare `/folder/:encodedCwd` home
-// → centered prompt → spawn → auto-navigate round-trip against the Docker
+// → docked prompt → spawn → auto-navigate round-trip against the Docker
 // harness. The pinned folder is the baked git fixture (FIXTURE_GIT), pinned by
 // `ensureGitSession`. The dedicated `folder-open-home-<cwd>` icon is DELETED by
 // change add-folder-actions-menu (D3): the header ROW (`folder-home-row-<cwd>`)
@@ -37,7 +38,7 @@ test.describe("directory home page", () => {
       timeout: 15_000,
     });
 
-    // Centered prompt: type + send spawns a session with initialPrompt.
+    // Docked prompt: type + send spawns a session with initialPrompt.
     const composer = page.getByPlaceholder(/message/i).first();
     await composer.waitFor({ state: "visible", timeout: 15_000 });
     await composer.fill("hello");
@@ -147,21 +148,6 @@ function activeTab(page: Page) {
   return page.locator('[data-testid="editor-tab"][aria-selected="true"]');
 }
 
-async function dismissToasts(page: Page): Promise<void> {
-  for (const btn of await page.getByRole("button", { name: "Dismiss" }).all()) {
-    await btn.click().catch(() => {});
-  }
-}
-
-/** Click a testid, dismissing overlapping spawn toasts and retrying until it lands. */
-async function robustClick(page: Page, testid: string): Promise<void> {
-  const target = page.getByTestId(testid);
-  await expect(async () => {
-    await dismissToasts(page);
-    await target.click({ timeout: 2_000 });
-  }).toPass({ timeout: 30_000 });
-}
-
 /** Navigate to the bare directory home for this run's unique focus fixture. */
 async function openFocusDirectoryHome(page: Page): Promise<void> {
   await gotoDashboard(page);
@@ -196,9 +182,14 @@ async function openFixtureDirectoryHome(page: Page): Promise<void> {
   await expect(page.getByTestId("directory-home")).toBeVisible({ timeout: 15_000 });
 }
 
-/** Click Terminals and wait for the terminal-focused entry to converge (≥1 tab). */
-async function openTerminals(page: Page, editorUrl: RegExp): Promise<void> {
-  await robustClick(page, "directory-home-open-terminals");
+/**
+ * Enter the terminal-focused editor surface. The home page's Terminals quick
+ * action is gone (redesign-directory-home-split), but the
+ * `/folder/<cwd>/editor?focus=terminal` route stays valid for other entry
+ * points — drive it directly and wait for the one-shot to converge (≥1 tab).
+ */
+async function openTerminals(page: Page, editorUrl: RegExp, enc: string): Promise<void> {
+  await page.goto(`/folder/${enc}/editor?focus=terminal`);
   await expect(page).toHaveURL(editorUrl, { timeout: 15_000 });
   await expect(termTabs(page).first()).toBeVisible({ timeout: 30_000 });
 }
@@ -211,34 +202,34 @@ test.describe("terminal-focused editor entry", () => {
     inContainer(`mkdir -p ${FOCUS_CWD}`);
   });
 
-  // F7 — Terminals lands on an active term: tab (create path on a clean cwd).
-  test("F7: Terminals converges on exactly one active term: tab", async ({ page }) => {
+  // F7 — the terminal-focused entry lands on an active term: tab (create path on a clean cwd).
+  test("F7: the terminal-focused entry converges on exactly one active term: tab", async ({ page }) => {
     await openFocusDirectoryHome(page);
-    await openTerminals(page, FOCUS_EDITOR_URL);
+    await openTerminals(page, FOCUS_EDITOR_URL, FOCUS_ENC);
     await expect(termTabs(page)).toHaveCount(1);
     await expect(termTabs(page).first()).toHaveAttribute("aria-selected", "true");
   });
 
-  // F8 — a second Terminals entry activates the existing terminal, never duplicates it.
-  test("F8: a second Terminals entry reuses the existing terminal", async ({ page }) => {
+  // F8 — a second terminal-focused entry activates the existing terminal, never duplicates it.
+  test("F8: a second terminal-focused entry reuses the existing terminal", async ({ page }) => {
     await openFocusDirectoryHome(page);
-    await openTerminals(page, FOCUS_EDITOR_URL);
+    await openTerminals(page, FOCUS_EDITOR_URL, FOCUS_ENC);
     // Back to the directory home (history holds the bare URL, not `?focus=terminal`).
     await page.goBack();
     await expect(page).toHaveURL(FOCUS_HOME_URL, { timeout: 15_000 });
-    await openTerminals(page, FOCUS_EDITOR_URL);
+    await openTerminals(page, FOCUS_EDITOR_URL, FOCUS_ENC);
     await expect(termTabs(page)).toHaveCount(1);
     await expect(termTabs(page).first()).toHaveAttribute("aria-selected", "true");
   });
 
-  // F9 — Editor lands on the file editor and creates no terminal.
-  test("F9: Editor lands on the file editor without creating a terminal", async ({ page }) => {
+  // F9 — the plain editor route lands on the file editor and creates no terminal.
+  test("F9: the editor route lands on the file editor without creating a terminal", async ({ page }) => {
     await openFocusDirectoryHome(page);
-    await openTerminals(page, FOCUS_EDITOR_URL);
+    await openTerminals(page, FOCUS_EDITOR_URL, FOCUS_ENC);
     const n = await termTabs(page).count();
     await page.goBack();
     await expect(page).toHaveURL(FOCUS_HOME_URL, { timeout: 15_000 });
-    await robustClick(page, "directory-home-open-editor");
+    await page.goto(`/folder/${FOCUS_ENC}/editor`);
     await expect(page).toHaveURL(FOCUS_EDITOR_URL, { timeout: 15_000 });
     expect(page.url()).not.toContain("focus");
     // The folder EditorPane mounted (its header controls are present).
@@ -249,7 +240,7 @@ test.describe("terminal-focused editor entry", () => {
   // F5 — the parameter is consumed with a REPLACE navigation (no history entry).
   test("F5: ?focus=terminal is stripped; Back returns to the directory home", async ({ page }) => {
     await openFocusDirectoryHome(page);
-    await openTerminals(page, FOCUS_EDITOR_URL);
+    await openTerminals(page, FOCUS_EDITOR_URL, FOCUS_ENC);
     expect(page.url()).not.toContain("focus");
     await page.goBack();
     await expect(page).toHaveURL(FOCUS_HOME_URL, { timeout: 15_000 });
@@ -260,7 +251,7 @@ test.describe("terminal-focused editor entry", () => {
   // Runs on the fixture folder so the file tree resolves (known-session cwd).
   test("F6: remount after consumption does not re-focus", async ({ page }) => {
     await openFixtureDirectoryHome(page);
-    await openTerminals(page, DIR_EDITOR_URL);
+    await openTerminals(page, DIR_EDITOR_URL, DIR_ENC);
 
     // Open a real fixture file from the tree → the file tab becomes active.
     await ensureTreeVisible(page);
@@ -374,4 +365,148 @@ test.describe("folder actions menu", () => {
       }
     });
   }
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// redesign-directory-home-split — the folder home is a pre-session pane inside
+// the Chat | Split | Editor workspace; the composer docks at the bottom (#877),
+// carries model / thinking / run-location choices, and ended sessions get the
+// folder command list. Covers test-plan F1–F6, F12.
+// ─────────────────────────────────────────────────────────────────────────────
+test.describe("folder home split (redesign-directory-home-split)", () => {
+  test.setTimeout(120_000);
+
+  const HOME_URL = new RegExp(`/folder/${encodeFolderPath(FIXTURE_GIT)}$`);
+  const homePath = `/folder/${encodeFolderPath(FIXTURE_GIT)}`;
+
+  async function openHome(page: Page): Promise<void> {
+    await ensureGitSession(page); // pins FIXTURE_GIT and guarantees a session in it
+    await page.goto(homePath);
+    await expect(page).toHaveURL(HOME_URL, { timeout: 15_000 });
+    await expect(page.getByTestId("directory-home")).toBeVisible({ timeout: 20_000 });
+  }
+
+  const mode = (page: Page, m: "closed" | "split" | "full") => page.getByTestId(`layout-mode-${m}`);
+
+  // F1 — the docked prompt card renders at natural height at desktop and tablet widths.
+  for (const [width, height] of [
+    [1440, 900],
+    [768, 900],
+  ] as const) {
+    test(`F1: composer card renders at natural height at ${width}x${height}`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await openHome(page);
+      const card = page.getByTestId("composer-card");
+      await expect(card).toBeVisible();
+      const metrics = await card.evaluate((el) => ({ scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }));
+      expect(metrics.scrollHeight).toBeLessThanOrEqual(metrics.clientHeight);
+      const cardBox = await card.boundingBox();
+      const sendBox = await page.getByTestId("send-button").boundingBox();
+      expect(cardBox).not.toBeNull();
+      expect(sendBox).not.toBeNull();
+      // The Start control sits fully inside the card and inside the viewport.
+      expect(sendBox!.y).toBeGreaterThanOrEqual(cardBox!.y - 1);
+      expect(sendBox!.y + sendBox!.height).toBeLessThanOrEqual(cardBox!.y + cardBox!.height + 1);
+      expect(sendBox!.y + sendBox!.height).toBeLessThanOrEqual(height);
+    });
+  }
+
+  // F2 — first visit opens in Split; the layout switch and peek handles drive the
+  // modes, and the choice persists across a reload.
+  test("F2: layout switch + peek handles; the mode persists per folder", async ({ page }) => {
+    await openHome(page);
+    await page.evaluate(() => {
+      for (const k of Object.keys(localStorage)) if (k.startsWith("pi-dashboard:split:folder:")) localStorage.removeItem(k);
+    });
+    await page.reload();
+    await expect(page.getByTestId("directory-home")).toBeVisible({ timeout: 20_000 });
+    // First visit: Split — both panes visible.
+    await expect(page.getByTestId("split-chat-pane")).toBeVisible();
+    await expect(page.getByTestId("split-editor-pane")).toBeVisible();
+
+    await mode(page, "full").click(); // Editor
+    await expect(page.getByTestId("split-editor-pane")).toBeVisible();
+    await expect(page.getByTestId("split-chat-pane")).toBeHidden();
+    await page.getByTestId("chat-peek").click();
+    await expect(page.getByTestId("split-chat-pane")).toBeVisible();
+    await expect(page.getByTestId("split-editor-pane")).toBeVisible();
+
+    await mode(page, "closed").click(); // Chat
+    await expect(page.getByTestId("split-editor-pane")).toHaveCount(0);
+    await page.getByTestId("editor-peek").click();
+    await expect(page.getByTestId("split-editor-pane")).toBeVisible();
+
+    await mode(page, "closed").click();
+    await page.reload();
+    await expect(page.getByTestId("directory-home")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("split-editor-pane")).toHaveCount(0);
+    await expect(page.getByTestId("editor-peek")).toBeVisible();
+  });
+
+  // F3 — the editor pane's new-terminal affordance opens a terminal tab for the folder.
+  test("F3: the pane's new-terminal opens an active term: tab", async ({ page }) => {
+    await openHome(page);
+    await mode(page, "split").click();
+    const before = await termTabs(page).count();
+    await page.getByTestId("new-terminal-launch").click();
+    await expect(termTabs(page)).toHaveCount(before + 1, { timeout: 30_000 });
+    await expect(activeTab(page)).toHaveAttribute("data-tab-path", /^term:/);
+  });
+
+  // F4 / F5 — no repeated session list or quick actions; the header gear opens settings.
+  test("F4/F5: no session list, no landing page, gear opens folder settings", async ({ page }) => {
+    await openHome(page);
+    await expect(page.getByTestId("directory-home-session-list")).toHaveCount(0);
+    await expect(page.locator('[data-testid^="directory-home-open-"]')).toHaveCount(0);
+    await expect(page.getByText("Welcome to pi-dashboard")).toHaveCount(0);
+    await page.getByTestId("directory-home-settings").click();
+    await expect(page).toHaveURL(new RegExp(`/folder/${encodeFolderPath(FIXTURE_GIT)}/settings`), { timeout: 15_000 });
+  });
+
+  // F6 — Enter disables Start at once, then converges on the new session with the typed prompt.
+  test("F6: Enter spawns once, disables Start, converges on /session/:id with the prompt", async ({ page }) => {
+    await openHome(page);
+    const composer = page.getByPlaceholder(/message/i).first();
+    await composer.fill("say hi");
+    await composer.press("Enter");
+    await expect(page.getByTestId("send-button")).toBeDisabled();
+    await expect(page).toHaveURL(/\/session\/[^/]+$/, { timeout: 60_000 });
+    await expect(page.getByText("say hi", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+  });
+
+  // F12 — an ENDED session's composer has the folder's skills (no live bridge needed).
+  // Self-isolating: a UNIQUE cwd with its own skill and no other session, so the
+  // list is provably the disk scan (a live session elsewhere in the shared
+  // container cannot supply it).
+  test("F12: an ended session's / popover lists the folder skill and says it comes from disk", async ({ page }) => {
+    const cwd = `/fixtures/e2e-ended-skill-${FOCUS_TOKEN}`;
+    inContainer(
+      `mkdir -p ${cwd}/.pi/skills/doc-summarizer && printf -- '---\\nname: doc-summarizer\\ndescription: Summarize documents.\\n---\\nBody\\n' > ${cwd}/.pi/skills/doc-summarizer/SKILL.md`,
+    );
+    await gotoDashboard(page);
+    await pinDirectory(page, cwd);
+    await page.goto(`/folder/${encodeFolderPath(cwd)}`);
+    const first = page.getByPlaceholder(/message/i).first();
+    await first.waitFor({ state: "visible", timeout: 20_000 });
+    await first.fill("hello");
+    await first.press("Enter");
+    await expect(page).toHaveURL(/\/session\/[^/]+$/, { timeout: 60_000 });
+    const id = /\/session\/([^/?#]+)/.exec(page.url())?.[1];
+    expect(id).toBeTruthy();
+    const status = await page.evaluate(
+      async (sid) => (await fetch(`/api/session/${sid}/shutdown`, { method: "POST" })).status,
+      id,
+    );
+    expect(status).toBe(200);
+    // The session is ended and nothing is live in this cwd: reload and type `/`.
+    await page.goto(`/session/${id}`);
+    const composer = page.getByPlaceholder(/message/i).first();
+    await composer.waitFor({ state: "visible", timeout: 30_000 });
+    await composer.fill("/");
+    const dropdown = page.getByTestId("command-dropdown");
+    await expect(dropdown).toBeVisible({ timeout: 20_000 });
+    await expect(dropdown.getByText("/skill:doc-summarizer")).toBeVisible();
+    await expect(page.getByTestId("command-dropdown-origin")).toContainText(/from disk/i);
+  });
 });

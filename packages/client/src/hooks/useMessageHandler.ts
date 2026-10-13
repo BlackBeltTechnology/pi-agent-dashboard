@@ -249,6 +249,13 @@ export interface MessageHandlerDeps {
    */
   pendingSpawnsRef: React.MutableRefObject<Map<string, PendingSpawnEntry>>;
   /**
+   * Notified with the browser `requestId` of a spawn that failed after the
+   * server accepted it: a failed `spawn_result` or a `spawn_register_timeout`
+   * that echoes the id. Lets the folder home re-enable its Start control for
+   * exactly its own spawn. See change: redesign-directory-home-split.
+   */
+  onSpawnFailed?: (requestId: string) => void;
+  /**
    * Safety-net timers for the per-session loading flag, owned by App.
    * `clearLoadingHistory` tears the matching timer down on every exit edge.
    * See change: show-chat-history-loading-indicator.
@@ -322,7 +329,7 @@ export function useMessageHandler(
     setEndedTotalsMap, setArchivedCountMap, setPagedCount, setSnapshotGeneration,
     setPageReplyGen, setPageExhausted,
   } = setters;
-  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed } = deps;
+  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, onSpawnFailed, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed } = deps;
   // One-shot per session: suppress a repeat auto-name toast for the same
   // session id. See change: add-auto-session-naming.
   const autoNameToastedRef = useRef<Set<string>>(new Set());
@@ -1499,7 +1506,10 @@ export function useMessageHandler(
           // Drop the pending-spawn entry on failure (matched by requestId
           // when echoed; otherwise leave to be cleaned up by the 30s timeout).
           // See change: spawn-correlation-token.
-          if (msg.requestId) pendingSpawnsRef.current.delete(msg.requestId);
+          if (msg.requestId) {
+            pendingSpawnsRef.current.delete(msg.requestId);
+            onSpawnFailed?.(msg.requestId);
+          }
         } else {
           // Successful spawn clears error AND timeout banners for this cwd.
           setSpawnErrors((prev) => {
@@ -1585,6 +1595,7 @@ export function useMessageHandler(
           });
           return next;
         });
+        if (msg.requestId) onSpawnFailed?.(msg.requestId);
         break;
       }
 
@@ -2031,5 +2042,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap, setHistorySpliceRev, setEndedTotalsMap, setPagedCount, setSnapshotGeneration, setPageReplyGen, setPageExhausted, sessionsRef, openspecGetInflightRef, markHistoryLoadFailed, clearHistoryLoadFailed]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap, setHistorySpliceRev, setEndedTotalsMap, setPagedCount, setSnapshotGeneration, setPageReplyGen, setPageExhausted, sessionsRef, openspecGetInflightRef, markHistoryLoadFailed, clearHistoryLoadFailed, onSpawnFailed]);
 }

@@ -4,6 +4,7 @@
 import { existsSync } from "node:fs";
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import {
   isProcessAlive,
@@ -13,12 +14,11 @@ import {
 import {
   findPidByMarker,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
+import { mintSpawnToken } from "../auth/spawn-token.js";
 import {
   type DispatchReloadContext,
   dispatchReload,
 } from "../rpc-keeper/dispatch-reload.js";
-import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
-import { mintSpawnToken } from "../auth/spawn-token.js";
 import { createBranchedSessionFile } from "../session/session-file-reader.js";
 import { decideResume } from "../session/session-origin.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
@@ -29,6 +29,7 @@ import { deriveSpawnCorrelationTtlMs } from "../spawn-process/spawn-recovery-win
 import { armSpawnWatchdog, getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 import { isBareReloadCommand } from "./session-action-helpers.js";
+import { choiceToSpawnOptions, resolveResumeChoice, validateSpawnChoice } from "./spawn-choice.js";
 
 /**
  * Status message + code emitted when fork is attempted on a session whose
@@ -396,10 +397,17 @@ export async function handleSendPrompt(
     sessionManager.update(msg.sessionId, { resuming: true });
     broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { resuming: true } });
     const autoResumeConfig = loadConfig();
+    // A model / thinking pick from the composer goes straight to THIS resume's
+    // spawn — never through the cwd-keyed pendingResumeRegistry, which would let
+    // it bleed into a concurrent resume in the same folder. An in-flight resume
+    // (`alreadyResuming`) returned above, so a second pick is never applied.
+    // See change: redesign-directory-home-split (D9).
+    const resumeChoice = resolveResumeChoice(msg, "continue", promptSession);
     const spawnResult = await spawnPiSession(promptSession.cwd, {
       sessionFile: promptSession.sessionFile,
       mode: "continue",
       strategy: autoResumeConfig.spawnStrategy,
+      ...choiceToSpawnOptions(resumeChoice),
     });
     // No browser socket on this path — the reclaim runs regardless.
     armSpawnWatchdog(promptSession.cwd, autoResumeConfig.spawnStrategy as any, spawnResult);
@@ -689,10 +697,14 @@ export async function handleResumeSession(
   //              differentiate-resume-intent-by-trigger.
   pendingResumeIntents?.record(msg.sessionId, placement);
   const resumeConfig = loadConfig();
+  // Pick fields apply to `continue` only; a fork keeps the parent model.
+  // See change: redesign-directory-home-split (D9).
+  const resumeChoice = resolveResumeChoice(msg, msg.mode, session);
   const result = await spawnPiSession(session.cwd, {
     sessionFile: forkSessionFile,
     mode: msg.mode,
     strategy: resumeConfig.spawnStrategy,
+    ...choiceToSpawnOptions(resumeChoice),
   });
   // WebSocket drag-to-resume / fork is a spawn entry point.
   const resumeTimeoutMs = armSpawnWatchdog(
@@ -809,7 +821,20 @@ export async function handleSpawnSession(
   // silently. Previous behaviour left the user staring at an empty state
   // when pi itself was broken in the target folder.
   try {
-    const spawnResult = await spawnPiSession(msg.cwd, { strategy, ...(ownerSpawnToken ? { spawnToken: ownerSpawnToken } : {}) });
+    // Validate browser-supplied model/thinking (drop-and-warn); a thinking-only
+    // choice is paired with the configured default model so the bridge's
+    // post-start default thinking can never overwrite it.
+    // See change: redesign-directory-home-split (D5, D6).
+    const choice = validateSpawnChoice(msg);
+    if (choice.thinking && !choice.model && config.defaultModel) {
+      const fallback = validateSpawnChoice({ model: config.defaultModel, thinkingLevel: choice.thinking });
+      if (fallback.model) choice.model = fallback.model;
+    }
+    const spawnResult = await spawnPiSession(msg.cwd, {
+      strategy,
+      ...choiceToSpawnOptions(choice),
+      ...(ownerSpawnToken ? { spawnToken: ownerSpawnToken } : {}),
+    });
     // A failed spawn never registers, so drop the pre-filed owner (idempotent,
     // token-keyed) rather than leave it to expire against a token no session
     // will ever present.
@@ -877,6 +902,7 @@ export async function handleSpawnSession(
         timeoutMs: config.spawnRegisterTimeoutMs,
         ws,
         spawnToken: spawnResult.spawnToken,
+        ...(msg.requestId ? { requestId: msg.requestId } : {}),
       });
     }
   } catch (err) {

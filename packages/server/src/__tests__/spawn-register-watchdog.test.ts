@@ -44,6 +44,22 @@ describe("SpawnRegisterWatchdog", () => {
     expect(w.timeoutMs).toBe(120000);
   });
 
+  it("echoes the arming requestId on spawn_register_timeout (redesign-directory-home-split)", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10000, { findPidsBySpawnToken: () => [], kill: () => undefined });
+    w.arm({ pid: 7, cwd: "/p/x", mechanism: "headless", ws, requestId: "req-1" });
+    vi.advanceTimersByTime(15000);
+    expect(JSON.parse(messages[0] ?? "{}")).toMatchObject({ type: "spawn_register_timeout", requestId: "req-1" });
+  });
+
+  it("omits requestId when the spawn carried none", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10000, { findPidsBySpawnToken: () => [], kill: () => undefined });
+    w.arm({ pid: 8, cwd: "/p/y", mechanism: "headless", ws });
+    vi.advanceTimersByTime(15000);
+    expect(JSON.parse(messages[0] ?? "{}")).not.toHaveProperty("requestId");
+  });
+
   it("headless arm + clearByPid cancels watchdog", () => {
     const { ws, messages } = makeMockWs();
     const w = new SpawnRegisterWatchdog(10000);

@@ -33,6 +33,7 @@ import { useLocation, useRoute } from "wouter";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { useLaunchSource } from "../../hooks/useLaunchSource.js";
+import { useModelCatalogue } from "../../hooks/useModelCatalogue.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePersistedBoolean } from "../../hooks/usePersistedBoolean.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
@@ -42,7 +43,6 @@ import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
-import { fetchModelCatalogue, type ModelCatalogueResult } from "../../lib/api/models-api.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
 import {
   type BindReachability,
@@ -741,48 +741,22 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
     setting: string; source: string; gitPath: string | null;
     gitVersion: string | null; shellPath: string | null;
   } | null>(null);
-  // Session-independent model catalogue (GET /api/models). Owned here because
-  // this panel also owns the refetch triggers (credential writes) and the
-  // unavailable callout. `null` = no response yet (loading).
-  // See change: settings-default-model-without-session.
-  const [catalogue, setCatalogue] = useState<ModelCatalogueResult | null>(null);
-  // Last models a request actually returned. Held separately so a refetch that
-  // fails does not BLANK a catalogue that already loaded — the proxy editors
-  // would lose every option on one transient 503. The callout still fires, so
-  // the failure is reported rather than swallowed.
-  const [lastGoodModels, setLastGoodModels] = useState<ModelInfo[] | null>(null);
-  const [catalogueFetching, setCatalogueFetching] = useState(true);
-  // LAST-RESPONSE-wins, deliberately: whichever response arrives last is the
-  // rendered catalogue, even if its request was issued first. A stale payload
-  // may therefore win transiently; the next refetch corrects it. Spec'd that
-  // way so the rule is one observable sentence rather than request bookkeeping.
-  const refetchCatalogue = useCallback(() => {
-    setCatalogueFetching(true);
-    return fetchModelCatalogue()
-      .then((result) => {
-        setCatalogue(result);
-        if (result.status === "ok") setLastGoodModels(result.models);
-      })
-      .finally(() => setCatalogueFetching(false));
-  }, []);
-  useEffect(() => {
-    void refetchCatalogue();
-  }, [refetchCatalogue]);
-
-  const catalogueModels = useMemo(
-    () => (catalogue?.status === "ok" ? catalogue.models : (lastGoodModels ?? [])),
-    [catalogue, lastGoodModels],
-  );
+  // Session-independent model catalogue (GET /api/models). The panel owns the
+  // refetch triggers (credential writes) and the unavailable callout; the state
+  // itself lives in `useModelCatalogue` (shared with the sessionless composers).
+  // `loading` is the COLD state only (see the hook). See changes:
+  // settings-default-model-without-session, redesign-directory-home-split.
+  const {
+    models: catalogueModels,
+    unavailable: catalogueUnavailable,
+    loading: catalogueLoading,
+    refetch: refetchCatalogue,
+  } = useModelCatalogue();
   /** Default Model options: catalogue ∪ every session list, session row wins. */
   const defaultModelOptions = useMemo(
     () => mergeModelOptions(catalogueModels, availableModels ?? []),
     [catalogueModels, availableModels],
   );
-  const catalogueUnavailable = catalogue?.status === "unavailable";
-  // Loading is the COLD state only: once a response has landed, a refetch keeps
-  // rendering the options it has instead of flipping back to a spinner.
-  const catalogueLoading = catalogueFetching && catalogue === null;
-
   // LIVE gateway endpoint. The Pi Gateway Port field below is the CONFIGURED
   // value, and since the gateway became socket-by-default that number names a
   // port nothing is bound to — the field advertised a listener that did not
