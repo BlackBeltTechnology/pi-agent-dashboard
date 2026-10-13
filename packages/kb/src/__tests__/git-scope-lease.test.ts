@@ -10,7 +10,7 @@ import { SqliteFtsStore } from "../sqlite-store.js";
 import { FakeForge, fakeClock, fakeItem, scopeFor, useGitFixture } from "./helpers/git-fixture.js";
 
 const fx = useGitFixture();
-const WORKER = join(import.meta.dirname, "helpers", "lease-worker.ts");
+const WORKER = join(import.meta.dirname, "helpers", "lease-worker.mts");
 
 function runWorker(role: "sync" | "hang", cwd: string, log: string, leaseSeconds: number) {
   const child = spawn(process.execPath, ["--import", "tsx", WORKER, role, cwd, fx.baseDir, log, String(leaseSeconds)], { env: { ...process.env, HOME: fx.home }, stdio: ["ignore", "pipe", "pipe"] });

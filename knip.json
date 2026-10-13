@@ -436,7 +436,7 @@
         "src/cli.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}",
-        "src/__tests__/helpers/lease-worker.ts"
+        "src/__tests__/helpers/lease-worker.mts"
       ],
       "project": [
         "src/**/*.{ts,tsx,mjs}"

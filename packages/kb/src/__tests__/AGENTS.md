@@ -13,4 +13,4 @@ Files added by change add-kb-git-forge-scope. One row per file. (Older test rows
 | `git-scope-store.test.ts` | Vitest for store additions: `replaceItem`, `ensureNode`, `pathPrefix`, `dedup:false`, `findPathsByPrefix`, `immediate` rollback. |
 | `git-scope-sync.test.ts` | Vitest for sync coordination (fake adapter + clock): budget, page cap, rate floor, back-off, interrupted page, cohorts, comments, log line (P1, P4, P6, X2, X3, X5–X7, X13, 6.1). |
 | `helpers/git-fixture.ts` | Fixtures: temp git repos, isolated HOME + index dir, `FakeForge`, `fakeClock`, `cliHttp`, `instrumentedStore`, `fastImport`. |
-| `helpers/lease-worker.ts` | Child process for the multi-process lease tests (`node --import tsx`); roles `sync` / `hang`. |
+| `helpers/lease-worker.mts` | Child process for the multi-process lease tests (`node --import tsx`); roles `sync` / `hang`. |
