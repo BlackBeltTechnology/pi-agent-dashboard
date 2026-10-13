@@ -13,10 +13,11 @@ import {
   CHAT_COMPOSER_BOUND,
 } from "../../lib/layout/chat-pane-row-class.js";
 import { extractRecentUrls } from "../../lib/preview/extract-urls.js";
-import { rolePickNoticeText, useRolePick } from "../../lib/roles/useRolePick.js";
+import { useRolePick } from "../../lib/roles/useRolePick.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { ImagePreviewStrip } from "../preview/ImagePreviewStrip.js";
 import { ModelSelector } from "../settings/ModelSelector.js";
+import { RolePickNoticeCallout } from "../settings/RolePickNotice.js";
 import { ThinkingLevelSelector } from "../settings/ThinkingLevelSelector.js";
 
 /** Built-in pi commands available from the dashboard */
@@ -1219,16 +1220,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             />
           )}
 
-          {rolePick.notice && (
-            <span
-              role="status"
-              data-testid="role-pick-notice"
-              data-kind={rolePick.notice.kind}
-              className="text-[11px] text-[var(--severity-warning-fg)]"
-            >
-              {rolePickNoticeText(rolePick.notice, t)}
-            </span>
-          )}
+          {rolePick.notice && <RolePickNoticeCallout notice={rolePick.notice} testId="role-pick-notice" />}
 
           {/* Thinking + delivery + terminal — desktop inline; folded into ⋯ on mobile. */}
           <span className="hidden @[44rem]:inline-flex">{thinkingChip}</span>

@@ -30,6 +30,7 @@ import type { FolderCommandOrigin } from "../../lib/api/folder-commands-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { isFolderPaneId } from "../../lib/layout/folder-pane-id.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
+import { AgentSelect } from "../AgentSelect.js";
 import { CommandInput } from "../chat/CommandInput.js";
 import { EditorPane } from "../editor-pane/EditorPane.js";
 import { LayoutModeSwitch } from "../split/LayoutModeSwitch.js";
@@ -44,6 +45,8 @@ export interface SpawnFromHomeOpts {
   initialPrompt?: string;
   model?: string;
   thinkingLevel?: string;
+  /** Configured ACP agent for the first prompt; absent → pi. See change: add-acp-session-driver (D16). */
+  agent?: string;
 }
 
 export interface DirectoryHomeViewProps {
@@ -126,6 +129,9 @@ export function DirectoryHomeView({
   const [thinkingPick, setThinkingPick] = useState<string | undefined>(undefined);
   const [runLocation, setRunLocation] = useState<RunLocation>("folder");
   const [worktreeOpen, setWorktreeOpen] = useState(false);
+  // Agent for the first prompt (ACP agents configured); undefined = pi.
+  // See change: add-acp-session-driver (D16).
+  const [agent, setAgent] = useState<string | undefined>(undefined);
 
   // A spawn from this page is in flight until App correlates `session_added`
   // (the page then unmounts as App navigates) or it fails. The ref makes a
@@ -166,11 +172,12 @@ export function DirectoryHomeView({
         ...(text ? { initialPrompt: text } : {}),
         ...(effectiveModel ? { model: effectiveModel } : {}),
         ...(effectiveThinking ? { thinkingLevel: effectiveThinking } : {}),
+        ...(agent ? { agent } : {}),
         ...extra,
       });
       requestIdRef.current = typeof id === "string" ? id : null;
     },
-    [onSpawnSession, effectiveModel, effectiveThinking],
+    [onSpawnSession, effectiveModel, effectiveThinking, agent],
   );
 
   const onSend = (text: string) => {
@@ -266,6 +273,7 @@ export function DirectoryHomeView({
           </div>
         </div>
 
+        <AgentSelect cwd={cwd} onChange={setAgent} className="mx-3 mb-1 flex items-center gap-2 text-xs" />
         <CommandInput
           commands={commands}
           commandsOrigin={commandsOrigin}

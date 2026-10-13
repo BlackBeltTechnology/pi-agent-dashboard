@@ -23,3 +23,7 @@ Gains "Server logs 'PI_DASHBOARD_TS_LOADER is no longer supported'" → unset en
 Gains FAQ: bare `tsc` prints Version 7 → which compiler runs. See change: migrate-typecheck-to-ts7.
 
 See change: streamline-first-run. Claude tool-call fallback / peer auto-install FAQ.
+
+## Change history (moved from docs/AGENTS.md row)
+
+See change: add-acp-session-driver, electron-runtime-overlay-updates, update-pi-core-1-0-adopt-apis, migrate-mcp-to-pi-builtin. host-gate default enforce; pairing revoke/approve operator-only. See change: harden-server-request-surfaces. `local_proof_required` FAQ. See change: harden-trust-and-credential-boundaries. Plugin-config partial write keeps omitted keys. See change: fix-plugin-config-partial-write. Gains TS-loader FAQ: PI_DASHBOARD_TS_LOADER no-longer-supported + booted-under-jiti warns → pi-dashboard stop && pi-dashboard start. See change: strip-only-native-ts-loader.

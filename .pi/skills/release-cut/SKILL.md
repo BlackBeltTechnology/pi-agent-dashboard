@@ -189,12 +189,15 @@ git diff --stat package.json packages/*/package.json pnpm-lock.yaml
 
 Should show `version` bumps in `package.json` and every
 `packages/*/package.json` plus synchronised `@blackbelt-technology/pi-dashboard-*`
-dependency specifiers, plus a regenerated `pnpm-lock.yaml`. No other files.
+dependency specifiers, plus a regenerated `pnpm-lock.yaml`, plus the version
+stamp in `packages/claude-plugin/.claude-plugin/plugin.json` (written by
+`sync-versions.js`; `git diff --stat packages/claude-plugin` must show it).
+No other files.
 
 ## Step 6 — Commit
 
 ```bash
-git add CHANGELOG.md package.json pnpm-lock.yaml packages/*/package.json
+git add CHANGELOG.md package.json pnpm-lock.yaml packages/*/package.json packages/claude-plugin/.claude-plugin/plugin.json
 git commit -m "chore(release): v<version>"
 ```
 
@@ -202,6 +205,18 @@ git commit -m "chore(release): v<version>"
 exact message + file list.
 
 ## Step 7 — Tag and push
+
+First verify the Claude plugin manifest carries the release version — a stale
+`plugin.json` would otherwise ship under the new tag (the `publish.yml`
+preflight rejects it only after the tag is pushed):
+
+```bash
+test "$(node -p "require('./package.json').version")" = "$(node -p "require('./packages/claude-plugin/.claude-plugin/plugin.json').version")" \
+  || { echo "plugin.json version drift — re-run node scripts/sync-versions.js"; exit 1; }
+```
+
+When the `claude` CLI is available, also run `claude plugin validate packages/claude-plugin`
+and `claude plugin validate .` (catches validator schema changes the CI deny-list cannot).
 
 ```bash
 git tag v<version>
@@ -227,6 +242,8 @@ Next steps (human):
        packages via `npm publish -ws --include-workspace-root`) to npm
      • build Electron installers (macOS DMG × 2 — Apple Silicon +
        Intel, Linux DEB+AppImage, Windows NSIS+ZIP+portable per arch)
+     • attach pi-dashboard-claude-plugin-<ver>.zip (the Claude plugin,
+       for claude.ai Customize > Plugins > Upload plugin)
      • create a GitHub Release with artifacts + latest*.yml metadata.
        PRODUCTION tags (vX.Y.Z) publish immediately; PRE-RELEASE tags
        (vX.Y.Z-rc.N) land as a draft.

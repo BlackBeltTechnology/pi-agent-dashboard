@@ -443,6 +443,7 @@ export function useSessionActions(deps: SessionActionDeps) {
       placeholderCwd?: string;
       initialPrompt?: string;
       focus?: boolean;
+      agent?: string;
       /** Spawn-time model (`provider/id`) and thinking level; server validates. */
       model?: string;
       thinkingLevel?: string;
@@ -502,6 +503,9 @@ export function useSessionActions(deps: SessionActionDeps) {
       // See change: redesign-directory-home-split.
       ...(opts?.model ? { model: opts.model } : {}),
       ...(opts?.thinkingLevel ? { thinkingLevel: opts.thinkingLevel } : {}),
+      // Configured ACP agent (picker / sibling inheritance); absent → pi, so the
+      // frame is byte-identical to before. See change: add-acp-session-driver (D16).
+      ...(opts?.agent ? { agent: opts.agent } : {}),
     });
     // Returned so a caller (the folder home) can recognise ITS spawn's failure.
     return requestId;

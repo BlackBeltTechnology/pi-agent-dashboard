@@ -1660,6 +1660,13 @@ export interface SpawnSessionBrowserMessage {
    */
   initialPrompt?: string;
   /**
+   * Optional configured ACP agent id (`acpAgents[].id`). When set the server
+   * starts that agent instead of pi (headless; ACP preflight). Unknown id, or
+   * none configured → error. Absent → pi, byte-identical to before.
+   * See change: add-acp-session-driver (D2).
+   */
+  agent?: string;
+  /**
    * Client-minted UUIDv4 used to correlate `spawn_result` and the eventual
    * `session_added` (which echoes it as `spawnRequestId`). Optional for
    * back-compat with older clients.

@@ -86,6 +86,8 @@ export {
   useT,
 } from "./plugin-context.js";
 export * from "./prompt-component-registry.js";
+export type { RoleRefLabels, RoleRefProps } from "./RoleRef.js";
+export { RoleRef } from "./RoleRef.js";
 export type { SlotAccent, SlotPillProps, SlotSurface } from "./SlotPill.js";
 export { SlotPill } from "./SlotPill.js";
 export {
@@ -107,6 +109,23 @@ export {
   usePluginSettingsPageId,
   useSettingsDraftSource,
 } from "./settings-draft-context.js";
+export type {
+  FieldContract,
+  FieldControlProps,
+  SettingsFieldState,
+  SettingsFieldTestIds,
+  SettingsNoticeTone,
+} from "./settings-fields.js";
+export {
+  FieldShell,
+  NumberField,
+  SelectField,
+  SettingsGroup,
+  SettingsNotice,
+  TextAreaField,
+  TextField,
+  ToggleField,
+} from "./settings-fields.js";
 export {
   ShellSessionsProvider,
   type ShellSessionsProviderProps,

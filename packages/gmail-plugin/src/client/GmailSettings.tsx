@@ -12,8 +12,23 @@
  * overwrite it or re-mount the flow); every flow error rendered as a sentence
  * (`errorKey` / `ERROR_EN`); Revoke via `ui:confirm-dialog`; alias feedback;
  * level descriptions; collapsed-summary project/client id.
+ *
+ * retro-ux-plugin-settings-forms: labelled inputs through the shared settings
+ * field family, numbered wizard step chips (`aria-current="step"`, done = check),
+ * "Connected" / "Re-auth needed" pills, per-account control names, one primary
+ * "Add account" button with a linked disabled reason, flow errors as a severity
+ * notice. Immediate-save model unchanged.
  */
-import { oauthFlowClient, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  FieldShell,
+  oauthFlowClient,
+  SelectField,
+  SettingsGroup,
+  SettingsNotice,
+  TextField,
+  useT,
+  useUiPrimitive,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { validateClientJson } from "../shared/client-json.js";
@@ -41,16 +56,20 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
+// Secondary button recipe (`ui-contract.md`); `tap-target` = 44 px touch, 32 px from sm.
 const btn =
-  "focus-ring rounded border border-[var(--border-primary)] px-2 py-0.5 text-[12px] hover:bg-[var(--bg-hover)] disabled:opacity-50";
-const field = "focus-ring rounded border border-[var(--border-primary)] bg-transparent text-[12px]";
-const muted = "text-[12px] text-[var(--text-muted)]";
-const errorText = "text-[12px] text-[var(--severity-error-fg)]";
+  "focus-ring tap-target rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50";
+// The section's one primary action (white on the theme-invariant `--accent-solid`).
+const primaryBtn =
+  "focus-ring tap-target rounded-md bg-[var(--accent-solid)] px-3 text-xs font-semibold text-white disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)]";
+const field =
+  "focus-ring rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2 py-1 text-xs text-[var(--text-primary)]";
+const muted = "text-xs text-[var(--text-secondary)]";
+const errorText = "text-xs text-[var(--severity-error-fg)]";
 // Static strings: Tailwind cannot see interpolated class names.
-const badgeOk =
-  "rounded border border-[var(--severity-success-border)] bg-[var(--severity-success-bg)] px-1 text-[11px] text-[var(--severity-success-fg)]";
-const badgeReauth =
-  "rounded border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] px-1 text-[11px] text-[var(--severity-warning-fg)]";
+const pillBase = "inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-semibold";
+const badgeOk = `${pillBase} border-[var(--severity-success-border)] bg-[var(--severity-success-bg)] text-[var(--severity-success-fg)]`;
+const badgeReauth = `${pillBase} border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)]`;
 
 /** Poll a flow every 500 ms until terminal. */
 function useFlowPoll(flowId: string | undefined, onPending: (s: FlowStatus) => void, onDone: (err: string | null) => void) {
@@ -84,7 +103,7 @@ function Copyable({ value }: { value: string }) {
   const t = useT();
   return (
     <div className="flex items-center gap-2">
-      <code className="flex-1 overflow-x-auto rounded bg-[var(--bg-tertiary)] px-2 py-1 text-[12px]">{value}</code>
+      <code className="flex-1 overflow-x-auto rounded bg-[var(--bg-tertiary)] px-2 py-1 font-mono text-[12px] text-[var(--text-primary)]">{value}</code>
       <button type="button" className={btn} onClick={() => void navigator.clipboard?.writeText(value)}>
         {t("copy", undefined, "Copy")}
       </button>
@@ -94,9 +113,52 @@ function Copyable({ value }: { value: string }) {
 
 function StepLink({ href, label }: { href: string; label: string }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="focus-ring text-[12px] text-[var(--accent-text)] underline">
+    <a href={href} target="_blank" rel="noopener noreferrer" className="focus-ring text-xs text-[var(--accent-text)] underline">
       {label}
     </a>
+  );
+}
+
+function WizardStepItem({
+  n,
+  title,
+  current,
+  done,
+  children,
+}: {
+  n: WizardStep;
+  title: string;
+  current: boolean;
+  done: boolean;
+  children: React.ReactNode;
+}) {
+  const t = useT();
+  return (
+    <li
+      className="grid grid-cols-[24px_1fr] gap-2 border-t border-[var(--border-subtle)] py-2 first:border-t-0"
+      data-testid={`gmail-step-${n}`}
+      aria-current={current ? "step" : undefined}
+      data-done={done ? "true" : undefined}
+    >
+      <span
+        className={`flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-bold ${
+          current
+            ? "border-[var(--tint-blue-border)] bg-[var(--tint-blue-bg)] text-[var(--tint-blue-fg)]"
+            : done
+              ? "border-[var(--severity-success-border)] bg-[var(--severity-success-bg)] text-[var(--severity-success-fg)]"
+              : "border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]"
+        }`}
+      >
+        {done ? <span aria-hidden="true">✓</span> : n}
+      </span>
+      <div className="flex min-w-0 flex-col gap-1">
+        <div className="text-xs font-semibold text-[var(--text-primary)]">
+          {title.replace(/^\d+\.\s*/, "")}
+          {done ? <span className="sr-only"> — {t("stepDone", undefined, "done")}</span> : null}
+        </div>
+        {children}
+      </div>
+    </li>
   );
 }
 
@@ -135,8 +197,11 @@ export function SetupWizard({
     }
   };
 
-  const stepClass = (n: WizardStep) =>
-    `rounded border p-2 ${focus === n ? "border-[var(--accent)]" : "border-[var(--border-primary)]"}`;
+  // Current step: the highlighted one, else the next thing the user has to do.
+  const current: WizardStep | null =
+    focus ?? (!state.client.configured ? 1 : state.accounts.length === 0 ? 6 : null);
+  const isDone = (n: WizardStep) =>
+    n !== current && (state.client.configured ? n <= 5 || state.accounts.length > 0 : current !== null && n < current);
   const uploadMsg: Record<string, string> = {
     not_json: t("errNotJson", undefined, "That file is not valid JSON. Upload the client_secret_*.json you downloaded (step 5)."),
     web_client: t("errWebClient", undefined, "This is a Web application client. Create a Desktop app client instead (step 4)."),
@@ -151,19 +216,17 @@ export function SetupWizard({
   };
 
   return (
-    <ol className="flex flex-col gap-2" data-testid="gmail-wizard">
-      <li className={stepClass(1)} data-testid="gmail-step-1">
-        <div className="font-medium text-[13px]">{t("step1", undefined, "1. Google Cloud project + Gmail API")}</div>
-        <label className={`${muted} flex items-center gap-2`}>
-          {t("projectId", undefined, "Project id")}
-          <input
-            data-testid="gmail-project-id"
-            className={`${field} px-1`}
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            placeholder="my-gmail-agent"
-          />
-        </label>
+    <ol className="m-0 flex list-none flex-col p-0" data-testid="gmail-wizard">
+      <WizardStepItem n={1} title={t("step1", undefined, "1. Google Cloud project + Gmail API")} current={current === 1} done={isDone(1)}>
+        <TextField
+          label={t("projectId", undefined, "Project id")}
+          hint={null}
+          mono
+          value={projectId}
+          onChange={setProjectId}
+          placeholder="my-gmail-agent"
+          testIds={{ control: "gmail-project-id" }}
+        />
         <div className={muted}>{t("withoutGcloud", undefined, "Without gcloud:")}</div>
         <div className="flex gap-3">
           <StepLink href={links.projectCreate} label={t("createProject", undefined, "Create project")} />
@@ -172,14 +235,12 @@ export function SetupWizard({
         <div className={muted}>{t("withGcloud", undefined, "With gcloud (run it yourself):")}</div>
         <Copyable value={cmdCreate as string} />
         <Copyable value={cmdEnable as string} />
-      </li>
-      <li className={stepClass(2)} data-testid="gmail-step-2">
-        <div className="font-medium text-[13px]">{t("step2", undefined, "2. Branding")}</div>
+      </WizardStepItem>
+      <WizardStepItem n={2} title={t("step2", undefined, "2. Branding")} current={current === 2} done={isDone(2)}>
         <StepLink href={links.branding} label={t("openBranding", undefined, "Open Branding")} />
         <div className={muted}>{t("fallback2", undefined, "If the link moved: APIs & Services → OAuth consent screen.")}</div>
-      </li>
-      <li className={stepClass(3)} data-testid="gmail-step-3">
-        <div className="font-medium text-[13px]">{t("step3", undefined, "3. Audience + test users")}</div>
+      </WizardStepItem>
+      <WizardStepItem n={3} title={t("step3", undefined, "3. Audience + test users")} current={current === 3} done={isDone(3)}>
         <StepLink href={links.audience} label={t("openAudience", undefined, "Open Audience")} />
         <div className={muted}>
           {t(
@@ -195,42 +256,46 @@ export function SetupWizard({
             "Google error pages: org_internal = the account is outside the organization, switch to External; access_denied = add the account as a test user; admin_policy_enforced = the account's Workspace admin must trust this OAuth client.",
           )}
         </div>
-      </li>
-      <li className={stepClass(4)} data-testid="gmail-step-4">
-        <div className="font-medium text-[13px]">{t("step4", undefined, "4. Desktop OAuth client")}</div>
+      </WizardStepItem>
+      <WizardStepItem n={4} title={t("step4", undefined, "4. Desktop OAuth client")} current={current === 4} done={isDone(4)}>
         <StepLink href={links.clientCreate} label={t("openClients", undefined, "Create client")} />
         <div className={muted}>
           {t("clientHelp", undefined, "Application type: Desktop app. Download the JSON. If the link moved: APIs & Services → Credentials.")}
         </div>
-      </li>
-      <li className={stepClass(5)} data-testid="gmail-step-5">
-        <div className="font-medium text-[13px]">{t("step5", undefined, "5. Upload client_secret_*.json")}</div>
-        <input
-          type="file"
-          className="focus-ring text-[12px]"
-          accept="application/json,.json"
-          data-testid="gmail-client-upload"
-          aria-label={t("uploadLabel", undefined, "Upload the OAuth client JSON")}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) void upload(f);
-          }}
+      </WizardStepItem>
+      <WizardStepItem n={5} title={t("step5", undefined, "5. Upload client_secret_*.json")} current={current === 5} done={isDone(5)}>
+        <FieldShell
+          label={t("uploadLabel", undefined, "Upload the OAuth client JSON")}
+          hint={null}
+          stacked
+          error={uploadError ? (uploadMsg[uploadError.code] ?? uploadError.code) : null}
+          testIds={{ error: "gmail-upload-error" }}
+          errorAttrs={uploadError ? { "data-step": String(uploadError.step) } : undefined}
+          control={({ id, describedBy, invalid }) => (
+            <input
+              id={id}
+              type="file"
+              className="focus-ring text-xs text-[var(--text-primary)]"
+              accept="application/json,.json"
+              data-testid="gmail-client-upload"
+              aria-describedby={describedBy}
+              aria-invalid={invalid || undefined}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void upload(f);
+              }}
+            />
+          )}
         />
         {state.client.configured && (
           <div className={muted} data-testid="gmail-client-ok">
             ✓ {state.client.clientId}
           </div>
         )}
-        {uploadError && (
-          <div role="alert" className={errorText} data-testid="gmail-upload-error" data-step={uploadError.step}>
-            {uploadMsg[uploadError.code] ?? uploadError.code}
-          </div>
-        )}
-      </li>
-      <li className={stepClass(6)} data-testid="gmail-step-6">
-        <div className="font-medium text-[13px]">{t("step6", undefined, "6. Test sign-in")}</div>
+      </WizardStepItem>
+      <WizardStepItem n={6} title={t("step6", undefined, "6. Test sign-in")} current={current === 6} done={isDone(6)}>
         <div className={muted}>{t("step6Help", undefined, "Add your first account below — that is the test sign-in.")}</div>
-      </li>
+      </WizardStepItem>
     </ol>
   );
 }
@@ -242,18 +307,10 @@ const TIER_DESC: Record<Tier, [key: string, en: string]> = {
   send: ["tierSend", "read, draft, send, reply, labels, archive, trash"],
 };
 
-/** `<option>`s carrying each level's own description. */
-function TierOptions() {
+/** Each level's own description, as a select option list. */
+function useTierOptions(): { value: string; label: string }[] {
   const t = useT();
-  return (
-    <>
-      {TIERS.map((tier) => (
-        <option key={tier} value={tier}>
-          {`${TIER_LABEL[tier]} — ${t(TIER_DESC[tier][0], undefined, TIER_DESC[tier][1])}`}
-        </option>
-      ))}
-    </>
-  );
+  return TIERS.map((tier) => ({ value: tier, label: `${TIER_LABEL[tier]} — ${t(TIER_DESC[tier][0], undefined, TIER_DESC[tier][1])}` }));
 }
 
 /** Codes the user can report from Google's own error page (closed list, design D1). */
@@ -272,6 +329,7 @@ function AccountRow({
 }) {
   const t = useT();
   const ConfirmDialog = useUiPrimitive("ui:confirm-dialog");
+  const tierOptions = useTierOptions();
   const [alias, setAlias] = useState(acct.alias ?? "");
   const [msg, setMsg] = useState<string | null>(null);
   const [aliasMsg, setAliasMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -317,21 +375,21 @@ function AccountRow({
     });
   return (
     <li
-      className="flex flex-col gap-1 rounded border border-[var(--border-primary)] p-2"
+      className="flex flex-col gap-2 rounded-md border border-[var(--border-secondary)] p-2"
       data-testid="gmail-account-row"
       data-email={acct.email}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium text-[13px]" data-testid="gmail-account-email">
+        <span className="text-sm font-semibold text-[var(--text-primary)]" data-testid="gmail-account-email">
           {acct.email}
         </span>
         {acct.status === "ok" ? (
           <span className={badgeOk} data-testid="gmail-account-status" data-status="ok">
-            {t("statusOk", undefined, "ok")}
+            {t("statusOk", undefined, "Connected")}
           </span>
         ) : (
           <span className={badgeReauth} data-testid="gmail-account-status" data-status="reauth_required">
-            {t("statusReauth", undefined, "re-auth needed")}
+            {t("statusReauth", undefined, "Re-auth needed")}
           </span>
         )}
         {acct.testingHint && (
@@ -340,9 +398,9 @@ function AccountRow({
           </span>
         )}
         <input
-          aria-label={t("aliasLabel", undefined, "Alias")}
+          aria-label={t("aliasFor", { email: acct.email }, `Alias for ${acct.email}`)}
           data-testid="gmail-account-alias"
-          className={`${field} w-24 px-1`}
+          className={`${field} w-28`}
           value={alias}
           placeholder={t("aliasPlaceholder", undefined, "alias")}
           onChange={(e) => {
@@ -365,18 +423,24 @@ function AccountRow({
         <label className={muted}>
           {t("level", undefined, "Level")}{" "}
           <select
+            aria-label={t("levelFor", { email: acct.email }, `Level for ${acct.email}`)}
             data-testid="gmail-account-level"
             value={acct.tier}
             onChange={(e) => void setLevel(e.target.value as Tier)}
             className={field}
           >
-            <TierOptions />
+            {tierOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
           </select>
         </label>
         <button
           type="button"
           className={btn}
           data-testid="gmail-account-reauth"
+          aria-label={t("reauthFor", { email: acct.email }, `Re-authenticate ${acct.email}`)}
           onClick={() =>
             void run(async () => {
               // Force a fresh consent at the current level (status reset on persist).
@@ -387,7 +451,13 @@ function AccountRow({
         >
           {t("reauth", undefined, "Re-authenticate")}
         </button>
-        <button type="button" className={btn} data-testid="gmail-account-revoke" onClick={() => setConfirming(true)}>
+        <button
+          type="button"
+          className={btn}
+          data-testid="gmail-account-revoke"
+          aria-label={t("revokeFor", { email: acct.email }, `Revoke ${acct.email}`)}
+          onClick={() => setConfirming(true)}
+        >
           {t("revoke", undefined, "Revoke")}
         </button>
         {msg && (
@@ -415,10 +485,76 @@ function AccountRow({
   );
 }
 
+function AddAccount({
+  configured,
+  newTier,
+  onTier,
+  onAdd,
+}: {
+  configured: boolean;
+  newTier: Tier;
+  onTier: (t: Tier) => void;
+  onAdd: () => void;
+}) {
+  const t = useT();
+  const addReasonId = useId();
+  const tierOptions = useTierOptions();
+  return (
+    <div className="flex flex-col gap-2">
+      <SelectField
+        label={t("newLevel", undefined, "Level for the new account")}
+        hint={null}
+        value={newTier}
+        options={tierOptions}
+        onChange={(v) => onTier(v as Tier)}
+        testIds={{ control: "gmail-new-level" }}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className={primaryBtn}
+          data-testid="gmail-add-account"
+          disabled={!configured}
+          aria-describedby={configured ? undefined : addReasonId}
+          onClick={onAdd}
+        >
+          {t("addAccount", undefined, "Add account")}
+        </button>
+        {!configured && (
+          <span id={addReasonId} className={muted} data-testid="gmail-add-account-reason">
+            {t("addAccountDisabled", undefined, "Upload the OAuth client JSON (step 5 above) to enable this.")}
+          </span>
+        )}
+      </div>
+      <p className={`${muted} m-0`} data-testid="gmail-cross-org-hint">
+        {t(
+          "crossOrgHint",
+          undefined,
+          "Accounts outside the project's Workspace organization need an External audience, with each account added as a test user (step 3).",
+        )}
+      </p>
+    </div>
+  );
+}
+
+/** Failed sign-in as a severity notice; the sentence names the wizard step that fixes it. */
+function FlowErrorNotice({ code, step, errKey, clientId }: { code: string; step: WizardStep | null; errKey: string; clientId: string }) {
+  const t = useT();
+  return (
+    <SettingsNotice tone="error">
+      <div data-testid="gmail-flow-error" data-step={step ?? ""}>
+        {t(errKey, { clientId }, ERROR_EN[errKey])}{" "}
+        <span className="text-[var(--severity-error-fg)]" data-testid="gmail-flow-error-code">
+          ({code})
+        </span>
+      </div>
+    </SettingsNotice>
+  );
+}
+
 export function GmailSettings() {
   const t = useT();
   const OAuthFlow = useUiPrimitive("ui:oauth-flow");
-  const newLevelId = useId();
   const [state, setState] = useState<GmailState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [flow, setFlow] = useState<FlowState | null>(null);
@@ -487,8 +623,19 @@ export function GmailSettings() {
     }
   };
 
-  if (loadError) return <div role="alert" className={errorText}>{loadError}</div>;
-  if (!state) return <div className={muted}>{t("loading", undefined, "Loading…")}</div>;
+  if (loadError) {
+    return (
+      <SettingsNotice tone="error" testId="gmail-load-error">
+        {loadError}
+      </SettingsNotice>
+    );
+  }
+  if (!state)
+    return (
+      <div data-testid="gmail-loading" className={muted}>
+        {t("loading", undefined, "Loading…")}
+      </div>
+    );
 
   const step = errorStep(flowError);
   const errKey = errorKey(flowError);
@@ -500,19 +647,21 @@ export function GmailSettings() {
       : t("summaryClient", { clientId: client.clientId ?? "" }, `✓ ${client.clientId ?? ""}`);
   return (
     <section className="flex flex-col gap-3" data-testid="gmail-settings" aria-labelledby="gmail-settings-title">
-      <h3 id="gmail-settings-title" className="font-semibold text-[14px]">
+      <h3 id="gmail-settings-title" className="m-0 text-sm font-semibold text-[var(--text-primary)]">
         {t("title", undefined, "Gmail")}
       </h3>
-      <details open={!client.configured || state.accounts.length === 0 || step !== null}>
-        <summary className="focus-ring cursor-pointer text-[13px]" data-testid="gmail-setup-summary">
-          {t("setup", undefined, "Google Cloud setup")} <span className={muted}>{summary}</span>
-        </summary>
+      <SettingsGroup
+        title={t("setup", undefined, "Google Cloud setup")}
+        meta={summary}
+        summaryTestId="gmail-setup-summary"
+        defaultOpen={!client.configured || state.accounts.length === 0 || step !== null}
+      >
         <SetupWizard state={state} highlight={step} onUploaded={() => void refresh()} />
-      </details>
+      </SettingsGroup>
 
       <div className="flex flex-col gap-2" data-testid="gmail-accounts">
-        <div className="font-medium text-[13px]">{t("accounts", undefined, "Accounts")}</div>
-        <p className={muted} data-testid="gmail-level-help">
+        <div className="text-sm font-semibold text-[var(--text-primary)]">{t("accounts", undefined, "Accounts")}</div>
+        <p className={`${muted} m-0`} data-testid="gmail-level-help">
           {t(
             "levelHelp",
             undefined,
@@ -520,7 +669,7 @@ export function GmailSettings() {
           )}
         </p>
         {state.accounts.length === 0 && <div className={muted}>{t("noAccounts", undefined, "No accounts connected.")}</div>}
-        <ul className="flex flex-col gap-2">
+        <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {state.accounts.map((a) => (
             <AccountRow
               key={a.sub}
@@ -543,7 +692,7 @@ export function GmailSettings() {
         </ul>
         {flow ? (
           <div className="flex flex-col gap-2">
-            <p className={muted} data-testid="gmail-consent-hint">
+            <p className={`${muted} m-0`} data-testid="gmail-consent-hint">
               {t(
                 "consentHint",
                 undefined,
@@ -559,11 +708,11 @@ export function GmailSettings() {
             />
             {flow.phase === "waiting" && (
               <details data-testid="gmail-google-error">
-                <summary className="focus-ring cursor-pointer text-[12px]">
+                <summary className="focus-ring cursor-pointer text-xs text-[var(--text-primary)]">
                   {t("googleErrorSummary", undefined, "Google showed an error instead of returning here?")}
                 </summary>
                 <div className={muted}>{t("googleErrorHelp", undefined, "Pick the error code Google displayed:")}</div>
-                <div className="flex flex-wrap gap-2">
+                <div className="mt-1 flex flex-wrap gap-2">
                   {REPORT_CODES.map((code) => (
                     <button
                       key={code}
@@ -580,47 +729,9 @@ export function GmailSettings() {
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <label htmlFor={newLevelId} className={muted}>
-                {t("newLevel", undefined, "Level for the new account")}
-              </label>
-              <select
-                id={newLevelId}
-                data-testid="gmail-new-level"
-                value={newTier}
-                onChange={(e) => setNewTier(e.target.value as Tier)}
-                className={field}
-              >
-                <TierOptions />
-              </select>
-              <button
-                type="button"
-                className={btn}
-                data-testid="gmail-add-account"
-                disabled={!client.configured}
-                onClick={() => void addAccount()}
-              >
-                {t("addAccount", undefined, "Add account")}
-              </button>
-            </div>
-            <p className={muted} data-testid="gmail-cross-org-hint">
-              {t(
-                "crossOrgHint",
-                undefined,
-                "Accounts outside the project's Workspace organization need an External audience, with each account added as a test user (step 3).",
-              )}
-            </p>
-          </div>
+          <AddAccount configured={client.configured} newTier={newTier} onTier={setNewTier} onAdd={() => void addAccount()} />
         )}
-        {flowError && (
-          <div role="alert" className={errorText} data-testid="gmail-flow-error" data-step={step ?? ""}>
-            {t(errKey, { clientId: client.clientId ?? "" }, ERROR_EN[errKey])}{" "}
-            <span className={muted} data-testid="gmail-flow-error-code">
-              ({flowError})
-            </span>
-          </div>
-        )}
+        {flowError && <FlowErrorNotice code={flowError} step={step} errKey={errKey} clientId={client.clientId ?? ""} />}
         {lastRevoke && (
           <div role="status" className={muted} data-testid="gmail-revoke-result">
             {lastRevoke}

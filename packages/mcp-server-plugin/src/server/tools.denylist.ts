@@ -34,6 +34,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/pi-resources/commands", reason: "composer `/` list for sessionless UIs (folder home, ended session); agents use getpi_resources. See change: redesign-directory-home-split" },
   { pattern: "/api/roles/used-by", reason: "Model roles page \"used by\" overview; informational, UI-only" },
   { pattern: "/api/kb/", reason: "kb engine admin" },
+  // add-acp-session-driver: the spawn picker's {id,name} list; UI-only.
+  { pattern: "/api/acp/", reason: "ACP new-session picker agent list; UI-only" },
   // add-server-push-notifications (Decision 12).
   { pattern: "/api/push/", reason: "push management is UI/REST-only in v1" },
   // Access-grant review + creation (change: add-access-grants-and-review). The

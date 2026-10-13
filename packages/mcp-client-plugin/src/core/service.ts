@@ -73,6 +73,8 @@ export function createMcpClientConfigService(deps: McpClientConfigServiceDeps): 
     saveServer: (name, entry, scope, opts) => writer.saveServer(name, entry, scope, opts),
     removeServer: (name, scope) => writer.removeServer(name, scope),
     setEnabled: (name, enabled, scope) => writer.setEnabled(name, enabled, scope),
+    setProjectOverride: (name, patch, scope) => writer.setProjectOverride(name, patch, scope),
+    convertLegacyCopy: (name, scope) => writer.convertLegacyCopy(name, scope),
     convertAdapterLeftovers: (name, scope) => writer.convertAdapterLeftovers(name, scope),
 
     checkConfigFiles(opts) {

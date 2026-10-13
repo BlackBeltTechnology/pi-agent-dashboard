@@ -256,6 +256,37 @@ describe("goal REST routes", () => {
     expect(spawnedFor).toBe(g.id);
   });
 
+  // test-plan #E60 (add-acp-session-driver): goals stay pi-only.
+  it("E60: linking an ACP session is refused with unsupported_for_acp; nothing stamped, primed or linked", async () => {
+    const sm = makeSessionManager(cwd);
+    (sm.listAll() as Array<Record<string, unknown>>).push({ id: "acp1", cwd, source: "dashboard", driver: "acp" });
+    await setup(undefined, sm);
+    const g = await store.create(cwd, { objective: "x" });
+    const res = await fastify.inject({
+      method: "POST",
+      url: `/api/folders/goals/${g.id}/sessions?${q()}`,
+      payload: { sessionId: "acp1" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ success: false, code: "unsupported_for_acp" });
+    expect((await store.list(cwd))[0]!.sessionIds).not.toContain("acp1");
+    expect(applied).toEqual([]);
+    expect(primed).toEqual([]);
+  });
+
+  // test-plan #E61: goal spawn never carries an agent, even with agents configured.
+  it("E61: spawn:true calls spawnGoalSession without any agent option", async () => {
+    let args: unknown[] = [];
+    await setup(async (...a: unknown[]) => {
+      args = a;
+      return { success: true };
+    });
+    const g = await store.create(cwd, { objective: "x" });
+    await fastify.inject({ method: "POST", url: `/api/folders/goals/${g.id}/sessions?${q()}`, payload: { spawn: true, agent: "qmt" } });
+    expect(JSON.stringify(args)).not.toContain("qmt");
+    expect(JSON.stringify(args)).not.toContain("agent");
+  });
+
   // See change: fix-goal-detail-turns-and-spend.
   it("X3: GET record carries server-derived totalSpendUsd", async () => {
     const sm = makeSessionManager(cwd, { s1: 0.29 });

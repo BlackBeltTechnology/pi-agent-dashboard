@@ -4,7 +4,9 @@
  * be disabled before a rejected round-trip — task 6.1), and building the full
  * resolved config payload written on save (design D5).
  *
- * See change: add-hermes-memory-settings-plugin.
+ * Validation messages go through the plugin translator (`t`), with English fallbacks.
+ *
+ * See change: add-hermes-memory-settings-plugin, retro-ux-plugin-settings-forms.
  */
 import { DEFAULTS, FIELD_DESCRIPTORS, KNOWN_KEYS, type MemoryConfig } from "../shared/hermes-config.js";
 
@@ -31,29 +33,39 @@ export function valueEquals(a: unknown, b: unknown): boolean {
  * null. Only numeric bounds + regex compilation are checked (the fields a user
  * can put into an invalid state via a free input) — mirrors the server.
  */
-function numberError(value: unknown, desc: { integer: boolean; min: number }): string | null {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "Enter a number";
-  if (value < desc.min) return `Must be ≥ ${desc.min}`;
-  if (desc.integer && !Number.isInteger(value)) return "Must be a whole number";
+/** Plugin-scoped translator shape (`useT()` from the runtime). */
+export type Translate = (key: string, vars?: Record<string, string | number>, fallback?: string) => string;
+
+/** English-only translator: interpolates `{var}` into the fallback. Used when no `t` is passed. */
+const englishOnly: Translate = (key, vars, fallback) => {
+  const template = fallback ?? key;
+  return vars ? template.replace(/\{(\w+)\}/g, (_, name) => String(vars[name] ?? "")) : template;
+};
+
+function numberError(value: unknown, desc: { integer: boolean; min: number }, t: Translate): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return t("errEnterNumber", undefined, "Enter a number");
+  if (value < desc.min) return t("errMin", { min: desc.min }, `Must be ≥ ${desc.min}`);
+  if (desc.integer && !Number.isInteger(value)) return t("errWhole", undefined, "Must be a whole number");
   return null;
 }
 
-function regexArrayError(value: unknown): string | null {
+function regexArrayError(value: unknown, t: Translate): string | null {
   if (!Array.isArray(value)) return null;
   for (const line of value as string[]) {
     try {
       new RegExp(line);
     } catch {
-      return `Invalid regex: ${line}`;
+      return t("errRegex", { line }, `Invalid regex: ${line}`);
     }
   }
   return null;
 }
 
-export function fieldError(key: keyof MemoryConfig, value: unknown): string | null {
+/** Message keys (`errEnterNumber`, `errMin`, `errWhole`, `errRegex`) live in the plugin i18n catalog. */
+export function fieldError(key: keyof MemoryConfig, value: unknown, t: Translate = englishOnly): string | null {
   const desc = FIELD_DESCRIPTORS[key];
-  if (desc.kind === "number") return numberError(value, desc);
-  if (desc.kind === "regexArray") return regexArrayError(value);
+  if (desc.kind === "number") return numberError(value, desc, t);
+  if (desc.kind === "regexArray") return regexArrayError(value, t);
   return null;
 }
 

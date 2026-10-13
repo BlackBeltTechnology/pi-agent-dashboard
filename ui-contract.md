@@ -173,10 +173,14 @@ drop it on a raised surface.
 | chip / pill | `rounded-full px-1.5 py-0.5 text-[11px] bg-[var(--bg-tertiary)]` (identity pill: tint triple) |
 | action chip | `focus-ring inline-flex items-center gap-0.5 rounded-md border px-2.5 tap-target text-[12px] font-semibold` + `tint-action-X` |
 | severity callout | `rounded-md border bg-[var(--severity-X-bg)] border-[var(--severity-X-border)] text-[var(--severity-X-fg)]` |
+| role ref (`RoleRef`, `dashboard-plugin-runtime`) | role token `font-mono font-semibold text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded px-1.5` · model id `font-mono text-[var(--text-primary)] truncate` with the provider prefix in a `sr-only` span (so `textContent` keeps `provider/id`, no `aria-label`) · level chip `text-xs font-semibold text-[var(--text-secondary)] border rounded-full px-1.5` + `sr-only` "thinking" · one-shot picks show the model then "from @role" in `--text-secondary` · no model value → warning pill "No model assigned". Every surface that shows an `@role[:level]` ref renders it through this component. See change: retro-ux-model-selector |
+| binding status pill | `inline-flex rounded-full border px-1.5 py-0.5 text-xs` + `--severity-warning-{bg,border,fg}`; one vocabulary: `detached` → "Detached", `dangling` → "Role unassigned, keeps its last model", unassigned → "No model assigned", `ok` → nothing; the raw status stays in `data-status`. The reason and a "Reattach to @role" button sit in a warning callout. See change: retro-ux-model-selector |
 | primary button | `focus-ring rounded-md bg-[var(--accent-solid)] px-3 min-h-[44px] sm:min-h-[36px] text-white font-semibold disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)]` — `--accent-solid` is theme-invariant (white on it is 5.17:1 everywhere); `--accent-primary` is NOT a white-text fill (3.68:1) |
 | secondary button | `focus-ring rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] px-3 min-h-[44px] sm:min-h-[36px]` |
 | section heading | `text-[12px] font-semibold text-[var(--text-secondary)]` — no uppercase + `--text-muted` |
 | field label | `text-[12px] font-semibold text-[var(--text-primary)]` |
+| settings field | the runtime field family (`dashboard-plugin-runtime/src/settings-fields.tsx`): label row (`text-xs font-semibold text-[var(--text-primary)]`, `htmlFor`, unit chip inside the label) + optional key chip + state pill → control → hint (`text-xs text-[var(--text-secondary)]`, `aria-describedby`) → error (`text-xs text-[var(--severity-error-fg)]`, `role="alert"`, `aria-invalid`). **Exception to the `input` row's "label above":** settings rows keep the label beside the control (stacked only for text inputs). The 12 px unit chip inside a settings `<label>` is an exception to the 11 px chip step (text inside a `<label>` meets the 12 px interactive floor). |
+| capsule legend | `text-[12px] font-semibold uppercase text-[var(--text-secondary)]` on `SlotPill` and `SessionSubcard` — the section-heading recipe plus `uppercase` as an explicit exception. `SessionSubcard`'s border-only panel (no fill) is an exception to the inset-panel row. |
 | dialog | scrim `bg-[var(--bg-overlay)]` + panel at card recipe, `max-w-*`, one primary action |
 | input | `rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 py-1.5 text-sm` + persistent label above |
 
@@ -201,6 +205,11 @@ which is why they also carry a shape (below).
    **plus** text, not a bare coloured dot.
 5. Dialogs carry `role="dialog"`, `aria-modal`, a labelled title, focus trap,
    and Escape-to-close.
+   **Exception — non-modal popovers** (the model selector's dropdown): `role="dialog"`
+   with `aria-modal="false"` and an `aria-label`, no focus trap (the page stays
+   interactive, outside click closes it), Escape closes and returns focus to the
+   trigger. A popover that blocks the page is a modal and follows the rule above.
+   See change: retro-ux-model-selector.
 6. **The lower text ramp is not uniformly text-safe, and the failure is
    theme-asymmetric.** Verify a ramp token against BOTH themes before using it
    as text:

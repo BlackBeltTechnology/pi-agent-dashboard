@@ -63,6 +63,7 @@
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-app-kit": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
+    "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1",
     "ajv": "^8.17.1"
   },

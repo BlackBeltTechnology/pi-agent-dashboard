@@ -83,7 +83,7 @@ describe("run-config row", () => {
     renderHost(makeRunConfig(), { onSend: vi.fn() });
     const modelBtn = screen.getByTestId("model-selector-button");
     const levelBtn = screen.getByTestId("thinking-level-button");
-    expect(modelBtn.getAttribute("aria-haspopup")).toBe("true");
+    expect(modelBtn.getAttribute("aria-haspopup")).toBe("dialog");
     expect(levelBtn.getAttribute("aria-haspopup")).toBe("listbox");
     expect(modelBtn.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(modelBtn);

@@ -10,8 +10,8 @@ import {
   type SettingsDraftRegistry,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
-import type React from "react";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULTS, KNOWN_KEYS } from "../../shared/hermes-config.js";
 import { HermesMemorySettings } from "../HermesMemorySettings.js";
@@ -175,6 +175,104 @@ describe("HermesMemorySettings", () => {
       await waitFor(() => expect(sources.get("plugin:hermes-memory")?.isDirty).toBe(true));
       await sources.get("plugin:hermes-memory")!.commit();
       expect(put(fetchMock)).not.toHaveProperty("llmModelOverride");
+    });
+  });
+
+  // ── retro-ux-plugin-settings-forms ────────────────────────────────────────
+  describe("shared field contract", () => {
+    function mountPlain(effective: EffectiveConfig, models: unknown[] = [{ id: "anthropic/claude-sonnet-4", provider: "anthropic" }]) {
+      (globalThis as { fetch?: unknown }).fetch = vi.fn(async (url: string) =>
+        url === "/api/models" ? jsonOk({ data: models }) : jsonOk(effective),
+      );
+      return renderH(<HermesMemorySettings />);
+    }
+
+    // test-plan #E13
+    it("E13: every control is named by its label; an invalid number is announced", async () => {
+      const { findByTestId, getByTestId, container } = mountPlain(allDefaultEffective());
+      await findByTestId("hermes-input-memoryCharLimit");
+      for (const el of container.querySelectorAll("input, select, textarea, [role=switch]")) {
+        const labelled = el.id && container.querySelector(`label[for="${el.id}"]`);
+        expect(labelled, el.outerHTML).toBeTruthy();
+      }
+      const input = getByTestId("hermes-input-memoryCharLimit") as HTMLInputElement;
+      fireEvent.change(input, { target: { value: "abc" } });
+      await waitFor(() => expect(input.getAttribute("aria-invalid")).toBe("true"));
+      const ids = (input.getAttribute("aria-describedby") ?? "").split(" ");
+      const text = ids.map((id) => container.ownerDocument.getElementById(id)?.textContent ?? "").join(" ");
+      expect(text).toMatch(/Enter a number/);
+    });
+
+    // test-plan #E14
+    it("E14: DEFAULT badge when unset; unlisted stored model is shown and kept; inherit clears", async () => {
+      const unlisted = "openrouter/deepseek/deepseek-v4-flash";
+      const { findByTestId, getByTestId, queryByTestId } = mountPlain(
+        allDefaultEffective({ llmModelOverride: { value: unlisted, default: undefined, isDefault: false } }),
+      );
+      await findByTestId("mock-model-selector");
+      expect(getByTestId("mock-model-selector").getAttribute("data-current")).toBe(unlisted);
+      expect(queryByTestId("hermes-default-badge-llmModelOverride")).toBeNull();
+      fireEvent.click(getByTestId("hermes-inherit-llmModelOverride"));
+      await waitFor(() => expect(getByTestId("hermes-default-badge-llmModelOverride")).toBeTruthy());
+    });
+
+    // test-plan #E15
+    it("E15: an empty model list shows an info notice with Open Providers, no bg-black scrim", async () => {
+      const { findByTestId, getByText, container } = mountPlain(allDefaultEffective(), []);
+      const notice = await findByTestId("hermes-no-models-llmModelOverride");
+      expect(notice.getAttribute("data-tone")).toBe("info");
+      expect(getByText("Open Providers")).toBeTruthy();
+      expect(container.innerHTML).not.toContain("bg-black");
+    });
+
+    // test-plan #F1
+    it("F1: the raw-JSON dialog is labelled, traps focus, and Escape returns focus to the opener", async () => {
+      const { findByText, getByRole, queryByRole } = mountPlain(allDefaultEffective());
+      const opener = (await findByText("View raw JSON")) as HTMLButtonElement;
+      opener.focus();
+      fireEvent.click(opener);
+      const dialog = await waitFor(() => getByRole("dialog"));
+      expect(dialog.getAttribute("aria-modal")).toBe("true");
+      expect(dialog.getAttribute("aria-labelledby")).toBeTruthy();
+      for (let i = 0; i < 6; i++) {
+        fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab" });
+        expect(dialog.contains(document.activeElement)).toBe(true);
+      }
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab", shiftKey: true });
+      expect(dialog.contains(document.activeElement)).toBe(true);
+      fireEvent.keyDown(document, { key: "Escape" });
+      await waitFor(() => expect(queryByRole("dialog")).toBeNull());
+      expect(document.activeElement).toBe(opener);
+    });
+
+    // CodeRabbit round 1: a parent re-render must not restart the dialog's focus effect.
+    it("F1b: a parent re-render does not steal focus back into the open dialog", async () => {
+      (globalThis as { fetch?: unknown }).fetch = vi.fn(async (url: string) =>
+        url === "/api/models" ? jsonOk({ data: [] }) : jsonOk(allDefaultEffective()),
+      );
+      const ui = <HermesMemorySettings />;
+      const { findByText, getByRole, rerender } = renderH(ui);
+      fireEvent.click(await findByText("View raw JSON"));
+      await waitFor(() => getByRole("dialog"));
+      const close = getByRole("button", { name: "Close" });
+      expect(document.activeElement).toBe(close);
+      close.blur();
+      rerender(withUiPrimitiveProvider({ "ui:model-selector": MockModelSelector as never }, <HermesMemorySettings />));
+      expect(document.activeElement).not.toBe(close);
+    });
+
+    // test-plan #X2
+    it("X2: a failed load renders inside an error notice", async () => {
+      (globalThis as { fetch?: unknown }).fetch = vi.fn(async () => ({
+        ok: false,
+        status: 500,
+        headers: new Headers(),
+        json: async () => ({ error: "ENOENT" }),
+        text: async () => "ENOENT",
+      }));
+      const { findByTestId } = renderH(<HermesMemorySettings />);
+      const el = await findByTestId("hermes-load-error");
+      expect(el.getAttribute("data-tone")).toBe("error");
     });
   });
 });

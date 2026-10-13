@@ -35,6 +35,10 @@ export function readConfigRedacted(): DashboardConfig {
   // clear (change: add-tunnel-providers — doubt-review gap). The write path
   // preserves a redacted value via writeConfigPartial's tunnel deep-merge.
   config.tunnel = redactTunnelSecrets(config.tunnel);
+  // Agent env values are credentials (API keys). Never served in clear; the
+  // write path preserves a "***" echo by agent id + key.
+  // See change: add-acp-session-driver (D3).
+  config.acpAgents = redactAcpAgentEnv(config.acpAgents);
   // Redact writeOnly plugin config fields (e.g. the browser plugin's
   // per-profile SSO pairing tokens) so GET /api/config never serves them in
   // clear. Plugins WITHOUT a writeOnly field keep their config verbatim
@@ -45,6 +49,32 @@ export function readConfigRedacted(): DashboardConfig {
     Object.entries(config.plugins ?? {}).map(([id, cfg]) => [id, redactPluginConfigForClient(id, cfg)]),
   ) as DashboardConfig["plugins"];
   return config;
+}
+
+function redactAcpAgentEnv(agents: DashboardConfig["acpAgents"]): DashboardConfig["acpAgents"] {
+  return (agents ?? []).map((a) => ({
+    ...a,
+    env: Object.fromEntries(Object.keys(a.env ?? {}).map((k) => [k, REDACTED])),
+  }));
+}
+
+/** A `"***"` env value echoed by the client resolves to the stored value (by agent id + key). */
+function preserveAcpAgentEnv(incoming: unknown, existing: unknown): unknown {
+  if (!Array.isArray(incoming)) return incoming;
+  const stored = new Map<string, Record<string, unknown>>();
+  for (const a of Array.isArray(existing) ? existing : []) {
+    if (a && typeof a.id === "string" && a.env && typeof a.env === "object") stored.set(a.id, a.env);
+  }
+  return incoming.map((a) => {
+    if (!a || typeof a !== "object" || !a.env || typeof a.env !== "object") return a;
+    const prior = stored.get(a.id) ?? {};
+    const env: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(a.env as Record<string, unknown>)) {
+      if (v !== REDACTED) env[k] = v;
+      else if (k in prior) env[k] = prior[k];
+    }
+    return { ...a, env };
+  });
 }
 
 function redactTunnelSecrets(tunnel: DashboardConfig["tunnel"]): DashboardConfig["tunnel"] {
@@ -272,6 +302,10 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
           ? { tailscale: keepSecret(partial.tunnel.tailscale, existingTunnel.tailscale, "authKey") }
           : {}),
       };
+    }
+
+    if (partial.acpAgents !== undefined) {
+      partial.acpAgents = preserveAcpAgentEnv(partial.acpAgents, existing.acpAgents);
     }
 
     // Merge memoryLimits sub-object

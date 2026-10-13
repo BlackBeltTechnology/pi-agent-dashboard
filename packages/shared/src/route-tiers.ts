@@ -43,6 +43,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/access/prompts", tier: "observe" },
   { method: "GET", path: "/api/access/store-stats", tier: "observe" },
   { method: "GET", path: "/api/access/yolo/roots", tier: "observe" },
+  // add-acp-session-driver: the spawn picker's `{id, name}` projection. `control`
+  // = the tier that may spawn; never exposes command/args/env.
+  { method: "GET", path: "/api/acp/agents", tier: "control" },
   { method: "POST", path: "/api/access/grants", tier: "operate" },
   { method: "POST", path: "/api/access/prompts/:promptId", tier: "operate" },
   { method: "POST", path: "/api/access/yolo", tier: "operate" },
@@ -294,6 +297,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/live-server/start", tier: "operate" },
   { method: "POST", path: "/api/local-proof", tier: "operate" },
   { method: "POST", path: "/api/mcp-client/servers/:name/convert", tier: "operate" },
+  { method: "POST", path: "/api/mcp-client/servers/:name/convert-to-override", tier: "operate" },
   { method: "POST", path: "/api/model-proxy/api-keys", tier: "operate" },
   { method: "POST", path: "/api/model-proxy/api-keys/:id/revoke", tier: "operate" },
   { method: "POST", path: "/api/model-proxy/refresh", tier: "operate" },
@@ -406,6 +410,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PUT", path: "/api/kb/config", tier: "operate" },
   { method: "PUT", path: "/api/mcp-client/servers/:name", tier: "operate" },
   { method: "PUT", path: "/api/mcp-client/servers/:name/enabled", tier: "operate" },
+  { method: "PUT", path: "/api/mcp-client/servers/:name/project-override", tier: "operate" },
   { method: "PUT", path: "/api/openspec/groups/assignments", tier: "control" },
   { method: "PUT", path: "/api/openspec/groups/change-order", tier: "control" },
   { method: "PUT", path: "/api/pi-retry", tier: "control" },
