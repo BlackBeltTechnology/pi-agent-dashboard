@@ -21,8 +21,8 @@
 
 ## 5. Verify
 
-- [ ] 5.1 Run the touched suites and `npm run quality:changed`; restart the server (`POST /api/restart`) and build the client
-- [ ] 5.2 `Audit` subagent pass on the diff (refusal body on an auth boundary; disclosure rule)
+- [x] 5.1 Run the touched suites and `npm run quality:changed`; restart the server (`POST /api/restart`) and build the client
+- [x] 5.2 `Audit` subagent pass on the diff (refusal body on an auth boundary; disclosure rule)
 
 <!-- Folded from test-plan.md by plan-proposal. One task per manifest row; write each failing before its implementation task. -->
 ## 6. L1 — server helper (vitest)
@@ -58,5 +58,5 @@
 
 ## 9. Manual verification
 
-- [ ] 9.1 Compare the implementation with the approved board `mockups/operate-callout.html` in base dark, base light, nord dark and at 375 px (test-plan: manual-only, test-plan #F6)
-- [ ] 9.2 From a second machine on a trusted network over plain http with no credential, open Settings → Vault — callout with the use-host row only; on the host — vault loads (test-plan: manual-only, test-plan #X3)
+- [x] 9.1 Compare the implementation with the approved board `mockups/operate-callout.html` in base dark, base light, nord dark and at 375 px (test-plan: manual-only, test-plan #F6)
+- [x] 9.2 From a second machine on a trusted network over plain http with no credential, open Settings → Vault — callout with the use-host row only; on the host — vault loads (test-plan: manual-only, test-plan #X3)
