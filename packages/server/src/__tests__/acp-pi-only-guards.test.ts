@@ -31,14 +31,21 @@ function ctxFor(driver: "acp" | undefined) {
   return { feedback, ctx };
 }
 
+const SILENT = new Set(["request_roles", "subagent_resync_request"]);
+
 describe("guardAcpBrowserMessage", () => {
   for (const op of OPS) {
     it(`E43: ${String(op.type)} → refused for ACP, passes for pi`, () => {
       const acp = ctxFor("acp");
       expect(guardAcpBrowserMessage({ ...op, sessionId: "S" } as never, acp.ctx)).toBe(true);
-      expect(acp.feedback).toHaveBeenCalledTimes(1);
-      expect(acp.feedback.mock.calls[0]?.[1]).toContain(UNSUPPORTED_FOR_ACP);
-      expect(acp.feedback.mock.calls[0]?.[2]).toBe(op.type);
+      if (SILENT.has(String(op.type))) {
+        // background client requests: dropped without a chat error
+        expect(acp.feedback).not.toHaveBeenCalled();
+      } else {
+        expect(acp.feedback).toHaveBeenCalledTimes(1);
+        expect(acp.feedback.mock.calls[0]?.[1]).toContain(UNSUPPORTED_FOR_ACP);
+        expect(acp.feedback.mock.calls[0]?.[2]).toBe(op.type);
+      }
 
       const pi = ctxFor(undefined);
       expect(guardAcpBrowserMessage({ ...op, sessionId: "S" } as never, pi.ctx)).toBe(false);

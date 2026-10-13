@@ -203,3 +203,11 @@ Additive. Deploy = server restart (jiti; client rebuild for picker). Rollback = 
 - **Security pass (3.12, inline).** Env allowlist + forbidden-key filter; argv-only spawn; paths only from the minted UUID (asserted); hostile ACP session id stays in memory; `Object.hasOwn` on every agent-keyed dispatch table; stdin/stdout stream `error` handled (an EPIPE would otherwise crash the server for host A); redaction + `***` preservation by agent id + key; refusal-before-side-effect guards. Configuring `acpAgents` is arbitrary command execution by design — gated by the `operate` tier like the other config writes; documented in `docs/acp-sessions.md` (group 5).
 - **Not done in this phase:** Playwright specs (#F1–#F6, #F8–#F15) and QA smoke (#P3, #X7), manual #F7, group 5 docs, group 8, the S4 startup-failure callout, the 1:1 mockup visual pass, and an end-to-end run against a REAL ACP agent (fixtures are synthetic).
 
+## Implementation notes (harness findings)
+
+First real run against the docker harness (fake ACP agents seeded in `docker/test-entrypoint.sh`) found four defects the L1 suite could not:
+- **`replay_complete` on a fresh register.** The server holds every event of a session for 5 s after `session_register` until `replay_complete`. Only the reattach path sent it, so the first turn of a new session was invisible. `start()` now sends it right after the register.
+- **Idle `steer` was queued.** The browser's default delivery is `steer` (also when idle; pi runs it at once). The adapter queued every steer. Now only a not-ready or mid-turn prompt queues.
+- **Host B could not import the credential plan.** The server imported `@blackbelt-technology/pi-dashboard-extension/src/local-token-header.js`; the native TS loader retries `.js`→`.ts` for relative specifiers only, so the keeper-run bridge died at start. Loaded by file URL from the package root instead.
+- **Background `request_roles` produced a chat error** on ACP sessions (the client sends it through the first live session). Refused silently now, and the client prefers a pi session for that refresh.
+

@@ -275,7 +275,7 @@ function folderGroupBody(page: Page, cwd: string): Locator {
  * paths). Waits for the sidebar to render SOME group first so a still-hydrating
  * snapshot is not misread as "not pinned".
  */
-async function ensureFixtureGitGroup(page: Page): Promise<Locator> {
+export async function ensureFixtureGitGroup(page: Page): Promise<Locator> {
   const body = folderGroupBody(page, FIXTURE_GIT);
   await page
     .locator('[data-testid^="folder-body-"]')

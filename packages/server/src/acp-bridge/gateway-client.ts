@@ -13,10 +13,27 @@
  *
  * See change: add-acp-session-driver (D1, "Registration, heartbeat and initialization").
  */
-import { localCredentialPlan } from "@blackbelt-technology/pi-dashboard-extension/src/local-token-header.js";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { ExtensionToServerMessage, ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { rendezvousEndpoint } from "@blackbelt-technology/pi-dashboard-shared/rendezvous.js";
 import WebSocket from "ws";
+
+type CredentialPlan = (endpoint: string) => Promise<{ headers?: Record<string, string>; createConnection?: unknown; dispose?: () => void } | undefined>;
+
+/**
+ * The bridge's loopback credential plan lives in the extension package, which
+ * has no `exports` map; the native TS loader only retries `.js`→`.ts` for
+ * relative specifiers, so a deep package import of it cannot resolve in host B.
+ * Resolve the package root and import the file by URL instead.
+ */
+async function loadCredentialPlan(): Promise<CredentialPlan> {
+  const root = dirname(createRequire(import.meta.url).resolve("@blackbelt-technology/pi-dashboard-extension/package.json"));
+  const mod = (await import(pathToFileURL(join(root, "src", "local-token-header.ts")).href)) as { localCredentialPlan: CredentialPlan };
+  return mod.localCredentialPlan;
+}
+let credentialPlan: Promise<CredentialPlan> | undefined;
 
 const BUFFER_CAP = 1000;
 const BACKOFF_MS = [500, 1000, 2000, 5000, 10_000];
@@ -58,7 +75,8 @@ export function createGatewayClient(o: GatewayClientOptions): GatewayClient {
     const endpoint = (o.endpoint ?? resolveGatewayEndpoint)();
     if (!endpoint) return scheduleRetry("no dashboard endpoint resolvable");
     try {
-      const plan = await localCredentialPlan(endpoint);
+      credentialPlan ??= loadCredentialPlan();
+      const plan = await (await credentialPlan)(endpoint);
       const socket = new WebSocket(endpoint, {
         ...(plan?.headers ? { headers: plan.headers } : {}),
         ...(plan?.createConnection ? { createConnection: plan.createConnection as never } : {}),

@@ -34,6 +34,13 @@ const PI_ONLY_BROWSER_OPS: ReadonlySet<string> = new Set([
   "subagent_resync_request",
 ]);
 
+/**
+ * Background requests the client issues on its own (no user action): refused
+ * silently — a chat error the user never caused would be noise. The
+ * request_roles refresh is sent through whichever session is live first.
+ */
+const SILENT_PI_ONLY_OPS: ReadonlySet<string> = new Set(["request_roles", "subagent_resync_request"]);
+
 export const isAcp = (session: Pick<DashboardSession, "driver"> | undefined): boolean => session?.driver === "acp";
 
 export function unsupportedMessage(op: string): string {
@@ -67,5 +74,6 @@ export function guardAcpBrowserMessage(msg: BrowserToServerMessage, ctx: AcpGuar
   if (!PI_ONLY_BROWSER_OPS.has(msg.type)) return false;
   const sessionId = (msg as { sessionId?: unknown }).sessionId;
   if (typeof sessionId !== "string") return false;
+  if (SILENT_PI_ONLY_OPS.has(msg.type)) return isAcp(ctx.sessionManager.get(sessionId));
   return refuseIfAcp(ctx, sessionId, msg.type);
 }

@@ -271,7 +271,9 @@ export function createAcpSessionAdapter(opts: AcpSessionAdapterOptions): AcpSess
 
   function sendPrompt(m: Extract<ServerToExtensionMessage, { type: "send_prompt" }>): void {
     const p: QueuedPrompt = { text: m.text, images: m.images, promptId: m.promptId };
-    if (!ready || turnActive || m.delivery === "steer") {
+    // The browser sends delivery "steer" by default, also when idle (pi runs it
+    // at once). ACP has no steering, so a steer sent mid-turn queues as a follow-up.
+    if (!ready || turnActive) {
       queue.enqueue(p);
       send({ type: "prompt_received", sessionId, fresh: false, ...(m.promptId ? { promptId: m.promptId } : {}) });
       publishQueue();
@@ -421,6 +423,10 @@ export function createAcpSessionAdapter(opts: AcpSessionAdapterOptions): AcpSess
 
   async function start(): Promise<void> {
     send(registerMessage("spawn"));
+    // A fresh session has nothing to replay. The server holds every event back
+    // (replayingSessions) after a register until `replay_complete`, or for 5 s —
+    // without this the first turn of a new session would stay invisible.
+    send({ type: "replay_complete", sessionId });
     startWatchdogs();
     const timedOut = new Promise<never>((_, reject) => {
       startTimer = setTimeout(

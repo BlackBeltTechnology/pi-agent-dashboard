@@ -1384,8 +1384,12 @@ export default function App() {
     // bridge handler runs in pi; ended sessions have no live WS). Status
     // values: "active" | "idle" | "streaming" — anything but "ended".
     let liveSession: string | undefined;
+    // Prefer a pi session: roles are pi-only and an ACP session refuses them.
+    // See change: add-acp-session-driver.
     for (const [id, s] of sessions) {
-      if (s.status !== "ended") { liveSession = id; break; }
+      if (s.status === "ended") continue;
+      if (s.driver !== "acp") { liveSession = id; break; }
+      liveSession ??= id;
     }
     if (!liveSession) return;
     globalRefreshRequestedRef.current = true;

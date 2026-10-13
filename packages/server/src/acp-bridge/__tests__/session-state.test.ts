@@ -9,6 +9,17 @@ import { makeHarness, startReady } from "./adapter-harness.js";
 const userBubbles = (h: ReturnType<typeof makeHarness>) =>
   h.events().filter((e) => e.eventType === "message_start" && (e.data.message as any)?.role === "user");
 
+describe("fresh registration", () => {
+  it("replay_complete follows the first register, before any event (server holds events until then)", async () => {
+    const h = makeHarness({ protocol: 1 });
+    await startReady(h);
+    const types = h.sent.map((m) => m.type);
+    expect(types[0]).toBe("session_register");
+    expect(types[1]).toBe("replay_complete");
+    expect(types.indexOf("event_forward")).toBeGreaterThan(1);
+  });
+});
+
 describe("prompts + echo", () => {
   it("E29: v2 early echo before acceptance yields exactly one user bubble", async () => {
     const h = makeHarness({ protocol: 2, knobs: { echoUser: "before", acceptedMessageId: "u1" } });
@@ -79,6 +90,14 @@ describe("queue", () => {
     expect(h.received().filter((m) => m.method === "session/prompt")).toHaveLength(1);
     await h.waitFor(() => h.received().filter((m) => m.method === "session/prompt").length === 2, 8000);
   }, 15000);
+
+  it("an idle steer (the browser default) runs at once, not queued", async () => {
+    const h = makeHarness({ protocol: 1 });
+    await startReady(h);
+    h.prompt("hello", { delivery: "steer" });
+    expect(h.of("prompt_received").map((m) => m.fresh)).toEqual([true]);
+    await h.waitFor(() => h.eventTypes().includes("agent_settled"));
+  });
 
   it("remove and clear act on the queue", async () => {
     const h = makeHarness({ protocol: 1, knobs: { delayMs: 200 } });

@@ -839,6 +839,25 @@ Cross-refs:
 - docs/architecture.md:1151
 - docs/architecture.md:1156
 
+## How do I run a non-pi agent (ACP) in the dashboard?
+
+Add `acpAgents` to `~/.pi/dashboard/config.json`. Spawn picker then offers agent.
+
+```json
+{
+  "acpAgents": [{ "id": "qmt", "name": "querymt", "command": "qmtcode", "args": ["--stdio"] }],
+  "acp": { "protocolV2": false }
+}
+```
+
+- `durable: false` (default) → in-process. Ends on server stop.
+- `durable: true` → rpc-keeper host. Survives server restart; event log replayed on reattach.
+- Pi-only features refused (`unsupported_for_acp`): resume, fork, reload, retry, goals, flows, roles.
+- Agent runs as server user. Same-user file access NOT isolated. `acpAgents` = arbitrary command execution.
+- Windows: `.cmd` / `.bat` rejected. Use `.exe`.
+
+Full reference: [docs/acp-sessions.md](acp-sessions.md). See change: add-acp-session-driver.
+
 ## What is the typical local development workflow?
 
 Three terminals: dashboard server `--dev`, Vite dev server, pi with bridge.
