@@ -990,5 +990,17 @@
   "providers.peerAutoInstallFailedTitle": "Couldn't install pi-anthropic-messages",
   "providers.peerAutoInstallFailedBody": "The install didn't finish. Try again; if it keeps failing, check your network or proxy. Chat with Claude works; tool calls need this package.",
   "providers.peerAutoInstallRetry": "Retry install",
-  "providers.peerAutoInstallDetails": "Details"
+  "providers.peerAutoInstallDetails": "Details",
+  "common.modelsTab": "Models",
+  "common.rolesTab": "Roles",
+  "common.favoritesOnly": "Favorites only",
+  "common.favoriteModel": "Favorite {model}",
+  "common.capabilityAssumed": "assumed",
+  "common.chooseModel": "Choose a model",
+  "common.noModelsHelp": "Connect a provider to add models. Close and reopen this list to refresh it.",
+  "common.openProviders": "Open providers",
+  "common.noModelAssigned": "No model assigned",
+  "common.roleRefFrom": "from",
+  "common.roleRefThinking": "thinking",
+  "common.noRolesHelp": "No roles defined yet. Assign models to roles in Settings → Roles."
 }

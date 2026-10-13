@@ -18,6 +18,7 @@
 import { useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiAlertOutline } from "@mdi/js";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import type { GrammarConfig } from "./grammar-config.js";
@@ -285,8 +286,16 @@ export function GrammarSettings(): React.ReactElement {
           )}
 
           {!draft.llm && (
-            <span data-testid="grammar-model-required" className="text-[10px] text-[var(--severity-warning-fg)]">
-              {t("modelRequired", undefined, "Pick a model — the grammar check cannot run until one is set.")}
+            <span
+              data-testid="grammar-model-required"
+              role="status"
+              className="flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs bg-[var(--severity-warning-bg)] border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]"
+            >
+              {/* Plain <svg>: this section carries no plugin-owned inline styles (@mdi/react sets one). */}
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 flex-shrink-0 mt-0.5 fill-current" aria-hidden="true">
+                <path d={mdiAlertOutline} />
+              </svg>
+              <span>{t("modelRequired", undefined, "Pick a model — the grammar check cannot run until one is set.")}</span>
             </span>
           )}
 

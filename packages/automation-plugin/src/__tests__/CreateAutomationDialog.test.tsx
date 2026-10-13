@@ -441,4 +441,14 @@ describe("CreateAutomationDialog — role-aware model field", () => {
     await waitFor(() => expect(updateAutomation).toHaveBeenCalled());
     expect(updateAutomation.mock.calls[0]![0]!.config.model).toBe("@fast:high");
   });
+
+  it("E19: the role hint names the role and says model and thinking level follow it; no level control", () => {
+    const { getByTestId, queryByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    fireEvent.click(getByTestId("role-opt-coding"));
+    const hint = getByTestId("create-model-role-level-hint");
+    expect(hint.textContent).toContain("Follows @coding");
+    expect(hint.textContent).toMatch(/model and thinking level change when the role changes/);
+    expect(hint.textContent).toContain("Settings → Roles");
+    expect(queryByTestId("mock-thinking-level")).toBeNull();
+  });
 });

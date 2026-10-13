@@ -19,10 +19,11 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { rolePickNoticeText, useRolePick } from "../../lib/roles/useRolePick.js";
+import { useRolePick } from "../../lib/roles/useRolePick.js";
 import { useModelConfig } from "../../lib/state/ModelConfigContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { ModelSelector } from "../settings/ModelSelector.js";
+import { RolePickNoticeCallout } from "../settings/RolePickNotice.js";
 import { ThinkingLevelSelector } from "../settings/ThinkingLevelSelector.js";
 
 /** Default window (ms) to wait for the session to confirm the model change. */
@@ -265,11 +266,7 @@ function OpenSpecRunConfigRowView({
           </fieldset>
         </PopoverBoundaryProvider>
       </div>
-      {roleNotice && (
-        <p role="status" data-testid="run-config-role-notice" className="mt-1 text-[11px] text-[var(--severity-warning-fg)]">
-          {rolePickNoticeText(roleNotice, i18nT)}
-        </p>
-      )}
+      {roleNotice && <RolePickNoticeCallout notice={roleNotice} testId="run-config-role-notice" className="mt-1" />}
       {modelsUnavailable && (
         <p
           data-testid="run-config-model-loading"

@@ -13,6 +13,11 @@
  */
 export const catalog = {
   "zh-CN": {
+    noModelAssigned: "未分配模型",
+    roleRefThinking: "思考",
+    statusDetached: "已分离",
+    statusDangling: "角色未分配，保留上一个模型",
+    levelDropped: "思考级别 {level} 不受 {model} 支持，因此已丢弃该级别。",
     rolesHeading: "角色",
     rolesSubheading: "全局角色 → 模型分配",
     setupBanner: "尚未设置任何角色 — 请在下方为某个角色分配模型以立即设置。",
@@ -37,6 +42,11 @@ export const catalog = {
     assignModelTo: "分配模型给",
   },
   hu: {
+    noModelAssigned: "Nincs modell hozzárendelve",
+    roleRefThinking: "gondolkodás",
+    statusDetached: "Leválasztva",
+    statusDangling: "A szerep nincs hozzárendelve, az utolsó modell marad",
+    levelDropped: "A(z) {level} gondolkodási szintet a(z) {model} nem támogatja, ezért a szint elhagyva.",
     rolesHeading: "Szerepek",
     rolesSubheading: "globális szerep → modell hozzárendelések",
     setupBanner:
@@ -47,7 +57,7 @@ export const catalog = {
     cancelAddCustomRole: "Egyéni szerep hozzáadásának megszakítása",
     pickModelForRole: "Válassz modellt ehhez a szerephez",
     setModelForRole: "Állíts be modellt a(z) @{role} szerephez",
-    unsaved: "nincs mentve",
+    unsaved: "Nincs mentve",
     removeCustomRoleLabel: "@{role} egyéni szerep eltávolítása",
     removeCustomRoleConfirm:
       "Eltávolítod a(z) @{role} egyéni szerepet? Ez minden előbeállításból törli.",
