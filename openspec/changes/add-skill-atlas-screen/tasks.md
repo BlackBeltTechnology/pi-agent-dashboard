@@ -106,4 +106,4 @@
 
 ## 9. Manual verification (post-merge)
 
-- [ ] 9.1 Manual check: theme parity (look) (atlas in base dark, base light, nord dark/light · human review vs `mockups/index.html` · judgment: graph legibility and token parity look right, no automatable observable beyond the axe checks) (test-plan: manual-only, #F9)
+- [x] 9.1 Manual check: theme parity (look) (atlas in base dark, base light, nord dark/light · human review vs `mockups/index.html` · judgment: graph legibility and token parity look right, no automatable observable beyond the axe checks) (test-plan: manual-only, #F9)
