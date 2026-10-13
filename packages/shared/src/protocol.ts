@@ -1,7 +1,7 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
+import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionDriver, SessionSource, TurnUsage } from "./types.js";
 import type { UsageTotals } from "./usage-totals.js";
 
 // Notify level lives in types.ts (the session record retains a notify log);
@@ -94,7 +94,13 @@ export type BridgeDiagnosticEvent =
    * registering. Delivered only over a later connection to the SAME endpoint
    * whose proof verified. See change: loopback-credential-proof (D8).
    */
-  | "server_proof_failed";
+  | "server_proof_failed"
+  /**
+   * ACP adapter: negotiated protocol version, startup/exit cause and the
+   * rate-limited skipped / discarded / dropped-update counters. `detail` is
+   * human text. See change: add-acp-session-driver (D5, D6).
+   */
+  | "acp";
 
 /**
  * Bridge -> server: how this bridge chose its endpoint, and every refusal to
@@ -234,6 +240,14 @@ export interface SessionRegisterMessage {
    * See change: count-non-message-usage.
    */
   usageSeed?: UsageTotals;
+  /**
+   * Which agent driver serves this session. Absent ≡ `"pi"`. `"acp"` is set by
+   * the ACP adapter; the server persists it and rejects pi-only operations.
+   * Additive/back-compatible. See change: add-acp-session-driver (D12).
+   */
+  driver?: SessionDriver;
+  /** Configured ACP agent id (`acpAgents[].id`) when `driver === "acp"`. */
+  acpAgentId?: string;
 }
 
 export interface SessionUnregisterMessage {

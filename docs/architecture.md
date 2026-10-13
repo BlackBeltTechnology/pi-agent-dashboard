@@ -130,6 +130,26 @@ TypeScript type definitions shared across all components:
 - `browser-protocol.ts` - Server↔Browser WebSocket messages (includes PromptBus messages: `prompt_request`, `prompt_dismiss`, `prompt_cancel`)
 - `types.ts` - Data models (Session, Workspace, Event, etc.)
 
+### ACP agent sessions (change: add-acp-session-driver)
+
+Non-pi agents via Agent Client Protocol. Code: `packages/server/src/acp-bridge/`, shared model `packages/shared/src/acp/`.
+
+- Core: `acp-session-adapter.ts`. Bridge msgs (`ExtensionToServerMessage` / `ServerToExtensionMessage`) ⇄ ACP JSON-RPC NDJSON stdio. No sockets.
+- Host A (`durable: false`): in-process. `LocalBridgeSocket` → `PiGateway.attachLocalConnection`. Ends on server stop.
+- Host B (`durable: true`): `bin/acp-bridge.mjs` under rpc-keeper. WebSocket to gateway. Survives restart; replays `~/.pi/dashboard/acp/<id>.events.jsonl`.
+- Pi-only ops refused: `acp-guard.ts` → `unsupported_for_acp`. Config: [docs/acp-sessions.md](acp-sessions.md).
+
+```mermaid
+flowchart LR
+  GW["pi-gateway"] <-->|"WebSocket (durable: true)"| AB["acp-bridge (rpc-keeper)"]
+  GW <-->|"LocalBridgeSocket (durable: false)"| HA["in-process host"]
+  AB --- CORE
+  HA --- CORE
+  CORE["AcpSessionAdapter"] <-->|"JSON-RPC NDJSON stdio, argv, allowlisted env"| AG["ACP agent"]
+```
+
+See change: add-acp-session-driver.
+
 ## Data Flow
 
 ### Event Flow (pi → browser)
@@ -1453,17 +1473,31 @@ New package `packages/hermes-memory-plugin` (client + server + shared). Settings
 - Runtime caveat: hermes reads config once at extension load → edits apply to newly started sessions only ("applies to new sessions" notice in the UI), not running ones.
 - Structured logging: path + field count on read/write success, failure reason on error, NEVER field values (config may hold model/provider hints).
 
-### MCP Client Plugin (`extract-mcp-client-plugin`, `migrate-mcp-to-pi-builtin`)
+### MCP Client Plugin (`extract-mcp-client-plugin`, `migrate-mcp-to-pi-builtin`, `mcp-client-project-overrides`)
 
-New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of the two Pi MCP config layers on the dashboard side. NO `pi-mcp-adapter` dependency — rebuilt on pi 1.0.0's BUILT-IN MCP. `apple-tools` and `mcp-server-plugin` consume it. See change: migrate-mcp-to-pi-builtin.
+New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of the two Pi MCP config layers on the dashboard side. NO `pi-mcp-adapter` dependency — rebuilt on pi 1.0.0's BUILT-IN MCP. `apple-tools` and `mcp-server-plugin` consume it. See change: migrate-mcp-to-pi-builtin, mcp-client-project-overrides.
 
 **Claims.** `settings-section` → `/settings/plugins/mcp-client`. Folder pill = ONE component on two slots: `sidebar-folder-section` + `worktree-card-section`. `shell-overlay-route` `/folder/:encodedCwd/mcp`, `depth: 2`, `parentPath` `/folder/:encodedCwd`.
 
 **Exports.** `./client`, `./server`, `./core`. `./core` imports NO React and NO host runtime — the hostless `pi-apple-tools-install` CLI builds the same service from it.
 
-**Two layers.** Pi global `$PI_CODING_AGENT_DIR/mcp.json` (else `~/.pi/agent/mcp.json`) + trusted `<cwd>/.pi/mcp.json`. A project entry REPLACES the global entry of the same name — whole entry, not a field merge, matching pi's own rule. Both layers parse as STRICT `JSON.parse`; a file with comments or trailing commas is an unparseable layer that pi skips WHOLE — shown as such, never written over. `src/core/layers.ts` (`LayerPaths`, `piAgentDir`, `defaultLayerPaths`, `nullProto`, `readLayer`). DELETED: adapter worker/port, adapter version floor, global-settings form, `adapterLoadTimeoutMs`, `configSchema.json`, and every shared/import layer (`.mcp.json`, `~/.config/mcp`, host imports). `pi-mcp-adapter` + `strip-json-comments` deps removed; `ajv` stays.
+**Two layers.** Pi global `$PI_CODING_AGENT_DIR/mcp.json` (else `~/.pi/agent/mcp.json`) + trusted `<cwd>/.pi/mcp.json`. Project entry = override OR whole-entry replace (see Project overrides). Whole-entry replace: `command`, `url` or `type` set → replaces global entry of same name, whole entry, not a field merge. Both layers parse as STRICT `JSON.parse`; a file with comments or trailing commas is an unparseable layer that pi skips WHOLE — shown as such, never written over. `src/core/layers.ts` (`LayerPaths`, `piAgentDir`, `defaultLayerPaths`, `nullProto`, `readLayer`). DELETED: adapter worker/port, adapter version floor, global-settings form, `adapterLoadTimeoutMs`, `configSchema.json`, and every shared/import layer (`.mcp.json`, `~/.config/mcp`, host imports). `pi-mcp-adapter` + `strip-json-comments` deps removed; `ajv` stays.
 
-**pi rules.** `src/core/pi-rules.ts` mirrors pi 1.0.0's unexported `validateMcpServerConfig`. `isValidServerName` (`[A-Za-z0-9_-]+`, ≤128, not `__proto__`/`constructor`/`prototype`); `transportOf` (HTTP when `url`, unless `type: "stdio"`); `MCP_EXPOSURES` + `MCP_EXPOSURE_ALIASES` (`codemode-deferred` → `codemode`); `ADAPTER_ONLY_KEYS` / `adapterLeftovers` / `ignoredKeys` (pi ignores unknown keys — adapter keys survive in the file, pi never acts on them); `authModeOf` (provider | header (case-insensitive `Authorization`) | oauth).
+**Project overrides (pi ≥ 1.0.1).** Override = project entry with `command`, `url` and `type` all `=== undefined` (`null` and `""` count as SET). Changes only `enabled`, `exposure`, `toolExposure` of the Pi-global server with same name. Keeps all other global fields, credentials included. Other keys → `bad-keys`. Effective entry = `{...global, ...override}`, validated by pi rules. Exempt from `-`/`_` `name-collision` and project `auth` checks. Credentials stay global.
+- Base = global entry pi KEEPS: valid + first-wins on namespace collision. One shared fn `keptGlobalOf` (`core/pi-rules.ts`) used by effective view AND every writer.
+- `classifyProjectEntry(name, value, keptGlobal?)` → `replace | orphan | bad-keys | invalid | override`.
+- No kept base → `orphan`: folder row, pi message `needs "command" or "url", or a global server to override`.
+- Bad keys → `bad-keys`: `an override can only set enabled, exposure, toolExposure`.
+- Invalid merge → `invalid`: pi validation message.
+- `orphan` / `bad-keys` / `invalid`: global entry stays in effect unchanged.
+- Messages byte-equal pi 1.1.0 text. Golden test E12 reads pi dist `extensions/mcp/config.js`.
+- Valid override = ONE row: `provenance: "pi-global"`, `entry` = merged (redacted in project views), `projectOverride: {path, keys, raw, inherited}`.
+- `orphan` / `bad-keys` / `invalid` = folder row + `overrideIssue`. Not counted by folder pill.
+- Untrusted project: global row unchanged; override → inactive folder row `project-not-trusted`.
+- Whole-entry replace unchanged: `provenance: "pi-folder"`, `overridesGlobal`.
+- `legacyCopy` flag on folder row that is exact old copy of global.
+
+**pi rules.** `src/core/pi-rules.ts` mirrors pi 1.1.0's unexported `validateMcpServerConfig`. Adds `OVERRIDE_KEYS`, `isProjectOverride`, `classifyProjectEntry`, `keptGlobalOf`. `isValidServerName` (`[A-Za-z0-9_-]+`, ≤128, not `__proto__`/`constructor`/`prototype`); `transportOf` (HTTP when `url`, unless `type: "stdio"`); `MCP_EXPOSURES` + `MCP_EXPOSURE_ALIASES` (`codemode-deferred` → `codemode`); `ADAPTER_ONLY_KEYS` / `adapterLeftovers` / `ignoredKeys` (pi ignores unknown keys — adapter keys survive in the file, pi never acts on them); `authModeOf` (provider | header (case-insensitive `Authorization`) | oauth).
 
 **Service.** `ctx.provide("mcp-client.config", …)` before any route registers. Factory `createMcpClientConfigService({ configIO, knownCwds, isProjectTrusted?, paths?, runner?, scratchCwd?, liveTimeoutMs?, liveCacheTtlMs? })` → `McpClientRuntime` = service + `getLiveState(scope, {fresh})`. Write-only paths never run `pi mcp list`.
 
@@ -1471,13 +1505,17 @@ New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of the two
 
 **Live state.** `src/core/live-state.ts` `createLiveStateReader({runner,timeoutMs,cacheTtlMs,now})` runs `pi mcp list --json` through the shared safe-spawn. `LIVE_STATE_TIMEOUT_MS` 30000, `LIVE_STATE_CACHE_TTL_MS` 30000. stdout parsed whatever the exit code — pi exits `1` whenever a server is disconnected or an entry invalid. Timeout aborts the signal → `{ok:false,reason:"timeout"}`; failures never cached. Global view spawns in an empty `mkdtemp` scratch dir so only the global layer loads.
 
-**Effective view.** `createEffectiveViewReader`. Global view = Pi-global layer only. Project view = global then folder. Rows carry provenance `pi-global`/`pi-folder`, `overridesGlobal`, `transport`, `enabled`, `exposure`, `active`, `inactiveReason` (`disabled` | `project-not-trusted` | `invalid-entry` | `name-collision` | `global-only-auth`), `piError`, `ignoredKeys`, `adapterLeftovers`, `authMode`. Server-side redaction (`redactEntry`, `isSecretKey`): GLOBAL entries shown in a project view lose `headers`/`env` → `{redacted,keys}` and `oauth.clientSecret` → `{redacted}`.
+**Effective view.** `createEffectiveViewReader`. Global view = Pi-global layer only. Project view = global then folder. Rows carry provenance `pi-global`/`pi-folder`, `overridesGlobal`, `transport`, `enabled`, `exposure`, `active`, `inactiveReason` (`disabled` | `project-not-trusted` | `invalid-entry` | `name-collision` | `global-only-auth`), `piError`, `ignoredKeys`, `adapterLeftovers`, `authMode`, `projectOverride`, `overrideIssue`, `legacyCopy`. Server-side redaction (`redactEntry`, `isSecretKey`): GLOBAL entries shown in a project view lose `headers`/`env` → `{redacted,keys}` and `oauth.clientSecret` → `{redacted}`.
 
-**Writer.** `createConfigWriter({configIO,paths,knownCwds,isProjectTrusted?})`: `targetPath`, `readServerEntry`, `ensureServerEntry` (merge fields), `saveServer` (whole entry, `previousName` rename), `removeServer`, `setEnabled`, `convertAdapterLeftovers`, `previewEnsure`, `readParseStatus`. Validation order: transport-conflict → pi rules (`invalid-entry`, pi's own message) → project `auth` on HTTP refused (global-only) → `-`/`_` `name-collision`. Collision scope: project = global + project names; global = global + every known TRUSTED folder's project names; entry being replaced excluded. `setEnabled`: write `enabled:false` or remove the key. Folder-disable of a global-only server writes a `folderCopyOf` copy WITHOUT `headers`/`env`/`oauth.clientSecret`/`auth` and returns `omitted`; re-enabling such a copy returns `action:"needs-choice"`. `ConfigRefusalCode` is CLOSED: `unparseable | entry-not-object | invalid-name | name-collision | transport-conflict | invalid-entry | write-failed`. Exports `NotAllowedCwdError`, `FOLDER_COPY_OMITTED`, `folderCopyOf`.
+**Writer.** `createConfigWriter({configIO,paths,knownCwds,isProjectTrusted?})`: `targetPath`, `readServerEntry`, `ensureServerEntry` (merge fields), `saveServer` (whole entry, `previousName` rename), `removeServer`, `setEnabled`, `setProjectOverride`, `convertLegacyCopy`, `convertAdapterLeftovers`, `previewEnsure`, `readParseStatus`. Validation order: transport-conflict → pi rules (`invalid-entry`, pi's own message) → project `auth` on HTTP refused (global-only) → `-`/`_` `name-collision`. Overrides skip last two checks. Collision scope: project = global + project names; global = global + every known TRUSTED folder's project names; entry being replaced excluded. `setEnabled` at project scope, kept global server, no folder entry → `setProjectOverride` smallest override. Existing override → same. Existing whole-entry folder entry → unchanged, `needs-choice` for whole-entry copies. Table: global on+Off → `enabled:false`; on+On → delete key; off+On → `enabled:true`; off+Off → delete key; compare `enabled ?? true`.
+`setProjectOverride(name, patch, scope)`: project scope only. Patch absent = keep, `null` = delete key, empty override deleted, no key change = no file write. Refuses `no-global-server` (unparseable wins). Atomic write.
+`saveServer` at project scope refuses override-shaped body/rename (`invalid-entry`). Global `collisionCandidates` ignores folder overrides.
+`convertLegacyCopy`: legacy = both full entries (string `command`|`url`), folder has none of `headers`/`env`/`auth`/`oauth.clientSecret`, rest equals global minus those. Keeps only override keys differing from global. Returns `previous` for undo. Old copy path (`folderCopyOf`, `omitted` result) removed.
+`ConfigRefusalCode` is CLOSED: `unparseable | entry-not-object | invalid-name | name-collision | transport-conflict | invalid-entry | write-failed | no-global-server`. Exports `NotAllowedCwdError`, `keptGlobalOf`.
 
-**Schema.** Published `schema/mcp-config.schema.json` is the pi 1.0.0 entry shape: `description`, `oauth.clientName` / `oauth.authServerMetadataUrl`, global-only `auth.provider`, `exposure` (alias included), `toolExposure`, `timeout` > 0, `enabled`. `ajv` validates every write BEFORE IO. Markers `x-secret` (redaction + masking), `x-transport`, `x-global-only` drive the editor.
+**Schema.** Published `schema/mcp-config.schema.json` is the pi 1.1.0 entry shape. `$defs.ProjectOverride` (`additionalProperties: false`) covers overrides: `description`, `oauth.clientName` / `oauth.authServerMetadataUrl`, global-only `auth.provider`, `exposure` (alias included), `toolExposure`, `timeout` > 0, `enabled`. `ajv` validates every write BEFORE IO via `validateServerEntry(entry,{kind})`. Markers `x-secret` (redaction + masking), `x-transport`, `x-global-only` drive the editor.
 
-**REST.** `GET /api/mcp-client/effective?cwd=`, `GET /api/mcp-client/live?cwd=&fresh=1`, `GET /api/mcp-client/schema`, `PUT /api/mcp-client/servers/:name` `{scope,cwd?,entry,previousName?}`, `DELETE /api/mcp-client/servers/:name?scope=&cwd=` → `{ok,removed}`, `PUT /api/mcp-client/servers/:name/enabled` `{scope,cwd?,enabled}`, `POST /api/mcp-client/servers/:name/convert` `{scope,cwd?}`. Removed: `/adapter`, `/settings`, `/disabled`. EVERY route — GET included — sits behind `networkGuard`: mutating bodies become executable config for pi and the effective view returns own-layer credentials. Path name decoded + validated and project cwd admitted (403 `not-allowed` + `reason`/`hint`) BEFORE any IO.
+**REST.** `GET /api/mcp-client/effective?cwd=`, `GET /api/mcp-client/live?cwd=&fresh=1`, `GET /api/mcp-client/schema`, `PUT /api/mcp-client/servers/:name` `{scope,cwd?,entry,previousName?}`, `DELETE /api/mcp-client/servers/:name?scope=&cwd=` → `{ok,removed}`, `PUT /api/mcp-client/servers/:name/enabled` `{scope,cwd?,enabled}`, `POST /api/mcp-client/servers/:name/convert` `{scope,cwd?}`, `PUT /api/mcp-client/servers/:name/project-override` `{enabled?,exposure?,toolExposure?}` (`null` = inherit; types + enums validated BEFORE scope parse; project only; → `{ok,override}` | `{ok,removed:true}`), `POST /api/mcp-client/servers/:name/convert-to-override` (→ `{ok,previous}`). Same networkGuard + known-folder admission. Hold origins reuse `mcp:enable` / `mcp:convert`. Removed: `/adapter`, `/settings`, `/disabled`. EVERY route — GET included — sits behind `networkGuard`: mutating bodies become executable config for pi and the effective view returns own-layer credentials. Path name decoded + validated and project cwd admitted (403 `not-allowed` + `reason`/`hint`) BEFORE any IO.
 
 **Runner.** `src/server/pi-runner.ts` `createPiMcpListRunner()`: `ToolResolver.resolvePi()` + shared `spawn` (no shell) + `buildSpawnEnvForArgv` (`ELECTRON_RUN_AS_NODE`) + SIGKILL on abort + 4 MiB stdout cap. Plugin `index.ts` consumes `host.knownFolderCwds` + `host.isProjectTrusted`; absent `isProjectTrusted` → one warning, every project untrusted.
 
@@ -1486,7 +1524,7 @@ New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of the two
 ```mermaid
 flowchart LR
   PG["Pi global mcp.json<br/>$PI_CODING_AGENT_DIR else ~/.pi/agent"] --> LV
-  PF["trusted folder .pi/mcp.json<br/>project replaces global"] --> LV
+  PF["trusted folder .pi/mcp.json<br/>project override OR whole-entry replace"] --> LV
   PI["pi mcp list --json<br/>live-state.ts 30s timeout+cache"] --> LV
   TR["host.isProjectTrusted"] --> LV
   subgraph MC ["packages/mcp-client-plugin"]
@@ -1498,6 +1536,8 @@ flowchart LR
   SVC -->|"ctx.consume (dependsOn)"| AT["apple-tools install.ts<br/>ensureServerEntry('iMCP')"]
   CORE -->|"package dep, hostless"| BIN["pi-apple-tools-install CLI"]
 ```
+
+**Folder UI** (`/folder/:cwd/mcp`). Pi-global row switch = effective state. Text badge: `Off in this folder` / `On in this folder` / `Exposure: X in this folder`. `Reset to global` = exact undo via override route. Overflow menu: `Project settings…` (radiogroup Inherit/On/Off + exposure select `Inherit (<global>)` + read-only `toolExposure`; bottom sheet <640px) and `Replace with folder entry…` (old whole-entry editor). Orphan/invalid override row: pi message + Remove only. Legacy-copy strip + `Convert to project override` with undo. Untrusted: `Saved — applies once the project is trusted`. Mobile: badges display-only; Reset/Convert in row menu; 44px targets.
 
 ### MCP Endpoint (`add-dashboard-mcp-server`, `mcp-legacy-clients-and-token-issuance`, `paginate-mcp-list-sessions`, `migrate-mcp-to-pi-builtin`)
 

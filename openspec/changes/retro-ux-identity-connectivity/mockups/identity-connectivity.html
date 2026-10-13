@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Retro UX — identity &amp; connectivity (#848, #867)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="asbuilt.css" />
+<script src="icons.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Identity &amp; connectivity — as-built vs proposed</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Side by side</button>
+    <button aria-pressed="false" data-v="asbuilt">As-built</button>
+    <button aria-pressed="false" data-v="proposed">Proposed</button>
+  </div>
+</div>
+<main id="board"></main>
+
+<script>
+/* ── helpers ─────────────────────────────────────────────── */
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const sec = (title, body) => `<div><h3 class="sec-h">${title}</h3><div class="stack-3">${body}</div></div>`;
+
+/* ── data (real product nouns) ───────────────────────────── */
+const RP = "mac-studio.tail3c2f1.ts.net";
+const USERS = [
+  { id: "u1", name: "Anna Kovács", status: "active", tier: "operate", creds: 2, orphaned: 0 },
+  { id: "u2", name: "Bence Tóth", status: "invited", tier: "control", creds: 0, orphaned: 0 },
+  { id: "u3", name: "Dóra Szabó", status: "active", tier: "observe", creds: 3, orphaned: 2 },
+  { id: "u4", name: "Gábor Nagy", status: "revoked", tier: "observe", creds: 0, orphaned: 0 },
+];
+const TIERS = ["Observe", "Control", "Operate"];
+const INVITE_URL = "https://mac-studio.tail3c2f1.ts.net/auth/invite#k7Hq2vT9wXbN4mReJ0aPzL";
+const SERVERS = [
+  { key: "localhost:8000", label: "Local", host: "localhost", port: 8000, local: true, current: true },
+  { key: "office-mac.local:8000", label: "office-mac", host: "office-mac.local", port: 8000, probe: "available", fp: true },
+  { key: "192.168.16.202:8000", label: "build-box", host: "192.168.16.202", port: 8000, probe: "unreachable" },
+  { key: "studio-pi.tail3c2f1.ts.net:8000", label: "studio-pi", host: "studio-pi.tail3c2f1.ts.net", port: 8000, probe: "cors-blocked", fp: true },
+  { key: "lab-mini.local:8000", label: "lab-mini", host: "lab-mini.local", port: 8000, probe: "denied" },
+  { key: "nas.local:8000", label: "nas", host: "nas.local", port: 8000, probe: "name-not-resolved", movedTo: "nas-2.local:8000", fp: true },
+];
+const KNOWN = SERVERS.filter((s) => !s.current);
+
+/* ════════════ USERS — as-built (UsersSection.tsx) ════════════ */
+function abTierSel(v, small) {
+  return `<select aria-label="Tier" style="${small ? "font-size:12px;padding:2px 4px" : ""}">${TIERS.map((t) => `<option ${t.toLowerCase() === v ? "selected" : ""}>${t}</option>`).join("")}</select>`;
+}
+function abUserRow(u, o = {}) {
+  const revoked = u.status === "revoked";
+  return `<li class="row wrap box" data-testid="user-${u.id}" style="list-style:none">
+    <span class="muted">${ic("AccountKey")}</span>
+    <div class="grow"><div class="text-sm trunc">${esc(u.name)}<span class="badge" data-testid="user-status-${u.id}">${u.status}</span>${u.orphaned ? `<span class="badge" data-testid="user-orphaned-${u.id}">${u.orphaned} orphaned</span>` : ""}</div>
+    <div class="text-xs muted">${u.creds - u.orphaned} usable passkey(s)</div></div>
+    ${revoked ? "" : `${abTierSel(u.tier, true)}
+      <button class="link" ${o.unstable ? 'disabled style="opacity:.5" aria-describedby="users-unstable-reason"' : ""} data-testid="user-invite-${u.id}">Invite QR</button>
+      ${o.confirm === u.id ? `<button class="text-xs sev-err">Confirm revoke</button><button class="text-xs muted">Cancel</button>` : `<button class="text-xs muted">Revoke</button>`}`}
+  </li>`;
+}
+function abUsers(o = {}) {
+  if (o.loading) return `<div class="ab text-sm muted">Loading...</div>`;
+  if (o.loadError) return `<div class="ab text-sm sev-err">failed to load users</div>`;
+  if (o.disabled) return `<div class="ab text-sm muted" data-testid="users-disabled">Passkey users are off. Set auth.passkeys.enabled to true in the dashboard config to manage users.</div>`;
+  const users = o.users ?? USERS;
+  return `<div class="ab stack">
+    ${o.mutationError ? `<div class="text-sm sev-err" role="alert">user_name_taken</div>` : ""}
+    <div class="text-xs muted">Passkeys are bound to ${RP}.</div>
+    ${o.unstable ? `<div id="users-unstable-reason" class="text-xs sev-warn" data-testid="users-unstable">The primary address is temporary (ephemeral tunnel). Use a reserved zrok name or Tailscale, or set auth.redirectBaseUrl.</div>` : ""}
+    <form class="row wrap" data-testid="users-add-form" onsubmit="return false">
+      <input class="grow" aria-label="Name" placeholder="${o.bootstrap ? "Your name (first operator)" : "Person's name"}">
+      ${o.bootstrap ? "" : abTierSel("observe")}
+      <button class="link" disabled style="opacity:.5;font-size:14px">Add user</button>
+    </form>
+    ${o.bootstrap ? `<div class="text-xs muted">The first user is an operator and can only be created from this machine (localhost).</div>` : ""}
+    ${o.invite ? `<div class="inv stack" data-testid="users-invite">
+      <div class="text-xs muted">Scan on the person's phone to create their passkey. Valid until 2026. 10. 13. 18:42:10, single use.</div>
+      <img class="qr" src="invite-qr.svg" alt="Invite QR code">
+      <div class="row"><code class="grow trunc text-xs">${INVITE_URL}</code><button class="link">Copy link</button>
+      ${o.copyFailed ? `<span class="text-xs status-err">Copy failed — select and copy manually.</span>` : ""}
+      <button class="text-xs muted">Dismiss</button></div></div>` : ""}
+    ${users.length === 0 ? `<div class="text-sm muted" style="padding:4px 0">No users yet.</div>` : `<ul class="stack" style="padding:0;margin:0">${users.map((u) => abUserRow(u, o)).join("")}</ul>`}
+  </div>`;
+}
+
+/* ════════════ USERS — proposed ════════════ */
+const STATUS_PILL = {
+  active: `<span class="pill success" data-testid="user-status-%">${ic("CheckCircleOutline")}Active</span>`,
+  invited: `<span class="pill info" data-testid="user-status-%">${ic("InformationOutline")}Invite pending</span>`,
+  revoked: `<span class="pill neutral" data-testid="user-status-%">${ic("CloseCircleOutline")}Revoked</span>`,
+};
+function prTierSel(u) {
+  return `<label class="sr-only" for="tier-${u.id}">Tier for ${esc(u.name)}</label>
+    <select id="tier-${u.id}" class="p-input focus-ring" style="width:auto;min-height:32px;padding:2px 8px;font-size:12px">${TIERS.map((t) => `<option ${t.toLowerCase() === u.tier ? "selected" : ""}>${t}</option>`).join("")}</select>`;
+}
+function prUserRow(u, o = {}) {
+  const revoked = u.status === "revoked";
+  const usable = u.creds - u.orphaned;
+  return `<li class="p-row" data-testid="user-${u.id}" style="list-style:none">
+    <div class="main">
+      <div class="name">${esc(u.name)} ${STATUS_PILL[u.status].replace("%", u.id)}
+        ${u.orphaned ? `<span class="pill warning" data-testid="user-orphaned-${u.id}">${ic("AlertOutline")}${u.orphaned} orphaned</span>` : ""}</div>
+      <div class="p-meta">${usable} usable passkey${usable === 1 ? "" : "s"}${u.orphaned ? ` · ${u.orphaned} bound to a previous address — re-invite to restore` : ""}${u.status === "invited" ? " · waiting for the person to scan the invite" : ""}</div>
+    </div>
+    ${revoked ? "" : `<div class="acts">${prTierSel(u)}
+      <button class="p-btn sm secondary" ${o.unstable ? 'disabled aria-describedby="users-unstable-reason"' : ""} data-testid="user-invite-${u.id}">Invite QR</button>
+      ${o.confirm === u.id
+        ? `<button class="p-btn sm danger">Confirm revoke</button><button class="p-btn sm ghost">Cancel</button>`
+        : `<button class="p-btn sm ghost" aria-label="Revoke ${esc(u.name)}">Revoke</button>`}</div>`}
+  </li>`;
+}
+function prUsers(o = {}) {
+  if (o.loading) return `<div class="p-help" role="status">${ic("Loading", "spin")} Loading users…</div>`;
+  if (o.loadError) return `<div class="callout error" role="alert">${ic("AlertCircleOutline")}<div class="body">Could not load users: failed to load users.<br><button class="p-btn sm secondary">Retry</button></div></div>`;
+  if (o.disabled) return `<div class="callout info" data-testid="users-disabled">${ic("InformationOutline")}<div class="body">Passkey users are off. Set <code>auth.passkeys.enabled</code> to <code>true</code> in the dashboard config to manage users.</div></div>`;
+  const users = o.users ?? USERS;
+  return `<div class="stack-3">
+    ${o.mutationError ? `<div class="callout error" role="alert">${ic("AlertCircleOutline")}<div class="body">Could not add user: a user named “Anna Kovács” already exists.</div></div>` : ""}
+    <div class="p-help">Passkeys are bound to <code>${RP}</code>.</div>
+    ${o.unstable ? `<div class="callout warning" id="users-unstable-reason" data-testid="users-unstable">${ic("AlertOutline")}<div class="body"><strong>Invites are unavailable.</strong> The primary address is temporary (ephemeral tunnel). Use a reserved zrok name or Tailscale, or set <code>auth.redirectBaseUrl</code>.</div></div>` : ""}
+    <form data-testid="users-add-form" onsubmit="return false">
+      <div class="fields" style="grid-template-columns:1fr ${o.bootstrap ? "auto" : "140px auto"};align-items:end">
+        <div><label class="p-label" for="nu-name">${o.bootstrap ? "Your name (first operator)" : "Name"}</label><input id="nu-name" class="p-input" placeholder="${o.bootstrap ? "e.g. Anna Kovács" : "Person's name"}"></div>
+        ${o.bootstrap ? "" : `<div><label class="p-label" for="nu-tier">Capability</label><select id="nu-tier" class="p-input">${TIERS.map((t) => `<option>${t}</option>`).join("")}</select></div>`}
+        <button class="p-btn primary" disabled>Add user</button>
+      </div>
+      ${o.bootstrap ? `<div class="p-help" style="margin-top:6px">The first user is an operator and can only be created from this machine (localhost).</div>` : ""}
+    </form>
+    ${o.invite ? `<div class="inset stack" data-testid="users-invite">
+      <div class="p-help">Scan on Bence Tóth's phone to create their passkey. Single use, expires in 24 h (13 Oct, 18:42).</div>
+      <img class="qr" src="invite-qr.svg" alt="Invite QR code for Bence Tóth">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center"><code class="p-meta" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${INVITE_URL}</code>
+        <button class="p-btn sm secondary">Copy link</button><button class="p-btn sm ghost">Dismiss</button></div>
+      ${o.copyFailed ? `<div class="p-meta sev-fg-error" role="status">Copy failed — select the link and copy it manually.</div>` : ""}
+    </div>` : ""}
+    ${users.length === 0 ? `<div class="p-help">No users yet.</div>` : `<ul class="stack" style="padding:0;margin:0">${users.map((u) => prUserRow(u, o)).join("")}</ul>`}
+  </div>`;
+}
+
+/* ════════════ SERVER SELECTOR — as-built ════════════ */
+const AB_STATE = {
+  available: `<span class="t10 green-500">Available</span>`,
+  unreachable: `<span class="t10 red-400">Unreachable</span>`,
+  denied: `<span class="t10 amber-400">Network not allowed</span>`,
+  "cors-blocked": `<span class="t10 amber-400">CORS-blocked</span>`,
+  "name-not-resolved": `<span class="t10 amber-400">Name not found</span>`,
+};
+function abTrigger(connected) {
+  return `<button class="ab trig">${ic("ServerNetwork")}<span>Local</span><span class="dot ${connected ? "g" : "r"}"></span>${ic("ChevronDown")}</button>`;
+}
+function abPanel(o = {}) {
+  return `<div class="ab panel">
+    <button class="manage">${ic("Cog")}<span>Manage servers…</span></button>
+    ${SERVERS.map((s) => {
+      const probe = o.probing ? undefined : s.probe;
+      const blocked = !s.current && probe && probe !== "available";
+      const tail = o.switching === s.key ? `<span style="width:12px;height:12px;border-radius:99px;border:2px solid var(--text-tertiary);border-top-color:transparent" class="spin"></span>`
+        : s.current ? `<span class="dot g"></span>`
+        : probe === "name-not-resolved" && s.movedTo ? `<span class="t10 amber-400">Moved to ${s.movedTo}</span>`
+        : probe ? AB_STATE[probe] : "";
+      return `<div class="row"><button class="opt ${blocked ? "blocked" : ""} ${s.current ? "prim" : "sec"}" ${blocked ? "disabled" : ""} title="${blocked ? "(reason only in this hover title)" : ""}">
+        <div class="grow"><div class="trunc fw5">${s.label}</div><div class="tert">${s.host}:${s.port}</div></div>
+        <span class="chip ${s.local ? "chip-local" : "chip-remote"}">${s.local ? "Local" : "Remote"}</span>${tail}</button>
+        ${!o.probing && s.movedTo ? `<button class="btn-blue tiny">Update</button>` : ""}</div>`;
+    }).join("")}
+    ${o.probing ? `<div class="tip" style="padding:4px 12px">(probes in flight — rows show nothing until each settles)</div>` : `<div class="tip" style="padding:4px 12px">(blocked rows: disabled, reason only in hover title; no focus, no Esc, no arrow keys)</div>`}
+  </div>`;
+}
+
+/* ════════════ SERVER SELECTOR — proposed ════════════ */
+const PR_STATE = {
+  checking: [`<span class="state-word" style="color:var(--text-secondary)">${ic("Loading", "spin")}Checking…</span>`, ""],
+  available: [`<span class="pill success">${ic("CheckCircleOutline")}Available</span>`, ""],
+  unreachable: [`<span class="pill error">${ic("CloseCircleOutline")}Unreachable</span>`, "No response from this address within 2 s."],
+  denied: [`<span class="pill warning">${ic("AlertOutline")}Network not allowed</span>`, "The server is up but does not allow this network. Add it to that server's trusted networks."],
+  "cors-blocked": [`<span class="pill warning">${ic("AlertOutline")}Blocked in this browser</span>`, "Reachable from this dashboard, not from this browser (CORS). Allow this origin on the remote."],
+  "name-not-resolved": [`<span class="pill warning">${ic("AlertOutline")}Name not found</span>`, "The name no longer resolves — the server may have been renamed."],
+};
+function prTrigger(connected, expanded) {
+  return `<button class="p-trigger" aria-haspopup="menu" aria-expanded="${expanded ? "true" : "false"}" aria-label="Server: Local, ${connected ? "connected" : "offline"}" data-sel-trigger>
+    ${ic("ServerNetwork")}<span>Local</span><span class="dot ${connected ? "ok" : "off"}" aria-hidden="true"></span><span class="word">${connected ? "Connected" : "Offline"}</span>${ic("ChevronDown")}</button>`;
+}
+function prPanel(o = {}) {
+  let first = true;
+  const tab = () => { const t = first ? 0 : -1; first = false; return t; };
+  return `<div class="p-panel" role="menu" aria-label="Switch server" data-sel-panel>
+    ${SERVERS.map((s, i) => {
+      const probe = s.current ? null : o.probing ? "checking" : s.probe;
+      const moved = probe === "name-not-resolved" && s.movedTo;
+      const blocked = probe && !["available", "checking"].includes(probe);
+      let [word, why] = probe ? PR_STATE[probe] : ["", ""];
+      if (moved) { word = `<span class="pill warning">${ic("AlertOutline")}Moved</span>`; why = `Now at <code>${s.movedTo}</code> — same server identity.`; }
+      const tail = o.switching === s.key ? `<span class="state-word" style="color:var(--text-secondary)">${ic("Loading", "spin")}Switching…</span>`
+        : s.current ? `<span class="state-word" style="color:var(--text-secondary)"><span class="dot ok" aria-hidden="true"></span>Connected</span>` : word;
+      return `<div role="menuitemradio" tabindex="${tab()}" class="p-opt" aria-checked="${s.current ? "true" : "false"}" ${blocked ? `aria-disabled="true" aria-describedby="why-${i}"` : ""}
+          data-unreachable="${probe === "unreachable" || ""}" data-cors-blocked="${probe === "cors-blocked" || ""}" data-name-not-resolved="${probe === "name-not-resolved" || ""}">
+        <div class="main"><div class="t">${s.label}<span class="pill ${s.local ? "local" : "remote"}">${s.local ? "Local" : "Remote"}</span></div>
+          <div class="s">${s.host}:${s.port}</div>
+          ${blocked ? `<div class="why" id="why-${i}">${why}</div>` : ""}
+        </div>${tail}</div>
+        ${moved ? `<div role="menuitem" tabindex="-1" class="p-opt sub-action">${ic("Refresh")}<div class="main"><div class="t" style="font-weight:600;color:var(--text-primary)">Update ${s.label} to ${s.movedTo}</div></div></div>` : ""}`;
+    }).join("")}
+    <div class="sep" role="separator"></div>
+    <div role="menuitem" tabindex="-1" class="p-opt"><div class="main"><div class="t" style="font-weight:400;color:var(--text-secondary)">${ic("Cog")} Manage servers…</div></div></div>
+  </div>`;
+}
+
+/* ════════════ KNOWN SERVERS — as-built ════════════ */
+function abKnown(o = {}) {
+  if (o.loading) return `<div class="ab text-sm muted">Loading...</div>`;
+  const list = o.empty || o.loadError ? [] : KNOWN.slice(0, 4).concat(KNOWN[4]);
+  return `<div class="ab stack">
+    ${list.length === 0 && !o.addOpen ? `<div class="text-sm muted" style="padding:4px 0">No remote servers saved. Add servers manually or from network discovery below.</div>${o.loadError ? `<div class="tip">(the list request failed — error swallowed, empty text shown)</div>` : ""}` : ""}
+    ${(o.addOpen ? list.slice(0, 1) : list).map((s) => `<div class="row box2">
+      <span class="purple-400">${ic("ServerNetwork")}</span>
+      <div class="grow"><div class="text-sm fw5 prim trunc">${s.label}</div><div class="text-xs muted">${s.host}:${s.port}</div>
+      ${s.movedTo ? `<div class="text-xs amber-400">Moved to ${s.movedTo}</div>` : ""}</div>
+      ${!o.readOnly && s.movedTo ? `<button class="btn-blue">Update</button>` : ""}
+      ${o.readOnly ? "" : `<button class="muted" title="Remove server" style="padding:4px">${ic("Close")}</button>`}
+    </div>`).join("")}
+    ${o.readOnly ? `<div class="tip">(read-only viewer: add/remove/update silently absent)</div>` : o.addOpen ? `<div class="box2 stack">
+      <div class="row"><input class="in2 grow" placeholder="Host (e.g. office-mac.local)" value="${o.addError ? "" : "lab-mini.local"}"><input class="in2" style="width:80px;text-align:right" placeholder="Port" value="8000"></div>
+      <input class="in2" style="width:100%" placeholder="Label (optional)">
+      ${o.addError ? `<div class="text-xs red-400">Host and valid port are required</div>` : ""}
+      <div class="row" style="justify-content:flex-end"><button class="text-xs muted">Cancel</button><button class="btn-blue">${ic("Check")}Add</button></div></div>`
+    : `<button class="row text-xs blue-400" style="gap:6px">${ic("Plus")}Add server manually</button>`}
+  </div>`;
+}
+
+/* ════════════ KNOWN SERVERS — proposed ════════════ */
+function prKnown(o = {}) {
+  if (o.loading) return `<div class="p-help" role="status">${ic("Loading", "spin")} Loading servers…</div>`;
+  if (o.loadError) return `<div class="callout error" role="alert">${ic("AlertCircleOutline")}<div class="body">Could not load known servers (HTTP 503).<br><button class="p-btn sm secondary">Retry</button></div></div>`;
+  const list = o.empty ? [] : KNOWN;
+  return `<div class="stack-3">
+    ${o.readOnly ? `<div class="p-help">${ic("InformationOutline")} Read-only — an operator credential is needed to add, remove or update servers.</div>` : ""}
+    ${list.length === 0 ? `<div class="p-help">No remote servers saved yet. Add one below, or scan the network.</div>` : ""}
+    ${(o.addOpen ? list.slice(0, 1) : list).map((s, i) => `<div class="p-row">
+      <div class="main"><div class="name">${s.label}<span class="pill remote">Remote</span>${s.fp ? `<span class="pill success" title="Identity pinned">${ic("ShieldCheck")}Verified</span>` : ""}</div>
+        <div class="p-meta">${s.host}:${s.port}</div></div>
+      ${o.readOnly ? "" : o.confirm === i ? `<div class="acts"><button class="p-btn sm danger">Confirm remove</button><button class="p-btn sm ghost">Cancel</button></div>`
+        : `<div class="acts"><button class="p-btn sm icon ghost" aria-label="Remove ${s.label} (${s.host}:${s.port})">${ic("Close")}</button></div>`}
+      ${s.movedTo ? `<div class="sub callout warning">${ic("AlertOutline")}<div class="body">Moved to <code>${s.movedTo}</code> — same server identity, new address.${o.readOnly ? "" : `<br><button class="p-btn sm secondary">Update address</button>`}</div></div>` : ""}
+      ${o.rowError === i ? `<div class="sub p-meta sev-fg-error" role="alert">Could not remove: server returned 403 (operator credential required).</div>` : ""}
+    </div>`).join("")}
+    ${o.readOnly ? "" : o.addOpen ? `<form class="inset stack" onsubmit="return false">
+      <div class="fields"><div><label class="p-label" for="ks-host">Host</label><input id="ks-host" class="p-input" placeholder="office-mac.local" ${o.addError ? 'aria-invalid="true" aria-describedby="ks-err"' : 'value="lab-mini.local"'}></div>
+        <div><label class="p-label" for="ks-port">Port</label><input id="ks-port" class="p-input" inputmode="numeric" value="8000"></div>
+        <div class="full"><label class="p-label" for="ks-label">Label <span style="font-weight:400;color:var(--text-secondary)">(optional)</span></label><input id="ks-label" class="p-input" placeholder="lab-mini"></div></div>
+      ${o.addError ? `<div id="ks-err" class="p-meta sev-fg-error">Enter a host name or IP address.</div>` : ""}
+      <div style="display:flex;gap:6px;justify-content:flex-end"><button class="p-btn ghost">Cancel</button><button class="p-btn primary">${ic("Check")}Add server</button></div></form>`
+    : `<button class="p-btn secondary">${ic("Plus")}Add server manually</button>`}
+  </div>`;
+}
+
+/* ════════════ DISCOVERY — as-built ════════════ */
+const DISC = [
+  { label: "office-mac", host: "office-mac.local", port: 8000, v: "0.9.4", local: false, known: true },
+  { label: "lab-mini", host: "lab-mini.local", port: 8000, v: "0.9.4", local: false },
+  { label: "nas-2", host: "nas-2.local", port: 8000, v: "0.9.3", local: false, updated: true },
+  { label: "mac-studio", host: "mac-studio.local", port: 8000, v: "0.9.4", local: true, adding: true },
+];
+const REASONS = ["Wi-Fi <strong>AP/client isolation</strong> (common on consumer &amp; guest networks)", "Mesh routers or Wi-Fi extenders that drop multicast between nodes", "Different VLANs / subnets between the two machines", "An active VPN capturing the default route", "The macOS firewall blocking inbound traffic on the dashboard port"];
+function abDisc(o = {}) {
+  return `<div class="ab stack">
+    <button class="row text-xs blue-400" style="gap:6px" ${o.scanning ? 'disabled style="opacity:.5"' : ""}>${ic("Refresh", o.scanning ? "spin" : "")}${o.scanning ? "Scanning..." : "Scan network"}</button>
+    ${o.scanError ? `<div class="text-xs red-400" style="padding:4px 0">Scan failed: mdns_unavailable</div>` : ""}
+    ${o.empty ? `<div class="box2 stack-3"><div class="row" style="align-items:flex-start"><span class="amber-400">${ic("AlertCircleOutline")}</span><div>
+      <div class="text-sm prim">No servers found via mDNS.</div><div class="text-xs muted">mDNS discovery often fails across machines because of:<ul class="dl">${REASONS.map((r) => `<li>${r}</li>`).join("")}</ul>
+      <div style="margin-top:8px">If you know the server's IP (e.g. <code class="sec">192.168.16.202:8000</code>), add it manually below.</div></div></div></div>
+      <div class="row" style="border-top:1px solid var(--border-secondary);padding-top:8px"><input class="in2 grow" placeholder="192.168.16.202:8000  or  http://host:8000" value="${o.manualError ? "192.168.16" : ""}"><input class="in2" style="width:128px" placeholder="Label (optional)"><button class="btn-blue">${ic("Plus")}Add</button></div>
+      ${o.manualError ? `<div class="text-xs red-400">Enter a host like 192.168.1.42:8000 or http://office-mac.local:8000</div>` : ""}</div>` : ""}
+    ${o.results ? DISC.map((d) => `<div class="row box2"><span class="${d.local ? "blue-400" : "purple-400"}">${ic("ServerNetwork")}</span>
+      <div class="grow"><div class="text-sm fw5 prim trunc">${d.label}</div><div class="text-xs muted">${d.host}:${d.port} · v${d.v}</div></div>
+      ${d.updated ? `<span class="text-xs green-500">Updated existing entry</span>` : d.known ? `<span class="text-xs green-500">Already added</span>`
+        : d.adding ? `<div class="row" style="gap:4px"><input class="in2" style="width:112px;font-size:12px" value="${d.label}"><button class="green-400" title="Confirm">${ic("Check")}</button><button class="muted" title="Cancel">${ic("Close")}</button></div>`
+        : `<button class="row text-xs blue-400" style="gap:4px">${ic("Plus")}Add</button>`}</div>`).join("") : ""}
+  </div>`;
+}
+
+/* ════════════ DISCOVERY — proposed ════════════ */
+function prDisc(o = {}) {
+  return `<div class="stack-3">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="p-btn secondary" ${o.scanning ? 'disabled aria-busy="true"' : ""}>${ic("Refresh", o.scanning ? "spin" : "")}${o.scanning ? "Scanning…" : o.results || o.empty ? "Scan again" : "Scan network"}</button>
+      <span class="p-help" role="status" aria-live="polite">${o.scanning ? "Looking for dashboards on this network (mDNS)…" : o.results ? `Found ${DISC.length} dashboards.` : o.empty ? "No dashboards found." : "Finds other pi dashboards on this network."}</span>
+    </div>
+    ${o.scanError ? `<div class="callout error" role="alert">${ic("AlertCircleOutline")}<div class="body">Scan failed: mDNS is unavailable on this machine.<br><button class="p-btn sm secondary">Retry</button></div></div>` : ""}
+    ${o.empty ? `<div class="callout info">${ic("InformationOutline")}<div class="body"><strong>No dashboards found via mDNS.</strong> Many networks block it. Add a server by address instead.
+      <details class="why"><summary>Why does discovery fail?</summary><ul>${REASONS.map((r) => `<li>${r}</li>`).join("")}</ul></details></div></div>
+      <form class="inset stack" onsubmit="return false"><div class="fields" style="grid-template-columns:1fr 140px auto;align-items:end">
+        <div><label class="p-label" for="md-addr">Address</label><input id="md-addr" class="p-input" placeholder="192.168.16.202:8000 or http://host:8000" ${o.manualError ? 'value="192.168.16" aria-invalid="true" aria-describedby="md-err"' : ""}></div>
+        <div><label class="p-label" for="md-label">Label <span style="font-weight:400;color:var(--text-secondary)">(optional)</span></label><input id="md-label" class="p-input"></div>
+        <button class="p-btn primary">${ic("Plus")}Add</button></div>
+        ${o.manualError ? `<div id="md-err" class="p-meta sev-fg-error">Enter a host like 192.168.1.42:8000 or http://office-mac.local:8000.</div>` : ""}</form>` : ""}
+    ${o.results ? DISC.map((d) => `<div class="p-row"><div class="main"><div class="name">${d.label}<span class="pill ${d.local ? "local" : "remote"}">${d.local ? "Local" : "Remote"}</span></div>
+      <div class="p-meta">${d.host}:${d.port} · v${d.v}</div></div>
+      <div class="acts">${d.updated ? `<span class="state-word sev-fg-success">${ic("Check")}Updated existing entry</span>` : d.known ? `<span class="state-word sev-fg-success">${ic("Check")}Already added</span>`
+        : d.adding ? `<label class="sr-only" for="lb-${d.label}">Label for ${d.label}</label><input id="lb-${d.label}" class="p-input" style="width:140px;min-height:32px" value="${d.label}">
+          <button class="p-btn sm primary" aria-label="Add ${d.label}">${ic("Check")}Add</button><button class="p-btn sm ghost" aria-label="Cancel adding ${d.label}">Cancel</button>`
+        : `<button class="p-btn sm secondary" aria-label="Add ${d.label} (${d.host}:${d.port})">${ic("Plus")}Add</button>`}</div></div>`).join("") : ""}
+  </div>`;
+}
+
+/* ════════════ board model ════════════ */
+const BOARD = [
+  { title: "Users — Settings ▸ Security", verdict: "polish · F1 F21–F25", sec: "Users", states: [
+    ["list", "F1 F21 F23", abUsers(), prUsers()],
+    ["unstable", "F24 — invite disabled with reason", abUsers({ unstable: true }), prUsers({ unstable: true })],
+    ["invite-open", "F25 QR exception", abUsers({ invite: true, users: USERS.slice(0, 2) }), prUsers({ invite: true, users: USERS.slice(0, 2) })],
+    ["copy-failed", "F22", abUsers({ invite: true, copyFailed: true, users: USERS.slice(1, 2) }), prUsers({ invite: true, copyFailed: true, users: USERS.slice(1, 2) })],
+    ["revoke-confirm", "F23", abUsers({ confirm: "u1", users: USERS.slice(0, 1) }), prUsers({ confirm: "u1", users: USERS.slice(0, 1) })],
+    ["mutation-error", "error surfaced", abUsers({ mutationError: true, users: USERS.slice(0, 1) }), prUsers({ mutationError: true, users: USERS.slice(0, 1) })],
+    ["bootstrap", "empty directory", abUsers({ bootstrap: true, users: [] }), prUsers({ bootstrap: true, users: [] })],
+    ["disabled", "feature off", abUsers({ disabled: true }), prUsers({ disabled: true })],
+    ["loading", "", abUsers({ loading: true }), prUsers({ loading: true })],
+    ["load-error", "", abUsers({ loadError: true }), prUsers({ loadError: true })],
+  ]},
+  { title: "Server selector — dashboard header", verdict: "redesign · F2–F9 (live keyboard demo in “open-mixed”)", states: [
+    ["trigger-connected", "F3", `<div class="header-bar">${abTrigger(true)}</div>`, `<div class="header-bar">${prTrigger(true)}</div>`],
+    ["trigger-offline", "F3 colour-only", `<div class="header-bar">${abTrigger(false)}</div>`, `<div class="header-bar">${prTrigger(false)}</div>`],
+    ["open-mixed", "F4 F5 F6 F8 F9", `${abTrigger(true)}${abPanel()}`, `<div data-sel>${prTrigger(true, true)}${prPanel()}</div>`],
+    ["open-probing", "F7", `${abTrigger(true)}${abPanel({ probing: true })}`, `${prTrigger(true, true)}${prPanel({ probing: true })}`],
+    ["switching", "", `${abTrigger(true)}${abPanel({ switching: "office-mac.local:8000" })}`, `${prTrigger(true, true)}${prPanel({ switching: "office-mac.local:8000" })}`],
+  ]},
+  { title: "Known servers — Settings ▸ Remote Servers", verdict: "redesign · F1 F9–F17 (F16 “Verified” pill is NEW — needs approval)", sec: "Known Servers", states: [
+    ["list", "F9 F11 F16 F17", abKnown(), prKnown()],
+    ["remove-confirm", "F12 (proposed only — as-built removes on 1st click)", abKnown(), prKnown({ confirm: 0 })],
+    ["row-error", "F14 (as-built swallows)", abKnown(), prKnown({ rowError: 1 })],
+    ["read-only", "F15", abKnown({ readOnly: true }), prKnown({ readOnly: true })],
+    ["add-open", "F10", abKnown({ addOpen: true }), prKnown({ addOpen: true })],
+    ["add-error", "F10", abKnown({ addOpen: true, addError: true }), prKnown({ addOpen: true, addError: true })],
+    ["empty", "F1", abKnown({ empty: true }), prKnown({ empty: true })],
+    ["load-error", "F13", abKnown({ loadError: true }), prKnown({ loadError: true })],
+  ]},
+  { title: "Network discovery — Settings ▸ Remote Servers", verdict: "polish · F1 F4 F9–F11 F14 F18–F20", sec: "Network Discovery", states: [
+    ["results", "F4 F11 F20", abDisc({ results: true }), prDisc({ results: true })],
+    ["empty-diagnostic", "F10 F19", abDisc({ empty: true }), prDisc({ empty: true })],
+    ["manual-error", "F10", abDisc({ empty: true, manualError: true }), prDisc({ empty: true, manualError: true })],
+    ["scanning", "F18", abDisc({ scanning: true }), prDisc({ scanning: true })],
+    ["scan-error", "F18", abDisc({ scanError: true }), prDisc({ scanError: true })],
+    ["idle", "", abDisc(), prDisc()],
+  ]},
+];
+
+document.getElementById("board").innerHTML = BOARD.map((s) => `<section class="surface"><h2>${s.title}</h2><p class="verdict">Verdict: ${s.verdict}</p>
+  ${s.states.map(([id, finds, ab, pr]) => `<article class="state" id="${s.title.split(" ")[0].toLowerCase()}-${id}"><header><code>${id}</code><span class="finds">${finds}</span></header>
+    <div class="pair"><div class="col asbuilt"><p class="tag">As-built</p><div class="frame">${s.sec ? sec(s.sec, ab) : ab}</div></div>
+    <div class="col proposed"><p class="tag">Proposed</p><div class="frame">${s.sec ? sec(s.sec, pr) : pr}</div></div></div></article>`).join("")}
+</section>`).join("");
+
+/* ── toolbar ─────────────────────────────────────────────── */
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+  }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`);
+  if (group === "view") document.body.dataset.view = v;
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply(seg.dataset.group, b.dataset.v);
+}));
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+
+/* ── live keyboard demo for the proposed selector (F8, APG menu button) ── */
+document.querySelectorAll("[data-sel]").forEach((root) => {
+  const trig = root.querySelector("[data-sel-trigger]"), panel = root.querySelector("[data-sel-panel]");
+  const opts = () => [...panel.querySelectorAll('[role^="menuitem"]')];
+  const setOpen = (o) => { panel.hidden = !o; trig.setAttribute("aria-expanded", String(o)); if (o) opts()[0].focus(); else trig.focus(); };
+  trig.addEventListener("click", () => setOpen(panel.hidden));
+  panel.addEventListener("keydown", (e) => {
+    const list = opts(), i = list.indexOf(document.activeElement);
+    const go = (n) => { e.preventDefault(); list.forEach((x) => x.tabIndex = -1); list[n].tabIndex = 0; list[n].focus(); };
+    if (e.key === "ArrowDown") go(Math.min(i + 1, list.length - 1));
+    else if (e.key === "ArrowUp") go(Math.max(i - 1, 0));
+    else if (e.key === "Home") go(0);
+    else if (e.key === "End") go(list.length - 1);
+    else if (e.key === "Escape") { e.preventDefault(); setOpen(false); }
+    else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (document.activeElement.getAttribute("aria-disabled") !== "true") setOpen(false); }
+  });
+});
+</script>
+</body>
+</html>

@@ -441,4 +441,49 @@ describe("CreateAutomationDialog — role-aware model field", () => {
     await waitFor(() => expect(updateAutomation).toHaveBeenCalled());
     expect(updateAutomation.mock.calls[0]![0]!.config.model).toBe("@fast:high");
   });
+
+  it("E19: the role hint names the role and says model and thinking level follow it; no level control", () => {
+    const { getByTestId, queryByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    fireEvent.click(getByTestId("role-opt-coding"));
+    const hint = getByTestId("create-model-role-level-hint");
+    expect(hint.textContent).toContain("Follows @coding");
+    expect(hint.textContent).toMatch(/model and thinking level change when the role changes/);
+    expect(hint.textContent).toContain("Settings → Roles");
+    expect(queryByTestId("mock-thinking-level")).toBeNull();
+  });
+});
+
+// test-plan #E59 (add-acp-session-driver): the editor's agent picker.
+describe("CreateAutomationDialog agent picker (add-acp-session-driver)", () => {
+  const agentsFetch = (agents: Array<{ id: string; name: string }>) =>
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ success: true, data: agents }) })));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("no agents configured → no agent select; model selector unchanged", async () => {
+    agentsFetch([]);
+    const { queryByTestId, getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    await Promise.resolve();
+    expect(queryByTestId("create-agent-select")).toBeNull();
+    expect(getByTestId("create-model-selector")).toBeTruthy();
+  });
+
+  it("choosing an agent hides the model selector, disables the skill action and writes agent (no model)", async () => {
+    agentsFetch([{ id: "qmt", name: "querymt" }]);
+    listActions.mockResolvedValue([]); // built-in actions only (earlier tests leave a plugin action list behind)
+    const { getByTestId, queryByTestId, findByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const select = (await findByTestId("create-agent-select")) as HTMLSelectElement;
+    fireEvent.change(getByTestId("create-name"), { target: { value: "acp-run" } });
+    fireEvent.change(select, { target: { value: "qmt" } });
+    expect(queryByTestId("create-model-selector")).toBeNull();
+    expect(getByTestId("create-model-by-agent")).toBeTruthy();
+    if (!queryByTestId("create-action-core.skill")) fireEvent.click(getByTestId("action-group-core"));
+    expect(getByTestId("create-action-core.skill").hasAttribute("disabled")).toBe(true);
+    expect(getByTestId("create-action-core.prompt").hasAttribute("disabled")).toBe(false);
+    fireEvent.click(getByTestId("create-submit"));
+    await waitFor(() => expect(createAutomation).toHaveBeenCalled());
+    const config = createAutomation.mock.calls[0]![0]!.config;
+    expect(config.agent).toBe("qmt");
+    expect(config.model).toBe("");
+    expect(config.action.kind).toBe("prompt");
+  });
 });

@@ -133,6 +133,8 @@ export type PutPiRetryPolicyResponse = ApiResponse<PutPiRetryPolicyResult>;
 
 export interface SpawnSessionRequest {
   cwd: string;
+  /** Configured ACP agent id; absent → pi. See change: add-acp-session-driver. */
+  agent?: string;
 }
 
 export type SpawnSessionResponse = ApiResponse<{ message: string }>;

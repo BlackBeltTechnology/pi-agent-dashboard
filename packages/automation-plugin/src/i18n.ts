@@ -13,6 +13,7 @@
  */
 export const catalog = {
   "zh-CN": {
+    roleFollowsHint: "跟随 {role}：角色变化时，模型和思考级别也会随之变化。请在 设置 → 角色 中编辑。",
     // Board
     back: "← 返回",
     invalidRoute: "无效的文件夹路由。",
@@ -90,6 +91,9 @@ export const catalog = {
     fieldPrompt: "提示词（持久化，保存到 prompt.md）",
     fieldSkill: "技能（$skill-name）",
     fieldModel: "模型",
+    fieldAgent: "代理",
+    modelByAgent: "模型由代理选择",
+    skillNeedsPi: "技能操作需要 pi",
     fieldMode: "模式",
     fieldConcurrency: "并发",
     fieldSandbox: "沙箱",
@@ -131,6 +135,7 @@ export const catalog = {
     payloadEmpty: "此操作不需要负载。它以自动化的文件夹范围运行。",
   },
   hu: {
+    roleFollowsHint: "Követi a(z) {role} szerepet: a szerep változásakor a modell és a gondolkodási szint is változik. Szerkesztés: Beállítások → Szerepkörök.",
     // Board
     back: "← Vissza",
     invalidRoute: "Érvénytelen mappa-útvonal.",
@@ -209,6 +214,9 @@ export const catalog = {
     fieldPrompt: "Prompt (tartós, prompt.md-be mentve)",
     fieldSkill: "Készség ($skill-name)",
     fieldModel: "Modell",
+    fieldAgent: "Ügynök",
+    modelByAgent: "A modellt az ügynök választja",
+    skillNeedsPi: "A képesség-műveletekhez pi szükséges",
     fieldMode: "Mód",
     fieldConcurrency: "Párhuzamosság",
     fieldSandbox: "Homokozó",

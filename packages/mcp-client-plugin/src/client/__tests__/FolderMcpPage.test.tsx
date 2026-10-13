@@ -3,7 +3,7 @@
  * with the whole-entry override marker, E12 (override pre-fill drops secrets
  * + auth and warns; the saved folder entry is complete without them and never
  * carries the server's redaction markers), the untrusted-folder notice with
- * inactive rows, needs-choice on folder enable, the omitted note after a
+ * inactive rows, needs-choice on folder enable, no omitted note after a
  * folder disable, override removal + undo (raw entry re-PUT), and 403.
  * Test-plan: E12; spec mcp-client-folder-section.
  */
@@ -25,6 +25,11 @@ function jsonOk(body: unknown): Response {
 }
 function jsonErr(status: number, body: unknown): Response {
   return { ok: false, status, json: async () => body } as unknown as Response;
+}
+
+/** Opens a global row's overflow menu (the "Replace with folder entry…" action lives in it). */
+function openMenu(key: string): void {
+  fireEvent.click(screen.getByTestId(`mcp-folder-menu-${key}`));
 }
 
 /** A global-layer row as the server sends it in a PROJECT view (secrets redacted). */
@@ -130,6 +135,8 @@ describe("override: whole entry, secrets not copied silently (test-plan E12)", (
       }),
     );
     renderPage();
+    await screen.findByTestId("mcp-folder-menu-pi-global:docs");
+    openMenu("pi-global:docs");
     fireEvent.click(await screen.findByTestId("mcp-folder-action-pi-global:docs"));
 
     // warnings: headers dropped, auth dropped (and auth is global-only)
@@ -157,7 +164,7 @@ describe("override: whole entry, secrets not copied silently (test-plan E12)", (
     expect(JSON.stringify(put.body)).not.toContain("redacted");
   });
 
-  it("a folder row opens Edit on its own entry and a global row offers Override…", async () => {
+  it("a folder row opens Edit on its own entry and a global row offers Replace with folder entry…", async () => {
     makeFetch(
       view({
         servers: [
@@ -169,7 +176,9 @@ describe("override: whole entry, secrets not copied silently (test-plan E12)", (
     renderPage();
     await screen.findByTestId("mcp-folder-row-pi-folder:f");
 
-    expect(screen.getByTestId("mcp-folder-action-pi-global:g").textContent).toBe("Override…");
+    openMenu("pi-global:g");
+    expect(screen.getByTestId("mcp-folder-action-pi-global:g").textContent).toBe("Replace with folder entry…");
+    expect(screen.getByTestId("mcp-folder-project-settings-pi-global:g").textContent).toBe("Project settings…");
     expect(screen.getByTestId("mcp-folder-action-pi-folder:f").textContent).toBe("Edit");
     // badge + override marker
     expect(screen.getByTestId("mcp-badge-pi-folder:f-Pi folder")).toBeTruthy();
@@ -232,16 +241,16 @@ describe("same-name rows keep their provenance", () => {
     // row's toggle must not pretend to act on the global entry.
     const globalToggle = screen.getByTestId("mcp-server-toggle-pi-global:docs") as HTMLInputElement;
     expect(globalToggle.disabled).toBe(true);
-    // review r2 B1: "Override…" on the shadowed global row would replace the
-    // existing folder entry, so it is disabled too.
-    const override = screen.getByTestId("mcp-folder-action-pi-global:docs") as HTMLButtonElement;
-    expect(override.disabled).toBe(true);
+    // review r2 B1: "Replace with folder entry…" (and Project settings…) on the shadowed
+    // global row would act on the existing folder entry, so the row menu is disabled too.
+    const menu = screen.getByTestId("mcp-folder-menu-pi-global:docs") as HTMLButtonElement;
+    expect(menu.disabled).toBe(true);
   });
 });
 
 describe("folder enable/disable writes", () => {
-  it("a disable that omitted secrets shows a note naming them", async () => {
-    makeFetch(
+  it("a disable of a global row writes through setEnabled and shows no omitted note", async () => {
+    const { calls } = makeFetch(
       view({
         servers: [
           globalRow("srv", {
@@ -250,13 +259,13 @@ describe("folder enable/disable writes", () => {
           }),
         ],
       }),
-      { enabledResult: { ok: true, action: "written", omitted: ["headers"] } },
     );
     renderPage();
     fireEvent.click(await screen.findByTestId("mcp-server-toggle-pi-global:srv"));
 
-    const note = await screen.findByTestId("mcp-folder-omitted-pi-global:srv");
-    expect(note.textContent).toContain("headers");
+    await waitFor(() => expect(calls.some((c) => c.url.includes("/enabled"))).toBe(true));
+    expect(lastCall(calls, "PUT").body).toMatchObject({ scope: "project", cwd: CWD, enabled: false });
+    expect(screen.queryByTestId("mcp-folder-omitted-pi-global:srv")).toBeNull();
   });
 
   it("needs-choice offers remove-folder-entry or re-enter; remove DELETEs at project scope", async () => {

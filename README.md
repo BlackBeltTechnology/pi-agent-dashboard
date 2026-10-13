@@ -187,6 +187,10 @@ docker compose up -d --build
 
 State persists in a named volume; API keys seed into `auth.json` on first run (or add providers later via the UI). Mount host projects at their identical absolute paths with `PI_WORKSPACES="/abs/a:/abs/b" ./up.sh` (auto-pinned on first run). The Electron desktop app can attach to a Docker-hosted server via the wizard's **Remote** mode — no local install. Full guide, volume performance profiles, dev mode, and external-gateway config: [`docker/README.md`](docker/README.md). For a disposable, fully isolated instance for manual browser QA (can't collide with a running host dashboard): [`docker/TESTING.md`](docker/TESTING.md).
 
+### E — Claude Code / Claude Desktop plugin
+
+Start the local dashboard on demand and drive pi sessions from Claude Code. Global install only with explicit consent. See [`packages/claude-plugin/README.md`](packages/claude-plugin/README.md).
+
 ---
 
 ## Features
