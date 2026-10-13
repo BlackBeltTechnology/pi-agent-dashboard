@@ -85,7 +85,7 @@ Levels: L1 = vitest (`packages/*/src/**/__tests__/`), L3 = Playwright vs docker 
 | X10 | graph request failure | fault-injection (abort) | L1 | automated | fetch rejects / responds 500 | render section; click Retry after the fetch recovers | `role="alert"` error + Retry; after retry the summary renders |
 | X11 | Open SKILL.md refused | fault-injection (abort) | L1 | automated | `/api/pi-resource-file` responds 403 | activate "Open SKILL.md" | inline error shown in the detail panel; no blank viewer |
 | X12 | throwing section isolated | fault-injection (abort) | L1 | automated | `resource-page-section` component throws | render Skills page | grid renders; sibling sections render |
-| X13 | plugin disabled | state-transition | L3 | automated | plugin toggled off, server restarted | load the folder menu, Skills page, Settings, `/atlas`, `/folder/<enc>/atlas` | no menu item, no section, no Resources entry; atlas routes do not render the atlas |
+| X13 | plugin disabled | state-transition | L3 | automated | plugin toggled off, server restarted | load the folder menu, Skills page, Settings, `/atlas`, `/folder/<enc>/atlas` | no menu item, no section; Settings keeps a dimmed `Skill Atlas` entry with an "off" marker; atlas routes do not render the atlas |
 
 ---
 

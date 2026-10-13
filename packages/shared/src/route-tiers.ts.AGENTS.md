@@ -28,3 +28,5 @@ Rows for `/api/users`, `/api/users/:id`, `/api/users/:id/revoke`, `/api/users/:i
 `GET /api/provider-auth/legacy-provider-ids` → `operate` (names pi config files holding a renamed provider id; same tier as `/status`). See change: update-pi-core-1-1-adopt-apis.
 
 - `GET /api/folder/project` classified `observe`. See change: add-project-scoped-apps.
+
+Row `GET /api/plugins/skill-atlas/graph` observe. See change: add-skill-atlas-screen.

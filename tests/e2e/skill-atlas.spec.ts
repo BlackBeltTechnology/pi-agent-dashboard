@@ -77,7 +77,8 @@ async function axeSeriousOrWorse(page: Page, selector: string): Promise<string[]
   }, selector);
 }
 
-test.describe.configure({ mode: "serial" });
+// Default mode: one worker runs the file in order (X13 last, self-restoring);
+// a failure does not skip the rest, and beforeAll re-seeds on a fresh worker.
 
 test.describe("skill atlas", () => {
   test.beforeAll(() => {
@@ -90,14 +91,21 @@ test.describe("skill atlas", () => {
   });
   test.afterAll(() => cleanup());
 
-  test("F1: folder actions menu opens the project atlas; Back returns to the folder (#F1)", async ({ page }) => {
+  test("F1: folder actions menu opens the project atlas; Back returns to origin, cold-load Back to the folder (#F1)", async ({ page }) => {
     await ensureGitSession(page);
     await expandFolder(page, CWD);
+    const origin = page.url();
     await page.getByTestId(`folder-actions-menu-${CWD}`).first().click();
     await page.getByTestId("folder-menu-item-skill-atlas").click();
     await expect(page).toHaveURL(new RegExp(`/folder/${encodeFolderPath(CWD)}/atlas`));
     await expect(page.getByTestId("skill-atlas-page")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId(`skill-atlas-node-${PREFIX}hub`)).toBeVisible({ timeout: 20_000 });
+    // In-app history: Back returns to where the user came from.
+    await page.getByTestId("skill-atlas-back").click();
+    await expect(page).toHaveURL(origin);
+    // Cold load (no in-app history): Back goes to the declared parent — the folder.
+    await page.goto(projectAtlas());
+    await expect(page.getByTestId("skill-atlas-page")).toBeVisible({ timeout: 20_000 });
     await page.getByTestId("skill-atlas-back").click();
     await expect(page).toHaveURL(new RegExp(`/folder/${encodeFolderPath(CWD)}$`));
   });
@@ -229,7 +237,9 @@ test.describe("skill atlas", () => {
       await expect(page.getByTestId("skill-atlas-summary")).toHaveCount(0);
       await page.goto("/settings/general");
       await expect(page.getByTestId("settings-nav-group-resources")).toBeVisible();
-      await expect(page.getByTestId("nav-promoted-skill-atlas")).toHaveCount(0);
+      // A disabled promoted plugin stays listed, dimmed, with an "off" marker
+      // (settings-panel: Models nav group), so it can be re-enabled.
+      await expect(page.getByTestId("nav-promoted-off-skill-atlas")).toBeVisible();
       for (const url of ["/atlas", projectAtlas()]) {
         await page.goto(url);
         await page.waitForTimeout(1_000);

@@ -129,7 +129,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `openspec-connect-coverage.spec.ts` | L3 connect coverage, fix-connect-snapshot-frame-loss… → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
 | `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice. → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board segment… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
-| `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-attach-to-session-cwd). → see `openspec-locality-gate.spec.ts.AGENTS.md` |
+| `openspec-locality-gate.spec.ts` | → see `openspec-locality-gate.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux… → see `optimistic-prompt.spec.ts.AGENTS.md` |
 | `out-of-cwd-session-diffs.spec.ts` | L3 spec (change: opt-in-out-of-cwd-session-diffs). Faux… → see `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |
 | `overlay-layering.spec.ts` | Browser E2E gate for `add-overlay-layering-system`… → see `overlay-layering.spec.ts.AGENTS.md` |
@@ -181,6 +181,7 @@ One row per file. Non-source area; source of truth here. See change: migrate-fil
 | `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session Default… → see `settings-default-model-catalogue.spec.ts.AGENTS.md` |
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors` +… → see `severity-contrast.spec.ts.AGENTS.md` |
 | `settings-provider-auth-corrupt-authfile.spec.ts` | L3: corrupt auth.json + repair. → see `settings-provider-auth-corrupt-authfile.spec.ts.AGENTS.md` |
+| `skill-atlas.spec.ts` | L3 skill-atlas plugin. → see `skill-atlas.spec.ts.AGENTS.md` |
 | `skill-provenance.spec.ts` | L3 for the Resources skills grid (F1-F10, X7). Fulfils… → see `skill-provenance.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | Smoke spec, wiring proof only. Asserts shell renders… → see `smoke.spec.ts.AGENTS.md` |
 | `spawn-correlation-recovery.spec.ts` | L3 F2–F6 late spawn register clears banner + adds card. → see `spawn-correlation-recovery.spec.ts.AGENTS.md` |

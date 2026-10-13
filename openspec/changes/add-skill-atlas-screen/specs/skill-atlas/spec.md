@@ -172,7 +172,7 @@ The global atlas SHALL be reachable from three places:
 - the Global Skills settings page;
 - a "Skill Atlas" entry in the Resources group of the settings navigation.
 
-Disabling the plugin SHALL remove every entry point after the restart that plugin toggles require.
+Disabling the plugin SHALL remove every entry point after the restart that plugin toggles require, with one exception: the settings navigation entry stays listed, dimmed with an "off" marker, so the plugin can be re-enabled (the existing rule for a disabled promoted plugin).
 
 #### Scenario: Folder menu opens project atlas
 - **WHEN** the user picks "Skill Atlas" in the actions menu of folder `/repo`
@@ -180,7 +180,8 @@ Disabling the plugin SHALL remove every entry point after the restart that plugi
 
 #### Scenario: Plugin disabled
 - **WHEN** the skill-atlas plugin is disabled and the server restarted
-- **THEN** no folder menu item, Skills-page section, settings entry or atlas route SHALL be present
+- **THEN** no folder menu item, Skills-page section or atlas route SHALL be present
+- **AND** the settings navigation SHALL list "Skill Atlas" dimmed with an "off" marker
 
 ### Requirement: Skills-page summary section
 

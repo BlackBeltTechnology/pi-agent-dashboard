@@ -67,3 +67,5 @@ Per-plugin `holdCwdDenial: createCwdHold(...)` beside `registerCwdPolicy` (`prio
 Creates `inFlightToolCalls` + `toolResultStats`; passes to `wireEvents`, `registerSessionRoutes`, `registerSystemRoutes`. See change: distinguish-tool-result-pending-vs-gone.
 
 - Registers `registerFolderProjectRoutes` after `registerGrepRoutes`; `getRuleSources` = `collectRuleSources(discoverPlugins())` gated by `fixtureEntryAllowed` + status-store `loaded` + `resolvePluginEnabled`. See change: add-project-scoped-apps.
+
+Plugin ctx wires `getPiResources(cwd?, {fresh?})` (SWR read; fresh = `refreshPiResourcesFresh`; raw scan, no provenance join) + `onPiResourcesInvalidated`. See change: add-skill-atlas-screen.
