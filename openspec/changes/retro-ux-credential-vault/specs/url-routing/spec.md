@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: SPA fallback on server
-The server SHALL return `index.html` for any GET request that does not match a static file, API endpoint, or WebSocket path, except under the API namespace. A request that the network guard admits, whose path in either of the network guard's views (raw, or decoded and dot-segment resolved) is `/api` or starts with `/api/`, and that matches no route SHALL be answered with HTTP 404 and a JSON body `{ "success": false, "error": "not_found", "message": "<text naming the method and path>" }`, for every method, in production mode, in development mode, and when no client build is present. A request path the network guard cannot parse SHALL get the same JSON 404. In development mode such a request SHALL NOT be forwarded to the Vite dev server.
+The server SHALL return `index.html` for any GET request that does not match a static file, API endpoint, or WebSocket path, except under the API namespace. A request that the network guard admits, whose path in either of the network guard's views (raw, or decoded and dot-segment resolved) is `/api` or starts with `/api/`, and that matches no route SHALL be answered with HTTP 404 and a JSON body `{ "success": false, "error": "not_found", "message": "<text naming the method and path>" }`, for every method, in production mode, in development mode, and when no client build is present. A request path that the static file handler or the network guard refuses before routing (a dot-segment spelling when a client build is served, or an unparseable path) keeps that refusal; it is never answered with `index.html` and never forwarded to Vite. In development mode such a request SHALL NOT be forwarded to the Vite dev server.
 
 #### Scenario: Server serves index.html for client routes
 - **WHEN** a GET request is made to `/session/abc-123`
@@ -22,7 +22,8 @@ The server SHALL return `index.html` for any GET request that does not match a s
 
 #### Scenario: Dotted API path is a JSON 404
 - **WHEN** an admitted GET request is made to `/x/../api/does-not-exist`
-- **THEN** the server responds 404 with a JSON body, not `index.html`
+- **THEN** the server does not answer with `index.html` and does not forward it to Vite
+- **AND** the answer is a JSON 404, or the static file handler's 403 refusal when a client build is served
 
 #### Scenario: Unknown API path in development mode
 - **WHEN** the server runs with `--dev` and the Vite dev server is up

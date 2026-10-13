@@ -17,7 +17,7 @@
  *
  * Nothing here logs a value. The per-session state view carries names and states.
  *
- * See change: add-credential-vault (D2, D3).
+ * See change: add-credential-vault (D2, D3); retro-ux-credential-vault (D2: project memory + open projects).
  */
 
 import type { VaultReportMessage, VaultSnapshotMessage, VaultSyncRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
@@ -25,6 +25,7 @@ import { clampVaultGraceHours, type VaultDeliveryOutcome } from "@blackbelt-tech
 import { normalizeOrigin, type SessionProject } from "@blackbelt-technology/pi-dashboard-shared/vault-project-key.js";
 import { type SessionOrigin, UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
 import { type BindingState, buildDeliverySnapshot, resolveBindings } from "./vault-grants.js";
+import type { VaultProjects } from "./vault-projects.js";
 import type { VaultDocument, VaultStore } from "./vault-store.js";
 
 export type VaultTrustDecision =
@@ -51,8 +52,25 @@ interface SessionBindingView {
   project?: { deviceId: string; dir: string; repoKey?: string };
 }
 
+/** One project the picker offers: a connected one (`sessions`), or a remembered one (`lastSeenAt`). */
+export interface ProjectView {
+  kind: "repo" | "dir";
+  deviceId?: string;
+  dir: string;
+  repoKey?: string;
+  sessions?: number;
+  lastSeenAt?: number;
+  /** Refused sessions are listed by working directory and are never grantable. */
+  blocked?: "untrusted" | "transport-insecure";
+}
+
+/** Longest working directory a refused session is listed under. */
+const MAX_BLOCKED_DIR_LENGTH = 4096;
+
 export interface VaultDeliveryHubDeps {
   store: VaultStore;
+  /** Remembers each resolved project for the picker. Optional: delivery works without it. */
+  projects?: Pick<VaultProjects, "record">;
   /** Origin of a connected session, or undefined when unknown. */
   getOrigin: (sessionId: string) => SessionOrigin | undefined;
   /** Send to ONE session's bridge. Returns false when not connected. */
@@ -82,6 +100,8 @@ export interface VaultDeliveryHub {
   /** Immediate recompute-and-send for every known session. */
   pushNow(): Promise<void>;
   getSessionState(sessionId: string): SessionBindingView | undefined;
+  /** Projects of the sessions connected now (never values): delivered ones grouped, refused ones listed by `cwd`. */
+  listOpenProjects(): ProjectView[];
   forget(sessionId: string): void;
   dispose(): void;
 }
@@ -109,6 +129,27 @@ function bindingRows(rec: SessionRecord, connected: boolean): SessionBindingView
   for (const n of rec.revoked) if (!rows.some((b) => b.name === n)) rows.push({ name: n, state: "revoked" });
   if (!connected) for (const b of rows) if (HOLDING_STATES.has(b.state)) b.state = "hub-unreachable";
   return rows;
+}
+
+/** Where a session's project belongs in the picker: delivered → grouped, refused → by `cwd`, otherwise nowhere. */
+function openProjectOf(rec: SessionRecord): { group: "open" | "blocked"; key: string; view: ProjectView } | undefined {
+  if (rec.outcome === "delivered" && rec.project) {
+    const { deviceId, dir, repoKey } = rec.project;
+    const view: ProjectView = { kind: repoKey ? "repo" : "dir", deviceId, dir, ...(repoKey ? { repoKey } : {}), sessions: 1 };
+    return { group: "open", key: `${deviceId}\u0000${dir}`, view };
+  }
+  if ((rec.outcome === "untrusted" || rec.outcome === "transport-insecure") && rec.cwd) {
+    const dir = rec.cwd.slice(0, MAX_BLOCKED_DIR_LENGTH);
+    return { group: "blocked", key: `${rec.outcome}\u0000${dir}`, view: { kind: "dir", dir, sessions: 1, blocked: rec.outcome } };
+  }
+  return undefined;
+}
+
+/** Count one more session on an existing entry, or add `fresh` (already counting one). */
+function tally(into: Map<string, ProjectView>, key: string, fresh: ProjectView): void {
+  const known = into.get(key);
+  if (known) known.sessions = (known.sessions ?? 0) + 1;
+  else into.set(key, fresh);
 }
 
 /** States in which the session holds (or may hold) a delivered value. */
@@ -152,6 +193,10 @@ export function createVaultDeliveryHub(deps: VaultDeliveryHubDeps): VaultDeliver
     for (const n of grantedNow) rec.revoked.delete(n);
     rec.granted = grantedNow;
     rec.project = project;
+    // Fire-and-forget: a failure is logged by name only (the message can carry a path) and never touches delivery.
+    deps.projects?.record(project).catch((err: unknown) => {
+      console.warn(`[vault] project record failed: ${(err as Error)?.name ?? "error"}`);
+    });
     rec.states = snap.states.length > 0 ? snap.states : resolveBindings(doc, project).map((r) => ({ name: r.name, state: r.state }));
     rec.outcome = "delivered";
     rec.lastContactAt = now();
@@ -226,6 +271,15 @@ export function createVaultDeliveryHub(deps: VaultDeliveryHubDeps): VaultDeliver
       if (!rec) return undefined;
       const bindings = bindingRows(rec, deps.isSessionConnected?.(sessionId) !== false);
       return { bindings, lastContactAt: rec.lastContactAt, outcome: rec.outcome, project: rec.project && { ...rec.project } };
+    },
+    listOpenProjects() {
+      const groups = { open: new Map<string, ProjectView>(), blocked: new Map<string, ProjectView>() };
+      for (const [id, rec] of sessions) {
+        if (deps.isSessionConnected?.(id) === false) continue;
+        const entry = openProjectOf(rec);
+        if (entry) tally(groups[entry.group], entry.key, entry.view);
+      }
+      return [...groups.open.values(), ...groups.blocked.values()];
     },
     forget(sessionId) {
       sessions.delete(sessionId);

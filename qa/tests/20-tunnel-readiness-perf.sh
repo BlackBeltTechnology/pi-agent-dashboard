@@ -37,7 +37,7 @@ BASE="http://127.0.0.1:${PORT}"
 #     quick sequential probe suitable for a smoke run.
 #
 # Claiming the full contract here while measuring the easy half is exactly the
-# vacuous-gate failure this file's own content-type check exists to prevent.
+# vacuous-gate failure this file's own endpoint-shape check exists to prevent.
 SAMPLES=${PI_QA_READINESS_SAMPLES:-20}
 WINDOW_MIN=${PI_QA_WINDOW_MINUTES:-0}
 BUDGET_MS=2000
@@ -51,18 +51,27 @@ tmp=$(mktemp)
 body=$(mktemp)
 trap 'rm -f "$tmp" "$body"' EXIT
 
-# A 200 is NOT proof the route exists. The dashboard serves the SPA shell as a
-# catch-all, so an unknown /api path returns 200 text/html in ~1ms — which would
-# make every latency assertion below pass against a server that does not have
-# this endpoint at all. Verify the payload SHAPE before trusting any timing.
-# Bounded: an unbounded probe against a wedged server hangs the QA run forever.
+# A reply is NOT proof the route exists. A server with the unknown-`/api` fix
+# answers a missing route 404 JSON `not_found`; an OLDER server served the SPA
+# shell (HTML, HTTP 200) for it, which would make every latency assertion below
+# pass in ~1ms against a server that does not have this endpoint at all. Either
+# way the server predates the endpoint, so fail before any timing is trusted.
+# Verify the payload SHAPE too. Bounded: an unbounded probe against a wedged
+# server hangs the QA run forever.
 CURL_BOUND=(--max-time 15 --connect-timeout 5)
-probe_ct=$(curl -s "${CURL_BOUND[@]}" -o "$body" -w '%{content_type}' "${BASE}/api/tunnel-readiness" 2>/dev/null || echo "")
+probe=$(curl -s "${CURL_BOUND[@]}" -o "$body" -w '%{http_code} %{content_type}' "${BASE}/api/tunnel-readiness" 2>/dev/null || echo "000 ")
+probe_code=${probe%% *}
+probe_ct=${probe#* }
 case "$probe_ct" in
-  application/json*) ;;
+  application/json*)
+    if [ "$probe_code" = "404" ]; then
+      echo "FAIL: /api/tunnel-readiness answered 404 (JSON not_found): the server predates the readiness endpoint."
+      exit 1
+    fi
+    ;;
   *)
-    echo "FAIL: /api/tunnel-readiness returned '${probe_ct:-no response}', not JSON."
-    echo "      The SPA catch-all answers unknown /api paths with 200 text/html, so this"
+    echo "FAIL: /api/tunnel-readiness returned '${probe_ct:-no response}' (HTTP ${probe_code}), not JSON."
+    echo "      An older server serves the SPA shell (HTML) for unknown /api paths, so this"
     echo "      almost certainly means the server predates the readiness endpoint."
     exit 1
     ;;

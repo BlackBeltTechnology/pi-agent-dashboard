@@ -84,3 +84,10 @@ F13 and F15 (usage line, rotate hint) ride on D1/D6: they share the account row 
   - "Applies to every session in this checkout" on the confirm callout;
   - a neutral "Not delivered to sessions" pill for non-project subjects;
   - `page-load-error` proposed dropped (owned by `surface-operate-required-remedy`).
+
+### After capture (implementation, 2026-10-14)
+
+- `tests/e2e/retro-ux-credential-vault.spec.ts` with `RETRO_UX_CAPTURE=1` against the docker harness: 7 of 7 passed; every contrast, size and focus list empty in base dark, base light and nord dark at 375 / 768 / 1440. 261 screenshots in `mockups/after/` (page shell, variables, accounts, import, session chip, chip trigger).
+- Replica vs capture: the real render follows the proposed column (tabs with counts, flow strip, variable cards with status pills, inline field errors). Differences are limited to real data (long repository keys wrap) and the Settings shell around the page. The chip trigger surface (2 states) is probed in addition to the board's 27 states.
+- `page-load-error` stays out (owned by `surface-operate-required-remedy`), as agreed.
+- Visual sign-off against the board stays a human review (test-plan #F7, task 5.48).

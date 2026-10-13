@@ -43,6 +43,8 @@ export const HostActions = {
   editorWrite: "editor.write",
   liveRead: "live.read",
   liveWrite: "live.write",
+  /** Manage the credential vault (`/api/vault*`, `ungranted`). See change: retro-ux-credential-vault (D11). */
+  vaultManage: "vault.manage",
   /** A plugin-emitted global domain event (fan-out road, §10). */
   domainEvent: "domain.event",
 } as const satisfies Record<string, HostAction>;
@@ -54,6 +56,7 @@ export const hostResource = {
   branch: (cwd?: string): HostResource => ({ kind: "branch", ...(cwd ? { cwd } : {}) }),
   terminal: (id?: string): HostResource => ({ kind: "terminal", ...(id ? { id } : {}) }),
   system: (): HostResource => ({ kind: "system" }),
+  vault: (): HostResource => ({ kind: "vault" }),
   /** A plugin domain event; identifies the emitter + event type, never payload. */
   domain: (pluginId: string, eventType: string): HostResource => ({
     kind: "domain",

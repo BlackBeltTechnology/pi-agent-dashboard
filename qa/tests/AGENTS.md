@@ -35,7 +35,7 @@ Files in this directory. One row per file. Non-source area. See change: migrate-
 | `17-bridge-contention.sh` | L2 (test-plan #X10). Two sockets claim one session id on the pi gateway; asserts the duplicate receives… → see `17-bridge-contention.sh.AGENTS.md` |
 | `18-server-port-hygiene.sh` | L2 (test-plan #E1, #E22). Server B takes its OWN gateway port plus A's OCCUPIED dashboard port, so B's… → see `18-server-port-hygiene.sh.AGENTS.md` |
 | `19-tmux-spawn-injection.sh` | L2 harness (test-plan #X1-#X3, #X6). Creates workspace directories whose NAMES embed `$(…)`, backticks,… → see `19-tmux-spawn-injection.sh.AGENTS.md` |
-| `20-tunnel-readiness-perf.sh` | P1/P3/X12 — readiness tick p95 (<2s) + concurrent-tunnel soak. → see `20-tunnel-readiness-perf.sh.AGENTS.md` |
+| `20-tunnel-readiness-perf.sh` | P1/P3/X12 — readiness tick p95 (<2s) + concurrent-tunnel soak; missing endpoint (404 JSON or SPA shell) → "predates" FAIL. → see `20-tunnel-readiness-perf.sh.AGENTS.md`. See change: retro-ux-credential-vault. |
 | `21-gateway-rendezvous.sh` | L2 (test-plan #X5, #X6 → tasks 12.44, 12.45). Owner + one attach instance under a THROWAWAY `$HOME` (the… → see `21-gateway-rendezvous.sh.AGENTS.md` |
 | `23-gateway-socket-fallback.sh` | L2 (test-plan #X17 → task 12.46). A `$HOME` deep enough to overflow `sun_path` forces the loopback fallback:… → see `23-gateway-socket-fallback.sh.AGENTS.md` |
 | `24-gateway-where.sh` | L2 (test-plan #F7 → task 12.43). Spawns a REAL pi session in a throwaway `$HOME` with… → see `24-gateway-where.sh.AGENTS.md` |

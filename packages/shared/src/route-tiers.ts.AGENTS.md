@@ -31,3 +31,5 @@ Rows for `/api/users`, `/api/users/:id`, `/api/users/:id/revoke`, `/api/users/:i
 - `GET /api/folder/project` classified `observe`. See change: add-project-scoped-apps.
 
 Row `GET /api/plugins/skill-atlas/graph` observe. See change: add-skill-atlas-screen.
+
+`GET /api/vault/projects` → `operate` (project picker `{open,recent}`). See change: retro-ux-credential-vault.

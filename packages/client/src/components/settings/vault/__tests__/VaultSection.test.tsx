@@ -1,17 +1,20 @@
 /**
  * Vault settings page: lists labels only (never a value), refuses a short key
  * client-side, flags a no-account grant, and shows names-only import proposals.
- * See change: add-credential-vault (task 6.7).
+ * See change: add-credential-vault (task 6.7). Fetch stubs answer with a JSON content-type
+ * (`vault-api.ts` reads replies through `fetchJsonResponse`); see change: retro-ux-credential-vault.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VaultSection } from "../VaultSection.js";
+import { callsTo, fail, html, makeOverview, ok as okResponse, stubVaultFetch } from "./vault-fixtures.js";
 
 const SECRET = "supersecretvalue-0001";
 let overview: Record<string, unknown>;
 let calls: Array<{ url: string; method: string; body?: unknown }>;
 
-const ok = (data: unknown) => ({ ok: true, status: 200, json: () => Promise.resolve({ success: true, data }) });
+const JSON_HEADERS = new Headers({ "content-type": "application/json" });
+const ok = (data: unknown) => ({ ok: true, status: 200, headers: JSON_HEADERS, json: () => Promise.resolve({ success: true, data }) });
 
 beforeEach(() => {
   calls = [];
@@ -20,7 +23,9 @@ beforeEach(() => {
     accounts: [
       { id: "a1", provider: "gemini", kind: "key", namespace: "user", label: "personal" },
       { id: "a2", provider: "gemini", kind: "key", namespace: "user", label: "work" },
-      { id: "o1", provider: "x", kind: "oauth", namespace: "user", label: "other" },
+      // A kind this page does not know: kept, counted, not shown. (`oauth` now has its own
+      // "Sign-in accounts" section; see change: retro-ux-credential-vault, design D10.)
+      { id: "o1", provider: "x", kind: "mystery", namespace: "user", label: "other" },
     ],
     bindings: [{ name: "GEMINI_API_KEY", target: "env", defaultAccountId: "a1" }],
     grants: [
@@ -60,13 +65,14 @@ describe("VaultSection", () => {
 
   it("sends the typed value once and clears the field", async () => {
     render(<VaultSection />);
+    fireEvent.click(await screen.findByTestId("vault-account-new"));
     await screen.findByTestId("vault-account-form");
-    fireEvent.change(screen.getByLabelText("Provider (e.g. gemini)"), { target: { value: "gemini" } });
-    fireEvent.change(screen.getByLabelText("Label (e.g. personal)"), { target: { value: "ci" } });
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "gemini" } });
+    fireEvent.change(screen.getByLabelText("Label"), { target: { value: "ci" } });
     const key = screen.getByLabelText("Key") as HTMLInputElement;
     expect(key.type).toBe("password");
     fireEvent.change(key, { target: { value: SECRET } });
-    fireEvent.click(screen.getByText("Add account"));
+    fireEvent.click(screen.getByTestId("vault-account-submit"));
     await waitFor(() => expect(calls.some((c) => c.url === "/api/vault/accounts" && c.method === "POST")).toBe(true));
     expect(calls.find((c) => c.url === "/api/vault/accounts")?.body).toEqual({ provider: "gemini", label: "ci", value: SECRET });
     await waitFor(() => expect((screen.getByLabelText("Key") as HTMLInputElement).value).toBe(""));
@@ -113,6 +119,7 @@ describe("VaultSection — operate refusal callout", () => {
   const refusal = (remedies?: unknown[]) => ({
     ok: false,
     status: 403,
+    headers: JSON_HEADERS,
     json: () => Promise.resolve({ success: false, error: "operate_required", message: "the vault needs an operate-tier credential or a locally trusted caller", ...(remedies ? { reason: "no-credential", remedies } : {}) }),
   });
   /** `GET /api/vault` answers come from `queue`; the last entry repeats. */
@@ -161,7 +168,7 @@ describe("VaultSection — operate refusal callout", () => {
     const failures: Array<() => unknown> = [
       () => refusal(undefined),
       () => { throw new Error("socket closed"); },
-      () => ({ ok: false, status: 500, json: () => Promise.resolve({ success: false, error: "internal", message: "internal error (see server.log)" }) }),
+      () => ({ ok: false, status: 500, headers: JSON_HEADERS, json: () => Promise.resolve({ success: false, error: "internal", message: "internal error (see server.log)" }) }),
     ];
     for (const f of failures) {
       // a throwing entry must surface as a rejected fetch, as a network error does
@@ -212,7 +219,188 @@ describe("VaultSection — operate refusal callout", () => {
     render(<VaultSection />);
     fireEvent.click(await screen.findByTestId("vault-operate-retry"));
     const line = await screen.findByTestId("vault-error");
-    expect(line.textContent).toContain("socket closed");
+    // A rejected fetch is a `network` failure now: it names its cause instead of the raw error text.
+    expect(line.textContent).toContain("Can't reach the dashboard server");
     expect(screen.queryByTestId("vault-operate-required")).toBeNull();
+  });
+});
+
+// ── retro-ux-credential-vault ─────────────────────────────────────────────
+describe("VaultSection — tabs (F1)", () => {
+  const tab = (id: string) => screen.getByTestId(`vault-tab-${id}`);
+  const selected = () => ["variables", "accounts", "import"].filter((id) => tab(id).getAttribute("aria-selected") === "true");
+
+  it("F1 follows the arrow keys, Home and End; inactive panels are hidden but mounted; typed state survives a tab switch", async () => {
+    render(<VaultSection />);
+    const tablist = await screen.findByRole("tablist");
+    expect(tablist.getAttribute("aria-label")).toBeTruthy();
+    expect(selected()).toEqual(["variables"]);
+    expect(tab("variables").getAttribute("tabindex")).toBe("0");
+    expect(tab("accounts").getAttribute("tabindex")).toBe("-1");
+    tab("variables").focus();
+
+    fireEvent.keyDown(tab("variables"), { key: "ArrowRight" });
+    expect(selected()).toEqual(["accounts"]);
+    expect(document.activeElement).toBe(tab("accounts"));
+    fireEvent.keyDown(tab("accounts"), { key: "ArrowRight" });
+    expect(selected()).toEqual(["import"]);
+    expect(document.activeElement).toBe(tab("import"));
+    fireEvent.keyDown(tab("import"), { key: "ArrowRight" });
+    expect(selected()).toEqual(["variables"]); // wraps
+    fireEvent.keyDown(tab("variables"), { key: "End" });
+    expect(selected()).toEqual(["import"]);
+    fireEvent.keyDown(tab("import"), { key: "Home" });
+    expect(selected()).toEqual(["variables"]);
+    expect(document.activeElement).toBe(tab("variables"));
+    fireEvent.keyDown(tab("variables"), { key: "ArrowLeft" });
+    expect(selected()).toEqual(["import"]);
+
+    for (const [id, panel] of [["variables", "bindings"], ["accounts", "accounts"], ["import", "import"]] as const) {
+      const el = screen.getByTestId(`vault-panel-${panel}`);
+      expect(el.getAttribute("role")).toBe("tabpanel");
+      expect(tab(id).getAttribute("aria-controls")).toBe(el.id);
+      expect(el.getAttribute("aria-labelledby")).toBe(tab(id).id);
+      expect(el.hasAttribute("hidden")).toBe(id !== "import");
+      expect(el.isConnected).toBe(true);
+    }
+
+    fireEvent.click(tab("accounts"));
+    fireEvent.click(screen.getByTestId("vault-account-new"));
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "gemini" } });
+    fireEvent.click(tab("variables"));
+    expect(screen.getByTestId("vault-panel-accounts").hasAttribute("hidden")).toBe(true);
+    fireEvent.click(tab("accounts"));
+    expect((screen.getByLabelText("Provider") as HTMLInputElement).value).toBe("gemini");
+  });
+});
+
+describe("VaultSection — first run (F2)", () => {
+  const stubFirstRun = (opts: { accounts?: number; candidates: number }) => {
+    const accounts = Array.from({ length: opts.accounts ?? 0 }, (_, i) => ({ id: `a${i}`, provider: "gemini", kind: "key", namespace: "user", label: `k${i}` }));
+    stubVaultFetch({
+      overview: () => makeOverview({ accounts }),
+      handler: (c) =>
+        c.url === "/api/vault/import/candidates"
+          ? okResponse(Array.from({ length: opts.candidates }, (_, i) => ({ id: `c${i}`, label: `file ${i}`, exists: true })))
+          : undefined,
+    });
+  };
+  const isPrimary = (el: HTMLElement) => el.className.includes("accent-solid");
+
+  it("F2 offers Import keys as the primary action when key files were found", async () => {
+    stubFirstRun({ candidates: 2 });
+    render(<VaultSection />);
+    const guide = await screen.findByTestId("vault-empty");
+    expect(guide.querySelectorAll("ol > li")).toHaveLength(3);
+    expect(isPrimary(within(guide).getByTestId("vault-first-run-import"))).toBe(true);
+    expect(isPrimary(within(guide).getByTestId("vault-first-run-add"))).toBe(false);
+    expect(guide.textContent).toContain("2 key files found");
+  });
+
+  it("F2 offers Add a key as the primary action when none were found; each action opens its tab", async () => {
+    stubFirstRun({ candidates: 0 });
+    render(<VaultSection />);
+    const guide = await screen.findByTestId("vault-empty");
+    expect(isPrimary(within(guide).getByTestId("vault-first-run-add"))).toBe(true);
+    expect(isPrimary(within(guide).getByTestId("vault-first-run-import"))).toBe(false);
+    fireEvent.click(within(guide).getByTestId("vault-first-run-add"));
+    expect(screen.getByTestId("vault-tab-accounts").getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("vault-account-form")).toBeTruthy();
+  });
+
+  it("F2 shows no guide once there is an account: the Variables empty text and New variable instead", async () => {
+    stubFirstRun({ accounts: 1, candidates: 2 });
+    render(<VaultSection />);
+    await screen.findByTestId("vault-variables-empty");
+    expect(screen.queryByTestId("vault-empty")).toBeNull();
+    expect(screen.getByTestId("vault-variable-new")).toBeTruthy();
+  });
+});
+
+describe("VaultSection — loading (F3)", () => {
+  it("F3 shows a busy skeleton while the first load runs, then the tablist, never an empty page", async () => {
+    let release: (r: Response) => void = () => {};
+    const pending = new Promise<Response>((r) => { release = r; });
+    stubVaultFetch({ handler: (c) => (c.method === "GET" && c.url === "/api/vault" ? pending : undefined) });
+    render(<VaultSection />);
+    const skeleton = screen.getByTestId("vault-loading");
+    expect(skeleton.getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByRole("heading", { level: 2 })).toBeTruthy();
+    expect(screen.queryByRole("tablist")).toBeNull();
+    release(okResponse(makeOverview({ accounts: [{ id: "a1", provider: "gemini", kind: "key", namespace: "user", label: "personal" }] })));
+    await screen.findByRole("tablist");
+    expect(screen.queryByTestId("vault-loading")).toBeNull();
+  });
+});
+
+describe("VaultSection — load failures (X1, X2)", () => {
+  it("X1 a 200 HTML reply says the server lacks the vault, offers Restart server and Try again, and shows a refusal in place", async () => {
+    const calls = stubVaultFetch({
+      handler: (c) => {
+        if (c.method === "GET" && c.url === "/api/vault") return html(200);
+        if (c.method === "POST" && c.url === "/api/restart") return fail(403, "forbidden", "Restart refused: operator access needed");
+        return undefined;
+      },
+    });
+    render(<VaultSection />);
+    const callout = await screen.findByTestId("vault-error");
+    expect(callout.textContent).toContain("doesn't have the vault yet");
+    expect(within(callout).getByRole("button", { name: "Restart server" })).toBeTruthy();
+    expect(within(callout).getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(document.body.textContent).not.toContain("HTTP 200");
+    fireEvent.click(within(callout).getByRole("button", { name: "Restart server" }));
+    await waitFor(() => expect(screen.getByTestId("vault-error").textContent).toContain("Restart refused: operator access needed"));
+    expect(callsTo(calls, "POST", "/api/restart")).toHaveLength(1);
+    const before = callsTo(calls, "GET", "/api/vault").length;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(callsTo(calls, "GET", "/api/vault").length).toBe(before + 1));
+  });
+
+  it("X1 an accepted restart says so instead of looping", async () => {
+    stubVaultFetch({
+      handler: (c) => {
+        if (c.method === "GET" && c.url === "/api/vault") return html(200);
+        if (c.method === "POST" && c.url === "/api/restart") return okResponse({});
+        return undefined;
+      },
+    });
+    render(<VaultSection />);
+    fireEvent.click(await screen.findByRole("button", { name: "Restart server" }));
+    await waitFor(() => expect(screen.getByTestId("vault-restarting").textContent).toMatch(/restarting/i));
+  });
+
+  it("X2 an unreachable server is named in the error line", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
+    render(<VaultSection />);
+    expect((await screen.findByTestId("vault-error")).textContent).toContain("Can't reach the dashboard server");
+  });
+});
+
+describe("VaultSection — corrupt vault (X6)", () => {
+  it("X6 names the backup and disables every add / rotate / revoke / grant / delete / approve control", async () => {
+    const overviewCorrupt = makeOverview({
+      status: { state: "corrupt", backup: "/Users/robson/.pi/dashboard/vault.json.corrupt-1760339462" },
+      accounts: [{ id: "a1", provider: "gemini", kind: "key", namespace: "user", label: "personal" }],
+      bindings: [{ name: "GEMINI_API_KEY", target: "env", defaultAccountId: "a1" }],
+      grants: [{ subject: "repo:github.com/acme/app", bindingName: "GEMINI_API_KEY", state: "ok" }],
+      confirmations: [{ deviceId: "hub", dir: "/src/app", repoKey: "github.com/acme/app" }],
+      plugins: [{ pluginId: "demo", displayName: "Demo", declared: ["GEMINI_API_KEY", "POLY_PIZZA_KEY"] }],
+    });
+    stubVaultFetch({
+      overview: () => overviewCorrupt,
+      handler: (c) => (c.url === "/api/vault/import/candidates" ? okResponse([{ id: "c1", label: "skill .env", exists: true }]) : undefined),
+    });
+    render(<VaultSection />);
+    const banner = await screen.findByTestId("vault-corrupt");
+    expect(banner.textContent).toContain("vault.json.corrupt-1760339462");
+    for (const id of [
+      "vault-account-new", "vault-account-rotate", "vault-account-revoke",
+      "vault-variable-new", "vault-variable-delete", "vault-binding-default", "vault-grant-open", "vault-grant-remove",
+      "vault-checkout-revoke", "vault-plugin-approve", "vault-import-review", "vault-import-file",
+    ]) {
+      const controls = screen.getAllByTestId(id) as Array<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>;
+      expect(controls.length, id).toBeGreaterThan(0);
+      for (const control of controls) expect(control.disabled, id).toBe(true);
+    }
   });
 });
