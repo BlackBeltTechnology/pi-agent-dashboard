@@ -440,6 +440,8 @@ function mockSeq(gets: Array<() => Response>) {
 const denied403 = () => jsonResp(DENIED, false, 403);
 const ok = (over: Partial<KbStats>) => () => jsonResp(stats(over));
 const pinMsg = (paths: string[]) => new MessageEvent("message", { data: JSON.stringify({ type: "pinned_dirs_updated", paths }) });
+const PALETTE =
+  /\b(?:bg|text|border|ring|from|to|via|fill|stroke|outline|divide)-(?:red|green|blue|yellow|amber|gray|slate|zinc|neutral|stone|emerald|orange|purple|indigo|sky|teal|cyan|lime|pink|rose|violet|fuchsia)-\d+/;
 const SNAP: KbStatsSnapshot = { stats: null, loading: false, error: null, reindexError: null, pending: false, denied: false, deniedReason: null, pinPending: false };
 
 describe("FolderKbSection — denied, pinning, missing, no-sources", () => {
@@ -468,7 +470,9 @@ describe("FolderKbSection — denied, pinning, missing, no-sources", () => {
     const count = getByTestId("folder-kb-count");
     expect(count.textContent).toContain("not allowed");
     expect(count.textContent).not.toContain("index failed");
-    expect(count.querySelector(".text-red-400")).toBeNull();
+    // Neutral state word: no severity pill, no palette class (retro-ux-plugin-settings-forms).
+    expect(count.querySelector("[class*='--severity-error']")).toBeNull();
+    expect(count.innerHTML).not.toMatch(PALETTE);
     const title = getByTestId("folder-kb-open-settings").getAttribute("title");
     expect(title).toBe("Folder not admitted — pin it to enable the knowledge base");
     expect(title).not.toContain("server reason");
@@ -599,7 +603,8 @@ describe("FolderKbSection — denied, pinning, missing, no-sources", () => {
     const { getByTestId, store, unmount } = renderSlot();
     await waitFor(() => expect(getByTestId("folder-kb-section").getAttribute("data-state")).toBe("missing"));
     expect(getByTestId("folder-kb-count").textContent).toContain("folder missing");
-    expect(getByTestId("folder-kb-count").querySelector(".text-red-400")).toBeNull();
+    expect(getByTestId("folder-kb-count").querySelector("[class*='--severity-error']")).toBeNull();
+    expect(getByTestId("folder-kb-count").innerHTML).not.toMatch(PALETTE);
     await waitFor(() => expect(kbItem(store)?.label).toBe("Folder missing"));
     expect(kbItem(store)!.disabled).toBe(true);
     act(() => kbItem(store)!.onSelect());
@@ -718,5 +723,69 @@ describe("FolderKbSection — transient admission 503", () => {
     expect(getByTestId("folder-kb-section").getAttribute("data-state")).not.toBe("denied");
     await new Promise((r) => setTimeout(r, 50));
     expect(fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "POST")).toHaveLength(1);
+  });
+});
+
+// test-plan #E21 — state words use tokens + icon; failure and stale are severity pills.
+// See change: retro-ux-plugin-settings-forms.
+describe("FolderKbSection — token-only state words (E21)", () => {
+  const CASES: Array<[string, Partial<KbStatsSnapshot>]> = [
+    ["denied", { denied: true }],
+    ["pinning", { denied: true, pinPending: true }],
+    ["missing", { stats: stats({ folderMissing: true }) }],
+    ["indexing", { stats: stats({ indexing: true }) }],
+    ["no-sources", { stats: stats({ chunks: 0, indexed: false, sourceCount: 0 }) }],
+    ["not-indexed", { stats: stats({ chunks: 0, indexed: false }) }],
+    ["error", { stats: stats({ jobStatus: "error" }) }],
+    ["stale", { stats: stats({ staleCount: 3 }) }],
+    ["populated", { stats: stats() }],
+  ];
+
+  it.each(CASES)("%s: no palette class outside SlotPill's glyph chip", (state, over) => {
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(() => new Promise<Response>(() => {}));
+    vi.spyOn(getKbStatsStore(cwd), "getSnapshot").mockReturnValue({ ...SNAP, ...over });
+    const { getByTestId } = renderSlotPlacement("card");
+    const section = getByTestId("folder-kb-section");
+    expect(section.getAttribute("data-state")).toBe(state);
+    const clone = section.cloneNode(true) as HTMLElement;
+    // SlotPill's own accent classes (glyph chip + hover border) are the documented
+    // exception (shared; follow-up) — everything else must be tokens.
+    for (const chip of clone.querySelectorAll("span.w-\\[26px\\]")) chip.remove();
+    const html = clone.innerHTML.replace(/hover:border-[a-z]+-\d+\/\d+/g, "");
+    expect(html).not.toMatch(PALETTE);
+    const reindex = getByTestId("folder-kb-card-reindex");
+    expect(reindex.className).toContain("h-11 w-11");
+    expect(reindex.className).toContain("sm:h-8 sm:w-8");
+    expect(reindex.className).toContain("--bg-tertiary");
+    expect(reindex.getAttribute("aria-label")).toBeTruthy();
+  });
+
+  it("error renders 'index failed' as a severity-error pill", () => {
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(() => new Promise<Response>(() => {}));
+    vi.spyOn(getKbStatsStore(cwd), "getSnapshot").mockReturnValue({ ...SNAP, stats: stats({ jobStatus: "error" }) });
+    const { getByTestId } = renderSlot();
+    const pill = getByTestId("folder-kb-count").querySelector("span") as HTMLElement;
+    expect(pill.textContent).toBe("index failed");
+    expect(pill.className).toContain("--severity-error-fg");
+  });
+
+  it("stale is `⚠ 3 stale` in a severity-warning pill", () => {
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(() => new Promise<Response>(() => {}));
+    vi.spyOn(getKbStatsStore(cwd), "getSnapshot").mockReturnValue({ ...SNAP, stats: stats({ staleCount: 3 }) });
+    const { getByTestId } = renderSlot();
+    const pill = getByTestId("folder-kb-stale");
+    expect(pill.textContent).toBe("⚠ 3 stale");
+    expect(pill.className).toContain("--severity-warning-fg");
+  });
+
+  it.each(["denied", "missing", "indexing"] as const)("%s word uses --text-secondary", (state) => {
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(() => new Promise<Response>(() => {}));
+    const over: Partial<KbStatsSnapshot> =
+      state === "denied" ? { denied: true } : state === "missing" ? { stats: stats({ folderMissing: true }) } : { stats: stats({ indexing: true }) };
+    vi.spyOn(getKbStatsStore(cwd), "getSnapshot").mockReturnValue({ ...SNAP, ...over });
+    const { getByTestId } = renderSlot();
+    const word = getByTestId("folder-kb-count").querySelector("span") as HTMLElement;
+    expect(word.className).toContain("text-[var(--text-secondary)]");
+    expect(word.querySelector("svg")).toBeTruthy();
   });
 });

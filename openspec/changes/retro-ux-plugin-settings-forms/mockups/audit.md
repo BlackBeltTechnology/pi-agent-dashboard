@@ -47,3 +47,14 @@ Approved by the user in session on 2026-10-12 via `ask_user`: all 6 decisions �
 ## Replica ↔ capture reconciliation (phase 2)
 
 _Empty until `RETRO_UX_CAPTURE=1` runs on the real components._
+
+## After capture (task 3.11)
+
+`mockups/after/{context-mode,hermes,gmail,kb-pill}/` — 29 states × 3 themes × 3 widths, captured from the docker harness with `RETRO_UX_CAPTURE=1`; every contrast, size and focus list is empty (spec `E24`).
+
+Replica-vs-capture differences:
+- Field order: the board drew label → hint → control; the shipped core layout (approved D2) keeps hint **below** the control and the label beside it for non-text controls.
+- Unit chip, switch, state pill and reset link come from the runtime field family, not the board's hand-written HTML; sizes are the same 11 / 12 / 14 px steps.
+- Two host surfaces needed a one-line token change to pass the probes in states this change lists: `OAuthFlowView` (sign-in link line) and the empty-catalogue `ModelSelector` trigger (hermes "models unavailable"). Neither was on the board.
+- The KB card-placement control is not in the capture (the worktree session card is not reachable in the harness); its 44 / 32 px sizing is asserted at L1.
+

@@ -643,6 +643,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.9.0
         version: link:../shared
+      '@mdi/js':
+        specifier: ^7.4.47
+        version: 7.4.47
       '@mdi/react':
         specifier: ^1.6.1
         version: 1.6.1

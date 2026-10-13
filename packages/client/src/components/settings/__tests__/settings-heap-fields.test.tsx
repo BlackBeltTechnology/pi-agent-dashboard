@@ -226,3 +226,26 @@ describe("subagent coupling warning (test-plan #E24)", () => {
     expect((btn as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+// test-plan #X5 — the refusal and warning paint with severity tokens, not palette classes.
+// See change: retro-ux-plugin-settings-forms.
+describe("heap field messages use severity tokens (X5)", () => {
+  const PALETTE = /\b(?:text|border|bg)-(?:red|amber|yellow)-\d+/;
+
+  it("the refusal renders as a severity-error line with its test id", async () => {
+    await renderPanel("Sessions");
+    fireEvent.change(sessionInput(), { target: { value: "16" } });
+    const err = screen.getByTestId("session-heap-max-old-space-error");
+    expect(err.className).toContain("--severity-error-fg");
+    expect(err.outerHTML).not.toMatch(PALETTE);
+    expect(sessionInput().className).not.toMatch(PALETTE);
+  });
+
+  it("the guidance warning renders as a severity-warning notice with its test id", async () => {
+    await renderPanel("Sessions");
+    fireEvent.change(sessionInput(), { target: { value: "8193" } });
+    const warn = screen.getByTestId("session-heap-max-old-space-warn");
+    expect(warn.className).toContain("--severity-warning-fg");
+    expect(warn.outerHTML).not.toMatch(PALETTE);
+  });
+});

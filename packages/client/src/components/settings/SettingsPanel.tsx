@@ -1,4 +1,4 @@
-import { type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { FieldShell, NumberField, type RegisteredSource, SelectField, SettingsDraftProvider, type SettingsDraftRegistry, SettingsNotice, TextField, ToggleField, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
@@ -28,7 +28,7 @@ import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboa
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
@@ -81,7 +81,6 @@ import type { ResourceType } from "../resource/ResourceCardGrid.js";
 import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
 import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
-import { VaultSection } from "./vault/VaultSection.js";
 import { AgentPathGateSection } from "./AgentPathGateSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
@@ -102,6 +101,13 @@ import { PushNotificationsSection } from "./PushNotificationsSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
+import { VaultSection } from "./vault/VaultSection.js";
+
+// The field family lives in the runtime so plugin settings share one contract.
+// Re-exported so existing `./SettingsPanel.js` imports keep working.
+// See change: retro-ux-plugin-settings-forms (design D2).
+export { NumberField, SelectField, TextField, ToggleField };
+
 
 interface ProviderConfig {
   clientId: string;
@@ -3579,29 +3585,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-// ─── Shared settings field contract ──────────────────────────────────────────
-//
-// The four field components below all owe their control an accessible NAME (a
-// label associated via htmlFor/id) and an accessible DESCRIPTION (the `hint`,
-// referenced via aria-describedby). `hint` is REQUIRED so that adding a field
-// without deciding about its description is a type error rather than a silent
-// omission — the compiler is the gate, so there is no allowlist to drift.
-// `hint={null}` is the explicit, greppable "nothing useful to add here".
-// `unit` renders inside the <label> so it forms part of the accessible name.
-// See change: reorganize-settings-pages-and-descriptions (design D1/D4/D5).
-
-type FieldContract = {
-  /** Accessible description. Required: pass `null` to state there is none. */
-  hint: React.ReactNode;
-  /** Short unit rendered as a chip inside the label (e.g. "ms", "s"). */
-  unit?: string;
-};
-
-/** True when a hint should render and be referenced by aria-describedby. */
-function hasHint(hint: React.ReactNode): boolean {
-  return hint !== null && hint !== undefined;
-}
-
 /**
  * Indents controls beneath the control that gates them, so the dependency is
  * visible instead of being implied by a `disabled` prop or a conditional
@@ -3612,52 +3595,6 @@ function GatedGroup({ children }: { children: React.ReactNode }) {
     <div data-testid="gated-group" className="ml-3 pl-3 border-l border-[var(--border-secondary)] space-y-2">
       {children}
     </div>
-  );
-}
-
-function FieldShell({ label, unit, hint, controlId, hintId, disabled, stacked, children }: FieldContract & {
-  label: string;
-  controlId: string;
-  hintId: string;
-  disabled?: boolean;
-  /** Label above the control (TextField) instead of on the same row. */
-  stacked?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={disabled ? "opacity-50" : ""}>
-      <div className={stacked ? "" : "flex items-center justify-between"}>
-        <label
-          htmlFor={controlId}
-          className={stacked ? "block text-xs text-[var(--text-tertiary)] mb-0.5" : "text-sm text-[var(--text-secondary)]"}
-        >
-          {label}
-          {unit ? (
-            <span className="ml-1.5 px-1 py-0.5 rounded text-[10px] align-middle bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">{unit}</span>
-          ) : null}
-        </label>
-        {children}
-      </div>
-      {hasHint(hint) ? <p id={hintId} className="mt-1 text-xs text-[var(--text-tertiary)]">{hint}</p> : null}
-    </div>
-  );
-}
-
-export function NumberField({ label, value, onChange, disabled, hint, unit }: FieldContract & { label: string; value: number; onChange: (v: number) => void; disabled?: boolean }) {
-  const controlId = useId();
-  const hintId = `${controlId}-hint`;
-  return (
-    <FieldShell label={label} unit={unit} hint={hint} controlId={controlId} hintId={hintId} disabled={disabled}>
-      <input
-        id={controlId}
-        aria-describedby={hasHint(hint) ? hintId : undefined}
-        type="number"
-        disabled={disabled}
-        className="w-24 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)] text-right disabled:cursor-not-allowed"
-        value={value}
-        onChange={(e) => onChange(parseInt(e.target.value, 10) || 0)}
-      />
-    </FieldShell>
   );
 }
 
@@ -3678,7 +3615,7 @@ function StoreHeapCouplingWarning({ config, testId }: { config: Config; testId: 
   if (!r.warn) return null;
   const vars = { ceiling: String(ceilingMb), heap: String(r.projectedHeapMb), crash: String(r.crashPointMb) };
   return (
-    <p data-testid={testId} role="status" className="mt-1 text-xs text-amber-400">
+    <SettingsNotice tone="warning" role="status" testId={testId} className="mt-1">
       {r.unbounded
         ? t(
             "settings.heap.storeUnbounded",
@@ -3690,7 +3627,7 @@ function StoreHeapCouplingWarning({ config, testId }: { config: Config; testId: 
             vars,
             `This event budget needs about ${r.projectedHeapMb} MB of heap, above the ~${r.crashPointMb} MB crash point of a ${ceilingMb} MB server heap ceiling. Raise the ceiling or lower Max Total Event Bytes.`,
           )}
-    </p>
+    </SettingsNotice>
   );
 }
 
@@ -3729,8 +3666,6 @@ function HeapMbField({
   hint?: React.ReactNode;
   testId?: string;
 }) {
-  const controlId = useId();
-  const hintId = `${controlId}-hint`;
   const [draft, setDraft] = useState<string | null>(null);
   const shown = draft ?? String(value);
   // NOT bare `parseInt`: it reads "64abc" as 64, so a typo would be accepted as
@@ -3744,93 +3679,51 @@ function HeapMbField({
   }, [belowFloor, onValidityChange]);
   return (
     <div>
-      <FieldShell label={label} unit="MB" hint={hint} controlId={controlId} hintId={hintId}>
-        <input
-          id={controlId}
-          data-testid={testId}
-          aria-describedby={hasHint(hint) ? hintId : undefined}
-          aria-invalid={belowFloor || undefined}
-          type="number"
-          className={`w-24 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-right ${
-            belowFloor
-              ? "border-red-500 text-red-400"
-              : "border-[var(--border-secondary)] text-[var(--text-primary)]"
-          }`}
-          value={shown}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            const raw = e.target.value.trim();
-            const v = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN;
-            // A refused value is never written to the draft config, so it can
-            // neither be saved nor mark the page dirty.
-            if (Number.isFinite(v) && v >= MIN_HEAP_MB) onChange(v);
-          }}
-          onBlur={() => setDraft(null)}
-        />
-      </FieldShell>
-      {belowFloor && (
-        <p data-testid={testId ? `${testId}-error` : undefined} className="mt-1 text-xs text-red-400">
-          {i18nT(
-            "settings.heap.belowFloor",
-            { min: String(MIN_HEAP_MB) },
-            `Must be at least ${MIN_HEAP_MB} MB — below that V8's fixed overhead dominates the request.`,
-          )}
-        </p>
-      )}
+      <FieldShell
+        label={label}
+        unit="MB"
+        hint={hint ?? null}
+        error={
+          belowFloor
+            ? i18nT(
+                "settings.heap.belowFloor",
+                { min: String(MIN_HEAP_MB) },
+                `Must be at least ${MIN_HEAP_MB} MB — below that V8's fixed overhead dominates the request.`,
+              )
+            : null
+        }
+        testIds={{ error: testId ? `${testId}-error` : undefined }}
+        control={({ id, describedBy, invalid }) => (
+          <input
+            id={id}
+            data-testid={testId}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
+            type="number"
+            className="focus-ring w-24 rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2 py-1 text-right text-sm text-[var(--text-primary)] aria-[invalid=true]:border-[var(--severity-error-border)]"
+            value={shown}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              const raw = e.target.value.trim();
+              const v = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN;
+              // A refused value is never written to the draft config, so it can
+              // neither be saved nor mark the page dirty.
+              if (Number.isFinite(v) && v >= MIN_HEAP_MB) onChange(v);
+            }}
+            onBlur={() => setDraft(null)}
+          />
+        )}
+      />
       {aboveGuidance && (
-        <p data-testid={testId ? `${testId}-warn` : undefined} className="mt-1 text-xs text-amber-400">
+        <SettingsNotice tone="warning" role="status" testId={testId ? `${testId}-warn` : undefined} className="mt-1">
           {i18nT(
             "settings.heap.aboveGuidance",
             { max: String(HEAP_WARN_ABOVE_MB) },
             `Above ${HEAP_WARN_ABOVE_MB} MB is unusually large. The value is still saved.`,
           )}
-        </p>
+        </SettingsNotice>
       )}
     </div>
-  );
-}
-
-export function ToggleField({ label, value, onChange, disabled, hint, unit }: FieldContract & { label: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
-  const controlId = useId();
-  const hintId = `${controlId}-hint`;
-  return (
-    <FieldShell label={label} unit={unit} hint={hint} controlId={controlId} hintId={hintId} disabled={disabled}>
-      {/* role="switch" + aria-checked expose the ON/OFF STATE. Without them a
-          screen-reader user hears the name and description this change added
-          but cannot tell whether the setting is on — half an a11y fix.
-          type="button" keeps it from submitting an enclosing form. */}
-      <button
-        id={controlId}
-        type="button"
-        role="switch"
-        aria-checked={value}
-        aria-describedby={hasHint(hint) ? hintId : undefined}
-        disabled={disabled}
-        onClick={() => onChange(!value)}
-        className={`relative w-10 h-5 rounded-full transition-colors disabled:cursor-not-allowed ${value ? "bg-blue-600" : "bg-[var(--bg-tertiary)]"}`}
-      >
-        <span className={`absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${value ? "translate-x-5" : "translate-x-0"}`} />
-      </button>
-    </FieldShell>
-  );
-}
-
-export function SelectField({ label, value, options, onChange, disabled, hint, unit }: FieldContract & { label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; disabled?: boolean }) {
-  const controlId = useId();
-  const hintId = `${controlId}-hint`;
-  return (
-    <FieldShell label={label} unit={unit} hint={hint} controlId={controlId} hintId={hintId} disabled={disabled}>
-      <select
-        id={controlId}
-        aria-describedby={hasHint(hint) ? hintId : undefined}
-        disabled={disabled}
-        className="bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)] disabled:cursor-not-allowed"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-    </FieldShell>
   );
 }
 
@@ -3891,25 +3784,6 @@ function ProviderSection({ providerKey, provider, onChange }: {
   );
 }
 
-export function TextField({ label, value, onChange, type = "text", placeholder, hint, unit }: FieldContract & {
-  label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string;
-}) {
-  const controlId = useId();
-  const hintId = `${controlId}-hint`;
-  return (
-    <FieldShell label={label} unit={unit} hint={hint} controlId={controlId} hintId={hintId} stacked>
-      <input
-        id={controlId}
-        aria-describedby={hasHint(hint) ? hintId : undefined}
-        type={type}
-        className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-      />
-    </FieldShell>
-  );
-}
 // ─── Global Packages Browse + Confirm-install Dialog ──────────────────────────
 //
 // The unified packages section above handles the installed-rows view

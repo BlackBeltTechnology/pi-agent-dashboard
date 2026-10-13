@@ -728,7 +728,10 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
   } else if (hasModels) {
     triggerClass = "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]";
   } else {
-    triggerClass = "text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]";
+    // Openable but empty: text-secondary (not --text-muted, 2.59:1) so the hermes
+    // "models unavailable" state passes the contrast probe.
+    // See change: retro-ux-plugin-settings-forms.
+    triggerClass = "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]";
   }
 
   return (
