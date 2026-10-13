@@ -760,7 +760,9 @@ jobs:
       # plugin). Fails when plugin.json's version differs from the release.
       # See change: add-claude-code-plugin (design D10).
       - name: Build Claude plugin zip
-        run: node scripts/build-claude-plugin-zip.mjs --version "${{ needs.resolve.outputs.version }}" --out claude-plugin-dist
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        run: node scripts/build-claude-plugin-zip.mjs --version "$RELEASE_VERSION" --out claude-plugin-dist
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
