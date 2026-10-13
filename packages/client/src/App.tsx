@@ -16,7 +16,6 @@ import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
 import { SessionDiffProvider } from "./components/diff/SessionDiffContext.js";
 import { FolderEditorView } from "./components/folder/FolderEditorView.js";
-import { FolderHomeContainer } from "./components/folder/FolderHomeContainer.js";
 import { FolderSplitProvider } from "./components/folder/FolderSplitProvider.js";
 import { ArchiveBrowserView } from "./components/openspec/ArchiveBrowserView.js";
 import { OpenSpecArtifactDialog } from "./components/openspec/OpenSpecArtifactDialog.js";
@@ -166,6 +165,11 @@ const PairingApprovalHost = lazy(() =>
 );
 const FileDiffView = lazy(() =>
   import("./components/diff/FileDiffView.js").then((m) => ({ default: m.FileDiffView })),
+);
+// Folder home (pre-session pane + starters + spawn choices): its own chunk, off the
+// entry gzip cap. See change: redesign-directory-home-split.
+const FolderHomeContainer = lazy(() =>
+  import("./components/folder/FolderHomeContainer.js").then((m) => ({ default: m.FolderHomeContainer })),
 );
 
 import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
@@ -2848,6 +2852,7 @@ export default function App() {
   // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
   const renderDirectoryHome = (cwd: string) => {
     const home = (
+      <Suspense fallback={<div className="flex-1" />}>
       <FolderHomeContainer
         cwd={cwd}
         defaultModel={spawnDefaults.defaultModel}
@@ -2866,6 +2871,7 @@ export default function App() {
         onWorktreeSpawned={(path) => void maybeAutoInitWorktreeOnSpawn(path)}
         onOpenSettings={(c) => navigate(buildFolderSettingsUrl(c))}
       />
+      </Suspense>
     );
     // Desktop hosts the Chat | Split | Editor workspace; mobile keeps the pane
     // alone (a mobile split is a non-goal). See change: redesign-directory-home-split.
