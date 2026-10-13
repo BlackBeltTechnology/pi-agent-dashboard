@@ -32,20 +32,41 @@ async function sessionIds(page: import("@playwright/test").Page): Promise<string
   return (body.data as Array<{ id: string }>).map((s) => s.id);
 }
 
+/** `instanceId` of the serving dashboard generation, or undefined while down. */
+async function healthInstance(): Promise<string | undefined> {
+  try {
+    const res = await fetch(`http://localhost:${DASHBOARD_PORT}/api/health`);
+    if (!res.ok) return undefined;
+    const body = (await res.json()) as { ok?: boolean; instanceId?: string };
+    return body.ok === true ? body.instanceId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Restart and PROVE a new server generation serves: the health `instanceId`
+ * must change. Otherwise a refused restart (old server still up) would pass the
+ * health poll without ever exercising the reconnect replay under test.
+ */
 async function restartDashboard(): Promise<void> {
-  await fetch(`http://localhost:${DASHBOARD_PORT}/api/restart`, { method: "POST" }).catch(() => undefined);
+  const before = await healthInstance();
+  expect(before, "dashboard healthy before restart").toBeTruthy();
+  const res = await fetch(`http://localhost:${DASHBOARD_PORT}/api/restart`, { method: "POST" }).catch(
+    () => undefined, // the connection may die with the daemon
+  );
+  if (res) {
+    expect(res.ok, `POST /api/restart answered ${res.status}`).toBe(true);
+    const body = (await res.json().catch(() => ({}))) as { ok?: boolean };
+    expect(body.ok, "POST /api/restart must not refuse").not.toBe(false);
+  }
   const deadline = Date.now() + 120_000;
-  await new Promise((r) => setTimeout(r, 2_000));
   while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`http://localhost:${DASHBOARD_PORT}/api/health`);
-      if (res.ok) return;
-    } catch {
-      // still down
-    }
+    const now = await healthInstance();
+    if (now && now !== before) return;
     await new Promise((r) => setTimeout(r, 1_000));
   }
-  throw new Error("dashboard did not come back after POST /api/restart");
+  throw new Error("no new dashboard generation after POST /api/restart");
 }
 
 /** Every `session_ended` heal frame the browser receives for `sessionId`. */
