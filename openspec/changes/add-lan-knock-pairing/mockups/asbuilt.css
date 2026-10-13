@@ -1,0 +1,10 @@
+/* AS-BUILT REPLICA — reproduces shipped classes 1:1, INCLUDING the defects
+   under review. These literals are the finding, not a recommendation.
+   Scope: `.ab` subtree only.
+   Sources (develop): connectivity/ConnectionStatusBanner.tsx:58-75 (Tailwind
+   amber palette: bg-amber-500/15, border-amber-500/40, text-amber-200,
+   bg-amber-500/20 + text-amber-100 button). */
+.ab-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 16px; font-size: 14px;
+  background: rgb(245 158 11 / 0.15); border-bottom: 1px solid rgb(245 158 11 / 0.4); color: #fde68a; }
+.ab-banner .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ab-banner button { flex: none; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; background: rgb(245 158 11 / 0.2); color: #fef3c7; }

@@ -8,7 +8,7 @@ The user's mental model is the reverse: **B discovers A → clicks Connect → A
 sequenceDiagram
   participant B as Machine B
   participant A as Machine A
-  B->>A: POST /api/pair/challenge (verify fp from mDNS)
+  B->>A: POST /api/pair/challenge (native client only: verify fp from mDNS)
   B->>A: POST /api/pair/request {name}
   A-->>B: {pendingId, confirmCode, expiresAt}
   B->>B: "Type 4821 7730 on home-imac"
@@ -19,17 +19,19 @@ sequenceDiagram
 
 ## What Changes
 
-- **Knock route `POST /api/pair/request`.** Unauthenticated, code-less. Creates a pending device directly (internally a single-use code bound to that pending entry), records redeemer metadata plus an untrusted requester `name`, and returns `{pendingId, confirmCode, expiresAt, fingerprint}`. From there the existing flow applies unchanged: app-wide dialog, typed compare-code, deny, lockout budget, pushed expiry, `poll` → bearer.
+- **Knock route `POST /api/pair/request`.** Unauthenticated, code-less. Creates a pending device directly (internally a single-use code bound to that pending entry), records redeemer metadata plus an untrusted requester `name`, and returns `{pendingId, confirmCode, expiresAt, fingerprint}`. From there the existing flow applies: app-wide dialog, typed compare-code, deny, the per-request lockout budget, pushed expiry, `poll` → bearer. The operator picks the device's tier in the knock dialog (default `operate`); `approve-pending` gains an optional `tier`.
 - **Admission gates for knocks** (an unsolicited prompt is a nuisance/phishing vector):
-  - setting `pairing.acceptLanRequests` (operator-toggleable in Gateway/Access settings);
-  - peer address in a private range (RFC 1918, CGNAT/Tailscale `100.64/10`, link-local, IPv6 ULA) and **not** relayed loopback (reuse `isTrustedSource` rules from `fix-trusted-network-tunnel-bypass`);
-  - one live knock per source address; knocks count against the existing pending cap; per-address rate limit with backoff.
+  - setting `pairing.acceptLanRequests` (switch in Gateway ▸ Connect a device, written through the existing config route);
+  - Host admission in enforce semantics (DNS rebinding), on top of the existing CSRF origin gate;
+  - peer address private **and** on-link (same subnet as an interface the server serves on), not loopback, and no proxy-forwarding header at all (stricter than `isTrustedSource`, which only distrusts relayed loopback);
+  - one live knock per source address; a new global cap of 3 live knocks and 10 admitted per 10 min (no pending cap exists today); per-address rate limit and a deny/lockout cooldown.
   Each refusal returns a distinct error code so B can explain it.
 - **Plain-http LAN transport for this entry point only.** The QR/deep-link payload keeps D14 (TLS-only). The approval dialog and B's waiting screen label a knock over plain http as **unencrypted on this network**.
-- **Dialog provenance.** The approval dialog distinguishes a knock ("Roberts-MacBook-Pro on 192.168.16.31 asks to connect") from a QR redemption; requester name is display text only, never an authorization input.
-- **Browser "Request access".** When a browser on a private-range address hits A without credentials (network denied), A's page offers **Request access**: it runs the knock same-origin, shows the PIN, polls, then exchanges the bearer for the httpOnly `pi_dash_device` cookie (`POST /api/device-session`). Settings ▸ Network Discovery gains **Connect** on a discovered server, which opens that server's own origin on this landing.
+- **Dialog provenance.** The approval dialog distinguishes a knock ("A device on 192.168.16.31 asks to connect", the requester name only as "says it is …") from a QR redemption; requester name is display text only, never an authorization input.
+- **Browser "Request access".** When a browser hits A without credentials and is network-denied, the Network-not-allowed banner offers **Request access** (always shown; the server decides admission): it runs the knock same-origin, shows the PIN, polls, then exchanges the bearer for the httpOnly `pi_dash_device` cookie (`POST /api/device-session`), whose `Secure` flag now follows the exchanging request's transport so a plain-http browser keeps it. Settings ▸ Network Discovery gains **Connect** on a discovered server, which opens that server's own origin on this landing.
 
-- **Request access from an `operate_required` refusal.** Depends on `surface-operate-required-remedy`, which gives `operate_required` 403s an extensible `remedies` list and a Vault callout, deliberately without a knock remedy. This change MAY add `request-access` (and a callout row whose action starts the knock) through a MODIFIED delta of `operate-required-remedy`. Open: its presence rule must not disclose `pairing.acceptLanRequests` or per-address knock state to a credential-less caller (`canDiscloseAccessPosture`); decide the rule and its disclosure analysis when this change is planned.
+- Mockup: mockups/knock-pairing.html (in this change) — as-built vs proposed for the approval dialog, `/pair?request` states, Gateway LAN switch + waiting provenance, Network Discovery Connect, network-denied banner; decisions, copy and scored checks in `mockups/ui-plan.md`.
+- **Request access from an `operate_required` refusal — deferred.** `surface-operate-required-remedy` (not yet archived) owns the `remedies` list, so the `request-access` remedy ships in a follow-up once it archives. Presence rule decided here (design D10): offered iff the caller has no credential and its peer passes the knock's LAN gate; independent of `pairing.acceptLanRequests` and knock state, so it discloses only the caller's own network position.
 
 ## Capabilities
 
@@ -39,6 +41,9 @@ sequenceDiagram
 ### Modified Capabilities
 - `qr-device-pairing`: pending devices gain a provenance (`qr` | `knock`); the app-wide approval dialog and pending feed render knock provenance; the transport rule for the knock entry point is scoped separately from the payload's TLS-only rule.
 - `known-servers`: Network Discovery rows gain a Connect action that opens the peer's pairing landing.
+- `connection-status-banner`: the Network-not-allowed surface gains a Request access action (targeting the denying server) and moves to the warning severity tokens.
+- `bearer-device-auth`: the device cookie drops `Secure` only for a direct plain-http LAN exchange; browsers keep their bearer until the cookie is proven.
+- `spawn-correlation`: the client `requestId` stays UUIDv4 but no longer requires `crypto.randomUUID` (fallback via `crypto.getRandomValues` for non-secure contexts).
 
 ## Discipline Skills
 
