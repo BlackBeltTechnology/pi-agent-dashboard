@@ -16,9 +16,11 @@
  *
  * See change: add-blackhole-plugin.
  */
-import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { RoleRef, type RoleRefLabels, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiAlertOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
 import type React from "react";
 import { useState } from "react";
 import type { ModelRef } from "../shared/blackhole-config.js";
@@ -49,11 +51,16 @@ function concreteLabel(entry: ModelRef): string {
   return entry.provider && entry.id ? `${entry.provider}/${entry.id}` : "";
 }
 
+/** One status vocabulary across surfaces (spec role-model-bindings): detached / dangling are warning pills; ok shows nothing. */
 const ROLE_STATUS_TEXT: Record<string, string> = {
-  ok: "following",
-  detached: "detached — edited outside the dashboard",
-  dangling: "role unassigned — keeping last model",
+  detached: "Detached",
+  dangling: "Role unassigned, keeps its last model",
 };
+
+const WARNING_PILL =
+  "inline-flex items-center flex-none rounded-full border px-1.5 py-0.5 text-xs bg-[var(--severity-warning-bg)] border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]";
+const WARNING_CALLOUT =
+  "flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs bg-[var(--severity-warning-bg)] border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]";
 
 export type RegistryState = "pending" | "ok" | "empty" | "unavailable";
 
@@ -174,6 +181,10 @@ function EntryRow({
 }: EntryRowProps): React.ReactElement {
   const t = useT();
   const ModelSelectorPrimitive = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
+  const roleRefLabels: RoleRefLabels = {
+    noModel: t("noModelAssigned", undefined, "No model assigned"),
+    thinking: t("roleRefThinking", undefined, "thinking"),
+  };
 
   return (
     <li
@@ -192,10 +203,13 @@ function EntryRow({
           )}
           {entry.role ? (
             <>
-              <span className="font-mono text-[12px] text-[var(--text-primary)]" data-testid={`blackhole-chain-${worker}-entry-${index}-role`}>
-                {entry.role}
-              </span>
-              <span className="text-[11px] text-[var(--text-tertiary)]">{concreteLabel(entry)}</span>
+              <RoleRef
+                role={entry.role}
+                model={concreteLabel(entry) || undefined}
+                level={entry.thinking}
+                labels={roleRefLabels}
+                testIds={{ token: `blackhole-chain-${worker}-entry-${index}-role` }}
+              />
             </>
           ) : (
             <>
@@ -207,7 +221,7 @@ function EntryRow({
             <span
               data-testid={`blackhole-chain-${worker}-entry-${index}-role-status`}
               data-status={entry.roleStatus}
-              className="text-[10px] rounded px-1.5 border border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]"
+              className={WARNING_PILL}
             >
               {t(`roleStatus_${entry.roleStatus}`, undefined, ROLE_STATUS_TEXT[entry.roleStatus] ?? entry.roleStatus)}
             </span>
@@ -277,15 +291,22 @@ function EntryRow({
           </div>
 
           {entry.role && entry.roleStatus === "detached" && onReattach && (
-            <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
-              <span>{t("roleDetachedHelp", undefined, "This slot was edited outside the dashboard, so role changes no longer apply.")}</span>
+            <div role="status" className={`${WARNING_CALLOUT} flex-wrap items-center`}>
+              <Icon path={mdiAlertOutline} size={0.55} className="flex-shrink-0" aria-hidden />
+              <span className="flex-1 min-w-0">
+                {t(
+                  "roleDetachedHelp",
+                  { role: entry.role },
+                  `This slot was edited outside the dashboard, so it no longer follows ${entry.role}.`,
+                )}
+              </span>
               <button
                 type="button"
                 data-testid={`blackhole-chain-${worker}-reattach-${index}`}
                 onClick={() => onReattach(index)}
-                className="px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                className="focus-ring rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] px-3 min-h-[44px] sm:min-h-[36px] text-xs font-semibold hover:bg-[var(--bg-hover)]"
               >
-                {t("reattachRole", undefined, "Reattach")}
+                {t("reattachRoleTo", { role: entry.role }, `Reattach to ${entry.role}`)}
               </button>
             </div>
           )}
@@ -293,9 +314,11 @@ function EntryRow({
           {levelDropNotice && (
             <div
               data-testid={`blackhole-chain-${worker}-${index}-level-drop`}
-              className="px-2 py-1.5 rounded text-[11px] bg-[var(--severity-warning-bg)] border border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]"
+              role="status"
+              className={WARNING_CALLOUT}
             >
-              ⚠️ {levelDropNotice}
+              <Icon path={mdiAlertOutline} size={0.55} className="flex-shrink-0 mt-0.5" aria-hidden />
+              <span>{levelDropNotice}</span>
             </div>
           )}
 
@@ -397,9 +420,9 @@ export function ChainEditor({
       setLevelDropNotice((prev) => ({
         ...prev,
         [index]: t(
-          "levelDropNotice",
-          { level: droppedLevel },
-          `Thinking level override '${droppedLevel}' dropped: selected model does not support reasoning.`,
+          "levelDropped",
+          { level: droppedLevel, model: label },
+          `Thinking level ${droppedLevel} isn't supported by ${label}, so the level was dropped.`,
         ),
       }));
     } else {

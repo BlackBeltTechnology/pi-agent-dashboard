@@ -612,7 +612,7 @@ function ChainsSection({
         {saveError && (
           <div
             data-testid="blackhole-save-error"
-            className="border border-[var(--severity-error-border,#ef4444)] rounded-lg p-3 mb-3 bg-[var(--severity-error-bg,#fef2f2)] text-[var(--severity-error-fg,#b91c1c)] text-[12px]"
+            className="border border-[var(--severity-error-border)] rounded-lg p-3 mb-3 bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] text-[12px]"
           >
             {saveError}
           </div>
@@ -621,7 +621,7 @@ function ChainsSection({
         {registryState === "unavailable" && (
           <div
             data-testid="blackhole-registry-unavailable"
-            className="border border-[var(--severity-error-border,#ef4444)] rounded-lg p-3 mb-3 bg-[var(--severity-error-bg,#fef2f2)] text-[var(--severity-error-fg,#b91c1c)] flex items-center justify-between gap-2 text-[12px]"
+            className="border border-[var(--severity-error-border)] rounded-lg p-3 mb-3 bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] flex items-center justify-between gap-2 text-[12px]"
           >
             <span>
               ✕{" "}
@@ -645,7 +645,7 @@ function ChainsSection({
         {registryState === "empty" && (
           <div
             data-testid="blackhole-registry-empty"
-            className="border border-[var(--severity-warning-border,#f59e0b)] rounded-lg p-3 mb-3 bg-[var(--severity-warning-bg,#fffbeb)] text-[var(--severity-warning-fg,#b45309)] text-[12px]"
+            className="border border-[var(--severity-warning-border)] rounded-lg p-3 mb-3 bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] text-[12px]"
           >
             ⚠️{" "}
             {t(

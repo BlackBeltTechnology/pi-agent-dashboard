@@ -325,4 +325,15 @@ describe("GrammarSettings", () => {
     expect(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsl\(/.test(section.innerHTML)).toBe(false);
     expect(section.innerHTML).toContain("var(--");
   });
+
+  it("E20 (retro-ux): the model-required prompt is a ≥12 px warning callout with an icon", async () => {
+    const { getByTestId } = await mount({ grammar: baseGrammar() });
+    const prompt = getByTestId("grammar-model-required");
+    expect(prompt.className).toContain("--severity-warning-bg");
+    expect(prompt.className).toContain("--severity-warning-fg");
+    expect(prompt.className).toContain("text-xs");
+    expect(prompt.className).not.toContain("text-[10px]");
+    expect(prompt.querySelector("svg")).toBeTruthy();
+    expect(prompt.getAttribute("role")).toBe("status");
+  });
 });
