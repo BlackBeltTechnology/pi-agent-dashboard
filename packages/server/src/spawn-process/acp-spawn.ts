@@ -12,7 +12,7 @@
  *
  * See change: add-acp-session-driver (D2).
  */
-import { existsSync, } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AcpAgentConfig } from "@blackbelt-technology/pi-dashboard-shared/acp/acp-config.js";
