@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change fix-subagent-live-detail-reliability. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Subagent live frames buffered across a connection gap
 
 Subagent lifecycle frames (`subagent_created`/`subagent_started`/`subagent_completed`/`subagent_failed`) emitted by the bridge's `pi.events.emit` intercept while the bridge is not ready to forward (`sessionReady` false, or between disconnect and re-register) SHALL be buffered rather than dropped, and SHALL be flushed to the server in emission order once the bridge re-registers. The buffer SHALL be bounded and SHALL prefer the latest frame per `agentId` when the bound is exceeded (each frame carries a full snapshot, so the latest supersedes older ones).
@@ -130,7 +132,7 @@ The subagent inspector (the card's inline expand, the popout dialog, and the `/s
 
 The reducer SHALL hydrate a running subagent's `session.subagents` entry from the **durable** Agent-tool `partialResult` (`tool_execution_update`) channel, not only from the ephemeral `subagents:*` `event_forward` frames and the `tool_execution_end` completion backfill. When a structured `tool_execution_update` for a row whose `toolName` is `Agent` carries `details.agentId`, the reducer SHALL derive a `SubagentState` from that `details` snapshot (reusing the same detail-mapping + dual-index used by the completion backfill) and write it into `session.subagents` under the `agentId` key — and, when `details.agentSessionId` is present, ALSO under that key (same object reference).
 
-The hydration SHALL be non-regressing: when the existing `SubagentState` for that `agentId` is already terminal (`completed` or `failed`), a later running `tool_execution_update` SHALL NOT reset its status to `running`. The mapping SHALL introduce no new bounded structure and SHALL be self-selecting — only the Agent tool's `details` carry `agentId`, so ordinary tools' partial results SHALL NOT touch `session.subagents`.
+The hydration SHALL be non-regressing: when the existing `SubagentState` for that `agentId` is already terminal (`completed` or `failed`), a later running `tool_execution_update` SHALL NOT reset its status to `running`. The single exception: a terminal state that was written by a `session_ended` heal (the client records the heal marker on the subagent) asserts a death that a later live tick disproves, so such a subagent SHALL be returned to `running` by that tick. A subagent that reached `completed`/`failed` through a real terminal event SHALL never be reset. The mapping SHALL introduce no new bounded structure and SHALL be self-selecting — only the Agent tool's `details` carry `agentId`, so ordinary tools' partial results SHALL NOT touch `session.subagents`.
 
 Because the durable channel survives the bridge-not-ready buffering and the server→browser WS back-pressure drops that can lose ephemeral frames (and lose the resync reply), the subagent inspector SHALL render the live timeline — or the correct running "No detail available yet." state once a map entry exists — rather than the "Subagent not found in this session." placeholder, for the whole run under load.
 
@@ -152,6 +154,16 @@ Because the durable channel survives the bridge-not-ready buffering and the serv
 - **GIVEN** a non-Agent tool row and a structured `tool_execution_update` whose `details` carry no `agentId`
 - **WHEN** the reducer processes the update
 - **THEN** `session.subagents` SHALL be unchanged
+
+#### Scenario: a session_ended-healed subagent is revived by a live tick
+- **GIVEN** subagent `ag-1` is `failed` with the `session_ended` heal marker (from a synthesized end)
+- **WHEN** a running `tool_execution_update` for its Agent row with `details.agentId:"ag-1"` reduces
+- **THEN** `ag-1` status SHALL be `running` and the heal marker SHALL be cleared
+
+#### Scenario: a really-terminal subagent is not revived
+- **GIVEN** subagent `ag-1` is `completed` or `failed` through a real `subagent_completed`/`subagent_failed` or real Agent end
+- **WHEN** a running `tool_execution_update` for it reduces
+- **THEN** `ag-1` status SHALL remain terminal
 
 ### Requirement: A subagent's own terminal event finalizes its Agent card
 

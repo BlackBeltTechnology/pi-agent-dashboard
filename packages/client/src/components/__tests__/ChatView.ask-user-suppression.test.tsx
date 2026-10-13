@@ -84,6 +84,20 @@ describe("ChatView — ask_user tool-card suppression (change: fix-ask-user-card
     expect(getByText("No")).toBeTruthy();
   });
 
+  // After a dashboard restart a LIVE bridge replay leaves an unanswered
+  // ask_user call open, so the replayed row is `running` (not a synthesized
+  // `complete`/`error`); it must still collapse into the single pending card.
+  // See change: fix-replay-fabricates-orphan-end-for-live-calls (test-plan #F7).
+  it("post-restart live replay: a RUNNING ask_user row paired with a pending interactiveUi is suppressed", () => {
+    const { container, getByText } = renderChat([
+      askUserToolResult({ toolStatus: "running", startedAt: Date.now() - 60_000 }),
+      { id: "sep", role: "turnSeparator", content: "", timestamp: Date.now() } as ChatMessage,
+      interactiveUi("pending"),
+    ]);
+    expect(toolCardButton(container)).toBeNull();
+    expect(getByText("Yes")).toBeTruthy();
+  });
+
   it("T.1 (answered but still live): suppresses the tool card when the paired interactiveUi is RESOLVED but still in the list — the case the adjacency/pending helper misses", () => {
     const { container, getByText } = renderChat([
       askUserToolResult({ toolStatus: "complete", result: 'User responded: true' }),

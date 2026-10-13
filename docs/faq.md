@@ -3584,6 +3584,24 @@ Cross-refs:
 - packages/client/src/lib/chat/event-reducer.ts
 - openspec/changes/heal-orphaned-tool-cards-on-session-end/
 
+## Why does a subagent card show failed (`!`, `<1s`, "parent session ended") while it keeps running after a reload or dashboard restart?
+
+Cause: bridge replays transcript on reconnect / `/reload` / dashboard restart. Old `replayEntriesAsEvents` orphan-closes calls still executing (no `toolResult` yet) — fabricated `tool_execution_end{isError:true, result:"parent session ended", healedBy:"session_ended"}`.
+
+Symptom: header failed + `<1s` + "N failed"; body still ticks (`running bash`, elapsed).
+
+Fix (change fix-replay-fabricates-orphan-end-for-live-calls): bridge passes `liveTailOpen` (from `isLive(ctx, isAgentStreaming)`) -> in-flight calls of last assistant message stay open.
+
+Client: live `tool_execution_update` on a `session_ended`-healed row reopens it (`reopenSessionEndedRow` in `packages/client/src/lib/chat/event-reducer.ts`). Subagent revived only if its own `healedBy==="session_ended"`.
+
+Server: `GET /api/sessions/:id/tool-result/:toolCallId` skips `session_ended` placeholder for resident non-ended session -> `useStaleToolReconcile` cannot re-poison.
+
+Server: `findOpenToolCalls` walks past `agent_start{synthetic:true}` -> real death still heals the open call.
+
+Remedy on old build: `npm run reload` (bridge) + `curl -X POST http://localhost:8000/api/restart` + client build.
+
+See change: fix-replay-fabricates-orphan-end-for-live-calls.
+
 ## Why are the passkey buttons disabled on the login page?
 
 Cause: origin unstable. Passkeys need stable RP ID origin.

@@ -762,6 +762,39 @@ function finalizeAgentRowFromSubagent(
 }
 
 /**
+ * A live `tool_execution_update` for a row finalized by a `session_ended` heal
+ * proves the producing process is alive (a live bridge replay fabricated that
+ * end). Restore the row, its `toolCalls` entry and, for `Agent`, a subagent the
+ * same heal failed, to `running`. Real terminals and every other heal are left
+ * alone. Mutates `next` (messages array and toolCalls map are already copies).
+ * See change: fix-replay-fabricates-orphan-end-for-live-calls (D6).
+ */
+function reopenSessionEndedRow(next: SessionState, idx: number, toolCallId: string, partialResult: unknown): void {
+  const row = next.messages[idx];
+  if (row.toolStatus === "running" || row.toolDetails?.healedBy !== "session_ended") return;
+  const { healedBy: _h, resultMissing: _m, error: _e, ...restDetails } = row.toolDetails;
+  next.messages[idx] = { ...row, toolStatus: "running", duration: undefined, toolDetails: { ...restDetails, status: "running" } };
+  const tc = next.toolCalls.get(toolCallId);
+  if (tc) next.toolCalls.set(toolCallId, { ...tc, status: "running" });
+  if (row.toolName !== "Agent") return;
+  const tickDetails =
+    typeof partialResult === "object" && partialResult !== null
+      ? ((partialResult as Record<string, unknown>).details as Record<string, unknown> | undefined)
+      : undefined;
+  const agentId =
+    typeof tickDetails?.agentId === "string"
+      ? tickDetails.agentId
+      : typeof row.toolDetails.agentId === "string"
+        ? row.toolDetails.agentId
+        : undefined;
+  const sub = agentId ? next.subagents.get(agentId) : undefined;
+  if (!sub || sub.healedBy !== "session_ended") return;
+  const { healedBy: _sh, error: _se, ...restSub } = sub;
+  next.subagents = new Map(next.subagents);
+  setSubagentState(next.subagents, { ...restSub, status: "running" });
+}
+
+/**
  * Neutral settle heal (design D4): the turn ended but neither the end nor the
  * subagent's outcome reached this client. The row stops spinning with the
  * sentinel body and `resultMissing`; the `toolCalls` entry stays `running` so
@@ -2579,6 +2612,7 @@ export function reduceEvent(
         const idx = next.messages.findLastIndex((m) => m.toolCallId === toolCallId);
         if (idx !== -1) {
           next.messages = [...next.messages];
+          reopenSessionEndedRow(next, idx, toolCallId, partialResult);
           // Structured partialResult (e.g. Agent tool sends { content, details })
           if (typeof partialResult === "object" && partialResult !== null) {
             const structured = partialResult as Record<string, unknown>;
@@ -2635,6 +2669,10 @@ export function reduceEvent(
                 ...existingSub,
                 ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)),
               } as SubagentState;
+              // The heal marker records why the CURRENT terminal status exists;
+              // a running write drops it. See change:
+              // fix-replay-fabricates-orphan-end-for-live-calls (D5).
+              if (!isTerminal) delete merged.healedBy;
               setSubagentState(next.subagents, merged);
             }
 
@@ -2646,8 +2684,9 @@ export function reduceEvent(
                 typeof priorRow.toolDetails?.agentId === "string" ? priorRow.toolDetails.agentId : liveAgentId;
               const priorSub = priorAgentId ? next.subagents.get(priorAgentId) : undefined;
               // A `session_ended` orphan-close backfills the subagent as failed
-              // itself, so that status is not knowledge: such a row stays
-              // reopenable by a live tick (pre-existing behaviour).
+              // itself, so that status is not knowledge. Such a row was already
+              // reopened above by `reopenSessionEndedRow` (D6), so this branch
+              // only sees it when the reopen did not apply.
               const priorHeal = priorRow.toolDetails?.healedBy;
               const subFinished =
                 priorHeal !== "session_ended" && (priorSub?.status === "completed" || priorSub?.status === "failed");
@@ -2883,6 +2922,10 @@ export function reduceEvent(
               Object.entries(patch).filter(([, v]) => v !== undefined),
             ),
           } as SubagentState;
+          // Record which heal produced this terminal; a real end clears it.
+          // See change: fix-replay-fabricates-orphan-end-for-live-calls (D5).
+          if (typeof healedBy === "string" && healedBy) merged.healedBy = healedBy;
+          else delete merged.healedBy;
           setSubagentState(next.subagents, merged);
         }
       }
@@ -3158,6 +3201,7 @@ export function reduceEvent(
       setSubagentState(next.subagents, {
         ...(existing ?? { id, type: data.type as string ?? "unknown", description: data.description as string ?? "" }),
         status: "running",
+        healedBy: undefined,
         startedAt: existing?.startedAt ?? (typeof event.timestamp === "number" ? event.timestamp : Date.now()),
         ...readSubagentDetails(details),
       });
@@ -3183,6 +3227,8 @@ export function reduceEvent(
       setSubagentState(next.subagents, {
         ...(existing ?? { id, type: data.type as string ?? "unknown", description: data.description as string ?? "" }),
         status: event.eventType === "subagent_completed" ? "completed" : "failed",
+        // Heal provenance (D5): set by a synthesized terminal, cleared by a real one.
+        healedBy: typeof data.healedBy === "string" && data.healedBy ? data.healedBy : undefined,
         result: data.result as string | undefined,
         error: data.error as string | undefined,
         durationMs: data.durationMs as number | undefined,

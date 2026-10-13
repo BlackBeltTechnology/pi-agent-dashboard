@@ -456,11 +456,13 @@ The route SHALL keep both of its existing guards: the network guard used by othe
 
 **In-flight hint.** The server SHALL keep, per session, the set of top-level `toolCallId`s whose LIVE `tool_execution_start` it has ingested without a LIVE `tool_execution_end` (nested calls carrying `parentToolCallId` excluded; events ingested during a bridge replay ignored). The set SHALL be emptied on the session's live `agent_settled` (the turn's terminal signal), on every `session_register`, when the session ends, and when the session is removed; an emptied session SHALL hold no entry, and a session SHALL hold at most 256 ids. Because it is cleared on `session_register`, a call already running across a bridge reconnect is answered `404` (as today) until it ends. The set is a hint used only to choose between `202` and `404`; no client SHALL finalize a tool row on its account.
 
-The `pending` flag SHALL match only when the query carries a single `pending` value equal to the string `1`; repeated or array-shaped values SHALL NOT match. Responses, evaluated in this order:
+The `pending` flag SHALL match only when the query carries a single `pending` value equal to the string `1`; repeated or array-shaped values SHALL NOT match. A stored end marked `healedBy: "session_ended"` is a placeholder written when the process was believed dead. While the session is resident and its status is not `ended`, that belief is unproven (a live bridge may have replayed it), so row 1 SHALL skip it and evaluation SHALL continue with row 2. For an ended or non-resident (archived, removed, unknown) session it SHALL be served as today.
+
+Responses, evaluated in this order:
 
 | # | Condition | Status | Body |
 |---|---|---|---|
-| 1 | a `tool_execution_end` for the id is stored | `200` | `{ result, isError }` |
+| 1 | a `tool_execution_end` for the id is stored, ignoring one carrying `healedBy: "session_ended"` while the session is not ended | `200` | `{ result, isError }` |
 | 2 | the id is in the session's evicted-end record | `410` | `{ error: "result no longer available" }` |
 | 3 | the id is in the in-flight hint AND the request carries `pending=1` | `202` | `{ pending: true }` |
 | 4 | otherwise (in flight without `pending=1`, unknown call or session, evicted-end record overflowed or freed) | `404` | `{ error: "tool call still in flight or unknown" }` |
@@ -514,6 +516,14 @@ The `pending` flag SHALL match only when the query carries a single `pending` va
 #### Scenario: Unknown session
 - **WHEN** the client requests a tool result for a `sessionId` the server does not know
 - **THEN** the response SHALL be `404`
+
+#### Scenario: A session_ended placeholder is not served for a live session
+- **WHEN** the store holds `tool_execution_end{toolCallId:"abc", healedBy:"session_ended", isError:true}` and no other end for `abc`, and the session's status is not `ended`
+- **THEN** the request SHALL NOT be answered `200`; it SHALL be answered by the next matching row (`410`, `202`, or `404`)
+
+#### Scenario: A session_ended placeholder is served for an ended session
+- **WHEN** the same end is stored and the session's status is `ended`, or the session is not resident (archived)
+- **THEN** the response SHALL be `200` with `{ result: "parent session ended", isError: true }`
 
 ### Requirement: Session archive/unarchive REST endpoints
 The dashboard server SHALL expose `POST /api/session/:id/archive` and `POST /api/session/:id/unarchive` endpoints.

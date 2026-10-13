@@ -38,11 +38,15 @@ export interface OpenToolCall {
  * (or that never had one) is treated as a single turn — still correct, since an
  * end always follows its start.
  *
- * KNOWN GAP: the bridge emits a synthetic bare `agent_start` after a mid-turn
- * reconnect (`extension/src/bridge.ts`), indistinguishable from a real one, so a
- * call opened before that reconnect falls outside the scope and is not healed
- * live. The transcript orphan-close (`shared/src/state-replay.ts`) is NOT
- * turn-scoped and still heals it on the next cold hydration.
+ * The bridge re-announces a running turn after a reconnect / reload replay with
+ * an `agent_start` marked `synthetic: true` (`extension/src/bridge.ts`,
+ * `bridge-handlers/lifecycle.ts`). It is not a turn boundary: the walk passes
+ * it, so calls the live replay left open stay in scope and heal on real death.
+ * An OLD bridge sends the start unmarked — then a call opened before the
+ * reconnect falls outside the scope; the transcript orphan-close
+ * (`shared/src/state-replay.ts`, cold path) still heals it on the next cold
+ * hydration. Open starts are deduped by `toolCallId`.
+ * See change: fix-replay-fabricates-orphan-end-for-live-calls (D4).
  */
 export function findOpenToolCalls(events: StoredEvent[]): OpenToolCall[] {
   const closed = new Set<string>();
@@ -51,7 +55,10 @@ export function findOpenToolCalls(events: StoredEvent[]): OpenToolCall[] {
 
   for (let i = events.length - 1; i >= 0; i--) {
     const { eventType, data } = events[i].event;
-    if (eventType === "agent_start") break;
+    if (eventType === "agent_start") {
+      if (data?.synthetic === true) continue;
+      break;
+    }
     if (eventType === "tool_execution_end") {
       const id = data.toolCallId;
       if (typeof id === "string") closed.add(id);
@@ -71,6 +78,8 @@ export function findOpenToolCalls(events: StoredEvent[]): OpenToolCall[] {
     if (eventType === "tool_execution_start") {
       const id = data.toolCallId;
       if (typeof id !== "string" || closed.has(id)) continue;
+      // Defensive dedupe: report each open call once.
+      closed.add(id);
       // Nested calls (`parentToolCallId`) are rendered inside their root and
       // are never healed top-level. See change: render-nested-tool-calls (D2).
       if (typeof data.parentToolCallId === "string" && data.parentToolCallId !== "") continue;

@@ -565,7 +565,7 @@ describe("bridge coalescing — source contract (placement)", () => {
   it("onReconnect flushes before state sync and replay", () => {
     const flush = at(reconnectHandler, "coalescer.flush();");
     expect(flush).toBeLessThan(at(reconnectHandler, "sendStateSync();"));
-    expect(flush).toBeLessThan(at(reconnectHandler, "replaySessionEntries();"));
+    expect(flush).toBeLessThan(at(reconnectHandler, "replaySessionEntries("));
   });
 
   it("the barrier opens at message_start ENTRY, ahead of the custom early return", () => {

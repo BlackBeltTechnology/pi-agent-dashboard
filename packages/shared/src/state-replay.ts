@@ -32,14 +32,23 @@ import { drainableEntryUsage, usageToTotals, type EntryUsage } from "./usage-tot
  *   `stats_update` event. The heuristic ignores Sonnet's 1M variant and
  *   pins Claude to 200k, so passing the persisted value avoids a brief
  *   200k flicker on reload before the next live `turn_end` arrives.
+ * @param opts.liveTailOpen Set ONLY by a live bridge replaying its own
+ *   running process: the open tool calls of the LAST assistant message are
+ *   still executing, so the orphan-close skips them (no fabricated
+ *   `session_ended` end). Earlier-message orphans are dead and still close.
+ *   Default off — cold replays (disk, archive, retained) are unchanged.
+ *   See change: fix-replay-fabricates-orphan-end-for-live-calls (D1, D2).
  */
 export function replayEntriesAsEvents(
   sessionId: string,
   entries: any[],
   knownContextWindow?: number,
+  opts?: { liveTailOpen?: boolean },
 ): EventForwardMessage[] {
   const messages: EventForwardMessage[] = [];
   const openToolCalls = new Set<string>(); // track tool calls without results
+  // toolCall ids of the most recent assistant message (the live tail).
+  let lastAssistantToolCallIds = new Set<string>();
   // Persisted flow-run events (change: replay-persisted-flow-runs). Collected
   // during the loop, then emitted sorted by seq so the client's idempotent
   // reduceFlowEvent rebuilds the flow card identically to the live path.
@@ -111,6 +120,7 @@ export function replayEntriesAsEvents(
 
       if (msg.role === "assistant") {
         const content = Array.isArray(msg.content) ? msg.content : [];
+        lastAssistantToolCallIds = new Set<string>();
         // Emit tool_execution_start for each tool call
         for (const part of content) {
           if (part.type === "toolCall") {
@@ -122,6 +132,7 @@ export function replayEntriesAsEvents(
                 : part.arguments,
             }));
             openToolCalls.add(part.id);
+            lastAssistantToolCallIds.add(part.id);
           }
         }
         // Emit message_update (sets streamingText) then message_end (finalizes)
@@ -265,6 +276,8 @@ export function replayEntriesAsEvents(
     }
   }
   for (const toolCallId of openToolCalls) {
+    // Still executing in the live process — never fabricate its end.
+    if (opts?.liveTailOpen && lastAssistantToolCallIds.has(toolCallId)) continue;
     const startEvent = startByToolCallId.get(toolCallId);
     const ts = startEvent ? startEvent.event.timestamp : Date.now();
     // An orphan is a call the session DIED holding, so it closes as an error
