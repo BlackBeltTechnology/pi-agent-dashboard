@@ -25,6 +25,7 @@
 import {
   type AcquireHooks,
   acquireOrAttach,
+  isInstanceUnresponsiveError,
   isLockDisabled,
   type LockMetadata,
 } from "./home-lock.js";
@@ -39,6 +40,8 @@ export interface EstablishRendezvousConfig {
   version: string;
   /** This instance's rendezvous id (see `instance-id.ts`). */
   identity: string;
+  /** Host the server binds; recorded in the record when specific and non-loopback. */
+  bindHost?: string | null;
   hooks?: AcquireHooks;
   /** Test seam: skip signal-handler installation. Default `true`. */
   installHandlers?: boolean;
@@ -84,20 +87,44 @@ export async function establishHomeRendezvous(
     };
   }
 
-  const acquireConfig = {
-    httpPort: config.httpPort,
-    piPort: config.piPort,
-    version: config.version,
-    identity: config.identity,
-    hooks: config.hooks,
-  };
-
   let mode: "acquired" | "attach" = "attach";
   let meta: LockMetadata | null = null;
   let release: (() => Promise<void>) | undefined;
   let uninstall: (() => void) | undefined;
   let timer: NodeJS.Timeout | undefined;
   let checking = false;
+
+  const startPromotionTimer = () => {
+    if (intervalMs <= 0 || timer) return;
+    timer = setInterval(() => void checkNow(), intervalMs);
+    timer.unref?.();
+  };
+
+  /**
+   * A successor took our lock over (this process was frozen or starved, and
+   * noticed late). The lock and the record are the successor's now: stop acting
+   * as the HOME default and fall back to attach semantics. The handle already
+   * made its own release a no-op.
+   */
+  const dropRole = () => {
+    if (mode !== "acquired") return;
+    log(`[home-lock] lost the rendezvous for this HOME to a successor (${config.identity}); continuing in attach mode.`);
+    mode = "attach";
+    release = undefined;
+    uninstall?.();
+    uninstall = undefined;
+    startPromotionTimer();
+  };
+
+  const acquireConfig = {
+    httpPort: config.httpPort,
+    piPort: config.piPort,
+    version: config.version,
+    identity: config.identity,
+    bindHost: config.bindHost,
+    hooks: config.hooks,
+    onCompromised: dropRole,
+  };
 
   const adopt = (result: Awaited<ReturnType<typeof acquireOrAttach>>) => {
     mode = result.mode;
@@ -130,6 +157,12 @@ export async function establishHomeRendezvous(
         log(`[home-lock] promoted to rendezvous owner for this HOME (${config.identity}).`);
       }
     } catch (err) {
+      // An alive-but-silent (or still starting) owner is never taken over; stay
+      // attached and look again on the next tick.
+      if (isInstanceUnresponsiveError(err)) {
+        log(`[home-lock] owner is ${err.reason === "starting" ? "still starting" : "not responding"}; staying attached, retrying next tick.`);
+        return;
+      }
       // A mismatch means somebody else holds the HOME on our port; staying in
       // attach mode is the conservative answer, not crashing a running server.
       log(`[home-lock] promotion re-check failed: ${(err as Error).message ?? err}`);
@@ -138,10 +171,7 @@ export async function establishHomeRendezvous(
     }
   };
 
-  if (mode === "attach" && intervalMs > 0) {
-    timer = setInterval(() => void checkNow(), intervalMs);
-    timer.unref?.();
-  }
+  if (mode === "attach") startPromotionTimer();
 
   return {
     get mode() {

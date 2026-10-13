@@ -7,7 +7,7 @@ Implementation: `packages/server/src/home-lock.ts` (acquisition + metadata sidec
 ## Requirements
 
 ### Requirement: Per-HOME advisory lock
-The dashboard server SHALL acquire a per-HOME advisory lock at `<canonicalHomedir>/.pi/dashboard/server.lock` via `proper-lockfile` before listening on its configured ports. Only one dashboard instance per HOME MAY hold the lock at a time.
+The dashboard server SHALL acquire a per-HOME advisory lock at `<HOME>/.pi/dashboard/server.lock` (the `$HOME`-honouring dashboard directory) via `proper-lockfile`. Only one dashboard instance per HOME MAY hold the lock at a time. A held lock SHALL change hands only through the liveness verdict of `home-lock-single-instance` "Stale-lock reclaim", never through the lock file's age alone.
 
 #### Scenario: Fresh acquire
 - **WHEN** no prior dashboard has run for this HOME
@@ -19,40 +19,54 @@ The dashboard server SHALL acquire a per-HOME advisory lock at `<canonicalHomedi
 - **WHEN** another dashboard instance is running and holds the lock
 - **AND** a new `pi-dashboard` starts
 - **THEN** the new instance reads the metadata sidecar
-- **AND** verifies via `isProcessAlive(pid) && isDashboardRunning(httpPort)` with matching identity (returned by `/api/health`)
-- **AND** attaches by invoking `openBrowser(meta.url)` and exiting with code 0
+- **AND** verifies that the recorded PID is alive and that `/api/health` on `httpPort` answers with matching identity within the bounded retry budget of `home-lock-single-instance` "Stale-lock reclaim"
+- **AND** enters attach mode: it does not write the record or claim the HOME default
 
 #### Scenario: Stale lock (process dead)
 - **WHEN** the lock file exists but the recorded PID is dead
-- **THEN** `proper-lockfile`'s stale detection (configured `staleDuration: 10s`) reports the lock as stale
+- **THEN** the liveness verdict reports the holder as dead
 - **AND** the new instance steals the lock
-- **AND** removes the stale metadata sidecar
+- **AND** replaces the stale metadata sidecar
 
 #### Scenario: Identity mismatch
 - **WHEN** the lock is held and the PID is alive
 - **AND** `isDashboardRunning(httpPort)` succeeds but `/api/health` returns a different identity than the metadata sidecar
-- **THEN** the new instance exits with code 1 and an error message: `"Port <n> is in use by an unrelated process (PID <n>). Configure a different port or stop that process."`
+- **THEN** acquisition SHALL fail with `InstanceLockMismatchError` (`E_INSTANCE_MISMATCH`) carrying the holder metadata
+
+#### Scenario: Unresponsive holder keeps the lock
+- **WHEN** the lock is held, the PID is alive, and the holder does not answer `/api/health` within the retry budget
+- **THEN** acquisition SHALL fail with the unresponsive-holder error, and the lock and metadata SHALL be unchanged
 
 ### Requirement: HOME canonicalization
-All lock-related HOME-scoped paths SHALL be derived from a canonical homedir that is immune to `$HOME` env-var mutation. The implementation SHALL prefer `os.userInfo().homedir` (which consults `getpwuid(3)` on POSIX and `USERPROFILE` on Windows) over `os.homedir()` (which honors `$HOME` on POSIX). The result SHALL then be passed through `fs.realpathSync` to collapse symlinks. `os.homedir()` is retained only as a fallback when `os.userInfo()` throws.
+The lock file (`server.lock`) and its metadata sidecar (`server.lock.meta.json`) SHALL be rooted on the `$HOME`-honouring dashboard directory (`<HOME>/.pi/dashboard`, the same root as the gateway socket and `config.json`), so that a process started under a temporary `HOME` gets a lock isolated from the user's real dashboard. Every writer and every reader of the lock or its metadata, the Electron shell included, SHALL resolve that same root. No reader SHALL use a root that differs from the writer's.
 
-`$HOME` override would allow GUI-launched and shell-launched processes to disagree on HOME identity; explicitly ignoring it prevents this class of race.
+A canonical, `$HOME`-immune homedir (`os.userInfo().homedir` passed through `fs.realpathSync`, with `os.homedir()` as fallback) SHALL remain available for reasoning about `$HOME` drift. It SHALL NOT be used to locate the lock or its metadata.
+
+#### Scenario: Temp HOME gets an isolated lock
+- **WHEN** a dashboard is started with `HOME=/tmp/x`
+- **THEN** its lock and metadata SHALL be written under `/tmp/x/.pi/dashboard/`
+- **AND** a dashboard running under the user's real HOME SHALL keep its own lock, untouched
+
+#### Scenario: Electron reads the lock where the server wrote it
+- **WHEN** the server writes `server.lock.meta.json` under `<HOME>/.pi/dashboard/` for the `HOME` it was started with
+- **AND** the Electron shell runs with the same `HOME`
+- **THEN** the Electron lock-metadata reader SHALL read that same file
 
 #### Scenario: Symlinked homedir canonicalizes
-- **WHEN** the user's homedir is a symlink (e.g. `/Users/robson → /System/Volumes/Data/Users/robson` on macOS after FileVault migration)
-- **THEN** the lock path uses the realpath target consistently across all invocations
+- **WHEN** the user's homedir is a symlink (e.g. `/Users/robson → /System/Volumes/Data/Users/robson` on macOS)
+- **THEN** `canonicalHomedir()` SHALL return the realpath target consistently across invocations
 
 #### Scenario: $HOME override ignored on POSIX
-- **WHEN** a launcher exports `$HOME=/tmp/garbage` before starting `pi-dashboard`
-- **THEN** `canonicalHomedir()` returns the user's real home (via `getpwuid`), NOT `/tmp/garbage`
-- **AND** the lock path is stable across GUI-launched vs shell-launched processes
+- **WHEN** a launcher exports `$HOME=/tmp/garbage`
+- **THEN** `canonicalHomedir()` SHALL return the user's real home (via `getpwuid`), NOT `/tmp/garbage`
+- **AND** the lock path SHALL be derived from `/tmp/garbage/.pi/dashboard` (the `$HOME`-honouring root), not from `canonicalHomedir()`
 
 #### Scenario: Git Bash vs PowerShell on Windows
 - **WHEN** `$HOME=/c/Users/R` (Git Bash) but `USERPROFILE=C:\Users\R` (PowerShell)
-- **THEN** `canonicalHomedir()` uses `USERPROFILE` (via `os.userInfo().homedir`) for both shells and returns the same canonical path
+- **THEN** `canonicalHomedir()` SHALL use `USERPROFILE` (via `os.userInfo().homedir`) for both shells and return the same canonical path
 
 ### Requirement: Graceful release
-On graceful shutdown (SIGINT, SIGTERM, SIGHUP, SIGBREAK, explicit `/api/shutdown`, explicit `/api/restart`), the dashboard SHALL release the lock and delete the metadata sidecar before exiting. The release MUST be idempotent so repeated signals do not double-release.
+On graceful shutdown (SIGINT, SIGTERM, SIGHUP, SIGBREAK, explicit `/api/shutdown`, explicit `/api/restart`), the dashboard SHALL release the lock and delete the metadata sidecar before exiting, unless its hold has been compromised by a successor. In that case, release SHALL leave the successor's lock and metadata untouched. The release MUST be idempotent so repeated signals do not double-release.
 
 #### Scenario: SIGTERM triggers release
 - **WHEN** the dashboard receives SIGTERM
@@ -73,8 +87,12 @@ On graceful shutdown (SIGINT, SIGTERM, SIGHUP, SIGBREAK, explicit `/api/shutdown
 
 #### Scenario: Hard kill leaves lock for stale detection
 - **WHEN** the dashboard is killed with SIGKILL or `taskkill /F`
-- **THEN** the lock file remains (no signal handler runs)
-- **AND** the next startup's `proper-lockfile.lock()` detects it as stale via the heartbeat timeout (10s default)
+- **THEN** the lock directory and metadata remain (no signal handler runs)
+- **AND** the next starter's liveness verdict finds the recorded PID dead and takes the lock over without waiting for the lock-file stale window
+
+#### Scenario: Compromised holder leaves the successor's lock alone
+- **WHEN** a dashboard whose hold was compromised shuts down gracefully
+- **THEN** the successor's lock directory and `server.lock.meta.json` SHALL still exist afterwards
 
 ### Requirement: Multi-user support
 Two real users on the same host SHALL be able to run their own dashboards independently. Each user's canonical HOME produces a separate lock path, so neither lock acquisition attempt affects the other.
@@ -92,18 +110,23 @@ Two real users on the same host SHALL be able to run their own dashboards indepe
 - **AND** the port-choice mechanism is orthogonal to the HOME lock (port auto-increment is deliberately out of scope)
 
 ### Requirement: Restart handoff
-The `/api/restart` orchestrator SHALL wait for the old server's lock to become available before spawning the replacement process. The wait SHALL be bounded (100 × 100ms = 10s budget); if the old server fails to release within that window, the replacement's own `proper-lockfile` call will steal the stale lock on the next pass.
+The restart orchestrator spawned by `/api/restart` SHALL explicitly terminate the previous daemon named by `server.pid`: it sends SIGTERM, waits up to 3 s for exit, and then sends SIGKILL. It SHALL then wait up to 5 s (10 × 500 ms) for the dashboard port to become free before spawning the replacement. It SHALL NOT poll the lock directory. A lock left behind by the killed daemon is reclaimed by the replacement's own acquisition, because the recorded holder PID is dead.
 
 #### Scenario: Clean restart
 - **WHEN** `POST /api/restart` fires
-- **AND** the old server exits gracefully (releases lock)
-- **THEN** the orchestrator polls `<lock>.lock/` directory presence until it disappears (≤10s)
-- **AND** spawns the new server which acquires the lock as normal
+- **AND** the old server exits on SIGTERM
+- **THEN** the orchestrator waits for the dashboard port to be free (≤5 s)
+- **AND** spawns the new server, which acquires the lock as normal
 
 #### Scenario: Restart with hung old server
-- **WHEN** the old server fails to exit within the restart grace period
-- **THEN** the orchestrator proceeds to spawn the replacement after the 10s poll budget elapses
-- **AND** the replacement steals the stale lock via proper-lockfile's stale-detection pass
+- **WHEN** the old server does not exit within 3 s of SIGTERM
+- **THEN** the orchestrator SHALL send SIGKILL, then wait for the port and spawn the replacement
+- **AND** the replacement SHALL reclaim the stale lock, because the recorded holder PID is dead
+
+#### Scenario: Old server survives SIGKILL
+- **WHEN** the old server is still alive after SIGKILL (e.g. uninterruptible sleep), still holds the port, and does not answer `/api/health`
+- **THEN** the replacement's lock acquisition SHALL fail with the unresponsive-holder error, leaving the lock and metadata unchanged
+- **AND** the replacement SHALL then exit on its HTTP bind failure, without having modified the old server's lock, metadata or PID file
 
 ### Requirement: Escape hatch
 Setting environment variable `PI_DASHBOARD_ALLOW_MULTIPLE=1` (or `=true`) SHALL skip lock acquisition entirely. This is unsupported behavior for power users and testing; it is documented but not advertised.
@@ -120,7 +143,7 @@ Setting environment variable `PI_DASHBOARD_ALLOW_MULTIPLE=1` (or `=true`) SHALL 
 - **THEN** lock acquisition proceeds normally
 
 ### Requirement: Metadata sidecar robustness
-The metadata sidecar (`server.lock.meta.json`) SHALL be written atomically (tmp + rename) and tolerated when corrupt, missing, or unreadable (treated as "assume stale" so the lock can be stolen).
+The metadata sidecar (`server.lock.meta.json`) SHALL be written atomically (tmp + rename). A missing or corrupt sidecar SHALL be treated as "assume stale" only when the lock directory has not been refreshed within the lock library's stale window. A sidecar that exists but cannot be read (permissions, I/O error) SHALL make acquisition refuse to take over the HOME.
 
 #### Scenario: Atomic write survives crash mid-write
 - **WHEN** the server crashes during metadata write
@@ -128,23 +151,29 @@ The metadata sidecar (`server.lock.meta.json`) SHALL be written atomically (tmp 
 
 #### Scenario: Corrupt metadata treated as stale
 - **WHEN** the metadata file contains malformed JSON or schema-mismatched content
+- **AND** the lock directory has not been refreshed within the stale window
 - **THEN** `readMetadata()` returns `null`
 - **AND** the lock holder is treated as stale
-- **AND** the lock is stolen on the retry pass
+- **AND** the lock is taken over via compare-and-remove, acquire and claim
+
+#### Scenario: Unreadable metadata refuses takeover
+- **WHEN** the metadata file exists but reading it fails with a permission or I/O error
+- **THEN** acquisition SHALL fail with an error naming the file, and the lock SHALL NOT be taken over
 
 #### Scenario: Concurrent-launch race avoided via metadata-land poll
 - **WHEN** two callers race on `acquireOrAttach`
 - **AND** the winner has acquired the lock but has not yet written metadata
-- **THEN** the loser polls the metadata file for up to 500ms (20 × 25ms) before concluding "no metadata = stale"
+- **THEN** the loser polls the metadata file for up to 500ms (20 × 25ms)
 - **AND** once the winner writes metadata, the loser returns `mode: "attach"` with the winner's identity
+- **AND** if the winner has still written nothing but its lock directory is freshly refreshed, the loser SHALL NOT take over and SHALL signal the unresponsive-holder error with reason `starting`
 
 ### Requirement: Server PID file remains advisory
-The legacy `server-pid.ts` PID file (`~/.pi/dashboard/server.pid`) SHALL continue to be written on startup for back-compat with external tooling, but the lock file is the authoritative source of instance identity.
+The legacy `server-pid.ts` PID file (`~/.pi/dashboard/server.pid`) SHALL continue to be written after the HTTP port is bound, for back-compat with external tooling. The lock file is the authoritative source of instance identity. The lock metadata is written when the lock is acquired, which happens before the HTTP bind.
 
 #### Scenario: PID file still written
-- **WHEN** the dashboard starts
-- **THEN** both `server.pid` (via `writePid`) and `server.lock.meta.json` (via `acquireOrAttach`) are written
+- **WHEN** the dashboard starts and binds its HTTP port
+- **THEN** both `server.pid` (via `writePid`) and `server.lock.meta.json` (via `acquireOrAttach`, when the lock is acquired) are written
 
 #### Scenario: Conflict resolution
 - **WHEN** the PID file and lock metadata disagree (e.g., old PID file lingers from a stale crash)
-- **THEN** the lock metadata wins — the PID file is silently overwritten on lock acquisition
+- **THEN** the lock metadata wins for identity, and the PID file is overwritten when the new server binds its HTTP port

@@ -1179,8 +1179,8 @@ export const DEFAULT_GATEWAY_PORT = 9999;
  * `PI_DASHBOARD_PORT` then `DASHBOARD_PORT`; gateway role reads
  * `PI_DASHBOARD_PI_PORT` then `PI_GATEWAY_PORT` (the server CLI's env names,
  * `cli.ts buildConfig`; `PI_GATEWAY_PORT` is the docker-compose spelling).
- * Parse rules are pinned to the historic private resolver: `Number(v)`
- * finite and > 0, first var of a role wins; an unusable value is ignored,
+ * A usable value is an integer in 1–65535 (`"8000.5"`, `"0"`, `"-1"` and
+ * `"70000"` are not usable); first var of a role wins; an unusable value is ignored,
  * never shadows a lower-precedence source.
  *
  * `env` and `fileConfig` are ARGUMENTS, not `process.env` reads, so the

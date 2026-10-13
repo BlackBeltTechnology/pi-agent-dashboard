@@ -1,15 +1,16 @@
 /**
  * Read the per-HOME dashboard lock metadata sidecar.
  *
- * Inlined (rather than imported from @blackbelt-technology/pi-dashboard-server)
- * because the Electron runtime can't rely on shared-pkg resolution — mirrors
- * the pattern already used for `health-check.ts` in this package.
+ * The path is rooted on the shared `getDashboardConfigDir()` — the same
+ * `$HOME`-honouring root the server writes the sidecar under
+ * (`packages/server/src/lifecycle/home-lock.ts::getLockPath`). Reader and
+ * writer MUST agree, or the Electron dialog misses (or invents) dashboards.
  *
- * See change: single-dashboard-per-home.
+ * See change: single-dashboard-per-home; harden-dashboard-start-detection (D6).
  */
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
 export interface DashboardLockMetadata {
   pid: number;
@@ -22,20 +23,8 @@ export interface DashboardLockMetadata {
   hostname: string;
 }
 
-/**
- * Mirrors `packages/server/src/home-lock.ts::canonicalHomedir` exactly — uses
- * `os.userInfo().homedir` (immune to `$HOME` on POSIX) with `os.homedir()`
- * fallback, then `fs.realpathSync`. Both readers and the server writer MUST
- * agree on this function or the Electron dialog will miss dashboards.
- */
-function canonicalHomedir(): string {
-  let raw: string;
-  try { raw = os.userInfo().homedir; } catch { raw = os.homedir(); }
-  try { return fs.realpathSync(raw); } catch { return raw; }
-}
-
 export function getLockMetaPath(): string {
-  return path.join(canonicalHomedir(), ".pi", "dashboard", "server.lock.meta.json");
+  return path.join(getDashboardConfigDir(), "server.lock.meta.json");
 }
 
 /**

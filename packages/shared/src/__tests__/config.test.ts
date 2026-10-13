@@ -1254,6 +1254,19 @@ describe("resolveDashboardPorts", () => {
     expect(r).toEqual({ port: 8001, piPort: 9101 });
   });
 
+  // test-plan #E21 — usable = integer 1–65535, both boundaries inclusive.
+  it.each([
+    ["8000.5", 8001],
+    ["-1", 8001],
+    ["0", 8001],
+    ["65536", 8001],
+    ["70000", 8001],
+    ["1", 1],
+    ["65535", 65535],
+  ])("DASHBOARD_PORT=%s resolves to %s (integer 1–65535 rule)", (value, expected) => {
+    expect(resolveDashboardPorts({ DASHBOARD_PORT: value }, { port: 8001 }).port).toBe(expected);
+  });
+
   it("first var of a role wins (PI_DASHBOARD_PORT over DASHBOARD_PORT, PI_DASHBOARD_PI_PORT over PI_GATEWAY_PORT)", () => {
     const r = resolveDashboardPorts(
       { PI_DASHBOARD_PORT: "8001", DASHBOARD_PORT: "8002", PI_DASHBOARD_PI_PORT: "9101", PI_GATEWAY_PORT: "9102" },

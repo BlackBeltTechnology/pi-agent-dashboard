@@ -46,6 +46,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
 import { ensureLocalToken } from "./auth/local-token.js";
 import { migrateSubagentTickThrottle } from "./config-api.js";
+import { classifyDashboardPort, type PortClassification } from "./lifecycle/classify-dashboard-port.js";
 import {
   isModuleNotFoundError,
   parseModuleNotFoundError,
@@ -53,7 +54,7 @@ import {
 } from "./lifecycle/recovery-server.js";
 import { collectOwnedPids, partitionHolders } from "./lifecycle/stop-ownership.js";
 import type { createServer as _CreateServerType, ServerConfig } from "./server.js";
-import { isServerRunning, readPid, removePid } from "./spawn-process/server-pid.js";
+import { readPid, removePid } from "./spawn-process/server-pid.js";
 
 // Re-exports for back-compat — other modules / tests may import these from cli.
 export const parseNetstatListeners = platformParseNetstatListeners;
@@ -386,23 +387,85 @@ async function runForeground(config: ServerConfig): Promise<void> {
 }
 
 
+/** Injectable seams of `cmdStart` (tests); production passes none. */
+export interface StartDeps {
+  classify: (config: ServerConfig) => Promise<PortClassification>;
+  launch: typeof launchDashboardServer;
+  killProcess: (pid: number, label: string) => Promise<boolean>;
+  isProcessAlive: (pid: number) => boolean;
+  exit: (code: number) => void;
+}
+
+/** One printed verdict + exit code for a classified port; shared by `start` and `status`. */
+function portVerdict(
+  v: PortClassification,
+  config: { port: number },
+): { lines: string[]; stream: "log" | "error"; code: number } | null {
+  const at = (pid: number | undefined) => (pid === undefined ? "" : ` (pid ${pid})`);
+  switch (v.kind) {
+    case "owned":
+      return { lines: [`Dashboard server is already running (pid ${v.pid})`], stream: "log", code: 0 };
+    case "starting":
+      return { lines: [`Dashboard server is starting (pid ${v.pid})`], stream: "log", code: 0 };
+    case "unowned-dashboard":
+      return {
+        lines: [
+          `Port ${config.port} is served by a dashboard${at(v.pid)} that is not owned by this HOME.`,
+          "Use --port <n> to start a separate instance, or stop that dashboard from the HOME that started it.",
+        ],
+        stream: "error",
+        code: 1,
+      };
+    case "conflict":
+      return {
+        lines: [
+          `Port ${config.port} is occupied by another service (not the dashboard).`,
+          "Change the port in ~/.pi/dashboard/config.json or use --port <n>",
+        ],
+        stream: "error",
+        code: 1,
+      };
+    case "unresponsive":
+      return {
+        lines: [
+          `Dashboard server is running but not responding${at(v.pid)} on port ${config.port}.`,
+          "It may be overloaded or frozen. Not starting a second one. Run `pi-dashboard stop` to stop it, then start again.",
+        ],
+        stream: "error",
+        code: 1,
+      };
+    case "free":
+      return null;
+  }
+}
+
 /**
  * Start the server as a detached background daemon.
+ *
+ * Classifies the port first (one read-only verdict shared with `status`), only
+ * launches when it is free, and prints "started" only when a post-readiness
+ * classification sees an owned dashboard reporting the pid this command
+ * spawned. See change: harden-dashboard-start-detection (D4).
  */
-async function cmdStart(config: ServerConfig): Promise<void> {
+export async function cmdStart(config: ServerConfig, injected?: Partial<StartDeps>): Promise<void> {
   assertNodeVersionSupported();
-  const running = await isServerRunning(config.port);
-  if (running) {
-    console.log(`Dashboard server is already running (pid ${running})`);
-    return;
-  }
+  const d: StartDeps = {
+    classify: (c) => classifyDashboardPort(c),
+    launch: launchDashboardServer,
+    killProcess,
+    isProcessAlive,
+    exit: (code) => process.exit(code),
+    ...injected,
+  };
+  const say = (verdict: { lines: string[]; stream: "log" | "error" }) => {
+    for (const line of verdict.lines) (verdict.stream === "log" ? console.log : console.error)(line);
+  };
 
-  // Check if port is occupied by another service
-  const portStatus = await isDashboardRunning(config.port);
-  if (portStatus.portConflict) {
-    console.error(`Port ${config.port} is occupied by another service (not the dashboard).`);
-    console.error(`Change the port in ~/.pi/dashboard/config.json or use --port <n>`);
-    process.exit(1);
+  const pre = portVerdict(await d.classify(config), config);
+  if (pre) {
+    say(pre);
+    if (pre.code !== 0) d.exit(pre.code);
+    return;
   }
 
   // Spawn ourselves in foreground mode (no subcommand) as a detached process.
@@ -419,8 +482,9 @@ async function cmdStart(config: ServerConfig): Promise<void> {
   const logDir = path.join(os.homedir(), ".pi", "dashboard");
   const logPath = path.join(logDir, "server.log");
 
+  let result: Awaited<ReturnType<typeof launchDashboardServer>>;
   try {
-    const result = await launchDashboardServer({
+    result = await d.launch({
       cliPath,
       extraArgs: args,
       stdio: { logFile: logPath },
@@ -428,24 +492,57 @@ async function cmdStart(config: ServerConfig): Promise<void> {
       healthTimeoutMs: 30_000,
       port: config.port,
     });
-    const reportedPid = result.reportedPid ?? readPid() ?? result.childPid;
-    console.log(`Dashboard server started (pid ${reportedPid}) at http://localhost:${config.port}`);
   } catch (err: unknown) {
+    // Any early exit — a foreground bind failure exits 1, only the recovery
+    // path exits 2 — is re-classified once: losing the bind race to a parallel
+    // start of this HOME is "already running", not a failure.
+    if (err instanceof PortConflictError || err instanceof EarlyExitError) {
+      const after = portVerdict(await d.classify(config), config);
+      if (after && (after.code === 0)) {
+        say(after);
+        return;
+      }
+    }
     if (err instanceof PortConflictError) {
       console.error(`Port ${err.port} is occupied by another service (not the dashboard).`);
       console.error(`Change the port in ~/.pi/dashboard/config.json or use --port <n>`);
-      process.exit(1);
+      d.exit(1);
+      return;
     }
     if (err instanceof EarlyExitError) {
       console.error(`Failed to start dashboard server (child process exited with code ${err.code})`);
       console.error(`Check logs at ${logPath}`);
-      process.exit(1);
+      d.exit(1);
+      return;
     }
     const reason = err instanceof Error ? err.message : String(err);
     console.error(`Failed to start dashboard server (${reason})`);
     console.error(`Check logs at ${logPath}`);
-    process.exit(1);
+    d.exit(1);
+    return;
   }
+
+  // The launcher's readiness probe dials `localhost`, which can reach a
+  // different socket than 127.0.0.1. Confirm with the classifier (full budget).
+  const post = await d.classify(config);
+  if (post.kind === "owned" && post.pid === result.childPid) {
+    console.log(`Dashboard server started (pid ${post.pid}) at http://localhost:${config.port}`);
+    return;
+  }
+
+  // Not confirmed: never leave a second, unconfirmed server behind.
+  if (d.isProcessAlive(result.childPid)) {
+    await d.killProcess(result.childPid, "Unconfirmed dashboard server");
+  }
+  const verdict = portVerdict(post, config);
+  if (verdict) {
+    say(verdict);
+    if (verdict.code !== 0) d.exit(verdict.code);
+    return;
+  }
+  console.error(`Failed to confirm the dashboard server on port ${config.port} (the process launched as pid ${result.childPid} is not serving it).`);
+  console.error(`Check logs at ${logPath}`);
+  d.exit(1);
 }
 
 /**
@@ -507,7 +604,10 @@ export async function cmdStop(
     } else {
       console.log("Dashboard server is not running (cleaned up stale PID file)");
     }
-    d.removePid();
+    // Only a dead pid's file is stale. A process that survived the kill keeps
+    // its pid file so the next `stop` / `status` can still find it.
+    // See change: harden-dashboard-start-detection (D3).
+    if (!d.isProcessAlive(pid)) d.removePid();
   }
 
   // Port sweep: ownership-scoped. Non-positive ports (ephemeral) are never inspected.
@@ -882,61 +982,72 @@ function safeEnsureLocalToken(): string | null {
   }
 }
 
+/** Injectable seams of `cmdStatus` (tests); production passes none. */
+export interface StatusDeps {
+  classify: (config: ServerConfig) => Promise<PortClassification>;
+  discover: typeof discoverDashboard;
+  readPid: () => number | null;
+  isProcessAlive: (pid: number) => boolean;
+  exit: (code: number) => void;
+}
+
 /**
- * Show server status.
+ * Show server status for the RESOLVED port. mDNS contributes only a hostname
+ * hint (a record on another port is ignored); the verdict and exit code come
+ * from the same classifier as `start`.
+ * See change: harden-dashboard-start-detection (D8).
  */
+export async function cmdStatus(
+  config: Pick<ServerConfig, "port" | "piPort" | "host">,
+  injected?: Partial<StatusDeps>,
+): Promise<void> {
+  const d: StatusDeps = {
+    classify: (c) => classifyDashboardPort(c),
+    discover: discoverDashboard,
+    readPid,
+    isProcessAlive,
+    exit: (code) => process.exit(code),
+    ...injected,
+  };
 
-async function cmdStatus(port: number): Promise<void> {
-  // 1. Try mDNS discovery first
+  let hostHint: string | null = null;
   try {
-    const servers = await discoverDashboard(2000);
-    const local = servers.find(s => s.isLocal);
-    if (local) {
-      // Verify via health check for uptime info
-      try {
-        const res = await fetch(`http://${local.host}:${local.port}/api/health`);
-        if (res.ok) {
-          const data = await res.json() as { pid: number; uptime: number };
-          console.log(`Dashboard server is running (pid ${data.pid}) on ${local.host}:${local.port}, uptime ${data.uptime}s (discovered via mDNS)`);
-          return;
-        }
-      } catch { /* fall through */ }
-      console.log(`Dashboard server discovered via mDNS at ${local.host}:${local.port} (pid ${local.pid})`);
+    const servers = await d.discover(2000);
+    hostHint = servers.find((s) => s.isLocal && s.port === config.port)?.host ?? null;
+  } catch {
+    // mDNS failed — the classifier does not need it
+  }
+
+  const v = await d.classify(config as ServerConfig);
+  switch (v.kind) {
+    case "owned":
+      console.log(
+        `Dashboard server is running (pid ${v.pid}) on port ${config.port}` +
+          (hostHint ? ` at ${hostHint}:${config.port} (discovered via mDNS)` : ""),
+      );
+      return;
+    case "starting":
+      console.log(`Dashboard server is starting (pid ${v.pid})`);
+      return;
+    case "free":
+      console.log("Dashboard server is not running");
+      d.exit(1);
+      return;
+    case "unresponsive": {
+      // The lock metadata names the pid; fall back to a live pid file for the message only.
+      const filePid = d.readPid();
+      const pid = v.pid ?? (filePid !== null && d.isProcessAlive(filePid) ? filePid : undefined);
+      const verdict = portVerdict({ kind: "unresponsive", pid }, config);
+      if (verdict) for (const line of verdict.lines.slice(0, 1)) console.log(line);
+      d.exit(1);
       return;
     }
-  } catch {
-    // mDNS failed — fall through to PID file check
-  }
-
-  // 2. Fallback: PID file + health check
-  const pid = readPid();
-
-  if (pid === null) {
-    console.log("Dashboard server is not running");
-    process.exit(1);
-    return;
-  }
-
-  if (!isProcessAlive(pid)) {
-    removePid();
-    console.log("Dashboard server is not running (cleaned up stale PID file)");
-    process.exit(1);
-    return;
-  }
-
-  // Try health endpoint for richer info
-  try {
-    const res = await fetch(`http://localhost:${port}/api/health`);
-    if (res.ok) {
-      const data = await res.json() as { pid: number; uptime: number };
-      console.log(`Dashboard server is running (pid ${data.pid}) on port ${port}, uptime ${data.uptime}s`);
-      return;
+    default: {
+      const verdict = portVerdict(v, config);
+      if (verdict) for (const line of verdict.lines) console.log(line);
+      d.exit(verdict?.code ?? 1);
     }
-  } catch {
-    // Fall back to basic info
   }
-
-  console.log(`Dashboard server is running (pid ${pid}) on port ${port}`);
 }
 
 /**
@@ -1066,7 +1177,7 @@ async function main() {
       await cmdRestart(config);
       break;
     case "status":
-      await cmdStatus(config.port);
+      await cmdStatus(config);
       break;
     case "runtime":
       cmdRuntime();

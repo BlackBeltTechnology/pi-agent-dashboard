@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readMetadata } from "../lifecycle/home-lock.js";
 import { establishHomeRendezvous } from "../lifecycle/home-rendezvous.js";
 
@@ -147,4 +147,71 @@ describe("establishHomeRendezvous", () => {
     expect(fs.existsSync(metaPath)).toBe(false);
     await rdv.stop();
   });
+});
+
+// See change: harden-dashboard-start-detection (D5.7; test-plan X14).
+describe("promotion against a live-but-silent owner", () => {
+  it("X14: stays attached and writes nothing while the owner is unresponsive", async () => {
+    const owner = await start("owner");
+    const logs: string[] = [];
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on("unhandledRejection", onUnhandled);
+    let mode: "match" | "silent" = "match";
+    const second = await start("second", {
+      log: (m: string) => logs.push(m),
+      hooks: {
+        lockPath,
+        metaPath,
+        staleMs: 500,
+        isProcessAlive: () => true,
+        probeHealth: async () =>
+          mode === "match" ? { running: true, instanceId: "owner" } : { running: false, timedOut: true },
+      },
+    });
+    expect(second.mode).toBe("attach");
+    const before = fs.readFileSync(metaPath);
+
+    mode = "silent";
+    for (let i = 0; i < 3; i++) await second.checkNow();
+    await new Promise((r) => setImmediate(r));
+    process.off("unhandledRejection", onUnhandled);
+
+    expect(second.mode).toBe("attach");
+    expect(fs.readFileSync(metaPath).equals(before)).toBe(true);
+    expect(unhandled).toEqual([]);
+    expect(logs.filter((l) => /not responding/.test(l))).toHaveLength(3);
+    await second.stop();
+    await owner.stop();
+  });
+
+  it("drops the HOME-default role when its hold is compromised", async () => {
+    const logs: string[] = [];
+    const a = await start("a", {
+      log: (m: string) => logs.push(m),
+      hooks: {
+        lockPath,
+        metaPath,
+        staleMs: 2000,
+        probeHealth: async () => ({ running: false }),
+        isProcessAlive: () => false,
+        log: () => {},
+      },
+    });
+    expect(a.mode).toBe("acquired");
+    // A successor takes the lock over behind A's back. (The lock library tells
+    // two holds apart by directory mtime in whole ms: let one tick pass so B's
+    // directory cannot share A's.)
+    await new Promise((r) => setTimeout(r, 25));
+    fs.rmSync(`${lockPath}.lock`, { recursive: true, force: true });
+    const b = await start("b", {
+      hooks: { lockPath, metaPath, staleMs: 2000, probeHealth: async () => ({ running: false }), isProcessAlive: () => false, log: () => {} },
+    });
+    expect(b.mode).toBe("acquired");
+    await vi.waitFor(() => expect(a.mode).toBe("attach"), { timeout: 12_000, interval: 50 });
+    expect(a.release).toBeUndefined();
+    expect(readMetadata(metaPath)?.identity).toBe("b");
+    await a.stop();
+    await b.stop();
+  }, 30_000);
 });

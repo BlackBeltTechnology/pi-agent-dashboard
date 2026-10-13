@@ -19,8 +19,10 @@ fi
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
-# Start the server in background
-pi-dashboard start &
+# Start the server in background. The CLI's own verdict line is captured: the
+# start-twice check below compares it with the second start's (test-plan #X19).
+START1_OUT=$(mktemp)
+pi-dashboard start >"$START1_OUT" 2>&1 &
 SERVER_PID=$!
 
 # Cleanup on exit
@@ -43,6 +45,62 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/health 2>/dev/null || echo "000")
   if [ "$HTTP_CODE" = "200" ]; then
     echo "Health endpoint responded HTTP 200"
+
+    # --- start twice + status (test-plan #X19) ---------------------------
+    # See change: harden-dashboard-start-detection (D4).
+    #
+    # The first `start` must report the server it launched, a second `start`
+    # must recognise that very server instead of spawning another or claiming
+    # to have started it, and `status` must name the same pid.
+    pid_of() { sed -n 's/.*(pid \([0-9][0-9]*\)).*/\1/p' | head -1; }
+    FIRST_RC=0
+    wait "$SERVER_PID" || FIRST_RC=$?
+    FIRST_OUT=$(cat "$START1_OUT")
+    if [ "$FIRST_RC" != "0" ]; then
+      echo "FAIL (#X19): first 'pi-dashboard start' exited $FIRST_RC: $FIRST_OUT"
+      exit 1
+    fi
+    # A server that was already up before this script ran legitimately answers
+    # "already running"; only a cold boot can print "started".
+    if [ "$COLD_BOOT" = "1" ]; then
+      if ! printf '%s' "$FIRST_OUT" | grep -qE "Dashboard server started \(pid [0-9]+\)"; then
+        echo "FAIL (#X19): first start did not print 'Dashboard server started (pid N)': $FIRST_OUT"
+        exit 1
+      fi
+    elif ! printf '%s' "$FIRST_OUT" | grep -qE "Dashboard server (started|is already running) \(pid [0-9]+\)"; then
+      echo "FAIL (#X19): first start printed neither 'started' nor 'already running': $FIRST_OUT"
+      exit 1
+    fi
+    FIRST_PID=$(printf '%s' "$FIRST_OUT" | pid_of)
+
+    SECOND_RC=0
+    SECOND_OUT=$(pi-dashboard start 2>&1) || SECOND_RC=$?
+    if [ "$SECOND_RC" != "0" ]; then
+      echo "FAIL (#X19): second 'pi-dashboard start' exited $SECOND_RC: $SECOND_OUT"
+      exit 1
+    fi
+    if printf '%s' "$SECOND_OUT" | grep -q "Dashboard server started"; then
+      echo "FAIL (#X19): second start claimed to have started a server: $SECOND_OUT"
+      exit 1
+    fi
+    if ! printf '%s' "$SECOND_OUT" | grep -qE "Dashboard server is already running \(pid [0-9]+\)"; then
+      echo "FAIL (#X19): second start did not print 'already running (pid N)': $SECOND_OUT"
+      exit 1
+    fi
+    SECOND_PID=$(printf '%s' "$SECOND_OUT" | pid_of)
+    if [ "$FIRST_PID" != "$SECOND_PID" ]; then
+      echo "FAIL (#X19): the second start named pid $SECOND_PID, the first $FIRST_PID"
+      exit 1
+    fi
+
+    STATUS_RC=0
+    STATUS_OUT=$(pi-dashboard status 2>&1) || STATUS_RC=$?
+    STATUS_PID=$(printf '%s' "$STATUS_OUT" | pid_of)
+    if [ "$STATUS_RC" != "0" ] || ! printf '%s' "$STATUS_OUT" | grep -qE "Dashboard server is running \(pid [0-9]+\)" || [ "$STATUS_PID" != "$FIRST_PID" ]; then
+      echo "FAIL (#X19): 'pi-dashboard status' (exit $STATUS_RC) did not report running (pid $FIRST_PID): $STATUS_OUT"
+      exit 1
+    fi
+    echo "#X19: start printed pid $FIRST_PID; a second start and status named the same pid"
 
     # See change: expand-electron-qa-coverage.
     # Catches v0.4.6 spawnDetached stdio[1]='ignore' regression where

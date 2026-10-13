@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { writePid, readPid, removePid, isProcessAlive } from "../spawn-process/server-pid.js";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isProcessAlive, isServerRunning, readPid, removePid, writePid } from "../spawn-process/server-pid.js";
 
 describe("server-pid", () => {
   const tmpDir = path.join(os.tmpdir(), "pi-dashboard-test-pid-" + process.pid);
@@ -84,6 +84,35 @@ describe("server-pid", () => {
     it("can write and read back", () => {
       writePid(55555, opts);
       expect(readPid(opts)).toBe(55555);
+    });
+  });
+
+  // See change: harden-dashboard-start-detection (test-plan #E16, #E17).
+  describe("isServerRunning", () => {
+    it("#E16 keeps the pid file of a live process whose dashboard stays silent", async () => {
+      fs.writeFileSync(pidPath, `${process.pid}\n`);
+      const before = fs.readFileSync(pidPath);
+      const probe = vi.fn(async () => ({ running: false, timedOut: true }));
+      expect(await isServerRunning(8000, { ...opts, probe })).toBeNull();
+      expect(fs.readFileSync(pidPath).equals(before)).toBe(true);
+      // bounded retries, not a single 2 s shot
+      expect(probe).toHaveBeenCalledWith(8000, undefined, expect.objectContaining({ retries: 2, timeoutMs: 2000 }));
+    });
+
+    it("#E17 removes the pid file of a dead process", async () => {
+      // A pid nothing runs under: probe downward from a high pid until ESRCH.
+      let dead = 4_000_000;
+      while (isProcessAlive(dead)) dead -= 1;
+      fs.writeFileSync(pidPath, `${dead}\n`);
+      const probe = vi.fn(async () => ({ running: false }));
+      expect(await isServerRunning(8000, { ...opts, probe })).toBeNull();
+      expect(fs.existsSync(pidPath)).toBe(false);
+    });
+
+    it("returns the pid when the live process answers as the dashboard", async () => {
+      fs.writeFileSync(pidPath, `${process.pid}\n`);
+      const probe = vi.fn(async () => ({ running: true, pid: process.pid }));
+      expect(await isServerRunning(8000, { ...opts, probe })).toBe(process.pid);
     });
   });
 });

@@ -113,4 +113,34 @@ describe("cmdStop", () => {
     await cmdStop(cfg(), {}, d);
     expect(order).toEqual(["collect", "kill"]);
   });
+
+  // See change: harden-dashboard-start-detection (test-plan #E18, #E19).
+  it("E18: a failed kill of a still-alive pid keeps the pid file", async () => {
+    const d = deps({
+      readPid: vi.fn(() => 4242),
+      isProcessAlive: vi.fn(() => true),
+      killProcess: vi.fn(async () => false),
+    });
+    await cmdStop(cfg(), {}, d);
+    expect(d.killProcess).toHaveBeenCalledTimes(1);
+    expect(d.removePid).not.toHaveBeenCalled();
+  });
+
+  it("E19: a stale (dead) pid is cleaned up and reported", async () => {
+    const d = deps({ readPid: vi.fn(() => 4242), isProcessAlive: vi.fn(() => false) });
+    await cmdStop(cfg(), {}, d);
+    expect(d.removePid).toHaveBeenCalledTimes(1);
+    expect(out.find((l) => l.startsWith("Dashboard server is not running"))).toBeDefined();
+  });
+
+  it("a successful kill removes the pid file", async () => {
+    let alive = true;
+    const d = deps({
+      readPid: vi.fn(() => 4242),
+      isProcessAlive: vi.fn(() => alive),
+      killProcess: vi.fn(async () => { alive = false; return true; }),
+    });
+    await cmdStop(cfg(), {}, d);
+    expect(d.removePid).toHaveBeenCalledTimes(1);
+  });
 });
