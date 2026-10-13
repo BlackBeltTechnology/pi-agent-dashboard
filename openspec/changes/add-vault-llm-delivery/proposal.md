@@ -49,6 +49,7 @@ This is part 2 of 3 and depends on `add-credential-vault`, which provides the va
   - Enrolment persist target.
 - **Bridge.** Provider overrides tracked apart from `providers.json` in the foundation's `process` registry, lease renewal, re-registration after reload, clone registration, and LLM precedence checks.
 - **Client.** OAuth accounts, link, enrolment, LLM bindings, pools, and a lease revocation notice.
+- **Mockup.** None yet. The vault page and session view are redesigned by `retro-ux-credential-vault` (`openspec/changes/retro-ux-credential-vault/mockups/vault.html`, design D10). This change adds its OAuth, link, enrolment, `llm` binding, pool and failover states to that board and gets them approved before task 7.6. They render in the "Sign-in accounts" section of the Accounts tab and in the variable cards. Landing order works both ways: if `retro-ux-credential-vault` lands first, 7.6 builds inside its tabs and cards; if this change lands first, `retro-ux-credential-vault` moves this UI into those sections.
 - **Security.**
   - After revocation, a lease token stays valid upstream until it expires. Lease is for the user's own devices; proxy gives immediate revocation.
   - Linked logins keep today's pi and server refresh pair.
