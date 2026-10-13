@@ -191,7 +191,7 @@ function useFolderActions(
     try {
       // An override (no command/url/type) is restored through the override route
       // with its absent keys as `null`; a whole entry goes through the generic PUT.
-      if (isProjectOverride(undo.removed) && Object.keys(undo.removed).length > 0) {
+      if (isProjectOverride(undo.removed)) {
         await setProjectOverride(undo.name, overrideRestorePatch(undo.removed), scopeToWire(scope));
       } else {
         await saveServer(undo.name, { ...scopeToWire(scope), entry: undo.removed });

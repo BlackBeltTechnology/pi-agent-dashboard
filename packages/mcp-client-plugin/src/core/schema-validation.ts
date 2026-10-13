@@ -46,9 +46,11 @@ export function validateServerEntry(entry: unknown, opts?: { kind?: "server" | "
   return { ok: valid, errors: valid ? [] : (fn.errors ?? []) };
 }
 
-/** Field names from Ajv errors (drop the leading slash of `instancePath`). */
+/** Field names from Ajv errors (drop the leading slash of `instancePath`; an `additionalProperties` refusal names the offending key). */
 export function errorFields(errors: ErrorObject[]): string[] {
-  return errors.map((e) => e.instancePath.replace(/^\//, "").split("/")[0]).filter((f) => f.length > 0);
+  return errors
+    .map((e) => e.instancePath.replace(/^\//, "").split("/")[0] || String(e.params?.additionalProperty ?? ""))
+    .filter((f) => f.length > 0);
 }
 
 /** Exposed for the compile-contract test and the schema route. */

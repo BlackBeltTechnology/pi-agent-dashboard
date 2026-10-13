@@ -217,6 +217,20 @@ describe("W13–W17: legacy copies", () => {
     expect(json(io, PROJECT).mcpServers.docs).toBeUndefined();
   });
 
+  it("B2: convert refuses a copy whose override keys are invalid, file unchanged", () => {
+    for (const bad of [{ exposure: "bogus" }, { enabled: "no" }]) {
+      const io = makeIO({
+        [GLOBAL]: { mcpServers: { docs: globalEntry } },
+        [PROJECT]: { mcpServers: { docs: { ...copy, ...bad } } },
+      });
+      const before = io.files.get(PROJECT);
+      const r = makeService(io).convertLegacyCopy("docs", p);
+      expect(refusalCode(r)).toBe("invalid-entry");
+      expect(io.files.get(PROJECT)).toBe(before);
+      expect(io.writes).toEqual([]);
+    }
+  });
+
   it("convert refuses a non-legacy entry and leaves the file unchanged", () => {
     const io = makeIO({
       [GLOBAL]: { mcpServers: { docs: globalEntry } },

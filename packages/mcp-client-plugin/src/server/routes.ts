@@ -209,10 +209,12 @@ function overridePatchOf(
 ): { ok: true; patch: ProjectOverridePatch } | { ok: false; body: Record<string, unknown> } {
   const patch: Record<string, unknown> = {};
   const present: Record<string, unknown> = {};
-  for (const k of OVERRIDE_KEYS) {
-    if (body[k] === undefined) continue;
-    patch[k] = body[k];
-    if (body[k] !== null) present[k] = body[k];
+  for (const [k, v] of Object.entries(body)) {
+    if (k === "scope" || k === "cwd" || v === undefined) continue;
+    // Any other key (a secret, a typo) goes to the schema so it is refused, never dropped.
+    const known = (OVERRIDE_KEYS as readonly string[]).includes(k);
+    if (known) patch[k] = v;
+    if (!known || v !== null) present[k] = v;
   }
   const validation = validateServerEntry(present, { kind: "override" });
   if (validation.ok) return { ok: true, patch: patch as ProjectOverridePatch };

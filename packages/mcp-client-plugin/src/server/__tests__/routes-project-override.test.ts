@@ -82,6 +82,18 @@ describe("PUT …/project-override", () => {
     expect(h.writes).toEqual([]);
   });
 
+  it.each([
+    ["a secret key", { enabled: false, headers: { Authorization: "x" } }, "headers"],
+    ["a non-override key", { enabled: false, timeout: 5 }, "timeout"],
+    ["a typo", { exposur: "direct" }, "exposur"],
+    ["a null unknown key", { enabled: false, env: null }, "env"],
+  ])("B1: %s is refused 400 naming the key, never silently dropped", async (_l, body, key) => {
+    const res = await h.app.inject({ method: "PUT", url: PO, payload: { scope: "project", cwd: h.known, ...body } });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.json())).toContain(key);
+    expect(h.writes).toEqual([]);
+  });
+
   it("R2: a legacy alias is accepted and written raw", async () => {
     const res = await h.app.inject({
       method: "PUT",

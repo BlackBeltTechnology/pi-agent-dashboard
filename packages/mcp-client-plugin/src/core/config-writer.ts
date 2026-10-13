@@ -33,7 +33,7 @@ import {
   transportOf,
   validatePiEntry,
 } from "./pi-rules.js";
-import { validateServerEntry } from "./schema-validation.js";
+import { errorFields, validateServerEntry } from "./schema-validation.js";
 import type {
   ConfigIO,
   ConfigRefusal,
@@ -146,7 +146,8 @@ function patchedOverride(existing: Record<string, unknown> | undefined, patch: P
 /** A legacy copy rewritten to only the override keys whose value differs from the global entry. */
 function convertedOverride(folder: Record<string, unknown>, base: Record<string, unknown>): Record<string, unknown> {
   const next: Record<string, unknown> = nullProto({});
-  if (folder.enabled !== undefined && (folder.enabled !== false) !== (base.enabled !== false)) next.enabled = folder.enabled;
+  // A non-boolean `enabled` is carried forward so the merged validation refuses it, never silently dropped.
+  if (folder.enabled !== undefined && folder.enabled !== (base.enabled !== false)) next.enabled = folder.enabled;
   if (folder.exposure !== undefined && displayExposure(folder.exposure) !== displayExposure(base.exposure)) {
     next.exposure = folder.exposure;
   }
@@ -164,7 +165,7 @@ function patchShapeRefusal(name: string, patch: unknown): ConfigRefusal | null {
   const present = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== null && v !== undefined));
   const shape = validateServerEntry(present, { kind: "override" });
   if (shape.ok) return null;
-  const f = shape.errors.map((e) => e.instancePath.replace(/^\//, "") || String(e.params.additionalProperty ?? "")).filter(Boolean);
+  const f = errorFields(shape.errors);
   return { code: "invalid-entry", message: `server "${name}": invalid project override${f.length ? ` (${f.join(", ")})` : ""}` };
 }
 
@@ -538,6 +539,24 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     };
   }
 
+  /** The override a legacy copy converts to, or the refusal (not a legacy copy / invalid override keys). */
+  function legacyConversion(
+    name: string,
+    p: Extract<Prepared, { ok: true }>,
+    folder: Record<string, unknown> | undefined,
+    kb: { base: Record<string, unknown>; kept: ReadonlyMap<string, Record<string, unknown>> },
+  ): { ok: true; next: Record<string, unknown> } | { ok: false; refusal: ConfigRefusal } {
+    if (folder === undefined || !isLegacyFolderCopy(p.layer.servers[name], kb.base)) {
+      return {
+        ok: false,
+        refusal: { code: "invalid-entry", message: `server "${name}" in ${p.path} is not a legacy copy of the global entry`, path: p.path },
+      };
+    }
+    const next = convertedOverride(folder, kb.base);
+    const invalid = Object.keys(next).length === 0 ? null : mergedOverrideRefusal(name, next, kb.kept, p.path);
+    return invalid ? { ok: false, refusal: invalid } : { ok: true, next };
+  }
+
   function convertLegacyCopy(name: string, scope: Scope): ConvertLegacyResult {
     if (scope.kind !== "project") {
       return { ok: false, refusal: { code: "invalid-entry", message: "a legacy folder copy can only be converted at project scope" } };
@@ -548,19 +567,13 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     if (!existing.ok) return existing;
     const kb = keptBase(name);
     if (!kb.ok) return kb;
-    const raw = p.layer.servers[name];
-    if (existing.entry === undefined || !isLegacyFolderCopy(raw, kb.base)) {
-      return {
-        ok: false,
-        refusal: { code: "invalid-entry", message: `server "${name}" in ${p.path} is not a legacy copy of the global entry`, path: p.path },
-      };
-    }
-    const next = convertedOverride(existing.entry, kb.base);
+    const plan = legacyConversion(name, p, existing.entry, kb);
+    if (!plan.ok) return plan;
     const servers = nullProto({ ...p.layer.servers });
-    if (Object.keys(next).length === 0) delete servers[name];
-    else servers[name] = next;
+    if (Object.keys(plan.next).length === 0) delete servers[name];
+    else servers[name] = plan.next;
     const w = write(p.path, p.layer.config, servers);
-    return w.ok ? { ok: true, previous: raw as ServerEntry } : w;
+    return w.ok ? { ok: true, previous: p.layer.servers[name] as ServerEntry } : w;
   }
 
   function convertAdapterLeftovers(name: string, scope: Scope): ConfigWriteResult {
