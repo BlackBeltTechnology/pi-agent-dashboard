@@ -31,7 +31,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `asciidoc-preview.spec.ts` | L3 AsciiDoc preview styling (change: asciidoc-support… → see `asciidoc-preview.spec.ts.AGENTS.md` |
 | `diagram-preview.spec.ts` | L3 diagram preview (.puml and adoc hydration) in the… → see `diagram-preview.spec.ts.AGENTS.md` |
 | `automation-fanout.spec.ts` | L3 fan-out E2E (test-plan F5/F6). Creates an `actions:`… → see `automation-fanout.spec.ts.AGENTS.md` |
-| `automation-identity-restart.spec.ts` | L3: automation run identity survives a restart (#F1/#F2). → see `automation-identity-restart.spec.ts.AGENTS.md` |
+| `automation-identity-restart.spec.ts` | → see `automation-identity-restart.spec.ts.AGENTS.md` |
 | `background-stream-selection.spec.ts` | #F11 — held selection survives a background se… → see `background-stream-selection.spec.ts.AGENTS.md` |
 | `copy-insecure-context.spec.ts` | L3 test-plan #X3 (change: fix-long-session-ux-degradation… → see `copy-insecure-context.spec.ts.AGENTS.md` |
 | `drag-body-style.spec.ts` | #F23 — breakpoint flip unmounts dragger mid-drag; body… → see `drag-body-style.spec.ts.AGENTS.md` |
@@ -109,9 +109,10 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `lifecycle.ts` | Shared E2E lifecycle module. Port dynamic: probes free… → see `lifecycle.ts.AGENTS.md` |
 | `list-models-registry-ready.spec.ts` | L3 `list_models` registry-readiness discriminator. → see `list-models-registry-ready.spec.ts.AGENTS.md` |
 | `manage-worktrees.spec.ts` | L3 for the manage-worktrees surface (test-plan F4, F3, F7… → see `manage-worktrees.spec.ts.AGENTS.md` |
-| `mcp-client-folder-mobile.spec.ts` | L3 mobile folder MCP page (extract-mcp-client-plugin). → see `mcp-client-folder-mobile.spec.ts.AGENTS.md` |
-| `mcp-client-settings-a11y.spec.ts` | L3 accessibility floor for the mcp-client settings section… → see `mcp-client-settings-a11y.spec.ts.AGENTS.md` |
-| `mcp-token-settings.spec.ts` | L3 for the Settings → Paired Devices MCP-client token flow… → see `mcp-token-settings.spec.ts.AGENTS.md` |
+| `mcp-client-folder-mobile.spec.ts` | L3 mobile folder MCP page → see `mcp-client-folder-mobile.spec.ts.AGENTS.md` |
+| `mcp-client-settings-a11y.spec.ts` | L3 mcp-client settings a11y → see `mcp-client-settings-a11y.spec.ts.AGENTS.md` |
+| `mcp-client-project-override.spec.ts` | L3 F13–F15 → see `mcp-client-project-override.spec.ts.AGENTS.md` |
+| `mcp-token-settings.spec.ts` | L3 MCP-client token flow → see `mcp-token-settings.spec.ts.AGENTS.md` |
 | `mermaid-colorize.spec.ts` | Playwright spec. Mermaid default-node colorization… → see `mermaid-colorize.spec.ts.AGENTS.md` |
 | `mermaid-repair.spec.ts` | L3 F9 mermaid auto-repair → see `mermaid-repair.spec.ts.AGENTS.md` |
 | `model-proxy-oauth-filter.spec.ts` | Playwright spec (`request` fixture, no page). Model-proxy… → see `model-proxy-oauth-filter.spec.ts.AGENTS.md` |
@@ -125,7 +126,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `openspec-board-drop-indicator.spec.ts` | L3 indicator. → see `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
 | `openspec-board-drop.spec.ts` | L3 drop. → see `openspec-board-drop.spec.ts.AGENTS.md` |
 | `openspec-board-spawn-no-focus.spec.ts` | L3 board no-focus. → see `openspec-board-spawn-no-focus.spec.ts.AGENTS.md` |
-| `openspec-board-worktree-availability.spec.ts` | L3 OpenSpec board worktree availability. → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
+| `openspec-board-worktree-availability.spec.ts` | → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
 | `openspec-connect-coverage.spec.ts` | L3 connect coverage, fix-connect-snapshot-frame-loss… → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
 | `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice. → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board segment… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
@@ -151,6 +152,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `quota-context-strip.spec.ts` | L3 (change: move-quota-to-context-strip; F7–F9, X3). Stubs… → see `quota-context-strip.spec.ts.AGENTS.md` |
 | `retro-ux-chat-rendering.spec.ts` | L3 → see `retro-ux-chat-rendering.spec.ts.AGENTS.md` |
 | `retro-ux-identity-connectivity.spec.ts` | L3 → see `retro-ux-identity-connectivity.spec.ts.AGENTS.md` |
+| `retro-ux-model-selector.spec.ts` | L3 → see `retro-ux-model-selector.spec.ts.AGENTS.md` |
 | `real-flow-regression.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests, D5 follow-up). → see `real-flow-regression.spec.ts.AGENTS.md` |
 | `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested at L1 in → see `reap-core.ts.AGENTS.md` |
 | `reasoning-auto-collapse.spec.ts` | Playwright E2E for reasoning-auto-collap… → see `reasoning-auto-collapse.spec.ts.AGENTS.md` |
@@ -185,7 +187,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `settings-provider-auth-corrupt-authfile.spec.ts` | L3: corrupt auth.json + repair. → see `settings-provider-auth-corrupt-authfile.spec.ts.AGENTS.md` |
 | `skill-provenance.spec.ts` | L3 for the Resources skills grid (F1-F10, X7). Fulfils… → see `skill-provenance.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | Smoke spec, wiring proof only. Asserts shell renders… → see `smoke.spec.ts.AGENTS.md` |
-| `spawn-correlation-recovery.spec.ts` | L3 F2–F6 late spawn register clears banner + adds card. → see `spawn-correlation-recovery.spec.ts.AGENTS.md` |
+| `spawn-correlation-recovery.spec.ts` | → see `spawn-correlation-recovery.spec.ts.AGENTS.md` |
 | `split-composer-overflow.spec.ts` | Browser E2E gate for `fix-split-composer-overflow`. Opens… → see `split-composer-overflow.spec.ts.AGENTS.md` |
 | `subagent-detail-dialog.spec.ts` | Playwright spec (change: fix-subagent-li… → see `subagent-detail-dialog.spec.ts.AGENTS.md` |
 | `subagent-inspector.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Drives… → see `subagent-inspector.spec.ts.AGENTS.md` |

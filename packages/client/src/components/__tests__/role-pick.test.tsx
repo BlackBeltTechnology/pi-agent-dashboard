@@ -130,6 +130,55 @@ describe("composer model chip — role pick (CommandInput)", () => {
   });
 });
 
+describe("role pick presentation (retro-ux-model-selector)", () => {
+  it("E6: after a pick the trigger shows the model and 'from @coding' (no 'via')", async () => {
+    const { rerender } = render(<Composer model="anthropic/claude-haiku-4-5" onSelectModel={vi.fn()} onSelectThinkingLevel={vi.fn()} />);
+    await pickRole("coding");
+    rerender(<Composer model="anthropic/claude-sonnet-4-5" onSelectModel={vi.fn()} onSelectThinkingLevel={vi.fn()} />);
+    const via = screen.getByTestId("model-via-role");
+    expect(via.textContent).toBe("from @coding");
+    expect(screen.getByTestId("model-selector-button").textContent).toContain("claude-sonnet-4-5");
+    expect(screen.getByTestId("model-selector-button").textContent).not.toMatch(/\bvia\b/);
+  });
+
+  it("E7: unassigned and level-skipped notices are warning callouts with an icon and role=status", async () => {
+    render(<Composer model="anthropic/claude-sonnet-4-5" onSelectModel={vi.fn()} onSelectThinkingLevel={vi.fn()} />);
+    await pickRole("research");
+    const unassigned = await screen.findByTestId("role-pick-notice");
+    expect(unassigned.getAttribute("data-kind")).toBe("unassigned");
+    expect(unassigned.getAttribute("role")).toBe("status");
+    expect(unassigned.className).toContain("--severity-warning-bg");
+    expect(unassigned.className).toContain("--severity-warning-fg");
+    expect(unassigned.querySelector("svg")).toBeTruthy();
+    // level-skipped: model set from the role, level left unchanged
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId("model-tab-role"));
+    await act(async () => {
+      fireEvent.click(screen.getAllByTestId("role-row").find((r) => r.getAttribute("data-role") === "fast")!);
+    });
+    await waitFor(() => expect(screen.getByTestId("role-pick-notice").getAttribute("data-kind")).toBe("level-skipped"));
+    expect(screen.getByTestId("role-pick-notice").textContent).toMatch(/left unchanged/);
+  });
+
+  it("X1: roles API down at pick time → model unchanged, 'unavailable' warning callout", async () => {
+    const onSelectModel = vi.fn();
+    render(<Composer model="anthropic/claude-sonnet-4-5" onSelectModel={onSelectModel} onSelectThinkingLevel={vi.fn()} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId("model-tab-role"));
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })));
+    await act(async () => {
+      fireEvent.click(screen.getAllByTestId("role-row").find((r) => r.getAttribute("data-role") === "fast")!);
+    });
+    const notice = await screen.findByTestId("role-pick-notice");
+    expect(notice.getAttribute("data-kind")).toBe("unavailable");
+    expect(notice.className).toContain("--severity-warning-bg");
+    expect(onSelectModel).not.toHaveBeenCalled();
+  });
+});
+
 describe("OpenSpec run dialog — role pick (6.2)", () => {
   function Host({ onSend }: { onSend: () => void }) {
     const { rowElement, submit } = useOpenSpecRunConfigRow({ timeoutMs: 5_000 });

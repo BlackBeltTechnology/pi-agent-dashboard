@@ -43,9 +43,11 @@ describe("ModelSelector capability badges", () => {
     expect(titles(opus).some((t) => t.includes("Reasoning (confirmed)"))).toBe(true);
     expect(titles(opus).some((t) => t.includes("Vision-capable (confirmed)"))).toBe(true);
     expect(opus.textContent).not.toContain("?");
-    // Fallback gpt-3.5-turbo: assumed/unknown markers with '?'
+    // Fallback gpt-3.5-turbo: assumed/unknown markers, worded "assumed" (no '?' overlay).
+    // See change: retro-ux-model-selector.
     expect(titles(gpt35).some((t) => t.includes("assumed"))).toBe(true);
-    expect(gpt35.textContent).toContain("?");
+    expect(gpt35.textContent).toContain("assumed");
+    expect(gpt35.textContent).not.toContain("?");
     // Legacy (no metadataSource, no flags): no capability icons, no '?'
     expect(legacy.textContent).not.toContain("?");
     expect(titles(legacy).some((t) => /confirmed|assumed|unknown/.test(t))).toBe(false);
@@ -478,7 +480,8 @@ describe("ModelSelector — metadataSource 'endpoint' provenance (F3)", () => {
     const endpointRow = rows.find((r) => r.textContent?.includes("endpoint-model"))!;
     const fallbackRow = rows.find((r) => r.textContent?.includes("fallback-model"))!;
     expect(endpointRow.textContent).not.toContain("?");
-    expect(fallbackRow.textContent).toContain("?");
+    expect(fallbackRow.textContent).toContain("assumed");
+    expect(endpointRow.textContent).not.toContain("assumed");
   });
 });
 
@@ -594,5 +597,302 @@ describe("ModelSelector Role tab", () => {
     fireEvent.keyDown(screen.getByRole("tablist"), { key: "ArrowRight" });
     await act(async () => {});
     expect(document.activeElement).toBe(screen.getByTestId("model-tab-role"));
+  });
+});
+
+// ── retro-ux-model-selector: shared RoleRef, combobox + grid, UI-contract recipes ──
+describe("ModelSelector retro-ux conformance", () => {
+  const rolesBody = {
+    object: "list",
+    data: [
+      {
+        preset: null,
+        active: true,
+        roles: [
+          { role: "fast", assigned: true, model: "anthropic/claude-haiku-4-5", thinkingLevel: "low" },
+          { role: "nightly", assigned: true, model: "openai/gpt-5-mini" },
+          { role: "research", assigned: false },
+        ],
+      },
+    ],
+  };
+  const stubRoles = (status = 200, rolesData: unknown = rolesBody) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: status >= 200 && status < 300, status, json: async () => rolesData })),
+    );
+  afterEach(() => vi.unstubAllGlobals());
+  const flush = () => act(async () => {});
+  const four: ModelInfo[] = [
+    { provider: "anthropic", id: "a-one" },
+    { provider: "anthropic", id: "a-two" },
+    { provider: "anthropic", id: "a-sonnet" },
+    { provider: "openai", id: "o-one" },
+  ];
+
+  it("E4: Roles tab is a tablist/tab/tabpanel with RoleRef rows, check + aria-current, unassigned pill", async () => {
+    stubRoles();
+    const onSelect = vi.fn();
+    render(<ModelSelector current="@fast" models={models} onSelect={onSelect} favorites={[]} allowRoles />);
+    await flush();
+    open();
+    await flush();
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual(["Models", "Roles"]);
+    expect(tabs[1]!.getAttribute("aria-selected")).toBe("true");
+    expect(tabs[1]!.getAttribute("aria-controls")).toBeTruthy();
+    const panel = screen.getByRole("tabpanel");
+    expect(panel.id).toBe(tabs[1]!.getAttribute("aria-controls"));
+    const rows = screen.getAllByTestId("role-row");
+    const fast = rows.find((r) => r.getAttribute("data-role") === "fast")!;
+    expect(fast.getAttribute("aria-current")).toBe("true");
+    expect(fast.querySelector("svg")).toBeTruthy();
+    expect(fast.querySelector("[data-role-ref]")).toBeTruthy();
+    const research = rows.find((r) => r.getAttribute("data-role") === "research")!;
+    expect(within(research).getByTestId("role-unassigned").textContent).toBe("No model assigned");
+    expect(research.getAttribute("aria-current")).toBeNull();
+    fireEvent.click(fast);
+    expect(onSelect).toHaveBeenCalledWith("@fast");
+  });
+
+  it("E4: the Models panel is also a tabpanel controlled by its tab", async () => {
+    stubRoles();
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} allowRoles />);
+    await flush();
+    open();
+    await flush();
+    const modelTab = screen.getByTestId("model-tab-model");
+    expect(screen.getByRole("tabpanel").id).toBe(modelTab.getAttribute("aria-controls"));
+    expect(modelTab.getAttribute("tabindex")).toBe("0");
+    expect(screen.getByTestId("model-tab-role").getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("E5: trigger shows role token, short model, level chip; full ref in textContent; dialog popup", async () => {
+    stubRoles();
+    render(<ModelSelector current="@fast" models={models} onSelect={() => {}} favorites={[]} allowRoles />);
+    await flush();
+    const trigger = screen.getByTestId("model-selector-button");
+    expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(trigger.querySelector("[data-role-ref-token]")?.textContent).toBe("@fast");
+    expect(trigger.querySelector("[data-role-ref-level]")?.textContent).toContain("low");
+    expect(trigger.textContent).toContain("anthropic/claude-haiku-4-5");
+    expect(trigger.querySelector(".sr-only")?.textContent).toBe("anthropic/");
+  });
+
+  it("E5: trigger does not claim 'No model assigned' while roles are still loading", () => {
+    stubRoles(404);
+    render(<ModelSelector current="@fast" models={models} onSelect={() => {}} favorites={[]} allowRoles />);
+    const trigger = screen.getByTestId("model-selector-button");
+    expect(trigger.textContent).toContain("@fast");
+    expect(trigger.textContent).not.toContain("No model assigned");
+  });
+
+  it("E8: Favorites only toggle + translated star name + sizing + no amber", () => {
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={["anthropic/claude-haiku-4-5"]} onToggleFavorite={() => {}} />);
+    open();
+    const toggle = screen.getByTestId("favs-only-toggle");
+    expect(toggle.textContent).toContain("Favorites only");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle.className).toContain("--tint-blue-bg");
+    expect(toggle.className).toContain("--tint-blue-border");
+    const star = screen.getByTestId("model-fav-toggle");
+    expect(star.getAttribute("aria-label")).toBe("Favorite Claude Haiku 4.5");
+    expect(star.getAttribute("aria-pressed")).toBe("true");
+    expect(star.className).toContain("min-w-[44px]");
+    expect(star.className).toContain("sm:min-w-[32px]");
+    expect(star.className).toContain("sm:min-h-[32px]");
+    const dropdown = screen.getByTestId("model-dropdown");
+    expect(dropdown.innerHTML).not.toMatch(/amber-/);
+  });
+
+  it("E9: fallback badge shows the word 'assumed' (title kept), catalog does not, absent shows none", () => {
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} />);
+    open();
+    const rows = screen.getAllByTestId("model-row");
+    const byText = (s: string) => rows.find((r) => r.textContent?.includes(s))!;
+    expect(byText("gpt-3.5-turbo").textContent).toContain("assumed");
+    expect(byText("gpt-3.5-turbo").querySelector('[title*="assumed"]')).toBeTruthy();
+    expect(byText("claude-opus-4-7").textContent).not.toContain("assumed");
+    expect(byText("old-model").querySelector("[title]")).toBeNull();
+    for (const r of rows) expect(r.textContent).not.toContain("?");
+  });
+
+  it("E10: refresh errors render a warning pill + ghost 'Open providers' button, no provider names", () => {
+    const onOpen = vi.fn();
+    render(
+      <ModelSelector
+        models={models}
+        onSelect={() => {}}
+        favorites={[]}
+        refreshErrors={[{ provider: "openai", message: "503" }, { provider: "google", message: "401" }]}
+        onOpenProviderSettings={onOpen}
+      />,
+    );
+    open();
+    const footer = screen.getByTestId("model-refresh-errors");
+    expect(footer.textContent).toContain("2 providers unavailable");
+    expect(footer.textContent).not.toContain("openai");
+    expect(footer.innerHTML).toContain("--severity-warning-bg");
+    const btn = within(footer).getByTestId("model-provider-settings-link");
+    expect(btn.textContent).toBe("Open providers");
+    fireEvent.click(btn);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByTestId("model-row").length).toBe(models.length);
+  });
+
+  it("E11: empty state has headline, help line and a secondary 'Open provider settings' button; no Retry", () => {
+    const onRefresh = vi.fn();
+    const { rerender } = render(
+      <ModelSelector models={[]} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} onOpenProviderSettings={() => {}} />,
+    );
+    open();
+    expect(screen.getByRole("status").textContent).toContain("Refreshing models");
+    for (const errors of [undefined, [{ provider: "openai", message: "503" }]]) {
+      rerender(
+        <ModelSelector models={[]} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} refreshErrors={errors} onOpenProviderSettings={() => {}} />,
+      );
+      const empty = screen.getByTestId("model-empty");
+      expect(empty.textContent).toContain("No models available");
+      expect(empty.textContent).toMatch(/Close and reopen/);
+      const btn = within(empty).getByTestId("model-provider-settings-link");
+      expect(btn.textContent).toBe("Open provider settings");
+      expect(btn.className).toContain("--border-secondary");
+      expect(btn.querySelector("svg")).toBeTruthy();
+      expect(screen.queryByText(/retry/i)).toBeNull();
+    }
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    open();
+    expect(onRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("E12: no-roles help, type recipes, and no palette/muted class in the dropdown", async () => {
+    stubRoles(200, { object: "list", data: [{ preset: null, active: true, roles: [] }] });
+    const { unmount } = render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} allowRoles />);
+    await flush();
+    open();
+    await flush();
+    fireEvent.click(screen.getByTestId("model-tab-role"));
+    expect(screen.getByTestId("role-list").textContent).toContain("Settings → Roles");
+    unmount();
+    cleanup();
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={["anthropic/claude-opus-4-7"]} onToggleFavorite={() => {}} />);
+    open();
+    for (const h of screen.getAllByTestId("group-provider")) {
+      expect(h.className).toContain("text-xs");
+      expect(h.className).toContain("font-semibold");
+      expect(h.className).toContain("--text-secondary");
+    }
+    const html = screen.getByTestId("model-dropdown").innerHTML;
+    expect(html).not.toContain("--text-muted");
+    expect(html).not.toMatch(/(text|bg|border)-(amber|red|green|blue|yellow|orange|purple|gray|slate)-\d/);
+    expect(html).not.toMatch(/#[0-9a-f]{3,8}\b|rgba\(/i);
+  });
+
+  it("E12: the refreshing line is a role=status with a spinner", () => {
+    render(<ModelSelector models={[]} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} />);
+    open();
+    const status = screen.getByRole("status");
+    expect(status.querySelector("svg")).toBeTruthy();
+    expect(status.getAttribute("data-testid")).toBe("model-empty-refreshing");
+  });
+
+  it("F1: filter is a combobox over a grid; ArrowDown ×2 + Enter selects row 3", () => {
+    const onSelect = vi.fn();
+    render(<ModelSelector models={four} onSelect={onSelect} favorites={[]} />);
+    open();
+    const filter = screen.getByTestId("model-filter");
+    expect(filter.getAttribute("role")).toBe("combobox");
+    expect(filter.getAttribute("aria-haspopup")).toBe("grid");
+    expect(filter.getAttribute("aria-expanded")).toBe("true");
+    const grid = screen.getByRole("grid");
+    expect(filter.getAttribute("aria-controls")).toBe(grid.id);
+    const rows = screen.getAllByRole("row");
+    expect(rows.length).toBe(4);
+    const groups = screen.getAllByRole("rowgroup");
+    expect(groups.length).toBe(2);
+    for (const g of groups) {
+      const header = document.getElementById(g.getAttribute("aria-labelledby")!);
+      expect(header?.getAttribute("data-testid")).toBe("group-provider");
+    }
+    expect(filter.getAttribute("aria-activedescendant")).toBe(rows[0]!.id);
+    fireEvent.keyDown(filter, { key: "ArrowDown" });
+    expect(filter.getAttribute("aria-activedescendant")).toBe(rows[1]!.id);
+    fireEvent.keyDown(filter, { key: "ArrowDown" });
+    expect(filter.getAttribute("aria-activedescendant")).toBe(rows[2]!.id);
+    fireEvent.keyDown(filter, { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith("anthropic/a-sonnet");
+  });
+
+  it("F2: ArrowRight at the end reaches the ★ cell and Enter toggles once; mid-text only moves the caret", () => {
+    const toggle = vi.fn();
+    render(<ModelSelector models={four} onSelect={vi.fn()} favorites={[]} onToggleFavorite={toggle} />);
+    open();
+    const filter = screen.getByTestId("model-filter") as HTMLInputElement;
+    fireEvent.keyDown(filter, { key: "ArrowDown" });
+    fireEvent.keyDown(filter, { key: "ArrowRight" });
+    const star = document.getElementById(filter.getAttribute("aria-activedescendant")!)!;
+    expect(star.getAttribute("role")).toBe("gridcell");
+    expect(star.querySelector('[data-testid="model-fav-toggle"]')).toBeTruthy();
+    fireEvent.keyDown(filter, { key: "Enter" });
+    expect(toggle).toHaveBeenCalledTimes(1);
+    expect(toggle).toHaveBeenCalledWith("anthropic/a-two", true);
+    fireEvent.keyDown(filter, { key: "ArrowLeft" });
+    expect(filter.getAttribute("aria-activedescendant")).toMatch(/-row-1$/);
+    // mid-text: caret not at the end → ArrowRight does not move the active descendant
+    fireEvent.change(filter, { target: { value: "sonnet" } });
+    filter.setSelectionRange(3, 3);
+    const before = filter.getAttribute("aria-activedescendant");
+    fireEvent.keyDown(filter, { key: "ArrowRight" });
+    expect(filter.getAttribute("aria-activedescendant")).toBe(before);
+    expect(before).toMatch(/-row-0$/);
+  });
+
+  it("F3: ArrowRight on the tablist selects + focuses Roles; popover is dialog/aria-modal=false; Escape closes and refocuses the trigger", async () => {
+    stubRoles();
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} allowRoles />);
+    await flush();
+    open();
+    await flush();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.getAttribute("aria-modal")).toBe("false");
+    expect(dialog.getAttribute("aria-label")).toBe("Choose a model");
+    fireEvent.keyDown(screen.getByRole("tablist"), { key: "ArrowRight" });
+    await flush();
+    expect(screen.getByTestId("model-tab-role").getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(screen.getByTestId("model-tab-role"));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId("model-selector-button"));
+  });
+
+  it("F4: the current model is marked by aria-selected + a check icon, not accent colour", () => {
+    render(<ModelSelector current="anthropic/claude-haiku-4-5" models={models} onSelect={() => {}} favorites={[]} />);
+    open();
+    const rows = screen.getAllByTestId("model-row");
+    const current = rows.find((r) => r.textContent?.includes("claude-haiku-4-5"))!;
+    expect(current.getAttribute("aria-selected")).toBe("true");
+    expect(current.querySelector("svg")).toBeTruthy();
+    for (const r of rows) {
+      expect(r.className).not.toContain("--accent-blue");
+      if (r !== current) expect(r.getAttribute("aria-selected")).toBe("false");
+    }
+  });
+
+  it("X2: roles plugin absent (404) → no tablist, Models grid unchanged, no tabpanel", async () => {
+    stubRoles(404);
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} allowRoles />);
+    await flush();
+    open();
+    await flush();
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.queryByRole("tabpanel")).toBeNull();
+    expect(screen.getAllByTestId("model-row").length).toBe(models.length);
+  });
+
+  it("trigger carries tap-target sizing (44 px below sm, 32 px from sm)", () => {
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} />);
+    expect(screen.getByTestId("model-selector-button").className).toContain("tap-target");
   });
 });

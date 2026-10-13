@@ -14,6 +14,13 @@
  */
 export const catalog = {
   "zh-CN": {
+    noModelAssigned: "未分配模型",
+    roleRefThinking: "思考",
+    roleStatus_detached: "已分离",
+    roleStatus_dangling: "角色未分配，保留上一个模型",
+    levelDropped: "思考级别 {level} 不受 {model} 支持，因此已丢弃该级别。",
+    roleDetachedHelp: "此槽位已在仪表板之外被编辑，因此不再跟随 {role}。",
+    reattachRoleTo: "重新关联到 {role}",
     loadError: "加载配置失败：{error}",
     loading: "加载中…",
     notInstalledTitle: "尚未安装 pi-blackhole",
@@ -113,6 +120,13 @@ export const catalog = {
     omNoRecords: "无记录",
   },
   hu: {
+    noModelAssigned: "Nincs modell hozzárendelve",
+    roleRefThinking: "gondolkodás",
+    roleStatus_detached: "Leválasztva",
+    roleStatus_dangling: "A szerep nincs hozzárendelve, az utolsó modell marad",
+    levelDropped: "A(z) {level} gondolkodási szintet a(z) {model} nem támogatja, ezért a szint elhagyva.",
+    roleDetachedHelp: "Ezt a helyet a vezérlőpulton kívül szerkesztették, ezért már nem követi a(z) {role} szerepet.",
+    reattachRoleTo: "Újracsatolás ehhez: {role}",
     loadError: "A konfiguráció betöltése sikertelen: {error}",
     loading: "Betöltés…",
     notInstalledTitle: "A pi-blackhole nincs telepítve",

@@ -72,19 +72,22 @@ describe("E11 — enabled semantics and the folder copy", () => {
     exposure: "direct",
   };
 
-  it("folder disable of a global-only server writes a copy without secrets or auth; enable offers a choice", () => {
+  it("folder disable of a global-only server writes only an override; enabling a whole-entry copy offers a choice", () => {
     const io = makeIO({ [GLOBAL]: { mcpServers: { docs } } });
     const svc = makeService(io);
     const off = svc.setEnabled("docs", false, p);
-    expect(off).toEqual({ ok: true, action: "written", omitted: ["headers", "auth"] });
-    const copy = json(io, PROJECT).mcpServers.docs;
-    expect(copy).toEqual({ url: "https://docs.example/mcp", exposure: "direct", enabled: false });
+    expect(off).toEqual({ ok: true, action: "written" });
+    expect(json(io, PROJECT).mcpServers.docs).toEqual({ enabled: false });
     expect(io.files.get(PROJECT)).not.toContain("secret-value");
 
-    const writesBefore = io.writes.length;
-    const on = svc.setEnabled("docs", true, p);
+    // A whole-entry copy (the old disable path's output) still offers the choice.
+    const legacy = makeIO({
+      [GLOBAL]: { mcpServers: { docs } },
+      [PROJECT]: { mcpServers: { docs: { url: "https://docs.example/mcp", exposure: "direct", enabled: false } } },
+    });
+    const on = makeService(legacy).setEnabled("docs", true, p);
     expect(on).toEqual({ ok: true, action: "needs-choice", omitted: ["headers", "auth"] });
-    expect(io.writes.length).toBe(writesBefore);
+    expect(legacy.writes).toEqual([]);
   });
 
   it("global disable writes enabled:false; global enable removes the key", () => {
@@ -96,13 +99,13 @@ describe("E11 — enabled semantics and the folder copy", () => {
     expect("enabled" in json(io, GLOBAL).mcpServers.docs).toBe(false);
   });
 
-  it("oauth.clientSecret is omitted from the copy while the rest of oauth stays", () => {
+  it("enabling a whole-entry copy that lacks oauth.clientSecret offers a choice", () => {
     const io = makeIO({
       [GLOBAL]: { mcpServers: { o: { url: "https://o.example/mcp", oauth: { clientId: "id", clientSecret: "s3" } } } },
+      [PROJECT]: { mcpServers: { o: { url: "https://o.example/mcp", oauth: { clientId: "id" }, enabled: false } } },
     });
-    const r = makeService(io).setEnabled("o", false, p);
-    expect(r).toEqual({ ok: true, action: "written", omitted: ["oauth.clientSecret"] });
-    expect(json(io, PROJECT).mcpServers.o.oauth).toEqual({ clientId: "id" });
+    const r = makeService(io).setEnabled("o", true, p);
+    expect(r).toEqual({ ok: true, action: "needs-choice", omitted: ["oauth.clientSecret"] });
   });
 });
 
