@@ -199,7 +199,7 @@ Cross-refs:
 - packages/claude-plugin/README.md
 - packages/claude-plugin/skills/pi-dashboard-bootstrap/SKILL.md
 - packages/claude-plugin/skills/pi-dashboard-control/SKILL.md
-- openspec/changes/add-claude-code-plugin/design.md — D2-D5, D8, D10
+- openspec/changes/archive/2026-10-13-add-claude-code-plugin/design.md — D2-D5, D8, D10
 - See change: add-claude-code-plugin.
 
 ## What are the prerequisites for installing the dashboard?
