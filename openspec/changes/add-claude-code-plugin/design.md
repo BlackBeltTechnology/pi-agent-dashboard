@@ -179,7 +179,7 @@ See proposal.md for the motivation. The facts that shape the design:
   - Local path: `release-cut` step 6 gains `packages/claude-plugin/.claude-plugin/plugin.json` in its `git add`.
 - **Guards:**
   - a CI test asserts `plugin.json` version = root version on every PR;
-  - **tag-push flow:** a preflight step in `publish.yml`, before its `sync-versions.js` run (`:281`) rewrites the working copy, reads `git show "$GITHUB_REF_NAME:packages/claude-plugin/.claude-plugin/plugin.json"` and fails on a mismatch with the tag version, before any publish;
+  - **tag-push flow:** a preflight step in `publish.yml`, before its `sync-versions.js` run (`:281`) rewrites the working copy, reads `git show "$RELEASE_TAG:packages/claude-plugin/.claude-plugin/plugin.json"` (`RELEASE_TAG` = `needs.resolve.outputs.tag`; `GITHUB_REF_NAME` is the branch on a dispatch run) and fails on a mismatch with the tag version, before any publish;
   - **dispatched flow:** `tag-and-push` stamps and commits in one job (`:174, :222-223`), so it is consistent by construction;
   - **local `release-cut`:** step 6 stages `plugin.json`, its "No other files" diff check (`SKILL.md:190-192`) is updated, and a new step runs the version-equality test before `git tag`, so a stale tag is caught before it exists;
   - the `release-cut` checklist gains a manual `claude plugin validate packages/claude-plugin` step when the Claude CLI is available. This catches validator schema changes that the CI deny-list cannot.
@@ -190,6 +190,14 @@ See proposal.md for the motivation. The facts that shape the design:
   - marketplace `name`, `description` and a resolvable `source`.
 - **`claude plugin validate`** stays a manual check: CI has no Claude CLI.
 - **Frontmatter:** `check-skill-frontmatter.mjs` covers git-tracked `SKILL.md` files, which includes staged ones (`git ls-files`).
+
+### D10: Release attaches an uploadable plugin zip (user-approved scope addition, 2026-10-12)
+
+- **Why:** claude.ai "Upload plugin" needs a zip, and Cowork's "Add marketplace" may not cope with this repository's size (Risks). A release asset serves both without a mirror repository.
+- **How:** `scripts/build-claude-plugin-zip.mjs --version <v> --out <dir>` runs `zip -r -X -q` over `packages/claude-plugin/` so `.claude-plugin/plugin.json` sits at the zip root, excludes `.DS_Store`, and writes `pi-dashboard-claude-plugin-<v>.zip`. It exits non-zero when `plugin.json` `version` differs from `<v>`, so a stale plugin never ships under a newer tag.
+- **Wiring:** a `github-release` step runs the script from the tagged checkout (the preflight of D9 already guaranteed equality) into `claude-plugin-dist/`; `softprops/action-gh-release` `files:` gains `claude-plugin-dist/*.zip`. The step has no secrets and no network access beyond the runner's.
+- **Not done here:** no per-PR artifact (the structure test already covers the layout); the mirror repository stays the fallback if the marketplace route fails on size.
+- **Alternative: `actions/upload-artifact` only.** Workflow artifacts expire and need a GitHub login to download. Rejected for end users.
 
 ## Risks / Trade-offs
 

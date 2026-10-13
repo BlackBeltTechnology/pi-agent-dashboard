@@ -55,6 +55,7 @@ Evidence and the findings that shaped this proposal are in design.md.
   - The dispatched release commits it with `git add -A`. The local `release-cut` step 6 is extended to stage it; today it stages only `packages/*/package.json`.
   - On the tag-push flow, a `publish.yml` preflight reads the **tagged** `plugin.json` (before any sync rewrites it) and fails on a mismatch. The local `release-cut` checks equality before creating the tag.
   - Claude syncs a marketplace plugin when its version changes.
+- **Downloadable plugin package**: the release's `github-release` job zips `packages/claude-plugin/` (manifest at the zip root) as `pi-dashboard-claude-plugin-<version>.zip` with `scripts/build-claude-plugin-zip.mjs` and attaches it to the GitHub Release. This is the file for claude.ai Customize > Plugins > Upload plugin, and a download for users who cannot use the marketplace. The build fails when the zipped manifest version differs from the release version.
 - **Tests (TDD)**: structure, `ensure-dashboard.sh` behaviour (fixture servers and stubbed launchers), parity, routes, version, and the Node-floor constant. The existing CI frontmatter guard covers the new `SKILL.md` files.
 - **Docs**: an FAQ entry ("How do I use pi-dashboard from Claude Code?"), a README install row, a surface-support statement, and DOX rows.
 
@@ -98,7 +99,8 @@ Evidence and the findings that shaped this proposal are in design.md.
   - the bootstrap contract: single invocation, running-instance detection, launch-source order, consented install of the latest release (global npm, npx fallback), detached start, readiness wait, sandbox refusal;
   - the control skill's derivation from the extension skill;
   - auth handling;
-  - version lockstep.
+  - version lockstep;
+  - the plugin zip attached to each GitHub Release.
 
 ### Modified Capabilities
 
@@ -107,7 +109,7 @@ Evidence and the findings that shaped this proposal are in design.md.
 ## Impact
 
 - **New:** `packages/claude-plugin/**`, `.claude-plugin/marketplace.json`, `scripts/sync-claude-plugin.mjs`, and tests under `scripts/__tests__/`.
-- **Modified (CI/release, not runtime):** `.github/workflows/publish.yml` (plugin-version preflight); `.pi/skills/release-cut/SKILL.md` (step 6 staging, manual `claude plugin validate`).
+- **Modified (CI/release, not runtime):** `.github/workflows/publish.yml` (plugin-version preflight; `github-release` zips and attaches the plugin); new `scripts/build-claude-plugin-zip.mjs`; `.pi/skills/release-cut/SKILL.md` (step 6 staging, manual `claude plugin validate`).
 - **Modified:** `scripts/sync-versions.js` (stamps `plugin.json`), plus docs: FAQ, README and DOX rows.
 - **Read-only dependencies:** `packages/extension/.pi/skills/pi-dashboard/` (source of the derived files); the `pi-dashboard` CLI `start` / `token create` subcommands; `/api/health`; the REST routes.
 - **No server, client or extension runtime change.** No new runtime dependency, no migration. Rollback means deleting `.claude-plugin/marketplace.json`: installed copies stop updating and users remove them.
