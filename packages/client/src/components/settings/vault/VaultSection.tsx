@@ -7,9 +7,10 @@
  *
  * Styling: theme tokens only — no raw hex, no raw px, no z-index.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../../lib/i18n/i18n.js";
-import { fetchVault, type VaultOverview } from "../../../lib/vault/vault-api.js";
+import { fetchVault, type VaultOverview, type VaultResult } from "../../../lib/vault/vault-api.js";
+import { OperateRequiredCallout } from "./OperateRequiredCallout.js";
 import { VaultAccountsPanel } from "./VaultAccountsPanel.js";
 import { VaultBindingsPanel } from "./VaultBindingsPanel.js";
 import { VaultImportPanel } from "./VaultImportPanel.js";
@@ -18,16 +19,43 @@ import { VaultPluginsPanel } from "./VaultPluginsPanel.js";
 export function VaultSection() {
   const [overview, setOverview] = useState<VaultOverview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** Remedies of an `operate_required` refusal; null when the load did not fail that way. */
+  const [operateRemedies, setOperateRemedies] = useState<unknown[] | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const retryInFlight = useRef(false);
 
   const reload = useCallback(async () => {
-    const res = await fetchVault().catch((err: unknown) => ({ ok: false, status: 0, data: undefined, error: String((err as Error)?.message ?? err) }));
+    const res: VaultResult<VaultOverview> = await fetchVault().catch((err: unknown) => ({
+      ok: false,
+      status: 0,
+      error: String((err as Error)?.message ?? err),
+    }));
     if (res.ok && res.data) {
       setOverview(res.data);
       setLoadError(null);
+      setOperateRemedies(null);
+    } else if (res.code === "operate_required" && res.remedies) {
+      // An older server sends no `remedies`: it falls through to the plain line below.
+      setOperateRemedies(res.remedies);
+      setLoadError(null);
     } else {
+      setOperateRemedies(null);
       setLoadError(res.error ?? `HTTP ${res.status}`);
     }
   }, []);
+
+  // Single-flight: one activation issues at most one request.
+  const retry = useCallback(async () => {
+    if (retryInFlight.current) return;
+    retryInFlight.current = true;
+    setRetrying(true);
+    try {
+      await reload();
+    } finally {
+      retryInFlight.current = false;
+      setRetrying(false);
+    }
+  }, [reload]);
 
   useEffect(() => {
     void reload();
@@ -52,6 +80,8 @@ export function VaultSection() {
           )}
         </p>
       </div>
+
+      {operateRemedies && <OperateRequiredCallout remedies={operateRemedies} busy={retrying} onRetry={retry} />}
 
       {loadError && (
         <div data-testid="vault-error" role="alert" className="text-sm text-[var(--accent-red-text)]">

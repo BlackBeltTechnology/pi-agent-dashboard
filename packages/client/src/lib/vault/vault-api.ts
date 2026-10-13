@@ -72,6 +72,10 @@ export interface VaultResult<T> {
   status: number;
   data?: T;
   error?: string;
+  /** Machine code of a refusal (`operate_required`, …) — the envelope's `error`. */
+  code?: string;
+  /** `operate_required` only: what the caller can do about it, server order. Unvalidated. */
+  remedies?: unknown[];
 }
 
 interface Envelope<T> {
@@ -79,6 +83,7 @@ interface Envelope<T> {
   data?: T;
   error?: string;
   message?: string;
+  remedies?: unknown[];
 }
 
 async function call<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown): Promise<VaultResult<T>> {
@@ -88,7 +93,14 @@ async function call<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: string, 
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const env = (await res.json().catch(() => ({}))) as Envelope<T>;
-  return { ok: res.ok && env.success === true, status: res.status, data: env.data, error: env.message ?? env.error };
+  return {
+    ok: res.ok && env.success === true,
+    status: res.status,
+    data: env.data,
+    error: env.message ?? env.error,
+    code: env.error,
+    remedies: Array.isArray(env.remedies) ? env.remedies : undefined,
+  };
 }
 
 export const fetchVault = () => call<VaultOverview>("GET", "/api/vault");

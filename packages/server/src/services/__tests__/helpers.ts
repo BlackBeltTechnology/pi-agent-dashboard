@@ -167,7 +167,7 @@ export function makeManager(
 export async function buildApp(manager: ServiceManager, trusted: string[] = []): Promise<FastifyInstance> {
   const app = Fastify();
   app.decorateRequest("isAuthenticated", false);
-  registerServiceRoutes(app, { manager, networkGuard: createNetworkGuard(trusted) });
+  registerServiceRoutes(app, { manager, networkGuard: createNetworkGuard(trusted), loginAvailable: () => false });
   await app.ready();
   return app;
 }

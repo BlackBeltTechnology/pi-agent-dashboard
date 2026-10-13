@@ -69,7 +69,7 @@ import { YOLO_ENV } from "./access/yolo-env.js";
 import { YoloController } from "./access/yolo-session.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { resolveRedirectBase } from "./auth/auth.js";
-import { authorizeWsUpgrade, effectiveSessionTier, registerAuthPlugin } from "./auth/auth-plugin.js";
+import { authorizeWsUpgrade, buildLoginAvailable, effectiveSessionTier, registerAuthPlugin } from "./auth/auth-plugin.js";
 import { registerBearerAuth, registerDeviceSessionRoutes } from "./auth/bearer-auth.js";
 import { beginFlow, pluginFlowProvider } from "./auth/begin-flow.js";
 import {
@@ -2046,16 +2046,23 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     getRpContext: (override) => resolveRpContext(config.port, override),
   });
   passkeyService.configure(config.authConfig);
+  let oauthLoginAccessor: (() => boolean) | null = null;
   if (config.authConfig) {
-    await registerAuthPlugin(fastify, {
+    oauthLoginAccessor = (await registerAuthPlugin(fastify, {
       authConfig: config.authConfig,
       port: config.port,
       resolvedTrustedNetworks: config.resolvedTrustedNetworks,
       localToken,
       localTrust,
       passkeys: passkeyService,
-    });
+    })).hasUsableOAuthProvider;
   }
+  // Live "is a usable login method configured" (drives the `sign-in` remedy of an
+  // `operate_required` refusal). See change: surface-operate-required-remedy.
+  const loginAvailable = buildLoginAvailable(oauthLoginAccessor, passkeyService, {
+    enforced: identityEnforced,
+    loginConfigs: () => browserLoginConfigRegistry.list(),
+  });
   // `/auth/status` is what the client's WS-refusal handler polls to tell
   // `auth_required` (→ browser login gate, D16/H5) from a plain `offline`.
   // Registered whenever the legacy cookie plugin did not register one — no
@@ -2454,7 +2461,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
     discoverOffers: () => discoverServiceOffers(resolveInstallRoot(fileURLToPath(import.meta.url))),
   });
-  registerServiceRoutes(fastify, { manager: serviceManager, networkGuard, localTrust });
+  registerServiceRoutes(fastify, { manager: serviceManager, networkGuard, localTrust, loginAvailable });
   // Credential vault: hub-owned accounts, bindings and per-project grants.
   // Management routes need operate authority or local trust; values never leave
   // through them. See change: add-credential-vault.
@@ -2463,6 +2470,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     importer: createVaultImport({ store: vaultStore, candidates: () => defaultKnownLocations() }),
     networkGuard,
     localTrust,
+    loginAvailable,
     getSessionBindingState: (sessionId) => vaultDelivery.getSessionState(sessionId),
     getPluginDeclarations: () =>
       discoverPlugins()

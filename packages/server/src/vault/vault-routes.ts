@@ -31,7 +31,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { LocalTrustContext } from "../auth/local-proof.js";
-import { isLocallyTrusted } from "../auth/localhost-guard.js";
+import { hasOperateAuthority, sendOperateRequired } from "../auth/operate-required.js";
 import type { NetworkGuard } from "../routes/route-deps.js";
 import { createBinding, deleteBinding, listBindings, setBindingDefault } from "./vault-bindings.js";
 import {
@@ -59,6 +59,8 @@ export interface VaultRoutesDeps {
   importer: VaultImport;
   networkGuard: NetworkGuard;
   localTrust?: LocalTrustContext;
+  /** Live: is a usable login method configured? Drives the `sign-in` remedy of a refusal. */
+  loginAvailable: () => boolean;
   /** Plugins that declare vault bindings (manifest `vaultBindings`), for the approvals list. */
   getPluginDeclarations?: () => Array<{ pluginId: string; displayName: string; declared: string[] }>;
   /** Names + states (+ last contact, project) for one session, or undefined when unknown. Never values. */
@@ -81,13 +83,6 @@ const STATUS_FOR: Record<VaultErrorCode, number> = {
   vault_corrupt: 409,
 };
 
-function canManageVault(request: FastifyRequest, localTrust?: LocalTrustContext): boolean {
-  const via = (request as { authVia?: string }).authVia;
-  if (via === "device") return (request as { principalTier?: string }).principalTier === "operate";
-  if (via === "session" || via === "principal") return true;
-  return isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> }, localTrust);
-}
-
 function sendError(reply: FastifyReply, err: unknown): FastifyReply {
   if (err instanceof VaultError) {
     return reply.code(STATUS_FOR[err.code] ?? 400).send({ success: false, error: err.code, message: err.message });
@@ -102,8 +97,8 @@ const str = (v: unknown): string => (typeof v === "string" ? v : "");
 export function registerVaultRoutes(fastify: FastifyInstance, deps: VaultRoutesDeps): void {
   const { store, importer, networkGuard } = deps;
   const manageGuard = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    if (!canManageVault(request, deps.localTrust)) {
-      await reply.code(403).send({ success: false, error: "operate_required", message: "the vault needs an operate-tier credential or a locally trusted caller" });
+    if (!hasOperateAuthority(request, deps.localTrust)) {
+      await sendOperateRequired(request, reply, { route: "vault", loginAvailable: deps.loginAvailable });
     }
   };
   const manage = { preHandler: [networkGuard, manageGuard] };

@@ -107,3 +107,112 @@ describe("VaultSection", () => {
     expect(banner.textContent).toContain("vault.json.corrupt-1");
   });
 });
+
+// ── surface-operate-required-remedy ───────────────────────────────────────
+describe("VaultSection — operate refusal callout", () => {
+  const refusal = (remedies?: unknown[]) => ({
+    ok: false,
+    status: 403,
+    json: () => Promise.resolve({ success: false, error: "operate_required", message: "the vault needs an operate-tier credential or a locally trusted caller", ...(remedies ? { reason: "no-credential", remedies } : {}) }),
+  });
+  /** `GET /api/vault` answers come from `queue`; the last entry repeats. */
+  function stubVault(queue: Array<() => unknown>) {
+    let i = 0;
+    const fn = vi.fn((url: string) => {
+      if (url === "/api/vault") return Promise.resolve(queue[Math.min(i++, queue.length - 1)]());
+      return Promise.resolve(ok(url === "/api/vault/import/candidates" ? [] : {}));
+    });
+    vi.stubGlobal("fetch", fn);
+    return () => fn.mock.calls.filter((c) => c[0] === "/api/vault").length;
+  }
+
+  it("F1 renders one row per remedy in server order, never the error line", async () => {
+    for (const [remedies, expected] of [
+      [["use-host"], ["use-host"]],
+      [["use-host", "re-pair", "sign-in"], ["use-host", "re-pair", "sign-in"]],
+      [["re-pair"], ["re-pair"]],
+      [["use-host", "request-access"], ["use-host"]],
+    ] as const) {
+      stubVault([() => refusal([...remedies])]);
+      const { unmount } = render(<VaultSection />);
+      await screen.findByTestId("vault-operate-required");
+      expect(screen.getAllByTestId("vault-operate-remedy").map((r) => r.getAttribute("data-remedy"))).toEqual(expected);
+      expect(screen.queryByTestId("vault-error")).toBeNull();
+      unmount();
+    }
+  });
+
+  it("F2 is a polite status with a labelled list and a sign-in link to the login page", async () => {
+    stubVault([() => refusal(["use-host", "sign-in"])]);
+    render(<VaultSection />);
+    const callout = await screen.findByTestId("vault-operate-required");
+    expect(callout.getAttribute("role")).toBe("status");
+    expect(screen.getByRole("list", { name: "What you can do" })).toBeTruthy();
+    expect(screen.getByTestId("vault-operate-signin").getAttribute("href")).toBe("/auth/login");
+    // no sign-in remedy ⇒ no link
+    cleanup();
+    stubVault([() => refusal(["use-host"])]);
+    render(<VaultSection />);
+    await screen.findByTestId("vault-operate-required");
+    expect(screen.queryByTestId("vault-operate-signin")).toBeNull();
+  });
+
+  it("F3 keeps today's line for an older server (no remedies), a network error and a 500", async () => {
+    const failures: Array<() => unknown> = [
+      () => refusal(undefined),
+      () => { throw new Error("socket closed"); },
+      () => ({ ok: false, status: 500, json: () => Promise.resolve({ success: false, error: "internal", message: "internal error (see server.log)" }) }),
+    ];
+    for (const f of failures) {
+      // a throwing entry must surface as a rejected fetch, as a network error does
+      vi.stubGlobal("fetch", vi.fn(() => { try { return Promise.resolve(f()); } catch (e) { return Promise.reject(e); } }));
+      const { unmount } = render(<VaultSection />);
+      const line = await screen.findByTestId("vault-error");
+      expect(line.textContent).toContain("Couldn't load the vault:");
+      expect(screen.queryByTestId("vault-operate-required")).toBeNull();
+      unmount();
+    }
+  });
+
+  it("F4 retry success replaces the callout with the vault", async () => {
+    stubVault([() => refusal(["use-host"]), () => ok(overview)]);
+    render(<VaultSection />);
+    fireEvent.click(await screen.findByTestId("vault-operate-retry"));
+    await screen.findByTestId("vault-account-a1");
+    expect(screen.queryByTestId("vault-operate-required")).toBeNull();
+  });
+
+  it("F5 retry is single-flight: one request, disabled + aria-busy while pending", async () => {
+    let release: (v: unknown) => void = () => {};
+    const pending = new Promise((r) => { release = r; });
+    let n = 0;
+    const fn = vi.fn((url: string) => {
+      if (url !== "/api/vault") return Promise.resolve(ok(url === "/api/vault/import/candidates" ? [] : {}));
+      return n++ === 0 ? Promise.resolve(refusal(["use-host"])) : pending;
+    });
+    vi.stubGlobal("fetch", fn);
+    render(<VaultSection />);
+    const retry = await screen.findByTestId("vault-operate-retry");
+    fireEvent.click(retry);
+    fireEvent.click(retry);
+    await waitFor(() => expect((screen.getByTestId("vault-operate-retry") as HTMLButtonElement).disabled).toBe(true));
+    expect(screen.getByTestId("vault-operate-required").getAttribute("aria-busy")).toBe("true");
+    expect(fn.mock.calls.filter((c) => c[0] === "/api/vault")).toHaveLength(2); // initial load + exactly one retry
+    release(refusal(["use-host"]));
+    await waitFor(() => expect((screen.getByTestId("vault-operate-retry") as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByTestId("vault-operate-required").getAttribute("aria-busy")).toBe("false");
+  });
+
+  it("X2 a retry that fails on the network falls back to the existing error line", async () => {
+    let n = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url !== "/api/vault") return Promise.resolve(ok(url === "/api/vault/import/candidates" ? [] : {}));
+      return n++ === 0 ? Promise.resolve(refusal(["use-host"])) : Promise.reject(new Error("socket closed"));
+    }));
+    render(<VaultSection />);
+    fireEvent.click(await screen.findByTestId("vault-operate-retry"));
+    const line = await screen.findByTestId("vault-error");
+    expect(line.textContent).toContain("socket closed");
+    expect(screen.queryByTestId("vault-operate-required")).toBeNull();
+  });
+});
