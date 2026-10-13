@@ -32,7 +32,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `fixtures/severity-baseline.json` | Severity theme-token baseline. → see `fixtures/severity-baseline.json.AGENTS.md` |
 | `access-grants-revoke.spec.ts` | L3 access-grant remedy journey: denial → gra… → see `access-grants-revoke.spec.ts.AGENTS.md` |
 | `access-grant-dialog.spec.ts` | L3 for the access-grant prompt dialog + YOLO UI (change… → see `access-grant-dialog.spec.ts.AGENTS.md` |
-| `anthropic-bridge-activation.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
+| `anthropic-bridge-activation.spec.ts` | → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
 | `archive-fold.spec.ts` | L3 for the per-folder `Archive (N)` fold (test-plan #F4… → see `archive-fold.spec.ts.AGENTS.md` |
 | `asciidoc-preview.spec.ts` | L3 AsciiDoc preview styling (change: asciidoc-support… → see `asciidoc-preview.spec.ts.AGENTS.md` |
 | `diagram-preview.spec.ts` | L3 diagram preview (.puml and adoc hydration) in the… → see `diagram-preview.spec.ts.AGENTS.md` |
@@ -192,6 +192,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session Default… → see `settings-default-model-catalogue.spec.ts.AGENTS.md` |
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors` +… → see `severity-contrast.spec.ts.AGENTS.md` |
 | `settings-provider-auth-corrupt-authfile.spec.ts` | L3: corrupt auth.json… → see `settings-provider-auth-corrupt-authfile.spec.ts.AGENTS.md` |
+| `skill-atlas.spec.ts` | L3 atlas plugin → see `skill-atlas.spec.ts.AGENTS.md` |
 | `skill-provenance.spec.ts` | L3 for the Resources skills grid (F1-F10, X7). Fulfils… → see `skill-provenance.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | Smoke spec, wiring proof only. Asserts shell renders… → see `smoke.spec.ts.AGENTS.md` |
 | `spawn-correlation-recovery.spec.ts` | → see `spawn-correlation-recovery.spec.ts.AGENTS.md` |

@@ -169,6 +169,7 @@ export function DirectorySettings({ cwd, page, onBack }: Props) {
               error={error}
               refresh={refresh}
               activation={activation}
+              cwd={cwd}
             />
           )}
         </div>

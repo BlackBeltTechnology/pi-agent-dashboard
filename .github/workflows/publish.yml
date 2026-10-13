@@ -363,6 +363,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-kb"
             "@blackbelt-technology/pi-dashboard-kb-extension"
             "@blackbelt-technology/pi-dashboard-kb-plugin"
+            "@blackbelt-technology/pi-dashboard-skill-atlas-plugin"
             "@blackbelt-technology/pi-dashboard-hermes-memory-plugin"
             "@blackbelt-technology/pi-dashboard-context-mode-settings-plugin"
             "@blackbelt-technology/pi-dashboard-blackhole-plugin"

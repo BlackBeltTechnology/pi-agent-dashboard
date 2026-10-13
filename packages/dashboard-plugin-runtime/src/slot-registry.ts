@@ -42,6 +42,8 @@ export interface ClaimEntry<S extends SlotId = SlotId> {
    * See change: add-browser-editor-pane-tab.
    */
   pathPrefix?: string;
+  /** Resource page a `resource-page-section` claim is restricted to. See change: add-skill-atlas-screen. */
+  resourceType?: "skill" | "agent" | "extension" | "prompt" | "theme";
   /** Exported label component name for an `editor-pane-tab` claim. */
   labelComponentName?: string;
   /** The resolved `editor-pane-tab` label component (set at registration time). */

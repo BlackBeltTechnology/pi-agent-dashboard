@@ -28,6 +28,7 @@ export type SlotId =
   | "custom-entry-renderer"
   | "automation-action-editor"
   | "editor-pane-tab"
+  | "resource-page-section"
   // React-or-descriptor slots
   | "session-card-memory"
   | "session-card-flows"
@@ -167,6 +168,12 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
     description:
       "Editor-pane tab owned by a virtual-path prefix (claim.pathPrefix). Tabs at `<pathPrefix>:<rest>` render the claim's component; an optional labelComponent renders in the tab strip and stays mounted for background tabs. See change: add-browser-editor-pane-tab.",
   },
+  "resource-page-section": {
+    multiplicity: "many",
+    payloadTier: "react-only",
+    description:
+      "Section above the resource grid on the folder + global resource pages (Skills/Agents/Extensions/Prompts/Themes). Optional claim.resourceType restricts it to one page. Props { resourceType, scope: folder|global, cwd? }. See change: add-skill-atlas-screen.",
+  },
   // Descriptor-only (extension-ui-system)
   "management-modal": {
     multiplicity: "many",
@@ -285,6 +292,12 @@ export type SlotPredicateInput<S extends SlotId> =
 type _AssertEditorPaneTabNever = [SlotPredicateInput<"editor-pane-tab">] extends [never] ? true : never;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _editorPaneTabNever: _AssertEditorPaneTabNever = true;
+// `resource-page-section` is predicate-irrelevant → `never` (rendered by page
+// resource type, not filtered by predicate). See change: add-skill-atlas-screen.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _AssertResourcePageSectionNever = [SlotPredicateInput<"resource-page-section">] extends [never] ? true : never;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _resourcePageSectionNever: _AssertResourcePageSectionNever = true;
 
 // Type-level test: assert every SlotId is reachable through SlotPredicateInput,
 // either by mapping to a concrete input or explicitly to `never`. This forces a

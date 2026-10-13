@@ -54,9 +54,11 @@ interface Props {
   error: string | null;
   refresh: () => void;
   activation: ResourceActivationController;
+  /** Folder cwd on the folder surface (forwarded to `resource-page-section`). See change: add-skill-atlas-screen. */
+  cwd?: string;
 }
 
-export function ScopedResourceGrid({ page, data, isLoading, error, refresh, activation }: Props) {
+export function ScopedResourceGrid({ page, data, isLoading, error, refresh, activation, cwd }: Props) {
   const [, navigate] = useLocation();
   // The scope PRESET, read off the route rather than passed down, so the two
   // entry points cannot disagree about what "folder scope" means. Inside a
@@ -81,6 +83,7 @@ export function ScopedResourceGrid({ page, data, isLoading, error, refresh, acti
       showScopeFilter={Boolean(isFolderScoped)}
       globalPill={!isFolderScoped}
       onViewFile={(filePath, title) => navigate(buildPiResourceFileUrl(filePath, title))}
+      cwd={isFolderScoped ? cwd : undefined}
     />
   );
 }

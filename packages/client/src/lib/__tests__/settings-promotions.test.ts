@@ -65,6 +65,19 @@ describe("resolveSettingsPromotions", () => {
     expect([...map.keys()]).toEqual(["true-models-Model roles"]);
   });
 
+  it("resources is allowlisted: first-party promoted, third-party and reserved labels ignored (add-skill-atlas-screen #E25)", () => {
+    const map = resolveSettingsPromotions(
+      [
+        row("skill-atlas", true, { group: "resources", label: "Skill Atlas" }),
+        row("acme-atlas", false, { group: "resources", label: "Acme Atlas" }),
+        row("dup-skills", true, { group: "resources", label: " Skills " }),
+      ],
+      RESERVED_SETTINGS_LABELS,
+    );
+    expect([...map.keys()]).toEqual(["skill-atlas"]);
+    expect(map.get("skill-atlas")).toMatchObject({ group: "resources", label: "Skill Atlas" });
+  });
+
   it("E13: reserved labels (all locales, NFKC, trim, case) are ignored, locale-independent", () => {
     const rows = [" providers ", "Dashboard", "Models", "Szolgáltatók", "提供商", "Ｐroviders"].map(
       (label, i) => row(`p${i}`, true, { group: "models", label }),

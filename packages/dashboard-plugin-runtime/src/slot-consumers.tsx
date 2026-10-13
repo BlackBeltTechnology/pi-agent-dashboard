@@ -744,6 +744,40 @@ export function AutomationActionEditorSlot({
 }
 
 /**
+ * `resource-page-section` — plugin sections above the resource grid on the
+ * folder + global resource pages. A claim with `resourceType` renders only on
+ * that page; one without renders on every resource page. Priority-ordered by
+ * the registry; each claim isolated by `SlotErrorBoundary`. `cwd` is passed
+ * only on the folder surface. Renders nothing when unclaimed.
+ * See change: add-skill-atlas-screen.
+ */
+export function ResourcePageSectionSlot({
+  resourceType,
+  scope,
+  cwd,
+}: {
+  resourceType: "skill" | "agent" | "extension" | "prompt" | "theme";
+  scope: "folder" | "global";
+  cwd?: string;
+}) {
+  useSlotClaimsVersion();
+  const registry = useSlotRegistryOrNull();
+  if (!registry) return null;
+  const claims = registry
+    .getClaims("resource-page-section")
+    .filter((c) => !c.resourceType || c.resourceType === resourceType);
+  if (!claims.length) return null;
+  const props = scope === "folder" && cwd ? { resourceType, scope, cwd } : { resourceType, scope: "global" as const };
+  return (
+    <>
+      {claims.map((c) =>
+        renderClaim(c as Parameters<typeof renderClaim>[0], "resource-page-section", props),
+      )}
+    </>
+  );
+}
+
+/**
  * Returns `true` when at least one `automation-action-editor` claim targets
  * `actionId`. Lets the dialog decide render/submit paths without mounting the
  * editor. See change: wire-flow-inputs-in-automation.
