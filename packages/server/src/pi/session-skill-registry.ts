@@ -86,18 +86,28 @@ function skillCommands(commands: CommandInfo[]): CommandInfo[] {
  * mass `not-loaded` flip a window would still let through.
  */
 export class SessionCommandRegistry {
-  private readonly bySession = new Map<string, CommandInfo[]>();
+  private readonly bySession = new Map<string, { commands: CommandInfo[]; receivedAt: number }>();
+  /** Last stamp issued — keeps `receivedAt` strictly monotonic within a process. */
+  private lastStamp = 0;
 
   retain(sessionId: string, commands: CommandInfo[]): void {
     const incoming = commands ?? [];
-    const previous = this.bySession.get(sessionId);
+    const previous = this.bySession.get(sessionId)?.commands;
     if (previous && skillCommands(previous).length > 0 && skillCommands(incoming).length === 0) {
       return; // transitional empty list — keep the populated set
     }
-    this.bySession.set(sessionId, incoming);
+    // Stamp only when a list is ACCEPTED, so "latest list" never counts one the
+    // settling rule dropped. See change: redesign-directory-home-split (D3).
+    this.lastStamp = Math.max(Date.now(), this.lastStamp + 1);
+    this.bySession.set(sessionId, { commands: incoming, receivedAt: this.lastStamp });
   }
 
   get(sessionId: string): CommandInfo[] | undefined {
+    return this.bySession.get(sessionId)?.commands;
+  }
+
+  /** The retained list plus the time it was accepted, or undefined when never reported. */
+  getEntry(sessionId: string): { commands: CommandInfo[]; receivedAt: number } | undefined {
     return this.bySession.get(sessionId);
   }
 

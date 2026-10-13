@@ -193,6 +193,11 @@ export interface SessionOptions {
    */
   model?: string;
   /**
+   * Optional thinking level appended as `--thinking <level>` on the fresh and
+   * continue argv. See change: redesign-directory-home-split.
+   */
+  thinking?: string;
+  /**
    * Optional session name appended as `--name <name>` (pi 0.78.0+) so a
    * worktree / flow spawn lands with an intended title at creation instead of
    * relying only on post-hoc auto-naming. See change: adopt-pi-074-080-features.

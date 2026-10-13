@@ -241,6 +241,28 @@ describe("Process Manager", () => {
     });
   });
 
+  // (test-plan #E8) a valid model with shell-significant chars stays ONE escaped
+  // pane token. See change: redesign-directory-home-split.
+  describe("model/thinking passthrough (redesign-directory-home-split E8)", () => {
+    it("tmux pane command carries the model as one shellEscaped token", () => {
+      const cmd = buildTmuxCommand("/p", false, { model: "a/b@c+d", thinking: "high" } as never);
+      const pane = cmd[cmd.length - 1] ?? "";
+      expect(pane).toContain(`${UNSET_PREFIX}pi --model 'a/b@c+d' --thinking high`);
+      expect(pane).not.toMatch(/--model a\/b@c\+d/);
+    });
+
+    it("headless argv carries --model and --thinking", () => {
+      expect(buildHeadlessArgs({ model: "a/b", thinking: "low" })).toEqual([
+        "--mode",
+        "rpc",
+        "--model",
+        "a/b",
+        "--thinking",
+        "low",
+      ]);
+    });
+  });
+
   describe("buildHeadlessArgs", () => {
     it("should return --mode rpc for fresh session", () => {
       const args = buildHeadlessArgs();

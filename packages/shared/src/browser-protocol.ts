@@ -9,6 +9,7 @@ import type {
 } from "./dashboard-plugin/intent-types.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
 import type { AutoNameOutcome, NotifyLevel } from "./protocol.js";
+import type { ThinkingLevel } from "./role-schema.js";
 import type { GroupByMode, LaneId } from "./session-group-by.js";
 import type { TerminalSession } from "./terminal-types.js";
 import type {
@@ -542,6 +543,12 @@ export interface SpawnRegisterTimeoutMessage {
   stderrTail?: string;
   /** The effective watchdog timeout in ms — so the UI can render e.g. "30s". See change: spawn-failure-diagnostics (fix W2). */
   timeoutMs?: number;
+  /**
+   * The browser `requestId` of the spawn that timed out, when known (looked up
+   * from the server's `spawnToken → requestId` map). Lets the folder home
+   * re-enable Start for exactly its own spawn. See change: redesign-directory-home-split.
+   */
+  requestId?: string;
 }
 
 /**
@@ -1292,6 +1299,14 @@ export interface SendPromptToBrowserMessage {
   images?: ImageContent[];
   /** Delivery mode: "steer" (after current turn) or "followUp" (after agent finishes). Defaults to "followUp" when absent. See change: add-steering-message. */
   delivery?: "steer" | "followUp";
+  /**
+   * Optional model pick (`provider/id`) applied to the resumed pi (continue
+   * only; the server drops it for forks and live sessions). Validated
+   * server-side. See change: redesign-directory-home-split.
+   */
+  model?: string;
+  /** Optional thinking-level pick, same rules as `model`. */
+  thinkingLevel?: ThinkingLevel;
 }
 
 export interface AbortToBrowserMessage {
@@ -1577,6 +1592,14 @@ export interface ResumeSessionBrowserMessage {
    * See change: differentiate-resume-intent-by-trigger.
    */
   placement?: "front" | "keep";
+  /**
+   * Optional model pick (`provider/id`) applied to the resumed pi (continue
+   * only; the server drops it for forks and live sessions). Validated
+   * server-side. See change: redesign-directory-home-split.
+   */
+  model?: string;
+  /** Optional thinking-level pick, same rules as `model`. */
+  thinkingLevel?: ThinkingLevel;
 }
 
 /**
@@ -1650,6 +1673,14 @@ export interface SpawnSessionBrowserMessage {
    * See change: spawn-correlation-token.
    */
   requestId?: string;
+  /**
+   * Optional model (`provider/id`) for the spawned pi (`--model`). Validated
+   * server-side; an invalid value is dropped and the spawn proceeds.
+   * Old servers ignore it. See change: redesign-directory-home-split.
+   */
+  model?: string;
+  /** Optional thinking level for the spawned pi (`--thinking`). Same rules as `model`. */
+  thinkingLevel?: ThinkingLevel;
 }
 
 export interface AttachProposalBrowserMessage {
