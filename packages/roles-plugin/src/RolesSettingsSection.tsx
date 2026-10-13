@@ -25,7 +25,7 @@
  * See change: defer-role-persistence-with-save-reload.
  */
 
-import { useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { RoleRef, type RoleRefLabels, useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   useAllSessions,
   usePluginConfig,
@@ -34,6 +34,8 @@ import {
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { isValidRoleName } from "@blackbelt-technology/pi-dashboard-shared/role-name-validation.js";
 import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
+import { mdiAlertOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
 import type React from "react";
 import { useEffect, useState } from "react";
 
@@ -103,36 +105,26 @@ export function inferProviderForBareId(
 }
 
 /**
- * The assigned half of a role pill: model name + optional `:<level>` chip.
- *
- * Selected state promotes BOTH to `--text-primary` — the shipped
- * accent-on-accent-tint is 2.66:1 dark / 3.58:1 light, under WCAG AA. The
- * accent survives as the pill's 2px outline (non-text, ≥3:1).
- * See change: add-default-thinking-level (mockups/ui-plan.md defect #2).
+ * Pill container classes: `rounded-l` when a × button follows. The selected pill
+ * is painted with the `--tint-blue-*` family (the role-ref text stays
+ * `--text-primary`, measured on the tint) — never accent-as-text.
+ * See change: retro-ux-model-selector.
  */
-/** Pill container classes: `rounded-l` when a × button follows, selected tint. */
 function pillClass(isCustom: boolean, selected: boolean): string {
   const shape = isCustom ? "rounded-l" : "rounded";
   const state = selected
-    ? "bg-[color-mix(in_srgb,var(--accent-blue)_25%,transparent)] outline outline-2 outline-[var(--accent-blue)]"
-    : "bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)]";
-  return `flex items-center gap-2 px-2 py-1 text-left min-w-0 flex-1 transition-all ${shape} ${state}`;
+    ? "bg-[var(--tint-blue-bg)] border border-[var(--tint-blue-border)]"
+    : "bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] hover:bg-[var(--bg-hover)]";
+  return `focus-ring flex items-center gap-2 px-2 tap-target text-left min-w-0 flex-1 ${shape} ${state}`;
 }
 
-function RolePillValue({ model, level, selected }: { model: string; level?: string; selected: boolean }) {
-  return (
-    <>
-      <span className={`text-[11px] font-mono truncate flex-1 ${selected ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"}`}>
-        {model}
-      </span>
-      {level && (
-        <span className={`text-[10px] font-mono shrink-0 ${selected ? "text-[var(--text-primary)]" : "text-[var(--accent-blue)]/70"}`}>
-          :{level}
-        </span>
-      )}
-    </>
-  );
-}
+/** Warning-severity pill recipe (status words: "Unsaved", "Detached", …). */
+const WARNING_PILL =
+  "inline-flex items-center flex-none rounded-full border px-1.5 py-0.5 text-xs bg-[var(--severity-warning-bg)] border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]";
+
+/** Warning-severity callout recipe (icon + sentence). */
+const WARNING_CALLOUT =
+  "flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs bg-[var(--severity-warning-bg)] border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]";
 
 /**
  * Pure helper: `pending` overlaid on `rolesMap`, pending wins.
@@ -213,11 +205,6 @@ interface BuiltinsConfig {
   builtinRoleNames?: string[];
 }
 
-function shortModel(fullId: string): string {
-  const parts = fullId.split("/");
-  return parts[parts.length - 1];
-}
-
 /** One "follows this role" entry from `GET /api/roles/used-by`. */
 interface UsedByEntry {
   kind: "binding" | "usage";
@@ -268,6 +255,11 @@ export function BuiltInRolesSettings() {
   const allSessions = useAllSessions();
   const liveSessionId =
     allSessions.find((s) => (s as any).status !== "ended")?.id;
+
+  const roleRefLabels: RoleRefLabels = {
+    noModel: t("noModelAssigned", undefined, "No model assigned"),
+    thinking: t("roleRefThinking", undefined, "thinking"),
+  };
 
   const ModelSelectorPrimitive = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
   const ThinkingLevelPrimitive = useUiPrimitive(UI_PRIMITIVE_KEYS.thinkingLevelSelector);
@@ -528,22 +520,11 @@ export function BuiltInRolesSettings() {
         className={pillClass(isCustom, isEditing)}
         title={assigned ? displayLabel : t("setModelForRole", { role }, `Set a model for @${role}`)}
       >
-        <span className={`text-[11px] font-semibold shrink-0 ${isEditing ? "text-[var(--text-primary)]" : "text-[var(--accent-blue)]/70"}`}>
-          @{role}
-        </span>
-        {assigned ? (
-          <RolePillValue model={shortModel(displayLabel)} level={refLevel} selected={isEditing} />
-        ) : (
-          <span className="text-[11px] text-[var(--accent-blue)] truncate flex-1">
-            {t("addModel", undefined, "+ Add model")}
-          </span>
-        )}
+        <RoleRef role={`@${role}`} model={assigned ? displayLabel : undefined} level={refLevel} labels={roleRefLabels} />
         {dirty && (
-          <span
-            data-testid={`roles-row-${role}-dirty`}
-            aria-label={t("unsaved", undefined, "unsaved")}
-            className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--accent-warning,#f59e0b)] shrink-0"
-          />
+          <span data-testid={`roles-row-${role}-dirty`} className={`${WARNING_PILL} ml-auto`}>
+            {t("unsaved", undefined, "Unsaved")}
+          </span>
         )}
       </button>
     );
@@ -559,7 +540,7 @@ export function BuiltInRolesSettings() {
         <button
           data-testid={`roles-row-${role}-remove`}
           onClick={(e) => { e.stopPropagation(); removeCustomRole(role); }}
-          className="flex items-center justify-center px-1.5 leading-none text-[12px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--accent-red)] hover:bg-[var(--bg-hover)] transition-colors"
+          className="focus-ring flex items-center justify-center min-w-[44px] sm:min-w-[32px] leading-none text-sm bg-[var(--bg-tertiary)] border border-l-0 border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
           aria-label={t("removeCustomRoleLabel", { role }, `Remove custom role @${role}`)}
           title={t("removeCustomRoleLabel", { role }, `Remove custom role @${role}`)}
         >
@@ -595,7 +576,7 @@ export function BuiltInRolesSettings() {
   const addRoleControl: React.ReactNode = addingRole ? (
     <div className="flex flex-col gap-1">
       <span className="flex items-center gap-1">
-        <span className="text-[11px] font-semibold text-[var(--accent-blue)]/70">@</span>
+        <span className="text-xs font-semibold text-[var(--text-primary)]">@</span>
         <input
           autoFocus
           data-testid="roles-add-custom-input"
@@ -606,13 +587,13 @@ export function BuiltInRolesSettings() {
             else if (e.key === "Escape") cancelAddRole();
           }}
           placeholder={t("customRoleNamePlaceholder", undefined, "custom-role-name…")}
-          className="w-40 px-2 py-0.5 text-[11px] bg-[var(--bg-tertiary)] border border-[var(--accent-blue)] rounded text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none"
+          className="w-40 px-2 tap-target text-xs bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent-blue)]"
         />
         <button
           data-testid="roles-add-custom-confirm"
           disabled={!addValidation.ok}
           onClick={confirmAddRole}
-          className="text-[11px] text-[var(--accent-blue)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed"
+          className="focus-ring min-w-[44px] sm:min-w-[32px] tap-target text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded disabled:opacity-40 disabled:cursor-not-allowed"
           title={t("pickModelForRole", undefined, "Pick a model for this role")}
         >
           ✓
@@ -620,7 +601,7 @@ export function BuiltInRolesSettings() {
         <button
           data-testid="roles-add-custom-cancel"
           onClick={cancelAddRole}
-          className="text-[11px] text-[var(--text-muted)] hover:text-[var(--accent-red)]"
+          className="focus-ring min-w-[44px] sm:min-w-[32px] tap-target text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded"
           aria-label={t("cancelAddCustomRole", undefined, "Cancel add custom role")}
         >
           ✕
@@ -629,7 +610,7 @@ export function BuiltInRolesSettings() {
       {showAddHint && (
         <span
           data-testid="roles-add-custom-hint"
-          className="text-[10px] text-[var(--accent-red)]"
+          className="inline-flex self-start rounded-md border px-2 py-0.5 text-xs bg-[var(--severity-error-bg)] border-[var(--severity-error-border)] text-[var(--severity-error-fg)]"
         >
           ✗ {addValidation.reason}
         </span>
@@ -639,7 +620,7 @@ export function BuiltInRolesSettings() {
     <button
       data-testid="roles-add-custom"
       onClick={() => { setAddingRole(true); setNewRoleName(""); }}
-      className="px-2 py-1 text-[11px] rounded text-left bg-[var(--bg-tertiary)] text-[var(--accent-blue)] hover:bg-[var(--bg-hover)] transition-colors"
+      className="focus-ring px-2 tap-target text-xs rounded text-left bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
     >
       {t("addCustomRole", undefined, "+ Add custom role")}
     </button>
@@ -650,24 +631,24 @@ export function BuiltInRolesSettings() {
   // See change: plugin-settings-pages.
   return (
     <div data-testid="roles-settings" className="space-y-3">
-      <div className="text-[10px] text-[var(--text-muted)]">
+      <p className="m-0 text-xs text-[var(--text-secondary)]">
         {t("rolesSubheading", undefined, "global role → model assignments")}
-      </div>
+      </p>
 
       {/* Setup banner (shadow-disabled state): a small error message shown
           until at least one role has an assigned model. Replaces the legacy
           "install pi-flows" empty-state — roles are owned by the dashboard now.
           See change: roles-standalone-defaults-and-local-install-detection. */}
       {!hasAnyAssigned && (
-        <div
-          data-testid="roles-settings-setup-banner"
-          className="text-[11px] text-[var(--accent-warning,#f59e0b)] border border-[var(--border-secondary)] rounded px-2 py-1.5 bg-[var(--bg-tertiary)]"
-        >
-          {t(
-            "setupBanner",
-            undefined,
-            "No roles have been set up — set up now by assigning a model to a role below.",
-          )}
+        <div data-testid="roles-settings-setup-banner" role="status" className={WARNING_CALLOUT}>
+          <Icon path={mdiAlertOutline} size={0.55} className="flex-shrink-0 mt-0.5" aria-hidden />
+          <span>
+            {t(
+              "setupBanner",
+              undefined,
+              "No roles have been set up — set up now by assigning a model to a role below.",
+            )}
+          </span>
         </div>
       )}
 
@@ -683,16 +664,16 @@ export function BuiltInRolesSettings() {
           return (
             <span
               key={preset.name}
-              className={`inline-flex items-stretch shrink-0 overflow-hidden rounded-md text-[11px] transition-colors ${
+              className={`inline-flex items-stretch shrink-0 overflow-hidden rounded-md text-xs transition-colors ${
                 isActive
-                  ? "bg-[var(--accent-blue)] text-white"
+                  ? "bg-[var(--accent-solid)] text-white"
                   : "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
               }`}
             >
               <button
                 data-testid={`roles-preset-load-${preset.name}`}
                 onClick={() => loadPreset(preset.name)}
-                className={`px-2.5 py-1 transition-colors ${
+                className={`focus-ring px-2.5 tap-target transition-colors ${
                   isActive ? "text-white" : "hover:text-[var(--text-primary)]"
                 }`}
               >
@@ -701,10 +682,10 @@ export function BuiltInRolesSettings() {
               <button
                 data-testid={`roles-preset-delete-${preset.name}`}
                 onClick={(e) => { e.stopPropagation(); deletePreset(preset.name); }}
-                className={`flex items-center justify-center px-2 leading-none text-[12px] transition-colors ${
+                className={`focus-ring flex items-center justify-center min-w-[44px] sm:min-w-[32px] leading-none text-sm transition-colors ${
                   isActive
-                    ? "text-white/70 hover:text-white hover:bg-white/15"
-                    : "text-[var(--text-muted)] hover:text-[var(--accent-red)] hover:bg-[var(--bg-hover)]"
+                    ? "text-white"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
                 }`}
                 aria-label={t("deletePresetLabel", { name: preset.name }, `Delete preset ${preset.name}`)}
                 title={t("deletePresetTitle", { name: preset.name }, `Delete preset "${preset.name}"`)}
@@ -718,7 +699,7 @@ export function BuiltInRolesSettings() {
           <button
             data-testid="roles-preset-save-new"
             onClick={() => { setSavingPreset(true); setPresetName(""); }}
-            className="px-2.5 py-1 text-[11px] rounded-md shrink-0 bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+            className="focus-ring px-2.5 tap-target text-xs rounded-md shrink-0 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
           >
             {t("saveCurrentAsPreset", undefined, "+ Save current as preset")}
           </button>
@@ -736,12 +717,12 @@ export function BuiltInRolesSettings() {
                   else if (e.key === "Escape") { setSavingPreset(false); setPresetName(""); }
                 }}
                 placeholder={t("presetNamePlaceholder", undefined, "preset name…")}
-                className="w-32 px-2 py-0.5 text-[11px] bg-[var(--bg-tertiary)] border border-[var(--accent-blue)] rounded text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none"
+                className="w-32 px-2 tap-target text-xs bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent-blue)]"
               />
               <button
                 data-testid="roles-preset-save-confirm"
                 onClick={() => { if (presetName.trim()) savePreset(presetName.trim()); }}
-                className="text-[11px] text-[var(--accent-blue)] hover:text-[var(--text-primary)]"
+                className="focus-ring min-w-[44px] sm:min-w-[32px] tap-target text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded"
               >
                 ✓
               </button>
@@ -749,7 +730,7 @@ export function BuiltInRolesSettings() {
             {isDirty && (
               <span
                 data-testid="roles-preset-save-dirty-hint"
-                className="text-[10px] text-[var(--text-muted)]"
+                className="text-xs text-[var(--text-secondary)]"
               >
                 {t("unsavedEditsSavedFirst", undefined, "Unsaved edits will be saved first.")}
               </span>
@@ -774,7 +755,7 @@ export function BuiltInRolesSettings() {
       ) : (
         <div className="space-y-3">
           <div data-testid="roles-group-builtin" className="space-y-1">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+            <div className="text-[12px] font-semibold text-[var(--text-secondary)]">
               {t("builtinGroup", undefined, "Built-in")}
             </div>
             {/* Single column below sm: the `:level` chip leaves too little room
@@ -784,7 +765,7 @@ export function BuiltInRolesSettings() {
             </div>
           </div>
           <div data-testid="roles-group-custom" className="space-y-1">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+            <div className="text-[12px] font-semibold text-[var(--text-secondary)]">
               {t("customGroup", undefined, "Custom")}
             </div>
             {roleGroups.custom.length > 0 && (
@@ -802,23 +783,28 @@ export function BuiltInRolesSettings() {
           before it is made. See change: add-role-aware-model-refs. */}
       {Object.keys(usedBy).length > 0 && (
         <div data-testid="roles-used-by" className="space-y-1">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+          <div className="text-[12px] font-semibold text-[var(--text-secondary)]">
             {t("usedByHeading", undefined, "Used by")}
           </div>
           <ul className="m-0 p-0 list-none space-y-0.5">
             {Object.entries(usedBy).map(([role, entries]) => (
-              <li key={role} data-testid={`roles-used-by-${role}`} className="text-[11px] text-[var(--text-secondary)]">
-                <span className="font-semibold text-[var(--text-primary)]">@{role}</span>
+              <li key={role} data-testid={`roles-used-by-${role}`} className="text-xs text-[var(--text-secondary)] flex flex-wrap items-center gap-x-2 gap-y-1">
+                {(() => {
+                  const { base, level } = splitRefLevel(effective(role) ?? "");
+                  const resolved = isAssigned(role) ? inferProviderForBareId(base, models) : undefined;
+                  return <RoleRef role={`@${role}`} model={resolved} level={level} labels={roleRefLabels} />;
+                })()}
                 {entries.map((e) => (
                   <span
                     key={`${e.kind}:${e.owner}:${e.label}`}
                     data-testid={`roles-used-by-${role}-${e.owner}`}
                     data-status={e.status ?? ""}
-                    className="ml-2 inline-flex items-center gap-1"
+                    className="inline-flex items-center gap-1.5"
                   >
                     {e.owner} · {e.label}
-                    {e.status && e.status !== "ok" && (
-                      <span className="text-[10px] text-[var(--severity-warning-fg)]">({e.status})</span>
+                    {e.status === "detached" && <span className={WARNING_PILL}>{t("statusDetached", undefined, "Detached")}</span>}
+                    {e.status === "dangling" && (
+                      <span className={WARNING_PILL}>{t("statusDangling", undefined, "Role unassigned, keeps its last model")}</span>
                     )}
                   </span>
                 ))}
@@ -841,13 +827,13 @@ export function BuiltInRolesSettings() {
         const picked = models.find((m) => `${m.provider}/${m.id}` === displayBase);
         return (
         <div data-testid="roles-model-picker" className="border border-[var(--border-primary)] rounded p-2">
-          <div className="text-[11px] text-[var(--text-secondary)] mb-1">
+          <div className="text-xs text-[var(--text-secondary)] mb-1">
             {t("assignModelTo", undefined, "Assign model to")}{" "}
-            <span className="font-semibold text-[var(--accent-blue)]">@{editingRole}</span>
+            <span className="font-semibold text-[var(--text-primary)]">@{editingRole}</span>
           </div>
           <div className="flex flex-col md:flex-row md:items-end gap-1 md:gap-3.5 border border-[var(--border-primary)] rounded bg-[var(--bg-tertiary)] px-2 py-1.5">
             <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-              <span className="text-[10px] uppercase tracking-wider text-[var(--text-secondary)]">
+              <span className="text-[12px] font-semibold text-[var(--text-primary)]">
                 {t("modelLabel", undefined, "Model")}
               </span>
               <ModelSelectorPrimitive
@@ -857,7 +843,7 @@ export function BuiltInRolesSettings() {
               />
             </div>
             <div className="flex flex-col gap-0.5 shrink-0">
-              <span className="text-[10px] uppercase tracking-wider text-[var(--text-secondary)]">
+              <span className="text-[12px] font-semibold text-[var(--text-primary)]">
                 {t("thinkingLabel", undefined, "Thinking")}
               </span>
               <ThinkingLevelPrimitive
@@ -870,12 +856,20 @@ export function BuiltInRolesSettings() {
           {dropped?.role === editingRole && (
             <div
               data-testid="roles-level-drop-notice"
-              className="mt-2 px-2 py-1 rounded text-[11px] bg-[var(--severity-warning-bg)] border border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]"
+              role="status"
+              className={`mt-2 ${WARNING_CALLOUT}`}
             >
-              ⚠ {t("levelDropped", { level: dropped.level, model: displayBase }, `${dropped.level} isn't supported by ${displayBase} — level cleared.`)}
+              <Icon path={mdiAlertOutline} size={0.55} className="flex-shrink-0 mt-0.5" aria-hidden />
+              <span>
+                {t(
+                  "levelDropped",
+                  { level: dropped.level, model: displayBase },
+                  `Thinking level ${dropped.level} isn't supported by ${displayBase}, so the level was dropped.`,
+                )}
+              </span>
             </div>
           )}
-          <div data-testid="roles-ref-echo" className="mt-1 text-[10px] font-mono text-[var(--text-secondary)]">
+          <div data-testid="roles-ref-echo" className="mt-1 text-xs font-mono text-[var(--text-secondary)]">
             {t("savesRef", undefined, "saves")} {joinRefLevel(displayBase, level) || "—"}
           </div>
         </div>

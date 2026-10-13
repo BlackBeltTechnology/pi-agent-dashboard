@@ -1,7 +1,8 @@
+import { RoleRef, type RoleRefLabels } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlertOutline, mdiBrain, mdiChevronDown, mdiCog, mdiEye, mdiLoading, mdiStar, mdiStarOutline } from "@mdi/js";
+import { mdiAlertOutline, mdiBrain, mdiCheck, mdiChevronDown, mdiCog, mdiEye, mdiLoading, mdiStar, mdiStarOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { LIST_POPOVER_MIN_HEIGHT, usePopoverFlip } from "../../hooks/usePopoverFlip.js";
@@ -107,23 +108,25 @@ const ctxFmt = (n: number) => (n >= 1_000_000 ? `${n / 1_000_000}M` : `${Math.ro
 const GAP = 4;
 
 /**
- * One capability icon (MDI) with optional uncertainty `?` overlay.
- * Uses real MDI glyphs (not emoji) so it renders consistently across browsers.
+ * One capability icon (MDI). The accessible text is visually hidden so a screen
+ * reader hears the capability and its confidence; `title` stays for sighted
+ * hover. See change: retro-ux-model-selector (D9 conformance).
  */
-function CapIcon({ path, uncertain, title }: { path: string; uncertain?: boolean; title: string }) {
+function CapIcon({ path, title }: { path: string; title: string }) {
   return (
-    <span className="relative inline-flex items-center text-[var(--text-muted)]" title={title}>
-      <Icon path={path} size={0.45} />
-      {uncertain && <b className="text-[var(--text-muted)] text-[9px] leading-none -ml-0.5 -mt-1">?</b>}
+    <span className="relative inline-flex items-center text-[var(--text-secondary)]" title={title}>
+      <Icon path={path} size={0.45} aria-hidden />
+      <span className="sr-only">{title}</span>
     </span>
   );
 }
 
 /**
  * Capability icons with honest confidence:
- *   - reasoning:true  → brain icon (purple)
- *   - vision:true     → eye icon (green)
- *   - metadataSource "fallback" → muted eye? + brain? (assumed; provider gave no signal)
+ *   - reasoning:true  → brain icon
+ *   - vision:true     → eye icon
+ *   - metadataSource "fallback" → eye + brain followed by the word "assumed"
+ *     (provider gave no signal)
  *   - metadataSource "endpoint" → confirmed, same as "catalog": the provider
  *     advertised every field itself. Only "fallback" is uncertain.
  *     See change: fix-custom-provider-model-metadata.
@@ -134,8 +137,9 @@ function CapBadges({ m }: { m: ModelInfo }) {
     // Provider reported nothing: vision force-assumed, reasoning unknown.
     return (
       <>
-        <CapIcon path={mdiEye} uncertain title={i18nT("providers.visionAssumedProviderReportedNoCapabi", undefined, "Vision assumed — provider reported no capabilities; image input defaulted on")} />
-        <CapIcon path={mdiBrain} uncertain title={i18nT("providers.reasoningUnknownProviderReportedNone", undefined, "Reasoning unknown — provider reported none")} />
+        <CapIcon path={mdiEye} title={i18nT("providers.visionAssumedProviderReportedNoCapabi", undefined, "Vision assumed — provider reported no capabilities; image input defaulted on")} />
+        <CapIcon path={mdiBrain} title={i18nT("providers.reasoningUnknownProviderReportedNone", undefined, "Reasoning unknown — provider reported none")} />
+        <span aria-hidden="true" className="text-[11px] text-[var(--text-secondary)]">{i18nT("common.capabilityAssumed", undefined, "assumed")}</span>
       </>
     );
   }
@@ -147,46 +151,47 @@ function CapBadges({ m }: { m: ModelInfo }) {
   );
 }
 
+const SECONDARY_BTN =
+  "focus-ring inline-flex items-center gap-1 rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] px-3 min-h-[44px] sm:min-h-[36px] text-xs font-semibold";
+const GHOST_BTN =
+  "focus-ring inline-flex items-center gap-1 rounded-md px-2 tap-target text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)]";
+const WARNING_PILL =
+  "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs bg-[var(--severity-warning-bg)] border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]";
+
 /**
- * Shared recovery link → Settings → Providers (gear icon, no directional
- * arrow). Rendered only when a navigation handler is wired.
- * See change: open-empty-model-selector.
+ * Shared recovery button → Settings → Providers (gear icon, no directional
+ * arrow). Rendered only when a navigation handler is wired. `secondary` is the
+ * empty-state button, `ghost` the footer one (they never render together).
+ * See changes: open-empty-model-selector, retro-ux-model-selector.
  */
-function ProviderSettingsLink({ label, onClick }: { label: string; onClick?: () => void }) {
+function ProviderSettingsLink({ label, onClick, variant }: { label: string; onClick?: () => void; variant: "secondary" | "ghost" }) {
   if (!onClick) return null;
   return (
-    <button
-      type="button"
-      data-testid="model-provider-settings-link"
-      onClick={onClick}
-      className="inline-flex items-center gap-1 text-[var(--accent-blue)] hover:underline"
-    >
-      <Icon path={mdiCog} size={0.55} className="flex-shrink-0" />
+    <button type="button" data-testid="model-provider-settings-link" onClick={onClick} className={variant === "secondary" ? SECONDARY_BTN : GHOST_BTN}>
+      {variant === "secondary" && <Icon path={mdiCog} size={0.55} className="flex-shrink-0" aria-hidden />}
       <span>{label}</span>
     </button>
   );
 }
 
 /**
- * Empty-catalogue popover body: a transient refreshing line while the
- * open-triggered refresh is in flight, then "no models available" + the
- * provider-settings recovery link once the refresh has completed empty.
- * See change: open-empty-model-selector (D4-A, D5-B).
+ * Empty-catalogue popover body: a transient refreshing line (`role="status"`)
+ * while the open-triggered refresh is in flight, then headline + help line +
+ * "Open provider settings" button once the refresh has completed empty.
+ * See changes: open-empty-model-selector (D4-A, D5-B), retro-ux-model-selector.
  */
 function EmptyCatalogueBody({
   awaitingRefresh,
-  failCount,
   onOpenProviderSettings,
 }: {
   awaitingRefresh: boolean;
-  failCount: number;
   onOpenProviderSettings?: () => void;
 }) {
   if (awaitingRefresh) {
     return (
       <div className="px-3 py-4 flex flex-col items-start gap-2 text-xs" data-testid="model-empty">
-        <div className="flex items-center gap-1.5 text-[var(--text-muted)]" data-testid="model-empty-refreshing">
-          <Icon path={mdiLoading} size={0.6} className="animate-spin" />
+        <div role="status" className="flex items-center gap-1.5 text-[var(--text-secondary)]" data-testid="model-empty-refreshing">
+          <Icon path={mdiLoading} size={0.6} className="animate-spin" aria-hidden />
           <span>{i18nT("common.refreshingModels", undefined, "Refreshing models…")}</span>
         </div>
       </div>
@@ -194,16 +199,15 @@ function EmptyCatalogueBody({
   }
   return (
     <div className="px-3 py-4 flex flex-col items-start gap-2 text-xs" data-testid="model-empty">
-      <div className="text-[var(--text-secondary)]">{i18nT("common.noModelsAvailable", undefined, "No models available")}</div>
+      <div className="text-[13px] font-semibold text-[var(--text-primary)]">{i18nT("common.noModelsAvailable", undefined, "No models available")}</div>
+      <p className="m-0 text-[var(--text-secondary)]">
+        {i18nT("common.noModelsHelp", undefined, "Connect a provider to add models. Close and reopen this list to refresh it.")}
+      </p>
       <ProviderSettingsLink
+        variant="secondary"
         label={i18nT("common.openProviderSettings", undefined, "Open provider settings")}
         onClick={onOpenProviderSettings}
       />
-      {failCount > 0 && (
-        <div className="text-[10px] text-[var(--text-muted)]">
-          {i18nT("common.reopenToRetry", undefined, "Close and reopen to retry the refresh.")}
-        </div>
-      )}
     </div>
   );
 }
@@ -249,11 +253,91 @@ function useOpenTriggeredRefresh(open: boolean, models: ModelInfo[] | undefined,
   return awaitingRefresh;
 }
 
+/** "Favorites only" filter toggle; pressed state is painted with the `--tint-blue-*` family. */
+function FavsOnlyToggle({ pressed, onToggle }: { pressed: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      data-testid="favs-only-toggle"
+      aria-pressed={pressed}
+      onClick={onToggle}
+      className={`focus-ring inline-flex items-center gap-1 px-2 tap-target text-xs font-semibold rounded border whitespace-nowrap ${
+        pressed
+          ? "bg-[var(--tint-blue-bg)] border-[var(--tint-blue-border)] text-[var(--tint-blue-fg)]"
+          : "text-[var(--text-secondary)] border-[var(--border-secondary)] bg-[var(--bg-tertiary)]"
+      }`}
+    >
+      <Icon path={pressed ? mdiStar : mdiStarOutline} size={0.55} aria-hidden /> {i18nT("common.favoritesOnly", undefined, "Favorites only")}
+    </button>
+  );
+}
+
+/** The grouped model grid (APG grid popup): one rowgroup per provider, headers labelled by id. */
+function ModelGrid({
+  listRef,
+  listId,
+  providerGroups,
+  flat,
+  renderRow,
+}: {
+  listRef: React.RefObject<HTMLDivElement | null>;
+  listId: string;
+  providerGroups: Array<{ provider: string; items: ModelInfo[] }>;
+  flat: ModelInfo[];
+  renderRow: (m: ModelInfo, flatIdx: number) => React.ReactNode;
+}) {
+  // Running flat index so grouped rows map to the same order as `flat`.
+  let cursor = -1;
+  const nextIdx = () => (cursor += 1);
+  return (
+    <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto">
+      {flat.length === 0 ? (
+        <div role="status" className="px-3 py-2 text-xs text-[var(--text-secondary)]">{i18nT("common.noModelsMatch", undefined, "No models match")}</div>
+      ) : (
+        <div role="grid" id={listId} aria-label={i18nT("common.modelsTab", undefined, "Models")}>
+          {providerGroups.map((g) => {
+            const headerId = `${listId}-grp-${g.provider}`;
+            return (
+              <React.Fragment key={g.provider}>
+                <div id={headerId} role="presentation" className="px-3 py-1 text-xs font-semibold text-[var(--text-secondary)] bg-[var(--bg-primary)] sticky top-0" data-testid="group-provider">{g.provider}</div>
+                <div role="rowgroup" aria-labelledby={headerId}>
+                  {g.items.map((m) => renderRow(m, nextIdx()))}
+                </div>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Thin partial-failure footer (count only; names live in Settings → Providers). See change: open-empty-model-selector (D1-B). */
+function RefreshErrorsFooter({ failCount, onOpenProviderSettings }: { failCount: number; onOpenProviderSettings?: () => void }) {
+  if (failCount === 0) return null;
+  return (
+    <div className="border-t border-[var(--border-secondary)] px-2 py-1.5 flex items-center gap-1.5" data-testid="model-refresh-errors">
+      <span className={WARNING_PILL}>
+        <Icon path={mdiAlertOutline} size={0.5} className="flex-shrink-0" aria-hidden />
+        {i18nT(
+          "common.modelProvidersUnavailable",
+          { count: failCount },
+          `${failCount} ${failCount === 1 ? "provider" : "providers"} unavailable`,
+        )}
+      </span>
+      <span className="ml-auto">
+        <ProviderSettingsLink variant="ghost" label={i18nT("common.openProviders", undefined, "Open providers")} onClick={onOpenProviderSettings} />
+      </span>
+    </div>
+  );
+}
+
 /**
- * Populated-catalogue popover body: provider/favs filters, the text filter, the
- * grouped model list, and the thin partial-failure footer. Extracted so its
+ * Populated-catalogue popover body: provider/favs filters, the combobox filter,
+ * the grouped model grid, and the thin partial-failure footer. Extracted so its
  * nested conditionals live in their own scope (keeps ModelSelector's cognitive
- * complexity in budget). See change: open-empty-model-selector.
+ * complexity in budget). See changes: open-empty-model-selector,
+ * retro-ux-model-selector (D5 combobox + grid).
  */
 function PopulatedCatalogueBody({
   filter,
@@ -263,12 +347,14 @@ function PopulatedCatalogueBody({
   favoritesEnabled,
   providerFilter,
   setProviderFilter,
-  setSelectedIndex,
+  resetActive,
   uniqueProviders,
   providerGroups,
   flat,
   inputRef,
   listRef,
+  listId,
+  activeDescendant,
   handleKeyDown,
   renderRow,
   failCount,
@@ -281,20 +367,20 @@ function PopulatedCatalogueBody({
   favoritesEnabled: boolean;
   providerFilter: string;
   setProviderFilter: (v: string) => void;
-  setSelectedIndex: (v: number) => void;
+  resetActive: () => void;
   uniqueProviders: string[];
   providerGroups: Array<{ provider: string; items: ModelInfo[] }>;
   flat: ModelInfo[];
   inputRef: React.RefObject<HTMLInputElement | null>;
   listRef: React.RefObject<HTMLDivElement | null>;
-  handleKeyDown: (e: React.KeyboardEvent) => void;
+  listId: string;
+  activeDescendant: string | undefined;
+  handleKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   renderRow: (m: ModelInfo, flatIdx: number) => React.ReactNode;
   failCount: number;
   onOpenProviderSettings?: () => void;
 }) {
-  // Running flat index so grouped rows map to the same order as `flat`.
-  let cursor = -1;
-  const nextIdx = () => (cursor += 1);
+  const filterLabel = i18nT("common.filterModels", undefined, "Filter models…");
   return (
     <>
       {/* ── Filters ── */}
@@ -303,8 +389,9 @@ function PopulatedCatalogueBody({
           {uniqueProviders.length > 1 && (
             <select
               value={providerFilter}
-              onChange={(e) => { setProviderFilter(e.target.value); setSelectedIndex(0); }}
-              className="flex-1 min-w-0 px-2 py-1 text-xs bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+              onChange={(e) => { setProviderFilter(e.target.value); resetActive(); }}
+              aria-label={i18nT("providers.allProviders", undefined, "All Providers")}
+              className="flex-1 min-w-0 px-2 tap-target text-xs bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
               data-testid="provider-filter"
             >
               <option value="">{i18nT("providers.allProviders", undefined, "All Providers")}</option>
@@ -313,67 +400,29 @@ function PopulatedCatalogueBody({
               ))}
             </select>
           )}
-          {favoritesEnabled && (
-            <button
-              type="button"
-              data-testid="favs-only-toggle"
-              aria-pressed={favOnly}
-              onClick={() => { setFavOnly((v) => !v); setSelectedIndex(0); }}
-              className={`flex items-center gap-1 px-2 py-1 text-xs rounded border whitespace-nowrap ${
-                favOnly
-                  ? "text-amber-400 border-amber-400"
-                  : "text-[var(--text-secondary)] border-[var(--border-primary)] bg-[var(--bg-tertiary)]"
-              }`}
-            >
-              <Icon path={favOnly ? mdiStar : mdiStarOutline} size={0.55} /> {i18nT("common.favs", undefined, "Favs")}
-            </button>
-          )}
+          {favoritesEnabled && <FavsOnlyToggle pressed={favOnly} onToggle={() => { setFavOnly((v) => !v); resetActive(); }} />}
         </div>
         <input
           ref={inputRef}
           value={filter}
-          onChange={(e) => { setFilter(e.target.value); setSelectedIndex(0); }}
+          onChange={(e) => { setFilter(e.target.value); resetActive(); }}
           onKeyDown={handleKeyDown}
-          placeholder={i18nT("common.filterModels", undefined, "Filter models…")}
-          className="w-full px-2 py-1 text-xs bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-blue)]"
+          placeholder={filterLabel}
+          aria-label={filterLabel}
+          role="combobox"
+          aria-haspopup="grid"
+          aria-expanded="true"
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={activeDescendant}
+          className="w-full px-2 tap-target text-xs bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent-blue)]"
           data-testid="model-filter"
         />
       </div>
 
-      {/* ── Grouped list ── */}
-      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto">
-        {flat.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-[var(--text-muted)]">{i18nT("common.noModelsMatch", undefined, "No models match")}</div>
-        ) : (
-          providerGroups.map((g) => (
-            <React.Fragment key={g.provider}>
-              <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] bg-[var(--bg-primary)] sticky top-0" data-testid="group-provider">{g.provider}</div>
-              {g.items.map((m) => renderRow(m, nextIdx()))}
-            </React.Fragment>
-          ))
-        )}
-      </div>
+      <ModelGrid listRef={listRef} listId={listId} providerGroups={providerGroups} flat={flat} renderRow={renderRow} />
 
-      {/* ── Footer: thin partial-failure hint (count only; names live in
-          Settings → Providers). See change: open-empty-model-selector (D1-B). ── */}
-      {failCount > 0 && (
-        <div
-          className="border-t border-[var(--border-secondary)] px-2 py-1.5 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]"
-          data-testid="model-refresh-errors"
-        >
-          <Icon path={mdiAlertOutline} size={0.55} className="flex-shrink-0" />
-          <span>
-            {i18nT(
-              "common.modelProvidersUnavailable",
-              { count: failCount },
-              `${failCount} ${failCount === 1 ? "provider" : "providers"} unavailable`,
-            )}
-          </span>
-          <span className="ml-auto">
-            <ProviderSettingsLink label={i18nT("common.providers", undefined, "Providers")} onClick={onOpenProviderSettings} />
-          </span>
-        </div>
-      )}
+      <RefreshErrorsFooter failCount={failCount} onOpenProviderSettings={onOpenProviderSettings} />
     </>
   );
 }
@@ -414,18 +463,66 @@ function useRoleRows(enabled: boolean, open: boolean): PickerRoleRow[] | null {
   return enabled ? rows : null;
 }
 
-/** `@fast → anthropic/claude-haiku-4-5 · low` (or just `@fast` when unresolved). */
-function roleResolutionLabel(ref: string, rows: PickerRoleRow[] | null): string {
-  const m = /^@([^:]+)/.exec(ref);
-  const row = m ? rows?.find((r) => r.role === m[1]) : undefined;
-  if (!row?.assigned || !row.model) return ref;
-  return `${ref} → ${row.model}${row.thinkingLevel ? ` · ${row.thinkingLevel}` : ""}`;
+/** Visible strings `RoleRef` takes from its host (translated here). */
+function roleRefLabels(): RoleRefLabels {
+  return {
+    noModel: i18nT("common.noModelAssigned", undefined, "No model assigned"),
+    from: i18nT("common.roleRefFrom", undefined, "from"),
+    thinking: i18nT("common.roleRefThinking", undefined, "thinking"),
+  };
 }
 
-function RoleTabs({ tab, setTab }: { tab: "model" | "role"; setTab: (t: "model" | "role") => void }) {
+/** Trigger content: a pending spinner, a followed role ref, a one-shot "from @role", or the plain model. */
+function TriggerValue({
+  current,
+  pendingModel,
+  viaRole,
+  roleRows,
+  placeholder,
+}: {
+  current?: string;
+  pendingModel: string | null;
+  viaRole?: string;
+  roleRows: PickerRoleRow[] | null;
+  placeholder?: string;
+}) {
+  if (pendingModel) {
+    return (
+      <span className="font-mono truncate max-w-[260px]">
+        {pendingModel} <Icon path={mdiLoading} size={0.4} className="inline animate-spin" aria-hidden />
+      </span>
+    );
+  }
+  const refMatch = current ? /^@([^:]+)(?::(.+))?$/.exec(current) : null;
+  if (refMatch) {
+    const row = roleRows?.find((r) => r.role === refMatch[1]);
+    const model = row?.assigned ? row.model : undefined;
+    return (
+      <span className="min-w-0 max-w-[280px] inline-flex" data-testid="model-trigger-role-ref">
+        <RoleRef
+          role={`@${refMatch[1]}`}
+          model={model}
+          level={refMatch[2] ?? row?.thinkingLevel}
+          resolving={roleRows === null}
+          labels={roleRefLabels()}
+        />
+      </span>
+    );
+  }
+  if (current && viaRole) {
+    return (
+      <span className="min-w-0 max-w-[280px] inline-flex">
+        <RoleRef role={viaRole} model={current} mode="once" labels={roleRefLabels()} testIds={{ from: "model-via-role" }} />
+      </span>
+    );
+  }
+  return <span className="font-mono truncate max-w-[260px]">{current ?? placeholder ?? "no model"}</span>;
+}
+
+function RoleTabs({ tab, setTab, baseId }: { tab: "model" | "role"; setTab: (t: "model" | "role") => void; baseId: string }) {
   const tabs = [
-    { id: "model" as const, label: i18nT("common.modelTab", undefined, "Model") },
-    { id: "role" as const, label: i18nT("common.roleTab", undefined, "Role") },
+    { id: "model" as const, label: i18nT("common.modelsTab", undefined, "Models") },
+    { id: "role" as const, label: i18nT("common.rolesTab", undefined, "Roles") },
   ];
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
@@ -443,12 +540,13 @@ function RoleTabs({ tab, setTab }: { tab: "model" | "role"; setTab: (t: "model" 
           key={x.id}
           type="button"
           role="tab"
-          id={`model-tab-${x.id}`}
+          id={`${baseId}-tab-${x.id}`}
           aria-selected={tab === x.id}
+          aria-controls={`${baseId}-panel-${x.id}`}
           tabIndex={tab === x.id ? 0 : -1}
           data-testid={`model-tab-${x.id}`}
           onClick={() => setTab(x.id)}
-          className={`px-2 py-0.5 text-xs rounded ${
+          className={`focus-ring px-3 tap-target text-xs font-semibold rounded ${
             tab === x.id ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
           }`}
         >
@@ -459,8 +557,9 @@ function RoleTabs({ tab, setTab }: { tab: "model" | "role"; setTab: (t: "model" 
   );
 }
 
-function RoleList({ rows, current, onPick }: { rows: PickerRoleRow[]; current?: string; onPick: (role: string) => void }) {
+function RoleList({ rows, current, onPick, baseId }: { rows: PickerRoleRow[]; current?: string; onPick: (role: string) => void; baseId: string }) {
   const currentRole = current?.startsWith("@") ? /^@([^:]+)/.exec(current)?.[1] : undefined;
+  const labels = roleRefLabels();
   const move = (e: React.KeyboardEvent) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     e.preventDefault();
@@ -470,53 +569,315 @@ function RoleList({ rows, current, onPick }: { rows: PickerRoleRow[]; current?: 
     items[next]?.focus();
   };
   return (
-    <div role="tabpanel" aria-labelledby="model-tab-role" className="flex-1 min-h-0 overflow-y-auto py-1" data-testid="role-list" onKeyDown={move}>
+    <div
+      role="tabpanel"
+      id={`${baseId}-panel-role`}
+      aria-labelledby={`${baseId}-tab-role`}
+      className="flex-1 min-h-0 overflow-y-auto py-1"
+      data-testid="role-list"
+      onKeyDown={move}
+    >
       {rows.length === 0 && (
-        <div className="px-3 py-2 text-xs text-[var(--text-muted)]">{i18nT("common.noRoles", undefined, "No roles")}</div>
+        <p className="m-0 px-3 py-2 text-xs text-[var(--text-secondary)]">
+          {i18nT("common.noRolesHelp", undefined, "No roles defined yet. Assign models to roles in Settings → Roles.")}
+        </p>
       )}
-      {rows.map((r) => (
-        <button
-          key={r.role}
-          type="button"
-          data-role-item
-          data-testid="role-row"
-          data-role={r.role}
-          onClick={() => onPick(r.role)}
-          className={`w-full px-3 py-1 min-h-[44px] md:min-h-0 text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-hover)] ${
-            r.role === currentRole ? "text-[var(--text-primary)] bg-[var(--bg-tertiary)]" : "text-[var(--text-secondary)]"
-          }`}
-        >
-          <span className="font-mono">@{r.role}</span>
-          {r.assigned && r.model ? (
-            <span className="font-mono text-[10px] text-[var(--text-muted)] truncate" data-testid="role-resolution">
-              {r.model}
-              {r.thinkingLevel ? ` · ${r.thinkingLevel}` : ""}
+      {rows.map((r) => {
+        const isCurrent = r.role === currentRole;
+        return (
+          <button
+            key={r.role}
+            type="button"
+            data-role-item
+            data-testid="role-row"
+            data-role={r.role}
+            aria-current={isCurrent ? "true" : undefined}
+            onClick={() => onPick(r.role)}
+            className={`focus-ring w-full px-3 py-1 tap-target text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-hover)] ${
+              isCurrent ? "bg-[var(--bg-tertiary)]" : ""
+            }`}
+          >
+            <span className="w-4 flex-none inline-flex justify-center text-[var(--text-primary)]">
+              {isCurrent && <Icon path={mdiCheck} size={0.55} aria-hidden />}
             </span>
-          ) : (
-            <span className="text-[10px] text-amber-400" data-testid="role-unassigned">
-              {i18nT("common.roleUnassigned", undefined, "unassigned")}
-            </span>
-          )}
-        </button>
-      ))}
+            <RoleRef
+              role={`@${r.role}`}
+              model={r.assigned ? r.model : undefined}
+              level={r.assigned ? r.thinkingLevel : undefined}
+              labels={labels}
+              testIds={{ model: "role-resolution", unassigned: "role-unassigned" }}
+            />
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, onOpenProviderSettings, favorites, onToggleFavorite, placeholder, disabled, allowRoles, viaRole }: Props) {
-  const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState("");
-  const [selectedIndex, setSelectedIndex] = useState(0);
+/** One model row (grid row): check slot, model cell, capability cell, ★ cell. */
+function ModelRow({
+  m,
+  rowId,
+  starId,
+  isCurrent,
+  isFav,
+  isActive,
+  activeCell,
+  favoritesEnabled,
+  onSelect,
+  onToggleFavorite,
+}: {
+  m: ModelInfo;
+  rowId: string;
+  starId: string;
+  isCurrent: boolean;
+  isFav: boolean;
+  isActive: boolean;
+  activeCell: "model" | "star";
+  favoritesEnabled: boolean;
+  onSelect: () => void;
+  onToggleFavorite?: (makeFavorite: boolean) => void;
+}) {
+  const label = labelOf(m);
+  const display = m.name ?? label;
+  const starActive = isActive && activeCell === "star";
+  return (
+    <div
+      id={rowId}
+      role="row"
+      aria-selected={isCurrent}
+      data-model-item
+      data-testid="model-row"
+      onClick={onSelect}
+      className={`w-full pl-2 pr-1 py-1 tap-target text-left text-xs flex items-center gap-2 cursor-pointer ${
+        isActive && !starActive ? "bg-[var(--bg-tertiary)]" : "hover:bg-[var(--bg-hover)]"
+      } ${isCurrent ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]"}`}
+    >
+      <span className="w-4 flex-none inline-flex justify-center text-[var(--text-primary)]" aria-hidden="true">
+        {isCurrent && <Icon path={mdiCheck} size={0.55} />}
+      </span>
+      <div role="gridcell" className="flex-1 min-w-0">
+        <div className="font-mono truncate">{display}</div>
+        {m.name && <div className="font-mono text-[11px] text-[var(--text-secondary)] truncate">{label}</div>}
+      </div>
+      <div role="gridcell" className="flex items-center gap-1 flex-shrink-0 text-[11px] leading-none">
+        <CapBadges m={m} />
+        {typeof m.contextWindow === "number" && (
+          <span className="px-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">{ctxFmt(m.contextWindow)}</span>
+        )}
+      </div>
+      {favoritesEnabled && (
+        <div role="gridcell" id={starId} className={`flex-shrink-0 rounded ${starActive ? "bg-[var(--bg-tertiary)] ring-1 ring-[var(--focus-ring)]" : ""}`}>
+          <button
+            type="button"
+            tabIndex={-1}
+            data-testid="model-fav-toggle"
+            aria-label={i18nT("common.favoriteModel", { model: display }, `Favorite ${display}`)}
+            aria-pressed={isFav}
+            onClick={(e) => { e.stopPropagation(); onToggleFavorite?.(!isFav); }}
+            className={`inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-[32px] sm:min-h-[32px] ${isFav ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}
+          >
+            <Icon path={isFav ? mdiStar : mdiStarOutline} size={0.6} aria-hidden />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Favorites are the selector's DEFAULT when the caller owns neither prop: read
+ * the pair all-or-nothing from the model-config context. Passing either prop
+ * makes the caller own BOTH (no mixing with context). No resolvable toggle →
+ * no ★ buttons, no Favorites-only filter, persisted favs-only ignored.
+ * See change: model-picker-everywhere-favorites (design D1).
+ */
+function useFavoritesSource(favorites?: string[], onToggleFavorite?: (label: string, makeFavorite: boolean) => void) {
+  const modelConfig = useModelConfigOptional();
+  const callerOwns = favorites !== undefined || onToggleFavorite !== undefined;
+  const effectiveFavorites = callerOwns ? favorites : modelConfig?.favorites;
+  const toggle = callerOwns ? onToggleFavorite : modelConfig?.toggleFavorite;
+  const favSet = useMemo(() => new Set(effectiveFavorites ?? []), [effectiveFavorites]);
+  return { favSet, toggle, favoritesEnabled: toggle !== undefined };
+}
+
+/** The model the user just picked, shown with a spinner until the session reports it (10 s safety timeout). */
+function usePendingModel(current?: string): [string | null, (label: string) => void] {
   const [pendingModel, setPendingModel] = useState<string | null>(null);
-  // Persistent per-browser view state (restored from localStorage on mount).
+  // Clear pending state when current model updates to match
+  useEffect(() => {
+    if (pendingModel && current === pendingModel) setPendingModel(null);
+  }, [current, pendingModel]);
+  // Safety timeout: clear pending after 10s if no update arrives
+  useEffect(() => {
+    if (!pendingModel) return;
+    const timer = setTimeout(() => setPendingModel(null), 10_000);
+    return () => clearTimeout(timer);
+  }, [pendingModel]);
+  return [pendingModel, setPendingModel];
+}
+
+/**
+ * Combobox + grid keyboard model (APG): DOM focus stays in the filter;
+ * `aria-activedescendant` names the active row or, after ArrowRight at the end
+ * of the text, the row's ★ cell. See change: retro-ux-model-selector (D5).
+ */
+function useGridKeyboard({
+  flat,
+  selectedIndex,
+  setSelectedIndex,
+  activeCell,
+  setActiveCell,
+  favoritesEnabled,
+  favSet,
+  toggleFavorite,
+  onPick,
+}: {
+  flat: ModelInfo[];
+  selectedIndex: number;
+  setSelectedIndex: React.Dispatch<React.SetStateAction<number>>;
+  activeCell: "model" | "star";
+  setActiveCell: (c: "model" | "star") => void;
+  favoritesEnabled: boolean;
+  favSet: Set<string>;
+  toggleFavorite?: (label: string, makeFavorite: boolean) => void;
+  onPick: (m: ModelInfo) => void;
+}) {
+  const move = (e: React.KeyboardEvent, delta: number) => {
+    e.preventDefault();
+    setActiveCell("model");
+    setSelectedIndex((i) => Math.max(0, Math.min(i + delta, flat.length - 1)));
+  };
+  const toStar = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Only at the end of the text; otherwise the arrow moves the caret as in any input.
+    const el = e.currentTarget;
+    const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
+    if (!favoritesEnabled || !flat[selectedIndex] || !atEnd || activeCell !== "model") return;
+    e.preventDefault();
+    setActiveCell("star");
+  };
+  const activate = (e: React.KeyboardEvent) => {
+    e.preventDefault();
+    const active = flat[selectedIndex];
+    if (!active) return;
+    if (activeCell === "star") toggleFavorite?.(labelOf(active), !favSet.has(labelOf(active)));
+    else onPick(active);
+  };
+  return (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") move(e, 1);
+    else if (e.key === "ArrowUp") move(e, -1);
+    else if (e.key === "ArrowRight") toStar(e);
+    else if (e.key === "ArrowLeft" && activeCell === "star") {
+      e.preventDefault();
+      setActiveCell("model");
+    } else if (e.key === "Enter" || (e.key === " " && activeCell === "star")) activate(e);
+  };
+}
+
+/** Fixed-position style for the portaled panel, from the flip hook's measurements. */
+function panelStyle(pos: {
+  flipUp: boolean;
+  maxHeight?: number;
+  minHeight?: number;
+  anchorRight: boolean;
+  maxWidth: number;
+  triggerRect: DOMRect | null | undefined;
+}): React.CSSProperties {
+  const { flipUp, maxHeight, minHeight, anchorRight, maxWidth, triggerRect } = pos;
+  const style: React.CSSProperties = {
+    // Natural width 320px, capped by the pane-aware `maxWidth` (the hook flips
+    // before it would squish below `minContentWidth`).
+    width: Math.min(320, maxWidth),
+    maxHeight,
+    minHeight,
+    visibility: triggerRect ? "visible" : "hidden",
+  };
+  if (!triggerRect) return style;
+  if (flipUp) style.bottom = Math.round(window.innerHeight - triggerRect.top + GAP);
+  else style.top = Math.round(triggerRect.bottom + GAP);
+  if (anchorRight) style.right = Math.max(0, Math.round(window.innerWidth - triggerRect.right));
+  else style.left = Math.round(triggerRect.left);
+  return style;
+}
+
+/**
+ * Provider filter + Favorites-only (persisted per browser in localStorage) + the
+ * text filter, and the provider-grouped result. No separate favorites group —
+ * the Favorites only filter is the favorites surface; the per-row star toggles
+ * which models are favorites. When favs-only is on, the result already holds
+ * only favorites.
+ */
+function useCatalogueView(models: ModelInfo[] | undefined, favoritesEnabled: boolean, favSet: Set<string>) {
+  const [filter, setFilter] = useState("");
   const [providerFilter, setProviderFilter] = useState<string>(() => readLS(PROVIDER_FILTER_KEY));
   const [favOnly, setFavOnly] = useState<boolean>(() => readLS(FAV_ONLY_KEY) === "1");
+  useEffect(() => { writeLS(PROVIDER_FILTER_KEY, providerFilter); }, [providerFilter]);
+  useEffect(() => { writeLS(FAV_ONLY_KEY, favOnly ? "1" : "0"); }, [favOnly]);
+
+  const hasModels = !!models && models.length > 0;
+  const uniqueProviders = useMemo(
+    () => (hasModels ? [...new Set(models!.map((m) => m.provider))].sort() : []),
+    [hasModels, models],
+  );
+  // Models passing provider + text + favs-only filters.
+  const visible = useMemo(() => {
+    if (!hasModels) return [] as ModelInfo[];
+    const tokens = filter.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return models!.filter((m) => {
+      if (providerFilter && m.provider !== providerFilter) return false;
+      if (favoritesEnabled && favOnly && !favSet.has(labelOf(m))) return false;
+      const full = labelOf(m).toLowerCase();
+      return tokens.length === 0 || tokens.every((t) => full.includes(t));
+    });
+  }, [hasModels, models, providerFilter, favOnly, favoritesEnabled, filter, favSet]);
+  const { providerGroups, flat } = useMemo(() => {
+    const groups = uniqueProviders
+      .map((p) => ({ provider: p, items: visible.filter((m) => m.provider === p) }))
+      .filter((g) => g.items.length > 0);
+    return { providerGroups: groups, flat: groups.flatMap((g) => g.items) };
+  }, [visible, uniqueProviders]);
+  return { filter, setFilter, providerFilter, setProviderFilter, favOnly, setFavOnly, hasModels, uniqueProviders, providerGroups, flat };
+}
+
+/**
+ * Close on outside click / touch. The panel is PORTALED to the layer root, so it
+ * is no longer a DOM descendant of the container — every in-panel mousedown
+ * would otherwise read as "outside" and close the menu before a selection
+ * registers. The panel is checked FIRST: the trigger toggles, so letting a panel
+ * click fall through to it would close-then-reopen.
+ * See change: fix-composer-popover-layering (pattern: FolderActionsMenu).
+ */
+function useDismissOutside(open: boolean, panelRef: React.RefObject<HTMLElement | null>, triggerRef: React.RefObject<HTMLElement | null>, close: () => void) {
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: Event) => {
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      close();
+    };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler);
+    };
+  }, [open, panelRef, triggerRef, close]);
+}
+
+export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, onOpenProviderSettings, favorites, onToggleFavorite, placeholder, disabled, allowRoles, viaRole }: Props) {
+  const [open, setOpen] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  // Which cell of the active row the combobox's `aria-activedescendant` points at.
+  const [activeCell, setActiveCell] = useState<"model" | "star">("model");
+  const [pendingModel, setPendingModel] = usePendingModel(current);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const dropdownId = useId();
+  const listId = `${dropdownId}-grid`;
   const roleRows = useRoleRows(allowRoles === true, open);
   const rolesAvailable = roleRows !== null;
   const [tab, setTab] = useState<"model" | "role">("model");
@@ -538,67 +899,14 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
     minPopoverHeight: LIST_POPOVER_MIN_HEIGHT,
   });
 
-  // Favorites are the selector's DEFAULT when the caller owns neither prop:
-  // read the pair all-or-nothing from the model-config context. Passing either
-  // prop makes the caller own BOTH (no mixing with context). No resolvable
-  // toggle → no ★ buttons, no Favs filter, persisted favs-only ignored.
-  // See change: model-picker-everywhere-favorites (design D1).
-  const modelConfig = useModelConfigOptional();
-  const callerOwnsFavorites = favorites !== undefined || onToggleFavorite !== undefined;
-  const effectiveFavorites = callerOwnsFavorites ? favorites : modelConfig?.favorites;
-  const effectiveToggle = callerOwnsFavorites ? onToggleFavorite : modelConfig?.toggleFavorite;
-  const favoritesEnabled = effectiveToggle !== undefined;
+  const { favSet, toggle: effectiveToggle, favoritesEnabled } = useFavoritesSource(favorites, onToggleFavorite);
 
-  const hasModels = !!models && models.length > 0;
-  const favSet = useMemo(() => new Set(effectiveFavorites ?? []), [effectiveFavorites]);
-
-  // Persist view state on change.
-  useEffect(() => { writeLS(PROVIDER_FILTER_KEY, providerFilter); }, [providerFilter]);
-  useEffect(() => { writeLS(FAV_ONLY_KEY, favOnly ? "1" : "0"); }, [favOnly]);
-
-  // Clear pending state when current model updates to match
-  useEffect(() => {
-    if (pendingModel && current === pendingModel) setPendingModel(null);
-  }, [current, pendingModel]);
-
-  // Safety timeout: clear pending after 10s if no update arrives
-  useEffect(() => {
-    if (!pendingModel) return;
-    const timer = setTimeout(() => setPendingModel(null), 10_000);
-    return () => clearTimeout(timer);
-  }, [pendingModel]);
+  const { filter, setFilter, providerFilter, setProviderFilter, favOnly, setFavOnly, hasModels, uniqueProviders, providerGroups, flat } =
+    useCatalogueView(models, favoritesEnabled, favSet);
 
   // Opening is the ONLY refresh trigger; the hook also reports the awaiting
   // window that gates the empty-state recovery link.
   const awaitingRefresh = useOpenTriggeredRefresh(open, models, onRefresh);
-
-  const uniqueProviders = useMemo(
-    () => (hasModels ? [...new Set(models!.map((m) => m.provider))].sort() : []),
-    [hasModels, models],
-  );
-
-  // Models passing provider + text + favs-only filters.
-  const visible = useMemo(() => {
-    if (!hasModels) return [] as ModelInfo[];
-    const tokens = filter.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return models!.filter((m) => {
-      if (providerFilter && m.provider !== providerFilter) return false;
-      if (favoritesEnabled && favOnly && !favSet.has(labelOf(m))) return false;
-      const full = labelOf(m).toLowerCase();
-      return tokens.length === 0 || tokens.every((t) => full.includes(t));
-    });
-  }, [hasModels, models, providerFilter, favOnly, favoritesEnabled, filter, favSet]);
-
-  // Group by provider only. No separate favorites group — the ★ Favs filter
-  // (persisted in localStorage) is the favorites surface; the per-row star
-  // toggles which models are favorites. When favs-only is on, `visible`
-  // already contains only favorites.
-  const { providerGroups, flat } = useMemo(() => {
-    const groups = uniqueProviders
-      .map((p) => ({ provider: p, items: visible.filter((m) => m.provider === p) }))
-      .filter((g) => g.items.length > 0);
-    return { providerGroups: groups, flat: groups.flatMap((g) => g.items) };
-  }, [visible, uniqueProviders]);
 
   // Reset transient state when opening. Provider filter + favs-only PERSIST
   // (they're sticky view modes); only the text filter clears.
@@ -606,40 +914,26 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
     if (open) {
       setFilter("");
       setSelectedIndex(0);
+      setActiveCell("model");
       setTab(current?.startsWith("@") ? "role" : "model");
       requestAnimationFrame(() => inputRef.current?.focus());
     }
-    // biome-ignore lint/correctness/useExhaustiveDependencies: tab seeds on the open transition only.
   }, [open]);
 
-  // Close on outside click / touch. The panel is PORTALED to the layer root,
-  // so it is no longer a DOM descendant of the container — every in-panel
-  // mousedown would otherwise read as "outside" and close the menu before a
-  // selection registers. `panelRef` is checked FIRST: the trigger toggles, so
-  // letting a panel click fall through to it would close-then-reopen.
-  // See change: fix-composer-popover-layering (pattern: FolderActionsMenu).
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: Event) => {
-      const target = e.target as Node;
-      if (panelRef.current?.contains(target)) return;
-      if (triggerRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("touchstart", handler);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("touchstart", handler);
-    };
-  }, [open]);
+  const close = useCallback(() => setOpen(false), []);
+  useDismissOutside(open, panelRef, triggerRef, close);
 
   // Scroll selected item into view
   useEffect(() => {
     if (!listRef.current) return;
     const items = listRef.current.querySelectorAll("[data-model-item]");
-    items[selectedIndex]?.scrollIntoView({ block: "nearest" });
+    items[selectedIndex]?.scrollIntoView?.({ block: "nearest" });
   }, [selectedIndex]);
+
+  const resetActive = useCallback(() => {
+    setSelectedIndex(0);
+    setActiveCell("model");
+  }, []);
 
   const handleSelect = useCallback(
     (m: ModelInfo) => {
@@ -647,8 +941,9 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
       setPendingModel(label);
       onSelect(label);
       setOpen(false);
+      requestAnimationFrame(() => triggerRef.current?.focus());
     },
-    [onSelect],
+    [onSelect, setPendingModel],
   );
 
   const handleRolePick = useCallback(
@@ -660,104 +955,80 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
     [onSelect],
   );
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setSelectedIndex((i) => Math.min(i + 1, flat.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setSelectedIndex((i) => Math.max(i - 1, 0));
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      if (flat[selectedIndex]) handleSelect(flat[selectedIndex]);
-    } else if (e.key === "Escape") {
+  const handleKeyDown = useGridKeyboard({
+    flat,
+    selectedIndex,
+    setSelectedIndex,
+    activeCell,
+    setActiveCell,
+    favoritesEnabled,
+    favSet,
+    toggleFavorite: effectiveToggle,
+    onPick: handleSelect,
+  });
+
+  // Escape closes from anywhere in the panel and returns focus to the trigger
+  // (the popover is non-modal: no focus trap).
+  const handlePanelKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
       setOpen(false);
+      triggerRef.current?.focus();
     }
   };
 
   // Renders one model row. `flatIdx` is the keyboard-nav index into `flat`.
   const renderRow = (m: ModelInfo, flatIdx: number) => {
     const label = labelOf(m);
-    const isCurrent = label === current;
-    const isFav = favSet.has(label);
     return (
-      <div
+      <ModelRow
         key={label}
-        data-model-item
-        data-testid="model-row"
-        onClick={() => handleSelect(m)}
-        className={`w-full pl-2 pr-3 py-1 min-h-[44px] md:min-h-0 text-left text-xs flex items-center gap-2 cursor-pointer ${
-          flatIdx === selectedIndex ? "bg-[var(--bg-tertiary)]" : "hover:bg-[var(--bg-hover)]"
-        } ${isCurrent ? "text-[var(--accent-blue)]" : "text-[var(--text-secondary)]"}`}
-      >
-        {favoritesEnabled && (
-          <button
-            type="button"
-            data-testid="model-fav-toggle"
-            aria-label={isFav ? "Unfavorite" : "Favorite"}
-            aria-pressed={isFav}
-            onClick={(e) => { e.stopPropagation(); effectiveToggle?.(label, !isFav); }}
-            className={`flex-shrink-0 ${isFav ? "text-amber-400" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"}`}
-          >
-            <Icon path={isFav ? mdiStar : mdiStarOutline} size={0.6} />
-          </button>
-        )}
-        <div className="flex-1 min-w-0">
-          <div className="font-mono truncate">{m.name ?? label}</div>
-          {m.name && <div className="font-mono text-[10px] text-[var(--text-muted)] truncate">{label}</div>}
-        </div>
-        <div className="flex items-center gap-1 flex-shrink-0 text-[11px] leading-none">
-          <CapBadges m={m} />
-          {typeof m.contextWindow === "number" && (
-            <span className="px-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">{ctxFmt(m.contextWindow)}</span>
-          )}
-        </div>
-      </div>
+        m={m}
+        rowId={`${listId}-row-${flatIdx}`}
+        starId={`${listId}-star-${flatIdx}`}
+        isCurrent={label === current}
+        isFav={favSet.has(label)}
+        isActive={flatIdx === selectedIndex}
+        activeCell={activeCell}
+        favoritesEnabled={favoritesEnabled}
+        onSelect={() => handleSelect(m)}
+        onToggleFavorite={(makeFav) => effectiveToggle?.(label, makeFav)}
+      />
     );
   };
 
   const failCount = refreshErrors?.length ?? 0;
+  const activeRowExists = flat[selectedIndex] !== undefined;
+  const activeDescendant = activeRowExists
+    ? activeCell === "star" && favoritesEnabled
+      ? `${listId}-star-${selectedIndex}`
+      : `${listId}-row-${selectedIndex}`
+    : undefined;
 
   // A disabled trigger (e.g. the run-config launch row while models load) reads
-  // as inert — muted, no hover affordance. An openable trigger keeps hover, even
-  // with an empty catalogue (the composer recovery path).
-  // See change: open-empty-model-selector.
-  let triggerClass: string;
-  if (disabled) {
-    triggerClass = "text-[var(--text-muted)]";
-  } else if (hasModels) {
-    triggerClass = "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]";
-  } else {
-    triggerClass = "text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]";
-  }
+  // as inert — no hover affordance. An openable trigger keeps hover, even with
+  // an empty catalogue (the composer recovery path). `--text-muted` is only
+  // allowed on the disabled variant. See changes: open-empty-model-selector,
+  // retro-ux-model-selector.
+  const triggerClass = disabled
+    ? "text-[var(--text-muted)]"
+    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]";
 
   return (
     <div ref={containerRef} className="relative" data-testid="model-selector">
       <button
         ref={triggerRef}
+        type="button"
         onClick={() => !disabled && setOpen(!open)}
-        className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded ${triggerClass}`}
+        className={`focus-ring flex items-center gap-1 text-xs px-2 tap-target rounded ${triggerClass}`}
         disabled={disabled}
         data-testid="model-selector-button"
-        aria-haspopup="true"
+        aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? dropdownId : undefined}
       >
-        <span className="font-mono truncate max-w-[200px]">
-          {pendingModel ? (
-            <>
-              {pendingModel} <Icon path={mdiLoading} size={0.4} className="inline animate-spin" />
-            </>
-          ) : (
-            (current?.startsWith("@") ? roleResolutionLabel(current, roleRows) : current) ?? placeholder ?? "no model"
-          )}
-        </span>
-        {viaRole && !pendingModel && (
-          <span data-testid="model-via-role" className="text-[10px] text-[var(--text-muted)]">
-            {i18nT("roles.viaRole", { role: viaRole }, `via ${viaRole}`)}
-          </span>
-        )}
-        {!pendingModel && !disabled && <Icon path={mdiChevronDown} size={0.5} />}
+        <TriggerValue current={current} pendingModel={pendingModel} viaRole={viaRole} roleRows={roleRows} placeholder={placeholder} />
+        {!pendingModel && !disabled && <Icon path={mdiChevronDown} size={0.5} aria-hidden />}
       </button>
 
       {open && (
@@ -770,53 +1041,51 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
         <LayerPortal>
           <div
             ref={panelRef}
+            role="dialog"
+            aria-modal="false"
+            aria-label={i18nT("common.chooseModel", undefined, "Choose a model")}
+            onKeyDown={handlePanelKeyDown}
             className="fixed flex flex-col bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-popover overflow-hidden"
-            style={{
-              // Natural width 320px, capped by the pane-aware `maxWidth` (the
-              // hook flips before it would squish below `minContentWidth`).
-              width: Math.min(320, maxWidth),
-              maxHeight,
-              minHeight,
-              visibility: triggerRect ? "visible" : "hidden",
-              ...(triggerRect
-                ? flipUp
-                  ? { bottom: Math.round(window.innerHeight - triggerRect.top + GAP) }
-                  : { top: Math.round(triggerRect.bottom + GAP) }
-                : {}),
-              ...(triggerRect
-                ? anchorRight
-                  ? { right: Math.max(0, Math.round(window.innerWidth - triggerRect.right)) }
-                  : { left: Math.round(triggerRect.left) }
-                : {}),
-            }}
+            style={panelStyle({ flipUp, maxHeight, minHeight, anchorRight, maxWidth, triggerRect })}
             data-testid="model-dropdown"
             id={dropdownId}
           >
-          {rolesAvailable && <RoleTabs tab={tab} setTab={setTab} />}
+          {rolesAvailable && <RoleTabs tab={tab} setTab={setTab} baseId={dropdownId} />}
           {rolesAvailable && tab === "role" ? (
-            <RoleList rows={roleRows} current={current} onPick={handleRolePick} />
-          ) : hasModels ? (
-            <PopulatedCatalogueBody
-              filter={filter}
-              setFilter={setFilter}
-              favOnly={favOnly}
-              setFavOnly={setFavOnly}
-              favoritesEnabled={favoritesEnabled}
-              providerFilter={providerFilter}
-              setProviderFilter={setProviderFilter}
-              setSelectedIndex={setSelectedIndex}
-              uniqueProviders={uniqueProviders}
-              providerGroups={providerGroups}
-              flat={flat}
-              inputRef={inputRef}
-              listRef={listRef}
-              handleKeyDown={handleKeyDown}
-              renderRow={renderRow}
-              failCount={failCount}
-              onOpenProviderSettings={onOpenProviderSettings}
-            />
+            <RoleList rows={roleRows} current={current} onPick={handleRolePick} baseId={dropdownId} />
           ) : (
-            <EmptyCatalogueBody awaitingRefresh={awaitingRefresh} failCount={failCount} onOpenProviderSettings={onOpenProviderSettings} />
+            <div
+              role={rolesAvailable ? "tabpanel" : undefined}
+              id={rolesAvailable ? `${dropdownId}-panel-model` : undefined}
+              aria-labelledby={rolesAvailable ? `${dropdownId}-tab-model` : undefined}
+              className="flex flex-col flex-1 min-h-0"
+            >
+              {hasModels ? (
+                <PopulatedCatalogueBody
+                  filter={filter}
+                  setFilter={setFilter}
+                  favOnly={favOnly}
+                  setFavOnly={setFavOnly}
+                  favoritesEnabled={favoritesEnabled}
+                  providerFilter={providerFilter}
+                  setProviderFilter={setProviderFilter}
+                  resetActive={resetActive}
+                  uniqueProviders={uniqueProviders}
+                  providerGroups={providerGroups}
+                  flat={flat}
+                  inputRef={inputRef}
+                  listRef={listRef}
+                  listId={listId}
+                  activeDescendant={activeDescendant}
+                  handleKeyDown={handleKeyDown}
+                  renderRow={renderRow}
+                  failCount={failCount}
+                  onOpenProviderSettings={onOpenProviderSettings}
+                />
+              ) : (
+                <EmptyCatalogueBody awaitingRefresh={awaitingRefresh} onOpenProviderSettings={onOpenProviderSettings} />
+              )}
+            </div>
           )}
           </div>
         </LayerPortal>

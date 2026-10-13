@@ -866,7 +866,11 @@ export function CreateAutomationDialog({
                   data-testid="create-model-role-level-hint"
                   className="text-[12px] text-[var(--text-secondary)] mt-1"
                 >
-                  {t("roleLevelHint", { role: modelValue }, `Thinking level comes from ${modelValue} — set it in Settings → Roles.`)}
+                  {t(
+                    "roleFollowsHint",
+                    { role: modelValue },
+                    `Follows ${modelValue}: model and thinking level change when the role changes. Edit it in Settings → Roles.`,
+                  )}
                 </p>
               ) : (
                 modelValue && (
