@@ -263,7 +263,7 @@ function useFolderActions(
   };
 }
 
-function UndoToast({ name, message, onUndo }: { name: string; message: string; onUndo: () => void }): React.ReactElement {
+function UndoToast({ message, onUndo }: { message: string; onUndo: () => void }): React.ReactElement {
   const t = useT();
   return (
     <div
@@ -271,7 +271,7 @@ function UndoToast({ name, message, onUndo }: { name: string; message: string; o
       role="status"
       className="flex items-center gap-2 text-[11px] px-2 py-1.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)]"
     >
-      <span>{t("mcpFolderOverrideRemoved", { name }, message)}</span>
+      <span>{message}</span>
       <button
         type="button"
         onClick={onUndo}
@@ -445,7 +445,7 @@ function FolderMcpPageBody({ cwd }: { cwd: string }): React.ReactElement {
         />
       )}
 
-      {actions.undo && <UndoToast name={actions.undo.name} message={actions.undo.message} onUndo={actions.undoRemove} />}
+      {actions.undo && <UndoToast message={actions.undo.message} onUndo={actions.undoRemove} />}
 
       {panelServer && (
         <ProjectSettingsPanel
