@@ -151,7 +151,7 @@ async function applyPage(a: IngestArgs, records: CommitRecord[]): Promise<void> 
   while (i < records.length) {
     a.lease.fenced((db) => {
       const t0 = Date.now();
-      while (i < records.length && (i === 0 || Date.now() - t0 < PAGE_MAX_MS)) {
+      while (i < records.length && Date.now() - t0 < PAGE_MAX_MS) {
         const rec = records[i];
         const chunk = commitChunk(rec);
         a.store.replaceItem!(GIT_ROOT, chunk.path, [chunk], buildEdges(db, chunk.path, `${rec.subject}\n${rec.body}`, a.link));

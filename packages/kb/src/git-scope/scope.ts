@@ -77,7 +77,7 @@ export class GitScope {
     const prefix = args.kind === "commit" ? ["commit/"] : args.kind === "pr" ? ["pr/"] : args.kind === "issue" ? ["issue/"] : undefined;
     const base = searchOptsFromConfig(p.kbCfg, { overrides: { expandGraph: false, rerank: false, sourceDedup: false, laneQuota: 0 } });
     const hits = p.h.store.search(args.query, { ...base, limit, root: GIT_ROOT, dedup: false, docType: undefined, ...(prefix ? { pathPrefix: prefix } : {}) });
-    if (args.format === "json") return untrusted(JSON.stringify(hits.map((h, i) => ({ ...h, rank: i + 1 }))), { hits: hits.length });
+    if (args.format === "json") return untrusted(JSON.stringify(hits.map((h, i) => ({ ...h, rank: i + 1 }))), { hits: hits.length, commits: st.commits, forge: st.forge });
     const lines = hits.length ? hits.map((h, i) => renderHit(h, i + 1)).join("\n") : "(no git results)";
     return untrusted(`${lines}\n${st.footer}\n${DATA_FOOTER}`, { hits: hits.length, commits: st.commits, forge: st.forge });
   }

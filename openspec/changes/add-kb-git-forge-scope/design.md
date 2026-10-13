@@ -347,6 +347,8 @@ flowchart TB
   - the minimum interval since `lastSyncAt` must have elapsed:
     `minSyncIntervalSeconds`, or `hintedMinSyncIntervalSeconds` when the hint
     sidecar's mtime is later than `lastSyncAt`;
+    a FAILED attempt also arms the interval (`forge.lastAttemptAt`), so a transient
+    forge error is retried after that interval, never more often;
   - and `now ≥ backoffUntil`;
   - and the stored remaining rate is not below the floor.
 - **Incremental, crash-safe cursor (per endpoint), ascending forges:**
