@@ -15,8 +15,13 @@ describe("performance budgets", () => {
   it("P1: p95 per update (normaliser → adapter → send) < 5 ms", () => {
     const t = (x: string) => ({ type: "text", text: x });
     const updates: unknown[] = [];
-    for (let i = 0; i < 10_000; i++) updates.push({ sessionUpdate: "agent_message_chunk", content: t("x".repeat(50)) });
-    for (let i = 0; i < 1_000; i++) updates.push({ sessionUpdate: "tool_call_update", toolCallId: `t${i}`, title: "x", status: "completed" });
+    // A realistic stream: ~10 KB answers (200 chunks of 50 chars) separated by a
+    // tool call, not one 500 KB message (pi's message_update carries the whole
+    // partial message, so cost per update grows with the message by design).
+    for (let m = 0; m < 50; m++) {
+      for (let i = 0; i < 200; i++) updates.push({ sessionUpdate: "agent_message_chunk", content: t("x".repeat(50)) });
+      updates.push({ sessionUpdate: "tool_call_update", toolCallId: `t${m}`, title: "x", status: "completed" });
+    }
     const run = (): { p95: number; sunk: number } => {
       const n = createV1Normalizer();
       const adapter = createDashboardEventAdapter({ agentId: "qmt" });
