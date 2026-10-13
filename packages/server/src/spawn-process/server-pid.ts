@@ -3,10 +3,10 @@
  * Writes/reads/removes ~/.pi/dashboard/server.pid to track the running server.
  */
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
+import path from "node:path";
 import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 
 const DEFAULT_PID_PATH = path.join(os.homedir(), ".pi", "dashboard", "server.pid");
 

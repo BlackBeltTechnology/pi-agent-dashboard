@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
 import { spawnSync } from "node:child_process";
-import { writePid, readPid, removePid, isProcessAlive, isServerRunning } from "../spawn-process/server-pid.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isProcessAlive, isServerRunning, readPid, removePid, writePid } from "../spawn-process/server-pid.js";
 
 describe("server-pid", () => {
   const tmpDir = path.join(os.tmpdir(), "pi-dashboard-test-pid-" + process.pid);

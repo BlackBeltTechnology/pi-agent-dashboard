@@ -2,13 +2,14 @@
  * `classifyDashboardPort` — the one read-only port verdict behind `start` / `status`.
  * See change: harden-dashboard-start-detection (D2; test-plan E5-E7, E9, E10, P1).
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+
 import type { DashboardStatus } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CLASSIFY_PROBE_OPTS,
+  type ClassifyDeps,
   classifyDashboardPort,
   classifyHosts,
-  type ClassifyDeps,
 } from "../lifecycle/classify-dashboard-port.js";
 import type { LockMetadata } from "../lifecycle/home-lock.js";
 import { collectOwnedPids } from "../lifecycle/stop-ownership.js";

@@ -4,7 +4,7 @@
  * or PID state. Every failure means "not owned".
  * See change: fix-cli-stop-foreign-home-kill.
  */
-import { readMetadata, getMetaPath, getLockPath, type LockMetadata } from "./home-lock.js";
+import { getLockPath, getMetaPath, type LockMetadata, readMetadata } from "./home-lock.js";
 import { peekInstanceId } from "./instance-id.js";
 
 const HEALTH_PROBE_TIMEOUT_MS = 2000;

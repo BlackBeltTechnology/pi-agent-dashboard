@@ -2,8 +2,9 @@
  * `pi-dashboard status` reports the RESOLVED port, with `start`'s ownership
  * rules. See change: harden-dashboard-start-detection (D8; test-plan E13-E15, X2-unit).
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { DashboardStatus } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cmdStatus } from "../cli.js";
 import { classifyDashboardPort } from "../lifecycle/classify-dashboard-port.js";
 import type { LockMetadata } from "../lifecycle/home-lock.js";

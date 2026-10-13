@@ -46,12 +46,12 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
 import { ensureLocalToken } from "./auth/local-token.js";
 import { migrateSubagentTickThrottle } from "./config-api.js";
+import { classifyDashboardPort, type PortClassification } from "./lifecycle/classify-dashboard-port.js";
 import {
   isModuleNotFoundError,
   parseModuleNotFoundError,
   startRecoveryServer,
 } from "./lifecycle/recovery-server.js";
-import { type PortClassification, classifyDashboardPort } from "./lifecycle/classify-dashboard-port.js";
 import { collectOwnedPids, partitionHolders } from "./lifecycle/stop-ownership.js";
 import type { createServer as _CreateServerType, ServerConfig } from "./server.js";
 import { readPid, removePid } from "./spawn-process/server-pid.js";

@@ -12,8 +12,8 @@ import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EarlyExitError, PortConflictError } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { launchDashboardServer } = vi.hoisted(() => ({
   launchDashboardServer: vi.fn(async (_opts: unknown) => ({ childPid: 4242, reportedPid: 4242, healthOk: true as const })),

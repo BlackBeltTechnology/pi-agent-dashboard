@@ -123,7 +123,7 @@ export interface AcquireConfig {
 }
 
 /** One address's health answer, as `probeHealth` reports it. */
-export interface HealthProbeResult {
+interface HealthProbeResult {
   running: boolean;
   pid?: number;
   /** The rendezvous instance id as published by `/api/health`. */
