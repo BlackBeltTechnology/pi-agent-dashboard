@@ -88,5 +88,5 @@
 ## 8. Verification
 
 - [x] 8.1 Full `npm test` green (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`)
-- [ ] 8.2 Manual: `/folder/<cwd>` in base dark, base light, one non-base palette at 1440/768/375 vs `mockups/directory-home-split/index.html` — hierarchy, spacing, chip density match (test-plan: manual-only, #F19)
-- [ ] 8.3 Close issue #877 referencing this change
+- [x] 8.2 Manual: `/folder/<cwd>` in base dark, base light, one non-base palette at 1440/768/375 vs `mockups/directory-home-split/index.html` — hierarchy, spacing, chip density match (test-plan: manual-only, #F19)
+- [x] 8.3 Close issue #877 referencing this change
