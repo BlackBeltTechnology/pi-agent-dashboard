@@ -60,13 +60,14 @@ export const VALID_SOURCE_KINDS: ReadonlySet<SourceKind> = new Set<SourceKind>([
 //
 // Mode-aware readiness deadline. The dev-monorepo path strips types from
 // ~400 TS files on cold start (Node-native loader) — measured cold boot on dev
-// workstations can reach 25–60s. The bundled path is pre-compiled and reliably ready well
-// under 15s; beyond that the failure is almost always terminal (port conflict,
-// missing loader, bad Node) and the loading page is the recovery surface.
+// workstations can reach 25–60s. The bundled path ALSO strips types at runtime
+// (native-ts-register) and loads ~24 plugins; a clean Windows host with
+// Defender scanning every first-read file was measured past 15s, so the
+// 15s deadline killed a healthy boot. Bundled now shares the 60s budget.
 //
 // Re-exported from `server-lifecycle.ts` for back-compat with existing
 // imports/tests. See change: fix-mode-aware-server-ready-deadlines.
-export const SERVER_READY_DEADLINE_MS = 15_000;
+export const SERVER_READY_DEADLINE_MS = 60_000;
 export const SERVER_READY_DEADLINE_DEV_MS = 60_000;
 
 /**

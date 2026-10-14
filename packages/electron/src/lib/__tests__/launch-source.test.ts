@@ -412,8 +412,8 @@ describe("getServerReadyDeadlineMs (E23)", () => {
   it.each([
     ["devMonorepo", 60_000],
     ["localLink", 60_000],
-    ["overlay", 15_000],
-    ["bundled", 15_000],
+    ["overlay", 60_000],
+    ["bundled", 60_000],
   ] as const)("%s → %d ms", (kind, ms) => {
     expect(getServerReadyDeadlineMs(kind)).toBe(ms);
   });
