@@ -4,12 +4,14 @@ Files in this directory. One row per source file.
 
 | File | Purpose |
 |------|---------|
+| `__tests__/codeql-workflow-contract.test.ts` | Static contract for `.github/workflows/codeql.yml` (#E1): matrix `actions`/`javascript-typescript`/`python`, category `/language:${{ matrix.language }}`, shared `config-file`, `build-mode: none`, develop push+PR+schedule, `security-events: write`, no cache/install step. See change: add-local-codeql-ratchet. |
 | `__tests__/config-pairing.test.ts` | #E1: `pairing.acceptLanRequests` loader — default false, non-boolean → false. See change: add-lan-knock-pairing. |
 | `__tests__/client-build-deps-runtime.test.ts` | Repo-lint (#E6): client `package.json` declares `vite`, `@vitejs/plugin-react`, `@tailwindcss/vite`,… → see `__tests__/client-build-deps-runtime.test.ts.AGENTS.md` |
 | `__tests__/ci-vitest-report-artifact.test.ts` | Repo-lint: every vitest job in `ci.yml` uploads its own JSON report `if: always()`. → see `__tests__/ci-vitest-report-artifact.test.ts.AGENTS.md` |
 | `__tests__/ci-affected-selection-contract.test.ts` | Parallel `ci.yml` contract (E30). → see `__tests__/ci-affected-selection-contract.test.ts.AGENTS.md` |
 | `__tests__/client-no-node-subjects-import.test.ts` | Import guard: client never imports Node-only `forbidden-subjects`/`canonical-subject`. See change: ask-agent-file-access-in-chat. |
 | `__tests__/nightly-tests-workflow-contract.test.ts` | Repo-lint for `nightly-tests.yml` (E31). → see `__tests__/nightly-tests-workflow-contract.test.ts.AGENTS.md` |
+| `__tests__/ship-it-codeql-wiring.test.ts` | Static wiring guard (#E30): `ship-it` step 4.4 lists the CodeQL baseline-diff check; step 4.4b sits between 4.4 and 4.5 and documents prune/accept/ask_user/`--no-growth`/`SHIP_IT_BLOCKED.md`/retry-abort/revert-abort. See change: add-local-codeql-ratchet. |
 | `__tests__/test-collection-completeness.test.ts` | Every test-bearing `packages/*` collected by root projects or excluded with a reason (E28). → see `__tests__/test-collection-completeness.test.ts.AGENTS.md` |
 | `__tests__/e2e-browser-workflow-contract.test.ts` | Repo-lint contract for `.github/workflows/ci-e2e-browser.yml` (change: stabilize-browser-e2e, #433 part 2). → see `__tests__/e2e-browser-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/e2e-fixme-guard.test.ts` | Repo-lint: conditional `test.fixme` must link an issue; file-level conditional `test.skip` must link an issue or name a spec-running CI job. → see `__tests__/e2e-fixme-guard.test.ts.AGENTS.md` |

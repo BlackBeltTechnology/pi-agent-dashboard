@@ -110,6 +110,7 @@
     "test:e2e:electron": "playwright test --config playwright.electron.config.ts",
     "knip": "knip --no-progress",
     "knip:ratchet": "node scripts/knip-ratchet.mjs",
+    "codeql": "node scripts/codeql-local.mjs",
     "z-layer:lint": "node scripts/z-layer-lint.mjs",
     "knip:config": "node scripts/knip-config.mjs"
   },

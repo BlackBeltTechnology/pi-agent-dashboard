@@ -355,6 +355,110 @@ Harness image carries `knip.json`, `knip-baseline.json`, `playwright.config.ts`,
 count may differ by one (Node 24.15 vs 24.19), not tree. Exact cross-environment
 scalar equality not asserted.
 
+## CodeQL ratchet
+
+Blocks NEW code-scanning alerts at ship time. Debt ceiling = root `codeql-baseline.json`.
+Accepted debt shrinks only. Growth needs typed reason. See change: add-local-codeql-ratchet.
+
+### Where it runs
+
+- `ship-it` step 4.4: `node scripts/codeql-local.mjs --check-baseline-diff origin/develop`. Static, instant.
+- `ship-it` step 4.4b: `npm run codeql -- --json`. Analysis ~1.5 min. No model call.
+- Closing `--check-baseline-diff origin/develop` gates step 4.5. Headless adds `--no-growth`.
+- CI: `.github/workflows/codeql.yml`. Advanced setup. `push`/`pull_request` to `develop` + weekly cron.
+- CI categories: `/language:actions`, `/language:javascript-typescript`, `/language:python`.
+- CI `build-mode: none`. No install, no cache step. Not a required check.
+- Shared config `.github/codeql/codeql-config.yml`: `paths-ignore`. Read by CI (`config-file:`) and local.
+- Local translates each glob → one `exclude:<glob>` line in `LGTM_INDEX_FILTERS`. Trailing `/**` dropped.
+- Local analyses `javascript-typescript` + `actions` only. Python CI-only.
+
+### Commands
+
+| Command | Effect |
+|---|---|
+| `npm run codeql` | Snapshot + analyse. Exit per verdict. |
+| `npm run codeql -- --json` | One JSON object on stdout. Human lines on stderr. |
+| `--prune` | Lower or remove stale entries from last run. Never raises. |
+| `--accept <rule> <file> <lineHash> --reason <text>` | Set excess key to current count with reason. |
+| `--triage <rule> <file> <lineHash> --reason <text>` | Replace `untriaged` reason at same count. No analysis. |
+| `--write-baseline` | Seed once. Refuses overwrite. Uses `SEED_PACKS`. |
+| `--check-baseline-diff <ref> [--no-growth]` | Static growth check vs `<ref>`. |
+
+Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
+`--prune` / `--accept` exit `1` when new results remain.
+
+### Skip and warn
+
+- No `codeql` binary, or packs not cached and download fails → stderr `CODEQL SKIPPED: <cause>`, exit 0.
+- Pack download: 60 s timeout per pack.
+- `CODEQL_BIN` set but not executable → exit 2.
+- CLI version ≠ baseline header `codeql` → `CODEQL WARNING: version mismatch …`, continue.
+- `database create` exit 32 = no source of that language → no results for that language.
+- Result without `primaryLocationLineHash` → `CODEQL WARNING:`. Keyed `-@<startLine>`.
+- Result in ignored path → exit 2 `exclusion not applied`.
+- Extractor crash, unreadable SARIF, invalid baseline → exit 2.
+- `--check-baseline-diff` unresolvable ref → exit 2. Never pass.
+- Ref has no baseline (introducing change) → growth check passes.
+
+### Baseline
+
+- Shape: `{version, codeql, packs, entries:[{ruleId, file, lineHash, count, reason}]}`.
+- Key = `ruleId` + `file` + `primaryLocationLineHash` (`<hex>:<n>`).
+- Count excess over baseline = NEW.
+- Reasons:
+  - `untriaged` — seed default. Never grows per rule+file.
+  - `operator-authz: …` — only `js/path-injection`, `js/command-line-injection`, `js/shell-command-constructed-from-input`.
+  - `false-positive: …`
+  - `accepted-risk: …`
+  - `github-dismissed (#n, reason): …`
+- Growth check per `(ruleId, file)`: summed `untriaged` count must not rise.
+- Key carries `untriaged` only if same key had `untriaged` at ref, count ≥.
+- Growth with real reason allowed. Printed for review.
+- `--no-growth` (headless): any new key or raised count fails.
+- Seed exactness: introducing change keys + counts = recorded last run.
+- Edit flagged line or ~100 chars after → lineHash changes. One new + one stale.
+- `--prune` removes stale entry and its reason.
+- Edits above or far below flagged line → key stable (probed).
+
+### Snapshot
+
+- Content-addressed git tree of tracked + untracked-unignored files.
+- Built from temp copy of index (`GIT_INDEX_FILE`): `git add -A`, drop `codeql-baseline.json`, `git write-tree`.
+- Real index + worktree untouched. Git-ignored files excluded.
+- Snapshot id = tree id. Changes on any content or mode edit.
+- Materialized via `git checkout-index -a --prefix=<run>/src/`.
+- State: `$TMPDIR/pi-codeql/<sha1 of git rev-parse --show-toplevel>/`.
+  - `lock/` — owner PID + start time.
+  - `last-run.json` — `{snapshotId, counts, results}`.
+  - `run-<pid>/` — per-run db + SARIF.
+- Live lock → second run, `--prune`, `--accept` exit 2.
+- `--prune` / `--accept` refuse when snapshot id ≠ last-run id ("re-run first").
+- Needs ~repo-size temp space.
+
+### Known limitation — local ≠ GitHub
+
+- Same commit `d739f4bd`: 150/179 matched by (rule, path, start line).
+- GitHub-only 29: `js/path-injection` ×23 (plugin server code), `js/missing-rate-limiting` ×5, `js/tainted-format-string` ×1.
+- Local-only 29: client/spike code (`js/xss` ×8, `js/request-forgery` ×9, …).
+- Ruled out: uninstalled deps, `cwd-guard` model, pack content (same sha).
+- Cause unknown. Evidence: `openspec/changes/add-local-codeql-ratchet/evidence/local-vs-github.md`.
+- Seed gated: unmatched share > 5 % → stop for decision.
+
+### Rollout
+
+- Default setup must be `not-configured` before first advanced upload.
+- `gh api -X PATCH repos/{owner}/{repo}/code-scanning/default-setup -f state=not-configured` (repo admin).
+- Export 38 dismissals first: `evidence/dismissed-alerts.json`.
+- Reappearing dismissed alerts → re-dismiss via `PATCH …/alerts/<n>`, matched by (rule, path, start line).
+
+### Rollback
+
+1. Delete or disable `.github/workflows/codeql.yml`. FIRST. GitHub refuses default setup while advanced active.
+2. Re-enable default setup:
+   `gh api -X PATCH repos/{owner}/{repo}/code-scanning/default-setup -f state=configured -f query_suite=default -f threat_model=remote -f 'languages[]=actions' -f 'languages[]=javascript-typescript' -f 'languages[]=python'`
+3. Revert `.pi/skills/ship-it/SKILL.md` step 4.4b edit.
+4. Alerts in formerly ignored paths reopen.
+
 ## Ship gate — `ship-it` step 4.4
 
 Separate from `quality:changed`. Runs in order. First non-zero exit stops ship,
