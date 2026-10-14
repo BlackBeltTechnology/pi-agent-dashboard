@@ -107,3 +107,35 @@ export function decideWillNavigate(
 	// as the dashboard so the trap guard still fires defensively).
 	return isSameOriginUrl(targetUrl, dashboardOrigin) ? "allow" : "open-external";
 }
+
+/**
+ * Schemes the shell may hand to the OS via `shell.openExternal`. Anything else
+ * (`file:`, `ms-msdt:`, `search-ms:`, `smb:`, custom app protocols) reaches an
+ * OS protocol handler and is a launch / RCE primitive for untrusted content.
+ *
+ * See change: harden-electron-renderer-boundary (VD4).
+ */
+const EXTERNAL_SCHEME_ALLOWLIST: ReadonlySet<string> = new Set(["http:", "https:", "mailto:"]);
+
+/** True only when `url` parses and its scheme is `http`, `https` or `mailto`. */
+export function isAllowedExternalUrl(url: unknown): url is string {
+	if (typeof url !== "string") return false;
+	try {
+		return EXTERNAL_SCHEME_ALLOWLIST.has(new URL(url).protocol);
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Invoke `open` (the real `shell.openExternal` in `main.ts`) iff the scheme is
+ * allowlisted. Returns whether it was invoked; disallowed URLs are dropped.
+ * The opener receives the PARSED `href`, not the raw string, so characters the
+ * URL parser strips (leading control chars / whitespace, embedded tab/newline)
+ * never reach the OS handler.
+ */
+export function openExternalIfAllowed(url: unknown, open: (url: string) => unknown): boolean {
+	if (!isAllowedExternalUrl(url)) return false;
+	void open(new URL(url).href);
+	return true;
+}
