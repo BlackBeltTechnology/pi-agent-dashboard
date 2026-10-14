@@ -4,4 +4,4 @@ Inset titled panel wrapper grouping session-card sections (OPENSPEC, WORKSPACE, 
 
 Optional `menu?: SubcardMenuTarget` renders `SubcardLegendMenu` inside the capsule; panel carries `group/sub`. See change: configurable-session-card-sections.
 
-- Legend is `text-[12px] font-semibold uppercase text-[var(--text-secondary)]` (was 9 px tertiary), matching the `SlotPill` legend. See change: retro-ux-plugin-settings-forms.
+- Legend is `text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]`, overhang `-top-2` (was 12 px `-top-1.5`; was 9 px tertiary before that); same tokens as `SLOT_PILL_LEGEND`, pinned by a parity test. Panel `mt-2.5 px-2 pt-2.5 pb-1.5` (was `mt-1.5 py-1.5`) so the legend clears the content and the element above. See change: retro-ux-plugin-settings-forms. See change: fix-slot-pill-legend-and-stale-overflow.
