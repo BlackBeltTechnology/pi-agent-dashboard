@@ -63,4 +63,4 @@
 - [x] 8.1 Re-run the spike round-trip (SoundCraft → EffectCraft → FilmCraft) via `pi-craft` + `pi-craft verify` on macOS (script `spike/roundtrip.sh`; 5.013 s, h264+aac, title present at 3 s / absent at 0.2 s)
 - [x] 8.2 Same round-trip in a Linux container (node:22-bookworm arm64, glibc 2.36, real provisioning from the built `dist/craft.js`; all assertions pass)
 - [ ] 8.3 Manual: pi session uses `craft-studio` to complete "make a 5 s titled clip with a −6 dB tone" end to end
-- [ ] 8.4 `review-code` pass; `npm run quality:changed`
+- [x] 8.4 `review-code` pass; `npm run quality:changed`
