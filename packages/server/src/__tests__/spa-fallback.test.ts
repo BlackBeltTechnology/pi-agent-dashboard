@@ -197,7 +197,9 @@ describe("SPA fallback — development mode", () => {
     if (!vite) return ctx.skip(); // 3000, 5173 and 5174 are all taken on this machine (a real Vite is probably running)
     const port = devServer.httpPort()!;
     // Control: a client path IS proxied to the stub, so the stub is really in the loop.
-    expect((await rawGet(port, "/session/abc-123")).body).toBe("vite-stub");
+    // Another service on a higher-precedence Vite port answers first: the stub is not in the loop, so skip.
+    const control = (await rawGet(port, "/session/abc-123")).body;
+    if (control !== "vite-stub") return ctx.skip();
     viteRequests = 0;
     for (const p of API_MISSES) expectJsonNotFound(await rawGet(port, p), p);
     expectRefusedNotSpa(await rawGet(port, DOTTED_MISS), DOTTED_MISS);

@@ -197,8 +197,13 @@ export function VaultBindingsChip({ sessionId }: { sessionId: string }) {
 
   const load = useCallback(async () => {
     const res = await fetchSessionBindings(sessionId);
-    setState(res.ok && res.data ? res.data : null);
-    setGrantedNow(new Set());
+    if (res.ok && res.data) {
+      setState(res.data);
+      setGrantedNow(new Set());
+    } else if (res.code !== "network" && res.code !== "transport") {
+      // A transient failure keeps the last good state; only a server answer clears it.
+      setState(null);
+    }
   }, [sessionId]);
 
   useEffect(() => {

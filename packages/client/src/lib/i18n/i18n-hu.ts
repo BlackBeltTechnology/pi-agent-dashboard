@@ -2176,7 +2176,7 @@ export const huCatalog: Record<string, string> = {
   "vault.imported": "{count} fiók importálva. Ne felejtsd el törölni az eredeti fájlokat.",
   "vault.import.variablesCreated": "Létrehozott változók: {names}.",
   "vault.import.variablesFailed": "Nem létrehozott változók: {names}. Hozd létre őket a Változók fülön.",
-  "vault.import.originals": "Az eredetiek még itt vannak: {source}. Told ki a másolatot magad.",
+  "vault.import.originals": "Az eredetiek még itt vannak: {source}. Töröld ki a másolatot magad.",
   "vault.import.grantThem": "Hozzáférés megadása projektnek",
   "vault.importHint": "Az importálás csak a kiválasztottat olvassa, a forrásfájlt nem módosítja.",
   "vault.import.found": "Az irányítópulton talált kulcsfájlok",
