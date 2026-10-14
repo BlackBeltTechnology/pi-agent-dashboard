@@ -13,7 +13,7 @@
  * keyboard-navigate or mobile-adapt opaque nodes, and nesting real `<button>`s
  * inside a `role="button"` root is an ARIA anti-pattern. Slot actions are
  * declarative items contributed to the folder actions menu instead. State
- * markers that are FACTS rather than controls (the KB pill's `⚠ N stale`)
+ * markers that are FACTS rather than controls (the KB pill's compact stale marker)
  * stay in the pill as children.
  * See change: move-slot-actions-to-menu (directory-card-layout spec).
  *
