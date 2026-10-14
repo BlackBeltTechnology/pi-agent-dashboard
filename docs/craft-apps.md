@@ -1,7 +1,7 @@
 # craft-apps — ArtCraft craft apps for pi agents
 
 Package: `@blackbelt-technology/pi-dashboard-craft-apps` (`packages/craft-apps`). Change: `add-craft-apps-core`.
-Source of truth: `packages/craft-apps/README.md`, `packages/craft-apps/src/AGENTS.md`, `openspec/changes/add-craft-apps-core/design.md`.
+Source of truth: `packages/craft-apps/README.md`, `packages/craft-apps/src/AGENTS.md`, `openspec/changes/archive/2026-10-14-add-craft-apps-core/design.md`.
 
 ## 1. What / why
 
