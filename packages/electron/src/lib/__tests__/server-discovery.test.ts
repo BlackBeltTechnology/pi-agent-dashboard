@@ -188,7 +188,9 @@ describe("buildCandidates / pickVerifiedHost (P1, P2)", () => {
     const candidates = buildCandidates([ref("a"), ref("b")], [ref("d")]);
     const p = pickVerifiedHost(candidates, () => new Promise<boolean>(() => {}));
     let settled = false;
-    void p.then(() => (settled = true));
+    p.then(() => {
+      settled = true;
+    }).catch(() => {});
     await vi.advanceTimersByTimeAsync(4950);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(100);

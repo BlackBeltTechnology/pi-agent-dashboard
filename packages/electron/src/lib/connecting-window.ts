@@ -4,13 +4,14 @@
  * (`window.connecting`). It is the only window that ever sees the knock
  * confirmation code.
  *
+ * The first state is delivered via `servers:connecting-ready` once the page is up.
+ *
  * Thin Electron wrapper — the pairing state machine lives in `pairing-client.ts`
  * and the lifecycle in `server-windows.ts`.
  *
  * See change: add-electron-server-windows (D11).
  */
 import { BrowserWindow } from "electron";
-import type { ConnectingState } from "./pairing-client.js";
 import { getRendererHtmlPath, getWizardPreloadPath } from "./renderer-paths.js";
 import type { ConnectingHandle } from "./server-windows.js";
 
@@ -24,7 +25,7 @@ export function getConnectingWindow(): BrowserWindow | null {
 }
 
 /** Open the connecting window; `onClosed` fires when the user closes it (stop any pairing). */
-export function openConnectingWindow(initial: ConnectingState, onClosed: () => void): ConnectingHandle {
+export function openConnectingWindow(onClosed: () => void): ConnectingHandle {
   const win = new BrowserWindow({
     width: 500,
     height: 560,
@@ -42,12 +43,13 @@ export function openConnectingWindow(initial: ConnectingState, onClosed: () => v
   // Bundled content only: this window carries the pairing bridge, so it never navigates or opens windows.
   win.webContents.on("will-navigate", (event) => event.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  void win.loadFile(getRendererHtmlPath(CONNECTING_HTML));
+  win.loadFile(getRendererHtmlPath(CONNECTING_HTML)).catch((err: unknown) => {
+    console.error(`[server-windows] connecting window failed to load: ${err instanceof Error ? err.message : String(err)}`);
+  });
   win.on("closed", () => {
     if (current === win) current = null;
     onClosed();
   });
-  void initial; // delivered via `servers:connecting-ready` once the page is up
   return {
     push(state) {
       if (!win.isDestroyed()) win.webContents.send("servers:connecting-state", state);

@@ -136,10 +136,10 @@ export function startServerWindows(opts: ServerWindowsMainOptions): ServerWindow
       return response === 0 ? "pair-again" : response === 1 ? "forget" : "close";
     },
     notify: (title, message) => {
-      void dialog.showMessageBox({ type: "info", title, message, buttons: ["OK"] });
+      dialog.showMessageBox({ type: "info", title, message, buttons: ["OK"] }).catch(() => {});
     },
-    openConnectingWindow: (initial) => {
-      connectingHandle = openConnectingWindow(initial, () => serverWindows.stopWaiting());
+    openConnectingWindow: () => {
+      connectingHandle = openConnectingWindow(() => serverWindows.stopWaiting());
       return connectingHandle;
     },
     bounds,
@@ -199,11 +199,14 @@ export function startServerWindows(opts: ServerWindowsMainOptions): ServerWindow
   let attempts = 0;
   const tryLocalFp = (): void => {
     attempts++;
-    void discovery.resolveLocalFp().then(() => {
-      if (discovery.hasLocalFp() || attempts >= 8) return;
-      localFpTimer = setTimeout(tryLocalFp, Math.min(5000 * attempts, 30_000));
-      localFpTimer.unref?.();
-    });
+    discovery
+      .resolveLocalFp()
+      .then(() => {
+        if (discovery.hasLocalFp() || attempts >= 8) return;
+        localFpTimer = setTimeout(tryLocalFp, Math.min(5000 * attempts, 30_000));
+        localFpTimer.unref?.();
+      })
+      .catch(() => {});
   };
   localFpTimer = setTimeout(tryLocalFp, 2000);
   localFpTimer.unref?.();

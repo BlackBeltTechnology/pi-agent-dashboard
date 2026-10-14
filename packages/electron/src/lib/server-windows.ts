@@ -225,6 +225,10 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
   const now = deps.now ?? Date.now;
   const registry = new Map<string, OpenWindow>();
   const downloadWired = new WeakSet<SessionLike>();
+  /** Run `p` in the background; a rejection is logged (message only), never an unhandled rejection. */
+  const background = (p: Promise<unknown>, what: string): void => {
+    p.catch((e: unknown) => log(`[server-windows] ${what} failed: ${e instanceof Error ? e.message : String(e)}`));
+  };
   const pairingFactory = deps.startPairing ?? startPairing;
 
   // pairing state (one connecting window at a time)
@@ -358,7 +362,7 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
     const verdict = await exchange(ses, origin, bearer);
     if (verdict === "refused") {
       await unpair(fp, origin, ses, "exchange refused at open");
-      void offerRepair(fp, entry.label);
+      background(offerRepair(fp, entry.label), "re-pair offer");
       return { ok: false, reason: "needs_pairing" };
     }
     if (verdict === "transport") {
@@ -459,18 +463,18 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
     const apiFilter = { urls: [`${origin}/api/*`] };
     ses.webRequest.onCompleted(apiFilter, (details) => {
       if (ow.win.isDestroyed() || registry.get(fp) !== ow) return; // a closed window never re-checks
-      if (details.statusCode === 401 || details.statusCode === 403) void recheck(ow, ses);
+      if (details.statusCode === 401 || details.statusCode === 403) background(recheck(ow, ses), "credential re-check");
     });
 
     // Identity re-verification (D12).
-    ow.interval = setInterval(() => void reverify(ow), REVERIFY_INTERVAL_MS);
+    ow.interval = setInterval(() => background(reverify(ow), "re-verification"), REVERIFY_INTERVAL_MS);
     win.on("focus", () => {
       if (now() - ow.lastFocusCheckAt >= FOCUS_REVERIFY_MIN_MS) {
         ow.lastFocusCheckAt = now();
-        void reverify(ow);
+        background(reverify(ow), "re-verification");
       }
     });
-    ow.offResume = ports.onResume(() => void reverify(ow));
+    ow.offResume = ports.onResume(() => background(reverify(ow), "re-verification"));
 
     win.on("close", () => {
       if (!keyring.has(fp)) return; // forgotten: never write its bounds back
@@ -490,7 +494,7 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
       }
     });
 
-    void wc.loadURL(`${origin}/`).catch(() => {});
+    wc.loadURL(`${origin}/`).catch(() => {});
   }
 
   function applyTitle(ow: OpenWindow): void {
@@ -521,7 +525,7 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
       if ((await exchange(ses, ow.origin, bearer)) !== "refused") return;
       ow.unpaired = true;
       await unpair(ow.fp, ow.origin, ses, "exchange refused while open");
-      void offerRepair(ow.fp, ow.label);
+      background(offerRepair(ow.fp, ow.label), "re-pair offer");
     } finally {
       ow.rechecking = false;
     }
@@ -592,14 +596,16 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
       ...(deps.pairingHooks ?? {}),
     });
     session = s;
-    void s.done.then((res: PairingResult) => {
-      if (session !== s) return; // superseded
-      if (res.status === "approved") {
-        connecting?.close();
-        connecting = null;
-        void open(res.fingerprint, { notify: true });
-      }
-    });
+    s.done
+      .then((res: PairingResult) => {
+        if (session !== s) return; // superseded
+        if (res.status === "approved") {
+          connecting?.close();
+          connecting = null;
+          background(open(res.fingerprint, { notify: true }), "open after pairing");
+        }
+      })
+      .catch((e: unknown) => log(`[server-windows] pairing ended abnormally: ${e instanceof Error ? e.message : String(e)}`));
     return { ok: true, pairing: true };
   }
 

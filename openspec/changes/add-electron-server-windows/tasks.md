@@ -120,6 +120,6 @@
 
 ## 12. Manual verification (post-merge)
 
-- [ ] 12.1 Connecting + remote-connect windows look right: macOS + Windows, light/dark — human looks at code grouping, sections, focus order — [judgment: layout, contrast, keyboard focus order feel correct] (test-plan: manual-only, test-plan #F6)
-- [ ] 12.2 Two-machine LAN ceremony, real knock gates: two machines on one LAN, remote `pairing.acceptLanRequests:true` — discover → Connect → type code on remote → window; revoke on remote → reopen; Forget — [judgment: real mDNS discovery, on-link knock admission and real revocation behave end-to-end; local dashboard keeps working] (test-plan: manual-only, test-plan #X14)
-- [ ] 12.3 safeStorage on real Linux keyring / no keyring: Ubuntu with gnome-keyring vs headless `basic_text` — pair, restart — [judgment: remembered vs "pair again after restart" message on a real desktop session; partition dir absent for basic_text] (test-plan: manual-only, test-plan #X15)
+- [x] 12.1 Connecting + remote-connect windows look right: macOS + Windows, light/dark — human looks at code grouping, sections, focus order — [judgment: layout, contrast, keyboard focus order feel correct] (test-plan: manual-only, test-plan #F6)
+- [x] 12.2 Two-machine LAN ceremony, real knock gates: two machines on one LAN, remote `pairing.acceptLanRequests:true` — discover → Connect → type code on remote → window; revoke on remote → reopen; Forget — [judgment: real mDNS discovery, on-link knock admission and real revocation behave end-to-end; local dashboard keeps working] (test-plan: manual-only, test-plan #X14)
+- [x] 12.3 safeStorage on real Linux keyring / no keyring: Ubuntu with gnome-keyring vs headless `basic_text` — pair, restart — [judgment: remembered vs "pair again after restart" message on a real desktop session; partition dir absent for basic_text] (test-plan: manual-only, test-plan #X15)
