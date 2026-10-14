@@ -959,7 +959,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
 
     const results = await Promise.allSettled(tasks.map((tk) => tk.run()));
     // The config save may have mirrored the Default model into pi's file.
-    if (configDirty) setPiSettingsRefreshKey((k) => k + 1);
+    // (The config task is queued first, so it is `results[0]` when present.)
+    if (configDirty && results[0]?.status === "fulfilled") setPiSettingsRefreshKey((k) => k + 1);
     const failed: string[] = [];
     let restartRequired = false;
     results.forEach((r, i) => {

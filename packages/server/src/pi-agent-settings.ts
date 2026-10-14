@@ -455,7 +455,10 @@ export async function applyPiSettingsPatch(
   const r = await withPiSettingsLock<null, ParseFail>(
     (state) => {
       if (state.parseError) return { fail: { error: "parse", parseError: state.parseError } };
-      return { value: null, write: formatJson(applyLeafPatch(state.settings, patch as PiSettingsPatch)) };
+      const next = applyLeafPatch(state.settings, patch as PiSettingsPatch);
+      // A patch that changes nothing must not rewrite the file (formatting, mtime, watchers).
+      if (sameJson(next, state.settings)) return { value: null };
+      return { value: null, write: formatJson(next) };
     },
     { baseEtag },
     deps,

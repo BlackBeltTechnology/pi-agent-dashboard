@@ -234,6 +234,14 @@ describe("pi-agent-settings", () => {
       expect("compaction" in json()).toBe(false);
     });
 
+    it("a patch that changes nothing does not rewrite the file", async () => {
+      const odd = '{"steeringMode":   "all",\n\n "a":1}';
+      seed(odd);
+      const r = await applyPiSettingsPatch({ steeringMode: "all", followUpMode: null }, token(), deps);
+      expect(r.ok).toBe(true);
+      expect(onDisk()).toBe(odd);
+    });
+
     it("E8 whole-block null → invalid, file untouched", async () => {
       seed({ compaction: { enabled: true } });
       const before = onDisk();
