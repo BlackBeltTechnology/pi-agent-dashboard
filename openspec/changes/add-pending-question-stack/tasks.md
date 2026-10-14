@@ -11,22 +11,22 @@
 
 ## 3. Server question store
 
-- [ ] 3.1 Failing tests: tracked prompt → record; notify-shaped → none; re-send maps to the same id; prompt tracked again after removal → new id; ids unguessable; `hasPendingPromptRequests` unchanged
-- [ ] 3.2 Failing tests: every removal path (clear, reconcile, `clearPendingRequestsForSession`, session death, cancel/timeout) removes the record, deletes its file and broadcasts immediately; transmitted answer hides the row immediately
-- [ ] 3.3 Implement `question-store.ts` and hook it from the registry (D1)
-- [ ] 3.4 Failing tests: snapshot bounded, absent reasons `none`/`evicted`, immutable, each `REDACTION_PATTERNS_V1` pattern redacted and the version stored; implement (D2)
-- [ ] 3.4a `Audit` subagent reviews the redaction set and the snapshot→model data flow before task 4.3 lands
-- [ ] 3.5 Failing tests: per-recipient visibility filter of `questions_update` (no resolver → all; resolver → owner equality, ownerless hidden); implement with add/brief debounce and immediate removals (D7)
+- [x] 3.1 Failing tests: tracked prompt → record; notify-shaped → none; re-send maps to the same id; prompt tracked again after removal → new id; ids unguessable; `hasPendingPromptRequests` unchanged
+- [x] 3.2 Failing tests: every removal path (clear, reconcile, `clearPendingRequestsForSession`, session death, cancel/timeout) removes the record, deletes its file and broadcasts immediately; transmitted answer hides the row immediately
+- [x] 3.3 Implement `question-store.ts` and hook it from the registry (D1)
+- [x] 3.4 Failing tests: snapshot bounded, absent reasons `none`/`evicted`, immutable, each `REDACTION_PATTERNS_V1` pattern redacted and the version stored; implement (D2)
+- [x] 3.4a `Audit` subagent reviews the redaction set and the snapshot→model data flow before task 4.3 lands
+- [x] 3.5 Failing tests: per-recipient visibility filter of `questions_update` (no resolver → all; resolver → owner equality, ownerless hidden); implement with add/brief debounce and immediate removals (D7)
 
 ## 4. Brief generation + store
 
-- [ ] 4.1 Failing tests for server-side `@fast` resolution via `parseRoleConfig` + `resolveModelRef` + registry lookup: bound → model; unbound/unknown/no registry → `unavailable`, no call (D5)
-- [ ] 4.2 Failing tests: long message → `provided`, no call; short → one call → `ready`; no assistant text → brief labelled limited context; input/editor brief has no per-option section; failure/timeout → `failed`, not retried; cap 2 queues; `autoBrief=false` → no call; Summarize generates for a `provided` brief
-- [ ] 4.3 Implement generator + policy (D4)
-- [ ] 4.4 Failing tests: per-question file 0600 + atomic write; snapshot/brief/`failed` reused when the prompt is re-sent after a simulated restart even after a 5-min quarantine delay; boot deletes files only for unknown or ended sessions
-- [ ] 4.5 Implement durable store (D6)
-- [ ] 4.5a Failing tests for the `shared-config` question fields (defaults, clamp, invalid → default, not written by init); implement (D12)
-- [ ] 4.6 Log brief outcome and latency; count fallbacks
+- [x] 4.1 Failing tests for server-side `@fast` resolution via `parseRoleConfig` + `resolveModelRef` + registry lookup: bound → model; unbound/unknown/no registry → `unavailable`, no call (D5)
+- [x] 4.2 Failing tests: long message → `provided`, no call; short → one call → `ready`; no assistant text → brief labelled limited context; input/editor brief has no per-option section; failure/timeout → `failed`, not retried; cap 2 queues; `autoBrief=false` → no call; Summarize generates for a `provided` brief
+- [x] 4.3 Implement generator + policy (D4)
+- [x] 4.4 Failing tests: per-question file 0600 + atomic write; snapshot/brief/`failed` reused when the prompt is re-sent after a simulated restart even after a 5-min quarantine delay; boot deletes files only for unknown or ended sessions
+- [x] 4.5 Implement durable store (D6)
+- [x] 4.5a Failing tests for the `shared-config` question fields (defaults, clamp, invalid → default, not written by init); implement (D12)
+- [x] 4.6 Log brief outcome and latency; count fallbacks
 
 ## 5. REST API
 

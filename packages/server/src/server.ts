@@ -202,6 +202,8 @@ import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec
 import { logPackageHealthAtBoot } from "./package/package-health-scanner.js";
 import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
+import type { SessionPresence } from "./questions/question-files.js";
+import { createQuestionStack, persistedPresence } from "./questions/question-stack.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import type { TieredSocket } from "./pairing/ws-tier-gate.js";
@@ -757,7 +759,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // See change: fix-recovery-offer-dismiss-and-phantom-reopen.
   const recoveryMode = loadConfig().reopenSessionsAfterShutdown;
   const recoveryCandidates: DashboardSession[] = [];
+  // Pre-normalization liveness for the question-file boot sweep (cold start forces
+  // `ended` below). See change: add-pending-question-stack (D6).
+  const persistedSessionPresence = new Map<string, SessionPresence>();
   for (const session of scanResult.sessions) {
+    persistedSessionPresence.set(session.id, persistedPresence(session));
     const restored = { ...session, dataUnavailable: true };
     // Positive `exitIntent` gate: a boot that ended by `/api/restart` or
     // `/api/shutdown` left its sessions RUNNING and told every bridge to stay
@@ -1264,7 +1270,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // See change: add-acp-session-driver (D1).
   setLocalAcpHost({ attachLocalConnection: (socket) => piGateway.attachLocalConnection(socket), log: (line) => console.error(line) });
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced);
+  // Pending-question stack: snapshot + brief per open question, durable across restart.
+  // Boot: load persisted question files, then drop those of unknown/ended sessions
+  // (no timer sweep). See change: add-pending-question-stack (D6).
+  const { store: questionStore } = createQuestionStack({
+    eventStore,
+    sessionManager,
+    getConfig: () => loadConfig().questions,
+  });
+  questionStore.loadPersisted();
+  questionStore.sweepAtBoot((sessionId) => persistedSessionPresence.get(sessionId) ?? "unknown");
+
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced, undefined, questionStore);
   // App-wide pairing approval dialog: a content-free hint on every pending
   // change; operator browsers refetch the guarded list (D1).
   // See change: add-pairing-approval-dialog.

@@ -834,6 +834,12 @@ export interface DashboardConfig {
   /** Server push notifications. Absent → disabled. See change: add-server-push-notifications. */
   push?: PushConfig;
   /**
+   * Pending-question brief behavior. Defaults are never written by `ensureConfig`;
+   * missing/invalid values resolve to {@link DEFAULT_QUESTIONS}.
+   * See change: add-pending-question-stack (D12).
+   */
+  questions: QuestionsConfig;
+  /**
    * Timeout for ask_user prompts in seconds.
    * Default: 300 (5 minutes).
    * Set to -1 (or any value <= 0) for no timeout (waits indefinitely).
@@ -1092,6 +1098,17 @@ export interface PairingConfig {
 const VALID_SPAWN_STRATEGIES: SpawnStrategy[] = ["tmux", "headless"];
 
 /** Default ask_user prompt timeout: 300 seconds (5 minutes). */
+/** `questions` config block. See change: add-pending-question-stack (D12). */
+export interface QuestionsConfig {
+  /** Generate a `@fast` brief for questions lacking a long-enough context message. */
+  autoBrief: boolean;
+  /** A context message of at least this many chars is used as the brief (0–4000). */
+  minBriefChars: number;
+}
+
+export const QUESTIONS_MIN_BRIEF_CHARS_MAX = 4000;
+export const DEFAULT_QUESTIONS: QuestionsConfig = { autoBrief: true, minBriefChars: 240 };
+
 export const DEFAULT_ASK_USER_PROMPT_TIMEOUT_SECONDS = 300;
 
 /** Default + clamp for spawnRegisterTimeoutMs. See change: spawn-failure-diagnostics. */
@@ -1388,6 +1405,7 @@ const DEFAULTS: DashboardConfig = {
   pairing: { publicBaseUrls: [], acceptLanRequests: false },
   electronMode: false,
   knownServers: [],
+  questions: { ...DEFAULT_QUESTIONS },
   askUserPromptTimeoutSeconds: DEFAULT_ASK_USER_PROMPT_TIMEOUT_SECONDS,
   reattachPlacement: DEFAULT_REATTACH_PLACEMENT,
   reopenSessionsAfterShutdown: DEFAULT_REOPEN_SESSIONS_AFTER_SHUTDOWN,
@@ -1590,6 +1608,22 @@ export function validateSessionListConfig(raw: unknown): { ok: boolean; errors: 
     errors.push("sessionList.archiveServiceSessionsOnEnd must be a boolean");
   }
   return { ok: errors.length === 0, errors };
+}
+
+/**
+ * Parse the `questions` block. Total: invalid types → defaults; `minBriefChars`
+ * is truncated to an integer and clamped to 0–4000 (non-numbers → 240).
+ * See change: add-pending-question-stack (test-plan #E3, #E4).
+ */
+export function parseQuestionsConfig(raw: unknown): QuestionsConfig {
+  const block = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const min = typeof block.minBriefChars === "number" && Number.isFinite(block.minBriefChars)
+    ? Math.trunc(block.minBriefChars)
+    : DEFAULT_QUESTIONS.minBriefChars;
+  return {
+    autoBrief: typeof block.autoBrief === "boolean" ? block.autoBrief : DEFAULT_QUESTIONS.autoBrief,
+    minBriefChars: Math.min(QUESTIONS_MIN_BRIEF_CHARS_MAX, Math.max(0, min)),
+  };
 }
 
 /**
@@ -2183,6 +2217,7 @@ export function loadConfig(): DashboardConfig {
       acpAgents: parseAcpAgents(parsed.acpAgents),
       acp: parseAcpSettings(parsed.acp),
       push: parsePushConfig(parsed.push),
+      questions: parseQuestionsConfig(parsed.questions),
       allowedHosts: Array.isArray(parsed.allowedHosts)
         ? parsed.allowedHosts.filter((h: unknown): h is string => typeof h === "string")
         : defaults.allowedHosts,
