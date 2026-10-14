@@ -440,15 +440,15 @@ function safeOpenExternal(url: string): void {
  * dashboard origin — never from remote content. See `lib/ipc-trust.ts`.
  * See change: harden-electron-renderer-boundary (VD5).
  */
-function isTrustedSender(event: SenderEventLike): boolean {
-  return isTrustedSenderUrl(event.senderFrame?.url, {
+function isTrustedSender(event: SenderEventLike | undefined): boolean {
+  return isTrustedSenderUrl(event?.senderFrame?.url, {
     loadingPagePath: resolveLoadingPagePath(),
     localPort: loadMinimalConfig().port,
   });
 }
 
-function logRejectedSender(channel: string, event: SenderEventLike): void {
-  log(`IPC ${channel} rejected: untrusted sender ${String(event.senderFrame?.url ?? "<none>").slice(0, 120)}`);
+function logRejectedSender(channel: string, event: SenderEventLike | undefined): void {
+  log(`IPC ${channel} rejected: untrusted sender ${String(event?.senderFrame?.url ?? "<none>").slice(0, 120)}`);
 }
 
 /**

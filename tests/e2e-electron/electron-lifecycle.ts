@@ -294,7 +294,17 @@ export async function readMenuTemplates(app: ElectronApplication): Promise<Captu
  * which discards the transient `#doctor-btn` control.
  */
 export async function openDoctorViaIpc(app: ElectronApplication): Promise<void> {
-  await app.evaluate(({ ipcMain }) => {
-    ipcMain.emit("dashboard:open-doctor");
+  // The handler is sender-gated (harden-electron-renderer-boundary): synthesize
+  // the event a real call from the local loading page would carry.
+  await app.evaluate(({ app: electronApp, ipcMain }) => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require("node:path");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { pathToFileURL } = require("node:url");
+    const resourcesDir = electronApp.isPackaged
+      ? process.resourcesPath
+      : path.join(electronApp.getAppPath(), "resources");
+    const url = pathToFileURL(path.join(resourcesDir, "loading.html")).href;
+    ipcMain.emit("dashboard:open-doctor", { senderFrame: { url } });
   });
 }
