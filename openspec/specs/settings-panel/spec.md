@@ -32,7 +32,7 @@ The panel SHALL provide these pages (nav groups in brackets):
 - **Promoted plugin pages** [Models]: plugin settings pages promoted per "Models nav group", each addressed at `/settings/plugins/<pluginId>`
 - **General** [Dashboard]: Interface language, `dashboardName`, display preferences
 - **Server** [Dashboard]: `port`, `piPort`, `autoShutdown`, `shutdownIdleSeconds`, `tunnel.enabled`, `tunnel.watchdog.*`, memory limits (`memoryLimits.*`)
-- **Sessions** [Dashboard]: `defaultModel`, `spawnStrategy`, reattach/ordering, `askUserPromptTimeoutSeconds`, `spawnRegisterTimeoutMs`, `gitWorktreeEnabled`, retry policy
+- **Sessions** [Dashboard]: `defaultModel`, `spawnStrategy`, reattach/ordering, `askUserPromptTimeoutSeconds`, `spawnRegisterTimeoutMs`, `gitWorktreeEnabled`, retry policy, pi settings (global `settings.json` editor)
 - **Remote Servers** [Network]: known servers, network discovery
 - **Gateway** [Network]: tunnel provider and mode (self-managed save)
 - **Security** [Network]: `auth.providers`, `auth.allowedUsers`, `auth.bypassUrls`, `auth.bypassHosts` (Trusted Networks)
@@ -88,7 +88,7 @@ A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by
 
 #### Scenario: Sessions page sections
 - **WHEN** the Sessions page is rendered
-- **THEN** its sections SHALL be, in order: new-session defaults, session-list ordering, lifecycle and recovery, worktrees, retry
+- **THEN** its sections SHALL be, in order: new-session defaults, session-list ordering, lifecycle and recovery, worktrees, retry, pi settings (global)
 
 #### Scenario: PWA display name lives on General
 - **WHEN** the General page is rendered
@@ -1860,3 +1860,66 @@ The Settings panel module SHALL be loaded the first time a settings view is open
 #### Scenario: Settings module fails to load
 - **WHEN** the panel module request fails
 - **THEN** the settings view shows an error state with a retry action and the shell keeps working
+
+### Requirement: Default model saves mirror into pi's global settings
+When a Settings save carries a non-empty `provider/id` dashboard `defaultModel`, the dashboard SHALL
+also write pi's global `~/.pi/agent/settings.json` `defaultProvider` (text before the
+first `/`) and `defaultModel` (text after it). When a save carries a non-empty valid thinking level (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`), the
+dashboard SHALL also write pi's `defaultThinkingLevel`. Clearing either dashboard value SHALL leave the
+corresponding pi keys untouched. A value with no `/` SHALL skip the model mirror; the save response
+SHALL report the skip as non-failing and the Settings panel SHALL show it as a non-blocking notice in the
+Default Model callout. An unparseable pi settings file SHALL NOT be overwritten; that and
+any other mirror failure SHALL NOT fail the dashboard config save, and the save response SHALL report
+it. The Settings panel SHALL show a reported mirror failure as a non-blocking warning inside the Default
+Model callout while the save itself counts as saved. A save that carries neither key SHALL NOT touch pi's file, and pi keys
+already equal to the derived values SHALL NOT be rewritten.
+The mirror SHALL NOT reload running sessions. Mirror writes SHALL use the same lock and atomic
+replacement as the pi settings editor, and SHALL read the dashboard values to mirror from the persisted
+dashboard config while holding that lock (not from the request), so overlapping config saves leave pi
+matching the final dashboard value.
+
+#### Scenario: Changing the default model updates pi's default
+- **GIVEN** pi's settings contain `defaultProvider: "anthropic"`, `defaultModel: "claude-opus-5"`
+- **WHEN** the user saves Default model `anthropic/claude-opus-5-5`
+- **THEN** pi's settings SHALL contain `defaultProvider: "anthropic"` and `defaultModel: "claude-opus-5-5"`
+- **AND** every other key in pi's settings SHALL be unchanged
+
+#### Scenario: Model id containing a slash splits on the first slash
+- **WHEN** the user saves Default model `openrouter/deepseek/deepseek-v4.1-flash`
+- **THEN** pi's settings SHALL contain `defaultProvider: "openrouter"` and `defaultModel: "deepseek/deepseek-v4.1-flash"`
+
+#### Scenario: Clearing the dashboard default leaves pi untouched
+- **GIVEN** pi's settings contain `defaultModel: "claude-opus-5-5"`
+- **WHEN** the user clears Default model and saves
+- **THEN** pi's `defaultModel` SHALL still be `"claude-opus-5-5"`
+
+#### Scenario: Thinking level mirrors
+- **WHEN** the user saves default thinking level `high`
+- **THEN** pi's settings SHALL contain `defaultThinkingLevel: "high"`
+
+#### Scenario: Mirror failure does not fail the config save
+- **GIVEN** pi's settings file cannot be written
+- **WHEN** the user saves a new Default model
+- **THEN** `~/.pi/dashboard/config.json` SHALL contain the new value
+- **AND** the save response SHALL report the mirror failure
+- **AND** the Default Model callout SHALL show a warning while the Save Bar shows the saved state
+
+#### Scenario: Unparseable pi file is never overwritten by the mirror
+- **GIVEN** `~/.pi/agent/settings.json` contains truncated JSON
+- **WHEN** the user saves a new Default model
+- **THEN** `~/.pi/agent/settings.json` SHALL be byte-identical to before
+- **AND** the save response SHALL report a parse failure
+
+#### Scenario: Model without a provider separator is skipped, not failed
+- **WHEN** a config save sets `defaultModel` to `claude-opus-5-5` (no `/`)
+- **THEN** pi's settings SHALL be unchanged
+- **AND** the save response SHALL report the mirror as skipped, not failed
+- **AND** the Default Model callout SHALL show a non-blocking notice
+
+#### Scenario: Overlapping config saves converge on the final value
+- **WHEN** two config saves setting Default model to `anthropic/a` and then `anthropic/b` overlap
+- **THEN** after both complete, pi's `defaultModel` SHALL equal the model id in the dashboard's persisted `defaultModel`
+
+#### Scenario: Unrelated config save does not touch pi's file
+- **WHEN** the user saves a change to an unrelated setting only
+- **THEN** `~/.pi/agent/settings.json` SHALL be byte-identical to before
