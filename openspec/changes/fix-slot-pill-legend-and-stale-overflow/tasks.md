@@ -44,5 +44,5 @@
 ## 4. Docs + closeout
 
 - [x] 4.1 Update DOX rows (See change: fix-slot-pill-legend-and-stale-overflow): `packages/dashboard-plugin-runtime/src/AGENTS.md` (SlotPill exports `SLOT_PILL_LEGEND`), `SessionSubcard.tsx.AGENTS.md`, `SessionCard.tsx.AGENTS.md` (gap `mt-2.5`), `FolderOpenSpecSection.tsx.AGENTS.md`, `packages/kb-plugin/src/client/AGENTS.md` (FolderKbSection), `tests/e2e/helpers` rows (`computed-contrast.ts`, `ui-capture.ts`), `tests/e2e/fixtures/retro-ux/AGENTS.md` (kb-pill), new `fix-slot-pill-legend-overflow.spec.ts.AGENTS.md`
-- [x] 4.2 `npm run build` + `/api/restart`; quick visual check of the sidebar folder card and a desktop worktree session card
+- [x] 4.2 Build + visual check — verified via the docker harness image build (the Dockerfile runs `npm run build`) + the E2E run and its screenshots; local `npm run build` fails only on this worktree's incomplete shared `node_modules` (unlinked workspace plugin); no `/api/restart` (the live :8000 dashboard serves the main checkout, not this worktree)
 - [x] 4.3 `review-code` pass on the diff
