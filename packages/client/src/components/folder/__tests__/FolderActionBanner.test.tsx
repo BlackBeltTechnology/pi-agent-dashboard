@@ -7,8 +7,8 @@
  */
 
 import { mdiCog, mdiFolderCogOutline, mdiFolderOpen, mdiTextBoxCheckOutline } from "@mdi/js";
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SetupArtifact, WorktreeInitStatus } from "../../../lib/git/git-api.js";
 import { initStore } from "../../../lib/git/worktree-init-store.js";
 import { computeBannerRung, FolderActionBanner, setupState } from "../FolderActionBanner.js";
@@ -119,5 +119,21 @@ describe("setupState precedence", () => {
     expect(setupState(status({ configured: false }))).toBe("not-a-project");
     expect(setupState(status({ configured: true }))).toBe("ok");
     expect(setupState(status({}))).toBe("unknown");
+  });
+});
+
+describe("FolderActionBanner — setup action (change: fix-project-setup-completion-state)", () => {
+  it("F8: Set up → spawns project-init directly with the cwd", () => {
+    const onInitializeProject = vi.fn();
+    render(<FolderActionBanner cwd={CWD} isProjectRoot status={status({ configured: false, checklist: checklist([]) })} onInitializeProject={onInitializeProject} />);
+    fireEvent.click(screen.getByTestId(`folder-banner-setup-action-${CWD}`));
+    expect(onInitializeProject).toHaveBeenCalledTimes(1);
+    expect(onInitializeProject).toHaveBeenCalledWith(CWD);
+  });
+
+  it("F10: after scaffold the next rung is re-trust, not a quiet card", () => {
+    expect(
+      computeBannerRung(status({ hasHook: true, trusted: false, checklist: checklist(["settings"]) }), undefined, true),
+    ).toBe("retrust");
   });
 });

@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, test } from "./fixtures.js";
+import { inContainer } from "./helpers/folder-collapse.js";
 import { ensureGitSession, pinDirectory } from "./helpers/index.js";
 
 // Level-3 E2E for the tier-0 folder action banner (change: add-folder-action-banner).
@@ -15,6 +16,15 @@ import { ensureGitSession, pinDirectory } from "./helpers/index.js";
 // navigate) and #F10 (keyboard reachable).
 
 const CWD = "/fixtures/kb-sample";
+
+// #F11 writes `<cwd>/.pi/settings.json` inside the container; always restore the
+// session-less / unconfigured fixture so every other test (and `-r 2` reruns)
+// still sees the setup banner.
+function restoreFixture(): void {
+  inContainer(`rm -f ${CWD}/.pi/settings.json && rmdir ${CWD}/.pi 2>/dev/null; true`);
+}
+test.beforeEach(restoreFixture);
+test.afterEach(restoreFixture);
 
 function group(page: Page): Locator {
   return page.locator('[data-testid="sortable-pinned-group"]').filter({ hasText: "kb-sample" });
@@ -74,4 +84,29 @@ test("F9: activating the banner action does not navigate to the directory home",
   // The spawn is fire-and-forget; the click must not route to the directory home.
   await expect(g.getByTestId(`folder-home-row-${CWD}`)).toBeVisible();
   expect(page.url()).toBe(before);
+});
+
+test("F11: returning to the tab clears the setup banner once .pi/settings.json exists", async ({ page }) => {
+  const g = await surfaceBanner(page);
+  const banner = g.getByTestId(`folder-banner-setup-${CWD}`);
+  await expect(banner).toBeVisible();
+
+  // Setup happens out-of-band (terminal / editor): the file appears with no
+  // session event for the client to observe.
+  inContainer(`mkdir -p ${CWD}/.pi && echo '{}' > ${CWD}/.pi/settings.json`);
+
+  // Skip the 30 s visibility throttle by advancing the page clock, then do a
+  // real hidden → visible round trip. No reload.
+  const url = page.url();
+  await page.evaluate(() => {
+    const realNow = Date.now.bind(Date);
+    Date.now = () => realNow() + 31_000;
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+
+  await expect(g.getByTestId(`folder-banner-setup-${CWD}`)).toHaveCount(0, { timeout: 15_000 });
+  expect(page.url()).toBe(url);
 });

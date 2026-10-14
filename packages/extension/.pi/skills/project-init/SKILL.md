@@ -98,17 +98,78 @@ Record the answer as `DOX_ENABLED`. The `dox` flag in `profile.json` only sets
 the default; the user's answer decides. Step 5 gates on `DOX_ENABLED`, not the
 raw flag.
 
-### 3b — Ask about OpenSpec init (coding profile only)
+### 3b — Detect OpenSpec state (coding profile only)
 
 **Gate: only when the selected profile is `coding`** (skip for `docs` / any
-OpenSpec-off profile), mirroring Steps 4b and 5. Skip the prompt entirely when an
-`openspec/` directory already exists in the target (idempotent — treat as
-already-initialized). Otherwise ask with `ask_user` (confirm):
+OpenSpec-off profile), mirroring Steps 4b and 5. Compute `OPENSPEC_MODE` — one of
+`offer`, `repair`, `skip` — from the table below; **the first matching row wins**.
+Run the checks in order and stop at the first match. The actual run happens in
+Step 6.
 
-> Initialize OpenSpec for this project? Runs `openspec init --tools pi`, which
-> creates the `openspec/` scaffold and wires the OpenSpec commands into pi.
+`TARGET` is the absolute path of the directory being initialized.
 
-Record the answer as `OPENSPEC_INIT`. The actual run happens in Step 6.
+**Dashboard config.** Read `~/.pi/dashboard/config.json` (the `openspec` object:
+`enabled`, `offerInitialization`, `optOutDirectories`). An **absent file**, or an
+**absent key** within it, takes the dashboard default: `enabled: true`,
+`offerInitialization: true`, `optOutDirectories: []`. A file that exists but is
+unreadable or not valid JSON, or a present `enabled` / `offerInitialization` of
+the wrong type (non-boolean) or `optOutDirectories` that is non-array, is
+undeterminable: **fail closed** (the server would silently use last-good values
+the skill cannot see).
+
+**Opt-out match.** Compare `TARGET` against every `optOutDirectories` entry with
+the dashboard's `pathKey` semantics: resolve to an absolute path, normalize
+separators to `/`, strip trailing separators, and lowercase unless the platform
+is `linux`. Run this exact one-liner — do not re-derive it:
+
+```bash
+OPT_OUT_JSON='["<each optOutDirectories entry as a JSON string>"]'   # '[]' when none
+node -e 'const n=p=>{p=require("path").resolve(p);if(process.platform!=="linux")p=p.replace(/\\/g,"/").toLowerCase();return p.replace(/\/+$/,"")};console.log(JSON.parse(process.argv[2]||"[]").some(d=>n(d)===n(process.argv[1]))?"match":"no-match")' "$TARGET" "$OPT_OUT_JSON"
+```
+
+Worked example (`darwin`): target `/Users/x/Proj` vs entry `/users/x/proj/` →
+`match`; vs `/Users/x/Other` → `no-match`. On `linux` the comparison is
+case-sensitive: `/Users/x/Proj` vs `/users/x/proj` → `no-match`.
+
+**Git placement** (only when `TARGET` is inside a git repository, i.e.
+`git -C "$TARGET" rev-parse --is-inside-work-tree` succeeds; a non-git directory
+is never skipped by this check). Fail closed — this is deliberately stricter than
+the server's "failed probe = not in a repo":
+
+- `git -C "$TARGET" rev-parse --path-format=absolute --git-dir --git-common-dir`
+  fails (e.g. git < 2.31) → placement undetermined;
+- the two printed paths differ after `realpath` → a linked worktree;
+- `realpath "$(git -C "$TARGET" rev-parse --show-toplevel)"` differs from
+  `realpath "$TARGET"` → a subdirectory of a checkout (the dashboard resolves
+  skills at the checkout root, so repairing/verifying a subdirectory would
+  diverge).
+
+`--separate-git-dir` checkouts and submodules compare equal and are NOT skipped.
+
+| # | Condition (first match wins) | `OPENSPEC_MODE` | Action |
+|---|---|---|---|
+| 1 | Dashboard config undeterminable (see above) | `skip` | No prompt, no command. Warn that OpenSpec state could not be determined. |
+| 2 | `openspec.enabled === false`, or the opt-out one-liner printed `match` | `skip` | No prompt, no command. Note OpenSpec is disabled / opted out for this directory. |
+| 3 | Git placement: undetermined, linked worktree, or not the checkout top-level | `skip` | No prompt, no command. Note why. |
+| 4 | `./openspec/` absent AND `offerInitialization === false` | `skip` | No prompt, no command. |
+| 5 | `./openspec/` absent | `offer` | `ask_user` (confirm): "Initialize OpenSpec for this project? Runs `openspec init --tools pi --force`, which creates the `openspec/` scaffold and wires the OpenSpec commands into pi." Declined → `skip`. |
+| 6 | `./openspec/` present, `.pi/skills/openspec-explore/` absent | `repair` | **No question.** Disclosed in the Step 3c preview as a repair; the preview confirmation is the overwrite confirmation. |
+| 7 | Both present | `skip` | No prompt, no command. |
+
+The `repair` row covers a directory initialized for OpenSpec but never wired into
+pi: the user already chose OpenSpec for it (and did not opt it out), so complete
+the wiring rather than ask again. `offerInitialization === false` suppresses only
+the `offer` (row 4), never the `repair`.
+
+**Legacy artifacts** (needed for the Step 3c disclosure; detect only when mode is
+`offer` or `repair`). The OpenSpec CLI cleans these up automatically under
+`--tools`, so name each one found in the preview:
+
+- root agent-config files `CLAUDE.md`, `CLINE.md`, `CODEBUDDY.md`, `COSTRICT.md`, `QODER.md`, `IFLOW.md`, `AGENTS.md`, `QWEN.md` — only when the file contains **both**
+  `<!-- OPENSPEC:START -->` and `<!-- OPENSPEC:END -->` (the marker block);
+- legacy command directories `.claude/commands/openspec`, `.codebuddy/commands/openspec`, `.qoder/commands/openspec`, `.lingma/commands/openspec`, `.crush/commands/openspec`, `.gemini/commands/openspec`, `.cospec/openspec/commands`;
+- files starting with `openspec-` or `opsx-` inside these command-file
+  directories: `.cursor/commands`, `.windsurf/workflows`, `.kilocode/workflows`, `.kiro/prompts`, `.github/prompts`, `.amazonq/prompts`, `.clinerules/workflows`, `.roo/commands`, `.augment/commands`, `.factory/commands`, `.continue/prompts`, `.agent/workflows`, `.iflow/commands`, `.qwen/commands`, `.codex/prompts`, `.opencode/command`, `.junie/commands`.
 
 ### 3c — Preview + confirm
 
@@ -124,10 +185,16 @@ When `DOX_ENABLED` is true, ALSO name in the preview:
 - the DOX pointer block appended to `./AGENTS.md` (see Step 5)
 - the `doctrine` choice + kb toolset flip written to `./.pi/dashboard/knowledge_base.json`
 
-When `OPENSPEC_INIT` is true, ALSO disclose the side effect (see Step 6) — NOT a
-plain file write:
+When `OPENSPEC_MODE` is `offer` (confirmed) or `repair`, ALSO disclose the side
+effects (see Step 6) — NOT plain file writes. For `repair`, label it explicitly as
+a **repair** of an OpenSpec directory not yet wired into pi (no question was
+asked; confirming this preview is the confirmation):
 
-- runs `openspec init --tools pi`, scaffolding `./openspec/` and wiring pi
+- runs `openspec init --tools pi --force` (scaffolding `./openspec/` for `offer`; wiring pi into the existing one for `repair`)
+- writes the generated `openspec-*` skills under `./.pi/skills/`, **overwriting** any existing ones of the same name
+- each legacy OpenSpec artifact detected in Step 3b, by path (e.g. `AGENTS.md` — the `OPENSPEC:START`/`OPENSPEC:END` marker block, or `.claude/commands/openspec/`), worded "may be removed"
+- the OpenSpec CLI may also remove other legacy OpenSpec files it recognizes beyond the paths listed
+- the OpenSpec CLI may migrate its global config profile (`~/.config/openspec`) — a machine-wide side effect
 
 When the chosen profile is `coding`, ALSO disclose the possible side effect (see
 Step 4b) — NOT a file write:
@@ -256,27 +323,35 @@ kb dox init
 invoke the `dox-describe` skill (ships with `packages/kb-extension`); on no,
 tell the user they can run it later.
 
-## Step 6 — Run OpenSpec init (only when `OPENSPEC_INIT` is true)
+## Step 6 — Run OpenSpec init (only on `repair`, or `offer` that was confirmed)
 
-Gated on the user's Step 3b answer (`OPENSPEC_INIT`); this only becomes true for
-the `coding` profile when no `openspec/` dir pre-existed. Mirrors Step 4b's
-side-effect pattern — opt-in, verified, never forced.
+Gated on `OPENSPEC_MODE` from Step 3b: run only when it is `repair`, or `offer`
+and the user confirmed. `skip` (any reason) runs nothing. For `repair` the Step 3c
+preview confirmation already served as the overwrite confirmation. Mirrors Step
+4b's side-effect pattern — disclosed, verified, never forced beyond that.
 
 **Run** (always non-interactive so it never hijacks the conversation):
 
 ```bash
-openspec init --tools pi
+openspec init --tools pi --force
 ```
 
-The `--tools pi` flag pins the wiring to pi and skips OpenSpec's interactive tool
-picker. Verify exit 0 and that `./openspec/` now exists. On success, tell the
-user OpenSpec is wired (the `coding` AGENTS.md already documents
-`openspec change new <name>`). On non-zero exit (or a missing `openspec` binary),
-warn the user and point them at `openspec init --tools pi` to run manually — do
-NOT error the init; the scaffold is already written.
+`--tools pi` pins the wiring to pi and skips OpenSpec's interactive tool picker;
+`--force` is a belt-and-braces non-interactive guard (identical argv to the
+dashboard's init endpoint). `openspec` resolves from PATH — on dashboard
+machines that is the dashboard shim (`~/.pi/dashboard/openspec-shim/openspec`).
 
-**Idempotent re-run:** if `./openspec/` already existed, Step 3b never asked, so
-`OPENSPEC_INIT` is false and this step is skipped — no clobber.
+**Verify** exit 0 AND that `./.pi/skills/openspec-explore/` now exists (and
+`./openspec/` for `offer`). On success, tell the user OpenSpec is wired (the
+`coding` AGENTS.md already documents `openspec change new <name>`). On non-zero
+exit, a missing `openspec` binary, or a still-missing skills directory, warn the
+user, include the actual contents (`ls .pi/skills`), and point them at
+`openspec init --tools pi --force` to run manually — do NOT error the init; the
+scaffold is already written.
+
+**Idempotent re-run:** a re-run after success lands in `skip` (row 7: both
+`./openspec/` and `.pi/skills/openspec-explore/` present) — no prompt, no
+command, no clobber. A re-run after a failed repair lands in `repair` again.
 
 ## Step 7 — Done
 
