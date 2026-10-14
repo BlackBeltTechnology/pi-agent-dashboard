@@ -55,3 +55,5 @@ See change: fix-canvas-chip-tray-overlay — `renderSessionDetail` renders a zer
 Mounts the network-denial surface on desktop too (`useNetworkDenied` → `ConnectionStatusBanner`), so a guard 403 is explained on every form factor instead of only mobile. Ids minted via `randomUuid()` (non-secure LAN origins have no `crypto.randomUUID`). See change: add-lan-knock-pairing.
 
 Settings panel via `LazySettingsPanel` (imported as `SettingsPanel`, both render sites): `SettingsPanel.tsx` is its own chunk, off the cold landing. See change: shrink-client-entry-lazy-islands.
+
+Mounts `<ShellHeadlessSlot />` once in the `apiProvider` body (inside `PluginContextProvider`, every layout branch) for always-mounted zero-UI plugin claims (e.g. browser relay feed). See change: fix-empty-status-subcard.

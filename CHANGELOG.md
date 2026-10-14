@@ -12,6 +12,10 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **`shell-headless` plugin slot.** A react-only slot mounted once at shell level, independent of
+  layout, selection and session count, for zero-UI plugin-wide hooks such as message
+  subscriptions. Claims take no props and must not declare `predicate`/`shouldRender` (the
+  manifest validator rejects them). Additive: third-party plugins are unaffected.
 - **Search a repository's git history with `kb_search`.** `kb_search({scope: "git"})` and
   `kb_get({scope: "git", path: "commit/<sha>" | "pr/<n>" | "issue/<n>"})` cover commits,
   pull/merge requests and issues (GitHub via `gh`, GitLab via `glab`, Gitea/Forgejo/Codeberg
@@ -141,6 +145,10 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Empty `STATUS` panel on session cards.** The STATUS subcard no longer renders as an empty,
+  titled frame when the browser relay has no tabs. The browser badge is now gated, and the relay
+  status feed moved to an always-mounted `shell-headless` claim that re-seeds on reconnect. The
+  composer's STATUS group follows the same gate.
 - **Electron shell no longer exposes local bridges to remote dashboards.** The main
   window now uses a minimal preload (`piDashboard` only); `remoteConnect` and `doctor`
   stay on their local wizard windows. Launch / log / probe / doctor IPC rejects calls

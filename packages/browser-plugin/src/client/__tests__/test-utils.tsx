@@ -17,6 +17,7 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { type RenderResult, render } from "@testing-library/react";
 import type React from "react";
 import { vi } from "vitest";
+import { BrowserRelayFeed } from "../BrowserRelayFeed.js";
 
 type MessageListener = (evt: MessageEvent) => void;
 
@@ -48,9 +49,21 @@ interface RenderOptions {
 	pluginId?: string;
 	/** Interactive requests per session (the takeover Done tests). */
 	interactiveRequests?: (sessionId: string) => readonly InteractiveUiRequestSnapshot[];
+	/** Shell connection status exposed to `useShellConnectionStatus` (default: disconnected). */
+	connectionStatus?: ShellConnectionStatus;
+	/**
+	 * Mount `BrowserRelayFeed` next to the component (default true) — in production
+	 * the shell mounts it once via the `shell-headless` slot, and it is the SOLE
+	 * `browser_relay_status` subscriber. See change: fix-empty-status-subcard.
+	 */
+	feed?: boolean;
 }
 
+type ShellConnectionStatus = "connecting" | "connected" | "disconnected" | "offline" | "auth_required";
+
 interface RenderResultWithHarness extends RenderResult {
+	/** Re-render the same tree with a new shell connection status. */
+	setConnectionStatus(status: ShellConnectionStatus): void;
 	ws: FakeWs;
 	send: ReturnType<typeof vi.fn>;
 }
@@ -61,16 +74,21 @@ export function renderWithPlugin(
 ): RenderResultWithHarness {
 	const ws = options.ws ?? new FakeWs();
 	const send = (options.send ?? vi.fn()) as unknown as ReturnType<typeof vi.fn>;
-	const result = render(
+	const tree = (connectionStatus: ShellConnectionStatus | undefined) => (
 		<PluginContextProvider
 			ws={ws as unknown as WebSocket}
 			send={send as unknown as (message: unknown) => void}
 			useSessionInteractiveRequests={options.interactiveRequests}
+			connectionStatus={connectionStatus}
 		>
-			<CurrentPluginLayer pluginId={options.pluginId ?? "browser"}>{ui}</CurrentPluginLayer>
-		</PluginContextProvider>,
+			<CurrentPluginLayer pluginId={options.pluginId ?? "browser"}>
+				{options.feed === false ? null : <BrowserRelayFeed />}
+				{ui}
+			</CurrentPluginLayer>
+		</PluginContextProvider>
 	);
-	return { ...result, ws, send };
+	const result = render(tree(options.connectionStatus));
+	return { ...result, ws, send, setConnectionStatus: (s) => result.rerender(tree(s)) };
 }
 
 /** A minimal session — the tile/badge ignore its fields (the relay is global). */

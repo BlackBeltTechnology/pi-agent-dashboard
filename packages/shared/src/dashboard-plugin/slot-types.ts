@@ -29,6 +29,7 @@ export type SlotId =
   | "automation-action-editor"
   | "editor-pane-tab"
   | "resource-page-section"
+  | "shell-headless"
   // React-or-descriptor slots
   | "session-card-memory"
   | "session-card-flows"
@@ -174,6 +175,12 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
     description:
       "Section above the resource grid on the folder + global resource pages (Skills/Agents/Extensions/Prompts/Themes). Optional claim.resourceType restricts it to one page. Props { resourceType, scope: folder|global, cwd? }. See change: add-skill-atlas-screen.",
   },
+  "shell-headless": {
+    multiplicity: "many",
+    payloadTier: "react-only",
+    description:
+      "Always-mounted, zero-UI host for plugin-wide hooks (e.g. message subscriptions). Mounted once at shell level, independent of layout, selection and session count. Claims take empty props, render null, and MUST NOT declare predicate/shouldRender (the validator rejects them). See change: fix-empty-status-subcard.",
+  },
   // Descriptor-only (extension-ui-system)
   "management-modal": {
     multiplicity: "many",
@@ -278,8 +285,10 @@ type FolderScopedSlot = "sidebar-folder-section" | "worktree-card-section";
 /**
  * Map of slot id → predicate input shape. Resolves to `never` for slots that
  * are not filtered by predicate (settings-section, tool-renderer, anchored-
- * popover, every descriptor-only slot). Registering a predicate on a `never`-
- * input slot is therefore a compile-time error.
+ * popover, every descriptor-only slot). The `never` input documents that the
+ * predicate is never invoked; it is NOT a compile-time error to register one
+ * (method bivariance on `ClaimEntry.predicate` accepts it). Slots that must not
+ * carry a gate (`shell-headless`) are enforced by the manifest validator.
  */
 export type SlotPredicateInput<S extends SlotId> =
   S extends SessionScopedSlot ? DashboardSession | null | undefined
@@ -298,6 +307,12 @@ const _editorPaneTabNever: _AssertEditorPaneTabNever = true;
 type _AssertResourcePageSectionNever = [SlotPredicateInput<"resource-page-section">] extends [never] ? true : never;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _resourcePageSectionNever: _AssertResourcePageSectionNever = true;
+// `shell-headless` is predicate-irrelevant → `never` (always mounted; the
+// manifest validator rejects a gate on it). See change: fix-empty-status-subcard.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _AssertShellHeadlessNever = [SlotPredicateInput<"shell-headless">] extends [never] ? true : never;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _shellHeadlessNever: _AssertShellHeadlessNever = true;
 
 // Type-level test: assert every SlotId is reachable through SlotPredicateInput,
 // either by mapping to a concrete input or explicitly to `never`. This forces a

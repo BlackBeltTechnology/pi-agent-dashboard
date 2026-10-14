@@ -427,3 +427,31 @@ test.describe("browser relay — plugin load (F1 of the vendor-specifier fix)", 
     await expect(row.getByText("not loaded", { exact: true })).toHaveCount(0);
   });
 });
+
+test.describe("browser relay — STATUS subcard follows relay tabs (fix-empty-status-subcard F14)", () => {
+  test.setTimeout(180_000);
+
+  test("F14: idle card shows STATUS + badge while the Fake has a tab, then hides without reload on the kill switch", async ({
+    page,
+    request,
+  }) => {
+    await request.put("/api/browser/enabled", { data: { enabled: true } });
+    await ensureGitSession(page);
+    const card = page.getByTestId("session-card-desktop").first();
+
+    // (a) The seeded Fake (tabId 1) surfaces the badge — and its STATUS frame —
+    // on an idle card that never broadcasts again.
+    await expect(card.getByTestId("browser-relay-badge")).toBeVisible({ timeout: 40_000 });
+    await expect(card.getByText("STATUS", { exact: true })).toBeVisible();
+
+    // (b) Kill switch closes every live instance: STATUS (and the badge) vanish
+    // WITHOUT a page reload.
+    await request.put("/api/browser/enabled", { data: { enabled: false } });
+    await expect(card.getByText("STATUS", { exact: true })).toHaveCount(0, { timeout: 40_000 });
+    await expect(card.getByTestId("browser-relay-badge")).toHaveCount(0);
+
+    // Leave the container enabled for any later spec.
+    await request.put("/api/browser/enabled", { data: { enabled: true } });
+  });
+});
+

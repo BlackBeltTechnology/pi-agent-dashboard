@@ -27,7 +27,7 @@ import type { BrowserRelayFrameMessage } from "@blackbelt-technology/pi-dashboar
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { findRelayTab, useRelayStatus, useRelayStatusFeed } from "./relay-store.js";
+import { findRelayTab, useRelayStatus } from "./relay-store.js";
 import { parseBrowserTabPath } from "./tab-path.js";
 
 export interface BrowserPaneTabProps {
@@ -53,7 +53,6 @@ const BTN =
 export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPaneTabProps): React.ReactElement {
   const t = useT();
   const send = usePluginSend();
-  useRelayStatusFeed();
   const status = useRelayStatus();
 
   const ref = parseBrowserTabPath(path);

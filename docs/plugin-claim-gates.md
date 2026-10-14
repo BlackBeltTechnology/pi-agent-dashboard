@@ -88,6 +88,24 @@ Re-render nudge for gate wrappers whose signal resolves after first render. See 
 - Capability absent → config-file existence fallback only.
 - Capability rejection → 503. Never `{installed: false}` — client would finalize rejection into resolved `false`, holding gate open forever.
 
+## Badge gate rule (`session-card-badge`)
+
+Every first-party `session-card-badge` registry claim MUST declare `predicate` or `shouldRender`. Contract test: `packages/client/src/__tests__/badge-claims-gated.test.ts`. See change: fix-empty-status-subcard.
+
+- STATUS subcard hides when no badge claim passes its gate.
+- Intent-store contributions NOT counted by STATUS gate. Intents never keep subcard alive.
+- Browser badge claim: `shouldRender: "hasRelayTabsForBadge"`. Exported from client entry. True iff relay snapshot has ≥1 tab.
+- `setRelayStatus` calls `bumpSlotClaimsVersion()` only when tab-count presence flips. Count changes within presence do not bump.
+
+## shell-headless slot (no gate)
+
+- Always-mounted zero-UI host for plugin-wide hooks (e.g. message subscriptions). Claim renders `null`.
+- Slot id `shell-headless`. Multiplicity `many`, tier `react-only`. Props empty. Predicate input `never`.
+- `predicate` / `shouldRender` REJECTED on `shell-headless` claim by `manifest-validator.ts` (error names plugin + slot). Gating = component-level only.
+- Mounted once in `packages/client/src/App.tsx`, every layout branch. Independent of selection / session count.
+- Consumer `ShellHeadlessSlot()` in `packages/dashboard-plugin-runtime/src/slot-consumers.tsx`. No wrapper element.
+- First claimant: browser plugin `BrowserRelayFeed` (sole caller of `useRelayStatusFeed()`).
+
 ## See
 
 - `packages/shared/src/dashboard-plugin/manifest-types.ts` (`PluginClaim` interface)

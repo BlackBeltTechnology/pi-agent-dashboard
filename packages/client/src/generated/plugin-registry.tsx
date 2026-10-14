@@ -15,7 +15,7 @@ import { FolderTeamSection, catalog as team_catalog } from "@blackbelt-technolog
 import { MemorySubcard, shouldRenderMemorySubcard, isPipelineDetailActive, OmEntryCard, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
 import { catalog as system_one_catalog } from "@blackbelt-technology/pi-dashboard-system-one-plugin";
 import { GmailSettings, catalog as gmail_catalog } from "@blackbelt-technology/pi-dashboard-gmail-plugin";
-import { BrowserRelayBadge, BrowserTabLabel, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
+import { BrowserRelayBadge, hasRelayTabsForBadge, BrowserRelayFeed, BrowserTabLabel, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
 import { WebSearchEntryCard, catalog as web_access_catalog } from "@blackbelt-technology/pi-dashboard-web-access-plugin";
@@ -711,7 +711,12 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
             },
             {
                 "slot": "session-card-badge",
-                "component": "BrowserRelayBadge"
+                "component": "BrowserRelayBadge",
+                "shouldRender": "hasRelayTabsForBadge"
+            },
+            {
+                "slot": "shell-headless",
+                "component": "BrowserRelayFeed"
             },
             {
                 "slot": "editor-pane-tab",
@@ -730,7 +735,8 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     },
     claims: [
       { pluginId: "browser", priority: 500, slot: "settings-section", Component: lazyClaim(() => import("../../../browser-plugin/src/client/BrowserSettings"), "BrowserSettings") },
-      { pluginId: "browser", priority: 500, slot: "session-card-badge", Component: BrowserRelayBadge },
+      { pluginId: "browser", priority: 500, slot: "session-card-badge", Component: BrowserRelayBadge, shouldRender: hasRelayTabsForBadge },
+      { pluginId: "browser", priority: 500, slot: "shell-headless", Component: BrowserRelayFeed },
       { pluginId: "browser", priority: 500, slot: "editor-pane-tab", pathPrefix: "browser", Component: lazyClaim(() => import("../../../browser-plugin/src/client/BrowserPaneTab"), "BrowserPaneTab"), labelComponentName: "BrowserTabLabel", LabelComponent: BrowserTabLabel },
     ],
     catalog: browser_catalog,
@@ -814,4 +820,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "6a184f39120d8e51331957c8653cf0f38c5e76cd9142254bd643919f82c475e6";
+export const PLUGIN_REGISTRY_HASH = "e4dd926759a84366a62cfda14cb810598d00d25f3c540620ddcd94e0d26ec786";

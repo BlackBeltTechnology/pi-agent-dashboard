@@ -57,7 +57,12 @@
       },
       {
         "slot": "session-card-badge",
-        "component": "BrowserRelayBadge"
+        "component": "BrowserRelayBadge",
+        "shouldRender": "hasRelayTabsForBadge"
+      },
+      {
+        "slot": "shell-headless",
+        "component": "BrowserRelayFeed"
       },
       {
         "slot": "editor-pane-tab",

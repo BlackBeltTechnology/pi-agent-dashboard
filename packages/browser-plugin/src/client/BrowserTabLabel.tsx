@@ -7,7 +7,7 @@
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { BrowserRelayTabState } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type React from "react";
-import { findRelayTab, useRelayStatus, useRelayStatusFeed } from "./relay-store.js";
+import { findRelayTab, useRelayStatus } from "./relay-store.js";
 import { parseBrowserTabPath } from "./tab-path.js";
 
 const DOT: Record<BrowserRelayTabState, string> = {
@@ -27,7 +27,6 @@ function hostOf(url: string): string {
 
 export function BrowserTabLabel({ path }: { path: string }): React.ReactElement {
   const t = useT();
-  useRelayStatusFeed();
   const status = useRelayStatus();
   const ref = parseBrowserTabPath(path);
   const tab = ref ? findRelayTab(status, ref.instanceId, ref.tabId)?.tab : undefined;
