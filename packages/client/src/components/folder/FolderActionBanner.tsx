@@ -11,9 +11,12 @@
  * The hook rungs (failed / running / retrust / init-needed) re-host
  * `WorktreeInitButton`, which owns the run store, the trust-confirm dialog and
  * the friendly chip. The setup rung ("not a pi project yet") spawns an
- * interactive project-init session and re-probes init-status when that session
- * ends — unconditional on its outcome, so an abandoned setup correctly leaves
- * the banner standing.
+ * interactive project-init session. The banner does NOT track that session:
+ * `useInitStatus` (owned by the row's `FolderInitScope`) re-probes whenever a
+ * session in the row finishes a turn or ends, so the banner clears however
+ * setup was launched and survives banner remounts; an abandoned setup still
+ * correctly leaves the banner standing (the re-probe finds it unconfigured).
+ * See change: fix-project-setup-completion-state.
  *
  * Gating rules:
  *   - Tier 0 means the folder CANNOT PROCEED. Optional/informational state
@@ -30,11 +33,15 @@
 
 import { mdiAlertOutline, mdiTextBoxCheckOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { WorktreeInitStatus } from "../../lib/git/git-api.js";
 import { type ClientInitRun, useInitRun } from "../../lib/git/worktree-init-store.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { setupState } from "../../lib/init-setup-state.js";
 import { WorktreeInitButton } from "../worktree/WorktreeInitButton.js";
+
+// Re-exported so existing imports/tests keep compiling (moved to lib/).
+export { setupState };
 
 export type BannerRung = "failed" | "running" | "retrust" | "init-needed" | "setup";
 
@@ -54,23 +61,6 @@ const RUNG_SEVERITY: Record<BannerRung, Severity> = {
   setup: "info",
 };
 
-/**
- * Setup state derived from the payload. The checklist WINS whenever present;
- * the deprecated `configured` boolean is consulted only in its absence. Neither
- * present → "unknown" (fail open, no banner).
- */
-export function setupState(status: WorktreeInitStatus | null): "not-a-project" | "ok" | "unknown" {
-  if (!status) return "unknown";
-  if (Array.isArray(status.checklist)) {
-    const settings = status.checklist.find((a) => a.id === "settings");
-    if (!settings) return "unknown"; // uninterpretable shape → fail open
-    return settings.present ? "ok" : "not-a-project";
-  }
-  if (status.configured === true) return "ok";
-  if (status.configured === false) return "not-a-project";
-  return "unknown";
-}
-
 /** The one rung to render, or null for a quiet card. */
 export function computeBannerRung(
   status: WorktreeInitStatus | null,
@@ -83,13 +73,6 @@ export function computeBannerRung(
   if (status?.hasHook === true && status.trusted === true && status.needsInit === true) return "init-needed";
   if (isProjectRoot && setupState(status) === "not-a-project") return "setup";
   return null;
-}
-
-/** Minimal shape the banner needs to watch a spawned project-init session end. */
-interface BannerSession {
-  id: string;
-  cwd: string;
-  status: string;
 }
 
 interface Props {
@@ -105,8 +88,6 @@ interface Props {
   onInitializeProject?: (cwd: string) => void;
   /** Re-issues the row's init-status probe (after a run / scaffold). */
   onStatusChange?: () => void;
-  /** The folder's sessions — used to re-probe when a spawned setup ends. */
-  sessions?: BannerSession[];
   /**
    * `folder-banner` hidden: render a compact warning chip naming the state
    * instead of the full banner; activating it reveals the banner until the
@@ -129,7 +110,6 @@ export function FolderActionBanner({
   isProjectRoot,
   onInitializeProject,
   onStatusChange,
-  sessions,
   compact = false,
 }: Props) {
   const run = useInitRun(cwd);
@@ -141,35 +121,6 @@ export function FolderActionBanner({
   useEffect(() => {
     setRevealed(false);
   }, [rung]);
-
-  // Re-probe init-status when a spawned project-init session reaches `ended`.
-  const [pendingSpawn, setPendingSpawn] = useState(false);
-  const knownIdsRef = useRef<Set<string>>(new Set());
-  const spawnedIdRef = useRef<string | null>(null);
-
-  const handleSetup = useCallback(() => {
-    knownIdsRef.current = new Set((sessions ?? []).filter((s) => s.cwd === cwd).map((s) => s.id));
-    spawnedIdRef.current = null;
-    setPendingSpawn(true);
-    onInitializeProject?.(cwd);
-  }, [sessions, cwd, onInitializeProject]);
-
-  useEffect(() => {
-    if (!pendingSpawn) return;
-    const mine = (sessions ?? []).filter((s) => s.cwd === cwd);
-    if (!spawnedIdRef.current) {
-      const fresh = mine.find((s) => !knownIdsRef.current.has(s.id));
-      if (fresh) spawnedIdRef.current = fresh.id;
-    }
-    if (spawnedIdRef.current) {
-      const spawned = mine.find((s) => s.id === spawnedIdRef.current);
-      if (spawned && spawned.status === "ended") {
-        onStatusChange?.();
-        setPendingSpawn(false);
-        spawnedIdRef.current = null;
-      }
-    }
-  }, [sessions, pendingSpawn, cwd, onStatusChange]);
 
   if (!rung) return null;
 
@@ -208,7 +159,7 @@ export function FolderActionBanner({
           </span>
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); handleSetup(); }}
+            onClick={(e) => { e.stopPropagation(); onInitializeProject?.(cwd); }}
             data-testid={`folder-banner-setup-action-${cwd}`}
             disabled={!onInitializeProject}
             className="focus-ring shrink-0 min-h-[44px] md:min-h-0 rounded border border-current px-2 py-1 text-[11px] font-semibold hover:opacity-80 disabled:opacity-50"
