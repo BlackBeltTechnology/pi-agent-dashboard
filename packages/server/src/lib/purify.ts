@@ -26,6 +26,13 @@ export async function loadPurify(): Promise<DomPurify> {
   if (typeof purify?.sanitize !== "function") {
     throw new Error("DOMPurify unavailable: sanitize() missing (jsdom failed to initialise)");
   }
+  // `isSupported === false` means DOMPurify has no DOM and returns its input
+  // unchanged: a pass-through must never be used (or cached). Throw so every
+  // caller (EML, DOCX, PlantUML, AsciiDoc) fails closed through its existing
+  // error path. See change: sanitize-untrusted-rendered-content.
+  if (purify.isSupported !== true) {
+    throw new Error("DOMPurify unavailable: no DOM support (jsdom failed to initialise)");
+  }
   cached = purify;
   return purify;
 }

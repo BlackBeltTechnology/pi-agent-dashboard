@@ -9,6 +9,10 @@ export function mermaidConfig(resolved: string) {
     startOnLoad: false,
     theme: resolved === "dark" ? ("dark" as const) : ("default" as const),
     suppressErrorRendering: true,
+    // A diagram's `%%{init}%%` directive must not set the values mermaid writes
+    // into the SVG's document-wide <style>. Array-unioned with mermaid's own
+    // default secure keys. See change: sanitize-untrusted-rendered-content.
+    secure: ["themeCSS", "fontFamily", "altFontFamily"],
     fontFamily: FONT_FAMILY,
     fontSize: 16,
     themeVariables: { fontFamily: FONT_FAMILY, fontSize: "16px" },
