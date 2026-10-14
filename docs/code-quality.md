@@ -441,7 +441,7 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
 - GitHub-only 29: `js/path-injection` ×23 (plugin server code), `js/missing-rate-limiting` ×5, `js/tainted-format-string` ×1.
 - Local-only 29: client/spike code (`js/xss` ×8, `js/request-forgery` ×9, …).
 - Ruled out: uninstalled deps, `cwd-guard` model, pack content (same sha).
-- Cause unknown. Evidence: `openspec/changes/add-local-codeql-ratchet/evidence/local-vs-github.md`.
+- Cause unknown. Evidence: `openspec/changes/archive/2026-10-14-add-local-codeql-ratchet/evidence/local-vs-github.md`.
 - Seed gated: unmatched share > 5 % → stop for decision.
 
 ### Rollout

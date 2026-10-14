@@ -18,6 +18,6 @@ Exports (pure, tested): `resultKeys`, `countResults`, `validateBaseline`, `reaso
 
 Measured (task 2.5, develop d739f4bd, CLI 2.27.2, packs cached, 8 threads): full run ~85-90 s wall; `.mjs` (289) and `.cjs` (14) files extracted; results carry `primaryLocationLineHash`; `LGTM_INDEX_FILTERS` exclusions verified by the real-CLI test (#E4); offline run with cached packs verified (#X6); `js/path-injection` count identical (100) with and without the cwd-guard model pack.
 
-Known limit: local ≠ GitHub on same commit (150/179 matched); see `openspec/changes/add-local-codeql-ratchet/evidence/local-vs-github.md`.
+Known limit: local ≠ GitHub on same commit (150/179 matched); see `openspec/changes/archive/2026-10-14-add-local-codeql-ratchet/evidence/local-vs-github.md`.
 
 See change: add-local-codeql-ratchet.

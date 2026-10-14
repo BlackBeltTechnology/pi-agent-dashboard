@@ -14,11 +14,15 @@ strictly before `ship-change` is driven inline. The checkpoint SHALL run on ever
 triviality escape based on diff size, changed-file count, or touched paths. An
 invocation stopped before step 4.5 — by the entry gate on an existing
 `SHIP_IT_BLOCKED.md`, a red harness, or a failing enforcer — neither reviews nor
-reaches `ship-change`.
+reaches `ship-change`. The checkpoint SHALL additionally run only after the local CodeQL
+ratchet (step 4.4b) passes or reports that CodeQL is unavailable; an invocation
+stopped by new CodeQL alerts not yet fixed or accepted in step 4.4b neither
+reviews nor reaches `ship-change`.
 
 #### Scenario: Review runs after the harness and the enforcers
 
 - **WHEN** the harness reports every automated scenario green and step 4.4 exits 0
+- **AND** step 4.4b passes or reports that CodeQL is unavailable
 - **THEN** the review checkpoint runs before any `ship-change` step executes
 - **AND** it reads the tree that already includes the `origin/develop` merge from step 2.5
 
@@ -39,6 +43,12 @@ reaches `ship-change`.
 - **WHEN** `ship-it` stops at entry because `SHIP_IT_BLOCKED.md` exists
 - **THEN** the review checkpoint does not run
 - **AND** no `ship-change` step runs
+
+#### Scenario: Unresolved CodeQL alert prevents the review
+
+- **WHEN** step 4.4b reports a new CodeQL alert that is neither fixed nor accepted
+- **THEN** the review checkpoint does not run
+- **AND** no reviewer model call is spent
 
 ### Requirement: The reviewer is fed the diff and the change's intent
 

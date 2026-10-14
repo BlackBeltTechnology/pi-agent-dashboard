@@ -31,7 +31,7 @@
 
 - [x] 6.1 Before the switch, export the dismissed alerts (`gh api repos/{owner}/{repo}/code-scanning/alerts?state=dismissed --paginate`) into `openspec/changes/add-local-codeql-ratchet/evidence/dismissed-alerts.json`.
 - [ ] 6.2 Before ship-change pushes the PR, a repo admin runs `gh api -X PATCH repos/{owner}/{repo}/code-scanning/default-setup -f state=not-configured` and confirms `state` is `not-configured` (design D10).
-- [ ] 6.3 After the first advanced analysis on `develop`: categories are the three `/language:*` values; every exported dismissal is still dismissed, else re-dismiss it with its original reason and comment matched by (rule, path, start line) (design D10); alerts in ignored paths are closed; the CI rule set equals a local run's for `javascript-typescript` and `actions` (test-plan: manual-only, #M4).
+- [x] 6.3 After the first advanced analysis on `develop`: categories are the three `/language:*` values; every exported dismissal is still dismissed, else re-dismiss it with its original reason and comment matched by (rule, path, start line) (design D10); alerts in ignored paths are closed; the CI rule set equals a local run's for `javascript-typescript` and `actions` (test-plan: manual-only, #M4).
 
 ## 7. Tests
 
@@ -72,11 +72,11 @@
 - [x] 7.35 L1 test in `scripts/__tests__/codeql-local-cli.test.mjs` (new; fake `CODEQL_BIN` from `scripts/__tests__/fixtures/fake-codeql.mjs` + temp git repos; exemplar `check-conventions.test.mjs`): input lock with live PID+start time; lock with dead PID · trigger analysis and `--prune` · observable live: both exit 2, baseline unchanged; dead: lock taken over (test-plan #X4)
 - [x] 7.36 L1 test in `scripts/__tests__/codeql-local-cli.test.mjs` (new; fake `CODEQL_BIN` from `scripts/__tests__/fixtures/fake-codeql.mjs` + temp git repos; exemplar `check-conventions.test.mjs`): input work baseline duplicate key; ref baseline reason `because`; ref `nope/missing` · trigger `--check-baseline-diff` · observable each exit 2 (test-plan #X5)
 - [x] 7.37 L2 test in `scripts/__tests__/codeql-local-real.test.mjs` (new; `describe.skipIf` no CodeQL): input real HOME + proxy blackhole; empty HOME + proxy blackhole · trigger run on tiny repo · observable cached completes; uncached exit 0 `CODEQL SKIPPED:` within 150 s (test-plan #X6)
-- [ ] 7.38 Manual check (test-plan: manual-only, #M1): run `ship-it` interactively on a change that adds one cleartext-logging alert and edits a line under a seeded entry; confirm prune+stage, one question without the `operator-authz` preset, accept staged, closing check passes, 4.5 runs.
-- [ ] 7.39 Manual check (test-plan: manual-only, #M2): run the same change headless; confirm `SHIP_IT_BLOCKED.md` lists the alert with resolution steps, exit non-zero, no 4.5/ship-change, planning artifacts untouched.
-- [ ] 7.40 Manual check (test-plan: manual-only, #M3): in M2's run output, confirm no reviewer model call was made.
+- [x] 7.38 Manual check (test-plan: manual-only, #M1): run `ship-it` interactively on a change that adds one cleartext-logging alert and edits a line under a seeded entry; confirm prune+stage, one question without the `operator-authz` preset, accept staged, closing check passes, 4.5 runs.
+- [x] 7.39 Manual check (test-plan: manual-only, #M2): run the same change headless; confirm `SHIP_IT_BLOCKED.md` lists the alert with resolution steps, exit non-zero, no 4.5/ship-change, planning artifacts untouched.
+- [x] 7.40 Manual check (test-plan: manual-only, #M3): in M2's run output, confirm no reviewer model call was made.
 
 ## 8. Validate
 
-- [ ] 8.1 `openspec validate add-local-codeql-ratchet --strict` passes.
-- [ ] 8.2 `npm test` green.
+- [x] 8.1 `openspec validate add-local-codeql-ratchet --strict` passes.
+- [x] 8.2 `npm test` green.
