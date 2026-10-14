@@ -542,7 +542,7 @@ export function PiSettingsSection({
           )}
 
           {status && (
-            <div data-testid="pi-settings-save-status" className="text-xs text-[var(--accent-green)]">
+            <div data-testid="pi-settings-save-status" className="text-xs text-[var(--severity-success-fg)]">
               {status}
             </div>
           )}
