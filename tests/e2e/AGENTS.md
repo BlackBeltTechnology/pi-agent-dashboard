@@ -1,6 +1,6 @@
 # DOX — tests/e2e
 
-One row per file. See change: migrate-file-index-to-agents-tree.
+One row per file.
 
 | File | Purpose |
 |------|---------|
@@ -13,6 +13,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `agent-path-gate.spec.ts` | L3 path gate. → see `agent-path-gate.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | L3 #F1/#F5 service-session arc… → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | L3 F8/F11 archived attachment. → see `archived-attachment.spec.ts.AGENTS.md` |
+| `composer-liveness-reload.spec.ts` | L3 → see `composer-liveness-reload.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
 | `first-run-create-project.spec.ts` | F16/F17 → see `first-run-create-project.spec.ts.AGENTS.md` |
