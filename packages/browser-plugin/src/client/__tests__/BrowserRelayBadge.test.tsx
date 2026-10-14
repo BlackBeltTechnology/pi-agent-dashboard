@@ -158,3 +158,44 @@ describe("gate / render agreement (#E2) and malformed frames (#X3)", () => {
 	});
 });
 
+describe("menu placement near the viewport bottom", () => {
+	const rect = (top: number, height: number) =>
+		({ top, bottom: top + height, left: 40, right: 140, width: 100, height, x: 40, y: top, toJSON: () => ({}) }) as DOMRect;
+
+	it("flips above the badge when the menu would overflow the viewport (fix-empty-status-subcard)", async () => {
+		const inner = vi.spyOn(window, "innerHeight", "get").mockReturnValue(720);
+		const spy = vi
+			.spyOn(Element.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: Element) {
+				return this.getAttribute("data-testid") === "browser-relay-menu" ? rect(0, 67) : rect(705, 19);
+			});
+		try {
+			const { getByTestId } = await mount(1);
+			fireEvent.click(getByTestId("browser-relay-badge"));
+			const menu = getByTestId("browser-relay-menu");
+			// Below would be 705+19+4 = 728 (> 720). Above: 705 - 67 - 4 = 634.
+			await waitFor(() => expect(menu.style.top).toBe("634px"));
+		} finally {
+			spy.mockRestore();
+			inner.mockRestore();
+		}
+	});
+
+	it("stays below the badge when there is room", async () => {
+		const inner = vi.spyOn(window, "innerHeight", "get").mockReturnValue(720);
+		const spy = vi
+			.spyOn(Element.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: Element) {
+				return this.getAttribute("data-testid") === "browser-relay-menu" ? rect(0, 67) : rect(100, 19);
+			});
+		try {
+			const { getByTestId } = await mount(1);
+			fireEvent.click(getByTestId("browser-relay-badge"));
+			expect(getByTestId("browser-relay-menu").style.top).toBe("123px");
+		} finally {
+			spy.mockRestore();
+			inner.mockRestore();
+		}
+	});
+});
+

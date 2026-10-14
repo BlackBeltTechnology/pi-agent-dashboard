@@ -18,7 +18,7 @@
 import { openPluginTabRoute, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { relayTabsOf, useRelayStatus } from "./relay-store.js";
 import { browserTabPath } from "./tab-path.js";
@@ -49,6 +49,19 @@ export function BrowserRelayBadge({ session }: { session: DashboardSession }): R
     setOpen(false);
     if (refocus) triggerRef.current?.focus();
   }, []);
+
+  // The menu is `position: fixed` below the badge; a card near the bottom of the
+  // viewport would put it off-screen (and unreachable). Flip it above the badge
+  // once its height is known. Terminates: after the flip it fits (or clamps to 4).
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const trigger = triggerRef.current;
+    if (!open || !pos || !menu || !trigger) return;
+    const height = menu.getBoundingClientRect().height;
+    if (pos.top + height <= window.innerHeight - 4) return;
+    const top = Math.max(4, trigger.getBoundingClientRect().top - height - 4);
+    if (top !== pos.top) setPos({ ...pos, top });
+  }, [open, pos]);
 
   // Focus the first item on open; close on outside press.
   useEffect(() => {
