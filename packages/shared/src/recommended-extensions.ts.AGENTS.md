@@ -11,3 +11,5 @@ See change: align-ui-with-theme-tokens. Subagents blurb "no background sessions.
 ## add-photocraft-plugin
 
 Adds the `@blackbelt-technology/pi-dashboard-photocraft` optional entry (npm: source; unlocks photocraft skill + `pi-photocraft` CLI). See change: add-photocraft-plugin.
+
+Replaces that entry with `@blackbelt-technology/pi-dashboard-craft-apps` (optional, npm: source; unlocks the `craft-studio` router skill + 13 per-app skills, `pi-craft` CLI, `pi-photocraft` alias). See change: add-craft-apps-core.

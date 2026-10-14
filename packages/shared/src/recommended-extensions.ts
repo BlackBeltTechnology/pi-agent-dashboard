@@ -617,18 +617,22 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		],
 	},
 	{
-		id: "@blackbelt-technology/pi-dashboard-photocraft",
-		source: "npm:@blackbelt-technology/pi-dashboard-photocraft",
-		displayName: "pi-dashboard-photocraft",
+		id: "@blackbelt-technology/pi-dashboard-craft-apps",
+		source: "npm:@blackbelt-technology/pi-dashboard-craft-apps",
+		displayName: "pi-dashboard-craft-apps",
 		fallbackDescription:
-			"Headless PhotoCraft image editing: provisions the photocraft-cli binary " +
-			"on demand, exposes it over bash and a project-confined MCP server, and " +
-			"adds replace-region (pixel-exact generative part-replacement with " +
-			"pi-nano-banana). Exposes the pi-photocraft CLI.",
+			"Headless ArtCraft Crafting Apps (PhotoCraft, VectorCraft, FilmCraft, " +
+			"LightCraft, PdfCraft, EffectCraft, DesignCraft, FigCraft, WordCraft, " +
+			"SoundCraft, DeckCraft, CADCraft, GridCraft): provisions each app's CLI on " +
+			"demand, exposes it over bash and per-app confined MCP servers, verifies " +
+			"outputs mechanically (pi-craft verify) and adds PhotoCraft replace-region " +
+			"(generative part-replacement with pi-nano-banana). Supersedes " +
+			"pi-dashboard-photocraft. Exposes the pi-craft and pi-photocraft CLIs.",
 		status: "optional",
 		unlocks: [
-			"photocraft skill (headless local image editing, combined with nano-banana)",
-			"pi-photocraft CLI",
+			"craft-studio router skill + 13 per-app skills (headless creative work: image, video, audio, PDF, documents, slides, spreadsheets, CAD)",
+			"pi-craft CLI (apps, install, exec, verify, per-app MCP)",
+			"pi-photocraft CLI (compatibility alias; replace-region)",
 		],
 	},
 ];
