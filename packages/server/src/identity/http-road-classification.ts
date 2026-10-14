@@ -66,6 +66,7 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   "canvas-types": "config",
   "auto-name-outcomes": "config",
   "pi-retry": "config",
+  "pi-settings": "config",
   // providers / models
   providers: "providers",
   "provider-auth": "providers",

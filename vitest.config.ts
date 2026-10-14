@@ -65,6 +65,8 @@ export default defineConfig({
       "packages/untrusted-content-guard",
       "packages/mockup-loop",
       "packages/nano-banana",
+      "packages/craft-apps",
+      // photocraft: deprecation shim (change: add-craft-apps-core) — forwards pi-photocraft to craft-apps.
       "packages/photocraft",
       "packages/video-production",
       // music-production (change: add-music-production-skills): skill-text and

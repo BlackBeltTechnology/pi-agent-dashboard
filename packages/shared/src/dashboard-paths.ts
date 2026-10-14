@@ -52,6 +52,18 @@ function expandTilde(p: string, env?: DashboardPathsEnv): string {
 }
 
 /**
+ * Resolve pi's agent directory (home of `settings.json`). Mirrors pi's
+ * `getAgentDir()`: `$PI_CODING_AGENT_DIR` (trimmed, tilde-expanded) else
+ * `~/.pi/agent`. Whitespace-only is treated as unset. Same test seams as
+ * {@link resolvePiSessionsDir} (`agentDirEnv`, `homedir`).
+ * See change: edit-pi-agent-settings (design D5).
+ */
+export function resolvePiAgentDir(env?: DashboardPathsEnv): string {
+  const t = (env?.agentDirEnv ?? process.env.PI_CODING_AGENT_DIR)?.trim();
+  return t ? expandTilde(t, env) : path.join(env?.homedir ?? os.homedir(), ".pi", "agent");
+}
+
+/**
  * Resolve the pi sessions root the dashboard scans. Precedence:
  *   1. `config.json#piSessionsDir`            (highest)
  *   2. `process.env.PI_CODING_AGENT_SESSION_DIR`

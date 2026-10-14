@@ -1,0 +1,25 @@
+# Shared CodeQL configuration: read by BOTH the advanced-setup workflow
+# (.github/workflows/codeql.yml, `config-file:`) and the local ratchet
+# (scripts/codeql-local.mjs, which translates each `paths-ignore` glob into one
+# LGTM_INDEX_FILTERS `exclude:` line — the extractor filter that works offline).
+#
+# Only test, e2e, QA and mockup / design-scratch code is ignored. Non-test
+# scripts stay analyzed: publish.yml / nightly.yml run them with publish-scope
+# tokens. Every glob must stay expressible as an extractor filter.
+# See change: add-local-codeql-ratchet.
+name: pi-dashboard
+queries: [] # suite defaults: code-scanning (local) / default (CI)
+paths-ignore:
+  - "**/__tests__/**"
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.test.mjs"
+  - "**/*.spec.ts"
+  - tests/**
+  - qa/**
+  - "scripts/**/__tests__/**"
+  - mockups/**
+  - "**/mockups/**"
+  - "openspec/changes/**/mockup*"
+  - site/design-scratch/**
+  - "**/e2e/**"

@@ -261,6 +261,7 @@ import { PUBLIC_PAIRING_PREFIXES, registerPairingRoutes } from "./routes/pairing
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
+import { registerPiSettingsRoutes } from "./routes/pi-settings-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
@@ -2263,22 +2264,23 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // connected session so a saved policy applies without a manual restart
   // (pi reads its settings only at session construction). See change:
   // retry-forever-with-stop-control.
-  registerPiRetryRoutes(fastify, {
-    networkGuard,
-    reloadConnectedSessions: () => {
-      // Fire-and-forget by contract (the route answers with the target count,
-      // not per-session outcomes), but the rejection is OWNED: `dispatchReload`
-      // reports failures as terminal `command_feedback`, so a throw here is a
-      // bug and must be logged rather than becoming an unhandled rejection.
-      const ids = reloadFanOutTargets();
-      for (const id of ids) {
-        dispatchReload(id).catch((err) => {
-          console.error(`[dashboard] retry-policy reload fan-out failed for ${id}:`, err);
-        });
-      }
-      return ids.length;
-    },
-  });
+  const reloadConnectedSessions = () => {
+    // Fire-and-forget by contract (the route answers with the target count,
+    // not per-session outcomes), but the rejection is OWNED: `dispatchReload`
+    // reports failures as terminal `command_feedback`, so a throw here is a
+    // bug and must be logged rather than becoming an unhandled rejection.
+    const ids = reloadFanOutTargets();
+    for (const id of ids) {
+      dispatchReload(id).catch((err) => {
+        console.error(`[dashboard] pi-settings reload fan-out failed for ${id}:`, err);
+      });
+    }
+    return ids.length;
+  };
+  registerPiRetryRoutes(fastify, { networkGuard, reloadConnectedSessions });
+  // pi global settings.json editor (typed form + raw JSON) and the
+  // default-model mirror/drift repair. See change: edit-pi-agent-settings.
+  registerPiSettingsRoutes(fastify, { networkGuard, reloadConnectedSessions, readDashboardConfig: loadConfig });
   registerGitRoutes(fastify, {
     networkGuard, sessionManager, browserGateway, worktreeInitRegistry,
     sendToSession: (id, msg) => piGateway.sendToSession(id, msg),

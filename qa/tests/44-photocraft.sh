@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test: @blackbelt-technology/pi-dashboard-photocraft installs and provisions on a clean VM.
+# Test: @blackbelt-technology/pi-dashboard-photocraft (deprecation shim -> craft-apps) installs and provisions on a clean VM.
 #
 # L2 smoke (macOS arm64/x64, Linux x86_64), change: add-photocraft-plugin
 # (test-plan #E36, #E37). Catches what unit tests cannot:
@@ -36,8 +36,8 @@ npm install --no-audit --no-fund --silent @blackbelt-technology/pi-dashboard-pho
 NPM_RC=$?
 set -e
 if [ "$NPM_RC" -ne 0 ]; then
-  # Pre-publish QA fallback: pack the local workspaces (photocraft + its nano-banana dep).
-  for pkg in nano-banana photocraft; do
+  # Pre-publish QA fallback: pack the local workspaces (the photocraft shim + craft-apps + nano-banana).
+  for pkg in nano-banana craft-apps photocraft; do
     if [ ! -d "$REPO_ROOT/packages/$pkg" ]; then
       echo "FAIL: npm install failed AND no local workspace packages/$pkg"
       exit 1
@@ -45,8 +45,9 @@ if [ "$NPM_RC" -ne 0 ]; then
   done
   echo "NOTE: registry install failed (pre-publish?); packing the local workspaces"
   NB_TGZ=$(cd "$REPO_ROOT/packages/nano-banana" && npm pack --silent --pack-destination "$WORK" | tail -1)
+  CA_TGZ=$(cd "$REPO_ROOT/packages/craft-apps" && npm pack --silent --pack-destination "$WORK" | tail -1)
   PC_TGZ=$(cd "$REPO_ROOT/packages/photocraft" && npm pack --silent --pack-destination "$WORK" | tail -1)
-  npm install --no-audit --no-fund --silent "$WORK/$NB_TGZ" "$WORK/$PC_TGZ"
+  npm install --no-audit --no-fund --silent "$WORK/$NB_TGZ" "$WORK/$CA_TGZ" "$WORK/$PC_TGZ"
 fi
 
 PC="$WORK/node_modules/.bin/pi-photocraft"

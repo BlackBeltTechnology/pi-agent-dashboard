@@ -4,12 +4,14 @@ Files in this directory. One row per source file.
 
 | File | Purpose |
 |------|---------|
+| `__tests__/codeql-workflow-contract.test.ts` | Static contract for `.github/workflows/codeql.yml` (#E1): matrix `actions`/`javascript-typescript`/`python`, category `/language:${{ matrix.language }}`, shared `config-file`, `build-mode: none`, develop push+PR+schedule, `security-events: write`, no cache/install step. See change: add-local-codeql-ratchet. |
 | `__tests__/config-pairing.test.ts` | #E1: `pairing.acceptLanRequests` loader — default false, non-boolean → false. See change: add-lan-knock-pairing. |
 | `__tests__/client-build-deps-runtime.test.ts` | Repo-lint (#E6): client `package.json` declares `vite`, `@vitejs/plugin-react`, `@tailwindcss/vite`,… → see `__tests__/client-build-deps-runtime.test.ts.AGENTS.md` |
 | `__tests__/ci-vitest-report-artifact.test.ts` | Repo-lint: every vitest job in `ci.yml` uploads its own JSON report `if: always()`. → see `__tests__/ci-vitest-report-artifact.test.ts.AGENTS.md` |
 | `__tests__/ci-affected-selection-contract.test.ts` | Parallel `ci.yml` contract (E30). → see `__tests__/ci-affected-selection-contract.test.ts.AGENTS.md` |
 | `__tests__/client-no-node-subjects-import.test.ts` | Import guard: client never imports Node-only `forbidden-subjects`/`canonical-subject`. See change: ask-agent-file-access-in-chat. |
 | `__tests__/nightly-tests-workflow-contract.test.ts` | Repo-lint for `nightly-tests.yml` (E31). → see `__tests__/nightly-tests-workflow-contract.test.ts.AGENTS.md` |
+| `__tests__/ship-it-codeql-wiring.test.ts` | Static wiring guard (#E30): `ship-it` step 4.4 lists the CodeQL baseline-diff check; step 4.4b sits between 4.4 and 4.5 and documents prune/accept/ask_user/`--no-growth`/`SHIP_IT_BLOCKED.md`/retry-abort/revert-abort. See change: add-local-codeql-ratchet. |
 | `__tests__/test-collection-completeness.test.ts` | Every test-bearing `packages/*` collected by root projects or excluded with a reason (E28). → see `__tests__/test-collection-completeness.test.ts.AGENTS.md` |
 | `__tests__/e2e-browser-workflow-contract.test.ts` | Repo-lint contract for `.github/workflows/ci-e2e-browser.yml` (change: stabilize-browser-e2e, #433 part 2). → see `__tests__/e2e-browser-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/e2e-fixme-guard.test.ts` | Repo-lint: conditional `test.fixme` must link an issue; file-level conditional `test.skip` must link an issue or name a spec-running CI job. → see `__tests__/e2e-fixme-guard.test.ts.AGENTS.md` |
@@ -82,6 +84,7 @@ Files in this directory. One row per source file.
 | `pairing-knock.ts` | Knock vocabulary shared by server + client: `KNOCK_REFUSALS`, `KnockRefusal`, `PairingProvenance`, `isKnockRefusal`. Names every `POST /api/pair/request` refusal + pending provenance. See change: add-lan-knock-pairing. Also `KNOCK_REFUSAL_COPY`/`knockRefusalCopy` (shared wording). See change: add-electron-server-windows. |
 | `path-containment.ts` | Boundary-correct `isPathInside(parent, child, platform?)` (sibling prefix `/repo-other` is NOT inside `/repo`). Relocated from `packages/server/src/session/active-sessions-in-cwd.ts` so the shared OpenSpec detector can cwd-scope. See change: scope-openspec-auto-attach-to-session-cwd. |
 | `pi-package-resolver.ts` | Walks `~/.pi/agent/settings.json#packages[]` + per-workspace `<cwd>/.pi/settings.json`. → see `pi-package-resolver.ts.AGENTS.md` |
+| `pi-settings-keys.ts` | `PI_MANAGED_SETTINGS_KEYS` (`defaultProvider`,`defaultModel`,`defaultThinkingLevel`) — pi `settings.json` keys owned by the Default model control; read-only in the editor, excluded from its token. See change: edit-pi-agent-settings. |
 | `plugin-bridge-register.ts` | Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND… → see `plugin-bridge-register.ts.AGENTS.md` |
 | `project-name.ts` | Portable project-name rules + `isPortableProjectName` guard. → see `project-name.ts.AGENTS.md` |
 | `protocol.ts` | Extension↔Server WebSocket protocol. `ExtensionToServerMessage` + `ServerToExtensionMessage` unions. → see `protocol.ts.AGENTS.md` |

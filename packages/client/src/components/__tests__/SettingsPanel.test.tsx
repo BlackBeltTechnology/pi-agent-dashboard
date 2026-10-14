@@ -1798,3 +1798,78 @@ describe("SettingsPanel Add-ons rail + collapsed Plugins subtree", () => {
     expect(within(rail).getByTestId("nav-plugin-goal")).toBeTruthy();
   });
 });
+
+// pi settings section + default-model mirror notices (Sessions page).
+// See change: edit-pi-agent-settings.
+describe("SettingsPanel pi settings + default-model mirror", () => {
+  const MODELS = [{ provider: "openai", id: "gpt-4o", supportedThinkingLevels: ["off", "medium", "high"] }];
+
+  const json = (body: unknown) =>
+    Promise.resolve({ ok: true, headers: new Headers({ "content-type": "application/json" }), json: () => Promise.resolve(body) });
+
+  function mockFetch(putResponse: Record<string, unknown> = { success: true }) {
+    return vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/config" && options?.method === "PUT") return json(putResponse);
+      if (url === "/api/config") return json({ success: true, data: { ...mockConfig, defaultModel: "openai/gpt-4o" } });
+      if (url === "/api/pi-settings") return json({ success: true, settings: {}, raw: "", etag: "absent" });
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    setPath("/settings/sessions");
+  });
+  afterEach(() => cleanup());
+
+  async function saveThinkingHigh() {
+    await waitFor(() => screen.getByText("Default model"));
+    const selector = screen.getByTestId("thinking-level-selector");
+    fireEvent.click(within(selector).getByTestId("thinking-level-button"));
+    const dropdown = screen.getByTestId("thinking-level-dropdown");
+    fireEvent.click(Array.from(dropdown.querySelectorAll("button")).find((b) => b.textContent === "high")!);
+    await waitFor(() => screen.getByTestId("save-btn"));
+    fireEvent.click(screen.getAllByTestId("save-btn")[0]);
+  }
+
+  it("F11 a failed mirror shows a warning inside the Default model callout; the save still counts as saved", async () => {
+    global.fetch = mockFetch({ success: true, piMirror: { ok: false, error: "busy" } });
+    render(<SettingsPanel availableModels={MODELS} />);
+    await saveThinkingHigh();
+    const warning = await screen.findByTestId("default-model-pi-mirror-warning");
+    expect(warning.textContent).toMatch(/busy/);
+    expect(screen.getByText("Settings saved")).toBeTruthy();
+  });
+
+  it("F11 a skipped mirror shows an info notice", async () => {
+    global.fetch = mockFetch({ success: true, piMirror: { ok: true, skipped: "no-provider-separator" } });
+    render(<SettingsPanel availableModels={MODELS} />);
+    await saveThinkingHigh();
+    expect(await screen.findByTestId("default-model-pi-mirror-skipped")).toBeTruthy();
+    expect(screen.queryByTestId("default-model-pi-mirror-warning")).toBeNull();
+  });
+
+  it("F11 no piMirror in the response → no notice", async () => {
+    global.fetch = mockFetch({ success: true });
+    render(<SettingsPanel availableModels={MODELS} />);
+    await saveThinkingHigh();
+    await screen.findByText("Settings saved");
+    expect(screen.queryByTestId("default-model-pi-mirror-warning")).toBeNull();
+    expect(screen.queryByTestId("default-model-pi-mirror-skipped")).toBeNull();
+  });
+
+  it("F12 the pi settings section follows Retry on the Sessions page, with its notes", async () => {
+    global.fetch = mockFetch();
+    render(<SettingsPanel availableModels={MODELS} />);
+    const retry = await screen.findByTestId("retry-settings-section");
+    const pi = await screen.findByTestId("pi-settings-section");
+    expect(retry.compareDocumentPosition(pi) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // No other section sits between them.
+    const sections = Array.from(document.querySelectorAll("[data-testid='retry-settings-section'], [data-testid='pi-settings-section'], section"));
+    expect(sections.indexOf(pi)).toBeGreaterThan(sections.indexOf(retry));
+    await waitFor(() => expect(screen.getByTestId("pi-settings-reload-note").textContent).toMatch(/reloads running sessions/));
+    expect(screen.getByTestId("pi-settings-scope-note").textContent).toMatch(/global file only/);
+  });
+});

@@ -42,7 +42,7 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 				"@blackbelt-technology/pi-dashboard-frontend-patterns",
 				"@blackbelt-technology/pi-dashboard-video-production",
 				"@blackbelt-technology/pi-dashboard-nano-banana",
-				"@blackbelt-technology/pi-dashboard-photocraft",
+				"@blackbelt-technology/pi-dashboard-craft-apps",
 			].sort(),
 		);
 	});
@@ -212,20 +212,22 @@ describe("getRecommendedByStatus", () => {
 				"@blackbelt-technology/pi-dashboard-frontend-patterns",
 				"@blackbelt-technology/pi-dashboard-video-production",
 				"@blackbelt-technology/pi-dashboard-nano-banana",
-				"@blackbelt-technology/pi-dashboard-photocraft",
+				"@blackbelt-technology/pi-dashboard-craft-apps",
 			].sort(),
 		);
 	});
 });
 
-describe("photocraft entry", () => {
-	it("E22 is optional, npm-sourced and unlocks the skill + CLI", () => {
-		const entry = RECOMMENDED_EXTENSIONS.find((e) => e.id === "@blackbelt-technology/pi-dashboard-photocraft");
+describe("craft-apps entry", () => {
+	it("E22 is optional, npm-sourced and unlocks the router skill + CLIs; the superseded photocraft entry is gone", () => {
+		const entry = RECOMMENDED_EXTENSIONS.find((e) => e.id === "@blackbelt-technology/pi-dashboard-craft-apps");
 		expect(entry).toBeDefined();
 		expect(entry?.status).toBe("optional");
-		expect(entry?.source).toBe("npm:@blackbelt-technology/pi-dashboard-photocraft");
-		expect(entry?.unlocks.join(" ")).toMatch(/photocraft skill/);
-		expect(entry?.unlocks.join(" ")).toMatch(/pi-photocraft CLI/);
+		expect(entry?.source).toBe("npm:@blackbelt-technology/pi-dashboard-craft-apps");
+		expect(entry?.unlocks.join(" ")).toMatch(/craft-studio/);
+		expect(entry?.unlocks.join(" ")).toMatch(/per-app skills/);
+		expect(entry?.unlocks.join(" ")).toMatch(/pi-craft CLI/);
+		expect(RECOMMENDED_EXTENSIONS.some((e) => e.id === "@blackbelt-technology/pi-dashboard-photocraft")).toBe(false);
 	});
 });
 

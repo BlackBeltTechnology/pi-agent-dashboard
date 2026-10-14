@@ -19,6 +19,7 @@ import {
   getInstallerLogPath,
   getManagedDir,
   resolveLocalGatewayEndpoint,
+  resolvePiAgentDir,
   resolvePiSessionsDir,
   SUN_PATH_MAX,
 } from "../dashboard-paths.js";
@@ -227,5 +228,23 @@ describe("piSessionDirForCwd (add-team-plugin D15)", () => {
     const { piSessionDirForCwd } = await import("../dashboard-paths.js");
     const dir = piSessionDirForCwd("C:\\work\\repo", { piSessionsDir: "/s" });
     expect(path.basename(dir)).toBe("--C--work-repo--");
+  });
+});
+
+describe("resolvePiAgentDir (E5)", () => {
+  it("defaults to ~/.pi/agent under the supplied homedir", () => {
+    expect(resolvePiAgentDir({ homedir: "/h", agentDirEnv: "" })).toBe(path.join("/h", ".pi", "agent"));
+  });
+
+  it("uses PI_CODING_AGENT_DIR, trimmed", () => {
+    expect(resolvePiAgentDir({ homedir: "/h", agentDirEnv: "  /custom/agent  " })).toBe("/custom/agent");
+  });
+
+  it("expands a leading ~/ against homedir", () => {
+    expect(resolvePiAgentDir({ homedir: "/h", agentDirEnv: "~/alt" })).toBe(path.join("/h", "alt"));
+  });
+
+  it("treats whitespace-only as unset", () => {
+    expect(resolvePiAgentDir({ homedir: "/h", agentDirEnv: "   " })).toBe(path.join("/h", ".pi", "agent"));
   });
 });
