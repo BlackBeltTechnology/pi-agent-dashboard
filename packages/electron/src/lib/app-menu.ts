@@ -13,6 +13,7 @@ import { openDoctorWindow } from "./doctor-window.js";
 import { openRemoteConnectWindow, useLocalDashboard } from "./remote-connect-window.js";
 import { activationTarget, pickLocalFolder, stopUsingLocalFolder } from "./runtime-overlay.js";
 import { getActiveRuntimeContext, runRuntimeSwitch } from "./runtime-overlay-main.js";
+import { onServersMenuChanged, serversMenuItem } from "./servers-menu.js";
 
 /** True when running an unpackaged dev build; hides the update-check item. */
 function isDevMode(): boolean {
@@ -160,7 +161,14 @@ function runtimeSubmenu(): MenuItemConstructorOptions {
   };
 }
 
+let serversMenuWired = false;
+
 export function setupAppMenu(): void {
+  // Rebuild the app menu whenever the keyring changes (Servers submenu).
+  if (!serversMenuWired) {
+    serversMenuWired = true;
+    onServersMenuChanged(() => setupAppMenu());
+  }
   if (process.platform === "darwin") {
     const template: MenuItemConstructorOptions[] = [
       {
@@ -172,6 +180,7 @@ export function setupAppMenu(): void {
           { label: "View Update Log", click: () => handleViewUpdateLog() },
           { type: "separator" },
           { label: "Doctor...", click: () => showDoctorDialog() },
+          serversMenuItem(),
           { label: "Connect to Remote Dashboard…", click: () => openRemoteConnectWindow() },
           { label: "Use Local Dashboard", click: () => useLocalDashboard() },
           runtimeSubmenu(),
@@ -253,6 +262,7 @@ export function setupAppMenu(): void {
       label: "Doctor",
       click: () => showDoctorDialog(),
     },
+    serversMenuItem(),
     {
       label: "Connect to Remote Dashboard…",
       click: () => openRemoteConnectWindow(),

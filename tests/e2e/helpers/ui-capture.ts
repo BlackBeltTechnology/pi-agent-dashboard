@@ -5,6 +5,7 @@ import {
   buttonsWithoutFocusIndicator,
   contrastFailures,
   measureText,
+  overflowFailures,
   setThemeMode,
   sizeFailures,
 } from "./computed-contrast.js";
@@ -20,6 +21,7 @@ import { resolveEvidencePath } from "./evidence-path.js";
  * for an archived or missing change (#549: never conjure a change dir).
  *
  * See change: retro-ux-identity-connectivity (design D3).
+ * See change: fix-slot-pill-legend-and-stale-overflow (`overflowRoot` axis, design D4).
  */
 
 /** One reachable UI state of a surface. */
@@ -34,6 +36,13 @@ export interface UiState {
   open(page: Page): Promise<void>;
   /** The probe scope: the trigger for a closed selector, the portalled `role="menu"` for an open one. */
   root(page: Page): Locator;
+  /**
+   * Opt-in overflow probe: when set, nothing visible under this locator may
+   * paint outside its border box (see `overflowFailures`). Absent → `overflow: []`.
+   */
+  overflowRoot?(page: Page): Locator;
+  /** Selector for descendants exempt on the TOP edge only (e.g. the overhanging capsule legend). */
+  overflowTopExempt?: string;
 }
 
 export interface ThemeMode {
@@ -73,6 +82,8 @@ export interface CaptureResult {
   contrast: string[];
   size: string[];
   focus: string[];
+  /** Descendants painting outside `overflowRoot`; `[]` when the state declares none. */
+  overflow: string[];
 }
 
 /** Directory that receives evidence, or throws; only called when writing is enabled. */
@@ -127,6 +138,7 @@ async function captureCell(page: Page, state: UiState, tm: ThemeMode, width: num
     contrast: contrastFailures(measures),
     size: sizeFailures(measures),
     focus: await buttonsWithoutFocusIndicator(page, root),
+    overflow: state.overflowRoot ? await overflowFailures(state.overflowRoot(page), state.overflowTopExempt) : [],
   };
 }
 

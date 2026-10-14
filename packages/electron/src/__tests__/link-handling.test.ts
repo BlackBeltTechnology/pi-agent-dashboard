@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { decideWillNavigate, isAllowedExternalUrl, isSameOriginUrl, openExternalIfAllowed } from "../lib/link-handling.js";
+import { decideServerWindowNavigation, decideWillNavigate, isAllowedExternalUrl, isSameOriginUrl, openExternalIfAllowed } from "../lib/link-handling.js";
 
 describe("isSameOriginUrl", () => {
 	const origin = "http://localhost:8000";
@@ -176,4 +176,31 @@ describe("openExternal scheme allowlist (VD4)", () => {
 		}
 		expect(open).not.toHaveBeenCalled();
 	});
+});
+
+// ── Server-window navigation (add-electron-server-windows, test-plan E22) ──────
+
+describe("decideServerWindowNavigation (E22)", () => {
+  const origin = "http://192.168.16.204:8000";
+  it.each([
+    ["/settings", "allow"],
+    ["http://192.168.16.204:8000/x", "allow"],
+    ["https://example.com", "external"],
+    ["mailto:a@b", "external"],
+    ["file:///Applications/Calculator.app", "drop"],
+    ["ms-msdt:/id", "drop"],
+    ["http://[::1", "drop"], // unparseable
+    ["javascript:alert(1)", "drop"],
+    ["http://192.168.16.204:9000/", "external"], // other port ⇒ other origin
+  ])("%s ⇒ %s", (target, expected) => {
+    expect(decideServerWindowNavigation(origin, target)).toBe(expected);
+  });
+
+  it("an unparseable server origin drops everything", () => {
+    expect(decideServerWindowNavigation("not a url", "/x")).toBe("drop");
+  });
+
+  it("decideWillNavigate is unchanged: off-origin current page still allows", () => {
+    expect(decideWillNavigate(origin, "https://accounts.google.com/x", "https://accounts.google.com/y")).toBe("allow");
+  });
 });

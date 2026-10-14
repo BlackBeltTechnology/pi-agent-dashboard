@@ -653,7 +653,8 @@ describe("E28 advertised fp equals the proven identity", () => {
       return new Response(r.body, { status: r.statusCode });
     }) as typeof fetch;
     const proven = await proveServerIdentity("http://inject", { fetchImpl });
-    expect(proven).toEqual({ proven: txt.fp });
+    // the proof also carries the key whose possession was proven (callers may pin it)
+    expect(proven).toEqual({ proven: txt.fp, publicKey: identity.publicKeyB64 });
     stopAdvertising();
     mgr.dispose();
     await app.close();

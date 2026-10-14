@@ -31,9 +31,10 @@ describe("preload split (VD5)", () => {
     expect(exposed).toEqual(["piDashboard"]);
   });
 
-  it("T5: wizard preload still exposes remoteConnect + electron(doctor), and not piDashboard", async () => {
+  it("T5: wizard preload exposes only its trusted-page bridges (connecting, electron(doctor), remoteConnect), never piDashboard", async () => {
     await import("../preload.js");
-    expect([...exposed].sort()).toEqual(["electron", "remoteConnect"]);
+    // `connecting` = the bundled pairing-progress page (add-electron-server-windows); trusted file:// pages only.
+    expect([...exposed].sort()).toEqual(["connecting", "electron", "remoteConnect"]);
   });
 });
 
@@ -75,5 +76,46 @@ describe("main.ts wiring", () => {
     expect(forge).toContain('entry: "src/preload-main.ts"');
     expect(forge).toContain('config: "vite.preload-main.config.ts"');
     expect(read("vite.preload-main.config.ts")).toContain('entry: "src/preload-main.ts"');
+  });
+});
+
+// ── open-server-window capability gating (add-electron-server-windows, D9) ─────
+describe("preload-main: openServerWindow only on the local dashboard origin", () => {
+  const exposedApi: Array<Record<string, unknown>> = [];
+
+  async function loadWith(origin: string | undefined, locationOrigin: string) {
+    vi.resetModules();
+    exposedApi.length = 0;
+    vi.doMock("electron", () => ({
+      contextBridge: { exposeInMainWorld: (_k: string, api: Record<string, unknown>) => { exposedApi.push(api); } },
+      ipcRenderer: { invoke: vi.fn(async () => ({ ok: true })), send: vi.fn(), on: vi.fn(), removeListener: vi.fn() },
+    }));
+    const argv = process.argv;
+    process.argv = origin ? [...argv, `--pi-local-origin=${origin}`] : argv.filter((a) => !a.startsWith("--pi-local-origin="));
+    (globalThis as { location?: unknown }).location = { origin: locationOrigin };
+    try {
+      await import("../preload-main.js");
+    } finally {
+      process.argv = argv;
+    }
+    return exposedApi[0]!;
+  }
+
+  it("present when location.origin equals the passed local origin", async () => {
+    const api = await loadWith("http://localhost:8000", "http://localhost:8000");
+    expect(typeof api.openServerWindow).toBe("function");
+  });
+
+  it("absent for a remote-origin document (remote mode), a different origin, or no passed origin", async () => {
+    expect((await loadWith("http://localhost:8000", "http://192.168.16.204:8000")).openServerWindow).toBeUndefined();
+    expect((await loadWith("http://localhost:8000", "http://localhost:9000")).openServerWindow).toBeUndefined();
+    expect((await loadWith(undefined, "http://localhost:8000")).openServerWindow).toBeUndefined();
+  });
+
+  it("the bridge sends only host + port on servers:open-from-dashboard", async () => {
+    const api = await loadWith("http://localhost:8000", "http://localhost:8000");
+    const { ipcRenderer } = await import("electron");
+    await (api.openServerWindow as (t: unknown) => Promise<unknown>)({ host: "192.168.16.204", port: 8000, partition: "evil", url: "http://x/" });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith("servers:open-from-dashboard", { host: "192.168.16.204", port: 8000 });
   });
 });
