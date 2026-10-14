@@ -1970,6 +1970,19 @@ describe("SessionCard — Merge emphasis + working (#E13, #F7)", () => {
     expect(filled()).toEqual([]);
   });
 
+  // See change: fix-composer-liveness-on-reload (D7, test-plan #E13): card `working`
+  // uses the shared predicate — a recorded retry on an ENDED session is not working.
+  it.each([
+    ["ended + retrying", "ended", true, null],
+    ["idle + retrying", "idle", true, "true"],
+    ["active + retrying", "active", true, "true"],
+  ] as const)("%s → worktree actions gated=%s (retry never makes a terminal session working)", (_n, status, retrying, gated) => {
+    renderCard(wtSession("passing", { status }), COMPLETE, retrying);
+    for (const id of ["worktree-action-push", "worktree-action-merge"]) {
+      expect(screen.getByTestId(id).getAttribute("aria-disabled"), id).toBe(gated);
+    }
+  });
+
   it("idle → nothing gated", () => {
     renderCard(wtSession("passing"), COMPLETE);
     for (const id of ["archive-btn", "worktree-action-push", "worktree-action-merge"]) {

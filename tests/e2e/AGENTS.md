@@ -1,6 +1,6 @@
 # DOX — tests/e2e
 
-One row per file. See change: migrate-file-index-to-agents-tree.
+One row per file.
 
 | File | Purpose |
 |------|---------|
@@ -13,6 +13,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `agent-path-gate.spec.ts` | L3 path gate. → see `agent-path-gate.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | L3 #F1/#F5 service-session arc… → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | L3 F8/F11 archived attachment. → see `archived-attachment.spec.ts.AGENTS.md` |
+| `composer-liveness-reload.spec.ts` | L3 → see `composer-liveness-reload.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
 | `first-run-create-project.spec.ts` | F16/F17 → see `first-run-create-project.spec.ts.AGENTS.md` |
@@ -65,7 +66,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `ctx-running-render.spec.ts` | Browser E2E for `fix-ctx-running-render`. Drives… → see `ctx-running-render.spec.ts.AGENTS.md` |
 | `custom-entry-fallback.spec.ts` | L3 (change… → see `custom-entry-fallback.spec.ts.AGENTS.md` |
 | `custom-entry-om-renderer.spec.ts` | L3 (change: add-custom-entry-renderer-slot, F15). → see `custom-entry-om-renderer.spec.ts.AGENTS.md` |
-| `custom-entry-replay-parity.spec.ts` | L3 (change: render-inline-reasoning-and-cust… → see `custom-entry-replay-parity.spec.ts.AGENTS.md` |
+| `custom-entry-replay-parity.spec.ts` | L3 custom-entry replay parity → see `custom-entry-replay-parity.spec.ts.AGENTS.md` |
 | `custom-entry-web-search.spec.ts` | L3 F17/F18. → see `custom-entry-web-search.spec.ts.AGENTS.md` |
 | `dashboard-slash.spec.ts` | Browser E2E: spawn session → `/dashboard:server-health`… → see `dashboard-slash.spec.ts.AGENTS.md` |
 | `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home page… → see `directory-home.spec.ts.AGENTS.md` |
@@ -77,7 +78,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `ended-session-endedat.spec.ts` | L3 for the evidence-based `endedAt` invarian… → see `ended-session-endedat.spec.ts.AGENTS.md` |
 | `explicit-model-preserved.spec.ts` | L3 for `fix-default-model-clobbers-explicit-… → see `explicit-model-preserved.spec.ts.AGENTS.md` |
 | `extension-slash-inprocess.spec.ts` | L3 in-process extension slash dispatch (test… → see `extension-slash-inprocess.spec.ts.AGENTS.md` |
-| `enhance-tool-call-grouping.spec.ts` | Playwright spec for universal tool-call grou… → see `enhance-tool-call-grouping.spec.ts.AGENTS.md` |
+| `enhance-tool-call-grouping.spec.ts` | L3 tool-call grouping → see `enhance-tool-call-grouping.spec.ts.AGENTS.md` |
 | `error-lifecycle.spec.ts` | Playwright spec. Single-card error-lifecycle surface… → see `error-lifecycle.spec.ts.AGENTS.md` |
 | `faux-ask.spec.ts` | Faux-provider ask_user round trip. → see `faux-ask.spec.ts.AGENTS.md` |
 | `faux-text.spec.ts` | Playwright spec. Faux `[[faux:plain-text]]` roundtrip.… → see `faux-text.spec.ts.AGENTS.md` |
@@ -111,14 +112,14 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `history-backfill-gap.spec.ts` | L3. → see `history-backfill-gap.spec.ts.AGENTS.md` |
 | `history-backfill-perf.spec.ts` | L3 P1/P2 for `fix-lazy-history-backfill-ux`, metric… → see `history-backfill-perf.spec.ts.AGENTS.md` |
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artifacts… → see `inline-screenshot.spec.ts.AGENTS.md` |
-| `inline-terminal-transcript.spec.ts` | L3 gate for `preserve-inline-terminal-transc… → see `inline-terminal-transcript.spec.ts.AGENTS.md` |
+| `inline-terminal-transcript.spec.ts` | L3 inline-terminal transcript → see `inline-terminal-transcript.spec.ts.AGENTS.md` |
 | `kb-folder-slot.spec.ts` | Playwright spec. KB folder slot end-to-end in Docker… → see `kb-folder-slot.spec.ts.AGENTS.md` |
 | `lan-knock.spec.ts` | LAN knock L3 (F10–F14). → see `lan-knock.spec.ts.AGENTS.md` |
 | `large-session-replay.spec.ts` | L3 wire-level gate for `compact-warm-replay-stream`… → see `large-session-replay.spec.ts.AGENTS.md` |
 | `lazy-feature-bootstrap.spec.ts` | L3 cold-landing gate (F1, P1). → see `lazy-feature-bootstrap.spec.ts.AGENTS.md` |
 | `lazy-mdi-icon-set.spec.ts` | L3 lazy MDI icon set (P1, F2). → see `lazy-mdi-icon-set.spec.ts.AGENTS.md` |
 | `lifecycle.ts` | Shared E2E lifecycle module. Port dynamic: probes free… → see `lifecycle.ts.AGENTS.md` |
-| `list-models-registry-ready.spec.ts` | L3 `list_models` registry-readiness discrimi… → see `list-models-registry-ready.spec.ts.AGENTS.md` |
+| `list-models-registry-ready.spec.ts` | L3 `list_models` registry-ready → see `list-models-registry-ready.spec.ts.AGENTS.md` |
 | `manage-worktrees.spec.ts` | L3 for the manage-worktrees surface (test-plan F4, F3, F7… → see `manage-worktrees.spec.ts.AGENTS.md` |
 | `mcp-client-folder-mobile.spec.ts` | L3 mobile folder MCP page → see `mcp-client-folder-mobile.spec.ts.AGENTS.md` |
 | `mcp-client-settings-a11y.spec.ts` | L3 mcp-client settings a11y → see `mcp-client-settings-a11y.spec.ts.AGENTS.md` |
