@@ -7,13 +7,13 @@ import { useMobile } from "../../hooks/useMobile.js";
 import { useToolFullResult } from "../../hooks/useToolFullResult.js";
 import type { ChatImage } from "../../lib/chat/event-reducer.js";
 import { TRUNCATION_MARKER_PREFIX } from "../../lib/chat/event-reducer.js";
+import type { NestedCallState } from "../../lib/chat/nested-tool-calls.js";
 import { getSummary } from "../../lib/chat/tool-summary.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { ElapsedBadge } from "../session/ElapsedBadge.js";
-import type { NestedCallState } from "../../lib/chat/nested-tool-calls.js";
-import { NestedToolCallList } from "./NestedToolCallList.js";
 import { getToolRenderer, type ToolContext } from "../tool-renderers/index.js";
+import { NestedToolCallList } from "./NestedToolCallList.js";
 import { type StopController, ToolStopControl, useToolStopState } from "./ToolStopControl.js";
 
 /**
@@ -250,18 +250,20 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
         <div className="mt-1 ml-4 p-2 bg-[var(--bg-secondary)] rounded-xl shadow-md border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] overflow-x-auto">
           <ErrorBoundary>
             {PluginComponent && pluginClaim ? (
-              <CurrentPluginLayer pluginId={pluginClaim.pluginId}>
-                <PluginComponent
-                  toolName={toolName}
-                  toolInput={args ?? {}}
-                  sessionId={context.sessionId ?? ""}
-                  status={status}
-                  result={displayResult}
-                  images={images}
-                  context={context}
-                  toolDetails={toolDetails}
-                />
-              </CurrentPluginLayer>
+              <React.Suspense fallback={null}>
+                <CurrentPluginLayer pluginId={pluginClaim.pluginId}>
+                  <PluginComponent
+                    toolName={toolName}
+                    toolInput={args ?? {}}
+                    sessionId={context.sessionId ?? ""}
+                    status={status}
+                    result={displayResult}
+                    images={images}
+                    context={context}
+                    toolDetails={toolDetails}
+                  />
+                </CurrentPluginLayer>
+              </React.Suspense>
             ) : (
               <Renderer
                 toolName={toolName}

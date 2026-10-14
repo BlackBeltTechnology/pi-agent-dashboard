@@ -56,7 +56,7 @@ CLI bins keep the shorter `pi-estimate*` stem by choice — they are typed by ha
 - `src/engine/` — zero-dependency arithmetic: sizing, effort, roles, modes, simulation, business case, reporting, xlsx
 - `src/telemetry/` — session-store adapter; the only workspace-dependent module
 - `src/bin/` — CLI implementations (estimate, calibrate, calibrate-sessions)
-- `src/client/` — dashboard plugin client (`CostView`, `CostSettings`)
+- `src/client/` — dashboard plugin client (`CostView`, `CostSettings` in `CostEstimator.tsx`, lazy via manifest `module`; `index.tsx` is intentionally empty). See change: lazy-plugin-claim-modules.
 - `src/server/` — dashboard plugin server (`GET /api/cost-estimator/telemetry`, 60s cache)
 - `src/__tests__/` — 68 vitest tests, incl. `manifest-claims.test.ts` (no predicate-less `content-view` claim; `cost` command-route survives)
 - `.pi/skills/software-cost-estimator/` — the skill: SKILL.md, references/, assets/

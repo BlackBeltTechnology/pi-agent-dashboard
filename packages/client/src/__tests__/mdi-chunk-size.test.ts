@@ -29,10 +29,16 @@ const MDI_MARKER = "mdiZodiacAquarius";
 //   entry `index-*.js` gz: 950,470 B → 694,038 B (−256,432 B; 689,543 B before
 //   merging retro-ux-credential-vault, whose vault.* keys stay in the entry)
 //   landing graph gz total (entry + modulepreload closure): 1,391,815 B → 1,135,386 B
-// Cap = measured + CI skew rounded up to the next 10 KiB = 690 KiB (spec
-// ceiling 800 KiB). Do not raise it again without a size win first — lazy a
-// subsystem instead.
-const INDEX_GZ_CAP_BYTES = 690 * 1024;
+// lazy-plugin-claim-modules (2026-10-14): plugin claim components (settings,
+// overlay boards, flow dashboard/graph, blackhole pipeline view, MCP folder
+// page, …) moved behind manifest `module` lazy chunks. Measured, same base,
+// local build:
+//   entry `index-*.js` gz: 690,616 B → 584,020 B (−106,596 B)
+//   landing graph gz total: 1,135,756 B → 1,028,118 B (−107,638 B)
+// Cap = measured + CI skew (~0.4%) rounded up to the next 10 KiB = 580 KiB
+// (spec ceiling 800 KiB). Do not raise it again without a size win first —
+// lazy a subsystem instead.
+const INDEX_GZ_CAP_BYTES = 580 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");
@@ -127,8 +133,10 @@ function walkSrc(dir: string, out: string[] = []): string[] {
 const LAZY_SUBSYSTEMS: ReadonlyArray<{
   name: string;
   marker: string;
-  /** Source files (relative to src/) allowed to contain the marker; `[]` = none (third-party). */
+  /** Source files (relative to `root`) allowed to contain the marker; `[]` = none (third-party). */
   owners: readonly string[];
+  /** Source root the owners are relative to and the uniqueness scan walks. Default: client `src/`. */
+  root?: string;
 }> = [
   { name: "katex", marker: "KaTeX parse error", owners: [] },
   {
@@ -146,14 +154,24 @@ const LAZY_SUBSYSTEMS: ReadonlyArray<{
     marker: "settings-restart-pending-dot",
     owners: ["components/settings/SettingsPanel.tsx"],
   },
+  // Flow dashboard graph: a `module` claim (`FlowDashboardClaim`), so dagre/d3/
+  // lodash behind FlowGraph stay off the landing graph.
+  // See change: lazy-plugin-claim-modules.
+  {
+    name: "flow graph (lazy plugin claim module)",
+    marker: "flow-dag-graph",
+    owners: ["client/FlowGraph.tsx"],
+    root: path.resolve(here, "../../../flows-plugin/src"),
+  },
 ];
 
 describe("on-demand subsystems are off the cold landing (shrink-client-entry-lazy-islands)", () => {
-  for (const { name, marker, owners } of LAZY_SUBSYSTEMS) {
+  for (const { name, marker, owners, root: scanRoot } of LAZY_SUBSYSTEMS) {
     it(`${name}: marker is unique to its subsystem's source`, () => {
-      const holders = walkSrc(srcDir)
+      const root = scanRoot ?? srcDir;
+      const holders = walkSrc(root)
         .filter((f) => readFileSync(f, "utf8").includes(marker))
-        .map((f) => path.relative(srcDir, f).split(path.sep).join("/"));
+        .map((f) => path.relative(root, f).split(path.sep).join("/"));
       expect(holders).toEqual([...owners]);
     });
 

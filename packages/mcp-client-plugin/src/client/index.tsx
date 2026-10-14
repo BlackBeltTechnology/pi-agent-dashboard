@@ -4,6 +4,4 @@
  * section 8.
  */
 
-export { FolderMcpPage } from "./FolderMcpPage.js";
 export { FolderMcpSection } from "./FolderMcpSection.js";
-export { McpSettingsClaim } from "./McpSettings.js";

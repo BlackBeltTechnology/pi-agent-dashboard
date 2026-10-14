@@ -8,7 +8,5 @@
  * See change: add-browser-relay; add-browser-editor-pane-tab.
  */
 export { catalog } from "../i18n.js";
-export { BrowserPaneTab } from "./BrowserPaneTab.js";
 export { BrowserRelayBadge } from "./BrowserRelayBadge.js";
-export { BrowserSettings } from "./BrowserSettings.js";
 export { BrowserTabLabel } from "./BrowserTabLabel.js";

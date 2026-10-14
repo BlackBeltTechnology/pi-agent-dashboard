@@ -46,6 +46,7 @@
       {
         "slot": "settings-section",
         "component": "BlackholeSettings",
+        "module": "./src/client/BlackholeSettings.tsx",
         "tab": "general"
       },
       {
@@ -56,6 +57,7 @@
       {
         "slot": "content-view",
         "component": "PipelineDetailView",
+        "module": "./src/client/PipelineDetailView.tsx",
         "predicate": "isPipelineDetailActive"
       },
       {

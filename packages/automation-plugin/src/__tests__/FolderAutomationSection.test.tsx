@@ -119,7 +119,8 @@ describe("FolderAutomationSection", () => {
     const { store, getByTestId } = renderSection("/r");
     await waitFor(() => getByTestId("folder-automation-open-board"));
     act(() => store.getItems("/r")[0]!.onSelect());
-    expect(getByTestId("create-automation-dialog")).toBeTruthy();
+    // The dialog is `lazy()` (change: lazy-plugin-claim-modules) — await its chunk.
+    await waitFor(() => expect(getByTestId("create-automation-dialog")).toBeTruthy());
     expect(setLocation).not.toHaveBeenCalled();
   });
 });
