@@ -12,6 +12,11 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Edit pi's global settings from the dashboard.** Settings → Sessions gains a
+  "pi settings (global)" section over `~/.pi/agent/settings.json`: a typed Form for the
+  common keys and a JSON editor for the whole file. Writes share pi's own lock, replace the
+  file atomically, and answer `409` instead of clobbering a change made elsewhere. Saving
+  reloads running sessions. See [`docs/pi-settings-editor.md`](docs/pi-settings-editor.md).
 - **Search a repository's git history with `kb_search`.** `kb_search({scope: "git"})` and
   `kb_get({scope: "git", path: "commit/<sha>" | "pr/<n>" | "issue/<n>"})` cover commits,
   pull/merge requests and issues (GitHub via `gh`, GitLab via `glab`, Gitea/Forgejo/Codeberg
@@ -141,6 +146,10 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **The dashboard default model now reaches pi.** Saving a Default model or thinking level
+  also writes pi's own `defaultProvider`/`defaultModel`/`defaultThinkingLevel`, so sessions
+  pi builds itself (including subagents) no longer disagree with the dashboard. A drift
+  action in the pi settings section repairs an existing mismatch.
 - **Electron shell no longer exposes local bridges to remote dashboards.** The main
   window now uses a minimal preload (`piDashboard` only); `remoteConnect` and `doctor`
   stay on their local wizard windows. Launch / log / probe / doctor IPC rejects calls

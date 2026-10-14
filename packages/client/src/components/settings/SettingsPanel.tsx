@@ -99,6 +99,7 @@ import { PiRuntimeStatusRow } from "./PiRuntimeStatusRow.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { PushNotificationsSection } from "./PushNotificationsSection.js";
+import { PiSettingsSection } from "./PiSettingsSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
@@ -570,6 +571,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
   const [reachability, setReachability] = useState<BindReachability | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Result of mirroring the Default model into pi's settings.json on the last
+  // config save, and a counter that makes the pi settings section re-read its
+  // mirrored keys afterwards. See change: edit-pi-agent-settings.
+  const [piMirror, setPiMirror] = useState<{ ok: boolean; error?: string; skipped?: string } | null>(null);
+  const [piSettingsRefreshKey, setPiSettingsRefreshKey] = useState(0);
   const [spawnTimeoutInvalid, setSpawnTimeoutInvalid] = useState(false);
   // Heap-field validity, reported up by `HeapMbField`. A refused value never
   // reaches the draft, so without these Save would persist the last VALID value
@@ -940,6 +946,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
           if (!data.success) throw new Error(data.error || "config");
           setOriginal(JSON.parse(JSON.stringify(config)));
           if (configPartial.windowsGitSource !== undefined) void refreshGitSourceReadout();
+          setPiMirror(data.piMirror ?? null);
           return { restartRequired: !!data.restartRequired };
         },
       });
@@ -951,6 +958,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
     }
 
     const results = await Promise.allSettled(tasks.map((tk) => tk.run()));
+    // The config save may have mirrored the Default model into pi's file.
+    // (The config task is queued first, so it is `results[0]` when present.)
+    if (configDirty && results[0]?.status === "fulfilled") setPiSettingsRefreshKey((k) => k + 1);
     const failed: string[] = [];
     let restartRequired = false;
     results.forEach((r, i) => {
@@ -1895,6 +1905,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                         {i18nT("settings.modelCatalogueUnavailable", undefined, "The model catalogue could not be loaded. Only models reported by connected sessions are listed.")}
                       </p>
                     )}
+                    {piMirror && !piMirror.ok && (
+                      <p className="mt-1 text-xs text-[var(--severity-warning-fg)]" data-testid="default-model-pi-mirror-warning">
+                        {i18nT("settings.piMirrorFailed", { error: piMirror.error ?? "error" }, `Saved, but pi's own default model could not be updated (${piMirror.error ?? "error"}). Use "Apply dashboard default to pi" in pi settings below.`)}
+                      </p>
+                    )}
+                    {piMirror?.ok && piMirror.skipped && (
+                      <p className="mt-1 text-xs text-[var(--text-tertiary)]" data-testid="default-model-pi-mirror-skipped">
+                        {i18nT("settings.piMirrorSkipped", undefined, "Saved. pi's own default model was not updated because the model id has no provider prefix.")}
+                      </p>
+                    )}
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
                       {i18nT("settings.hint.defaultModel", undefined, "Applied only to brand-new sessions. A resumed session keeps the model it was started with. Leave empty to use pi's own default.")}
                     </p>
@@ -2235,6 +2255,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     sibling turn-lifecycle timeouts already live here. */}
                 <Section title={t("settings.retry", undefined, "Retry")}>
                   <RetrySettingsSection />
+                </Section>
+                {/* pi's own global settings.json (typed form + raw JSON). The
+                    three default-model keys are mirrored from the Default model
+                    control above; `original` is the SAVED dashboard default, the
+                    drift baseline. See change: edit-pi-agent-settings. */}
+                <Section title={t("settings.piSettings", undefined, "pi settings (global)")}>
+                  <PiSettingsSection
+                    dashboardDefaults={original ?? undefined}
+                    refreshKey={piSettingsRefreshKey}
+                  />
                 </Section>
                 <Section title={t("settings.push.title", undefined, "Push notifications")}>
                   <PushNotificationsSection />

@@ -10,3 +10,7 @@ REST endpoint request/response types. Sessions, events, spawn, file read/write (
 ## addons-hub-declutter
 
 `InstalledPackage.dashboardManaged?: boolean` — display-only flag for dashboard-recorded plugin bridge rows. See change: addons-hub-declutter.
+
+## edit-pi-agent-settings
+
+`PiSettingsReadResponse`, `PiSettingsPatch`, `PutPiSettingsRequest`, `PutPiSettingsRawRequest`, `PiSettingsWriteResponse`, `PiSettingsConflict`, `PiMirrorResult`, `PiSettingsSyncResponse` — `/api/pi-settings*` bodies and the `piMirror` field of the config save. See change: edit-pi-agent-settings.
