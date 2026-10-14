@@ -1871,6 +1871,10 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   }
 
   function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false, workspaceId?: string, headerAction?: React.ReactNode) {
+    // Project-root gate, computed once per row: shared by both banner call
+    // sites and the row's init-status re-probe gate (`FolderInitScope`).
+    // See change: fix-project-setup-completion-state.
+    const isProjectRoot = isPinned || inWorkspace || group.sessions.some((s) => s.isGitRepo === true) || !!folderGitMap?.get(group.cwd);
     const displayPath = truncatePathMiddle(group.cwd, 45);
     const lastSlash = displayPath.lastIndexOf('/');
     const parentPath = lastSlash >= 0 ? displayPath.slice(0, lastSlash + 1) : '';
@@ -2057,7 +2061,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               (below the git row) and the folder actions menu's Project setup
               tally. A component owner keeps the hook out of this map callback.
               See change: add-folder-action-banner. */}
-          <FolderInitScope cwd={group.cwd}>{({ status: initStatus, refetch: refetchInit }) => (<>
+          <FolderInitScope cwd={group.cwd} sessions={group.sessions} isProjectRoot={isProjectRoot}>{({ status: initStatus, refetch: refetchInit }) => (<>
           {/* Whole header row is clickable to open the directory home page —
               same affordance as clicking a session card selects its session.
               Collapse/expand lives solely on the chevron in the drag gutter
@@ -2196,10 +2200,9 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             <FolderActionBanner
               cwd={group.cwd}
               status={initStatus}
-              isProjectRoot={isPinned || inWorkspace || group.sessions.some((s) => s.isGitRepo === true) || !!folderGitMap?.get(group.cwd)}
+              isProjectRoot={isProjectRoot}
               onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, { initialPrompt: PROJECT_INIT_PROMPT }) : undefined}
               onStatusChange={refetchInit}
-              sessions={group.sessions}
               compact
             />
           )}
@@ -2242,10 +2245,9 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             // is optimistic (unknown → true), so it is NOT sufficient on its
             // own — an unpinned dir with an unknown git probe must not reach
             // tier 0. See change: add-folder-action-banner (D-D2).
-            isProjectRoot={isPinned || inWorkspace || group.sessions.some((s) => s.isGitRepo === true) || !!folderGitMap?.get(group.cwd)}
+            isProjectRoot={isProjectRoot}
             onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, { initialPrompt: PROJECT_INIT_PROMPT }) : undefined}
             onStatusChange={refetchInit}
-            sessions={group.sessions}
             compact={!showFolderBanner}
           />
           {/* Slot-pill grid: the plugin slot sections (Automations / Goals /
@@ -3205,16 +3207,22 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
  * Per-row owner of the shared `GET /init-status` probe. A component (not a call
  * inside `renderGroup`'s `.map`) so the hook obeys the rules of hooks, exposing
  * `{ status, refetch }` to both the tier-0 banner and the menu's setup tally.
- * See change: add-folder-action-banner.
+ * Passes the row's sessions + project-root gate so the hook can re-probe when
+ * a setup turn finishes. See change: add-folder-action-banner,
+ * fix-project-setup-completion-state.
  */
 function FolderInitScope({
   cwd,
+  sessions,
+  isProjectRoot,
   children,
 }: {
   cwd: string;
+  sessions: ReadonlyArray<{ id: string; status: string }>;
+  isProjectRoot: boolean;
   children: (s: { status: WorktreeInitStatus | null; refetch: () => void }) => React.ReactNode;
 }) {
-  const { status, refetch } = useInitStatus(cwd);
+  const { status, refetch } = useInitStatus(cwd, { sessions, isProjectRoot });
   return <>{children({ status, refetch })}</>;
 }
 

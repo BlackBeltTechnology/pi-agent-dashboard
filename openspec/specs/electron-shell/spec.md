@@ -190,7 +190,7 @@ When the `ELECTRON_DEV` environment variable is set, the Electron app SHALL conn
 - **THEN** the Electron app SHALL open a BrowserWindow pointing at `http://localhost:8000` with the loading page retry mechanism
 
 ### Requirement: External links open in the system browser, not a secondary Electron window
-The main `BrowserWindow` created by `createMainWindow` SHALL route every external URL initiated **from the dashboard origin** to the user's system browser via `shell.openExternal`, and SHALL never allow an external URL to (a) replace the dashboard in the main window or (b) spawn a secondary Electron `BrowserWindow`. An external URL is any URL whose origin differs from the server origin the main window was loaded with.
+The main `BrowserWindow` created by `createMainWindow` SHALL route every external URL initiated **from the dashboard origin** to the user's system browser via `shell.openExternal`, and SHALL never allow an external URL to (a) replace the dashboard in the main window or (b) spawn a secondary Electron `BrowserWindow`. An external URL is any URL whose origin differs from the server origin the main window was loaded with. This requirement governs URLs the page itself navigates to or opens; it does NOT forbid the app-owned per-server windows that the main process opens on an explicit, sender-validated request to open a paired server (see `electron-server-windows`) — the page never supplies a URL for those, and they are never created from `setWindowOpenHandler` or `will-navigate`.
 
 This requirement applies to both navigation triggers Electron exposes:
 - `target="_blank"` anchors and `window.open` calls (intercepted via `webContents.setWindowOpenHandler`) — routed through `shell.openExternal` regardless of which page issued the call (correct for both chat-content links and OAuth device-code verification URIs).
@@ -236,6 +236,11 @@ Same-origin URLs (including relative paths, in-document fragments, and query-onl
 - **WHEN** `decideWillNavigate` is called with a `serverOrigin` argument that cannot be parsed as a URL
 - **THEN** the helper SHALL return `"cancel"` (the caller MUST `event.preventDefault()` without opening anything externally)
 - **AND** this protects against a configuration error in `serverUrl` from accidentally allowing arbitrary external navigation
+
+#### Scenario: App-owned server window is not an external-link window
+- **WHEN** the local dashboard asks the app to open the paired server `home-imac` through the server-window request
+- **THEN** the app SHALL create the `home-imac` server window
+- **AND** a `window.open("http://192.168.16.204:8000/")` from the same page SHALL still be denied and routed to the system browser
 
 ### Requirement: Same-origin URL classifier is pure and unit-testable
 The classifier used by the Electron shell to decide whether a URL is same-origin as the dashboard SHALL live in a pure module (`packages/electron/src/lib/link-handling.ts`) that performs URL parsing and origin comparison and does NOT import from `electron`. The module SHALL be exercised directly by unit tests without spinning up an Electron process.

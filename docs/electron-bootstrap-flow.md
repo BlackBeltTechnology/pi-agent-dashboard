@@ -4,6 +4,8 @@ Doc covers Electron startup state machine from `app.whenReady()` to dashboard wi
 
 Architecture: Electron is launcher only. Runtime install eliminated. Server resources read-only at `<resourcesPath>/server/node_modules/`. Updates ship via electron-updater whole-app replacement. See [electron-immutable-bundle.md](./electron-immutable-bundle.md).
 
+See also: [electron-server-windows.md](./electron-server-windows.md) (paired-server windows, post-bootstrap).
+
 ## State machine (5 states, 3 triggers, 3 end states)
 
 ```mermaid

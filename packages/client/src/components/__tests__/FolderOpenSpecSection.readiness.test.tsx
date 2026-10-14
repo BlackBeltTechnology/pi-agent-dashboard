@@ -12,6 +12,7 @@
  *   folder-actions-menu (dismiss → opt-out).
  */
 
+import { SLOT_PILL_LEGEND } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -112,6 +113,18 @@ describe("FolderOpenSpecSection — BROKEN variants", () => {
     // D7: nothing focusable-but-inert inside the section.
     const section = container.querySelector("[data-testid^='folder-openspec']");
     expect(section?.querySelectorAll("button, [role='button'], [tabindex]:not([tabindex='-1'])").length).toBe(0);
+  });
+
+  // See change: fix-slot-pill-legend-and-stale-overflow (test-plan #E3).
+  it("cli-failed inert pill legend mirrors SLOT_PILL_LEGEND (11 px, no 9 px)", () => {
+    const { container } = render(
+      <FolderOpenSpecSection cwd={CWD} data={data({ initialized: false, readiness: { state: "BROKEN", reason: "cli-failed" } })} />,
+    );
+    const legend = container.querySelector("[data-slot-pill-legend]") as HTMLElement;
+    expect(legend).toBeTruthy();
+    const classes = legend.className.split(/\s+/);
+    for (const token of SLOT_PILL_LEGEND.split(/\s+/)) expect(classes).toContain(token);
+    expect(classes).not.toContain("text-[9px]");
   });
 
   it("missing-changes-dir Repair opens a confirm naming the directory; dismissing sends NO request", async () => {

@@ -1,4 +1,4 @@
-import { SlotPill } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SLOT_PILL_LEGEND, SlotPill } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { OpenSpecData, OpenSpecReadiness, OpenSpecReadinessReason } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiClipboardTextOutline, mdiClose } from "@mdi/js";
@@ -221,7 +221,7 @@ export function FolderOpenSpecSection({ data, cwd, onOpenBoard, offerInitializat
       return (
         <SectionShell testId="folder-openspec-section-broken" cwd={cwd}>
           <div className="relative flex items-center gap-2 min-w-0 px-2.5 pt-2.5 pb-1.5 rounded-[11px] border border-[var(--border-subtle)] bg-[var(--bg-secondary)] shadow-[0_1px_2px_var(--shadow-card)]">
-            <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 max-w-[calc(100%-12px)] truncate px-1.5 py-px rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[9px] font-semibold tracking-wider uppercase text-[var(--text-secondary)] leading-none">
+            <span data-slot-pill-legend className={`${SLOT_PILL_LEGEND} bg-[var(--bg-tertiary)]`}>
               {i18nT("openspec.openspec", undefined, "OpenSpec")}
             </span>
             <span className="shrink-0 w-[26px] h-[26px] rounded-lg flex items-center justify-center bg-purple-500/10 text-purple-400">

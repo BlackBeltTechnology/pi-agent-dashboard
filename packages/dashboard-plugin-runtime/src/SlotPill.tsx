@@ -13,7 +13,7 @@
  * keyboard-navigate or mobile-adapt opaque nodes, and nesting real `<button>`s
  * inside a `role="button"` root is an ARIA anti-pattern. Slot actions are
  * declarative items contributed to the folder actions menu instead. State
- * markers that are FACTS rather than controls (the KB pill's `⚠ N stale`)
+ * markers that are FACTS rather than controls (the KB pill's compact stale marker)
  * stay in the pill as children.
  * See change: move-slot-actions-to-menu (directory-card-layout spec).
  *
@@ -23,6 +23,7 @@
  * package), so Tailwind compiles every accent variant regardless of caller.
  *
  * See change: redesign-directory-card (directory-card-layout spec).
+ * See change: fix-slot-pill-legend-and-stale-overflow (11px legend, `SLOT_PILL_LEGEND`).
  */
 import { Icon } from "@mdi/react";
 import type { KeyboardEvent, ReactNode } from "react";
@@ -53,6 +54,16 @@ const LEGEND_BG: Record<SlotSurface, string> = {
   raised: "bg-[var(--bg-tertiary)]",
   flat: "bg-[var(--bg-primary)]",
 };
+
+/**
+ * Surface-independent capsule-legend tokens (11px uppercase, `-top-2` overhang).
+ * Shared by SlotPill and the inert OpenSpec mirror; SessionSubcard carries the
+ * same size/weight/tracking/overhang/colour tokens, pinned by a parity test.
+ * Literal string so Tailwind JIT-compiles it (this package is @source-scanned).
+ * See change: fix-slot-pill-legend-and-stale-overflow.
+ */
+export const SLOT_PILL_LEGEND =
+  "absolute -top-2 left-1/2 -translate-x-1/2 max-w-[calc(100%-12px)] truncate px-1.5 py-px rounded-full border border-[var(--border-subtle)] text-[11px] font-semibold tracking-wide uppercase text-[var(--text-secondary)] leading-none";
 
 // Static accent map — Tailwind cannot JIT-scan a dynamic `text-${accent}-400`,
 // so each accent resolves through a literal class string keyed off the union.
@@ -117,7 +128,7 @@ export function SlotPill({
           (matches SessionSubcard's titled panel). Centered on the full pill
           width, so long labels (e.g. "Knowledge base") never truncate as they
           did inline. See change: slot-pill-capsule-label. */}
-      <span className={`absolute -top-1.5 left-1/2 -translate-x-1/2 max-w-[calc(100%-12px)] truncate px-1.5 py-px rounded-full ${LEGEND_BG[surface]} border border-[var(--border-subtle)] text-[12px] font-semibold tracking-wider uppercase text-[var(--text-secondary)] leading-none`}>
+      <span data-slot-pill-legend className={`${SLOT_PILL_LEGEND} ${LEGEND_BG[surface]}`}>
         {label}
       </span>
       <span className={`shrink-0 w-[26px] h-[26px] rounded-lg flex items-center justify-center ${tone.glyphBg} ${tone.icon}`}>

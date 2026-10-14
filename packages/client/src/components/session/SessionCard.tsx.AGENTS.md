@@ -36,3 +36,4 @@ Status label shows 'Needs you' when `session.awaitingFileAccess`. See change: as
 - `TagStrip` renders user tags only; the phase tag is dropped.
 - `BadgeSubcard` and the card action bar filter plugin contributions through `usePluginSectionFilter("badge"|"actionbar", folderKey)`, so a per-plugin block toggle removes the contribution rather than blanking it.
 - See change: add-focus-mode-and-card-block-toggles.
+- `worktree-card-section-gap` wrapper (worktree KB/MCP claims) is `mt-2.5 flex flex-col gap-2.5` (was `mt-1.5`, claims butted): the 11 px `-top-2` legends need ≈ 10 px between stacked panels. See change: fix-slot-pill-legend-and-stale-overflow.

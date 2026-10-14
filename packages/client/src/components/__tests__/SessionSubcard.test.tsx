@@ -1,3 +1,4 @@
+import { SLOT_PILL_LEGEND } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { cleanup, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -17,7 +18,7 @@ describe("SessionSubcard", () => {
     expect(title.className).toContain("uppercase");
     // Title is a capsule overhanging the panel top border (legend style).
     expect(title.className).toContain("absolute");
-    expect(title.className).toContain("-top-1.5");
+    expect(title.className).toContain("-top-2");
     expect(title.className).toContain("rounded-full");
     expect(screen.getByText("hello")).toBeTruthy();
     const panel = container.firstChild as HTMLElement;
@@ -26,6 +27,10 @@ describe("SessionSubcard", () => {
     expect(panel.className).toContain("rounded-lg");
     expect(panel.className).toContain("border");
     expect(panel.className).toContain("relative");
+    // test-plan #E4: legend clearance — mt-2.5 above, pt-2.5 pb-1.5 inside.
+    const tokens = panel.className.split(/\s+/);
+    for (const t of ["mt-2.5", "px-2", "pt-2.5", "pb-1.5"]) expect(tokens).toContain(t);
+    for (const bad of ["mt-1.5", "py-1.5"]) expect(tokens).not.toContain(bad);
   });
 
   it("renders nothing when children are null", () => {
@@ -57,21 +62,36 @@ describe("SessionSubcard", () => {
   });
 });
 
-// test-plan #E9 — capsule legend is 12 px semibold --text-secondary.
-// See change: retro-ux-plugin-settings-forms.
+// test-plan #E4/#E5 — capsule legend is 11 px semibold --text-secondary, parity with SlotPill.
+// See change: retro-ux-plugin-settings-forms; fix-slot-pill-legend-and-stale-overflow.
 describe("SessionSubcard capsule legend", () => {
-  it("uses the section-heading recipe, not the 9 px tertiary legend", () => {
+  it("uses the 11 px section-heading recipe, not the 9 px tertiary legend", () => {
     const { container } = render(
       <SessionSubcard title="OPENSPEC">
         <span>x</span>
       </SessionSubcard>,
     );
     const legend = screen.getByText("OPENSPEC");
-    for (const token of ["text-[12px]", "font-semibold", "uppercase", "text-[var(--text-secondary)]"]) {
-      expect(legend.className).toContain(token);
+    for (const token of ["-top-2", "text-[11px]", "font-semibold", "uppercase", "tracking-wide", "text-[var(--text-secondary)]"]) {
+      expect(legend.className.split(/\s+/)).toContain(token);
     }
-    expect(legend.className).not.toContain("text-[9px]");
-    expect(legend.className).not.toContain("text-[var(--text-tertiary)]");
+    for (const bad of ["text-[9px]", "text-[12px]", "tracking-wider", "text-[var(--text-tertiary)]"]) {
+      expect(legend.className.split(/\s+/)).not.toContain(bad);
+    }
     expect((container.firstChild as HTMLElement).className).not.toContain("bg-[");
+  });
+
+  it("shares the size/weight/tracking/overhang/colour tokens with SLOT_PILL_LEGEND", () => {
+    render(
+      <SessionSubcard title="OPENSPEC">
+        <span>x</span>
+      </SessionSubcard>,
+    );
+    const legend = screen.getByText("OPENSPEC").className.split(/\s+/);
+    const shared = SLOT_PILL_LEGEND.split(/\s+/);
+    for (const token of ["text-[11px]", "font-semibold", "tracking-wide", "-top-2", "text-[var(--text-secondary)]"]) {
+      expect(shared).toContain(token);
+      expect(legend).toContain(token);
+    }
   });
 });

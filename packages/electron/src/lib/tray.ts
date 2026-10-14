@@ -15,6 +15,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, type BrowserWindow, Menu, type MenuItemConstructorOptions, nativeImage, Tray } from "electron";
+import { onServersMenuChanged, serversMenuItem } from "./servers-menu.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -29,6 +30,7 @@ export type TrayOwnership = "electron" | "foreign" | "none" | "unknown";
 let tray: Tray | null = null;
 let pollInterval: NodeJS.Timeout | null = null;
 let lastOwnership: TrayOwnership | null = null;
+let unsubscribeServersMenu: (() => void) | null = null;
 
 /** Resolve path to a resource file (works in both dev and packaged modes). */
 function resourcePath(filename: string): string {
@@ -55,6 +57,8 @@ export function buildTrayMenuTemplate(args: {
   onLaunch: (force: boolean) => void;
   onShow: () => void;
   onQuit: () => void;
+  /** Servers submenu item (paired dashboards). See change: add-electron-server-windows. */
+  servers?: MenuItemConstructorOptions;
 }): MenuItemConstructorOptions[] {
   const items: MenuItemConstructorOptions[] = [];
   if (args.ownership === "electron") {
@@ -66,6 +70,7 @@ export function buildTrayMenuTemplate(args: {
   }
   if (items.length > 0) items.push({ type: "separator" });
   items.push({ label: "Show", click: args.onShow });
+  if (args.servers) items.push(args.servers);
   items.push({ type: "separator" });
   items.push({ label: "Quit", click: args.onQuit });
   return items;
@@ -116,9 +121,13 @@ export function createTray(
       onLaunch: hooks?.onLaunch ?? (() => { /* no hook configured */ }),
       onShow: showWindow,
       onQuit,
+      servers: serversMenuItem(),
     });
     tray.setContextMenu(Menu.buildFromTemplate(template));
   };
+  // Rebuild when the keyring changes (pair / forget / needs pairing).
+  unsubscribeServersMenu?.();
+  unsubscribeServersMenu = onServersMenuChanged(() => rebuildMenu(lastOwnership ?? (hooks ? "unknown" : "none")));
 
   // Initial render — if hooks are configured, hide the launch item until
   // the first probe resolves ("unknown"); else render the legacy menu shape
@@ -149,6 +158,8 @@ export function destroyTray(): void {
     pollInterval = null;
   }
   lastOwnership = null;
+  unsubscribeServersMenu?.();
+  unsubscribeServersMenu = null;
   tray?.destroy();
   tray = null;
 }

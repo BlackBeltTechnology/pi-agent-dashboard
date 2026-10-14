@@ -9,6 +9,7 @@ import { hold, stubApi } from "./stubs.js";
  * the same answer, so the first folder's pill shows the state). The pill is a
  * SlotPill in the sidebar folder card; `pinning` is the denied state with the
  * Pin action in flight. See change: retro-ux-plugin-settings-forms.
+ * See change: fix-slot-pill-legend-and-stale-overflow (overflow probe root).
  */
 
 const STATS = { files: 412, chunks: 19397, indexed: true, staleCount: 0, indexing: false, jobStatus: "idle", sourceCount: 2 };
@@ -16,7 +17,7 @@ const STATS = { files: 412, chunks: 19397, indexed: true, staleCount: 0, indexin
 const json = (route: import("@playwright/test").Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
-const statsAre = (over: Record<string, unknown>, status = 200) => (page: Page) =>
+export const statsAre = (over: Record<string, unknown>, status = 200) => (page: Page) =>
   stubApi(page, "/api/kb/stats", (route) => json(route, status === 200 ? { ...STATS, ...over } : over, status), "GET");
 
 const pill = (page: Page) => page.getByTestId("folder-kb-section").first();
@@ -36,12 +37,15 @@ async function pinKbFixture(page: Page): Promise<void> {
 }
 
 /** Brings the pill into view and waits for the stubbed state. */
-const showing = (state: string) => async (page: Page) => {
+export const showing = (state: string) => async (page: Page) => {
   if ((await page.getByTestId("folder-kb-section").count()) === 0) await pinKbFixture(page);
   await page.locator(`[data-testid="folder-kb-section"][data-state="${state}"]`).first().waitFor({ state: "visible", timeout: 20_000 });
 };
 
-const base = { stubs: ["/api/kb/stats"], root: pill };
+/** Overflow probe root = the SlotPill itself (not the wrapper that also holds the card control); the capsule legend overhangs the top by design. */
+const overflowRoot = (page: Page) => page.getByTestId("folder-kb-open-settings").first();
+
+const base = { stubs: ["/api/kb/stats"], root: pill, overflowRoot, overflowTopExempt: "[data-slot-pill-legend]" };
 
 export const kbPillStates: UiState[] = [
   { id: "loading", label: "stats request pending", ...base, install: (page) => stubApi(page, "/api/kb/stats", hold, "GET"), open: showing("loading") },
