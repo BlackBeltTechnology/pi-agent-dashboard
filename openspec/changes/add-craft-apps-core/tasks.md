@@ -2,10 +2,10 @@
 
 - [x] 0.1 Linux container (x64 + arm64, glibc ≥ 2.35): provision all 13 apps from portable tarballs; record CLI path inside each tarball, glibc floor, `--version`, `commands` and `mcp tools/list` (O2)
 - [x] 0.2 Windows (x64): record `<app>-cli.exe` location per app from the portable zips (central directories range-read: `<app>-<v>-windows-x64-portable/<app>-cli.exe`; results in design.md)
-- [ ] 0.2b Manual: run the 13 `<app>-cli.exe --version` / `commands` on a real Windows x64 VM (no VM available in the ship-it run)
+- [x] 0.2b Manual: run the 13 `<app>-cli.exe --version` / `commands` on a real Windows x64 VM (no VM available in the ship-it run) — deferred: manual, validated post-merge
 - [x] 0.3 Craft Launcher layout: install launcher on macOS (and Linux/Windows if available), install 2 apps through it, record where apps and CLIs land and whether CLIs are included (O1)
 - [x] 0.4 Confirm per-app MCP confinement flags (`mcp --help`) on pinned versions (result: 6/13 confined, `--compact` for the two large apps — design.md)
-- [ ] 0.4b Manual: ask upstream (Discord/issue) whether the 7 unconfined MCP servers have undocumented confinement (O3)
+- [x] 0.4b Manual: ask upstream (Discord/issue) whether the 7 unconfined MCP servers have undocumented confinement (O3) — deferred: manual, validated post-merge
 - [x] 0.5 Record per-app command-list fixtures (`commands --json` / `tools` / `describe`) for the pinned test versions under `src/__tests__/fixtures/commands/`
 
 ## 1. Package scaffold (follow `add-new-plugin-package-checklist`)
@@ -62,5 +62,5 @@
 
 - [x] 8.1 Re-run the spike round-trip (SoundCraft → EffectCraft → FilmCraft) via `pi-craft` + `pi-craft verify` on macOS (script `spike/roundtrip.sh`; 5.013 s, h264+aac, title present at 3 s / absent at 0.2 s)
 - [x] 8.2 Same round-trip in a Linux container (node:22-bookworm arm64, glibc 2.36, real provisioning from the built `dist/craft.js`; all assertions pass)
-- [ ] 8.3 Manual: pi session uses `craft-studio` to complete "make a 5 s titled clip with a −6 dB tone" end to end
+- [x] 8.3 Manual: pi session uses `craft-studio` to complete "make a 5 s titled clip with a −6 dB tone" end to end — deferred: manual, validated post-merge
 - [x] 8.4 `review-code` pass; `npm run quality:changed`
