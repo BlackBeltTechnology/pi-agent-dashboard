@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 afterEach(() => {
   vi.doUnmock("rehype-katex");
+  vi.doUnmock("katex");
   vi.resetModules();
   vi.restoreAllMocks();
 });
@@ -26,11 +27,16 @@ describe("math-engine", () => {
 
   it("useMathEngine(false) never starts a load", async () => {
     vi.resetModules();
+    const katexImports = vi.fn();
+    vi.doMock("katex", async (importOriginal) => {
+      katexImports();
+      return importOriginal();
+    });
     const mod = await import("../math-engine.js");
-    const spy = vi.spyOn(mod, "loadMathEngine");
     const { result } = renderHook(() => mod.useMathEngine(false));
+    await act(async () => {}); // flush effects
     expect(result.current).toBeNull();
-    expect(spy).not.toHaveBeenCalled();
+    expect(katexImports).not.toHaveBeenCalled();
   });
 
   it("useMathEngine(true) returns null first, then the engine; two hooks share one engine", async () => {

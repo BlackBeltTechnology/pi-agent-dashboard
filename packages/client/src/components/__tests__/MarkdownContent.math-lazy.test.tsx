@@ -4,7 +4,7 @@
  * "before load" state is observable.
  * See change: shrink-client-entry-lazy-islands (tasks 2.1/2.3).
  */
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("../split/SplitWorkspaceContext.js", () => ({
@@ -30,6 +30,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   vi.doUnmock("rehype-katex");
+  vi.doUnmock("katex");
   vi.restoreAllMocks();
   vi.resetModules();
 });
@@ -57,13 +58,22 @@ describe("MarkdownContent — lazy math engine", () => {
     await waitFor(() => expect(container.querySelector(".katex")).not.toBeNull());
   });
 
-  it("content without math never calls loadMathEngine", async () => {
-    const { engine, renderMd } = await fresh();
-    const spy = vi.spyOn(engine, "loadMathEngine");
-    const { container } = renderMd("# Title\n\nplain *markdown* with `code`\n\n- a\n- b");
-    await new Promise((r) => setTimeout(r, 30));
-    expect(container.querySelector(".katex")).toBeNull();
-    expect(spy).not.toHaveBeenCalled();
+  it("content without math never imports the math engine; math content imports it once", async () => {
+    // The factory runs only when `katex` is actually imported — the real signal
+    // (a spy on `loadMathEngine` would not see the hook's internal call).
+    const katexImports = vi.fn();
+    vi.doMock("katex", async (importOriginal) => {
+      katexImports();
+      return importOriginal();
+    });
+    const { renderMd } = await fresh();
+    const plain = renderMd("# Title\n\nplain *markdown* with `code`\n\n- a\n- b");
+    await act(async () => {}); // flush mount effects
+    expect(plain.container.querySelector(".katex")).toBeNull();
+    expect(katexImports).not.toHaveBeenCalled();
+    const math = renderMd("Math: $x^2$");
+    await waitFor(() => expect(math.container.querySelector(".katex")).not.toBeNull());
+    expect(katexImports).toHaveBeenCalledTimes(1);
   });
 
   it("two mounted instances share one engine load and both typeset", async () => {
@@ -82,13 +92,14 @@ describe("MarkdownContent — lazy math engine", () => {
     vi.doMock("rehype-katex", () => {
       throw new Error("chunk 404");
     });
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const { renderMd } = await fresh();
     let view: ReturnType<typeof renderMd> | undefined;
     expect(() => {
       view = renderMd("Fails: $x^2$");
     }).not.toThrow();
-    await new Promise((r) => setTimeout(r, 50));
+    // The failed load is reported once; that is the deterministic "load settled" signal.
+    await waitFor(() => expect(err).toHaveBeenCalled());
     expect(view?.container.querySelector(".katex")).toBeNull();
     expect(view?.container.textContent).toContain("x^2");
   });
