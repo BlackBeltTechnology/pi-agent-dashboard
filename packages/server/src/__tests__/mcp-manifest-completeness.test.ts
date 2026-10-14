@@ -198,3 +198,23 @@ describe("generated rows resolve to a manifest row", () => {
     expect(GENERATED_TOOLS.map((t) => t.name).sort()).toEqual(MANIFEST.map((r) => r.name).sort());
   });
 });
+
+// See change: add-pending-question-stack (D9, test-plan #X8 — tier + denylist half;
+// the "registered" half lands with the routes in task 5.2).
+describe("X8 — /api/questions routes are tiered and denylisted", () => {
+  const QUESTION_ROUTES = [
+    { method: "GET", path: "/api/questions", tier: "observe" },
+    { method: "GET", path: "/api/questions/:id", tier: "observe" },
+    { method: "POST", path: "/api/questions/:id/answer", tier: "control" },
+  ] as const;
+
+  it("each has its ROUTE_TIERS tier and a DENYLIST entry with a reason", () => {
+    for (const r of QUESTION_ROUTES) {
+      const row = ROUTE_TIERS.find((e) => e.method === r.method && e.path === r.path);
+      expect(row?.tier, `${r.method} ${r.path}`).toBe(r.tier);
+      expect(isDenylisted(r.path), r.path).toBe(true);
+    }
+    const entry = DENYLIST.find((e) => e.pattern === "/api/questions/");
+    expect(entry?.reason).toContain("human-in-the-loop");
+  });
+});

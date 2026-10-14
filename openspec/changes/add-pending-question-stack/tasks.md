@@ -1,13 +1,13 @@
 ## 1. Shared contracts
 
-- [ ] 1.1 Add `QuestionRow`, `QuestionDetail`, `BriefStatus`, `QuestionAnswerRequest` and the `questions_update` browser message to `packages/shared`; protocol contract test covers the message
-- [ ] 1.2 Move `prompt-answer-encoder.ts` to `packages/shared` (client re-imports; existing tests stay green) and add a per-type answer-string validator; failing tests first incl. an encoder→validator round-trip for confirm (`"true"`/`"false"`), select, multiselect (incl. `"[]"`), input/editor (incl. empty), batch
-- [ ] 1.3 Add the three routes to `route-tiers.ts` (GET `observe`, POST `control`), the `questions` family to `http-road-classification.ts`, and MCP denylist entries with reason; completeness tests pass
+- [x] 1.1 Add `QuestionRow`, `QuestionDetail`, `BriefStatus`, `QuestionAnswerRequest` and the `questions_update` browser message to `packages/shared`; protocol contract test covers the message
+- [x] 1.2 Move `prompt-answer-encoder.ts` to `packages/shared` (client re-imports; existing tests stay green) and add a per-type answer-string validator; failing tests first incl. an encoder→validator round-trip for confirm (`"true"`/`"false"`), select, multiselect (incl. `"[]"`), input/editor (incl. empty), batch
+- [x] 1.3 Add the three routes to `route-tiers.ts` (GET `observe`, POST `control`), the `questions` family to `http-road-classification.ts`, and MCP denylist entries with reason; completeness tests pass
 
 ## 2. Bridge
 
-- [ ] 2.1 Verification tests: `ask_user` `message` reaches prompt metadata for confirm, select, input, editor and batch top-level; add carriage only where a test fails (D3)
-- [ ] 2.2 Failing tests for the MODIFIED timeout requirement: override `0` → infinite; positive override narrows `-1` config; invalid → warning + config; absent → config (default 300 s); implement in `lifecycle.ts` (D11)
+- [x] 2.1 Verification tests: `ask_user` `message` reaches prompt metadata for confirm, select, input, editor and batch top-level; add carriage only where a test fails (D3)
+- [x] 2.2 Failing tests for the MODIFIED timeout requirement: override `0` → infinite; positive override narrows `-1` config; invalid → warning + config; absent → config (default 300 s); implement in `lifecycle.ts` (D11)
 
 ## 3. Server question store
 

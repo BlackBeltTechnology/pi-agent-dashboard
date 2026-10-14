@@ -891,3 +891,56 @@ describe("notify proxy — dedicated channel, never PromptBus", () => {
     expect(stack.connection._messagesOfType("prompt_request")).toHaveLength(0);
   });
 });
+
+// ── test-plan #E10 (add-pending-question-stack, D11): timeout override ──
+// `session_start` feeds `resolveAskUserTimeoutMs(config, env)` into the PromptBus.
+// Override env var PI_EXT_PI_DASHBOARD_ASK_USER_PROMPT_TIMEOUT_SECONDS wins over
+// config; `<= 0` = infinite; non-integer = ignored with a warning.
+describe("ask_user timeout override precedence (E10)", () => {
+  const ENV = "PI_EXT_PI_DASHBOARD_ASK_USER_PROMPT_TIMEOUT_SECONDS";
+
+  const rows: Array<[string, string | undefined, number, number, boolean]> = [
+    // label, override, config seconds, expected timeoutMs, expects warning
+    ["override 0 beats config 300 (infinite)", "0", 300, -1, false],
+    ["override 120 narrows config -1", "120", -1, 120_000, false],
+    ["override abc ignored, config 300 used", "abc", 300, 300_000, true],
+    ["absent override, config 300", undefined, 300, 300_000, false],
+    ["absent override, config 60", undefined, 60, 60_000, false],
+    ["negative override is infinite", "-5", 300, -1, false],
+    ["fractional override is invalid", "1.5", 60, 60_000, true],
+    ["empty override treated as absent", "", 60, 60_000, false],
+    ["absent override, config -1 stays infinite", undefined, -1, -1, false],
+  ];
+
+  for (const [label, override, config, expectedMs, warns] of rows) {
+    it(`${label} → ${expectedMs} ms`, async () => {
+      const { resolveAskUserTimeoutMs } = await import("../bridge-handlers/lifecycle.js");
+      const warn = vi.fn();
+      const env = override === undefined ? {} : { [ENV]: override };
+      expect(resolveAskUserTimeoutMs(config, env, warn)).toBe(expectedMs);
+      expect(warn).toHaveBeenCalledTimes(warns ? 1 : 0);
+      if (warns) expect(String(warn.mock.calls[0][0])).toContain(ENV);
+    });
+  }
+
+  it("the resolved value drives PromptBus: no setTimeout when infinite, 120000 ms timer otherwise", async () => {
+    const { resolveAskUserTimeoutMs } = await import("../bridge-handlers/lifecycle.js");
+    const spy = vi.spyOn(globalThis, "setTimeout");
+    const timersFor = async (ms: number) => {
+      spy.mockClear();
+      const bus = new PromptBus({ timeoutMs: ms });
+      bus.registerAdapter({ name: "noop", onRequest: () => ({}), onResponse: () => {}, onCancel: () => {} });
+      const pending = bus.request({ pipeline: "command", type: "input", question: "Q" });
+      const delays = spy.mock.calls.map((c) => c[1]);
+      bus.cancel([...((bus as unknown as { pending: Map<string, unknown> }).pending?.keys() ?? [])][0] as string);
+      await pending;
+      return delays;
+    };
+    try {
+      expect(await timersFor(resolveAskUserTimeoutMs(300, { [ENV]: "0" }))).not.toContain(300_000);
+      expect(await timersFor(resolveAskUserTimeoutMs(-1, { [ENV]: "120" }))).toContain(120_000);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

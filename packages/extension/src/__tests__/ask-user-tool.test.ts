@@ -17,6 +17,7 @@ vi.mock("@earendil-works/pi-ai", () => ({
 }));
 
 import { registerAskUserTool } from "../ask-user-tool.js";
+import { patchUiForPromptBus } from "../bridge-handlers/ui-prompt-patch.js";
 
 function createMockPi() {
   return {
@@ -598,5 +599,65 @@ describe("registerAskUserTool", () => {
         ),
       ).rejects.toThrow(/options/i);
     });
+  });
+});
+
+// test-plan #E22 (add-pending-question-stack, D3): the `message` given to
+// ask_user must reach `metadata.message` of the PromptBus request for every
+// type. Exercises the REAL ask_user tool through the REAL ui-prompt-patch with
+// a recording bus, so a carriage gap in either layer fails here.
+describe("ask_user message carriage into prompt metadata (E22)", () => {
+  function setup() {
+    const requests: Array<{ type: string; metadata?: Record<string, unknown> }> = [];
+    const bus = {
+      request: vi.fn(async (args: { type: string; metadata?: Record<string, unknown> }) => {
+        requests.push(args);
+        if (args.type === "batch") return { cancelled: false, answer: "[]" };
+        return { cancelled: false, answer: args.type === "confirm" ? "true" : "A" };
+      }),
+      registerAdapter: vi.fn(),
+    };
+    const ctx: any = { hasUI: false, ui: {} };
+    patchUiForPromptBus({ sessionId: "s1", connection: { send: vi.fn() }, getEmittedAssetHashes: () => new Set() } as any, ctx, bus as any);
+    const pi = createMockPi();
+    registerAskUserTool(pi as any);
+    const tool = pi.registerTool.mock.calls[0][0];
+    return { tool, ctx, requests };
+  }
+
+  const MESSAGE = "Context: why this is being asked and what each option does.";
+
+  it.each([
+    ["confirm", { method: "confirm", title: "Q" }],
+    ["select", { method: "select", title: "Q", options: ["A", "B"] }],
+    ["input", { method: "input", title: "Q" }],
+  ])("%s carries message", async (type, params) => {
+    const { tool, ctx, requests } = setup();
+    await tool.execute("tc1", { ...params, message: MESSAGE }, undefined, undefined, ctx);
+    expect(requests).toHaveLength(1);
+    expect(requests[0].type).toBe(type);
+    expect(requests[0].metadata?.message).toBe(MESSAGE);
+  });
+
+  it("batch carries the top-level message", async () => {
+    const { tool, ctx, requests } = setup();
+    await tool.execute(
+      "tc1",
+      { method: "batch", title: "Setup", message: MESSAGE, questions: [{ method: "input", title: "Name" }] },
+      undefined,
+      undefined,
+      ctx,
+    );
+    expect(requests).toHaveLength(1);
+    expect(requests[0].type).toBe("batch");
+    expect(requests[0].metadata?.message).toBe(MESSAGE);
+    expect(Array.isArray(requests[0].metadata?.questions)).toBe(true);
+  });
+
+  it("editor carries message through the patched ctx.ui.editor", async () => {
+    const { ctx, requests } = setup();
+    await ctx.ui.editor("Edit", "prefill", { message: MESSAGE });
+    expect(requests[0].type).toBe("editor");
+    expect(requests[0].metadata?.message).toBe(MESSAGE);
   });
 });

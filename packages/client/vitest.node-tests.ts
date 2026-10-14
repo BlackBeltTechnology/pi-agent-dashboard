@@ -25,7 +25,6 @@ export const NODE_ENV_TESTS: readonly string[] = [
   "src/__tests__/no-node-only-shared-imports.test.ts",
   "src/__tests__/openspec-groups-ws.test.ts",
   "src/__tests__/parse-host-input.test.ts",
-  "src/__tests__/prompt-answer-encoder.test.ts",
   "src/__tests__/selected-card-fx-css.test.ts",
   "src/__tests__/selectedSessionId.test.ts",
   "src/__tests__/session-display-name.test.ts",

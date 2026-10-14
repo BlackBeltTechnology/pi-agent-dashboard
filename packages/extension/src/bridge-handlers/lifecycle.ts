@@ -57,6 +57,29 @@ const GIT_POLL_INTERVAL = 30_000;
 // running. See change: tighten-process-list-ux.
 const PROCESS_MIN_ELAPSED_MS = process.platform === "win32" ? 30_000 : 5_000; // platform-branch-ok: Windows-safe default (costly PowerShell Get-CimInstance)
 
+/** Env var a plugin spawn uses to override `askUserPromptTimeoutSeconds` for one session. */
+const ASK_USER_TIMEOUT_ENV = "PI_EXT_PI_DASHBOARD_ASK_USER_PROMPT_TIMEOUT_SECONDS";
+
+/**
+ * Effective PromptBus `timeoutMs`: a valid integer override from the environment
+ * wins over `configSeconds`; a value `<= 0` means infinite (returned as `-1`).
+ * A non-integer override is ignored with a warning; empty counts as absent.
+ * See change: add-pending-question-stack (D11).
+ */
+export function resolveAskUserTimeoutMs(
+  configSeconds: number,
+  env: NodeJS.ProcessEnv = process.env,
+  warn: (msg: string) => void = (m) => console.warn(m),
+): number {
+  let seconds = configSeconds;
+  const raw = env[ASK_USER_TIMEOUT_ENV]?.trim();
+  if (raw) {
+    if (/^-?\d+$/.test(raw)) seconds = Number.parseInt(raw, 10);
+    else warn(`[bridge] ignoring ${ASK_USER_TIMEOUT_ENV}=${JSON.stringify(raw)}: not an integer; using config`);
+  }
+  return seconds > 0 ? seconds * 1000 : -1;
+}
+
 // Shared handler for session changes (new/fork/resume)
 function handleSessionChange(inst: BridgeInstance, ctx: any, usageSeed?: ReturnType<UsageDrain["baseline"]>) {
   // Clear attachedChange on a real session switch (new/fork/resume): it is
@@ -310,9 +333,9 @@ export function registerSessionStart(inst: BridgeInstance): void {
     // Replaces the old ui-proxy race pattern.
     // Convert seconds → milliseconds for PromptBus.
     // Values <= 0 (e.g. -1) are passed through as-is to signal infinite wait.
-    const askUserTimeoutMs = inst.config.askUserPromptTimeoutSeconds > 0
-      ? inst.config.askUserPromptTimeoutSeconds * 1000
-      : -1;
+    // A per-session env override (set by plugin spawns) wins over config.
+    // See change: add-pending-question-stack (D11).
+    const askUserTimeoutMs = resolveAskUserTimeoutMs(inst.config.askUserPromptTimeoutSeconds);
     inst.promptBus = new PromptBus({
       timeoutMs: askUserTimeoutMs,
       onDashboardRequest: (prompt, component, placement) => {

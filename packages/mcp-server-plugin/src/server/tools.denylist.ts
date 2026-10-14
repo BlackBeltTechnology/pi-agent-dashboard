@@ -117,6 +117,9 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "architect_prompt_response", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "archive_session", reason: "duplicate-of:archive_session" },
   { pattern: "attach_proposal", reason: "duplicate-of:attach_proposal" },
+  // add-pending-question-stack: answers stay human-in-the-loop.
+  { pattern: "/api/questions", reason: "agent prompt answers stay human-in-the-loop; follow-up" },
+  { pattern: "/api/questions/", reason: "agent prompt answers stay human-in-the-loop; follow-up" },
   { pattern: "browser_relay_input", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "browser_relay_subscribe", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "browser_relay_unsubscribe", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },

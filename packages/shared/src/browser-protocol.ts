@@ -9,6 +9,7 @@ import type {
 } from "./dashboard-plugin/intent-types.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
 import type { AutoNameOutcome, NotifyLevel } from "./protocol.js";
+import type { QuestionsUpdateMessage } from "./question-types.js";
 import type { ThinkingLevel } from "./role-schema.js";
 import type { GroupByMode, LaneId } from "./session-group-by.js";
 import type { TerminalSession } from "./terminal-types.js";
@@ -32,6 +33,7 @@ import type {
 
 // Batch ask_user contracts live in protocol.ts; re-export so browser-side
 // consumers import from one place. See change: redesign-ask-user-question-cards.
+export type { QuestionsUpdateMessage };
 export type {
   BatchAnswer,
   BatchQuestion,
@@ -1200,6 +1202,7 @@ export type ServerToBrowserMessage =
   | BrowserNotifyMessage
   | BrowserPromptDismissMessage
   | BrowserPromptCancelMessage
+  | QuestionsUpdateMessage
   | ModelsRefreshedMessage
   | WorktreeInitProgressMessage
   | WorktreeInitDoneMessage

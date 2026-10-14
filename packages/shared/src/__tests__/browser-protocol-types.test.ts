@@ -22,6 +22,7 @@ import type {
   BrowserRelayUnsubscribeMessage,
   BrowserToServerMessage,
   OpenSpecGetMessage,
+  QuestionsUpdateMessage,
   OpenSpecGetResultMessage,
   RecoveryDismissMessage,
   ServerToBrowserMessage,
@@ -35,6 +36,7 @@ import type {
   ExtUiDecoratorMessage,
   NotifyMessage,
 } from "../protocol.js";
+import type { BriefStatus, QuestionAnswerRequest, QuestionRow } from "../question-types.js";
 import type { DecoratorDescriptor } from "../types.js";
 
 // Type-level assertion: if these types are NOT in the union, this will fail to
@@ -84,6 +86,15 @@ type _FrameHasNoGuidField = AssertTrue<
 >;
 type _StatusHasNoTokenField = AssertTrue<
   "token" extends keyof BrowserRelayStatusMessage ? never : true
+>;
+
+// add-pending-question-stack: questions_update must be in the server→browser
+// union so the client's reducer arm survives esbuild; it carries rows only.
+type _QuestionsUpdateInUnion = AssertExtends<QuestionsUpdateMessage, ServerToBrowserMessage>;
+type _QuestionsUpdateHasNoContext = AssertTrue<
+  Extract<keyof QuestionsUpdateMessage["questions"][number], "question" | "snapshot" | "brief" | "options"> extends never
+    ? true
+    : never
 >;
 
 // Runtime verification that the type discriminants are reachable in a switch
@@ -462,5 +473,35 @@ describe("BrowserRelayInputMessage union", () => {
     // @ts-expect-error resize requires width and height
     const bad: BrowserRelayInputMessage = { type: "browser_relay_input", instanceId: "i", tabId: 1, kind: "resize" };
     expect(bad.kind).toBe("resize");
+  });
+});
+
+describe("questions_update (add-pending-question-stack)", () => {
+  it("is a valid server→browser discriminant carrying rows only", () => {
+    const row: QuestionRow = {
+      id: "AAAAAAAAAAAAAAAAAAAAAA",
+      sessionId: "s1",
+      sessionLabel: "Run",
+      preview: "Resume or hand back?",
+      type: "select",
+      origin: "widget-bar",
+      askedAt: 1,
+      briefStatus: "pending",
+    };
+    const msg: ServerToBrowserMessage = { type: "questions_update", questions: [row] };
+    expect(msg.type === "questions_update" && msg.questions[0].id).toBe(row.id);
+  });
+
+  it("QuestionAnswerRequest is exactly one of answer | cancelled", () => {
+    const a: QuestionAnswerRequest = { answer: "x" };
+    const c: QuestionAnswerRequest = { cancelled: true };
+    // @ts-expect-error cancelled must be literal true
+    const bad: QuestionAnswerRequest = { cancelled: false };
+    expect([a, c, bad]).toHaveLength(3);
+  });
+
+  it("BriefStatus covers the five lifecycle states", () => {
+    const all: BriefStatus[] = ["provided", "pending", "ready", "failed", "unavailable"];
+    expect(new Set(all).size).toBe(5);
   });
 });

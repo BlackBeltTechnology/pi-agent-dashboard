@@ -87,8 +87,11 @@ Files in this directory. One row per source file.
 | `pi-settings-keys.ts` | `PI_MANAGED_SETTINGS_KEYS` (`defaultProvider`,`defaultModel`,`defaultThinkingLevel`) — pi `settings.json` keys owned by the Default model control; read-only in the editor, excluded from its token. See change: edit-pi-agent-settings. |
 | `plugin-bridge-register.ts` | Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND… → see `plugin-bridge-register.ts.AGENTS.md` |
 | `project-name.ts` | Portable project-name rules + `isPortableProjectName` guard. → see `project-name.ts.AGENTS.md` |
+| `prompt-answer.ts` | `encodePromptAnswer` (moved from client) + `validateQuestionAnswer`. → see `prompt-answer.ts.AGENTS.md` |
 | `protocol.ts` | Extension↔Server WebSocket protocol. `ExtensionToServerMessage` + `ServerToExtensionMessage` unions. → see `protocol.ts.AGENTS.md` |
+| `question-types.ts` | `QuestionRow`/`QuestionDetail`/`BriefStatus`/`QuestionAnswerRequest`/`QuestionsUpdateMessage`. → see `question-types.ts.AGENTS.md` |
 | `recovery-timing.ts` | The two cold-start recovery windows in one module so their relation is testable. → see `recovery-timing.ts.AGENTS.md` |
+| `redaction.ts` | `REDACTION_PATTERNS_V1`, `REDACTION_VERSION`, `redactSecrets`. → see `redaction.ts.AGENTS.md` |
 | `recommended-extensions.ts` | Curated manifest of recommended pi extensions. `RecommendedExtension` (id, source, displayName, status,…). `pi-mcp-adapter` row REMOVED; the `@blackbelt-technology/pi-dashboard-mcp-client-plugin` row carries `dashboardPlugin: "mcp-client"` with NO `requires`; apple-tools unlock text says pi's built-in MCP. See change: extract-mcp-client-plugin, migrate-mcp-to-pi-builtin. → see `recommended-extensions.ts.AGENTS.md` |
 | `rest-api.ts` | REST endpoint request/response types. Sessions, events, spawn, file read/write (`FileWriteRequest` mtime… → see `rest-api.ts.AGENTS.md` `NetworkInterface` gains `label`/`pointToPoint`/`suggestions`; still one entry per address. See change: warn-unreachable-trusted-networks. |
 | `role-config-disk.ts` | Node-only `readRoleConfigFromDisk(home?)` + `providersJsonPath`; total — missing/garbled `providers.json` → empty RoleConfig. Split from role-schema (client bundles that). See change: add-role-aware-model-refs. |
