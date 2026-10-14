@@ -9,15 +9,13 @@
 import { expect, test } from "./fixtures.js";
 import { ensureGitSession } from "./helpers/index.js";
 
-test.skip(
-  process.env.PI_BROWSER_RELAY_FAKE === "1",
-  "relay-fake leg seeds a relay tab, so STATUS legitimately shows; covered by browser-relay.spec.ts F14",
-);
-
 test.describe("empty STATUS subcard", () => {
   test.setTimeout(180_000);
 
   test("F13: an idle seeded session card shows no STATUS title", async ({ page }) => {
+    // Runtime guard (not file-level): the relay-fake leg seeds a relay tab, so STATUS
+    // legitimately shows there; covered by browser-relay.spec.ts F14.
+    test.skip(process.env.PI_BROWSER_RELAY_FAKE === "1", "relay-fake leg seeds a relay tab");
     await ensureGitSession(page);
     const card = page.getByTestId("session-card-desktop").first();
     await expect(card).toBeVisible({ timeout: 40_000 });
