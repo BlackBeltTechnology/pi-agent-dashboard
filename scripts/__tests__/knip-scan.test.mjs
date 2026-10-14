@@ -50,6 +50,7 @@ describe.skipIf(!CI_SCENARIOS)("live knip scan", () => {
       "packages/client/src/main.tsx",
       "packages/electron/src/main.ts",
       "packages/electron/src/preload.ts",
+      "packages/electron/src/preload-main.ts",
       "packages/server/src/cli.ts",
     ]) {
       expect(unusedFiles, `${entry} is an application entry`).not.toContain(entry);

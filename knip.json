@@ -288,6 +288,7 @@
       "entry": [
         "src/main.ts",
         "src/preload.ts",
+        "src/preload-main.ts",
         "src/preload/*.ts",
         "forge.config.ts",
         "**/vitest.config.ts",
