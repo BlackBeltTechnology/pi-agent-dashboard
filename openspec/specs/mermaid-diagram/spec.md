@@ -94,7 +94,8 @@ MermaidBlock SHALL be wrapped in React.memo so that it skips re-rendering when i
 
 ### Requirement: Default node auto-colorization
 The MermaidBlock component SHALL post-process the rendered SVG, after
-sanitisation and before DOM injection, to give each default (un-authored) node a
+`mermaid.render()` and before sanitisation (sanitisation stays the last step
+before caching and DOM injection, see `client-untrusted-content-sanitization`), to give each default (un-authored) node a
 soft tint drawn from the active theme's accent palette, while leaving nodes with
 an author-specified color untouched. The tint SHALL fill the node with the accent
 at low opacity (~8%), draw the node border in the full accent, and keep the
@@ -139,6 +140,10 @@ Colorization SHALL cover flowchart and class diagrams.
   sequence, state, ER)
 - **THEN** the colorization pass SHALL make no changes and the diagram SHALL
   render with mermaid's theme colors
+
+#### Scenario: Colorization survives multi-line labels
+- **WHEN** a flowchart node label contains a `<br>` line break and the node has no author-specified fill
+- **THEN** the node SHALL be tinted from the accent palette and its full label text SHALL be displayed
 
 ### Requirement: Mermaid hydration in AsciiDoc previews
 

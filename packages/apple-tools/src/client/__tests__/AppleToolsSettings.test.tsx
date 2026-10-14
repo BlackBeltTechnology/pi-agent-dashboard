@@ -14,7 +14,7 @@ vi.mock("@blackbelt-technology/dashboard-plugin-runtime/context", () => ({
   usePluginSend: () => () => {},
 }));
 
-const { AppleToolsSettings } = await import("../index.js");
+const { AppleToolsSettings } = await import("../AppleToolsSettings.js");
 
 afterEach(() => {
   cleanup();

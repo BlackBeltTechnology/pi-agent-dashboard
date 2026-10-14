@@ -4,4 +4,3 @@
  * See change: add-system-one-registry.
  */
 export { catalog } from "../i18n.js";
-export { SystemOneSettings } from "./SystemOneSettings.js";

@@ -47,6 +47,7 @@
       {
         "slot": "settings-section",
         "component": "ContextModeSettings",
+        "module": "./src/client/ContextModeSettings.tsx",
         "tab": "general"
       }
     ],

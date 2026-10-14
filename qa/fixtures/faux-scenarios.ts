@@ -743,6 +743,58 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "Alpha" },
   },
 
+  // Sanitizer feature-parity probe: four diagram types in one message — a
+  // flowchart with arrows and a `<br>` multi-line label, a sequence, a class and
+  // an ER diagram — so one render checks that DOMPurify keeps each type's
+  // <style>, markers and labels. See change: sanitize-untrusted-rendered-content.
+  "mermaid-sanitize-types": {
+    script: [
+      fauxAssistantMessage([
+        fauxText(
+          "Types probe\n\n```mermaid\ngraph TD\n  A[\"one<br>two\"] --> B[Bravo]\n```\n\n```mermaid\nsequenceDiagram\n  Alice->>Bob: hi\n```\n\n```mermaid\nclassDiagram\n  Animal <|-- Dog\n```\n\n```mermaid\nerDiagram\n  CUSTOMER ||--o{ ORDER : places\n```",
+        ),
+      ]),
+    ],
+    expect: { text: "Types probe" },
+  },
+
+  // `%%{init}%%` directive carrying themeCSS/fontFamily payloads that must not
+  // reach the SVG <style> (mermaid `secure` keys). Same change as above.
+  "mermaid-theme-css": {
+    script: [
+      fauxAssistantMessage([
+        fauxText(
+          "Theme probe\n\n```mermaid\n%%{init: {\"themeCSS\": \"@import url(//evil.example/x.css); * {display:none}\", \"fontFamily\": \"x;*{display:none}\"}}%%\ngraph TD\n  A --> B\n```",
+        ),
+      ]),
+    ],
+    expect: { text: "Theme probe" },
+  },
+
+  // Multi-line `<br>` label on an un-styled node: colorize must still tint it
+  // after the colorize → sanitize reorder. Same change as above.
+  "mermaid-br-label": {
+    script: [
+      fauxAssistantMessage([
+        fauxText("Label probe\n\n```mermaid\ngraph TD\n  A[\"one<br>two\"] --> B\n```"),
+      ]),
+    ],
+    expect: { text: "Label probe" },
+  },
+
+  // Untrusted-markdown exploit attempts that must stay inert in a real browser.
+  // See change: sanitize-untrusted-rendered-content.
+  "markdown-xss": {
+    script: [
+      fauxAssistantMessage([
+        fauxText(
+          "XSS probe\n\n[x](javascript:window.__pwned=1)\n\n<iframe srcdoc=\"<script>parent.__pwned=1</script>\"></iframe>",
+        ),
+      ]),
+    ],
+    expect: { text: "XSS probe" },
+  },
+
   // Rule-based mermaid auto-repair (change: add-mermaid-auto-repair, F9):
   // `participant end` is a keyword alias mermaid rejects; R2 renames it and
   // leaves the `alt … end` terminator intact, so the chat diagram renders

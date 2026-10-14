@@ -282,6 +282,9 @@ export function deterministicSerializePlugins(
           ...(c.labelComponent !== undefined ? { labelComponent: c.labelComponent } : {}),
           // resource-page-section page filter. See change: add-skill-atlas-screen.
           ...(c.resourceType !== undefined ? { resourceType: c.resourceType } : {}),
+          // Lazy component module: a module-only edit must change the hash.
+          // See change: lazy-plugin-claim-modules.
+          ...(c.module !== undefined ? { module: c.module } : {}),
         }))
         .sort((a, b) =>
           [a.slot, a.component, a.predicate, a.command, a.path]

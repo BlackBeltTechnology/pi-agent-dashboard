@@ -1,0 +1,26 @@
+= AsciiDoc Sanitize Fixture
+:stem: latexmath
+
+Preamble with inline stem:[a^2] math.
+
+[stem]
+++++
+\sqrt{\frac{a}{b}}
+++++
+
+[cols="1,3"]
+|===
+|narrow |wide column
+|===
+
+[source,mermaid]
+----
+graph TD; A-->B
+----
+
+[plantuml]
+----
+@startuml
+A -> B
+@enduml
+----

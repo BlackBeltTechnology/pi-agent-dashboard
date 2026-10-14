@@ -377,6 +377,29 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     }
   }
 
+  // Lazy component module: package-relative `./…` path, no `..` segment, only
+  // meaningful next to a `component`. See change: lazy-plugin-claim-modules.
+  if (c.module !== undefined) {
+    if (typeof c.module !== "string" || !c.module.trim()) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}].module must be a non-empty string if provided`,
+      );
+    }
+    if (!c.module.startsWith("./") || c.module.split(/[\\/]/).includes("..")) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}].module "${c.module}" must be a package-relative path starting with "./" and containing no ".." segment`,
+      );
+    }
+    if (typeof c.component !== "string" || !c.component.trim()) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}].module requires a non-empty "component"`,
+      );
+    }
+  }
+
   // settings-section: optional `nav` promotion hint (non-fatal). `nav` on any
   // other slot is dropped silently. See change: promote-model-roles-settings.
   const navHint =
@@ -387,6 +410,7 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
   return {
     slot: slotId,
     ...(typeof c.component === "string" ? { component: c.component } : {}),
+    ...(typeof c.module === "string" ? { module: c.module } : {}),
     ...(typeof c.command === "string" ? { command: c.command } : {}),
     ...(typeof c.trigger === "string" ? { trigger: c.trigger } : {}),
     ...(typeof c.toolName === "string" ? { toolName: c.toolName } : {}),

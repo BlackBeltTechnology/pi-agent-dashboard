@@ -13,6 +13,27 @@ vi.mock("mermaid", () => ({
   },
 }));
 
+// Fault injection for the SVG sanitizer (change: sanitize-untrusted-rendered-content).
+// Delegates to the REAL DOMPurify unless a mode is set.
+const purifyFault = vi.hoisted(() => ({ mode: null as null | "throw" | "unsupported" }));
+vi.mock("dompurify", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("dompurify")>();
+  const real = actual.default;
+  return {
+    ...actual,
+    default: {
+      get isSupported() {
+        return purifyFault.mode === "unsupported" ? false : real.isSupported;
+      },
+      sanitize: (...args: unknown[]) => {
+        if (purifyFault.mode === "throw") throw new Error("purify boom");
+        if (purifyFault.mode === "unsupported") return args[0];
+        return (real.sanitize as (...a: unknown[]) => unknown)(...args);
+      },
+    },
+  };
+});
+
 // Spy-able pass-through to the real repair module (X3 overrides it once).
 vi.mock("../../lib/preview/mermaid-repair.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/preview/mermaid-repair.js")>();
@@ -27,6 +48,7 @@ import {
   hashId,
   MermaidBlock,
   rgba,
+  sanitizeMermaidSvg,
 } from "../preview/MermaidBlock.js";
 import { VIEWPORT_HEIGHT_CSS } from "../preview/mermaid-fit.js";
 
@@ -817,4 +839,80 @@ describe("MermaidBlock retro-ux chat rendering", () => {
     expect(document.activeElement).toBe(other);
     other.remove();
   });
+});
+
+// ── Untrusted-content sanitization ─────────────────────────────────────────
+// See change: sanitize-untrusted-rendered-content (test-plan E20–E22, X5).
+describe("MermaidBlock SVG sanitization", () => {
+  const XHTML = "http://www.w3.org/1999/xhtml";
+  const LABEL_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><style>.node{fill:red}</style>
+  <g class="node" id="flowchart-A-0"><rect class="basic label-container" style=""></rect>
+  <foreignObject width="80" height="40"><div xmlns="${XHTML}"><span class="nodeLabel">a<br/>b</span></div></foreignObject></g></svg>`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _outcomeCache.clear();
+    purifyFault.mode = null;
+  });
+  afterEach(() => {
+    purifyFault.mode = null;
+  });
+
+  it("#E20 strips active content but keeps labels and theme style", async () => {
+    const dirty = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+      <a xlink:href="javascript:alert(1)"><text>x</text></a>
+      <g onclick="alert(1)"></g><g onload='alert(1)'></g><g onmouseover=alert(1)></g>
+      <script>alert(1)</script>
+      <style>.node{fill:red}</style>
+      <foreignObject><div xmlns="${XHTML}"><span class="nodeLabel">a<br/>b</span></div></foreignObject></svg>`;
+    const out = await sanitizeMermaidSvg(dirty);
+    expect(out).not.toMatch(/javascript:/i);
+    expect(out).not.toMatch(/\son\w+\s*=/i);
+    expect(out).not.toContain("<script");
+    const doc = new DOMParser().parseFromString(out, "text/html");
+    expect(doc.querySelector("foreignObject span.nodeLabel")).not.toBeNull();
+    expect(doc.querySelector("foreignObject br")).not.toBeNull();
+    expect(doc.querySelector("style")).not.toBeNull();
+  });
+
+  it("#E21 colorizes the default node first, then sanitizes (multi-line label survives)", async () => {
+    mockRender.mockResolvedValue({ svg: LABEL_SVG.replace('<g class="node"', '<g class="node" onclick="alert(1)"') });
+    const { container } = renderWithTheme(<MermaidBlock code={"graph TD\nA-->B"} />);
+    await waitFor(() => expect(container.querySelector(".mermaid-diagram svg")).not.toBeNull());
+    const rect = container.querySelector(".mermaid-diagram g.node rect")!;
+    expect(rect.getAttribute("style")).toMatch(/fill:\s*rgba\(/);
+    const label = container.querySelector(".mermaid-diagram .nodeLabel")!;
+    expect(label.textContent).toBe("ab");
+    expect(label.querySelector("br")).not.toBeNull();
+    expect(container.querySelector(".mermaid-diagram")!.innerHTML).not.toMatch(/\son\w+\s*=/i);
+  });
+
+  it("#E21b mermaid's unclosed <br> (not well-formed XML) still gets colorized", () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg"><g class="node" id="flowchart-A-0"><rect class="basic label-container" style=""></rect><foreignObject><div xmlns="${XHTML}"><span class="nodeLabel"><p>one<br>two</p></span></div></foreignObject></g></svg>`;
+    const out = colorizeDefaultNodes(svg, ACCENTS_A, TEXT);
+    expect(parse(out).querySelector("rect")!.getAttribute("style")).toMatch(/fill:\s*rgba\(/);
+    expect(out).toContain("one");
+    expect(out).toContain("two");
+  });
+
+  it("#E22 a repaired render is sanitized too", async () => {
+    mockRender
+      .mockRejectedValueOnce(new Error("E1"))
+      .mockResolvedValueOnce({ svg: '<svg><g onclick="alert(1)"><text>fixed</text></g></svg>' });
+    const { container } = renderWithTheme(<MermaidBlock code={"graph TD\nA -->|(x)| B"} />);
+    await waitFor(() => expect(container.querySelector('[data-testid="mermaid-repair-badge"]')).not.toBeNull());
+    expect(container.querySelector(".mermaid-diagram")!.innerHTML).not.toContain("onclick");
+  });
+
+  for (const mode of ["throw", "unsupported"] as const) {
+    it(`#X5 fails closed when the sanitizer is unavailable (${mode})`, async () => {
+      purifyFault.mode = mode;
+      mockRender.mockResolvedValue({ svg: '<svg xmlns="http://www.w3.org/2000/svg"><text>RAWMARK</text></svg>' });
+      const { container } = renderWithTheme(<MermaidBlock code={"graph TD\nA -->|(x)| B"} />);
+      await waitFor(() => expect(container.textContent).toMatch(/could not be rendered/i));
+      expect(container.querySelector(".mermaid-diagram svg")).toBeNull();
+      expect(container.innerHTML).not.toContain("RAWMARK");
+      for (const outcome of _outcomeCache.values()) expect(JSON.stringify(outcome)).not.toContain("RAWMARK");
+    });
+  }
 });
