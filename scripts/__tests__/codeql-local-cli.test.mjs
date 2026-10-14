@@ -7,7 +7,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { processStartTime, snapshotId } from "../codeql-local.mjs";
@@ -396,6 +396,16 @@ describe("failures around the snapshot and lock (#X3, #X4)", () => {
     expect(run(repo, [], { plan: bothLanguages([]) }).status).toBe(2);
     expect(run(repo, ["--prune"]).status).toBe(2);
     expect(readBaseline(repo)).toBe(before);
+  });
+
+  it("#X4 (c) an unverifiable owner (no recorded start time) goes stale with age", () => {
+    const repo = seeded();
+    lockOwner(repo, { pid: process.pid, start: null });
+    expect(run(repo, [], { plan: bothLanguages([]) }).status).toBe(2); // fresh: still trusted
+    const owner = join(stateDirOf(repo), "lock", "owner.json");
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    utimesSync(owner, old, old);
+    expect(run(repo, [], { plan: bothLanguages([]) }).status).toBe(0); // 2 h old: PID reuse is likelier than a live run
   });
 
   it("#X4 (b) a lock of a dead process is taken over", () => {

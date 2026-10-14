@@ -33,6 +33,7 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -437,14 +438,18 @@ export function processStartTime(pid) {
   }
 }
 
-function isLockStale(owner) {
+/** Without a recorded start time (no `ps`), a reused PID cannot be told apart — trust the lock only while it is younger than any real run. */
+const UNVERIFIABLE_LOCK_MAX_AGE_MS = 30 * 60 * 1000;
+
+function isLockStale(owner, ownerFile) {
   try {
     process.kill(owner.pid, 0);
   } catch (err) {
     if (err.code === "ESRCH") return true;
   }
+  if (owner.start == null) return Date.now() - statSync(ownerFile).mtimeMs > UNVERIFIABLE_LOCK_MAX_AGE_MS;
   const now = processStartTime(owner.pid);
-  return owner.start != null && now != null && owner.start !== now;
+  return now != null && owner.start !== now;
 }
 
 let heldLock = null;
@@ -472,7 +477,7 @@ export function acquireLock(cwd) {
       try {
         owner = JSON.parse(readFileSync(join(lock, "owner.json"), "utf8"));
       } catch {}
-      if (owner && !isLockStale(owner)) {
+      if (owner && !isLockStale(owner, join(lock, "owner.json"))) {
         throw new CodeqlError(`another codeql-local run is active in this worktree (pid ${owner.pid}); wait for it or retry`);
       }
       rmSync(lock, { recursive: true, force: true });

@@ -6,7 +6,7 @@ Flow: snapshot → `database create` + `database analyze` per language (`javascr
 
 Modes: default analyse (`--json`) · `--prune` · `--accept <rule> <file> <lineHash> --reason <text>` · `--triage …` · `--write-baseline` (seed) · `--check-baseline-diff <ref> [--no-growth]`. Exit 0 pass/skipped · 1 new alerts or growth violation · 2 error.
 
-Snapshot: copy of the worktree index → `git add -A` → drop baseline → `git write-tree`. Tree id = snapshot id. Real index/worktree untouched. Unmerged entries → exit 2. Materialized with `git checkout-index`. State dir `$TMPDIR/pi-codeql/<sha1 toplevel>/`: `lock/owner.json` (pid + `ps` start time; stale lock taken over), `last-run.json` `{snapshotId, counts, results}`, `run-<pid>/` (src, `db-<lang>`, SARIF).
+Snapshot: copy of the worktree index → `git add -A` → drop baseline → `git write-tree`. Tree id = snapshot id. Real index/worktree untouched. Unmerged entries → exit 2. Materialized with `git checkout-index`. State dir `$TMPDIR/pi-codeql/<sha1 toplevel>/`: `lock/owner.json` (pid + `ps` start time; stale lock taken over; no start time → stale after 30 min), `last-run.json` `{snapshotId, counts, results}`, `run-<pid>/` (src, `db-<lang>`, SARIF).
 
 Shared config: `.github/codeql/codeql-config.yml` `paths-ignore` → `LGTM_INDEX_FILTERS` (`exclude:<glob>`, trailing `/**` dropped, newline-joined). Offline-safe: no `--codescanning-config`, no `--download`; `resolve queries` before `pack download` (60 s). Any result in an ignored path → exit 2.
 
