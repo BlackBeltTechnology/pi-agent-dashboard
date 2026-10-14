@@ -4,6 +4,7 @@
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Tier } from "../../../lib/pairing/paired-devices-api.js";
 import type { ApprovePendingOutcome, PendingPairing } from "../../../lib/pairing/pairing-approval-api.js";
 import { PairingApprovalDialog } from "../PairingApprovalDialog.js";
 
@@ -23,7 +24,7 @@ const ENTRY: PendingPairing = {
 function renderDialog(
   opts: {
     entry?: PendingPairing;
-    approve?: (code: string, label: string | undefined) => Promise<ApprovePendingOutcome>;
+    approve?: (code: string, label: string | undefined, tier?: Tier) => Promise<ApprovePendingOutcome>;
     queued?: number;
   } = {},
 ) {
@@ -50,6 +51,17 @@ function renderDialog(
 const type = (el: HTMLInputElement, v: string) => fireEvent.change(el, { target: { value: v } });
 
 afterEach(() => cleanup());
+
+const KNOCK: PendingPairing = {
+  ...ENTRY,
+  userAgent:
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+  viaHost: "192.168.16.204:8000",
+  remoteAddress: "192.168.16.31",
+  provenance: "knock",
+  requesterName: "Roberts-MacBook-Pro",
+  unencrypted: true,
+};
 
 describe("PairingApprovalDialog", () => {
   it("F7: a 401 operator-credential refusal shows the `pi-dashboard open` hint", async () => {
@@ -216,5 +228,102 @@ describe("PairingApprovalDialog", () => {
     renderDialog({ queued: 1 });
     expect(screen.getByTestId("pairing-dialog-queued").textContent).toBe("+1 more waiting");
     expect(screen.getByTestId("pairing-dialog").textContent).not.toMatch(/\d{4} ?\d{4}/);
+  });
+
+  describe("knock provenance (E28, change: add-lan-knock-pairing)", () => {
+    const okOutcome = async () =>
+      ({ ok: true as const, device: { id: "d", label: "x", createdAt: "", lastSeen: null, source: "pairing" } }) as never;
+
+    it("E28: title names the address; Address row leads; Says-it-is row; name prefilled from requesterName", () => {
+      const { dialog } = renderDialog({ entry: KNOCK });
+      expect(within(dialog).getByText("A device on 192.168.16.31 asks to connect")).toBeTruthy();
+      const dl = screen.getByTestId("pairing-dialog-device");
+      const first = dl.querySelector("dt");
+      expect(first?.textContent).toBe("Address");
+      const dd = first?.nextElementSibling as HTMLElement;
+      expect(dd.textContent).toBe("192.168.16.31");
+      expect(dd.className).toContain("font-mono");
+      expect(dd.className).toContain("font-semibold");
+      const says = screen.getByTestId("pairing-dialog-says");
+      expect(says.textContent).toContain("Says it is");
+      expect(says.textContent).toContain("Roberts-MacBook-Pro");
+      expect(says.textContent).toContain("(name typed on that device, not verified)");
+      expect((screen.getByTestId("pairing-name-input") as HTMLInputElement).value).toBe("Roberts-MacBook-Pro");
+    });
+
+    it("E28: no requesterName → no says row, name prefilled from the User-Agent", () => {
+      renderDialog({ entry: { ...KNOCK, requesterName: undefined } });
+      expect(screen.queryByTestId("pairing-dialog-says")).toBeNull();
+      expect((screen.getByTestId("pairing-name-input") as HTMLInputElement).value).toBe("Chrome on macOS");
+    });
+
+    it("E28: unencrypted callout (icon + words) sits before the code field; absent when TLS", () => {
+      const { input } = renderDialog({ entry: KNOCK });
+      const callout = screen.getByTestId("pairing-dialog-unencrypted");
+      expect(callout.textContent).toContain("Unencrypted on this network.");
+      expect(callout.textContent).toContain("plain http");
+      expect(callout.querySelector("svg")).not.toBeNull();
+      expect(callout.className).toContain("--severity-warning");
+      expect(callout.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      cleanup();
+      renderDialog({ entry: { ...KNOCK, unencrypted: false } });
+      expect(screen.queryByTestId("pairing-dialog-unencrypted")).toBeNull();
+    });
+
+    it("E28: tier group is a labelled radiogroup, Operate preselected, consequence follows the pick, approve sends tier", async () => {
+      const { onApprove, input } = renderDialog({ entry: KNOCK, approve: okOutcome });
+      const group = screen.getByTestId("pairing-dialog-tier");
+      expect(group.tagName).toBe("FIELDSET");
+      expect(within(group).getByText("Access for this device").tagName).toBe("LEGEND");
+      const radios = within(group).getAllByRole("radio") as HTMLInputElement[];
+      expect(radios.map((r) => r.value)).toEqual(["observe", "control", "operate"]);
+      expect(radios.find((r) => r.checked)?.value).toBe("operate");
+      expect(within(group).getByLabelText(/Observe/)).toBeTruthy();
+      const conseq = screen.getByTestId("pairing-dialog-consequence");
+      expect(conseq.textContent).toContain("full control of the dashboard (operate)");
+
+      fireEvent.click(within(group).getByLabelText(/Observe/));
+      expect(conseq.textContent).toBe("Approving lets this browser watch the dashboard read-only (observe).");
+      fireEvent.click(within(group).getByLabelText(/Control/));
+      expect(conseq.textContent).toBe("Approving lets this browser drive sessions (control), but not restart or install.");
+      fireEvent.click(within(group).getByLabelText(/Observe/));
+
+      type(input, "12345678");
+      fireEvent.click(screen.getByTestId("pairing-approve"));
+      await waitFor(() => expect(onApprove).toHaveBeenCalled());
+      expect(onApprove).toHaveBeenCalledWith("12345678", "Roberts-MacBook-Pro", "observe");
+    });
+
+    it("E28: knock approved with the default pick sends tier operate", async () => {
+      const { onApprove, input } = renderDialog({ entry: KNOCK, approve: okOutcome });
+      type(input, "12345678");
+      fireEvent.click(screen.getByTestId("pairing-approve"));
+      await waitFor(() => expect(onApprove).toHaveBeenCalled());
+      expect(onApprove).toHaveBeenCalledWith("12345678", "Roberts-MacBook-Pro", "operate");
+    });
+
+    it("E28: requester name is inert text, never HTML", () => {
+      renderDialog({ entry: { ...KNOCK, requesterName: "<b>boss</b>" } });
+      const says = screen.getByTestId("pairing-dialog-says");
+      expect(says.querySelector("b")).toBeNull();
+      expect(says.textContent).toContain("<b>boss</b>");
+    });
+
+    it("E28: QR entry (and explicit qr) keeps today's presentation — old title, no tier group, onApprove gets no tier", async () => {
+      for (const entry of [ENTRY, { ...ENTRY, provenance: "qr" as const }]) {
+        const { onApprove, input, dialog } = renderDialog({ entry, approve: okOutcome });
+        expect(within(dialog).getByText("A device wants to connect")).toBeTruthy();
+        expect(screen.queryByTestId("pairing-dialog-tier")).toBeNull();
+        expect(screen.queryByTestId("pairing-dialog-says")).toBeNull();
+        expect(screen.queryByTestId("pairing-dialog-unencrypted")).toBeNull();
+        expect(screen.getByTestId("pairing-dialog-device").querySelector("dt")?.textContent).toBe("Browser");
+        expect(screen.getByTestId("pairing-dialog-consequence").textContent).toContain("(operate)");
+        type(input, "12345678");
+        fireEvent.click(screen.getByTestId("pairing-approve"));
+        await waitFor(() => expect(onApprove).toHaveBeenCalled());
+        expect(onApprove.mock.calls[0]).toHaveLength(2);
+        cleanup();
+      }
+    });
   });
 });

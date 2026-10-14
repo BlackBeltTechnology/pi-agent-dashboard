@@ -482,7 +482,7 @@
   "common.overridesGlobal": "Overrides global",
   "common.overwriteAnyway": "Overwrite anyway",
   "packages.packages": "Packages",
-  "common.pairingNeedsSecureRoad": "Pairing a remote device needs a secure road (the Gateway or a publicly-trusted TLS URL). A browser on a plain-http LAN address cannot pair — the identity check requires a secure context.",
+  "common.pairingNeedsSecureRoad": "A QR pairing link needs a secure road (the Gateway or a publicly-trusted TLS URL). For a device on this network, turn on \"Accept requests from devices on this network\" below.",
   "gateway.pasteApiKey": "Paste API key…",
   "common.path": "Path",
   "common.piProject": "pi project",

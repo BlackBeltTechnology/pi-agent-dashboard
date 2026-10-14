@@ -11,20 +11,21 @@
  * See change: improve-content-editor (tree correctness #1, mime icons #2).
  */
 
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import { fileKind, type ViewerKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { mdiCheck, mdiChevronDown, mdiChevronRight, mdiContentCopy, mdiFolderOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import { useEffect, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { fetchWithoutGrantPrompt } from "../../lib/access-grants/grant-channel.js";
 import { getApiBase } from "../../lib/api/api-context.js";
-import { fileIcon } from "../../lib/preview/file-icon.js";
 import { t as i18nT, useI18n } from "../../lib/i18n/i18n.js";
-import { CountBadges } from "../session/CountBadges.js";
-import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
+import { fileIcon } from "../../lib/preview/file-icon.js";
 import { logRejection } from "../../lib/report-error.js";
+import { copyText } from "../../lib/util/clipboard.js";
+import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
+import { CountBadges } from "../session/CountBadges.js";
 
 interface EditorFileTreeProps {
   cwd: string;
@@ -165,14 +166,9 @@ function RowCopyAffordance({ cwd, rel }: { cwd: string; rel: string }) {
   };
 
   const doCopy = (key: string, payload: string) => {
-    try {
-      // writeText returns a Promise; swallow async rejection (permission/policy
-      // denied) too so the action fails silently, matching CopyButton. Optional
-      // chaining short-circuits the whole chain when clipboard is unavailable.
-      navigator.clipboard?.writeText(payload).catch(() => {});
-    } catch {
-      // Clipboard API unavailable — fail silently.
-    }
+    // copyText never rejects: an unavailable/denied clipboard fails silently,
+    // matching CopyButton.
+    void copyText(payload);
     setCopied(key);
     if (closeTimer.current) clearTimeout(closeTimer.current);
     closeTimer.current = setTimeout(close, 1500);

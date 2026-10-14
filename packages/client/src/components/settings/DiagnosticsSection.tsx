@@ -7,7 +7,7 @@
  *
  * Toolbar:
  *   [Re-run]            disabled while a fetch is in flight, "Running…" label
- *   [Copy as Markdown]  navigator.clipboard.writeText → textarea-modal fallback
+ *   [Copy as Markdown]  copyText → textarea-modal fallback
  *   [Copy as Plain]     same fallback path
  *
  * On non-200 / shape mismatch / network failure: renders an inline error
@@ -18,13 +18,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
+import { type AutoNameOutcomeRow, fetchAutoNameOutcomes } from "../../lib/api/auto-name-outcomes-api.js";
 import type { DoctorCheck, DoctorReport } from "../../lib/api/doctor-api.js";
 import { DoctorFetchError, fetchDoctorReport } from "../../lib/api/doctor-api.js";
-import { type AutoNameOutcomeRow, fetchAutoNameOutcomes } from "../../lib/api/auto-name-outcomes-api.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { resolveServerMessage } from "../../lib/api/server-error.js";
-import { DialogPortal } from "../primitives/DialogPortal.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { copyText } from "../../lib/util/clipboard.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
+import { DialogPortal } from "../primitives/DialogPortal.js";
 
 type DoctorSection = DoctorCheck["section"];
 
@@ -234,15 +235,11 @@ export function DiagnosticsSection({ fetcher, autoNameFetcher }: Props = {}) {
   }, []);
 
   const copyTo = useCallback(async (text: string) => {
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        setToast("Copied to clipboard.");
-        setTimeout(() => setToast(null), 3000);
-        return;
-      }
-      throw new Error("clipboard unavailable");
-    } catch {
+    // copyText: writeText → hidden-textarea fallback; false → manual-copy modal.
+    if (await copyText(text)) {
+      setToast("Copied to clipboard.");
+      setTimeout(() => setToast(null), 3000);
+    } else {
       setCopyModalText(text);
     }
   }, []);

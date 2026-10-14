@@ -31,3 +31,5 @@ Rows for `/api/users`, `/api/users/:id`, `/api/users/:id/revoke`, `/api/users/:i
 - `GET /api/folder/project` classified `observe`. See change: add-project-scoped-apps.
 
 Row `GET /api/plugins/skill-atlas/graph` observe. See change: add-skill-atlas-screen.
+
+`POST /api/pair/request` → `operate`. Public (unauthenticated) route, listed only so the tier-map completeness test stays exhaustive. See change: add-lan-knock-pairing.

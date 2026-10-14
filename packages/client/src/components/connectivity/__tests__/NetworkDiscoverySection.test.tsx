@@ -143,3 +143,88 @@ describe("NetworkDiscoverySection retro-ux", () => {
     expect(screen.queryByText("Already added")).toBeNull();
   });
 });
+
+// add-lan-knock-pairing — Connect on remote rows (test-plan #E27, known-servers delta).
+describe("NetworkDiscoverySection Connect (E27)", () => {
+  let open: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    open = vi.fn();
+    vi.stubGlobal("open", open);
+    discoverServers.mockReset().mockResolvedValue([
+      { ...base, host: "192.168.16.204", port: 8000, name: "home-imac" },
+      { ...base, host: "fd12::4", port: 8000 },
+      { ...base, host: "robson-mbp.local", port: 8000, name: "robson-mbp", isLocal: true },
+    ]);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const scanThree = async () => {
+    render(<NetworkDiscoverySection knownServers={[]} onServerAdded={vi.fn()} />);
+    fireEvent.click(screen.getByText("Scan network"));
+    await screen.findByText("home-imac");
+  };
+
+  it("a remote IPv4 row opens its /pair?request in a new context with noopener", async () => {
+    await scanThree();
+    fireEvent.click(screen.getByRole("button", { name: "Connect to home-imac (opens in a new tab)" }));
+    expect(open).toHaveBeenCalledWith("http://192.168.16.204:8000/pair?request", "_blank", "noopener");
+  });
+
+  it("a remote IPv6 literal is bracketed in the opened URL", async () => {
+    await scanThree();
+    fireEvent.click(screen.getByRole("button", { name: "Connect to fd12::4 (opens in a new tab)" }));
+    expect(open).toHaveBeenCalledWith("http://[fd12::4]:8000/pair?request", "_blank", "noopener");
+  });
+
+  it("a hostile advertised host offers no Connect (the URL must round-trip to the advertised host)", async () => {
+    discoverServers.mockReset().mockResolvedValue([
+      { ...base, host: "evil.example/x?", port: 8000, name: "sneaky-a" },
+      { ...base, host: "a@evil.example", port: 8000, name: "sneaky-b" },
+      { ...base, host: "192.168.16.204", port: 8000, name: "home-imac" },
+    ]);
+    await scanThree();
+    expect(screen.getByRole("button", { name: "Connect to home-imac (opens in a new tab)" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Connect to sneaky/ })).toBeNull();
+  });
+
+  it("a local row offers no Connect", async () => {
+    await scanThree();
+    expect(screen.getAllByTestId("discovery-connect")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /Connect to robson-mbp/ })).toBeNull();
+  });
+
+  it("Connect sits before Add in its row and keeps the 32 px small-button recipe", async () => {
+    await scanThree();
+    const connect = screen.getByRole("button", { name: "Connect to home-imac (opens in a new tab)" });
+    const add = screen.getByRole("button", { name: "Add home-imac (192.168.16.204:8000)" });
+    expect(connect.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(connect.className).toContain("min-h-[32px]");
+    expect(connect.textContent).toBe("Connect");
+    expect(connect.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("Connect stays available on an already-added remote row, before 'Already added'", async () => {
+    discoverServers.mockResolvedValue([{ ...base, host: "192.168.16.204", port: 8000, name: "home-imac" }]);
+    render(
+      <NetworkDiscoverySection
+        knownServers={[{ host: "192.168.16.204", port: 8000, addedAt: "2026-01-01T00:00:00Z" }]}
+        onServerAdded={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByText("Scan network"));
+    const connect = await screen.findByRole("button", { name: "Connect to home-imac (opens in a new tab)" });
+    const known = screen.getByText("Already added");
+    expect(connect.compareDocumentPosition(known) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("actions wrap below the name on narrow widths (name block has a basis, actions wrap)", async () => {
+    await scanThree();
+    const connect = screen.getByRole("button", { name: "Connect to home-imac (opens in a new tab)" });
+    expect(connect.parentElement?.className).toContain("flex-wrap");
+    const main = screen.getByText("home-imac").closest("div.min-w-0");
+    expect(main?.className).toContain("flex-[1_1_12rem]");
+  });
+});

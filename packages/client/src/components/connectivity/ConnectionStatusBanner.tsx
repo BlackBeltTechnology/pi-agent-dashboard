@@ -1,5 +1,8 @@
+import { mdiAlertOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
 import { useEffect, useState } from "react";
 import type { ConnectionStatus } from "../../hooks/useWebSocket.js";
+import { getApiBase, useApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 export interface ConnectionStatusBannerProps {
@@ -41,6 +44,8 @@ export function ConnectionStatusBanner({
   thresholdMs = 3000,
 }: ConnectionStatusBannerProps) {
   const [show, setShow] = useState(false);
+  // The server that denied us: "" = the page's own origin, else that server's http base.
+  const apiBase = useApiBase() || getApiBase();
 
   useEffect(() => {
     if (status === "connected" || inFlightSwitch) {
@@ -56,23 +61,44 @@ export function ConnectionStatusBanner({
   // banner so a reachable-but-denied server is never labeled "offline".
   // Still suppressed during an in-flight staging switch.
   if (networkDenied && !inFlightSwitch) {
+    // Same-origin denial → the request page on this origin; otherwise the denying
+    // (active) server's own request page in a new context without an opener.
+    // See change: add-lan-knock-pairing (design D10).
+    const requestAccess = () => {
+      if (apiBase && apiBase !== window.location.origin) window.open(`${apiBase}/pair?request`, "_blank", "noopener");
+      else window.location.assign("/pair?request");
+    };
     return (
       <div
         role="alert"
-        className="w-full bg-amber-500/15 border-b border-amber-500/40 text-amber-200 px-4 py-2 text-sm flex items-center justify-between gap-2"
+        className="flex w-full flex-wrap items-center gap-2 border-b border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] px-4 py-2 text-sm text-[var(--severity-warning-fg)]"
       >
-        <span className="truncate">
-          <strong>{i18nT("common.networkNotAllowed", undefined, "Network not allowed")}</strong>
-          {networkDenied.hint ? <> — {networkDenied.hint}</> : null}
+        <span className="flex min-w-[12rem] flex-1 items-start gap-1.5">
+          <Icon path={mdiAlertOutline} size={0.7} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 break-words">
+            <strong>{i18nT("common.networkNotAllowed", undefined, "Network not allowed")}</strong>
+            {networkDenied.hint ? <> — {networkDenied.hint}</> : null}
+          </span>
         </span>
-        {onOpenServers && (
+        <span className="flex flex-wrap gap-1.5">
           <button
-            onClick={onOpenServers}
-            className="shrink-0 px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 text-xs font-medium cursor-pointer"
+            type="button"
+            data-testid="network-denied-request-access"
+            onClick={requestAccess}
+            className="focus-ring min-h-[44px] cursor-pointer rounded-md border border-[var(--accent-solid)] bg-[var(--accent-solid)] px-2.5 text-xs font-semibold text-white sm:min-h-[32px]"
           >
-            {i18nT("settings.settingsServers", undefined, "Settings → Servers")}
+            {i18nT("connection.requestAccess", undefined, "Request access")}
           </button>
-        )}
+          {onOpenServers && (
+            <button
+              type="button"
+              onClick={onOpenServers}
+              className="focus-ring min-h-[44px] cursor-pointer rounded-md border border-[var(--severity-warning-border)] px-2.5 text-xs font-semibold text-[var(--severity-warning-fg)] sm:min-h-[32px]"
+            >
+              {i18nT("settings.settingsServers", undefined, "Settings → Servers")}
+            </button>
+          )}
+        </span>
       </div>
     );
   }

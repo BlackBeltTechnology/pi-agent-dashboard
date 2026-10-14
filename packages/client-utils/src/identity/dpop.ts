@@ -26,8 +26,24 @@ function base64Url(bytes: ArrayBuffer | Uint8Array): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Generate a non-extractable ES256 keypair + export its public JWK. */
-export async function generateDpopKey(): Promise<DpopKey> {
+/**
+ * True when WebCrypto's `crypto.subtle` exists. It is secure-context-only
+ * (HTTPS / localhost), so a dashboard served on a plain-http LAN origin — e.g.
+ * after a knock pairing — has no DPoP: callers must treat that as "unbound
+ * bearer client" rather than an error. See change: add-lan-knock-pairing (D17).
+ */
+export function isDpopAvailable(): boolean {
+  return typeof crypto !== "undefined" && !!crypto.subtle;
+}
+
+/**
+ * Generate a non-extractable ES256 keypair + export its public JWK.
+ * Resolves `null` (never throws a TypeError) when DPoP is unavailable in this
+ * context — check `isDpopAvailable()` or the result. A `DpopKey` can only exist
+ * where `crypto.subtle` does, so `createDpopProof` needs no separate guard.
+ */
+export async function generateDpopKey(): Promise<DpopKey | null> {
+  if (!isDpopAvailable()) return null;
   const keyPair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, [
     "sign",
     "verify",

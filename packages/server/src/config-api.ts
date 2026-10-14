@@ -355,6 +355,13 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
       partial.sessionList = { ...existing.sessionList, ...partial.sessionList };
     }
 
+    // Merge pairing sub-object: the Gateway switch sends only `acceptLanRequests`,
+    // so a replace would drop the sibling `publicBaseUrls` (and vice versa).
+    // Live-read per request; no restart. See change: add-lan-knock-pairing.
+    if (partial.pairing && typeof partial.pairing === "object") {
+      partial.pairing = { ...existing.pairing, ...partial.pairing };
+    }
+
     // Merge kroki sub-object
     if (partial.kroki) {
       partial.kroki = { ...existing.kroki, ...partial.kroki };

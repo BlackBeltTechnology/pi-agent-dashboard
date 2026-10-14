@@ -12,12 +12,14 @@
  * as React text children only, never HTML, never a link.
  */
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import { mdiAlertCircle, mdiCellphoneLink, mdiCheckCircle, mdiClockAlertOutline } from "@mdi/js";
+import { mdiAlertCircle, mdiCellphoneLink, mdiCheckCircle, mdiClockAlertOutline, mdiLockOpenVariantOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { describeUserAgent, deviceNameFromUserAgent } from "../../lib/pairing/describe-user-agent.js";
+import type { Tier } from "../../lib/pairing/paired-devices-api.js";
 import type { ApprovePendingOutcome, PendingPairing } from "../../lib/pairing/pairing-approval-api.js";
+import { TIER_OPTIONS } from "../connectivity/PairedDevicesSection.js";
 
 const CODE_DIGITS = 8;
 /** Server bound on the device label (UTF-8 bytes, `MAX_DEVICE_LABEL_BYTES`). */
@@ -33,8 +35,11 @@ export interface PairingApprovalDialogProps {
   now: number;
   /** Other requests waiting behind this one. */
   queued: number;
-  /** Approve with the typed code; rejects only on a transport failure. */
-  onApprove(confirmCode: string, label: string | undefined): Promise<ApprovePendingOutcome>;
+  /**
+   * Approve with the typed code; rejects only on a transport failure. `tier`
+   * is passed for a knock entry only (QR keeps its two-argument call).
+   */
+  onApprove(confirmCode: string, label: string | undefined, tier?: Tier): Promise<ApprovePendingOutcome>;
   onDeny(): Promise<void>;
   /** Closed without answering — the request stays pending ("decide later"). */
   onDismiss(): void;
@@ -107,11 +112,34 @@ function nextFromOutcome(outcome: ApprovePendingOutcome): NextState {
 
 /** Redeemer context — untrusted, rendered as text children only (D4). */
 function DeviceDetails({ entry, now }: { entry: PendingPairing; now: number }) {
+  const knock = entry.provenance === "knock";
   return (
     <dl
       data-testid="pairing-dialog-device"
       className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs px-3 py-2 rounded bg-[var(--bg-secondary)] border border-[var(--border-secondary)]"
     >
+      {knock && (
+        <>
+          {/* Identity from what the server observed leads (ui-plan D1). */}
+          <dt className="text-[var(--text-tertiary)]">{i18nT("pairingApproval.address", undefined, "Address")}</dt>
+          <dd data-testid="pairing-dialog-address" className="font-mono font-semibold text-[var(--text-primary)] break-words">
+            {entry.remoteAddress ?? "—"}
+          </dd>
+          {entry.requesterName ? (
+            <div data-testid="pairing-dialog-says" className="contents">
+              <dt className="text-[var(--text-tertiary)]">{i18nT("pairingApproval.saysItIs", undefined, "Says it is")}</dt>
+              <dd className="text-[var(--text-primary)] break-words">
+                {"“"}
+                <span className="italic">{entry.requesterName}</span>
+                {"”"}{" "}
+                <span className="text-[var(--text-tertiary)]">
+                  {i18nT("pairingApproval.nameUnverified", undefined, "(name typed on that device, not verified)")}
+                </span>
+              </dd>
+            </div>
+          ) : null}
+        </>
+      )}
       <dt className="text-[var(--text-tertiary)]">{i18nT("pairingApproval.browser", undefined, "Browser")}</dt>
       <dd data-testid="pairing-dialog-browser" className="text-[var(--text-primary)] break-all">
         {describeUserAgent(entry.userAgent)}
@@ -120,19 +148,23 @@ function DeviceDetails({ entry, now }: { entry: PendingPairing; now: number }) {
       <dd data-testid="pairing-dialog-via" className="font-mono text-[var(--text-primary)] break-all">
         {entry.viaHost ?? "—"}
       </dd>
-      <dt className="text-[var(--text-tertiary)]">{i18nT("pairingApproval.from", undefined, "From")}</dt>
-      <dd data-testid="pairing-dialog-from" className="font-mono text-[var(--text-primary)] break-all">
-        {entry.forwardedFor ? (
-          <>
-            {entry.forwardedFor}{" "}
-            <span className="font-sans text-[var(--text-tertiary)]">
-              {i18nT("pairingApproval.reportedByProxy", undefined, "(reported by proxy)")}
-            </span>
-          </>
-        ) : (
-          (entry.remoteAddress ?? "—")
-        )}
-      </dd>
+      {!knock && (
+        <>
+          <dt className="text-[var(--text-tertiary)]">{i18nT("pairingApproval.from", undefined, "From")}</dt>
+          <dd data-testid="pairing-dialog-from" className="font-mono text-[var(--text-primary)] break-all">
+            {entry.forwardedFor ? (
+              <>
+                {entry.forwardedFor}{" "}
+                <span className="font-sans text-[var(--text-tertiary)]">
+                  {i18nT("pairingApproval.reportedByProxy", undefined, "(reported by proxy)")}
+                </span>
+              </>
+            ) : (
+              (entry.remoteAddress ?? "—")
+            )}
+          </dd>
+        </>
+      )}
       <dt className="text-[var(--text-tertiary)]">{i18nT("pairingApproval.when", undefined, "When")}</dt>
       <dd className="text-[var(--text-primary)]">{age(now - entry.createdAt)}</dd>
     </dl>
@@ -208,6 +240,99 @@ function ResultBlock({ phase, pairedName }: { phase: Exclude<Phase, "form">; pai
   );
 }
 
+/** Unencrypted knock warning — icon + words, severity-warning tokens (D3). */
+function UnencryptedCallout() {
+  return (
+    <div
+      role="note"
+      data-testid="pairing-dialog-unencrypted"
+      className="flex items-start gap-2 px-3 py-2 rounded text-sm bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border border-[var(--severity-warning-border)]"
+    >
+      <Icon path={mdiLockOpenVariantOutline} size={0.75} className="shrink-0 mt-0.5" aria-hidden="true" />
+      <div>
+        <strong>{i18nT("pairingApproval.unencryptedTitle", undefined, "Unencrypted on this network.")}</strong>{" "}
+        {i18nT(
+          "pairingApproval.unencryptedBody",
+          undefined,
+          "This request came over plain http. After you approve, someone else on this network could copy this device's access. For a protected connection, pair over the Gateway or TLS instead.",
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** "Access for this device" — same `TIER_OPTIONS` copy as Paired devices (D17). */
+function TierGroup({ tier, onChange }: { tier: Tier; onChange(tier: Tier): void }) {
+  const groupName = useId();
+  return (
+    <fieldset data-testid="pairing-dialog-tier" className="space-y-1 border-0 p-0 m-0">
+      <legend className="mb-1 p-0 text-sm font-medium text-[var(--text-primary)]">
+        {i18nT("pairingApproval.tierLegend", undefined, "Access for this device")}
+      </legend>
+      {TIER_OPTIONS.map((opt) => (
+        <label
+          key={opt.value}
+          className={`flex items-start gap-2 min-h-[44px] sm:min-h-8 px-2 py-1 rounded border text-xs cursor-pointer bg-[var(--bg-tertiary)] ${
+            tier === opt.value ? "border-[var(--accent)]" : "border-[var(--border-secondary)]"
+          }`}
+        >
+          <input
+            type="radio"
+            name={groupName}
+            value={opt.value}
+            checked={tier === opt.value}
+            onChange={() => onChange(opt.value)}
+            className="mt-0.5 accent-[var(--accent-solid)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring)]"
+          />
+          <span>
+            <span className="font-semibold text-[var(--text-primary)]">{opt.label}</span>{" "}
+            <span className="text-[var(--text-tertiary)]">{opt.description}</span>
+          </span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+/** Consequence line naming the picked tier; operate keeps the shipped text. */
+function consequenceText(tier: Tier): string {
+  if (tier === "observe") {
+    return i18nT(
+      "pairingApproval.consequenceObserve",
+      undefined,
+      "Approving lets this browser watch the dashboard read-only (observe).",
+    );
+  }
+  if (tier === "control") {
+    return i18nT(
+      "pairingApproval.consequenceControl",
+      undefined,
+      "Approving lets this browser drive sessions (control), but not restart or install.",
+    );
+  }
+  return i18nT(
+    "pairingApproval.consequence",
+    undefined,
+    "Approving gives this browser full control of the dashboard (operate). You can revoke it any time.",
+  );
+}
+
+function dialogTitle(entry: PendingPairing): string {
+  return entry.provenance === "knock"
+    ? i18nT("pairingApproval.knockTitle", { address: entry.remoteAddress ?? "—" }, "A device on {address} asks to connect")
+    : i18nT("pairingApproval.title", undefined, "A device wants to connect");
+}
+
+function dialogSubtitle(knock: boolean): string {
+  return knock
+    ? i18nT(
+        "pairingApproval.knockSubtitle",
+        undefined,
+        "Someone on your network asked for access from the request page. Approve only if you expect it and the code matches the one on that device.",
+      )
+    : i18nT("pairingApproval.subtitle", undefined, "Someone opened a pairing link. Approve only if it's your device.");
+}
+
 export function PairingApprovalDialog({
   entry,
   now,
@@ -220,7 +345,10 @@ export function PairingApprovalDialog({
 }: PairingApprovalDialogProps) {
   const [phase, setPhase] = useState<Phase>("form");
   const [code, setCode] = useState("");
-  const [name, setName] = useState(() => deviceNameFromUserAgent(entry.userAgent));
+  const knock = entry.provenance === "knock";
+  const [name, setName] = useState(() => entry.requesterName?.trim() || deviceNameFromUserAgent(entry.userAgent));
+  // Least privilege stays one click away; operate is the preselected default (D7).
+  const [tier, setTier] = useState<Tier>("operate");
   const [pairedName, setPairedName] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -262,7 +390,8 @@ export function PairingApprovalDialog({
     setBusy(true);
     let outcome: ApprovePendingOutcome;
     try {
-      outcome = await onApprove(digits, trimmed.length > 0 ? trimmed : undefined);
+      const label = trimmed.length > 0 ? trimmed : undefined;
+      outcome = knock ? await onApprove(digits, label, tier) : await onApprove(digits, label);
     } catch {
       setBusy(false);
       setFormError(i18nT("pairingApproval.transport", undefined, "Couldn't reach the dashboard. Try again."));
@@ -306,18 +435,17 @@ export function PairingApprovalDialog({
     <Dialog
       open
       onClose={form ? onDismiss : onDone}
-      title={i18nT("pairingApproval.title", undefined, "A device wants to connect")}
+      title={dialogTitle(entry)}
       icon={mdiCellphoneLink}
       size="md"
       testId="pairing-dialog"
     >
       <p className="text-sm text-[var(--text-secondary)]">
-        {i18nT(
-          "pairingApproval.subtitle",
-          undefined,
-          "Someone opened a pairing link. Approve only if it's your device.",
-        )}
+        {dialogSubtitle(knock)}
       </p>
+
+      {/* Before the code field: read the warning before the commit point (D3). */}
+      {form && knock && entry.unencrypted && <UnencryptedCallout />}
 
       {form && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -401,6 +529,7 @@ export function PairingApprovalDialog({
               className="w-full px-3 py-2 text-sm rounded bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
             />
           </div>
+          {knock && <TierGroup tier={tier} onChange={setTier} />}
           {/* Hidden submit so Enter in either field submits (validates first). */}
           <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
         </form>
@@ -416,11 +545,7 @@ export function PairingApprovalDialog({
 
       {form && (
         <p data-testid="pairing-dialog-consequence" className="text-xs text-[var(--text-secondary)]">
-          {i18nT(
-            "pairingApproval.consequence",
-            undefined,
-            "Approving gives this browser full control of the dashboard (operate). You can revoke it any time.",
-          )}
+          {consequenceText(knock ? tier : "operate")}
         </p>
       )}
 

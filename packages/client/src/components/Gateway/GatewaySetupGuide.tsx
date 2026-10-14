@@ -13,6 +13,7 @@ import { runEnrollStep } from "../../lib/gateway/gateway-api.js";
 import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
 import { GATEWAY_SETUP_STEPS, type SetupStep } from "../../lib/gateway/gateway-setup.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { copyText } from "../../lib/util/clipboard.js";
 import { GatewayUrlManager } from "./GatewayUrlManager.js";
 
 function InstallStep({ step }: { step: SetupStep }) {
@@ -33,12 +34,9 @@ function InstallStep({ step }: { step: SetupStep }) {
             type="button"
             data-testid="gateway-setup-copy"
             onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(step.command ?? "");
+              if (await copyText(step.command ?? "")) {
                 setCopied(true);
                 setTimeout(() => setCopied(false), 1200);
-              } catch {
-                /* ignore */
               }
             }}
             className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"

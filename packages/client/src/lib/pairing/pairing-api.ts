@@ -62,3 +62,48 @@ export async function approvePairing(
   if (!json.success || !json.data) throw new Error(json.error ?? "approve failed");
   return json.data;
 }
+
+/** A granted knock: the 8-digit code to type on the dashboard machine, and its expiry (epoch ms). */
+interface KnockGranted {
+  ok: true;
+  pendingId: string;
+  confirmCode: string;
+  expiresAt: number;
+  fingerprint: string;
+}
+
+/** A refused knock. `error` is a `KnockRefusal`, `"untrusted origin"`, `"unsupported_media_type"` or any other server string. */
+interface KnockRefused {
+  ok: false;
+  error: string;
+  /** Seconds until a retry can succeed (`knock_rate_limited`, `knock_busy`). */
+  retryAfter?: number;
+}
+
+export type RequestAccessResult = KnockGranted | KnockRefused;
+
+/**
+ * Knock same-origin: `POST /api/pair/request` (no identity challenge — page and
+ * route share one origin, and WebCrypto is absent on plain-http LAN origins).
+ * A refusal resolves as `{ ok: false, error, retryAfter? }`; only a transport
+ * failure (fetch rejects, non-JSON body) rejects. See change: add-lan-knock-pairing (D9).
+ */
+export async function requestAccess(name?: string): Promise<RequestAccessResult> {
+  const label = name?.trim();
+  const { json } = await fetchJsonResponse<{
+    success?: boolean;
+    data?: Omit<KnockGranted, "ok">;
+    error?: string;
+    retryAfter?: number;
+  }>("/api/pair/request", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(label ? { name: label } : {}),
+  });
+  if (json.success && json.data) return { ok: true, ...json.data };
+  return {
+    ok: false,
+    error: json.error ?? "unknown",
+    ...(typeof json.retryAfter === "number" ? { retryAfter: json.retryAfter } : {}),
+  };
+}

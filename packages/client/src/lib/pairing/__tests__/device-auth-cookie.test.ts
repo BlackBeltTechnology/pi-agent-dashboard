@@ -2,13 +2,15 @@
  * Device bearer → httpOnly cookie exchange on the client.
  * See change: harden-trust-and-credential-boundaries (D5; T-E36, F1, F2, F5).
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { clearAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setGlobalApiBase } from "../../api/api-context.js";
 import {
   clearDeviceBearer,
   finishDevicePairing,
   getDeviceBearer,
+  installDeviceAuthFetch,
   isDevicePaired,
   migrateLegacyDeviceBearer,
   mintWsTicket,
@@ -53,6 +55,64 @@ describe("finishDevicePairing", () => {
     vi.stubGlobal("fetch", f);
     await finishDevicePairing("T");
     expect(f).not.toHaveBeenCalled();
+    expect(getDeviceBearer()).toBe("T");
+  });
+});
+
+describe("F8 bearer kept until the cookie is proven", () => {
+  /** Routes: exchange 200; the cookie-only check answers `check`. */
+  function stub(check: () => Response) {
+    const f = vi.fn(async (url: string, _init?: RequestInit) =>
+      String(url).endsWith("/api/device-session") ? res(200, { success: true }) : check(),
+    );
+    vi.stubGlobal("fetch", f);
+    return f;
+  }
+  const checkCall = (f: ReturnType<typeof stub>) =>
+    f.mock.calls.find((c) => !String(c[0]).endsWith("/api/device-session")) as unknown as [string, RequestInit];
+
+  it("exchange 200 + cookie-only check 200: marker set, bearer cleared, check carried no Authorization", async () => {
+    const f = stub(() => res(200, { success: true }));
+    expect(await finishDevicePairing("T")).toEqual({ keepFailed: false });
+    expect(localStorage.getItem(MARKER)).toBe("1");
+    expect(getDeviceBearer()).toBeNull();
+    const [url, init] = checkCall(f);
+    expect(url).toMatch(/^\/api\//);
+    expect(init.credentials).toBe("same-origin");
+    expect(new Headers(init.headers).get("Authorization")).toBeNull();
+  });
+
+  it("exchange 200 but cookie-only check 401 (cookie dropped): bearer kept, no marker, next call carries Authorization, message flag set", async () => {
+    const f = stub(() => res(401, { success: false }));
+    expect(await finishDevicePairing("T")).toEqual({ keepFailed: true });
+    expect(getDeviceBearer()).toBe("T");
+    expect(isDevicePaired()).toBe(false);
+    // The shared fetch wrapper now authenticates with the kept bearer.
+    installDeviceAuthFetch();
+    await window.fetch("/api/anything");
+    const last = f.mock.calls[f.mock.calls.length - 1] as unknown as [RequestInfo, RequestInit];
+    expect(new Headers(last[1].headers).get("Authorization")).toBe("Bearer T");
+  });
+
+  it("a cookie check that throws counts as unproven", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (String(url).endsWith("/api/device-session")) return res(200, { success: true });
+      throw new Error("offline");
+    }));
+    expect(await finishDevicePairing("T")).toEqual({ keepFailed: true });
+    expect(getDeviceBearer()).toBe("T");
+  });
+
+  it("a failed exchange also reports keepFailed (same-origin cookie not established)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => res(500)));
+    expect(await finishDevicePairing("T")).toEqual({ keepFailed: true });
+    expect(getDeviceBearer()).toBe("T");
+  });
+
+  it("cross-origin: bearer kept by design, no message", async () => {
+    setGlobalApiBase("https://other.example");
+    vi.stubGlobal("fetch", vi.fn());
+    expect(await finishDevicePairing("T")).toEqual({ keepFailed: false });
     expect(getDeviceBearer()).toBe("T");
   });
 });

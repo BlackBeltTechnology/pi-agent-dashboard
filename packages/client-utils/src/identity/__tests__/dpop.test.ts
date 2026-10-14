@@ -1,9 +1,16 @@
-import { describe, expect, it } from "vitest";
-import { createDpopProof, generateDpopKey, isDpopBound } from "../dpop.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDpopProof, type DpopKey, generateDpopKey, isDpopAvailable, isDpopBound } from "../dpop.js";
 
 function decodeSegment(seg: string): Record<string, unknown> {
   const b64 = seg.replace(/-/g, "+").replace(/_/g, "/");
   return JSON.parse(atob(b64));
+}
+
+/** WebCrypto is present in the test env; `generateDpopKey` resolving null here is a bug. */
+async function mustGenerateKey(): Promise<DpopKey> {
+  const key = await generateDpopKey();
+  if (!key) throw new Error("DPoP unexpectedly unavailable");
+  return key;
 }
 
 describe("isDpopBound (§12.5 — conditional)", () => {
@@ -17,7 +24,7 @@ describe("isDpopBound (§12.5 — conditional)", () => {
 
 describe("DPoP proof (§12.5, RFC 9449)", () => {
   it("generates a NON-extractable ES256 keypair exposing only public coords", async () => {
-    const key = await generateDpopKey();
+    const key = await mustGenerateKey();
     expect(key.keyPair.privateKey.extractable).toBe(false);
     expect(key.publicJwk).toMatchObject({ kty: "EC", crv: "P-256" });
     expect(key.publicJwk.x).toBeTruthy();
@@ -26,7 +33,7 @@ describe("DPoP proof (§12.5, RFC 9449)", () => {
   });
 
   it("mints a verifiable proof binding htm/htu, with a fresh jti per call", async () => {
-    const key = await generateDpopKey();
+    const key = await mustGenerateKey();
     const p1 = await createDpopProof(key, "post", "https://dash.example/api/ws-ticket", "n0");
     const [h, pl, sig] = p1.split(".");
     expect(decodeSegment(h!)).toMatchObject({ typ: "dpop+jwt", alg: "ES256" });
@@ -58,8 +65,24 @@ describe("DPoP proof (§12.5, RFC 9449)", () => {
   });
 
   it("omits the nonce claim when the server supplied none", async () => {
-    const key = await generateDpopKey();
+    const key = await mustGenerateKey();
     const proof = await createDpopProof(key, "get", "https://dash.example/api/sessions");
     expect(decodeSegment(proof.split(".")[1]!)).not.toHaveProperty("nonce");
+  });
+});
+
+describe("DPoP in a non-secure context (crypto.subtle undefined) — E31", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("reports unavailable and resolves null instead of throwing a TypeError", async () => {
+    const real = globalThis.crypto;
+    vi.stubGlobal("crypto", { getRandomValues: real.getRandomValues.bind(real), subtle: undefined });
+    expect(globalThis.crypto.subtle).toBeUndefined();
+    expect(isDpopAvailable()).toBe(false);
+    await expect(generateDpopKey()).resolves.toBeNull();
+  });
+
+  it("reports available when crypto.subtle exists", () => {
+    expect(isDpopAvailable()).toBe(true);
   });
 });

@@ -1,0 +1,3 @@
+# lan-knock.spec.ts — index
+
+L3 browser E2E for the LAN knock pairing ceremony (change: add-lan-knock-pairing). F10 happy path: a LAN origin hits `/pair?request`, the operator sees the knock in the approval dialog (address-first, provenance pill) and approves; the requester lands authenticated. F11: `pairing.acceptLanRequests` off ⇒ the knock is refused `knock_disabled`. F12 deny + cooldown: a denied source is refused for the cooldown window — runs LAST because it poisons the shared knock source for the rest of the file. F13: operator approves at tier `observe`; the paired device is refused an operate route. F14: the connectivity banner's "Request access" opens the request landing (guard denial simulated; harness OAuth seed).

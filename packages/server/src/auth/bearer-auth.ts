@@ -19,8 +19,11 @@
  *       (`/api/ws-ticket`) and presents only that ticket on the socket
  *       (see `ws-ticket.ts`).
  */
+import type { TLSSocket } from "node:tls";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { hasProxyForwardingHeaders } from "./localhost-guard.js";
+import { isLoopbackRange } from "./loopback.js";
 
 /** Extract a `Bearer` token from an Authorization header, or null. */
 export function parseBearerHeader(authorization: string | undefined): string | null {
@@ -38,6 +41,25 @@ export function parseBearerHeader(authorization: string | undefined): string | n
 export const DEVICE_COOKIE = "pi_dash_device";
 /** 400 days — `PairedDeviceRegistry` rows carry no expiry; revocation is the kill switch. */
 const DEVICE_COOKIE_MAX_AGE_S = 400 * 24 * 60 * 60;
+
+/**
+ * `Secure` attribute for the device cookie, from the exchanging request's own
+ * transport: always `Secure` over a TLS socket; NOT `Secure` for a direct
+ * plain-http connection (no forwarding header) from a peer outside the loopback range (a browser paired
+ * over `http://<lan-ip>` would otherwise silently drop the cookie and lose its
+ * single-use bearer); otherwise the global resolved-base rule — so a tunnel / TLS
+ * reverse proxy that forwards plain http on the loopback hop still gets `Secure`.
+ * Uses the SOCKET peer, never `request.ip`. See change: add-lan-knock-pairing (D15).
+ */
+function deviceCookieSecure(request: FastifyRequest, globalSecure: () => boolean): boolean {
+  const socket = request.raw.socket as TLSSocket;
+  if (socket.encrypted) return true;
+  const peer = socket.remoteAddress;
+  // DIRECT only: a request carrying proxy-forwarding headers came through a TLS-terminating
+  // proxy that may sit on another host/container (peer 172.x), and keeps the global rule.
+  if (peer && !isLoopbackRange(peer) && !hasProxyForwardingHeaders(request.headers)) return false;
+  return globalSecure();
+}
 
 /** Pathname of a request URL (no query/fragment). */
 function pathnameOf(url: string): string {
@@ -103,7 +125,7 @@ export function registerDeviceSessionRoutes(
       path: "/api/",
       httpOnly: true,
       sameSite: "strict",
-      secure: deps.isSecure(),
+      secure: deviceCookieSecure(request, deps.isSecure),
       maxAge: DEVICE_COOKIE_MAX_AGE_S,
     });
     return { success: true as const };

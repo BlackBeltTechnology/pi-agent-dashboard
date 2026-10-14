@@ -8,6 +8,7 @@ import type { DashboardSession, ImageContent } from "@blackbelt-technology/pi-da
 import { useCallback } from "react";
 import { createInitialState, resolveInteractiveRequest, type SessionState } from "../lib/chat/event-reducer.js";
 import { encodePromptAnswer } from "../lib/chat/prompt-answer-encoder.js";
+import { randomUuid } from "../lib/util/random-uuid.js";
 import type { ResumePick } from "./useEndedSessionComposer.js";
 import type { SendVerdict } from "./useWebSocket.js";
 
@@ -70,15 +71,8 @@ export function useSessionActions(deps: SessionActionDeps) {
     pendingSpawnsRef, getResumePick,
   } = deps;
 
-  // Native crypto.randomUUID is widely available; fall back to a Math.random
-  // UUIDish for legacy environments without it.
-  const mintRequestId = (): string => {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return crypto.randomUUID();
-    }
-    // Best-effort fallback (unlikely to hit in supported browsers).
-    return `rq_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-  };
+  // UUIDv4 even in a non-secure context (plain-http LAN origin) — see randomUuid().
+  const mintRequestId = randomUuid;
 
   const handleAbort = useCallback(() => {
     if (!selectedId) return;

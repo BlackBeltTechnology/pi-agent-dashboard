@@ -16,6 +16,7 @@ import { mdiContentCopy, mdiLoading } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { copyText } from "../../lib/util/clipboard.js";
 
 /** mm:ss rendering of a remaining duration. */
 function formatCountdown(totalSeconds: number): string {
@@ -131,7 +132,7 @@ export function OAuthFlowView({ flow, onSendInput, onCancel }: UiOAuthFlowViewPr
           <div className="text-xs text-[var(--text-secondary)]">{i18nT("common.enterThisCodeAt", undefined, "Enter this code at:")}</div>
           <div className="flex items-center gap-2 mt-1">
             <code className="text-lg font-bold text-[var(--text-primary)] tracking-wider">{pending.userCode}</code>
-            <button type="button" onClick={() => void navigator.clipboard?.writeText(pending.userCode)}
+            <button type="button" onClick={() => void copyText(pending.userCode)}
               className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
               title={i18nT("common.copyCode", undefined, "Copy code")}>
               <Icon path={mdiContentCopy} size={0.5} />

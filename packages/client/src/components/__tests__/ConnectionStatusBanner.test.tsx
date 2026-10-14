@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act, cleanup } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiContext, setGlobalApiBase } from "../../lib/api/api-context.js";
 import { ConnectionStatusBanner } from "../connectivity/ConnectionStatusBanner.js";
 
 describe("ConnectionStatusBanner", () => {
@@ -149,5 +150,111 @@ describe("ConnectionStatusBanner", () => {
     const btn = screen.getByRole("button", { name: /switch server/i });
     btn.click();
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// add-lan-knock-pairing — "Request access" on the network-denied surface (test-plan #F9).
+describe("ConnectionStatusBanner — network denied: Request access (F9)", () => {
+  const HINT = `Ask the dashboard owner to add your network to trusted networks. ${"x".repeat(200)}`;
+  const originalLocation = window.location;
+  let assign: ReturnType<typeof vi.fn>;
+  let open: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    assign = vi.fn();
+    open = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, origin: "http://192.168.16.31:8000", assign },
+    });
+    vi.stubGlobal("open", open);
+  });
+  afterEach(() => {
+    cleanup();
+    setGlobalApiBase("");
+    vi.unstubAllGlobals();
+    Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+  });
+
+  const renderDenied = (onOpenServers?: () => void) =>
+    render(
+      <ConnectionStatusBanner
+        status="offline"
+        currentServerHost="pennyroyal.lan"
+        inFlightSwitch={false}
+        networkDenied={{ hint: HINT }}
+        onOpenServers={onOpenServers}
+      />,
+    );
+
+  it("keeps the verbatim hint and the Settings → Servers action next to Request access", () => {
+    const servers = vi.fn();
+    renderDenied(servers);
+    expect(screen.getByRole("alert").textContent).toContain(HINT);
+    expect(screen.getByTestId("network-denied-request-access").textContent).toBe("Request access");
+    fireEvent.click(screen.getByRole("button", { name: /servers/i }));
+    expect(servers).toHaveBeenCalledTimes(1);
+  });
+
+  it("same origin: Request access navigates to /pair?request (no new window)", () => {
+    renderDenied();
+    fireEvent.click(screen.getByTestId("network-denied-request-access"));
+    expect(assign).toHaveBeenCalledWith("/pair?request");
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("active server equal to the page origin is still same-origin", () => {
+    setGlobalApiBase("http://192.168.16.31:8000");
+    renderDenied();
+    fireEvent.click(screen.getByTestId("network-denied-request-access"));
+    expect(assign).toHaveBeenCalledWith("/pair?request");
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("remote active server: opens its own /pair?request with noopener", () => {
+    render(
+      <ApiContext.Provider value="http://192.168.16.204:8000">
+        <ConnectionStatusBanner
+          status="offline"
+          currentServerHost="home-imac"
+          inFlightSwitch={false}
+          networkDenied={{ hint: HINT }}
+        />
+      </ApiContext.Provider>,
+    );
+    fireEvent.click(screen.getByTestId("network-denied-request-access"));
+    expect(open).toHaveBeenCalledWith("http://192.168.16.204:8000/pair?request", "_blank", "noopener");
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("remote active server via the module-level base also opens its request page", () => {
+    setGlobalApiBase("http://192.168.16.204:8000");
+    renderDenied();
+    fireEvent.click(screen.getByTestId("network-denied-request-access"));
+    expect(open).toHaveBeenCalledWith("http://192.168.16.204:8000/pair?request", "_blank", "noopener");
+  });
+
+  it("is styled with severity-warning tokens, an icon and a wrapping hint — no amber palette, no truncate", () => {
+    renderDenied(vi.fn());
+    const alert = screen.getByRole("alert");
+    const html = alert.outerHTML;
+    expect(html).not.toMatch(/amber/);
+    expect(alert.className).toContain("--severity-warning-bg");
+    expect(alert.className).toContain("--severity-warning-fg");
+    expect(alert.className).toContain("--severity-warning-border");
+    expect(html).not.toMatch(/\btruncate\b/);
+    expect(alert.querySelector("svg")).not.toBeNull();
+    expect(alert.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("Request access is the strong action (accent fill) and Settings → Servers is not", () => {
+    renderDenied(vi.fn());
+    expect(screen.getByTestId("network-denied-request-access").className).toContain("--accent-solid");
+    expect(screen.getByRole("button", { name: /servers/i }).className).not.toContain("--accent-solid");
+  });
+
+  it("Request access shows even when no onOpenServers handler is wired", () => {
+    renderDenied();
+    expect(screen.getByTestId("network-denied-request-access")).toBeDefined();
   });
 });
