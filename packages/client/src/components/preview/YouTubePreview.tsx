@@ -6,6 +6,7 @@
  */
 import React from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { YOUTUBE_HOSTS } from "../../lib/preview/preview-dispatch.js";
 
 interface Props {
   target: { kind: "url"; url: string };
@@ -19,17 +20,16 @@ export function extractYouTubeId(rawUrl: string): string | null {
   try {
     const u = new URL(rawUrl);
     const host = u.hostname.toLowerCase();
+    if (!YOUTUBE_HOSTS.has(host)) return null;
     if (host === "youtu.be") {
       const id = u.pathname.replace(/^\//, "").split("/")[0];
       return id || null;
     }
-    if (host.endsWith("youtube.com")) {
-      const v = u.searchParams.get("v");
-      if (v) return v;
-      // /embed/<id> or /v/<id> or /shorts/<id>
-      const m = /^\/(?:embed|v|shorts)\/([^/?#]+)/.exec(u.pathname);
-      if (m) return m[1];
-    }
+    const v = u.searchParams.get("v");
+    if (v) return v;
+    // /embed/<id> or /v/<id> or /shorts/<id>
+    const m = /^\/(?:embed|v|shorts)\/([^/?#]+)/.exec(u.pathname);
+    if (m) return m[1];
     return null;
   } catch {
     return null;

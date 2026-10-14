@@ -16,10 +16,10 @@ import { execFileSync } from "node:child_process"; // ban:child_process-ok (kb p
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { type AckRecord, type StalenessFile, STALENESS_VERSION, readStaleness, stalenessVersionOnDisk } from "./staleness.js";
 import { type DoxIssue, resolveRowPath } from "./dox.js";
+import { matchRow } from "./dox-row.js";
+import { type AckRecord, readStaleness, STALENESS_VERSION, type StalenessFile, stalenessVersionOnDisk } from "./staleness.js";
 
-export const ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|\s*$/;
 /** History window scanned for a blob matching the acked hash. */
 export const DEFAULT_DEPTH = 60;
 /** Per-item diff budget. Keeps a @fast subagent's context small and cheap. */
@@ -34,10 +34,10 @@ export interface DoxRow {
 export function parseRows(md: string): DoxRow[] {
   const rows: DoxRow[] = [];
   md.split("\n").forEach((line, i) => {
-    const m = line.match(ROW_RE);
+    const m = matchRow(line);
     if (!m) return;
-    if (/^-+$/.test(m[1])) return;
-    rows.push({ line: i, path: m[1], purpose: m[2] });
+    if (/^-+$/.test(m.path)) return;
+    rows.push({ line: i, path: m.path, purpose: m.purpose });
   });
   return rows;
 }
@@ -47,10 +47,10 @@ export function replaceRowPurpose(md: string, rowPath: string, newPurpose: strin
   let hit = false;
   const out = md.split("\n").map((line) => {
     if (hit) return line;
-    const m = line.match(ROW_RE);
-    if (!m || m[1] !== rowPath) return line;
+    const m = matchRow(line);
+    if (!m || m.path !== rowPath) return line;
     hit = true;
-    return `| \`${m[1]}\` | ${newPurpose} |`;
+    return `| \`${m.path}\` | ${newPurpose} |`;
   });
   return hit ? out.join("\n") : md;
 }

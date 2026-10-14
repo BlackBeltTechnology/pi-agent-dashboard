@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { areaFiles } from "./dox.js";
+import { matchRowLoose } from "./dox-row.js";
 import { type AuthoredRow, type DirPlan, finalRows, mergeIndex, planDirs, renderAgentsMd, validateAuthored } from "./migrate-file-index.js";
 
 export const PACKAGES_ROOT_RE = /^packages\//;
@@ -41,7 +42,9 @@ export function groundingCheck(purpose: string, sourceText: string, known?: Set<
       // grounded if the identifier appears in this file OR is another source
       // file's stem (a legitimate cross-reference to a consumer/related module).
       if (known?.has(id)) continue;
-      if (!new RegExp(`\\b${id.replace(/\$/g, "\\$")}\\b`).test(sourceText)) ungrounded.push(id);
+      // `$` is an identifier char, so `\b` mis-grounds `$Foo` / `Foo$x`; use ASCII identifier-alphabet lookarounds.
+      const esc = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (!new RegExp(`(?<![A-Za-z0-9_$])${esc}(?![A-Za-z0-9_$])`).test(sourceText)) ungrounded.push(id);
     }
   }
   return { ok: ungrounded.length === 0, ungrounded: [...new Set(ungrounded)] };
@@ -118,10 +121,9 @@ export function parseAuthoredBatch(text: string): Map<string, string> {
   const out = new Map<string, string>();
   for (const line of text.split("\n")) {
     // tolerate LLM output that drops the trailing pipe: `| path | purpose` or `| path | purpose |`
-    const m = line.match(/^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*$/);
+    const m = matchRowLoose(line);
     if (!m) continue;
-    const purpose = m[2].replace(/\s*\|\s*$/, "").trim();
-    if (purpose) out.set(m[1].trim(), purpose);
+    if (m.purpose) out.set(m.path.trim(), m.purpose);
   }
   return out;
 }

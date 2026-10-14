@@ -212,3 +212,19 @@ describe("sourcesMatch", () => {
 		).toBe(false);
 	});
 });
+
+describe("localPathBasename trimming via sourcesMatch (fix-codeql-small-findings #E6 #P5)", () => {
+	it("E6: strips trailing `/` then one case-sensitive `.git`; not `\\`", () => {
+		expect(sourcesMatch("/p/foo.git/", "git:github.com/o/foo")).toBe(true);
+		expect(sourcesMatch("/p/pkg\\", "git:github.com/o/pkg")).toBe(false);
+		expect(sourcesMatch("/p/foo.GIT", "git:github.com/o/foo")).toBe(false);
+	});
+
+	it("P5: a 100 000-slash run stays under 100 ms", () => {
+		const src = "/".repeat(100_000) + "x";
+		const t0 = performance.now();
+		const result = sourcesMatch(src, "git:github.com/o/x");
+		expect(performance.now() - t0).toBeLessThan(100);
+		expect(result).toBe(true);
+	});
+});

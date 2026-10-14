@@ -64,6 +64,7 @@ Files in this directory. One row per source file.
 | `launch-source-types.ts` | `LaunchSource` discriminated union for Electron server layout. `SourceKind` = `attach` | `bundled` | `devMonorepo` | `localLink` | `overlay`; variants carry url/starter or cliPath/cwd; `localLink`/`overlay` also carry `runtimeId`. Replaces pre-R3 layouts. See change: electron-runtime-overlay-updates. |
 | `legacy-managed-dir.ts` | `detectLegacyManagedDir({ homedir? })`. Returns `{present:false}` or `{present:true, path, pkgCount,… → see `legacy-managed-dir.ts.AGENTS.md` |
 | `local-credential-proof.ts` | Pure local credential proof primitive: `mintProof`/`parseProof`/`canonicalBinding`/counter-proof/`localDialHost`. → see `local-credential-proof.ts.AGENTS.md` |
+| `md-table-cell.ts` | GFM cell escape. → see `md-table-cell.ts.AGENTS.md` |
 | `memory-limits.ts` | BROWSER-SAFE memory-limit types + defaults: `MemoryLimitsConfig`, `MIN_REPLAY_WINDOW` (100), `DEFAULT_MEMORY_L. → see `memory-limits.ts.AGENTS.md` |
 | `managed-paths.ts` | Single source of truth for managed install dir `~/.pi-dashboard/`. → see `managed-paths.ts.AGENTS.md` |
 | `model-catalogue.ts` | `catalogueRowToModelInfo(row)` maps a `GET /api/models` row to `ModelInfo` (no `metadataSource`); `mergeModelOptions(catalogue, sessionModels)` dedupes by `provider/id`, session row wins. |

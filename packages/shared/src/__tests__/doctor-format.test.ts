@@ -112,6 +112,27 @@ describe("formatDoctorReportMarkdown", () => {
   });
 });
 
+describe("formatDoctorReportMarkdown: name and message cell escaping (fix-codeql-small-findings #E7)", () => {
+  it("emits the fixture-D cells and keeps every row on one line", () => {
+    const report = mkReport([
+      { name: "c1", section: "runtime", status: "ok", message: "a\\|b" },
+      { name: "c2", section: "runtime", status: "ok", message: "C:\\path\\" },
+      { name: "ABI mismatch: a|b\\", section: "runtime", status: "ok", message: "m" },
+      { name: "c4", section: "runtime", status: "ok", message: "line1\nline2" },
+      { name: "c5", section: "runtime", status: "ok", message: "line1\rline2" },
+    ]);
+    const md = formatDoctorReportMarkdown(report);
+    expect(md).not.toContain("\r");
+    expect(md).toContain("| c1 | a\\\\\\|b |");
+    expect(md).toContain("| c2 | C:\\\\path\\\\ |");
+    expect(md).toContain("| ABI mismatch: a\\|b\\\\ | m |");
+    expect(md).toContain("| c4 | line1 line2 |");
+    expect(md).toContain("| c5 | line1 line2 |");
+    const rows = md.split("\n").filter((l) => l.startsWith("| ") && !l.startsWith("| Status") && !l.startsWith("| ---"));
+    expect(rows).toHaveLength(5);
+  });
+});
+
 describe("formatDoctorReportPlain (legacy)", () => {
   it("contains the canonical header and summary footer", () => {
     const report = mkReport([
