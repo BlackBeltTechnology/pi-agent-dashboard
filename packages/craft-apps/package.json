@@ -40,6 +40,18 @@
       ".pi/skills/deckcraft",
       ".pi/skills/cadcraft",
       ".pi/skills/gridcraft"
+    ],
+    "tools": [
+      {
+        "id": "ffmpeg",
+        "probe": "resolve",
+        "optional": true
+      },
+      {
+        "id": "ffprobe",
+        "probe": "resolve",
+        "optional": true
+      }
     ]
   },
   "exports": {

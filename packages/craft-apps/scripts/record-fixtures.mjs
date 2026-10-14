@@ -4,7 +4,7 @@
  * command: `commands`, `commands --json` or `tools`) and the MCP `tools/list` names.
  * The offline skill-drift test checks command ids quoted in skills against these.
  *
- *   CRAFT_HOME=/tmp/craft-home node scripts/record-fixtures.mjs [app…]
+ *   CRAFT_HOME=/tmp/craft-home node --import tsx scripts/record-fixtures.mjs [app…]
  *
  * Binaries come from `pi-craft install --all`. Run again when a pinned version moves.
  * See change: add-craft-apps-core (task 0.5, skill drift check).
@@ -14,6 +14,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { extractCommandIds } from "../src/command-ids.ts";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = path.join(root, "src", "__tests__", "fixtures", "commands");
@@ -41,27 +42,6 @@ function binary(app) {
   const r = spawnSync(process.execPath, [piCraft, app, "path"], { encoding: "utf8", env: process.env });
   if (r.status !== 0) throw new Error(`${app}: ${r.stderr}`);
   return r.stdout.trim();
-}
-
-function ids(app, text) {
-  const out = new Set();
-  try {
-    const parsed = JSON.parse(text);
-    const rows = Array.isArray(parsed) ? parsed : (parsed.tools ?? parsed.commands ?? []);
-    for (const row of rows) {
-      const id = row.id ?? row.name;
-      if (typeof id === "string") out.add(id);
-      for (const alias of row.aliases ?? []) out.add(alias);
-    }
-    return [...out].sort();
-  } catch {
-    // text listing: the id is the first token of an unindented line
-    for (const line of text.split("\n")) {
-      const m = /^([A-Za-z][\w-]*(?:\.[\w-]+)+)\*?\s/.exec(line);
-      if (m) out.add(m[1]);
-    }
-    return [...out].sort();
-  }
 }
 
 async function mcpTools(bin, app) {
@@ -109,7 +89,7 @@ for (const app of Object.keys(LIST)) {
   const v = spawnSync(bin, ["--version"], { encoding: "utf8" });
   const version = /\b(\d+\.\d+\.\d+)\b/.exec(v.stdout + v.stderr)?.[1] ?? "unknown";
   const l = spawnSync(bin, LIST[app], { encoding: "utf8", cwd: work, maxBuffer: 256 * 1024 * 1024 });
-  const commandIds = ids(app, l.stdout);
+  const commandIds = extractCommandIds(l.stdout);
   const tools = await mcpTools(bin, app);
   fs.writeFileSync(
     path.join(outDir, `${app}.json`),

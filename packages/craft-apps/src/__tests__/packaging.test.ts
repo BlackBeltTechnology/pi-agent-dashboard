@@ -7,10 +7,10 @@ import { afterAll, describe, expect, it } from "vitest";
 import { nodeStub } from "./helpers/stubs.js";
 
 /**
- * Shell-executability invariants for `pi-photocraft` (npm install + checkout)
- * and `pi-nano-banana` as a workspace bin, plus skill shipping.
+ * Shell-executability invariants for `pi-craft` and the `pi-photocraft` alias (npm install + checkout)
+ * and `pi-nano-banana` as a workspace bin, plus shipping of all 14 skills.
  *
- * See change: add-photocraft-plugin.
+ * See change: add-photocraft-plugin, add-craft-apps-core.
  */
 const pkgDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const nanoBananaDir = path.resolve(pkgDir, "../nano-banana");
@@ -34,6 +34,7 @@ const scratchDir = (prefix: string) => {
 function cleanEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: "", ...extra };
   delete env.PHOTOCRAFT_BIN;
+  delete env.CRAFT_HOME;
   delete env.NANO_BANANA_BACKEND;
   return { ...env, ...extra };
 }
@@ -53,32 +54,45 @@ function npmPack(cwd: string, tmp: string): string[] {
   return [path.join(tmp, info.filename), ...info.files.map((f) => f.path)];
 }
 
-describe("photocraft packaging", () => {
-  it("E23 the skill is declared, has frontmatter, and ships in the tarball", () => {
-    const skillDir = path.join(pkgDir, pkg.pi.skills[0]);
-    const text = fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8");
-    const front = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? "";
-    expect(front).toMatch(/^name: photocraft$/m);
-    const description = /^description: (.+)$/m.exec(front)?.[1] ?? "";
-    expect(description).toMatch(/PhotoCraft/);
-    expect(description).toMatch(/nano-banana/);
-    expect(description).toMatch(/headless/i);
+describe("craft-apps packaging", () => {
+  it("E23 the 14 skills are declared, have frontmatter, and ship in the tarball", () => {
+    expect(pkg.pi.skills).toHaveLength(14);
+    for (const rel of pkg.pi.skills) {
+      const name = path.basename(rel);
+      const text = fs.readFileSync(path.join(pkgDir, rel, "SKILL.md"), "utf8");
+      const front = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? "";
+      expect(front, rel).toMatch(new RegExp(`^name: ${name}$`, "m"));
+      expect(/^description: (.+)$/m.exec(front)?.[1] ?? "", rel).toMatch(/\S/);
+    }
+    const photo = fs.readFileSync(path.join(pkgDir, ".pi/skills/photocraft/SKILL.md"), "utf8");
+    expect(/^description: (.+)$/m.exec(photo)?.[1]).toMatch(/PhotoCraft.*nano-banana.*headless|headless.*PhotoCraft.*nano-banana/i);
     const tmp = scratchDir("pc-pack-list-");
     const [, ...files] = npmPack(pkgDir, tmp);
-    expect(files).toContain(".pi/skills/photocraft/SKILL.md");
+    expect(files.filter((f) => /^\.pi\/skills\/[^/]+\/SKILL\.md$/.test(f))).toHaveLength(14);
+    for (const rel of pkg.pi.skills) expect(files).toContain(`${rel}/SKILL.md`);
+    expect(files).toContain("bin/pi-craft");
     expect(files).toContain("bin/pi-photocraft");
+    expect(files).toContain("dist/craft.js");
     expect(files).toContain("dist/photocraft.js");
     expect(files.some((f) => f.includes("__tests__") || f.endsWith("AGENTS.md"))).toBe(false);
   }, 150_000);
 
-  it("E43 the packed bin runs from an npm install with no TS loader (bundled shared code included)", () => {
+  it("E43 the packed bins run from an npm install with no TS loader (bundled shared code included)", () => {
     const tmp = scratchDir("pc-pack-");
     const [tarball] = npmPack(pkgDir, tmp);
-    const dest = path.join(tmp, "node_modules/@blackbelt-technology/pi-dashboard-photocraft");
+    const dest = path.join(tmp, "node_modules/@blackbelt-technology/pi-dashboard-craft-apps");
     fs.mkdirSync(dest, { recursive: true });
     expect(spawnSync("tar", ["-xzf", tarball, "-C", dest, "--strip-components=1"]).status).toBe(0);
-    const launcher = path.join(dest, "bin/pi-photocraft");
 
+    const craft = spawnSync(process.execPath, [path.join(dest, "bin/pi-craft"), "--help"], { cwd: tmp, encoding: "utf8", env: cleanEnv(), timeout: 30_000 });
+    expect(craft.stderr).not.toMatch(MODULE_ERRORS);
+    expect(craft.status).toBe(0);
+    expect(craft.stderr).toContain("pi-craft <command>");
+    const apps = spawnSync(process.execPath, [path.join(dest, "bin/pi-craft"), "apps", "--json"], { cwd: tmp, encoding: "utf8", env: cleanEnv(), timeout: 30_000 });
+    expect(apps.status).toBe(0);
+    expect(JSON.parse(apps.stdout)).toHaveLength(13);
+
+    const launcher = path.join(dest, "bin/pi-photocraft");
     const help = spawnSync(process.execPath, [launcher, "--help"], { cwd: tmp, encoding: "utf8", env: cleanEnv(), timeout: 30_000 });
     expect(help.stderr).not.toMatch(MODULE_ERRORS);
     expect(help.status).toBe(0);
@@ -88,13 +102,20 @@ describe("photocraft packaging", () => {
     const ensure = spawnSync(process.execPath, [launcher, "ensure"], { cwd: tmp, encoding: "utf8", env: cleanEnv({ PHOTOCRAFT_BIN: stub }), timeout: 30_000 });
     expect(ensure.stderr).not.toMatch(MODULE_ERRORS);
     expect(ensure.status).toBe(0);
-    expect(JSON.parse(ensure.stdout)).toMatchObject({ source: "override", asset: null, version: "0.7.0" });
+    expect(JSON.parse(ensure.stdout)).toMatchObject({ app: "photocraft", source: "override", asset: null, version: "0.7.0" });
+    const viaCraft = spawnSync(process.execPath, [path.join(dest, "bin/pi-craft"), "photocraft", "ensure"], { cwd: tmp, encoding: "utf8", env: cleanEnv({ PHOTOCRAFT_BIN: stub }), timeout: 30_000 });
+    expect(JSON.parse(viaCraft.stdout)).toMatchObject({ app: "photocraft", source: "override" });
   }, 150_000);
 
   it("E45 workspace bins start through a node_modules/.bin-style symlink", () => {
     const bin = scratchDir("pc-bin-");
+    fs.symlinkSync(path.join(pkgDir, "bin/pi-craft"), path.join(bin, "pi-craft"));
     fs.symlinkSync(path.join(pkgDir, "bin/pi-photocraft"), path.join(bin, "pi-photocraft"));
     fs.symlinkSync(path.join(nanoBananaDir, "bin/pi-nano-banana"), path.join(bin, "pi-nano-banana"));
+    const craft = spawnSync(path.join(bin, "pi-craft"), ["--help"], { encoding: "utf8", env: cleanEnv(), timeout: 30_000 });
+    expect(craft.stderr).not.toMatch(MODULE_ERRORS);
+    expect(craft.status).toBe(0);
+    expect(craft.stderr).toContain("usage: pi-craft");
     const pc = spawnSync(path.join(bin, "pi-photocraft"), ["--help"], { encoding: "utf8", env: cleanEnv(), timeout: 30_000 });
     expect(pc.stderr).not.toMatch(MODULE_ERRORS);
     expect(pc.status).toBe(0);
@@ -105,7 +126,8 @@ describe("photocraft packaging", () => {
     expect(nb.stderr).toContain('usage: pi-nano-banana "<prompt>"');
   });
 
-  it("declares the bin, the skill, dist in files and no desktop/test leakage", () => {
+  it("declares both bins, dist in files, optional ffmpeg tools and no desktop/test leakage", () => {
+    expect(pkg.bin["pi-craft"]).toBe("bin/pi-craft");
     expect(pkg.bin["pi-photocraft"]).toBe("bin/pi-photocraft");
     expect(pkg.files).toEqual(expect.arrayContaining(["bin/", "dist/", "!src/__tests__", "!**/AGENTS.md", "!**/*.AGENTS.md"]));
   });
