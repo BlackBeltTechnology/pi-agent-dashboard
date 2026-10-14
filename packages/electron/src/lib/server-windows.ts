@@ -607,7 +607,8 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
     const entry = keyring.get(fp);
     if (!entry) return Promise.resolve({ ok: false, reason: "unknown_server" });
     const advert = discovery.advertsFor(fp)[0];
-    const ref = entry.lastHosts[0] ?? (advert ? ({ scheme: "http", host: advert.host, port: advert.port } as HostRef) : undefined);
+    // A fresh advert for the pinned identity beats a stored host the server may have moved away from.
+    const ref = advert ? ({ scheme: "http", host: advert.host, port: advert.port } as HostRef) : entry.lastHosts[0];
     if (!ref) return Promise.resolve({ ok: false, reason: "unreachable" });
     return Promise.resolve(
       startPairingFor({

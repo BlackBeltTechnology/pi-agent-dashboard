@@ -311,6 +311,13 @@ describe("opening (E24, E30, X1-ish)", () => {
     expect(rig.startPairing.mock.calls[0]![0]).toMatchObject({ pinnedFp: F, label: "home-imac" });
   });
 
+  it("re-pairing a server that moved targets its fresh advert, not the stale stored host", async () => {
+    rig.keyring.markNeedsPairing(F);
+    rig.adverts.push({ host: "192.168.16.77", port: 8000, fingerprint: F });
+    await rig.sw.open(F);
+    expect(rig.startPairing.mock.calls[0]![0]).toMatchObject({ pinnedFp: F, ref: { host: "192.168.16.77", port: 8000 } });
+  });
+
   it("unknown fingerprint / unknown host:port are refused with no network", async () => {
     expect(await rig.sw.open(G)).toEqual({ ok: false, reason: "unknown_server" });
     expect(await rig.sw.openByHostPort("10.9.9.9", 22)).toEqual({ ok: false, reason: "unknown_server" });

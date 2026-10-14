@@ -41,7 +41,7 @@ test("a known server with a dead hostname reads 'Name not found', not CORS-block
 
     await page.getByTitle("Switch server").click();
 
-    const row = page.getByRole("button", { name: new RegExp(`${STALE_HOST}:${STALE_PORT}`) });
+    const row = page.getByRole("menuitemradio", { name: new RegExp(`${STALE_HOST}:${STALE_PORT}`) });
     await expect(row).toContainText("Name not found", { timeout: 15_000 });
     await expect(row).toHaveAttribute("aria-disabled", "true");
     await expect(page.locator("[data-cors-blocked]")).toHaveCount(0);
@@ -59,9 +59,9 @@ test("a known server with a dead hostname reads 'Name not found', not CORS-block
  * the real dashboard shows the header dropdown driving it end to end: the
  * `window.piDashboard.openServerWindow` capability (stubbed via an init script,
  * as Electron's preload would define it) is called INSTEAD OF the transactional
- * in-page switch, the entry shows its inline progress until the app answers, a
- * failure is reported as a toast in words, and the persisted last-used server is
- * never written. Without the capability (a plain browser) the same click still
+ * in-page switch (host + port only), the entry shows its inline progress until the
+ * app answers, no staging socket is opened, and the persisted last-used server is
+ * never written. The failure toast's wording is pinned at L1. Without the capability (a plain browser) the same click still
  * runs the staging-socket switch.
  *
  * The "remote" is a stubbed health endpoint (Playwright route) so the entry reads
@@ -88,31 +88,42 @@ async function seedAvailableRemote(page: import("@playwright/test").Page, reques
   return headers;
 }
 
-test("Electron: selecting an available remote shows progress, then a failure toast; no last-server write (F4)", async ({ page, request }) => {
+test("Electron: selecting an available remote asks the app (host+port) with inline progress; no in-page switch, no last-server write (F4)", async ({ page, request }) => {
   const headers = await seedAvailableRemote(page, request);
   try {
     await page.addInitScript(() => {
-      (window as unknown as { piDashboard: unknown }).piDashboard = {
-        openServerWindow: () =>
-          new Promise((resolve) => setTimeout(() => resolve({ ok: false, reason: "identity_mismatch" }), 800)),
+      const w = window as unknown as { __opened: unknown[]; piDashboard: unknown };
+      w.__opened = [];
+      w.piDashboard = {
+        openServerWindow: (target: unknown) => {
+          w.__opened.push(target);
+          return new Promise((resolve) => setTimeout(() => resolve({ ok: false, reason: "identity_mismatch" }), 800));
+        },
       };
     });
+    const sockets: string[] = [];
+    page.on("websocket", (ws) => sockets.push(ws.url()));
     await gotoDashboard(page);
     const lastServerBefore = await page.evaluate(() => localStorage.getItem("pi-dashboard-last-server"));
     const headerBefore = await page.getByTitle("Switch server").textContent();
+    const socketsBefore = sockets.length;
 
     await page.getByTitle("Switch server").click();
-    const row = page.getByRole("button", { name: new RegExp(`${REMOTE_HOST}:${REMOTE_PORT}`) });
+    const row = page.getByRole("menuitemradio", { name: new RegExp(`${REMOTE_HOST}:${REMOTE_PORT}`) });
     await expect(row).toContainText("Available", { timeout: 15_000 });
     await row.click();
 
-    // inline progress while the app resolves the request
+    // inline progress while the app resolves the request; the app is asked with host + port only
     await expect(row).toContainText("Switching");
-    // failure is reported in text: the reason and the entry label
-    const toast = page.getByText(/different identity/i);
-    await expect(toast).toBeVisible({ timeout: 10_000 });
-    await expect(toast).toContainText("home-imac");
+    expect(await page.evaluate(() => (window as unknown as { __opened: unknown[] }).__opened)).toEqual([
+      { host: REMOTE_HOST, port: REMOTE_PORT },
+    ]);
+    // once resolved the menu closes (the failure itself is reported through the selector's `onNotifyError`
+    // toast — pinned at L1 in ServerSelector.electron.test.tsx; App-level toasts are not observable in this harness)
+    await expect(row).toBeHidden({ timeout: 10_000 });
 
+    // no in-page switch: no staging socket to the remote, nothing persisted, header still on the local server
+    expect(sockets.slice(socketsBefore).some((u) => u.includes(`${REMOTE_HOST}:${REMOTE_PORT}`))).toBe(false);
     expect(await page.evaluate(() => localStorage.getItem("pi-dashboard-last-server"))).toBe(lastServerBefore);
     await expect(page.getByTitle("Switch server")).toHaveText(headerBefore ?? "");
   } finally {
@@ -129,7 +140,7 @@ test("Browser: without the capability the in-page staging switch still runs (F5)
     expect(await page.evaluate(() => typeof (window as unknown as { piDashboard?: unknown }).piDashboard)).toBe("undefined");
 
     await page.getByTitle("Switch server").click();
-    const row = page.getByRole("button", { name: new RegExp(`${REMOTE_HOST}:${REMOTE_PORT}`) });
+    const row = page.getByRole("menuitemradio", { name: new RegExp(`${REMOTE_HOST}:${REMOTE_PORT}`) });
     await expect(row).toContainText("Available", { timeout: 15_000 });
     await row.click();
 
