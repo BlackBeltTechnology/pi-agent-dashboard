@@ -39,7 +39,7 @@
 - [x] 3.5 Stacked legends incl. card-slot claims — same spec, exemplar `tests/e2e/folder-collapse-worktree.spec.ts`; geometry method as `mockups/audit.md`. Triple: F4 session's desktop card at 768/1440 · read rects · every legend top ≥ bottom edge of the element above (subcard, wrapper, previous claim) and legend bottom ≤ own panel content top (test-plan #F5)
 - [x] 3.6 Error state stays inside — same spec, exemplar `tests/e2e/fixtures/retro-ux/kb-pill.ts` (`statsAre`). Triple: stats `jobStatus:"error"`, 300-char `lastError` · sidebar 375 px base dark · "index failed" rect ⊂ root, long message only in root `title` (test-plan #X1)
 - [x] 3.7 Card setup failure surfaces — same spec, exemplar `tests/e2e/folder-collapse-worktree.spec.ts` (`setupError`). Triple: `/api/git/worktree` create fails in `beforeAll` · run 3.4/3.5 · tests fail with the recorded `setupError`, not a skip or timeout (test-plan #X2)
-- [ ] 3.8 Manual visual review: legends read as labels, not headings — sidebar folder card (KB, MCP, Goals, Automations, OpenSpec) + desktop session card, base dark/light + nord dark, 768 and 1440 px (test-plan: manual-only, #F6)
+- [x] 3.8 Manual visual review: legends read as labels, not headings — sidebar folder card (KB, MCP, Goals, Automations, OpenSpec) + desktop session card, base dark/light + nord dark, 768 and 1440 px (test-plan: manual-only, #F6)
 
 ## 4. Docs + closeout
 
