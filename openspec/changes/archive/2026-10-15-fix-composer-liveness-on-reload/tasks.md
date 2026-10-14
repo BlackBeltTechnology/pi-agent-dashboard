@@ -55,7 +55,7 @@ Scenario tests are folded from `test-plan.md` (row ids in parentheses). Author e
 - [x] 3.11 Author L3 test in `tests/e2e/composer-liveness-reload.spec.ts` (see `tests/e2e/streaming-latch-heal.spec.ts`): F1 state · click stop-after-turn · control beside `stop-button`, bridge receives `{type:"stop_after_turn", sessionId}`, pill shown (test-plan #F11)
 - [x] 3.12 Author L3 test in `tests/e2e/composer-liveness-reload.spec.ts` (see `tests/e2e/status-reconcile.spec.ts`): force-shed on, live run starts with status frame shed · release injector in body and afterEach · composer converges to `stop-button`, never stuck on `send-button` after drain (test-plan #X1)
 - [x] 3.13 Author L3 test in `tests/e2e/composer-liveness-reload.spec.ts` (see `tests/e2e/streaming-latch-heal.spec.ts`): F1 state, bridge socket closed without unregister · observe 5 s · `stop-button` kept and card stays working (test-plan #X2)
-- [ ] 3.14 Manual: on a real provider, reload the browser mid-run on a long session whose agent_start is outside the replay window, confirm Stop is shown and clicking it stops the run (test-plan #F16, test-plan: manual-only)
+- [x] 3.14 Manual: on a real provider, reload the browser mid-run on a long session whose agent_start is outside the replay window, confirm Stop is shown and clicking it stops the run (test-plan #F16, test-plan: manual-only)
 
 ## 4. Documentation of the contract
 
