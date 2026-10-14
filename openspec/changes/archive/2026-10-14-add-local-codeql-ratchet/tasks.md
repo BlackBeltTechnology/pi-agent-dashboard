@@ -30,7 +30,7 @@
 ## 6. Rollout
 
 - [x] 6.1 Before the switch, export the dismissed alerts (`gh api repos/{owner}/{repo}/code-scanning/alerts?state=dismissed --paginate`) into `openspec/changes/add-local-codeql-ratchet/evidence/dismissed-alerts.json`.
-- [ ] 6.2 Before ship-change pushes the PR, a repo admin runs `gh api -X PATCH repos/{owner}/{repo}/code-scanning/default-setup -f state=not-configured` and confirms `state` is `not-configured` (design D10).
+- [x] 6.2 Before ship-change pushes the PR, a repo admin runs `gh api -X PATCH repos/{owner}/{repo}/code-scanning/default-setup -f state=not-configured` and confirms `state` is `not-configured` (design D10).
 - [x] 6.3 After the first advanced analysis on `develop`: categories are the three `/language:*` values; every exported dismissal is still dismissed, else re-dismiss it with its original reason and comment matched by (rule, path, start line) (design D10); alerts in ignored paths are closed; the CI rule set equals a local run's for `javascript-typescript` and `actions` (test-plan: manual-only, #M4).
 
 ## 7. Tests
