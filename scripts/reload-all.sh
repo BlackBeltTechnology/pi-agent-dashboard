@@ -57,7 +57,7 @@ PI_RELOAD_BIND_HOST="$BIND_HOST" node --input-type=module -e "
 import WebSocket from 'ws';
 
 const port = ${PORT};
-// Prove we are on this host: required when `requireLocalProof` is on.
+// Prove we are on this host: required when 'requireLocalProof' is on.
 // A per-request PROOF of the local token, bound to the address literal dialled,
 // the method and the request target; the raw token is never sent.
 // See changes: harden-trust-and-credential-boundaries, loopback-credential-proof.
