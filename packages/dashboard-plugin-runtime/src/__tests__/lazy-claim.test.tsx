@@ -10,7 +10,10 @@ import { PluginContextProvider } from "../plugin-context.js";
 import { SessionCardBadgeSlot, SettingsSectionByPluginSlot } from "../slot-consumers.js";
 import { createSlotRegistry } from "../slot-registry.js";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const session = { id: "s1", cwd: "/repo", source: "tui", status: "active", startedAt: 0 } as DashboardSession;
 
