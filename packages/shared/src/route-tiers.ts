@@ -247,6 +247,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/users/credentials/impact", tier: "operate" },
   { method: "GET", path: "/api/vault", tier: "operate" },
   { method: "GET", path: "/api/vault/import/candidates", tier: "operate" },
+  { method: "GET", path: "/api/vault/projects", tier: "operate" },
   { method: "PATCH", path: "/api/canvas-types", tier: "control" },
   { method: "PATCH", path: "/api/folders/goals/:id", tier: "control" },
   { method: "PATCH", path: "/api/openspec/groups/:id", tier: "control" },

@@ -84,6 +84,17 @@ function applicableGrants(doc: VaultDocument, p: SessionProject): StoredGrant[] 
   return wellFormedGrants(doc).filter((g) => g.subject === subject);
 }
 
+/**
+ * Env bindings with no grant for this project's key (repo key if it has one, else
+ * directory), so a session dialog can offer to grant them. Names only.
+ */
+export function ungrantedBindings(doc: VaultDocument, project: SessionProject): string[] {
+  const granted = new Set(applicableGrants(doc, project).map((g) => g.bindingName));
+  return wellFormedBindings(doc)
+    .filter((b) => b.target === "env" && !granted.has(b.name))
+    .map((b) => b.name);
+}
+
 export function resolveBindings(doc: VaultDocument, project: SessionProject): BindingResolution[] {
   const out: BindingResolution[] = [];
   const seen = new Set<string>();

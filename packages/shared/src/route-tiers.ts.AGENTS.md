@@ -32,4 +32,5 @@ Rows for `/api/users`, `/api/users/:id`, `/api/users/:id/revoke`, `/api/users/:i
 
 Row `GET /api/plugins/skill-atlas/graph` observe. See change: add-skill-atlas-screen.
 
+`GET /api/vault/projects` → `operate` (project picker `{open,recent}`). See change: retro-ux-credential-vault.
 `POST /api/pair/request` → `operate`. Public (unauthenticated) route, listed only so the tier-map completeness test stays exhaustive. See change: add-lan-knock-pairing.

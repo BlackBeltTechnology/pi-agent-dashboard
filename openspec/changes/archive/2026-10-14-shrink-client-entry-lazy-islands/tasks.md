@@ -36,7 +36,7 @@
 ## 5. Measure and lock in
 
 - [x] 5.1 `npm run build`; record entry gz + landing-graph total; both must drop vs 0.1.
-  - After: entry `index-DwqYquqf.js` 689,543 B gz (−260,927 B); landing graph 1,130,891 B gz (−260,924 B). New lazy chunks: `katex` (+ own CSS), `i18n-hu`, `i18n-zh-CN`, `SettingsPanel`.
+  - After: entry 689,543 B gz (−260,927 B); landing graph 1,130,891 B gz (−260,924 B). After merging develop (retro-ux-credential-vault): entry 694,038 B gz; landing graph 1,135,386 B gz. Cap set to 690 KiB (measured + ~0.4% CI skew, next 10 KiB). New lazy chunks: `katex` (+ own CSS), `i18n-hu`, `i18n-zh-CN`, `SettingsPanel`.
 - [x] 5.2 Set `INDEX_GZ_CAP_BYTES` = measured rounded up to next 10 KiB (≤ 800 KiB); replace the "size win still owed" note with the measurement record.
 - [x] 5.3 Full client test suite + `npm run build` warnings unchanged (no new dynamic-import warning).
 - [x] 5.4 Manual: chat with a `$x^2$` message (typesets after load), switch to Magyar and back, open Settings via button and deep link — on throttled network.

@@ -102,7 +102,6 @@ import { PushNotificationsSection } from "./PushNotificationsSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
-import { VaultSection } from "./vault/VaultSection.js";
 
 // The field family lives in the runtime so plugin settings share one contract.
 // Re-exported so existing `./SettingsPanel.js` imports keep working.
@@ -2252,7 +2251,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
               </>
             )}
 
-            {activeTab === "vault" && <VaultSection />}
+            {activeTab === "vault" && (
+              <React.Suspense fallback={null}>
+                <VaultSection />
+              </React.Suspense>
+            )}
 
             {activeTab === "access" && (
               <>
@@ -3532,6 +3535,9 @@ function ListenInterfaceField({
     </div>
   );
 }
+
+// Vault page: its own chunk, off the entry gzip cap. See change: retro-ux-credential-vault.
+const VaultSection = React.lazy(() => import("./vault/VaultSection.js").then((m) => ({ default: m.VaultSection })));
 
 // Electron-only: its own chunk, off the entry gzip cap (Settings is eager).
 const RuntimeUpdatesSection = React.lazy(() =>

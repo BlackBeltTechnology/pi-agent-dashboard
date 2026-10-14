@@ -21,15 +21,18 @@ import { describe, expect, it } from "vitest";
 // A minified-survivable @mdi/js export name that no shell code imports by
 // name — present only in a chunk that carries the FULL icon set.
 const MDI_MARKER = "mdiZodiacAquarius";
-// History: raised 900 → 910 → 920 → 930 KB as features landed; develop CI sat
+// History: raised 900 → 910 → 920 → 930 → 940 KB as features landed; develop CI sat
 // at 944,327 B (an inflated, lazy-loadable entry) with every PR ~1.8 KB from red.
-// shrink-client-entry-lazy-islands (2026-10-13) moved katex, the hu/zh-CN
-// catalogs and the Settings panel off the cold landing. Measured, same base:
-//   entry `index-*.js` gz: 950,470 B → 689,543 B (−260,927 B)
-//   landing graph gz total (entry + modulepreload closure): 1,391,815 B → 1,130,891 B
-// Cap = measured rounded up to the next 10 KiB (680 KiB; spec ceiling 800 KiB).
-// Do not raise it again without a size win first — lazy a subsystem instead.
-const INDEX_GZ_CAP_BYTES = 680 * 1024;
+// shrink-client-entry-lazy-islands (2026-10-14) moved katex, the hu/zh-CN
+// catalogs and the Settings panel off the cold landing. Measured, same base
+// (local build; CI measures ~0.4% higher, e.g. 944,327 vs 940,548):
+//   entry `index-*.js` gz: 950,470 B → 694,038 B (−256,432 B; 689,543 B before
+//   merging retro-ux-credential-vault, whose vault.* keys stay in the entry)
+//   landing graph gz total (entry + modulepreload closure): 1,391,815 B → 1,135,386 B
+// Cap = measured + CI skew rounded up to the next 10 KiB = 690 KiB (spec
+// ceiling 800 KiB). Do not raise it again without a size win first — lazy a
+// subsystem instead.
+const INDEX_GZ_CAP_BYTES = 690 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

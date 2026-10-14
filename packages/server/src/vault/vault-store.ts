@@ -128,7 +128,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === "object" && !Array.isArray(v);
 
 /** The `<file>.corrupt-*` backup whose bytes equal the file's, if one exists. */
-function findBackup(filePath: string): string | undefined {
+export function findBackup(filePath: string): string | undefined {
   try {
     const bytes = fs.readFileSync(filePath);
     const dir = path.dirname(filePath);
