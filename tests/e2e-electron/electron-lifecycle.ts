@@ -409,7 +409,7 @@ export async function startFakeRemoteDashboard(
   };
 
   // One handler per `POST` route — kept flat so each stays trivially readable.
-  const routes: Record<string, (req: Req, res: Res) => Promise<void>> = {
+  const routes = new Map<string, (req: Req, res: Res) => Promise<void>>(Object.entries({
     "/api/pair/challenge": async (req, res) => {
       const { nonce } = JSON.parse((await readBody(req)) || "{}") as { nonce?: string };
       const signature = crypto.sign(null, Buffer.from(String(nonce), "utf-8"), identity.privateKey);
@@ -431,7 +431,7 @@ export async function startFakeRemoteDashboard(
       if (req.headers.authorization !== `Bearer ${token}`) return json(res, 401, { success: false, error: "invalid bearer" });
       json(res, 200, { success: true }, { "set-cookie": `pi_dash_device=${token}; Path=/api/; HttpOnly; SameSite=Strict; Max-Age=34560000` });
     },
-  };
+  }));
 
   const server: Server = createServer(async (req, res) => {
     const url = req.url ?? "";
@@ -441,7 +441,7 @@ export async function startFakeRemoteDashboard(
       ...(req.headers.authorization ? { authorization: String(req.headers.authorization) } : {}),
       ...(req.headers.cookie ? { cookie: String(req.headers.cookie) } : {}),
     });
-    const route = req.method === "POST" ? routes[url] : undefined;
+    const route = req.method === "POST" ? routes.get(url) : undefined;
     if (route) return route(req, res);
     if (url.startsWith("/api/")) return json(res, 200, { success: true, cookie: req.headers.cookie ?? null });
     res.writeHead(200, { "content-type": "text/html" });
