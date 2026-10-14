@@ -25,7 +25,7 @@ const listeners = new Set<() => void>();
 
 /** Start (or join) the single shared load. Rejects if any part fails to load. */
 export function loadMathEngine(): Promise<MathEngine> {
-  if (promise) return promise;
+  if (promise !== null) return promise;
   promise = (async () => {
     const [katex, rehype] = await Promise.all([
       import("katex"),

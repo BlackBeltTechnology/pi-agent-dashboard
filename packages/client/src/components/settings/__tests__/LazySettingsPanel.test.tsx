@@ -5,7 +5,6 @@
  * See change: shrink-client-entry-lazy-islands (task 4.1).
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 beforeEach(() => {
@@ -18,7 +17,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// biome-ignore lint/suspicious/noExplicitAny: stub props for a mocked panel
 const props: any = { onMessage: () => {}, onBack: () => {} };
 
 describe("LazySettingsPanel", () => {

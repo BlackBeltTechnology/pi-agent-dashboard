@@ -4,7 +4,6 @@
  * singletons. See change: shrink-client-entry-lazy-islands (tasks 3.1/3.5).
  */
 import { act, cleanup, render, waitFor } from "@testing-library/react";
-import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const STORAGE_KEY = "pi-dashboard-language";

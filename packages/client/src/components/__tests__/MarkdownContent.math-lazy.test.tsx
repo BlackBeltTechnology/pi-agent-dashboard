@@ -5,7 +5,6 @@
  * See change: shrink-client-entry-lazy-islands (tasks 2.1/2.3).
  */
 import { cleanup, render, waitFor } from "@testing-library/react";
-import React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("../split/SplitWorkspaceContext.js", () => ({
