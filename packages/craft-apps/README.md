@@ -95,6 +95,15 @@ on Linux), else the portable archive.
 - `pi-craft launcher install` is the only command that downloads a desktop installer (checksum-verified, then handed
   to the OS); app provisioning fetches only the CLI archive and `SHA256SUMS.txt`.
 - 13 third-party executables run with the user's privileges; the unconfined MCP servers are opt-in per app.
+- Trust model of the environment: `<APP>_BIN`, `CRAFT_HOME`, `PHOTOCRAFT_HOME`, `CRAFT_LAUNCHER_HOME` and the launcher roots
+  (`/opt`, `~/.local/share`, `%LOCALAPPDATA%\Programs`, `/Applications`) locate binaries that are then **executed**; they must
+  not point to world-writable directories (ownership is not checked). A launcher-found CLI is only probed with `--version`.
+- Release metadata is untrusted: versions are validated as path segments, asset names come from the registry (not the
+  release JSON), download URLs must stay under `https://github.com/<repo>/releases/download/`, downloads are size-bounded,
+  and the extracted tree is re-checked for symlinks. Windows system tools are spawned as `.exe` (never via `cmd.exe`).
+- `pi-craft verify` resolves its file and `--frame-diff` reference to absolute local paths and bounds every probe with a timeout.
+- `mcp --register` refuses to write through a symlinked `.pi` or `mcp.json`, never clobbers a non-object `mcpServers`, and
+  writes atomically. The default MCP confinement root is the current directory — start pi in the project, not in `$HOME`.
 
 ## Development
 

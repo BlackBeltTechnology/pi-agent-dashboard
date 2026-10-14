@@ -92,7 +92,7 @@ export function parseMcpArgs(argv: string[]): ParsedArgs {
       compact = true;
     } else if (a === "--root") {
       const v = argv[++i];
-      if (!v) return { kind: "error", message: "--root needs a directory" };
+      if (!v || v.startsWith("--")) return { kind: "error", message: "--root needs a directory" };
       root = v;
     } else if (a.startsWith("--root=")) {
       root = a.slice("--root=".length);

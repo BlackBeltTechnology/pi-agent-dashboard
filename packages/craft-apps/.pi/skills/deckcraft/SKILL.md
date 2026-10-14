@@ -1,6 +1,6 @@
 ---
 name: deckcraft
-description: Headless presentations with DeckCraft (PPTX slides, layouts, shapes, text boxes, tables, themes, animations), provisioned on demand by pi-craft - build a deck from commands, export it to PDF, render slides to png. Use for "make a 3-slide presentation", "add a title slide and a shape to this pptx", "export this deck to pdf", "render slide 2 as an image", "convert my pptx to pdf and check the page count".
+description: Headless presentations with DeckCraft (PPTX slides, layouts, shapes, text, tables), provisioned on demand by pi-craft - build a deck from commands, export to PDF, render slides to png. Use for "make a 3-slide presentation", "add a title slide to this pptx", "export this deck to pdf", "render slide 2 as an image".
 ---
 
 # DeckCraft — headless presentations

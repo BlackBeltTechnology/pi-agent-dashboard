@@ -1,6 +1,6 @@
 ---
 name: figcraft
-description: Headless UI and interface design with FigCraft (Figma-style frames, shapes, text, auto layout, components), provisioned on demand by pi-craft - build screens from a JSON-lines script, then export frames and single layers as png, jpg, svg or pdf at 1x/2x/3x, or import an SVG and render it. Use for "design a mobile login screen and export it as png", "export this button at 2x", "make an iPhone 16 frame with a blue button", "export the frames of this design as a pdf", "turn this svg into an editable design".
+description: Headless UI/interface design with FigCraft (Figma-style frames, shapes, text, components), provisioned on demand by pi-craft - build screens from a JSON-lines script, export frames or layers as png, jpg, svg or pdf at 1x-3x. Use for "design a mobile login screen and export it as png", "export this button at 2x", "turn this svg into an editable design".
 ---
 
 # FigCraft — headless UI design

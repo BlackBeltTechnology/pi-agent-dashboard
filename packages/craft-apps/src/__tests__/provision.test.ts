@@ -12,7 +12,7 @@ import {
   parseSums,
   provision,
 } from "../provision.js";
-import { CRAFT_APPS, type CraftApp, envPrefix, getApp } from "../registry.js";
+import { CRAFT_APPS, type CraftApp, envPrefix, } from "../registry.js";
 import {
   cleanupTmp,
   craftArchive,

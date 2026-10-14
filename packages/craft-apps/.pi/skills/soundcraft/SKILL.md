@@ -1,6 +1,6 @@
 ---
 name: soundcraft
-description: Headless audio editing and mixing with SoundCraft (~480 DAW-style commands), provisioned on demand by pi-craft - import audio, multi-track layout and offsets, clip gain, fades, normalise, bounce a mix with a loudness/peak report, save and reopen .scraft sessions. Use for "make this audio 6 dB quieter", "fade in and out this clip", "mix these two tracks", "normalise the loudness", "bounce the session to a wav".
+description: Headless audio editing and mixing with SoundCraft (DAW-style commands), provisioned on demand by pi-craft - import audio, clip gain, fades, normalise, multi-track mixes, bounce with a loudness/peak report, save .scraft sessions. Use for "make this audio 6 dB quieter", "fade in and out this clip", "mix these two tracks", "bounce the session to a wav".
 ---
 
 # SoundCraft — headless audio editing and mixing

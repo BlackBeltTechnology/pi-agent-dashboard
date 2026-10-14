@@ -110,7 +110,7 @@ export async function startFixture(o: FixtureOptions): Promise<Fixture> {
   const repo = o.repo ?? "storytold/photocraft";
   const requests: Fixture["requests"] = [];
   const sumsBody =
-    o.sums === undefined ? Object.entries(o.assets).map(([n, b]) => `${sha256(b)}  ${n}`).join("\n") + "\n" : o.sums;
+    o.sums === undefined ? `${Object.entries(o.assets).map(([n, b]) => `${sha256(b)}  ${n}`).join("\n")}\n` : o.sums;
   let base = "";
   const releaseJson = () => ({
     tag_name: tag,

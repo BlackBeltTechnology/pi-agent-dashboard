@@ -1,6 +1,6 @@
 ---
 name: designcraft
-description: Headless page layout and desktop publishing with DesignCraft (InDesign-style documents, pages, text frames, stories, styles, swatches), provisioned on demand by pi-craft - create a document, flow text into frames, export a multi-page PDF or per-page PNGs, reopen IDML files. Use for "lay out a two-page brochure as a pdf", "put this text in a text frame on an A4 page", "export every page of this layout as png", "export only pages 2-3 to pdf", "open this idml and make a pdf".
+description: Headless page layout / desktop publishing with DesignCraft (InDesign-style documents, text frames, stories, styles), provisioned on demand by pi-craft - create a document, flow text, export multi-page PDF or per-page PNGs. Use for "lay out a two-page brochure as a pdf", "put this text in a text frame on an A4 page", "export every page as png".
 ---
 
 # DesignCraft — headless page layout

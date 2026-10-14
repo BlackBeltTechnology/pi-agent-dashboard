@@ -1,6 +1,6 @@
 ---
 name: photocraft
-description: Headless raster image editing with PhotoCraft (~900 Photoshop-style commands), provisioned on demand by pi-craft - select, crop, resize, colour-grade, mask, composite, content-aware fill, batch-convert. Pair with pi-nano-banana for generative part-replacement (replace-region). Use for "edit/retouch/crop this image", "remove this object from the photo", "resize and sharpen these pictures", "replace just this part of an image".
+description: Headless raster image editing with PhotoCraft (~900 Photoshop-style commands) via pi-craft - select, crop, resize, colour-grade, mask, content-aware fill, batch-convert. Pair with pi-nano-banana for generative part-replacement (replace-region). Use for "edit/retouch/crop this image", "remove this object from the photo", "replace just this part of an image".
 ---
 
 # PhotoCraft — headless raster image editing

@@ -11,8 +11,9 @@
  * See change: add-craft-apps-core (design D5, spec craft-verify).
  */
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { execFileAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { type ProvisionReport, provision } from "./provision.js";
+import { exe, type ProvisionReport, provision } from "./provision.js";
 
 export const VERIFY_USAGE = `usage: pi-craft verify <file> <assertion…> [--json]
 
@@ -41,9 +42,14 @@ export interface VerifyDeps {
   exists: (file: string) => boolean;
 }
 
+/** Probe time budgets: metadata is quick; loudness/peak/frame extraction decode the whole file. */
+const PROBE_TIMEOUT_MS = 60_000;
+const DECODE_TIMEOUT_MS = 10 * 60_000;
+const MAX_FRAME_WIDTH = 1024;
+
 function defaultVerifyDeps(): VerifyDeps {
   return {
-    exec: (file, args, opts) => execFileAsync(file, args, { maxBuffer: 256 * 1024 * 1024, ...opts }),
+    exec: (file, args, opts) => execFileAsync(file, args, { maxBuffer: 64 * 1024 * 1024, timeout: PROBE_TIMEOUT_MS, ...opts }),
     stdout: (t) => process.stdout.write(t),
     stderr: (t) => process.stderr.write(t),
     provisionPdfcraft: () => provision("pdfcraft"),
@@ -166,7 +172,9 @@ export function parseVerifyArgs(argv: string[]): ParsedVerify | { help: true } {
   }
   if (file === undefined) throw new UsageError("no file given");
   if (assertions.length === 0) throw new UsageError("no assertion given");
-  return { file, assertions, json };
+  // Absolute paths only reach the probe tools: a name starting with `-` is never an option and a `scheme:` prefix never a protocol.
+  for (const a of assertions) if (a.kind === "frame-diff") a.ref = path.resolve(a.ref);
+  return { file: path.resolve(file), assertions, json };
 }
 
 // ── Probing ─────────────────────────────────────────────────────────────────
@@ -212,11 +220,17 @@ export interface VerifyReport {
   error?: string;
 }
 
+class ProbeTimeout extends Error {}
+
+/** `tool` is a bare name for system tools (ffprobe/ffmpeg: `.exe` on Windows, never through cmd.exe) or an absolute binary path. */
 async function run(deps: VerifyDeps, tool: string, args: string[], opts?: Parameters<ExecBuf>[2]) {
+  const bare = !path.isAbsolute(tool);
   try {
-    return await deps.exec(tool, args, opts);
+    return await deps.exec(bare ? exe(tool) : tool, args, opts);
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new ToolMissing(tool);
+    const err = e as NodeJS.ErrnoException & { killed?: boolean; signal?: string };
+    if (err.code === "ENOENT") throw new ToolMissing(tool);
+    if (err.killed && err.signal) throw new ProbeTimeout(`${tool} timed out`);
     throw e;
   }
 }
@@ -232,14 +246,14 @@ function makeProber(deps: VerifyDeps, file: string) {
       )),
     /** Maximum volume in dB (`null` = digital silence / `-inf`). */
     volume: () =>
-      (volume ??= run(deps, "ffmpeg", ["-hide_banner", "-nostats", "-i", file, "-vn", "-af", "volumedetect", "-f", "null", "-"]).then((r) => {
+      (volume ??= run(deps, "ffmpeg", ["-hide_banner", "-nostats", "-i", file, "-vn", "-af", "volumedetect", "-f", "null", "-"], { timeout: DECODE_TIMEOUT_MS }).then((r) => {
         const m = /max_volume:\s*(-?\d+(?:\.\d+)?|-inf) dB/.exec(r.stderr.toString());
         if (!m || m[1] === "-inf") return null;
         return Number.parseFloat(m[1]);
       })),
     /** Integrated loudness in LUFS (`null` = silence). */
     loudness: () =>
-      (loud ??= run(deps, "ffmpeg", ["-hide_banner", "-nostats", "-i", file, "-vn", "-af", "ebur128", "-f", "null", "-"]).then((r) => {
+      (loud ??= run(deps, "ffmpeg", ["-hide_banner", "-nostats", "-i", file, "-vn", "-af", "ebur128", "-f", "null", "-"], { timeout: DECODE_TIMEOUT_MS }).then((r) => {
         const all = [...r.stderr.toString().matchAll(/\bI:\s+(-?\d+(?:\.\d+)?|-inf)\s+LUFS/g)];
         const last = all[all.length - 1];
         if (!last || last[1] === "-inf") return null;
@@ -253,7 +267,7 @@ const isStill = (p: Probe): boolean => /image2|_pipe|png|jpeg|webp|tiff|bmp/.tes
 
 async function grayFrame(deps: VerifyDeps, file: string, t: number, w: number, h: number, still: boolean): Promise<Buffer> {
   const args = ["-v", "error", ...(still ? [] : ["-ss", String(t)]), "-i", file, "-frames:v", "1", "-vf", `scale=${w}:${h}:flags=bilinear,format=gray`, "-f", "rawvideo", "-"];
-  const r = await run(deps, "ffmpeg", args, { encoding: "buffer" });
+  const r = await run(deps, "ffmpeg", args, { encoding: "buffer", timeout: DECODE_TIMEOUT_MS });
   return Buffer.isBuffer(r.stdout) ? r.stdout : Buffer.from(r.stdout);
 }
 
@@ -322,8 +336,11 @@ async function evaluate(a: Assertion, file: string, deps: VerifyDeps, prober: Re
       const v = p.streams.find((s) => s.codec_type === "video");
       if (!v?.width || !v.height) return result("--frame-diff", `${a.op}${a.pct}%`, "no video stream", false);
       const still = isStill(p);
-      const [x, y] = await Promise.all([grayFrame(deps, file, a.t, v.width, v.height, still), grayFrame(deps, a.ref, a.rt, v.width, v.height, still)]);
-      const total = v.width * v.height;
+      // Compare at a bounded resolution: the diff is a pixel *share*, and two full-size raw frames could be hundreds of MB.
+      const fw = Math.min(v.width, MAX_FRAME_WIDTH);
+      const fh = Math.max(1, Math.round((v.height * fw) / v.width));
+      const [x, y] = await Promise.all([grayFrame(deps, file, a.t, fw, fh, still), grayFrame(deps, a.ref, a.rt, fw, fh, still)]);
+      const total = fw * fh;
       const expected = `${a.op}${a.pct}% pixels differ (${fmt(a.t)} s vs ${a.ref} @ ${fmt(a.rt)} s)`;
       if (x.length < total || y.length < total) return result("--frame-diff", expected, `no frame at ${fmt(x.length < total ? a.t : a.rt)} s`, false);
       let differing = 0;
@@ -390,6 +407,13 @@ export async function runVerify(argv: string[], partial: Partial<VerifyDeps> = {
     return finish(1);
   }
 
+  for (const a of assertions) {
+    if (a.kind === "frame-diff" && !deps.exists(a.ref)) {
+      report.error = `--frame-diff reference not found or unreadable: ${a.ref}`;
+      return finish(1);
+    }
+  }
+
   const prober = makeProber(deps, file);
   const pdfBin = makePdfBin(deps);
   try {
@@ -400,7 +424,7 @@ export async function runVerify(argv: string[], partial: Partial<VerifyDeps> = {
       report.error = `${e.message} — install it (ffmpeg provides ffprobe) or set the matching *_BIN override`;
       return finish(3);
     }
-    report.error = `probe failed: ${(e as Error).message}`;
+    report.error = e instanceof ProbeTimeout ? `probe timed out: ${e.message}` : `probe failed: ${(e as Error).message}`;
     return finish(1);
   }
   report.ok = report.assertions.every((r) => r.pass);

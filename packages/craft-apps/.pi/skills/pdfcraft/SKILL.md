@@ -1,6 +1,6 @@
 ---
 name: pdfcraft
-description: Headless PDF work with PdfCraft, provisioned on demand by pi-craft - combine, split, extract, rotate, delete and reorder pages, set metadata, read text, render a page to png, audit for faux redactions, and script any of its 163 automation tools. Use for "merge these two PDFs", "extract pages 1 and 3 from this PDF", "rotate page 1 and drop page 2", "render page 2 of this PDF as a png", "what text is in this PDF", "stamp text onto a page".
+description: Headless PDF work with PdfCraft, provisioned on demand by pi-craft - combine, split, extract, rotate, delete and reorder pages, read text, render a page to png, audit faux redactions, script its 163 tools. Use for "merge these two PDFs", "extract pages 1 and 3 from this PDF", "rotate page 1 and drop page 2", "what text is in this PDF".
 ---
 
 # PdfCraft — headless PDF editing

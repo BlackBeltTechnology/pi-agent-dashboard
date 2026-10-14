@@ -1,6 +1,6 @@
 ---
 name: gridcraft
-description: Headless spreadsheets with GridCraft (XLSX/CSV/TSV/JSON/HTML workbooks, 340 editing commands, formula evaluation, recalculation, calc-oracle check, PDF export), provisioned on demand by pi-craft. Use for "build a budget spreadsheet with formulas", "convert this xlsx to csv", "what does this formula evaluate to", "change a cell and recalculate the totals", "check this workbook's formulas", "export the sheet to pdf".
+description: Headless spreadsheets with GridCraft (XLSX/CSV/TSV workbooks, formula evaluation, recalculation, PDF export), provisioned on demand by pi-craft. Use for "build a budget spreadsheet with formulas", "convert this xlsx to csv", "what does this formula evaluate to", "change a cell and recalculate the totals", "export the sheet to pdf".
 ---
 
 # GridCraft — headless spreadsheets

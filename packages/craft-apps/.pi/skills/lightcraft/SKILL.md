@@ -1,6 +1,6 @@
 ---
 name: lightcraft
-description: Headless photo/RAW development with LightCraft (Lightroom-style develop controls, presets, export), provisioned on demand by pi-craft - exposure, white balance, colour grading, tone, B&W, denoise, sharpen, HDR/panorama merge, export to jpg/png/tif/webp. Use for "develop this RAW", "brighten this photo and export a jpg", "apply a black and white preset", "export this photo at 2000 px on the long edge", "make an HDR from these brackets".
+description: Headless photo/RAW development with LightCraft (Lightroom-style develop controls, presets, export), provisioned on demand by pi-craft - exposure, colour grading, B&W, denoise, HDR/panorama merge, export to jpg/png/tif/webp. Use for "develop this RAW", "brighten this photo and export a jpg", "apply a black and white preset", "make an HDR from these brackets".
 ---
 
 # LightCraft — headless photo development

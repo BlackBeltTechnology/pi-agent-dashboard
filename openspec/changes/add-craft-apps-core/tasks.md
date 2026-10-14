@@ -44,23 +44,23 @@
 
 ## 6. Skills
 
-- [ ] 6.1 Skill lint test: every recipe that writes an output has a `pi-craft verify` line; descriptions name the app
-- [ ] 6.2 Drift test (offline): command ids in skill code fences ∈ fixture command lists (0.5); nightly variant against real binaries
-- [ ] 6.3 `craft-studio` router skill
-- [ ] 6.4 Media app skills, each recipe executed once against real binaries: filmcraft, soundcraft, effectcraft, lightcraft
-- [ ] 6.5 Visual app skills: photocraft (move + trim), vectorcraft, figcraft, designcraft
-- [ ] 6.6 Office/technical app skills: pdfcraft, wordcraft, deckcraft, gridcraft, cadcraft
+- [x] 6.1 Skill lint test: every recipe that writes an output has a `pi-craft verify` line; descriptions name the app
+- [x] 6.2 Drift test (offline): command ids in skill code fences ∈ fixture command lists (0.5); nightly variant against real binaries
+- [x] 6.3 `craft-studio` router skill
+- [x] 6.4 Media app skills, each recipe executed once against real binaries: filmcraft, soundcraft, effectcraft, lightcraft
+- [x] 6.5 Visual app skills: photocraft (move + trim), vectorcraft, figcraft, designcraft
+- [x] 6.6 Office/technical app skills: pdfcraft, wordcraft, deckcraft, gridcraft, cadcraft
 
 ## 7. Compatibility + distribution
 
-- [ ] 7.1 Reduce `packages/photocraft` to the deprecation shim (dependency on craft-apps; `bin/pi-photocraft` forwards); packaging test: legacy `.pi/mcp.json` entry still starts the server
-- [ ] 7.2 Swap the recommended-extensions manifest entry; update manifest tests
-- [ ] 7.3 README for craft-apps (install, CLI table, env vars, sources, MCP policy, security notes); package + dir `AGENTS.md` rows
-- [ ] 7.4 DocScribe: `docs/` page for craft apps (architecture, provisioning, MCP policy) — delegated
+- [x] 7.1 Reduce `packages/photocraft` to the deprecation shim (dependency on craft-apps; `bin/pi-photocraft` forwards); packaging test: legacy `.pi/mcp.json` entry still starts the server
+- [x] 7.2 Swap the recommended-extensions manifest entry; update manifest tests
+- [x] 7.3 README for craft-apps (install, CLI table, env vars, sources, MCP policy, security notes); package + dir `AGENTS.md` rows
+- [x] 7.4 DocScribe: `docs/` page for craft apps (architecture, provisioning, MCP policy) — delegated
 
 ## 8. QA
 
-- [ ] 8.1 Re-run the spike round-trip (SoundCraft → EffectCraft → FilmCraft) via `pi-craft` + `pi-craft verify` on macOS
-- [ ] 8.2 Same round-trip in the Linux docker harness
+- [x] 8.1 Re-run the spike round-trip (SoundCraft → EffectCraft → FilmCraft) via `pi-craft` + `pi-craft verify` on macOS (script `spike/roundtrip.sh`; 5.013 s, h264+aac, title present at 3 s / absent at 0.2 s)
+- [x] 8.2 Same round-trip in a Linux container (node:22-bookworm arm64, glibc 2.36, real provisioning from the built `dist/craft.js`; all assertions pass)
 - [ ] 8.3 Manual: pi session uses `craft-studio` to complete "make a 5 s titled clip with a −6 dB tone" end to end
 - [ ] 8.4 `review-code` pass; `npm run quality:changed`

@@ -9,7 +9,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { launcherAppState } from "./launcher.js";
-import { apiJson, craftRoot, downloadVerified, type ProvisionDeps, ProvisionError } from "./provision.js";
+import { apiJson, craftRoot, downloadVerified, exe, normaliseVersion, type ProvisionDeps, ProvisionError } from "./provision.js";
 import { CRAFT_APPS } from "./registry.js";
 
 export const LAUNCHER_REPO = "storytold/craft-launcher";
@@ -44,19 +44,19 @@ export interface LauncherInstallReport {
 
 export async function installLauncher(deps: ProvisionDeps): Promise<LauncherInstallReport> {
   const release = await apiJson(deps, `${deps.apiBase}/repos/${LAUNCHER_REPO}/releases/latest`);
-  const version = release.tag_name.replace(/^v/, "");
+  const version = normaliseVersion(release.tag_name, "Craft Launcher");
   const asset = installerAsset(deps.platform, deps.arch, version);
   const dir = path.join(craftRoot(deps), "craft-launcher", version);
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, asset.name);
   try {
-    await downloadVerified(deps, release, asset.name, file);
+    await downloadVerified(deps, release, asset.name, file, LAUNCHER_REPO);
   } catch (e) {
     fs.rmSync(file, { force: true });
     throw e;
   }
   if (asset.handoff === "open-dmg") await deps.exec("open", [file]);
-  else if (asset.handoff === "msiexec") await deps.exec("msiexec", ["/i", file]);
+  else if (asset.handoff === "msiexec") await deps.exec(exe("msiexec", deps.platform), ["/i", file]);
   else fs.chmodSync(file, 0o755);
   return { version, asset: asset.name, file, handoff: asset.handoff };
 }

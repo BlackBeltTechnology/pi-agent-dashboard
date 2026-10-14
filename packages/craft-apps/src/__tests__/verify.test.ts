@@ -50,8 +50,8 @@ describe("argument parsing (exit 2)", () => {
   it("frame-diff grammar: default rt, explicit rt, both operators", () => {
     const p = parseVerifyArgs(["a.mp4", "--frame-diff", "3:b.mp4>0.5", "--frame-diff", "0.2:b.mp4@1.5<0.1"]);
     expect("assertions" in p && p.assertions).toMatchObject([
-      { kind: "frame-diff", t: 3, ref: "b.mp4", rt: 3, op: ">", pct: 0.5 },
-      { kind: "frame-diff", t: 0.2, ref: "b.mp4", rt: 1.5, op: "<", pct: 0.1 },
+      { kind: "frame-diff", t: 3, ref: path.resolve("b.mp4"), rt: 3, op: ">", pct: 0.5 },
+      { kind: "frame-diff", t: 0.2, ref: path.resolve("b.mp4"), rt: 1.5, op: "<", pct: 0.1 },
     ]);
   });
 });

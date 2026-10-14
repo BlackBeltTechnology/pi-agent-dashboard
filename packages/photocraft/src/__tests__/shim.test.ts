@@ -42,7 +42,7 @@ describe("photocraft deprecation shim", () => {
     };
     expect(pkg.bin["pi-photocraft"]).toBe("bin/pi-photocraft");
     expect(Object.keys(pkg.dependencies)).toEqual(["@blackbelt-technology/pi-dashboard-craft-apps"]);
-    expect(pkg.files).toEqual(["bin/", "README.md"]);
+    expect(pkg.files).toEqual(["bin/", "README.md", "!**/AGENTS.md", "!**/*.AGENTS.md"]);
     expect(pkg.pi).toBeUndefined();
     expect(fs.readFileSync(path.join(pkgDir, "README.md"), "utf8")).toMatch(/deprecated/i);
   });

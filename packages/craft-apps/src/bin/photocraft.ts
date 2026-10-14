@@ -20,8 +20,8 @@ import { fileURLToPath } from "node:url";
 import { runAppCommand } from "../app-command.js";
 import { defaultLauncherPath } from "../mcp-register.js";
 import { type ProvisionReport, provision } from "../provision.js";
-import { getApp } from "../registry.js";
 import { parseReplaceArgs, REPLACE_USAGE, replaceRegion } from "../region-replace.js";
+import { getApp } from "../registry.js";
 
 
 export const USAGE = `usage: pi-photocraft <command> [args]

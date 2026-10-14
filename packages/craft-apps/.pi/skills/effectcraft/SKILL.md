@@ -1,6 +1,6 @@
 ---
 name: effectcraft
-description: Headless motion graphics and compositing with EffectCraft (After-Effects-style comps, layers, text animation presets, keyframes, effects), provisioned on demand by pi-craft - build a composition, animate it, render a transparent (alpha) ProRes 4444 overlay, an mp4, a GIF or a still frame. Use for "make an animated title with a transparent background", "render a lower third as a mov with alpha", "export a still frame of this comp", "animate this text fading in", "script a composition in After Effects style".
+description: Headless motion graphics with EffectCraft (After-Effects-style comps, layers, text presets, keyframes), provisioned on demand by pi-craft - animate a composition and render a transparent ProRes 4444 overlay, mp4, GIF or still. Use for "make an animated title with a transparent background", "render a lower third as a mov with alpha", "export a still frame of this comp".
 ---
 
 # EffectCraft — headless motion graphics

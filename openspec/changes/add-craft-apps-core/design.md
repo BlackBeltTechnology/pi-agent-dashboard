@@ -88,6 +88,8 @@ Final `@blackbelt-technology/pi-dashboard-photocraft` release: depends on `craft
 - **Windows/Linux untested** in the spike → gating probe tasks in a Linux container and a Windows VM before claiming support; registry marks per-host status.
 - **Same-origin checksums** give integrity, not authenticity → documented; macOS Gatekeeper assessment logged (as PhotoCraft).
 
+- **Hardening from the security audit (ship-it step 4.5 prep)**: Windows system tools spawn as `.exe` (shared `platform/exec` routes extensionless names through `cmd.exe`); `verify` resolves file/ref to absolute paths, checks the `--frame-diff` reference exists, bounds probes with timeouts and frame size; launcher release tag validated like any version; download URLs pinned to the repo's release path, size caps, post-extraction symlink check; `--register` refuses symlinked targets / non-object `mcpServers` and writes atomically. Residual: same-origin checksums prove integrity only; upstream `--root` canonicalisation (symlinks) is not verified here.
+
 ## Migration Plan
 
 1. Land `craft-apps` with PhotoCraft as a registry row; run PhotoCraft's existing test-suite against the moved code (must pass unchanged, except package paths).

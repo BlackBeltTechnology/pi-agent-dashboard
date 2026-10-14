@@ -1,6 +1,6 @@
 ---
 name: vectorcraft
-description: Headless vector illustration with VectorCraft (Illustrator-style artboards, paths, shapes, type, fills/strokes), provisioned on demand by pi-craft - draw shapes and export svg, pdf or png, or convert between vector formats (svg, pdf, ai, eps, dxf, png). Use for "draw a logo as an svg", "export this illustration as a pdf", "convert this svg to a png at 2x", "make an icon with a red circle and a blue outline", "turn the svg into print-ready pdf".
+description: Headless vector illustration with VectorCraft (Illustrator-style paths, shapes, type, fills/strokes), provisioned on demand by pi-craft - draw shapes and export svg, pdf or png, or convert between vector formats. Use for "draw a logo as an svg", "export this illustration as a pdf", "convert this svg to a png at 2x", "make an icon with a red circle".
 ---
 
 # VectorCraft — headless vector illustration

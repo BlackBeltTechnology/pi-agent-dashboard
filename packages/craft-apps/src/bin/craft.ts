@@ -15,11 +15,11 @@
  */
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { installLauncher, launcherStatus } from "../launcher-install.js";
 import { runAppCommand } from "../app-command.js";
+import { installLauncher, launcherStatus } from "../launcher-install.js";
 import { defaultLauncherPath } from "../mcp-register.js";
 import { defaultDeps, type ProvisionReport, provision } from "../provision.js";
-import { APP_IDS, CRAFT_APPS, type CraftApp, isAppId, getApp } from "../registry.js";
+import { APP_IDS, CRAFT_APPS, getApp, isAppId } from "../registry.js";
 import { appStatus } from "../status.js";
 import { runVerify } from "../verify.js";
 

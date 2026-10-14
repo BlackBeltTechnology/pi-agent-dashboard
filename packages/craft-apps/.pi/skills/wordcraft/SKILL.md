@@ -1,6 +1,6 @@
 ---
 name: wordcraft
-description: Headless word processing with WordCraft (DOCX/ODT/RTF documents, 600+ editing commands, format conversion, PDF export, page rendering), provisioned on demand by pi-craft. Use for "write a report as a docx", "convert this markdown to a Word document", "turn this docx into a pdf", "append a paragraph to this docx", "export this document to pdf and check the page count", "extract the text of this docx".
+description: Headless word processing with WordCraft (DOCX/ODT/RTF, 600+ editing commands, format conversion, PDF export), provisioned on demand by pi-craft. Use for "write a report as a docx", "convert this markdown to a Word document", "turn this docx into a pdf", "append a paragraph to this docx", "extract the text of this docx".
 ---
 
 # WordCraft — headless word processor

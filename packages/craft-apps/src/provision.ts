@@ -273,12 +273,37 @@ function lines(out: string | Buffer): string[] {
   return l;
 }
 
+/**
+ * System tool name for `platform`. On Windows the `.exe` suffix keeps the shared `platform/exec` wrapper from
+ * routing the call through `cmd.exe /c` (which would interpret `&`, `|`, `^`, `%VAR%` in file arguments).
+ */
+export function exe(name: string, platform: string = process.platform): string {
+  return platform === "win32" ? `${name}.exe` : name;
+}
+
+/** Reject anything in an extracted tree that is not a regular file or directory (defence in depth after the listing guard). */
+export function assertTreeSafe(tree: string): void {
+  const walk = (dir: string): void => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      const st = fs.lstatSync(p);
+      if (st.isDirectory()) walk(p);
+      else if (!st.isFile()) {
+        throw new ProvisionError(`extracted entry "${path.relative(tree, p)}" is not a regular file or directory; refusing to install`);
+      }
+    }
+  };
+  walk(tree);
+}
+
 async function extractArchive(deps: ProvisionDeps, archive: string, dest: string): Promise<void> {
-  const names = lines((await deps.exec("tar", ["-tf", archive])).stdout);
-  const verbose = lines((await deps.exec("tar", ["-tvf", archive])).stdout);
+  const tar = exe("tar", deps.platform);
+  const names = lines((await deps.exec(tar, ["-tf", archive])).stdout);
+  const verbose = lines((await deps.exec(tar, ["-tvf", archive])).stdout);
   assertSafeListing(names, verbose);
   if (deps.platform === "darwin") await deps.exec("ditto", ["-x", "-k", archive, dest]);
-  else await deps.exec("tar", ["-xf", archive, "-C", dest]);
+  else await deps.exec(tar, ["-xf", archive, "-C", dest]);
+  assertTreeSafe(dest);
 }
 
 // ── GitHub ──────────────────────────────────────────────────────────────────
@@ -308,21 +333,29 @@ export async function apiJson(deps: ProvisionDeps, url: string): Promise<Release
   return (await res.json()) as Release;
 }
 
+const MAX_SUMS_BYTES = 1024 * 1024;
+const MAX_ASSET_BYTES = 2 * 1024 * 1024 * 1024;
+
 export async function downloadText(deps: ProvisionDeps, url: string): Promise<string> {
   const res = await deps.fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(60_000) });
   if (!res.ok) throw new ProvisionError(`download of ${SUMS_NAME} failed: HTTP ${res.status}`);
-  return res.text();
+  const text = await res.text();
+  if (text.length > MAX_SUMS_BYTES) throw new ProvisionError(`${SUMS_NAME} is larger than ${MAX_SUMS_BYTES} bytes; refusing`);
+  return text;
 }
 
 /** Stream `url` to `dest`, hashing as it goes; returns the SHA-256 hex digest. */
-export async function downloadFile(deps: ProvisionDeps, url: string, dest: string): Promise<string> {
+export async function downloadFile(deps: ProvisionDeps, url: string, dest: string, maxBytes: number = MAX_ASSET_BYTES): Promise<string> {
   const res = await deps.fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(15 * 60_000) });
   if (!res.ok || !res.body) throw new ProvisionError(`asset download failed: HTTP ${res.status} for ${url}`);
   const hash = createHash("sha256");
+  let received = 0;
   await pipeline(
     Readable.fromWeb(res.body as never),
     async function* (src: AsyncIterable<Buffer>) {
       for await (const chunk of src) {
+        received += chunk.length;
+        if (received > maxBytes) throw new ProvisionError(`download exceeds ${maxBytes} bytes; aborting (${url})`);
         hash.update(chunk);
         yield chunk;
       }
@@ -337,16 +370,27 @@ export async function downloadFile(deps: ProvisionDeps, url: string, dest: strin
  * closed: no sums file, no entry, or a digest mismatch aborts (the caller deletes
  * its staging dir). Shared by app provisioning and the launcher installer.
  */
-export async function downloadVerified(deps: ProvisionDeps, release: Release, assetName: string, dest: string): Promise<void> {
+export async function downloadVerified(deps: ProvisionDeps, release: Release, assetName: string, dest: string, repo?: string): Promise<void> {
   const tag = release.tag_name;
   const assetInfo = release.assets.find((a) => a.name === assetName);
   if (!assetInfo) throw new ProvisionError(`release ${tag} has no asset named ${assetName}`);
   const sumsInfo = release.assets.find((a) => a.name === SUMS_NAME);
   if (!sumsInfo) throw new ProvisionError(`release ${tag} has no ${SUMS_NAME}; refusing to install an unverified binary`);
+  // Against the real GitHub API both URLs must stay on the repo's release-download path (tests use a loopback fixture).
+  if (repo && deps.apiBase === API_BASE) {
+    const prefix = `https://github.com/${repo}/releases/download/`;
+    for (const info of [assetInfo, sumsInfo]) {
+      if (!info.browser_download_url.startsWith(prefix)) {
+        throw new ProvisionError(`release ${tag}: ${info.name} points outside ${prefix}; refusing`);
+      }
+    }
+  }
   const expected = parseSums(await downloadText(deps, sumsInfo.browser_download_url), assetName);
   const size = assetInfo.size ? ` (${(assetInfo.size / 1048576).toFixed(0)} MB)` : "";
   deps.log(`[pi-craft] downloading ${tag} ${assetName}${size}`);
-  const actual = await downloadFile(deps, assetInfo.browser_download_url, dest);
+  // The advertised size bounds the stream (small slack); without it the 2 GiB cap applies.
+  const cap = assetInfo.size ? assetInfo.size + 1024 * 1024 : MAX_ASSET_BYTES;
+  const actual = await downloadFile(deps, assetInfo.browser_download_url, dest, cap);
   if (actual !== expected) {
     fs.rmSync(dest, { force: true });
     throw new ProvisionError(`checksum mismatch for ${assetName}: expected ${expected}, got ${actual}`);
@@ -562,7 +606,7 @@ async function provisionManaged(app: CraftApp, deps: ProvisionDeps, started: num
     if (!asset) throw new ProvisionError(`release ${tag} has no asset named ${candidates.join(" or ")}`);
 
     const archive = path.join(staging, asset);
-    await downloadVerified(deps, release, asset, archive);
+    await downloadVerified(deps, release, asset, archive, app.repo);
 
     const tree = path.join(staging, "tree");
     await extractArchive(deps, archive, tree);

@@ -22,7 +22,9 @@
   },
   "files": [
     "bin/",
-    "README.md"
+    "README.md",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
   ],
   "scripts": {
     "test": "vitest run"

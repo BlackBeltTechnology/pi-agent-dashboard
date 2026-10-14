@@ -1,6 +1,6 @@
 ---
 name: craft-studio
-description: Router for the ArtCraft craft apps (PhotoCraft, VectorCraft, FilmCraft, LightCraft, PdfCraft, EffectCraft, DesignCraft, FigCraft, WordCraft, SoundCraft, DeckCraft, CADCraft, GridCraft) driven headless through pi-craft. Use to choose which app fits a creative job and to run the shared discover-execute-save-verify loop. Triggers - "which craft app should I use", "edit a video / audio / image / PDF / slides / spreadsheet / CAD drawing headless", "make a title card", "retouch a photo", "convert a document", "use ArtCraft from the command line".
+description: Router for the ArtCraft craft apps (PhotoCraft, VectorCraft, FilmCraft, LightCraft, PdfCraft, EffectCraft, DesignCraft, FigCraft, WordCraft, SoundCraft, DeckCraft, CADCraft, GridCraft) driven headless via pi-craft. Use to choose which app fits a job and run the discover-execute-save-verify loop - "which craft app should I use", "edit a video/audio/image/PDF headless", "make a title card".
 ---
 
 # craft-studio — pick the right ArtCraft app, drive it headless, verify the result

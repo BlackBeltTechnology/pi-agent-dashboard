@@ -1,6 +1,6 @@
 ---
 name: cadcraft
-description: Headless 2D CAD with CADCraft (DXF/DWG drawings, 617 AutoCAD-style commands, layers, text, dimensions, hatches, export to PDF/PNG/SVG, DXF<->DWG conversion), provisioned on demand by pi-craft. Use for "draw a rectangle and a circle and export a pdf", "convert this dxf to a pdf", "add a layer and a text label to this drawing", "turn this dwg into a dxf", "render the drawing as a png", "how many entities are in this dxf".
+description: Headless 2D CAD with CADCraft (DXF/DWG, AutoCAD-style commands, layers, text, dimensions, export to PDF/PNG/SVG, DXF<->DWG conversion), provisioned on demand by pi-craft. Use for "draw a rectangle and a circle and export a pdf", "convert this dxf to a pdf", "add a layer and a text label to this drawing", "turn this dwg into a dxf".
 ---
 
 # CADCraft — headless 2D CAD

@@ -8,14 +8,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
+  type CraftSource,
   cacheRoot,
   craftSource,
   installedVersions,
+  normaliseVersion,
   type ProvisionDeps,
   type ProvisionSource,
   readLatestCache,
-  normaliseVersion,
-  type CraftSource,
 } from "./provision.js";
 import { type CraftApp, envPrefix } from "./registry.js";
 

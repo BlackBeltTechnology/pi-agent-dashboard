@@ -37,6 +37,14 @@ export function serverName(app: CraftApp): string {
   return app.id === "photocraft" ? "photocraft" : `craft-${app.id}`;
 }
 
+function isSymlink(p: string): boolean {
+  try {
+    return fs.lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 export function registerMcp(app: CraftApp, partial: Partial<RegisterDeps> = {}): number {
   const deps: RegisterDeps = {
     cwd: process.cwd(),
@@ -58,6 +66,13 @@ export function registerMcp(app: CraftApp, partial: Partial<RegisterDeps> = {}):
     return 1;
   }
   const file = path.join(deps.cwd, ".pi", "mcp.json");
+  // A symlinked `.pi` or `mcp.json` could point the write at a file outside the project (e.g. a global config).
+  for (const p of [path.dirname(file), file]) {
+    if (isSymlink(p)) {
+      deps.stderr(`${deps.prog}: ${p} is a symbolic link; refusing to write through it\n`);
+      return 1;
+    }
+  }
   // Checked before the write: registering creates `.pi/` itself.
   const looksLikeRoot = fs.existsSync(path.join(deps.cwd, ".git")) || fs.existsSync(path.join(deps.cwd, ".pi"));
 
@@ -72,10 +87,11 @@ export function registerMcp(app: CraftApp, partial: Partial<RegisterDeps> = {}):
       return 1;
     }
   }
-  const servers =
-    config.mcpServers && typeof config.mcpServers === "object" && !Array.isArray(config.mcpServers)
-      ? (config.mcpServers as Record<string, unknown>)
-      : {};
+  if (config.mcpServers !== undefined && (config.mcpServers === null || typeof config.mcpServers !== "object" || Array.isArray(config.mcpServers))) {
+    deps.stderr(`${deps.prog}: "mcpServers" in ${file} is not an object; left untouched\n`);
+    return 1;
+  }
+  const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
   const name = serverName(app);
   const args = [deps.launcher, ...(deps.entryArgs ?? [app.id, "mcp"])];
   if (app.mcp.confinement === false) args.push("--allow-unconfined");
@@ -84,7 +100,10 @@ export function registerMcp(app: CraftApp, partial: Partial<RegisterDeps> = {}):
   config.mcpServers = servers;
 
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+  // Write beside the target and rename: a crash never leaves a truncated mcp.json.
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`);
+  fs.renameSync(tmp, file);
 
   deps.stderr(`${deps.prog}: registered "${name}" in ${file}\n`);
   deps.stderr("  note: the entry holds absolute paths and is machine-specific (do not commit it for a team).\n");
