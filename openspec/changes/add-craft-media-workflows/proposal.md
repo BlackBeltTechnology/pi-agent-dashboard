@@ -1,17 +1,17 @@
 ## Why
 
-`add-craft-apps-core` makes each ArtCraft Crafting App usable on its own. Real media jobs span several tools: the existing `video-production` (Veo, HyperFrames, footage redaction), `video-transcription` (SRT, speaker-id), `music-production` (analysis, edit-to-length, beat-sync) skills, plus FilmCraft, SoundCraft and EffectCraft. The explore spike proved a headless SoundCraft → EffectCraft → FilmCraft round-trip in ≈3 s, and showed that without explicit step verification a pipeline silently produces wrong output. Agents need workflow skills that chain these pieces with fixed hand-off formats and a verification gate per step.
+`add-craft-apps-core` (landed, `openspec/changes/archive/2026-10-14-add-craft-apps-core/`) makes each ArtCraft Crafting App usable on its own. Real media jobs span several tools: the sibling skills `veo-generator`, `hyperframes-showreel`, `footage-redaction` (package `video-production`), `video-transcription`, `speaker-id` (package `video-transcription`), `music-analysis`, `music-edit-to-length`, `beat-sync-video` (package `music-production`), plus FilmCraft, SoundCraft and EffectCraft. The core change's spike proved a headless SoundCraft → EffectCraft → FilmCraft round-trip (bounce ≈ instant, alpha render 0.9 s, assembly + export 1.0 s; `archive/2026-10-14-add-craft-apps-core/design.md:23`) and showed that without explicit step verification a pipeline silently produces wrong output. Agents need workflow skills that chain these pieces with fixed hand-off formats and a verification gate per step.
 
 ## What Changes
 
 Four workflow skills shipped by `packages/craft-apps` (Layer 2 over the router + app skills):
 
-- **`craft-video-post`** (W1) — footage/Veo clips → optional `footage-redaction` → FilmCraft assembly (sequence, cuts, alpha overlays on V2+) → captions from `video-transcription` SRT → SoundCraft mix → FilmCraft delivery export. HyperFrames remains the choice for code-driven motion; the router picks; the two combine through alpha renders.
-- **`craft-beat-cut`** (W2) — `music-analysis` → `music-edit-to-length` → `beat-sync-video` hits → FilmCraft edits on downbeats → EffectCraft punch-ins → delivery export.
-- **`craft-podcast-master`** (W3) — recording → `video-transcription` + `speaker-id` → SoundCraft per-speaker tracks, cleanup, loudness target → bounce; optional chapter markers from the SRT.
-- **`craft-motion-titles`** (W4) — names/lines from SRT or speaker-id → EffectCraft template (`.ectemplate` + values) → ProRes 4444 alpha renders → FilmCraft overlay.
+- **`craft-video-post`** (W1) — footage/Veo clips → optional `footage-redaction` → FilmCraft assembly (sequence, cuts, alpha overlays on V2+) → captions from a `video-transcription` SRT (FilmCraft `captions.*` track when probe 0.1 confirms it, else EffectCraft-rendered caption overlays) → SoundCraft mix → FilmCraft delivery export. HyperFrames (`hyperframes-showreel`) stays the choice for code-driven motion; when probe 0.5 confirms an alpha render it is overlaid in FilmCraft, otherwise it is placed as a full-frame segment.
+- **`craft-beat-cut`** (W2) — `music-analysis` → `music-edit-to-length` → `beat-sync-video` hits (`music-hits/1`) → FilmCraft edits on downbeats → EffectCraft punch-ins → delivery export. Footage-timeline counterpart of `hyperframes-showreel`'s beat-synced composition; the router states the split.
+- **`craft-podcast-master`** (W3) — recording → `video-transcription` + `speaker-id` → SoundCraft per-speaker tracks, cleanup, bounce → loudness target (ffmpeg `loudnorm`; SoundCraft only normalises to peak) → `pi-craft verify --loudness`; optional chapter markers from the SRT.
+- **`craft-motion-titles`** (W4) — names/lines from SRT or speaker-id → EffectCraft project from a template (`templates.*` / `file.newFromTemplate` / `essential.importTemplate`, exact path fixed by probe 0.4) with values set via `describe`-discovered commands → `render --format prores --prores 4444 --channels rgba` → FilmCraft overlay.
 
-Every workflow: a step table with input/output file contract, a `pi-craft verify` gate after each artefact-producing step, project files saved after every step (resumable), and **soft references** to sibling skills (detect whether the sibling package is installed; if not, name it and offer the degraded path).
+Every workflow: a step table with input/output file contract, a `pi-craft verify` gate after each media-producing step (a documented check for text artefacts such as srt/json), project files saved after every step (resumable via the shared **Craft jobs** convention defined once in the `craft-studio` router), and **soft references** to sibling skills (detect whether the sibling is available; if not, name its package and offer the degraded path).
 
 ## Capabilities
 
@@ -19,18 +19,20 @@ Every workflow: a step table with input/output file contract, a `pi-craft verify
 - `craft-media-workflow-skills`: the four media workflow skills, their step contracts, verification gates, soft-reference behaviour and router integration.
 
 ### Modified Capabilities
-- None. (`craft-app-skills` router lists workflows via a table row added in this change's skill text; no requirement change. `video-production`, `video-transcription`, `music-production` are referenced, not modified.)
+- `craft-app-skills`: **Router skill** additionally lists the workflow skills and owns the shared Craft jobs convention (`craft-jobs/<slug>/`, `job.json`); **Skills declared in the package manifest** grows from 14 to 18 skills; **One skill per app**, **Recipes are verified** and **Skill drift check** are scoped so workflow skills are linted as workflows (recipes verified, ids checked against the union of driven apps), not as app skills.
 
 ## Impact
 
-- Code: 4 new `SKILL.md` (+ small helper scripts only if a step cannot be expressed with existing CLIs) under `packages/craft-apps/.pi/skills/`; `package.json` `pi.skills`; router skill table rows; skill lint/drift tests extended.
-- Depends on: `add-craft-apps-core` (must land first).
-- Implementation order (group `artcraft-craft-apps`): 2 of 4 — defines the shared job/verify conventions (`craft-jobs/<slug>/`, `job.json`, hand-off formats) that `add-craft-office-workflows` reuses.
+- Code: 4 new `SKILL.md` under `packages/craft-apps/.pi/skills/` (+ at most one small helper script under `.pi/skills/craft-beat-cut/scripts/`, only if probe 0.3 shows the `music-hits/1` → FilmCraft edit translation cannot be expressed reliably by hand); `package.json` `pi.skills` (14 → 18); `craft-studio` router: workflow table + "Craft jobs" section.
+- Tests that pin the skill set change: `packages/craft-apps/src/__tests__/helpers/skills.ts` (new `WORKFLOW_SKILL_NAMES`; `SKILL_NAMES` stays router + apps), `packaging.test.ts` (14 → 18 declared / packed), `skills-recipes.test.ts` (workflow recipes behind a separate opt-in); a separate workflow lint set is added to `skills.test.ts`.
+- Sibling change `add-craft-office-workflows` now depends on this change (its proposal is updated).
+- Depends on: `add-craft-apps-core` (landed).
+- Implementation order (group `artcraft-craft-apps`): 2 of 4 — the Craft jobs / verify conventions it puts in the router are what `add-craft-office-workflows` reuses.
 - No runtime code in dashboard server/client; no new npm deps.
-- Rollback: remove the skills from `pi.skills`.
+- Rollback: remove the 4 skills from `pi.skills`, revert the router section and test counts.
 
 ## Discipline Skills
 
 - `doubt-driven-review` — choosing FilmCraft vs HyperFrames responsibilities and the hand-off format contract is a cross-package design decision.
 - `review-code` — before commit (skill lint + any helper script).
-- None of `security-hardening` / `performance-optimization` / `observability-instrumentation` apply: no new external calls, inputs or services beyond what `add-craft-apps-core` and the referenced packages already own.
+- `security-hardening` / `performance-optimization` / `observability-instrumentation`: not applicable. No new external calls, services or secrets — media/API inputs (Veo, transcription APIs, redaction) stay owned by their sibling packages. New input surfaces are the job slug (mapped to `[a-z0-9-]`, design D4) and `job.json` read back on resume (data only; recorded paths re-validated to sit under `craft-jobs/<slug>/`); input media paths flow into `pi-craft … exec` exactly as in the app skills today.

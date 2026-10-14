@@ -25,7 +25,7 @@ Same rules as the media workflows: step contracts, `pi-craft verify` gates, resu
 ## Impact
 
 - Code: 5 `SKILL.md` under `packages/craft-apps/.pi/skills/`; `pi.skills`; router table rows; lint coverage.
-- Depends on: `add-craft-apps-core`; reuses the job/verify conventions defined by `add-craft-media-workflows`.
+- Depends on: `add-craft-apps-core` and `add-craft-media-workflows` (must land first — it puts the Craft jobs / verify conventions in the `craft-studio` router that this change reuses).
 - Implementation order (group `artcraft-craft-apps`): 3 of 4 — after `add-craft-media-workflows`, before `add-artcraft-studio`.
 - No runtime code; no new deps. Rollback: remove skills from `pi.skills`.
 
