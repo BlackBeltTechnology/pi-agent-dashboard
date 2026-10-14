@@ -11,12 +11,18 @@ import path from "node:path";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { effectiveSessionTier } from "../auth/auth-plugin.js";
 import { registerBearerAuth } from "../auth/bearer-auth.js";
 import { createLocalTrustContext } from "../auth/local-proof.js";
 import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { createRouteTierGate } from "../auth/route-tier-gate.js";
+import type { HostPolicy } from "../identity/host-access.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { createBinding } from "../vault/vault-bindings.js";
+import type { ProjectView } from "../vault/vault-delivery-hub.js";
+import { createGrant, repoSubject } from "../vault/vault-grants.js";
 import { createVaultImport } from "../vault/vault-import.js";
+import type { VaultProjectEntry } from "../vault/vault-projects.js";
 import { registerVaultRoutes } from "../vault/vault-routes.js";
 import { createVaultStore, type VaultStore } from "../vault/vault-store.js";
 
@@ -31,7 +37,19 @@ afterEach(async () => {
 
 const TRUSTED = "198.51.100.0/24";
 
-async function mkApp(strict: boolean, opts: { loginAvailable?: () => boolean; trusted?: string } = {}) {
+type SessionState = NonNullable<Parameters<typeof registerVaultRoutes>[1]["getSessionBindingState"]> extends (id: string) => infer R ? R : never;
+
+async function mkApp(
+  strict: boolean,
+  opts: {
+    loginAvailable?: () => boolean;
+    trusted?: string;
+    hostPolicy?: HostPolicy;
+    open?: ProjectView[];
+    remembered?: VaultProjectEntry[];
+    sessions?: Record<string, SessionState>;
+  } = {},
+) {
   const trusted = opts.trusted ?? TRUSTED;
   const reg = new PairedDeviceRegistry(path.join(dir, "paired.json"));
   const tokens = {
@@ -50,6 +68,10 @@ async function mkApp(strict: boolean, opts: { loginAvailable?: () => boolean; tr
   app.addHook("onRequest", async (request) => {
     const via = request.headers["x-test-auth-via"];
     if (typeof via === "string") (request as unknown as { authVia?: string }).authVia = via;
+    const tier = request.headers["x-test-tier"];
+    if (typeof tier === "string") (request as unknown as { principalTier?: string }).principalTier = tier;
+    const sub = request.headers["x-test-principal"];
+    if (typeof sub === "string") (request as unknown as { principal?: unknown }).principal = { iss: "https://idp.test", sub };
   });
   app.addHook("onRequest", createRouteTierGate({ getTrustedNetworks: () => [trusted], localTrust, logRefusal: () => {} }));
   registerVaultRoutes(app, {
@@ -58,13 +80,37 @@ async function mkApp(strict: boolean, opts: { loginAvailable?: () => boolean; tr
     networkGuard: createNetworkGuard([trusted], { localTrust }),
     localTrust,
     loginAvailable: opts.loginAvailable ?? (() => false),
-    getSessionBindingState: (id) => (id === "s1" ? { bindings: [{ name: "GEMINI_API_KEY", state: "delivered" }], lastContactAt: 1 } : undefined),
+    hostPolicy: opts.hostPolicy,
+    listOpenProjects: () => opts.open ?? [],
+    projects: { list: () => opts.remembered ?? [] },
+    getSessionBindingState: (id) =>
+      opts.sessions?.[id] ?? (id === "s1" ? { bindings: [{ name: "GEMINI_API_KEY", state: "delivered" }], lastContactAt: 1 } : undefined),
   });
   await app.ready();
   return { app, tokens, reg };
 }
 
 const add = { provider: "gemini", label: "personal", value: "abcdefgh12" };
+
+/** What the real cookie hook stamps for a login session whose JWT has no tier claim. */
+const CLAIMLESS_TIER = ((): string => {
+  const tier = effectiveSessionTier({ provider: "google" } as Parameters<typeof effectiveSessionTier>[0]);
+  if (!tier) throw new Error("a claim-less session must resolve to a tier");
+  return tier;
+})();
+
+/** A host policy stub: `allow` decides every principal; the asked actions are recorded. */
+function policy(allow: boolean | ((sub: string) => boolean)): HostPolicy & { asked: Array<{ action: string; resource: unknown }> } {
+  const asked: Array<{ action: string; resource: unknown }> = [];
+  return {
+    asked,
+    hasPolicy: () => true,
+    authorize: async ({ principal, action, resource }) => {
+      asked.push({ action, resource });
+      return typeof allow === "boolean" ? allow : allow(principal.sub);
+    },
+  };
+}
 
 describe("X12 — who may use the vault", () => {
   it.each([
@@ -198,12 +244,13 @@ describe("operate_required refusal body", () => {
     expect(second.json().remedies).toEqual(["use-host", "sign-in"]);
   });
 
-  it("E11 admission unchanged: operate bearer, session, principal, loopback all get 200", async () => {
-    const { app, tokens } = await mkApp(false);
+  it("E11 admission: operate bearer, operator session, authorised principal, loopback all get 200", async () => {
+    const { app, tokens } = await mkApp(false, { hostPolicy: policy(true) });
     const cases: Array<[string, string, Record<string, string>]> = [
       ["operate bearer", LAN, bearer(tokens.operate)],
-      ["operator session (claim-less)", LAN, { "x-test-auth-via": "session" }],
-      ["identity principal", LAN, { "x-test-auth-via": "principal" }],
+      // A real login session always carries a tier: a claim-less JWT resolves to operate.
+      ["operator session (claim-less)", LAN, { "x-test-auth-via": "session", "x-test-tier": CLAIMLESS_TIER }],
+      ["identity principal", LAN, { "x-test-auth-via": "principal", "x-test-principal": "alice" }],
       ["loopback, strict off", "127.0.0.1", {}],
     ];
     for (const [label, remoteAddress, headers] of cases) {
@@ -259,5 +306,160 @@ describe("operate_required refusal body", () => {
         expect(res.body).not.toContain(leak);
       }
     }
+  });
+});
+
+// ── retro-ux-credential-vault ─────────────────────────────────────────────
+describe("E9 vault authority requires operate for every caller kind (D11)", () => {
+  const LAN = "198.51.100.7"; // inside the trusted network: the global tier gate exempts it
+  const bearer = (t: string) => ({ authorization: `Bearer ${t}` });
+  type Who = (tokens: Record<"observe" | "control" | "operate", string>) => { remote: string; headers: Record<string, string> };
+  const sessionAs = (tier: string): Who => () => ({ remote: LAN, headers: { "x-test-auth-via": "session", "x-test-tier": tier } });
+  const principalAs = (sub: string): Who => () => ({ remote: LAN, headers: { "x-test-auth-via": "principal", "x-test-principal": sub } });
+  const rows: Array<[string, Who, boolean]> = [
+    ["device operate", (t) => ({ remote: LAN, headers: bearer(t.operate) }), true],
+    ["device control", (t) => ({ remote: LAN, headers: bearer(t.control) }), false],
+    ["session operate", sessionAs("operate"), true],
+    ["session claim-less (resolves to operate)", sessionAs(CLAIMLESS_TIER), true],
+    ["session observe from a trusted network", sessionAs("observe"), false],
+    ["session control", sessionAs("control"), false],
+    ["principal authorised by HostPolicy", principalAs("allowed"), true],
+    ["principal not authorised by HostPolicy", principalAs("denied"), false],
+    ["locally trusted", () => ({ remote: "127.0.0.1", headers: {} }), true],
+    ["no credential", () => ({ remote: LAN, headers: {} }), false],
+  ];
+
+  it.each(rows)("%s", async (_label, who, allowed) => {
+    const hostPolicy = policy((sub) => sub === "allowed");
+    const { app, tokens } = await mkApp(false, { hostPolicy });
+    const { remote, headers } = who(tokens);
+    const reqs = [
+      app.inject({ method: "GET", url: "/api/vault", remoteAddress: remote, headers }),
+      app.inject({ method: "GET", url: "/api/vault/projects", remoteAddress: remote, headers }),
+      app.inject({ method: "POST", url: "/api/vault/accounts", remoteAddress: remote, headers, payload: add }),
+    ];
+    const [list, projects, create] = await Promise.all(reqs);
+    for (const res of [list, projects, create]) {
+      if (allowed) {
+        expect(res.statusCode, res.body).toBe(200);
+      } else {
+        expect(res.statusCode, res.body).toBe(403);
+        expect(res.json().error).toBe("operate_required");
+        for (const leak of ["/api/vault", "personal", "abcdefgh12", "GEMINI"]) expect(res.body).not.toContain(leak);
+      }
+    }
+    expect((await store.listAccounts()).length).toBe(allowed ? 1 : 0);
+    if (!allowed) expect(fs.existsSync(store.filePath)).toBe(false);
+  });
+
+  it("a session below operate is told its tier is too low; no re-pair remedy for a login session", async () => {
+    const { app } = await mkApp(false, { loginAvailable: () => true });
+    const res = await app.inject({ method: "GET", url: "/api/vault", remoteAddress: LAN, headers: { "x-test-auth-via": "session", "x-test-tier": "observe" } });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ reason: "tier-too-low", remedies: ["use-host", "sign-in"] });
+  });
+
+  it("the principal check asks HostPolicy for the vault action", async () => {
+    const hostPolicy = policy(true);
+    const { app } = await mkApp(false, { hostPolicy });
+    await app.inject({ method: "GET", url: "/api/vault", remoteAddress: LAN, headers: { "x-test-auth-via": "principal", "x-test-principal": "alice" } });
+    expect(hostPolicy.asked).toEqual([{ action: "vault.manage", resource: { kind: "vault" } }]);
+  });
+
+  it("a principal is refused when no policy handle is wired (fail closed)", async () => {
+    const { app } = await mkApp(false);
+    const res = await app.inject({ method: "GET", url: "/api/vault", remoteAddress: LAN, headers: { "x-test-auth-via": "principal", "x-test-principal": "alice" } });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("E8 GET /api/vault/projects", () => {
+  it("returns open projects with their session count and remembered ones newest first, excluding open keys", async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const deck3d = "/Users/robson/Project/deck3d";
+    const { app } = await mkApp(false, {
+      open: [{ kind: "repo", deviceId: "hub", dir: deck3d, repoKey: "github.com/robson/deck3d", sessions: 1 }],
+      remembered: [
+        { deviceId: "hub", dir: deck3d, repoKey: "github.com/robson/deck3d", lastSeenAt: now - 2 * day },
+        { deviceId: "hub", dir: "/Users/robson/scratch", lastSeenAt: now - 3 * day },
+        { deviceId: "hub", dir: "/x", lastSeenAt: now - 1 * day },
+      ],
+    });
+    const res = await app.inject({ method: "GET", url: "/api/vault/projects", remoteAddress: "127.0.0.1" });
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json() as { success: boolean; data: { open: ProjectView[]; recent: ProjectView[] } };
+    expect(body.success).toBe(true);
+    expect(body.data.open).toEqual([{ kind: "repo", deviceId: "hub", dir: deck3d, repoKey: "github.com/robson/deck3d", sessions: 1 }]);
+    expect(body.data.recent.map((p) => p.dir)).toEqual(["/x", "/Users/robson/scratch"]);
+    expect(body.data.recent[0]).toEqual({ kind: "dir", deviceId: "hub", dir: "/x", lastSeenAt: now - day });
+  });
+
+  it("a blocked open entry does not hide a remembered entry of the same directory", async () => {
+    const { app } = await mkApp(false, {
+      open: [{ kind: "dir", dir: "/work/u", sessions: 1, blocked: "untrusted" }],
+      remembered: [{ deviceId: "hub", dir: "/work/u", lastSeenAt: 5 }],
+    });
+    const res = await app.inject({ method: "GET", url: "/api/vault/projects", remoteAddress: "127.0.0.1" });
+    expect(res.json().data.recent.map((p: ProjectView) => p.dir)).toEqual(["/work/u"]);
+  });
+});
+
+describe("E10 ungranted names (D4)", () => {
+  const LAN = "198.51.100.7";
+  const bearer = (t: string) => ({ authorization: `Bearer ${t}` });
+  const repoKey = "github.com/robson/deck3d";
+  const sessions: Record<string, SessionState> = {
+    resolved: {
+      bindings: [{ name: "GEMINI_API_KEY", state: "delivered" }],
+      outcome: "delivered",
+      project: { deviceId: "hub", dir: "/p", repoKey },
+    },
+    refused: { bindings: [{ name: "GEMINI_API_KEY", state: "delivered" }], outcome: "transport-insecure" },
+    folder: { bindings: [], outcome: "delivered", project: { deviceId: "hub", dir: "/q" } },
+  };
+
+  async function seed() {
+    const acc = await store.addAccount({ provider: "gemini", label: "g", value: "abcdefgh12" });
+    await createBinding(store, { name: "GEMINI_API_KEY", defaultAccountId: acc.id });
+    await createBinding(store, { name: "OPENAI_API_KEY" });
+    await createGrant(store, { subject: repoSubject(repoKey), bindingName: "GEMINI_API_KEY" });
+  }
+  const get = (app: FastifyInstance, id: string, headers: Record<string, string>) =>
+    app.inject({ method: "GET", url: `/api/session/${id}/vault-bindings`, remoteAddress: LAN, headers });
+
+  it("operate sees the names with no grant for a resolved project; refused → []; observe sees no key; bindings identical", async () => {
+    await seed();
+    const { app, tokens } = await mkApp(false, { sessions });
+    const operateOk = (await get(app, "resolved", bearer(tokens.operate))).json().data;
+    const operateRefused = (await get(app, "refused", bearer(tokens.operate))).json().data;
+    const observe = (await get(app, "resolved", bearer(tokens.observe))).json().data;
+    expect(operateOk.ungranted).toEqual(["OPENAI_API_KEY"]);
+    expect(operateRefused.ungranted).toEqual([]);
+    expect(observe).not.toHaveProperty("ungranted");
+    expect(operateOk.bindings).toEqual(observe.bindings);
+    expect(operateRefused.bindings).toEqual(operateOk.bindings);
+  });
+
+  it("a folder-only project is judged by its directory grant", async () => {
+    await seed();
+    const { app, tokens } = await mkApp(false, { sessions });
+    const data = (await get(app, "folder", bearer(tokens.operate))).json().data;
+    expect(data.ungranted).toEqual(["GEMINI_API_KEY", "OPENAI_API_KEY"]);
+  });
+
+  it("an observe-tier login session never sees the field, even from a trusted network", async () => {
+    await seed();
+    const { app } = await mkApp(false, { sessions });
+    const res = await get(app, "resolved", { "x-test-auth-via": "session", "x-test-tier": "observe" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).not.toHaveProperty("ungranted");
+  });
+
+  it("a corrupt vault gives []", async () => {
+    fs.writeFileSync(store.filePath, "{oops");
+    const { app, tokens } = await mkApp(false, { sessions });
+    const res = await get(app, "resolved", bearer(tokens.operate));
+    expect(res.json().data.ungranted).toEqual([]);
   });
 });

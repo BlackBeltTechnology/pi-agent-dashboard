@@ -28,7 +28,7 @@ async function mkApp() {
     ],
   });
   app = Fastify();
-  registerVaultRoutes(app, { store, importer, networkGuard: async () => {}, loginAvailable: () => false, getSessionBindingState: () => undefined });
+  registerVaultRoutes(app, { store, importer, networkGuard: async () => {}, loginAvailable: () => false, listOpenProjects: () => [], projects: { list: () => [] }, getSessionBindingState: () => undefined });
   await app.ready();
 }
 

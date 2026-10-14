@@ -17,23 +17,29 @@
  *   GET    /api/vault/import/candidates                existence only, opaque ids
  *   POST   /api/vault/import/propose                   { candidateId } | { content } → names only
  *   POST   /api/vault/import/confirm                   { proposalId, names }
- *   GET    /api/session/:id/vault-bindings             names + states only (session-read authority)
+ *   GET    /api/vault/projects                         { open, recent } projects to grant to (names of nothing secret)
+ *   GET    /api/session/:id/vault-bindings             names + states only (session-read authority);
+ *                                                      + `ungranted` for callers who may manage the vault
  *
  * EVERY management route (reads included) needs an `operate`-tier device
- * bearer, an authenticated operator session, or a locally trusted caller
- * (strict-mode aware): listings reveal which secrets exist and where they go.
- * This is stricter than `service-secrets`. The session binding-state read sits
- * behind the network guard only, like the rest of a session's own status.
- * No response ever carries a stored value.
+ * bearer, a login session at `operate`, an identity principal the host policy
+ * lets manage the vault, or a locally trusted caller (strict-mode aware):
+ * listings reveal which secrets exist and where they go. This is stricter than
+ * `service-secrets`. The session binding-state read sits behind the network guard
+ * only, like the rest of a session's own status. No response ever carries a stored value.
  *
- * See change: add-credential-vault (D6).
+ * See change: add-credential-vault (D6); retro-ux-credential-vault (D2, D4, D11).
  */
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { LocalTrustContext } from "../auth/local-proof.js";
 import { hasOperateAuthority, sendOperateRequired } from "../auth/operate-required.js";
+import type { HostPolicy } from "../identity/host-access.js";
+import { HostActions, hostResource } from "../identity/host-resources.js";
+import { isLocalOperator, sessionPrincipalOf } from "../identity/session-access.js";
 import type { NetworkGuard } from "../routes/route-deps.js";
 import { createBinding, deleteBinding, listBindings, setBindingDefault } from "./vault-bindings.js";
+import type { ProjectView } from "./vault-delivery-hub.js";
 import {
   confirmCheckout,
   createGrant,
@@ -41,10 +47,12 @@ import {
   listGrantStates,
   revokeAccount,
   revokeConfirmation,
+  ungrantedBindings,
   wellFormedConfirmations,
 } from "./vault-grants.js";
 import type { VaultImport } from "./vault-import.js";
 import { approvePluginBinding, listPluginApprovals, revokePluginBinding } from "./vault-plugin-read.js";
+import type { VaultProjects } from "./vault-projects.js";
 import { accountView, VaultError, type VaultErrorCode, type VaultStore, wellFormedAccounts } from "./vault-store.js";
 
 interface SessionBindingState {
@@ -59,6 +67,12 @@ export interface VaultRoutesDeps {
   importer: VaultImport;
   networkGuard: NetworkGuard;
   localTrust?: LocalTrustContext;
+  /** The identity host policy, asked whether a non-operator principal may manage the vault. Absent → principals are refused. */
+  hostPolicy?: HostPolicy;
+  /** Projects of the sessions connected now (delivery hub). */
+  listOpenProjects: () => ProjectView[];
+  /** Remembered projects (`vault-projects.json`). */
+  projects: Pick<VaultProjects, "list">;
   /** Live: is a usable login method configured? Drives the `sign-in` remedy of a refusal. */
   loginAvailable: () => boolean;
   /** Plugins that declare vault bindings (manifest `vaultBindings`), for the approvals list. */
@@ -94,10 +108,34 @@ function sendError(reply: FastifyReply, err: unknown): FastifyReply {
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
+/**
+ * May this request manage the vault? Every caller kind needs `operate`, whatever
+ * its network position: a device bearer or login session at `operate`, an identity
+ * principal the host policy authorises (operator principals always pass), or a
+ * locally trusted caller. See change: retro-ux-credential-vault (D11).
+ */
+async function canManageVault(request: FastifyRequest, deps: VaultRoutesDeps): Promise<boolean> {
+  const marked = request as FastifyRequest & { authVia?: string; principalTier?: string };
+  if (marked.authVia === "session") return marked.principalTier === "operate";
+  if (marked.authVia === "principal") {
+    const principal = sessionPrincipalOf(request);
+    if (isLocalOperator(principal)) return true;
+    if (!principal || !deps.hostPolicy) return false;
+    return deps.hostPolicy.authorize({
+      principal: principal as Parameters<HostPolicy["authorize"]>[0]["principal"],
+      action: HostActions.vaultManage,
+      resource: hostResource.vault(),
+    });
+  }
+  return hasOperateAuthority(request, deps.localTrust);
+}
+
+const projectKey = (deviceId: string | undefined, dir: string): string => `${deviceId ?? ""}\u0000${dir}`;
+
 export function registerVaultRoutes(fastify: FastifyInstance, deps: VaultRoutesDeps): void {
   const { store, importer, networkGuard } = deps;
   const manageGuard = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    if (!hasOperateAuthority(request, deps.localTrust)) {
+    if (!(await canManageVault(request, deps))) {
       await sendOperateRequired(request, reply, { route: "vault", loginAvailable: deps.loginAvailable });
     }
   };
@@ -124,6 +162,23 @@ export function registerVaultRoutes(fastify: FastifyInstance, deps: VaultRoutesD
       pluginApprovals: listPluginApprovals(doc),
       plugins: deps.getPluginDeclarations?.() ?? [],
     };
+  }));
+
+  fastify.get("/api/vault/projects", manage, wrap(() => {
+    const open = deps.listOpenProjects();
+    const openKeys = new Set(open.filter((p) => p.deviceId !== undefined).map((p) => projectKey(p.deviceId, p.dir)));
+    const recent: ProjectView[] = deps.projects
+      .list()
+      .filter((e) => !openKeys.has(projectKey(e.deviceId, e.dir)))
+      .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+      .map((e) => ({
+        kind: e.repoKey ? "repo" : "dir",
+        deviceId: e.deviceId,
+        dir: e.dir,
+        ...(e.repoKey ? { repoKey: e.repoKey } : {}),
+        lastSeenAt: e.lastSeenAt,
+      }));
+    return { open, recent };
   }));
 
   fastify.post("/api/vault/accounts", manage, wrap((req) => {
@@ -199,6 +254,10 @@ export function registerVaultRoutes(fastify: FastifyInstance, deps: VaultRoutesD
   fastify.get("/api/session/:id/vault-bindings", { preHandler: networkGuard }, async (request, reply) => {
     const states = deps.getSessionBindingState((request as unknown as Req).params.id);
     if (!states) return reply.code(404).send({ success: false, error: "session-unknown" });
-    return { success: true, data: states };
+    // `ungranted` names bindings, so it follows the manage predicate, not session-read authority.
+    if (!(await canManageVault(request, deps))) return { success: true, data: states };
+    const { status, doc } = store.readDocument();
+    const ungranted = states.project && status.state !== "corrupt" ? ungrantedBindings(doc, states.project) : [];
+    return { success: true, data: { ...states, ungranted } };
   });
 }

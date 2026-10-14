@@ -41,7 +41,9 @@ type Marked = { authVia?: string; principalTier?: string };
  * May this request use an `operate`-gated route? An `operate` device bearer, any
  * authenticated operator session or identity principal, or a locally trusted
  * caller (strict-mode aware). Moved verbatim from `canManageVault` /
- * `canMutateServices`.
+ * `canMutateServices`. The services routes keep this predicate; the vault is
+ * stricter (a session needs `operate`, a principal needs the host policy).
+ * See change: retro-ux-credential-vault (D11).
  */
 export function hasOperateAuthority(request: FastifyRequest, localTrust?: LocalTrustContext): boolean {
   const via = (request as Marked).authVia;
@@ -57,19 +59,21 @@ export interface SendOperateRequiredOptions {
 }
 
 /** Derive reason + remedies for a refused request. Pure of side effects. */
-export function describeOperateRefusal(
+function describeOperateRefusal(
   request: FastifyRequest,
   loginAvailable: () => boolean,
 ): { reason: OperateRequiredReason; remedies: OperateRemedy[] } {
   const marked = request as Marked;
-  const reason: OperateRequiredReason =
-    marked.authVia === "device" && marked.principalTier !== "operate" ? "tier-too-low" : "no-credential";
+  // A paired device or a login session below `operate` holds a credential that is too weak.
+  // (Only the vault refuses a session: `hasOperateAuthority` still admits one for services.)
+  const tiered = marked.authVia === "device" || marked.authVia === "session";
+  const reason: OperateRequiredReason = tiered && marked.principalTier !== "operate" ? "tier-too-low" : "no-credential";
   const wanted = new Set<OperateRemedy>();
   // No strict ctx ⇒ `isLocallyTrusted` is exactly "loopback and no proxy forwarding
   // header" (the one local-trust predicate; E18 forbids calling `isGenuinelyLocal` here).
   // `use-host` is withheld from a caller already on the host, proof or not.
   if (!isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> })) wanted.add("use-host");
-  if (reason === "tier-too-low") wanted.add("re-pair");
+  if (reason === "tier-too-low" && marked.authVia === "device") wanted.add("re-pair");
   if (loginAvailable()) wanted.add("sign-in");
   return { reason, remedies: OPERATE_REMEDY_ORDER.filter((r) => wanted.has(r)) };
 }

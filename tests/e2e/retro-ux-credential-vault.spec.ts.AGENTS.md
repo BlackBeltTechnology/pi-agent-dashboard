@@ -1,0 +1,3 @@
+# retro-ux-credential-vault.spec.ts — index
+
+L3 E28: the 27 vault board states (page shell, Variables, Accounts, Import, session chip dialog) pass the contract probes (contrast/size/focus) × 3 themes × 3 widths via `captureStates`; plus `session-chip-trigger` (closed header chip). Chip surfaces spawn one live git session (`spawnFreshGitSession`) and set `vault.sessionId`. Asserts `measured > 0` per cell; plain run writes nothing under `openspec/`; `RETRO_UX_CAPTURE=1` writes `mockups/after/<surface>/`. `RETRO_UX_ONLY=id[,id]` narrows a surface (debugging). See change: retro-ux-credential-vault. Fixtures: `fixtures/retro-ux/vault.ts`; helper: `helpers/ui-capture.ts`.

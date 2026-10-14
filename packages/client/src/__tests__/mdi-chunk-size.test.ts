@@ -32,7 +32,10 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // Raised 920 → 930 KB by retro-ux-chat-rendering (user-approved): the change's
 // zh-CN/hu catalog keys, always-rendered CustomEntryCard and ZoomControls text
 // measured 942,485 B (920.4 KB) in CI; the extra 10 KB is headroom for the next change.
-const INDEX_GZ_CAP_BYTES = 930 * 1024;
+// Raised 930 → 940 KB by retro-ux-credential-vault (user-approved): VaultSection is
+// lazy (its own 16.7 KB gz chunk), but the 229 new vault.* keys in the en/zh-CN/hu
+// catalogues and the session chip stay in the entry (~4 KB over 930); 6 KB headroom.
+const INDEX_GZ_CAP_BYTES = 940 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

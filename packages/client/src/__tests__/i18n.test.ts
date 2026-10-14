@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -242,5 +242,60 @@ describe("retro-ux-model-selector — i18n sweep (E21)", () => {
         expect(huBlock, `${pkg} hu: ${key}`).toMatch(new RegExp(`\\b${key}:`));
       }
     }
+  });
+});
+
+describe("retro-ux-credential-vault — vault.* catalogue coverage (E27)", () => {
+  // Every `vault.*` key the vault UI calls is present in en (source JSON), zh-CN and hu.
+  // `node scripts/i18n-parity.mjs` is the parity gate; this pins the keys the UI actually uses.
+  // See change: retro-ux-credential-vault (task 3.9).
+  function findClientRoot(start: string): string {
+    const marker = join("src", "lib", "i18n", "i18n.tsx");
+    let dir = start;
+    for (let i = 0; i < 8; i++) {
+      if (existsSync(join(dir, marker))) return dir;
+      if (existsSync(join(dir, "packages", "client", marker))) return join(dir, "packages", "client");
+      const up = dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+    return start;
+  }
+  const root = findClientRoot(process.cwd());
+  const src = (rel: string) => join(root, "src", rel);
+  const en = readFileSync(src("lib/i18n-en-source.json"), "utf8");
+  const zh = readFileSync(src("lib/i18n/i18n.tsx"), "utf8");
+  const hu = readFileSync(src("lib/i18n/i18n-hu.ts"), "utf8");
+
+  const vaultDir = src("components/settings/vault");
+  const files = [
+    ...readdirSync(vaultDir).filter((f) => f.endsWith(".tsx")).map((f) => join(vaultDir, f)),
+    src("components/session/VaultBindingsChip.tsx"),
+    src("lib/vault/vault-api.ts"),
+  ];
+  // A static key is a string literal; `vault.state.${state}`-style keys are listed below.
+  const referenced = new Set<string>();
+  for (const file of files) {
+    for (const m of readFileSync(file, "utf8").matchAll(/["'`](vault\.[A-Za-z][A-Za-z0-9_.-]*[A-Za-z0-9])["'`]/g)) referenced.add(m[1]);
+  }
+  const STATES = ["delivered", "local-override", "inherited", "pending-confirmation", "no-account", "blocked-name", "revoked", "hub-unreachable", "vault-unavailable"];
+  const dynamic = [
+    ...["use-host", "re-pair", "sign-in"].map((r) => `vault.operateRequired.${r}`),
+    ...STATES.flatMap((s) => [`vault.state.${s}`, `vault.stateHelp.${s}`]),
+  ];
+
+  it("finds the keys the UI references (guard against an empty extraction)", () => {
+    expect(referenced.size).toBeGreaterThan(60);
+    expect(referenced.has("vault.title")).toBe(true);
+  });
+
+  it("every referenced vault.* key is in en, zh-CN and hu", () => {
+    const missing = { en: [] as string[], zh: [] as string[], hu: [] as string[] };
+    for (const key of [...referenced, ...dynamic]) {
+      if (!en.includes(`"${key}":`)) missing.en.push(key);
+      if (!zh.includes(`"${key}":`)) missing.zh.push(key);
+      if (!hu.includes(`"${key}":`)) missing.hu.push(key);
+    }
+    expect(missing).toEqual({ en: [], zh: [], hu: [] });
   });
 });

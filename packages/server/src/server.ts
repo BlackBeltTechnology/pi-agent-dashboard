@@ -51,7 +51,7 @@ import fastifyCookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
-import Fastify from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { snapshotAccessGrantHealth } from "./access/access-health.js";
 import { AccessPlaneRegistry, isGrantPromptKilled } from "./access/access-plane.js";
 import { shouldIssuePromptCapability } from "./access/capability-issuance.js";
@@ -108,6 +108,7 @@ import {
   createNetworkGuardHook,
   isPluginScopePeerLocal,
   noteTrustedList,
+  parseGuardTarget,
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
@@ -325,6 +326,7 @@ import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdo
 import { createVaultDeliveryHub } from "./vault/vault-delivery-hub.js";
 import { createVaultImport, defaultKnownLocations } from "./vault/vault-import.js";
 import { createPluginVaultReader } from "./vault/vault-plugin-read.js";
+import { createVaultProjects } from "./vault/vault-projects.js";
 import { registerVaultRoutes } from "./vault/vault-routes.js";
 import { createVaultStore } from "./vault/vault-store.js";
 
@@ -1606,8 +1608,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // requests and pushes on every vault write / config change; values travel only
   // on the session-private bridge lane. See change: add-credential-vault.
   const vaultStore = createVaultStore();
+  // Remembered projects for the vault project picker; a sibling of vault.json, created on the first recorded project.
+  const vaultProjects = createVaultProjects({ file: path.join(path.dirname(vaultStore.filePath), "vault-projects.json") });
   const vaultDelivery = createVaultDeliveryHub({
     store: vaultStore,
+    projects: vaultProjects,
     getOrigin: (sessionId) => {
       const session = sessionManager.get(sessionId);
       return session ? originOf(session) : undefined;
@@ -2473,6 +2478,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     localTrust,
     loginAvailable,
+    hostPolicy: policyRegistry,
+    listOpenProjects: () => vaultDelivery.listOpenProjects(),
+    projects: vaultProjects,
     getSessionBindingState: (sessionId) => vaultDelivery.getSessionState(sessionId),
     getPluginDeclarations: () =>
       discoverPlugins()
@@ -2991,6 +2999,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     });
   }
 
+  // An unmatched `/api` path is a JSON 404 in every mode, never `index.html` (or a
+  // Vite proxy hop: Vite proxies `/api` straight back here). The guard's own two path
+  // views decide, so an encoded or dotted spelling cannot reach the SPA shell either; an
+  // unparseable target gets the same answer. See change: retro-ux-credential-vault (D7).
+  const replyIfApiNotFound = (request: FastifyRequest, reply: FastifyReply): FastifyReply | undefined => {
+    const target = parseGuardTarget(request.url);
+    const underApi = (p: string) => p === "/api" || p.startsWith("/api/");
+    if (target && !underApi(target.raw) && !underApi(target.resolved)) return undefined;
+    const rawPath = request.url.split(/[?#]/, 1)[0].slice(0, 200);
+    return reply.code(404).send({ success: false, error: "not_found", message: `No API route for ${request.method} ${rawPath}` });
+  };
+
   if (config.dev) {
     // Dev mode: proxy to Vite dev server, fall back to production build
     const VITE_PORTS = [3000, 5173, 5174];
@@ -3010,6 +3030,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
     fastify.setNotFoundHandler(async (request, reply) => {
+      const apiMiss = replyIfApiNotFound(request, reply);
+      if (apiMiss) return apiMiss;
       // Try Vite proxy first
       if (!vitePort) vitePort = await detectVitePort();
       if (vitePort) {
@@ -3033,12 +3055,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     });
   } else if (hasProductionBuild) {
     // Production mode: SPA fallback
-    fastify.setNotFoundHandler(async (_request, reply) => {
+    fastify.setNotFoundHandler(async (request, reply) => {
+      const apiMiss = replyIfApiNotFound(request, reply);
+      if (apiMiss) return apiMiss;
       reply.header("Cache-Control", "no-cache, no-store, must-revalidate");
       return reply.sendFile("index.html");
     });
   } else {
-    fastify.setNotFoundHandler(async (_request, reply) => {
+    fastify.setNotFoundHandler(async (request, reply) => {
+      const apiMiss = replyIfApiNotFound(request, reply);
+      if (apiMiss) return apiMiss;
       return reply.code(500).send({ error: "No client build found. Run `npm run build` first." });
     });
   }
