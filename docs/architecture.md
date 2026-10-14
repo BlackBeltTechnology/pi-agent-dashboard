@@ -1137,9 +1137,33 @@ See change: add-plugin-app-host.
 
 1. **Discovery** — server globs `packages/*/package.json` on startup, parses the `pi-dashboard-plugin` field, validates against schema, sorts by `priority` (lower first; first-party = 100; default 1000).
 2. **Server load** — dynamic-imports each plugin's `server` entry, invokes `registerPlugin(ctx)` with a typed `ServerPluginContext` (Fastify, session manager, event store, broadcast helper, scoped logger).
-3. **Client bundle** — a Vite plugin (`vite-plugin-dashboard-plugins`) generates `packages/client/src/generated/plugin-registry.tsx` with static imports per plugin manifest; Vite tree-shakes unused exports and code-splits per plugin.
+3. **Client bundle** — a Vite plugin (`vite-plugin-dashboard-plugins`) generates `packages/client/src/generated/plugin-registry.tsx` with static imports per plugin manifest; Vite tree-shakes unused exports and code-splits per plugin. Lazy claims (`module`) excepted: see registry split note below.
 4. **Runtime registration** — client boot calls `getSlotRegistry()` once; slot consumer components (`<SessionCardBadgeSlot/>`, `<ContentViewSlot/>`, etc.) iterate the registry and render contributions in priority order with per-slot error boundaries.
 5. **Bridge auto-register** — plugins declaring a `bridge` entry are auto-registered into `~/.pi/agent/settings.json` under managed `dashboard-<plugin-id>` keys; user-owned entries are never touched.
+
+**Registry split for lazy claims** (`lazy-plugin-claim-modules`):
+
+- Generated `plugin-registry.tsx` statically imports `predicate`, `shouldRender`, `labelComponent`, catalogs from plugin main client entry.
+- Claim with `module` → no static `component` import. Emits `Component: lazyClaim(() => import("<spec>"), "<component>")` (`lazy-claim.tsx`).
+- Entry chunk gz 690,616 → 584,020 B. Landing graph gz 1,135,756 → 1,028,118 B. Gate `INDEX_GZ_CAP_BYTES` 580 KiB (`mdi-chunk-size.test.ts`).
+- Load failure contained to one claim by `SlotErrorBoundary`. Siblings render.
+
+```mermaid
+flowchart LR
+  REG["generated plugin-registry.tsx"]
+  ENTRY["plugin main client entry<br/>predicate · shouldRender · labelComponent"]
+  LAZY["lazy claim module<br/>manifest module: ./…"]
+  SLOT["slot consumer"]
+  EB["SlotErrorBoundary"]
+  SU["React.Suspense"]
+  COMP["Component"]
+  REG -- "static import" --> ENTRY
+  REG -- "lazyClaim(() => import())" --> LAZY
+  SLOT --> EB --> SU --> COMP
+  LAZY -. "resolves Component" .-> COMP
+```
+
+Authoring rules: [`plugin-seams.md`](plugin-seams.md#lazy-claim-modules-module).
 
 **Plugin settings persistence:**
 - All plugin settings live under `plugins.<id>.*` in `~/.pi/dashboard/config.json`. The dashboard core never reads or writes another plugin's namespace.

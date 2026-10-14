@@ -13,12 +13,40 @@ import Fastify, { type FastifyInstance } from "fastify";
 import iconv from "iconv-lite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
-import { clearEmlCache } from "../lib/eml.js";
+import { clearEmlCache, sanitizeBody } from "../lib/eml.js";
 import { extToContentType } from "../lib/mime-types.js";
 import type { DocxPdfEngine, OfficeCaps } from "../lib/office-preview.js";
 import * as officePreviewModule from "../lib/office-preview.js";
 import { OFFICE_CAPS } from "../lib/office-preview.js";
 import { registerFileRoutes } from "../routes/file-routes.js";
+
+// Fault injection for the shared DOMPurify loader (change:
+// sanitize-untrusted-rendered-content). Defaults to the REAL loader.
+const purifyFault = vi.hoisted(() => ({
+  mode: null as null | "throw" | "unsupported" | "sanitize-throws",
+}));
+vi.mock("../lib/purify.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/purify.js")>();
+  return {
+    ...actual,
+    loadPurify: async () => {
+      if (purifyFault.mode === "throw") throw new Error("purify boom");
+      const real = await actual.loadPurify();
+      if (purifyFault.mode === "unsupported") return { ...real, isSupported: false, sanitize: (x: string) => x } as typeof real;
+      if (purifyFault.mode === "sanitize-throws") {
+        return {
+          ...real,
+          addHook: real.addHook.bind(real),
+          removeHook: real.removeHook.bind(real),
+          sanitize: () => {
+            throw new Error("sanitize boom");
+          },
+        } as unknown as typeof real;
+      }
+      return real;
+    },
+  };
+});
 
 /**
  * Task 3.0 / design D7: containment denials gained ADDITIVE remedy fields
@@ -281,6 +309,146 @@ describe("GET /api/file/raw — git-root widening", () => {
     expect(res.statusCode).toBe(200);
     expect(res.rawPayload.equals(Buffer.from([1, 2, 3, 4]))).toBe(true);
   });
+});
+
+describe("GET /api/file/render (AsciiDoc) — sanitization", () => {
+  let app: FastifyInstance;
+  let tmp: string;
+
+  beforeEach(async () => {
+    tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "file-render-san-"));
+    app = makeApp([tmp]);
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    purifyFault.mode = null;
+    await app.close();
+    await fsp.rm(tmp, { recursive: true, force: true });
+  });
+
+  async function render(name: string, source: string) {
+    await fsp.writeFile(path.join(tmp, name), source);
+    return app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=${encodeURIComponent(name)}`,
+    });
+  }
+
+  it("#E15 strips passthrough active content", async () => {
+    const res = await render(
+      "p.adoc",
+      [
+        "= T",
+        "",
+        "+++<img src=x onerror=fetch('//evil')>+++",
+        "",
+        "pass:[<style>@import url(//evil)</style>]",
+        "",
+        '+++<div style="position:fixed;inset:0">o</div>+++',
+      ].join("\n"),
+    );
+    expect(res.statusCode).toBe(200);
+    const html: string = res.json().data.html;
+    expect(html).not.toContain("onerror");
+    expect(html).not.toContain("<style");
+    expect(html).toContain("<div>o</div>");
+    expect(html).not.toMatch(/<div[^>]*style=/);
+  });
+
+  it("#E16 preserves legitimate formatting (column widths, stem, diagram blocks)", async () => {
+    const res = await render(
+      "ok.adoc",
+      [
+        "= Doc",
+        ":stem: latexmath",
+        "",
+        "== Heading",
+        "",
+        "* one",
+        "* two",
+        "",
+        '[cols="1,3"]',
+        "|===",
+        "|a |b",
+        "|===",
+        "",
+        "Inline stem:[a^2] here.",
+        "",
+        "[source,mermaid]",
+        "----",
+        "graph TD; A-->B",
+        "----",
+        "",
+        "[plantuml]",
+        "----",
+        "@startuml",
+        "A -> B",
+        "@enduml",
+        "----",
+      ].join("\n"),
+    );
+    const html: string = res.json().data.html;
+    expect(html).toMatch(/<col style="width: ?25%;?">/);
+    expect(html).toMatch(/<col style="width: ?75%;?">/);
+    expect(html).toContain("\\(a^2\\)");
+    const { splitAdocDiagramSegments } = await import("../../../client/src/lib/preview/adoc-diagram-splitter.js");
+    const types = splitAdocDiagramSegments(html)
+      .filter((seg: any) => seg.kind !== "raw")
+      .map((seg: any) => seg.type);
+    expect(types).toContain("mermaid");
+    expect(types).toContain("plantuml");
+  });
+
+  it("#E18 survives a DOM round trip without gaining active content (mutation XSS)", async () => {
+    const payloads = [
+      '<svg></p><style><a id="</style><img src=1 onerror=alert(1)>">',
+      '<math><mtext><table><mglyph><style><!--</style><img title="--&gt;&lt;img src=1 onerror=alert(1)&gt;">',
+      '<noscript><p title="</noscript><img src=x onerror=alert(1)>">',
+      '<form><math><mtext></form><form><mglyph><svg><mtext><textarea><path id="</textarea><img onerror=alert(1) src>">',
+      "<svg><style><img src=x onerror=alert(1)></style></svg>",
+      "<!--><img src=x onerror=alert(1)>-->",
+      '<math><mi xlink:href="data:x,<script>alert(1)</script>"></mi></math>',
+      '<a href="x" title="<img src=x onerror=alert(1)>">t</a>',
+      "<svg><foreignObject><style><img src=x onerror=alert(1)></style></foreignObject></svg>",
+      "<table><caption><style><img src=x onerror=alert(1)></style></caption></table>",
+      "<xmp><img src=x onerror=alert(1)></xmp>",
+    ];
+    const doc = (await (await import("../lib/purify.js")).loadPurify())
+      .sanitize("", { RETURN_DOM: true })
+      .ownerDocument as Document;
+    for (const [i, payload] of payloads.entries()) {
+      const res = await render(`m${i}.adoc`, `= T\n\n++++\n${payload}\n++++\n`);
+      expect(res.statusCode, payload).toBe(200);
+      const tpl = doc.createElement("template");
+      tpl.innerHTML = res.json().data.html;
+      const host = doc.createElement("div");
+      host.innerHTML = tpl.innerHTML;
+      expect(host.querySelector("script, style"), payload).toBeNull();
+      for (const el of Array.from(host.querySelectorAll("*"))) {
+        expect(el.getAttributeNames().filter((n) => n.startsWith("on")), payload).toEqual([]);
+      }
+    }
+  });
+
+  it("#E19 the AsciiDoc pass leaves the shared instance's EML/DOCX sanitizers untouched", async () => {
+    const res = await render("hook.adoc", '= T\n\n+++<p style="color:red">x</p>+++\n');
+    expect(res.json().data.html).not.toMatch(/<p[^>]*style=/);
+    const eml = await sanitizeBody('<p style="color:red">e</p>', { allowRemote: true });
+    expect(eml.html).toContain('style="color:red"');
+    const purify = await (await import("../lib/purify.js")).loadPurify();
+    const docx = purify.sanitize('<p style="color:red">d</p>', { FORBID_TAGS: ["script", "style"] });
+    expect(docx).toContain('style="color:red"');
+  });
+
+  for (const mode of ["throw", "unsupported", "sanitize-throws"] as const) {
+    it(`#X2 fails closed when the sanitizer is unavailable (${mode})`, async () => {
+      purifyFault.mode = mode;
+      const res = await render("x.adoc", "= T\n\n+++<b id=RAWMARK>+++\n");
+      expect(res.json().success).toBe(false);
+      expect(res.body).not.toContain("RAWMARK");
+    });
+  }
 });
 
 describe("GET /api/file/render (AsciiDoc)", () => {

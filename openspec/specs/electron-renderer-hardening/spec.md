@@ -1,4 +1,9 @@
-## ADDED Requirements
+# electron-renderer-hardening Specification
+
+## Purpose
+Keep untrusted remote dashboard content in the Electron main window away from privileged local bridges, IPC handlers, OS protocol handlers and internal-network probes.
+
+## Requirements
 
 ### Requirement: Untrusted remote content receives no privileged wizard bridges
 The main window preload SHALL NOT expose the wizard bridges (`window.remoteConnect`,
@@ -21,8 +26,9 @@ SHALL be exposed only on their dedicated wizard windows, which load trusted loca
 
 ### Requirement: IPC handlers validate the sender frame
 Privileged main-process IPC handlers SHALL validate `event.senderFrame` and
-reject calls that do not originate from a trusted frame (the local `file://`
-loading page or the expected dashboard origin). The gated handlers SHALL include
+reject calls that do not originate from a trusted frame: the local `file://`
+`loading.html` page, or the LOCAL dashboard origin (loopback host on the
+configured port). A remote/tunnel dashboard origin is NOT trusted. The gated handlers SHALL include
 `request-launch`, `read-server-log`, `probe-server`, and `open-doctor`. A rejected call SHALL return an error and perform
 no privileged action.
 
@@ -53,20 +59,29 @@ open-external branch SHALL apply this allowlist; any other scheme (e.g. `file:`,
 - **WHEN** renderer content opens `https://example.com`
 - **THEN** `shell.openExternal` SHALL be invoked with that URL
 
-### Requirement: Reachability probe rejects internal targets
-The server reachability probe SHALL reject target URLs that resolve to loopback,
-private (RFC1918), or link-local address ranges, and SHALL be callable only from
-the trusted wizard window. The probe SHALL continue to fetch only the
-`/api/health` path with a bounded timeout.
+### Requirement: Reachability probe rejects metadata and unspecified targets
+The server reachability probe SHALL reject target URLs that resolve to
+link-local (`169.254.0.0/16`, `fe80::/10`, including cloud-metadata
+`169.254.169.254`) or unspecified (`0.0.0.0/8`, `::`) addresses — including
+IPv4-mapped IPv6 and non-canonical IP encodings — before performing any fetch.
+Loopback and private (RFC1918 / unique-local) targets SHALL remain allowed,
+because LAN, localhost and Docker dashboards are the primary remote-connect use
+case; the probe SHALL be reachable only from trusted frames (see the IPC
+requirement), which closes the untrusted-renderer SSRF vector. The probe SHALL
+continue to fetch only the `/api/health` path with a bounded timeout.
 
 #### Scenario: Cloud-metadata target rejected
-- **WHEN** `probeServer` is called with `http://169.254.169.254/…`
-- **THEN** the probe SHALL refuse and return an error without performing the fetch
+- **WHEN** `probeServer` is called with `http://169.254.169.254/…` (or `http://2852039166`, `http://[::ffff:169.254.169.254]`)
+- **THEN** the probe SHALL refuse with an error and SHALL NOT perform the fetch
 
-#### Scenario: Private-range target rejected
-- **WHEN** `probeServer` is called with a host resolving to `10.0.0.0/8` or `192.168.0.0/16`
-- **THEN** the probe SHALL refuse
+#### Scenario: Hostname resolving to link-local rejected
+- **WHEN** `probeServer` is called with a hostname any of whose resolved addresses is link-local
+- **THEN** the probe SHALL refuse and SHALL NOT perform the fetch
 
-#### Scenario: Legitimate remote host allowed from wizard
-- **WHEN** the trusted wizard window probes a public dashboard URL
+#### Scenario: LAN and loopback remotes still probe
+- **WHEN** the trusted wizard / loading page probes `http://192.168.16.242:8000`, `http://10.0.0.5:8000` or `http://localhost:8000`
+- **THEN** the probe SHALL fetch `/api/health` and return reachability
+
+#### Scenario: Legitimate public host allowed
+- **WHEN** a trusted frame probes a public dashboard URL
 - **THEN** the probe SHALL fetch `/api/health` and return reachability

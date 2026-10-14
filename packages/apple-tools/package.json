@@ -73,7 +73,8 @@
     "claims": [
       {
         "slot": "settings-section",
-        "component": "AppleToolsSettings"
+        "component": "AppleToolsSettings",
+        "module": "./src/client/AppleToolsSettings.tsx"
       }
     ]
   },

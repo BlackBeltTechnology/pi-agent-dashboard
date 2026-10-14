@@ -59,6 +59,7 @@
       {
         "slot": "settings-section",
         "component": "FlowsAnthropicBridgeSettings",
+        "module": "./src/FlowsAnthropicBridgeSettings.tsx",
         "tab": "general"
       }
     ]

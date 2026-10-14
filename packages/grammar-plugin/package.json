@@ -65,6 +65,7 @@
       {
         "slot": "settings-section",
         "component": "GrammarSettings",
+        "module": "./src/GrammarSettings.tsx",
         "tab": "general"
       },
       {

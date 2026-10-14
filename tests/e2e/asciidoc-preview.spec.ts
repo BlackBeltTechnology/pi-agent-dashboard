@@ -168,3 +168,35 @@ test.describe("AsciiDoc preview under the native TS loader", () => {
     expect(log).not.toContain("require is not defined");
   });
 });
+
+// F6 (change: sanitize-untrusted-rendered-content) — the server DOMPurify pass
+// and the DOM-aware client math rewrite must keep every legitimate AsciiDoc
+// feature: KaTeX stem math, mermaid/plantuml listing blocks, table column widths.
+test.describe("AsciiDoc preview under server sanitization", () => {
+  test("F6: stem math, diagram blocks and column widths survive", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    const composer = page.getByPlaceholder(/message/i).first();
+    await composer.waitFor({ state: "visible", timeout: 30_000 });
+    await composer.fill("/view @sanitize.adoc");
+    await page.keyboard.press("Escape");
+    await composer.fill("/view @sanitize.adoc");
+    await expect(async () => {
+      await dismissToasts(page);
+      await byTestId(page, "sendButton").click({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
+    await expect(page).toHaveURL(/\/session\/[^/]+\/editor\?file=sanitize\.adoc/, { timeout: 20_000 });
+
+    const body = page.locator(".asciidoc-body").first();
+    await expect(body).toBeVisible({ timeout: 30_000 });
+    // `\sqrt{\frac{a}{b}}` — the radical renders as an svg glyph inside KaTeX.
+    await expect(body.locator(".katex svg").first()).toBeAttached({ timeout: 30_000 });
+    await expect(body.locator(".mermaid-diagram svg").first()).toBeVisible({ timeout: 30_000 });
+    // plantuml renders via the Kroki-backed DiagramPreview (or its error card) — the block is mounted.
+    await expect(body.locator('[data-testid^="diagram-preview"]').first()).toBeAttached({ timeout: 30_000 });
+    const widths = await body.locator("table colgroup col").evaluateAll((cols) =>
+      cols.map((c) => (c as HTMLElement).style.width),
+    );
+    expect(widths).toEqual(["25%", "75%"]);
+  });
+});

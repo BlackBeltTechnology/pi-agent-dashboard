@@ -49,3 +49,73 @@ test.describe("faux round-trip — mermaid default-node colorization", () => {
     expect(bStyle ?? "").not.toMatch(WASH);
   });
 });
+
+// Sanitizer scenarios (change: sanitize-untrusted-rendered-content, F2–F4).
+// mermaid.render() needs real layout, so these run in the browser, not jsdom.
+test.describe("faux round-trip — mermaid SVG sanitization", () => {
+  test("F2: every diagram type keeps its <style>, markers and labels; <br> breaks lines", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:mermaid-sanitize-types]] go");
+
+    const svgs = page.locator(".mermaid-diagram svg");
+    await expect(svgs).toHaveCount(4, { timeout: 45_000 });
+
+    for (let i = 0; i < 4; i++) {
+      const svg = svgs.nth(i);
+      await expect(svg.locator("style").first()).toBeAttached();
+    }
+    // Flowchart (arrow) + sequence (arrow) + class (inheritance) + ER (relation) all use markers.
+    for (const i of [0, 1, 2]) await expect(svgs.nth(i).locator("marker").first()).toBeAttached();
+    await expect(svgs.nth(1)).toContainText("Alice");
+    await expect(svgs.nth(2)).toContainText("Animal");
+    await expect(svgs.nth(3)).toContainText("CUSTOMER");
+
+    // The `<br>` label renders `one` and `two` on different line boxes.
+    const lines = await svgs.nth(0).locator(".nodeLabel").first().evaluate((label) => {
+      const tops: number[] = [];
+      const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const r = document.createRange();
+        r.selectNodeContents(n);
+        tops.push(r.getBoundingClientRect().top);
+      }
+      return tops;
+    });
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    expect(lines[1]).toBeGreaterThan(lines[0]);
+  });
+
+  test("F3: an %%{init}%% themeCSS/fontFamily payload cannot restyle the page or fetch remotely", async ({ page }) => {
+    let evilRequests = 0;
+    await page.route(/evil\.example/, (route) => {
+      evilRequests++;
+      return route.abort();
+    });
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:mermaid-theme-css]] go");
+
+    const svg = page.locator(".mermaid-diagram svg").first();
+    await expect(svg).toBeVisible({ timeout: 30_000 });
+    const css = await svg.locator("style").allTextContents();
+    const all = css.join("\n");
+    expect(all).not.toContain("@import");
+    expect(all).not.toMatch(/display:\s*none/);
+    await expect(page.getByPlaceholder(/message/i).first()).toBeVisible();
+    expect(evilRequests).toBe(0);
+  });
+
+  test("F4: an un-styled multi-line label node is still accent-tinted", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:mermaid-br-label]] go");
+
+    const node = page.locator('.mermaid-diagram svg g.node[id*="-A-"]').first();
+    await expect(node).toBeVisible({ timeout: 30_000 });
+    const style = await node.locator("rect").first().getAttribute("style");
+    expect(style ?? "").toMatch(WASH);
+    await expect(node).toContainText("one");
+    await expect(node).toContainText("two");
+  });
+});

@@ -4,6 +4,12 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
+  /**
+   * When this value changes while the boundary shows its fallback, the error
+   * state is cleared so the children are retried (e.g. the next streamed
+   * markdown token). Omit for the previous sticky behavior.
+   */
+  resetKey?: unknown;
 }
 
 interface State {
@@ -20,6 +26,12 @@ export class ErrorBoundary extends Component<Props, State> {
 
   static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
+  }
+
+  componentDidUpdate(prevProps: Props) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, error: undefined });
+    }
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {

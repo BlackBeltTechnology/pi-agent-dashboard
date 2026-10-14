@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -23,6 +24,7 @@ import { extractFrontmatter, FrontmatterProperties } from "./FrontmatterProperti
 import { ImageLightbox } from "./ImageLightbox.js";
 import { isExternalHref } from "./is-external-href.js";
 import { MermaidBlock } from "./MermaidBlock.js";
+import { MARKDOWN_SCHEMA, safeUrlTransform } from "./markdown-sanitize.js";
 import { type ImageBase, resolveLocalImageSrc } from "./resolve-local-image-src.js";
 
 interface Props {
@@ -383,11 +385,20 @@ function PiAssetImg(props: React.ImgHTMLAttributes<HTMLImageElement>) {
     setLightboxSrc({ src: lbSrc, alt: altText });
   };
 
+  // `safeUrlTransform` blanks a dropped scheme to "" — render the image with
+  // no `src` attribute (and no lightbox) instead of an `<img src="">`.
+  // See change: sanitize-untrusted-rendered-content.
+  if (src === "") {
+    return <img {...rest} alt={alt} />;
+  }
+
   // pi-asset:<hash> path — resolve to data: URL or render placeholder.
   if (typeof src === "string" && src.startsWith("pi-asset:")) {
     const hash = src.slice("pi-asset:".length);
     const asset = assets[hash];
-    if (asset) {
+    // A non-image registered asset (e.g. `text/html`) must never become an
+    // `<img src="data:text/html…">`: it gets the placeholder.
+    if (asset?.mimeType.startsWith("image/")) {
       const dataUrl = `data:${asset.mimeType};base64,${asset.data}`;
       return (
         <>
@@ -545,6 +556,12 @@ function MarkdownTable({ children }: { children?: React.ReactNode }) {
 
 function MarkdownAnchor({ node: _node, href, children, ...props }: React.ComponentPropsWithoutRef<"a"> & MarkdownNodeProps) {
   const { onLoopbackClick } = useMarkdownRenderContext();
+  // `safeUrlTransform` blanks a dropped scheme to "": an `<a href="">` would
+  // reload the dashboard, so render an inert, unstyled anchor instead.
+  // See change: sanitize-untrusted-rendered-content.
+  if (!href) {
+    return <a {...props}>{children}</a>;
+  }
   const external = isExternalHref(href);
   return (
     <a
@@ -554,7 +571,7 @@ function MarkdownAnchor({ node: _node, href, children, ...props }: React.Compone
       // Loopback links route into the internal live-server split
       // viewer on a plain click; modifier/middle-click and the
       // no-context fallback keep the native target="_blank" tab.
-      onClick={href ? (event) => onLoopbackClick(event, href) : undefined}
+      onClick={(event) => onLoopbackClick(event, href)}
       {...props}
     >
       {children}
@@ -581,7 +598,11 @@ const MARKDOWN_COMPONENTS = {
 const MATH_DELIMITER_RE = /\$|\\\(|\\\[/;
 
 // Until the math engine loads, `remark-math` nodes render as literal source.
-const REHYPE_PLUGINS_NO_MATH: NonNullable<Options["rehypePlugins"]> = [rehypeRaw, stripReactRefAttributes];
+const REHYPE_PLUGINS_NO_MATH: NonNullable<Options["rehypePlugins"]> = [
+  rehypeRaw,
+  [rehypeSanitize, MARKDOWN_SCHEMA],
+  stripReactRefAttributes,
+];
 
 export const MarkdownContent = React.memo(function MarkdownContent({ content, context, frontmatter = "hide", imageBase }: Props) {
   // ASCII table monospace fixer — disabled pending further refinement
@@ -591,7 +612,12 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
   const rehypePlugins = useMemo<NonNullable<Options["rehypePlugins"]>>(
     () =>
       mathEngine
-        ? [rehypeRaw, [mathEngine.rehypeKatex, { throwOnError: false }], stripReactRefAttributes]
+        ? [
+            rehypeRaw,
+            [rehypeSanitize, MARKDOWN_SCHEMA],
+            [mathEngine.rehypeKatex, { throwOnError: false }],
+            stripReactRefAttributes,
+          ]
         : REHYPE_PLUGINS_NO_MATH,
     [mathEngine],
   );
@@ -630,30 +656,41 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
       <div ref={containerRef} className="markdown-content text-sm">
         {fm && <FrontmatterProperties raw={fm.raw} />}
         <ImageBaseContext.Provider value={imageBaseValue}>
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath, remarkFrontmatter]}
-            // Plugin order matters:
-            //  - rehypeRaw FIRST so embedded HTML in markdown source is parsed
-            //    before rehype-katex emits its own KaTeX HTML (KaTeX HTML must
-            //    NOT be re-parsed by rehype-raw).
-            //  - rehypeKatex (lazy, inserted once the math engine has loaded)
-            //    with throwOnError:false so half-formed mid-stream
-            //    expressions like `$x = 10 +` render as a fallback rather than
-            //    crashing the markdown render.
-            //  - stripReactRefAttributes LAST.
-            // See changes: chat-markdown-local-images-and-math,
-            // shrink-client-entry-lazy-islands.
-            rehypePlugins={rehypePlugins}
-            // ReactMarkdown's default urlTransform sanitizes unknown schemes
-            // (e.g. `pi-asset:`, `data:`) to an empty string before our `img`
-            // override sees them. Pass through every src verbatim and let the
-            // PiAssetImg / a / etc. overrides do the gating.
-            // See change: chat-markdown-local-images-and-math.
-            urlTransform={(value) => value}
-            components={MARKDOWN_COMPONENTS}
+          {/* A sanitizer/render throw shows the source as plain text — never the
+              raw tree — and the next content (streamed token) retries markdown.
+              See change: sanitize-untrusted-rendered-content. */}
+          <ErrorBoundary
+            resetKey={processedContent}
+            fallback={<div className="whitespace-pre-wrap break-words">{processedContent}</div>}
           >
-            {processedContent}
-          </ReactMarkdown>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkMath, remarkFrontmatter]}
+              // Plugin order matters:
+              //  - rehypeRaw FIRST so embedded HTML in markdown source is parsed
+              //    before rehype-katex emits its own KaTeX HTML (KaTeX HTML must
+              //    NOT be re-parsed by rehype-raw).
+              //  - rehypeSanitize right after rehypeRaw (the markdown is
+              //    untrusted) and BEFORE rehypeKatex, so KaTeX's generated
+              //    HTML never meets the schema.
+              //  - rehypeKatex (lazy, inserted once the math engine has loaded)
+              //    with throwOnError:false so half-formed mid-stream
+              //    expressions like `$x = 10 +` render as a fallback rather than
+              //    crashing the markdown render.
+              //  - stripReactRefAttributes LAST.
+              // See changes: chat-markdown-local-images-and-math,
+              // shrink-client-entry-lazy-islands.
+              rehypePlugins={rehypePlugins}
+              // ReactMarkdown's default urlTransform blanks `pi-asset:`/`data:`
+              // before our `img` override sees them. `safeUrlTransform` keeps
+              // those on `img src` only and drops every other unsafe scheme.
+              // See changes: chat-markdown-local-images-and-math,
+              // sanitize-untrusted-rendered-content.
+              urlTransform={safeUrlTransform}
+              components={MARKDOWN_COMPONENTS}
+            >
+              {processedContent}
+            </ReactMarkdown>
+          </ErrorBoundary>
         </ImageBaseContext.Provider>
       </div>
     </MarkdownRenderContext.Provider>

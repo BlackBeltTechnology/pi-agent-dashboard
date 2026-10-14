@@ -52,7 +52,8 @@
     "claims": [
       {
         "slot": "settings-section",
-        "component": "BrowserSettings"
+        "component": "BrowserSettings",
+        "module": "./src/client/BrowserSettings.tsx"
       },
       {
         "slot": "session-card-badge",
@@ -61,6 +62,7 @@
       {
         "slot": "editor-pane-tab",
         "component": "BrowserPaneTab",
+        "module": "./src/client/BrowserPaneTab.tsx",
         "labelComponent": "BrowserTabLabel",
         "pathPrefix": "browser"
       }

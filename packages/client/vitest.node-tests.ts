@@ -138,7 +138,6 @@ export const NODE_ENV_TESTS: readonly string[] = [
   "src/lib/openspec/__tests__/resolve-attachment.test.ts",
   "src/lib/pairing/__tests__/describe-user-agent.test.ts",
   "src/lib/pairing/__tests__/single-encoder.test.ts",
-  "src/lib/preview/__tests__/adoc-math.test.ts",
   "src/lib/preview/__tests__/mermaid-repair.test.ts",
   "src/lib/replay/__tests__/history-load-phase.test.ts",
   "src/lib/state/__tests__/subagent-inspector-telemetry.test.ts",
