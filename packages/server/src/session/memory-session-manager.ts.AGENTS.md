@@ -17,3 +17,5 @@ See change: fix-spawn-correlation-ttl-coupling (D3). `RegisterSessionParams.dash
 - `register()` carries `archiveOnEnd` across a same-id re-register (reattach). See change: archive-service-sessions-on-end.
 
 `onRemoved?(sessionId)` hook fires after `remove()` (archive evict). See change: distinguish-tool-result-pending-vs-gone.
+
+- `register()` stamps server-only in-memory `pidRecordedAt = Date.now()` whenever `params.pid` is set (cleared when a re-register carries no pid); never persisted, no protocol change. The shared terminator's identity guard compares `processStartedAt(pid)` to it. See change: fix-session-reclaim-tmux.

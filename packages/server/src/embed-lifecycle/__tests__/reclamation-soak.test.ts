@@ -6,13 +6,13 @@
  * → 0 and aggregate RSS drops below a floor after one sweep. That real-RSS
  * measurement needs a live multi-pi runtime; here we prove the deterministic
  * INVARIANT that drives it: given N quiescent ephemeral sessions, one reaper
- * sweep reclaims ALL of them (killBySessionId fired N times), so the live pi
+ * sweep reclaims ALL of them (terminate fired N times), so the live pi
  * process count collapses to zero — which is what makes the aggregate RSS fall.
  * See change: add-embed-session-lifecycle.
  */
 import { DEFAULT_EMBED_LIFECYCLE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createEmbedLifecycleController,
   type EmbedLifecycleControllerDeps,
@@ -54,11 +54,11 @@ describe("reclamation soak (P1 invariant)", () => {
       getSubscriberCount: () => 0,
       listTerminalCwds: () => [],
       hasPendingUiRequest: () => false,
-      killBySessionId: async (id) => {
+      terminate: async (id) => {
         killed.add(id);
-        return true;
+        return { outcome: "confirmed-dead", terminated: true };
       },
-      sendStopAfterTurn: () => {},
+      sendStopAfterTurn: () => true,
       probe: async () => ({ ok: true, childCount: 0, cpuPercent: 0 }),
     };
     const ctrl = createEmbedLifecycleController(deps);
@@ -73,5 +73,37 @@ describe("reclamation soak (P1 invariant)", () => {
     // Live ephemeral process count collapses to zero (the RSS-drop driver).
     expect(ctrl.snapshot().activeEphemeral).toBe(0);
     expect(ctrl.snapshot().reaped.idle).toBe(N);
+  });
+
+  // P2 — a given-up session gets no further kill attempts (no latency assertion).
+  it("stops attempting unconfirmed sessions after 3 sweeps (bounded retry)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const sessions = Array.from({ length: 10 }, (_, i) => quiescentEphemeral(i));
+    const terminate = vi.fn(async (): Promise<import("../../spawn-process/session-terminator.js").TerminateResult> => ({
+      outcome: "unconfirmed",
+      terminated: false,
+      pid: 1,
+    }));
+    const ctrl = createEmbedLifecycleController({
+      config: () => ({ ...DEFAULT_EMBED_LIFECYCLE, enabled: true, idleTimeoutSeconds: 1 }),
+      listSessions: () => sessions,
+      getSubscriberCount: () => 0,
+      listTerminalCwds: () => [],
+      hasPendingUiRequest: () => false,
+      terminate,
+      sendStopAfterTurn: () => true,
+      probe: async () => ({ ok: true, childCount: 0, cpuPercent: 0 }),
+    });
+    const perSweep: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const before = terminate.mock.calls.length;
+      await ctrl.reaper.sweepOnce();
+      perSweep.push(terminate.mock.calls.length - before);
+    }
+    expect(perSweep).toEqual([10, 10, 10, 0, 0]);
+    expect(ctrl.snapshot().failedReclaims).toBe(30);
+    expect(ctrl.snapshot().reaped.idle).toBe(0);
+    vi.restoreAllMocks();
   });
 });

@@ -8,6 +8,9 @@
 import { DEFAULT_EMBED_LIFECYCLE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it, vi } from "vitest";
+import type { TerminateResult } from "../../spawn-process/session-terminator.js";
+import { CapacityError, createCapsAdmission } from "../caps.js";
+import { composeIdentityKey } from "../identity-key.js";
 import {
   createEmbedLifecycleController,
   type EmbedLifecycleControllerDeps,
@@ -43,11 +46,11 @@ function makeController(
     getSubscriberCount: () => 0,
     listTerminalCwds: () => [],
     hasPendingUiRequest: () => false,
-    killBySessionId: async (id) => {
+    terminate: async (id) => {
       kills.push(id);
-      return true;
+      return { outcome: "confirmed-dead", terminated: true };
     },
-    sendStopAfterTurn: vi.fn(),
+    sendStopAfterTurn: vi.fn(() => true),
     probe: async () => ({ ok: true, childCount: 0, cpuPercent: 0 }),
   };
   return createEmbedLifecycleController(deps);
@@ -108,11 +111,11 @@ describe("embed lifecycle controller — pending-ask union", () => {
       ...(opts.hasPendingPromptRequests
         ? { hasPendingPromptRequests: opts.hasPendingPromptRequests }
         : {}),
-      killBySessionId: async (id) => {
+      terminate: async (id) => {
         opts.kills.push(id);
-        return true;
+        return { outcome: "confirmed-dead", terminated: true };
       },
-      sendStopAfterTurn: vi.fn(),
+      sendStopAfterTurn: vi.fn(() => true),
       probe: async () => ({ ok: true, childCount: 0, cpuPercent: 0 }),
     };
     return createEmbedLifecycleController(deps);
@@ -190,5 +193,74 @@ describe("embed lifecycle controller — pending-ask union", () => {
     const ctrl = makeUnionController({ sessions: [ephemeral()], kills });
     await ctrl.reaper.sweepOnce();
     expect(kills).toEqual(["e1"]);
+  });
+});
+
+/**
+ * Failed-reclaim wiring (test-plan #E15, #E21, #E22): reaper failures feed the
+ * `failedReclaims` snapshot field and the give-up tracker shared with caps.
+ * See change: fix-session-reclaim-tmux.
+ */
+describe("embed lifecycle controller — failed reclaims", () => {
+  function make(sessions: DashboardSession[], results: Record<string, TerminateResult>, stopDelivered = true) {
+    return createEmbedLifecycleController({
+      config: () => ({ ...DEFAULT_EMBED_LIFECYCLE, enabled: true, idleTimeoutSeconds: 1 }),
+      listSessions: () => sessions,
+      getSubscriberCount: () => 0,
+      listTerminalCwds: () => [],
+      hasPendingUiRequest: () => false,
+      terminate: async (id) => results[id] ?? { outcome: "confirmed-dead", terminated: true },
+      sendStopAfterTurn: () => stopDelivered,
+      probe: async () => ({ ok: true, childCount: 0, cpuPercent: 0 }),
+    });
+  }
+
+  // E21 / E22
+  it("counts every failed reclaim in one scalar, logs one error per give-up, adds no given-up field", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const ctrl = make(
+      [ephemeral({ id: "a" }), ephemeral({ id: "b" }), ephemeral({ id: "c" })],
+      {
+        a: { outcome: "unconfirmed", terminated: false, pid: 1 },
+        b: { outcome: "refused-identity", terminated: false, pid: 2 },
+        c: { outcome: "no-identity", terminated: false },
+      },
+    );
+    await ctrl.reaper.sweepOnce();
+    const snap = ctrl.snapshot();
+    expect(snap.failedReclaims).toBe(3);
+    expect(snap.reaped).toEqual({ idle: 0, "stop-after-turn": 0, phantom: 0 });
+    expect(Object.keys(snap)).not.toContain("givenUp");
+    // b and c gave up immediately: one error line each, none for a.
+    expect(error).toHaveBeenCalledTimes(2);
+    vi.restoreAllMocks();
+  });
+
+  // E15 — the tracker is shared with the caps gate.
+  it("shares the give-up tracker with the caps gate", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const results = { s1: { outcome: "unconfirmed", terminated: false, pid: 1 } as TerminateResult };
+    const ctrl = make([ephemeral({ id: "s1" })], results);
+    await ctrl.reaper.sweepOnce();
+    await ctrl.reaper.sweepOnce();
+    const reclaim = vi.fn(async () => results.s1);
+    const { admit } = createCapsAdmission({
+      config: () => ({
+        ...DEFAULT_EMBED_LIFECYCLE,
+        enabled: true,
+        maxActiveEmbedSessionsPerVisitor: 1,
+        maxActiveEmbedSessionsGlobal: 1,
+      }),
+      listEphemeralActive: () => [{ sessionId: "s1", visitorId: "v1", quiescent: true, lastActivityAt: 0 }],
+      reclaim,
+      giveUp: ctrl.giveUp,
+    });
+    await expect(admit(composeIdentityKey("v1", "/w", "a"))).rejects.toBeInstanceOf(CapacityError);
+    expect(ctrl.giveUp.isGivenUp("s1")).toBe(true); // 2 reaper failures + 1 caps failure
+    await expect(admit(composeIdentityKey("v1", "/w", "a"))).rejects.toBeInstanceOf(CapacityError);
+    expect(reclaim).toHaveBeenCalledTimes(1); // second acquire does not re-pick s1
+    vi.restoreAllMocks();
   });
 });
