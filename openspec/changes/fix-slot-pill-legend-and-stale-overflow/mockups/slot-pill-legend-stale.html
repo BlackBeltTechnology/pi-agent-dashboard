@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fix-slot-pill-legend-and-stale-overflow — as-built vs proposed</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mockup.css">
+<script src="icons.js"></script>
+</head>
+<body data-view="side">
+<header class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Slot-pill legend + KB stale overflow</h1>
+  <fieldset><legend>Theme</legend>
+    <button type="button" data-theme-btn="base-dark">Base dark</button>
+    <button type="button" data-theme-btn="base-light">Base light</button>
+    <button type="button" data-theme-btn="nord-dark">Nord dark</button>
+  </fieldset>
+  <fieldset><legend>Width</legend>
+    <button type="button" data-width-btn="1440">1440 · sidebar</button>
+    <button type="button" data-width-btn="768">768</button>
+    <button type="button" data-width-btn="375">375 · mobile</button>
+  </fieldset>
+  <fieldset><legend>View</legend>
+    <button type="button" data-view-btn="side">Side by side</button>
+    <button type="button" data-view-btn="proposed">Proposed only</button>
+  </fieldset>
+</header>
+
+<main id="board"></main>
+
+<script>
+/* All data inline (no runtime fetch). Real values from the live local build
+   (localhost:8000, develop, captured 2026-10-14): pi-agent-dashboard folder KB =
+   38,050 chunks / 92 stale; Documents = 60,360 / 39; bosch = 4,249 / 5.
+   Copy from source: FolderKbSection.tsx + packages/kb-plugin/src/i18n.ts. */
+const I = window.ICONS;
+const svg = (p, px = 15, cls = "") => `<svg class="svg ${cls}" width="${px}" height="${px}" viewBox="0 0 24 24" aria-hidden="true"><path d="${p}"/></svg>`;
+const fmt = (n) => n.toLocaleString("en-US");
+
+/* Measured on the live build at 1440 px with a session open (Playwright, base dark+light):
+   SlotPill root 202.5 px wide; stale badge right edge past the pill border by 14.7 px
+   (39 stale) / 14.4 px (92 stale); 5 stale fits (−1.6 px). */
+const WIDTHS = {
+  "1440": { frame: 437, cols: 2, card: 440, note: "sidebar with a session open — grid 413 px, SlotPill measured 202.5 px" },
+  "768":  { frame: 372, cols: 2, card: 400, note: "2-column grid (sm:grid-cols-2), ≈170 px pills" },
+  "375":  { frame: 351, cols: 1, card: 351, note: "grid-cols-1 below sm; mobile session card has NO KB slot (useMobile < 768)" },
+};
+
+/* ---- SlotPill replica (same DOM in both columns; .ab/.pr ancestors pick the recipe) ---- */
+function slotPill({ label, glyph, accent, body, surface = "raised", title = "" }) {
+  return `<div class="sp ${surface} acc-${accent}" role="button" tabindex="0" title="${title}">
+    <span class="sp-legend" data-slot-pill-legend>${label}</span>
+    <span class="sp-glyph">${svg(glyph, 15)}</span>
+    <span class="sp-body">${body}</span>
+  </div>`;
+}
+const countBody = (n, unit) => `<span class="num">${n}</span> <span class="unit">${unit}</span>`;
+
+/* ---- KB count line: as-built (FolderKbSection.tsx:186-220 today) ---- */
+function kbBodyAsBuilt(s) {
+  if (s.state === "error") return `<span class="pillc err">index failed</span>`;
+  if (s.state === "indexing") return `<span class="word">${svg(I.mdiLoading, 12, "spin")}indexing…</span><span class="num unit">${fmt(s.files)} files</span>`;
+  if (s.word) return `<span class="word">${svg(s.spin ? I.mdiLoading : I.mdiInformationOutline, 12, s.spin ? "spin" : "")}${s.word}</span>`;
+  return `<span class="num">${fmt(s.chunks)}</span><span class="unit">chunks</span>` +
+    (s.stale ? `<span class="pillc warn" data-testid="folder-kb-stale">⚠ ${s.stale} stale</span>` : "");
+}
+/* ---- KB count line: proposed (design D3) ---- */
+function kbBodyProposed(s) {
+  if (s.state === "error") return `<span class="pillc err"><span class="trunc">index failed</span></span>`;
+  if (s.state === "indexing") return `<span class="word">${svg(I.mdiLoading, 12, "spin")}<span class="trunc">indexing…</span></span><span class="num unit shrink0">${fmt(s.files)}</span><span class="unit trunc">files</span>`;
+  if (s.word) return `<span class="word">${svg(s.spin ? I.mdiLoading : I.mdiInformationOutline, 12, s.spin ? "spin" : "")}<span class="trunc">${s.word}</span></span>`;
+  return `<span class="num shrink0" data-testid="folder-kb-chunks">${fmt(s.chunks)}</span><span class="unit trunc">chunks</span>` +
+    (s.stale ? `<span class="pillc warn stale" data-testid="folder-kb-stale" title="${s.stale} stale">${svg(I.mdiAlertOutline, 12)}<span aria-hidden="true">${s.stale}</span><span class="sr-only">${s.stale} stale</span></span>` : "");
+}
+function kbPill(s, which, surface = "raised") {
+  const body = `<span class="kb-count" data-testid="folder-kb-count">${which === "ab" ? kbBodyAsBuilt(s) : kbBodyProposed(s)}</span>`;
+  return `<div class="kb-sec" data-testid="folder-kb-section" data-state="${s.state}">` +
+    slotPill({ label: "Knowledge base", glyph: I.mdiDatabaseOutline, accent: s.state === "error" ? "red" : "cyan", body, surface,
+      title: `${fmt(s.files ?? 0)} files · ${fmt(s.chunks ?? 0)} chunks — open KB settings` }) + `</div>`;
+}
+
+/* ---- Article 1: sidebar folder grid (pi-agent-dashboard folder, live data) ---- */
+function sidebarGrid(which) {
+  const kb = { state: "stale", chunks: 38050, stale: 92, files: 412 };
+  return `<div class="grid" data-grid>
+    ${slotPill({ label: "Automations", glyph: I.mdiCogOutline, accent: "blue", body: countBody(0, "tasks") })}
+    ${slotPill({ label: "Goals", glyph: I.mdiTarget, accent: "indigo", body: countBody(0, "active") })}
+    ${kbPill(kb, which)}
+    ${slotPill({ label: "MCP", glyph: I.mdiServerOutline, accent: "indigo", body: `1 server` })}
+    ${slotPill({ label: "Team", glyph: I.mdiAccountGroupOutline, accent: "purple", body: `0 agents · 0 active` })}
+    ${slotPill({ label: "OpenSpec", glyph: I.mdiClipboardTextOutline, accent: "purple", body: countBody(95, "changes") })}
+  </div>`;
+}
+
+/* ---- Article 2: KB state strip ---- */
+const KB_STATES = [
+  { id: "populated", label: "populated", state: "populated", chunks: 60360, files: 1210 },
+  { id: "stale-39", label: "stale · 39 (live: Documents)", state: "stale", chunks: 60360, stale: 39, files: 1210 },
+  { id: "stale-12345", label: "stale · 12345 (BVA: widest marker)", state: "stale", chunks: 60360, stale: 12345, files: 1210 },
+  { id: "indexing", label: "indexing", state: "indexing", chunks: 0, files: 412 },
+  { id: "error", label: "error", state: "error" },
+  { id: "not-indexed", label: "not-indexed", state: "not-indexed", word: "not indexed" },
+  { id: "denied", label: "denied", state: "denied", word: "not allowed" },
+  { id: "pinning", label: "pinning", state: "pinning", word: "pinning…", spin: true },
+];
+function stateStrip(which) {
+  return `<div class="grid" data-grid>${KB_STATES.map((s) =>
+    `<div><div class="cap" style="margin:0 0 12px">${s.label}</div>${kbPill(s, which)}</div>`).join("")}</div>`;
+}
+
+/* ---- Article 3: session card, worktree placement ---- */
+function sub(title, inner, menu = false) {
+  return `<div class="sub"><span class="sub-legend">${title}${menu ? ` ${svg(I.mdiDotsHorizontal, 12)}` : ""}</span>${inner}</div>`;
+}
+function sessionCard(which) {
+  const kb = { state: "stale", chunks: 37804, stale: 92, files: 410 };
+  const kbRow = `<div class="kb-gap" data-testid="worktree-card-section-gap">
+      <div class="kb-card-row">${kbPill(kb, which, "flat").replace(/^<div class="kb-sec"[^>]*>|<\/div>$/g, "")}
+        <span class="kb-card-btn" title="Reindex now">${svg(I.mdiDatabaseRefreshOutline, 17)}</span></div>
+      <div>${slotPill({ label: "MCP", glyph: I.mdiServerOutline, accent: "indigo", body: "1 server", surface: "flat" })}</div>
+    </div>`;
+  return `<div class="scard">
+    <div class="scard-head"><span>lazy-plugin-claim-modules</span><span class="unit">4s</span></div>
+    <div class="scard-meta">anthropic/claude-sonnet-5-5 (high)</div>
+    ${sub("OpenSpec", `<div class="sub-row"><span class="link">lazy-plugin-claim-modules</span><span class="chip">Apply</span></div><div class="sub-row unit">✓ PROPOSAL ✓ DESIGN ✓ SPECS · TASKS 0/18</div>`)}
+    ${kbRow}
+    ${sub("Git", `<div class="sub-row">${svg(I.mdiSourceBranch, 14)}<span class="link">os/lazy-plugin-claim-modules</span><span class="chip">worktree</span></div>`, true)}
+    ${sub("Status", "")}
+    ${sub("Process", `<div class="sub-row unit">2 background processes</div>`)}
+  </div>`;
+}
+
+/* ---- Article 4: token spec ---- */
+const SPEC = `<table class="tok">
+  <thead><tr><th scope="col">Token</th><th scope="col">As-built</th><th scope="col">Proposed</th><th scope="col">Why</th></tr></thead>
+  <tbody>
+  <tr><td>Legend size</td><td><code>text-[12px]</code></td><td><code>text-[11px]</code></td><td>ui-contract <em>meta</em> step = hard floor; bounded capsule-legend exception (D1)</td></tr>
+  <tr><td>Legend tracking</td><td><code>tracking-wider</code> (.05em)</td><td><code>tracking-wide</code> (.025em)</td><td>“KNOWLEDGE BASE” ≈ 125 → ≈ 100 px</td></tr>
+  <tr><td>Overhang</td><td><code>-top-1.5</code></td><td><code>-top-2</code></td><td>15 px capsule centred on the border (D2)</td></tr>
+  <tr><td>Subcard padding / gap</td><td><code>py-1.5</code> · <code>mt-1.5</code></td><td><code>pt-2.5 pb-1.5</code> · <code>mt-2.5</code></td><td>≈ 3 px clear of own content and of the panel above</td></tr>
+  <tr><td>KB card-slot gap</td><td><code>mt-1.5</code></td><td><code>mt-2.5</code></td><td>same as subcards</td></tr>
+  <tr><td>Stale marker</td><td><code>⚠ 92 stale</code>, nowrap, shrinks into neighbour</td><td><code>mdiAlertOutline</code> + <code>92</code>, <code>shrink-0</code>; sr-only + title “92 stale”</td><td>fits; mdi-icon-system; full text for AT + hover (D3)</td></tr>
+  <tr><td>Count line</td><td>nothing may shrink</td><td>number <code>shrink-0</code>; unit <code>min-w-0 truncate</code></td><td>number never truncated, unit yields first</td></tr>
+  <tr><td>Shared constant</td><td>3 hand copies (one still 9 px)</td><td><code>SLOT_PILL_LEGEND</code> + <code>data-slot-pill-legend</code></td><td>no drift; probe exemption hook</td></tr>
+  </tbody></table>`;
+
+const ARTICLES = [
+  { id: "sidebar", title: "1 · Sidebar folder card — slot grid (pi-agent-dashboard folder)",
+    note: "Live data: KB 38,050 chunks, 92 stale. As-built: the stale badge paints 14.4 px past the pill border at 1440 px and the 12 px tracked legends dominate.",
+    render: (w) => `<div class="frame" data-frame>${sidebarGrid(w)}</div>`, live: "sidebar-grid" },
+  { id: "states", title: "2 · KB pill — every state at the sidebar pill width",
+    note: "Widest content per state. Proposed: numbers never truncate; unit words, state words and error text ellipsize; the marker never shrinks.",
+    render: (w) => `<div class="frame" data-frame>${stateStrip(w)}</div>` },
+  { id: "card", title: "3 · Session card — worktree placement (flat KB pill + reindex control, subcards)",
+    note: "Measured on the live build: legends are 16 px tall; they clear the subcard above by 1 px but sit ON their own content (OPENSPEC/KB 0 px, GIT −2 px, PROCESS −4 px). The worktree card slot stacks its claims with NO gap, so the MCP legend reaches 5 px into the KB row. Proposed: 11 px legends, pt-2.5 / mt-2.5, and the slot wrapper becomes flex-col gap-2.5.",
+    render: (w) => `<div class="frame card-frame" data-frame>${sessionCard(w)}</div>`, live: "session-card-worktree" },
+];
+
+function renderBoard() {
+  const theme = document.documentElement.dataset.board;
+  const liveScheme = theme === "base-light" ? "light" : theme === "base-dark" ? "dark" : null;
+  document.getElementById("board").innerHTML = ARTICLES.map((a) => `
+    <article class="state" id="${a.id}">
+      <h2>${a.title}</h2><p class="note">${a.note}</p>
+      <div class="cols">
+        <section class="col asbuilt ab" aria-label="As-built"><h3>As-built (develop)</h3>${a.render("ab")}
+          ${a.live ? (liveScheme
+            ? `<figure class="live"><img src="asbuilt/${a.live}-${liveScheme}.png" alt="Live capture of the as-built ${a.id} surface, ${liveScheme} theme"><figcaption>Live capture · localhost:8000 · ${liveScheme} · 1440 px</figcaption></figure>`
+            : `<p class="cap">No live capture for Nord (replica only).</p>`) : ""}
+        </section>
+        <section class="col proposed pr" aria-label="Proposed"><h3>Proposed (this change)</h3>${a.render("pr")}</section>
+      </div>
+    </article>`).join("") + `
+    <article class="state" id="spec"><h2>4 · Token changes</h2><p class="note">Every value cites the design decision it comes from.</p>${SPEC}
+      <p class="cap" id="measure"></p></article>`;
+  applyWidth();
+  measure();
+}
+
+function applyWidth() {
+  const w = WIDTHS[document.body.dataset.width];
+  document.querySelectorAll("[data-frame]").forEach((f) => {
+    f.style.setProperty("--frame-w", w.frame + "px");
+    f.style.setProperty("--card-w", w.card + "px");
+  });
+  document.querySelectorAll("[data-grid]").forEach((g) => (g.style.gridTemplateColumns = w.cols === 2 ? "repeat(2, minmax(0, 1fr))" : "minmax(0, 1fr)"));
+}
+
+/* In-board overflow readout: stale marker right edge vs its SlotPill root. */
+function measure() {
+  const out = [];
+  for (const col of ["ab", "pr"]) {
+    let worst = -Infinity;
+    document.querySelectorAll(`.${col} [data-testid=folder-kb-stale]`).forEach((m) => {
+      const root = m.closest(".sp").getBoundingClientRect(); const r = m.getBoundingClientRect();
+      worst = Math.max(worst, r.right - root.right);
+    });
+    out.push(`${col === "ab" ? "As-built" : "Proposed"} worst stale-marker overflow: <span class="metric ${worst > 0.5 ? "bad" : "ok"}">${worst > 0 ? "+" : ""}${worst.toFixed(1)} px</span>`);
+  }
+  document.getElementById("measure").innerHTML = out.join(" &nbsp; ") + ` &nbsp; (width ${document.body.dataset.width})`;
+}
+
+function setTheme(t) {
+  const html = document.documentElement; html.dataset.board = t;
+  if (t === "base-light") html.setAttribute("data-theme", "light"); else html.removeAttribute("data-theme");
+  if (t === "nord-dark") html.setAttribute("data-palette", "nord"); else html.removeAttribute("data-palette");
+}
+function syncButtons() {
+  const b = document.body, h = document.documentElement;
+  document.querySelectorAll("[data-theme-btn]").forEach((x) => x.setAttribute("aria-pressed", x.dataset.themeBtn === h.dataset.board));
+  document.querySelectorAll("[data-width-btn]").forEach((x) => x.setAttribute("aria-pressed", x.dataset.widthBtn === b.dataset.width));
+  document.querySelectorAll("[data-view-btn]").forEach((x) => x.setAttribute("aria-pressed", x.dataset.viewBtn === b.dataset.view));
+  const u = new URL(location.href); u.searchParams.set("theme", h.dataset.board); u.searchParams.set("width", b.dataset.width); u.searchParams.set("view", b.dataset.view);
+  history.replaceState(null, "", u);
+}
+document.querySelector(".toolbar").addEventListener("click", (e) => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.themeBtn) { setTheme(t.dataset.themeBtn); renderBoard(); }
+  if (t.dataset.widthBtn) { document.body.dataset.width = t.dataset.widthBtn; applyWidth(); measure(); }
+  if (t.dataset.viewBtn) { document.body.dataset.view = t.dataset.viewBtn; }
+  syncButtons();
+});
+const q = new URLSearchParams(location.search);
+setTheme(q.get("theme") || "base-dark");
+document.body.dataset.width = WIDTHS[q.get("width")] ? q.get("width") : "1440";
+document.body.dataset.view = q.get("view") === "proposed" ? "proposed" : "side";
+renderBoard(); syncButtons();
+</script>
+</body>
+</html>

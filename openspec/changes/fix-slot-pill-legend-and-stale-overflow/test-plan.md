@@ -27,6 +27,7 @@ so card rows run at 768/1440 only.
 | E11 | ui-state-capture · overflow probe math | BVA + decision-table | L1 | automated | pure `overflowOf(root {x0,y0,w150,h40}, items)`: (a) inside; (b) right +0.4 px; (c) right +0.6 px; (d) bottom +2 px; (e) top −7 px `topExempt:true`; (f) top −7 px `topExempt:false`; (g) right +5 px with `clips:[root-sized rect]`; (h) `clips` disjoint from rect; (i) `topExempt:true` top −7 px AND right +3 px | call | (a) [] (b) [] (c) 1 entry `… right +0.6px` (d) 1 `bottom` (e) [] (f) 1 `top` (g) [] (h) [] (skipped) (i) exactly 1 entry naming `right` |
 | E12 | ui-state-capture · sr-only excluded from visual floors | EP | L1 | automated | measures: one `srOnly:true` node (ratio 1.2:1, 10 px), one normal passing node | `contrastFailures(ms)` and `sizeFailures(ms)` | both return []; the same list with `srOnly:false` on the first node returns 1 contrast + 1 size failure |
 | E13 | ui-state-capture · capture result carries overflow | EP | L1 | automated | fake page whose `overflowRoot` locator records `evaluate` calls; one `UiState` with `overflowRoot` returning `["div right +2.0px"]`, one without | `captureStates` | with root: every row `overflow` equals `["div right +2.0px"]`; without: rows `overflow: []` and the spy recorded 0 calls |
+| E14 | session-card-subcards · worktree card-slot claims spaced | EP | L1 | automated | desktop `SessionCard` with `gitWorktree` set and the KB + MCP claims registered | render | `worktree-card-section-gap` class has `mt-2.5`, `flex`, `flex-col`, `gap-2.5`, no `mt-1.5`; non-worktree session renders no wrapper |
 
 ### Performance
 
@@ -40,7 +41,7 @@ None — presentation-only change; no latency or throughput requirement.
 | F2 | kb-plugin-folder-section · stale marker stays inside the pill (sidebar) | BVA (narrowest column) | L3 | automated | `stale` state (`chunks: 19397, staleCount: 3`) at 375/768/1440 × 3 themes | read boxes + styles | unclipped `folder-kb-stale` rect ⊂ `folder-kb-open-settings` border box (±0.5 px); `folder-kb-chunks` `scrollWidth <= clientWidth` and text `19,397` (en-US); computed colour of the `aria-hidden` count span vs the marker's computed background ≥ 4.5:1 via `contrastRatio`; root accessible name contains `3 stale` |
 | F3 | directory-card-layout · legend stays clear of the content row | BVA (1-col vs 2-col) | L3 | automated | KB pill, sidebar, `populated` | viewport 375 (expect 1 column), 768 and 1440 (expect 2 columns) | grid column count matches; legend rect `bottom ≤` glyph-chip rect `top` and `≤` `folder-kb-count` rect `top` |
 | F4 | kb-plugin-folder-section · stale marker inside the pill in the card placement | state-transition (populated → stale) | L3 | automated | real git worktree + spawned session (setup as `folder-collapse-worktree.spec.ts`), `/api/kb/stats` stubbed `populated` then `stale` | viewport 768 and 1440 × 3 themes, desktop session card | probe root = card's `folder-kb-open-settings`: `overflow` empty; unclipped `folder-kb-stale` rect ⊂ root; number text `19,397` untruncated; `folder-kb-card-reindex` rect does not intersect root |
-| F5 | session-card-subcards · stacked legends do not overlap the panel above | invariant | L3 | automated | the F4 worktree session's desktop card (OPENSPEC/KB slot/GIT/STATUS/PROCESS rendered) | viewport 1440 | for each `SessionSubcard` and the `worktree-card-section-gap` wrapper: its legend rect `top ≥` bottom border edge of the previous sibling element |
+| F5 | session-card-subcards · stacked legends do not overlap the panel above (incl. card-slot claims) | invariant | L3 | automated | the F4 worktree session's desktop card (OPENSPEC / KB + MCP claims / GIT / STATUS / PROCESS rendered) | viewport 768 and 1440 | every capsule legend's top ≥ bottom border edge of the element above it (subcard, wrapper, or previous claim — live as-built: MCP +5 px into KB); every legend's bottom ≤ its own panel's first content top (live as-built: GIT −2, PROCESS −4 px) |
 | F6 | directory-card-layout · legends read as labels, not headings | visual/subjective | — | manual-only | sidebar folder card (KB, MCP, Goals, Automations, OpenSpec pills) + a desktop session card, base dark/light + nord dark | human looks at 768 and 1440 px | [judgment: legend is visibly subordinate to the count line; no crowding against the border or content] |
 
 ### Error-handling
@@ -54,10 +55,10 @@ None — presentation-only change; no latency or throughput requirement.
 
 ## Coverage summary
 
-- Requirements covered: 5/5 (directory-card-layout ×2, session-card-subcards ×1, kb-plugin-folder-section ×1, ui-state-capture ×1 via E11–E13 + F1)
-- Scenarios by class: edge 13 · perf 0 · frontend 6 · error 2
-- Scenarios by level: L1 13 · L2 0 · L3 7 · — 1
-- Scenarios by disposition: automated 20 · manual-only 1
+- Requirements covered: 6/6 (directory-card-layout ×2, session-card-subcards ×2, kb-plugin-folder-section ×1, ui-state-capture ×1 via E11–E13 + F1)
+- Scenarios by class: edge 14 · perf 0 · frontend 6 · error 2
+- Scenarios by level: L1 14 · L2 0 · L3 7 · — 1
+- Scenarios by disposition: automated 21 · manual-only 1
 
 ## New infra needed
 

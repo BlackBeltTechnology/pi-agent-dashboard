@@ -28,3 +28,16 @@ The legend title SHALL be an absolutely-positioned `<span>` with class tokens: `
 #### Scenario: Subcard hides when children are an empty array
 - **WHEN** `<SessionSubcard title="FLOWS">{[]}</SessionSubcard>` is rendered
 - **THEN** the wrapper SHALL render nothing
+
+## ADDED Requirements
+
+### Requirement: Worktree card-slot claims are spaced like subcards
+The session card's worktree card-slot wrapper (`data-testid="worktree-card-section-gap"`, which hosts every `worktree-card-section` claim such as the KB and MCP slot pills) SHALL carry `mt-2.5`, `flex`, `flex-col` and `gap-2.5`, so that each claim's capsule legend clears both the subcard above the wrapper and the claim above it within the wrapper, by the same stacking gap as `SessionSubcard`.
+
+#### Scenario: Wrapper carries the stacking tokens
+- **WHEN** a desktop session card renders for a session whose `gitWorktree` is set
+- **THEN** the `worktree-card-section-gap` element carries `mt-2.5`, `flex`, `flex-col` and `gap-2.5`, and not `mt-1.5`
+
+#### Scenario: Second card-slot claim legend does not reach into the first
+- **WHEN** the worktree card slot renders two claims (KB, then MCP) at 768 and 1440 px
+- **THEN** the second claim's legend top edge lies at or below the first claim's bottom border edge
