@@ -38,6 +38,7 @@ const failures = (results: CaptureResult[]): string[] =>
     ...r.contrast.map((f) => `${cell(r)} contrast: ${f}`),
     ...r.size.map((f) => `${cell(r)} size: ${f}`),
     ...r.focus.map((f) => `${cell(r)} focus: ${f}`),
+    ...r.overflow.map((f) => `${cell(r)} overflow: ${f}`),
   ]);
 
 /** path → mtime of every file under the change's `mockups/after/` (empty when absent). */

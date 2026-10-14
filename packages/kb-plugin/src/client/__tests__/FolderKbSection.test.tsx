@@ -16,7 +16,7 @@ import {
   type FolderMenuStore,
   PluginContextProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { mdiPinOutline } from "@mdi/js";
+import { mdiAlertOutline, mdiPinOutline } from "@mdi/js";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -185,8 +185,11 @@ describe("FolderKbSection render", () => {
     (globalThis as { fetch?: unknown }).fetch = mockStats(stats({ chunks: 88, staleCount: 3 }));
     const { findByTestId, store } = renderSlot();
     const flag = await findByTestId("folder-kb-stale");
-    expect(flag.textContent).toContain("3 stale");
-    await waitFor(() => expect(kbItem(store)?.badge).toContain("3 stale"));
+    // Pill = compact fact (count only; full form in sr-only + title); menu badge = full form.
+    // See change: fix-slot-pill-legend-and-stale-overflow (test-plan #E8).
+    expect(flag.querySelector('[aria-hidden="true"]:not(svg)')?.textContent).toBe("3");
+    expect(flag.querySelector(".sr-only")?.textContent).toBe("3 stale");
+    await waitFor(() => expect(kbItem(store)?.badge).toBe("3 stale"));
     // Distinct from the folder's plain refresh: it is the KB's own reindex item.
     expect(kbItem(store)!.id).toBe("kb-reindex");
   });
@@ -769,13 +772,92 @@ describe("FolderKbSection — token-only state words (E21)", () => {
     expect(pill.className).toContain("--severity-error-fg");
   });
 
-  it("stale is `⚠ 3 stale` in a severity-warning pill", () => {
+  // test-plan #E6 — compact MDI marker: icon + bare count, full text for AT + tooltip.
+  // See change: fix-slot-pill-legend-and-stale-overflow.
+  it("stale is a compact MDI marker in a severity-warning pill", () => {
     (globalThis as { fetch?: unknown }).fetch = vi.fn(() => new Promise<Response>(() => {}));
     vi.spyOn(getKbStatsStore(cwd), "getSnapshot").mockReturnValue({ ...SNAP, stats: stats({ staleCount: 3 }) });
     const { getByTestId } = renderSlot();
     const pill = getByTestId("folder-kb-stale");
-    expect(pill.textContent).toBe("⚠ 3 stale");
     expect(pill.className).toContain("--severity-warning-fg");
+    expect(pill.className).toContain("shrink-0");
+    expect(pill.getAttribute("title")).toBe("3 stale");
+    expect(pill.querySelector("svg path")?.getAttribute("d")).toBe(mdiAlertOutline);
+    expect(pill.querySelector('span[aria-hidden="true"]')?.textContent).toBe("3");
+    expect(pill.querySelector(".sr-only")?.textContent).toBe("3 stale");
+    expect(pill.textContent).not.toContain("⚠");
+  });
+
+  // test-plan #E7 — staleCount boundaries.
+  it.each([
+    [0, null],
+    [1, "1"],
+    [12345, "12345"],
+  ] as const)("stale marker boundary: staleCount %i", (n, visible) => {
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(() => new Promise<Response>(() => {}));
+    vi.spyOn(getKbStatsStore(cwd), "getSnapshot").mockReturnValue({ ...SNAP, stats: stats({ chunks: 19397, staleCount: n }) });
+    const { getByTestId, queryByTestId } = renderSlot();
+    const marker = queryByTestId("folder-kb-stale");
+    if (visible === null) {
+      expect(marker).toBeNull();
+      expect(getByTestId("folder-kb-section").getAttribute("data-state")).toBe("populated");
+      return;
+    }
+    expect(marker?.querySelector('span[aria-hidden="true"]')?.textContent).toBe(visible);
+    expect(marker?.querySelector(".sr-only")?.textContent).toBe(`${visible} stale`);
+    expect(marker?.className).toContain("shrink-0");
+  });
+
+  // test-plan #E9 — numbers never truncate, units do; nothing between marker and pill clips.
+  it("numbers are shrink-0, unit words truncate, count wrapper does not clip", () => {
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(() => new Promise<Response>(() => {}));
+    const spy = vi.spyOn(getKbStatsStore(cwd), "getSnapshot");
+    spy.mockReturnValue({ ...SNAP, stats: stats({ chunks: 19397, staleCount: 3 }) });
+    const first = renderSlot();
+    const chunks = first.getByTestId("folder-kb-chunks");
+    expect(chunks.className).toContain("shrink-0");
+    expect(chunks.className).toContain("tabular-nums");
+    expect(chunks.textContent).toBe((19397).toLocaleString());
+    const unit = chunks.nextElementSibling as HTMLElement;
+    expect(unit.textContent).toBe("chunks");
+    expect(unit.className).toContain("min-w-0");
+    expect(unit.className).toContain("truncate");
+    const count = first.getByTestId("folder-kb-count");
+    expect(count.className).toContain("min-w-0");
+    expect(count.className).not.toContain("overflow-hidden");
+    expect(first.getByTestId("folder-kb-section").className).toContain("min-w-0");
+    cleanup();
+
+    spy.mockReturnValue({ ...SNAP, stats: stats({ files: 412, indexing: true }) });
+    const second = renderSlot();
+    const files = second.getByTestId("folder-kb-count").querySelector("span.tabular-nums, span > span.tabular-nums") as HTMLElement;
+    expect(files.textContent).toBe("412");
+    expect(files.className).toContain("shrink-0");
+    const filesUnit = files.nextElementSibling as HTMLElement;
+    expect(filesUnit.className).toContain("min-w-0");
+    expect(filesUnit.className).toContain("truncate");
+  });
+
+  // test-plan #E10 — state words / error text sit in an inner truncating span.
+  it.each([
+    ["denied", { denied: true }, "not allowed"],
+    ["pinning", { denied: true, pinPending: true }, "pinning"],
+    ["missing", { stats: stats({ folderMissing: true }) }, "folder missing"],
+    ["no-sources", { stats: stats({ chunks: 0, indexed: false, sourceCount: 0 }) }, "no sources"],
+    ["not-indexed", { stats: stats({ chunks: 0, indexed: false }) }, "not indexed"],
+    ["indexing", { stats: stats({ indexing: true }) }, "indexing"],
+    ["error", { stats: stats({ jobStatus: "error" }) }, "index failed"],
+  ] as Array<[string, Partial<KbStatsSnapshot>, string]>)("%s text truncates inside a min-w-0 parent", (_state, over, text) => {
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(() => new Promise<Response>(() => {}));
+    vi.spyOn(getKbStatsStore(cwd), "getSnapshot").mockReturnValue({ ...SNAP, ...over });
+    const { getByTestId } = renderSlot();
+    const inner = [...getByTestId("folder-kb-count").querySelectorAll("span")].find(
+      (el) => el.children.length === 0 && el.textContent?.startsWith(text),
+    ) as HTMLElement;
+    expect(inner).toBeTruthy();
+    expect(inner.className).toContain("min-w-0");
+    expect(inner.className).toContain("truncate");
+    expect((inner.parentElement as HTMLElement).className).toContain("min-w-0");
   });
 
   it.each(["denied", "missing", "indexing"] as const)("%s word uses --text-secondary", (state) => {

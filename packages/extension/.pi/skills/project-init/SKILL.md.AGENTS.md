@@ -1,3 +1,5 @@
 # project-init/SKILL.md — index
 
-Bundled skill: scaffold bare dir into configured pi project. Interactive: profiles (coding/docs; user ~/.pi/project-profiles shadow shipped), stack auto-detect (pnpm/yarn/bun/npm/cargo/go/poetry/pip/maven/gradle), DOX + OpenSpec opt-in; writes AGENTS.md, .pi/settings.json, prompts; worktreeInit hook flips Initialize button.
+Bundled skill: scaffold bare dir into configured pi project. Interactive: profiles (coding/docs; user ~/.pi/project-profiles shadow shipped), stack auto-detect (pnpm/yarn/bun/npm/cargo/go/poetry/pip/maven/gradle), DOX opt-in; writes AGENTS.md, .pi/settings.json, prompts; worktreeInit hook flips Initialize button.
+OpenSpec (coding only): Step 3b computes `OPENSPEC_MODE` (`offer`/`repair`/`skip`, 7-row first-match table: fail-closed config, `pathKey` opt-out `node -e` one-liner, git placement checks, `offerInitialization`); `repair` = `openspec/` present but `.pi/skills/openspec-explore/` missing → no question, disclosed in Step 3c preview (legacy artifacts "may be removed", `openspec-*` skills overwritten, global config migration). Step 6 runs `openspec init --tools pi --force`, verifies the skills dir, warns with `ls .pi/skills`.
+Guard: `packages/extension/src/__tests__/project-init-openspec-skill-text.test.ts`. See change: fix-project-setup-completion-state.

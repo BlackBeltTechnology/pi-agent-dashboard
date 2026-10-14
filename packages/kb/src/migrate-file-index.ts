@@ -4,23 +4,23 @@
 // subagent fan-out is driven by the orchestrating agent, which calls these
 // helpers for parse / plan / tier-0 rows / validation / render.
 import { basename, relative } from "node:path";
+import { matchRow } from "./dox-row.js";
 
 export interface IndexRow {
   purpose: string; // verbatim purpose column (incl. inline "See change:")
   seeChange: string[]; // extracted change ids
 }
 
-const ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|\s*$/;
 const SEE_CHANGE_RE = /See change:\s*([A-Za-z0-9_-]+)/g;
 
 /** Parse a single file-index split's markdown into path → {purpose, seeChange}. */
 export function parseFileIndex(text: string): Map<string, IndexRow> {
   const out = new Map<string, IndexRow>();
   for (const line of text.split("\n")) {
-    const m = line.match(ROW_RE);
+    const m = matchRow(line);
     if (!m) continue;
-    const path = m[1].trim();
-    const purpose = m[2].trim();
+    const path = m.path.trim();
+    const purpose = m.purpose;
     // skip the header separator / pointer rows that aren't source paths
     if (!purpose || path === "File") continue;
     const seeChange = [...purpose.matchAll(SEE_CHANGE_RE)].map((mm) => mm[1]);

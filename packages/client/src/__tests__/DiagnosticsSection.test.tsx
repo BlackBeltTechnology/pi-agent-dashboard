@@ -2,16 +2,23 @@
  * Tests for `<DiagnosticsSection />`.
  * See change: doctor-rich-output (task 5.7).
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
+
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import type { Root, Table } from "mdast";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 // Stub MarkdownContent — it pulls ThemeContext that we don't need to wire here.
 vi.mock("../components/preview/MarkdownContent.js", () => ({
   MarkdownContent: ({ content }: { content: string }) => content,
 }));
+
 import { DiagnosticsSection } from "../components/settings/DiagnosticsSection.js";
-import { DoctorFetchError } from "../lib/api/doctor-api.js";
-import type { DoctorReport } from "../lib/api/doctor-api.js";
 import type { AutoNameOutcomeRow } from "../lib/api/auto-name-outcomes-api.js";
+import type { DoctorReport } from "../lib/api/doctor-api.js";
+import { DoctorFetchError } from "../lib/api/doctor-api.js";
 
 afterEach(() => cleanup());
 
@@ -116,6 +123,38 @@ describe("DiagnosticsSection", () => {
     // Escape dismisses.
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(queryByTestId("diagnostics-copy-modal")).toBeNull());
+  });
+
+  it("E9: Copy as Markdown escapes name/message cells (fix-codeql-small-findings)", async () => {
+    const report = mkReport({
+      checks: [
+        { name: "c1", section: "runtime", status: "ok", message: "a\\|b" },
+        { name: "c2", section: "runtime", status: "ok", message: "C:\\path\\" },
+        { name: "ABI mismatch: a|b\\", section: "runtime", status: "ok", message: "m" },
+        { name: "c4", section: "runtime", status: "ok", message: "line1\nline2" },
+        { name: "c5", section: "runtime", status: "ok", message: "line1\rline2" },
+      ],
+      summary: { ok: 5, warnings: 0, errors: 0 },
+    });
+    const fetcher = vi.fn().mockResolvedValue(report);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(globalThis.navigator, "clipboard", { configurable: true, value: { writeText } });
+
+    const { findByTestId } = render(<DiagnosticsSection fetcher={fetcher} />);
+    fireEvent.click(await findByTestId("diagnostics-copy-md"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const md = writeText.mock.calls[0][0] as string;
+
+    expect(md).toContain("| c1 | a\\\\\\|b |");
+    expect(md).toContain("| c2 | C:\\\\path\\\\ |");
+    expect(md).toContain("| ABI mismatch: a\\|b\\\\ | m |");
+    expect(md).toContain("| c5 | line1 line2 |");
+
+    const tree = unified().use(remarkParse).use(remarkGfm).parse(md) as Root;
+    const tables = tree.children.filter((n): n is Table => n.type === "table");
+    expect(tables).toHaveLength(1);
+    expect(tables[0].children).toHaveLength(1 + 5);
+    for (const row of tables[0].children) expect(row.children).toHaveLength(4);
   });
 
   it("happy-path copy uses navigator.clipboard.writeText", async () => {

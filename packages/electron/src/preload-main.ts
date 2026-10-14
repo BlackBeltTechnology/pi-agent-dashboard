@@ -49,6 +49,22 @@ export interface PiDashboardApi {
    * a runtime requires a newer app. See change: electron-runtime-overlay-updates.
    */
   checkAppUpdate: () => Promise<void>;
+  /**
+   * Ask the app to open (or focus) the window for a known remote dashboard, or
+   * start pairing with it. Present ONLY while this document is on the local
+   * dashboard origin (passed by main as `--pi-local-origin=`); a remote-mode
+   * document never sees it. The host/port must match a discovered server or a
+   * keyring host — main validates and resolves everything else.
+   * See change: add-electron-server-windows (D9).
+   */
+  openServerWindow?: (target: { host: string; port: number }) => Promise<{ ok: true; pairing?: true } | { ok: false; reason: string }>;
+}
+
+/** Local dashboard origin handed over by the main process via `additionalArguments`. */
+const LOCAL_ORIGIN_ARG = "--pi-local-origin=";
+function localOriginFromArgv(): string | undefined {
+  const arg = process.argv.find((a) => a.startsWith(LOCAL_ORIGIN_ARG));
+  return arg ? arg.slice(LOCAL_ORIGIN_ARG.length) : undefined;
 }
 
 const piDashboard: PiDashboardApi = {
@@ -63,5 +79,10 @@ const piDashboard: PiDashboardApi = {
     return () => { ipcRenderer.removeListener("dashboard:launch-status", listener); };
   },
 };
+
+const localOrigin = localOriginFromArgv();
+if (localOrigin && globalThis.location?.origin === localOrigin) {
+  piDashboard.openServerWindow = (target) => ipcRenderer.invoke("servers:open-from-dashboard", { host: target?.host, port: target?.port });
+}
 
 contextBridge.exposeInMainWorld("piDashboard", piDashboard);

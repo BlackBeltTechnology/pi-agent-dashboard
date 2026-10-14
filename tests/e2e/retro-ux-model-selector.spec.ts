@@ -23,6 +23,7 @@ const failures = (results: CaptureResult[]): string[] =>
     ...r.contrast.map((f) => `${cell(r)} contrast: ${f}`),
     ...r.size.map((f) => `${cell(r)} size: ${f}`),
     ...r.focus.map((f) => `${cell(r)} focus: ${f}`),
+    ...r.overflow.map((f) => `${cell(r)} overflow: ${f}`),
   ]);
 
 async function probe(page: Page, surface: string, states: UiState[]): Promise<void> {

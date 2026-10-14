@@ -5727,6 +5727,8 @@ See change: repair-corrupted-main-specs.
 
 ## Electron Server Lifecycle
 
+Paired remote dashboards open in per-server Electron windows (own origin, device cookie): see [electron-server-windows.md](./electron-server-windows.md).
+
 ### Power-user-mode managed install (Defect 1 fix)
 
 ### LaunchSource V2 Resolution (Phase C default)

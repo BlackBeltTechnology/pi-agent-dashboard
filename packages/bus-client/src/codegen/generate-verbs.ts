@@ -88,8 +88,7 @@ function render(all: VerbInfo[]): string {
  */
 
 /** All forwardable command verbs (denylisted members excluded). */
-export const GENERATED_VERBS = ${JSON.stringify(verbs, null, 2)
-    .replace(/\n/g, "\n")} as const;
+export const GENERATED_VERBS = ${JSON.stringify(verbs, null, 2)} as const;
 
 export type GeneratedVerb = (typeof GENERATED_VERBS)[number];
 
