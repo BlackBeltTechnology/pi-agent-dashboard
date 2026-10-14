@@ -16,11 +16,16 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/claude-plugin-structure.test.mjs` | Plugin layout + marketplace manifest (E1, E2), forbidden references (E37), skill content contract (E39). |
 | `__tests__/claude-plugin-version.test.mjs` | `plugin.json` = root version (E40), `sync-versions.js` stamping idempotent (E41), `release-cut` stages + verifies it (E42). |
 | `__tests__/claude-plugin-zip.test.mjs` | Release zip layout (E44) and version gate (E45) for `build-claude-plugin-zip.mjs`. |
+| `__tests__/codeql-local-cli.test.mjs` | `codeql-local.mjs` end to end against a fake `CODEQL_BIN` + temp git repos (test-plan #E2-#E13, #E16, #E23, #E25-#E29, #P1, #X1-#X5). See change: add-local-codeql-ratchet. |
+| `__tests__/codeql-local-real.test.mjs` | `codeql-local.mjs` against the REAL CodeQL CLI on tiny repos (#E4, #E18, #X6). `describe.skipIf` no `codeql` / uncached packs; uses the real HOME for the pack cache. See change: add-local-codeql-ratchet. |
+| `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17, #E19-#E22, #E24, #E29 writer, #P1). See change: add-local-codeql-ratchet. |
 | `__tests__/coverage-config.test.mjs` | Coverage config shape. |
 | `__tests__/coverage-report.test.mjs` | Live coverage runs. |
 | `__tests__/client-isolate-gate.test.mjs` | Client isolate gate. |
 | `__tests__/dependency-declarations.test.mjs` | Set-based manifest guarantees over ALL 32 non-private workspaces (not a sample). → see `__tests__/dependency-declarations.test.mjs.AGENTS.md` |
+| `__tests__/fixtures/codeql-harness.mjs` | Test harness for `codeql-local.mjs`: temp git repos, per-call fake-binary plan, SARIF + baseline builders. See change: add-local-codeql-ratchet. |
 | `__tests__/fixtures/coverage-failing/` | Red coverage fixture. |
+| `__tests__/fixtures/fake-codeql.mjs` | Fake `codeql` (`CODEQL_BIN` seam). Plan from `$FAKE_CODEQL_PLAN`; logs argv, `LGTM_INDEX_FILTERS`, source-root listing; writes fixture SARIF. See change: add-local-codeql-ratchet. |
 | `__tests__/fixtures/mutation-journal-child.mjs` | Child-process fixture for the mutation-journal crash-safety tests. → see `__tests__/fixtures/mutation-journal-child.mjs.AGENTS.md` |
 | `__tests__/fixtures/npm-view-stub.mjs` | Gate CLI npm-view stub. → see `__tests__/fixtures/npm-view-stub.mjs.AGENTS.md` |
 | `__tests__/helpers/ensure-dashboard-harness.mjs` | `makeCtx()` sandbox for the bootstrap tests: temp HOME, logging stub executables, fixture/pid helpers, async `run()`. |
@@ -47,6 +52,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/mutation-journal.test.mjs` | Vitest crash-safety tests for the mutation-harness journal (test-plan #E1-#E8, #X1-#X13). → see `__tests__/mutation-journal.test.mjs.AGENTS.md` |
 | `__tests__/nightly-verdaccio-publish.test.mjs` | Vitest unit tests for scripts/nightly-verdaccio-publish.mjs pure helpers: nextPatch (0.6.1→0.6.2, ignores… → see `__tests__/nightly-verdaccio-publish.test.mjs.AGENTS.md` |
 | `__tests__/qa-smoke-guards.test.mjs` | Fault-injects the clean-prefix QA smoke (`qa/tests/35-plugin-install-load.sh`) by stubbing… → see `__tests__/qa-smoke-guards.test.mjs.AGENTS.md` |
+| `__tests__/prune-memory-backups.test.mjs` | Pins `planPrune` selection + `prune` IO for the hermes store trim. Weight is on the negative cases: live `sessions.db`/`-wal`/`-shm` and hand-made `.bak.cleanup-*`/`.bak.trim-*` are never candidates even at `keep: 0`. Also asserts dry-run deletes nothing, `--write` removes corrupt + surplus only, and a second run is a no-op. |
 | `__tests__/rebuild-scripts-gate.test.mjs` | X5 fault injection: both `rebuild-restart.sh` and `rebuild-and-restart.sh` run the served-client gate between… → see `__tests__/rebuild-scripts-gate.test.mjs.AGENTS.md` |
 | `__tests__/repair-meta-source.test.mjs` | Vitest unit tests for repair-meta-source.mjs. Asserts source:"dashboard" → cleaned (other fields preserved),… → see `__tests__/repair-meta-source.test.mjs.AGENTS.md` |
 | `__tests__/review-changes-parser.test.mjs` | Vitest unit tests for parseFindings + splitFindings (.pi/skills/implement/scripts/parse-findings.ts). → see `__tests__/review-changes-parser.test.mjs.AGENTS.md` |
@@ -83,6 +89,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `check-pi-settings-paths.mjs` | Guard, run by ci.yml: no machine-specific absolute path in a committed `.pi/settings.json`… → see `check-pi-settings-paths.mjs.AGENTS.md` |
 | `check-skill-frontmatter.mjs` | Skill frontmatter guard, run by ci.yml. Exit non-zero iff >=1 error; warnings never fail. → see `check-skill-frontmatter.mjs.AGENTS.md` |
 | `check-vendor-specifiers.mjs` | Static specifier guard for the vendored relay: every import under `relay/vendor/` must be a builtin, a declared dep, or relative. → see `check-vendor-specifiers.mjs.AGENTS.md` |
+| `codeql-local.mjs` | Local CodeQL ratchet for `ship-it` steps 4.4/4.4b: snapshot → analyse → per-alert baseline ratchet (`codeql-baseline.json`). → see `codeql-local.mjs.AGENTS.md` |
 | `commit-windows-parity.sh` | Stages and commits fix-windows-server-parity + consolidate-platform-handlers work in 5 logical chunks (fix:,… → see `commit-windows-parity.sh.AGENTS.md` |
 | `dox-byte-gate.mjs` | AGENTS.md byte-cap gate for `ship-it` step 4.4. Filters `kb dox lint --json` to `kind:"over-threshold"` +… → see `dox-byte-gate.mjs.AGENTS.md` |
 | `fix-pty-permissions.cjs` | Postinstall: fix node-pty spawn-helper execute permissions |
@@ -115,6 +122,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `nightly-verdaccio-publish.mjs` | Nightly Verdaccio publish: bump every non-private workspace + root to `<base>-nightly.<YYYYMMDD>.<sha7>` (or… → see `nightly-verdaccio-publish.mjs.AGENTS.md` |
 | `nightly-verdaccio-serve.mjs` | Start an ephemeral Verdaccio as a detached background service (spawn detached+unref+stdio:ignore — cross-OS,… → see `nightly-verdaccio-serve.mjs.AGENTS.md` |
 | `probe-harness-memory.mjs` | Out-of-band harness memory probe (host side): `docker exec` reads cgroup v2 `memory.*` + `pids.current` and… → see `probe-harness-memory.mjs.AGENTS.md` |
+| `prune-memory-backups.mjs` | Recurring maintenance: trims `~/.pi/agent/pi-hermes-memory/`. Deletes all `sessions.db.corrupt-*` (incl. `-shm`/`-wal` sidecars) and all but the `--keep N` newest `sessions.db.bak.auto-<YYYYMMDD>-<HHMMSS>` (default 2). Dry-run unless `--write`; `--dir` overrides the store. Idempotent. Exports `planPrune(names, keep)` (pure), `prune({dir,keep,write})`, `DEFAULT_KEEP`, `DEFAULT_DIR`. npm: `clean:memory` / `clean:memory:write`. Store grows ~700MB/backup and self-prunes nothing — reached 5.7GB/78 corrupt files and filled a disk. |
 | `prune-orphan-worktrees.ts` | One-shot: `rm -rf` orphan `.worktrees/*` husk dirs (on disk, absent from `git worktree list`) left by kb DB… → see `prune-orphan-worktrees.ts.AGENTS.md` |
 | `patch-vendor-specifiers.mjs` | Rewrites the vendored relay's playwright-internal specifiers to package-relative `shims/*.js` paths + §4(b) notice; idempotent, fail-closed. → see `patch-vendor-specifiers.mjs.AGENTS.md` |
 | `reload-all.sh` | Build bridge + reload all pi sessions Inline per-request proof mint (byte-identical to shared `mintProof`,… → see `reload-all.sh.AGENTS.md` |

@@ -9,7 +9,7 @@ import type {
   PutPiRetryPolicyResponse,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { getApiBase } from "./api-context.js";
-import { fetchJson } from "./fetch-json.js";
+import { fetchJson, fetchJsonResponse } from "./fetch-json.js";
 
 export type {
   PiRetryPolicy,
@@ -40,12 +40,15 @@ export interface PutPiRetryResult {
 }
 
 export async function putPiRetryPolicy(policy: PiRetryPolicy): Promise<PutPiRetryResult> {
-  const json = await fetchJson<PutPiRetryPolicyResponse>(`${getApiBase()}/api/pi-retry`, {
+  // `fetchJsonResponse` (content-type guard only): the server answers a refusal
+  // (400 invalid / unparseable file, 503 lock busy) with a JSON `{ error }` that
+  // the editor must show, not a bare "HTTP 503".
+  const { res, json } = await fetchJsonResponse<PutPiRetryPolicyResponse>(`${getApiBase()}/api/pi-retry`, {
     method: "PUT",
     credentials: "same-origin",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(policy),
   });
-  if (!json.success || !json.data) throw new Error(json.error ?? "Failed to save retry policy");
+  if (!res.ok || !json.success || !json.data) throw new Error(json.error ?? "Failed to save retry policy");
   return json.data;
 }

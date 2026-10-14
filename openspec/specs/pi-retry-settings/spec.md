@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change retry-forever-with-stop-control. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Dashboard exposes pi's native retry policy as a GLOBAL editor
 
 The dashboard SHALL expose pi's own retry policy as an editable settings surface on the Sessions
@@ -120,9 +122,12 @@ the partial-failure message instead of reporting a false success.
 
 ### Requirement: Saving writes a merge-preserving global settings block
 
-Saving SHALL write into the GLOBAL `~/.pi/agent/settings.json`. The write SHALL preserve every
-unrelated key byte-identical, including keys the dashboard does not know about. The project-scoped
-`.pi/settings.json` SHALL NEVER be written.
+Saving SHALL write into the GLOBAL `~/.pi/agent/settings.json`. The write SHALL preserve the value of
+every unrelated key, including keys the dashboard does not know about; whitespace, key order, and a
+leading byte-order mark are not preserved (the file is re-serialised as 2-space-indented JSON). The
+project-scoped `.pi/settings.json` SHALL NEVER be written. When the existing file cannot be parsed as
+JSON, the save SHALL be rejected and the file SHALL be left byte-identical — a retry policy SHALL NEVER
+be written over an empty object in place of unreadable content.
 
 #### Scenario: Unrelated keys survive the write byte-identically
 
@@ -130,7 +135,7 @@ unrelated key byte-identical, including keys the dashboard does not know about. 
   `dashboardPluginBridges` keys
 - **WHEN** the user saves a retry policy
 - **THEN** the file SHALL contain the new `retry` block
-- **AND** `packages`, `extensions`, and `dashboardPluginBridges` SHALL be byte-identical to their
+- **AND** `packages`, `extensions`, and `dashboardPluginBridges` SHALL be deep-equal to their
   prior values
 
 #### Scenario: Unknown keys inside the retry block survive
@@ -143,6 +148,14 @@ unrelated key byte-identical, including keys the dashboard does not know about. 
 
 - **WHEN** any retry policy is saved
 - **THEN** `<cwd>/.pi/settings.json` SHALL NOT be created or modified
+
+#### Scenario: Unparseable settings file is not overwritten
+
+- **GIVEN** `~/.pi/agent/settings.json` contains truncated JSON
+- **WHEN** the user saves a retry policy
+- **THEN** the save SHALL be rejected with a parse error
+- **AND** the file SHALL be byte-identical to before
+- **AND** no session SHALL be reloaded
 
 ### Requirement: Values are validated before they are written
 
@@ -228,3 +241,19 @@ show the consequence of the chosen values rather than leaving the user to discov
 - **THEN** the surface SHALL show the resulting delay progression and the total time before the turn
   finally fails
 
+### Requirement: Retry saves coordinate with pi's settings lock
+
+A retry save SHALL take the same advisory file lock pi takes when it writes `~/.pi/agent/settings.json`,
+SHALL re-read the file while holding it, and SHALL replace the file atomically. When the lock cannot be
+acquired within pi's own retry budget the save SHALL be rejected with `503`, nothing SHALL be written,
+and no session SHALL be reloaded. The editor SHALL treat `503` like any failed commit: the source stays
+dirty and the failure is shown.
+
+#### Scenario: Held lock rejects the save
+
+- **GIVEN** the pi settings lock is held by another process for longer than the retry budget
+- **WHEN** the user saves a retry policy
+- **THEN** the response SHALL be `503`
+- **AND** the file SHALL be byte-identical to before
+- **AND** no session SHALL be reloaded
+- **AND** the Retry section SHALL remain dirty
