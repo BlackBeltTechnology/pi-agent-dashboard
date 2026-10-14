@@ -170,3 +170,31 @@ describe("CRAFT_SOURCE", () => {
     expect((e as Error).message).toMatch(/FilmCraft is installed by the Craft Launcher.*ships no filmcraft-cli \(desktop app only\)/);
   });
 });
+
+describe("review round 1 follow-ups", () => {
+  it("prerelease cache directories count as installed (offline fallback + status)", async () => {
+    const fx = await startFixture({ repo: "storytold/effectcraft", assets: {}, latestStatus: 403 });
+    fixtures.push(fx);
+    const home = tmpDir();
+    const dir = path.join(home, "effectcraft", "0.10.0-beta.1", "top", "bin");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "effectcraft-cli"), STUB_BINARY, { mode: 0o755 });
+    const r = await provision("effectcraft", base(home, { apiBase: fx.url }));
+    expect(r).toMatchObject({ version: "0.10.0-beta.1", source: "fallback-installed", cacheHit: true });
+  });
+
+  it("a version pin that the launcher source ignores is called out on stderr", async () => {
+    const home = tmpDir();
+    const apps = path.join(home, "apps");
+    fs.mkdirSync(path.join(apps, "CADCraft"), { recursive: true });
+    fs.writeFileSync(path.join(apps, "CADCraft", "cadcraft-cli"), '#!/bin/sh\necho "cadcraft-cli 0.7.0"\n', { mode: 0o755 });
+    const logs: string[] = [];
+    await provision("cadcraft", {
+      ...base(home),
+      homedir: () => home,
+      log: (m) => logs.push(m),
+      env: { CRAFT_HOME: home, CRAFT_SOURCE: "launcher", CRAFT_LAUNCHER_HOME: apps, CADCRAFT_VERSION: "0.6.0" },
+    });
+    expect(logs.join("\n")).toMatch(/CADCRAFT_VERSION=0\.6\.0 is ignored by the launcher source/);
+  });
+});

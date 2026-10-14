@@ -418,7 +418,7 @@ export function readLatestCache(root: string, now: number): string | undefined {
 
 export function installedVersions(app: CraftApp, root: string, platform: string): string[] {
   return subdirs(root)
-    .filter((d) => /^\d+\.\d+\.\d+/.test(d) && !d.startsWith("."))
+    .filter((d) => /^\d+\.\d+\.\d+[0-9A-Za-z._+-]*$/.test(d) && !d.includes(".."))
     .filter((d) => cachedBinary(app, path.join(root, d), platform) !== undefined)
     .sort((a, b) => compareSemver(b, a));
 }
@@ -555,7 +555,11 @@ export async function provision(appOrId: CraftApp | string, partial: Partial<Pro
   const source = craftSource(deps.env);
   if (source === "launcher" || source === "auto") {
     const viaLauncher = await launcherReport(app, deps, started);
-    if (typeof viaLauncher !== "string") return viaLauncher;
+    if (typeof viaLauncher !== "string") {
+      const pin = deps.env[`${envPrefix(app)}_VERSION`]?.trim();
+      if (pin) deps.log(`[pi-craft] ${app.id}: ${envPrefix(app)}_VERSION=${pin} is ignored by the launcher source (it uses the launcher-installed CLI)`);
+      return viaLauncher;
+    }
     if (source === "launcher") {
       throw new ProvisionError(
         `${viaLauncher}; the launcher source never downloads — install ${app.name} with the launcher (\`pi-craft launcher install\`) or set CRAFT_SOURCE=managed`,

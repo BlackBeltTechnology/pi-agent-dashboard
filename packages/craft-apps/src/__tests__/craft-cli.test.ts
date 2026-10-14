@@ -209,3 +209,17 @@ describe("launcher", () => {
     expect(c.err.join("")).toContain("checksum mismatch");
   });
 });
+
+describe("exec signal listeners", () => {
+  it("do not accumulate across repeated exec calls in one process", async () => {
+    const bin = nodeStub("process.exit(0)", "soundcraft-cli");
+    const before = process.listenerCount("SIGTERM");
+    const beforeInt = process.listenerCount("SIGINT");
+    for (let i = 0; i < 12; i++) {
+      const c = capture();
+      expect(await main(["soundcraft", "exec", "--version"], { ...c.deps, provision: async (id) => report(id, bin) })).toBe(0);
+    }
+    expect(process.listenerCount("SIGTERM")).toBe(before);
+    expect(process.listenerCount("SIGINT")).toBe(beforeInt);
+  });
+});

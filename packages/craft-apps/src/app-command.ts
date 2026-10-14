@@ -15,12 +15,18 @@ import type { CraftApp } from "./registry.js";
 export function execPassthrough(prog: string, bin: string, args: string[]): Promise<number> {
   return new Promise((resolve) => {
     const child = spawn(bin, args, { stdio: "inherit" });
-    for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => child.kill(sig));
+    const forward = (sig: NodeJS.Signals) => () => child.kill(sig);
+    const handlers = (["SIGINT", "SIGTERM"] as const).map((sig) => [sig, forward(sig)] as const);
+    for (const [sig, h] of handlers) process.on(sig, h);
+    const release = () => {
+      for (const [sig, h] of handlers) process.off(sig, h);
+    };
     child.on("error", (e) => {
+      release();
       process.stderr.write(`${prog}: failed to run ${bin}: ${e.message}\n`);
       resolve(1);
     });
-    child.on("exit", (code, signal) => resolve(signal ? (signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 1) : (code ?? 1)));
+    child.on("exit", (code, signal) => (release(), resolve(signal ? (signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 1) : (code ?? 1))));
   });
 }
 
