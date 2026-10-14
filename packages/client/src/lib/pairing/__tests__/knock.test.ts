@@ -89,6 +89,31 @@ describe("knockServer (E32)", () => {
     expect(out).toEqual({ status: "rejected" });
   });
 
+  it("a transient transport failure while polling keeps waiting until the outcome (review r1)", async () => {
+    challengeIdentity.mockResolvedValue({ fingerprint: F, publicKey: "pk", verified: true });
+    let polls = 0;
+    const f = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.endsWith("/api/pair/request")) return knockOk();
+      polls++;
+      if (polls === 1) throw new TypeError("Failed to fetch");
+      return json(200, { success: true, data: { status: "approved", token: "tok" } });
+    });
+    vi.stubGlobal("fetch", f);
+    const out = await knockServer(BASE, F, "Laptop", hooks);
+    expect(out).toMatchObject({ status: "approved", token: "tok" });
+    expect(polls).toBe(2);
+  });
+
+  it("a transport failure after expiresAt still throws", async () => {
+    challengeIdentity.mockResolvedValue({ fingerprint: F, publicKey: "pk", verified: true });
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith("/api/pair/request")) return knockOk();
+      throw new TypeError("Failed to fetch");
+    }));
+    await expect(knockServer(BASE, F, "Laptop", { ...hooks, now: () => 2_000_000 })).rejects.toThrow(TypeError);
+  });
+
   it("poll `unknown` or an elapsed expiresAt → expired", async () => {
     challengeIdentity.mockResolvedValue({ fingerprint: F, publicKey: "pk", verified: true });
     routeFetch({ request: () => knockOk(), polls: [{ status: "unknown" }] });

@@ -325,7 +325,7 @@ export class PairingManager {
         this.expireEntry(entry);
         this.codes.delete(code);
         if (wasLive) this.emitKnockResolved(entry, "expired");
-        if (PairingManager.isLive(entry.pending)) changed = true;
+        if (wasLive) changed = true;
       }
     }
     if (changed) this.emitChanged();

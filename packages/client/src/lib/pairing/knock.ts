@@ -130,6 +130,28 @@ export async function knockServer(
   return pollForOutcome(baseUrl, data.pendingId, data.expiresAt, proof.fingerprint, hooks);
 }
 
+type PollEnvelope = Awaited<ReturnType<typeof post<{ status: string; token?: string }>>>;
+
+/** One poll request; a transport failure is returned, not thrown, so the loop can decide. */
+async function tryPoll(
+  baseUrl: string,
+  pendingId: string,
+): Promise<{ ok: true; poll: PollEnvelope } | { ok: false; error: unknown }> {
+  try {
+    return { ok: true, poll: await post<{ status: string; token?: string }>(baseUrl, "/api/pair/poll", { pendingId }) };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
+/** A terminal outcome for one poll answer, or null while the request is still pending and unexpired. */
+function classifyPoll(poll: PollEnvelope, fingerprint: string, elapsed: boolean): KnockOutcome | null {
+  const p = poll.json.data;
+  if (p?.status === "approved" && p.token) return { status: "approved", token: p.token, fingerprint };
+  if (p?.status === "rejected") return { status: "rejected" };
+  return !poll.json.success || p?.status !== "pending" || elapsed ? { status: "expired" } : null;
+}
+
 /** Poll `/api/pair/poll`: only `pending` keeps waiting; any other status is terminal. */
 async function pollForOutcome(
   baseUrl: string,
@@ -142,12 +164,16 @@ async function pollForOutcome(
   const sleep = hooks.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const interval = hooks.pollIntervalMs ?? DEFAULT_POLL_MS;
   while (!hooks.signal?.aborted) {
-    const poll = await post<{ status: string; token?: string }>(baseUrl, "/api/pair/poll", { pendingId });
+    const attempt = await tryPoll(baseUrl, pendingId);
     if (hooks.signal?.aborted) break;
-    const p = poll.json.data;
-    if (p?.status === "approved" && p.token) return { status: "approved", token: p.token, fingerprint };
-    if (p?.status === "rejected") return { status: "rejected" };
-    if (!poll.json.success || p?.status !== "pending" || now() >= expiresAt) return { status: "expired" };
+    if (!attempt.ok) {
+      // A transient transport blip mid-wait is not an outcome: keep waiting until the request expires.
+      if (now() >= expiresAt) throw attempt.error;
+      await sleep(interval);
+      continue;
+    }
+    const outcome = classifyPoll(attempt.poll, fingerprint, now() >= expiresAt);
+    if (outcome) return outcome;
     await sleep(interval);
   }
   return { status: "cancelled" };

@@ -45,8 +45,8 @@ Order: for each implementation task, author its folded test tasks (sections 10â€
 
 ## 9. Integration and review
 
-- [ ] 9.1 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and `npm run quality:changed`; restart the server (`POST /api/restart`) and build the client; verify green
-- [ ] 9.2 `Audit` subagent pass on the diff (unauthenticated prompt-raising route, peer-address admission, cleartext bearer, cookie `Secure` change, log redaction) and `review-code`; resolve findings
+- [x] 9.1 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and `npm run quality:changed`; restart the server (`POST /api/restart`) and build the client; verify green
+- [x] 9.2 `Audit` subagent pass on the diff (unauthenticated prompt-raising route, peer-address admission, cleartext bearer, cookie `Secure` change, log redaction) and `review-code`; resolve findings
 - [x] 9.3 DocScribe: add knock pairing to `docs/` (pairing flow, `pairing.acceptLanRequests`, the design D8 threat model, the bridge-networked container caveat from design Risks) and a FAQ entry "Pair a LAN device without TLS"; verify rows applied
 - [x] 9.4 Record the follow-ups: (a) a change adding the `request-access` remedy to `operate-required-remedy` per design D10 once `surface-operate-required-remedy` archives, carrying a MODIFIED `trust-and-credential-boundaries` delta for the disclosure exception; (b) the non-secure-context audit of plugin client bundles (design D17); verify each change directory exists or the items are in the priority queue
 
