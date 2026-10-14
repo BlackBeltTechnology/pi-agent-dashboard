@@ -427,7 +427,10 @@ function getMainPreloadPath(): string {
  * See change: harden-electron-renderer-boundary (VD4).
  */
 function safeOpenExternal(url: string): void {
-  if (!openExternalIfAllowed(url, (u) => shell.openExternal(u))) {
+  const open = (u: string): void => {
+    shell.openExternal(u).catch((err: unknown) => log(`openExternal failed: ${err instanceof Error ? err.message : String(err)}`));
+  };
+  if (!openExternalIfAllowed(url, open)) {
     log(`openExternal blocked (scheme not allowlisted): ${String(url).slice(0, 80)}`);
   }
 }
@@ -482,7 +485,9 @@ function registerPiDashboardIpc(): void {
   }, logRejectedSender));
 
   ipcMain.removeAllListeners("dashboard:open-doctor");
-  ipcMain.on("dashboard:open-doctor", trustedListener("dashboard:open-doctor", isTrustedSender, () => { void showDoctorDialog(); }, logRejectedSender));
+  ipcMain.on("dashboard:open-doctor", trustedListener("dashboard:open-doctor", isTrustedSender, () => {
+    showDoctorDialog().catch((err: unknown) => log(`doctor dialog failed: ${err instanceof Error ? err.message : String(err)}`));
+  }, logRejectedSender));
 }
 
 /**

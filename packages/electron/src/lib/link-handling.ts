@@ -134,8 +134,8 @@ export function isAllowedExternalUrl(url: unknown): url is string {
  * URL parser strips (leading control chars / whitespace, embedded tab/newline)
  * never reach the OS handler.
  */
-export function openExternalIfAllowed(url: unknown, open: (url: string) => unknown): boolean {
+export function openExternalIfAllowed(url: unknown, open: (url: string) => void): boolean {
 	if (!isAllowedExternalUrl(url)) return false;
-	void open(new URL(url).href);
+	open(new URL(url).href);
 	return true;
 }

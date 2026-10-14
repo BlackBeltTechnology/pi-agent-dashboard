@@ -65,7 +65,7 @@ describe("main.ts wiring", () => {
   it("T3: shell.openExternal is only reachable through the scheme allowlist", () => {
     const calls = main.match(/shell\.openExternal\(/g) ?? [];
     expect(calls).toHaveLength(1); // the opener passed to openExternalIfAllowed
-    expect(main).toContain("openExternalIfAllowed(url, (u) => shell.openExternal(u))");
+    expect(main).toContain("openExternalIfAllowed(url, open)");
     expect(main).toMatch(/setWindowOpenHandler\(\(details\) => \{\s*safeOpenExternal\(details\.url\)/);
     expect(main).toMatch(/decision === "open-external"\) \{\s*event\.preventDefault\(\);\s*safeOpenExternal\(url\)/);
   });
