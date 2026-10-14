@@ -19,7 +19,7 @@ import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/p
 import { resolveNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RESTART_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
-import type { NetworkInterface, ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { NetworkInterface, PiMirrorResult, ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import type { AccessGrantHealth } from "../access/access-health.js";
@@ -32,6 +32,7 @@ import {
 import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries } from "../auth/localhost-guard.js";
 import { getRegistryError } from "../auth/provider-auth-registry.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
+import { mirrorDefaultsToPi } from "../pi-agent-settings.js";
 import type { DirectoryService } from "../directory-service.js";
 import {
   type ClientBuildSnapshot,
@@ -550,6 +551,23 @@ export function registerSystemRoutes(
       // Apply runtime-safe changes
       const reloaded = (await import("@blackbelt-technology/pi-dashboard-shared/config.js")).loadConfig();
 
+      // Mirror the dashboard default model / thinking level into pi's global
+      // settings so pi-constructed sessions (incl. SDK children) agree. Never
+      // fails the save: config.json is already written.
+      // See change: edit-pi-agent-settings (design D1).
+      const mirrorKeys = (["defaultModel", "defaultThinkingLevel"] as const).filter((k) => partial[k] !== undefined);
+      let piMirror: PiMirrorResult | undefined;
+      if (mirrorKeys.length > 0) {
+        try {
+          const { loadConfig: readPersisted } = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+          piMirror = await mirrorDefaultsToPi(readPersisted, mirrorKeys);
+        } catch (err) {
+          piMirror = { ok: false, error: "io" };
+          console.warn("[pi-settings] default-model mirror threw:", err instanceof Error ? err.message : err);
+        }
+        if (!piMirror.ok) console.warn(`[pi-settings] default-model mirror failed: ${piMirror.error}`);
+      }
+
       // Push the recomputed reachability when ANY part of the published fact
       // moved — not just `pendingBindHost`. A write that edits `trustedNetworks`
       // or `auth.bypassHosts` keeps the same bind host yet changes
@@ -631,6 +649,7 @@ export function registerSystemRoutes(
       return {
         success: true,
         restartRequired: result.restartRequired,
+        ...(piMirror ? { piMirror } : {}),
       };
     },
   );

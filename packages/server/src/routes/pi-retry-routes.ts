@@ -42,9 +42,24 @@ export function registerPiRetryRoutes(
   fastify.put<{ Body: PutPiRetryPolicyRequest }>(
     "/api/pi-retry",
     { preHandler: networkGuard },
-    async (request): Promise<PutPiRetryPolicyResponse> => {
-      const result = writePiRetryPolicy(request.body);
+    async (request, reply): Promise<PutPiRetryPolicyResponse> => {
+      const result = await writePiRetryPolicy(request.body);
       if (!result.ok) {
+        // A held lock is transient (503); an unparseable file needs repair in
+        // the pi settings JSON editor (400). Neither reloads sessions.
+        // See change: edit-pi-agent-settings (spec `pi-retry-settings`).
+        if (result.error === "busy") {
+          reply.code(503);
+          return { success: false, error: "pi settings file is busy; try again" };
+        }
+        if (result.error === "parse") {
+          reply.code(400);
+          return { success: false, error: "pi settings.json is not valid JSON; repair it in the pi settings JSON editor" };
+        }
+        if (result.error === "io") {
+          reply.code(500);
+          return { success: false, error: "Failed to write pi settings.json" };
+        }
         const detail = (result.errors ?? []).map((e) => `${e.field}: ${e.message}`).join("; ");
         return { success: false, error: detail || "Invalid retry policy" };
       }
