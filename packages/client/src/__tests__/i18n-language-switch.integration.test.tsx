@@ -7,7 +7,7 @@
  */
 import React from "react";
 import { describe, it, expect, afterEach } from "vitest";
-import { render, cleanup, act } from "@testing-library/react";
+import { render, cleanup, act, waitFor } from "@testing-library/react";
 import { I18nProvider, useI18n, registerPluginCatalog } from "../lib/i18n/i18n.js";
 import { resolveServerMessage } from "../lib/api/server-error.js";
 
@@ -56,15 +56,16 @@ function Surfaces() {
 }
 
 describe("language switch re-resolves all surfaces (task 6.2)", () => {
-  it("renders Chinese then Hungarian across core, plugin, and server-code surfaces", () => {
+  it("renders Chinese then Hungarian across core, plugin, and server-code surfaces", async () => {
     const { getByTestId } = render(
       <I18nProvider>
         <Surfaces />
       </I18nProvider>,
     );
 
+    // setLanguage loads the target catalog first, then flips (change: shrink-client-entry-lazy-islands).
     act(() => getByTestId("to-zh").click());
-    expect(getByTestId("lang").textContent).toBe("zh-CN");
+    await waitFor(() => expect(getByTestId("lang").textContent).toBe("zh-CN"));
     expect(getByTestId("core").textContent).toBe("保存");
     expect(getByTestId("plugin").textContent).toBe("你好");
     expect(getByTestId("server").textContent).toBe("不是 git 仓库");
@@ -72,7 +73,7 @@ describe("language switch re-resolves all surfaces (task 6.2)", () => {
     expect(getByTestId("server").textContent).not.toBe("not a git repository");
 
     act(() => getByTestId("to-hu").click());
-    expect(getByTestId("lang").textContent).toBe("hu");
+    await waitFor(() => expect(getByTestId("lang").textContent).toBe("hu"));
     // hu core value (whatever the catalog holds) must differ from the English fallback.
     expect(getByTestId("core").textContent).toBe("Módosítások mentése");
     expect(getByTestId("core").textContent).not.toBe("Save");

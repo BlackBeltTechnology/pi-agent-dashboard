@@ -106,7 +106,7 @@ describe("collapse-pairing-into-gateway — i18n sweep (E11)", () => {
     return start;
   }
   const root = findClientRoot(process.cwd());
-  const zh = readFileSync(join(root, "src/lib/i18n/i18n.tsx"), "utf8");
+  const zh = readFileSync(join(root, "src/lib/i18n/i18n-zh-CN.ts"), "utf8");
   const hu = readFileSync(join(root, "src/lib/i18n/i18n-hu.ts"), "utf8");
 
   it("kept keys survive in both catalogues", () => {
@@ -154,7 +154,7 @@ describe("add-mermaid-auto-repair — i18n sweep (X4)", () => {
     return start;
   }
   const root = findClientRoot(process.cwd());
-  const zh = readFileSync(join(root, "src/lib/i18n/i18n.tsx"), "utf8");
+  const zh = readFileSync(join(root, "src/lib/i18n/i18n-zh-CN.ts"), "utf8");
   const hu = readFileSync(join(root, "src/lib/i18n/i18n-hu.ts"), "utf8");
 
   it("badge, toggle, copy and all seven rule-description keys are in both catalogues", () => {
@@ -200,7 +200,7 @@ describe("retro-ux-model-selector — i18n sweep (E21)", () => {
   }
   const root = findClientRoot(process.cwd());
   const en = readFileSync(join(root, "src/lib/i18n-en-source.json"), "utf8");
-  const zh = readFileSync(join(root, "src/lib/i18n/i18n.tsx"), "utf8");
+  const zh = readFileSync(join(root, "src/lib/i18n/i18n-zh-CN.ts"), "utf8");
   const hu = readFileSync(join(root, "src/lib/i18n/i18n-hu.ts"), "utf8");
   const pluginSrc = (pkg: string) => readFileSync(join(root, "..", pkg, "src/i18n.ts"), "utf8");
 
@@ -264,7 +264,7 @@ describe("retro-ux-credential-vault — vault.* catalogue coverage (E27)", () =>
   const root = findClientRoot(process.cwd());
   const src = (rel: string) => join(root, "src", rel);
   const en = readFileSync(src("lib/i18n-en-source.json"), "utf8");
-  const zh = readFileSync(src("lib/i18n/i18n.tsx"), "utf8");
+  const zh = readFileSync(src("lib/i18n/i18n-zh-CN.ts"), "utf8");
   const hu = readFileSync(src("lib/i18n/i18n-hu.ts"), "utf8");
 
   const vaultDir = src("components/settings/vault");

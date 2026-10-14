@@ -324,6 +324,7 @@
   "status.loadingCurrentProfile": "Loading current profile…",
   "status.loadingDiagram": "Loading diagram…",
   "status.loadingDiff": "Loading diff…",
+  "settings.loadFailed": "Couldn't load the settings panel.",
   "editor.loadingEditor": "Loading editor…",
   "status.loadingFile": "Loading file...",
   "status.loadingFileChanges": "Loading file changes...",

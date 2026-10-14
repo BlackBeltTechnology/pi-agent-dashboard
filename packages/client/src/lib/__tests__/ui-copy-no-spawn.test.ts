@@ -186,7 +186,7 @@ const D9_KEYS = [
 
 describe("user-facing copy — keys and translations stable (E8)", () => {
   const enSource = JSON.parse(readFileSync(join(PACKAGES, "client", "src", "lib", "i18n-en-source.json"), "utf8")) as Record<string, string>;
-  const zhSource = readFileSync(join(PACKAGES, "client", "src", "lib", "i18n", "i18n.tsx"), "utf8");
+  const zhSource = readFileSync(join(PACKAGES, "client", "src", "lib", "i18n", "i18n-zh-CN.ts"), "utf8");
 
   it("every D9 client key still has a Hungarian and a zh-CN entry (no key renamed)", () => {
     const missing: string[] = [];

@@ -79,12 +79,12 @@ function badgeOf(name: string): { title: string; icon: string } {
 }
 
 // #F7 — the new tooltip key must resolve in every catalog (i18n parity,
-// ui-i18n-coverage). The zh-CN dictionary is module-private inside i18n.tsx,
+// ui-i18n-coverage). The zh-CN catalog is a lazy module (i18n-zh-CN.ts),
 // so read the sources as text — same approach as settings-unit-i18n.test.tsx.
 const here = dirname(fileURLToPath(import.meta.url));
 const LIB = resolve(here, "../../../lib");
 const SOURCES: [string, string][] = [
-	["zh-CN", readFileSync(resolve(LIB, "i18n/i18n.tsx"), "utf8")],
+	["zh-CN", readFileSync(resolve(LIB, "i18n/i18n-zh-CN.ts"), "utf8")],
 	["hu", readFileSync(resolve(LIB, "i18n/i18n-hu.ts"), "utf8")],
 	["en", readFileSync(resolve(LIB, "i18n-en-source.json"), "utf8")],
 ];

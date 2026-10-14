@@ -123,6 +123,10 @@ export default defineConfig({
               "@dnd-kit/sortable",
               "@dnd-kit/utilities",
             ],
+            // Lazy math engine (lib/preview/math-engine.ts). Its own chunk so
+            // Rollup cannot fold it into `markdown` (modulepreloaded) or `index`.
+            // See change: shrink-client-entry-lazy-islands.
+            "katex": ["katex", "rehype-katex"],
             "util": ["fuse.js", "qrcode", "wouter", "ansi-to-react"],
             // Monaco is heavy + only referenced by the lazily-imported
             // MonacoBuffer, so this chunk is fetched on first text-file open.

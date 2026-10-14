@@ -53,3 +53,5 @@ Landing wiring (streamline-first-run): `usePeerAutoInstallReset(providersReady.a
 See change: fix-canvas-chip-tray-overlay — `renderSessionDetail` renders a zero-height `composer-stack-anchor` sentinel (`h-0 shrink-0`, `aria-hidden`) immediately before `composer-context-strip`, only when `!frozen && !readOnly` (a frozen underlay never anchors). Its callback ref writes `composerAnchor` state (unmount → `null` → fallback), passed as `<CanvasDriver anchor>`. Classified `fixed` in `CHAT_PANE_ROW_TABLE`. NOT a wrapper div: `composer-root`'s `max-h-[40%]` needs its flex parent unchanged.
 
 Mounts the network-denial surface on desktop too (`useNetworkDenied` → `ConnectionStatusBanner`), so a guard 403 is explained on every form factor instead of only mobile. Ids minted via `randomUuid()` (non-secure LAN origins have no `crypto.randomUUID`). See change: add-lan-knock-pairing.
+
+Settings panel via `LazySettingsPanel` (imported as `SettingsPanel`, both render sites): `SettingsPanel.tsx` is its own chunk, off the cold landing. See change: shrink-client-entry-lazy-islands.

@@ -44,7 +44,9 @@ import { SessionHeader } from "./components/session/SessionHeader.js";
 import { SessionList } from "./components/session/SessionList.js";
 import { SpawnErrorToastHost } from "./components/session/SpawnErrorToastHost.js";
 import { TokenStatsBar } from "./components/session/TokenStatsBar.js";
-import { SettingsPanel } from "./components/settings/SettingsPanel.js";
+// Settings panel: lazy boundary (own chunk, off the cold-landing entry).
+// See change: shrink-client-entry-lazy-islands.
+import { LazySettingsPanel as SettingsPanel } from "./components/settings/LazySettingsPanel.js";
 import { LandingPage } from "./components/shell/LandingPage.js";
 import { HamburgerButton, MobileOverlay } from "./components/shell/MobileOverlay.js";
 import { MobileShell } from "./components/shell/MobileShell.js";

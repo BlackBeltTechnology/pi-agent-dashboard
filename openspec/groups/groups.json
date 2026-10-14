@@ -8,117 +8,129 @@
       "order": 0
     },
     {
+      "id": "bundle-index-size",
+      "name": "Bundle & Index Size",
+      "color": "#06b6d4",
+      "order": 1
+    },
+    {
+      "id": "vault-access-remedy",
+      "name": "Vault Access Remedy",
+      "color": "#f97316",
+      "order": 2
+    },
+    {
       "id": "client-ui-fixes",
       "name": "Client UI fixes",
       "color": "#eab308",
-      "order": 1
+      "order": 3
     },
     {
       "id": "pi-update",
       "name": "Pi Update",
       "color": "#3b82f6",
-      "order": 2
+      "order": 4
     },
     {
       "id": "addons-hub",
       "name": "Addons Hub",
       "color": "#8b5cf6",
-      "order": 3
+      "order": 5
     },
     {
       "id": "project-workflows",
       "name": "Project Workflows",
       "color": "#14b8a6",
-      "order": 4
+      "order": 6
     },
     {
       "id": "retro-ui",
       "name": "Retro UI",
       "color": "#3b82f6",
-      "order": 5
+      "order": 7
     },
     {
       "id": "update-to-node-26",
       "name": "Update to Node 26",
       "color": "#3b82f6",
-      "order": 6
+      "order": 8
     },
     {
       "id": "lan-pairing-trust",
       "name": "LAN Pairing & Trust",
       "color": "#14b8a6",
-      "order": 7
+      "order": 9
     },
     {
       "id": "vault",
       "name": "Vault",
       "color": "#f97316",
-      "order": 8
+      "order": 10
     },
     {
       "id": "security",
       "name": "Security",
       "color": "#ef4444",
-      "order": 9
+      "order": 11
     },
     {
       "id": "copilot-assistant",
       "name": "Copilot / Assistant",
-      "order": 10
+      "order": 12
     },
     {
       "id": "fix-mermaid",
       "name": "Fix mermaid",
       "color": "#3b82f6",
-      "order": 11
+      "order": 13
     },
     {
       "id": "unify-context-manager",
       "name": "Unify Context Manager",
       "color": "#06b6d4",
-      "order": 12
+      "order": 14
     },
     {
       "id": "ai-team",
       "name": "AI Team",
       "color": "#a855f7",
-      "order": 13
+      "order": 15
     },
     {
       "id": "next-phase",
       "name": "Next phase",
       "color": "#3b82f6",
-      "order": 14
+      "order": 16
     },
     {
       "id": "kowledge-base",
       "name": "Kowledge Base",
       "color": "#f97316",
-      "order": 15
+      "order": 17
     },
     {
       "id": "electrun-execution",
       "name": "Electrun execution",
       "color": "#a855f7",
-      "order": 16
+      "order": 18
     },
     {
       "id": "future",
       "name": "Future",
       "color": "#f97316",
-      "order": 17
+      "order": 19
     },
     {
       "id": "separate-functions-to-plugins",
       "name": "Separate functions to plugins",
       "color": "#ef4444",
-      "order": 18
+      "order": 20
     },
     {
       "id": "ui-extensions",
       "name": "UI Extensions",
       "color": "#eab308",
-      "order": 19
+      "order": 21
     }
   ],
   "assignments": {
@@ -379,9 +391,9 @@
     "migrate-typecheck-to-ts7": "update-to-node-26",
     "close-e2e-tooling-followups": "ui",
     "stabilize-mdns-server-identity": "lan-pairing-trust",
-    "add-lan-knock-pairing": "lan-pairing-trust",
-    "add-electron-server-windows": "lan-pairing-trust",
-    "retire-trusted-networks-bypass": "lan-pairing-trust",
+    "add-lan-knock-pairing": "vault-access-remedy",
+    "add-electron-server-windows": "vault-access-remedy",
+    "retire-trusted-networks-bypass": "vault-access-remedy",
     "update-pi-core-1-1-adopt-apis": "pi-update",
     "spawn-scope-no-mcp": "pi-update",
     "mcp-client-project-overrides": "pi-update",
@@ -413,126 +425,141 @@
     "add-plugin-spawn-worktree": "project-workflows",
     "add-project-workflows": "project-workflows",
     "add-workflow-auto-advance": "project-workflows",
-    "surface-operate-required-remedy": "vault"
+    "surface-operate-required-remedy": "vault-access-remedy",
+    "retro-ux-credential-vault": "vault-access-remedy",
+    "fix-kb-gitignore-excluded-parent": "bundle-index-size",
+    "shrink-client-entry-lazy-islands": "bundle-index-size",
+    "lazy-plugin-claim-modules": "bundle-index-size",
+    "fix-codeql-small-findings": "ui",
+    "add-plugin-capability-routes": "copilot-assistant",
+    "add-welcome-tutorial": "next-phase",
+    "add-tailscale-cert-tls": "lan-pairing-trust",
+    "add-acme-dns01-certs": "lan-pairing-trust"
   },
   "changeOrder": {
     "__ungrouped__": [
-      "add-acme-dns01-certs",
       "add-kb-eval-regularized-gate",
       "add-microservice-pattern-selection-skill",
       "add-ntfy-push-transport",
-      "add-plugin-capability-routes",
       "add-social-login-broker",
       "add-srt-translation-pass",
-      "add-tailscale-cert-tls",
-      "add-welcome-tutorial",
       "electron-local-link-node-compat",
       "implement-it",
       "retest-plain-language-hard-battery",
       "ab-test-rlm-delegation-claim",
       "fix-npm12-remote-tarball-install"
     ],
-    "kowledge-base": [
-      "consolidate-retrieval-planes",
-      "add-automatic-session-kb-index",
-      "add-kb-code-symbol-index",
-      "memory-retrieval-injection"
+    "bundle-index-size": [
+      "fix-kb-gitignore-excluded-parent",
+      "shrink-client-entry-lazy-islands",
+      "lazy-plugin-claim-modules"
     ],
-    "ui": [
-      "redesign-directory-home-split",
-      "add-kb-git-forge-scope",
-      "add-acp-session-driver",
-      "add-claude-code-plugin",
-      "harden-dashboard-start-detection"
-    ],
-    "next-phase": [
-      "add-native-pi-tui-view",
-      "add-session-trajectory-view",
-      "add-persistent-onboarding-card",
-      "add-prompt-snapshot-audit-trail",
-      "add-mid-turn-tool-oauth",
-      "share-session-archives",
-      "add-oauth-key-sync-service",
-      "add-codegraph-code-plane",
-      "add-google-oauth-provider",
-      "add-workspace-checkpointing",
-      "bundle-python-runtime",
-      "add-cloud-sync-connector",
-      "add-ai-pr-description",
-      "add-connector-layer",
-      "add-end-user-docs",
-      "add-hyperframes-skills",
-      "external-dashboard-plugins"
-    ],
-    "security": [
-      "close-loopback-legacy-window",
-      "harden-server-capability-bounds",
-      "harden-electron-renderer-boundary",
-      "add-supervised-tool-approval",
-      "sanitize-untrusted-rendered-content",
-      "security-boundary-audit"
-    ],
-    "pi-update": [
-      "update-pi-core-1-1-adopt-apis",
-      "spawn-scope-no-mcp",
-      "mcp-client-project-overrides",
-      "cleanup-stale-fork-specs"
-    ],
-    "copilot-assistant": [
-      "add-voice-wall-plugin",
-      "add-voice-assistant-dashboard-plugin"
-    ],
-    "fix-mermaid": [
-      "add-mermaid-auto-repair",
-      "add-mermaid-ai-repair",
-      "add-preview-apply-fix-to-file",
-      "add-md-adoc-markup-repair"
-    ],
-    "ai-team": [
-      "add-team-skill-access"
-    ],
-    "update-to-node-26": [
-      "strip-only-native-ts-loader",
-      "migrate-typecheck-to-ts7",
-      "raise-node-floor-to-26"
-    ],
-    "lan-pairing-trust": [
-      "stabilize-mdns-server-identity",
+    "vault-access-remedy": [
+      "surface-operate-required-remedy",
+      "retro-ux-credential-vault",
       "add-lan-knock-pairing",
       "add-electron-server-windows",
       "retire-trusted-networks-bypass"
     ],
-    "client-ui-fixes": [
-      "retro-ux-identity-connectivity",
-      "retro-ux-model-selector",
-      "retro-ux-chat-rendering",
-      "retro-ux-plugin-settings-forms"
+    "ui": [
+      "fix-codeql-small-findings"
     ],
     "addons-hub": [
-      "add-package-health-cleanup"
-    ],
-    "unify-context-manager": [
-      "unify-context-manager",
-      "context-manager-kernel",
-      "add-lora-dataset-export-skill",
-      "add-session-step-table",
-      "add-omni-embedding-retrieval",
-      "add-kb-semantic-annotation-plane"
-    ],
-    "vault": [
-      "add-credential-vault",
-      "absorb-service-secrets-into-vault",
-      "add-vault-llm-delivery",
-      "surface-operate-required-remedy"
-    ],
-    "electrun-execution": [
-      "add-bundle-immutable-health-flag"
+      "addons-hub-feature-catalog",
+      "addons-hub-folder-view"
     ],
     "project-workflows": [
       "add-pending-question-stack",
       "add-plugin-spawn-worktree",
       "add-project-workflows",
       "add-workflow-auto-advance"
+    ],
+    "update-to-node-26": [
+      "raise-node-floor-to-26"
+    ],
+    "lan-pairing-trust": [
+      "add-tailscale-cert-tls",
+      "add-acme-dns01-certs"
+    ],
+    "vault": [
+      "add-vault-llm-delivery",
+      "absorb-service-secrets-into-vault"
+    ],
+    "security": [
+      "security-boundary-audit",
+      "sanitize-untrusted-rendered-content",
+      "harden-server-capability-bounds",
+      "harden-electron-renderer-boundary",
+      "close-loopback-legacy-window",
+      "add-supervised-tool-approval"
+    ],
+    "copilot-assistant": [
+      "add-plugin-capability-routes",
+      "add-voice-wall-plugin",
+      "add-voice-assistant-dashboard-plugin"
+    ],
+    "fix-mermaid": [
+      "add-mermaid-ai-repair",
+      "add-preview-apply-fix-to-file",
+      "add-md-adoc-markup-repair"
+    ],
+    "unify-context-manager": [
+      "unify-context-manager",
+      "context-manager-kernel",
+      "add-session-step-table",
+      "add-kb-semantic-annotation-plane",
+      "add-omni-embedding-retrieval",
+      "add-lora-dataset-export-skill"
+    ],
+    "next-phase": [
+      "add-native-pi-tui-view",
+      "add-session-trajectory-view",
+      "add-persistent-onboarding-card",
+      "add-welcome-tutorial",
+      "add-prompt-snapshot-audit-trail",
+      "add-connector-layer",
+      "add-mid-turn-tool-oauth",
+      "add-cloud-sync-connector",
+      "share-session-archives",
+      "add-oauth-key-sync-service",
+      "add-codegraph-code-plane",
+      "add-google-oauth-provider",
+      "add-workspace-checkpointing",
+      "bundle-python-runtime",
+      "add-ai-pr-description",
+      "add-end-user-docs",
+      "add-hyperframes-skills",
+      "external-dashboard-plugins"
+    ],
+    "electrun-execution": [
+      "fix-doctor-bundle-aware-probes",
+      "add-bundle-mode-marker",
+      "add-bundle-immutable-health-flag",
+      "server-launch-smoke-suite",
+      "manage-node-runtime-updates",
+      "electron-platform-extraction",
+      "windows-authenticode-signing",
+      "macos-notarization"
+    ],
+    "future": [
+      "new-spec-spawn",
+      "spec-file-git-history-header",
+      "skip-rpc-probes-in-event-forwarder",
+      "automate-windows-remote-qa",
+      "add-capacitor-mobile-shell",
+      "add-release-video-pipeline"
+    ],
+    "separate-functions-to-plugins": [
+      "extract-openspec-as-plugin",
+      "extract-git-as-plugin"
+    ],
+    "ui-extensions": [
+      "add-extension-ui-safety-bounds",
+      "add-extension-ui-module-lifecycle",
+      "add-extension-ui-action-result-contract",
+      "add-extension-ui-a11y-baseline",
+      "add-extension-ui-rjsf-form",
+      "pi-flows-adopt-extension-ui"
     ]
   }
 }

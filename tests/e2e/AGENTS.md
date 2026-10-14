@@ -19,6 +19,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `hermes-model-override.spec.ts` | L3 F3 → see `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | L3 KB settings sources + search. → see `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `known-server-stale-name.spec.ts` | L3 stale known-server name. → see `known-server-stale-name.spec.ts.AGENTS.md` |
+| `lazy-islands.spec.ts` | L3 lazy islands → see `lazy-islands.spec.ts.AGENTS.md` |
 | `live-server-downloads.spec.ts` | L3 #F1/#X1 |
 | `local-credential-proof-nat.spec.ts` | L3 #X9: published-port proof. → see `local-credential-proof-nat.spec.ts.AGENTS.md` |
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
@@ -69,7 +70,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `editor-pane.spec.ts` | Playwright E2E for internal Monaco editor pane (change… → see `editor-pane.spec.ts.AGENTS.md` |
 | `durable-session-diff.spec.ts` | L3 (change: fix-session-diff-durable-source, #F1): after… → see `durable-session-diff.spec.ts.AGENTS.md` |
 | `empty-model-selector.spec.ts` | L3 for `open-empty-model-selector`. Proves the… → see `empty-model-selector.spec.ts.AGENTS.md` |
-| `model-favorites-cross-surface.spec.ts` | L3 F3 of model-picker-everywhere-favorites. → see `model-favorites-cross-surface.spec.ts.AGENTS.md` |
+| `model-favorites-cross-surface.spec.ts` | L3 F3 of… → see `model-favorites-cross-surface.spec.ts.AGENTS.md` |
 | `keeper-log-health.spec.ts` | L3 (test-plan #F1, #F2): `/api/health` carries… → see `keeper-log-health.spec.ts.AGENTS.md` |
 | `ended-session-endedat.spec.ts` | L3 for the evidence-based `endedAt` invarian… → see `ended-session-endedat.spec.ts.AGENTS.md` |
 | `explicit-model-preserved.spec.ts` | L3 for `fix-default-model-clobbers-explicit-… → see `explicit-model-preserved.spec.ts.AGENTS.md` |
@@ -92,7 +93,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `folder-collapse-worktree.spec.ts` | L3 persist-folder-collapse-server-side #F4/#F7. → see `folder-collapse-worktree.spec.ts.AGENTS.md` |
 | `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces` (test-plan… → see `folder-membership-drag.spec.ts.AGENTS.md` |
 | `followup-image-queue.spec.ts` | L3 for `fix-bridge-followup-image-drop` (test-plan #F1… → see `followup-image-queue.spec.ts.AGENTS.md` |
-| `gateway-board-mobile.spec.ts` | 6.8/6.9 (D11) — the readiness board at 375×667: one 52px… → see `gateway-board-mobile.spec.ts.AGENTS.md` |
+| `gateway-board-mobile.spec.ts` | 6.8/6.9 (D11) — the readiness… → see `gateway-board-mobile.spec.ts.AGENTS.md` |
 | `gateway-origin-surfaces.spec.ts` | L3 for the transport/identity CLIENT surface… → see `gateway-origin-surfaces.spec.ts.AGENTS.md` |
 | `gateway-primary-offer.spec.ts` | F7/F8 of add-zrok-custom-reserved-name. → see `gateway-primary-offer.spec.ts.AGENTS.md` |
 | `gateway-qr-selector.spec.ts` | Browser E2E for the Gateway single-QR network selector… → see `gateway-qr-selector.spec.ts.AGENTS.md` |
@@ -192,7 +193,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `session-state-honesty.spec.ts` | L3 rendered-honesty gate (change… → see `session-state-honesty.spec.ts.AGENTS.md` |
 | `session-tags.spec.ts` | E2E for change add-session-tags (task 7.… → see `session-tags.spec.ts.AGENTS.md` |
 | `sessions-page-stub-group.spec.ts` | L3 for the `sessions_page` stub-group paging path. → see `sessions-page-stub-group.spec.ts.AGENTS.md` |
-| `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session Default… → see `settings-default-model-catalogue.spec.ts.AGENTS.md` |
+| `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session… → see `settings-default-model-catalogue.spec.ts.AGENTS.md` |
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors` +… → see `severity-contrast.spec.ts.AGENTS.md` |
 | `settings-provider-auth-corrupt-authfile.spec.ts` | L3: corrupt auth.json… → see `settings-provider-auth-corrupt-authfile.spec.ts.AGENTS.md` |
 | `skill-atlas.spec.ts` | L3 atlas plugin → see `skill-atlas.spec.ts.AGENTS.md` |
@@ -213,7 +214,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `superseded-heal.spec.ts` | Playwright spec (task 7.1, change… → see `superseded-heal.spec.ts.AGENTS.md` |
 | `system-one-settings.spec.ts` | L3 Decision models settings (chang… → see `system-one-settings.spec.ts.AGENTS.md` |
 | `tail-only-loading-head.spec.ts` | L3 for the loading head's TERMINAL state… → see `tail-only-loading-head.spec.ts.AGENTS.md` |
-| `tail-only-scroll-perf.spec.ts` | ADVISORY opt-in scroll-smoothness probe for `tail-only`… → see `tail-only-scroll-perf.spec.ts.AGENTS.md` |
+| `tail-only-scroll-perf.spec.ts` | ADVISORY opt-in scroll-smoothness… → see `tail-only-scroll-perf.spec.ts.AGENTS.md` |
 | `tail-only-settings.spec.ts` | L3 for the `replayWindowMode` control (F14, F15) plus X8. → see `tail-only-settings.spec.ts.AGENTS.md` |
 | `tail-only-splice-anchor.spec.ts` | L3 gate for D7a (F9, F10, F18). Asserts the… → see `tail-only-splice-anchor.spec.ts.AGENTS.md` |
 | `tail-only-trigger-suppression.spec.ts` | L3 for D7's suppression mo… → see `tail-only-trigger-suppression.spec.ts.AGENTS.md` |
@@ -228,7 +229,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `tool-output-links.spec.ts` | Playwright E2E for tool-output file-link behaviour… → see `tool-output-links.spec.ts.AGENTS.md` |
 | `tool-output-selection.spec.ts` | L3 selectable-tool-output-links (task 3.2). → see `tool-output-selection.spec.ts.AGENTS.md` |
 | `ui-token-alignment.spec.ts` | L3 token-recipe gate (test-plan F1–F9, F11, E10,… → see `ui-token-alignment.spec.ts.AGENTS.md` |
-| `uncommitted-indicator-commit.spec.ts` | E2E uncommitted-indicator + commit-from-card. → see `uncommitted-indicator-commit.spec.ts.AGENTS.md` |
+| `uncommitted-indicator-commit.spec.ts` | E2E uncommitted-indicator +… → see `uncommitted-indicator-commit.spec.ts.AGENTS.md` |
 | `untrusted-content-guard.spec.ts` | L3 spec. → see `untrusted-content-guard.spec.ts.AGENTS.md` |
 | `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-l… → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init fe… → see `worktree-init-feedback.spec.ts.AGENTS.md` |

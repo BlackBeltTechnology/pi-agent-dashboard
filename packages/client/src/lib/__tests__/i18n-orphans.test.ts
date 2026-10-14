@@ -36,7 +36,7 @@ function findClientRoot(start: string): string {
 const root = findClientRoot(process.cwd());
 const catalogs: Array<[string, string]> = [
   ["i18n-en-source.json", readFileSync(join(root, "src/lib/i18n-en-source.json"), "utf8")],
-  ["i18n.tsx (zh-CN)", readFileSync(join(root, "src/lib/i18n/i18n.tsx"), "utf8")],
+  ["i18n-zh-CN.ts", readFileSync(join(root, "src/lib/i18n/i18n-zh-CN.ts"), "utf8")],
   ["i18n-hu.ts", readFileSync(join(root, "src/lib/i18n/i18n-hu.ts"), "utf8")],
   ["i18n-legacy-aliases.ts", readFileSync(join(root, "src/lib/i18n/i18n-legacy-aliases.ts"), "utf8")],
 ];
@@ -78,7 +78,7 @@ describe("lifecycle bar i18n keys (E12)", () => {
     "openspec.segmentState.todo",
     "openspec.segmentState.skipped",
   ] as const;
-  const locales = catalogs.filter(([label]) => label === "i18n.tsx (zh-CN)" || label === "i18n-hu.ts" || label === "i18n-en-source.json");
+  const locales = catalogs.filter(([label]) => label === "i18n-zh-CN.ts" || label === "i18n-hu.ts" || label === "i18n-en-source.json");
 
   it("removed stepper-node keys are absent", () => {
     for (const key of LIFECYCLE_REMOVED) {

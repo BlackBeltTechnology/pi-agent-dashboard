@@ -25,6 +25,7 @@
 - [ ] 4.1 Failing tests for the three `addons-issues` scenarios incl. health 404 degradation; verify they fail.
 - [ ] 4.2 Implement the Issues tab + rail count (reuse `MissingRequirementsBlock`, `CopyableErrorBlock`); mount `PackageHealthPanel` when the health endpoint responds; verify 4.1 passes.
 - [ ] 4.3 Add a coordination note to `openspec/changes/add-package-health-cleanup/proposal.md` (if still active) that its panel mounts in the Add-ons Issues tab; verify `openspec validate add-package-health-cleanup` still passes.
+- [ ] 4.4 Retro UX for #875 (`PackageHealthPanel` shipped without a mockup): capture its as-built stale/missing/duplicate/clean states in base dark/light and nord dark at 375/1440 before 4.2 mounts it; conform it to the Issues tab in `mockups/extensions-hub/index.html` (tokens and `--severity-*` per `ui-contract.md`; 11 Tailwind palette classes in `PackageHealthPanel.tsx`/`UnifiedPackagesSection.tsx` today); keep its `data-testid`s; probes (`tests/e2e/helpers/computed-contrast.ts`) pass in every captured theme.
 
 ## 5. Verification
 

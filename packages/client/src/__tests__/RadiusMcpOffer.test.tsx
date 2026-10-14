@@ -276,7 +276,7 @@ describe("i18n keys in every locale (E20)", () => {
   const lib = join(__dirname, "../lib");
   const files = [
     ["en", join(lib, "i18n-en-source.json")],
-    ["zh-CN", join(lib, "i18n/i18n.tsx")],
+    ["zh-CN", join(lib, "i18n/i18n-zh-CN.ts")],
     ["hu", join(lib, "i18n/i18n-hu.ts")],
   ] as const;
   const keys = [

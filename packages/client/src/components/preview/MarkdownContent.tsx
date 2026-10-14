@@ -1,15 +1,15 @@
 import { mdiContentCopy, mdiTable } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { tokenize } from "../../lib/chat/linkify-tool-output.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useMathEngine } from "../../lib/preview/math-engine.js";
 import { wrapAsciiTables } from "../../lib/preview/wrap-ascii-tables.js";
 import { useSessionAssets } from "../../lib/session/SessionAssetsContext.js";
 import { getSyntaxTheme } from "../../lib/theme/syntax-theme.js";
@@ -574,10 +574,27 @@ const MARKDOWN_COMPONENTS = {
   img: PiAssetImg,
 } satisfies Components;
 
+// Cheap delimiter probe (`$…`, `\(`, `\[`) deciding whether to fetch the lazy
+// math engine. A false positive (a price like "$5") only costs one cached
+// chunk fetch; every expression remark-math parses contains a `$`.
+// See change: shrink-client-entry-lazy-islands.
+const MATH_DELIMITER_RE = /\$|\\\(|\\\[/;
+
+// Until the math engine loads, `remark-math` nodes render as literal source.
+const REHYPE_PLUGINS_NO_MATH: NonNullable<Options["rehypePlugins"]> = [rehypeRaw, stripReactRefAttributes];
+
 export const MarkdownContent = React.memo(function MarkdownContent({ content, context, frontmatter = "hide", imageBase }: Props) {
   // ASCII table monospace fixer — disabled pending further refinement
   // const processedContent = useMemo(() => wrapAsciiTables(content), [content]);
   const processedContent = content;
+  const mathEngine = useMathEngine(MATH_DELIMITER_RE.test(processedContent));
+  const rehypePlugins = useMemo<NonNullable<Options["rehypePlugins"]>>(
+    () =>
+      mathEngine
+        ? [rehypeRaw, [mathEngine.rehypeKatex, { throwOnError: false }], stripReactRefAttributes]
+        : REHYPE_PLUGINS_NO_MATH,
+    [mathEngine],
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const onLoopbackClick = useLoopbackLinkOpen();
   const { resolved: theme, themeName } = useThemeContext();
@@ -619,12 +636,14 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
             //  - rehypeRaw FIRST so embedded HTML in markdown source is parsed
             //    before rehype-katex emits its own KaTeX HTML (KaTeX HTML must
             //    NOT be re-parsed by rehype-raw).
-            //  - rehypeKatex with throwOnError:false so half-formed mid-stream
+            //  - rehypeKatex (lazy, inserted once the math engine has loaded)
+            //    with throwOnError:false so half-formed mid-stream
             //    expressions like `$x = 10 +` render as a fallback rather than
             //    crashing the markdown render.
             //  - stripReactRefAttributes LAST.
-            // See change: chat-markdown-local-images-and-math.
-            rehypePlugins={[rehypeRaw, [rehypeKatex, { throwOnError: false }], stripReactRefAttributes]}
+            // See changes: chat-markdown-local-images-and-math,
+            // shrink-client-entry-lazy-islands.
+            rehypePlugins={rehypePlugins}
             // ReactMarkdown's default urlTransform sanitizes unknown schemes
             // (e.g. `pi-asset:`, `data:`) to an empty string before our `img`
             // override sees them. Pass through every src verbatim and let the
