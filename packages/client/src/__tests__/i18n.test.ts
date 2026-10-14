@@ -264,7 +264,7 @@ describe("retro-ux-credential-vault — vault.* catalogue coverage (E27)", () =>
   const root = findClientRoot(process.cwd());
   const src = (rel: string) => join(root, "src", rel);
   const en = readFileSync(src("lib/i18n-en-source.json"), "utf8");
-  const zh = readFileSync(src("lib/i18n/i18n.tsx"), "utf8");
+  const zh = readFileSync(src("lib/i18n/i18n-zh-CN.ts"), "utf8");
   const hu = readFileSync(src("lib/i18n/i18n-hu.ts"), "utf8");
 
   const vaultDir = src("components/settings/vault");
