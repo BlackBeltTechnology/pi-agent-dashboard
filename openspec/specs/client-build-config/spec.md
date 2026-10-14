@@ -120,7 +120,7 @@ This requirement does NOT cover the oversized-chunk (>700 kB) aggregate warning.
 - **WHEN** the production build runs (`npm run build`)
 - **THEN** no chunk referenced by `index.html` (entry script or `modulepreload`), nor any chunk transitively statically imported by them, contains the `@mdi/js` export marker `mdiZodiacAquarius`
 - **AND** a separately loadable chunk containing `mdiZodiacAquarius` is emitted in `dist/assets`
-- **AND** the gzipped `index` chunk is ≤ 900 KB
+- **AND** the gzipped `index` chunk is ≤ 800 KB (the size test's `INDEX_GZ_CAP_BYTES`, which SHALL NOT exceed this value)
 
 #### Scenario: No @mdi/js dynamic-import warning
 
@@ -137,3 +137,22 @@ This requirement does NOT cover the oversized-chunk (>700 kB) aggregate warning.
 
 - **WHEN** several key-resolved icons mount on the same page
 - **THEN** the full icon set is fetched at most once
+
+### Requirement: On-demand subsystems stay out of the cold-landing load
+The math engine (`katex`), the non-English UI catalogs (`zh-CN`, `hu`), and the Settings panel SHALL NOT be part of the cold-landing load: no chunk referenced by `index.html` (entry script or `modulepreload`), nor any chunk transitively statically imported by them, SHALL contain them. Each SHALL be emitted as a separately loadable chunk fetched only when first needed. The build guard SHALL detect each by a minified-survivable marker string unique to that subsystem.
+
+#### Scenario: Math engine is off the landing graph
+- **WHEN** the production build runs
+- **THEN** no landing-graph chunk contains the KaTeX marker
+- **AND** a separately loadable chunk containing it is emitted
+- **AND** the entry stylesheet contains no `.katex` rule
+
+#### Scenario: Non-English catalogs are off the landing graph
+- **WHEN** the production build runs
+- **THEN** no landing-graph chunk contains the `hu` or `zh-CN` catalog marker
+- **AND** one separately loadable chunk per non-English language is emitted
+
+#### Scenario: Settings panel is off the landing graph
+- **WHEN** the production build runs
+- **THEN** no landing-graph chunk contains the Settings panel marker
+- **AND** a separately loadable chunk containing it is emitted
