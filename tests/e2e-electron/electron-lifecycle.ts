@@ -297,14 +297,12 @@ export async function openDoctorViaIpc(app: ElectronApplication): Promise<void> 
   // The handler is sender-gated (harden-electron-renderer-boundary): synthesize
   // the event a real call from the local loading page would carry.
   await app.evaluate(({ app: electronApp, ipcMain }) => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const path = require("node:path");
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { pathToFileURL } = require("node:url");
+    // No `require` in this ESM evaluate context: build the file URL by hand.
     const resourcesDir = electronApp.isPackaged
       ? process.resourcesPath
-      : path.join(electronApp.getAppPath(), "resources");
-    const url = pathToFileURL(path.join(resourcesDir, "loading.html")).href;
+      : `${electronApp.getAppPath()}/resources`;
+    const filePath = `${resourcesDir}/loading.html`.replace(/\\/g, "/").replace(/^\/+/, "");
+    const url = new URL(`file:///${filePath}`).href;
     ipcMain.emit("dashboard:open-doctor", { senderFrame: { url } });
   });
 }
