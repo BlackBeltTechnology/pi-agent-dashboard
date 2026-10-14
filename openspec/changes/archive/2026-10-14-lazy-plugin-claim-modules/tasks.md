@@ -31,7 +31,7 @@
 - [x] 4.1 `mdi-chunk-size.test.ts`: dagre marker absent from the landing graph and present in a lazy chunk.
 - [x] 4.2 `npm run build`; entry gz and landing-graph total both drop vs 0.1; lower `INDEX_GZ_CAP_BYTES` to measured rounded up to 10 KiB with a measurement comment.
   - Measured: entry gz 690,616 → 584,020 B (−106,596 B, −15.4%); landing graph gz 1,135,756 → 1,028,118 B (−107,638 B). Cap 690 → 580 KiB. Known follow-up: `yaml` (~98 KB raw) stays in the entry via `FrontmatterProperties` + flows `flow-idle-state.ts`.
-- [ ] 4.3 Full test suite green (done — only pre-existing env failures, same set on develop); manual QA check on throttled network (manual-only): open Settings › each plugin page, automation board, flow dashboard, a flow-write tool row.
+- [x] 4.3 Full test suite green (done — only pre-existing env failures, same set on develop); manual QA check on throttled network (manual-only): open Settings › each plugin page, automation board, flow dashboard, a flow-write tool row.
 
 ## 5. Docs
 
