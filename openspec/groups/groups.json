@@ -8,134 +8,146 @@
       "order": 0
     },
     {
+      "id": "codeql",
+      "name": "CodeQL",
+      "color": "#a855f7",
+      "order": 1
+    },
+    {
+      "id": "github-bug-fixes",
+      "name": "GitHub Bug Fixes",
+      "color": "#ef4444",
+      "order": 2
+    },
+    {
+      "id": "artcraft-craft-apps",
+      "name": "ArtCraft Craft Apps",
+      "order": 3
+    },
+    {
       "id": "bundle-index-size",
       "name": "Bundle & Index Size",
       "color": "#06b6d4",
-      "order": 1
+      "order": 4
     },
     {
       "id": "vault-access-remedy",
       "name": "Vault Access Remedy",
       "color": "#f97316",
-      "order": 2
+      "order": 5
     },
     {
       "id": "client-ui-fixes",
       "name": "Client UI fixes",
       "color": "#eab308",
-      "order": 3
+      "order": 6
     },
     {
       "id": "pi-update",
       "name": "Pi Update",
       "color": "#3b82f6",
-      "order": 4
+      "order": 7
     },
     {
       "id": "addons-hub",
       "name": "Addons Hub",
       "color": "#8b5cf6",
-      "order": 5
+      "order": 8
     },
     {
       "id": "project-workflows",
       "name": "Project Workflows",
       "color": "#14b8a6",
-      "order": 6
+      "order": 9
     },
     {
       "id": "retro-ui",
       "name": "Retro UI",
       "color": "#3b82f6",
-      "order": 7
+      "order": 10
     },
     {
       "id": "update-to-node-26",
       "name": "Update to Node 26",
       "color": "#3b82f6",
-      "order": 8
+      "order": 11
     },
     {
       "id": "lan-pairing-trust",
       "name": "LAN Pairing & Trust",
       "color": "#14b8a6",
-      "order": 9
+      "order": 12
     },
     {
       "id": "vault",
       "name": "Vault",
       "color": "#f97316",
-      "order": 10
+      "order": 13
     },
     {
       "id": "security",
       "name": "Security",
       "color": "#ef4444",
-      "order": 11
+      "order": 14
     },
     {
       "id": "copilot-assistant",
       "name": "Copilot / Assistant",
-      "order": 12
+      "order": 15
     },
     {
       "id": "fix-mermaid",
       "name": "Fix mermaid",
       "color": "#3b82f6",
-      "order": 13
+      "order": 16
     },
     {
       "id": "unify-context-manager",
       "name": "Unify Context Manager",
       "color": "#06b6d4",
-      "order": 14
+      "order": 17
     },
     {
       "id": "ai-team",
       "name": "AI Team",
       "color": "#a855f7",
-      "order": 15
+      "order": 18
     },
     {
       "id": "next-phase",
       "name": "Next phase",
       "color": "#3b82f6",
-      "order": 16
+      "order": 19
     },
     {
       "id": "kowledge-base",
       "name": "Kowledge Base",
       "color": "#f97316",
-      "order": 17
+      "order": 20
     },
     {
       "id": "electrun-execution",
       "name": "Electrun execution",
       "color": "#a855f7",
-      "order": 18
+      "order": 21
     },
     {
       "id": "future",
       "name": "Future",
       "color": "#f97316",
-      "order": 19
+      "order": 22
     },
     {
       "id": "separate-functions-to-plugins",
       "name": "Separate functions to plugins",
       "color": "#ef4444",
-      "order": 20
+      "order": 23
     },
     {
       "id": "ui-extensions",
       "name": "UI Extensions",
       "color": "#eab308",
-      "order": 21
-    },
-    {
-      "id": "artcraft-craft-apps",
-      "name": "ArtCraft Craft Apps",
-      "order": 22
+      "order": 24
     }
   ],
   "assignments": {
@@ -177,7 +189,7 @@
     "memory-retrieval-injection": "kowledge-base",
     "add-lora-dataset-export-skill": "unify-context-manager",
     "security-boundary-audit": "security",
-    "sanitize-untrusted-rendered-content": "security",
+    "sanitize-untrusted-rendered-content": "codeql",
     "harden-untrusted-content-ingestion": "ui",
     "harden-trust-and-credential-boundaries": "ui",
     "harden-server-capability-bounds": "security",
@@ -435,11 +447,22 @@
     "fix-kb-gitignore-excluded-parent": "bundle-index-size",
     "shrink-client-entry-lazy-islands": "bundle-index-size",
     "lazy-plugin-claim-modules": "bundle-index-size",
-    "fix-codeql-small-findings": "ui",
+    "fix-codeql-small-findings": "codeql",
     "add-plugin-capability-routes": "copilot-assistant",
     "add-welcome-tutorial": "next-phase",
     "add-tailscale-cert-tls": "lan-pairing-trust",
     "add-acme-dns01-certs": "lan-pairing-trust",
+    "fix-session-reclaim-tmux": "github-bug-fixes",
+    "fix-composer-liveness-on-reload": "github-bug-fixes",
+    "fix-yolo-indicator-overflow": "github-bug-fixes",
+    "bound-kb-search-freshness": "github-bug-fixes",
+    "fix-pairing-approval-credential": "github-bug-fixes",
+    "fix-doc-engine-arm64-chromium": "github-bug-fixes",
+    "triage-browser-e2e-offbox-poison": "github-bug-fixes",
+    "add-missing-ci-legs": "github-bug-fixes",
+    "add-local-codeql-ratchet": "codeql",
+    "fix-project-setup-completion-state": "ui",
+    "fix-slot-pill-legend-and-stale-overflow": "ui",
     "add-craft-apps-core": "artcraft-craft-apps",
     "add-craft-media-workflows": "artcraft-craft-apps",
     "add-craft-office-workflows": "artcraft-craft-apps",
@@ -456,7 +479,9 @@
       "implement-it",
       "retest-plain-language-hard-battery",
       "ab-test-rlm-delegation-claim",
-      "fix-npm12-remote-tarball-install"
+      "fix-npm12-remote-tarball-install",
+      "add-request-access-remedy",
+      "audit-plugin-bundles-non-secure-context"
     ],
     "bundle-index-size": [
       "fix-kb-gitignore-excluded-parent",
@@ -471,7 +496,8 @@
       "retire-trusted-networks-bypass"
     ],
     "ui": [
-      "fix-codeql-small-findings"
+      "fix-project-setup-completion-state",
+      "fix-slot-pill-legend-and-stale-overflow"
     ],
     "addons-hub": [
       "addons-hub-feature-catalog",
@@ -569,6 +595,21 @@
       "add-extension-ui-a11y-baseline",
       "add-extension-ui-rjsf-form",
       "pi-flows-adopt-extension-ui"
+    ],
+    "github-bug-fixes": [
+      "fix-session-reclaim-tmux",
+      "fix-composer-liveness-on-reload",
+      "fix-yolo-indicator-overflow",
+      "bound-kb-search-freshness",
+      "fix-pairing-approval-credential",
+      "fix-doc-engine-arm64-chromium",
+      "triage-browser-e2e-offbox-poison",
+      "add-missing-ci-legs"
+    ],
+    "codeql": [
+      "sanitize-untrusted-rendered-content",
+      "fix-codeql-small-findings",
+      "add-local-codeql-ratchet"
     ],
     "artcraft-craft-apps": [
       "add-craft-apps-core",
