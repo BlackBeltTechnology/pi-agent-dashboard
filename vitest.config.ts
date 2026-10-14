@@ -65,7 +65,7 @@ export default defineConfig({
       "packages/untrusted-content-guard",
       "packages/mockup-loop",
       "packages/nano-banana",
-      "packages/photocraft",
+      "packages/craft-apps",
       "packages/video-production",
       // music-production (change: add-music-production-skills): skill-text and
       // repo-wiring invariants. Its Python behaviour runs in ci.yml music-pytest.

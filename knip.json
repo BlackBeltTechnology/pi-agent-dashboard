@@ -571,8 +571,9 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
-    "packages/photocraft": {
+    "packages/craft-apps": {
       "entry": [
+        "src/bin/craft.ts",
         "src/bin/photocraft.ts",
         "scripts/build.mjs",
         "**/vitest.config.ts",

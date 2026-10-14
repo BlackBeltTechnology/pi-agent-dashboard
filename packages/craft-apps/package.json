@@ -1,0 +1,76 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-craft-apps",
+  "version": "0.9.0",
+  "description": "Headless ArtCraft Crafting Apps for pi agents: provisions the <app>-cli binary of PhotoCraft, VectorCraft, FilmCraft, LightCraft, PdfCraft, EffectCraft, DesignCraft, FigCraft, WordCraft, SoundCraft, DeckCraft, CADCraft and GridCraft on demand, exposes them over bash and per-app confined stdio MCP servers, verifies outputs mechanically (pi-craft verify) and ships a router skill plus one skill per app. Exposed as pi skills and the pi-craft / pi-photocraft CLI bins.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/craft-apps"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-skill",
+    "artcraft",
+    "craft-apps",
+    "photocraft",
+    "filmcraft",
+    "soundcraft",
+    "effectcraft",
+    "mcp",
+    "creative"
+  ],
+  "pi": {
+    "skills": [
+      ".pi/skills/craft-studio",
+      ".pi/skills/photocraft",
+      ".pi/skills/vectorcraft",
+      ".pi/skills/filmcraft",
+      ".pi/skills/lightcraft",
+      ".pi/skills/pdfcraft",
+      ".pi/skills/effectcraft",
+      ".pi/skills/designcraft",
+      ".pi/skills/figcraft",
+      ".pi/skills/wordcraft",
+      ".pi/skills/soundcraft",
+      ".pi/skills/deckcraft",
+      ".pi/skills/cadcraft",
+      ".pi/skills/gridcraft"
+    ]
+  },
+  "exports": {
+    "./*.js": "./src/*.ts",
+    "./*": "./src/*"
+  },
+  "bin": {
+    "pi-craft": "bin/pi-craft",
+    "pi-photocraft": "bin/pi-photocraft"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "src/",
+    "!src/__tests__",
+    ".pi/skills/",
+    "README.md",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "prepack": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "@blackbelt-technology/pi-dashboard-nano-banana": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "tsx": "^4.21.0",
+    "vitest": "^2.1.8"
+  }
+}

@@ -77,6 +77,10 @@ The provisioner SHALL honour `CRAFT_SOURCE` = `managed` (default), `launcher` or
 - **WHEN** `CRAFT_SOURCE=launcher` and the launcher has not installed `cadcraft`
 - **THEN** provisioning of `cadcraft` fails with an error naming `cadcraft`, `pi-craft launcher install` and `CRAFT_SOURCE=managed`, and no network request is made
 
+#### Scenario: Launcher install without a CLI
+- **WHEN** `CRAFT_SOURCE=launcher` and the launcher has installed `filmcraft` as a desktop app bundle that contains no `filmcraft-cli`
+- **THEN** provisioning fails stating that FilmCraft is installed by the Craft Launcher but ships no `filmcraft-cli` (desktop app only), and no network request is made
+
 #### Scenario: Auto falls back to managed
 - **WHEN** `CRAFT_SOURCE=auto` and the launcher has not installed `figcraft`
 - **THEN** `figcraft` is provisioned from its release with report `source` reflecting the managed resolution

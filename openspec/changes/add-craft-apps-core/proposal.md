@@ -6,7 +6,7 @@ An explore spike (2026-10-14, macOS, latest releases) established:
 - All 13 apps (+ `craft-launcher`) publish the **same release layout**: `<app>-cli-<v>-macos-universal.zip`, Linux/FreeBSD tarballs with the CLI under `bin/`, Windows portable zips, and `SHA256SUMS.txt`. All 13 checksums verified.
 - CLIs share a family shape (`commands`, `run`, `mcp`, `info`/`convert`) but **differ per app** (`run FILE` vs `run --in FILE` vs `run <id> <json>…`; `describe`, `script`, `app --port`, `export`, `render`, `bounce` exist only on some; PdfCraft has no `commands`).
 - MCP tool counts: 12–32 per app, except **LightCraft 330** and **PdfCraft 163** — always-on registration would flood the model context.
-- Only **4/13** MCP servers advertise path confinement (`--automation-read-root/--automation-write-root`: Photo, Effect, Vector, Word).
+- Only **4/13** MCP servers advertised path confinement in the spike (`--automation-read-root/--automation-write-root`: Photo, Effect, Vector, Word); the latest-release probe (design.md) adds SoundCraft 0.7.0 and PdfCraft (`--root`) → 6/13, and finds `--compact` MCP modes for the two large apps.
 - A **headless three-app round-trip works today**: SoundCraft import → clip gain → bounce; EffectCraft comp + animated text → ProRes 4444 alpha; FilmCraft import → sequence → two overwrites → h264+aac export. ≈3 s end to end, verified with ffprobe, loudness and a frame diff.
 - The same spike produced a **silently wrong output** (10 s instead of 5 s) from one guessed command id (`timeline.setPlayhead`, real: `playhead.set`): agents need discovery-first skills and mechanical output verification.
 
