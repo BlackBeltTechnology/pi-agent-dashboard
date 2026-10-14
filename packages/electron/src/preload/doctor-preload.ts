@@ -3,10 +3,11 @@
  * `doctor.html` renderer with the typed channel set declared in
  * `doctor-bridge-contract.ts`.
  *
- * This file is imported once from `packages/electron/src/preload.ts` so the
- * single bundled preload script registers both the wizard / piDashboard
- * APIs and the doctor bridge. Adding a separate forge preload entry would
- * be churn for no functional gain; one preload, multiple namespaces.
+ * This file is imported once from `packages/electron/src/preload.ts` — the
+ * WIZARD preload bundle (doctor + remote-connect windows, trusted `file://`
+ * only). The main window uses `preload-main.ts` and must never carry this
+ * bridge (it loads untrusted remote content).
+ * See change: harden-electron-renderer-boundary.
  *
  * See change: doctor-rich-output (task 3.2).
  */

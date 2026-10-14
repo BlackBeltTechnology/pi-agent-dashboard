@@ -176,6 +176,13 @@ const config: ForgeConfig = {
             config: "vite.preload.config.ts",
             target: "preload",
           },
+          {
+            // Main-window preload: piDashboard only, no wizard bridges.
+            // See change: harden-electron-renderer-boundary.
+            entry: "src/preload-main.ts",
+            config: "vite.preload-main.config.ts",
+            target: "preload",
+          },
         ],
         renderer: [],
       },

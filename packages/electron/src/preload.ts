@@ -1,71 +1,14 @@
 /**
- * Preload script for Electron renderers (loading page, doctor, remote-connect).
- * Exposes IPC APIs to the renderer via contextBridge.
+ * Preload for the TRUSTED local wizard windows (doctor, remote-connect), which
+ * load `file://` content only. Exposes the wizard bridges. The main window —
+ * which in remote mode loads untrusted remote content — uses `preload-main.ts`
+ * instead and must never get these bridges.
+ * See change: harden-electron-renderer-boundary (VD5).
  */
-import { contextBridge, ipcRenderer } from "electron";
-// Register the doctor bridge namespace on the same preload bundle.
+// Register the doctor bridge namespace (`window.electron.doctor`).
 // Side-effect import — `doctor-preload.ts` calls contextBridge.exposeInMainWorld.
 // See change: doctor-rich-output.
 import "./preload/doctor-preload.js";
 // Register the remote-connect bridge namespace (window.remoteConnect).
 // See change: auto-launch-first-run-skip-welcome.
 import "./preload/remote-connect-preload.js";
-
-// ── piDashboard API ───────────────────────────────────────────────────────────────────
-// User-initiated server-launch controls used by the loading page (and any
-// future in-app retry control). See change: electron-server-launch-controls.
-// Same preload is attached to both the loading page and the wizard window;
-// each renderer uses only the namespace it needs.
-
-export interface PiDashboardLaunchOutcome {
-  kind: "already-running" | "started" | "failed";
-  url?: string;
-  reason?: string;
-  logTail?: string;
-}
-
-export interface PiDashboardLaunchStatus {
-  phase: "starting" | "shutting-down-existing" | "spawning" | "waiting-health" | "ready" | "failed";
-  message?: string;
-  url?: string;
-}
-
-export interface PiDashboardProbeResult {
-  ok: boolean;
-  version?: string;
-  reason?: string;
-}
-
-export interface PiDashboardApi {
-  requestLaunch: (force?: boolean) => Promise<PiDashboardLaunchOutcome>;
-  openDoctor: () => void;
-  readServerLog: (lines?: number) => Promise<string>;
-  onStatus: (cb: (status: PiDashboardLaunchStatus) => void) => () => void;
-  /**
-   * Main-process reachability probe (Node fetch, no browser Origin, not CORS-
-   * bound). Used by the loading page to decide when to navigate to a remote
-   * dashboard whose CORS policy refuses the loading page's `null` origin.
-   * See change: fix-remote-connect-cors-gates.
-   */
-  probeServer: (url: string) => Promise<PiDashboardProbeResult>;
-  /**
-   * Whole-app (electron-updater) check, from Settings → Dashboard runtime when
-   * a runtime requires a newer app. See change: electron-runtime-overlay-updates.
-   */
-  checkAppUpdate: () => Promise<void>;
-}
-
-const piDashboard: PiDashboardApi = {
-  requestLaunch: (force) => ipcRenderer.invoke("dashboard:request-launch", { force: !!force }),
-  openDoctor: () => ipcRenderer.send("dashboard:open-doctor"),
-  readServerLog: (lines) => ipcRenderer.invoke("dashboard:read-server-log", { lines: lines ?? 20 }),
-  probeServer: (url) => ipcRenderer.invoke("dashboard:probe-server", { url }),
-  checkAppUpdate: () => ipcRenderer.invoke("dashboard:check-app-update"),
-  onStatus: (cb) => {
-    const listener = (_e: unknown, payload: PiDashboardLaunchStatus) => cb(payload);
-    ipcRenderer.on("dashboard:launch-status", listener);
-    return () => { ipcRenderer.removeListener("dashboard:launch-status", listener); };
-  },
-};
-
-contextBridge.exposeInMainWorld("piDashboard", piDashboard);
