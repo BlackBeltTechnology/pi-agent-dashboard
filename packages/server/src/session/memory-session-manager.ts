@@ -467,6 +467,9 @@ export function createMemorySessionManager(
         firstMessage: params.firstMessage ?? existing?.firstMessage,
         dataUnavailable: false,
         pid: params.pid,
+        // Identity-guard stamp for unattended kills (server-only, in-memory).
+        // See change: fix-session-reclaim-tmux.
+        pidRecordedAt: params.pid !== undefined ? Date.now() : undefined,
         // Pi-native queue mirror: reset to empty on register / re-register;
         // a fresh `queue_update` from the bridge populates it.
         // See change: add-followup-edit-and-steer-cancel.

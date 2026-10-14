@@ -36,4 +36,19 @@ describe("lifecycle metrics", () => {
     expect(s.activeEphemeral).toBe(4);
     expect(s.idleEphemeral).toBe(1);
   });
+
+  // E21 — one scalar failed-reclaim counter, no per-reason breakdown.
+  it("counts failed reclaims as a single scalar", () => {
+    const m = createLifecycleMetrics();
+    expect(m.snapshot().failedReclaims).toBe(0);
+    m.recordReclaimFailure();
+    m.recordReclaimFailure();
+    const s = m.snapshot();
+    expect(typeof s.failedReclaims).toBe("number");
+    expect(s.failedReclaims).toBe(2);
+    expect(s.reaped).toEqual({ idle: 0, "stop-after-turn": 0, phantom: 0 });
+    expect(Object.keys(s).sort()).toEqual(
+      ["activeEphemeral", "capacityRejections", "failedReclaims", "idleEphemeral", "reaped", "reuseHits", "reuseMisses"].sort(),
+    );
+  });
 });

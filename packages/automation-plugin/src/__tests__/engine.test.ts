@@ -525,6 +525,36 @@ describe("engine run lifecycle", () => {
     expect(terminations).toHaveLength(1);
   });
 
+  // test-plan #X17 — terminating the session makes the bridge send
+  // `session_unregister` (→ onSessionDeath) while `onSessionEnded` is still
+  // inside abortSpawnedRun: the run must still finalize exactly once.
+  // See change: fix-session-reclaim-tmux.
+  it("a re-entrant session-death during the completion kill finalizes the run once", async () => {
+    let engineRef: ReturnType<typeof createEngine> | undefined;
+    const terminations: any[] = [];
+    const engine = createEngine({
+      spawnSession: async () => ({ success: true, spawnToken: "tok-x17" }),
+      abortSpawnedRun: async (args) => {
+        terminations.push(args);
+        engineRef?.onSessionDeath("sess-x17", "");
+        return true;
+      },
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: () => ({ defaultVisibility: "hidden", retention: 100, defaultModel: "m", scanFolder: true, scanGlobal: false, maxRunAgeMs: 30 * 60 * 1000 }),
+      readRoles: () => ({ fast: "m" }),
+      warn: () => {},
+    });
+    engineRef = engine;
+    const { runId } = engine.startRunFor(promptAutomation("nightly", "x"))!;
+    await flushSpawn();
+    engine.onSessionRegistered("sess-x17", repo);
+    engine.onSessionEnded("sess-x17", "Found regressions.");
+
+    expect(terminations).toHaveLength(1);
+    expect(listRuns(repo, "nightly")).toHaveLength(1);
+    expect(parentRun(repo, "nightly", runId).status).toBe("done");
+  });
+
   it("stop during the spawn→register window terminates by spawnToken and leaves no zombie", async () => {
     const terminations: any[] = [];
     const { engine } = makeStoppableEngine(terminations, "tok-prereg");

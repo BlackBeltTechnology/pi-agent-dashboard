@@ -31,6 +31,10 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/process.js", async (
   return {
     ...actual,
     isProcessAlive: (pid: number) => pid === SURVIVING_PID,
+    // The shared terminator confirms death with the errno-aware probe (only
+    // ESRCH proves absence), so the stub pins that primitive too.
+    // See change: fix-session-reclaim-tmux.
+    signalZero: (pid: number) => (pid === SURVIVING_PID ? "alive" : "esrch"),
     killProcess: (...args: unknown[]) => killProcess(...(args as [])),
   };
 });
@@ -57,6 +61,7 @@ function makeDeps(broadcast: (m: ServerToBrowserMessage) => void): ShutdownSessi
     } as unknown as ShutdownSessionDeps["piGateway"],
     headlessPidRegistry: {
       killBySessionId: vi.fn(async () => false),
+      getPid: vi.fn(() => undefined),
     } as unknown as ShutdownSessionDeps["headlessPidRegistry"],
     broadcast,
   };

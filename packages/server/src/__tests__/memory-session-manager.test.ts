@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createMemorySessionManager,
   type SnapshotOrders,
@@ -448,5 +448,30 @@ describe("memory-session-manager", () => {
       sm.register({ id: "w1", cwd: "/elsewhere", source: "tui" });
       expect(sm.get("w1")?.gitWorktree).toBeUndefined();
     });
+  });
+});
+
+// Identity stamp for the unattended-kill guard (test-plan #E1–#E3).
+// See change: fix-session-reclaim-tmux.
+describe("memory-session-manager — pidRecordedAt stamp", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("E1/E2 stamps pidRecordedAt on every register that carries a pid", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const sm = createMemorySessionManager();
+    sm.register({ id: "s1", cwd: "/tmp", source: "tui", pid: 4242 });
+    expect(sm.get("s1")?.pidRecordedAt).toBe(1_000_000);
+    vi.setSystemTime(1_005_000);
+    sm.register({ id: "s1", cwd: "/tmp", source: "tui", pid: 4242 });
+    expect(sm.get("s1")?.pidRecordedAt).toBe(1_005_000);
+  });
+
+  it("E3 leaves pid and pidRecordedAt unset when the bridge sent no pid (and clears a stale stamp)", () => {
+    const sm = createMemorySessionManager();
+    sm.register({ id: "s1", cwd: "/tmp", source: "tui", pid: 4242 });
+    sm.register({ id: "s1", cwd: "/tmp", source: "tui" });
+    expect(sm.get("s1")?.pid).toBeUndefined();
+    expect(sm.get("s1")?.pidRecordedAt).toBeUndefined();
   });
 });
