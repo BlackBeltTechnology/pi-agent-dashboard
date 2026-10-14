@@ -12,9 +12,9 @@
  */
 
 import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { normalizeHostKey } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
+import { formatHostPort, normalizeHostKey } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
 import type { DiscoveredServerInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { mdiAlertCircleOutline, mdiCheck, mdiInformationOutline, mdiPlus, mdiRefresh } from "@mdi/js";
+import { mdiAlertCircleOutline, mdiCheck, mdiInformationOutline, mdiOpenInNew, mdiPlus, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useCallback, useState } from "react";
 import { addKnownServer, discoverServers } from "../../lib/api/known-servers-api.js";
@@ -72,6 +72,25 @@ function DiscoveryDiagnostic() {
   );
 }
 
+/**
+ * The peer's own request landing; IPv6 literals bracketed by `formatHostPort`.
+ * The host comes from mDNS (any LAN device can advertise anything), so the parsed
+ * URL must round-trip to exactly the advertised host + port or there is no
+ * Connect (a host like `evil.example/x?` or `a@evil.example` would otherwise
+ * redirect the jump off the LAN). See change: add-lan-knock-pairing.
+ */
+function requestPageUrl(server: DiscoveredServerInfo): string | null {
+  try {
+    const url = new URL(`http://${formatHostPort(server.host, server.port)}/pair?request`);
+    const host = url.hostname.replace(/^\[|\]$/g, "");
+    const advertised = server.host.trim().toLowerCase().replace(/^\[|\]$/g, "");
+    const sameHost = host === advertised || (advertised.includes(":") && url.hostname === `[${host}]`);
+    return sameHost && Number(url.port || 80) === server.port && !url.username && !url.password ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 function DiscoveredRow({
   server,
   alreadyKnown,
@@ -97,9 +116,10 @@ function DiscoveredRow({
 }) {
   const key = `${server.host}:${server.port}`;
   const name = server.name ?? server.host;
+  const connectUrl = server.isLocal ? null : requestPageUrl(server);
   return (
     <div className={ROW}>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-[1_1_12rem]">
         <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-[var(--text-primary)]">
           <span className="truncate">{name}</span>
           <span className={identityPill(server.isLocal)}>
@@ -111,63 +131,77 @@ function DiscoveredRow({
         </div>
       </div>
 
-      {updated ? (
-        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--severity-success-fg)]">
-          <Icon path={mdiCheck} size={0.5} aria-hidden="true" />
-          {i18nT("connection.updatedExistingEntry", undefined, "Updated existing entry")}
-        </span>
-      ) : alreadyKnown ? (
-        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--severity-success-fg)]">
-          <Icon path={mdiCheck} size={0.5} aria-hidden="true" />
-          {i18nT("common.alreadyAdded", undefined, "Already added")}
-        </span>
-      ) : isAdding ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <label htmlFor={`discovery-label-${key}`} className="sr-only">
-            {i18nT("connection.labelFor", { name }, "Label for {name}")}
-          </label>
-          <input
-            id={`discovery-label-${key}`}
-            type="text"
-            value={addLabel}
-            onChange={(e) => onLabelChange(e.target.value)}
-            placeholder={i18nT("common.label", undefined, "Label")}
-            className={`${INPUT} !min-h-[32px] !w-36 !py-0.5 !text-xs`}
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onConfirm();
-              if (e.key === "Escape") onCancel();
-            }}
-          />
+      <div className="flex flex-wrap items-center gap-2">
+        {!server.isLocal && connectUrl && (
           <button
             type="button"
-            className={BTN_SMALL_PRIMARY}
-            aria-label={i18nT("connection.confirmAdd", { name }, "Add {name}")}
-            onClick={onConfirm}
+            data-testid="discovery-connect"
+            className={BTN_SMALL}
+            aria-label={i18nT("connection.connectAria", { name }, "Connect to {name} (opens in a new tab)")}
+            onClick={() => window.open(connectUrl, "_blank", "noopener")}
           >
+            {i18nT("connection.connect", undefined, "Connect")}
+            <Icon path={mdiOpenInNew} size={0.5} aria-hidden="true" />
+          </button>
+        )}
+        {updated ? (
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--severity-success-fg)]">
             <Icon path={mdiCheck} size={0.5} aria-hidden="true" />
+            {i18nT("connection.updatedExistingEntry", undefined, "Updated existing entry")}
+          </span>
+        ) : alreadyKnown ? (
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--severity-success-fg)]">
+            <Icon path={mdiCheck} size={0.5} aria-hidden="true" />
+            {i18nT("common.alreadyAdded", undefined, "Already added")}
+          </span>
+        ) : isAdding ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <label htmlFor={`discovery-label-${key}`} className="sr-only">
+              {i18nT("connection.labelFor", { name }, "Label for {name}")}
+            </label>
+            <input
+              id={`discovery-label-${key}`}
+              type="text"
+              value={addLabel}
+              onChange={(e) => onLabelChange(e.target.value)}
+              placeholder={i18nT("common.label", undefined, "Label")}
+              className={`${INPUT} !min-h-[32px] !w-36 !py-0.5 !text-xs`}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onConfirm();
+                if (e.key === "Escape") onCancel();
+              }}
+            />
+            <button
+              type="button"
+              className={BTN_SMALL_PRIMARY}
+              aria-label={i18nT("connection.confirmAdd", { name }, "Add {name}")}
+              onClick={onConfirm}
+            >
+              <Icon path={mdiCheck} size={0.5} aria-hidden="true" />
+              {i18nT("common.add2", undefined, "Add")}
+            </button>
+            <button
+              type="button"
+              className={BTN_SMALL_GHOST}
+              aria-label={i18nT("connection.cancelAdd", { name }, "Cancel adding {name}")}
+              onClick={onCancel}
+            >
+              {i18nT("common.cancel", undefined, "Cancel")}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onStart}
+            className={BTN_SMALL}
+            aria-label={i18nT("connection.startAdd", { name, address: key }, "Add {name} ({address})")}
+          >
+            <Icon path={mdiPlus} size={0.5} aria-hidden="true" />
             {i18nT("common.add2", undefined, "Add")}
           </button>
-          <button
-            type="button"
-            className={BTN_SMALL_GHOST}
-            aria-label={i18nT("connection.cancelAdd", { name }, "Cancel adding {name}")}
-            onClick={onCancel}
-          >
-            {i18nT("common.cancel", undefined, "Cancel")}
-          </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={onStart}
-          className={BTN_SMALL}
-          aria-label={i18nT("connection.startAdd", { name, address: key }, "Add {name} ({address})")}
-        >
-          <Icon path={mdiPlus} size={0.5} aria-hidden="true" />
-          {i18nT("common.add2", undefined, "Add")}
-        </button>
-      )}
+        )}
+      </div>
       {error && (
         <div className="basis-full text-[11px] text-[var(--severity-error-fg)]" role="alert">
           {error}

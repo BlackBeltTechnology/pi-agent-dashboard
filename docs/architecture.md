@@ -3499,7 +3499,7 @@ sequenceDiagram
 - `operatorGuard` refuses paired-device bearer + trusted-network-only callers.
 - `DELETE /api/paired-devices/:id` + `POST /api/pair/approve` operator-only (`createOperatorGuard`); paired-device bearer (`authVia === "device"`) refused 401 even over loopback; approve `label` bounded 1..64 UTF-8 bytes.
 - `GET /api/pair/pending` returns `pendingId`, metadata, `expiresAt`, `attemptsLeft`; never pairing code or confirm code.
-- `POST /api/pair/approve-pending {pendingId, confirmCode, label?}` validates label 1..64 UTF-8 bytes before delegation → 400.
+- `POST /api/pair/approve-pending {pendingId, confirmCode, label?, tier?}` validates label 1..64 UTF-8 bytes before delegation → 400. Optional `tier` (`observe|control|operate`); invalid → 400, pending stays; absent → `operate`. See change: add-lan-knock-pairing.
 - Approve-pending errors: `locked_out` → 429; `no_pending` → 404; other errors → 400; mismatch body includes `attemptsLeft`.
 - `POST /api/pair/deny {pendingId}` returns 200 or 404 `no_pending`.
 - `approvePending` delegates to `approve()`; both share ONE `MAX_APPROVE_ATTEMPTS = 5` budget per pending device.
@@ -3524,6 +3524,110 @@ sequenceDiagram
 - Submit-only validation shows "Enter all 8 digits"; optional device name prefilled from UA via `describeUserAgent` / `deviceNameFromUserAgent` (`packages/client/src/lib/pairing/describe-user-agent.ts`).
 - Dialog states: form / locked / expired / success; success auto-closes after 4s.
 - React renders untrusted metadata as text only; XFF shows "(reported by proxy)".
+
+#### LAN knock pairing (add-lan-knock-pairing)
+
+Device-initiated pairing over plain `http` on same LAN. No QR, no TLS. Opt-in: `pairing.acceptLanRequests`, default `false`. Reuses approval path above: one pending device, app-wide dialog, typed 8-digit code, lockout, deny, expiry, poll. Provenance `knock` (vs `qr`).
+
+Entry points:
+- Browser: `http://<host>:<port>/pair?request`. Or Settings ▸ Network Discovery ▸ Connect (opens that server's `/pair?request`). Network-denied banner shows Request access.
+- Native: `knockServer(baseUrl, expectedFingerprint, name, hooks)` (`packages/client/src/lib/pairing/knock.ts`). Challenge → fingerprint compare → knock → poll → verify fingerprint. Electron wiring: `add-electron-server-windows`.
+
+Flow:
+1. Device B: `/pair?request` → optional name → Request access.
+2. B → `POST /api/pair/request {name}`. Same-origin. No credential.
+3. A: admission gates (below). Pass → pending device, `provenance: "knock"`, `unencrypted` = socket has no TLS.
+4. A → B: `{pendingId, confirmCode, expiresAt, fingerprint}`. B shows code grouped `4821 7730`.
+5. A: approval dialog. Shows source address. Operator types B's code, picks tier, Approve.
+6. B → `POST /api/pair/poll` → `approved` + bearer. Bearer dropped after cookie proof.
+7. B → `POST /api/device-session` → httpOnly `pi_dash_device` cookie.
+
+```mermaid
+sequenceDiagram
+    participant B as Device B
+    participant S as Server A
+    participant Op as Operator on A
+    B->>S: POST /api/pair/request {name}
+    S->>S: admission gates
+    S-->>B: pendingId, confirmCode, expiresAt, fingerprint
+    S-->>Op: pair_pending_changed
+    B->>B: show code 4821 7730
+    Op->>S: POST /api/pair/approve-pending {pendingId, confirmCode, tier}
+    B->>S: POST /api/pair/poll
+    S-->>B: approved + bearer
+    B->>S: POST /api/device-session
+    S-->>B: Set-Cookie pi_dash_device
+```
+
+**Operator switch.**
+- Key `pairing.acceptLanRequests: boolean`. Absent = `false`.
+- UI: Gateway ▸ Connect a device ▸ "Devices on this network" ▸ switch "Accept requests from devices on this network". Shows On/Off as word. Helper: unencrypted unless TLS.
+- Write: `PUT /api/config`. Live. Next knock reads it. No restart.
+- On: panel lists `<lan-endpoint>/pair?request` per plain-http IPv4 LAN endpoint. Copy action. Tunnel, `localhost`, public base URLs excluded.
+- Off: new knocks → `knock_disabled`. Live pending stays approvable until expiry.
+
+**Admission gates.** Evaluated in order. First failure wins. Refused → no pending device, no operator prompt.
+
+| Gate | `error` | Status | Meaning |
+|---|---|---|---|
+| pre | `untrusted origin` | 403 | Foreign `Origin` on browser POST. Global mutation-origin gate. |
+| pre | (body parser) | 415 | Non-JSON body. |
+| 1 | `host_not_admitted` | 403 | `Host` fails enforce-mode Host admission. DNS rebinding. |
+| 2 | `knock_not_lan` | 403 | Peer missing, not private, not on-link, loopback, or any forwarding header. |
+| 3 | `knock_disabled` | 403 | `pairing.acceptLanRequests` not `true`. |
+| 4 | `knock_rate_limited` | 429 | `retryAfter`. Per-source window or cooldown. |
+| 5 | `knock_pending` | 409 | Live knock from same source. |
+| 6 | `knock_busy` | 503 | `retryAfter`. Global live cap or global window. |
+
+**Peer rules.**
+- Source = `request.socket.remoteAddress` only. Requester `name` and User-Agent never affect admission.
+- Private: IPv4 `10/8`, `172.16/12`, `192.168/16`, `100.64/10`, `169.254/16`; IPv6 `fc00::/7`, `fe80::/10`; IPv4-mapped forms.
+- On-link: inside subnet of non-internal interface that bind address covers (`os.networkInterfaces()`, `resolveBindHost`).
+- On-link excludes point-to-point `/32` VPN peers (`100.64/10`). Includes docker/VM bridges and real-prefix VPN subnets.
+- Loopback peer → refused.
+- Any proxy-forwarding header → refused, even from LAN peer. Same list as `isGenuinelyLocal`. Stricter than `isTrustedSource`.
+- Missing peer address → `knock_not_lan`. IPv6 zone (`%en0`) ignored when matching.
+- Source key = full address. `/64` not grouped (router-mates do not collide).
+
+**Limits.**
+- Live = admitted and not yet approved / denied / locked out / expired. 30 s post-resolution poll window is not live.
+- 1 live per source. 3 live global.
+- 5 admitted per 10 min per source. 10 admitted per 10 min global.
+- Deny or lockout → 10 min cooldown for that source.
+- Refusals never counted.
+- Rate gate runs before pending gate. Re-knock after deny → `knock_rate_limited`, not `knock_pending`.
+
+**Approval.**
+- Dialog identity = source address. Requester name shown only as "says it is …". Name prefills device-name field.
+- Name normalise: strip Cc/Cf (bidi overrides, zero-width), trim, truncate ≤64 UTF-8 bytes, empty → absent. Display only. Never authz input. Never logged.
+- Tier radio: `observe` | `control` | `operate`. Default `operate`. Fixed at pairing.
+- `POST /api/pair/approve-pending {pendingId, confirmCode, label?, tier?}`: `tier` absent → `operate`; invalid → 400, pending stays pending.
+- Waiting list: "Network request", source address, "says …", "Unencrypted" label when `unencrypted`.
+- Logs: `[pairing] knock admitted id=<8>`. Refusal → one line per reason per 60 s; suppressed count logged at window end. No code, bearer, name, UA or address in logs.
+
+**Transport and cookie.**
+- Knock accepts plain http. QR / deep-link payload still https/wss only (`urls[]`, `add-server-keypair-pairing` D14).
+- Device cookie `Secure` (D15): dropped only for direct plain-http exchange from non-loopback peer (`isLoopbackRange`, `auth/loopback.ts`). All other cases keep global `isSecure()`. Tunnel / TLS reverse proxy unchanged.
+- Browser keeps bearer until cookie-only authenticated `/api/` request succeeds. QR and knock share `finishDevicePairing` (`lib/pairing/device-auth.ts`).
+- Non-secure origin: client falls back for `crypto.randomUUID` (UUIDv4 via `crypto.getRandomValues`) and `navigator.clipboard` (manual copy). DPoP reports unavailable. Plugin bundles out of scope.
+
+**Threat model (design D8). Accepted.**
+- Plain http: passive LAN observer captures bearer (poll response or later request).
+- Active MITM relays knock, races poll. Compare code does not stop faithful relay.
+- Bearer long-lived (cookie ~400 d). Accepted from any network, incl. tunnel.
+- Accepted because: opt-in, default off; labelled in dialog + landing; operator picks tier; revocable per device (Settings ▸ Security ▸ Paired Devices); replaces `trustedNetworks` bypass, which grants same LAN position with no credential.
+- LAN-scoped bearers offered in doubt review, declined.
+- TLS or tunnel recommended. QR payload stays TLS-only.
+- Browser landing = TOFU. `/pair?request` same-origin, no fingerprint pin. Browser reaching impostor address pairs with impostor. Native `knockServer()` verifies advertised fingerprint; does not stop on-path relay over http.
+- Header-less forwarder (`socat`, `ssh -L`, NAT hairpin, nginx without `proxy_set_header`) indistinguishable from LAN device. Dialog shows forwarder address. Operator must type code.
+- Tunnel-relayed knock → `knock_not_lan`. Use QR over TLS.
+
+**Bridge-networked container caveat (design Risks).**
+- Shipped `docker/compose.yml` bridge network (Docker Desktop / userland proxy): every request arrives from bridge gateway address.
+- Effects: on-link gate admits anyone reaching published port. Dialog shows one address for all requesters. Per-source limits act as one global lock.
+- Fix: host networking restores real peer addresses. TLS path: use QR pairing.
+
+Not yet: `request-access` remedy on `operate_required` refusal. Follow-up (design D10).
 
 #### Bearer device auth — D5/D7
 

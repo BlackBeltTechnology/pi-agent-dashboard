@@ -532,6 +532,16 @@ export function registerSystemRoutes(
           return reply.code(400).send({ success: false, error: check.errors.join("; ") });
         }
       }
+      // `pairing.acceptLanRequests` is a security switch: boolean only, never
+      // coerced. See change: add-lan-knock-pairing.
+      if (
+        partial.pairing !== null &&
+        typeof partial.pairing === "object" &&
+        "acceptLanRequests" in partial.pairing &&
+        typeof partial.pairing.acceptLanRequests !== "boolean"
+      ) {
+        return reply.code(400).send({ success: false, error: "pairing.acceptLanRequests must be a boolean" });
+      }
       const result = writeConfigPartial(partial);
       if (!result.success) {
         return reply.code(500).send({ success: false, error: result.error });

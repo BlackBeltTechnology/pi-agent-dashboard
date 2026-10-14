@@ -4,6 +4,7 @@ Files in this directory. One row per source file.
 
 | File | Purpose |
 |------|---------|
+| `__tests__/config-pairing.test.ts` | #E1: `pairing.acceptLanRequests` loader — default false, non-boolean → false. See change: add-lan-knock-pairing. |
 | `__tests__/client-build-deps-runtime.test.ts` | Repo-lint (#E6): client `package.json` declares `vite`, `@vitejs/plugin-react`, `@tailwindcss/vite`,… → see `__tests__/client-build-deps-runtime.test.ts.AGENTS.md` |
 | `__tests__/ci-vitest-report-artifact.test.ts` | Repo-lint: every vitest job in `ci.yml` uploads its own JSON report `if: always()`. → see `__tests__/ci-vitest-report-artifact.test.ts.AGENTS.md` |
 | `__tests__/ci-affected-selection-contract.test.ts` | Parallel `ci.yml` contract (E30). → see `__tests__/ci-affected-selection-contract.test.ts.AGENTS.md` |
@@ -75,6 +76,7 @@ Files in this directory. One row per source file.
 | `openspec-poller.ts` | Aggregates `openspec list`+`status` into `OpenSpecData`. `pollOpenSpec(cwd)` sync (bridge),… → see `openspec-poller.ts.AGENTS.md` `deriveArtifactStatus` reports `tasks: ready` (not `blocked`) when no tasks are authored but proposal+design+specs are all done — CLI parity. See change: fix-optimistic-prompt-stuck-sending. |
 | `openspec-specs-evidence.ts` | Local-evidence override for OpenSpec `specs` artifact. `evaluateLocalSpecsSatisfaction(changeDir, probe)` =… → see `openspec-specs-evidence.ts.AGENTS.md` |
 | `operate-required.ts` | Wire types for the `operate_required` 403: `OperateRemedy`, `OPERATE_REMEDY_ORDER`, `OperateRequiredReason`, `OperateRequiredBody` (5 keys, no posture). See change: surface-operate-required-remedy. |
+| `pairing-knock.ts` | Knock vocabulary shared by server + client: `KNOCK_REFUSALS`, `KnockRefusal`, `PairingProvenance`, `isKnockRefusal`. Names every `POST /api/pair/request` refusal + pending provenance. See change: add-lan-knock-pairing. |
 | `path-containment.ts` | Boundary-correct `isPathInside(parent, child, platform?)` (sibling prefix `/repo-other` is NOT inside `/repo`). Relocated from `packages/server/src/session/active-sessions-in-cwd.ts` so the shared OpenSpec detector can cwd-scope. See change: scope-openspec-auto-attach-to-session-cwd. |
 | `pi-package-resolver.ts` | Walks `~/.pi/agent/settings.json#packages[]` + per-workspace `<cwd>/.pi/settings.json`. → see `pi-package-resolver.ts.AGENTS.md` |
 | `plugin-bridge-register.ts` | Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND… → see `plugin-bridge-register.ts.AGENTS.md` |

@@ -80,6 +80,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/pair/payload", reason: "pairing ceremony" },
   { pattern: "/api/pair/poll", reason: "pairing ceremony" },
   { pattern: "/api/pair/redeem", reason: "pairing ceremony" },
+  { pattern: "/api/pair/request", reason: "pairing ceremony" },
   { pattern: "/api/pair/approve", reason: "pairing ceremony" },
   { pattern: "/api/pair/pending", reason: "pairing ceremony" },
   { pattern: "/api/pair/approve-pending", reason: "pairing ceremony" },

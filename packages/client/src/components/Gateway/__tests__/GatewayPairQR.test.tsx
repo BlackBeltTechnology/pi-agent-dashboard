@@ -1,6 +1,6 @@
 import type { TunnelEndpoint } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Only the pairing payload / approve calls are mocked; endpoints are injected
 // via the `endpoints` prop and split by the real `splitEndpoints` helper.
@@ -8,12 +8,24 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // `endpoints` prop go through `getGatewayEndpoints()` — mocked here so the
 // endpoints-fetch failure modes (X3/X4) are drivable, while `splitEndpoints`,
 // `guardPairingUrls` and `isPairingEligible` stay real.
-const { getPairPayload, approvePairing, getGatewayEndpoints } = vi.hoisted(() => ({
+// add-lan-knock-pairing: the "Devices on this network" panel reads/writes
+// `pairing.acceptLanRequests` through `getConfig`/`putConfig` and copies through
+// `copyText`; both are mocked so the panel is drivable without a server.
+const { getPairPayload, approvePairing, getGatewayEndpoints, getConfig, putConfig, copyText } = vi.hoisted(() => ({
   getPairPayload: vi.fn(),
   approvePairing: vi.fn(),
   getGatewayEndpoints: vi.fn(),
+  getConfig: vi.fn(),
+  putConfig: vi.fn(),
+  copyText: vi.fn(),
 }));
 vi.mock("../../../lib/pairing/pairing-api.js", () => ({ getPairPayload, approvePairing }));
+vi.mock("../../../lib/gateway/gateway-api.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../lib/gateway/gateway-api.js")>()),
+  getConfig,
+  putConfig,
+}));
+vi.mock("../../../lib/util/clipboard.js", () => ({ copyText }));
 vi.mock("../../../lib/gateway/gateway-endpoints.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../lib/gateway/gateway-endpoints.js")>()),
   getGatewayEndpoints,
@@ -57,6 +69,12 @@ function rowFor(url: string): HTMLElement {
 function qrText(): string | null {
   return screen.getByTestId("gateway-qr-canvas").getAttribute("data-qr-text");
 }
+
+beforeEach(() => {
+  getConfig.mockResolvedValue({});
+  putConfig.mockResolvedValue(undefined);
+  copyText.mockResolvedValue(true);
+});
 
 afterEach(() => {
   cleanup();
@@ -454,5 +472,141 @@ describe("collapse-pairing-into-gateway — approval invariants + failure modes 
     expect(screen.getByTestId("gateway-pair-urls")).toBeDefined();
     expect(screen.getByTestId("gateway-pair-approve-btn")).toBeDefined();
     expect(screen.getByText(/code expires/i)).toBeDefined();
+  });
+});
+
+// add-lan-knock-pairing — "Devices on this network" panel (test-plan #E24, #E25).
+describe("add-lan-knock-pairing — Devices on this network panel", () => {
+  const ALL_KINDS: TunnelEndpoint[] = [
+    { kind: "local", url: "http://localhost:8000", tls: false },
+    { kind: "lan", url: "http://192.168.16.204:8000", tls: false },
+    { kind: "public", url: "https://pi-robson.share.zrok.io", tls: true },
+  ];
+
+  const lanSwitch = () => screen.findByTestId("gateway-lan-switch");
+
+  // E24 — Off: word + aria-checked=false, no URL; On: exactly one lan request row with Copy.
+  it("E24 switch off shows the Off word and no URL; switching on lists exactly the lan request URL", async () => {
+    getPairPayload.mockResolvedValue({ ok: true, payload: PAYLOAD });
+    getConfig.mockResolvedValue({ pairing: { acceptLanRequests: false } });
+    render(<GatewayPairQR endpoints={ALL_KINDS} />);
+
+    const sw = await lanSwitch();
+    await waitFor(() => expect((sw as HTMLButtonElement).disabled).toBe(false));
+    expect(sw.getAttribute("role")).toBe("switch");
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(sw.textContent).toContain("Off");
+    expect(screen.queryAllByTestId("gateway-lan-request-url")).toHaveLength(0);
+
+    await act(async () => {
+      fireEvent.click(sw);
+    });
+    await waitFor(() => expect(sw.getAttribute("aria-checked")).toBe("true"));
+    expect(sw.textContent).toContain("On");
+    expect(putConfig).toHaveBeenCalledWith({ pairing: { acceptLanRequests: true } });
+    const rows = screen.getAllByTestId("gateway-lan-request-url");
+    expect(rows.map((r) => r.textContent)).toEqual(["http://192.168.16.204:8000/pair?request"]);
+    expect(screen.getByRole("button", { name: /^copy http:\/\/192\.168\.16\.204:8000\/pair\?request$/i })).toBeDefined();
+  });
+
+  it("the switch is named by its label (not the state word) and described by its helper text", async () => {
+    getPairPayload.mockResolvedValue({ ok: true, payload: PAYLOAD });
+    render(<GatewayPairQR endpoints={ALL_KINDS} />);
+    const sw = await lanSwitch();
+    expect(screen.getByRole("switch", { name: "Accept requests from devices on this network" })).toBe(sw);
+    const described = sw.getAttribute("aria-describedby");
+    expect(described).toBeTruthy();
+    expect(document.getElementById(described as string)?.textContent).toMatch(/unencrypted/i);
+  });
+
+  it("reflects a stored On value and lists the request URL without a click", async () => {
+    getPairPayload.mockResolvedValue({ ok: true, payload: PAYLOAD });
+    getConfig.mockResolvedValue({ pairing: { acceptLanRequests: true } });
+    render(<GatewayPairQR endpoints={ALL_KINDS} />);
+    await waitFor(() => expect(screen.getAllByTestId("gateway-lan-request-url")).toHaveLength(1));
+    expect((await lanSwitch()).getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("an unreadable setting is reported and the switch stays usable (Off)", async () => {
+    getPairPayload.mockResolvedValue({ ok: true, payload: PAYLOAD });
+    getConfig.mockRejectedValue(new Error("boom"));
+    render(<GatewayPairQR endpoints={ALL_KINDS} />);
+    await waitFor(() => expect(screen.getByTestId("gateway-lan-error").textContent).toMatch(/could not read/i));
+    const sw = await lanSwitch();
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect((sw as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("lists one row per lan endpoint and never tunnel, localhost or public", async () => {
+    getPairPayload.mockResolvedValue({ ok: true, payload: PAYLOAD });
+    getConfig.mockResolvedValue({ pairing: { acceptLanRequests: true } });
+    render(
+      <GatewayPairQR
+        endpoints={[
+          ...ALL_KINDS,
+          { kind: "lan", url: "http://10.0.0.7:8000", tls: false },
+          { kind: "tunnel", url: "https://t.example", tls: true } as unknown as TunnelEndpoint,
+        ]}
+      />,
+    );
+    await waitFor(() => expect(screen.getAllByTestId("gateway-lan-request-url")).toHaveLength(2));
+    expect(screen.getAllByTestId("gateway-lan-request-url").map((r) => r.textContent)).toEqual([
+      "http://192.168.16.204:8000/pair?request",
+      "http://10.0.0.7:8000/pair?request",
+    ]);
+  });
+
+  it("Copy goes through copyText with the request URL and confirms", async () => {
+    getPairPayload.mockResolvedValue({ ok: true, payload: PAYLOAD });
+    getConfig.mockResolvedValue({ pairing: { acceptLanRequests: true } });
+    render(<GatewayPairQR endpoints={ALL_KINDS} />);
+    const copy = await screen.findByTestId("gateway-lan-request-copy");
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+    expect(copyText).toHaveBeenCalledWith("http://192.168.16.204:8000/pair?request");
+    await waitFor(() => expect(copy.textContent).toMatch(/copied/i));
+  });
+
+  it("a failed copy says so instead of claiming success", async () => {
+    getPairPayload.mockResolvedValue({ ok: true, payload: PAYLOAD });
+    getConfig.mockResolvedValue({ pairing: { acceptLanRequests: true } });
+    copyText.mockResolvedValue(false);
+    render(<GatewayPairQR endpoints={ALL_KINDS} />);
+    const copy = await screen.findByTestId("gateway-lan-request-copy");
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+    await waitFor(() => expect(screen.getByTestId("gateway-lan-copy-failed")).toBeDefined());
+    expect(copy.textContent).not.toMatch(/copied/i);
+  });
+
+  it("a rejected write reverts the switch and reports the error", async () => {
+    getPairPayload.mockResolvedValue({ ok: true, payload: PAYLOAD });
+    putConfig.mockRejectedValue(new Error("forbidden"));
+    render(<GatewayPairQR endpoints={ALL_KINDS} />);
+    const sw = await lanSwitch();
+    await waitFor(() => expect((sw as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => {
+      fireEvent.click(sw);
+    });
+    await waitFor(() => expect(screen.getByTestId("gateway-lan-error").textContent).toContain("forbidden"));
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(screen.queryAllByTestId("gateway-lan-request-url")).toHaveLength(0);
+  });
+
+  // E25 — the no-secure-road copy no longer claims a LAN browser cannot pair; it points to the switch.
+  it("E25 no-secure-road copy: no 'cannot pair', points to the switch, still names the secure road", async () => {
+    getPairPayload.mockResolvedValue({ ok: false, error: "no_reachable_endpoint" });
+    render(<GatewayPairQR endpoints={LINK_EPS} />);
+    const block = await screen.findByTestId("gateway-pair-no-secure-road");
+    const text = block.textContent ?? "";
+    expect(text).not.toMatch(/cannot pair/i);
+    expect(text).toContain("No secure road for a pairing link yet");
+    expect(text).toMatch(/QR pairing link needs a secure road/i);
+    expect(text).toMatch(/tunnel|TLS|Gateway/);
+    expect(text).toContain("Accept requests from devices on this network");
+    // The switch it points to is on the same surface.
+    expect(await lanSwitch()).toBeDefined();
   });
 });

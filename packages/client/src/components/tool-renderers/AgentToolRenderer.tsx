@@ -36,6 +36,7 @@ import {
   noteSubagentTerminal,
   trackInspectorMounted,
 } from "../../lib/state/subagent-inspector-telemetry.js";
+import { randomUuid } from "../../lib/util/random-uuid.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { AgentCardShell } from "../session/AgentCardShell.js";
 import { formatDuration } from "../session/agent-card-utils.js";
@@ -251,7 +252,7 @@ function CardControls({
 
 /** Correlation token so a resync reply comes back to THIS browser only (C5). */
 function newResyncRequestId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `rs-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return randomUuid();
 }
 
 export function AgentToolRenderer({ args, status, result, toolDetails, context }: ToolRendererProps) {

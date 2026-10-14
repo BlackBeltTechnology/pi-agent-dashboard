@@ -14,6 +14,7 @@
  *    D2).
  */
 
+import type { TLSSocket } from "node:tls";
 import { isTier, TIERS } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -22,7 +23,8 @@ import type { ServerIdentity } from "../auth/identity.js";
 import { signNonce } from "../auth/identity.js";
 import { hasLocalCredential } from "../auth/local-credential.js";
 import { createLocalTrustContext, hasLocalProof, type LocalTrustContext } from "../auth/local-proof.js";
-import { isLocallyTrusted } from "../auth/localhost-guard.js";
+import { isLocallyTrusted, type LanInterface } from "../auth/localhost-guard.js";
+import { admitKnock, createRefusalLogger, KnockLimiter } from "../pairing/knock-admission.js";
 import type { PairedDeviceRegistry, PairedDeviceView } from "../pairing/paired-devices.js";
 import type { ApproveResult, PairingManager, PendingDeviceView } from "../pairing/pairing.js";
 import { SUPPORTED_PAIRING_VERSIONS } from "../pairing/pairing.js";
@@ -41,6 +43,9 @@ export const PUBLIC_PAIRING_PREFIXES = [
   "/api/pair/challenge",
   "/api/pair/redeem",
   "/api/pair/poll",
+  // Device-initiated knock: public like `redeem`; the admission gates in
+  // `admitKnock` (not the network guard) decide. See change: add-lan-knock-pairing.
+  "/api/pair/request",
 ];
 
 /**
@@ -182,11 +187,26 @@ export function registerPairingRoutes(
     /** Bound HTTP port, used to enumerate loopback/LAN endpoints. A thunk so
      * a `port: 0` server reports the real bound port per request. */
     getPort?: () => number;
+    /** Live `pairing.acceptLanRequests` (read per request, no restart). Absent = off. */
+    getAcceptLanRequests?: () => boolean;
+    /** Non-internal interface addresses the server's bind covers (for the on-link gate). */
+    getLanInterfaces?: () => LanInterface[];
+    /** Injectable limiter / refusal logger (tests). */
+    knockLimiter?: KnockLimiter;
+    logKnockRefusal?: ReturnType<typeof createRefusalLogger>;
   },
 ) {
   const { networkGuard, identity, pairing, registry, localToken, hostAdmission } = deps;
   const operatorGuard = createOperatorGuard({ localToken, hostAdmission, localTrust: deps.localTrust });
   const approvalGuard = createApprovalGuard({ localToken, hostAdmission, localTrust: deps.localTrust });
+  const knockLimiter = deps.knockLimiter ?? new KnockLimiter();
+  const logKnockRefusal = deps.logKnockRefusal ?? createRefusalLogger();
+  // Denial / lockout start the source's cooldown; approve + expiry do not (D12).
+  // Guarded: many route tests hand in a partially-stubbed manager; a real
+  // PairingManager always has the subscription.
+  if (typeof pairing.onKnockResolved === "function") {
+    pairing.onKnockResolved((sourceKey, outcome) => knockLimiter.onResolved(sourceKey, outcome));
+  }
 
   // ── Server-identity challenge (public) — Task 1.2 ──────────────────────
   // Client sends a nonce; server signs it so the client can verify against the
@@ -252,6 +272,74 @@ export function registerPairingRoutes(
     },
   );
 
+  // ── Device: knock — ask the dashboard for access (public, admission-gated) ─
+  // Not `operatorGuard` (it 401s every non-operator) and not `networkGuard`: the
+  // caller has no credential by definition. The foreign-origin CSRF gate and the
+  // JSON body parser already ran; `admitKnock` evaluates Host admission (enforce
+  // semantics), the LAN gates, the switch and the limits. Admission uses the
+  // SOCKET peer address — never `request.ip` — and that same address is recorded
+  // as the pending device's remote address.
+  fastify.post<{ Body: { name?: unknown } | null }>(
+    "/api/pair/request",
+    async (
+      request,
+      reply,
+    ): Promise<
+      ApiResponse<{ pendingId: string; confirmCode: string; expiresAt: number; fingerprint: string }> & {
+        retryAfter?: number;
+      }
+    > => {
+      // Fastify's default parsers also accept `text/plain` (a CORS "simple"
+      // content type that needs no preflight), so the JSON-only rule is enforced
+      // here, ahead of every gate: a body that is not JSON is 415.
+      const contentType = headerString(request.headers["content-type"]);
+      if (contentType !== undefined && !/^application\/json\b/i.test(contentType)) {
+        reply.code(415);
+        return { success: false, error: "unsupported_media_type" };
+      }
+      const decision = admitKnock(
+        {
+          peer: request.socket.remoteAddress,
+          headers: request.headers as Record<string, unknown>,
+          host: headerString(request.headers.host),
+        },
+        {
+          hostAdmission: hostAdmission(),
+          acceptLanRequests: deps.getAcceptLanRequests?.() === true,
+          interfaces: deps.getLanInterfaces?.() ?? [],
+          liveKnocks: pairing.liveKnocks(),
+          limiter: knockLimiter,
+        },
+      );
+      if (!decision.ok) {
+        logKnockRefusal(decision.error);
+        reply.code(decision.status);
+        return decision.retryAfter === undefined
+          ? { success: false, error: decision.error }
+          : { success: false, error: decision.error, retryAfter: decision.retryAfter };
+      }
+      const result = pairing.knock({
+        sourceKey: decision.sourceKey,
+        name: request.body?.name,
+        unencrypted: !(request.raw.socket as TLSSocket).encrypted,
+        meta: {
+          userAgent: headerString(request.headers["user-agent"]),
+          host: headerString(request.headers.host),
+          remoteAddress: decision.sourceKey,
+        },
+      });
+      return {
+        success: true,
+        data: {
+          pendingId: result.pendingId,
+          confirmCode: result.confirmCode,
+          expiresAt: result.expiresAt,
+          fingerprint: identity.fingerprint,
+        },
+      };
+    },
+  );
+
   // ── Dashboard: approve a pending device by typed confirm code (auth) ───
   // D12: active typed compare-and-match; authenticated session only.
   // Operator-only: a paired-DEVICE bearer must NOT approve a pairing, or it
@@ -313,26 +401,29 @@ export function registerPairingRoutes(
   );
 
   // ── Dashboard: approve by pendingId (typed confirm code, operator-only) ─
-  fastify.post<{ Body: { pendingId?: unknown; confirmCode?: unknown; label?: unknown } }>(
+  fastify.post<{ Body: { pendingId?: unknown; confirmCode?: unknown; label?: unknown; tier?: unknown } }>(
     "/api/pair/approve-pending",
     { preHandler: approvalGuard },
     async (request, reply): Promise<ApiResponse<PairedDeviceView> & { attemptsLeft?: number }> => {
-      const { pendingId, confirmCode, label } = request.body ?? {};
+      const { pendingId, confirmCode, label, tier } = request.body ?? {};
       if (typeof pendingId !== "string" || typeof confirmCode !== "string") {
         reply.code(400);
         return { success: false, error: "pendingId and confirmCode required" };
       }
-      // Validate the label BEFORE delegating so a refused name never pairs (D2).
-      let name: string | undefined;
-      if (label !== undefined) {
-        const v = validLabel(label);
-        if (v === null) {
-          reply.code(400);
-          return { success: false, error: `label must be 1..${MAX_DEVICE_LABEL_BYTES} UTF-8 bytes` };
-        }
-        name = v;
+      // An optional tier is validated BEFORE delegating, so a refused tier
+      // leaves the pending device pending (and spends no approval attempt).
+      // Absent → the pairing default. See change: add-lan-knock-pairing (D7).
+      if (tier !== undefined && !isTier(tier)) {
+        reply.code(400);
+        return { success: false, error: "invalid tier" };
       }
-      const result = pairing.approvePending(pendingId, confirmCode, name);
+      // Validate the label BEFORE delegating so a refused name never pairs (D2).
+      const name = label === undefined ? undefined : validLabel(label);
+      if (name === null) {
+        reply.code(400);
+        return { success: false, error: `label must be 1..${MAX_DEVICE_LABEL_BYTES} UTF-8 bytes` };
+      }
+      const result = pairing.approvePending(pendingId, confirmCode, name, isTier(tier) ? tier : undefined);
       if (!result.ok) return approveFailure(result, reply);
       return { success: true, data: result.device };
     },

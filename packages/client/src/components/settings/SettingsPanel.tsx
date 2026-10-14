@@ -61,6 +61,7 @@ import { RESERVED_SETTINGS_LABELS, resolveSettingsPromotions } from "../../lib/s
 import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
+import { randomUuid } from "../../lib/util/random-uuid.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { PairedDevicesSection } from "../connectivity/PairedDevicesSection.js";
@@ -593,7 +594,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
   const restartReqIdRef = useRef<string>("");
   const restart = useAsyncAction(
     async () => {
-      const requestId = crypto.randomUUID();
+      const requestId = randomUuid();
       restartReqIdRef.current = requestId;
       // The server returns {ok:true} then exits ~200ms later; a rejected fetch
       // (socket closed mid-response on exit) is also a success signal, so swallow

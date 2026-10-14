@@ -35,3 +35,5 @@ See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustP
 `/api/restart` always passes the native register module (`resolveNativeTsLoader({anchor: cliPath})`) to `spawnRestart`, never the running process's own `--import` (normalizes a foreign jiti inherited across an upgrade). See change: strip-only-native-ts-loader.
 
 - Optional dep `onVaultConfigChanged`, called after a `PUT /api/config` touching `vault`. See change: add-credential-vault.
+
+- `PUT /api/config` rejects a non-boolean `pairing.acceptLanRequests` with 400 (a truthy string must not silently open the LAN knock). See change: add-lan-knock-pairing.

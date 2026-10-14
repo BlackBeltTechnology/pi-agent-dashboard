@@ -110,6 +110,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artifacts… → see `inline-screenshot.spec.ts.AGENTS.md` |
 | `inline-terminal-transcript.spec.ts` | L3 gate for `preserve-inline-terminal-transc… → see `inline-terminal-transcript.spec.ts.AGENTS.md` |
 | `kb-folder-slot.spec.ts` | Playwright spec. KB folder slot end-to-end in Docker… → see `kb-folder-slot.spec.ts.AGENTS.md` |
+| `lan-knock.spec.ts` | LAN knock L3 (F10–F14). → see `lan-knock.spec.ts.AGENTS.md` |
 | `large-session-replay.spec.ts` | L3 wire-level gate for `compact-warm-replay-stream`… → see `large-session-replay.spec.ts.AGENTS.md` |
 | `lazy-feature-bootstrap.spec.ts` | L3 cold-landing gate (F1, P1). → see `lazy-feature-bootstrap.spec.ts.AGENTS.md` |
 | `lazy-mdi-icon-set.spec.ts` | L3 lazy MDI icon set (P1, F2). → see `lazy-mdi-icon-set.spec.ts.AGENTS.md` |
@@ -157,17 +158,17 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change… → see `plugin-settings-pages.spec.ts.AGENTS.md` |
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-… → see `popover-container-clip.spec.ts.AGENTS.md` |
 | `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4… → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
-| `quota-context-strip.spec.ts` | L3 (change: move-quota-to-context-strip; F7–F9, X3). Stubs… → see `quota-context-strip.spec.ts.AGENTS.md` |
+| `quota-context-strip.spec.ts` | L3 quota chips in context strip (F7–F9, X3). → see `quota-context-strip.spec.ts.AGENTS.md` |
 | `retro-ux-chat-rendering.spec.ts` | L3 → see `retro-ux-chat-rendering.spec.ts.AGENTS.md` |
 | `retro-ux-identity-connectivity.spec.ts` | L3 retro-ux probes. → see `retro-ux-identity-connectivity.spec.ts.AGENTS.md` |
 | `retro-ux-model-selector.spec.ts` | L3 retro-ux model selector. → see `retro-ux-model-selector.spec.ts.AGENTS.md` |
 | `retro-ux-plugin-settings-forms.spec.ts` | L3 E24. → see `retro-ux-plugin-settings-forms.spec.ts.AGENTS.md` |
-| `real-flow-regression.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests, D5 follow-up). → see `real-flow-regression.spec.ts.AGENTS.md` |
+| `real-flow-regression.spec.ts` | L3 opt-in real-flow regression. → see `real-flow-regression.spec.ts.AGENTS.md` |
 | `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested at L1 in → see `reap-core.ts.AGENTS.md` |
 | `reasoning-auto-collapse.spec.ts` | Playwright E2E for reasoning-auto-collap… → see `reasoning-auto-collapse.spec.ts.AGENTS.md` |
 | `reasoning-inline-flow.spec.ts` | L3 (change: render-inline-reasoning-and-custom-entries… → see `reasoning-inline-flow.spec.ts.AGENTS.md` |
 | `recommended-local-name-match.spec.ts` | L3 spec (test-plan #F3, change… → see `recommended-local-name-match.spec.ts.AGENTS.md` |
-| `recommended-requires.spec.ts` | Playwright E2E for recommended-extension `requires` probe… → see `recommended-requires.spec.ts.AGENTS.md` |
+| `recommended-requires.spec.ts` | E2E for recommended-extension `requires` probe. → see `recommended-requires.spec.ts.AGENTS.md` |
 | `reconcile-heal.spec.ts` | Playwright spec (task 5.1, change… → see `reconcile-heal.spec.ts.AGENTS.md` |
 | `redesign-provider-add-flow.spec.ts` | L3: Add-provider dialog + section-owned flows. → see `redesign-provider-add-flow.spec.ts.AGENTS.md` |
 | `redesign-providers-list.spec.ts` | L3: the connected list. → see `redesign-providers-list.spec.ts.AGENTS.md` |

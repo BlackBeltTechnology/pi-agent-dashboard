@@ -11,3 +11,5 @@ Adds `migrateSubagentTickThrottle()` — the one-shot boot rewrite of a material
 `writeConfigPartial` shallow-merges `agentPathGate` over the raw file; drops computed `agentPathGateEnvOverride`. See change: ask-agent-file-access-in-chat.
 
 - `writeConfigPartial` shallow-merges `sessionList` (Settings sends only changed keys; keeps `archiveServiceSessionsOnEnd` opt-out). See change: archive-service-sessions-on-end.
+
+- `writeConfigPartial` deep-merges `pairing` (Settings sends only `acceptLanRequests`; sibling pairing keys survive). See change: add-lan-knock-pairing.

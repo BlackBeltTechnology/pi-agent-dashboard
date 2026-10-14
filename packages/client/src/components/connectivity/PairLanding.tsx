@@ -16,13 +16,15 @@
  * See change: make-pairing-qr-camera-scannable.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { finishDevicePairing } from "../../lib/pairing/device-auth.js";
 import { t, useI18n } from "../../lib/i18n/i18n.js";
+import { finishDevicePairing } from "../../lib/pairing/device-auth.js";
 import { challengeIdentity, postJson } from "../../lib/pairing/pair-protocol.js";
 import type { PairingPayload } from "../../lib/pairing/pairing-api.js";
 import { decodePayloadString } from "../../lib/pairing/pairing-qr.js";
+import { PairKeepFailedNotice } from "./PairKeepFailedNotice.js";
+import { isRequestMode, PairRequestLanding } from "./PairRequestLanding.js";
 
-type Phase = "verifying" | "polling" | "done" | "rejected" | "error";
+type Phase = "verifying" | "polling" | "done" | "rejected" | "error" | "keepFailed";
 
 interface RedeemResult {
   pendingId: string;
@@ -87,23 +89,54 @@ function readPayloadFromHash(): { payload: PairingPayload | null; error: string 
   }
 }
 
+/**
+ * `/pair` entry. `/pair?request` without a payload fragment is request mode (the
+ * LAN knock); anything else is the QR flow below, unchanged.
+ */
 export function PairLanding({ onPaired }: { onPaired?: (token: string) => void } = {}) {
+  const [requestMode] = useState(isRequestMode);
+  if (requestMode) {
+    return (
+      <div
+        data-testid="pair-landing"
+        className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 px-5 py-10 text-[var(--text-primary)]"
+      >
+        <PairRequestLanding onPaired={onPaired} />
+      </div>
+    );
+  }
+  return <QrPairLanding onPaired={onPaired} />;
+}
+
+function QrPairLanding({ onPaired }: { onPaired?: (token: string) => void }) {
   const { t } = useI18n();
   const [phase, setPhase] = useState<Phase>("verifying");
   const [error, setError] = useState<string | null>(null);
   const [confirmCode, setConfirmCode] = useState<string | null>(null);
   const cancelled = useRef(false);
+  const issuedToken = useRef<string | null>(null);
 
   useEffect(() => () => { cancelled.current = true; }, []);
 
   // Persist the minted bearer and route into the dashboard (or notify a caller).
   // Same-origin: the exchange for the httpOnly cookie completes BEFORE navigation.
-  const finishPaired = useCallback(async (token: string) => {
-    await finishDevicePairing(token);
-    setPhase("done");
+  // When the device cookie could not be proven the bearer is KEPT (it still
+  // authenticates) and the user is told instead of being navigated away.
+  const openDashboard = useCallback((token: string) => {
     if (onPaired) onPaired(token);
     else window.location.href = "/";
   }, [onPaired]);
+
+  const finishPaired = useCallback(async (token: string) => {
+    issuedToken.current = token;
+    const result = await finishDevicePairing(token);
+    if (result?.keepFailed) {
+      setPhase("keepFailed");
+      return;
+    }
+    setPhase("done");
+    openDashboard(token);
+  }, [openDashboard]);
 
   const run = useCallback(async (payload: PairingPayload) => {
     cancelled.current = false;
@@ -198,6 +231,10 @@ export function PairLanding({ onPaired }: { onPaired?: (token: string) => void }
           </p>
           <p className="mt-3 text-xs text-[var(--text-secondary)]">{t("landing.waiting", undefined, "Waiting for the operator to approve…")}</p>
         </div>
+      )}
+
+      {phase === "keepFailed" && issuedToken.current && (
+        <PairKeepFailedNotice onOpen={() => openDashboard(issuedToken.current as string)} />
       )}
 
       {phase === "done" && (

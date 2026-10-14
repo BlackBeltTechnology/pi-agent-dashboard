@@ -24,6 +24,7 @@ import {
   revokeApiKey,
 } from "../../lib/api/model-proxy-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { copyText } from "../../lib/util/clipboard.js";
 import { ModelSelector } from "./ModelSelector.js";
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -238,15 +239,8 @@ function RevealBanner({ keyInfo, onDismiss }: RevealBannerProps) {
   const [copied, setCopied] = useState(false);
 
   const copy = () => {
-    navigator.clipboard.writeText(keyInfo.key).catch(() => {
-      // Fallback: create temp textarea
-      const ta = document.createElement("textarea");
-      ta.value = keyInfo.key;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    });
+    // copyText: guarded writeText + hidden-textarea fallback (non-secure LAN origin).
+    void copyText(keyInfo.key);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
