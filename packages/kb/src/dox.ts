@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { matchRow } from "./dox-row.js";
 import { type GitignoreMatcher, loadGitignoreMatcher } from "./gitignore.js";
 import { readStaleness } from "./staleness.js";
 import type { KbStore } from "./types.js";
@@ -315,8 +316,6 @@ export function parseRowPaths(agentsFile: string): string[] {
 
 // --- dox describe --list (change: inject-dox-doctrine-and-describe) ---
 
-const ROW_PURPOSE = /^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|\s*$/;
-
 export interface EmptyPurposeList {
   groups: Array<{ agentsPath: string; subjects: string[] }>;
   total: number;
@@ -359,8 +358,8 @@ export function listEmptyPurposeRows(opts: { cwd: string; dir?: string }): Empty
   for (const af of agentsFiles.sort()) {
     const subjects: string[] = [];
     for (const row of scanDoxRows(readFileSync(af, "utf8")).rows) {
-      const m = row.line.match(ROW_PURPOSE);
-      if (m && m[2].trim() === "") subjects.push(row.path);
+      const m = matchRow(row.line);
+      if (m && m.purpose === "") subjects.push(row.path);
     }
     if (subjects.length > 0) {
       groups.push({ agentsPath: relative(cwd, af), subjects });
