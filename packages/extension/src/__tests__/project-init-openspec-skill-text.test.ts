@@ -31,6 +31,9 @@ function routeList(name: string): string[] {
   return [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
 }
 
+/**
+ * @structural-pin SKILL.md is prose executed by an agent, so there is no code path to run; the load-bearing rules (fail-closed config, git placement, command + legacy disclosure, Step 6 gate) are pinned in its text, and the legacy lists are pinned against openspec-routes.ts
+ */
 describe("project-init SKILL.md — OpenSpec detection text", () => {
   it("E9: config fail-closed; absent file/key → dashboard defaults", () => {
     expect(STEP_3B).toContain("~/.pi/dashboard/config.json");
@@ -79,6 +82,9 @@ describe("project-init SKILL.md — OpenSpec detection text", () => {
   });
 });
 
+/**
+ * @structural-pin the opt-out comparison is a shell one-liner embedded in SKILL.md; the test extracts it from the text and executes it, so the shipped snippet itself is what is verified
+ */
 describe("project-init SKILL.md — embedded opt-out one-liner", () => {
   let tmp: string;
   let preload: string;
