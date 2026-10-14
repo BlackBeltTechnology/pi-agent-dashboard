@@ -631,6 +631,9 @@ export function viteDashboardPluginsPlugin(repoRoot?: string): Plugin {
     // lands in the registry's own chunk was pinned by a static import
     // somewhere in the eager graph. Fail loudly naming the claim and the
     // static importers instead of shipping a silently-eager "lazy" claim.
+    // Limitation: only a pin into the REGISTRY's chunk is detected; a lazy
+    // module pulled into some other eager chunk is backstopped by the marker
+    // checks in `packages/client/src/__tests__/mdi-chunk-size.test.ts`.
     // See change: lazy-plugin-claim-modules (task 3.4).
     renderChunk(this: { getModuleInfo(id: string): { importers: readonly string[] } | null; error(msg: string): never }, _code, chunk) {
       if (lazyModuleLabels.size === 0) return null;

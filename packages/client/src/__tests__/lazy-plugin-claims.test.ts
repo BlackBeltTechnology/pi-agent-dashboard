@@ -17,6 +17,20 @@ const REACT_LAZY = Symbol.for("react.lazy");
 const THIN_WRAPPER_PLUGINS = new Set(["gmail", "hermes-memory", "skill-atlas"]);
 const LAZY_SLOTS = new Set(["settings-section", "shell-overlay-route"]);
 
+/** Hot / visible-in-history slots: a suspense gap would pop in, so no claim here may name a `module` (design D5). */
+const EAGER_SLOTS = new Set([
+  "session-card-badge",
+  "session-card-action-bar",
+  "session-card-memory",
+  "session-card-flows",
+  "composer-context-group",
+  "composer-panel",
+  "sidebar-folder-section",
+  "worktree-card-section",
+  "custom-entry-renderer",
+  "login-provider",
+]);
+
 const isLazy = (c: unknown): boolean => (c as { $$typeof?: symbol } | undefined)?.$$typeof === REACT_LAZY;
 
 describe("heavy plugin claims are lazy", () => {
@@ -43,5 +57,14 @@ describe("heavy plugin claims are lazy", () => {
       );
       expect(claim, `${id} ${slot} ${component} should bind a lazy component`).toBeDefined();
     }
+  });
+
+  it("hot-slot claims never name a module (no suspense gap in cards / composer / chat history)", () => {
+    const offenders = PLUGIN_REGISTRY.flatMap((entry) =>
+      entry.manifest.claims
+        .filter((c) => c.module && EAGER_SLOTS.has(c.slot))
+        .map((c) => `${entry.manifest.id}:${c.slot}:${c.component}`),
+    );
+    expect(offenders).toEqual([]);
   });
 });
