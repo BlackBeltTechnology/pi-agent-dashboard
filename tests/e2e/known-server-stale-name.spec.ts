@@ -49,3 +49,93 @@ test("a known server with a dead hostname reads 'Name not found', not CORS-block
     await request.delete("/api/known-servers", { data: { host: STALE_HOST, port: STALE_PORT }, headers });
   }
 });
+
+/**
+ * add-electron-server-windows — test-plan F4 / F5.
+ *
+ * WHAT ONLY THIS LEVEL CAN PROVE
+ * ------------------------------
+ * L1 pins the selector's Electron branch in jsdom. Only a real browser against
+ * the real dashboard shows the header dropdown driving it end to end: the
+ * `window.piDashboard.openServerWindow` capability (stubbed via an init script,
+ * as Electron's preload would define it) is called INSTEAD OF the transactional
+ * in-page switch, the entry shows its inline progress until the app answers, a
+ * failure is reported as a toast in words, and the persisted last-used server is
+ * never written. Without the capability (a plain browser) the same click still
+ * runs the staging-socket switch.
+ *
+ * The "remote" is a stubbed health endpoint (Playwright route) so the entry reads
+ * Available without a second dashboard.
+ */
+const REMOTE_HOST = "home-imac-e2e.test";
+const REMOTE_PORT = 8000;
+
+async function seedAvailableRemote(page: import("@playwright/test").Page, request: import("@playwright/test").APIRequestContext) {
+  const headers = operatorHeaders();
+  const seeded = await request.post("/api/known-servers", {
+    data: { host: REMOTE_HOST, port: REMOTE_PORT, label: "home-imac" },
+    headers,
+  });
+  expect((await seeded.json()).success).toBe(true);
+  await page.route(`http://${REMOTE_HOST}:${REMOTE_PORT}/api/health`, (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { "access-control-allow-origin": "*", "content-type": "application/json" },
+      body: JSON.stringify({ ok: true }),
+    }),
+  );
+  await page.context().setExtraHTTPHeaders(headers);
+  return headers;
+}
+
+test("Electron: selecting an available remote shows progress, then a failure toast; no last-server write (F4)", async ({ page, request }) => {
+  const headers = await seedAvailableRemote(page, request);
+  try {
+    await page.addInitScript(() => {
+      (window as unknown as { piDashboard: unknown }).piDashboard = {
+        openServerWindow: () =>
+          new Promise((resolve) => setTimeout(() => resolve({ ok: false, reason: "identity_mismatch" }), 800)),
+      };
+    });
+    await gotoDashboard(page);
+    const lastServerBefore = await page.evaluate(() => localStorage.getItem("pi-dashboard-last-server"));
+    const headerBefore = await page.getByTitle("Switch server").textContent();
+
+    await page.getByTitle("Switch server").click();
+    const row = page.getByRole("button", { name: new RegExp(`${REMOTE_HOST}:${REMOTE_PORT}`) });
+    await expect(row).toContainText("Available", { timeout: 15_000 });
+    await row.click();
+
+    // inline progress while the app resolves the request
+    await expect(row).toContainText("Switching");
+    // failure is reported in text: the reason and the entry label
+    const toast = page.getByText(/different identity/i);
+    await expect(toast).toBeVisible({ timeout: 10_000 });
+    await expect(toast).toContainText("home-imac");
+
+    expect(await page.evaluate(() => localStorage.getItem("pi-dashboard-last-server"))).toBe(lastServerBefore);
+    await expect(page.getByTitle("Switch server")).toHaveText(headerBefore ?? "");
+  } finally {
+    await request.delete("/api/known-servers", { data: { host: REMOTE_HOST, port: REMOTE_PORT }, headers });
+  }
+});
+
+test("Browser: without the capability the in-page staging switch still runs (F5)", async ({ page, request }) => {
+  const headers = await seedAvailableRemote(page, request);
+  try {
+    const sockets: string[] = [];
+    page.on("websocket", (ws) => sockets.push(ws.url()));
+    await gotoDashboard(page);
+    expect(await page.evaluate(() => typeof (window as unknown as { piDashboard?: unknown }).piDashboard)).toBe("undefined");
+
+    await page.getByTitle("Switch server").click();
+    const row = page.getByRole("button", { name: new RegExp(`${REMOTE_HOST}:${REMOTE_PORT}`) });
+    await expect(row).toContainText("Available", { timeout: 15_000 });
+    await row.click();
+
+    // the transactional switch opens a staging socket at the target (it fails — the host is a stub — and is rolled back)
+    await expect.poll(() => sockets.some((u) => u.includes(`${REMOTE_HOST}:${REMOTE_PORT}/ws`)), { timeout: 10_000 }).toBe(true);
+  } finally {
+    await request.delete("/api/known-servers", { data: { host: REMOTE_HOST, port: REMOTE_PORT }, headers });
+  }
+});

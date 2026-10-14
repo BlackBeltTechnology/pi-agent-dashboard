@@ -139,3 +139,36 @@ export function openExternalIfAllowed(url: unknown, open: (url: string) => void)
 	open(new URL(url).href);
 	return true;
 }
+
+/**
+ * Navigation decision for a SERVER WINDOW (an app-owned window on a remote
+ * dashboard's own origin). Deliberately separate from {@link decideWillNavigate}:
+ * that one returns `"allow"` for any target once the current page is off-origin
+ * (OAuth on the main window), which would let a server window wander away.
+ *
+ *   same-origin target             → "allow"
+ *   otherwise, http/https/mailto   → "external" (hand to the system browser)
+ *   anything else / unparseable    → "drop"
+ *
+ * Pure; imports nothing from electron.
+ *
+ * See change: add-electron-server-windows (D8).
+ */
+export type ServerWindowNavigationDecision = "allow" | "external" | "drop";
+
+export function decideServerWindowNavigation(origin: string, target: string): ServerWindowNavigationDecision {
+	let parsed: URL;
+	try {
+		parsed = new URL(target, origin);
+	} catch {
+		return "drop";
+	}
+	let serverOrigin: string;
+	try {
+		serverOrigin = new URL(origin).origin;
+	} catch {
+		return "drop";
+	}
+	if (parsed.origin === serverOrigin && serverOrigin !== "null") return "allow";
+	return isAllowedExternalUrl(parsed.href) ? "external" : "drop";
+}

@@ -15,6 +15,8 @@ import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { acceptKnownServerMove, listKnownServers, probeKnownServer } from "../../lib/api/known-servers-api.js";
+import { getOpenServerWindow } from "../../lib/electron-server-windows.js";
+import { describeOpenFailure } from "../../lib/open-server-window-failure.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
 import { identityPill, type Severity, severityPill } from "./connectivity-ui.js";
@@ -103,6 +105,11 @@ interface Props {
   onManageServers?: () => void;
   /** "host:port" of an in-flight staging switch; shows a spinner on that entry. */
   inFlightSwitchKey?: string | null;
+  /**
+   * Surfaces an error toast. Used by the Electron branch when the app reports
+   * that it could not open a server window. See change: add-electron-server-windows.
+   */
+  onNotifyError?: (message: string) => void;
 }
 
 type ItemState = "checking" | "available" | ProbeState | "moved";
@@ -163,8 +170,10 @@ function stateView(state: ItemState, movedAddress?: string): { label: string; se
 const ITEM_BASE =
   "focus-ring flex w-full min-h-[44px] items-start gap-2 px-3 py-1.5 text-left text-xs text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)] aria-[disabled=true]:cursor-not-allowed aria-[disabled=true]:hover:bg-transparent cursor-pointer";
 
-export function ServerSelector({ currentHost, currentPort, connected, onSwitch, onManageServers, inFlightSwitchKey }: Props) {
+export function ServerSelector({ currentHost, currentPort, connected, onSwitch, onManageServers, inFlightSwitchKey, onNotifyError }: Props) {
   const [open, setOpen] = useState(false);
+  /** "host:port" of an in-flight "open server window" request (Electron branch). */
+  const [openingKey, setOpeningKey] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -175,6 +184,8 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
     estimatedWidth: 380,
     minPopoverHeight: 0,
   });
+  /** Electron local window: open a server window instead of an in-page switch (capability probe per render). */
+  const openServerWindow = getOpenServerWindow();
   const [availability, setAvailability] = useState<Map<string, ProbeState>>(new Map());
   const [knownServers, setKnownServers] = useState<KnownServerListEntry[]>([]);
   /** A refused move acceptance, shown inside the menu (keyed by entry). */
@@ -424,13 +435,15 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
             const movedAddress = movedTo ? formatHostPort(movedTo.host, movedTo.port) : undefined;
             // Every non-available state disables switching, but each renders distinctly.
             const blocked = denied || unreachable || corsBlocked || nameNotResolved;
-            const isSwitching = inFlightSwitchKey === key;
+            const isSwitching = inFlightSwitchKey === key || openingKey === key;
             const state: ItemState | null = isCurrent
               ? null
               : movedTo
               ? "moved"
               : (probe ?? "checking");
             const view = state ? stateView(state, movedAddress) : null;
+            // In the Electron branch an entry still being probed is not activatable either.
+            const electronChecking = !!openServerWindow && !isCurrent && !entry.isLocal && state === "checking";
             const name = entry.label ?? entry.host;
             const whyId = `server-why-${idx}`;
             return (
@@ -440,11 +453,36 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
                 role="menuitemradio"
                 aria-checked={isCurrent}
                 tabIndex={-1}
-                aria-disabled={blocked ? "true" : undefined}
+                aria-disabled={blocked || electronChecking ? "true" : undefined}
                 aria-describedby={blocked && view?.reason ? whyId : undefined}
                 onClick={() => {
-                  if (blocked) return;
-                  if (!isCurrent) onSwitch(entry.host, entry.port);
+                  if (blocked || electronChecking) return;
+                  if (isCurrent) {
+                    closeToTrigger();
+                    return;
+                  }
+                  // Electron local window: open the remote's own window instead of an in-page
+                  // switch (no staging socket, no state swap, no last-server write).
+                  // See change: add-electron-server-windows.
+                  if (openServerWindow) {
+                    if (entry.isLocal) {
+                      closeToTrigger();
+                      return;
+                    }
+                    if (openingKey) return; // ignore clicks while a request is in flight
+                    setOpeningKey(key);
+                    openServerWindow({ host: entry.host, port: entry.port })
+                      .then((res) => {
+                        if (!res.ok) onNotifyError?.(describeOpenFailure(res.reason, name));
+                      })
+                      .catch(() => onNotifyError?.(describeOpenFailure("failed", name)))
+                      .finally(() => {
+                        setOpeningKey(null);
+                        closeToTrigger();
+                      });
+                    return; // the menu stays open so the entry shows its inline progress until resolved
+                  }
+                  onSwitch(entry.host, entry.port);
                   closeToTrigger();
                 }}
                 data-unreachable={unreachable || undefined}

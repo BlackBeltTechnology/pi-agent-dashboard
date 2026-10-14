@@ -12,3 +12,6 @@ import "./preload/doctor-preload.js";
 // Register the remote-connect bridge namespace (window.remoteConnect).
 // See change: auto-launch-first-run-skip-welcome.
 import "./preload/remote-connect-preload.js";
+// Register the connecting-window bridge (window.connecting) for the bundled
+// pairing-progress page. See change: add-electron-server-windows.
+import "./preload/connecting-preload.js";

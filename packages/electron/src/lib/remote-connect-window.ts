@@ -32,6 +32,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let remoteConnectWindow: BrowserWindow | null = null;
 let handlersRegistered = false;
 
+/** The live remote-connect window (for the `servers:*` sender check), or null. */
+export function getRemoteConnectWindow(): BrowserWindow | null {
+  return remoteConnectWindow && !remoteConnectWindow.isDestroyed() ? remoteConnectWindow : null;
+}
+
+/** Bundled page the remote-connect window shows (the `servers:*` sender check pins to it). */
+export function getRemoteConnectHtmlPath(): string {
+  return getHtmlPath();
+}
+
 function getPreloadPath(): string {
   const packaged = path.join(__dirname, "preload.js");
   if (existsSync(packaged)) return packaged;
@@ -123,7 +133,7 @@ export function openRemoteConnectWindow(): BrowserWindow {
 
   remoteConnectWindow = new BrowserWindow({
     width: 520,
-    height: 640,
+    height: 780,
     resizable: false,
     title: "Connect to Remote Dashboard",
     webPreferences: {
@@ -132,6 +142,10 @@ export function openRemoteConnectWindow(): BrowserWindow {
       preload: getPreloadPath(),
     },
   });
+
+  // Bundled page only: this window carries the pairing/connect bridges, so it never navigates or opens windows.
+  remoteConnectWindow.webContents.on("will-navigate", (event) => event.preventDefault());
+  remoteConnectWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
   remoteConnectWindow.loadFile(getHtmlPath());
 

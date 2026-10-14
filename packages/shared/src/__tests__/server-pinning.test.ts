@@ -208,19 +208,27 @@ describe("proveServerIdentity", () => {
   it("proves a genuine server and returns its fingerprint", async () => {
     const s = makeServer();
     const r = await proveServerIdentity("http://h:8000", { fetchImpl: challengeFetch(s) });
-    expect(r).toEqual({ proven: s.fingerprint });
+    // `publicKey` is the key whose possession was proven (callers may pin it)
+    expect(r).toEqual({ proven: s.fingerprint, publicKey: s.publicKeyB64 });
   });
 
-  it("refuses a bad signature", async () => {
+  it("refuses a bad signature and flags it as an identity failure (impostor), not a transport failure", async () => {
     const s = makeServer();
     const r = await proveServerIdentity("http://h:8000", { fetchImpl: challengeFetch(s, { badSig: true }) });
     expect("proven" in r).toBe(false);
+    expect(r).toMatchObject({ refused: "signature invalid", identityFailure: true });
+  });
+
+  it("a transport failure is NOT flagged as an identity failure", async () => {
+    const f = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+    const r = await proveServerIdentity("http://h:8000", { fetchImpl: f });
+    expect("identityFailure" in r).toBe(false);
   });
 
   it("derives the fingerprint from the presented key, not the body field", async () => {
     const s = makeServer();
     const r = await proveServerIdentity("http://h:8000", { fetchImpl: challengeFetch(s, { fp: "sha256:forged" }) });
-    expect(r).toEqual({ proven: s.fingerprint });
+    expect(r).toEqual({ proven: s.fingerprint, publicKey: s.publicKeyB64 });
   });
 
   it("refuses a 500", async () => {
