@@ -1,0 +1,30 @@
+#!/usr/bin/env node
+// pi-photocraft — deprecation shim. The implementation moved to
+// @blackbelt-technology/pi-dashboard-craft-apps; this launcher keeps its path (and
+// therefore every absolute `.pi/mcp.json` entry that points at it) working by
+// forwarding arguments, stdio, exit code and signals to that package's
+// `bin/pi-photocraft`.
+// See change: add-craft-apps-core (design D7).
+import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+
+let target;
+try {
+  const pkg = createRequire(import.meta.url).resolve("@blackbelt-technology/pi-dashboard-craft-apps/package.json");
+  target = join(dirname(pkg), "bin", "pi-photocraft");
+} catch (e) {
+  console.error(`[pi-photocraft] @blackbelt-technology/pi-dashboard-craft-apps is not installed (${e.message}); reinstall @blackbelt-technology/pi-dashboard-photocraft or install the craft-apps package`);
+  process.exit(1);
+}
+
+const child = spawn(process.execPath, [target, ...process.argv.slice(2)], { stdio: "inherit" });
+for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => child.kill(sig));
+child.on("error", (e) => {
+  console.error(`[pi-photocraft] failed to launch: ${e.message}`);
+  process.exit(1);
+});
+child.on("exit", (code, signal) => {
+  if (signal) process.exit(signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 1);
+  process.exit(code ?? 1);
+});

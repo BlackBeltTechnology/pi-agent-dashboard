@@ -1,0 +1,36 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-photocraft",
+  "version": "0.9.0",
+  "description": "Deprecated: superseded by @blackbelt-technology/pi-dashboard-craft-apps (PhotoCraft plus 12 more ArtCraft Crafting Apps). This shim depends on it and forwards the pi-photocraft bin so existing .pi/mcp.json entries keep working.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/photocraft"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "deprecated",
+    "photocraft"
+  ],
+  "bin": {
+    "pi-photocraft": "bin/pi-photocraft"
+  },
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@blackbelt-technology/pi-dashboard-craft-apps": "^0.9.0"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
+  }
+}

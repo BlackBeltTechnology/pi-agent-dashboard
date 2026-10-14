@@ -55,6 +55,8 @@
     ]
   },
   "exports": {
+    "./package.json": "./package.json",
+    "./bin/*": "./bin/*",
     "./*.js": "./src/*.ts",
     "./*": "./src/*"
   },

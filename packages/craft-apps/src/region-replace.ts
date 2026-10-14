@@ -354,7 +354,7 @@ export function resolveNanoBananaLauncher(fromUrl: string): string {
   try {
     pkgJsonPath = createRequire(fromUrl).resolve(`${pkgName}/package.json`);
   } catch {
-    throw new Error(`cannot locate ${pkgName}; install it next to @blackbelt-technology/pi-dashboard-photocraft`);
+    throw new Error(`cannot locate ${pkgName}; install it next to @blackbelt-technology/pi-dashboard-craft-apps`);
   }
   const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8")) as { bin?: Record<string, string> };
   const rel = pkg.bin?.["pi-nano-banana"];
