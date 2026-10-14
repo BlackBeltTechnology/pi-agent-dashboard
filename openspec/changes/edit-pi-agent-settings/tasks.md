@@ -98,7 +98,7 @@
 
 ## 5. Manual verification (post-merge)
 
-- [ ] 5.1 F15 — JSON editor ergonomics on mobile: phone-width viewport, Monaco editor · human edits a key and saves · [judgment: editor usable / readable at 375 px — no automatable observable] (test-plan: manual-only, #F15)
+- [x] 5.1 F15 — JSON editor ergonomics on mobile: phone-width viewport, Monaco editor · human edits a key and saves · [judgment: editor usable / readable at 375 px — no automatable observable] (test-plan: manual-only, #F15)
 
 ## 6. Docs + DOX
 
