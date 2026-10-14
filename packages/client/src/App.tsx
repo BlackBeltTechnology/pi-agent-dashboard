@@ -78,7 +78,7 @@ import { useSidebarState } from "./hooks/useSidebarState.js";
 import { useStaleToolReconcile } from "./hooks/useStaleToolReconcile.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
 import { fetchArchivedSessionById } from "./lib/api/archived-sessions-api.js";
-import { performServerSwitch } from "./lib/api/server-switch.js";
+import { getInitialWsUrl, LAST_SERVER_KEY, performServerSwitch } from "./lib/api/server-switch.js";
 import { openStagingSocket } from "./lib/api/staging-socket.js";
 import { EMPTY_CANVAS_STATE } from "./lib/canvas/canvas-gate.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
@@ -264,29 +264,11 @@ registerPluginRouteDescriptors(
 );
 
 const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-const wsPort = window.location.port ? `:${window.location.port}` : "";
-const DEFAULT_WS_URL = `${wsProtocol}//${window.location.hostname}${wsPort}/ws`;
-const LAST_SERVER_KEY = "pi-dashboard-last-server";
 // Stable empty-array reference for sessions with no pending images.
 // Frozen so accidental mutation throws in strict mode.
 const EMPTY_IMAGES: readonly ImageContent[] = Object.freeze([]);
 /** Stable empty command list — a fresh `[]` per render would re-render the composer. */
 const EMPTY_COMMANDS: CommandInfo[] = Object.freeze([]) as unknown as CommandInfo[];
-
-function getInitialWsUrl(): string {
-  const saved = localStorage.getItem(LAST_SERVER_KEY);
-  if (saved) {
-    try {
-      const [host, port] = saved.split(":");
-      if (host && port) {
-        return `${wsProtocol}//${host}:${port}/ws`;
-      }
-    } catch { /* ignore */ }
-  }
-  return DEFAULT_WS_URL;
-}
-
-
 
 /**
  * URL-driven OpenSpec preview overlay.
@@ -2195,6 +2177,7 @@ export default function App() {
             onSwitch={handleServerSwitch}
             inFlightSwitchKey={inFlightSwitchKey}
             onManageServers={() => navigate("/settings/remote")}
+            onNotifyError={(msg) => showToast(msg, "error")}
           />
         </div>
       }

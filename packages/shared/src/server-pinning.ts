@@ -181,7 +181,11 @@ export async function challengePinnedServer(input: ChallengeInput): Promise<PinV
 /** Max challenge response body accepted by {@link proveServerIdentity}. */
 const PROVE_MAX_BODY_BYTES = 4096;
 
-export type ProveResult = { proven: string } | { refused: string };
+/** `publicKey` (base64url SPKI) is the key whose possession was proven — callers may pin it. */
+export type ProveResult =
+  | { proven: string; publicKey?: string }
+  /** `identityFailure`: the endpoint answered but its key material / signature is invalid (impostor signal, not a transport failure). */
+  | { refused: string; identityFailure?: true };
 
 /**
  * Prove which identity answers at `baseUrl`, without a prior pin.
@@ -218,11 +222,11 @@ export async function proveServerIdentity(
       return { refused: "challenge response malformed" };
     }
     const fingerprint = fingerprintFromPublicKeyB64(data.publicKey);
-    if (!fingerprint) return { refused: "unparseable key material" };
+    if (!fingerprint) return { refused: "unparseable key material", identityFailure: true };
     if (!verifyNonceSignature(data.publicKey, nonce, data.signature)) {
-      return { refused: "signature invalid" };
+      return { refused: "signature invalid", identityFailure: true };
     }
-    return { proven: fingerprint };
+    return { proven: fingerprint, publicKey: data.publicKey };
   } catch {
     return { refused: "challenge failed" };
   }

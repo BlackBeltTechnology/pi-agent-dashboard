@@ -124,6 +124,7 @@ import {
   setSpawnedPid,
   stopServerIfNeeded,
 } from "./lib/server-lifecycle.js";
+import { type ServerWindowsHandle, startServerWindows } from "./lib/server-windows-main.js";
 import { createTray, destroyTray, type TrayOwnership } from "./lib/tray.js";
 import { startUpdateChecker } from "./lib/update-checker.js";
 import { notifyUpdatesAvailable } from "./lib/update-notifier.js";
@@ -529,8 +530,38 @@ let isQuitting = false;
 let cleanupUpdateChecker: (() => void) | null = null;
 let cleanupAutoUpdater: (() => void) | null = null;
 
-function createMainWindow(serverUrl: string): BrowserWindow {
+/**
+ * Origin of the dashboard this app launched or adopted (never the remote-mode
+ * origin). Gates the open-server-window bridge and the `servers:*` IPC from the
+ * main window. See change: add-electron-server-windows (D9).
+ */
+let localDashboardOrigin: string | undefined;
+let serverWindowsHandle: ServerWindowsHandle | null = null;
+
+/** Start discovery / keyring / server-window IPC once the first main window exists. */
+function ensureServerWindows(): void {
+  if (serverWindowsHandle) return;
+  try {
+    serverWindowsHandle = startServerWindows({
+      getMainWindow: () => mainWindow,
+      getLocalOrigin: () => localDashboardOrigin,
+      openExternal: safeOpenExternal,
+      cdpActive: _cdp.enabled,
+      log,
+    });
+  } catch (err) {
+    log(`[server-windows] failed to start: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+  }
+}
+
+function createMainWindow(serverUrl: string, opts: { local?: boolean } = {}): BrowserWindow {
   const state = loadWindowState();
+  const isLocal = opts.local !== false;
+  try {
+    localDashboardOrigin = isLocal ? new URL(serverUrl).origin : undefined;
+  } catch {
+    localDashboardOrigin = undefined;
+  }
 
   mainWindow = new BrowserWindow({
     title: "PI Dashboard",
@@ -542,6 +573,8 @@ function createMainWindow(serverUrl: string): BrowserWindow {
       nodeIntegration: false,
       contextIsolation: true,
       preload: getMainPreloadPath(),
+      // The preload exposes openServerWindow only when the document is on this origin.
+      additionalArguments: localDashboardOrigin ? [`--pi-local-origin=${localDashboardOrigin}`] : [],
     },
   });
 
@@ -567,6 +600,8 @@ function createMainWindow(serverUrl: string): BrowserWindow {
   // approval in every mode and for `requireLocalProof`. Falls back to the plain URL.
   // See change: harden-trust-and-credential-boundaries (D2/D6).
   loadWithLocalProof(mainWindow, serverUrl, { host: loadMinimalConfig().host }).catch((e) => log(`loadURL failed: ${e?.message || e}`));
+
+  ensureServerWindows();
 
   mainWindow.on("resize", () => mainWindow && saveWindowState(mainWindow));
   mainWindow.on("move", () => mainWindow && saveWindowState(mainWindow));
@@ -628,6 +663,7 @@ async function quit(): Promise<void> {
   setGracefulShutdownInProgress(true);
   cleanupUpdateChecker?.();
   cleanupAutoUpdater?.();
+  serverWindowsHandle?.dispose();
   await stopServerIfNeeded();
   destroyTray();
   app.quit();
@@ -688,6 +724,9 @@ async function main(): Promise<void> {
 
   app.name = "PI Dashboard";
   setupAppMenu();
+  // Discovery / keyring / `servers:*` IPC are ready before any window exists, so the
+  // Connect… and Servers menu items work during startup. See change: add-electron-server-windows.
+  ensureServerWindows();
 
   // Register loading-page IPC (Start server / Open Doctor / Server log).
   registerPiDashboardIpc();
@@ -705,7 +744,7 @@ async function main(): Promise<void> {
       const remoteUrl = modeConfig.remoteUrl;
       log(`[launch-source] remote mode → attach ${remoteUrl}`);
       updateSplashStatus("Opening remote dashboard…");
-      const win = createMainWindow(remoteUrl);
+      const win = createMainWindow(remoteUrl, { local: false });
       closeSplash();
       showLoadingPage(win, remoteUrl);
       createTray(() => mainWindow, requestQuit, {
