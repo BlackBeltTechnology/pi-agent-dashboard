@@ -20,6 +20,7 @@ This change closes all three in core so the follow-up `add-web-chat-plugin` can 
 - **Attested isolation** — the isolated bridge reports `isolated: true` at registration; the server kills an isolated spawn that registers without it, and never hands an isolated session a cwd-keyed queued prompt.
 - **BREAKING (plugin API, buggy callers only):** a `scope` that is a string, array or number now refuses the spawn (`agent_dir_invalid`) instead of being ignored; `scope: null` is still treated as absent.
 - **NEW plugin public namespace** `/api/plugins/<id>/public/*` via `ctx.registerPublicRoute` (activation only, `GET`/`POST`, validated paths, body limit): served only when the operator enables it per plugin (manifest priority grants nothing); CORS, preflight and the mutation origin gate use the plugin's operator-configured exact `allowedOrigins` only (empty ⇒ no cross-origin; dashboard-wide origins never apply there; namespace origins gain nothing elsewhere; no credentials mode); dashboard cookies and local token stripped before any auth hook, device bearers ignored; network guard, identity floor and tier gate exempt the namespace; OIDC bearers still resolve to `ctx.identity.principalOf`; requests with a principal are classified for the host access policy; bounded SSE streaming (heartbeats, cap, close on disable).
+- **NEW `ctx.dataDir`** — the plugin's own data root (`~/.pi/dashboard/plugins/<id>`, 0700), the sanctioned place to provision isolated agent dirs; the isolated bridge keeps the plugin-message lane so a plugin's in-session extension can call its server.
 - **NEW `ctx.identity.hasHostPolicy()`** — `isEnforced() && policy registered`, evaluated per call.
 - Out of scope (owned by `add-web-chat-plugin`): agent-dir provisioning and credentials, the customer host policy, the plugin server, ownerless spawn usage.
 
@@ -36,7 +37,7 @@ This change closes all three in core so the follow-up `add-web-chat-plugin` can 
 - `agent-role-model-tools`: `list_models` / `list_roles` / `update_roles` not registered in isolated sessions.
 - `headless-spawn`: isolated spawns' child env is allowlist-reduced (new sanctioned subtraction).
 - `pi-gateway-auth`: spawn-scoped bridge credential for isolated spawns (ADDED), with carve-outs in the local-bridge authorisation, proof keying, counter-proof and spawned-bridge verification requirements (MODIFIED).
-- `host-access-policy`: plugin-readable `hasHostPolicy()`.
+- `host-access-policy`: plugin-readable `hasHostPolicy()`; refused policy registrations throw (`policy_not_trusted` / `policy_duplicate`) instead of silently no-op'ing.
 - `cross-site-request-gate`: public plugin namespaces use the plugin's exact origin allowlist instead of the dashboard trust derivation.
 - `bearer-device-auth`: the bearer branch and the device-bearer tier gate skip plugin public namespaces (predicate; map stays exact).
 - `server-cors`: plugin public namespaces are excluded from the global CORS origin decision.

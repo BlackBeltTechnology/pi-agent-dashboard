@@ -78,6 +78,9 @@ Levels: L1 = vitest unit (`packages/*/src/**/__tests__/*.test.ts`); L2 = qa VM s
 | E60 | plugin-public-routes › close exactly once | state-transition | L1 | automated | four streams | client disconnect / handler `close()` / plugin disable / principal expiry at T | each `onClose` spy called exactly once; disable also aborts an in-flight non-stream request |
 | E61 | plugin-public-routes › caps | BVA | L1 | automated | maxConcurrent 512, maxStreams 256, maxStreamsPerPeer 8 and 0 | 512/513 in-flight non-stream; 256/257 streams; 8/9 from one peer; 20 from one peer with per-peer 0 | 513th `503`; 257th `503`; 9th `503` for that peer only; per-peer 0 ⇒ none refused |
 | E62 | plugin-public-routes › non-stream timeout | BVA | L1 | automated | handler that never resolves | 30 s elapse (fake timers) | client `408`; handler abort signal fired |
+| E63 | plugin-spawn-scope › plugin data dir | EP | L1 | automated | first activation of plugin `web-chat` with fake HOME | context creation | `ctx.dataDir === <home>/.pi/dashboard/plugins/web-chat`, dir exists, mode 0700; agentDir under it passes operator-tree validation |
+| E64 | plugin-spawn-scope › isolated plugin-message lane | state-transition | L1 | automated | isolated bridge with a plugin extension emitting `dashboard:plugin-message` | emit + server reply via `sendExtensionMessage` | server handler receives request; extension receives reply |
+| E65 | host-access-policy › registration outcome observable | decision-table | L1 | automated | plugin named vs not named in `identity.trustedPolicyPlugin`; second registration by the named plugin | `ctx.registerHostAccessPolicy(fn)` | named first call returns unregister fn; not-named throws `policy_not_trusted`; second call throws `policy_duplicate`; no policy registered on throws |
 
 ### Performance
 
@@ -108,9 +111,9 @@ None — no rendered UI in this change.
 ## Coverage summary
 
 - Requirements covered: 31/31 (isolation 17 as above + plugin-public-routes ADDED ×7, cross-site-request-gate ×1, server-cors ×3, bearer-device-auth ×2 incl. bearer branch, trusted-networks ×1, auth-bypass-url-list ×1 — some rows cover several)
-- Scenarios by class: edge 62 · perf 1 · frontend 0 · error 9
-- Scenarios by level: L1 66 · L2 6 · L3 0
-- Scenarios by disposition: automated 72 · manual-only 0
+- Scenarios by class: edge 65 · perf 1 · frontend 0 · error 9
+- Scenarios by level: L1 69 · L2 6 · L3 0
+- Scenarios by disposition: automated 75 · manual-only 0
 
 ## New infra needed
 
