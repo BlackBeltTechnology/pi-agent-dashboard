@@ -739,6 +739,8 @@ describe("MermaidBlock retro-ux chat rendering", () => {
     );
     try {
       act(() => getByTestId("to-hu").click());
+      // The hu catalog loads on demand; the language flips once it has.
+      await waitFor(() => expect(document.documentElement.lang).toBe("hu"));
       await waitFor(() => expect(container.querySelector(".mermaid-diagram-inner")).not.toBeNull());
       fireEvent.click(viewportOf(container));
       for (const name of ["Nagyítás", "Kicsinyítés", "Nagyítás visszaállítása"]) {
@@ -748,6 +750,8 @@ describe("MermaidBlock retro-ux chat rendering", () => {
       }
     } finally {
       act(() => getByTestId("to-en").click());
+      // setLanguage applies asynchronously (catalog load first); don't leak hu into later tests.
+      await waitFor(() => expect(document.documentElement.lang).toBe("en"));
     }
   });
 

@@ -12,7 +12,7 @@
  * See change: shrink-client-index-chunk (test-plan #S1);
  * harden-ios-safari-memory-and-ws-diagnostics (test-plan #E1).
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
@@ -21,18 +21,15 @@ import { describe, expect, it } from "vitest";
 // A minified-survivable @mdi/js export name that no shell code imports by
 // name — present only in a chunk that carries the FULL icon set.
 const MDI_MARKER = "mdiZodiacAquarius";
-// Raised 900 → 910 KB by show-session-history-load-state (user-approved):
-// develop already sat at ~900 KB in CI, and that change's always-rendered
-// session-card ring + chat load states add ~2.4 KB gz that cannot be lazy.
-// The @mdi/js full-set guard above is the load-bearing check; this cap only
-// catches large regressions. Do not raise it again without a size win first.
-// Raised 910 → 920 KB (user-approved): develop CI measured 934,064 B (912 KB),
-// over the cap with no single offending change; red CI blocked every PR.
-// A size win is still owed before any further raise.
-// Raised 920 → 930 KB by retro-ux-chat-rendering (user-approved): the change's
-// zh-CN/hu catalog keys, always-rendered CustomEntryCard and ZoomControls text
-// measured 942,485 B (920.4 KB) in CI; the extra 10 KB is headroom for the next change.
-const INDEX_GZ_CAP_BYTES = 930 * 1024;
+// History: raised 900 → 910 → 920 → 930 KB as features landed; develop CI sat
+// at 944,327 B (an inflated, lazy-loadable entry) with every PR ~1.8 KB from red.
+// shrink-client-entry-lazy-islands (2026-10-13) moved katex, the hu/zh-CN
+// catalogs and the Settings panel off the cold landing. Measured, same base:
+//   entry `index-*.js` gz: 950,470 B → 689,543 B (−260,927 B)
+//   landing graph gz total (entry + modulepreload closure): 1,391,815 B → 1,130,891 B
+// Cap = measured rounded up to the next 10 KiB (680 KiB; spec ceiling 800 KiB).
+// Do not raise it again without a size win first — lazy a subsystem instead.
+const INDEX_GZ_CAP_BYTES = 680 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");
@@ -102,5 +99,82 @@ describe("@mdi/js full icon set is off the cold landing (test-plan #E1)", () => 
       gzipped,
       `index entry chunk ${kb} KB gzipped exceeds the ${INDEX_GZ_CAP_BYTES / 1024} KB cap`,
     ).toBeLessThanOrEqual(INDEX_GZ_CAP_BYTES);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// On-demand subsystems stay off the cold landing graph (design D5).
+// Each marker is a string literal that survives minification and is unique to
+// its subsystem's source (asserted below, so a marker that drifts into shared
+// code fails loudly instead of passing vacuously).
+// See change: shrink-client-entry-lazy-islands.
+// ---------------------------------------------------------------------------
+const srcDir = path.resolve(here, "..");
+
+function walkSrc(dir: string, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    if (name === "__tests__" || name === "generated") continue;
+    const full = path.join(dir, name);
+    if (statSync(full).isDirectory()) walkSrc(full, out);
+    else if (/\.(ts|tsx)$/.test(name)) out.push(full);
+  }
+  return out;
+}
+
+const LAZY_SUBSYSTEMS: ReadonlyArray<{
+  name: string;
+  marker: string;
+  /** Source files (relative to src/) allowed to contain the marker; `[]` = none (third-party). */
+  owners: readonly string[];
+}> = [
+  { name: "katex", marker: "KaTeX parse error", owners: [] },
+  {
+    name: "hu catalog",
+    marker: "a visszajátszási ablak dönti el, mennyit kap a böngésző előre",
+    owners: ["lib/i18n/i18n-hu.ts"],
+  },
+  {
+    name: "zh-CN catalog",
+    marker: "最大回放事件数与每会话最大事件数共同起作用",
+    owners: ["lib/i18n/i18n-zh-CN.ts"],
+  },
+  {
+    name: "settings panel",
+    marker: "settings-restart-pending-dot",
+    owners: ["components/settings/SettingsPanel.tsx"],
+  },
+];
+
+describe("on-demand subsystems are off the cold landing (shrink-client-entry-lazy-islands)", () => {
+  for (const { name, marker, owners } of LAZY_SUBSYSTEMS) {
+    it(`${name}: marker is unique to its subsystem's source`, () => {
+      const holders = walkSrc(srcDir)
+        .filter((f) => readFileSync(f, "utf8").includes(marker))
+        .map((f) => path.relative(srcDir, f).split(path.sep).join("/"));
+      expect(holders).toEqual([...owners]);
+    });
+
+    it(`${name}: no landing-graph chunk contains it, a separate chunk does`, () => {
+      const html = readIndexHtml();
+      if (!html) return; // no build output — CI builds first
+      const graph = landingGraph(html);
+      const offenders = [...graph].filter((f) => readFileSync(path.join(assetsDir, f), "utf8").includes(marker));
+      expect(offenders, `landing-graph chunk(s) carry ${name}: ${offenders.join(", ")}`).toEqual([]);
+      const lazy = readdirSync(assetsDir)
+        .filter((f) => f.endsWith(".js") && !graph.has(f))
+        .filter((f) => readFileSync(path.join(assetsDir, f), "utf8").includes(marker));
+      expect(lazy.length, `expected a lazy chunk carrying ${name}`).toBeGreaterThan(0);
+    });
+  }
+
+  it("entry stylesheet has no .katex rule", () => {
+    const html = readIndexHtml();
+    if (!html) return;
+    const sheets = [...html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/gi)].map((m) => basenameOf(m[1]));
+    expect(sheets.length).toBeGreaterThan(0);
+    for (const sheet of sheets) {
+      const css = readFileSync(path.join(assetsDir, sheet), "utf8");
+      expect(css.includes(".katex"), `${sheet} still carries KaTeX rules`).toBe(false);
+    }
   });
 });

@@ -96,14 +96,14 @@ describe("#X10 i18n enforcers are repaired, not merely wired", () => {
 
   it("its anchors still resolve in the catalogs", () => {
     const i18n = fs.readFileSync(
-      path.join(repoRoot, "packages/client/src/lib/i18n/i18n.tsx"),
+      path.join(repoRoot, "packages/client/src/lib/i18n/i18n-zh-CN.ts"),
       "utf8",
     );
     const hu = fs.readFileSync(
       path.join(repoRoot, "packages/client/src/lib/i18n/i18n-hu.ts"),
       "utf8",
     );
-    expect(i18n).toMatch(/const zhCN/);
+    expect(i18n).toMatch(/const zhCN/); // zh-CN catalog now lives in i18n-zh-CN.ts (shrink-client-entry-lazy-islands)
     expect(hu).toMatch(/huCatalog/);
   });
 

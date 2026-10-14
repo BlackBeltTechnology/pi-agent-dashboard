@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React, { useState } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { SessionAssetsProvider } from "../../lib/session/SessionAssetsContext.js";
@@ -453,32 +453,35 @@ describe("MarkdownContent", () => {
 
   // chat-markdown-local-images-and-math: math + image rendering
   describe("LaTeX math", () => {
-    it("renders inline single-dollar math as a KaTeX node", () => {
+    it("renders inline single-dollar math as a KaTeX node", async () => {
       const { container } = renderMd("Pythagoras: $a^2 + b^2 = c^2$.");
-      expect(container.querySelector(".katex")).not.toBeNull();
+      await waitFor(() => expect(container.querySelector(".katex")).not.toBeNull());
     });
 
-    it("renders display double-dollar math as katex-display when on its own line", () => {
+    it("renders display double-dollar math as katex-display when on its own line", async () => {
       // remark-math treats `$$…$$` as DISPLAY math only when it's a
       // block-level construct (preceded/followed by blank lines or at
       // the start/end of input). Inline `$$…$$` is treated as inline.
       const { container } = renderMd("$$\n\\sum_{i=0}^{n} i\n$$");
-      expect(container.querySelector(".katex-display")).not.toBeNull();
+      await waitFor(() => expect(container.querySelector(".katex-display")).not.toBeNull());
     });
 
-    it("renders \\beta as the beta glyph", () => {
+    it("renders \\beta as the beta glyph", async () => {
       const { container } = renderMd("$x = \\beta$");
-      const katex = container.querySelector(".katex");
-      expect(katex).not.toBeNull();
+      await waitFor(() => expect(container.querySelector(".katex")).not.toBeNull());
       // The actual rendered text should contain a beta glyph (β) somewhere
       expect(container.textContent).toMatch(/β/);
     });
 
-    it("does NOT throw on half-formed math (throwOnError:false)", () => {
+    it("does NOT throw on half-formed math (throwOnError:false)", async () => {
       // Half-formed `$x = 10 +` simulates a streaming chunk before the
       // closing dollar arrives. Pre-fix this would throw a ParseError;
       // post-fix it must render without crashing.
-      expect(() => renderMd("Working: $x = 10 +")).not.toThrow();
+      let view: ReturnType<typeof renderMd> | undefined;
+      expect(() => {
+        view = renderMd("Working: $x = 10 +");
+      }).not.toThrow();
+      await waitFor(() => expect(view?.container.textContent).toContain("Working"));
     });
   });
 

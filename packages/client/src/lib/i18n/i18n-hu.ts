@@ -1886,6 +1886,7 @@ export const huCatalog: Record<string, string> = {
   "status.loadingCurrentProfile": "Aktuális profil betöltése…",
   "status.loadingDiagram": "Diagram betöltése…",
   "status.loadingDiff": "Eltérés betöltése…",
+  "settings.loadFailed": "A beállítások panel nem tölthető be.",
   "status.loadingFile": "Fájl betöltése…",
   "status.loadingFileChanges": "Fájlmódosítások betöltése…",
   "status.loadingPdfViewer": "PDF-megjelenítő betöltése…",

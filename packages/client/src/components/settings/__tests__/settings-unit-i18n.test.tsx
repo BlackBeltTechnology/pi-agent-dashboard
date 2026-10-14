@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 // unit twice — once in the label, once in the chip. C1 resolved this as
 // "update the existing keys in place across en / zh-CN / hu".
 //
-// The zh-CN catalog is module-private inside i18n.tsx, so this reads the
+// The zh-CN catalog is a lazy module (i18n-zh-CN.ts), so this reads the
 // dictionary sources as text rather than widening their exports — the same
 // approach themes.test.ts takes against index.css.
 // See change: reorganize-settings-pages-and-descriptions. test-plan #E14.
@@ -18,7 +18,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const LIB = resolve(here, "../../../lib");
 
 const SOURCES: [string, string][] = [
-  ["zh-CN", readFileSync(resolve(LIB, "i18n/i18n.tsx"), "utf8")],
+  ["zh-CN", readFileSync(resolve(LIB, "i18n/i18n-zh-CN.ts"), "utf8")],
   ["hu", readFileSync(resolve(LIB, "i18n/i18n-hu.ts"), "utf8")],
   ["en", readFileSync(resolve(LIB, "i18n-en-source.json"), "utf8")],
 ];

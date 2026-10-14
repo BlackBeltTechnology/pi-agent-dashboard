@@ -6,13 +6,12 @@ import App from "./App.js";
 import { LoginPage, SigningInPage } from "./components/identity/LoginPage.js";
 import { ThemeProvider } from "./components/settings/ThemeProvider.js";
 import { MobileProvider } from "./hooks/useMobile.js";
-import { I18nProvider } from "./lib/i18n/i18n.js";
+import { detectInitialLanguage, I18nProvider, loadCatalog } from "./lib/i18n/i18n.js";
 import { fetchLoginConfig } from "./lib/identity/login-config.js";
 import { bootLoginSession, useLoginSession } from "./lib/identity/login-session.js";
 import "./index.css";
-// KaTeX styles for LaTeX math rendering in MarkdownContent.
-// See change: chat-markdown-local-images-and-math.
-import "katex/dist/katex.min.css";
+// KaTeX styles load with the lazy math engine (lib/preview/math-engine.ts).
+// See change: shrink-client-entry-lazy-islands.
 
 import {
   createUiPrimitiveRegistry,
@@ -242,18 +241,28 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <UiPrimitiveProvider value={primitiveRegistry}>
-      <Router>
-        <ThemeProvider>
-          <I18nProvider>
-            <MobileProvider>
-              <RootView />
-            </MobileProvider>
-          </I18nProvider>
-        </ThemeProvider>
-      </Router>
-    </UiPrimitiveProvider>
-  </React.StrictMode>
-);
+// Non-English users fetch their catalog BEFORE the first frame (no English flash);
+// English users resolve immediately. `loadCatalog` never rejects — a failed
+// load logs and falls back to the English call-site text.
+// See change: shrink-client-entry-lazy-islands.
+void loadCatalog(detectInitialLanguage())
+  .then(() => {
+    ReactDOM.createRoot(document.getElementById("root")!).render(
+      <React.StrictMode>
+        <UiPrimitiveProvider value={primitiveRegistry}>
+          <Router>
+            <ThemeProvider>
+              <I18nProvider>
+                <MobileProvider>
+                  <RootView />
+                </MobileProvider>
+              </I18nProvider>
+            </ThemeProvider>
+          </Router>
+        </UiPrimitiveProvider>
+      </React.StrictMode>
+    );
+  })
+  .catch((e: unknown) => {
+    console.error("[pi-dashboard] failed to mount the app:", e);
+  });

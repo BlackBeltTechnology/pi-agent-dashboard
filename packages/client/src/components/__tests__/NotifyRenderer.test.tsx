@@ -14,7 +14,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { I18nProvider } from "../../lib/i18n/i18n.js";
+import { I18nProvider, type Language, loadCatalog } from "../../lib/i18n/i18n.js";
 import { NotifyRenderer } from "../interactive-renderers/NotifyRenderer.js";
 import { InlineMessage } from "../primitives/InlineMessage.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
@@ -311,7 +311,9 @@ describe("NotifyRenderer — localized badge (test-plan #E17)", () => {
   it.each([
     ["hu", "3×", "3 alkalommal ismételve"],
     ["zh-CN", "3 次", "重复 3 次"],
-  ])("%s badge and label come from the catalog", (language, badge, labelStart) => {
+  ])("%s badge and label come from the catalog", async (language, badge, labelStart) => {
+    // Non-English catalogs are lazy: the app awaits the initial one before first paint.
+    await loadCatalog(language as Language);
     const { getByTestId } = renderIn(language);
     expect(getByTestId("notify-repeat-count").textContent).toBe(badge);
     const label = getByTestId("notify-repeat").getAttribute("aria-label") ?? "";

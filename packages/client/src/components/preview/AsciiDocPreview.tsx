@@ -11,6 +11,7 @@ import { splitAdocDiagramSegments, type AdocSegment } from "../../lib/preview/ad
 import { DiagramPreview } from "./DiagramPreview.js";
 import { MermaidBlock } from "./MermaidBlock.js";
 import { renderUrl } from "./raw-url.js";
+import { loadMathEngine } from "../../lib/preview/math-engine.js";
 import { logRejection } from "../../lib/report-error.js";
 import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
@@ -39,7 +40,7 @@ export function AsciiDocPreview({ target }: Props) {
           let rendered: string = body.data.html;
           // latexmath (`stem:[…]`, `[stem]`): KaTeX loaded only when the doc has math.
           if (hasAdocMath(rendered)) {
-            const katex = (await import("katex")).default;
+            const { katex } = await loadMathEngine();
             if (cancelled) return;
             rendered = renderAdocMath(rendered, katex);
           }
