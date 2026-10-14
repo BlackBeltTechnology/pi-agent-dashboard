@@ -55,7 +55,7 @@ function parseIPv6(addr: string): number[] | null {
     const v4 = head.slice(lastColon + 1).split(".").map(Number);
     if (v4.length !== 4 || v4.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
     tailV4 = [(v4[0] << 8) | v4[1], (v4[2] << 8) | v4[3]];
-    head = head.slice(0, lastColon + 1) + "0:0";
+    head = `${head.slice(0, lastColon + 1)}0:0`;
   }
   const halves = head.split("::");
   if (halves.length > 2) return null;
