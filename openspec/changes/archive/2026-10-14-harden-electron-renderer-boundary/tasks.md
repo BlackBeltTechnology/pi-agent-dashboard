@@ -41,4 +41,4 @@
 
 - [x] V1 `openspec validate harden-electron-renderer-boundary --strict` passes.
 - [x] V2 `npm test` green; add Electron main-process unit tests where feasible (sender-frame helper, safeOpenExternal, probe denylist are pure-function testable).
-- [ ] V3 Manual (browser skill / Electron): attach to a remote URL, open devtools on the main window, confirm the three bridges are absent and IPC calls from the page are rejected.
+- [x] V3 Manual (browser skill / Electron): attach to a remote URL, open devtools on the main window, confirm the three bridges are absent and IPC calls from the page are rejected.
