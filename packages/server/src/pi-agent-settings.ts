@@ -227,6 +227,59 @@ async function resolveWriteTarget(path: string, fs: PiSettingsFs): Promise<strin
   }
 }
 
+const errMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/** Acquire pi's lock on the settings path; `busy` when held past the retry budget. */
+async function acquireLock(
+  path: string,
+  fs: PiSettingsFs,
+): Promise<{ release: () => Promise<void> } | { fail: LockedResult<never, never> }> {
+  try {
+    await fs.mkdir(dirname(path));
+    const release = await _lockfile.lock(path, {
+      ...LOCK_OPTIONS,
+      onCompromised: (err) => {
+        console.warn(`[pi-settings] lock compromised (${(err as { code?: string }).code ?? "unknown"})`);
+      },
+    });
+    return { release };
+  } catch (err) {
+    if ((err as { code?: unknown } | null)?.code === "ELOCKED") return { fail: { ok: false, error: "busy" } };
+    return { fail: { ok: false, error: "io", message: errMessage(err) } };
+  }
+}
+
+const isEnoent = (err: unknown): boolean => (err as NodeJS.ErrnoException).code === "ENOENT";
+
+async function readCurrent(path: string, fs: PiSettingsFs): Promise<string | null> {
+  try {
+    return await fs.readFile(path);
+  } catch (err) {
+    if (isEnoent(err)) return null;
+    throw err;
+  }
+}
+
+/** tmp file in the target's directory + chmod to the target's mode + `rename`. */
+async function replaceAtomically(path: string, text: string, existed: boolean, fs: PiSettingsFs): Promise<void> {
+  const target = await resolveWriteTarget(path, fs);
+  const tmp = join(dirname(target), `.${randomBytes(6).toString("hex")}.settings.tmp`);
+  try {
+    await fs.writeFile(tmp, text);
+    if (existed) {
+      try {
+        await fs.chmod(tmp, (await fs.stat(target)).mode & 0o7777);
+      } catch (err) {
+        if (!isEnoent(err)) throw err;
+      }
+    }
+    await fs.rename(tmp, target);
+  } catch (err) {
+    await fs.unlink(tmp).catch(() => {});
+    throw err;
+  }
+}
+
 /**
  * Run `fn` under the pi settings lock. `fn` is PURE and synchronous (re-read
  * state in, new text out). Not acquired within the retry budget → `busy`;
@@ -240,55 +293,23 @@ export async function withPiSettingsLock<T, F = never>(
   const fs: PiSettingsFs = { ...defaultFs, ...deps.fs };
   const path = piSettingsPath(deps);
 
-  let release: (() => Promise<void>) | undefined;
-  try {
-    await fs.mkdir(dirname(path));
-    release = await _lockfile.lock(path, {
-      ...LOCK_OPTIONS,
-      onCompromised: (err) => {
-        console.warn(`[pi-settings] lock compromised (${(err as { code?: string }).code ?? "unknown"})`);
-      },
-    });
-  } catch (err) {
-    if ((err as { code?: unknown } | null)?.code === "ELOCKED") return { ok: false, error: "busy" };
-    return { ok: false, error: "io", message: err instanceof Error ? err.message : String(err) };
-  }
+  const lock = await acquireLock(path, fs);
+  if ("fail" in lock) return lock.fail;
 
-  let tmp: string | undefined;
   try {
-    let raw: string | null;
-    try {
-      raw = await fs.readFile(path);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-      raw = null;
-    }
-    const state = buildState(raw);
+    const state = buildState(await readCurrent(path, fs));
     if (options.baseEtag !== undefined && options.baseEtag !== state.etag) {
       return { ok: false, error: "stale", state };
     }
     const step = fn(state);
     if ("fail" in step) return { ok: false, error: "fn", fail: step.fail };
     if (step.write === undefined) return { ok: true, value: step.value, state };
-
-    const target = await resolveWriteTarget(path, fs);
-    tmp = join(dirname(target), `.${randomBytes(6).toString("hex")}.settings.tmp`);
-    await fs.writeFile(tmp, step.write);
-    if (state.exists) {
-      try {
-        await fs.chmod(tmp, (await fs.stat(target)).mode & 0o7777);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-      }
-    }
-    await fs.rename(tmp, target);
-    tmp = undefined;
+    await replaceAtomically(path, step.write, state.exists, fs);
     return { ok: true, value: step.value, state: buildState(step.write) };
   } catch (err) {
-    return { ok: false, error: "io", message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: "io", message: errMessage(err) };
   } finally {
-    if (tmp) await fs.unlink(tmp).catch(() => {});
-    await release?.().catch(() => {});
+    await lock.release().catch(() => {});
   }
 }
 
@@ -323,39 +344,65 @@ const isManaged = (k: string): boolean => (PI_MANAGED_SETTINGS_KEYS as readonly 
 
 const JSON_HINT = "use the JSON editor for this key";
 
-/** Validate a typed leaf patch. Returns `[]` when valid. */
-function validatePiSettingsPatch(patch: unknown): ValidationError[] {
+const fieldError = (field: string, message: string): ValidationError => ({ field, message });
+
+/** Check each leaf of one `compaction`/`branchSummary` block. `strict`: unknown leaves are errors (the form). */
+function checkBlockLeaves(
+  key: string,
+  value: Record<string, unknown>,
+  allowNull: boolean,
+  strict: boolean,
+): ValidationError[] {
   const errors: ValidationError[] = [];
-  if (!isPlainObject(patch)) return [{ field: "patch", message: "patch must be an object" }];
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined) continue;
-    if (isManaged(key)) {
-      errors.push({ field: key, message: `${key} is managed by the Default model control and cannot be edited here` });
-    } else if (key in TYPED_BLOCKS) {
-      if (value === null) {
-        errors.push({ field: key, message: `${key} cannot be removed as a whole block; clear its fields instead` });
-      } else if (!isPlainObject(value)) {
-        errors.push({ field: key, message: `${key} must be an object` });
-      } else {
-        for (const [leaf, lv] of Object.entries(value)) {
-          const check = TYPED_BLOCKS[key]![leaf];
-          if (!check) errors.push({ field: `${key}.${leaf}`, message: `${key}.${leaf} is not a form field; ${JSON_HINT}` });
-          else if (lv !== null && lv !== undefined) {
-            const msg = check(lv);
-            if (msg) errors.push({ field: `${key}.${leaf}`, message: `${key}.${leaf} ${msg}` });
-          }
-        }
-      }
-    } else if (key in TYPED_TOP) {
-      if (value !== null) {
-        const msg = TYPED_TOP[key]!(value);
-        if (msg) errors.push({ field: key, message: `${key} ${msg}` });
-      }
-    } else {
-      errors.push({ field: key, message: `${key} is not a form field; ${JSON_HINT}` });
+  for (const [leaf, lv] of Object.entries(value)) {
+    const check = TYPED_BLOCKS[key]?.[leaf];
+    if (!check) {
+      if (strict) errors.push(fieldError(`${key}.${leaf}`, `${key}.${leaf} is not a form field; ${JSON_HINT}`));
+      continue;
     }
+    if (lv === undefined || (allowNull && lv === null)) continue;
+    const msg = check(lv);
+    if (msg) errors.push(fieldError(`${key}.${leaf}`, `${key}.${leaf} ${msg}`));
   }
   return errors;
+}
+
+function checkPatchBlock(key: string, value: unknown): ValidationError[] {
+  if (value === null) return [fieldError(key, `${key} cannot be removed as a whole block; clear its fields instead`)];
+  if (!isPlainObject(value)) return [fieldError(key, `${key} must be an object`)];
+  return checkBlockLeaves(key, value, true, true);
+}
+
+function checkPatchKey(key: string, value: unknown): ValidationError[] {
+  if (isManaged(key)) {
+    return [fieldError(key, `${key} is managed by the Default model control and cannot be edited here`)];
+  }
+  if (key in TYPED_BLOCKS) return checkPatchBlock(key, value);
+  const check = TYPED_TOP[key];
+  if (!check) return [fieldError(key, `${key} is not a form field; ${JSON_HINT}`)];
+  const msg = value === null ? null : check(value);
+  return msg ? [fieldError(key, `${key} ${msg}`)] : [];
+}
+
+/** Validate a typed leaf patch. Returns `[]` when valid. */
+function validatePiSettingsPatch(patch: unknown): ValidationError[] {
+  if (!isPlainObject(patch)) return [fieldError("patch", "patch must be an object")];
+  return Object.entries(patch)
+    .filter(([, value]) => value !== undefined)
+    .flatMap(([key, value]) => checkPatchKey(key, value));
+}
+
+function applyBlockPatch(
+  existing: unknown,
+  leaves: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const block: Record<string, unknown> = { ...asObject(existing) };
+  for (const [leaf, lv] of Object.entries(leaves)) {
+    if (lv === null) delete block[leaf];
+    else if (lv !== undefined) block[leaf] = lv;
+  }
+  // A patch of only deletions must not conjure an empty block.
+  return existing === undefined && Object.keys(block).length === 0 ? undefined : block;
 }
 
 function applyLeafPatch(current: Record<string, unknown>, patch: PiSettingsPatch): Record<string, unknown> {
@@ -363,15 +410,8 @@ function applyLeafPatch(current: Record<string, unknown>, patch: PiSettingsPatch
   for (const [key, value] of Object.entries(patch as Record<string, unknown>)) {
     if (value === undefined) continue;
     if (key in TYPED_BLOCKS) {
-      const block: Record<string, unknown> = { ...asObject(next[key]) };
-      for (const [leaf, lv] of Object.entries(value as Record<string, unknown>)) {
-        if (lv === undefined) continue;
-        if (lv === null) delete block[leaf];
-        else block[leaf] = lv;
-      }
-      // A patch of only deletions must not conjure an empty block.
-      if (next[key] === undefined && Object.keys(block).length === 0) continue;
-      next[key] = block;
+      const block = applyBlockPatch(next[key], value as Record<string, unknown>);
+      if (block) next[key] = block;
     } else if (value === null) {
       delete next[key];
     } else {
@@ -425,37 +465,77 @@ export async function applyPiSettingsPatch(
 
 // ── Raw editor (design D6) ───────────────────────────────────────────
 
-const STRING_ARRAY_KEYS = ["extensions", "prompts", "themes", "enabledModels", "defaultTools", "npmCommand"] as const;
-const STRING_KEYS = ["shellPath", "shellCommandPrefix"] as const;
-
 const isStringArray = (v: unknown): boolean => Array.isArray(v) && v.every((x) => typeof x === "string");
 const isPosInt = (v: unknown): boolean => typeof v === "number" && Number.isInteger(v) && v >= 1;
-const isNonNeg = (v: unknown): boolean => typeof v === "number" && Number.isInteger(v) && v >= 0;
+const isNonNeg = (v: unknown): boolean => isNonNegInt(v) === null;
 
-function validateRetryPartial(retry: unknown, errors: ValidationError[]): void {
-  if (!isPlainObject(retry)) {
-    errors.push({ field: "retry", message: "retry must be an object" });
-    return;
+/** A rule returns an error message, or null when the value is fine. */
+type Rule = (v: unknown) => string | null;
+const rule =
+  (ok: (v: unknown) => boolean, message: string): Rule =>
+  (v) =>
+    ok(v) ? null : message;
+
+/** Raw-editor type rules for non-form keys (design D6). Unlisted keys are NOT checked. */
+const RAW_KEY_RULES: Record<string, Rule> = {
+  extensions: rule(isStringArray, "must be an array of strings"),
+  prompts: rule(isStringArray, "must be an array of strings"),
+  themes: rule(isStringArray, "must be an array of strings"),
+  enabledModels: rule(isStringArray, "must be an array of strings"),
+  defaultTools: rule(isStringArray, "must be an array of strings"),
+  npmCommand: rule(isStringArray, "must be an array of strings"),
+  skills: rule((v) => isStringArray(v) || isPlainObject(v), "must be an array of strings (or the legacy object form)"),
+  packages: rule(
+    (v) => Array.isArray(v) && v.every((p) => typeof p === "string" || isPlainObject(p)),
+    "must be an array of strings or objects",
+  ),
+  shellPath: rule((v) => typeof v === "string", "must be a string"),
+  shellCommandPrefix: rule((v) => typeof v === "string", "must be a string"),
+  modelThinkingLevels: rule(
+    (v) => isPlainObject(v) && Object.values(v).every((l) => typeof l === "string" && (THINKING_LEVELS as readonly string[]).includes(l)),
+    "must map model ids to valid thinking levels",
+  ),
+};
+
+/** `retry` fields checked when PRESENT (path under `retry`). Absent/unknown fields pass. */
+const RETRY_RULES: ReadonlyArray<readonly [readonly string[], Rule]> = [
+  [["enabled"], rule((v) => typeof v === "boolean", "must be a boolean")],
+  [["maxRetries"], rule(isNonNeg, "must be a non-negative integer")],
+  [["maxAgentDelayMs"], rule(isNonNeg, "must be a non-negative integer")],
+  [["baseDelayMs"], rule(isPosInt, "must be a positive integer")],
+  [["provider", "timeoutMs"], rule(isPosInt, "must be a positive integer")],
+  [["provider", "maxRetries"], rule(isNonNeg, "must be a non-negative integer")],
+  [["provider", "maxRetryDelayMs"], rule(isNonNeg, "must be a non-negative integer")],
+];
+
+function validateRetryPartial(retry: unknown): ValidationError[] {
+  if (!isPlainObject(retry)) return [fieldError("retry", "retry must be an object")];
+  if (retry.provider !== undefined && !isPlainObject(retry.provider)) {
+    return [fieldError("retry.provider", "retry.provider must be an object")];
   }
-  const bad = (field: string, message: string) => errors.push({ field, message: `${field} ${message}` });
-  if (retry.enabled !== undefined && typeof retry.enabled !== "boolean") bad("retry.enabled", "must be a boolean");
-  if (retry.maxRetries !== undefined && !isNonNeg(retry.maxRetries)) bad("retry.maxRetries", "must be a non-negative integer");
-  if (retry.maxAgentDelayMs !== undefined && !isNonNeg(retry.maxAgentDelayMs)) {
-    bad("retry.maxAgentDelayMs", "must be a non-negative integer");
+  const errors: ValidationError[] = [];
+  for (const [path, check] of RETRY_RULES) {
+    const [head, leaf] = path;
+    const v = leaf === undefined ? retry[head] : asObject(retry[head])[leaf];
+    const msg = v === undefined ? null : check(v);
+    if (msg) errors.push(fieldError(`retry.${path.join(".")}`, `retry.${path.join(".")} ${msg}`));
   }
-  if (retry.baseDelayMs !== undefined && !isPosInt(retry.baseDelayMs)) bad("retry.baseDelayMs", "must be a positive integer");
-  if (retry.provider !== undefined) {
-    if (!isPlainObject(retry.provider)) {
-      bad("retry.provider", "must be an object");
-      return;
-    }
-    const p = retry.provider;
-    if (p.timeoutMs !== undefined && !isPosInt(p.timeoutMs)) bad("retry.provider.timeoutMs", "must be a positive integer");
-    if (p.maxRetries !== undefined && !isNonNeg(p.maxRetries)) bad("retry.provider.maxRetries", "must be a non-negative integer");
-    if (p.maxRetryDelayMs !== undefined && !isNonNeg(p.maxRetryDelayMs)) {
-      bad("retry.provider.maxRetryDelayMs", "must be a non-negative integer");
-    }
+  return errors;
+}
+
+function validateRawKeys(obj: Record<string, unknown>): ValidationError[] {
+  const errors: ValidationError[] = [];
+  for (const key of Object.keys(TYPED_BLOCKS)) {
+    if (obj[key] === undefined) continue;
+    if (isPlainObject(obj[key])) errors.push(...checkBlockLeaves(key, obj[key], false, false));
+    else errors.push(fieldError(key, `${key} must be an object`));
   }
+  for (const [key, check] of [...Object.entries(TYPED_TOP), ...Object.entries(RAW_KEY_RULES)]) {
+    const msg = obj[key] === undefined ? null : check(obj[key]);
+    if (msg) errors.push(fieldError(key, `${key} ${msg}`));
+  }
+  if (obj.retry !== undefined) errors.push(...validateRetryPartial(obj.retry));
+  return errors;
 }
 
 /**
@@ -465,48 +545,10 @@ function validateRetryPartial(retry: unknown, errors: ValidationError[]): void {
 function validatePiSettingsRaw(
   text: unknown,
 ): { ok: true; obj: Record<string, unknown> } | { ok: false; errors: ValidationError[] } {
-  if (typeof text !== "string") return { ok: false, errors: [{ field: "raw", message: "raw must be a string" }] };
+  if (typeof text !== "string") return { ok: false, errors: [fieldError("raw", "raw must be a string")] };
   const { obj, error } = parseText(text);
-  if (!obj) return { ok: false, errors: [{ field: "raw", message: error ?? "Invalid JSON" }] };
-
-  const errors: ValidationError[] = [];
-  for (const [key, checks] of Object.entries(TYPED_BLOCKS)) {
-    const block = obj[key];
-    if (block === undefined) continue;
-    if (!isPlainObject(block)) {
-      errors.push({ field: key, message: `${key} must be an object` });
-      continue;
-    }
-    for (const [leaf, check] of Object.entries(checks)) {
-      if (block[leaf] === undefined) continue;
-      const msg = check(block[leaf]);
-      if (msg) errors.push({ field: `${key}.${leaf}`, message: `${key}.${leaf} ${msg}` });
-    }
-  }
-  for (const [key, check] of Object.entries(TYPED_TOP)) {
-    if (obj[key] === undefined) continue;
-    const msg = check(obj[key]);
-    if (msg) errors.push({ field: key, message: `${key} ${msg}` });
-  }
-  if (obj.retry !== undefined) validateRetryPartial(obj.retry, errors);
-  for (const key of STRING_ARRAY_KEYS) {
-    if (obj[key] !== undefined && !isStringArray(obj[key])) errors.push({ field: key, message: `${key} must be an array of strings` });
-  }
-  if (obj.skills !== undefined && !isStringArray(obj.skills) && !isPlainObject(obj.skills)) {
-    errors.push({ field: "skills", message: "skills must be an array of strings (or the legacy object form)" });
-  }
-  if (obj.packages !== undefined) {
-    const ok = Array.isArray(obj.packages) && obj.packages.every((p) => typeof p === "string" || isPlainObject(p));
-    if (!ok) errors.push({ field: "packages", message: "packages must be an array of strings or objects" });
-  }
-  for (const key of STRING_KEYS) {
-    if (obj[key] !== undefined && typeof obj[key] !== "string") errors.push({ field: key, message: `${key} must be a string` });
-  }
-  if (obj.modelThinkingLevels !== undefined) {
-    const m = obj.modelThinkingLevels;
-    const ok = isPlainObject(m) && Object.values(m).every((v) => typeof v === "string" && (THINKING_LEVELS as readonly string[]).includes(v));
-    if (!ok) errors.push({ field: "modelThinkingLevels", message: "modelThinkingLevels must map model ids to valid thinking levels" });
-  }
+  if (!obj) return { ok: false, errors: [fieldError("raw", error ?? "Invalid JSON")] };
+  const errors = validateRawKeys(obj);
   return errors.length > 0 ? { ok: false, errors } : { ok: true, obj };
 }
 
@@ -555,6 +597,28 @@ export interface DashboardDefaults {
   defaultThinkingLevel?: string;
 }
 
+/** pi keys the dashboard defaults derive, plus a `skipped` flag for a separator-less model. */
+function deriveMirrorWanted(
+  cfg: DashboardDefaults,
+  keys: readonly PiMirrorKey[],
+): { want: Record<string, string>; skipped?: "no-provider-separator" } {
+  const want: Record<string, string> = {};
+  let skipped: "no-provider-separator" | undefined;
+  const model = keys.includes("defaultModel") ? (cfg.defaultModel ?? "").trim() : "";
+  if (model) {
+    const slash = model.indexOf("/");
+    if (slash > 0 && slash < model.length - 1) {
+      want.defaultProvider = model.slice(0, slash);
+      want.defaultModel = model.slice(slash + 1);
+    } else {
+      skipped = "no-provider-separator";
+    }
+  }
+  const level = keys.includes("defaultThinkingLevel") ? (cfg.defaultThinkingLevel ?? "").trim() : "";
+  if ((THINKING_LEVELS as readonly string[]).includes(level)) want.defaultThinkingLevel = level;
+  return { want, skipped };
+}
+
 /**
  * Mirror the dashboard default model / thinking level into pi's settings.
  * Reads the PERSISTED dashboard config INSIDE the lock (overlapping saves
@@ -567,31 +631,17 @@ export async function mirrorDefaultsToPi(
   keys: readonly PiMirrorKey[],
   deps: FsDeps = {},
 ): Promise<PiMirrorResult> {
-  const r = await withPiSettingsLock<{ skipped?: "no-provider-separator" }, ParseFail>((state) => {
-    const cfg = readDashboardConfig();
-    const want: Record<string, string> = {};
-    let skipped: "no-provider-separator" | undefined;
-    if (keys.includes("defaultModel")) {
-      const model = (cfg.defaultModel ?? "").trim();
-      if (model) {
-        const slash = model.indexOf("/");
-        if (slash > 0 && slash < model.length - 1) {
-          want.defaultProvider = model.slice(0, slash);
-          want.defaultModel = model.slice(slash + 1);
-        } else {
-          skipped = "no-provider-separator";
-        }
-      }
-    }
-    if (keys.includes("defaultThinkingLevel")) {
-      const level = (cfg.defaultThinkingLevel ?? "").trim();
-      if ((THINKING_LEVELS as readonly string[]).includes(level)) want.defaultThinkingLevel = level;
-    }
-    const changed = Object.entries(want).filter(([k, val]) => state.settings[k] !== val);
-    if (changed.length === 0) return { value: { skipped } };
-    if (state.parseError) return { fail: { error: "parse", parseError: state.parseError } };
-    return { value: { skipped }, write: formatJson({ ...state.settings, ...Object.fromEntries(changed) }) };
-  }, {}, deps);
+  const r = await withPiSettingsLock<{ skipped?: "no-provider-separator" }, ParseFail>(
+    (state) => {
+      const { want, skipped } = deriveMirrorWanted(readDashboardConfig(), keys);
+      const changed = Object.entries(want).filter(([k, val]) => state.settings[k] !== val);
+      if (changed.length === 0) return { value: { skipped } };
+      if (state.parseError) return { fail: { error: "parse", parseError: state.parseError } };
+      return { value: { skipped }, write: formatJson({ ...state.settings, ...Object.fromEntries(changed) }) };
+    },
+    {},
+    deps,
+  );
   if (r.ok) return { ok: true, ...(r.value.skipped ? { skipped: r.value.skipped } : {}) };
   if (r.error === "fn") return { ok: false, error: "parse" };
   if (r.error === "stale") return { ok: false, error: "io" }; // unreachable: no baseEtag

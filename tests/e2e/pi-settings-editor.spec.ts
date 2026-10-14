@@ -18,7 +18,10 @@ import { gotoDashboard } from "./helpers/index.js";
 
 const CATALOGUE = {
   object: "list",
-  data: [{ id: "openai/gpt-5-e2e", provider: "openai", input: ["text"], contextWindow: 400000 }],
+  data: [
+    { id: "openai/gpt-5-e2e", provider: "openai", input: ["text"], contextWindow: 400000 },
+    { id: "anthropic/claude-e2e", provider: "anthropic", input: ["text", "image"] },
+  ],
 };
 
 async function openSessionsSettings(page: Page) {
@@ -38,18 +41,23 @@ async function piSettings(page: Page) {
 test.describe("pi settings editor", () => {
   // test-plan #F13
   test("a Form edit saves through the unified Save and shows in JSON mode", async ({ page }) => {
+    // Pick the value the file does NOT hold, so the edit is always a change.
+    const next = (await piSettings(page)).settings.steeringMode === "all" ? "one-at-a-time" : "all";
     await openSessionsSettings(page);
 
-    await page.getByTestId("pi-settings-field-steeringMode").selectOption("all");
+    await page.getByTestId("pi-settings-field-steeringMode").selectOption(next);
     await page.getByTestId("save-btn").first().click();
     await expect(page.getByTestId("settings-save-bar")).toBeHidden({ timeout: 20_000 });
 
-    expect((await piSettings(page)).settings.steeringMode).toBe("all");
+    expect((await piSettings(page)).settings.steeringMode).toBe(next);
 
-    // Not dirty any more, so switching mode does not prompt; JSON shows the value.
+    // Not dirty any more, so switching mode does not prompt; the JSON editor
+    // (Monaco renders only the visible lines, so assert the file's first keys)
+    // shows the re-read file.
     await page.getByTestId("pi-settings-mode-json").click();
     await expect(page.getByTestId("pi-settings-switch-prompt")).toBeHidden();
-    await expect(page.getByTestId("pi-settings-section")).toContainText('"steeringMode": "all"', { timeout: 20_000 });
+    await expect(page.getByTestId("pi-settings-section").locator(".monaco-editor")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("pi-settings-section")).toContainText('"defaultProvider"', { timeout: 20_000 });
   });
 
   // test-plan #F14
@@ -57,17 +65,22 @@ test.describe("pi settings editor", () => {
     await page.route("**/api/models", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(CATALOGUE) }),
     );
+    // Pick the model pi does NOT hold yet, so the save is always a change.
+    const [provider, id] = (await piSettings(page)).settings.defaultModel === "gpt-5-e2e"
+      ? ["anthropic", "claude-e2e"]
+      : ["openai", "gpt-5-e2e"];
     await openSessionsSettings(page);
 
     const selector = page.getByTestId("model-selector").first();
     await selector.getByTestId("model-selector-button").click();
-    await selector.getByTestId("model-row").filter({ hasText: "gpt-5-e2e" }).first().click();
+    // The open dropdown is portaled to the layer root, so resolve from `page`.
+    await page.getByTestId("model-row").filter({ hasText: id }).first().click();
     await page.getByTestId("save-btn").first().click();
     await expect(page.getByTestId("settings-save-bar")).toBeHidden({ timeout: 20_000 });
 
     await expect
       .poll(async () => (await piSettings(page)).settings, { timeout: 20_000 })
-      .toMatchObject({ defaultProvider: "openai", defaultModel: "gpt-5-e2e" });
+      .toMatchObject({ defaultProvider: provider, defaultModel: id });
     // pi now matches the dashboard default, so no drift action is offered.
     await expect(page.getByTestId("pi-settings-sync-defaults")).toBeHidden();
   });
