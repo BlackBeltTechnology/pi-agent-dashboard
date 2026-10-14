@@ -38,8 +38,8 @@ The client SHALL expose a React context (`SessionAssetsContext`) carrying the cu
 
 ### Requirement: MarkdownContent img override resolves pi-asset URIs
 The `MarkdownContent` component SHALL register an `img` component override with ReactMarkdown. The override SHALL inspect `props.src` and:
-- If `src` begins with `pi-asset:`, look up `src.slice("pi-asset:".length)` in the current `SessionAssetsContext` map. If found, render `<img src="data:<mimeType>;base64,<data>" alt={alt} …>`. If not found, render an unresolved placeholder (a small italic text node `[image not yet loaded]` or equivalent visual; exact wording an implementation detail but MUST be visible).
-- Otherwise (any other scheme — `data:`, `http:`, `https:`, `blob:`, `#`, or relative URLs the agent didn't rewrite), render a default `<img>` with the original `src` unchanged so existing web-image behavior is preserved.
+- If `src` begins with `pi-asset:`, look up `src.slice("pi-asset:".length)` in the current `SessionAssetsContext` map. If found and its `mimeType` begins with `image/`, render `<img src="data:<mimeType>;base64,<data>" alt={alt} …>`; a registered asset with any other `mimeType` SHALL render the unresolved placeholder instead. If not found, render an unresolved placeholder (a small italic text node `[image not yet loaded]` or equivalent visual; exact wording an implementation detail but MUST be visible).
+- Otherwise, for an allowed lower-case scheme — `data:image/*`, `http:`, `https:`, `blob:` — or a `#` or relative URL the agent didn't rewrite, render a default `<img>` with the original `src` unchanged so existing web-image behavior is preserved. Any other scheme (e.g. `data:text/html`, `javascript:`) reaches the override with no `src` (see `client-untrusted-content-sanitization`).
 
 #### Scenario: pi-asset src with registered hash renders the image
 - **WHEN** `MarkdownContent` renders text containing `![pic](pi-asset:abc)` and the session asset map contains `"abc": { data: "iVBOR...", mimeType: "image/png" }`
@@ -56,6 +56,14 @@ The `MarkdownContent` component SHALL register an `img` component override with 
 #### Scenario: data: src unchanged
 - **WHEN** `MarkdownContent` renders text containing `![](data:image/png;base64,XXX)`
 - **THEN** the rendered DOM SHALL contain `<img src="data:image/png;base64,XXX" …>`
+
+#### Scenario: pi-asset with a non-image mimeType renders the placeholder
+- **WHEN** the session asset map contains `"abc": { data: "PHNjcmlwdD4=", mimeType: "text/html" }` and `MarkdownContent` renders `![pic](pi-asset:abc)`
+- **THEN** no `<img>` with a `data:text/html` source SHALL be rendered and the unresolved placeholder SHALL be shown
+
+#### Scenario: Dropped-scheme image is not clickable
+- **WHEN** `MarkdownContent` renders `![x](data:text/html;base64,AAAA)`
+- **THEN** the rendered image SHALL have no `src` and clicking it SHALL NOT open the lightbox
 
 ### Requirement: pi-asset rendering is reactive to asset-map updates
 When a `pi-asset:<hash>` reference appears in `MarkdownContent` BEFORE its corresponding `asset_register` has arrived (theoretically possible if the bridge orders events incorrectly or the client receives them out of order), the placeholder SHALL automatically be replaced with the resolved image once the asset_register lands and the session asset map is updated, without requiring a remount of the message.

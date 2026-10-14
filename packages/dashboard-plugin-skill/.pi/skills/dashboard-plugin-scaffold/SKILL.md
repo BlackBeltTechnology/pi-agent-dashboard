@@ -280,7 +280,7 @@ Done with mode `augment`.
 ## References
 
 - [`references/slot-taxonomy.md`](references/slot-taxonomy.md) — every supported slot id with prop contract
-- [`references/manifest-schema.md`](references/manifest-schema.md) — PluginManifest / PluginClaim canonical schema
+- [`references/manifest-schema.md`](references/manifest-schema.md) — PluginManifest / PluginClaim canonical schema, incl. the lazy claim `module` field (heavy on-demand surfaces: don't also export the component from the main client entry; dashboard version floor)
 - [`references/plugin-context-api.md`](references/plugin-context-api.md) — client SDK (`usePluginConfig`, `useSessionState`, …)
 - [`references/server-context-api.md`](references/server-context-api.md) — `ServerPluginContext`
 - [`references/tui-to-dashboard-mapping.md`](references/tui-to-dashboard-mapping.md) — canonical TUI → dashboard mapping

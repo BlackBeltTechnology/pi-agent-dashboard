@@ -22,8 +22,6 @@ export type { SubagentDetailMode, SubagentDetailViewProps } from "./SubagentDeta
 export { SubagentDetailView } from "./SubagentDetailView.js";
 export type { SubagentPopoutClaimProps } from "./SubagentPopoutClaim.js";
 
-export { SubagentPopoutClaim } from "./SubagentPopoutClaim.js";
 export type { SubagentPopoutPageProps } from "./SubagentPopoutPage.js";
 export { SubagentPopoutPage } from "./SubagentPopoutPage.js";
-export { SubagentsSettings } from "./SubagentsSettings.js";
 export type { SubagentLiveBlock, SubagentLiveTail, SubagentState, SubagentTimelineEntry } from "./types.js";

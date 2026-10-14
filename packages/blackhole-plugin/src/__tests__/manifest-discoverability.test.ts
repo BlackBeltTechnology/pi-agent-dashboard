@@ -43,15 +43,18 @@ describe("blackhole session-surface manifest discoverability", () => {
     expect((fn as () => boolean)()).toBe(false);
   });
 
-  it("content-view claim's component + predicate are exported from the client entry", () => {
+  it("content-view claim's predicate is exported from the client entry; its component lives in the lazy module only", async () => {
     const claim = manifest.claims.find((c) => c.slot === "content-view");
     expect(claim).toBeDefined();
-    expect(typeof (clientEntry as Record<string, unknown>)[claim!.component as string]).toBe(
-      "function",
-    );
     expect(typeof (clientEntry as Record<string, unknown>)[claim!.predicate as string]).toBe(
       "function",
     );
+    // Lazy claim (change: lazy-plugin-claim-modules): the component resolves
+    // from `module` and must NOT also be exported by the main entry.
+    expect(typeof claim!.module).toBe("string");
+    const mod = (await import(/* @vite-ignore */ resolve(dirname(PACKAGE_JSON), claim!.module as string))) as Record<string, unknown>;
+    expect(typeof mod[claim!.component as string]).toBe("function");
+    expect((clientEntry as Record<string, unknown>)[claim!.component as string]).toBe(undefined);
   });
 
   it("priority is strictly HIGHER than flows' — lowest wins content-view on overlap (E12)", () => {

@@ -55,6 +55,7 @@
       {
         "slot": "settings-section",
         "component": "ChatGatewaySettings",
+        "module": "./src/client/ChatGatewaySettings.tsx",
         "config": {
           "tab": "general"
         }

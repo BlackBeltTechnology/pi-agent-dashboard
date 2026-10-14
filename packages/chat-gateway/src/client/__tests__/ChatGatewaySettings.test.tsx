@@ -20,7 +20,7 @@ vi.mock("@blackbelt-technology/dashboard-plugin-runtime/context", () => ({
   usePluginMessage: () => {},
 }));
 
-import { ChatGatewaySettings } from "../index.js";
+import { ChatGatewaySettings } from "../ChatGatewaySettings.js";
 
 function renderPanel() {
   return render(<ChatGatewaySettings pluginContext={{} as never} />);

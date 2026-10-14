@@ -65,11 +65,13 @@
       {
         "slot": "command-route",
         "component": "CostView",
+        "module": "./src/client/CostEstimator.tsx",
         "command": "cost"
       },
       {
         "slot": "settings-section",
         "component": "CostSettings",
+        "module": "./src/client/CostEstimator.tsx",
         "config": {
           "tab": "general"
         }

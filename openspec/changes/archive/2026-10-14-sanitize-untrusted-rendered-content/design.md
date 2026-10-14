@@ -123,7 +123,7 @@ no-remount requirement in `markdown-rendering`.
   - `attributes.code`: `[['className', /^language-./, 'math-inline', 'math-display']]`.
   - `clobber: []` (remark already prefixes footnote ids; unprefixed raw ids are
     dropped by the attribute rule instead).
-  - `protocols.src`: `http`, `https`, `data`, `blob`, `pi-asset`;
+  - `protocols.src`: the default `href` set (`http`, `https`, `irc`, `ircs`, `mailto`, `xmpp` — so every scheme `defaultUrlTransform` keeps on `img src` also survives the schema) plus `data`, `blob`, `pi-asset`;
     `protocols.href`: the default set (no `data`/`blob`/`pi-asset`).
 - The schema is pinned by **behavior** tests (sanitize the payload set, assert
   the output), not by asserting its shape.

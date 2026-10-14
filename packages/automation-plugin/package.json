@@ -51,6 +51,7 @@
       {
         "slot": "shell-overlay-route",
         "component": "AutomationBoard",
+        "module": "./src/client/AutomationBoard.tsx",
         "path": "/folder/:encodedCwd/automations",
         "depth": 2,
         "parentPath": "/folder/:encodedCwd"
@@ -58,6 +59,7 @@
       {
         "slot": "shell-overlay-route",
         "component": "AutomationRunMonitor",
+        "module": "./src/client/AutomationRunMonitor.tsx",
         "path": "/folder/:encodedCwd/automations/run/:sid",
         "sessionParam": "sid",
         "depth": 2,
@@ -71,6 +73,7 @@
       {
         "slot": "settings-section",
         "component": "AutomationSettings",
+        "module": "./src/client/AutomationSettings.tsx",
         "tab": "general"
       }
     ]

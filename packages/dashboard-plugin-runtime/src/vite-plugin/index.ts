@@ -246,6 +246,132 @@ function assertNoCrossPluginPaneTabPrefixCollisions(entries: PluginEntry[]): voi
   }
 }
 
+/**
+ * Absolute (extension-stripped) targets of `export * from "./x"` statements in
+ * a source file. Used to detect a main entry that pins a lazy module through a
+ * star re-export, which `readNamedExports` cannot see.
+ */
+function readStarReexportTargets(filePath: string): Set<string> {
+  const targets = new Set<string>();
+  let src: string;
+  try {
+    src = fs.readFileSync(filePath, "utf-8");
+  } catch {
+    return targets;
+  }
+  for (const m of src.matchAll(/export\s*\*\s*from\s*["'](\.[^"']*)["']/g)) {
+    targets.add(stripScriptExt(path.resolve(path.dirname(filePath), m[1])));
+  }
+  return targets;
+}
+
+function stripScriptExt(p: string): string {
+  return p.replace(/\.(tsx?|jsx?|mjs|cjs)$/, "");
+}
+
+/**
+ * Validate a claim's lazy `module` and resolve the specifier the generated
+ * registry should `import()`. Throws (naming plugin, slot, component, module)
+ * when the file is missing, lacks the named export, or the plugin's main
+ * client entry also exports the component (a static path would pin the module
+ * into the eager bundle).
+ *
+ * Specifier: `<pkg>/<subpath>` when `package.json#exports` maps a subpath to
+ * the module file, else the path relative to the generated file.
+ * See change: lazy-plugin-claim-modules (design D2, D3).
+ */
+function resolveLazyModule(
+  entry: PluginEntry,
+  claim: PluginManifest["claims"][number],
+  generatedDir: string,
+): { spec: string; modulePath: string } {
+  const where =
+    `[vite-dashboard-plugins] Plugin "${entry.manifest.id}" claim for slot ` +
+    `"${claim.slot}" component "${claim.component}" module "${claim.module}"`;
+  const modulePath = path.resolve(entry.packageDir, claim.module!);
+  if (!fs.existsSync(modulePath) || !fs.statSync(modulePath).isFile()) {
+    throw new Error(`${where}: module file ${modulePath} does not exist.`);
+  }
+  const moduleExports = readNamedExports(modulePath);
+  if (!moduleExports.has(claim.component!)) {
+    const exported = [...moduleExports].sort().join(", ") || "<none>";
+    throw new Error(
+      `${where}: ${modulePath} does not export "${claim.component}". Exported names: ${exported}`,
+    );
+  }
+  const mainExports = entry.clientEntryPath ? readNamedExports(entry.clientEntryPath) : new Set<string>();
+  const pinnedByStar =
+    !!entry.clientEntryPath && readStarReexportTargets(entry.clientEntryPath).has(stripScriptExt(modulePath));
+  if (mainExports.has(claim.component!) || pinnedByStar) {
+    throw new Error(
+      `${where}: the plugin's main client entry ${entry.clientEntryPath} also exports ` +
+        `"${claim.component}" (named or via export *), which would pin the module into the eager bundle. ` +
+        `Remove it from the main client entry.`,
+    );
+  }
+  const subpathSpec = resolveModuleSubpathSpecifier(entry.packageDir, modulePath);
+  if (subpathSpec) return { spec: subpathSpec, modulePath };
+  const rel = path.relative(generatedDir, modulePath).replace(/\\/g, "/");
+  return { spec: stripScriptExt(rel.startsWith(".") ? rel : `./${rel}`), modulePath };
+}
+
+/** `<pkg>/<subpath>` when `package.json#exports` has an exact subpath key targeting `modulePath`. */
+function resolveModuleSubpathSpecifier(packageDir: string, modulePath: string): string | undefined {
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(fs.readFileSync(path.join(packageDir, "package.json"), "utf-8"));
+  } catch {
+    return undefined;
+  }
+  const name = typeof raw.name === "string" ? raw.name : undefined;
+  const exportsField = raw.exports;
+  if (!name || !exportsField || typeof exportsField !== "object") return undefined;
+  for (const [key, value] of Object.entries(exportsField as Record<string, unknown>)) {
+    if (key === "." || !key.startsWith("./") || key.includes("*")) continue;
+    const target =
+      typeof value === "string"
+        ? value
+        : value && typeof value === "object"
+          ? ((value as Record<string, unknown>).default ?? (value as Record<string, unknown>).import)
+          : undefined;
+    if (typeof target === "string" && path.resolve(packageDir, target) === modulePath) {
+      return `${name}/${key.slice(2)}`;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Real path of every lazy claim `module` from the most recent generation →
+ * human label. `renderChunk` uses it to fail a production build when a lazy
+ * module is bundled into the same chunk as the registry (the "dynamic import
+ * will not move module into another chunk" case: something eager also imports
+ * it statically, so the claim is lazy in name only).
+ */
+const lazyModuleLabels = new Map<string, string>();
+
+function realpathOrSelf(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+/**
+ * JS string literal for generated code: every char outside a conservative
+ * allowlist becomes a `\uXXXX` escape, so a path/name can never close the
+ * literal, inject code, or smuggle a line terminator (U+2028/2029) into the
+ * generated module.
+ */
+function jsStringLiteral(value: string): string {
+  const escaped = value.replace(
+    /[^A-Za-z0-9_@./-]/g,
+    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+  return `"${escaped}"`;
+}
+
 function generateRegistryContent(entries: PluginEntry[], repoRoot: string): string {
   assertNoCrossPluginCustomTypeCollisions(entries);
   assertNoCrossPluginPaneTabPrefixCollisions(entries);
@@ -254,6 +380,10 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
     "// GENERATED — do not edit. Regenerated by viteDashboardPluginsPlugin on every build.",
     "",
   ];
+
+  // claim → import specifier of its lazy `module` (see resolveLazyModule).
+  const lazySpecs = new Map<PluginManifest["claims"][number], string>();
+  lazyModuleLabels.clear();
 
   // Named imports per claim component / predicate / shouldRender (deduped).
   for (const entry of entries) {
@@ -282,10 +412,22 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
       const rel = path.relative(generatedDir, entry.clientEntryPath!).replace(/\\/g, "/");
       importPath = (rel.startsWith(".") ? rel : `./${rel}`).replace(/\.(tsx?|jsx?)$/, "");
     }
+    // Claims naming a lazy `module` are validated + resolved up front (even
+    // when the entry has no other named refs) and are NOT statically imported.
+    for (const claim of entry.manifest.claims) {
+      if (claim.module) {
+        const { spec, modulePath } = resolveLazyModule(entry, claim, generatedDir);
+        lazySpecs.set(claim, spec);
+        lazyModuleLabels.set(
+          realpathOrSelf(modulePath),
+          `plugin "${entry.manifest.id}" slot "${claim.slot}" component "${claim.component}" module "${claim.module}"`,
+        );
+      }
+    }
     const namedRefs = [
       ...new Set(
         entry.manifest.claims
-          .flatMap(c => [c.component, c.predicate, c.shouldRender, c.labelComponent])
+          .flatMap(c => [c.module ? undefined : c.component, c.predicate, c.shouldRender, c.labelComponent])
           .filter((c): c is string => Boolean(c)),
       ),
     ];
@@ -308,6 +450,7 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
         for (const refKind of ["component", "predicate", "shouldRender", "labelComponent"] as const) {
           const ref = claim[refKind];
           if (!ref) continue;
+          if (refKind === "component" && claim.module) continue; // validated against the module
           if (!exportedNames.has(ref)) {
             const exported = [...exportedNames].sort().join(", ") || "<none>";
             throw new Error(
@@ -326,6 +469,9 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
     );
   }
 
+  if (lazySpecs.size > 0) {
+    lines.push('import { lazyClaim } from "@blackbelt-technology/dashboard-plugin-runtime";');
+  }
   lines.push("");
   lines.push("import type { PluginManifest } from \"@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js\";");
   lines.push("import type { ClaimEntry } from \"@blackbelt-technology/dashboard-plugin-runtime\";");
@@ -345,7 +491,12 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
     lines.push(`    manifest: ${JSON.stringify(manifest, null, 4).split("\n").join("\n    ")},`);
     lines.push("    claims: [");
     for (const claim of manifest.claims) {
-      const componentRef = claim.component ? `, Component: ${claim.component}` : "";
+      const lazySpec = lazySpecs.get(claim);
+      const componentRef = lazySpec
+        ? `, Component: lazyClaim(() => import(${jsStringLiteral(lazySpec)}), ${jsStringLiteral(claim.component!)})`
+        : claim.component
+          ? `, Component: ${claim.component}`
+          : "";
       const predicateRef = claim.predicate ? `, predicate: ${claim.predicate}` : "";
       const shouldRenderRef = claim.shouldRender ? `, shouldRender: ${claim.shouldRender}` : "";
       const tabStr = claim.tab ? `, tab: ${JSON.stringify(claim.tab)}` : "";
@@ -488,6 +639,32 @@ export function viteDashboardPluginsPlugin(repoRoot?: string): Plugin {
 
     configResolved(config) {
       outDir = path.resolve(config.root, config.build.outDir);
+    },
+
+    // Production-only guard (dev has no chunks): a lazy claim `module` that
+    // lands in the registry's own chunk was pinned by a static import
+    // somewhere in the eager graph. Fail loudly naming the claim and the
+    // static importers instead of shipping a silently-eager "lazy" claim.
+    // Limitation: only a pin into the REGISTRY's chunk is detected; a lazy
+    // module pulled into some other eager chunk is backstopped by the marker
+    // checks in `packages/client/src/__tests__/mdi-chunk-size.test.ts`.
+    // See change: lazy-plugin-claim-modules (task 3.4).
+    renderChunk(this: { getModuleInfo(id: string): { importers: readonly string[] } | null; error(msg: string): never }, _code, chunk) {
+      if (lazyModuleLabels.size === 0) return null;
+      const registryId = realpathOrSelf(getGeneratedPath(root));
+      const ids = chunk.moduleIds.map(realpathOrSelf);
+      if (!ids.includes(registryId)) return null;
+      for (const id of ids) {
+        const label = lazyModuleLabels.get(id);
+        if (!label) continue;
+        const importers = this.getModuleInfo(id)?.importers ?? [];
+        this.error(
+          `[vite-dashboard-plugins] Lazy claim module is bundled into the eager registry chunk — ${label}. ` +
+            `It is also imported statically by: ${importers.join(", ") || "<unknown>"}. ` +
+            `Remove the static import (or the main-entry export) so the module can split.`,
+        );
+      }
+      return null;
     },
 
     buildStart() {

@@ -1,8 +1,11 @@
 /**
  * AsciiDoc preview. Fetches `/api/file/render` which runs `asciidoctor` in
  * `safe: "secure"` mode server-side; renders the returned HTML via
- * `dangerouslySetInnerHTML` (safe because server guarantees sanitization).
- * See change: render-file-previews.
+ * `dangerouslySetInnerHTML`. The server DOMPurify-sanitizes the converted HTML
+ * (asciidoctor `secure` mode still passes `+++`/`pass:[]` HTML through); the
+ * only post-sanitize step is `renderAdocMath`, which adds trusted KaTeX markup
+ * at text nodes outside `pre`/`code`.
+ * See changes: render-file-previews, sanitize-untrusted-rendered-content.
  */
 import React, { useEffect, useMemo, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
