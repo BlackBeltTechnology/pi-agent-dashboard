@@ -164,7 +164,7 @@ The Settings panel SHALL include a "Servers" section displaying all known server
 - **THEN** the entry SHALL stay listed with an error message next to it
 
 ### Requirement: Settings panel network discovery section
-The Settings panel SHALL include a "Network Discovery" sub-section with a scan button, discovered server results, a diagnostic empty-state, and an inline manual-add form. A discovered server SHALL be shown with its advertised display name when it has one, and SHALL be recognised as already known when its fingerprint and port match a known entry or its host:port matches a known entry. Local and remote discovered servers SHALL use the same Local and Remote identity pills as the server selector. Every input SHALL have a visible label, and every confirm or cancel control SHALL have an accessible name that names the server.
+The Settings panel SHALL include a "Network Discovery" sub-section with a scan button, discovered server results, a diagnostic empty-state, and an inline manual-add form. A discovered server SHALL be shown with its advertised display name when it has one, and SHALL be recognised as already known when its fingerprint and port match a known entry or its host:port matches a known entry. Local and remote discovered servers SHALL use the same Local and Remote identity pills as the server selector. Every input SHALL have a visible label, and every confirm or cancel control SHALL have an accessible name that names the server. A remote discovered server SHALL offer a "Connect" action whose accessible name names the server; it SHALL open that server's own `/pair?request` landing (`http://<host>:<port>/pair?request`, IPv6 literals bracketed) in a new browsing context without an opener reference. A local discovered server SHALL NOT offer Connect.
 
 #### Scenario: Trigger network scan
 - **WHEN** the user clicks "Scan network"
@@ -176,6 +176,18 @@ The Settings panel SHALL include a "Network Discovery" sub-section with a scan b
 - **THEN** a label input SHALL appear, pre-filled with the server's advertised display name when present, otherwise its hostname, and editable by the user
 - **AND** confirming SHALL call `POST /api/known-servers` with the host, port, user-entered label, and the advertised fingerprint as a hint
 - **AND** a failed confirm SHALL show an error next to that server instead of being ignored
+
+#### Scenario: Connect opens the peer's request landing
+- **WHEN** the user activates "Connect" on remote discovered server `home-imac` at `192.168.16.204:8000`
+- **THEN** a new browsing context SHALL open `http://192.168.16.204:8000/pair?request` with no opener reference
+
+#### Scenario: Connect brackets IPv6 hosts
+- **WHEN** the user activates "Connect" on a remote discovered server at `fd12::4` port `8000`
+- **THEN** the opened URL SHALL be `http://[fd12::4]:8000/pair?request`
+
+#### Scenario: Local server offers no Connect
+- **WHEN** a discovered server is local
+- **THEN** its row SHALL NOT show a Connect action
 
 #### Scenario: Discovered server already known
 - **WHEN** a discovered server's host:port matches an entry in known servers
