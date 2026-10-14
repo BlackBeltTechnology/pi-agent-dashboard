@@ -21,12 +21,20 @@ describe("system-one-plugin manifest", () => {
     expect(v.client).toBeTruthy();
     expect(v.server).toBeTruthy();
     const claim = v.claims.find((c) => c.slot === "settings-section") as { component: string; tab?: string };
-    expect(claim).toMatchObject({ component: "SystemOneSettings", tab: "general" });
+    expect(claim).toMatchObject({
+      component: "SystemOneSettings",
+      module: "./src/client/SystemOneSettings.tsx",
+      tab: "general",
+    });
   });
 
-  it("client barrel exports the claimed component and the catalog", async () => {
-    const mod = await import("../client/index.js");
-    expect(typeof mod.SystemOneSettings).toBe("function");
-    expect(Object.keys(mod.catalog).sort()).toEqual(["hu", "zh-CN"]);
+  it("claimed component lives in the lazy module (not the barrel); barrel exports the catalog", async () => {
+    // Lazy claim (change: lazy-plugin-claim-modules): resolved from `module`;
+    // the main entry must NOT also export it (the registry generator rejects that).
+    const lazy = await import("../client/SystemOneSettings.js");
+    expect(typeof lazy.SystemOneSettings).toBe("function");
+    const mod = (await import("../client/index.js")) as Record<string, unknown>;
+    expect(mod.SystemOneSettings).toBeUndefined();
+    expect(Object.keys(mod.catalog as object).sort()).toEqual(["hu", "zh-CN"]);
   });
 });

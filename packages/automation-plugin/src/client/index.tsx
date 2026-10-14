@@ -25,9 +25,6 @@ export type {
   Visibility,
 } from "../shared/automation-types.js";
 export { AutomationBadge } from "./AutomationBadge.js";
-export { AutomationBoard } from "./AutomationBoard.js";
-export { AutomationRunMonitor } from "./AutomationRunMonitor.js";
-export { AutomationSettings } from "./AutomationSettings.js";
 export { CreateAutomationDialog } from "./CreateAutomationDialog.js";
 export { FolderAutomationSection } from "./FolderAutomationSection.js";
 export { isAutomationRun } from "./predicates.js";

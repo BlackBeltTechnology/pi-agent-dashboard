@@ -45,6 +45,7 @@
       {
         "slot": "settings-section",
         "component": "SystemOneSettings",
+        "module": "./src/client/SystemOneSettings.tsx",
         "tab": "general"
       }
     ]

@@ -72,6 +72,7 @@
       {
         "slot": "settings-section",
         "component": "McpSettingsClaim",
+        "module": "./src/client/McpSettings.tsx",
         "tab": "general"
       },
       {
@@ -85,6 +86,7 @@
       {
         "slot": "shell-overlay-route",
         "component": "FolderMcpPage",
+        "module": "./src/client/FolderMcpPage.tsx",
         "path": "/folder/:encodedCwd/mcp",
         "depth": 2,
         "parentPath": "/folder/:encodedCwd"

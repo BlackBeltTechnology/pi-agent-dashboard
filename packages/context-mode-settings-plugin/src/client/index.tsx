@@ -5,4 +5,3 @@
  * See change: add-context-mode-settings-plugin.
  */
 export { catalog } from "../i18n.js";
-export { ContextModeSettings } from "./ContextModeSettings.js";

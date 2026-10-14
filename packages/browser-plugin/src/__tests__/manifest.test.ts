@@ -44,7 +44,7 @@ describe("browser-plugin manifest (E31)", () => {
     expect(v.defaultEnabled).toBe(false);
   });
 
-  it("declares settings-section + session-card-badge + editor-pane-tab claims that resolve to exported components (and no content-view)", () => {
+  it("declares settings-section + session-card-badge + editor-pane-tab claims that resolve to exported components (and no content-view)", async () => {
     const v = validateManifest(manifest, "browser");
     expect(v.claims.map((c) => c.slot).sort()).toEqual([
       "editor-pane-tab",
@@ -59,10 +59,16 @@ describe("browser-plugin manifest (E31)", () => {
     expect(v.bridge).toBe("./src/bridge/index.ts");
 
     for (const claim of v.claims) {
-      const component = (clientEntry as Record<string, unknown>)[claim.component as string];
-      // Slot registry imports the claimed name from the client entry — it
-      // must be present and be a component (function), not undefined.
-      expect(typeof component, `claim ${claim.slot} → ${claim.component}`).toBe("function");
+      // Slot registry imports the claimed name from the client entry, or — for
+      // a lazy claim (`module`, change: lazy-plugin-claim-modules) — from that
+      // module, where the main entry must NOT also export it.
+      const source = claim.module
+        ? ((await import(/* @vite-ignore */ path.resolve(path.dirname(pkgPath), claim.module))) as Record<string, unknown>)
+        : (clientEntry as Record<string, unknown>);
+      expect(typeof source[claim.component as string], `claim ${claim.slot} → ${claim.component}`).toBe("function");
+      if (claim.module) {
+        expect((clientEntry as Record<string, unknown>)[claim.component as string]).toBeUndefined();
+      }
     }
   });
 

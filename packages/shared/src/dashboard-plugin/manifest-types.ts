@@ -20,6 +20,18 @@ export interface PluginClaim {
   slot: SlotId;
   /** Exported component name from the plugin's client entry (for React slots). */
   component?: string;
+  /**
+   * Package-relative path (`./…`) of a client module that exports `component`.
+   * When set, the generated registry loads the component lazily (a separate
+   * chunk fetched the first time the claim renders) instead of importing it
+   * statically from the plugin's main client entry. The main entry MUST NOT
+   * export `component` (a static path would pin the module into the eager
+   * bundle); `predicate` / `shouldRender` / `labelComponent` still resolve from
+   * the main entry. Requires a dashboard that understands `module` — an older
+   * dashboard ignores it and fails the build on the missing main-entry export.
+   * See change: lazy-plugin-claim-modules.
+   */
+  module?: string;
   /** Route command for "command-route" slot (e.g. "/specs"). */
   command?: string;
   /** Trigger id for "anchored-popover" slot. */

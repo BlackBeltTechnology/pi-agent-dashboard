@@ -101,20 +101,22 @@ export function CustomEntryRow({ msg, sessionId }: Props) {
 
   return (
     <ErrorBoundary fallback={fallback}>
-      <CurrentPluginLayer pluginId={claim.pluginId}>
-        <PluginComponent
-          customType={customType}
-          body={msg.content}
-          timestamp={msg.timestamp}
-          entryId={msg.entryId}
-          sessionId={sessionId}
-          expanded={expanded}
-          onToggle={onToggle}
-          payload={entry.payload}
-          payloadError={entry.error}
-          payloadLoading={entry.loading}
-        />
-      </CurrentPluginLayer>
+      <React.Suspense fallback={fallback}>
+        <CurrentPluginLayer pluginId={claim.pluginId}>
+          <PluginComponent
+            customType={customType}
+            body={msg.content}
+            timestamp={msg.timestamp}
+            entryId={msg.entryId}
+            sessionId={sessionId}
+            expanded={expanded}
+            onToggle={onToggle}
+            payload={entry.payload}
+            payloadError={entry.error}
+            payloadLoading={entry.loading}
+          />
+        </CurrentPluginLayer>
+      </React.Suspense>
     </ErrorBoundary>
   );
 }

@@ -14,7 +14,8 @@ import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { QuotaDialog, QuotaSettings } from "../client.js";
+import { QuotaDialog } from "../client.js";
+import { QuotaSettings } from "../QuotaSettings.js";
 import type { ProviderQuota, QuotaPluginConfig } from "../types.js";
 
 const WINDOW = 5 * 3600;

@@ -51,16 +51,19 @@
       },
       {
         "slot": "content-header-sticky",
-        "component": "FlowDashboardClaim"
+        "component": "FlowDashboardClaim",
+        "module": "./src/client/FlowDashboard.tsx"
       },
       {
         "slot": "content-view",
         "component": "FlowYamlPreviewClaim",
+        "module": "./src/client/FlowYamlPreview.tsx",
         "predicate": "isFlowYamlPreviewActive"
       },
       {
         "slot": "tool-renderer",
         "component": "FlowWriteToolRenderer",
+        "module": "./src/client/FlowWriteToolRenderer.tsx",
         "toolName": "flow_write"
       },
       {
@@ -71,11 +74,13 @@
       {
         "slot": "settings-section",
         "component": "FlowsSettings",
+        "module": "./src/client/FlowsSettings.tsx",
         "tab": "general"
       },
       {
         "slot": "automation-action-editor",
         "component": "FlowInputWiringClaim",
+        "module": "./src/client/FlowInputWiring.tsx",
         "config": {
           "actionId": "flows.run"
         }

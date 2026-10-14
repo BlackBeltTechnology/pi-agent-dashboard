@@ -33,6 +33,7 @@ interface PluginManifest {
 interface PluginClaim {
   slot: SlotId;                  // must match a known slot id
   component?: string;            // exported component name from client entry (for React slots)
+  module?: string;               // package-relative "./…" client module exporting `component`; loaded LAZILY (see "Lazy claim modules")
   command?: string;              // for "command-route" slot
   trigger?: string;              // for "anchored-popover" slot
   toolName?: string;             // for "tool-renderer" slot
@@ -45,6 +46,37 @@ interface PluginClaim {
   predicate?: string;            // optional name of an exported predicate function
 }
 ```
+
+### Lazy claim modules (`module`)
+
+Set `module` on a claim to keep its component (and all its dependencies) out of
+the dashboard's cold-landing chunk. The generated registry then binds
+`Component` to `lazyClaim(() => import("<module>"), "<component>")`: the module
+is fetched the first time the claim renders (at most once per page); a pending
+load renders the slot's fallback (nothing, or a skeleton for overlay routes and
+content views); a failed load is contained to that claim by its error boundary.
+
+```json
+{ "slot": "settings-section", "component": "AcmeSettings", "module": "./src/client/AcmeSettings.tsx" }
+```
+
+Rules (registry generation FAILS otherwise, naming plugin/slot/component/module):
+
+- the `module` file must exist and export `component` by name;
+- the plugin's main client entry must NOT export `component` (named, re-exported or via `export *`) — a static path pins the module into the eager bundle. Do not import the module from anywhere eager either; a production build fails if it lands in the registry's chunk;
+- `predicate`, `shouldRender` and `labelComponent` still resolve from the main client entry (they run before the claim renders);
+- `module` must start with `./` and contain no `..` segment.
+
+When to use it: surfaces opened on demand (settings pages, overlay routes,
+content views, editor tabs, command routes) or any component ≳ 10 KB raw with
+exclusive dependencies. Keep badges, chips, predicates, composer-inline claims
+and hot sidebar sections eager — a suspense gap there is visible.
+
+**Version floor:** `module` is additive, but a plugin that adopts it must drop
+the component from its main entry, so it requires a dashboard that understands
+`module`. An older dashboard ignores the key and fails the build on the missing
+main-entry export (loud, not silent). Declare the dashboard version that ships
+`lazy-plugin-claim-modules` in `engines`/peer metadata before adopting it.
 
 ### `shell-overlay-route` claim fields
 

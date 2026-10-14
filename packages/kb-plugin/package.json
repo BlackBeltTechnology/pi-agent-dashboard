@@ -53,6 +53,7 @@
       {
         "slot": "shell-overlay-route",
         "component": "KbSettingsClaim",
+        "module": "./src/client/KbSettingsClaim.tsx",
         "path": "/folder/:encodedCwd/kb",
         "depth": 2,
         "parentPath": "/folder/:encodedCwd"

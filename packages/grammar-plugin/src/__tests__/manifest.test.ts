@@ -23,6 +23,7 @@ describe("grammar manifest", () => {
     expect(manifest.claims).toContainEqual({
       slot: "settings-section",
       component: "GrammarSettings",
+      module: "./src/GrammarSettings.tsx",
       tab: "general",
     });
     // The composer-panel claim renders the grammar check UI below the input.
@@ -33,11 +34,20 @@ describe("grammar manifest", () => {
     });
   });
 
-  it("exports every claimed component and the i18n catalog from the barrel", () => {
+  it("exports every claimed component and the i18n catalog from the barrel (lazy claims from their module only)", async () => {
     const manifest = pkg["pi-dashboard-plugin"];
-    // The vite registry generator resolves each claim.component by name.
+    // The vite registry generator resolves each claim.component by name — from
+    // the barrel, or for a lazy claim (`module`, change:
+    // lazy-plugin-claim-modules) from that module, never both.
+    const pkgDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
     for (const claim of manifest.claims) {
-      expect(typeof (barrel as Record<string, unknown>)[claim.component]).toBe("function");
+      if (claim.module) {
+        const mod = (await import(/* @vite-ignore */ join(pkgDir, claim.module))) as Record<string, unknown>;
+        expect(typeof mod[claim.component]).toBe("function");
+        expect((barrel as Record<string, unknown>)[claim.component]).toBeUndefined();
+      } else {
+        expect(typeof (barrel as Record<string, unknown>)[claim.component]).toBe("function");
+      }
     }
     expect((barrel as Record<string, unknown>)[manifest.i18nCatalog]).toBeTypeOf("object");
   });

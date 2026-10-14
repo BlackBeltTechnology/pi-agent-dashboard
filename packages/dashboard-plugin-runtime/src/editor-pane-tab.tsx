@@ -11,7 +11,7 @@
  */
 import { paneTabPrefixOf } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type React from "react";
+import React from "react";
 import { CurrentPluginLayer, useSlotRegistryOrNull } from "./plugin-context.js";
 import { useSlotClaimsVersion } from "./slot-claims-invalidation.js";
 import { SlotErrorBoundary } from "./slot-error-boundary.js";
@@ -39,9 +39,11 @@ function renderPaneClaim(
 ) {
   return (
     <SlotErrorBoundary key={`${claim.pluginId}:editor-pane-tab:${part}`} pluginId={claim.pluginId} slotId="editor-pane-tab">
-      <CurrentPluginLayer pluginId={claim.pluginId}>
-        <Comp {...props} />
-      </CurrentPluginLayer>
+      <React.Suspense fallback={null}>
+        <CurrentPluginLayer pluginId={claim.pluginId}>
+          <Comp {...props} />
+        </CurrentPluginLayer>
+      </React.Suspense>
     </SlotErrorBoundary>
   );
 }
