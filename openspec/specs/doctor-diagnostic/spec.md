@@ -573,3 +573,27 @@ govern server-usability reporting; this row reports the pi-spawn axis.
 - **WHEN** the resolved spawn runtime's major version is at or above the dashboard's engines cap
 - **THEN** the Doctor SHALL note it exceeds the dashboard-tested range
 - **AND** the row status SHALL NOT be an error
+
+### Requirement: Doctor Markdown table cells are escaped
+Every doctor Markdown table — the shared report formatter, the web Diagnostics
+"Copy as Markdown" output and the Electron doctor page — SHALL escape the check
+name and message cells by replacing each `\` with `\\`, then each `|` with
+`\|`, then each line ending (`\r\n`, `\n` or a lone `\r`) with a space, so cell text can never close its cell
+or start a new row. As a consequence, backslashes in a message are shown
+literally when the Markdown is rendered.
+
+#### Scenario: Backslash directly before a pipe
+- **WHEN** a check's message is `a\|b` and another check's message is `C:\path\`
+- **THEN** their message cells SHALL be emitted as `a\\\|b` and `C:\\path\\`, and each row SHALL parse into exactly four cells under GitHub-Flavored-Markdown table rules (as implemented by `remark-gfm`)
+
+#### Scenario: Name cell is escaped
+- **WHEN** a check's name is `ABI mismatch: a|b\`
+- **THEN** its name cell SHALL be emitted as `ABI mismatch: a\|b\\` and the row SHALL parse into exactly four cells
+
+#### Scenario: Multi-line message
+- **WHEN** a check's message is `line1` followed by a newline and `line2`
+- **THEN** its row SHALL stay on one line with the message cell `line1 line2`
+
+#### Scenario: Lone carriage return in a message
+- **WHEN** a check's message is `line1`, a carriage return with no following newline, and `line2`
+- **THEN** the message cell SHALL be emitted as `line1 line2` and the table SHALL parse into the same number of rows as there are checks
