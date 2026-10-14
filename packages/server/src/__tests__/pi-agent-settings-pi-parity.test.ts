@@ -2,9 +2,22 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { applyPiSettingsPatch, readPiSettings } from "../pi-agent-settings.js";
+
+/**
+ * pi's published `.d.ts` barrel is not value-importable under this repo's
+ * `moduleResolution`, so load it dynamically with a minimal structural type
+ * (same pattern as `provider-auth-adapter.ts`).
+ */
+interface PiSettingsManagerLike {
+  setSteeringMode(mode: string): void;
+  flush(): Promise<void>;
+}
+const loadSettingsManager = async () =>
+  ((await import("@earendil-works/pi-coding-agent")) as unknown as {
+    SettingsManager: { create(cwd: string, agentDir: string): PiSettingsManagerLike };
+  }).SettingsManager;
 
 /**
  * Parity guards against the installed pi: the dashboard's settings.json writer
@@ -43,7 +56,7 @@ describe("pi settings lock parity", () => {
     // pi loads its snapshot first, then the dashboard writes, then pi flushes a
     // setter. (pi's flush takes a SYNC lock with a spin-wait, so it can only be
     // exercised out of the dashboard's critical section in-process.)
-    const sm = SettingsManager.create(cwd, agentDir);
+    const sm = (await loadSettingsManager()).create(cwd, agentDir);
     const r = await applyPiSettingsPatch({ compaction: { reserveTokens: 20000 } }, readPiSettings(deps).etag, deps);
     expect(r.ok).toBe(true);
     sm.setSteeringMode("one-at-a-time");
