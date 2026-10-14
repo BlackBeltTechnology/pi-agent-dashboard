@@ -408,30 +408,46 @@ export async function startFakeRemoteDashboard(
     res.end(JSON.stringify(body));
   };
 
-  // One handler per `POST` route — kept flat so each stays trivially readable.
-  const routes = new Map<string, (req: Req, res: Res) => Promise<void>>(Object.entries({
-    "/api/pair/challenge": async (req, res) => {
-      const { nonce } = JSON.parse((await readBody(req)) || "{}") as { nonce?: string };
-      const signature = crypto.sign(null, Buffer.from(String(nonce), "utf-8"), identity.privateKey);
-      json(res, 200, { success: true, data: { fingerprint: identity.fingerprint, publicKey: identity.publicKeyB64, signature: b64url(signature), v: 1 } });
-    },
-    "/api/pair/request": async (req, res) => {
-      await readBody(req);
-      if (opts.knock?.refuse) return json(res, 403, { success: false, error: opts.knock.refuse });
-      polls = 0;
-      json(res, 200, { success: true, data: { pendingId: "p1", confirmCode: "48217730", expiresAt: Date.now() + 300_000, fingerprint: identity.fingerprint } });
-    },
-    "/api/pair/poll": async (req, res) => {
-      await readBody(req);
-      polls++;
-      json(res, 200, { success: true, data: polls >= 2 ? { status: "approved", token } : { status: "pending" } });
-    },
-    "/api/device-session": async (req, res) => {
-      if (revoked) return json(res, 403, { success: false, error: "network_not_allowed" });
-      if (req.headers.authorization !== `Bearer ${token}`) return json(res, 401, { success: false, error: "invalid bearer" });
-      json(res, 200, { success: true }, { "set-cookie": `pi_dash_device=${token}; Path=/api/; HttpOnly; SameSite=Strict; Max-Age=34560000` });
-    },
-  }));
+  // One handler per `POST` route, dispatched by an explicit switch (no lookup by request-controlled name).
+  const challenge = async (req: Req, res: Res): Promise<void> => {
+    const { nonce } = JSON.parse((await readBody(req)) || "{}") as { nonce?: string };
+    const signature = crypto.sign(null, Buffer.from(String(nonce), "utf-8"), identity.privateKey);
+    json(res, 200, { success: true, data: { fingerprint: identity.fingerprint, publicKey: identity.publicKeyB64, signature: b64url(signature), v: 1 } });
+  };
+  const knock = async (req: Req, res: Res): Promise<void> => {
+    await readBody(req);
+    if (opts.knock?.refuse) return json(res, 403, { success: false, error: opts.knock.refuse });
+    polls = 0;
+    json(res, 200, { success: true, data: { pendingId: "p1", confirmCode: "48217730", expiresAt: Date.now() + 300_000, fingerprint: identity.fingerprint } });
+  };
+  const poll = async (req: Req, res: Res): Promise<void> => {
+    await readBody(req);
+    polls++;
+    json(res, 200, { success: true, data: polls >= 2 ? { status: "approved", token } : { status: "pending" } });
+  };
+  const deviceSession = async (req: Req, res: Res): Promise<void> => {
+    if (revoked) return json(res, 403, { success: false, error: "network_not_allowed" });
+    if (req.headers.authorization !== `Bearer ${token}`) return json(res, 401, { success: false, error: "invalid bearer" });
+    json(res, 200, { success: true }, { "set-cookie": `pi_dash_device=${token}; Path=/api/; HttpOnly; SameSite=Strict; Max-Age=34560000` });
+  };
+  const handlePost = async (url: string, req: Req, res: Res): Promise<boolean> => {
+    switch (url) {
+      case "/api/pair/challenge":
+        await challenge(req, res);
+        return true;
+      case "/api/pair/request":
+        await knock(req, res);
+        return true;
+      case "/api/pair/poll":
+        await poll(req, res);
+        return true;
+      case "/api/device-session":
+        await deviceSession(req, res);
+        return true;
+      default:
+        return false;
+    }
+  };
 
   const server: Server = createServer(async (req, res) => {
     const url = req.url ?? "";
@@ -441,8 +457,7 @@ export async function startFakeRemoteDashboard(
       ...(req.headers.authorization ? { authorization: String(req.headers.authorization) } : {}),
       ...(req.headers.cookie ? { cookie: String(req.headers.cookie) } : {}),
     });
-    const route = req.method === "POST" ? routes.get(url) : undefined;
-    if (route) return route(req, res);
+    if (req.method === "POST" && (await handlePost(url, req, res))) return;
     if (url.startsWith("/api/")) return json(res, 200, { success: true, cookie: req.headers.cookie ?? null });
     res.writeHead(200, { "content-type": "text/html" });
     res.end("<!doctype html><html><head><title>fake remote</title></head><body>fake remote dashboard</body></html>");
