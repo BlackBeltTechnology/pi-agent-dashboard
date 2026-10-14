@@ -49,7 +49,6 @@ export function useInitStatus(
   /** `setupState` of the most recent applied probe that was interpretable. */
   const lastInterpretableRef = useRef<SetupState | null>(null);
   const isProjectRootRef = useRef(isProjectRoot);
-  isProjectRootRef.current = isProjectRoot;
   const seenRef = useRef<Map<string, string>>(new Map());
   const seededRef = useRef(false);
 
@@ -57,6 +56,13 @@ export function useInitStatus(
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+
+  // Keep the latest gate input readable from listeners. Written in an effect (not
+  // during render, which React may replay or discard); declared before the
+  // trigger effects so it is current when they run in the same commit.
+  useEffect(() => {
+    isProjectRootRef.current = isProjectRoot;
+  }, [isProjectRoot]);
 
   const probe = useCallback(() => {
     const id = ++requestIdRef.current;
