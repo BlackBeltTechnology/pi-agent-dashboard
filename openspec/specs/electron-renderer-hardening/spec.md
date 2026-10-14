@@ -1,7 +1,7 @@
 # electron-renderer-hardening Specification
 
 ## Purpose
-TBD - created by archiving change harden-electron-renderer-boundary. Update Purpose after archive.
+Keep untrusted remote dashboard content in the Electron main window away from privileged local bridges, IPC handlers, OS protocol handlers and internal-network probes.
 
 ## Requirements
 
