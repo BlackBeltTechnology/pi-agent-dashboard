@@ -11,6 +11,9 @@ import { describe, expect, it } from "vitest";
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const src = fs.readFileSync(path.resolve(__dirname, "../App.tsx"), "utf8");
 
+/**
+ * @structural-pin mount-site contract: App.tsx must mount ShellHeadlessSlot exactly once inside the apiProvider body (every layout branch); a rendered App test cannot enumerate all three return branches
+ */
 describe("ShellHeadlessSlot mount in App.tsx (#E7)", () => {
   it("has exactly one JSX mount", () => {
     expect(src.match(/<ShellHeadlessSlot\b/g)).toHaveLength(1);
