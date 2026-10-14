@@ -72,6 +72,11 @@ describe("pi-agent-settings", () => {
       });
     });
 
+    it("falls back to defaults when the settings path is unreadable (not a file)", () => {
+      mkdirSync(file); // settings.json is a directory → EISDIR on read
+      expect(readPiRetryPolicy(deps)).toEqual(PI_RETRY_DEFAULTS);
+    });
+
     it("omits provider.timeoutMs when absent (SDK default)", () => {
       seed({ retry: { provider: { maxRetries: 2 } } });
       const out = readPiRetryPolicy(deps);

@@ -2,8 +2,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerPiRetryRoutes } from "../pi-retry-routes.js";
 
 /**
@@ -121,6 +121,7 @@ describe("PUT /api/pi-retry", () => {
       payload: { enabled: true, maxRetries: -1, baseDelayMs: 2000, provider: { maxRetries: 0, maxRetryDelayMs: 60000 } },
     });
     const body = res.json();
+    expect(res.statusCode).toBe(400);
     expect(body.success).toBe(false);
     expect(reloads()).toBe(0);
     await app.close();

@@ -32,7 +32,6 @@ import {
 import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries } from "../auth/localhost-guard.js";
 import { getRegistryError } from "../auth/provider-auth-registry.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
-import { mirrorDefaultsToPi } from "../pi-agent-settings.js";
 import type { DirectoryService } from "../directory-service.js";
 import {
   type ClientBuildSnapshot,
@@ -61,6 +60,7 @@ import {
   readCurrentPiVersion,
   readPiCompatibility,
 } from "../pi/pi-version-skew.js";
+import { mirrorDefaultsToPi } from "../pi-agent-settings.js";
 import { EMPTY_KEEPER_LOG_STATS, type KeeperLogStats } from "../rpc-keeper/keeper-manager.js";
 import type { ServerConfig } from "../server.js";
 import { serverHeapTelemetry } from "../server-heap-telemetry.js";
@@ -115,6 +115,41 @@ export interface PiDivergenceHealth {
   /** >1 distinct pi version across every enumerated install — a DIFFERENT question. */
   installSetDiverged: boolean;
   installSetVersions: string[];
+}
+
+/** Tail of the config-save chain: one save's write + pi mirror at a time. */
+let configSaveTail: Promise<unknown> = Promise.resolve();
+
+/**
+ * Persist a config partial and mirror the Default model / thinking level into
+ * pi's global settings (design D1). SERIALISED per process: save B's write
+ * cannot land between save A's write and A's mirror, so an older mirror can
+ * never overwrite a newer persisted default (a busy mirror of the newer save
+ * would otherwise leave pi on the older value). The mirror never fails the
+ * save — config.json is already written. See change: edit-pi-agent-settings.
+ */
+function saveConfigAndMirror(partial: Record<string, any>) {
+  const run = async () => {
+    const result = writeConfigPartial(partial);
+    if (!result.success) return { ok: false as const, error: result.error };
+    const config = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+    const reloaded = config.loadConfig();
+    const mirrorKeys = (["defaultModel", "defaultThinkingLevel"] as const).filter((k) => partial[k] !== undefined);
+    let piMirror: PiMirrorResult | undefined;
+    if (mirrorKeys.length > 0) {
+      try {
+        piMirror = await mirrorDefaultsToPi(config.loadConfig, mirrorKeys);
+      } catch (err) {
+        piMirror = { ok: false, error: "io" };
+        console.warn("[pi-settings] default-model mirror threw:", err instanceof Error ? err.message : err);
+      }
+      if (!piMirror.ok) console.warn(`[pi-settings] default-model mirror failed: ${piMirror.error}`);
+    }
+    return { ok: true as const, result, reloaded, piMirror };
+  };
+  const next = configSaveTail.then(run, run);
+  configSaveTail = next.catch(() => {});
+  return next;
 }
 
 /**
@@ -543,30 +578,11 @@ export function registerSystemRoutes(
       ) {
         return reply.code(400).send({ success: false, error: "pairing.acceptLanRequests must be a boolean" });
       }
-      const result = writeConfigPartial(partial);
-      if (!result.success) {
-        return reply.code(500).send({ success: false, error: result.error });
+      const saved = await saveConfigAndMirror(partial);
+      if (!saved.ok) {
+        return reply.code(500).send({ success: false, error: saved.error });
       }
-
-      // Apply runtime-safe changes
-      const reloaded = (await import("@blackbelt-technology/pi-dashboard-shared/config.js")).loadConfig();
-
-      // Mirror the dashboard default model / thinking level into pi's global
-      // settings so pi-constructed sessions (incl. SDK children) agree. Never
-      // fails the save: config.json is already written.
-      // See change: edit-pi-agent-settings (design D1).
-      const mirrorKeys = (["defaultModel", "defaultThinkingLevel"] as const).filter((k) => partial[k] !== undefined);
-      let piMirror: PiMirrorResult | undefined;
-      if (mirrorKeys.length > 0) {
-        try {
-          const { loadConfig: readPersisted } = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
-          piMirror = await mirrorDefaultsToPi(readPersisted, mirrorKeys);
-        } catch (err) {
-          piMirror = { ok: false, error: "io" };
-          console.warn("[pi-settings] default-model mirror threw:", err instanceof Error ? err.message : err);
-        }
-        if (!piMirror.ok) console.warn(`[pi-settings] default-model mirror failed: ${piMirror.error}`);
-      }
+      const { result, reloaded, piMirror } = saved;
 
       // Push the recomputed reachability when ANY part of the published fact
       // moved — not just `pendingBindHost`. A write that edits `trustedNetworks`

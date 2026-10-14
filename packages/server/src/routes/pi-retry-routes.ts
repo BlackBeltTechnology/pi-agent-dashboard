@@ -61,6 +61,7 @@ export function registerPiRetryRoutes(
           return { success: false, error: "Failed to write pi settings.json" };
         }
         const detail = (result.errors ?? []).map((e) => `${e.field}: ${e.message}`).join("; ");
+        reply.code(400);
         return { success: false, error: detail || "Invalid retry policy" };
       }
       // Apply to running sessions only after a successful write. A failed write

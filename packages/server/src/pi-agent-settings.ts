@@ -658,7 +658,14 @@ export async function mirrorDefaultsToPi(
  * absent keys / unparseable file → pi's defaults. Never throws on content.
  */
 export function readPiRetryPolicy(deps: FsDeps = {}): PiRetryPolicy {
-  const retry = asObject(readPiSettings(deps).settings.retry);
+  // An unreadable file (permissions, EISDIR…) yields pi's defaults, as before.
+  let state: PiSettingsState;
+  try {
+    state = readPiSettings(deps);
+  } catch {
+    return PI_RETRY_DEFAULTS;
+  }
+  const retry = asObject(state.settings.retry);
   const provider = asObject(retry.provider);
 
   const timeoutMs =
