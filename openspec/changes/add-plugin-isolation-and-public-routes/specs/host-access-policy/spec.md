@@ -23,3 +23,15 @@ The plugin identity seam SHALL expose `hasHostPolicy(): boolean`, returning `tru
 #### Scenario: Named-but-absent policy
 - **WHEN** `identity.trustedPolicyPlugin` names a plugin that registered no policy
 - **THEN** `hasHostPolicy()` returns `false`
+
+### Requirement: Policy registration outcome is observable to the registering plugin
+
+`ctx.registerHostAccessPolicy(authorize)` SHALL return an unregister function only when the policy was accepted; when the calling plugin is not the plugin named in `identity.trustedPolicyPlugin`, or a policy is already registered, it SHALL throw an error whose `code` is `policy_not_trusted` or `policy_duplicate` respectively, instead of silently doing nothing. A plugin SHALL therefore be able to publish "my policy is in force" only after an accepted registration.
+
+#### Scenario: Non-named plugin learns it was refused
+- **WHEN** a plugin not named in `identity.trustedPolicyPlugin` calls `registerHostAccessPolicy`
+- **THEN** the call SHALL throw with `code: "policy_not_trusted"` and no policy SHALL be registered
+
+#### Scenario: Named plugin gets an unregister handle
+- **WHEN** the named plugin registers its policy
+- **THEN** the call SHALL return an unregister function and `hasHostPolicy()` SHALL become `true` once identity is enforced

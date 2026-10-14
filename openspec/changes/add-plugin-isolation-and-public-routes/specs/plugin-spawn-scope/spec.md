@@ -296,9 +296,21 @@ The hook SHALL return `isolated: true` for a successful isolated spawn and propa
 - **WHEN** the server env contains `PI_DASHBOARD_ISOLATED=1` and a plugin spawns without `scope.agentDir`
 - **THEN** the spawned env SHALL NOT contain `PI_DASHBOARD_ISOLATED`
 
+### Requirement: Plugins can locate their own data directory
+
+The server plugin context SHALL expose `dataDir: string`, the absolute path `<os.homedir()>/.pi/dashboard/plugins/<pluginId>` — the same root the host uses for `ctx.identity.userDataDir` — created with mode `0700` on first activation. It is the sanctioned root for a plugin to provision isolated agent dirs (the operator-tree exclusion in this capability names exactly this directory).
+
+#### Scenario: Data directory is provided and private
+- **WHEN** plugin `web-chat` activates for the first time
+- **THEN** `ctx.dataDir` SHALL equal `<home>/.pi/dashboard/plugins/web-chat` and that directory SHALL exist with mode `0700`
+
+#### Scenario: Agent dir under dataDir passes isolation validation
+- **WHEN** the plugin spawns with `scope.agentDir` = `<ctx.dataDir>/customers/h/agent` (existing)
+- **THEN** the operator-tree check SHALL NOT refuse it
+
 ### Requirement: The bridge runs control-channel-only in an isolated session
 
-The bridge SHALL enter isolated mode only when, at its first load in the process, its environment carries `PI_DASHBOARD_ISOLATED=1` together with `PI_DASHBOARD_SPAWN_TOKEN` (a marker exported in an operator's shell alone SHALL NOT disable a terminal session). The decision SHALL be captured once and SHALL persist across bridge reloads and reconnects in the same process, even after the spawn token is consumed. In isolated mode the bridge SHALL perform only session registration (env-pinned endpoint, spawn-scoped credential — see `pi-gateway-auth`), event forwarding to the dashboard, model-list reporting from its own session registry, and inbound command handling. It SHALL NOT:
+The bridge SHALL enter isolated mode only when, at its first load in the process, its environment carries `PI_DASHBOARD_ISOLATED=1` together with `PI_DASHBOARD_SPAWN_TOKEN` (a marker exported in an operator's shell alone SHALL NOT disable a terminal session). The decision SHALL be captured once and SHALL persist across bridge reloads and reconnects in the same process, even after the spawn token is consumed. In isolated mode the bridge SHALL perform only session registration (env-pinned endpoint, spawn-scoped credential — see `pi-gateway-auth`), event forwarding to the dashboard, model-list reporting from its own session registry, inbound command handling, and the plugin-message lane (an in-session extension's `dashboard:plugin-message` requests to its plugin's server entry and the server's replies via `sendExtensionMessage`), so a plugin's own extension can call its server. It SHALL NOT:
 - inject its session-context system-prompt fragment;
 - register any model-facing tool, provider, MCP server (including the dashboard MCP server) or slash command;
 - expand `/` input from prompt templates or skills;
@@ -330,6 +342,10 @@ Event forwarding (turn content reaching the dashboard) is intentionally unchange
 #### Scenario: No dashboard MCP server and no vault delivery in isolated mode
 - **WHEN** the server mints an MCP token or the credential vault holds a grant for the isolated session's cwd
 - **THEN** the isolated bridge SHALL register no MCP server and SHALL apply no vault-delivered variable to its environment
+
+#### Scenario: Plugin-message lane works in isolated mode
+- **WHEN** a plugin's extension in an isolated session emits a `dashboard:plugin-message` request
+- **THEN** the plugin's server entry SHALL receive it and its reply SHALL reach the extension
 
 #### Scenario: Marker without spawn token is ignored
 - **WHEN** an operator starts pi in a shell that exported `PI_DASHBOARD_ISOLATED=1` but no `PI_DASHBOARD_SPAWN_TOKEN`
