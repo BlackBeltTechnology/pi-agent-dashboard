@@ -358,6 +358,20 @@ function realpathOrSelf(p: string): string {
   }
 }
 
+/**
+ * JS string literal for generated code: every char outside a conservative
+ * allowlist becomes a `\uXXXX` escape, so a path/name can never close the
+ * literal, inject code, or smuggle a line terminator (U+2028/2029) into the
+ * generated module.
+ */
+function jsStringLiteral(value: string): string {
+  const escaped = value.replace(
+    /[^A-Za-z0-9_@./-]/g,
+    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+  return `"${escaped}"`;
+}
+
 function generateRegistryContent(entries: PluginEntry[], repoRoot: string): string {
   assertNoCrossPluginCustomTypeCollisions(entries);
   assertNoCrossPluginPaneTabPrefixCollisions(entries);
@@ -479,7 +493,7 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
     for (const claim of manifest.claims) {
       const lazySpec = lazySpecs.get(claim);
       const componentRef = lazySpec
-        ? `, Component: lazyClaim(() => import(${JSON.stringify(lazySpec)}), ${JSON.stringify(claim.component)})`
+        ? `, Component: lazyClaim(() => import(${jsStringLiteral(lazySpec)}), ${jsStringLiteral(claim.component!)})`
         : claim.component
           ? `, Component: ${claim.component}`
           : "";

@@ -228,3 +228,16 @@ describe("lazy claim module — eager-chunk guard (renderChunk)", () => {
     expect(plugin.renderChunk.call(ctx, "", { moduleIds: [registry] })).toBeNull();
   });
 });
+
+describe("lazy claim module — generated literal escaping", () => {
+  it("escapes unusual path characters instead of splicing them into the generated code", async () => {
+    writePlugin("odd plugin", {
+      claims: [{ slot: "settings-section", component: "OddSettings", module: './src/client/odd"name.tsx' }],
+      entrySource: "export const x = 1;\n",
+      files: { 'src/client/odd"name.tsx': "export function OddSettings() { return null; }\n" },
+    });
+    const out = await generate();
+    expect(out).toContain("\\u0022name"); // the double quote is escaped, never raw
+    expect(out).not.toMatch(/import\("[^"\n]*"name/);
+  });
+});
