@@ -4,9 +4,9 @@ See proposal.md (Why) for the triage and the measured timings. Relevant code
 (develop):
 
 - **DOX row regex, four copies.** `` /^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|\s*$/ ``
-  at `packages/kb/src/dox-triage.ts:22` (`parseRows` `:37`,
-  `replaceRowPurpose` `:50`; `parseRows` runs on every kb search with verdicts,
-  `packages/kb/src/verdict.ts:182`), `packages/kb/src/dox.ts:320`
+  at `packages/kb/src/dox-triage.ts:22` (`parseRows` `:34`,
+  `replaceRowPurpose` `:46`, which compares and rebuilds from the raw path group; `parseRows` runs on every kb search with verdicts,
+  `packages/kb/src/verdict.ts:182`), `packages/kb/src/dox.ts:318`
   (`ROW_PURPOSE`, `dox describe --list`) and
   `packages/kb/src/migrate-file-index.ts:13`; a loose variant (closing pipe
   optional) in `packages/kb/src/migrate-runner.ts:121` `parseAuthoredBatch`,
@@ -24,22 +24,23 @@ See proposal.md (Why) for the triage and the measured timings. Relevant code
   (unexported; reached via `sourcesMatch`).
 - **Grounding.** `packages/kb/src/migrate-runner.ts:44`:
   ``new RegExp(`\\b${id.replace(/\$/g, "\\$")}\\b`)``; ids come from
-  `/[A-Za-z_$][A-Za-z0-9_$]*/g` (`:33`). `\b` never matches next to `$`, so
+  `/[A-Za-z_$][A-Za-z0-9_$]*/g` (`significantIds`, `:31-32`). `\b` never matches next to `$`, so
   `$Foo` is never found and `Foo` is found inside `$Foo` / `Foo$bar`.
-  `packages/kb/src/indexer.ts:65` has an unexported `escapeRegExp`.
 - **Doctor Markdown.** `packages/shared/src/doctor-core.ts:1710`,
   `packages/client/src/components/settings/DiagnosticsSection.tsx:99`,
   `packages/electron/src/renderer/doctor.html:236` escape `|` but not `\` in the
   message cell; their detail-cell fences already escape `\` first
-  (`doctor.html:225`, `doctor-core.ts:1676`). `doctor-core.ts` imports
+  (`doctor.html:225`, `doctor-core.ts:1676`). All three flatten only `\r?\n`; a
+  lone `\r` is a CommonMark line ending and still splits the row. `doctor-core.ts` imports
   `node:fs`/`node:dns`, so the client cannot import it.
   `packages/deck3d/src/ir/field-reference.ts:56` is the in-repo precedent for
   `\`-then-`|` escaping.
 - **Branch list.** `packages/server/src/git-worktree/git-operations.ts:430-458`
   runs `git branch --format=%(refname:short)%(HEAD)`: `%(HEAD)` prints `*` for
   the current branch and a **space** otherwise; lines are parsed with
-  `line.replace("*", "").trim()` (`:443`, `:453`), and the remote list skips
-  names ending in `/HEAD`.
+  `line.replace("*", "").trim()` (`:443`, `:453`), `isCurrent = line.includes("*")`,
+  empty local names are skipped (`:444`), and the remote list skips names ending
+  in `/HEAD`.
 - **Other sites.** `packages/client/src/components/session/SessionList.tsx:121-125`
   (`cssEscapeId`) and `packages/client/src/components/openspec/OpenSpecBoardView.tsx:242-244`
   fall back to `replace(/"/g, '\\"')` when `CSS.escape` is missing (jsdom).
@@ -70,7 +71,8 @@ remove the remaining listed alerts.
   CodeQL did not flag (no tainted path established); the ratchet surfaces them
   if one becomes tainted.
 - The pre-existing `generated/verbs.ts` drift, the doctor "Remediation" bullet
-  list, and dismissing alerts on GitHub.
+  list, lone-`\r` handling inside the doctor detail-cell fences (`fenceCell` and
+  its copies), and dismissing alerts on GitHub.
 
 ## Decisions
 
@@ -83,15 +85,22 @@ alphabet plus the listed edge cases (the old regex is fast on those).
 
 - **DOX rows** → new leaf module `packages/kb/src/dox-row.ts` (no imports)
   exporting `matchRow(line)` (strict) and `matchRowLoose(line)` (closing pipe
-  optional). Both match the head with `` /^\|\s*`([^`]+)`\s*\|/ `` (no ambiguous
+  optional), each returning `{ path, purpose } | null` where `path` is the raw
+  backtick group (untrimmed; callers that trimmed before still trim, and
+  `replaceRowPurpose` compares and rebuilds from the raw value). Both match the head with `` /^\|\s*`([^`]+)`\s*\|/ `` (no ambiguous
   repetition) and parse the tail with string ops:
-  - strict: `t = rest.trim()`; no match unless `t.endsWith("|")`;
-    `purpose = t.slice(0, -1).trim()`.
-  - loose: `t = rest.trim()`; if `t.endsWith("|")` then `t = t.slice(0, -1).trim()`;
-    `purpose = t`.
-  - both: no match when `purpose` contains `\r`, U+2028 or U+2029 (the old
-    `(.*?)` never matched them; JS `trim()` and regex `\s` cover the same set,
-    so the surrounding whitespace behaves as before).
+  - both: `t = rest.trim()`. The old `(.*?)` never matches `\r`, U+2028 or
+    U+2029, but `\s*` does; JS `trim()` and regex `\s` cover the same set.
+  - strict: no match unless `t.endsWith("|")`; `purpose = t.slice(0, -1).trim()`;
+    no match when `purpose` contains a terminator (checked **after** the pipe
+    strip — the old `\s*` before the closing pipe absorbs one, so
+    `` | `a` | x\r| `` still yields `x`).
+  - loose: no match when `t` contains a terminator (checked **before** the pipe
+    strip — the old loose regex has no closing-pipe `\s*` gap); if
+    `t.endsWith("|")` then `t = t.slice(0, -1).trim()`; `purpose = t`; the caller
+    keeps its `if (purpose)` skip.
+  - Both orderings were fuzzed against the old regexes (400 000 lines over
+    `| space tab \r U+2028 U+2029 backtick letters \`): 0 differences.
   `dox-triage.ts` (`parseRows`, `replaceRowPurpose`), `dox.ts` (`ROW_PURPOSE`)
   and `migrate-file-index.ts` use `matchRow`; `migrate-runner.ts`
   `parseAuthoredBatch` uses `matchRowLoose`. `ROW_RE` / `ROW_PURPOSE` are
@@ -113,7 +122,9 @@ alphabet plus the listed edge cases (the old regex is fast on those).
 - **Run trims** → index loops. `slugifyBranch`: advance `start` over leading `-`
   and retreat `end` over trailing `-`, then `.slice(0, 64)` as before.
   `localPathBasename`: retreat over trailing `/` only (not `\`), then strip one
-  trailing case-sensitive `.git`, then split on `[\\/]` as before.
+  trailing case-sensitive `.git`, then split on `[\\/]` as before. It is reached
+  only when `sourcesMatch` compares a raw path with a git or npm source
+  (`source-matching.ts:114` returns earlier for raw↔raw).
 
 Alternative: "non-backtracking" regexes. Rejected: their cost is
 engine-dependent and the next edit can reintroduce the problem; a scan is
@@ -122,41 +133,54 @@ self-evidently linear.
 ### D2 — One shared `escapeMdTableCell`
 
 New `packages/shared/src/md-table-cell.ts` (no Node imports) exports
-`escapeMdTableCell(s)`: `\` → `\\`, then `|` → `\|`, then `\r?\n` → space
-(order as in `deck3d/src/ir/field-reference.ts:56`). `doctor-core.ts` and
+`escapeMdTableCell(s)`: `\` → `\\`, then `|` → `\|`, then every line ending
+(`/\r\n?|\n/g`, which includes a lone `\r`) → space (escape order as in
+`deck3d/src/ir/field-reference.ts:56`). `doctor-core.ts` and
 `DiagnosticsSection.tsx` apply it to the name and message cells; `doctor.html`
 (standalone page, no bundling) inlines the same three steps. Behavior change,
 intended: the raw Markdown of any message containing `\` changes (`C:\Users\me`
-becomes `C:\\Users\\me` and still renders as `C:\Users\me`), and a message that
-relied on Markdown escapes (`x\*y\*`) now renders its backslashes literally.
+becomes `C:\\Users\\me` and still renders as `C:\Users\me`): backslashes render
+as single backslashes. Other inline Markdown in messages (`*`, `_`, `` ` ``, `[`)
+is still interpreted, as today; escaping it is out of scope.
 
-### D3 — Grounding: full escape, identifier-alphabet boundaries
+### D3 — Grounding: ASCII identifier-alphabet boundaries
 
-`` new RegExp(`(?<![A-Za-z0-9_$])${escapeRegExp(id)}(?![A-Za-z0-9_$])`) ``,
-with `escapeRegExp` exported from `packages/kb/src/indexer.ts:65` and reused.
-`$` is an identifier character in JS/TS, so `Foo` is no longer grounded by
-`$Foo` or `Foo$bar` (different identifiers), and `$Foo` is grounded by
-`const $Foo`. This modifies the grounding requirement's notion of "present".
+`` new RegExp(`(?<![A-Za-z0-9_$])${esc(id)}(?![A-Za-z0-9_$])`) `` with a local
+`esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")` — a full metacharacter
+escape, which is what clears the `js/incomplete-sanitization` alert. Ids come
+only from `[A-Za-z_$][A-Za-z0-9_$]*`, so its output equals today's `$`-only
+escape; it is inlined rather than imported from `indexer.ts:64` to keep the pure
+`migrate-runner.ts` free of indexer's imports. `$` is an identifier character in JS/TS, so
+`Foo` is no longer grounded by `$Foo` or `Foo$bar`, and `$Foo` is grounded by
+`const $Foo`. The boundary alphabet is ASCII, matching the id alphabet; a
+non-ASCII neighbour (`éFoo`) still counts as a boundary, as `\b` does today.
+This modifies the grounding requirement's notion of "present".
 
 ### D4 — Small clean-ups
 
 - `git-operations.ts` (local and remote loops):
   `const t = line.trim(); const name = (t.endsWith("*") ? t.slice(0, -1) : t).trim();`
-  `isCurrent = t.endsWith("*")`; the `/HEAD` skip runs on that `name`.
-  Identical to today for every ref name git can print (git forbids `*` in ref
-  names).
+  `isCurrent = t.endsWith("*")`; `if (!name) continue;` is kept, and the
+  `/HEAD` skip runs on that `name`. Identical to today for every line git can
+  print (git forbids `*` in ref names, so `*` appears only as the `%(HEAD)`
+  marker).
 - New `packages/client/src/lib/css-escape.ts` exports `cssEscape(s)`: native
-  `CSS.escape` when present, else every character outside `[A-Za-z0-9_-]`
-  becomes a CSS hex escape (`\` + code point in hex + space), which is valid in
-  any selector context. `SessionList.tsx` and `OpenSpecBoardView.tsx` use it.
+  `CSS.escape` when present, else it iterates **code points** (`for (const ch of s)`)
+  and turns every one outside `[A-Za-z0-9_-]` into a CSS hex escape (`\` + code
+  point in hex + space). The fallback is specified for quoted attribute values
+  only — every current call site is `[data-…="${cssEscape(x)}"]`
+  (`SessionList.tsx:439,1257,1352,1535`, `OpenSpecBoardView.tsx:242-245`); it
+  does not apply the identifier leading-digit rule. Ids containing NUL or a lone
+  surrogate cannot match by CSS semantics (NUL decodes to U+FFFD); session ids
+  and POSIX paths cannot contain them. `SessionList.tsx` and `OpenSpecBoardView.tsx` use it.
   Identical in browsers (native path); in jsdom the fallback becomes correct
   for `\`, `]`, newlines and other characters.
 - `main.ts` `updateSplashStatus`: the script becomes
   `` `(() => { const el = document.getElementById("status"); if (el) el.textContent = ${JSON.stringify(text)}; })()` ``
   — no template-literal delimiters around the value. The displayed text is
   identical for the five literal callers; the script bytes differ.
-- `preview-dispatch.ts` exports `YOUTUBE_HOSTS`; `extractYouTubeId` accepts
-  `youtu.be` plus that set. Hosts such as `music.youtube.com` or
+- `preview-dispatch.ts` exports `YOUTUBE_HOSTS`; `extractYouTubeId` accepts exactly
+  that set (which already contains `youtu.be`). Hosts such as `music.youtube.com` or
   `evilyoutube.com` now yield `null`; none of them reaches `extractYouTubeId`
   today, because `dispatchPreview` routes only that set to `YouTubePreview`.
 - `generate-verbs.ts:92`: delete the identity `.replace`. Verified by running

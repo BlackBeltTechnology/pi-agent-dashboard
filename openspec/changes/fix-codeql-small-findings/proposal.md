@@ -28,7 +28,7 @@ inputs (Node 24):
 **Linear-time parsing** (new capability `bounded-input-parsing`): replace the
 super-linear regexes with linear scans that return identical results on every
 input — including the two further copies of the DOX row regex
-(`kb/src/dox.ts:320`, `kb/src/migrate-file-index.ts:13`) and its quadratic loose
+(`kb/src/dox.ts:318`, `kb/src/migrate-file-index.ts:13`) and its quadratic loose
 variant in `kb/src/migrate-runner.ts:121` (parses subagent output).
 
 **Markdown table escaping** (`doctor-diagnostic`): the doctor Markdown export
@@ -36,12 +36,14 @@ escapes `|` in the message cell but not `\`, so a message ending in `\` turns
 the escaped pipe into a cell break. Escape backslash first, via one shared
 `escapeMdTableCell` helper (shared formatter + web Diagnostics copy) and the
 same three-step escape inline in the Electron `doctor.html` page. Intended side
-effect: Markdown escapes inside messages (`x\*y\*`) now render literally.
+effect: backslashes in messages render as single backslashes; other inline
+Markdown in messages is still interpreted, as today.
 
 **Grounding gate identifiers** (`kb-file-index-migration`): the grounding regex
 escapes only `$` and wraps the id in `\b…\b`, so an identifier starting with `$`
 is never found, and `Foo` counts as present inside `$Foo` or `Foo$bar`. Use a
-full regex escape and identifier-alphabet boundaries.
+full regex escape (clears the `js/incomplete-sanitization` alert) and ASCII
+identifier-alphabet boundaries.
 
 **Clean-ups** (no spec delta; identical for every input current callers produce):
 - `bus-client/src/codegen/generate-verbs.ts:92` — delete the no-op
@@ -70,7 +72,7 @@ accepted with that reason in the `add-local-codeql-ratchet` baseline.
 
 ### Modified Capabilities
 - `doctor-diagnostic`: Markdown export escapes table cells correctly (ADDED requirement).
-- `kb-file-index-migration`: grounding gate recognizes `$`-containing identifiers (ADDED requirement).
+- `kb-file-index-migration`: grounding gate recognizes `$`-containing identifiers (MODIFIED requirement).
 
 ## Impact
 
@@ -84,8 +86,8 @@ accepted with that reason in the `add-local-codeql-ratchet` baseline.
   `packages/bus-client/src/codegen/generate-verbs.ts`,
   `packages/client/src/components/{openspec/OpenSpecBoardView,session/SessionList,preview/YouTubePreview}.tsx`,
   `packages/client/src/lib/preview/preview-dispatch.ts` (export the host set),
-  new `packages/kb/src/dox-row.ts`, `packages/kb/src/{dox,indexer}.ts`,
-  new `packages/client/src/lib/css-escape.ts`.
+  `packages/kb/src/dox.ts`; new `packages/kb/src/dox-row.ts`,
+  `packages/client/src/lib/css-escape.ts`.
 - No API, config, data or dependency change. Rollback = revert.
 - Expected CodeQL effect: the listed alerts close on the next analysis
   (to be confirmed by the local run in `add-local-codeql-ratchet`).

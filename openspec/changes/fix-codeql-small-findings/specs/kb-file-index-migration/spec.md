@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Structural validation and grounding gate
-The migration SHALL validate authored rows structurally and run a grounding check on each authored miss purpose before any write, treating structural failure as blocking and reporting ungrounded identifiers. An identifier is present in the source text when it occurs literally with no identifier character (`A-Z`, `a-z`, `0-9`, `_`, `$`) immediately before or after it, so identifiers containing or starting with `$` are found and an identifier is not found inside a longer one.
+The migration SHALL validate authored rows structurally and run a grounding check on each authored miss purpose before any write, treating structural failure as blocking and reporting ungrounded identifiers. An identifier is present in the source text when it occurs literally with no ASCII identifier character (`A-Z`, `a-z`, `0-9`, `_`, `$`) immediately before or after it, so identifiers containing or starting with `$` are found and an identifier is not found inside a longer ASCII identifier.
 
 #### Scenario: Structural validation enforces one row per file
 - **WHEN** authored rows are validated against a plan

@@ -4,7 +4,7 @@
 Every doctor Markdown table — the shared report formatter, the web Diagnostics
 "Copy as Markdown" output and the Electron doctor page — SHALL escape the check
 name and message cells by replacing each `\` with `\\`, then each `|` with
-`\|`, then each line break with a space, so cell text can never close its cell
+`\|`, then each line ending (`\r\n`, `\n` or a lone `\r`) with a space, so cell text can never close its cell
 or start a new row. As a consequence, backslashes in a message are shown
 literally when the Markdown is rendered.
 
@@ -19,3 +19,7 @@ literally when the Markdown is rendered.
 #### Scenario: Multi-line message
 - **WHEN** a check's message is `line1` followed by a newline and `line2`
 - **THEN** its row SHALL stay on one line with the message cell `line1 line2`
+
+#### Scenario: Lone carriage return in a message
+- **WHEN** a check's message is `line1`, a carriage return with no following newline, and `line2`
+- **THEN** the message cell SHALL be emitted as `line1 line2` and the table SHALL parse into the same number of rows as there are checks
