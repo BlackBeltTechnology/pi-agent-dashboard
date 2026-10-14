@@ -19,7 +19,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `hermes-model-override.spec.ts` | L3 F3 → see `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | L3 KB settings sources + search. → see `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `known-server-stale-name.spec.ts` | L3 stale known-server name. → see `known-server-stale-name.spec.ts.AGENTS.md` |
-| `lazy-islands.spec.ts` | L3 lazy islands: English cold load requests no `katex`/`i18n-hu`/`i18n-zh-CN`/`SettingsPanel` chunk; opening Settings fetches only the panel chunk; switching to Magyar fetches `i18n-hu` once and translates (rail label `Általános`), back to English refetches nothing; Hungarian cold start renders nothing (`#root` empty) until its catalog arrives. Observes `page.on("request")`. See change: shrink-client-entry-lazy-islands. |
+| `lazy-islands.spec.ts` | L3 lazy islands (katex / hu+zh catalogs / SettingsPanel chunks) → see `lazy-islands.spec.ts.AGENTS.md` |
 | `live-server-downloads.spec.ts` | L3 #F1/#X1 |
 | `local-credential-proof-nat.spec.ts` | L3 #X9: published-port proof. → see `local-credential-proof-nat.spec.ts.AGENTS.md` |
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
