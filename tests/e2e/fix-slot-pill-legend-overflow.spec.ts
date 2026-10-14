@@ -215,7 +215,8 @@ test.describe("slot-pill legend + stale marker — desktop worktree session card
       });
       worktreePath = created.data?.path ?? "";
       if (!created.success || !worktreePath) throw new Error(`worktree create: ${JSON.stringify(created)}`);
-      await apiPost("/api/session/spawn", { cwd: worktreePath });
+      const spawned = await apiPost<{ success?: boolean; error?: string }>("/api/session/spawn", { cwd: worktreePath });
+      if (spawned.success === false) throw new Error(`session spawn: ${JSON.stringify(spawned)}`);
       sessionId = await awaitWorktreeSessionId(worktreePath);
     } catch (err) {
       setupError = String(err);

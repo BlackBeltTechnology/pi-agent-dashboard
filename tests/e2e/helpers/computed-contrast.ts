@@ -212,10 +212,13 @@ export async function overflowFailures(root: Locator, topExempt?: string): Promi
       const cs = getComputedStyle(e);
       if ((e as HTMLElement).offsetParent === null || cs.opacity === "0" || cs.visibility === "hidden" || e.closest(".sr-only")) continue;
       const clips: Array<ReturnType<typeof rectOf>> = [];
+      let transparent = false; // opacity is not inherited: a child of an `opacity:0` ancestor still computes opacity 1
       for (let a = e.parentElement; a && a !== rootEl; a = a.parentElement) {
         const acs = getComputedStyle(a);
+        if (acs.opacity === "0") transparent = true;
         if (acs.overflowX !== "visible" || acs.overflowY !== "visible") clips.push(rectOf(a));
       }
+      if (transparent) continue;
       const tid = e.closest("[data-testid]")?.getAttribute("data-testid") ?? "";
       found.push({
         where: `${e.tagName.toLowerCase()}${tid ? `@${tid}` : ""}`,
