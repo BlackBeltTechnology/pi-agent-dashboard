@@ -214,3 +214,19 @@ describe("describeDiscovered bounds (audit)", () => {
     expect(bad!.fingerprint).toBeUndefined();
   });
 });
+
+describe("describeDiscovered rejects hostile adverts (CodeRabbit)", () => {
+  it("drops entries with a non-plain host or invalid port; filters bad addresses", () => {
+    const entries = describeDiscovered(
+      [
+        advert({ host: "attacker.example#", instance: "a", fingerprint: F }),
+        advert({ host: "ok.lan", port: 70000, instance: "b", fingerprint: F }),
+        advert({ host: "user@evil", instance: "c", fingerprint: F }),
+        advert({ host: "good.lan", instance: "d", fingerprint: F, addresses: ["10.0.0.1", "1.2.3.4/x", "[::1]"] }),
+      ],
+      { isPaired: () => false },
+    );
+    expect(entries.map((e) => e.key)).toEqual(["d"]);
+    expect(entries[0]!.addresses).toEqual(["10.0.0.1"]);
+  });
+});

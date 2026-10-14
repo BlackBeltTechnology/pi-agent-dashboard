@@ -216,6 +216,8 @@ export function startPairing(target: PairingTarget, deps: PairingClientDeps): Pa
   /** The user chooses "Send request" (resolves the device name) or stops (resolves null). */
   function awaitSend(): Promise<string | null> {
     return new Promise<string | null>((resolve) => {
+      // Stopped while still proving (window closed): an already-aborted signal never fires "abort" again.
+      if (abort.signal.aborted) return resolve(null);
       resolveSend = (n) => resolve(n);
       abort.signal.addEventListener("abort", () => resolve(null), { once: true });
     });
@@ -238,6 +240,12 @@ export function startPairing(target: PairingTarget, deps: PairingClientDeps): Pa
     const checked = await proveIdentity(expected);
     if ("result" in checked) return checked.result;
     proven = checked.proof;
+    if (abort.signal.aborted) {
+      // Stopped (window closed) while proving: nothing to confirm, and `done` must still resolve.
+      logLine("stopped", proven.fingerprint);
+      emit(base("stopped"));
+      return { status: "stopped" };
+    }
     const tofu = expected.kind === "tofu";
 
     // 2. CONFIRM — the user sends the request (and reviews the fingerprint on TOFU).

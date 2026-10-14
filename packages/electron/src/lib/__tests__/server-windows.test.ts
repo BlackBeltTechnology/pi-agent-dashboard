@@ -239,6 +239,9 @@ describe("pure helpers (E26, E25, E13, E20)", () => {
     expect(parseManualUrl("http://127.0.0.1:8000")).toBeNull();
     expect(parseManualUrl("http://localhost:8000")).toBeNull();
     expect(parseManualUrl("http://[::1]:8000")).toBeNull();
+    // rooted names resolve to loopback too
+    expect(parseManualUrl("http://localhost.:8000")).toBeNull();
+    expect(parseManualUrl("http://127.0.0.1.:8000")).toBeNull();
     expect(parseManualUrl("http://x:0")).toBeNull();
     expect(parseManualUrl("http://x:65536")).toBeNull();
     expect(parseManualUrl(`http://${"a".repeat(254)}:80`)).toBeNull();
@@ -341,6 +344,18 @@ describe("opening (E24, E30, X1-ish)", () => {
 });
 
 describe("host selection and identity at open", () => {
+  it("a discovered advert with a URL-significant host is never probed (audit/CodeRabbit)", async () => {
+    rig.provenBy.clear();
+    rig.adverts.push({ host: "attacker.example#", port: 8000, fingerprint: F, addresses: ["10.0.0.1/evil", "good.lan"] });
+    rig.provenBy.set("http://good.lan:8000", F);
+    const p = rig.sw.open(F);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await p).toEqual({ ok: true });
+    const probed = rig.prove.mock.calls.map((c) => String(c[0]));
+    expect(probed.some((u) => u.includes("#") || u.includes("evil"))).toBe(false);
+    expect(win(rig).loaded).toEqual(["http://good.lan:8000/"]);
+  });
+
   it("heals a moved server: discovered host that proves F becomes most recent", async () => {
     rig.provenBy.clear();
     rig.provenBy.set("http://192.168.16.77:8000", F);

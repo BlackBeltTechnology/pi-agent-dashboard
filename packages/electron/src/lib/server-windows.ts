@@ -35,6 +35,8 @@ import {
   buildCandidates,
   type Candidate,
   type HostRef,
+  isPlainHost,
+  isValidPort,
   partitionFor,
   pickVerifiedHost,
   type ServerDiscovery,
@@ -251,7 +253,11 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
   function discoveredRefs(fp: string): HostRef[] {
     const refs: HostRef[] = [];
     for (const adv of discovery.advertsFor(fp)) {
-      for (const host of [adv.host, ...(adv.addresses ?? [])]) refs.push({ scheme: "http", host, port: adv.port });
+      if (!isValidPort(adv.port)) continue;
+      // mDNS is unauthenticated: a host that is not a plain name/address could rewrite the URL authority.
+      for (const host of [adv.host, ...(adv.addresses ?? [])]) {
+        if (isPlainHost(host)) refs.push({ scheme: "http", host, port: adv.port });
+      }
     }
     return refs;
   }
@@ -736,7 +742,8 @@ export function parseManualUrl(raw: unknown): HostRef | null {
 
 /** localhost, 127.0.0.0/8, ::1, ::ffff:127.x, 0.0.0.0. */
 export function isLoopbackHost(host: string): boolean {
-  const h = host.toLowerCase();
+  // `localhost.` / `127.0.0.1.` (rooted names) resolve to loopback too.
+  const h = host.toLowerCase().replace(/\.+$/, "");
   if (h === "localhost" || h.endsWith(".localhost") || h === "::1" || h === "::" || h === "0.0.0.0") return true;
   if (/^127\.\d+\.\d+\.\d+$/.test(h)) return true;
   return /^::ffff:(7f[0-9a-f]{2}:[0-9a-f]{1,4}|127\.\d+\.\d+\.\d+)$/.test(h);

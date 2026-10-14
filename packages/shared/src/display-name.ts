@@ -14,10 +14,12 @@ const INVISIBLE = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202E\u2060-\
 
 /** Truncate to at most `maxBytes` UTF-8 bytes without splitting a code point. */
 export function truncateUtf8(value: string, maxBytes: number): string {
+  // TextEncoder, not Buffer: this runs in the browser knock path too (no Buffer polyfill there).
+  const encoder = new TextEncoder();
   let bytes = 0;
   let out = "";
   for (const ch of value) {
-    const n = Buffer.byteLength(ch, "utf8");
+    const n = encoder.encode(ch).length;
     if (bytes + n > maxBytes) break;
     bytes += n;
     out += ch;

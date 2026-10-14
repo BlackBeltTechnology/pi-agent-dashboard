@@ -32,6 +32,17 @@ export function isFingerprint(value: unknown): value is string {
   return typeof value === "string" && FINGERPRINT_RE.test(value);
 }
 
+const PLAIN_HOST_RE = /^[A-Za-z0-9.:_-]+$/;
+
+/** A hostname / IPv4 / IPv6 literal with no URL-significant characters (`#`, `/`, `@`, `?`, spaces, brackets). */
+export function isPlainHost(host: unknown): host is string {
+  return typeof host === "string" && host.length > 0 && host.length <= 253 && PLAIN_HOST_RE.test(host);
+}
+
+export function isValidPort(port: unknown): port is number {
+  return typeof port === "number" && Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
 /** `sha256:` + first 16 chars of the base64url part (96 bits) — the one shared short form. */
 export function shortFingerprint(fp: string): string {
   const b64 = fp.startsWith("sha256:") ? fp.slice("sha256:".length) : fp;
@@ -204,7 +215,7 @@ function describeOne(s: DiscoveredServer, opts: DescribeOptions): DiscoveredEntr
     name: sanitizeDisplayName(s.name, s.host),
     host: s.host,
     port: s.port,
-    addresses: (s.addresses ?? []).filter((a) => a !== s.host).slice(0, MAX_ADVERT_ADDRESSES),
+    addresses: (s.addresses ?? []).filter((a) => a !== s.host && isPlainHost(a)).slice(0, MAX_ADVERT_ADDRESSES),
     ...(fp ? { fingerprint: fp } : {}),
     state,
     ...(clone ? { note: "same identity as this dashboard" as const } : {}),
@@ -216,7 +227,8 @@ export function describeDiscovered(servers: Iterable<DiscoveredServer>, opts: De
   const out: DiscoveredEntry[] = [];
   for (const s of servers) {
     if (out.length >= MAX_DISCOVERED_ENTRIES) break;
-    if (!s.isLocal) out.push(describeOne(s, opts));
+    // Untrusted advert: only well-formed host/port become list entries (and later URL origins).
+    if (!s.isLocal && isPlainHost(s.host) && isValidPort(s.port)) out.push(describeOne(s, opts));
   }
   return out;
 }

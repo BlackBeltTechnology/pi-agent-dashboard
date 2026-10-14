@@ -115,6 +115,21 @@ describe("manual URL — trust on first use (E2)", () => {
   });
 });
 
+describe("stop() while still proving (review)", () => {
+  it("resolves `done` as stopped, never emits confirm, sends nothing", async () => {
+    const f = routeFetch();
+    let release!: (v: { proven: string }) => void;
+    const s = run(target({ advertFp: F }), () => new Promise((r) => (release = r as typeof release)));
+    await settle();
+    s.stop(); // window closed during `proving`
+    release({ proven: F });
+    expect(await s.done).toEqual({ status: "stopped" });
+    expect(phases()).not.toContain("confirm");
+    expect(posts(f, "/api/pair/request")).toHaveLength(0);
+    expect(keyring.list()).toEqual([]);
+  });
+});
+
 describe("identity gates (E3, E4, X7, X8)", () => {
   it("E3: pin F, advert G ⇒ mismatch naming both shorts; no network at all", async () => {
     const f = routeFetch();

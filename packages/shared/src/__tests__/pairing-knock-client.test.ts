@@ -73,6 +73,18 @@ describe("refusal wording (E42)", () => {
   });
 });
 
+describe("browser compatibility (CodeRabbit)", () => {
+  it("knockRequestBody / sanitizeDisplayName work without a global Buffer", () => {
+    vi.stubGlobal("Buffer", undefined);
+    try {
+      expect(knockRequestBody("é".repeat(40)).name).toBe("é".repeat(32));
+      expect(sanitizeDisplayName("a".repeat(100), "h")).toHaveLength(64);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("device name (E43)", () => {
   it("empty / whitespace ⇒ {}", () => {
     expect(knockRequestBody("")).toEqual({});
