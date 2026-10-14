@@ -5,14 +5,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { type DomInstance, type DomWindow, JSDOM } from "./jsdom-shim.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const html = fs.readFileSync(path.join(here, "..", "renderer", "connecting.html"), "utf8");
 
 interface Harness {
-  dom: JSDOM;
+  dom: DomInstance;
   push: (s: Record<string, unknown>) => void;
   api: Record<string, ReturnType<typeof vi.fn>>;
   text: (id: string) => string;
@@ -38,7 +38,7 @@ function load(initial: Record<string, unknown> | null = null): Harness {
   const dom = new JSDOM(html, {
     runScripts: "dangerously",
     pretendToBeVisual: true,
-    beforeParse(window: JSDOM["window"]) {
+    beforeParse(window: DomWindow) {
       (window as unknown as { connecting: unknown }).connecting = api;
       const RealDate = window.Date;
       (window as unknown as { Date: unknown }).Date = class extends RealDate {

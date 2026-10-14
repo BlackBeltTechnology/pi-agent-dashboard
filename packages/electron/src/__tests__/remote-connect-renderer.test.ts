@@ -5,8 +5,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { JSDOM } from "jsdom";
 import { describe, expect, it, vi } from "vitest";
+import { type DomWindow, JSDOM } from "./jsdom-shim.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const html = fs.readFileSync(path.join(here, "..", "renderer", "remote-connect.html"), "utf8");
@@ -48,7 +48,7 @@ async function load() {
   };
   const dom = new JSDOM(html, {
     runScripts: "dangerously",
-    beforeParse(w: JSDOM["window"]) {
+    beforeParse(w: DomWindow) {
       (w as unknown as { remoteConnect: unknown }).remoteConnect = api;
     },
   });
