@@ -17,6 +17,7 @@ import { useLocation } from "wouter";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { PluginRow } from "../../lib/package/plugins-api.js";
+import { copyText } from "../../lib/util/clipboard.js";
 
 // Theme-aware fragments built on the dashboard's `--accent-*` CSS vars
 // (defined in packages/client/src/index.css for both dark and light :root).
@@ -90,12 +91,10 @@ export function CopyableErrorBlock({ text, testId }: { text: string; testId: str
       <button
         type="button"
         onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(text);
+          // Clipboard denied/unavailable — keep button visible.
+          if (await copyText(text)) {
             setCopied(true);
             window.setTimeout(() => setCopied(false), 1500);
-          } catch {
-            /* clipboard denied — keep button visible */
           }
         }}
         title={i18nT("status.copyErrorToClipboard", undefined, "Copy error to clipboard")}

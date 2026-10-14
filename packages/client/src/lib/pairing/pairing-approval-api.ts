@@ -10,7 +10,7 @@
  */
 import { getApiBase } from "../api/api-context.js";
 import { fetchJson, fetchJsonResponse } from "../api/fetch-json.js";
-import type { PairedDeviceView } from "./paired-devices-api.js";
+import type { PairedDeviceView, Tier } from "./paired-devices-api.js";
 
 // All three routes are operator-only on the server (`operatorGuard`); a
 // paired-device browser gets 401/403 and never learns request details.
@@ -29,6 +29,12 @@ export interface PendingPairing {
   createdAt: number;
   expiresAt: number;
   attemptsLeft: number;
+  /** How the request arrived; absent ⇒ `qr` (older servers). See change: add-lan-knock-pairing. */
+  provenance?: "qr" | "knock";
+  /** Name the requester typed (knock only) — untrusted display text, never HTML. */
+  requesterName?: string;
+  /** Knock arrived over plain http (knock only). */
+  unencrypted?: boolean;
 }
 
 /** List pending devices. Throws on transport / non-2xx (caller shows nothing). */
@@ -50,6 +56,8 @@ export async function approvePending(
   pendingId: string,
   confirmCode: string,
   label?: string,
+  /** Omitted ⇒ not sent ⇒ the server defaults to operate. */
+  tier?: Tier,
 ): Promise<ApprovePendingOutcome> {
   const { json } = await fetchJsonResponse<{
     success: boolean;
@@ -59,7 +67,12 @@ export async function approvePending(
   }>(`${getApiBase()}/api/pair/approve-pending`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ pendingId, confirmCode, ...(label === undefined ? {} : { label }) }),
+    body: JSON.stringify({
+      pendingId,
+      confirmCode,
+      ...(label === undefined ? {} : { label }),
+      ...(tier === undefined ? {} : { tier }),
+    }),
   });
   if (json.success && json.data) return { ok: true, device: json.data };
   if (json.error === "mismatch" && typeof json.attemptsLeft === "number") {

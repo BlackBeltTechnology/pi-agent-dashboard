@@ -20,12 +20,12 @@ import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
 import { isTier, type Tier } from "./tiers.js";
-import { clampVaultGraceHours, VAULT_GRACE_DEFAULT_HOURS } from "./vault-delivery.js";
 import {
   providerSupportsMode,
   type TunnelMode,
   type TunnelProviderId,
 } from "./tunnel-provider.js";
+import { clampVaultGraceHours, VAULT_GRACE_DEFAULT_HOURS } from "./vault-delivery.js";
 
 export type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 
@@ -1080,6 +1080,13 @@ export interface PairingConfig {
    * configured. Empty by default.
    */
   publicBaseUrls: string[];
+  /**
+   * Accept device-initiated pairing requests ("knocks", `POST /api/pair/request`)
+   * from devices on the same local network. Default `false`; non-boolean input
+   * loads as `false`. Read LIVE per request (no restart).
+   * See change: add-lan-knock-pairing.
+   */
+  acceptLanRequests: boolean;
 }
 
 const VALID_SPAWN_STRATEGIES: SpawnStrategy[] = ["tmux", "headless"];
@@ -1378,7 +1385,7 @@ const DEFAULTS: DashboardConfig = {
   requireLocalProof: false,
   resolvedTrustedNetworks: [],
   cors: { allowedOrigins: [] },
-  pairing: { publicBaseUrls: [] },
+  pairing: { publicBaseUrls: [], acceptLanRequests: false },
   electronMode: false,
   knownServers: [],
   askUserPromptTimeoutSeconds: DEFAULT_ASK_USER_PROMPT_TIMEOUT_SECONDS,
@@ -2192,6 +2199,7 @@ export function loadConfig(): DashboardConfig {
         publicBaseUrls: Array.isArray(parsed.pairing?.publicBaseUrls)
           ? parsed.pairing.publicBaseUrls.filter((o: unknown) => typeof o === "string")
           : defaults.pairing.publicBaseUrls,
+        acceptLanRequests: parsed.pairing?.acceptLanRequests === true,
       },
       // Top-level promotion of `pairing.publicBaseUrls` (D7). Absent stays
       // absent — a `[]` default would make "unset" and "set but empty"

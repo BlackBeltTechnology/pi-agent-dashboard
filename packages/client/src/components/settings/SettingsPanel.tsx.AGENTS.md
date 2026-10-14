@@ -69,3 +69,5 @@ Page id `packages` → `add-ons` (`SETTINGS_PAGE_ALIASES.packages`); rail group 
 - Network-group page `vault` → `VaultSection`. See change: add-credential-vault.
 
 - Field family (`ToggleField`/`SelectField`/`NumberField`/`TextField`) now lives in `dashboard-plugin-runtime` `settings-fields.tsx`; this file imports and re-exports them. `HeapMbField` uses `FieldShell` with `error`; coupling/heap warnings are `SettingsNotice` (severity tokens, test ids kept). See change: retro-ux-plugin-settings-forms.
+
+Copy actions go through `copyText` and ids through `randomUuid()` — non-secure LAN origins have neither `navigator.clipboard` nor `crypto.randomUUID`. See change: add-lan-knock-pairing.

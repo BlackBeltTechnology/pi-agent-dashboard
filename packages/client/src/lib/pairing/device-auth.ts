@@ -23,8 +23,9 @@
  *
  * See change: make-pairing-qr-camera-scannable.
  */
-import { getApiBase, VITE_API_URL } from "../api/api-context.js";
+
 import { getAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
+import { getApiBase, VITE_API_URL } from "../api/api-context.js";
 
 const BEARER_KEY = "pi-dashboard:device-bearer";
 const PAIRED_KEY = "pi-dashboard:device-paired";
@@ -75,18 +76,55 @@ async function exchangeDeviceSession(token: string): Promise<ExchangeResult> {
   }
 }
 
+/** Set only across the synchronous call into `fetch` made by `cookieAloneAuthenticates`. */
+let suppressBearer = false;
+
 /**
- * Persist a freshly minted pairing bearer. Same-origin: exchange for the cookie
- * (awaited, so the next navigation already carries it) and keep only the marker;
- * if the exchange fails the bearer is kept as before. Cross-origin: keep the bearer.
+ * Does the httpOnly device cookie ALONE authenticate an `/api/` request? An
+ * `observe`-tier GET carrying no Authorization header (the shared fetch wrapper
+ * is told to attach none, so a stale legacy bearer / identity token cannot
+ * mask a dropped cookie). Any non-2xx or transport error = not proven.
  */
-export async function finishDevicePairing(token: string): Promise<void> {
-  if (isSameOriginApi() && (await exchangeDeviceSession(token)) === "ok") {
+async function cookieAloneAuthenticates(): Promise<boolean> {
+  try {
+    suppressBearer = true;
+    const pending = fetch(`${getApiBase() || VITE_API_URL}/api/favorite-models`, { credentials: "same-origin" });
+    suppressBearer = false;
+    return (await pending).ok;
+  } catch {
+    return false;
+  } finally {
+    suppressBearer = false;
+  }
+}
+
+/** Outcome of `finishDevicePairing`. */
+export interface FinishDevicePairingResult {
+  /** Same-origin pairing whose cookie could not be proven: the bearer was KEPT and the user should be told. */
+  keepFailed: boolean;
+}
+
+/**
+ * Persist a freshly minted pairing bearer (QR and knock share this one policy).
+ * Same-origin: exchange for the cookie (awaited, so the next navigation already
+ * carries it), then discard the bearer ONLY after a cookie-only authenticated
+ * `/api/` request succeeds and keep just the marker; otherwise KEEP the bearer
+ * (it keeps authenticating) and report `keepFailed` so the landing can say so.
+ * Cross-origin: keep the bearer (no cookie crosses origins; nothing to report).
+ * See change: add-lan-knock-pairing (D15).
+ */
+export async function finishDevicePairing(token: string): Promise<FinishDevicePairingResult> {
+  if (!isSameOriginApi()) {
+    storeDeviceBearer(token);
+    return { keepFailed: false };
+  }
+  if ((await exchangeDeviceSession(token)) === "ok" && (await cookieAloneAuthenticates())) {
     setDevicePaired(true);
     clearDeviceBearer();
-    return;
+    return { keepFailed: false };
   }
   storeDeviceBearer(token);
+  return { keepFailed: true };
 }
 
 /**
@@ -167,7 +205,7 @@ export function installDeviceAuthFetch(): void {
   const original = window.fetch.bind(window);
   window.fetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const token = getApiBearer();
-    if (!token) return original(input, init);
+    if (!token || suppressBearer) return original(input, init);
 
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (!shouldAttachBearer(url)) return original(input, init);

@@ -141,10 +141,14 @@ export function PairingApprovalHost({
         entry={activeEntry}
         now={now}
         queued={queued}
-        onApprove={async (confirmCode, label) => {
+        onApprove={async (confirmCode, label, tier) => {
           answered.current.add(id);
           try {
-            const outcome = await api.approvePending(id, confirmCode, label);
+            // `tier` only for a knock entry; the QR call keeps its 3-arg shape.
+            const outcome =
+              tier === undefined
+                ? await api.approvePending(id, confirmCode, label)
+                : await api.approvePending(id, confirmCode, label, tier);
             // Any non-terminal failure (wrong code, 401, validation…) leaves the
             // dialog in its form, so the request's disappearance is news again.
             if (!outcome.ok && !TERMINAL_ERRORS.has(outcome.error)) answered.current.delete(id);

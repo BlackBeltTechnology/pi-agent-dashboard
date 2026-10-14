@@ -5,3 +5,5 @@ Session action callbacks extracted from App.tsx. Sends send/abort/force_kill/sto
 Exports `PendingSpawnEntry` `{cwd, kind, placeholderCwd?, focus?}` — single type for `pendingSpawnsRef` (App, this hook, useMessageHandler). `handleSpawnSession` opts gain `focus?: boolean`; records `focus:false` on the entry only when `opts.focus === false`; never sent on `spawn_session`. See change: openspec-board-spawn-no-focus.
 
 redesign-directory-home-split: `handleSpawnSession` opts gain `model?`/`thinkingLevel?` (sent on `spawn_session`) and now RETURNS the minted `requestId`. New dep `getResumePick(sessionId)`: an ENDED target's pick rides `send_prompt`; `handleResumeSession(..., "continue")` rides `resume_session`; never on fork / live sessions.
+
+Request ids minted via `randomUuid()` instead of `crypto.randomUUID` (non-secure LAN origins have no `randomUUID`). See change: add-lan-knock-pairing.

@@ -114,6 +114,11 @@ export function liveRequireLocalProof(): boolean {
   return getConfigSnapshot().requireLocalProof === true;
 }
 
+/** `pairing.acceptLanRequests` as of this request (live, no restart). See change: add-lan-knock-pairing. */
+export function liveAcceptLanRequests(): boolean {
+  return getConfigSnapshot().pairing?.acceptLanRequests === true;
+}
+
 /** Top-level `allowedHosts` as of this request (bind-time field, live list). */
 export function liveAllowedHosts(fallback: string[] = []): string[] {
   return getConfigSnapshot().allowedHosts ?? fallback;

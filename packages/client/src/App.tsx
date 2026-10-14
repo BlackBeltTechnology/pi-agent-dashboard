@@ -68,6 +68,7 @@ import { useInstallPrompt } from "./hooks/useInstallPrompt.js";
 import { useLaunchSource } from "./hooks/useLaunchSource.js";
 import { useMessageHandler } from "./hooks/useMessageHandler.js";
 import { useMobile } from "./hooks/useMobile.js";
+import { useNetworkDenied } from "./hooks/useNetworkDenied.js";
 import { useOpenSpecReader } from "./hooks/useOpenSpecReader.js";
 import { type OpenSpecGetInflight, useOpenSpecReconcile } from "./hooks/useOpenSpecReconcile.js";
 import { usePiResourceFileFetch } from "./hooks/usePiResourceFileFetch.js";
@@ -235,6 +236,7 @@ import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
 import { usePluginEnabledSet } from "./hooks/usePluginEnabledSet.js";
 import { registerPluginRouteDescriptors } from "./lib/nav/back-target.js";
 import { logRejection } from "./lib/report-error.js";
+import { randomUuid } from "./lib/util/random-uuid.js";
 
 // Populate the slot registry from the build-time generated plugin manifest.
 // PLUGIN_REGISTRY is `[]` on a fresh checkout (committed stub) — slot consumers
@@ -482,6 +484,9 @@ export default function App() {
   // Shell services for embedded plugin apps (`<EmbeddedApp>`): authenticated
   // root-relative transport + folder codec. Created once; the bases are read at
   // call time so a server switch is honoured. See change: add-plugin-app-host.
+  // A network-guard 403 on the active server (not a transport outage) → the
+  // banner's "Network not allowed" surface + Request access. See change: add-lan-knock-pairing.
+  const networkDenied = useNetworkDenied(status, apiBase);
   const apiBaseRef = useRef(apiBase);
   apiBaseRef.current = apiBase;
   const wsUrlRef = useRef(wsUrl);
@@ -1099,13 +1104,10 @@ export default function App() {
     send({
       type: "prompt_resync_request",
       sessionId: id,
-      // Guarded like the sibling subagent-resync sender: `crypto.randomUUID`
-      // is secure-context-only, and the dashboard is legitimately served over
-      // plain HTTP on LAN IPs. A bare call would throw there — silently making
-      // the refresh resync inert and killing the desync pill's click.
-      requestId:
-        globalThis.crypto?.randomUUID?.() ??
-        `pr-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      // `crypto.randomUUID` is secure-context-only and the dashboard is
+      // legitimately served over plain HTTP on LAN IPs; randomUuid() has a
+      // getRandomValues fallback, so the refresh resync is never inert there.
+      requestId: randomUuid(),
     });
   }, [send]);
 
@@ -1517,9 +1519,7 @@ export default function App() {
                 // Requester-scoped like the other two call sites (C5), so a
                 // reconnect resync is not fanned out to every subscriber.
                 // See change: reduce-subagent-details-payload.
-                requestId:
-                  globalThis.crypto?.randomUUID?.() ??
-                  `rs-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                requestId: randomUuid(),
                 reason: "open",
               });
             }
@@ -2246,7 +2246,7 @@ export default function App() {
           {t("connection.connecting", undefined, "Connecting...")}
         </div>
       )}
-      {status === "offline" && (
+      {status === "offline" && !networkDenied && (
         <div className="bg-red-600/20 text-red-400 text-xs px-3 py-1 text-center">
           {t("connection.offline", undefined, "Server offline")}
         </div>
@@ -3170,6 +3170,8 @@ export default function App() {
           status={status}
           currentServerHost={currentServerHost}
           inFlightSwitch={inFlightSwitchKey !== null}
+          networkDenied={networkDenied}
+          onOpenServers={() => navigate("/settings/remote")}
         />
         <Toast messages={toastMessages} onDismiss={dismissToast} />
         <WorktreeInitStack />
@@ -3249,6 +3251,17 @@ export default function App() {
           underlay covers exactly the content region the launching surface
           occupied. See change: fix-settings-overlay-header-peek. */}
       <div className="relative flex-1 flex flex-col min-w-0 min-h-0">
+        {/* Desktop shows only the guard-denial surface here (the mobile branch mounts the full
+            banner): a plain outage keeps `connectionBanner`'s offline bar. See change: add-lan-knock-pairing. */}
+        {networkDenied && (
+          <ConnectionStatusBanner
+            status={status}
+            currentServerHost={currentServerHost}
+            inFlightSwitch={inFlightSwitchKey !== null}
+            networkDenied={networkDenied}
+            onOpenServers={() => navigate("/settings/remote")}
+          />
+        )}
         {connectionBanner}
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
         {/* Folder-scoped editor pane (hosts terminal tabs via the keep-alive

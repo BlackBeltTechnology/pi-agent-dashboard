@@ -718,7 +718,7 @@ Pairing not the plain-LAN path. Plain-LAN access = Network Guard / `bindHost` + 
 
 QR pairing needs a secure context. Client identity-verify uses `crypto.subtle` (Ed25519 verify). `crypto.subtle` undefined on plain-http non-localhost origin.
 
-Browser plus plain-http LAN (`http://192.168.x.x:8000`) cannot pair. Not fixable in-project.
+Browser plus plain-http LAN (`http://192.168.x.x:8000`) cannot QR-pair. Opt-in unencrypted alternative: see [How do I pair a LAN device without TLS?](#how-do-i-pair-a-lan-device-without-tls).
 
 Get a secure road:
 - zrok tunnel (`/tunnel-setup`, `wss://…zrok.io`), or
@@ -727,6 +727,34 @@ Get a secure road:
 HTTP-01 / TLS-ALPN-01 fail on a box with no public inbound → DNS-01 only. mkcert CA must install on each client device.
 
 Paired bearer token replaces trusted networks. No `trustedNetworks` / OAuth needed once paired over TLS'd LAN.
+
+## How do I pair a LAN device without TLS?
+
+Opt-in LAN knock. Device asks, dashboard operator approves. Bearer travels plain http.
+
+Steps:
+1. On dashboard machine: Settings ▸ Gateway ▸ Connect a device ▸ "Devices on this network" → turn on "Accept requests from devices on this network". Live. No restart. Default off.
+2. On device: open `http://<lan-ip>:<port>/pair?request` (URL listed in panel, Copy action). Or Settings ▸ Network Discovery ▸ Connect on discovered server.
+3. Optional device name → Request access. Device shows 8-digit code (e.g. `4821 7730`).
+4. Dashboard machine: approval dialog pops. Shows device source address. Type code shown on device. Pick tier (default `operate`; `observe` / `control` for less). Approve.
+5. Device loads dashboard. Revoke later: Settings ▸ Security ▸ Paired Devices.
+
+Why unencrypted:
+- Plain http. No TLS on LAN.
+- QR / deep-link pairing needs https/wss. Knock path does not.
+- Passive LAN observer can capture bearer. Bearer long-lived (cookie ~400 d).
+- Accepted for LAN convenience. Prefer TLS: zrok tunnel or `tailscale cert` (see `Pairing ≠ LAN access` above).
+
+Refusals (shown on device):
+- `knock_disabled` → turn switch on in Gateway.
+- `knock_not_lan` → device not on same local network, or request came via tunnel / reverse proxy.
+- `knock_rate_limited` → wait stated `retryAfter`. Cooldown 10 min after deny.
+- `knock_pending` → earlier request from this device waiting. Expires ≤5 min.
+- `knock_busy` → too many requests waiting. Retry shortly.
+
+Container caveat: dashboard in Docker bridge network (shipped `docker/compose.yml`, Docker Desktop) sees every device as bridge gateway address. Dialog shows one address for all. Anyone reaching published port passes LAN check. Use host networking for real addresses. Details: `docs/architecture.md` §LAN knock pairing.
+
+See change: add-lan-knock-pairing.
 
 ## Why do all my PWA installs of the dashboard have the same name on the launcher?
 

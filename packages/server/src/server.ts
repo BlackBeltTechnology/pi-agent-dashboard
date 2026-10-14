@@ -67,6 +67,8 @@ import { clearRefusal, isRefused, listRefusals, recordRefusal } from "./access/r
 import { sourceChannel } from "./access/source-channel.js";
 import { YOLO_ENV } from "./access/yolo-env.js";
 import { YoloController } from "./access/yolo-session.js";
+import { scanAcpSessions } from "./acp-bridge/acp-restore.js";
+import { stopAllLocalAcpSessions } from "./acp-bridge/local-host.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { resolveRedirectBase } from "./auth/auth.js";
 import { authorizeWsUpgrade, buildLoginAvailable, effectiveSessionTier, registerAuthPlugin } from "./auth/auth-plugin.js";
@@ -101,6 +103,7 @@ import { createLocalCredentialVerifier, hasLocalCredential, listenWithProofFloor
 import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
 import { ensureLocalToken } from "./auth/local-token.js";
 import {
+  createLanInterfaceProvider,
   createNetworkGuard,
   createNetworkGuardHook,
   isPluginScopePeerLocal,
@@ -139,6 +142,7 @@ import { runLifecycleAction } from "./browser-handlers/session-lifecycle.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { readRawConfig, writeConfigPartial } from "./config-api.js";
 import {
+  liveAcceptLanRequests,
   liveAllowedHosts,
   liveCorsAllowedOrigins,
   liveHostGateMode,
@@ -221,10 +225,6 @@ import { createPreferencesStore } from "./persistence/preferences-store.js";
 import { loadHostProjectTrust } from "./pi/host-project-trust.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
-import { setLocalAcpHost, spawnAcpSession, validatePluginAcpSpawn } from "./spawn-process/acp-spawn.js";
-import { registerAcpRoutes } from "./routes/acp-routes.js";
-import { scanAcpSessions } from "./acp-bridge/acp-restore.js";
-import { stopAllLocalAcpSessions } from "./acp-bridge/local-host.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
 import { listGlobalSkills } from "./pi/pi-resource-scanner.js";
 import * as pluginEventSeam from "./plugin-event-seam.js";
@@ -233,6 +233,7 @@ import { createPluginRequestLane } from "./plugin-request-lane.js";
 import { createPushService, type PushService } from "./push/push-service.js";
 import { registerAccessPromptRoutes } from "./routes/access-prompt-routes.js";
 import { registerAccessRoutes } from "./routes/access-routes.js";
+import { registerAcpRoutes } from "./routes/acp-routes.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
@@ -291,14 +292,7 @@ import { defaultCommandRunner } from "./services/command-runner.js";
 import { servicesPaths } from "./services/paths.js";
 import { registerServiceRoutes } from "./services/routes.js";
 import { ServiceManager } from "./services/service-manager.js";
-import { createVaultDeliveryHub } from "./vault/vault-delivery-hub.js";
-import { createPluginVaultReader } from "./vault/vault-plugin-read.js";
-import { createVaultImport, defaultKnownLocations } from "./vault/vault-import.js";
-import { registerVaultRoutes } from "./vault/vault-routes.js";
-import { createVaultProjects } from "./vault/vault-projects.js";
-import { createVaultStore } from "./vault/vault-store.js";
 import { createArchiveSweeper } from "./session/archive-sweeper.js";
-import { originOf } from "./session/session-origin.js";
 import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
 import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
@@ -314,8 +308,10 @@ import { registerSessionApi } from "./session/session-api.js";
 import { createSessionArchive } from "./session/session-archive.js";
 import { discoverAndBroadcastSessions } from "./session/session-bootstrap.js";
 import { createSessionOrderManager, type SessionOrderManager } from "./session/session-order-manager.js";
+import { originOf } from "./session/session-origin.js";
 import { bootScanAllSessions } from "./session/session-scanner.js";
 import { sessionToMeta } from "./session/session-to-meta.js";
+import { setLocalAcpHost, spawnAcpSession, validatePluginAcpSpawn } from "./spawn-process/acp-spawn.js";
 import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
@@ -327,6 +323,12 @@ import { createTerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, deriveTranscriptCapBytes } from "./terminal/terminal-manager.js";
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, liveTunnelOrigins, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
+import { createVaultDeliveryHub } from "./vault/vault-delivery-hub.js";
+import { createVaultImport, defaultKnownLocations } from "./vault/vault-import.js";
+import { createPluginVaultReader } from "./vault/vault-plugin-read.js";
+import { createVaultProjects } from "./vault/vault-projects.js";
+import { registerVaultRoutes } from "./vault/vault-routes.js";
+import { createVaultStore } from "./vault/vault-store.js";
 
 export interface ServerConfig {
   port: number;
@@ -2772,6 +2774,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       const addr = fastify.server.address();
       return typeof addr === "object" && addr !== null ? addr.port : config.port;
     },
+    // LAN knock pairing: the switch is read LIVE per request (no restart), and
+    // the on-link gate scores the peer against the interfaces the bind covers.
+    // See change: add-lan-knock-pairing.
+    getAcceptLanRequests: liveAcceptLanRequests,
+    getLanInterfaces: createLanInterfaceProvider({ bindHost: config.host }),
   });
   // Operator user directory (passkeys). See change: add-passkey-user-auth.
   registerUserRoutes(fastify, {

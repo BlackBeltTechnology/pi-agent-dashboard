@@ -2,6 +2,7 @@ import net from "node:net";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  createLanInterfaceProvider,
   createNetworkGuard,
   createNetworkGuardHook,
   createTrustedListNoter,
@@ -11,12 +12,15 @@ import {
   ipToNum,
   isBypassedHost,
   isGuardJurisdiction,
+  isOnLinkPrivate,
   isTrustedSource,
+  knockSourceKey,
   localhostGuard,
   loopbackCoveringEntries,
   matchCidr,
   netmaskToCidrBits,
   networkAddress,
+  parseIpAddress,
 } from "../auth/localhost-guard.js";
 import { isLoopback } from "../auth/loopback.js";
 import { buildNetworkInterfaceList } from "../routes/network-interfaces.js";
@@ -1219,5 +1223,121 @@ describe("E13 inert-entry warning dedups by covering-entry signature", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+// ── LAN knock peer-address predicates ─────────────────────────────────
+// See change: add-lan-knock-pairing (design D3, D4; test-plan #E2 #E3 #E4).
+
+describe("#E2 parseIpAddress", () => {
+  it("strips the zone id", () => {
+    expect(parseIpAddress("fe80::a1b2%en0")).toMatchObject({ family: 6, text: "fe80::a1b2" });
+  });
+  it("unwraps an IPv4-mapped address", () => {
+    expect(parseIpAddress("::ffff:192.168.16.31")).toMatchObject({ family: 4, text: "192.168.16.31" });
+  });
+  it("expands to 8 groups", () => {
+    const p = parseIpAddress("fd12:3456:789a:1::10");
+    expect(p?.family).toBe(6);
+    expect(p?.bytes).toHaveLength(16);
+    expect(Array.from(p!.bytes.slice(0, 8))).toEqual([0xfd, 0x12, 0x34, 0x56, 0x78, 0x9a, 0x00, 0x01]);
+    expect(p!.bytes[15]).toBe(0x10);
+  });
+  it("recognises loopback", () => {
+    expect(parseIpAddress("::1")).toMatchObject({ family: 6, text: "::1" });
+  });
+  it("returns null for junk", () => {
+    expect(parseIpAddress("not-an-ip")).toBeNull();
+    expect(parseIpAddress("")).toBeNull();
+    expect(parseIpAddress(undefined)).toBeNull();
+    expect(parseIpAddress("1.2.3")).toBeNull();
+  });
+});
+
+describe("#E3 isOnLinkPrivate", () => {
+  const ifaces = [
+    { address: "192.168.16.204", netmask: "255.255.255.0" },
+    { address: "fe80::1%en0", netmask: "ffff:ffff:ffff:ffff::" },
+    { address: "fd12::1", netmask: "ffff:ffff:ffff:ffff::" },
+  ];
+  const cases: Array<[string | undefined, boolean]> = [
+    ["192.168.16.31", true],
+    ["192.168.17.5", false],
+    ["100.101.102.103", false],
+    ["203.0.113.9", false],
+    ["127.0.0.1", false],
+    ["::1", false],
+    ["::ffff:192.168.16.31", true],
+    ["fe80::a1b2%en0", true],
+    ["fd12::5", true],
+    [undefined, false],
+  ];
+  it.each(cases)("%s -> %s", (peer, expected) => {
+    expect(isOnLinkPrivate(peer, ifaces)).toBe(expected);
+  });
+
+  it("a private peer in a served non-RFC1918 subnet needs its own interface", () => {
+    expect(isOnLinkPrivate("100.101.102.103", [{ address: "100.101.102.1", netmask: "255.255.255.0" }])).toBe(true);
+    // point-to-point /32 tailnet interface: no neighbours
+    expect(isOnLinkPrivate("100.101.102.103", [{ address: "100.101.102.1", netmask: "255.255.255.255" }])).toBe(false);
+  });
+
+  it("a public peer is refused even when it shares a (public) served subnet", () => {
+    expect(isOnLinkPrivate("203.0.113.9", [{ address: "203.0.113.1", netmask: "255.255.255.0" }])).toBe(false);
+  });
+});
+
+describe("isOnLinkPrivate fails closed on a bad interface mask (audit S3)", () => {
+  it.each([["garbage"], ["0.0.0.0"], [""]])("netmask %j admits nobody", (netmask) => {
+    expect(isOnLinkPrivate("192.168.5.5", [{ address: "10.0.0.2", netmask }])).toBe(false);
+    expect(isOnLinkPrivate("192.168.5.5", [{ address: "192.168.5.1", netmask }])).toBe(false);
+  });
+});
+
+describe("#E4 knockSourceKey", () => {
+  it("keeps /64 neighbours distinct", () => {
+    expect(knockSourceKey("fd12:3456:789a:1::10")).not.toBe(knockSourceKey("fd12:3456:789a:1::22"));
+  });
+  it("strips the zone", () => {
+    expect(knockSourceKey("fe80::a1b2%en0")).toBe("fe80::a1b2");
+  });
+  it("is the dotted quad for IPv4 (incl. mapped)", () => {
+    expect(knockSourceKey("192.168.16.31")).toBe("192.168.16.31");
+    expect(knockSourceKey("::ffff:192.168.16.31")).toBe("192.168.16.31");
+  });
+});
+
+describe("createLanInterfaceProvider (bind coverage + 30 s cache)", () => {
+  const raw = () => ({
+    lo0: [{ address: "127.0.0.1", netmask: "255.0.0.0", family: "IPv4", internal: true }],
+    en0: [
+      { address: "192.168.16.204", netmask: "255.255.255.0", family: "IPv4", internal: false },
+      { address: "fe80::1", netmask: "ffff:ffff:ffff:ffff::", family: "IPv6", internal: false },
+    ],
+    en1: [{ address: "10.0.0.5", netmask: "255.0.0.0", family: "IPv4", internal: false }],
+  }) as never;
+
+  it("a wildcard bind covers every non-internal address", () => {
+    const get = createLanInterfaceProvider({ bindHost: "0.0.0.0", read: raw });
+    expect(get().map((i) => i.address)).toEqual(["192.168.16.204", "fe80::1", "10.0.0.5"]);
+  });
+  it("a specific bind covers only that address", () => {
+    const get = createLanInterfaceProvider({ bindHost: "192.168.16.204", read: raw });
+    expect(get().map((i) => i.address)).toEqual(["192.168.16.204"]);
+  });
+  it("a loopback bind covers nothing on-link", () => {
+    expect(createLanInterfaceProvider({ bindHost: "127.0.0.1", read: raw })()).toEqual([]);
+  });
+  it("caches for 30 s", () => {
+    let t = 0;
+    const read = vi.fn(raw);
+    const get = createLanInterfaceProvider({ bindHost: "0.0.0.0", read, now: () => t });
+    get();
+    t = 29_000;
+    get();
+    expect(read).toHaveBeenCalledTimes(1);
+    t = 31_000;
+    get();
+    expect(read).toHaveBeenCalledTimes(2);
   });
 });

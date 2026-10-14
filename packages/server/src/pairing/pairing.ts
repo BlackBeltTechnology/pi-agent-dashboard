@@ -18,11 +18,13 @@
  * must NOT honor the loopback/tunnel exemption (enforced at the route layer).
  */
 import crypto from "node:crypto";
+import type { PairingProvenance } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock.js";
 import {
   defaultTierForSource,
   isTier,
   type Tier,
 } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import type { KnockOutcome } from "./knock-admission.js";
 import type { PairedDeviceRegistry, PairedDeviceView } from "./paired-devices.js";
 
 /** Current pairing protocol version (D9). */
@@ -61,6 +63,8 @@ const RESOLVED_POLL_WINDOW_MS = 30_000;
 const MAX_UA_CHARS = 256;
 const MAX_HOST_CHARS = 253;
 const MAX_ADDR_CHARS = 64;
+/** Requester-name cap in UTF-8 bytes — mirrors approve-pending's 1..64-byte label rule (D16). */
+const MAX_REQUESTER_NAME_BYTES = 64;
 
 /**
  * Raw redeemer request context as the route layer sees it. Every field is
@@ -78,6 +82,12 @@ export interface RedeemMeta {
 /** Operator-facing view of one pending device — never carries a code (R5). */
 export interface PendingDeviceView {
   pendingId: string;
+  /** How the device entered the flow. Clients treat an absent value as `qr`. */
+  provenance: PairingProvenance;
+  /** Knock only: bounded, untrusted, display text. Never an authorization input. */
+  requesterName?: string;
+  /** Knock only: the request arrived over a connection without TLS. */
+  unencrypted?: boolean;
   userAgent?: string;
   viaHost?: string;
   remoteAddress?: string;
@@ -107,6 +117,8 @@ interface PairingCodeEntry {
   pending: PendingDevice | null;
   /** Pushed-expiry timer for the live pending device (D4b). */
   timer?: ReturnType<typeof setTimeout>;
+  /** Present only for a device-initiated knock; the code is then internal and never returned. */
+  knock?: { sourceKey: string; unencrypted: boolean; requesterName?: string };
 }
 
 interface PendingDevice {
@@ -123,6 +135,33 @@ interface PendingDevice {
   viaHost?: string;
   remoteAddress?: string;
   forwardedFor?: string;
+}
+
+/**
+ * Characters stripped from a requester name: control + format (bidi overrides,
+ * zero-width), surrogates, private-use, line/paragraph separators, and the
+ * blank-rendering Hangul fillers — all could fake a layout or an invisible name.
+ */
+const INVISIBLE_OR_SEPARATOR = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Zl}\p{Zp}\u115F\u1160\u3164\uFFA0]/gu;
+
+/**
+ * Requester-name normaliser (design D16): non-string → absent; strip
+ * {@link INVISIBLE_OR_SEPARATOR}, trim, truncate to <= 64 UTF-8 bytes on
+ * a code-point boundary; empty → absent. Never refuses a knock.
+ */
+function normalizeRequesterName(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const cleaned = v.replace(INVISIBLE_OR_SEPARATOR, "").trim();
+  let out = "";
+  let bytes = 0;
+  for (const ch of cleaned) {
+    const n = Buffer.byteLength(ch, "utf8");
+    if (bytes + n > MAX_REQUESTER_NAME_BYTES) break;
+    out += ch;
+    bytes += n;
+  }
+  out = out.trim();
+  return out.length === 0 ? undefined : out;
 }
 
 function bound(v: unknown, max: number): string | undefined {
@@ -144,6 +183,18 @@ export type ApproveResult =
   | { ok: true; device: PairedDeviceView }
   | { ok: false; error: "mismatch"; attemptsLeft: number }
   | { ok: false; error: "invalid_code" | "no_pending" | "locked_out" | "expired" };
+
+export type KnockResult =
+  | { ok: true; pendingId: string; confirmCode: string; expiresAt: number };
+
+export interface KnockRequest {
+  /** Admission's source key (full peer address) — stored for the cooldown callback. */
+  sourceKey: string;
+  /** Raw requester name; normalised here. */
+  name?: unknown;
+  unencrypted: boolean;
+  meta: RedeemMeta;
+}
 
 export type DenyResult = { ok: true } | { ok: false; error: "no_pending" };
 
@@ -175,6 +226,7 @@ export class PairingManager {
   private readonly now: () => number;
   private codes = new Map<string, PairingCodeEntry>();
   private listeners = new Set<() => void>();
+  private resolvedListeners = new Set<(sourceKey: string, outcome: KnockOutcome) => void>();
 
   constructor(deps: PairingManagerDeps) {
     this.deps = deps;
@@ -189,6 +241,43 @@ export class PairingManager {
   onPendingChanged(cb: () => void): () => void {
     this.listeners.add(cb);
     return () => this.listeners.delete(cb);
+  }
+
+  /**
+   * Subscribe to knock resolutions (denied / locked_out / approved / expired),
+   * carrying the entry's `sourceKey`. QR redemptions never fire it. Returns an
+   * unsubscribe. See change: add-lan-knock-pairing (D12).
+   */
+  onKnockResolved(cb: (sourceKey: string, outcome: KnockOutcome) => void): () => void {
+    this.resolvedListeners.add(cb);
+    return () => this.resolvedListeners.delete(cb);
+  }
+
+  private emitKnockResolved(entry: PairingCodeEntry, outcome: KnockOutcome): void {
+    if (!entry.knock) return;
+    for (const cb of this.resolvedListeners) {
+      try {
+        cb(entry.knock.sourceKey, outcome);
+      } catch {
+        // A listener must never break the pairing state machine.
+      }
+    }
+  }
+
+  /**
+   * Knocks an operator can still act on. Compares `expiresAt` itself: `isLive`
+   * ignores expiry until `sweep()` runs, so an expired-unswept knock would
+   * otherwise hold a slot. A resolved knock that is still pollable is NOT live.
+   */
+  liveKnocks(): Array<{ sourceKey: string; pendingId: string; expiresAt: number }> {
+    const t = this.now();
+    const out: Array<{ sourceKey: string; pendingId: string; expiresAt: number }> = [];
+    for (const entry of this.codes.values()) {
+      if (entry.knock && PairingManager.isLive(entry.pending) && entry.expiresAt >= t) {
+        out.push({ sourceKey: entry.knock.sourceKey, pendingId: entry.pending.pendingId, expiresAt: entry.expiresAt });
+      }
+    }
+    return out;
   }
 
   private emitChanged(): void {
@@ -232,9 +321,11 @@ export class PairingManager {
       // entry is swept whether or not it was ever polled (no unbounded growth
       // for approved-but-unpolled devices).
       if (entry.expiresAt < t) {
+        const wasLive = PairingManager.isLive(entry.pending);
         this.expireEntry(entry);
         this.codes.delete(code);
-        if (PairingManager.isLive(entry.pending)) changed = true;
+        if (wasLive) this.emitKnockResolved(entry, "expired");
+        if (wasLive) changed = true;
       }
     }
     if (changed) this.emitChanged();
@@ -252,6 +343,7 @@ export class PairingManager {
   dispose(): void {
     for (const entry of this.codes.values()) this.clearTimer(entry);
     this.listeners.clear();
+    this.resolvedListeners.clear();
   }
 
   /** Compute the reachable, publicly-trusted URLs, deduplicated. */
@@ -296,6 +388,49 @@ export class PairingManager {
     return { v: negotiated, id: this.deps.getFingerprint(), code, urls };
   }
 
+  private newPending(meta: RedeemMeta): PendingDevice {
+    return {
+      pendingId: crypto.randomUUID(),
+      confirmCode: makeConfirmCode(),
+      label: "device",
+      createdAt: this.now(),
+      approveAttempts: 0,
+      issuedToken: null,
+      rejected: false,
+      userAgent: bound(meta.userAgent, MAX_UA_CHARS),
+      viaHost: bound(meta.host, MAX_HOST_CHARS),
+      remoteAddress: bound(meta.remoteAddress, MAX_ADDR_CHARS),
+      forwardedFor: bound(meta.forwardedFor?.split(",")[0], MAX_ADDR_CHARS),
+    };
+  }
+
+  /**
+   * Device-initiated request ("knock"): mints an INTERNAL code entry exactly like
+   * `createPayload()` (the code is never returned or listed) and fills its single
+   * pending slot like `redeem()`, so approve / deny / lockout / expiry / poll are
+   * the shared lifecycle. Admission (gates, limits) is the caller's job — see
+   * `admitKnock`. See change: add-lan-knock-pairing (D1).
+   */
+  knock(req: KnockRequest): KnockResult {
+    this.sweep();
+    const code = crypto.randomBytes(16).toString("base64url");
+    const pending = this.newPending(req.meta);
+    const expiresAt = this.now() + CODE_TTL_MS;
+    const entry: PairingCodeEntry = {
+      code,
+      v: PAIRING_PROTOCOL_VERSION,
+      expiresAt,
+      redeemAttempts: 0,
+      pending,
+      knock: { sourceKey: req.sourceKey, unencrypted: req.unencrypted, requesterName: normalizeRequesterName(req.name) },
+    };
+    this.codes.set(code, entry);
+    this.armTimer(entry);
+    console.log(`[pairing] knock admitted id=${shortId(pending.pendingId)}`);
+    this.emitChanged();
+    return { ok: true, pendingId: pending.pendingId, confirmCode: pending.confirmCode, expiresAt };
+  }
+
   /**
    * Device redeems a code → creates/refreshes the single pending slot and
    * returns the confirmation code to display on the device. Does NOT consume
@@ -319,19 +454,7 @@ export class PairingManager {
 
     // At most ONE active pending device per code — a fresh redemption
     // overwrites the slot (bounded memory, no approval-prompt flood).
-    const pending: PendingDevice = {
-      pendingId: crypto.randomUUID(),
-      confirmCode: makeConfirmCode(),
-      label: "device",
-      createdAt: this.now(),
-      approveAttempts: 0,
-      issuedToken: null,
-      rejected: false,
-      userAgent: bound(meta.userAgent, MAX_UA_CHARS),
-      viaHost: bound(meta.host, MAX_HOST_CHARS),
-      remoteAddress: bound(meta.remoteAddress, MAX_ADDR_CHARS),
-      forwardedFor: bound(meta.forwardedFor?.split(",")[0], MAX_ADDR_CHARS),
-    };
+    const pending = this.newPending(meta);
     entry.pending = pending;
     // Restart the approval window at redeem time. The one-time code's TTL is
     // minted with the QR, but the operator's read+type+approve countdown must
@@ -362,21 +485,28 @@ export class PairingManager {
     this.sweep();
     const out: PendingDeviceView[] = [];
     for (const entry of this.codes.values()) {
-      const p = entry.pending;
-      if (!PairingManager.isLive(p)) continue;
-      const view: PendingDeviceView = {
-        pendingId: p.pendingId,
-        createdAt: p.createdAt,
-        expiresAt: entry.expiresAt,
-        attemptsLeft: MAX_APPROVE_ATTEMPTS - p.approveAttempts,
-      };
-      if (p.userAgent !== undefined) view.userAgent = p.userAgent;
-      if (p.viaHost !== undefined) view.viaHost = p.viaHost;
-      if (p.remoteAddress !== undefined) view.remoteAddress = p.remoteAddress;
-      if (p.forwardedFor !== undefined) view.forwardedFor = p.forwardedFor;
-      out.push(view);
+      if (PairingManager.isLive(entry.pending)) out.push(PairingManager.toView(entry, entry.pending));
     }
     return out.sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  private static toView(entry: PairingCodeEntry, p: PendingDevice): PendingDeviceView {
+    const view: PendingDeviceView = {
+      pendingId: p.pendingId,
+      provenance: entry.knock ? "knock" : "qr",
+      createdAt: p.createdAt,
+      expiresAt: entry.expiresAt,
+      attemptsLeft: MAX_APPROVE_ATTEMPTS - p.approveAttempts,
+    };
+    if (p.userAgent !== undefined) view.userAgent = p.userAgent;
+    if (p.viaHost !== undefined) view.viaHost = p.viaHost;
+    if (p.remoteAddress !== undefined) view.remoteAddress = p.remoteAddress;
+    if (p.forwardedFor !== undefined) view.forwardedFor = p.forwardedFor;
+    if (entry.knock) {
+      if (entry.knock.requesterName !== undefined) view.requesterName = entry.knock.requesterName;
+      view.unencrypted = entry.knock.unencrypted;
+    }
+    return view;
   }
 
   private findByPendingId(pendingId: string): PairingCodeEntry | undefined {
@@ -416,6 +546,7 @@ export class PairingManager {
     // Keep the entry briefly so the device's poll can learn `rejected`.
     entry.expiresAt = this.now() + RESOLVED_POLL_WINDOW_MS;
     console.log(`[pairing] denied id=${shortId(pending.pendingId)}`);
+    this.emitKnockResolved(entry, "denied");
     this.emitChanged();
     return { ok: true };
   }
@@ -454,6 +585,7 @@ export class PairingManager {
         // the operator list and its expiry timer is no longer needed.
         this.clearTimer(entry);
         console.log(`[pairing] locked_out id=${shortId(pending.pendingId)}`);
+        this.emitKnockResolved(entry, "locked_out");
         this.emitChanged();
         return { ok: false, error: "locked_out" };
       }
@@ -476,6 +608,7 @@ export class PairingManager {
     entry.expiresAt = this.now() + RESOLVED_POLL_WINDOW_MS;
     this.clearTimer(entry);
     console.log(`[pairing] approved id=${shortId(pending.pendingId)} device=${String(device.id).slice(0, 8)}`);
+    this.emitKnockResolved(entry, "approved");
     this.emitChanged();
     return { ok: true, device };
   }

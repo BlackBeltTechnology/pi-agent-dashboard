@@ -808,3 +808,177 @@ describe("D2 — revoke + approve refuse a device bearer; approve label bounded"
     expect(reg.list().some((d) => d.id === b.device.id)).toBe(true);
   });
 });
+
+// ── LAN knock entry (change: add-lan-knock-pairing; test-plan #E14 #E16 #E17 #E18) ──
+
+describe("knock(): name normalisation (#E14)", () => {
+  function knockWith(name: unknown) {
+    const { mgr } = mkManager();
+    const r = mgr.knock({ sourceKey: "192.168.16.31", name, unencrypted: true, meta: { remoteAddress: "192.168.16.31" } });
+    expect(r.ok).toBe(true);
+    return mgr.listPending()[0]?.requesterName;
+  }
+  it("truncates a 200-char name to <= 64 bytes", () => {
+    const n = knockWith("x".repeat(200));
+    expect(Buffer.byteLength(n!, "utf8")).toBeLessThanOrEqual(64);
+    expect(n!.length).toBe(64);
+  });
+  it("never splits a 4-byte character at the boundary", () => {
+    const n = knockWith(`${"a".repeat(63)}\u{1F600}`);
+    expect(n).toBe("a".repeat(63));
+    expect(Buffer.byteLength(n!, "utf8")).toBe(63);
+  });
+  it("strips bidi overrides and zero-width characters", () => {
+    expect(knockWith("\u202Ecod.exe")).toBe("cod.exe");
+    expect(knockWith("a\u200Bb")).toBe("ab");
+  });
+  it("strips line separators and blank-rendering fillers too (audit S2)", () => {
+    expect(knockWith("Alice\u2028(approved by admin)")).toBe("Alice(approved by admin)");
+    expect(knockWith("\u3164")).toBeUndefined();
+    expect(knockWith("a\u115Fb\uFFA0c")).toBe("abc");
+    expect(knockWith("x\uE000y")).toBe("xy");
+  });
+  it("blank and non-string names are absent, never refused", () => {
+    expect(knockWith("   ")).toBeUndefined();
+    expect(knockWith(123)).toBeUndefined();
+    expect(knockWith(undefined)).toBeUndefined();
+  });
+});
+
+describe("knock(): lifecycle (#E16)", () => {
+  it("returns an 8-digit code, ~300 s expiry and one change hint", () => {
+    const { mgr } = mkManager();
+    let hints = 0;
+    mgr.onPendingChanged(() => hints++);
+    const r = mgr.knock({ sourceKey: "192.168.16.31", name: "mbp", unencrypted: true, meta: {} });
+    if (!r.ok) throw new Error("knock failed");
+    expect(r.confirmCode).toMatch(/^\d{8}$/);
+    expect(r.expiresAt).toBe(clock + 300_000);
+    expect(hints).toBe(1);
+    mgr.dispose();
+  });
+
+  it("approvePending issues the bearer exactly once", () => {
+    const { mgr, reg } = mkManager();
+    const r = mgr.knock({ sourceKey: "192.168.16.31", unencrypted: true, meta: {} });
+    if (!r.ok) throw new Error("knock failed");
+    const a = mgr.approvePending(r.pendingId, r.confirmCode);
+    expect(a.ok).toBe(true);
+    expect(reg.list()).toHaveLength(1);
+    const first = mgr.poll(r.pendingId);
+    expect(first.status).toBe("approved");
+    expect(mgr.poll(r.pendingId).status).toBe("unknown");
+  });
+
+  it("deny → rejected, no token", () => {
+    const { mgr, reg } = mkManager();
+    const r = mgr.knock({ sourceKey: "192.168.16.31", unencrypted: true, meta: {} });
+    if (!r.ok) throw new Error("knock failed");
+    expect(mgr.deny(r.pendingId).ok).toBe(true);
+    expect(mgr.poll(r.pendingId).status).toBe("rejected");
+    expect(reg.list()).toHaveLength(0);
+  });
+
+  it("5 wrong codes lock out", () => {
+    const { mgr } = mkManager();
+    const r = mgr.knock({ sourceKey: "192.168.16.31", unencrypted: true, meta: {} });
+    if (!r.ok) throw new Error("knock failed");
+    let last: unknown;
+    for (let i = 0; i < 5; i++) last = mgr.approvePending(r.pendingId, "00000000" === r.confirmCode ? "11111111" : "00000000");
+    expect(last).toMatchObject({ ok: false, error: "locked_out" });
+  });
+
+  it("a knock never reveals a QR pairing code or payload", () => {
+    const { mgr } = mkManager();
+    const r = mgr.knock({ sourceKey: "192.168.16.31", unencrypted: true, meta: {} });
+    expect(Object.keys(r).sort()).toEqual(["confirmCode", "expiresAt", "ok", "pendingId"]);
+  });
+});
+
+describe("pending feed provenance (#E17)", () => {
+  it("lists qr and knock entries with provenance, name, unencrypted — never a code", () => {
+    const { mgr } = mkManager();
+    const payload = mgr.createPayload()!;
+    mgr.redeem(payload.code, {});
+    clock += 10;
+    mgr.knock({ sourceKey: "192.168.16.31", name: "Roberts-MacBook-Pro", unencrypted: true, meta: { remoteAddress: "192.168.16.31" } });
+    const [qr, knock] = mgr.listPending();
+    expect(qr.provenance).toBe("qr");
+    expect(qr.requesterName).toBeUndefined();
+    expect(qr.unencrypted).toBeUndefined();
+    expect(knock).toMatchObject({
+      provenance: "knock",
+      requesterName: "Roberts-MacBook-Pro",
+      unencrypted: true,
+      remoteAddress: "192.168.16.31",
+    });
+    const dump = JSON.stringify([qr, knock]);
+    expect(dump).not.toContain(payload.code);
+    expect(dump).not.toMatch(/confirmCode/);
+  });
+
+  it("encrypted knock carries unencrypted:false", () => {
+    const { mgr } = mkManager();
+    mgr.knock({ sourceKey: "192.168.16.31", unencrypted: false, meta: {} });
+    expect(mgr.listPending()[0].unencrypted).toBe(false);
+  });
+});
+
+describe("liveKnocks() and onKnockResolved (#E11 #E18)", () => {
+  function setup() {
+    const { mgr } = mkManager();
+    const seen: Array<[string, string]> = [];
+    mgr.onKnockResolved((k, o) => seen.push([k, o]));
+    return { mgr, seen };
+  }
+  const k = (mgr: PairingManager, src: string) => {
+    const r = mgr.knock({ sourceKey: src, unencrypted: true, meta: {} });
+    if (!r.ok) throw new Error("knock failed");
+    return r;
+  };
+
+  it("deny → denied, and the entry is no longer live although still pollable", () => {
+    const { mgr, seen } = setup();
+    const r = k(mgr, "a");
+    expect(mgr.liveKnocks().map((x) => x.sourceKey)).toEqual(["a"]);
+    mgr.deny(r.pendingId);
+    expect(seen).toEqual([["a", "denied"]]);
+    expect(mgr.liveKnocks()).toEqual([]);
+    expect(mgr.poll(r.pendingId).status).toBe("rejected");
+  });
+
+  it("lockout → locked_out", () => {
+    const { mgr, seen } = setup();
+    const r = k(mgr, "b");
+    const wrong = r.confirmCode === "00000000" ? "11111111" : "00000000";
+    for (let i = 0; i < 5; i++) mgr.approvePending(r.pendingId, wrong);
+    expect(seen).toEqual([["b", "locked_out"]]);
+    expect(mgr.liveKnocks()).toEqual([]);
+  });
+
+  it("match → approved", () => {
+    const { mgr, seen } = setup();
+    const r = k(mgr, "c");
+    mgr.approvePending(r.pendingId, r.confirmCode);
+    expect(seen).toEqual([["c", "approved"]]);
+    expect(mgr.liveKnocks()).toEqual([]);
+  });
+
+  it("sweep expiry → expired; an unswept expired knock is not live", () => {
+    const { mgr, seen } = setup();
+    k(mgr, "d");
+    clock += 300_001;
+    expect(mgr.liveKnocks()).toEqual([]); // before any sweep ran
+    mgr.listPending(); // triggers sweep
+    expect(seen).toEqual([["d", "expired"]]);
+  });
+
+  it("QR redemptions never appear in liveKnocks or fire the callback", () => {
+    const { mgr, seen } = setup();
+    const p = mgr.createPayload()!;
+    mgr.redeem(p.code, {});
+    expect(mgr.liveKnocks()).toEqual([]);
+    mgr.deny(mgr.listPending()[0].pendingId);
+    expect(seen).toEqual([]);
+  });
+});

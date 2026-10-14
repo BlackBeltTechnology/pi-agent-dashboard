@@ -71,3 +71,5 @@ Creates `inFlightToolCalls` + `toolResultStats`; passes to `wireEvents`, `regist
 
 Plugin ctx wires `getPiResources(cwd?, {fresh?})` (SWR read; fresh = `refreshPiResourcesFresh`; raw scan, no provenance join) + `onPiResourcesInvalidated`. See change: add-skill-atlas-screen.
 - Not-found handlers (dev, production, no build): `replyIfApiNotFound` runs first. `parseGuardTarget(request.url)` `raw`/`resolved` = `/api` or `/api/*`, or `null` target → 404 `{success:false,error:"not_found",message:"No API route for <METHOD> <path≤200, no query>"}`; never `index.html`, never Vite proxy. Limit: `/api%2Fx` still SPA shell. With a client build `@fastify/static` answers dot-segment / `//` forms 403 before this handler; the guard refuses unparseable `//api/x` 403. See change: retro-ux-credential-vault.
+
+`registerPairingRoutes` wired with `getAcceptLanRequests: liveAcceptLanRequests` and `getLanInterfaces: createLanInterfaceProvider({bindHost: config.host})`. See change: add-lan-knock-pairing.

@@ -323,6 +323,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/pair/deny", tier: "operate" },
   { method: "POST", path: "/api/pair/poll", tier: "operate" },
   { method: "POST", path: "/api/pair/redeem", tier: "operate" },
+  { method: "POST", path: "/api/pair/request", tier: "operate" },
   { method: "POST", path: "/api/paired-devices", tier: "operate" },
   { method: "POST", path: "/api/pi-core/update", tier: "operate" },
   // Runtime overlay mutations: stage / activate / roll back the dashboard

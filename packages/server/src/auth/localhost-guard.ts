@@ -3,6 +3,8 @@
  * Supports loopback, trusted networks (CIDR/wildcard/exact), and authenticated users.
  */
 
+import { isIPv4, isIPv6 } from "node:net";
+import os from "node:os";
 import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
@@ -805,6 +807,203 @@ export function networkAddress(ip: string, netmask: string): string {
     (net >>> 8) & 0xff,
     net & 0xff,
   ].join(".");
+}
+
+// ── LAN knock peer-address predicates ────────────────────────────────
+// See change: add-lan-knock-pairing (design D3, D4).
+
+/** A parsed peer address: 4 or 16 bytes, plus its canonical text form. */
+export interface ParsedIp {
+  family: 4 | 6;
+  bytes: Uint8Array;
+  /** Canonical text: dotted quad, or zone-less lower-case compressed IPv6. */
+  text: string;
+}
+
+function compressIpv6(groups: number[]): string {
+  let bestStart = -1;
+  let bestLen = 0;
+  for (let i = 0; i < 8; ) {
+    if (groups[i] !== 0) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < 8 && groups[j] === 0) j++;
+    if (j - i > bestLen) {
+      bestStart = i;
+      bestLen = j - i;
+    }
+    i = j;
+  }
+  const hex = groups.map((g) => g.toString(16));
+  if (bestLen < 2) return hex.join(":");
+  return `${hex.slice(0, bestStart).join(":")}::${hex.slice(bestStart + bestLen).join(":")}`;
+}
+
+/** Expand an IPv6 literal (no zone) to its 8 groups, or null. */
+function ipv6Groups(raw: string): number[] | null {
+  // Embedded IPv4 tail (`::ffff:1.2.3.4`) → two hex groups.
+  let body = raw;
+  const lastColon = body.lastIndexOf(":");
+  const tail = body.slice(lastColon + 1);
+  if (tail.includes(".")) {
+    const o = tail.split(".").map(Number);
+    body = `${body.slice(0, lastColon + 1)}${((o[0] << 8) | o[1]).toString(16)}:${((o[2] << 8) | o[3]).toString(16)}`;
+  }
+  const halves = body.split("::");
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const rest = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  const fill = halves.length === 2 ? 8 - head.length - rest.length : 0;
+  if (fill < 0 || (halves.length === 1 && head.length !== 8)) return null;
+  const groups = [...head, ...Array<string>(fill).fill("0"), ...rest].map((g) => Number.parseInt(g, 16));
+  return groups.length === 8 && groups.every((g) => g >= 0 && g <= 0xffff) ? groups : null;
+}
+
+/**
+ * Parse an IPv4 / IPv6 literal (zone id stripped, IPv4-mapped IPv6 unwrapped to
+ * IPv4). Anything that is not an IP literal → `null`. Never throws.
+ */
+export function parseIpAddress(input: unknown): ParsedIp | null {
+  if (typeof input !== "string" || input.length === 0 || input.length > 80) return null;
+  const pct = input.indexOf("%");
+  const raw = (pct === -1 ? input : input.slice(0, pct)).toLowerCase();
+  if (isIPv4(raw)) {
+    const octets = raw.split(".").map(Number);
+    return { family: 4, bytes: Uint8Array.from(octets), text: octets.join(".") };
+  }
+  const groups = isIPv6(raw) ? ipv6Groups(raw) : null;
+  if (!groups) return null;
+  // IPv4-mapped (::ffff:a.b.c.d) → the IPv4 form.
+  if (groups.slice(0, 5).every((g) => g === 0) && groups[5] === 0xffff) {
+    const bytes = Uint8Array.from([groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff]);
+    return { family: 4, bytes, text: Array.from(bytes).join(".") };
+  }
+  const bytes = new Uint8Array(16);
+  groups.forEach((g, i) => {
+    bytes[i * 2] = g >> 8;
+    bytes[i * 2 + 1] = g & 0xff;
+  });
+  return { family: 6, bytes, text: compressIpv6(groups) };
+}
+
+/** Private ranges a knock may come from (design D4); loopback is NOT one. */
+function isPrivateIp(p: ParsedIp): boolean {
+  const b = p.bytes;
+  if (p.family === 4) {
+    return (
+      b[0] === 10 ||
+      (b[0] === 172 && b[1] >= 16 && b[1] <= 31) ||
+      (b[0] === 192 && b[1] === 168) ||
+      (b[0] === 100 && b[1] >= 64 && b[1] <= 127) ||
+      (b[0] === 169 && b[1] === 254)
+    );
+  }
+  return (b[0] & 0xfe) === 0xfc || (b[0] === 0xfe && (b[1] & 0xc0) === 0x80);
+}
+
+function isLoopbackIp(p: ParsedIp): boolean {
+  if (p.family === 4) return p.bytes[0] === 127;
+  return p.bytes.slice(0, 15).every((x) => x === 0) && p.bytes[15] === 1;
+}
+
+/** A non-internal interface address the server serves on. */
+export interface LanInterface {
+  address: string;
+  netmask: string;
+}
+
+/** Leading-ones length of a netmask, or null when it is unparsable or /0 (matches nothing safely). */
+function prefixBits(netmask: string): number | null {
+  const m = parseIpAddress(netmask);
+  if (!m) return null;
+  let bits = 0;
+  for (const byte of m.bytes) {
+    if (byte === 0xff) {
+      bits += 8;
+      continue;
+    }
+    let b = byte;
+    while (b & 0x80) {
+      bits++;
+      b = (b << 1) & 0xff;
+    }
+    break;
+  }
+  return bits === 0 ? null : bits;
+}
+
+function sameNetwork(a: Uint8Array, b: Uint8Array, bits: number): boolean {
+  const full = Math.floor(bits / 8);
+  for (let i = 0; i < full; i++) if (a[i] !== b[i]) return false;
+  const rem = bits % 8;
+  if (rem === 0) return true;
+  const mask = (0xff << (8 - rem)) & 0xff;
+  return (a[full] & mask) === (b[full] & mask);
+}
+
+/**
+ * Is `ip` a private, non-loopback address inside the subnet of one of
+ * `interfaces`? A missing / unparsable address fails closed.
+ */
+export function isOnLinkPrivate(ip: string | undefined, interfaces: readonly LanInterface[]): boolean {
+  const peer = parseIpAddress(ip);
+  if (!peer || isLoopbackIp(peer) || !isPrivateIp(peer)) return false;
+  for (const iface of interfaces) {
+    const own = parseIpAddress(iface.address);
+    if (!own || own.family !== peer.family) continue;
+    const bits = prefixBits(iface.netmask);
+    // An unparsable / zero mask must never admit the whole address family; a /32 (or
+    // /128) point-to-point interface has no neighbours.
+    if (bits === null || bits >= peer.bytes.length * 8) continue;
+    if (sameNetwork(peer.bytes, own.bytes, bits)) return true;
+  }
+  return false;
+}
+
+/**
+ * The per-source identity of a knock: the full address (IPv6 without zone,
+ * IPv4-mapped unwrapped). Deliberately NOT a /64 — see design D4.
+ */
+export function knockSourceKey(ip: string): string {
+  return parseIpAddress(ip)?.text ?? ip;
+}
+
+const LAN_INTERFACE_TTL_MS = 30_000;
+
+/** Does the server's bind host cover an interface address? Wildcard / non-IP host → all. */
+function bindCovers(bindHost: string | undefined, address: string): boolean {
+  const bind = parseIpAddress(bindHost);
+  if (!bindHost || bindHost === "0.0.0.0" || bindHost === "::" || bindHost === "::0" || bind === null) return true;
+  const own = parseIpAddress(address);
+  return own !== null && own.family === bind.family && own.text === bind.text;
+}
+
+/**
+ * Cached provider of the non-internal interface addresses the server's bind
+ * host covers. A wildcard (or non-IP host name) covers all of them; a specific
+ * address covers only itself (so a loopback bind covers none). Cached 30 s so a
+ * refusal flood costs no per-request syscall.
+ */
+export function createLanInterfaceProvider(opts: {
+  bindHost?: string;
+  read?: () => ReturnType<typeof os.networkInterfaces>;
+  now?: () => number;
+}): () => LanInterface[] {
+  const read = opts.read ?? os.networkInterfaces;
+  const now = opts.now ?? Date.now;
+  let cached: LanInterface[] = [];
+  let at = Number.NEGATIVE_INFINITY;
+  return () => {
+    if (now() - at < LAN_INTERFACE_TTL_MS) return cached;
+    cached = Object.values(read())
+      .flatMap((addrs) => addrs ?? [])
+      .filter((info) => !info.internal && bindCovers(opts.bindHost, info.address))
+      .map((info) => ({ address: info.address, netmask: info.netmask }));
+    at = now();
+    return cached;
+  };
 }
 
 /** Legacy localhost-only guard. Prefer createNetworkGuard() for new code. */

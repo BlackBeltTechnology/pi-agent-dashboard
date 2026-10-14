@@ -26,6 +26,7 @@ import {
 } from "../../lib/gateway/gateway-config-ops.js";
 import { getGatewayEndpoints } from "../../lib/gateway/gateway-endpoints.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { copyText } from "../../lib/util/clipboard.js";
 
 const KIND_CLASS: Record<string, string> = {
   public: "bg-[var(--green-soft,#132d1c)] text-[#5dd67f]",
@@ -39,12 +40,9 @@ function EndpointRow({ ep }: { ep: TunnelEndpoint }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(ep.url);
+    if (await copyText(ep.url)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
-    } catch {
-      /* ignore */
     }
   };
   return (
