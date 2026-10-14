@@ -110,6 +110,17 @@ describe("useGrammarCheck", () => {
     expect(f.checkCalls().length).toBe(0);
   });
 
+  // See change: fix-composer-liveness-on-reload (test-plan #E15): the gate follows the
+  // (reconciled) status prop — resumes once it leaves "streaming".
+  it("auto-checks again once the reconciled status leaves streaming", async () => {
+    const f = installFetch();
+    const { rerender } = render({ draft: "I has a apple", sessionStatus: "streaming" });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(f.checkCalls().length).toBe(0);
+    rerender({ draft: "I has a apple.", sessionStatus: "idle" });
+    await waitFor(() => expect(f.checkCalls().length).toBe(1));
+  });
+
   it("manual checkNow runs even when auto-check is off", async () => {
     const f = installFetch({ health: { autoCheck: false } });
     const { result } = render({ draft: "I has a apple" });

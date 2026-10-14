@@ -38,3 +38,27 @@ describe("StopAfterTurn button", () => {
     expect(queryByTestId("stop-after-turn-pill")).toBeTruthy();
   });
 });
+
+// See change: fix-composer-liveness-on-reload (D7, test-plan #E14 / #F14).
+describe("StopAfterTurn button — reconciled liveness", () => {
+  it.each([
+    ["streaming", false, true],
+    ["idle", true, true],
+    ["ended", true, false],
+    ["idle", false, false],
+  ] as const)("#E14 status=%s retrying=%s → visible=%s, co-present with stop-button", (status, retrying, visible) => {
+    const { queryByTestId } = renderInput({ sessionStatus: status, retrying, onStopAfterTurn: vi.fn(), onAbort: vi.fn() });
+    expect(!!queryByTestId("stop-after-turn-button")).toBe(visible);
+    expect(!!queryByTestId("stop-button")).toBe(visible);
+  });
+
+  it("#F14 pill persists while status stays streaming and clears when it leaves streaming", () => {
+    const props = { commands: [], onSend: vi.fn(), onStopAfterTurn: vi.fn(), onAbort: vi.fn() };
+    const { getByTestId, queryByTestId, rerender } = render(<CommandInput {...props} sessionStatus="streaming" />);
+    fireEvent.click(getByTestId("stop-after-turn-button"));
+    rerender(<CommandInput {...props} sessionStatus="streaming" />);
+    expect(queryByTestId("stop-after-turn-pill")).toBeTruthy();
+    rerender(<CommandInput {...props} sessionStatus="idle" />);
+    expect(queryByTestId("stop-after-turn-pill")).toBeNull();
+  });
+});

@@ -8,6 +8,7 @@ import { mdiAlertOutline, mdiArchiveOutline, mdiArrowRightCircleOutline, mdiClos
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
+import { isComposerWorking } from "../../lib/chat/composer-liveness.js";
 import {
   deriveDotColorWithFlags,
   deriveIconStatusColor,
@@ -927,7 +928,7 @@ export function SessionCard({
   // Merge-emphasis decision per card (D6): threaded to the OpenSpec actions
   // (outlines their primary) and to the worktree actions (fills Merge).
   // See change: redesign-composer-session-strip.
-  const working = session.status === "streaming" || isRetrying === true;
+  const working = isComposerWorking(session.status, isRetrying === true);
   // Resolve against active + archived data. Lifecycle state (Merge emphasis)
   // only for a live-active attachment in this session's own cwd.
   // See change: resolve-archived-attached-proposal.
