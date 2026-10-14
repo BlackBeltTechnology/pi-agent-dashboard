@@ -131,6 +131,11 @@
       "name": "UI Extensions",
       "color": "#eab308",
       "order": 21
+    },
+    {
+      "id": "artcraft-craft-apps",
+      "name": "ArtCraft Craft Apps",
+      "order": 22
     }
   ],
   "assignments": {
@@ -434,7 +439,11 @@
     "add-plugin-capability-routes": "copilot-assistant",
     "add-welcome-tutorial": "next-phase",
     "add-tailscale-cert-tls": "lan-pairing-trust",
-    "add-acme-dns01-certs": "lan-pairing-trust"
+    "add-acme-dns01-certs": "lan-pairing-trust",
+    "add-craft-apps-core": "artcraft-craft-apps",
+    "add-craft-media-workflows": "artcraft-craft-apps",
+    "add-craft-office-workflows": "artcraft-craft-apps",
+    "add-artcraft-studio": "artcraft-craft-apps"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -560,6 +569,12 @@
       "add-extension-ui-a11y-baseline",
       "add-extension-ui-rjsf-form",
       "pi-flows-adopt-extension-ui"
+    ],
+    "artcraft-craft-apps": [
+      "add-craft-apps-core",
+      "add-craft-media-workflows",
+      "add-craft-office-workflows",
+      "add-artcraft-studio"
     ]
   }
 }
