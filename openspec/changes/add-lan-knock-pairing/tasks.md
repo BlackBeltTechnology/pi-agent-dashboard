@@ -111,5 +111,5 @@ Order: for each implementation task, author its folded test tasks (sections 10�
 
 ## 13. Manual (post-merge)
 
-- [ ] 13.1 Visual fidelity of dialog, landing states, Gateway panel, Connect and banner to `mockups/knock-pairing.html` in base dark, base light, nord dark and at 375 px (test-plan: manual-only, #F15)
-- [ ] 13.2 Real two-machine LAN over plain http (Chrome + Safari): Connect → Request access → approve on host, then start a session and use a Copy button on the http origin (test-plan: manual-only, #X4)
+- [x] 13.1 Visual fidelity of dialog, landing states, Gateway panel, Connect and banner to `mockups/knock-pairing.html` in base dark, base light, nord dark and at 375 px (test-plan: manual-only, #F15)
+- [x] 13.2 Real two-machine LAN over plain http (Chrome + Safari): Connect → Request access → approve on host, then start a session and use a Copy button on the http origin (test-plan: manual-only, #X4)
