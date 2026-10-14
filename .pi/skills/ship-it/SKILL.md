@@ -17,7 +17,7 @@ Composes existing skills — `openspec-apply-change`, the docker harness, and
 flowchart LR
   P["plan-proposal (develop)"] -->|"boundary: spawn worktree"| S
   subgraph Worktree ["IMPLEMENTATION — worktree (this skill)"]
-    S["ship-it"] --> A["apply"] --> M["merge develop (2.5)"] --> T["docker-harness test"] --> E["enforcers (4.4)"] --> R["local review (4.5)"] --> C["ship-change"]
+    S["ship-it"] --> A["apply"] --> M["merge develop (2.5)"] --> T["docker-harness test"] --> E["enforcers (4.4)"] --> Q["CodeQL ratchet (4.4b)"] --> R["local review (4.5)"] --> C["ship-change"]
   end
   S -.->|"reverse: SHIP_IT_BLOCKED.md on design issue"| P
 ```
@@ -30,7 +30,8 @@ unit-tested (`.pi/skills/ship-it` is a vitest project):
 `resolveReviewer`, `classifyFindings`, `REVIEW_TIMEOUT_MS`),
 `scripts/fix-ledger.ts` (`validateFixLedger`), `scripts/review-state.ts`
 (`deriveReviewState`), and `scripts/review-prompt.ts` (`buildReviewPrompt` + the
-step-4.5 CLI).
+step-4.5 CLI). The CodeQL ratchet of step 4.4b is the repo script
+`scripts/codeql-local.mjs` (see `docs/code-quality.md`).
 
 ## Preconditions
 
@@ -57,7 +58,10 @@ the `ask_user` tool is available; otherwise it is headless.
   the file from the change dir.
 
 Removing the file, or answering *resume*, is the human decision that starts a
-new review budget — re-invoking `ship-it` alone never does.
+new review budget — re-invoking `ship-it` alone never does. A hand-back written
+by step 4.4b (new CodeQL alerts, a script error, a baseline-diff violation) lists
+the alerts and how to resolve them; *resume* re-runs 4.4 and 4.4b, which then ask
+per alert.
 
 Read `openspec status --change <change> --json` for orientation only. **Do not
 trust the `tasks.md` checkbox** as proof an automated scenario is done — a
@@ -171,6 +175,7 @@ node scripts/i18n-parity.mjs
 node scripts/knip-config.mjs            # knip.json still roots every manifest entry
 node scripts/knip-ratchet.mjs           # per-class dead-code ratchet (~8s)
 node scripts/knip-ratchet.mjs --check-baseline-diff origin/develop   # ceiling not raised
+node scripts/codeql-local.mjs --check-baseline-diff origin/develop   # CodeQL baseline grew only with a reason (static, instant)
 ```
 
 The knip pair is the **preventive** half of the dead-code oracle: the nightly
@@ -181,6 +186,12 @@ rooted 437 / 10). Fix a ratchet failure by deleting the dead code; raising a
 baseline is rejected by the third command — which must stay wired, or "never
 raise the ceiling" is aspirational: the plain ratchet passes happily against a
 raised number. It also rejects a DELETED class, the cheaper bypass.
+
+The CodeQL baseline-diff check is static (no analysis, no CodeQL needed): it
+compares `codeql-baseline.json` with `origin/develop`'s — `untriaged` never grows,
+growth needs a typed reason. A violation here is handled like one in 4.4b's
+closing check (below), never by the red-test fix loop. The analysis itself is too
+slow for 4.4 and runs in step 4.4b.
 
 They are placed here, after the harness and before the review, because they are
 deterministic, offline and near-instant: a mechanically-failing tree must never
@@ -195,9 +206,62 @@ the fix loop are inspected.
 These do NOT move into `quality:changed`. That script is the dev-loop oracle and
 has no automated caller; the ship gate is here.
 
+### 4.4b. CodeQL ratchet — blocks NEW code-scanning alerts, still no model call
+
+Runs between 4.4 and 4.5, on every invocation. It analyses a content-addressed
+snapshot of the worktree with the pinned query packs (~1.5 min) and compares the
+results with the committed `codeql-baseline.json`. **No model call** is made here.
+A run is interactive exactly when `ask_user` is available, otherwise headless.
+
+```bash
+npm run codeql -- --json        # exit 0 pass/skipped · 1 new alerts · 2 error
+```
+
+1. **Skip.** stderr `CODEQL SKIPPED: <cause>` (no `codeql`, packs neither cached
+   nor downloadable) → record the skip in the step report, run the closing check
+   (step 6 below; static only) and continue. A machine without CodeQL never blocks
+   shipping — the PR's GitHub analysis is the backstop.
+2. **Prune first.** `staleEntries` in the JSON (fewer current results than
+   recorded) → `node scripts/codeql-local.mjs --prune`, then
+   `git add codeql-baseline.json` so the lowered baseline ships with the change.
+   `--prune` exit 1 only means new alerts remain — go on to step 3. Show any
+   removed `github-dismissed` entry it prints when asking about its replacement.
+3. **New alerts, headless.** Write `SHIP_IT_BLOCKED.md` listing each new alert
+   (rule, file, line, message) and how to resolve it: resume `ship-it`
+   interactively (the entry gate asks resume/abort, then 4.4b asks per alert), or
+   re-run `npm run codeql`, fix or `--accept` by hand, and delete the report. Exit
+   non-zero; no `ask_user`, no 4.5, no `ship-change`.
+4. **New alerts, interactive.** `ask_user` per alert (more than 5 → one `batch`,
+   one sub-question each): **fix**, **accept with a typed reason**
+   (`accepted-risk: …`, `false-positive: …`), and — only for
+   `js/path-injection`, `js/command-line-injection` and
+   `js/shell-command-constructed-from-input` — the **`operator-authz`** preset:
+   "Operator API behind the universal network guard (createNetworkGuardHook); an
+   admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR
+   callers are admitted without login." The preset is never offered for any other
+   rule (the argument does not hold for them). Accept with
+   `node scripts/codeql-local.mjs --accept <ruleId> <file> <lineHash> --reason "<reason>"`
+   then `git add codeql-baseline.json`.
+   **Accepts before fixes** within one batch of answers: a fix changes the
+   snapshot and makes later `--accept` refuse. Then route the fixes to the step-4
+   fix loop and re-run 4.4 and 4.4b.
+5. **Script error (exit 2).** Interactive: show the error, `ask_user`
+   **retry / abort**. Headless: write `SHIP_IT_BLOCKED.md` with the error and stop.
+   Never the red-test fix loop.
+6. **Closing check — a gate.** `node scripts/codeql-local.mjs --check-baseline-diff origin/develop`
+   (add `--no-growth` when headless, so a headless run never grows the baseline).
+   Exit 0 → continue to 4.5. Exit 1/2 → interactive: show the violation, `ask_user`
+   **revert / abort**; headless: write `SHIP_IT_BLOCKED.md` naming the entry. A
+   baseline-diff violation (here or in step 4.4) never enters the red-test fix
+   loop.
+
+**Baseline edits go only through `--prune` and `--accept`.** Never edit
+`codeql-baseline.json` by hand in this step; seeding (`--write-baseline`) and
+`--triage` are implementation / maintenance steps outside 4.4b.
+
 ### 4.5. Local review checkpoint — the semantic half
 
-Runs on **every** invocation. There is no triviality escape: no diff-size, path,
+Runs on **every** invocation, but only after step 4.4b passes or skips. There is no triviality escape: no diff-size, path,
 or changed-file-count condition skips it. A run is **interactive** exactly when
 the `ask_user` tool is available in the session; otherwise it is headless.
 
@@ -300,7 +364,9 @@ The worktree boundary is **not one-way**. Trigger the reverse path when ANY of:
   wrong), OR
 - the step-4 fix bound is exhausted (a no-progress cycle), OR
 - the step-4.5 review checkpoint decides `escape` (including a human choosing
-  *hand back* at the cap).
+  *hand back* at the cap), OR
+- a **headless** step-4.4b stop (new CodeQL alerts, a script error, or a
+  baseline-diff violation).
 
 Then, **do NOT headlessly rewrite `proposal.md`/`design.md`**:
 
@@ -347,6 +413,11 @@ CI → CodeRabbit → (archive+sync gate) → squash-merge → remove worktree.
 - **Never weaken a test to reach green** — `assertNoWeakening` rejects it.
 - **Enforcers (4.4) before the reviewer (4.5)** — never spend a model call on a
   mechanically-failing tree.
+- **CodeQL (4.4b) gates 4.5** — 4.5 runs only after 4.4b passes or skips; 4.4b
+  never makes a model call, never edits `codeql-baseline.json` except through
+  `--prune` / `--accept`, never routes a baseline-diff violation or a script
+  error to the red-test fix loop, and a headless run never grows the baseline
+  (`--no-growth`).
 - **The review is unconditional** — no triviality escape, and `@review` is
   required; never fall back to the session default model (that is self-review).
 - **Two review rounds, hard cap** — review, fix, re-review. Not a no-progress
