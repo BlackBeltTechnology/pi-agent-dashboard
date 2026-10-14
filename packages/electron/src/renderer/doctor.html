@@ -222,6 +222,8 @@
     if (!report) return "";
     // Renderer-side markdown synthesis (the renderer can't call into shared TS).
     // Mirrors formatDoctorReportMarkdown shape.
+    // Same three steps as shared/md-table-cell.ts (standalone page, no bundling).
+    const cell = (s) => String(s).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r\n?|\n/g, " ");
     const fence = (s) => s ? "<code>" + String(s).replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>") + "</code>" : "";
     const lines = [`# PI Dashboard Doctor`, ""];
     const { ok, warnings, errors } = report.summary;
@@ -233,8 +235,7 @@
       lines.push(`| Status | Check | Message | Detail |`, `| --- | --- | --- | --- |`);
       for (const c of rows) {
         const icon = c.status === "ok" ? "✅" : c.status === "warning" ? "⚠️" : "❌";
-        const m = c.message.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
-        lines.push(`| ${icon} | ${c.name} | ${m} | ${fence(c.detail)} |`);
+        lines.push(`| ${icon} | ${cell(c.name)} | ${cell(c.message)} | ${fence(c.detail)} |`);
       }
       lines.push("");
     }

@@ -21,6 +21,15 @@ class StateStore { __resetForTests() {} setFlows() {} }
     const r = groundingCheck("No React, no DOM — JSON intent only. Pure fn.", src);
     expect(r.ok).toBe(true);
   });
+  it("E12: dollar-prefixed identifier is grounded by its declaration", () => {
+    const r = groundingCheck("uses `$StoreKey`", "const $StoreKey = 1");
+    expect(r.ungrounded).toEqual([]);
+    expect(r.ok).toBe(true);
+  });
+  it("E13: identifier adjacent to `$` is not grounded by `$Foo` / `Foo$x`", () => {
+    const r = groundingCheck("uses `FooBar`", "const $FooBar = 1; FooBar$x();");
+    expect(r.ungrounded).toEqual(["FooBar"]);
+  });
   it("suppresses cross-references to other source-file stems via known set", () => {
     const known = new Set(["MermaidBlock", "FlowGraph"]);
     const r = groundingCheck("Used by `MermaidBlock`, `FlowGraph`.", src, known);

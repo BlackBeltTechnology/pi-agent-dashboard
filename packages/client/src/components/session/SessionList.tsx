@@ -15,6 +15,7 @@ import { useFlipOnLaneChange } from "../../hooks/useFlipOnLaneChange.js";
 import { useInitStatus } from "../../hooks/useInitStatus.js";
 import { useInstallPrompt } from "../../hooks/useInstallPrompt.js";
 import { useLaneHysteresis } from "../../hooks/useLaneHysteresis.js";
+import { cssEscape } from "../../lib/css-escape.js";
 import { demandsAttention, type FocusIntent, type GroupRenderMode, resolveActiveCwd, resolveGroupRenderMode } from "../../lib/folder-focus.js";
 import { maybeAutoInitWorktreeOnSpawn } from "../../lib/git/auto-init-worktree.js";
 import { resolveWorktreeAvailability } from "../../lib/git/folder-worktree-availability.js";
@@ -116,12 +117,6 @@ export interface ContextUsageInfo {
 /** Draggable types that can change workspace membership. See change: drag-folders-across-workspaces. */
 function isFolderLike(t: unknown): boolean {
   return t === "workspace-folder" || t === "pinned-group";
-}
-
-function cssEscapeId(id: string): string {
-  return (typeof window !== "undefined" && typeof window.CSS?.escape === "function")
-    ? window.CSS.escape(id)
-    : id.replace(/"/g, '\\"');
 }
 
 interface Props {
@@ -436,7 +431,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
       return;
     }
     if (!selectedId) return;
-    const escaped = cssEscapeId(selectedId);
+    const escaped = cssEscape(selectedId);
     const el = listRef.current?.querySelector(`[data-session-id="${escaped}"]`);
     if (el && typeof (el as HTMLElement).scrollIntoView === "function") {
       (el as HTMLElement).scrollIntoView({ block: "nearest", behavior: "auto" });
@@ -1254,7 +1249,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
     const label = laneMeta(cur.lane).label;
     setLaneAnnouncement(t("sessionList.laneMovedAnnouncement", { name, lane: label }, `${name} moved to ${label}`));
     // Keep the moved selected card in view (no-op when its lane is collapsed).
-    const el = listRef.current?.querySelector(`[data-session-id="${cssEscapeId(cur.id)}"]`);
+    const el = listRef.current?.querySelector(`[data-session-id="${cssEscape(cur.id)}"]`);
     if (el && typeof (el as HTMLElement).scrollIntoView === "function") {
       (el as HTMLElement).scrollIntoView({ block: "nearest", behavior: "auto" });
     }
@@ -1349,7 +1344,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   // `grid-template-rows: 0fr` row keeps a non-null offsetParent at height 0.
   const findLaidOutCard = useCallback((id: string): HTMLElement | null => {
     const el = listRef.current?.querySelector(
-      `[data-session-id="${cssEscapeId(id)}"]`,
+      `[data-session-id="${cssEscape(id)}"]`,
     ) as HTMLElement | null;
     return el && el.getBoundingClientRect().height > 0 ? el : null;
   }, []);
@@ -1532,7 +1527,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
       const tryFocus = () => {
         attempts += 1;
         const el = listRef.current?.querySelector(
-          `[data-folder-openspec-section="${cssEscapeId(cwd)}"]`,
+          `[data-folder-openspec-section="${cssEscape(cwd)}"]`,
         ) as HTMLElement | null;
         if (el) {
           el.scrollIntoView({ behavior: "smooth", block: "center" });

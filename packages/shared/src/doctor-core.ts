@@ -19,6 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { getDashboardConfigDir } from "./dashboard-paths.js";
 import type { LegacyManagedDir } from "./legacy-managed-dir.js";
+import { escapeMdTableCell } from "./md-table-cell.js";
 import { isAtOrAboveEnginesCap } from "./node-version.js";
 import { whichSync } from "./platform/binary-lookup.js";
 import { execSync } from "./platform/exec.js";
@@ -1707,8 +1708,8 @@ export function formatDoctorReportMarkdown(report: DoctorReport): string {
     lines.push("| --- | --- | --- | --- |");
     for (const c of rows) {
       const detailCell = c.detail ? fenceCell(c.detail) : "";
-      const messageCell = c.message.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
-      lines.push(`| ${statusIcon(c.status)} | ${c.name} | ${messageCell} | ${detailCell} |`);
+      const messageCell = escapeMdTableCell(c.message);
+      lines.push(`| ${statusIcon(c.status)} | ${escapeMdTableCell(c.name)} | ${messageCell} | ${detailCell} |`);
     }
     lines.push("");
   }

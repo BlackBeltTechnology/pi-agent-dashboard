@@ -23,12 +23,16 @@
  * as a validation failure rather than fabricate a path.
  */
 export function slugifyBranch(branch: string): string {
-  return branch
+  const s = branch
     .toLowerCase()
     .replace(/[\/\\:\s]+/g, "-")
-    .replace(/[^a-z0-9._-]/g, "")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
+    .replace(/[^a-z0-9._-]/g, "");
+  // Index loops (not `/^-+|-+$/`): a long dash run made the trailing-trim regex quadratic.
+  let start = 0;
+  let end = s.length;
+  while (start < end && s[start] === "-") start++;
+  while (end > start && s[end - 1] === "-") end--;
+  return s.slice(start, end).slice(0, 64);
 }
 
 /**

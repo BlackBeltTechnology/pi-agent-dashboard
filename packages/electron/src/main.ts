@@ -391,10 +391,9 @@ function showSplash(): void {
 function updateSplashStatus(text: string): void {
   log(`splash: ${text}`);
   if (!splashWindow || splashWindow.isDestroyed()) return;
-  const safe = text.replace(/`/g, "\\`").replace(/\$/g, "\\$");
   splashWindow.webContents
     .executeJavaScript(
-      `(() => { const el = document.getElementById("status"); if (el) el.textContent = \`${safe}\`; })()`,
+      `(() => { const el = document.getElementById("status"); if (el) el.textContent = ${JSON.stringify(text)}; })()`,
     )
     .catch(() => { /* splash may be closing */ });
 }

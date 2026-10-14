@@ -39,3 +39,5 @@ Directory-card blocks — each folder-group part is individually gated: `GroupGi
 Accordion mode — props `expandedGroups`, `onSetFolderExpanded`, `folderListMode`, `folderAttentionPeek`. The focused folder follows the LATEST intent (`resolveActiveCwd`: card `select` vs folder header-body `activate`). The header chevron COLLAPSES the focused folder and pins/unpins an unfocused one — two meanings for one control, resolved by focus, not by a second affordance. Unfocused groups render compact: attention cards only, or an `N sessions — click to view` row (`resolveGroupRenderMode`, `demandsAttention` from `lib/folder-focus.ts`). An active search or filter FORCES full render — a hidden match is worse than a tall list. `renderCard` hoisted to `renderGroup` scope so both render modes share one card factory. Folder header mounts `<FocusToggle/>`.
 
 See change: add-focus-mode-and-card-block-toggles.
+
+Selector escaping via `cssEscape` (`lib/css-escape.ts`); local `cssEscapeId` removed. See change: fix-codeql-small-findings.

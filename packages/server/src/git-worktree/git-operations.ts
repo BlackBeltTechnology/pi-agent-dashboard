@@ -439,8 +439,10 @@ export function listBranches(cwd: string): BranchInfo {
 
   const localBranches: BranchInfo["branches"] = [];
   for (const line of rawLocal.split("\n").filter(Boolean)) {
-    const isCurrent = line.includes("*");
-    const name = line.replace("*", "").trim();
+    // `%(HEAD)` appends `*` for the current branch (git forbids `*` in ref names).
+    const t = line.trim();
+    const isCurrent = t.endsWith("*");
+    const name = (isCurrent ? t.slice(0, -1) : t).trim();
     if (!name) continue;
     localBranches.push({ name, isRemote: false, isCurrent });
   }
@@ -450,7 +452,8 @@ export function listBranches(cwd: string): BranchInfo {
 
   const remoteBranches: BranchInfo["branches"] = [];
   for (const line of rawRemote.split("\n").filter(Boolean)) {
-    const name = line.replace("*", "").trim();
+    const t = line.trim();
+    const name = (t.endsWith("*") ? t.slice(0, -1) : t).trim();
     // Skip HEAD pointers like "origin/HEAD"
     if (name.endsWith("/HEAD")) continue;
     // Skip remote branches that have a local counterpart

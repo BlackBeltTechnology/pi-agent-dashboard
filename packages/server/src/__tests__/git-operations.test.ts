@@ -222,6 +222,32 @@ describe("git-operations", () => {
     });
   });
 
+  describe("listBranches parsing (fix-codeql-small-findings #E14)", () => {
+    it("local names are exact (no %(HEAD) padding) and remote HEAD is skipped", () => {
+      const remote = mkdtempSync(join(tmpdir(), "git-ops-remote-"));
+      try {
+        git("checkout -b feature/x", repo);
+        git("checkout main", repo);
+        git("checkout -b only-remote", repo);
+        git("checkout main", repo);
+        execSync(`git clone --bare ${repo} ${remote}`, { stdio: "pipe" });
+        git(`remote add origin ${remote}`, repo);
+        git("fetch origin", repo);
+        git("remote set-head origin main", repo);
+        git("branch -D only-remote", repo);
+        const info = listBranches(repo);
+        const local = info.branches.filter((b) => !b.isRemote);
+        expect(local.map((b) => b.name).sort()).toEqual(["feature/x", "main"]);
+        expect(local.filter((b) => b.isCurrent).map((b) => b.name)).toEqual(["main"]);
+        const remoteNames = info.branches.filter((b) => b.isRemote).map((b) => b.name);
+        expect(remoteNames).toContain("origin/only-remote");
+        expect(remoteNames.some((n) => n.endsWith("/HEAD"))).toBe(false);
+      } finally {
+        rmSync(remote, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("checkoutBranch", () => {
     it("checks out a local branch on clean repo", () => {
       git("checkout -b feature-x", repo);

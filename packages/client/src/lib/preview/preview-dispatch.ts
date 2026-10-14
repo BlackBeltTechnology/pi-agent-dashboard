@@ -20,7 +20,7 @@ import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types
 export type { RendererKind };
 export { RENDERER_BY_EXT };
 
-const YOUTUBE_HOSTS = new Set([
+export const YOUTUBE_HOSTS = new Set([
   "youtube.com",
   "www.youtube.com",
   "m.youtube.com",
