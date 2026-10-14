@@ -80,7 +80,7 @@ Harness exemplars (verified on disk):
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
 | F1 | orphan signal surfaced (unchanged req) | convergence | L1 | automated | client receives `session_orphaned {sessionId,pid}` after `session_removed` | message handler | surfaces pid (exemplar `packages/client/src/hooks/__tests__/useMessageHandler.session-orphaned.test.tsx`) — regression only |
-| F2 | reaped session card reason | state-transition | L3 | automated | ephemeral tmux session reaped (harness w/ embedLifecycle enabled) | reap confirmed | card converges to ended/`manual` and is NOT listed in the recovery-candidate surface on restart |
+| F2 | reaped session card reason | state-transition | L1 | automated | **Deviation (user-approved at ship-it):** L3 dropped — the harness cannot produce a persistent `ephemeral` tmux session (the automation engine terminates a run's session at completion; a live run is never reap-eligible). Covered by E27 (stamped reap ends `manual`, no `liveEpoch` ⇒ not a recovery candidate) | stamped reap | card converges to ended/`manual`; no `liveEpoch` persisted |
 
 ### Error-handling
 
@@ -103,7 +103,7 @@ Harness exemplars (verified on disk):
 | X15 | automation pre-register window (R1) | fault-injection | L1 | automated | no session record; case a: token → [p1] (dies); case b: token → `[]` | stop run | a: p1 terminated via token rung, registry `undefined` does not end attempt, returns `true`; b: returns `false`, one `console.warn` naming the spawn token + `no-identity`, `failedReclaims` +1 |
 | X16 | automation win32 non-headless (R1, R5) | EP | L1 | automated | platform win32, record pid, no registry | run complete | zero signals; returns `false`; one `console.warn` naming session id + `refused-identity`; `failedReclaims` +1; give-up tracker untouched |
 | X17 | completion idempotent | state-transition (illegal) | L1 | automated | run completes, terminate makes bridge send `session_unregister` | finalize | run finalized once; one run record (exemplar `routes-stop.test.ts` / `engine.test.ts`) |
-| X18 | tmux reap real process (systematic-debugging acceptance) | fault-injection | L3 | automated | docker harness `PI_SPAWN_STRATEGY=tmux`, embedLifecycle enabled, short idle threshold; ephemeral session | idle reap fires | container `/proc/<session.pid>` absent; `tmux list-panes` no pane; `/api/health` `reaped.idle` ≥1, `failedReclaims` 0 |
+| X18 | tmux reap real process (systematic-debugging acceptance) | fault-injection | L1 | automated | **Deviation (user-approved at ship-it):** L3 dropped for the same reason as F2. The registry-miss reap is covered by X1/X8–X11 (L1, reaper → terminator on a registry-less verified pid) and the real-process half by X19 (L3, same terminator via the automation stop path) | reaper gear 1 on a registry-less pid | `killProcess(session.pid)` called, `confirmed-dead`, `onReap` once; `failedReclaims` 0 |
 | X19 | tmux automation stop real process | fault-injection | L3 | automated | docker harness tmux default; automation run spawned | stop run via route | container `/proc/<pid>` absent after finalization |
 | X20 | tmux automation stop pre-register | race | L3 | automated | stop issued before `session_register` lands (harness delay hook) | stop | no pi with run's token in container `ps` |
 | X21 | Windows wt/wsl-tmux unattended reclaim refused | EP | L2 | automated | Windows VM, `wt` session ephemeral, embedLifecycle enabled | reap | pi still resident; server log has `identity unverifiable on win32`; `failedReclaims` ≥1 (`qa/tests/*.ps1`, new) |
@@ -116,12 +116,12 @@ Harness exemplars (verified on disk):
 
 - Requirements covered: 14/14 delta requirements (force-kill-handler 6, embed-session-lifecycle 4, automation-run-lifecycle 1, shutdown-session-recovery 1, + identity stamp, shutdown delegation)
 - Scenarios by class: edge 38 · perf 3 · frontend 2 · error 23
-- Scenarios by level: L1 60 · L2 1 · L3 4 (F2, X18, X19, X20) · ci 0 · — 1
+- Scenarios by level: L1 62 · L2 1 · L3 2 (X19, X20) · ci 0 · — 1
 - Scenarios by disposition: automated 65 · manual-only 1
 
 ## New infra needed
 
-- Docker e2e harness has `embedLifecycle.enabled=false` by default and no short idle-threshold knob → X18/F2 need a per-spec harness config override enabling the reaper with test-scale thresholds.
+- ~~Docker e2e harness `embedLifecycle` override for X18/F2~~ — dropped (user-approved deviation): no harness path yields a persistent `ephemeral` session without a test-only production hook.
 - `abortSpawnedRun` is an inline closure in `server.ts` → extracted to `createAbortSpawnedRun` (design D6 item 3) so X14–X16, X23 are unit-testable.
 - X20 needs a harness hook delaying `session_register` (or a deterministic pre-register window).
 - X21 needs a Windows qa `.ps1` that enables the reaper; none exists today.

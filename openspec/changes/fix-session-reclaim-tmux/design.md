@@ -586,7 +586,7 @@ Rejected: a new `"reaped"` reason. Truer label, but it extends the
   Delivering Windows reclamation needs a real identity check (e.g. process
   creation time via a Win32 API, and WSL-namespace resolution for `wsl-tmux`) —
   follow-up, not guessed here (Decision R5: refused + diagnosed; follow-up
-  GitHub issue, task 8.5).
+  GitHub issue #913, task 8.5).
 - **Restored registry entries are trusted (pre-existing, now declared).**
   Entries reloaded by `cleanupOrphans` after a server restart carry a dummy
   handle (`headless-pid-registry.ts:646-680`) and only an `isProcessAlive`
@@ -594,7 +594,7 @@ Rejected: a new `"reaped"` reason. Truer label, but it extends the
   reaper and shutdown already do. The identity delta now exempts them by name
   rather than by omission. Not widened by this change; a `spawnedAt`-based guard
   in the registry is a follow-up (D1 *Scope of the guard*; Decision R7:
-  exempted by name, follow-up GitHub issue, task 8.6).
+  exempted by name, follow-up GitHub issue #914, task 8.6).
 - **Command-line PID safety check is unimplemented on force-kill
   (pre-existing).** `isProcessLikePi` has no caller; the MODIFIED *PID safety
   check before SIGKILL* keeps that scenario scoped to force-kill and does not
@@ -611,7 +611,7 @@ Rejected: a new `"reaped"` reason. Truer label, but it extends the
   "entire process subtree" wording are already unmet by the code on Unix — a
   pre-existing gap, out of scope here. The deltas therefore say "the session's
   `pi` process" and claim nothing about descendants; a GitHub issue for the gap
-  is opened as task 8.4.
+  is #912 (task 8.4).
 - **Reaped sessions are labelled `manual` (D10, resolves cycle-2 A-F8 /
   cycle-3 A-F6).** Reaps no longer become shutdown-window recovery candidates;
   the price is that the card shows the intentional-close reason for a server

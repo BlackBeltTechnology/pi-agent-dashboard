@@ -12,6 +12,7 @@ One row per file. Non-source area. Rows split out of `tests/e2e/AGENTS.md` (byte
 | `acp.ts` | ACP spec helpers: `ACP_REPLY`, `spawnAcpSession(page, agentId)` (picker chevron → menu item → main button, returns the new card). Seeded agents `qmt`, `qmt-slow`, `qmt-perm`, `qmt-durable`. See change: add-acp-session-driver. |
 | `card-sections.ts` | Card-block / focus-mode L3 glue: opens the card-section settings surfaces, toggles a block, waits for the `card_sections_updated` echo. See change: add-focus-mode-and-card-block-toggles. |
 | `computed-contrast.ts` | In-page probes ported from `mockups/ux-probe.cjs… → see `computed-contrast.ts.AGENTS.md` |
+| `container-proc.ts` | Out-of-band process-table probes for the harness container (`docker exec` + `/proc`): `resolveContainer` (by published `DASHBOARD_PORT`), `inContainer`, `isResident`, `residentPiPids`, `waitUntilGone`. Termination claims are about the container, not dashboard bookkeeping. See change: fix-session-reclaim-tmux. |
 | `evidence-path.ts` | Resolves a change's `measurements.json` WITHOUT creating it. → see `evidence-path.ts.AGENTS.md` |
 | `fake-google.ts` | Fake Google (authorize/token/revoke/Gmail) run in-container + `docker exec` control helpers. → see `fake-google.ts.AGENTS.md` |
 | `folder-collapse.ts` | Folder-collapse L3 glue: bus setup/teardown… → see `folder-collapse.ts.AGENTS.md` |

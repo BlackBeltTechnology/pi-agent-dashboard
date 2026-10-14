@@ -37,7 +37,7 @@ describe("session-action liveness clearing", () => {
     const ctx = {
       sessionManager: { get: () => ({ id: "s1", sessionFile: sf }), update: () => {}, unregister: () => {} },
       piGateway: { sendToSession: () => {} },
-      headlessPidRegistry: { killBySessionId: async () => false },
+      headlessPidRegistry: { killBySessionId: async () => false, getPid: () => undefined },
       broadcast: () => {},
       metaPersistence,
     } as unknown as BrowserHandlerContext;

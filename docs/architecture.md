@@ -4813,7 +4813,7 @@ Protocol: line-framed JSON, fire-and-forget. Keeper forwards the raw line to pi'
 Dual-channel boundary explicit:
 - **Bridge WS** owns: send_prompt non-slash, abort, model switch, thinking-level, compaction, rename, events, flow control.
 - **Server → keeper UDS** owned: extension slash dispatch only — RETIRED. No writer remains; keeper still owns pi's stdin.
-- **headlessPidRegistry kill** owns: kill-by-pid for shutdown / force-kill / reload. `killBySessionId` escalates pi via shared `killProcess(pid, { timeoutMs: 2000 })` ladder (SIGTERM → 2 s → SIGKILL) — uniform with `handleForceKill`. See change: `fix-keeper-kill-escalation`.
+- **headlessPidRegistry kill** owns: kill-by-pid for shutdown / force-kill / reload. `killBySessionId` = registry attempt only inside shared `SessionTerminator.terminate` (see Quiescence + Reaper). Escalation: `killProcess(pid, { timeoutMs: 2000 })` (SIGTERM → 2 s → SIGKILL) — uniform with `handleForceKill`. See change: `fix-keeper-kill-escalation`.
 
 Former constraint: bridge cannot reach `session.prompt` from inside pi. Pi >= 0.84.2 exposes the dispatch through `sendUserMessage({expandPromptTemplates: true})`; the handler runs inside pi, so the RPC route is no longer needed.
 
@@ -6253,7 +6253,7 @@ Core: pure `decideReap(signals, thresholds, now)` in quiescence.ts. Three gears:
 flowchart LR
     subgraph Gear1[Gear 1: Idle]
         A1[Fully quiescent
-+ past idle timeout] --> K1[killBySessionId]
++ past idle timeout] --> K1[SessionTerminator.terminate]
     end
     subgraph Gear2[Gear 2: Stop-after-turn]
         A2[Streaming
@@ -6283,6 +6283,16 @@ reap]
 Quiescence vetoes (any one blocks idle reap): active generation, currentTool, pending ask_user, followUp/steering queue, live pid-child, live terminal in cwd, active browser subscriber, within grace window.
 
 Liveness probe (liveness-probe.ts): bounded `ps` pid-tree + CPU sum. Unknown result (ps fail) → safe direction — never idle-reap on unknown child, never phantom on unknown CPU.
+
+Kill path (shared): `createSessionTerminator({sessionManager, headlessPidRegistry})` in `packages/server/src/spawn-process/session-terminator.ts`. `terminate(id, {graceMs?, spawnToken?, verifyIdentity?, stampManualClose?})` → `{outcome, terminated, pid?}`. outcome: `confirmed-dead | unconfirmed | refused-identity | no-identity`.
+
+- Ladder: registry kill (attempt only, never verdict) → `pid = session.pid ?? registryPid` → `signalZero` already-gone → grace poll (shutdown only) → identity guard (unattended only; `processStartedAt(pid) <= pidRecordedAt+2000`; null/win32 → `refused-identity`) → `killProcess(pid,{timeoutMs:2000})` → confirm via `signalZero === "esrch"` only.
+- Callers: reaper gear 1 `idle`, gear 3 `phantom` (`graceMs:0`); caps `reclaim`; automation `abortSpawnedRun` (+ spawn-token rung for pre-register window); `shutdownSession` (`verifyIdentity:false`, `graceMs:SHUTDOWN_GRACE_MS`). `handleForceKill` not rewired (pid-first order kept).
+- Why: tmux/wsl-tmux spawns never enter `headlessPidRegistry` (execFileSync, no handle) → registry-only kill leaked pi (#459). tmux = default spawn strategy.
+- `onReap` counts confirmed termination only (gear 2 `stop-after-turn` counts on latch delivery). Failed reclaim → warn + `failedReclaims` in `/api/health` `embedLifecycle`.
+- Give-up tracker `embed-lifecycle/reclaim-give-up.ts`: 3 consecutive failed attempts (immediate for `no-identity` / `refused-identity`); one `error` log line. Given-up sessions skipped by reaper, excluded from caps victim pick (still counted toward caps). Unconfirmed caps reclaim → `CapacityError` (no admit).
+- Unattended reclaim stamps in-memory `closedReason:"manual"` before signalling; withdrawn if not confirmed → reaped session never becomes shutdown-window recovery candidate.
+- Windows non-headless unattended reclaim → refused + diagnosed (no verifiable identity).
 
 ### Acquire + Caps
 

@@ -14,6 +14,7 @@
  */
 import type { EmbedLifecycleConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { TerminateResult } from "../spawn-process/session-terminator.js";
 import { createIdleReaper, type IdleReaper } from "./idle-reaper.js";
 import {
   createLifecycleMetrics,
@@ -21,6 +22,7 @@ import {
   type LifecycleMetricsSnapshot,
 } from "./lifecycle-metrics.js";
 import { createLivenessProbe, type LivenessProbe } from "./liveness-probe.js";
+import { createReclaimGiveUpTracker, type ReclaimGiveUpTracker } from "./reclaim-give-up.js";
 import { isEphemeral } from "./session-lifecycle-policy.js";
 
 export interface EmbedLifecycleControllerDeps {
@@ -39,8 +41,10 @@ export interface EmbedLifecycleControllerDeps {
    * See change: restore-ask-user-tool-state-on-reconnect (D5).
    */
   hasPendingPromptRequests?: (sessionId: string) => boolean;
-  killBySessionId: (sessionId: string) => Promise<boolean>;
-  sendStopAfterTurn: (sessionId: string) => void;
+  /** Shared terminator, bound with unattended options at the injection site (server.ts). */
+  terminate: (sessionId: string) => Promise<TerminateResult>;
+  /** Latch `stop_after_turn`; `true` when delivered to the bridge. */
+  sendStopAfterTurn: (sessionId: string) => boolean;
   /** Test seam for the liveness probe (defaults to the real `ps` probe). */
   probe?: LivenessProbe;
 }
@@ -48,6 +52,8 @@ export interface EmbedLifecycleControllerDeps {
 export interface EmbedLifecycleController {
   metrics: LifecycleMetrics;
   reaper: IdleReaper;
+  /** Give-up state shared by the reaper and the caps gate (`createCapsAdmission({ giveUp })`). */
+  giveUp: ReclaimGiveUpTracker;
   start: () => void;
   stop: () => void;
   snapshot: () => LifecycleMetricsSnapshot;
@@ -74,6 +80,8 @@ export function createEmbedLifecycleController(
         .length,
   });
 
+  const giveUp = createReclaimGiveUpTracker();
+
   const reaper = createIdleReaper({
     config: deps.config,
     listSessions: deps.listSessions,
@@ -91,14 +99,17 @@ export function createEmbedLifecycleController(
       const q = deps.listSessions().find((s) => s.id === id)?.pendingQueues;
       return { followUp: q?.followUp.length ?? 0, steering: q?.steering.length ?? 0 };
     },
-    killBySessionId: deps.killBySessionId,
+    terminate: deps.terminate,
     sendStopAfterTurn: deps.sendStopAfterTurn,
+    giveUp,
     onReap: (_id, reason) => metrics.recordReap(reason),
+    onReclaimFailed: () => metrics.recordReclaimFailure(),
   });
 
   return {
     metrics,
     reaper,
+    giveUp,
     start: () => reaper.start(),
     stop: () => reaper.stop(),
     snapshot: () => metrics.snapshot(),

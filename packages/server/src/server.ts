@@ -316,6 +316,8 @@ import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
+import { createAbortSpawnedRun } from "./spawn-process/abort-spawned-run.js";
+import { createSessionTerminator } from "./spawn-process/session-terminator.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { registerSpawnEnvContributorForPlugin, setSpawnEnvPluginEnabledCheck } from "./spawn-process/spawn-env-contributors.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
@@ -2396,6 +2398,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Reclaims the automation-produced ephemeral sessions #383 is about; the
   // acquire registry + caps are shared-layer modules the embed front constructs.
   // See change: add-embed-session-lifecycle.
+  // ONE terminator behind every unattended kill (reaper, caps, automation stop):
+  // strategy-agnostic (keys on session.pid, not the headless registry).
+  // See change: fix-session-reclaim-tmux.
+  const sessionTerminator = createSessionTerminator({
+    sessionManager,
+    headlessPidRegistry: browserGateway.headlessPidRegistry,
+  });
+  const abortSpawnedRunImpl = createAbortSpawnedRun({
+    terminate: sessionTerminator.terminate,
+    sendShutdownHint: (sessionId) => piGateway.sendToSession(sessionId, { type: "shutdown", sessionId }),
+    recordReclaimFailure: () => embedLifecycle.metrics.recordReclaimFailure(),
+  });
   const embedLifecycle = createEmbedLifecycleController({
     config: () => loadConfig().embedLifecycle,
     listSessions: () => sessionManager.listAll(),
@@ -2403,7 +2417,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     listTerminalCwds: () => terminalManager.list().map((t) => t.cwd),
     hasPendingUiRequest: (id) => browserGateway.hasPendingUiRequest(id),
     hasPendingPromptRequests: (id) => browserGateway.hasPendingPromptRequests(id),
-    killBySessionId: (id) => browserGateway.headlessPidRegistry.killBySessionId(id),
+    // graceMs 0: killProcess is itself SIGTERM → 2 s → SIGKILL (design D2).
+    terminate: (id) =>
+      sessionTerminator.terminate(id, { graceMs: 0, verifyIdentity: true, stampManualClose: true }),
     sendStopAfterTurn: (id) =>
       piGateway.sendToSession(id, { type: "stop_after_turn", sessionId: id }),
   });
@@ -3517,30 +3533,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 return true;
               },
               // Terminate an automation run's spawned session. Same trust
-              // gate as spawnSession/abortSession. `graceful` sends a clean-
-              // exit {type:"shutdown"} hint AND escalates via the kill
-              // ladder (mirroring handleShutdown — the hint is dropped when
-              // the bridge WS is not OPEN, so the kill is the guarantee).
-              // Hard path kills by sessionId, falling back to spawnToken for
-              // a run spawned but not yet registered.
-              // See change: fix-automation-stop-zombie-runs.
-              // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
-              abortSpawnedRun: async ({ sessionId, spawnToken, graceful }) => {
+              // gate as spawnSession/abortSession. Both branches resolve through
+              // the ONE shared terminator (`createAbortSpawnedRun`): `graceful`
+              // sends a clean-exit hint first; the spawn token reclaims a run
+              // not yet registered.
+              // See change: fix-automation-stop-zombie-runs, fix-session-reclaim-tmux.
+              abortSpawnedRun: async (args) => {
                 const trusted = (plugin.manifest.priority ?? 1000) <= 100;
                 if (!trusted) return false;
-                const reg = browserGateway.headlessPidRegistry;
-                if (graceful && sessionId) {
-                  piGateway.sendToSession(sessionId, { type: "shutdown", sessionId });
-                  return reg.killBySessionId(sessionId);
-                }
-                if (sessionId) {
-                  const killed = await reg.killBySessionId(sessionId);
-                  if (killed) return true;
-                  if (spawnToken) return reg.killByToken(spawnToken);
-                  return false;
-                }
-                if (spawnToken) return reg.killByToken(spawnToken);
-                return false;
+                return abortSpawnedRunImpl(args);
               },
               // Pin a tightening cwd capability floor. Same trust gate as
               // spawnSession (priority <= 100). Untrusted plugins get a no-op

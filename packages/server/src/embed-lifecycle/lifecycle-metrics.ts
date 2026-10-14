@@ -21,6 +21,8 @@ export interface LifecycleMetricsSnapshot {
   reaped: Record<ReapReason, number>;
   /** Cumulative capacity rejections. */
   capacityRejections: number;
+  /** Cumulative failed reclaims (kill not confirmed, or gear-2 latch undelivered). */
+  failedReclaims: number;
   /** Acquire reuse hits (returned a live session). */
   reuseHits: number;
   /** Acquire reuse misses (spawned or resumed). */
@@ -37,6 +39,8 @@ export interface LifecycleMetricsDeps {
 export interface LifecycleMetrics {
   recordReap: (reason: ReapReason) => void;
   recordCapacityReject: () => void;
+  /** A reclaim attempt that did not take effect. See change: fix-session-reclaim-tmux. */
+  recordReclaimFailure: () => void;
   recordReuse: (hit: boolean) => void;
   snapshot: () => LifecycleMetricsSnapshot;
 }
@@ -44,6 +48,7 @@ export interface LifecycleMetrics {
 export function createLifecycleMetrics(deps: LifecycleMetricsDeps = {}): LifecycleMetrics {
   const reaped: Record<ReapReason, number> = { idle: 0, "stop-after-turn": 0, phantom: 0 };
   let capacityRejections = 0;
+  let failedReclaims = 0;
   let reuseHits = 0;
   let reuseMisses = 0;
 
@@ -54,6 +59,9 @@ export function createLifecycleMetrics(deps: LifecycleMetricsDeps = {}): Lifecyc
     recordCapacityReject: () => {
       capacityRejections += 1;
     },
+    recordReclaimFailure: () => {
+      failedReclaims += 1;
+    },
     recordReuse: (hit) => {
       if (hit) reuseHits += 1;
       else reuseMisses += 1;
@@ -63,6 +71,7 @@ export function createLifecycleMetrics(deps: LifecycleMetricsDeps = {}): Lifecyc
       idleEphemeral: deps.countIdleEphemeral?.() ?? 0,
       reaped: { ...reaped },
       capacityRejections,
+      failedReclaims,
       reuseHits,
       reuseMisses,
     }),
