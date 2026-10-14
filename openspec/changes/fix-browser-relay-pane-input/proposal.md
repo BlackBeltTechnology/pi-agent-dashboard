@@ -1,6 +1,6 @@
 ## Why
 
-The live spike on 2026-10-14 (Electron on one Mac, dashboard on another; record in `mockups/browser-relay/spike-remote-electron.md`) found four defects in the shipped browser relay. None of them depends on the remote topology.
+The live spike on 2026-10-14 (Electron on one Mac, dashboard on another; record in `openspec/changes/add-operator-browser-relay/mockups/spike-remote-electron.md`) found four defects in the shipped browser relay. None of them depends on the remote topology.
 
 - **Typing into the frame inserts nothing.** `BrowserPaneTab` forwards a `keyDown` with `{key, code}` only. CDP `Input.dispatchKeyEvent` inserts a character only when `text` is set. Proven live: `a`,`b` without `text` → `""`; `X`,`Y` with `text` → `"XY"`. Only the text-entry bridge works today.
 - **A dialog connect loses its answer after 10 s.** The server's Fastify `connectionTimeout: 10_000` closes the request socket of `POST /api/browser/connect`. The relay keeps waiting up to 60 s and the extension may still attach, but the caller gets an empty reply (curl exit 52) and never receives the `cdpUrl`. The spec says "on Allow `connect` resolves", and a human Allow click routinely takes longer than 10 s. Zero-dialog connects (~4 s) hide the bug.
@@ -20,7 +20,7 @@ Non-goals:
 - Clipboard shortcuts (Cmd/Ctrl+C/V/A) inside the frame.
 - IME composition inside the frame (the text bridge covers it).
 - The pre-existing mismatch between the spec's `connect?profile=` query form and the handler's `profileDirectory` body. It is tracked as a follow-up.
-- The UX redesign on the pending `mockups/browser-relay/` board.
+- The UX redesign on the pending `openspec/changes/add-operator-browser-relay/mockups/` board.
 
 ## Capabilities
 

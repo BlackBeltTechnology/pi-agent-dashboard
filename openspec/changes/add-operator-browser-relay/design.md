@@ -1,6 +1,6 @@
 ## Context
 
-Evidence: `mockups/browser-relay/spike-remote-electron.md`, sections "Topology" and "Spike D". Throwaway scripts: `mockups/browser-relay/spike-d/{shim,bridge,pipe}.mjs`. The spike proved the stock Playwright extension attaches through a loopback shim on the operator machine plus a tunnel. No relay or extension change was needed.
+Evidence: `openspec/changes/add-operator-browser-relay/mockups/spike-remote-electron.md`, sections "Topology" and "Spike D". Throwaway scripts: `openspec/changes/add-operator-browser-relay/mockups/spike-d/{shim,bridge,pipe}.mjs`. The spike proved the stock Playwright extension attaches through a loopback shim on the operator machine plus a tunnel. No relay or extension change was needed.
 
 Existing code this design builds on (`develop`; paths under `packages/browser-plugin/src/server/` unless stated):
 
@@ -209,4 +209,4 @@ Every server→browser `browser_host_*` message is sent only to the bound carrie
 
 ## Open Questions
 
-- Final dialog and "This computer" copy, from the pending UX board (`mockups/browser-relay/`, retro-ux-browser-relay). Tests assert roles, test ids and button semantics, not strings.
+- Final dialog and "This computer" copy, from the pending UX board (`openspec/changes/add-operator-browser-relay/mockups/`, retro-ux-browser-relay). Tests assert roles, test ids and button semantics, not strings.

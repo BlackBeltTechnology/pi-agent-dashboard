@@ -1,6 +1,6 @@
 ## Context
 
-Evidence comes from the live spike of 2026-10-14 (`mockups/browser-relay/spike-remote-electron.md`, findings 2, 3, 6 and 7). Code as of `develop`:
+Evidence comes from the live spike of 2026-10-14 (`openspec/changes/add-operator-browser-relay/mockups/spike-remote-electron.md`, findings 2, 3, 6 and 7). Code as of `develop`:
 
 - Frame keys: `onKey` sends `{kind:"key", keyType, key: e.key, code: e.code}` (`packages/browser-plugin/src/client/BrowserPaneTab.tsx:157-160`). The relay copies `text` only when present (`packages/browser-plugin/src/server/relay/viewer-input.ts:146`). The text bridge already sends `keyType:"char"` with `text` (`BrowserPaneTab.tsx:166`), and sends Enter as `keyDown` with `text:"\r"` (`BrowserPaneTab.tsx:171`).
 - Positions: `point()` normalizes against `imgRef ?? boxRef` (`BrowserPaneTab.tsx:137-140`), and the handlers live on the frame box, which fills the pane in Fit mode (`BrowserPaneTab.tsx:254-268`). The relay refuses out-of-range coordinates and audits `denied` with the input kind (`viewer-input.ts:104`, `relay/screencast-tap.ts:274-286`).
@@ -11,7 +11,7 @@ Evidence comes from the live spike of 2026-10-14 (`mockups/browser-relay/spike-r
 
 **Goals:** typing into the frame works; a dialog connect returns its `cdpUrl` within the 60 s window; no input from outside the image; no idle-strip flicker on a static page.
 
-**Non-Goals:** server audit detail format; leftover `connect.html` tab; clipboard shortcuts; IME composition in the frame (the text bridge covers it); any UX restyle (pending `mockups/browser-relay/` board).
+**Non-Goals:** server audit detail format; leftover `connect.html` tab; clipboard shortcuts; IME composition in the frame (the text bridge covers it); any UX restyle (pending `openspec/changes/add-operator-browser-relay/mockups/` board).
 
 ## Decisions
 

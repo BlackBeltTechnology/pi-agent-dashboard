@@ -4,7 +4,7 @@ Today the browser relay can drive only the Chrome **on the dashboard host**. The
 
 When the operator works on another machine, the agent drives the wrong browser. Example: Electron on mac-home switched to the MacBook's dashboard. The browser driven is the MacBook's, which has the wrong cookies, accounts and SSO state, while the operator's own logged-in Chrome sits unused.
 
-The 2026-10-14 spike (`mockups/browser-relay/spike-remote-electron.md`, section "Spike D") proved a way that needs no extension fork:
+The 2026-10-14 spike (`openspec/changes/add-operator-browser-relay/mockups/spike-remote-electron.md`, section "Spike D") proved a way that needs no extension fork:
 1. A loopback relay shim on the **operator** machine accepts the stock extension.
 2. The shim tunnels the extension stream to the dashboard server.
 3. The server attaches the stream as if it came from a local extension.
