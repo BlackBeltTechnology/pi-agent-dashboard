@@ -67,7 +67,7 @@ describe("browser-plugin manifest (E31)", () => {
         : (clientEntry as Record<string, unknown>);
       expect(typeof source[claim.component as string], `claim ${claim.slot} → ${claim.component}`).toBe("function");
       if (claim.module) {
-        expect((clientEntry as Record<string, unknown>)[claim.component as string]).toBeUndefined();
+        expect((clientEntry as Record<string, unknown>)[claim.component as string]).toBe(undefined);
       }
     }
   });

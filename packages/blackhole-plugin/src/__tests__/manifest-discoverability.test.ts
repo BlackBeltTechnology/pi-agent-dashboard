@@ -54,7 +54,7 @@ describe("blackhole session-surface manifest discoverability", () => {
     expect(typeof claim!.module).toBe("string");
     const mod = (await import(/* @vite-ignore */ resolve(dirname(PACKAGE_JSON), claim!.module as string))) as Record<string, unknown>;
     expect(typeof mod[claim!.component as string]).toBe("function");
-    expect((clientEntry as Record<string, unknown>)[claim!.component as string]).toBeUndefined();
+    expect((clientEntry as Record<string, unknown>)[claim!.component as string]).toBe(undefined);
   });
 
   it("priority is strictly HIGHER than flows' — lowest wins content-view on overlap (E12)", () => {

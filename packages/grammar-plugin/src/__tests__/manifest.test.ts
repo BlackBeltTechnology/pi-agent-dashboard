@@ -44,7 +44,7 @@ describe("grammar manifest", () => {
       if (claim.module) {
         const mod = (await import(/* @vite-ignore */ join(pkgDir, claim.module))) as Record<string, unknown>;
         expect(typeof mod[claim.component]).toBe("function");
-        expect((barrel as Record<string, unknown>)[claim.component]).toBeUndefined();
+        expect((barrel as Record<string, unknown>)[claim.component]).toBe(undefined);
       } else {
         expect(typeof (barrel as Record<string, unknown>)[claim.component]).toBe("function");
       }

@@ -34,7 +34,7 @@ describe("system-one-plugin manifest", () => {
     const lazy = await import("../client/SystemOneSettings.js");
     expect(typeof lazy.SystemOneSettings).toBe("function");
     const mod = (await import("../client/index.js")) as Record<string, unknown>;
-    expect(mod.SystemOneSettings).toBeUndefined();
+    expect(mod.SystemOneSettings).toBe(undefined);
     expect(Object.keys(mod.catalog as object).sort()).toEqual(["hu", "zh-CN"]);
   });
 });
