@@ -464,7 +464,10 @@ function registerPiDashboardIpc(): void {
   }, logRejectedSender));
 
   // Settings → Dashboard runtime "Check for app update" (requires_app refusal).
-  // No renderer input. See change: electron-runtime-overlay-updates.
+  // No renderer input. Deliberately NOT sender-gated: the Settings button lives
+  // in the dashboard page, which in remote mode is a remote origin; the worst a
+  // remote page can do is trigger an update check (no data in, none out).
+  // See change: electron-runtime-overlay-updates, harden-electron-renderer-boundary.
   ipcMain.removeHandler("dashboard:check-app-update");
   ipcMain.handle("dashboard:check-app-update", () => handleCheckForUpdates());
 

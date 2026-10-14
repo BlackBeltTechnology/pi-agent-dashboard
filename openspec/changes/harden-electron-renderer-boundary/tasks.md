@@ -28,7 +28,7 @@
 - [x] T1 Remote frame: `window.remoteConnect`/`window.electron.doctor` undefined in the main window after loadURL(remote).
 - [x] T2 IPC sender: a call from a remote-origin frame to read-server-log/probe/request-launch/open-doctor is rejected; a call from the trusted loading frame succeeds.
 - [x] T3 openExternal: `file://`, `ms-msdt:`, `search-ms:` dropped; `https://` opened. (Both window-open and will-navigate paths.)
-- [x] T4 Probe: `http://169.254.169.254/…` and a `10.x`/`192.168.x` host rejected; a public host from the wizard fetches `/api/health`.
+- [x] T4 Probe: `http://169.254.169.254/…` (and decimal/hex/mapped-v6 encodings) rejected; `10.x`/`192.168.x`/loopback and a public host still fetch `/api/health`.
 - [x] T5 Regression: normal local launch + loading page UX unaffected; wizard remote-connect + doctor flows still work.
 
 ## Discipline checkpoints

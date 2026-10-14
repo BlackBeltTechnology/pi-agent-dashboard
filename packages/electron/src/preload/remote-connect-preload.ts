@@ -2,9 +2,9 @@
  * Remote-connect preload bridge. Exposes `window.remoteConnect` to the
  * `remote-connect.html` renderer.
  *
- * Side-effect imported once from `packages/electron/src/preload.ts` so the
- * single bundled preload registers this namespace alongside the piDashboard
- * and doctor bridges.
+ * Side-effect imported once from `packages/electron/src/preload.ts` (the
+ * WIZARD preload bundle, alongside the doctor bridge). Never carried by the
+ * main-window preload (`preload-main.ts`).
  *
  * See change: auto-launch-first-run-skip-welcome (Section 2B).
  */
