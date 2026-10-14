@@ -28,7 +28,7 @@ _None._
 ## Impact
 
 - `packages/shared/src/dashboard-plugin/slot-types.ts` and `slot-props.ts`: new slot id, definition, and props entry. This is a minor version per `dashboard-shell-slots` "Adding a new slot is a minor version bump".
-- `packages/dashboard-plugin-runtime/src/slot-consumers.tsx`: `ShellHeadlessSlot`. The Vite plugin, the registry generator and `manifest-validator.ts` derive slot ids from `SLOT_DEFINITIONS`, so they need no change.
+- `packages/dashboard-plugin-runtime/src/slot-consumers.tsx`: `ShellHeadlessSlot`. The Vite plugin and the registry generator derive slot ids from `SLOT_DEFINITIONS`, so they need no change. `manifest-validator.ts` also derives slot ids from it, but gains a rule rejecting `predicate`/`shouldRender` on a `shell-headless` claim.
 - `packages/client/src/App.tsx`: a single `<ShellHeadlessSlot/>` mount.
 - `packages/browser-plugin`: manifest (`package.json` claims), `src/client/{BrowserRelayBadge,relay-store,index}.tsx|ts`, the new `BrowserRelayFeed.tsx`, and tests.
 - `packages/client/src/generated/plugin-registry.tsx`: regenerated (`npm run generate:plugin-registry`).
