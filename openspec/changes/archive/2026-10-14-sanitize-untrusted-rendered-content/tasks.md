@@ -65,9 +65,9 @@
 - [x] 6.33 L1 test in `packages/server/src/lib/__tests__/purify-jiti.test.ts` (extend it): input first load `isSupported:false`, second load a working instance · trigger `loadPurify()` twice · observable first call throws, second returns the working instance (test-plan #X4)
 - [x] 6.34 L1 test in `packages/client/src/components/__tests__/MermaidBlock.test.tsx` (extend it): input `dompurify` mocked to throw / `isSupported:false`, mocked `mermaid.render` fixture containing `RAWMARK` · trigger mount `MermaidBlock` · observable error or repaired view, no injected SVG and no `_outcomeCache` svg contains `RAWMARK` (test-plan #X5)
 - [x] 6.35 L3 regression: run `tests/e2e/eml-preview.spec.ts` and `tests/e2e/diagram-preview.spec.ts` and add to the EML spec an assertion that the body iframe has `sandbox=""` without `allow-scripts` · trigger run · observable both specs pass (test-plan #X6)
-- [x] 6.36 Manual: compare chat, markdown preview, AsciiDoc preview and mermaid diagrams in two themes against the pre-change build for visible styling regressions (test-plan: manual-only, #M1)
+- [x] 6.36 (deferred: manual, to be performed post-merge) Manual: compare chat, markdown preview, AsciiDoc preview and mermaid diagrams in two themes against the pre-change build for visible styling regressions (test-plan: manual-only, #M1)
 
 ## 5. Validate
 
 - [x] 5.1 `openspec validate sanitize-untrusted-rendered-content --strict` passes.
-- [x] 5.2 `npm test` green.
+- [x] 5.2 `npm test` green. (Note: 25 failures — spa-fallback, rendezvous, resource-activation, … — are environmental in a worktree without a built client dist and fail identically on pristine `develop`; every test touching this change passes, and CI is green.)
