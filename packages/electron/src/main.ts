@@ -392,9 +392,11 @@ function showSplash(): void {
 function updateSplashStatus(text: string): void {
   log(`splash: ${text}`);
   if (!splashWindow || splashWindow.isDestroyed()) return;
+  // JSON string literal, with `<`, `>`, `/`, U+2028 and U+2029 as \u escapes (the serialize-javascript set).
+  const literal = JSON.stringify(text).replace(/[<>/\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
   splashWindow.webContents
     .executeJavaScript(
-      `(() => { const el = document.getElementById("status"); if (el) el.textContent = ${JSON.stringify(text)}; })()`,
+      `(() => { const el = document.getElementById("status"); if (el) el.textContent = ${literal}; })()`,
     )
     .catch(() => { /* splash may be closing */ });
 }

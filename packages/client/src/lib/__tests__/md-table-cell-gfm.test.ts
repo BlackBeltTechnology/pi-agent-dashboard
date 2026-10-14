@@ -38,7 +38,7 @@ describe("escapeMdTableCell: GFM contract", () => {
     for (const row of table.children) expect(row.children).toHaveLength(4);
 
     // Oracle: the escape this change replaces (no backslash step, CRLF/LF only, name raw).
-    const oldCell = (s: string) => s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+    const oldCell = (s: string) => s.split("|").join("\\|").replace(/\r?\n/g, " ");
     const oldTables = parseTables(build(oldCell, (s) => s));
     const oldRows = oldTables.flatMap((t) => t.children);
     const intact = oldTables.length === 1 && oldRows.length === 1 + CHECKS.length && oldRows.every((r) => r.children.length === 4);
