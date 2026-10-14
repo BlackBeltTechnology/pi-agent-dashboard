@@ -8,12 +8,14 @@
  * evidence drift `evidence-path.ts` exists to prevent (#549).
  *
  * See change: retro-ux-identity-connectivity (test-plan #E1–#E4).
+ * See change: fix-slot-pill-legend-and-stale-overflow (test-plan #E11–#E13).
  */
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { contrastFailures, type OverflowItem, overflowOf, type Rect, sizeFailures, type TextMeasure } from "../computed-contrast.js";
 import { captureStates, RETRO_UX_THEMES, RETRO_UX_WIDTHS, type UiState } from "../ui-capture.js";
 
 const CHANGE = "retro-ux-identity-connectivity";
@@ -169,5 +171,74 @@ describe("stub declaration (E4)", () => {
       /state bare declares no stubbed endpoint/,
     );
     expect(page.log.goto).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix-slot-pill-legend-and-stale-overflow — overflow probe + sr-only floors.
+// ---------------------------------------------------------------------------
+
+const ROOT: Rect = { left: 0, top: 0, right: 150, bottom: 40 };
+const item = (rect: Partial<Rect>, over: Partial<OverflowItem> = {}): OverflowItem => ({
+  where: "div",
+  rect: { left: 10, top: 10, right: 100, bottom: 30, ...rect },
+  clips: [],
+  topExempt: false,
+  ...over,
+});
+
+describe("overflowOf (E11)", () => {
+  it("(a) inside → []", () => expect(overflowOf(ROOT, [item({})])).toEqual([]));
+  it("(b) right +0.4 px is sub-pixel slack → []", () => expect(overflowOf(ROOT, [item({ right: 150.4 })])).toEqual([]));
+  it("(c) right +0.6 px → one entry", () => expect(overflowOf(ROOT, [item({ right: 150.6 })])).toEqual(["div right +0.6px"]));
+  it("(d) bottom +2 px → bottom entry", () => expect(overflowOf(ROOT, [item({ bottom: 42 })])).toEqual(["div bottom +2.0px"]));
+  it("(e) top −7 px with topExempt → []", () => expect(overflowOf(ROOT, [item({ top: -7 }, { topExempt: true })])).toEqual([]));
+  it("(f) top −7 px without topExempt → top entry", () => expect(overflowOf(ROOT, [item({ top: -7 })])).toEqual(["div top +7.0px"]));
+  it("(g) right +5 px but clipped to a root-sized rect → []", () =>
+    expect(overflowOf(ROOT, [item({ right: 155 }, { clips: [{ ...ROOT }] })])).toEqual([]));
+  it("(h) clip disjoint from the rect → fully clipped, skipped", () =>
+    expect(overflowOf(ROOT, [item({ right: 400, left: 300 }, { clips: [{ left: 0, top: 0, right: 50, bottom: 40 }] })])).toEqual([]));
+  it("(i) topExempt does not hide the right edge → exactly one entry naming right", () => {
+    const out = overflowOf(ROOT, [item({ top: -7, right: 153 }, { topExempt: true })]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain("right");
+  });
+});
+
+describe("sr-only excluded from visual floors (E12)", () => {
+  const ms = (srOnly: boolean): TextMeasure[] => [
+    { text: "3 stale", ratio: 1.2, need: 4.5, fontSize: 10, interactive: false, bg: [0, 0, 0], where: "span", srOnly },
+    { text: "ok", ratio: 7, need: 4.5, fontSize: 12, interactive: false, bg: [0, 0, 0], where: "span", srOnly: false },
+  ];
+  it("srOnly measure fails neither floor", () => {
+    expect(contrastFailures(ms(true))).toEqual([]);
+    expect(sizeFailures(ms(true))).toEqual([]);
+  });
+  it("the same measure without srOnly fails both", () => {
+    expect(contrastFailures(ms(false))).toHaveLength(1);
+    expect(sizeFailures(ms(false))).toHaveLength(1);
+  });
+});
+
+describe("CaptureResult carries overflow (E13)", () => {
+  it("rows carry the overflow list when the state declares overflowRoot, [] and zero probes otherwise", async () => {
+    changeDir(CHANGE);
+    let evaluateCalls = 0;
+    const overflowLocator = {
+      evaluate: async () => {
+        evaluateCalls++;
+        // overflowFailures feeds the page-collected box + items to overflowOf.
+        return { box: ROOT, items: [item({ right: 152 })] };
+      },
+    };
+    const page = fakePage();
+    const withRoot = await run(page, [fixtureState("with", { overflowRoot: () => overflowLocator as never })]);
+    expect(withRoot.every((r) => r.overflow.length === 1 && r.overflow[0] === "div right +2.0px")).toBe(true);
+    expect(evaluateCalls).toBe(withRoot.length);
+
+    evaluateCalls = 0;
+    const without = await run(fakePage(), [fixtureState("without")]);
+    expect(without.every((r) => r.overflow.length === 0)).toBe(true);
+    expect(evaluateCalls).toBe(0);
   });
 });

@@ -6,7 +6,8 @@
 import { mdiDatabaseOutline } from "@mdi/js";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SlotPill } from "../SlotPill.js";
+import { SLOT_PILL_LEGEND as BarrelLegend } from "../index.js";
+import { SLOT_PILL_LEGEND, SlotPill } from "../SlotPill.js";
 
 afterEach(cleanup);
 
@@ -89,13 +90,30 @@ describe("SlotPill surface variant", () => {
   });
 });
 
-describe("SlotPill capsule legend (#E10)", () => {
-  it.each(["raised", "flat"] as const)("%s legend is 12 px and --text-secondary", (surface) => {
+// See change: fix-slot-pill-legend-and-stale-overflow (test-plan #E1, #E2).
+describe("SlotPill capsule legend (#E1)", () => {
+  it.each([
+    ["raised", "bg-[var(--bg-tertiary)]"],
+    ["flat", "bg-[var(--bg-primary)]"],
+  ] as const)("%s legend carries SLOT_PILL_LEGEND + its surface fill", (surface, fill) => {
     const root = pillRoot(`pill-legend-${surface}`, { surface });
     const legend = root.querySelector("span") as HTMLElement;
     expect(legend.textContent).toBe("Knowledge base");
-    expect(legend.className).toContain("text-[12px]");
-    expect(legend.className).toContain("text-[var(--text-secondary)]");
-    expect(legend.className).not.toContain("text-[9px]");
+    expect(legend.hasAttribute("data-slot-pill-legend")).toBe(true);
+    for (const token of SLOT_PILL_LEGEND.split(/\s+/)) expect(legend.className.split(/\s+/)).toContain(token);
+    expect(legend.className.split(/\s+/)).toContain(fill);
+    for (const bad of ["text-[9px]", "text-[12px]", "tracking-wider", "-top-1.5"]) {
+      expect(legend.className.split(/\s+/)).not.toContain(bad);
+    }
+  });
+});
+
+describe("SLOT_PILL_LEGEND constant (#E2)", () => {
+  it("is exported from the barrel with the 11 px recipe", () => {
+    expect(BarrelLegend).toBe(SLOT_PILL_LEGEND);
+    const tokens = BarrelLegend.split(/\s+/);
+    for (const t of ["text-[11px]", "uppercase", "tracking-wide", "-top-2", "font-semibold", "text-[var(--text-secondary)]"]) {
+      expect(tokens).toContain(t);
+    }
   });
 });

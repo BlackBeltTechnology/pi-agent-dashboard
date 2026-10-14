@@ -12,6 +12,7 @@ import type { Locator, Page } from "@playwright/test";
  * WCAG ratio.
  *
  * See change: align-ui-with-theme-tokens (task 4.1).
+ * See change: fix-slot-pill-legend-and-stale-overflow (srOnly skip, overflow probe, `contrastRatio`).
  */
 
 export interface TextMeasure {
@@ -28,6 +29,11 @@ export interface TextMeasure {
   bg: number[];
   /** Tag + testid breadcrumb for failure messages. */
   where: string;
+  /**
+   * Inside an `.sr-only` subtree: screen-reader-only text has no visual
+   * footprint, so neither the contrast nor the size floor applies to it.
+   */
+  srOnly: boolean;
 }
 
 /**
@@ -99,6 +105,7 @@ export function measureText(scope: Locator): Promise<TextMeasure[]> {
         interactive: !!e.closest("button, label, a"),
         bg: bg.slice(0, 3).map(Math.round),
         where: `${e.tagName.toLowerCase()}${tid ? `@${tid}` : ""}`,
+        srOnly: e.closest(".sr-only") !== null,
       };
     });
   });
@@ -107,7 +114,7 @@ export function measureText(scope: Locator): Promise<TextMeasure[]> {
 /** Human-readable failures of `measureText` against `floor` (default = per-node need). */
 export function contrastFailures(ms: TextMeasure[], floor?: number): string[] {
   return ms
-    .filter((m) => m.ratio + 0.01 < (floor ?? m.need))
+    .filter((m) => !m.srOnly && m.ratio + 0.01 < (floor ?? m.need))
     .map((m) => `${m.where} "${m.text}" ${m.ratio}:1 (need ${floor ?? m.need})`);
 }
 
@@ -116,8 +123,143 @@ export function sizeFailures(ms: TextMeasure[], opts: { dense?: number; interact
   const dense = opts.dense ?? 11;
   const interactive = opts.interactive ?? 12;
   return ms
-    .filter((m) => m.fontSize < dense || (m.interactive && m.fontSize < interactive))
+    .filter((m) => !m.srOnly && (m.fontSize < dense || (m.interactive && m.fontSize < interactive)))
     .map((m) => `${m.where} "${m.text}" ${m.fontSize}px`);
+}
+
+/** WCAG contrast ratio of two opaque `[r,g,b]` 0–255 colours (node-side twin of the in-page closure). */
+export function contrastRatio(fg: number[], bg: number[]): number {
+  const lum = ([r, g, b]: number[]): number => {
+    const f = (v: number) => {
+      const s = v / 255;
+      return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  };
+  const x = lum(fg);
+  const y = lum(bg);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+/** Border box in viewport coordinates (the `getBoundingClientRect` subset used here). */
+export interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+export interface OverflowItem {
+  /** Tag + testid breadcrumb for failure messages. */
+  where: string;
+  /** Transform-inclusive border box. */
+  rect: Rect;
+  /** Border boxes of every clipping ancestor strictly between the item and the root. */
+  clips: Rect[];
+  /** Ignore the TOP edge only (the capsule legend overhangs the top border by design). */
+  topExempt: boolean;
+}
+
+/** Sub-pixel slack: `getBoundingClientRect` rounds under `-translate-x-1/2`. */
+const OVERFLOW_TOLERANCE_PX = 0.5;
+
+function intersect(a: Rect, b: Rect): Rect | null {
+  const r = { left: Math.max(a.left, b.left), top: Math.max(a.top, b.top), right: Math.min(a.right, b.right), bottom: Math.min(a.bottom, b.bottom) };
+  return r.right > r.left && r.bottom > r.top ? r : null;
+}
+
+/**
+ * Items whose EFFECTIVE box (own rect ∩ every clipping ancestor) paints past
+ * `root` by more than 0.5 px, one entry per offending edge. An item fully
+ * clipped away is skipped. `topExempt` items are ignored on the top edge only.
+ */
+export function overflowOf(root: Rect, items: OverflowItem[]): string[] {
+  const out: string[] = [];
+  for (const it of items) {
+    const box = it.clips.reduce<Rect | null>((acc, c) => (acc ? intersect(acc, c) : null), it.rect);
+    if (!box) continue;
+    const edges: Array<[string, number]> = [
+      ["left", root.left - box.left],
+      ["right", box.right - root.right],
+      ["bottom", box.bottom - root.bottom],
+      ["top", it.topExempt ? 0 : root.top - box.top],
+    ];
+    for (const [edge, px] of edges) {
+      if (px > OVERFLOW_TOLERANCE_PX) out.push(`${it.where} ${edge} +${px.toFixed(1)}px`);
+    }
+  }
+  return out;
+}
+
+/**
+ * Every visible, non-`.sr-only` descendant of `root` whose painted box leaves
+ * `root`'s border box. `topExempt` is a selector matched on the element itself.
+ */
+export async function overflowFailures(root: Locator, topExempt?: string): Promise<string[]> {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one self-contained in-page collector (it cannot call out to node-side helpers).
+  const { box, items } = await root.evaluate((rootEl, exempt) => {
+    const rectOf = (e: Element): { left: number; top: number; right: number; bottom: number } => {
+      const r = e.getBoundingClientRect();
+      return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+    };
+    const found: Array<{
+      where: string;
+      rect: ReturnType<typeof rectOf>;
+      clips: Array<ReturnType<typeof rectOf>>;
+      topExempt: boolean;
+    }> = [];
+    for (const e of rootEl.querySelectorAll("*")) {
+      const cs = getComputedStyle(e);
+      if ((e as HTMLElement).offsetParent === null || cs.opacity === "0" || cs.visibility === "hidden" || e.closest(".sr-only")) continue;
+      const clips: Array<ReturnType<typeof rectOf>> = [];
+      for (let a = e.parentElement; a && a !== rootEl; a = a.parentElement) {
+        const acs = getComputedStyle(a);
+        if (acs.overflowX !== "visible" || acs.overflowY !== "visible") clips.push(rectOf(a));
+      }
+      const tid = e.closest("[data-testid]")?.getAttribute("data-testid") ?? "";
+      found.push({
+        where: `${e.tagName.toLowerCase()}${tid ? `@${tid}` : ""}`,
+        rect: rectOf(e),
+        clips,
+        topExempt: exempt ? e.matches(exempt) : false,
+      });
+    }
+    return { box: rectOf(rootEl), items: found };
+  }, topExempt ?? null);
+  return overflowOf(box, items);
+}
+
+/**
+ * Composited text colour and effective background of ONE element as `[r,g,b]`,
+ * resolved through the same canvas + ancestor-stack path as `measureText`.
+ * For text `measureText` skips (an `aria-hidden` count), pair with `contrastRatio`.
+ */
+export function elementColors(el: Locator): Promise<{ fg: number[]; bg: number[] }> {
+  return el.evaluate((e) => {
+    const cv = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
+    const rgba = (c: string): number[] => {
+      cv.clearRect(0, 0, 1, 1);
+      cv.fillStyle = "#000";
+      cv.fillStyle = c;
+      cv.fillRect(0, 0, 1, 1);
+      const d = cv.getImageData(0, 0, 1, 1).data;
+      return [d[0], d[1], d[2], d[3] / 255];
+    };
+    const over = (top: number[], bot: number[]): number[] => {
+      const a = top[3];
+      return [0, 1, 2].map((i) => top[i] * a + bot[i] * (1 - a)).concat(1);
+    };
+    const stack: number[][] = [];
+    for (let n: Element | null = e; n; n = n.parentElement) {
+      const c = rgba(getComputedStyle(n).backgroundColor);
+      if (c[3] > 0) stack.push(c);
+      if (c[3] >= 1) break;
+    }
+    let bg = [255, 255, 255, 1];
+    for (const c of stack.reverse()) bg = over(c, bg);
+    const fg = over(rgba(getComputedStyle(e).color), bg);
+    return { fg: fg.slice(0, 3), bg: bg.slice(0, 3) };
+  });
 }
 
 /** Every visible button under `scope`, with its rendered box. */
