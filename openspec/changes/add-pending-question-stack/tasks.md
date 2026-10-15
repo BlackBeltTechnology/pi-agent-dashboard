@@ -42,13 +42,13 @@
 
 ## 7. Client
 
-- [ ] 7.1 Failing component tests: hidden at 0, count, newest-first, origin markers, immediate removal
-- [ ] 7.2 Implement `QuestionStack`
-- [ ] 7.3 Failing tests: visible chat prompt → select + scroll, no dialog; visible widget-bar prompt → owning slot; hidden → dialog; filtered/collapsed visible session revealed
-- [ ] 7.4 Implement routing (D10)
-- [ ] 7.5 Implement `QuestionDialog`: lazy detail fetch, labelled brief, Summarize, collapsible snapshot with absent reasons, renderers for every type, already-answered state, read-only file-access with approval link
-- [ ] 7.6 Narrow viewport badge + sheet; full-screen dialog; never covers the composer
-- [ ] 7.7 Theme tokens only; keyboard + screen-reader pass
+- [x] 7.1 Failing component tests: hidden at 0, count, newest-first, origin markers, immediate removal
+- [x] 7.2 Implement `QuestionStack`
+- [x] 7.3 Failing tests: visible chat prompt → select + scroll, no dialog; visible widget-bar prompt → owning slot; hidden → dialog; filtered/collapsed visible session revealed
+- [x] 7.4 Implement routing (D10)
+- [x] 7.5 Implement `QuestionDialog`: lazy detail fetch, labelled brief, Summarize, collapsible snapshot with absent reasons, renderers for every type, already-answered state, read-only file-access with approval link
+- [x] 7.6 Narrow viewport badge + sheet; full-screen dialog; never covers the composer
+- [x] 7.7 Theme tokens only; keyboard + screen-reader pass
 
 ## 8. Orchestrator skill convention
 

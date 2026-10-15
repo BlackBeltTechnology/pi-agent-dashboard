@@ -31,6 +31,7 @@ import { t } from "../lib/i18n/i18n.js";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/replay/loading-history.js";
 import type { ReplayPersister } from "../lib/replay/replay-persist.js";
 import { inferPlatform, pathKey, resolveSessionGroupPath } from "../lib/session/session-grouping.js";
+import { setQuestions } from "../lib/questions/question-store.js";
 import { clearRecoveryOffer, setRecoveryOffer } from "../lib/state/recovery-offer-bus.js";
 import { pushSpawnErrorToast } from "../lib/state/spawn-error-toast-bus.js";
 import { isVisibleCwd } from "../lib/util/cwd-visibility.js";
@@ -1775,6 +1776,13 @@ export function useMessageHandler(
 
       case "favorite_models_updated":
         setFavoriteModels(msg.labels);
+        break;
+
+      case "questions_update":
+        // pending-question-stack: full replacement of this viewer's visible
+        // rows (first frame on connect may be empty). Replace, do not merge.
+        // See change: add-pending-question-stack.
+        setQuestions(msg.questions);
         break;
 
       case "workspaces_updated":

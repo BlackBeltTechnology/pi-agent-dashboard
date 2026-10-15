@@ -1249,3 +1249,18 @@ mark.markdown-search-highlight-active {
 :root {
   --composer-lifecycle-w: 9.5rem;
 }
+
+/* Open-questions pill: one-shot new-arrival ring (never a loop). The component
+   also skips the class under reduced motion; this is the belt to that brace.
+   See change: add-pending-question-stack. */
+@keyframes question-pill-arrive-kf {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-needs-you) 0%, transparent); }
+  30%  { box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-needs-you) 55%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-needs-you) 0%, transparent); }
+}
+.question-pill.arrive {
+  animation: question-pill-arrive-kf 600ms ease-out 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .question-pill.arrive { animation: none; }
+}
