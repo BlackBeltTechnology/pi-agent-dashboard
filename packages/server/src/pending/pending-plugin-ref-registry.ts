@@ -239,7 +239,7 @@ export function createPendingPluginRefRegistry(
       if (lifecycle?.close !== undefined) {
         const close = normalizeCloseDeclaration(lifecycle.close);
         const { close: _dropped, ...rest } = lifecycle;
-        if (close === null || close === undefined) {
+        if (!close) {
           warn(`[pending-plugin-ref-registry] dropped invalid close declaration from plugin "${ownerId}" (spawnToken ${token})`);
           lifecycle = rest;
         } else {

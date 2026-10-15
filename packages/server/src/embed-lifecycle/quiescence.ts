@@ -146,8 +146,9 @@ function streamingGearVerdict(
 ): ReapVerdict {
   // A live child means genuine work — never touch it.
   if (s.hasLiveChild) return skip("live-child");
-  // In scope only through a close request: wait for the next quiet point.
-  if (!isEphemeral(s) && !s.governed) return skip("streaming-active");
+  // A close request waits for the next quiet point: no streaming gear ever
+  // fires for it (review B2). A session in scope only via a request likewise.
+  if (s.closeRequested || (!isEphemeral(s) && !s.governed)) return skip("streaming-active");
 
   const streamAge = now - (s.lastRunStartedAt ?? s.activatedAt);
 

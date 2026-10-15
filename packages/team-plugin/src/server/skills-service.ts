@@ -474,7 +474,7 @@ export class SkillsService {
     };
   }
 
-  /** Live, owner-bound conversation records (same binding rule as `sweepIdle`). */
+  /** Live, owner-bound conversation records (same owner-binding rule as the former idle sweep). */
   private liveRecords(): LocatedRecord[] {
     const multi = this.d.access.mode() === "multi";
     const out: LocatedRecord[] = [];

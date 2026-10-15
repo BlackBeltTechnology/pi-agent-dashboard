@@ -22,7 +22,7 @@
 ## 4. Server wiring
 
 - [x] 4.1 Wire the closer registry and `requestSessionClose` into the plugin ctx in `packages/server/src/server.ts` behind the `priority <= 100` trusted gate; owner check `closePolicy.owner === plugin.manifest.id`
-- [x] 4.2 Remove a plugin's closer when the plugin is disabled
+- [x] 4.2 Skip a disabled plugin's closer at consult time (`isPluginEnabled` gate in the controller; the registry keeps it so re-enable works without a restart)
 
 ## 5. Team plugin migration
 
@@ -37,11 +37,13 @@
 
 ## 7. Tests (folded from test-plan.md; write each before its implementation task)
 
+Landed in: `pending/__tests__/pending-plugin-ref-close.test.ts` (7.1–7.3), `embed-lifecycle/__tests__/quiescence-governed.test.ts` (7.7, 7.8, 7.15), `embed-lifecycle/__tests__/plugin-governed-reaper.test.ts` (7.5, 7.6, 7.9–7.11, 7.14, 7.17, 7.18, 7.20, 7.25–7.28), `embed-lifecycle/__tests__/plugin-session-close.test.ts` (7.12, 7.13, 7.16, 7.19, 7.29), `embed-lifecycle/__tests__/caps.test.ts` (7.12), `embed-lifecycle/__tests__/lifecycle-marker-persistence.test.ts` (7.4, 7.30), team `conversations.test.ts` (7.21–7.24). The "see" paths below are the harness exemplars.
+
 - [x] 7.1 Declaration validation BVA — see `packages/server/src/pending/__tests__/pending-plugin-ref-registry.test.ts`. Input: `close.idle.afterMs` 999 / 1000 / 1800000 / 1000.5 / Infinity / NaN / "30"; trigger: file the declaration; observable: 1000 and 1800000 accepted, the rest dropped with one warning each naming plugin id + spawn token (test-plan #E1)
 - [x] 7.2 Close mode partitions — see `packages/server/src/pending/__tests__/pending-plugin-ref-registry.test.ts`. Input: `mode` sleep / archive / absent / "detach"; trigger: file the declaration; observable: sleep and archive kept, absent becomes sleep, "detach" drops the block with a warning (test-plan #E2)
 - [x] 7.3 pluginRef cannot forge closePolicy — see `packages/server/src/pending/__tests__/pending-plugin-ref-registry.test.ts`. Input: ref body with a `closePolicy` key and no declaration; trigger: register; observable: session has no closePolicy, key rejected as core-reserved (test-plan #E3)
 - [x] 7.4 closePolicy persists across restart — see `packages/server/src/embed-lifecycle/__tests__/lifecycle-marker-persistence.test.ts`. Input: session with closePolicy {owner, idleAfterMs 1800000, sleep}; trigger: sessionToMeta then scanner rehydrate; observable: restored closePolicy deep-equals the original (test-plan #E4)
-- [x] 7.5 Undeclared behavior unchanged decision table — see `packages/server/src/embed-lifecycle/__tests__/idle-reaper.test.ts`. Input: enabled × lifecyclePolicy × closePolicy grid, all quiescent and idle 2 h; trigger: sweepOnce; observable: reaped iff (enabled and ephemeral) or governed; enabled:false with nothing governed calls the probe 0 times (test-plan #E5)
+- [x] 7.5 Undeclared behavior unchanged decision table — in `packages/server/src/embed-lifecycle/__tests__/plugin-governed-reaper.test.ts` (exemplar `idle-reaper.test.ts`). Input: enabled × lifecyclePolicy × closePolicy grid, all quiescent and idle 2 h; trigger: sweepOnce; observable: reaped iff (enabled and ephemeral) or governed; enabled:false with nothing governed calls the probe 0 times (test-plan #E5)
 - [x] 7.6 Governed threshold boundary with feature disabled — see `packages/server/src/embed-lifecycle/__tests__/idle-reaper.test.ts`. Input: governed idleAfterMs 1800000, enabled:false, quiescent; trigger: sweeps at idle age 1799999 and 1800001 ms; observable: no kill, then exactly one killBySessionId (test-plan #E6)
 - [x] 7.7 Every quiescence veto applies to governed sessions — see `packages/server/src/embed-lifecycle/__tests__/quiescence.test.ts`. Input: governed session past threshold with one veto at a time (subscriber, grace, currentTool, pending ask, followUp, steering, terminal in cwd, live child); trigger: decideReap; observable: skip with that veto reason each time, reap("idle") with none (test-plan #E7)
 - [x] 7.8 Governed gears 2 and 3 — see `packages/server/src/embed-lifecycle/__tests__/quiescence.test.ts`. Input: governed streaming session idle past threshold with empty queues, and one streaming past hard ceiling at ~0 CPU; trigger: decideReap; observable: stop-after-turn and phantom respectively (test-plan #E8)

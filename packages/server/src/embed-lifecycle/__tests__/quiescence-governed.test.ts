@@ -83,6 +83,21 @@ describe("decideReap — plugin-governed sessions", () => {
     expect(decideReap({ ...requested, hasSubscriber: true }, T, NOW).action).toBe("skip");
   });
 
+  it("E15: a governed session with a close request is never stopped or phantom-reaped mid-run (review B2)", () => {
+    const midRunPhantom = governed({
+      closeRequested: true,
+      lastRunStartedAt: NOW - 700_000, // past hard ceiling
+      lastSettledAt: NOW - 800_000, // mid-run
+      cpuIdle: true,
+    });
+    expect(decideReap(midRunPhantom, T, NOW)).toEqual({ action: "skip", reason: "streaming-active" });
+    // Idle-trending mid-run (gear 2 conditions) is also left alone while requested.
+    expect(decideReap({ ...midRunPhantom, cpuIdle: false }, T, NOW)).toEqual({
+      action: "skip",
+      reason: "streaming-active",
+    });
+  });
+
   it("E15: a close request never fires mid-run (test-plan #E15)", () => {
     const requestedMidRun = governed({
       governed: false,

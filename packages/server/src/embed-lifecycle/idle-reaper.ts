@@ -289,6 +289,8 @@ export function createIdleReaper(deps: ReaperDeps): IdleReaper {
     // Durable undeclared sessions are never governed (E1); with the feature off
     // and nothing declared this is a no-work pass, as before (E22).
     giveUp.prune(new Set(sessions.map((s) => s.id)));
+    // A close request dies with its session, however it ended.
+    for (const s of sessions) if (s.status === "ended") deps.clearCloseRequest?.(s.id);
     const candidates = sessions.filter((s) => inScope(s, cfg.enabled));
     if (candidates.length === 0) return;
     const t = toThresholds(cfg);

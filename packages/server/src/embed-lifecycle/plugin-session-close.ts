@@ -107,7 +107,9 @@ export function createPluginSessionCloseApi(
         return true;
       }
       if (session.closePolicy.mode === "archive") deps.markArchiveOnEnd(sessionId);
-      return deps.closeNow(sessionId);
+      const closed = await deps.closeNow(sessionId);
+      if (closed) deps.registry.clearCloseRequest(sessionId);
+      return closed;
     },
   };
 }
