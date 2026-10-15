@@ -8,7 +8,7 @@
 import { redactSecrets } from "@blackbelt-technology/pi-dashboard-shared/redaction.js";
 
 /** Stored/shown cap for a provided brief. */
-export const PROVIDED_BRIEF_MAX_CHARS = 32_768;
+const PROVIDED_BRIEF_MAX_CHARS = 32_768;
 /** Extra input past the cap so a secret straddling the cut is redacted whole before the final slice. */
 const REDACTION_MARGIN_CHARS = 256;
 

@@ -41,9 +41,9 @@ import { buildQuestionSnapshot } from "./question-snapshot.js";
 export const TRANSMITTED_WINDOW_MS = 10 * 60_000;
 
 /** File-access prompt kinds (read-only in the stack; own approval road). */
-export const FILE_ACCESS_KINDS: readonly string[] = ["agent-path-gate", "agent-path-gate-confirm"];
+const FILE_ACCESS_KINDS: readonly string[] = ["agent-path-gate", "agent-path-gate-confirm"];
 
-export type RemovalReason = "cleared" | "reconciled" | "session-ended" | "dismissed" | "cancelled" | (string & {});
+type RemovalReason = "cleared" | "reconciled" | "session-ended" | "dismissed" | "cancelled" | (string & {});
 
 export interface SessionDescriptor {
   label: string;
@@ -61,14 +61,14 @@ export interface QuestionChange {
   more?: boolean;
 }
 
-export type ClaimResult = { status: "claimed"; id: string } | { status: "answered" } | { status: "unknown" };
+type ClaimResult = { status: "claimed"; id: string } | { status: "answered" } | { status: "unknown" };
 /** `answered` carries the session so callers can apply the visibility check BEFORE revealing it. */
-export type LookupResult = { state: "open"; record: QuestionRecord } | { state: "answered"; sessionId: string } | { state: "unknown" };
+type LookupResult = { state: "open"; record: QuestionRecord } | { state: "answered"; sessionId: string } | { state: "unknown" };
 export type SummarizeResult =
   | { ok: true; detail: QuestionDetail }
   | { ok: false; reason: "not-found" | "already-generated" | "unavailable" | "failed"; error: string };
 
-export interface QuestionRecord {
+interface QuestionRecord {
   id: string;
   sessionId: string;
   promptId: string;

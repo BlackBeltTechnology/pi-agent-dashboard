@@ -17,7 +17,7 @@ import path from "node:path";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import type { BriefLabel, BriefStatus, QuestionSnapshot } from "@blackbelt-technology/pi-dashboard-shared/question-types.js";
 
-export const QUESTION_ID_RE = /^[A-Za-z0-9_-]{22}$/;
+const QUESTION_ID_RE = /^[A-Za-z0-9_-]{22}$/;
 
 export interface QuestionFile {
   version: 1;

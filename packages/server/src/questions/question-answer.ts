@@ -14,7 +14,7 @@ export type SendToSession = (sessionId: string, msg: Record<string, unknown>) =>
 /** `source` the dashboard chat stamps on its answers (the bridge defaults to the same). */
 export const ANSWER_SOURCE = "dashboard-default";
 
-export interface AnswerPayload {
+interface AnswerPayload {
   answer?: string;
   cancelled?: boolean;
 }

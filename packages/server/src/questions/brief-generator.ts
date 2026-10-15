@@ -16,8 +16,8 @@ import type { BriefLabel, QuestionSnapshot } from "@blackbelt-technology/pi-dash
 import type { BriefModelResolution } from "./brief-model.js";
 import { buildBriefPrompt } from "./brief-prompt.js";
 
-export const BRIEF_TIMEOUT_MS = 20_000;
-export const BRIEF_MAX_CONCURRENT = 2;
+const BRIEF_TIMEOUT_MS = 20_000;
+const BRIEF_MAX_CONCURRENT = 2;
 /** Defensive ceiling on stored brief text (the prompt asks for ≤ 120 words). */
 const BRIEF_MAX_CHARS = 2000;
 
@@ -37,7 +37,7 @@ export type BriefOutcome =
   | { ok: true; text: string; label: Exclude<BriefLabel, "provided">; latencyMs: number }
   | { ok: false; kind: "unavailable" | "failed"; reason: string; latencyMs: number };
 
-export interface BriefStats {
+interface BriefStats {
   ready: number;
   failed: number;
   unavailable: number;

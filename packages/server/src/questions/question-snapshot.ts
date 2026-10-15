@@ -17,17 +17,17 @@ import type { QuestionSnapshot, QuestionSnapshotToolCall } from "@blackbelt-tech
 import type { EventStore } from "../persistence/memory-event-store.js";
 
 export const SNAPSHOT_ASSISTANT_TEXT_MAX = 8192;
-export const SNAPSHOT_TOOL_CALLS_MAX = 5;
-export const SNAPSHOT_TOOL_SUMMARY_MAX = 120;
+const SNAPSHOT_TOOL_CALLS_MAX = 5;
+const SNAPSHOT_TOOL_SUMMARY_MAX = 120;
 /** Newest events scanned for text/tool calls (bounds the work per question). */
-export const SNAPSHOT_SCAN_WINDOW = 1000;
+const SNAPSHOT_SCAN_WINDOW = 1000;
 /** Input caps applied BEFORE redaction so regex work is bounded (a secret cut by them is cut again by the final slice). */
 const ASSISTANT_TEXT_INPUT_MAX = 4 * SNAPSHOT_ASSISTANT_TEXT_MAX;
 const TOOL_SUMMARY_INPUT_MAX = 4096;
 /** Extra input past a head-slice cap so a secret straddling the cut is redacted whole first. */
 const REDACTION_MARGIN_CHARS = 256;
 /** Serialized `workflowRun` ceiling (after redaction); larger values are replaced by a placeholder. */
-export const SNAPSHOT_WORKFLOW_RUN_MAX = 8192;
+const SNAPSHOT_WORKFLOW_RUN_MAX = 8192;
 
 /** The ask_user call is the question itself, not context for it. */
 const EXCLUDED_TOOLS = new Set(["ask_user"]);
@@ -36,7 +36,7 @@ const SUMMARY_KEYS = ["command", "path", "file_path", "filePath", "pattern", "qu
 /** Object keys whose value is a secret regardless of what it looks like. */
 const SENSITIVE_KEY_RE = /pass(word|wd)?|secret|token|api[_-]?key|auth(orization)?|credential|private[_-]?key|cookie/i;
 /** Nesting deeper than this is replaced (hostile input; also bounds recursion). */
-export const REDACT_DEEP_MAX_DEPTH = 8;
+const REDACT_DEEP_MAX_DEPTH = 8;
 const DEPTH_PLACEHOLDER = "[…]";
 
 /**

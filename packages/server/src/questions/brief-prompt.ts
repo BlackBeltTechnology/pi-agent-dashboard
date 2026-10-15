@@ -15,7 +15,7 @@ import { redactSecrets } from "@blackbelt-technology/pi-dashboard-shared/redacti
 import type { BatchQuestion } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { QuestionSnapshot } from "@blackbelt-technology/pi-dashboard-shared/question-types.js";
 
-export const BRIEF_MAX_WORDS = 120;
+const BRIEF_MAX_WORDS = 120;
 
 export interface BriefPromptInput {
   question: string;
@@ -27,16 +27,16 @@ export interface BriefPromptInput {
 }
 
 /** Free-text prompt types have no options to explain. */
-export function isOptionBearing(type: string): boolean {
+function isOptionBearing(type: string): boolean {
   return type !== "input" && type !== "editor";
 }
 
 /** Caps on untrusted prompt input (chars / counts), applied before redaction. */
-export const PROMPT_QUESTION_MAX = 4000;
-export const PROMPT_ITEM_MAX = 500;
-export const PROMPT_MESSAGE_MAX = 8192;
-export const PROMPT_MAX_OPTIONS = 20;
-export const PROMPT_MAX_SUBQUESTIONS = 20;
+const PROMPT_QUESTION_MAX = 4000;
+const PROMPT_ITEM_MAX = 500;
+const PROMPT_MESSAGE_MAX = 8192;
+const PROMPT_MAX_OPTIONS = 20;
+const PROMPT_MAX_SUBQUESTIONS = 20;
 const PROMPT_WORKFLOW_MAX = 2000;
 
 /** Cap → redact → neutralise `<`/`>` so text cannot close or open a delimiter. */

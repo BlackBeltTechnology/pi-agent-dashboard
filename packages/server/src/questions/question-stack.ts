@@ -24,7 +24,7 @@ export interface QuestionStackDeps {
   generator?: BriefGenerator;
 }
 
-export function describeSessionFor(session: DashboardSession | undefined, sessionId: string): SessionDescriptor {
+function describeSessionFor(session: DashboardSession | undefined, sessionId: string): SessionDescriptor {
   if (!session) return { label: sessionId };
   const change = session.openspecChange ?? session.attachedProposal;
   const chatGateway = Object.values(session.pluginRefs ?? {}).some((ref) => ref?.kind === "chat-gateway");
