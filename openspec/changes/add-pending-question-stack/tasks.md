@@ -129,4 +129,4 @@
 
 ## 18. Manual verification
 
-- [ ] 18.1 Compare the implementation with the approved mockup `mockups/question-stack.html` in base dark, base light and nord dark (test-plan: manual-only, test-plan #F8)
+- [x] 18.1 Compare the implementation with the approved mockup `mockups/question-stack.html` in base dark, base light and nord dark (test-plan: manual-only, test-plan #F8)
