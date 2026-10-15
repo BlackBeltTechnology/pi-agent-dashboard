@@ -1,7 +1,8 @@
 /**
  * BrowserRelayBadge RTL (change: add-browser-relay task 4.3; menu semantics from
- * add-browser-editor-pane-tab, test-plan #F13). The badge is the always-mounted
- * status feeder and the "open in pane" menu.
+ * add-browser-editor-pane-tab, test-plan #F13). The badge is the "open in pane"
+ * menu; it only reads the relay store (fed by BrowserRelayFeed, mounted by the
+ * harness). Gate/render agreement + malformed frames: fix-empty-status-subcard #E2, #X3.
  */
 
 import type { BrowserRelayStatusMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
@@ -12,6 +13,7 @@ const navigate = vi.fn();
 vi.mock("wouter", () => ({ useLocation: () => ["/", navigate] }));
 
 import { BrowserRelayBadge } from "../BrowserRelayBadge.js";
+import { hasRelayTabsForBadge } from "../index.js";
 import { __resetRelayStoreForTests, getRelayStatus } from "../relay-store.js";
 import { renderWithPlugin, SESSION } from "./test-utils.js";
 
@@ -132,3 +134,68 @@ describe("BrowserRelayBadge", () => {
 		expect(queryByTestId("browser-relay-menu")).toBeNull();
 	});
 });
+
+describe("gate / render agreement (#E2) and malformed frames (#X3)", () => {
+	const tab = { tabId: 1, title: "t", url: "https://x.test", state: "live" as const };
+	const raw = (instances: unknown) => ({ type: "browser_relay_status", instances, auditSeq: 0 });
+	const corpus: Array<[string, unknown]> = [
+		["empty", raw([])],
+		["instance without tabs", raw([{ instanceId: "i", tabs: [] }])],
+		["one tab", raw([{ instanceId: "i", tabs: [tab] }])],
+		["non-array instances", raw({})],
+		["null tabs then a tab", raw([{ instanceId: "i0", tabs: null }, { instanceId: "i", tabs: [tab] }])],
+		["missing tabs", raw([{ instanceId: "i" }])],
+	];
+
+	it.each(corpus)("badge renders iff hasRelayTabsForBadge(): %s", (_name, frame) => {
+		const { queryByTestId, ws } = renderWithPlugin(<BrowserRelayBadge session={SESSION} />);
+		act(() => ws.emit(frame));
+		expect(queryByTestId("browser-relay-badge") !== null).toBe(hasRelayTabsForBadge());
+	});
+
+	it("hasRelayTabsForBadge is false before any snapshot", () => {
+		expect(hasRelayTabsForBadge()).toBe(false);
+	});
+});
+
+describe("menu placement near the viewport bottom", () => {
+	const rect = (top: number, height: number) =>
+		({ top, bottom: top + height, left: 40, right: 140, width: 100, height, x: 40, y: top, toJSON: () => ({}) }) as DOMRect;
+
+	it("flips above the badge when the menu would overflow the viewport (fix-empty-status-subcard)", async () => {
+		const inner = vi.spyOn(window, "innerHeight", "get").mockReturnValue(720);
+		const spy = vi
+			.spyOn(Element.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: Element) {
+				return this.getAttribute("data-testid") === "browser-relay-menu" ? rect(0, 67) : rect(705, 19);
+			});
+		try {
+			const { getByTestId } = await mount(1);
+			fireEvent.click(getByTestId("browser-relay-badge"));
+			const menu = getByTestId("browser-relay-menu");
+			// Below would be 705+19+4 = 728 (> 720). Above: 705 - 67 - 4 = 634.
+			await waitFor(() => expect(menu.style.top).toBe("634px"));
+		} finally {
+			spy.mockRestore();
+			inner.mockRestore();
+		}
+	});
+
+	it("stays below the badge when there is room", async () => {
+		const inner = vi.spyOn(window, "innerHeight", "get").mockReturnValue(720);
+		const spy = vi
+			.spyOn(Element.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: Element) {
+				return this.getAttribute("data-testid") === "browser-relay-menu" ? rect(0, 67) : rect(100, 19);
+			});
+		try {
+			const { getByTestId } = await mount(1);
+			fireEvent.click(getByTestId("browser-relay-badge"));
+			expect(getByTestId("browser-relay-menu").style.top).toBe("123px");
+		} finally {
+			spy.mockRestore();
+			inner.mockRestore();
+		}
+	});
+});
+

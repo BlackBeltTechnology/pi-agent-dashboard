@@ -1103,6 +1103,7 @@ First-party slots (React, possibly also descriptor):
 - `command-route` — maps a slash command or URL route to a `content-view` (replaces today's hand-wired routing in `App.tsx`).
 - `settings-section` — a section in the Settings page (replaces today's hardcoded `Background polling (OpenSpec)` section). React for first-party plugins; descriptor (RJSF/UiField) for third-party extensions.
 - `resource-page-section` — section above resource grid on Folder + Global Skills/Agents/Extensions/Prompts/Themes pages. Multiplicity `many`, react-only. Props `ResourcePageSectionProps` (`resourceType`, `scope: "folder"|"global"`, `cwd?`, `pluginContext`). Claim `resourceType` filter. First claimant: `skill-atlas`. See change: add-skill-atlas-screen; [`skill-atlas.md`](skill-atlas.md).
+- `shell-headless` — always-mounted zero-UI host for plugin-wide hooks (e.g. message subscriptions). Multiplicity `many`, react-only. Props `Record<string, never>`; predicate input `never`. Claim renders `null`. Consumer `ShellHeadlessSlot()` (`packages/dashboard-plugin-runtime/src/slot-consumers.tsx`): calls `useSlotClaimsVersion()`, renders each claim via `renderClaim` (SlotErrorBoundary + Suspense + CurrentPluginLayer). No wrapper element. No intents rendered. Mounted once in `packages/client/src/App.tsx` inside `apiProvider` body (inside `PluginContextProvider`), every layout branch (desktop, mobile, focus), independent of selection/session count. Runtime enable/disable mounts/unmounts claim. `manifest-validator.ts` REJECTS `predicate`/`shouldRender` on `shell-headless` claim (error names plugin + slot). See change: fix-empty-status-subcard.
 - `tool-renderer` — React component for a specific `tool_call` by `toolName` (replaces today's hardcoded `tool-renderers/registry.ts`).
 
 Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `footer-segment`, `agent-metric`, `breadcrumb`, `gate`, `toast`, `rjsf-form`.
@@ -6843,7 +6844,8 @@ sequenceDiagram
 ### Client surfaces (plugin)
 
 - `settings-section` → `BrowserSettings`: profile rows keyed by `profileDirectory` (label, email, `installed`, `hasToken`, instances/tab count), write-only token input, `Zero-dialog` toggle, `allowedDomains` editor, Connect/Disconnect per `instanceId`, kill switch, Web Store link, capability notice; `AuditList` per profile.
-- `session-card-badge` → `BrowserRelayBadge`: always-mounted `browser_relay_status` subscriber. The relay is GLOBAL (no pi-session linkage), so this module-store feed is what lets the hook-less `content-view` predicate `isLiveViewActive` see it.
+- `session-card-badge` → `BrowserRelayBadge`: reads relay module-store. Gate `shouldRender: "hasRelayTabsForBadge"` (true iff relay snapshot ≥1 tab); required by badge-gate rule, see [`plugin-claim-gates.md`](plugin-claim-gates.md). The relay is GLOBAL (no pi-session linkage), so this module-store feed is what lets the hook-less `content-view` predicate `isLiveViewActive` see it.
+- `shell-headless` → `BrowserRelayFeed`: sole caller of `useRelayStatusFeed()`. Always-mounted `browser_relay_status` subscriber. Re-seeds from `GET /api/browser/profiles` on mount + each shell `connected`. Failed seed clears store; unmount clears store. `setRelayStatus` calls `bumpSlotClaimsVersion()` only when tab-count presence flips. See change: fix-empty-status-subcard.
 - `content-view` → `LiveViewTile`: one tile per `{instanceId, tabId}`; subscribe/unsubscribe lifecycle, JPEG frames, pointer/key/wheel → normalized `browser_relay_input`, no-frames + DevTools overlays.
 
 ## Bundled Package: deck3d

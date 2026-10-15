@@ -1416,7 +1416,7 @@ Tiers:
 
 Slot taxonomy (frozen v0.x):
 
-First-party (React, possibly descriptor): `sidebar-folder-section`, `session-card-badge`, `session-card-action-bar`, `content-view`, `content-header-sticky`, `content-inline-footer`, `anchored-popover`, `command-route`, `settings-section`, `tool-renderer`.
+First-party (React, possibly descriptor): `sidebar-folder-section`, `session-card-badge`, `session-card-action-bar`, `content-view`, `content-header-sticky`, `content-inline-footer`, `anchored-popover`, `command-route`, `settings-section`, `tool-renderer`, `shell-headless` (zero-UI, claim renders `null`).
 
 Descriptor-only (extension UI system): `management-modal`, `footer-segment`, `agent-metric`, `breadcrumb`, `gate`, `toast`, `rjsf-form`.
 

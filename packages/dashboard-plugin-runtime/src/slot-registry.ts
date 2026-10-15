@@ -71,7 +71,9 @@ export interface ClaimEntry<S extends SlotId = SlotId> {
    * Input shape is determined by the slot id via `SlotPredicateInput<S>`:
    *   session-scoped slots → `DashboardSession | null | undefined`
    *   folder-scoped slots  → `FolderDescriptor`
-   *   other slots          → `never` (registering a predicate is a type error)
+   *   other slots          → `never` (the predicate is never invoked; bivariance still
+   *                          lets the type checker accept one — `shell-headless` is
+   *                          enforced by the manifest validator instead)
    *
    * NOTE on syntax: this field uses TypeScript **method-shorthand** rather than
    * arrow-property syntax. Method-shorthand parameter types are bivariant under

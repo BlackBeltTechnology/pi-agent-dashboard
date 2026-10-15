@@ -784,6 +784,26 @@ export function ResourcePageSectionSlot({
 }
 
 /**
+ * `shell-headless` — always-mounted, zero-UI claims (plugin-wide hooks such as
+ * message subscriptions). Mounted once by the shell; renders no wrapper element
+ * and no intents. Re-evaluates on a claims-version bump so enabling/disabling a
+ * plugin at runtime mounts/unmounts its claim. Each claim is isolated by
+ * `SlotErrorBoundary`. See change: fix-empty-status-subcard.
+ */
+export function ShellHeadlessSlot() {
+  useSlotClaimsVersion(); // BEFORE the registry-null guard: stable hook order
+  const registry = useSlotRegistryOrNull();
+  if (!registry) return null;
+  const claims = registry.getClaims("shell-headless");
+  if (!claims.length) return null;
+  return (
+    <>
+      {claims.map((c) => renderClaim(c as Parameters<typeof renderClaim>[0], "shell-headless", {}))}
+    </>
+  );
+}
+
+/**
  * Returns `true` when at least one `automation-action-editor` claim targets
  * `actionId`. Lets the dialog decide render/submit paths without mounting the
  * editor. See change: wire-flow-inputs-in-automation.

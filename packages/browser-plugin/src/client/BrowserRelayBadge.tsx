@@ -8,17 +8,19 @@
  * (`openPluginTabRoute`, which also selects the session). Activating the badge
  * never replaces the chat with a browser surface.
  *
- * It is also an always-mounted `browser_relay_status` feeder (the sidebar
- * renders the session-card-badge slot for every session).
+ * It only READS the relay store; `BrowserRelayFeed` (a `shell-headless` claim)
+ * feeds it. The claim's `shouldRender` (`hasRelayTabsForBadge`) hides the whole
+ * STATUS subcard while there are no tabs, using the same `relayTabsOf` primitive
+ * as this component's null check. See change: fix-empty-status-subcard.
  *
  * Manifest claim: `{ "slot": "session-card-badge", "component": "BrowserRelayBadge" }`.
  */
 import { openPluginTabRoute, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { useRelayStatus, useRelayStatusFeed } from "./relay-store.js";
+import { relayTabsOf, useRelayStatus } from "./relay-store.js";
 import { browserTabPath } from "./tab-path.js";
 
 const DOT: Record<string, string> = {
@@ -31,7 +33,6 @@ const DOT: Record<string, string> = {
 export function BrowserRelayBadge({ session }: { session: DashboardSession }): React.ReactElement | null {
   const t = useT();
   const [, navigate] = useLocation();
-  useRelayStatusFeed();
   const status = useRelayStatus();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -40,10 +41,7 @@ export function BrowserRelayBadge({ session }: { session: DashboardSession }): R
   const menuId = useId();
 
   const tabs = useMemo(
-    () =>
-      (status?.instances ?? []).flatMap((instance) =>
-        instance.tabs.map((tab) => ({ instanceId: instance.instanceId, tab, path: browserTabPath(instance.instanceId, tab.tabId) })),
-      ),
+    () => relayTabsOf(status).map(({ instanceId, tab }) => ({ instanceId, tab, path: browserTabPath(instanceId, tab.tabId) })),
     [status],
   );
 
@@ -51,6 +49,19 @@ export function BrowserRelayBadge({ session }: { session: DashboardSession }): R
     setOpen(false);
     if (refocus) triggerRef.current?.focus();
   }, []);
+
+  // The menu is `position: fixed` below the badge; a card near the bottom of the
+  // viewport would put it off-screen (and unreachable). Flip it above the badge
+  // once its height is known. Terminates: after the flip it fits (or clamps to 4).
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const trigger = triggerRef.current;
+    if (!open || !pos || !menu || !trigger) return;
+    const height = menu.getBoundingClientRect().height;
+    if (pos.top + height <= window.innerHeight - 4) return;
+    const top = Math.max(4, trigger.getBoundingClientRect().top - height - 4);
+    if (top !== pos.top) setPos({ ...pos, top });
+  }, [open, pos]);
 
   // Focus the first item on open; close on outside press.
   useEffect(() => {

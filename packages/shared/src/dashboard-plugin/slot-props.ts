@@ -248,6 +248,8 @@ export interface SlotPropsMap {
   };
   "editor-pane-tab": EditorPaneTabProps;
   "resource-page-section": ResourcePageSectionProps;
+  /** Headless claims take no props. See change: fix-empty-status-subcard. */
+  "shell-headless": Record<string, never>;
   // Descriptor-only slots don't have React props (consumed by extension-ui-system)
   "management-modal": Record<string, unknown>;
   "footer-segment": Record<string, unknown>;

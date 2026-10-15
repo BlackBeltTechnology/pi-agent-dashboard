@@ -10,7 +10,10 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { absentData, archiveEntry, knownData, makeChange, stubArchiveApi, withOpenSpecMap } from "../../test-support/attachmentHarness.js";
 import { ComposerSessionActions } from "../session/ComposerSessionActions.js";
+import { isComposerWorking } from "../../lib/chat/composer-liveness.js";
 import type { DashboardSession, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { BrowserRelayBadge, hasRelayTabsForBadge } from "../../../../browser-plugin/src/client/index.js";
+import { __resetRelayStoreForTests, setRelayStatus } from "../../../../browser-plugin/src/client/relay-store.js";
 
 afterEach(() => cleanup());
 
@@ -618,6 +621,28 @@ describe("working = streaming ∨ retrying (#F7, composer half)", () => {
   });
 });
 
+// See change: fix-composer-liveness-on-reload (D7, test-plan #E12): the strip's
+// `working` comes from the shared predicate, so a killed-in-retry session is not working.
+describe("working fed by isComposerWorking (#E12)", () => {
+  it.each([
+    ["server ended + retryState", "ended", true, null],
+    ["server idle + retryState", "idle", true, "true"],
+  ] as const)("%s → gated=%s", (_n, status, retrying, gated) => {
+    render(
+      <ComposerSessionActions
+        session={makeSession({ status, attachedProposal: "add-auth", ...openPr("passing") })}
+        changes={[completeChange()]}
+        openspecHasDir
+        showGitInfo
+        working={isComposerWorking(status, retrying)}
+      />,
+    );
+    for (const id of ["worktree-action-push", "worktree-action-merge"]) {
+      expect(screen.getByTestId(id).getAttribute("aria-disabled"), id).toBe(gated);
+    }
+  });
+});
+
 describe("ComposerSessionActions change chip for non-live attachments (resolve-archived-attached-proposal)", () => {
   afterEach(() => vi.unstubAllGlobals());
   const base = { openspecReadiness: { state: "READY" as const }, onReadArtifact: vi.fn(), onDetach: vi.fn() };
@@ -686,3 +711,38 @@ describe("ComposerSessionActions change chip for non-live attachments (resolve-a
     expect(screen.getByTestId("composer-change-open-proposal")).toBeTruthy();
   });
 });
+
+// ── STATUS group follows the gated browser badge claim (fix-empty-status-subcard #E4) ──
+describe("ComposerSessionActions STATUS group with the browser relay badge", () => {
+  afterEach(() => __resetRelayStoreForTests());
+
+  function renderComposer() {
+    const registry = createSlotRegistry();
+    registry.addClaim({ pluginId: "browser", priority: 500, slot: "session-card-badge", Component: BrowserRelayBadge, shouldRender: hasRelayTabsForBadge });
+    return render(
+      <Router hook={memoryLocation({ path: "/" }).hook}>
+        <PluginContextProvider registry={registry}>
+          <ComposerSessionActions session={makeSession()} changes={[]} openspecHasDir={true} showGitInfo={true} />
+        </PluginContextProvider>
+      </Router>,
+    );
+  }
+  const oneTab = {
+    type: "browser_relay_status" as const,
+    auditSeq: 1,
+    instances: [{ instanceId: "i1", profileDirectory: "OSS", state: "connected" as const, tabs: [{ tabId: 1, title: "T", url: "https://x.test", state: "live" as const }] }],
+  };
+
+  it("renders no STATUS group label with zero relay tabs", () => {
+    renderComposer();
+    expect(screen.queryByTestId("composer-status-group-label")).toBeNull();
+  });
+
+  it("renders the STATUS label + badge when a relay tab appears", () => {
+    renderComposer();
+    act(() => setRelayStatus(oneTab));
+    expect(screen.getByTestId("composer-status-group-label")).toBeTruthy();
+    expect(screen.getByTestId("browser-relay-badge")).toBeTruthy();
+  });
+});
+

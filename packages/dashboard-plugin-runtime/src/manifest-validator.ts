@@ -345,6 +345,20 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     );
   }
 
+  // shell-headless: always mounted, never gated. A predicate/shouldRender is
+  // never invoked there, so reject it instead of silently ignoring it.
+  // See change: fix-empty-status-subcard.
+  if (slotId === "shell-headless") {
+    for (const gate of ["predicate", "shouldRender"] as const) {
+      if (c[gate] !== undefined) {
+        throw new ManifestValidationError(
+          pluginId,
+          `claims[${index}] slot "shell-headless" must not declare "${gate}" (headless claims are always mounted)`,
+        );
+      }
+    }
+  }
+
   // settings-section: `tab` is accepted but inert. Every `settings-section`
   // claim renders on its owning plugin's page (`/settings/plugins/<id>`), so
   // rejecting an unknown VALUE would fail a manifest over a field nothing

@@ -1323,3 +1323,124 @@ describe("CommandInput — single focus indicator (#E17)", () => {
     expect(card.className).not.toContain("_60%");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Reconciled composer liveness (see change: fix-composer-liveness-on-reload).
+// `sessionStatus` is the D3-derived value; "ended" is terminal (D6).
+// ---------------------------------------------------------------------------
+import { composerLiveness } from "../../lib/chat/composer-liveness.js";
+
+describe("CommandInput — reconciled composer liveness", () => {
+  const q = (c: HTMLElement, id: string) => c.querySelector(`[data-testid="${id}"]`);
+
+  it("#E7 ended + retrying: no Stop / Force-Stop, Send shown (terminal gate)", () => {
+    const { container } = renderInput({ sessionStatus: "ended", retrying: true, onAbort: vi.fn(), onForceKill: vi.fn() });
+    expect(q(container, "stop-button")).toBeNull();
+    expect(q(container, "force-stop-button")).toBeNull();
+    expect(q(container, "send-button")).not.toBeNull();
+  });
+
+  it("#E8 ended + pending prompt keeps ONLY the cancel control, never Force-Stop", () => {
+    vi.useFakeTimers();
+    try {
+      const onCancelPending = vi.fn();
+      const onAbort = vi.fn();
+      const { container } = renderInput({ sessionStatus: "ended", pendingPrompt: "sending", onCancelPending, onAbort, onForceKill: vi.fn() });
+      fireEvent.click(q(container, "stop-button")!);
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(onCancelPending).toHaveBeenCalledTimes(1);
+      expect(onAbort).not.toHaveBeenCalled();
+      expect(q(container, "force-stop-button")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("#E9 idle + retrying keeps Stop (non-terminal retry gap)", () => {
+    const { container } = renderInput({ sessionStatus: "idle", retrying: true, onAbort: vi.fn() });
+    expect(q(container, "stop-button")).not.toBeNull();
+  });
+
+  it.each([
+    ["idle", undefined],
+    ["idle", "idle"],
+    ["idle", "ended"],
+    ["ended", undefined],
+    ["ended", "active"],
+    ["ended", "ended"],
+  ] as const)("#E10 reducer=%s server=%s → no Stop", (reducer, server) => {
+    const { container } = renderInput({ sessionStatus: composerLiveness(reducer, server), onAbort: vi.fn() });
+    expect(q(container, "stop-button")).toBeNull();
+  });
+
+  it("#E11 accepted pre-snapshot cost: reducer ended, no server record, retrying → Stop hidden", () => {
+    const { container } = renderInput({ sessionStatus: composerLiveness("ended", undefined), retrying: true, onAbort: vi.fn() });
+    expect(q(container, "stop-button")).toBeNull();
+  });
+
+  it("#F12 killing latch persists while server still streaming, hides on ended", () => {
+    vi.useFakeTimers();
+    try {
+      const onAbort = vi.fn();
+      const onForceKill = vi.fn();
+      const props = { commands, onSend: vi.fn(), onAbort, onForceKill };
+      const { container, rerender } = render(<CommandInput {...props} sessionStatus="streaming" />);
+      fireEvent.click(q(container, "stop-button")!);
+      act(() => { vi.advanceTimersByTime(3000); });
+      fireEvent.click(q(container, "force-stop-button")!);
+      expect(q(container, "killing-button")).not.toBeNull();
+      rerender(<CommandInput {...props} sessionStatus="streaming" />);
+      expect(q(container, "killing-button")).not.toBeNull();
+      rerender(<CommandInput {...props} sessionStatus="ended" />);
+      expect(q(container, "stop-button")).toBeNull();
+      expect(q(container, "force-stop-button")).toBeNull();
+      expect(q(container, "killing-button")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("#F13 abort-sent state is retained across a same-value rerender, then escalates", () => {
+    vi.useFakeTimers();
+    try {
+      const props = { commands, onSend: vi.fn(), onAbort: vi.fn(), onForceKill: vi.fn() };
+      const { container, rerender } = render(<CommandInput {...props} sessionStatus="streaming" />);
+      fireEvent.click(q(container, "stop-button")!);
+      rerender(<CommandInput {...props} sessionStatus="streaming" />);
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(q(container, "force-stop-button")).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("#F15 reducer ended + server idle + retrying: Stop and stop-after-turn co-visible", () => {
+    const { container } = renderInput({
+      sessionStatus: composerLiveness("ended", "idle"),
+      retrying: true,
+      onAbort: vi.fn(),
+      onStopAfterTurn: vi.fn(),
+    });
+    expect(q(container, "stop-button")).not.toBeNull();
+    expect(q(container, "stop-after-turn-button")).not.toBeNull();
+  });
+
+  it("#X3 killed in retry sleep (server ended): no Stop / Force-Stop", () => {
+    const { container } = renderInput({
+      sessionStatus: composerLiveness("idle", "ended"),
+      retrying: true,
+      onAbort: vi.fn(),
+      onForceKill: vi.fn(),
+    });
+    expect(q(container, "stop-button")).toBeNull();
+    expect(q(container, "force-stop-button")).toBeNull();
+  });
+
+  it("#X4 server record arriving after first render flips Send → Stop (continuous derivation)", () => {
+    const props = { commands, onSend: vi.fn(), onAbort: vi.fn() };
+    const { container, rerender } = render(<CommandInput {...props} sessionStatus={composerLiveness("idle", undefined)} />);
+    expect(q(container, "send-button")).not.toBeNull();
+    rerender(<CommandInput {...props} sessionStatus={composerLiveness("idle", "streaming")} />);
+    expect(q(container, "stop-button")).not.toBeNull();
+  });
+});

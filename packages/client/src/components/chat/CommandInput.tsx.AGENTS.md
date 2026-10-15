@@ -17,3 +17,5 @@ See change: add-composer-grammar-check — optional `onGrammarCheck?: () => void
 Card rows: `composer-input-row` [textarea | terminal · action, items-end] + hairline + `composer-settings-row` [＋ · model · thinking · Steer|Queue · ⋯ when folded]. Stop-after-turn + Stop = one split `stop-split` (label → ◎ below `@[30rem]`). Textarea has no focus-ring; focused card border full `--accent`. See change: redesign-composer-session-strip.
 
 See change: add-team-skill-access — optional `invalid?: boolean` prop: `aria-invalid` on the textarea + card border `--severity-error-border` while set (team-app composer pre-check refuses an unavailable `/skill:`; the visual error box lives beside the composer in team-app `skills.css`).
+
+`sessionStatus` is the RECONCILED composer liveness (`composerLiveness`: known server status wins, reducer fallback; `"ended"` = terminal), not the raw reducer status. `isWorking = isComposerWorking(sessionStatus, retrying)`: the `retrying` Stop leg is suppressed when `ended`; `pendingIdle` cancel stays ungated; stop-state resets on `!isWorking`. Plugin composer panels receive the reconciled value. See change: fix-composer-liveness-on-reload.
