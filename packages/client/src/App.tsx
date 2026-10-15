@@ -228,6 +228,7 @@ import {
   EmbeddedAppReturnPill,
   EmbeddedAppShellProvider,
   FolderMenuProvider,
+  ShellHeadlessSlot,
   ShellOverlayRouteSlot,
   ShellSessionsProvider,
   useShellOverlayRouteDepth,
@@ -3105,6 +3106,9 @@ export default function App() {
               <FileAccessToastHost sessions={sessions} selectedId={selectedId} onOpen={handleSelect} />
               {/* Return pill for embedded plugin apps (both layouts). See change: add-plugin-app-host. */}
               <EmbeddedAppReturnPill />
+              {/* Always-mounted zero-UI plugin hosts (e.g. the browser relay feed),
+                  ONCE for every layout branch. See change: fix-empty-status-subcard. */}
+              <ShellHeadlessSlot />
               {/* D22 sign-in dialog: ONE instance for every layout branch (it is
                   `fixed inset-0`, so it need not sit inside the banner slots,
                   which a session route renders twice). */}

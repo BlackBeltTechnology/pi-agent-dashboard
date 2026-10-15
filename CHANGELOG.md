@@ -12,6 +12,10 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **`shell-headless` plugin slot.** A react-only slot mounted once at shell level, independent of
+  layout, selection and session count, for zero-UI plugin-wide hooks such as message
+  subscriptions. Claims take no props and must not declare `predicate`/`shouldRender` (the
+  manifest validator rejects them). Additive: third-party plugins are unaffected.
 - **Edit pi's global settings from the dashboard.** Settings → Sessions gains a
   "pi settings (global)" section over `~/.pi/agent/settings.json`: a typed Form for the
   common keys and a JSON editor for the whole file. Writes share pi's own lock, replace the
@@ -146,6 +150,10 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Empty `STATUS` panel on session cards.** The STATUS subcard no longer renders as an empty,
+  titled frame when the browser relay has no tabs. The browser badge is now gated, and the relay
+  status feed moved to an always-mounted `shell-headless` claim that re-seeds on reconnect. The
+  composer's STATUS group follows the same gate.
 - **The dashboard default model now reaches pi.** Saving a Default model or thinking level
   also writes pi's own `defaultProvider`/`defaultModel`/`defaultThinkingLevel`, so sessions
   pi builds itself (including subagents) no longer disagree with the dashboard. A drift
