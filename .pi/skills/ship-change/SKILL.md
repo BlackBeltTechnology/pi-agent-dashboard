@@ -278,6 +278,21 @@ Git/worktree/PR/CodeRabbit gotchas hit during ship. Each has a known fix.
 - **CodeRabbit "pass" is an ACK, not a review.** Rate-limited it posts a green "pass" with 0 comments ("~11min"). Auto-review is INCREMENTAL; plain `@coderabbitai review` no-ops on already-reviewed commits → wait ~11 min then `@coderabbitai full review`.
 - **Fetch inline CodeRabbit comments via `gh api repos/.../pulls/<n>/comments`** (NOT the reviews endpoint). Failed-to-post comments land in the review body under "Comments failed to post (N)".
 
+## Situation brief for `ask_user`
+
+Every `ask_user` call this skill makes MUST carry a self-contained situation
+brief in its `message` — at least 240 characters (the dashboard's
+`questions.minBriefChars` default; shorter and the server generates a brief with
+the `@fast` model instead). The answer may be given from the global question
+stack by someone who has not seen this chat. State, in 2–4 lines:
+
+1. **Task** — what change/step is in progress.
+2. **Why asking** — what was found or blocked that needs a human.
+3. **Per-option outcome** — what each option leads to (skip for free-text inputs).
+
+A bare question ("Resume or hand back?") is never enough. See change:
+`add-pending-question-stack`.
+
 ## Guardrails
 
 - **Stop if non-deferrable tasks remain** — never mark real work done to force a ship. Deferral is manifest-aware when `test-plan.md` exists (only `manual-only` rows defer), else the legacy keyword rule applies (see Step 1).

@@ -52,8 +52,8 @@
 
 ## 8. Orchestrator skill convention
 
-- [ ] 8.1 Add the situation-brief rule (task, why asking, per-option outcome; ≥ 240 chars) to `plan-proposal`, `ship-it`, `ship-change`
-- [ ] 8.2 Wiring test asserting the three skills carry the rule
+- [x] 8.1 Add the situation-brief rule (task, why asking, per-option outcome; ≥ 240 chars) to `plan-proposal`, `ship-it`, `ship-change`
+- [x] 8.2 Wiring test asserting the three skills carry the rule
 
 ## 9. Docs + verification
 
