@@ -15,7 +15,7 @@
 - [x] 3.2 Failing tests: every removal path (clear, reconcile, `clearPendingRequestsForSession`, session death, cancel/timeout) removes the record, deletes its file and broadcasts immediately; transmitted answer hides the row immediately
 - [x] 3.3 Implement `question-store.ts` and hook it from the registry (D1)
 - [x] 3.4 Failing tests: snapshot bounded, absent reasons `none`/`evicted`, immutable, each `REDACTION_PATTERNS_V1` pattern redacted and the version stored; implement (D2)
-- [x] 3.4a `Audit` subagent reviews the redaction set and the snapshot→model data flow before task 4.3 lands
+- [ ] 3.4a `Audit` subagent reviews the redaction set and the snapshot→model data flow before task 4.3 lands
 - [x] 3.5 Failing tests: per-recipient visibility filter of `questions_update` (no resolver → all; resolver → owner equality, ownerless hidden); implement with add/brief debounce and immediate removals (D7)
 
 ## 4. Brief generation + store
@@ -30,15 +30,15 @@
 
 ## 5. REST API
 
-- [ ] 5.1 Failing tests: list rows without context; visibility (list filter, detail/answer 404); detail 404 unknown; valid answer → `{transmitted:true}`; transmit failure → `{transmitted:false}`, claim released, retry succeeds; invalid → 400; answer+cancel → 400; concurrent REST+browser → exactly one transmitted, other 409 naming `answered`; 409 window then 404, and 404 for an old id after a restart; transmit hides the row while the registry entry stays until the echo; image-carrying answers not expressible (text-only); file-access 403; chat-gateway session prompt answerable under chat rules; observe-tier answer rejected
-- [ ] 5.2 Implement routes + claim shared with browser `prompt_response` (D8, D9)
-- [ ] 5.3 Document routes in the pi-dashboard skill `api-reference.md`
+- [x] 5.1 Failing tests: list rows without context; visibility (list filter, detail/answer 404); detail 404 unknown; valid answer → `{transmitted:true}`; transmit failure → `{transmitted:false}`, claim released, retry succeeds; invalid → 400; answer+cancel → 400; concurrent REST+browser → exactly one transmitted, other 409 naming `answered`; 409 window then 404, and 404 for an old id after a restart; transmit hides the row while the registry entry stays until the echo; image-carrying answers not expressible (text-only); file-access 403; chat-gateway session prompt answerable under chat rules; observe-tier answer rejected
+- [x] 5.2 Implement routes + claim shared with browser `prompt_response` (D8, D9)
+- [x] 5.3 Document routes in the pi-dashboard skill `api-reference.md`
 
 ## 6. Unattended spawns
 
-- [ ] 6.1 Failing test: automation run spawn passes `extensionConfig: { "pi-dashboard": { askUserPromptTimeoutSeconds: "0" } }` alongside its existing fields (model resolution unchanged); implement in the automation engine spawn
-- [ ] 6.2 Failing test: reaped run terminates its session and its question leaves the stack
-- [ ] 6.3 Failing test: goal driver spawn and respawn pass the override; implement in `spawnDriver`
+- [x] 6.1 Failing test: automation run spawn passes `extensionConfig: { "pi-dashboard": { askUserPromptTimeoutSeconds: "0" } }` alongside its existing fields (model resolution unchanged); implement in the automation engine spawn
+- [x] 6.2 Failing test: reaped run terminates its session and its question leaves the stack
+- [x] 6.3 Failing test: goal driver spawn and respawn pass the override; implement in `spawnDriver`
 
 ## 7. Client
 

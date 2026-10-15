@@ -203,6 +203,7 @@ import { logPackageHealthAtBoot } from "./package/package-health-scanner.js";
 import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import type { SessionPresence } from "./questions/question-files.js";
+import { registerQuestionRoutes } from "./questions/question-routes.js";
 import { createQuestionStack, persistedPresence } from "./questions/question-stack.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
@@ -2353,6 +2354,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Settings → Access review surface + the one endpoint that can create a
   // filesystem grant. See change: add-access-grants-and-review.
   registerAccessRoutes(fastify, { networkGuard, preferencesStore, writeConfigPartial });
+  // Pending-question stack REST roads (list/detail/answer/summarize); the answer
+  // claim is shared with the browser `prompt_response` road.
+  // See change: add-pending-question-stack (D8, D9).
+  registerQuestionRoutes(fastify, {
+    networkGuard,
+    store: questionStore,
+    sendToSession: (sessionId, msg) => piGateway.sendToSession(sessionId, msg as never),
+    isResolverActive: identityEnforced,
+    ownerOf: (sessionId) => sessionManager.get(sessionId)?.principalOwner,
+  });
   registerAccessPromptRoutes(fastify, {
     networkGuard,
     coordinator: grantCoordinator,

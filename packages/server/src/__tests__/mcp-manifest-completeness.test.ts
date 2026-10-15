@@ -206,6 +206,7 @@ describe("X8 — /api/questions routes are tiered and denylisted", () => {
     { method: "GET", path: "/api/questions", tier: "observe" },
     { method: "GET", path: "/api/questions/:id", tier: "observe" },
     { method: "POST", path: "/api/questions/:id/answer", tier: "control" },
+    { method: "POST", path: "/api/questions/:id/summarize", tier: "control" },
   ] as const;
 
   it("each has its ROUTE_TIERS tier and a DENYLIST entry with a reason", () => {
@@ -216,5 +217,10 @@ describe("X8 — /api/questions routes are tiered and denylisted", () => {
     }
     const entry = DENYLIST.find((e) => e.pattern === "/api/questions/");
     expect(entry?.reason).toContain("human-in-the-loop");
+  });
+
+  it("each is actually registered on the real server", () => {
+    const registered = new Set(apiRoutes().map((r) => `${r.method} ${r.path}`));
+    for (const r of QUESTION_ROUTES) expect(registered.has(`${r.method} ${r.path}`), `${r.method} ${r.path}`).toBe(true);
   });
 });

@@ -74,4 +74,4 @@ Plugin ctx wires `getPiResources(cwd?, {fresh?})` (SWR read; fresh = `refreshPiR
 
 `registerPairingRoutes` wired with `getAcceptLanRequests: liveAcceptLanRequests` and `getLanInterfaces: createLanInterfaceProvider({bindHost: config.host})`. See change: add-lan-knock-pairing.
 
-Builds `createQuestionStack` before `createBrowserGateway` (passed as trailing arg), `loadPersisted()` + `sweepAtBoot` using pre-normalization `persistedSessionPresence` captured in the cold-start restore loop. See change: add-pending-question-stack.
+Builds `createQuestionStack` before `createBrowserGateway` (passed as trailing arg), `loadPersisted()` + `sweepAtBoot` using pre-normalization `persistedSessionPresence` captured in the cold-start restore loop. `registerQuestionRoutes` wired before `registerAccessPromptRoutes` (`sendToSession` via piGateway, `ownerOf` via `sessionManager`, `isResolverActive: identityEnforced`). See change: add-pending-question-stack.

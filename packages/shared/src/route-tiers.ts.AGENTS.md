@@ -35,4 +35,4 @@ Row `GET /api/plugins/skill-atlas/graph` observe. See change: add-skill-atlas-sc
 `GET /api/vault/projects` → `operate` (project picker `{open,recent}`). See change: retro-ux-credential-vault.
 `POST /api/pair/request` → `operate`. Public (unauthenticated) route, listed only so the tier-map completeness test stays exhaustive. See change: add-lan-knock-pairing.
 
-`GET /api/questions`, `GET /api/questions/:id` → `observe`; `POST /api/questions/:id/answer` → `control`. See change: add-pending-question-stack.
+`GET /api/questions`, `GET /api/questions/:id` → `observe`; `POST /api/questions/:id/answer` and `POST /api/questions/:id/summarize` → `control`. See change: add-pending-question-stack.

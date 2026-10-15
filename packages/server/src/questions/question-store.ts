@@ -389,7 +389,8 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
     claim,
     claimPrompt(sessionId, promptId) {
       const rec = byKey.get(keyOf(sessionId, promptId));
-      return rec ? claim(rec.id) : { status: "unknown" };
+      // File-access prompts keep their own approval road: never claimed here.
+      return rec && rec.origin !== "file" ? claim(rec.id) : { status: "unknown" };
     },
     releaseClaim(id) {
       const rec = byId.get(id);

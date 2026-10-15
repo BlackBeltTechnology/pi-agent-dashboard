@@ -176,6 +176,11 @@ export interface SpawnLike {
     pluginRef?: Record<string, unknown>;
     /** Core-owned lifecycle declaration (recover / finalize-on-socket-close / archive-on-end). */
     lifecycle?: { recover?: boolean; finalizeOnSocketClose?: boolean; archiveOnEnd?: boolean };
+    /**
+     * Per-spawn capability scope. Automation sets only `extensionConfig` (the
+     * infinite-wait ask_user override). See change: add-pending-question-stack.
+     */
+    scope?: { extensionConfig?: Record<string, Record<string, string | string[]>> };
   }): Promise<{ success: boolean; spawnToken?: string; message?: string }>;
 }
 
@@ -476,6 +481,25 @@ export function createEngine(deps: EngineDeps): Engine {
             error: "run exceeded max age",
             result: "_(run exceeded max age)_",
           });
+          // A finalized run terminates its spawned session. Runs wait indefinitely
+          // on ask_user, so the reaper is the end of a wedged one — and the
+          // session's death is what clears its question from the stack. Hard
+          // kill (the session is wedged, not idle); runs after finalize, so a
+          // late end signal is a no-op. See change: add-pending-question-stack.
+          if ((ctx.sessionId || ctx.spawnToken) && deps.abortSpawnedRun) {
+            const warnAbort = (e: unknown) =>
+              warn(`[engine] reaper abort failed for ${rec.runId}: ${e instanceof Error ? e.message : String(e)}`);
+            try {
+              void Promise.resolve(
+                deps.abortSpawnedRun({
+                  ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+                  ...(ctx.spawnToken ? { spawnToken: ctx.spawnToken } : {}),
+                }),
+              ).catch(warnAbort);
+            } catch (e) {
+              warnAbort(e);
+            }
+          }
         } else {
           // Pre-existing on-disk orphan (no live context) — clear the record.
           storeFinishRun(s.base, rec.runId, {
@@ -734,6 +758,10 @@ export function createEngine(deps: EngineDeps): Engine {
         // durable output is its run record + result.md, which the Automation
         // view reads. See change: archive-service-sessions-on-end.
         lifecycle: { recover: false, finalizeOnSocketClose: true, archiveOnEnd: true },
+        // Unattended: a run's ask_user question must not silently expire at the
+        // global timeout; it stays answerable until answered, stopped or reaped.
+        // See change: add-pending-question-stack (D11).
+        scope: { extensionConfig: { "pi-dashboard": { askUserPromptTimeoutSeconds: "0" } } },
       })
       .then((res) => {
         if (!res.success) {

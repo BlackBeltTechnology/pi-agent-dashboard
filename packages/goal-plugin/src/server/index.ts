@@ -98,6 +98,17 @@ function goalCommandFor(
 /** Boot-reconcile grace: live drivers re-register before reconcile classifies. */
 const GOAL_BOOT_RECONCILE_DELAY_MS = 30_000;
 
+/**
+ * Per-spawn scope of EVERY goal driver (initial and respawn): the ask_user
+ * prompt timeout override `0` = wait indefinitely, so a driver's question stays
+ * answerable until answered or the driver session ends. Env projection:
+ * `PI_EXT_PI_DASHBOARD_ASK_USER_PROMPT_TIMEOUT_SECONDS`.
+ * See change: add-pending-question-stack (D11).
+ */
+const GOAL_DRIVER_SCOPE = {
+  extensionConfig: { "pi-dashboard": { askUserPromptTimeoutSeconds: "0" } },
+} as const;
+
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   const { logger, broadcastToSubscribers, registerPiHandler, registerBrowserHandler, sendToSession } = ctx;
   const commandTier = probeGoalCommandSurface(detectGoalCommandSurface());
@@ -234,6 +245,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
         cwd,
         pluginRef: { goalId },
         lifecycle: { recover: false },
+        scope: GOAL_DRIVER_SCOPE,
         ...(opts?.model ? { model: opts.model } : {}),
       });
       return { success: result.success, ...(result.message ? { message: result.message } : {}) };
@@ -251,6 +263,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       spawnToken: req.spawnToken,
       pluginRef: { goalId: req.goalId },
       lifecycle: { recover: false },
+      scope: GOAL_DRIVER_SCOPE,
       ...(req.reason === "resume" && req.sessionFile ? { resume: { sessionFile: req.sessionFile } } : {}),
       ...(req.reason === "fresh" && req.reprime ? { initialPrompt: req.reprime } : {}),
     });

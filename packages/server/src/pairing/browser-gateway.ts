@@ -152,6 +152,7 @@ export function frameClassOf(
 
 import { randomUUID } from "node:crypto";
 import { createQuestionBroadcaster, createQuestionVisibility, type QuestionBroadcaster } from "../questions/question-broadcast.js";
+import { relayBrowserPromptResponse } from "../questions/question-answer.js";
 import type { QuestionStore } from "../questions/question-store.js";
 import type { UpgradeHeaders } from "../access/capability-issuance.js";
 import { issuePromptChannel, releasePromptChannel } from "../access/prompt-channel.js";
@@ -2313,8 +2314,10 @@ export function createBrowserGateway(
           }
 
           case "prompt_response": {
-            // Route PromptBus response from browser to extension
-            ctx.piGateway.sendToSession((msg as any).sessionId, msg as any);
+            // Route PromptBus response from browser to extension. Takes the same
+            // answer claim as `POST /api/questions/:id/answer`, so at most one user
+            // answer is transmitted per question across roads (D8).
+            relayBrowserPromptResponse(questionStore, msg as any, () => ctx.piGateway.sendToSession((msg as any).sessionId, msg as any));
             break;
           }
 

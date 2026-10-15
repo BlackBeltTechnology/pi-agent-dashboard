@@ -14,6 +14,8 @@ import { createBrowserGateway } from "../../pairing/browser-gateway.js";
 import { createMemoryEventStore } from "../../persistence/memory-event-store.js";
 import type { PiGateway } from "../../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../../session/memory-session-manager.js";
+import Fastify from "fastify";
+import { registerQuestionRoutes } from "../question-routes.js";
 import { createQuestionStack } from "../question-stack.js";
 
 const anna = { iss: "kc", sub: "anna" };
@@ -151,6 +153,87 @@ describe("gateway ↔ question store", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("browser prompt_response shares the REST answer claim (test-plan #X3)", () => {
+    const respond = (ws: ReturnType<typeof fakeWs>, promptId: string, over: Record<string, unknown> = {}) =>
+      ws.emit("message", JSON.stringify({ type: "prompt_response", sessionId: "s1", promptId, answer: "a", source: "dashboard-default", ...over }));
+    const sent = (piGateway: PiGateway) => (piGateway.sendToSession as ReturnType<typeof vi.fn>).mock.calls.filter((c) => (c[1] as { type: string }).type === "prompt_response");
+
+    async function withRest(ctx: ReturnType<typeof setup>) {
+      const app = Fastify();
+      registerQuestionRoutes(app, {
+        networkGuard: async () => {},
+        store: ctx.store,
+        sendToSession: (sid, msg) => ctx.piGateway.sendToSession(sid, msg as never),
+        isResolverActive: () => false,
+        ownerOf: () => undefined,
+      });
+      await app.ready();
+      return app;
+    }
+
+    it("browser answer first: forwarded once, row hidden, REST loser is 409 `answered`", async () => {
+      const ctx = setup();
+      ctx.gateway.trackPromptRequest("s1", prompt("s1", "p1") as never);
+      const id = ctx.store.listRows()[0].id;
+      const app = await withRest(ctx);
+      respond(ctx.wa, "p1");
+      const rest = await app.inject({ method: "POST", url: `/api/questions/${id}/answer`, payload: { answer: "a" } });
+      expect(rest.statusCode).toBe(409);
+      expect(rest.json().error).toContain("answered");
+      expect(sent(ctx.piGateway)).toHaveLength(1);
+      expect(ctx.store.listRows()).toEqual([]);
+      expect(ctx.gateway.hasPendingPromptRequests("s1")).toBe(true); // until the echo
+      await app.close();
+    });
+
+    it("REST answer first: a following browser answer is dropped (exactly one transmit)", async () => {
+      const ctx = setup();
+      ctx.gateway.trackPromptRequest("s1", prompt("s1", "p1") as never);
+      const id = ctx.store.listRows()[0].id;
+      const app = await withRest(ctx);
+      const rest = await app.inject({ method: "POST", url: `/api/questions/${id}/answer`, payload: { answer: "b" } });
+      expect(rest.json().data).toEqual({ transmitted: true });
+      respond(ctx.wa, "p1", { answer: "a" });
+      expect(sent(ctx.piGateway)).toHaveLength(1);
+      expect(sent(ctx.piGateway)[0][1]).toMatchObject({ answer: "b" });
+      await app.close();
+    });
+
+    it("browser cancel is claimed like an answer", async () => {
+      const ctx = setup();
+      ctx.gateway.trackPromptRequest("s1", prompt("s1", "p1") as never);
+      respond(ctx.wa, "p1", { answer: undefined, cancelled: true });
+      respond(ctx.wa, "p1");
+      expect(sent(ctx.piGateway)).toHaveLength(1);
+    });
+
+    it("failed browser transmit releases the claim so a retry goes through", () => {
+      const ctx = setup();
+      ctx.gateway.trackPromptRequest("s1", prompt("s1", "p1") as never);
+      (ctx.piGateway.sendToSession as ReturnType<typeof vi.fn>).mockReturnValueOnce(false);
+      respond(ctx.wa, "p1");
+      expect(ctx.store.listRows()).toHaveLength(1);
+      respond(ctx.wa, "p1");
+      expect(sent(ctx.piGateway)).toHaveLength(2);
+      expect(ctx.store.listRows()).toEqual([]);
+    });
+
+    it("an untracked prompt proceeds untouched", () => {
+      const ctx = setup();
+      respond(ctx.wa, "never-tracked");
+      expect(sent(ctx.piGateway)).toHaveLength(1);
+    });
+
+    it("file-access prompts are never claimed: browser answers repeat freely and stay listed", () => {
+      const ctx = setup();
+      ctx.gateway.trackPromptRequest("s1", prompt("s1", "p1", { prompt: { question: "Allow?", type: "confirm", metadata: { kind: "agent-path-gate" } } }) as never);
+      respond(ctx.wa, "p1", { answer: "true" });
+      respond(ctx.wa, "p1", { answer: "true" });
+      expect(sent(ctx.piGateway)).toHaveLength(2);
+      expect(ctx.store.listRows()).toHaveLength(1);
+    });
   });
 
   it("re-sending the same prompt keeps the same id and does not duplicate", () => {

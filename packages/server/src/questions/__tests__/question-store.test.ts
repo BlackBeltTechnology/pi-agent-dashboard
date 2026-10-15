@@ -232,6 +232,14 @@ describe("question store", () => {
       expect(store.claim("nope").status).toBe("unknown");
     });
 
+    it("claimPrompt never claims a file-access prompt (own approval road)", () => {
+      const { store } = make();
+      const rec = store.onTracked("s1", promptMsg("s1", "p1", { metadata: { kind: "agent-path-gate" } }))!;
+      expect(store.claimPrompt("s1", "p1").status).toBe("unknown");
+      expect(store.claimPrompt("s1", "p1").status).toBe("unknown");
+      expect(store.getDetail(rec.id)!.answerable).toBe(false);
+    });
+
     it("releaseClaim never reopens a transmitted answer", () => {
       const { store } = make();
       const rec = store.onTracked("s1", promptMsg("s1", "p1"))!;

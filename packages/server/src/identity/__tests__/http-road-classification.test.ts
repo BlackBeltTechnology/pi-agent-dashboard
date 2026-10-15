@@ -80,6 +80,7 @@ describe("classifyHttpRoad — roads", () => {
     expect(a("GET", "/api/questions")).toBe("questions.read questions");
     expect(a("GET", "/api/questions/:id")).toBe("questions.read questions");
     expect(a("POST", "/api/questions/:id/answer")).toBe("questions.write questions");
+    expect(a("POST", "/api/questions/:id/summarize")).toBe("questions.write questions");
     expect(a("POST", "/api/restart")).toBe("system.write system");
     expect(a("GET", "/api/pinned-dirs")).toBe("workspace.read workspace");
     expect(a("POST", "/api/session/spawn")).toBe("workspace.write workspace");
