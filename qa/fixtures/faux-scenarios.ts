@@ -235,6 +235,17 @@ function toolScenario(
   };
 }
 
+/**
+ * Context `message` of the `ask-select-brief` scenario. Longer than the default
+ * `minBriefChars` (240), so it becomes the question's provided brief verbatim.
+ * See change: add-pending-question-stack (test-plan X5).
+ */
+export const ASK_BRIEF_MESSAGE =
+  "The release pipeline has built build 4821 and is waiting on a rollout decision. " +
+  "Canary ships it to 5% of tenants for an hour and can be reverted with one click; " +
+  "broad ships it to every tenant at once and needs a full redeploy to undo. " +
+  "Choose canary unless the change is already proven in staging.";
+
 /** Build a single `ask_user` scenario for the interactive renderer matrix. */
 function askScenario(method: string, extra: Record<string, unknown>): Scenario {
   return {
@@ -1914,6 +1925,15 @@ export const SCENARIOS: Record<string, Scenario> = {
     ],
   }),
   "ask-notify": askScenario("notify", { title: "Heads up", message: "done" }),
+  // `ask_user` select carrying a ≥240-char context `message`: the server's brief
+  // policy treats it as the agent-provided brief (`briefStatus: "provided"`, no
+  // model call), so the question stack's brief is deterministic in the harness.
+  // See change: add-pending-question-stack (test-plan X5).
+  "ask-select-brief": askScenario("select", {
+    title: "Pick the rollout ring",
+    options: ["canary", "broad"],
+    message: ASK_BRIEF_MESSAGE,
+  }),
 
   // ── ctx.ui.notify probe (split-notify-from-prompt-request) ─────────────
   // Calls the `e2e_notify` fixture tool (qa/fixtures/e2e-notify.ext.ts), whose

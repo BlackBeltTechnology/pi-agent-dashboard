@@ -61,6 +61,7 @@ import { useCardSectionPrefs } from "../../lib/state/CardSectionsContext.js";
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
 import { YoloPill } from "../access-grant/YoloIndicators.js";
+import { QuestionStack } from "../questions/QuestionStack.js";
 import { TunnelButton } from "../connectivity/TunnelButton.js";
 import { FolderActionBanner } from "../folder/FolderActionBanner.js";
 import { FolderActionsMenu, type FolderMenuItem, type FolderMenuRadioGroup } from "../folder/FolderActionsMenu.js";
@@ -1490,6 +1491,22 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
     });
   }, [revealRequest?.nonce]);
 
+  // Question-stack activation for a VISIBLE session: bypass any active filter
+  // (search / folder filter / tag axes) so the card can be revealed, select the
+  // session (opens its chat), then reveal the card through collapsed
+  // workspaces / folders / lanes via the seek-to-card path. Selection never
+  // depends on the card being laid out. See change: add-pending-question-stack (D10).
+  const openQuestionSession = useCallback(
+    (sessionId: string) => {
+      setSessionSearch("");
+      setWorkspaceFilter("");
+      clearTagFilters();
+      onSelect(sessionId);
+      onSeekToCard?.(sessionId);
+    },
+    [onSelect, onSeekToCard, clearTagFilters],
+  );
+
   // The ancestor-state echoes landing (async workspace + folder expands
   // resolving) are the primary completion signal — re-check presence when
   // either changes. See change: persist-folder-collapse-server-side (folder
@@ -2769,6 +2786,8 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             <TunnelButton showToast={showToast} />
             {/* Conditional active-YOLO pill (sidebar-header row 1). See change: add-access-grant-dialog (8b.7). */}
             <YoloPill />
+            {/* Open-questions pill + panel; absent at 0, AFTER the YOLO slot. See change: add-pending-question-stack. */}
+            <QuestionStack sessions={sessions} onOpenSession={openQuestionSession} />
             <FocusToggle />
             {headerExtra}
             {/* Community entry point. MDI 7 dropped brand icons, so the Discord

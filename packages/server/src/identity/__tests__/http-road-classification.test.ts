@@ -76,6 +76,11 @@ describe("classifyHttpRoad — roads", () => {
     expect(a("POST", "/api/access/grants")).toBe("access.write access");
     expect(a("POST", "/api/tunnel-connect")).toBe("gateway.write gateway");
     expect(a("GET", "/api/pair/pending")).toBe("gateway.read gateway");
+    // See change: add-pending-question-stack (D9).
+    expect(a("GET", "/api/questions")).toBe("questions.read questions");
+    expect(a("GET", "/api/questions/:id")).toBe("questions.read questions");
+    expect(a("POST", "/api/questions/:id/answer")).toBe("questions.write questions");
+    expect(a("POST", "/api/questions/:id/summarize")).toBe("questions.write questions");
     expect(a("POST", "/api/restart")).toBe("system.write system");
     expect(a("GET", "/api/pinned-dirs")).toBe("workspace.read workspace");
     expect(a("POST", "/api/session/spawn")).toBe("workspace.write workspace");

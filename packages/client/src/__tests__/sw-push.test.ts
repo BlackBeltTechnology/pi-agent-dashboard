@@ -1,7 +1,7 @@
 /**
  * Repo-root `public/sw.js` push + notificationclick handlers, evaluated in a
  * mocked service-worker global.
- * Harness: pure unit style of `prompt-answer-encoder.test.ts`.
+ * Harness: pure unit style of `prompt-answer.test.ts` (shared).
  * See change: add-server-push-notifications (test-plan #F6–#F8).
  */
 import fs from "node:fs";

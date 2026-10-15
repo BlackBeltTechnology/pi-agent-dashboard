@@ -111,6 +111,9 @@ export function frameClassOf(
     // it must never be shed: a shed one would leave this browser prompt-less
     // for the rest of its connection. See change: add-access-grant-dialog.
     case "grant_channel":
+    // Full-replacement snapshot of the recipient's open questions: latest wins,
+    // never shed. See change: add-pending-question-stack.
+    case "questions_update":
       return { cls: "state", key: msg.type };
     case "openspec_update":
     case "git_head_update":
@@ -148,6 +151,9 @@ export function frameClassOf(
 }
 
 import { randomUUID } from "node:crypto";
+import { createQuestionBroadcaster, createQuestionVisibility, type QuestionBroadcaster } from "../questions/question-broadcast.js";
+import { relayBrowserPromptResponse } from "../questions/question-answer.js";
+import type { QuestionStore } from "../questions/question-store.js";
 import type { UpgradeHeaders } from "../access/capability-issuance.js";
 import { issuePromptChannel, releasePromptChannel } from "../access/prompt-channel.js";
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleResetFolderCardSections, handleSetCardSectionVisibility, handleSetDefaultGroupBy, handleSetFocusMode, handleSetFocusProfile, handleSetFolderCollapsed, handleSetFolderExpanded, handleSetFolderGroupBy, handleSetLaneCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
@@ -411,6 +417,8 @@ export interface BrowserGateway {
    * See change: split-notify-from-prompt-request.
    */
   getNotifyLogStats(): NotifyLogStats;
+  /** Pending-question store + brief-generation counters (fallbacks etc.); undefined when the store is absent. See change: add-pending-question-stack (4.6). */
+  getQuestionStats(): ReturnType<QuestionStore["getStats"]> | undefined;
   /** Track a pending PromptBus request for replay on browser refresh */
   trackPromptRequest(sessionId: string, msg: Record<string, unknown>): void;
   /** Clear a pending PromptBus request (dismissed or cancelled) */
@@ -591,6 +599,10 @@ export function createBrowserGateway(
   /** Protocol-level keepalive ping interval for browser sockets (ms).
    *  See change: harden-ios-safari-memory-and-ws-diagnostics (design D2). */
   browserPingIntervalMs: number = DEFAULT_BROWSER_PING_INTERVAL_MS,
+  /** Pending-question store hooked from the prompt registry's track/remove funnel
+   *  and fanned out as per-recipient `questions_update` frames. Absent → inert.
+   *  See change: add-pending-question-stack. */
+  questionStore?: QuestionStore,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -821,6 +833,9 @@ export function createBrowserGateway(
     const promptId = msg.promptId as string;
     if (promptId) {
       sessionMap.set(promptId, msg);
+      // The notify guard in event-wiring runs before this point, so only real
+      // asks reach the question store. See change: add-pending-question-stack (D1).
+      questionStore?.onTracked(sessionId, msg);
     }
   }
 
@@ -830,9 +845,12 @@ export function createBrowserGateway(
       sessionMap.delete(promptId);
       if (sessionMap.size === 0) pendingPromptRequests.delete(sessionId);
     }
+    // Unconditional: after a restart the question file exists with no registry entry.
+    questionStore?.removeQuestion(sessionId, promptId, "cleared");
   }
 
   function reconcilePromptRequests(sessionId: string, promptIds: readonly string[]): void {
+    questionStore?.reconcileSession(sessionId, promptIds);
     const sessionMap = pendingPromptRequests.get(sessionId);
     if (!sessionMap) return;
     const keep = new Set(promptIds);
@@ -1428,6 +1446,23 @@ export function createBrowserGateway(
     if (owner) lastKnownOwner.set(sessionId, owner);
     return owner;
   }
+  // ── pending-question stack fan-out (change: add-pending-question-stack) ──
+  // Per-recipient filtered with the SAME predicate the session list uses.
+  const questionBroadcaster: QuestionBroadcaster<WebSocket> | undefined = questionStore
+    ? createQuestionBroadcaster<WebSocket>({
+        store: questionStore,
+        sockets: () => [...subscriptions.keys()].filter((ws) => ws.readyState === WebSocket.OPEN),
+        send: (ws, msg) => {
+          sendTo(ws, msg);
+        },
+        canSee: createQuestionVisibility<WebSocket>({
+          isResolverActive: () => isResolverActive?.() ?? false,
+          principalOf: socketPrincipal,
+          ownerOf: (sessionId) => ownerOf(sessionId),
+        }),
+      })
+    : undefined;
+  wss.on("close", () => questionBroadcaster?.dispose());
   /** Folder-only frames (no session id) that disclose a folder's path/state. */
   const FOLDER_SCOPED = new Set(["git_head_update", "openspec_update"]);
   const ownerKey = (o: Owner) => `${o.iss}\u0000${o.sub}`;
@@ -1631,6 +1666,8 @@ export function createBrowserGateway(
     const dirty = deliveryInfoOf(msg);
     const allow = (ws: WebSocket) => canAccessSession({ active: true, principal: socketPrincipal(ws), owner });
     if (promoted) {
+      // The owner just became known: this session's questions may now be visible to it.
+      questionBroadcaster?.flush();
       const add: ServerToBrowserMessage = {
         type: "session_added",
         session: promoted,
@@ -1842,6 +1879,12 @@ export function createBrowserGateway(
       sendTo(ws, { type: "grant_channel", capability: issuePromptChannel(grantSocketId) });
     }
 
+    // Current open questions for this recipient (full replacement; sent even when
+    // empty so a reconnecting browser drops rows removed while it was offline).
+    // A small state frame, so it precedes the snapshot: `sessions_snapshot` stays
+    // the LAST bootstrap frame. See change: add-pending-question-stack.
+    questionBroadcaster?.sendTo(ws);
+
     // Atomic windowed snapshot of the session registry + per-group orders,
     // sent LAST in the bootstrap (D3): every small idempotent state frame
     // above is already on the wire, so the one large frame never queues ahead
@@ -1875,7 +1918,6 @@ export function createBrowserGateway(
         archivedCountByCwd: sessionArchive?.countsByKey() ?? {},
       });
     }
-
 
     ws.on("message", async (raw) => {
       diag.frames++;
@@ -2274,8 +2316,10 @@ export function createBrowserGateway(
           }
 
           case "prompt_response": {
-            // Route PromptBus response from browser to extension
-            ctx.piGateway.sendToSession((msg as any).sessionId, msg as any);
+            // Route PromptBus response from browser to extension. Takes the same
+            // answer claim as `POST /api/questions/:id/answer`, so at most one user
+            // answer is transmitted per question across roads (D8).
+            relayBrowserPromptResponse(questionStore, msg as any, () => ctx.piGateway.sendToSession((msg as any).sessionId, msg as any));
             break;
           }
 
@@ -2773,6 +2817,8 @@ export function createBrowserGateway(
 
     getNotifyLogStats: () => notifyLog.getStats(),
 
+    getQuestionStats: () => questionStore?.getStats(),
+
     trackPromptRequest,
     clearPromptRequest,
     reconcilePromptRequests,
@@ -2780,6 +2826,7 @@ export function createBrowserGateway(
     clearPendingRequestsForSession(sessionId: string) {
       pendingUiRequests.delete(sessionId);
       pendingPromptRequests.delete(sessionId);
+      questionStore?.removeQuestionsForSession(sessionId, "session-ended");
       // The notify log is deliberately NOT cleared here: an ended session keeps
       // the rows it displayed while alive (Contract 2). Reapability is protected
       // by exclusion — no reaper signal reads this log — not by deletion.

@@ -36,6 +36,7 @@ type Family =
   | "plugins"
   | "packages"
   | "access"
+  | "questions"
   | "gateway"
   | "system";
 
@@ -95,6 +96,8 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   // credential plumbing (change: harden-trust-and-credential-boundaries)
   "device-session": "access",
   "local-proof": "access",
+  // open ask_user questions; per-item visibility check in the handler (change: add-pending-question-stack)
+  questions: "questions",
   // gateway: tunnel, pairing handshake, discovery, push
   tunnel: "gateway",
   "tunnel-connect": "gateway",

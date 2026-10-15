@@ -298,6 +298,18 @@ describe("engine run lifecycle", () => {
     expect(runs[0]!.status).toBe("running");
   });
 
+  // test-plan #E20 (add-pending-question-stack, D11): unattended runs wait
+  // indefinitely for ask_user answers; the model resolution is untouched.
+  it("E20: run spawn carries the infinite-wait ask_user override; resolved model unchanged", () => {
+    const calls: any[] = [];
+    const engine = makeEngine(calls);
+    engine.startRunFor(promptAutomation("nightly", "Find regressions."));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].scope.extensionConfig["pi-dashboard"].askUserPromptTimeoutSeconds).toBe("0");
+    expect(calls[0].model).toBe("anthropic/claude-haiku-4-5"); // @fast still resolved
+    expect(calls[0].pluginRef.kind).toBe("automation"); // existing fields intact
+  });
+
   // test-plan #E53 (add-acp-session-driver): an automation with `agent` spawns
   // that ACP agent, never passes a model, and completes on the forwarded reply.
   it("ACP agent: spawns with agent and no model; run completes with the final reply as result", () => {
@@ -711,6 +723,33 @@ describe("session-death finalize + stale-run reaper", () => {
     // A terminal signal after reap is a no-op.
     engine.onSessionEnded("sess-1", "late");
     expect(parentRun(repo, "pull", runId).status).toBe("error");
+  });
+
+  // test-plan #X6 (add-pending-question-stack): a run waiting on an unanswered
+  // question (indefinite wait) is finalized by the reaper, which must also
+  // terminate its session so the session's question leaves the stack.
+  it("X6: reaping a live run terminates its spawned session (hard kill)", async () => {
+    const nowRef = { v: Date.now() };
+    const { engine, terminations } = makeReaperEngine(nowRef, 1000);
+    engine.runner.fire(promptAutomation("pull", "x"));
+    await flushSpawn();
+    const runId = engine.runner.activeRunId("folder:pull")!;
+    engine.onSessionRegistered("sess-q", repo);
+    const started = readChildRuns(repo, parentRun(repo, "pull", runId))[0]!.startedAt;
+
+    nowRef.v = started + 500; // healthy: no termination
+    engine.reapStaleRuns();
+    expect(terminations).toEqual([]);
+
+    nowRef.v = started + 1001;
+    engine.reapStaleRuns();
+    expect(parentRun(repo, "pull", runId).status).toBe("error");
+    expect(terminations).toHaveLength(1);
+    expect(terminations[0]).toMatchObject({ sessionId: "sess-q", spawnToken: "tok" });
+    expect(terminations[0].graceful).toBeUndefined();
+
+    engine.reapStaleRuns(); // already finalized: no second kill
+    expect(terminations).toHaveLength(1);
   });
 
   it("4.1: reaper clears a pre-existing on-disk running orphan with no live context", () => {

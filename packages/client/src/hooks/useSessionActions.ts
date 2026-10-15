@@ -7,7 +7,7 @@ import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/
 import type { DashboardSession, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback } from "react";
 import { createInitialState, resolveInteractiveRequest, type SessionState } from "../lib/chat/event-reducer.js";
-import { encodePromptAnswer } from "../lib/chat/prompt-answer-encoder.js";
+import { encodePromptAnswer } from "@blackbelt-technology/pi-dashboard-shared/prompt-answer.js";
 import { randomUuid } from "../lib/util/random-uuid.js";
 import type { ResumePick } from "./useEndedSessionComposer.js";
 import type { SendVerdict } from "./useWebSocket.js";
@@ -169,7 +169,7 @@ export function useSessionActions(deps: SessionActionDeps) {
     if (selectedId) {
       send({ type: "extension_ui_response", sessionId: selectedId, requestId, result, cancelled });
       // Also send via PromptBus protocol for new-style prompts.
-      // Encoding precedence (multiselect-aware): see prompt-answer-encoder.ts.
+      // Encoding precedence (multiselect-aware): see shared/prompt-answer.ts.
       // Fix: change fix-multiselect-auto-cancel-on-dashboard.
       const answer = encodePromptAnswer(result, cancelled);
       // Standalone method:"input" carries pasted images that cannot fit in

@@ -41,3 +41,5 @@ Accordion mode — props `expandedGroups`, `onSetFolderExpanded`, `folderListMod
 See change: add-focus-mode-and-card-block-toggles.
 
 Selector escaping via `cssEscape` (`lib/css-escape.ts`); local `cssEscapeId` removed. See change: fix-codeql-small-findings.
+
+See change: add-pending-question-stack — row 1 mounts `<QuestionStack sessions onOpenSession={openQuestionSession}/>` right after `YoloPill` (absent at 0). `openQuestionSession(id)` clears session search, folder filter and tag axes, calls `onSelect(id)`, then `onSeekToCard?.(id)` (reveals collapsed workspace/folder/lane). Test: `__tests__/SessionList.question-pill.test.tsx`.

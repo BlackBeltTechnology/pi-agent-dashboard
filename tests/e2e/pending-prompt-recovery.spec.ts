@@ -1,3 +1,4 @@
+import { ASK_BRIEF_MESSAGE } from "../../qa/fixtures/faux-scenarios.js";
 import { connectBus, expect, type Page, shutdownSession, test } from "./fixtures.js";
 import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
@@ -866,5 +867,122 @@ test.describe("pending-prompt recovery (fix-pending-prompt-lost-on-replay)", () 
     const row = await sessionRow(page.request, sessionId);
     expect(row === undefined || row.live === false || row.status === "ended").toBe(true);
     await expect(card.getByText("Needs you")).toHaveCount(0, { timeout: 30_000 });
+  });
+});
+
+// ── add-pending-question-stack · X5: restart keeps the snapshot and brief ────
+//
+// A dashboard-spawned (tmux) faux session parks on `ask-select-brief` — an
+// `ask_user` select whose context `message` is ≥ 240 chars, so the server keeps
+// it verbatim as the question's brief (`briefStatus: "provided"`, no model, so
+// the brief is deterministic in a harness with no real `@fast` model). The
+// daemon is restarted; the session's bridge re-registers and re-sends the same
+// prompt, which must REBIND to the durable question file:
+//   - same opaque question id, listed again by `GET /api/questions`;
+//   - same brief text / `briefStatus` / `briefLabel` via `GET /api/questions/:id`;
+//   - no model call: the brief generator's outcome counters (`/api/health`
+//     `questions.briefs`) read 0 on the NEW process — a rebind never generates.
+//
+// LIMITATION: the harness has no model-call counter that survives a restart.
+// `questions.briefs` (ready/failed/unavailable/fallbacks) is in-memory and
+// resets with the process, so "unchanged" is asserted as "0 outcomes recorded
+// after the restart" plus an identical stored brief, not as before === after.
+// The strict "0 additional calls, brief kept `failed`/`ready`" proof is L1
+// (test-plan X1/E23).
+
+interface QuestionRowDto {
+  id: string;
+  sessionId: string;
+  briefStatus: string;
+}
+
+interface QuestionDetailDto extends QuestionRowDto {
+  question: string;
+  brief?: string;
+  briefLabel?: string;
+}
+
+interface BriefCounters {
+  ready: number;
+  failed: number;
+  unavailable: number;
+  fallbacks: number;
+}
+
+/** Rows for `sessionId`; `undefined` while the server is down or the call fails. */
+async function questionRowFor(
+  request: import("@playwright/test").APIRequestContext,
+  sessionId: string,
+): Promise<QuestionRowDto | undefined> {
+  try {
+    const res = await request.get("/api/questions", { timeout: 5_000 });
+    if (!res.ok()) return undefined;
+    const { data } = (await res.json()) as { success: boolean; data: QuestionRowDto[] };
+    return data.find((q) => q.sessionId === sessionId);
+  } catch {
+    return undefined; // mid-restart: connection refused / empty response
+  }
+}
+
+async function questionDetail(
+  request: import("@playwright/test").APIRequestContext,
+  id: string,
+): Promise<QuestionDetailDto> {
+  const res = await request.get(`/api/questions/${id}`);
+  expect(res.ok(), `GET /api/questions/${id} → ${res.status()}`).toBe(true);
+  return ((await res.json()) as { success: boolean; data: QuestionDetailDto }).data;
+}
+
+/** `/api/health` → `questions.briefs`: the in-memory brief-generation outcome counters. */
+async function briefCounters(
+  request: import("@playwright/test").APIRequestContext,
+): Promise<BriefCounters> {
+  const res = await request.get("/api/health");
+  expect(res.ok()).toBe(true);
+  const body = (await res.json()) as { questions?: { briefs?: BriefCounters } };
+  expect(body.questions?.briefs, "/api/health must expose questions.briefs").toBeDefined();
+  return body.questions!.briefs!;
+}
+
+test.describe("pending-question stack — restart durability (add-pending-question-stack)", () => {
+  test("X5: a restart keeps the question id and its brief; no model call is made", async ({ page }) => {
+    test.setTimeout(420_000);
+    const { sessionId } = await parkOnAsk(page, "ask-select-brief", "card");
+
+    // Before: one open question, brief provided by the agent's own message.
+    let before: QuestionRowDto | undefined;
+    await expect
+      .poll(async () => {
+        before = await questionRowFor(page.request, sessionId);
+        return before?.id ?? "";
+      }, { timeout: 30_000, intervals: [500] })
+      .not.toBe("");
+    expect(before!.briefStatus).toBe("provided");
+    const detailBefore = await questionDetail(page.request, before!.id);
+    expect(detailBefore.brief).toBe(ASK_BRIEF_MESSAGE);
+    expect(detailBefore.briefLabel).toBe("provided");
+
+    await restartDashboardStable();
+
+    // The bridge re-registers and re-sends the prompt; it must rebind to the
+    // SAME durable question — same id, still open, still `provided`.
+    let after: QuestionRowDto | undefined;
+    await expect
+      .poll(async () => {
+        after = await questionRowFor(page.request, sessionId);
+        return after?.id ?? "";
+      }, { timeout: 120_000, intervals: [2_000] })
+      .toBe(before!.id);
+    expect(after!.briefStatus).toBe(before!.briefStatus);
+
+    const detailAfter = await questionDetail(page.request, before!.id);
+    expect(detailAfter.brief).toBe(detailBefore.brief);
+    expect(detailAfter.briefLabel).toBe(detailBefore.briefLabel);
+    expect(detailAfter.question).toBe(detailBefore.question);
+
+    // No model call on the rebind: the NEW process recorded zero outcomes.
+    const counters = await briefCounters(page.request);
+    expect(counters.ready + counters.failed + counters.unavailable).toBe(0);
+    expect(counters.fallbacks).toBe(0);
   });
 });

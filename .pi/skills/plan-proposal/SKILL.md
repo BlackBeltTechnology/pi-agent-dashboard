@@ -211,6 +211,21 @@ Then **STOP**. `plan-proposal` does not enter the implementation phase. Report:
 > If a design issue surfaces during build, `ship-it` writes `SHIP_IT_BLOCKED.md`
 > and hands back here.*
 
+## Situation brief for `ask_user`
+
+Every `ask_user` call this skill makes MUST carry a self-contained situation
+brief in its `message` — at least 240 characters (the dashboard's
+`questions.minBriefChars` default; shorter and the server generates a brief with
+the `@fast` model instead). The answer may be given from the global question
+stack by someone who has not seen this chat. State, in 2–4 lines:
+
+1. **Task** — what change/step is in progress.
+2. **Why asking** — what was found or blocked that needs a human.
+3. **Per-option outcome** — what each option leads to (skip for free-text inputs).
+
+A bare question ("Resume or hand back?") is never enough. See change:
+`add-pending-question-stack`.
+
 ## Guardrails
 
 - **Main session only** — refuse and surface if nested (see Hard constraint).

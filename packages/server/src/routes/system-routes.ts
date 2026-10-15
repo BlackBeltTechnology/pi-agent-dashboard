@@ -212,6 +212,7 @@ export function registerSystemRoutes(
       // fix-pending-prompt-lost-on-replay (blocking-class split).
       getDroppedFrameStats?: () => DroppedFrameStats;
       getNotifyLogStats?: () => { evictedEntries: number; bySession: Record<string, number> };
+      getQuestionStats?: () => unknown;
       // DERIVED from the gateway's exported type, same rule as above.
       // See change: fix-backpressure-status-and-subagent-frames.
       getSocketBufferOccupancy?: () => SocketBufferOccupancy;
@@ -1056,6 +1057,8 @@ export function registerSystemRoutes(
     try { eventLoopSpikesSnap = eventLoopSpikes?.snapshot() ?? eventLoopSpikesSnap; } catch { /* keep empty */ }
     let notifyLogStats = { evictedEntries: 0, bySession: {} as Record<string, number> };
     try { notifyLogStats = browserGateway?.getNotifyLogStats?.() ?? notifyLogStats; } catch { /* keep zeros */ }
+    let questionStats: unknown;
+    try { questionStats = browserGateway?.getQuestionStats?.(); } catch { /* omit */ }
     // Provider-OAuth readiness. Failure-isolated like the other telemetry reads:
     // when the pi runtime exposes no provider definitions, sign-in is
     // unavailable but EVERY other route keeps serving, and the message names
@@ -1325,6 +1328,8 @@ export function registerSystemRoutes(
       // surfaced beside the other silent-loss counters.
       // See change: split-notify-from-prompt-request.
       notifyLog: notifyLogStats,
+      // Pending-question store + brief fallbacks (task 4.6). See change: add-pending-question-stack.
+      ...(questionStats !== undefined ? { questions: questionStats } : {}),
       // In-memory event-store shed counters (per-session trim + cross-session
       // LRU eviction). The third silent tool_execution_end loss path, made
       // observable beside droppedFrames. See change: instrument-event-store-trim.

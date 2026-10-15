@@ -49,6 +49,8 @@ export function FlowQuestionCard({
   return (
     <div
       data-testid="flow-question-card"
+      data-widget-bar-slot=""
+      tabIndex={-1}
       className="mt-2 mb-2 p-3 border border-purple-500/40 bg-purple-500/5 rounded"
     >
       <div className="flex items-start gap-2 mb-2">

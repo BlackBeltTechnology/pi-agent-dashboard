@@ -28,3 +28,7 @@ Routes `set_focus_mode` → `handleSetFocusMode`, `set_focus_profile` → `handl
 ## add-passkey-user-auth
 
 Message handler runs `decideWsTier` BEFORE the owner gate: close 4401 on revoked passkey session, silent drop below tier, one `auth.tier_refused {"via":"ws",type,principalTier,requiredTier}` line per (socket, type), ≤64 types per socket (`tierRefusalsLogged` WeakMap). See change: add-passkey-user-auth.
+
+## add-pending-question-stack
+
+Optional trailing ctor param `questionStore?: QuestionStore` (`questions/`). `trackPromptRequest` → `onTracked` (after notify guard); `clearPromptRequest` / `reconcilePromptRequests` / `clearPendingRequestsForSession` → store removal (unconditional, even without a map entry). Builds a per-socket `questionBroadcaster` (visibility = `canAccessSession` via `ownerOf`/`socketPrincipal`), sends current rows after `sessions_snapshot` on connect, flushes on owner promotion, disposes on `wss` close. `frameClassOf`: `questions_update` is a `state` frame (key = type, never shed). Adds `getQuestionStats()`. `hasPendingPromptRequests` unchanged. Browser `prompt_response` goes through `relayBrowserPromptResponse` (shared answer claim with REST: already answered → dropped; untracked/file-access → forwarded; failed send releases the claim). See change: add-pending-question-stack.

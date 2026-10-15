@@ -95,6 +95,17 @@ describe("plugin-spawn-scope env projection", () => {
     expect(env.PI_EXT_MY_EXT_API_KEY).toBe("v");
   });
 
+  // The bridge reads exactly this env name (extension lifecycle.ts ASK_USER_TIMEOUT_ENV).
+  // See change: add-pending-question-stack (D11).
+  it("ask_user timeout override: pi-dashboard/askUserPromptTimeoutSeconds → PI_EXT_PI_DASHBOARD_ASK_USER_PROMPT_TIMEOUT_SECONDS", () => {
+    const mapped = pluginSpawnToSessionOptions({
+      cwd: "/w",
+      scope: { extensionConfig: { "pi-dashboard": { askUserPromptTimeoutSeconds: "0" } } },
+    });
+    const env = buildSpawnEnv(cleanBaseEnv(), { extensionConfig: mapped.extensionConfig });
+    expect(env.PI_EXT_PI_DASHBOARD_ASK_USER_PROMPT_TIMEOUT_SECONDS).toBe("0");
+  });
+
   it("E11: extensionConfig absent ⇒ env carries no PI_EXT_* from this capability", () => {
     const mapped = pluginSpawnToSessionOptions({ cwd: "/w", model: "m" });
     const env = buildSpawnEnv(cleanBaseEnv(), { extensionConfig: mapped.extensionConfig });
