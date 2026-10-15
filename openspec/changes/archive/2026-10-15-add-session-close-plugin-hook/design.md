@@ -100,7 +100,7 @@ Caps reclaim never closes a declared session. Caps are not live-wired today; the
 - [A forgotten open browser tab keeps a team session alive indefinitely (watcher veto)] → Intended: "nobody watching" is a requirement of a safe close. Memory stays bounded by the per-user conversation limit.
 - [Reaper loop with `enabled:false`] → Still returns early when no session is governed or close-requested; otherwise it filters undeclared sessions before any probe, so probe work is proportional to declared sessions only.
 - [Idle anchor moves from team's `lastAgentEndAt` to core `lastActivityAt`] → Covered by the team spec delta. Restart survival comes from the persisted `closePolicy` plus restored `lastActivityAt` / `lastSettledAt`.
-- [Plugin disabled while its sessions carry `closePolicy`] → Its closer is removed; no closer ⇒ `"close"` once every quiescence veto clears. Accepted: the declared policy still holds and the close is still lossless. Keeping them forever would leak a disabled plugin's sessions.
+- [Plugin disabled while its sessions carry `closePolicy`] → Its closer is skipped at consult time (`isPluginEnabled` gate; the registry keeps it so re-enable needs no restart); no closer ⇒ `"close"` once every quiescence veto clears. Accepted: the declared policy still holds and the close is still lossless. Keeping them forever would leak a disabled plugin's sessions.
 - [Reaper sweeps before the closer registers] → Not reachable at boot: plugin entries load (awaited) before the reaper starts (`server.ts:3252` vs `:4462`). The spec requires registration during plugin activation.
 - [Closer adds up to 1 s per candidate] → Only for sessions already judged reapable, capped by the 5 s per-sweep budget.
 
