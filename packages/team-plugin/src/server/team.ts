@@ -36,7 +36,6 @@ export interface TeamDeps {
   spawnTimeoutMs?: number;
   now?: () => number;
   renderPersona?: (persona: Persona, uk: string) => string;
-  sweepEveryMs?: number;
   /** `host.listOperatorSkills` service (D11); absent on older hosts. */
   listOperatorSkills?: () => Promise<{ name: string; description: string; path: string; source: string }[]>;
   /** D8 seam override (tests): called instead of the built-in `invalidateSkill` pass. */
@@ -131,7 +130,7 @@ export function createTeam(d: TeamDeps): Team {
         logger: d.logger,
       });
       mountAppRoutes(d.fastify, d.distAppDir, d.logger);
-      conversations.start(d.sweepEveryMs);
+      conversations.start();
     },
     stop() {
       conversations.stop();

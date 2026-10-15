@@ -31,6 +31,12 @@ export interface CapSessionInfo {
   visitorId: string;
   quiescent: boolean;
   lastActivityAt?: number;
+  /**
+   * A plugin declared a close policy for it: counted, but never reclaimed
+   * (only the reaper + that plugin's closer may close it).
+   * See change: add-session-close-plugin-hook.
+   */
+  declared?: boolean;
 }
 
 export interface CapsDeps {
@@ -68,7 +74,7 @@ export function createCapsAdmission(deps: CapsDeps): CapsAdmission {
     // visitors; a per-visitor breach reclaims only within that visitor.
     const pool = overGlobal ? active : active.filter((s) => s.visitorId === visitorId);
     const victim = pool
-      .filter((s) => s.quiescent)
+      .filter((s) => s.quiescent && !s.declared)
       .sort((a, b) => (a.lastActivityAt ?? 0) - (b.lastActivityAt ?? 0))[0];
 
     if (!victim) {

@@ -1,7 +1,7 @@
 /**
  * team-plugin · SERVER entry. Mounts `/api/plugins/team/*` and the same-origin
  * app at `/apps/team/`, and runs the conversation lifecycle (spawn / resume /
- * idle ending). See change: add-team-plugin.
+ * idle ending via core's reaper). See change: add-team-plugin, add-session-close-plugin-hook.
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +21,8 @@ async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     onSessionResolved: (h) => ctx.onSessionResolved(h),
     onEvent: (h) => ctx.onEvent(h),
     registerPiHandler: (type, h) => ctx.registerPiHandler(type, h),
+    // Optional on older runtimes. See change: add-session-close-plugin-hook.
+    registerSessionCloser: (closer) => ctx.registerSessionCloser?.((req) => closer(req)),
   };
   const team = createTeam({
     host,

@@ -50,10 +50,66 @@ export interface ReaperDeps {
   killBySessionId: (sessionId: string) => Promise<boolean>;
   /** Latch `stop_after_turn` so the session ends cleanly at `turn_end` (gear 2). */
   sendStopAfterTurn: (sessionId: string) => void;
-  /** Fires on every applied reap for the diagnostics counters. */
-  onReap?: (sessionId: string, reason: ReapReason) => void;
+  /**
+   * Fires on every applied reap for the diagnostics counters. `declared`
+   * carries the declaring plugin id for a plugin-governed session.
+   */
+  onReap?: (sessionId: string, reason: ReapReason, declared?: { owner: string }) => void;
   /** Injectable clock. */
   now?: () => number;
+  /**
+   * Closer of the plugin that declared a session's close policy (undefined ⇒
+   * none registered ⇒ close). See change: add-session-close-plugin-hook.
+   */
+  closerFor?: (ownerId: string) => SessionCloser | undefined;
+  /** The declaring plugin requested a close at the next quiet point. */
+  isCloseRequested?: (sessionId: string) => boolean;
+  /** Drop a close request once the session is closed. */
+  clearCloseRequest?: (sessionId: string) => void;
+  /** Close mode `archive`: mark the session archive-on-end (+ persist). */
+  markArchiveOnEnd?: (sessionId: string) => void;
+  /** Closer outcome hook (logs + counters). */
+  onCloserVerdict?: (sessionId: string, owner: string, reason: ReapReason, outcome: CloserOutcome) => void;
+  /** Wall clock for the closer budget (fake-timer friendly; distinct from `now`). */
+  elapsedClock?: () => number;
+}
+
+/** Plugin closer: `"close"` | `"keep"`; anything else / throw / timeout ⇒ keep. */
+export type SessionCloser = (req: {
+  sessionId: string;
+  cwd: string;
+  reason: ReapReason;
+  idleMs: number;
+}) => unknown;
+
+/** Outcome of one closer consult. `failure` = throw / timeout / unknown value. */
+export type CloserOutcome = "close" | "keep" | "failure";
+
+/** Per-call closer bound. */
+export const CLOSER_TIMEOUT_MS = 1000;
+/** Total closer time per sweep; candidates past it are deferred, never closed. */
+export const CLOSER_SWEEP_BUDGET_MS = 5000;
+
+/** Governed = a plugin declared an idle close policy for the session. */
+export function isPluginGoverned(s: Pick<DashboardSession, "closePolicy">): boolean {
+  return typeof s.closePolicy?.idleAfterMs === "number";
+}
+
+/** Call a closer with the per-call bound; never throws. */
+async function consultCloser(closer: SessionCloser, req: Parameters<SessionCloser>[0]): Promise<CloserOutcome> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), CLOSER_TIMEOUT_MS);
+    timer.unref?.();
+  });
+  try {
+    const v = await Promise.race([Promise.resolve().then(() => closer(req)), timeout]);
+    return v === "close" || v === "keep" ? v : "failure";
+  } catch {
+    return "failure";
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export interface IdleReaper {
@@ -75,6 +131,7 @@ function toThresholds(cfg: EmbedLifecycleConfig): LifecycleThresholds {
 
 export function createIdleReaper(deps: ReaperDeps): IdleReaper {
   const now = deps.now ?? Date.now;
+  const elapsed = deps.elapsedClock ?? Date.now;
   // Guards against re-selecting a session already mid-reap across overlapping
   // sweeps (and, later, coordinating with the caps reclaim path).
   const reaping = new Set<string>();
@@ -88,6 +145,9 @@ export function createIdleReaper(deps: ReaperDeps): IdleReaper {
     const q = deps.queueCounts(s.id);
     return {
       lifecyclePolicy: s.lifecyclePolicy,
+      governed: isPluginGoverned(s),
+      idleTimeoutMs: s.closePolicy?.idleAfterMs,
+      closeRequested: deps.isCloseRequested?.(s.id) ?? false,
       lastSettledAt: s.lastSettledAt,
       lastRunStartedAt: s.lastRunStartedAt,
       currentTool: s.currentTool,
@@ -105,37 +165,88 @@ export function createIdleReaper(deps: ReaperDeps): IdleReaper {
     };
   }
 
-  async function reapOne(s: DashboardSession, t: LifecycleThresholds): Promise<void> {
+  /** Per-sweep closer budget (ms spent so far). */
+  interface SweepBudget {
+    spentMs: number;
+  }
+
+  /**
+   * Ask the declaring plugin's closer, within the per-sweep budget. `true` ⇒
+   * proceed with the close. Only plugin-governed sessions that are not
+   * close-requested reach here (a request is the plugin's own decision).
+   */
+  async function closerAllows(
+    s: DashboardSession,
+    signals: LifecycleSignals,
+    reason: ReapReason,
+    budget: SweepBudget,
+  ): Promise<boolean> {
+    const owner = s.closePolicy?.owner;
+    if (!owner || !signals.governed || signals.closeRequested) return true;
+    const closer = deps.closerFor?.(owner);
+    if (!closer) return true; // no closer registered ⇒ close
+    if (budget.spentMs >= CLOSER_SWEEP_BUDGET_MS) return false; // deferred to next sweep
+    const startedAt = elapsed();
+    const outcome = await consultCloser(closer, {
+      sessionId: s.id,
+      cwd: s.cwd,
+      reason,
+      idleMs: signals.lastActivityAt === undefined ? 0 : Math.max(0, now() - signals.lastActivityAt),
+    });
+    budget.spentMs += Math.max(0, elapsed() - startedAt);
+    deps.onCloserVerdict?.(s.id, owner, reason, outcome);
+    return outcome === "close";
+  }
+
+  async function reapOne(s: DashboardSession, t: LifecycleThresholds, budget: SweepBudget): Promise<void> {
     if (reaping.has(s.id)) return;
-    const verdict = decideReap(await assembleSignals(s), t, now());
+    const signals = await assembleSignals(s);
+    const verdict = decideReap(signals, t, now());
     if (verdict.action !== "reap") return;
 
     reaping.add(s.id);
     try {
+      if (!(await closerAllows(s, signals, verdict.reason, budget))) return;
+      const declared = s.closePolicy?.owner ? { owner: s.closePolicy.owner } : undefined;
+      // Close mode `archive`: mark before the close so the on-end archive fires.
+      if (declared && s.closePolicy?.mode === "archive") deps.markArchiveOnEnd?.(s.id);
       if (verdict.reason === "stop-after-turn") {
         deps.sendStopAfterTurn(s.id);
       } else {
         // idle + phantom both use the graceful, resumable kill ladder.
         await deps.killBySessionId(s.id);
+        deps.clearCloseRequest?.(s.id);
       }
-      deps.onReap?.(s.id, verdict.reason);
+      deps.onReap?.(s.id, verdict.reason, signals.governed || signals.closeRequested ? declared : undefined);
     } finally {
       reaping.delete(s.id);
     }
   }
 
+  /**
+   * In scope this sweep: ephemeral (only while the feature is enabled), or
+   * plugin-governed / close-requested (always — the declaration is the opt-in).
+   */
+  function inScope(s: DashboardSession, enabled: boolean): boolean {
+    if (s.status === "ended") return false; // already gone
+    if (enabled && isEphemeral(s)) return true;
+    return isPluginGoverned(s) || (deps.isCloseRequested?.(s.id) ?? false);
+  }
+
   async function sweepOnce(): Promise<void> {
     const cfg = deps.config();
-    if (!cfg.enabled) return; // dormant when the feature is off (E22)
+    // Durable undeclared sessions are never governed (E1); with the feature off
+    // and nothing declared this is a no-work pass, as before (E22).
+    const candidates = deps.listSessions().filter((s) => inScope(s, cfg.enabled));
+    if (candidates.length === 0) return;
     const t = toThresholds(cfg);
-    for (const s of deps.listSessions()) {
-      if (s.status === "ended") continue; // already gone
-      if (!isEphemeral(s)) continue; // durable sessions are never governed (E1)
+    const budget: SweepBudget = { spentMs: 0 };
+    for (const s of candidates) {
       // Isolate per-session failures: a throwing probe / kill must not reject
       // the whole sweep (which runs unattended via setInterval → unhandled
       // rejection) nor skip the remaining sessions.
       try {
-        await reapOne(s, t);
+        await reapOne(s, t, budget);
       } catch (err) {
         console.warn(`[embed-lifecycle] reap sweep failed for ${s.id}:`, err);
       }

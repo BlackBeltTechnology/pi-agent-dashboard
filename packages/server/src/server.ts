@@ -154,6 +154,7 @@ import {
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
 import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
+import { createPluginSessionCloseApi, createSessionCloserRegistry } from "./embed-lifecycle/plugin-session-close.js";
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
@@ -2396,7 +2397,28 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Reclaims the automation-produced ephemeral sessions #383 is about; the
   // acquire registry + caps are shared-layer modules the embed front constructs.
   // See change: add-embed-session-lifecycle.
+  // Plugin session-close hook: closer registry + close requests, shared by
+  // the reaper and every plugin's ctx. See change: add-session-close-plugin-hook.
+  const sessionClosers = createSessionCloserRegistry();
+  const markArchiveOnEnd = (id: string): void => {
+    sessionManager.update(id, { archiveOnEnd: true });
+    const file = sessionManager.get(id)?.sessionFile;
+    if (file) {
+      try {
+        mergeSessionMeta(file, { archiveOnEnd: true });
+      } catch { /* best-effort */ }
+    }
+  };
   const embedLifecycle = createEmbedLifecycleController({
+    closers: sessionClosers,
+    markArchiveOnEnd,
+    // Same enabled predicate as the server-entry loader: a disabled owner's
+    // closer is never consulted (no closer ⇒ close).
+    isPluginEnabled: (pluginId) =>
+      resolvePluginEnabled(
+        getPluginConfigFromFile(loadConfig(), pluginId) as Record<string, unknown>,
+        discoverPlugins().find((p) => p.manifest.id === pluginId)?.manifest.defaultEnabled,
+      ),
     config: () => loadConfig().embedLifecycle,
     listSessions: () => sessionManager.listAll(),
     getSubscriberCount: (id) => browserGateway.getSubscriberCount(id),
@@ -3542,6 +3564,23 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 if (spawnToken) return reg.killByToken(spawnToken);
                 return false;
               },
+              // Plugin session-close hook: closer + close requests for sessions
+              // this plugin declared. Same trust gate as spawnSession.
+              // See change: add-session-close-plugin-hook.
+              ...createPluginSessionCloseApi(
+                {
+                  registry: sessionClosers,
+                  getSession: (id) => sessionManager.get(id),
+                  sendShutdown: (id) => {
+                    piGateway.sendToSession(id, { type: "shutdown", sessionId: id });
+                  },
+                  killBySessionId: (id) => browserGateway.headlessPidRegistry.killBySessionId(id),
+                  markArchiveOnEnd,
+                  onCloseRequest: () => embedLifecycle.metrics.recordPluginCloseRequest(),
+                },
+                plugin.manifest.id,
+                (plugin.manifest.priority ?? 1000) <= 100,
+              ),
               // Pin a tightening cwd capability floor. Same trust gate as
               // spawnSession (priority <= 100). Untrusted plugins get a no-op
               // so a forged manifest cannot constrain unrelated sessions.

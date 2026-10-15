@@ -48,6 +48,9 @@ export const CORE_RESERVED_REF_KEYS: ReadonlySet<string> = new Set([
   "nameSourceFor",
   // Core-owned container of every plugin's durable refs (session/plugin-refs.ts).
   "pluginRefs",
+  // Settable only through the lifecycle `close` declaration; a ref body must
+  // not forge another plugin's policy. See change: add-session-close-plugin-hook.
+  "closePolicy",
 ]);
 
 /** Generic lifecycle declaration; core reads only these booleans. */
@@ -58,6 +61,37 @@ export interface PluginSessionLifecycle {
   hidden?: boolean;
   /** Archive the owned session shortly after it ends. See change: archive-service-sessions-on-end. */
   archiveOnEnd?: boolean;
+  /** Opt-in close policy. Validated on `file`. See change: add-session-close-plugin-hook. */
+  close?: PluginSessionCloseDeclaration;
+}
+
+/** Normalized close declaration (mode always set). */
+export interface PluginSessionCloseDeclaration {
+  idle?: { afterMs: number };
+  mode?: "sleep" | "archive";
+}
+
+/** Minimum accepted `close.idle.afterMs`. */
+export const MIN_CLOSE_IDLE_MS = 1000;
+
+/**
+ * Validate a plugin's `close` block. `undefined` ⇒ absent; `null` ⇒ invalid
+ * (caller drops it with a warning). Valid ⇒ normalized copy with `mode` set.
+ * `idle.afterMs` must be a finite integer >= {@link MIN_CLOSE_IDLE_MS}.
+ * See change: add-session-close-plugin-hook.
+ */
+export function normalizeCloseDeclaration(
+  close: unknown,
+): Required<Pick<PluginSessionCloseDeclaration, "mode">> & PluginSessionCloseDeclaration | null | undefined {
+  if (close === undefined) return undefined;
+  if (!isPlainObject(close)) return null;
+  const mode = close.mode ?? "sleep";
+  if (mode !== "sleep" && mode !== "archive") return null;
+  if (close.idle === undefined) return { mode };
+  if (!isPlainObject(close.idle)) return null;
+  const ms = close.idle.afterMs;
+  if (typeof ms !== "number" || !Number.isInteger(ms) || ms < MIN_CLOSE_IDLE_MS) return null;
+  return { idle: { afterMs: ms }, mode };
 }
 
 /** A resolved ownership record handed back on register. */
@@ -197,16 +231,28 @@ export function createPendingPluginRefRegistry(
   }
 
   return {
-    file(token, ref, ownerId, lifecycle): boolean {
+    file(token, ref, ownerId, declared): boolean {
       if (!token) return false;
+      let lifecycle = declared;
       sweep();
       const sanitized = sanitizePluginRef(ref, ownerId, keyOwners, warnOnceForKey);
+      if (lifecycle?.close !== undefined) {
+        const close = normalizeCloseDeclaration(lifecycle.close);
+        const { close: _dropped, ...rest } = lifecycle;
+        if (close === null || close === undefined) {
+          warn(`[pending-plugin-ref-registry] dropped invalid close declaration from plugin "${ownerId}" (spawnToken ${token})`);
+          lifecycle = rest;
+        } else {
+          lifecycle = { ...rest, close };
+        }
+      }
       const hasLifecycle =
         lifecycle !== undefined &&
         (lifecycle.recover !== undefined ||
           lifecycle.finalizeOnSocketClose !== undefined ||
           lifecycle.hidden !== undefined ||
-          lifecycle.archiveOnEnd !== undefined);
+          lifecycle.archiveOnEnd !== undefined ||
+          lifecycle.close !== undefined);
       if (Object.keys(sanitized).length === 0 && !hasLifecycle) {
         // Nothing to own — do not file (register resolves unowned).
         return false;

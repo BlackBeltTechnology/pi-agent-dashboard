@@ -1,5 +1,5 @@
 /**
- * Conversations, agents and the idle sweeper (D5/D8). One conversation = one
+ * Conversations, agents and idle ending (D5/D8; idle ending = core reaper, see change: add-session-close-plugin-hook). One conversation = one
  * persistent pi session found-or-resumed on demand. The host is reached only
  * through the narrow {@link HostPort}, so the service is unit-testable with a
  * fake. See change: add-team-plugin.
@@ -51,6 +51,12 @@ export interface HostPort {
   onSessionResolved(h: (sessionId: string, ref: Record<string, unknown>) => void): () => void;
   onEvent(h: (sessionId: string, event: unknown) => void): () => void;
   registerPiHandler(type: string, h: (msg: unknown, sessionId: string) => void): void;
+  /**
+   * Register the team session closer consulted by core's idle reaper before it
+   * closes a team session (optional: older hosts lack it).
+   * See change: add-session-close-plugin-hook.
+   */
+  registerSessionCloser?(closer: (req: { sessionId: string }) => "close" | "keep"): void;
 }
 
 export interface Logger {
@@ -169,7 +175,6 @@ export class ConversationService {
   /** Last time a record was persisted for activity (debounce), by session id. */
   private readonly activityWrittenAt = new Map<string, number>();
   private readonly unsubs: Array<() => void> = [];
-  private sweepTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(d: ServiceDeps) {
     this.d = d;
@@ -196,7 +201,7 @@ export class ConversationService {
 
   // ── lifecycle ──────────────────────────────────────────────────────────────
 
-  start(sweepEveryMs = 5 * 60_000): void {
+  start(): void {
     this.d.records.scanAll();
     this.d.host.registerPiHandler(GUARD_READY_MESSAGE, (msg, sessionId) => {
       const runId = (msg as { payload?: { runId?: unknown } } | undefined)?.payload?.runId;
@@ -224,17 +229,21 @@ export class ConversationService {
       }),
       this.d.host.onEvent((sessionId, event) => this.onEvent(sessionId, event)),
     );
-    this.sweepIdle();
-    if (sweepEveryMs > 0) {
-      this.sweepTimer = setInterval(() => this.sweepIdle(), sweepEveryMs);
-      this.sweepTimer.unref?.();
-    }
+    // Idle ending is core's quiescence reaper (declared on spawn); the team
+    // closer only keeps a session whose conversation is being ensured.
+    // See change: add-session-close-plugin-hook.
+    this.d.host.registerSessionCloser?.((req) => this.closeVerdict(req.sessionId));
   }
 
   stop(): void {
     for (const u of this.unsubs.splice(0)) u();
-    if (this.sweepTimer) clearInterval(this.sweepTimer);
-    this.sweepTimer = undefined;
+  }
+
+  /** Team closer: keep while an ensure of the session's conversation is in flight. */
+  closeVerdict(sessionId: string): "close" | "keep" {
+    const loc = this.d.records.locate(sessionId);
+    if (loc && this.inFlight.has(`${loc.uk}|${loc.personaKey}|${loc.t}|${loc.c}`)) return "keep";
+    return "close";
   }
 
   private onEvent(sessionId: string, event: unknown): void {
@@ -258,24 +267,6 @@ export class ConversationService {
     const s = this.d.host.getSession(sessionId);
     if (s?.sessionFile && s.sessionFile !== rec.sessionFile) rec.sessionFile = s.sessionFile;
     this.d.records.write(loc, rec);
-  }
-
-  /** End sessions idle past `idleMinutes` (never `busy`). */
-  sweepIdle(): void {
-    const idle = this.idleMs();
-    if (idle === 0) return;
-    for (const lr of this.d.records.scanAll()) {
-      const r = lr.record;
-      if (r.archived) continue;
-      const s = this.d.host.getSession(r.sessionId);
-      if (!s || s.status === "ended" || s.status === "streaming") continue;
-      // Multi-user: only end a session the record's user owns (a misbound record must not reach another user's).
-      if (this.d.access.mode() === "multi" && (!s.principalOwner || userKey(s.principalOwner.iss, s.principalOwner.sub) !== lr.uk)) continue;
-      const last = Date.parse(r.lastAgentEndAt ?? r.lastActivityAt ?? r.startedAt);
-      if (Number.isFinite(last) && this.now() - last > idle) {
-        void this.d.host.abortSpawnedRun({ sessionId: r.sessionId, graceful: true });
-      }
-    }
   }
 
   /**
@@ -316,7 +307,7 @@ export class ConversationService {
   /**
    * D8: after a successful managed catalog write, end every live, owner-bound
    * session whose grant of `name` changed (denied / removed / realpath
-   * moved). Modelled on `sweepIdle`, but revocation is a security event: it
+   * moved). Modelled on the former idle sweep, but revocation is a security event: it
    * ends even a streaming session, non-gracefully, and keeps every record.
    * Reachable only from a successful admin write (SkillsService), never from
    * ensure/resume/restart routes. Returns the number of sessions ended.
@@ -329,7 +320,7 @@ export class ConversationService {
       if (lr.record.archived) continue;
       const s = this.d.host.getSession(lr.record.sessionId);
       if (!s || s.status === "ended") continue;
-      // Same owner binding as sweepIdle: a misbound record never reaches another user's session.
+      // Owner binding: a misbound record never reaches another user's session.
       if (mode === "multi" && (!s.principalOwner || userKey(s.principalOwner.iss, s.principalOwner.sub) !== lr.uk)) continue;
       const persona = this.d.personas.get(lr.record.personaKey, lr.uk);
       // The session is judged by the skills it was SPAWNED with (recorded at correlation); the
@@ -551,7 +542,15 @@ export class ConversationService {
           team: { personaKey: persona.key, project: t, conversationId: c, uk: caller.uk, runId },
           ...(ownerStamp ? { principalOwner: ownerStamp } : {}),
         },
-        lifecycle: { recover: false, finalizeOnSocketClose: true },
+        lifecycle: {
+          recover: false,
+          finalizeOnSocketClose: true,
+          // Idle ending: core's quiescence reaper with our threshold (none when
+          // `idleMinutes` is 0). See change: add-session-close-plugin-hook.
+          ...(this.idleMs() > 0
+            ? { close: { idle: { afterMs: Math.max(1000, Math.round(this.idleMs())) }, mode: "sleep" as const } }
+            : {}),
+        },
         scope: {
           tools: [...PRESET_TOOLS[persona.tools]],
           // D7: exact skill set — never discovered/settings/package skills.

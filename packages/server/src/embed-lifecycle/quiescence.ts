@@ -31,6 +31,19 @@ export type ReapReason = "idle" | "stop-after-turn" | "phantom";
 export interface LifecycleSignals {
   /** Absent ⇒ durable; only ephemeral sessions are governed. */
   lifecyclePolicy?: "ephemeral" | "durable";
+  /**
+   * A plugin declared an idle close policy: governed regardless of
+   * `lifecyclePolicy`. See change: add-session-close-plugin-hook.
+   */
+  governed?: boolean;
+  /** Per-session idle threshold override (the declared `idleAfterMs`). */
+  idleTimeoutMs?: number;
+  /**
+   * The declaring plugin requested a close at the next quiet point: the
+   * idle-age check counts as expired, every other veto still applies, and the
+   * streaming gears never fire for it. See change: add-session-close-plugin-hook.
+   */
+  closeRequested?: boolean;
   /** Epoch ms of the latest captured `agent_settled` (terminal at-rest mark). */
   lastSettledAt?: number;
   /** Epoch ms of the latest `agent_start`; newer than `lastSettledAt` ⇒ mid-run. */
@@ -98,6 +111,16 @@ function idleAge(s: LifecycleSignals, now: number): number {
   return s.lastActivityAt === undefined ? Number.POSITIVE_INFINITY : now - s.lastActivityAt;
 }
 
+/** Effective idle threshold: the declared per-session value, else config. */
+function idleThreshold(s: LifecycleSignals, t: LifecycleThresholds): number {
+  return s.idleTimeoutMs ?? t.idleTimeoutMs;
+}
+
+/** In scope for reaping: ephemeral, plugin-governed, or close-requested. */
+export function isReapable(s: Pick<LifecycleSignals, "lifecyclePolicy" | "governed" | "closeRequested">): boolean {
+  return isEphemeral(s) || s.governed === true || s.closeRequested === true;
+}
+
 /** True when the queues are empty AND no ask is pending (gear-2/3 precondition). */
 function queuesDrainedAndUnblocked(s: LifecycleSignals): boolean {
   return !s.hasPendingAsk && s.followUpCount === 0 && s.steeringCount === 0;
@@ -111,7 +134,7 @@ function idleGearVerdict(s: LifecycleSignals, t: LifecycleThresholds, now: numbe
   if (s.steeringCount > 0) return skip("steering-queued");
   if (s.hasTerminalInCwd) return skip("terminal-in-cwd");
   if (s.hasLiveChild) return skip("live-child");
-  if (idleAge(s, now) <= t.idleTimeoutMs) return skip("not-idle-yet");
+  if (!s.closeRequested && idleAge(s, now) <= idleThreshold(s, t)) return skip("not-idle-yet");
   return reap("idle");
 }
 
@@ -123,6 +146,8 @@ function streamingGearVerdict(
 ): ReapVerdict {
   // A live child means genuine work — never touch it.
   if (s.hasLiveChild) return skip("live-child");
+  // In scope only through a close request: wait for the next quiet point.
+  if (!isEphemeral(s) && !s.governed) return skip("streaming-active");
 
   const streamAge = now - (s.lastRunStartedAt ?? s.activatedAt);
 
@@ -134,7 +159,7 @@ function streamingGearVerdict(
   }
 
   // Gear 2: graceful stop-after-turn — idle-trending, drains queues first (F2).
-  if (idleAge(s, now) > t.idleTimeoutMs && queuesDrainedAndUnblocked(s)) {
+  if (idleAge(s, now) > idleThreshold(s, t) && queuesDrainedAndUnblocked(s)) {
     return reap("stop-after-turn");
   }
 
@@ -152,7 +177,7 @@ export function decideReap(
   t: LifecycleThresholds,
   now: number,
 ): ReapVerdict {
-  if (!isEphemeral(s)) return skip("not-ephemeral"); // durable never governed
+  if (!isReapable(s)) return skip("not-ephemeral"); // durable, undeclared: never governed
   if (s.hasSubscriber) return skip("active-watcher"); // universal veto
   if (isWithinGraceWindow(s, t, now)) return skip("grace-window"); // universal veto
   return isAtRest(s) ? idleGearVerdict(s, t, now) : streamingGearVerdict(s, t, now);

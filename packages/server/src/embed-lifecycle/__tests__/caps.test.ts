@@ -127,3 +127,17 @@ describe("caps admission", () => {
     expect(reclaim).toHaveBeenCalledWith("new");
   });
 });
+
+describe("caps × plugin close policy (add-session-close-plugin-hook)", () => {
+  it("E12: caps never reclaims a declared session (test-plan #E12)", async () => {
+    const reclaim = vi.fn(async () => {});
+    const active: CapSessionInfo[] = [
+      info({ sessionId: "declared", quiescent: true, lastActivityAt: 1, declared: true }),
+      info({ sessionId: "plain", quiescent: true, lastActivityAt: 500 }),
+    ];
+    const { admit } = createCapsAdmission({ config: cfg(), listEphemeralActive: () => active, reclaim });
+    await admit(keyFor("v1"));
+    expect(reclaim).toHaveBeenCalledWith("plain");
+    expect(reclaim).not.toHaveBeenCalledWith("declared");
+  });
+});

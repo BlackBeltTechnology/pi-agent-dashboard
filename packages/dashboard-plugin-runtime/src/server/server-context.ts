@@ -254,7 +254,56 @@ export interface PluginSessionLifecycle {
    * ephemeral `lifecyclePolicy` marker. See change: archive-service-sessions-on-end.
    */
   archiveOnEnd?: boolean;
+  /**
+   * Opt-in close policy. `idle.afterMs` (finite integer >= 1000) puts the
+   * session under core's quiescence-gated idle reaper with that threshold,
+   * independent of the global embed-lifecycle switch. `mode` decides what a
+   * close does: `sleep` (default, resumable) or `archive` (also archive-on-end).
+   * Invalid blocks are dropped with a warning. Trusted plugins only.
+   * See change: add-session-close-plugin-hook.
+   */
+  close?: PluginSessionClose;
 }
+
+/** Close policy a plugin may declare on spawn. See change: add-session-close-plugin-hook. */
+export interface PluginSessionClose {
+  idle?: { afterMs: number };
+  mode?: "sleep" | "archive";
+}
+
+/**
+ * What a plugin's session closer is told when core's idle reaper wants to
+ * close a session that plugin declared. Deliberately minimal: no other
+ * plugin's refs, no owner identity. See change: add-session-close-plugin-hook.
+ */
+export interface SessionCloseRequest {
+  sessionId: string;
+  cwd: string;
+  /** Reaper gear that fired. */
+  reason: "idle" | "stop-after-turn" | "phantom";
+  /** Milliseconds since the session's last activity. */
+  idleMs: number;
+}
+
+/** Closer verdict; a throw, timeout (>1 s) or other value counts as `keep`. */
+export type SessionCloseVerdict = "close" | "keep";
+export type SessionCloser = (req: SessionCloseRequest) => SessionCloseVerdict | Promise<SessionCloseVerdict>;
+
+/** Register this plugin's single session closer (a second call replaces it). Trusted plugins only. */
+export type RegisterSessionCloserFn = (closer: SessionCloser) => void;
+
+/**
+ * Close a session this plugin declared a close policy for. `now` = graceful
+ * kill at once; `idle` = at the next quiet point (every reaper veto except
+ * idle age). Returns `false` (no effect, one warning) for a session the plugin
+ * did not declare, an unknown/ended session, an invalid `when`, or an
+ * untrusted plugin. See change: add-session-close-plugin-hook.
+ */
+export type RequestSessionCloseFn = (args: {
+  sessionId: string;
+  reason: string;
+  when: "now" | "idle";
+}) => Promise<boolean>;
 
 /**
  * Options for the plugin session-spawn hook.
@@ -1042,6 +1091,10 @@ export interface ServerPluginContext {
    * resolves `false`. See change: fix-automation-stop-zombie-runs.
    */
   abortSpawnedRun: AbortSpawnedRunFn;
+  /** Register this plugin's session closer. See {@link RegisterSessionCloserFn}. */
+  registerSessionCloser: RegisterSessionCloserFn;
+  /** Close a session this plugin declared. See {@link RequestSessionCloseFn}. */
+  requestSessionClose: RequestSessionCloseFn;
   /**
    * Pin a tightening cwd capability floor. Gated to first-party/trusted
    * plugins; untrusted plugins get a no-op. See change: add-plugin-spawn-scope.
@@ -1256,6 +1309,10 @@ export interface ServerContextDeps {
   /** Optional: hosts without it give plugins a refusing no-op. */
   shutdownSession?: ShutdownSessionFn;
   abortSpawnedRun: AbortSpawnedRunFn;
+  /** Optional: hosts without it give plugins a no-op. See change: add-session-close-plugin-hook. */
+  registerSessionCloser?: RegisterSessionCloserFn;
+  /** Optional: hosts without it give plugins a refusing no-op. */
+  requestSessionClose?: RequestSessionCloseFn;
   registerCwdPolicy: RegisterCwdPolicyFn;
   unregisterCwdPolicy: UnregisterCwdPolicyFn;
   provide: ProvideFn;
@@ -1359,6 +1416,8 @@ export function createServerPluginContext(
     shutdownSession: deps.shutdownSession ?? (async () => false),
     registerSpawnEnvContributor: deps.registerSpawnEnvContributor,
     abortSpawnedRun: deps.abortSpawnedRun,
+    registerSessionCloser: deps.registerSessionCloser ?? (() => {}),
+    requestSessionClose: deps.requestSessionClose ?? (async () => false),
     registerCwdPolicy: deps.registerCwdPolicy,
     unregisterCwdPolicy: deps.unregisterCwdPolicy,
     provide: deps.provide,

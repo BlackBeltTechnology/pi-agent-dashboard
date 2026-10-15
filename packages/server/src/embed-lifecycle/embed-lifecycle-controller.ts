@@ -21,6 +21,7 @@ import {
   type LifecycleMetricsSnapshot,
 } from "./lifecycle-metrics.js";
 import { createLivenessProbe, type LivenessProbe } from "./liveness-probe.js";
+import type { SessionCloserRegistry } from "./plugin-session-close.js";
 import { isEphemeral } from "./session-lifecycle-policy.js";
 
 export interface EmbedLifecycleControllerDeps {
@@ -43,6 +44,19 @@ export interface EmbedLifecycleControllerDeps {
   sendStopAfterTurn: (sessionId: string) => void;
   /** Test seam for the liveness probe (defaults to the real `ps` probe). */
   probe?: LivenessProbe;
+  /**
+   * Plugin closer registry + close requests. Absent ⇒ no closers, no
+   * requests (undeclared behavior). See change: add-session-close-plugin-hook.
+   */
+  closers?: SessionCloserRegistry;
+  /**
+   * `false` ⇒ the owning plugin is disabled: its closer is not consulted
+   * (no closer ⇒ close). Absent ⇒ every owner counts as enabled.
+   */
+  isPluginEnabled?: (pluginId: string) => boolean;
+  /** Close mode `archive`: mark archive-on-end (+ persist). */
+  markArchiveOnEnd?: (sessionId: string) => void;
+  log?: (msg: string) => void;
 }
 
 export interface EmbedLifecycleController {
@@ -62,6 +76,7 @@ export function createEmbedLifecycleController(
   deps: EmbedLifecycleControllerDeps,
 ): EmbedLifecycleController {
   const probe = deps.probe ?? createLivenessProbe();
+  const log = deps.log ?? ((m: string) => console.log(m));
 
   const metrics = createLifecycleMetrics({
     countActiveEphemeral: () => deps.listSessions().filter(isActiveEphemeral).length,
@@ -93,7 +108,22 @@ export function createEmbedLifecycleController(
     },
     killBySessionId: deps.killBySessionId,
     sendStopAfterTurn: deps.sendStopAfterTurn,
-    onReap: (_id, reason) => metrics.recordReap(reason),
+    onReap: (id, reason, declared) => {
+      metrics.recordReap(reason);
+      if (declared) {
+        metrics.recordDeclaredReap();
+        log(`[session-close] reaped ${id} reason=${reason} declared=true owner=${declared.owner}`);
+      }
+    },
+    closerFor: (owner) =>
+      deps.isPluginEnabled?.(owner) === false ? undefined : deps.closers?.get(owner),
+    isCloseRequested: (id) => deps.closers?.isCloseRequested(id) ?? false,
+    clearCloseRequest: (id) => deps.closers?.clearCloseRequest(id),
+    markArchiveOnEnd: deps.markArchiveOnEnd,
+    onCloserVerdict: (id, owner, reason, outcome) => {
+      metrics.recordCloserOutcome(outcome);
+      log(`[session-close] closer of "${owner}" for ${id} reason=${reason} verdict=${outcome}`);
+    },
   });
 
   return {

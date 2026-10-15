@@ -602,6 +602,14 @@ export interface DashboardSession {
    */
   pluginHidden?: boolean;
   /**
+   * Core-owned close policy, resolved from an owning plugin's lifecycle
+   * declaration `{ close }`. `owner` = declaring plugin id (routes its closer
+   * and authorizes its close requests only). `idleAfterMs` present ⇒ governed
+   * by the idle reaper regardless of `lifecyclePolicy` / the global switch.
+   * Persisted only when declared. See change: add-session-close-plugin-hook.
+   */
+  closePolicy?: SessionClosePolicy;
+  /**
    * Core-owned socket-close finalization flag. When `true`, the gateway
    * finalizes the session immediately on socket close (no reconnect grace)
    * instead of branching on a plugin name. Resolved from an owning plugin's
@@ -1674,3 +1682,10 @@ export interface ApiResponse<T = unknown> {
 export type ViewTarget =
   | { kind: "file"; cwd: string; path: string }
   | { kind: "url"; url: string };
+
+/** Plugin-declared session close policy. See change: add-session-close-plugin-hook. */
+export interface SessionClosePolicy {
+  owner: string;
+  idleAfterMs?: number;
+  mode: "sleep" | "archive";
+}

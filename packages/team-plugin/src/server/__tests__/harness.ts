@@ -21,6 +21,8 @@ interface FakeHost extends HostPort {
   emit(sessionId: string, event: unknown): void;
   resolveLate(runId: string): void;
   piHandlers: Map<string, (msg: unknown, sessionId: string) => void>;
+  /** Closer the plugin registered with core (add-session-close-plugin-hook). */
+  closer?: (req: { sessionId: string }) => "close" | "keep";
 }
 
 function makeFakeHost(tmp: string): FakeHost {
@@ -84,6 +86,9 @@ function makeFakeHost(tmp: string): FakeHost {
     },
     registerPiHandler(type, h) {
       piHandlers.set(type, h);
+    },
+    registerSessionCloser(c) {
+      host.closer = c;
     },
     emit(sid, ev) {
       for (const h of eventHandlers) h(sid, ev);
@@ -159,7 +164,6 @@ export async function makeHarness(o: HarnessOptions = {}): Promise<Harness> {
     renderPersona: o.renderPersona,
     now: o.now,
     ops: o.ops,
-    sweepEveryMs: 0,
     listOperatorSkills: o.listOperatorSkills,
     onManagedWrite: o.onManagedWrite,
     resolveCwdPolicy: o.resolveCwdPolicy,
