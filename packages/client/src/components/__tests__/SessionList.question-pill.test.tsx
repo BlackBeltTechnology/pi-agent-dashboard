@@ -122,8 +122,8 @@ describe("activation from the host (F1)", () => {
     const { onSelect } = renderList([hidden]);
     fireEvent.click(screen.getByTestId("question-pill"));
     fireEvent.click(screen.getByTestId("question-row-q1"));
-    await act(async () => {});
-    expect(screen.getByTestId("question-dialog")).toBeTruthy();
+    // The dialog is a lazy chunk (kept off the entry bundle): wait for it.
+    expect(await screen.findByTestId("question-dialog")).toBeTruthy();
     expect(onSelect).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });

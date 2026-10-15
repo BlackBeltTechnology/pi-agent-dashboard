@@ -1879,6 +1879,12 @@ export function createBrowserGateway(
       sendTo(ws, { type: "grant_channel", capability: issuePromptChannel(grantSocketId) });
     }
 
+    // Current open questions for this recipient (full replacement; sent even when
+    // empty so a reconnecting browser drops rows removed while it was offline).
+    // A small state frame, so it precedes the snapshot: `sessions_snapshot` stays
+    // the LAST bootstrap frame. See change: add-pending-question-stack.
+    questionBroadcaster?.sendTo(ws);
+
     // Atomic windowed snapshot of the session registry + per-group orders,
     // sent LAST in the bootstrap (D3): every small idempotent state frame
     // above is already on the wire, so the one large frame never queues ahead
@@ -1912,10 +1918,6 @@ export function createBrowserGateway(
         archivedCountByCwd: sessionArchive?.countsByKey() ?? {},
       });
     }
-    // Current open questions for this recipient (full replacement; sent even when
-    // empty so a reconnecting browser drops rows removed while it was offline).
-    questionBroadcaster?.sendTo(ws);
-
 
     ws.on("message", async (raw) => {
       diag.frames++;

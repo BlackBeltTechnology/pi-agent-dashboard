@@ -92,6 +92,15 @@ describe("gateway ↔ question store", () => {
     expect(qframes(late)[0].questions).toHaveLength(1);
   });
 
+  it("the initial questions frame precedes sessions_snapshot, which stays the LAST bootstrap frame", () => {
+    const { wa } = setup();
+    const types = frames(wa).map((m) => m.type);
+    expect(types).toContain("questions_update");
+    expect(types).toContain("sessions_snapshot");
+    expect(types.indexOf("questions_update")).toBeLessThan(types.indexOf("sessions_snapshot"));
+    expect(types.at(-1)).toBe("sessions_snapshot");
+  });
+
   describe("every removal path removes record + file and broadcasts in the same tick (test-plan #E13)", () => {
     const paths: Array<[string, (g: ReturnType<typeof setup>["gateway"]) => void]> = [
       ["clearPromptRequest (prompt_dismiss / prompt_cancel / timeout)", (g) => g.clearPromptRequest("s1", "p1")],
