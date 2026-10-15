@@ -165,6 +165,10 @@ describe("activation (F1)", () => {
     publish([row({ id: "q1", sessionId: "s-a", sessionLabel: "Nightly run" })]);
     openPanel();
     fireEvent.click(screen.getByTestId("question-row-q1"));
+    // Lazy chunk + fake timers: preload the module so Suspense resolves inside act.
+    await act(async () => {
+      await import("../QuestionDialog.js");
+    });
     expect(screen.getByTestId("question-dialog")).toBeTruthy();
     expect(onOpenSession).not.toHaveBeenCalled();
     await act(async () => {});
@@ -175,6 +179,10 @@ describe("activation (F1)", () => {
     publish([row({ id: "q1", sessionId: "gone" })]);
     openPanel();
     fireEvent.click(screen.getByTestId("question-row-q1"));
+    // Lazy chunk + fake timers: preload the module so Suspense resolves inside act.
+    await act(async () => {
+      await import("../QuestionDialog.js");
+    });
     expect(screen.getByTestId("question-dialog")).toBeTruthy();
     await act(async () => {});
   });

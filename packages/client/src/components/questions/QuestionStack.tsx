@@ -29,14 +29,16 @@ import {
   mdiViewDashboardOutline,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { type QuestionStackStore, useQuestionStack } from "../../lib/questions/question-store.js";
 import { decideQuestionRoute, routeQuestion } from "../../lib/questions/route-question.js";
 import { useNow } from "../../lib/time/use-now.js";
 import { formatRelativeTime } from "../../lib/util/format.js";
-import { QuestionDialog } from "./QuestionDialog.js";
+
+/** Opened on demand only — kept off the entry chunk (mdi-chunk-size gz cap). */
+const QuestionDialog = lazy(() => import("./QuestionDialog.js").then((m) => ({ default: m.QuestionDialog })));
 
 const VISIBLE_ROWS = 5;
 const ARRIVE_MS = 600;
@@ -326,6 +328,7 @@ export function QuestionStack({ sessions, onOpenSession, store }: QuestionStackP
         />
       )}
       {dialogRow && (
+        <Suspense fallback={null}>
         <QuestionDialog
           row={liveDialogRow ?? dialogRow}
           gone={liveDialogRow === undefined}
@@ -335,6 +338,7 @@ export function QuestionStack({ sessions, onOpenSession, store }: QuestionStackP
             onOpenSession(id);
           }}
         />
+        </Suspense>
       )}
     </>
   );

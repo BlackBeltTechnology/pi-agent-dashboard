@@ -79,7 +79,8 @@ describe("mobile tier", () => {
     act(() => store.set([row({ id: "q1", sessionId: "headless" })]));
     fireEvent.click(screen.getByTestId("question-pill"));
     fireEvent.click(screen.getByTestId("question-row-q1"));
-    await act(async () => {});
+    // The dialog is a lazy chunk (kept off the entry bundle): wait for it.
+    await screen.findByTestId("question-dialog");
     const dlg = screen.getByTestId("question-dialog");
     expect(dlg.className).toContain("h-full");
     expect(dlg.className).toContain("w-full");
@@ -103,7 +104,8 @@ describe("dialog focus return (F6)", () => {
     act(() => store.set([row({ id: "q1", sessionId: "headless" }), row({ id: "q2", sessionId: "headless" })]));
     fireEvent.click(screen.getByTestId("question-pill"));
     fireEvent.click(screen.getByTestId("question-row-q1"));
-    await act(async () => {});
+    // The dialog is a lazy chunk (kept off the entry bundle): wait for it.
+    await screen.findByTestId("question-dialog");
     expect(screen.getByTestId("question-dialog")).toBeTruthy();
     fireEvent.keyDown(screen.getByTestId("question-dialog"), { key: "Escape" });
     expect(screen.queryByTestId("question-dialog")).toBeNull();
@@ -116,7 +118,8 @@ describe("dialog focus return (F6)", () => {
     act(() => store.set([row({ id: "q1", sessionId: "headless" }), row({ id: "q2", sessionId: "headless" })]));
     fireEvent.click(screen.getByTestId("question-pill"));
     fireEvent.click(screen.getByTestId("question-row-q1"));
-    await act(async () => {});
+    // The dialog is a lazy chunk (kept off the entry bundle): wait for it.
+    await screen.findByTestId("question-dialog");
     fireEvent.click(screen.getByTestId("question-later"));
     expect(document.activeElement).toBe(screen.getByTestId("question-pill"));
   });
@@ -127,7 +130,8 @@ describe("dialog focus return (F6)", () => {
     act(() => store.set([row({ id: "q1", sessionId: "headless" }), row({ id: "q2", sessionId: "headless" })]));
     fireEvent.click(screen.getByTestId("question-pill"));
     fireEvent.click(screen.getByTestId("question-row-q1"));
-    await act(async () => {});
+    // The dialog is a lazy chunk (kept off the entry bundle): wait for it.
+    await screen.findByTestId("question-dialog");
     act(() => store.set([row({ id: "q2", sessionId: "headless" })]));
     expect(screen.getByTestId("question-answered")).toBeTruthy();
   });
@@ -138,7 +142,8 @@ describe("dialog focus return (F6)", () => {
     act(() => store.set([row({ id: "q1", sessionId: "headless" })]));
     fireEvent.click(screen.getByTestId("question-pill"));
     fireEvent.click(screen.getByTestId("question-row-q1"));
-    await act(async () => {});
+    // The dialog is a lazy chunk (kept off the entry bundle): wait for it.
+    await screen.findByTestId("question-dialog");
     act(() => store.set([]));
     expect(screen.getByTestId("question-answered")).toBeTruthy();
     fireEvent.click(screen.getByTestId("question-later"));
