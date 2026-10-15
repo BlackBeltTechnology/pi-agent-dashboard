@@ -15,7 +15,7 @@
 - [x] 3.2 Failing tests: every removal path (clear, reconcile, `clearPendingRequestsForSession`, session death, cancel/timeout) removes the record, deletes its file and broadcasts immediately; transmitted answer hides the row immediately
 - [x] 3.3 Implement `question-store.ts` and hook it from the registry (D1)
 - [x] 3.4 Failing tests: snapshot bounded, absent reasons `none`/`evicted`, immutable, each `REDACTION_PATTERNS_V1` pattern redacted and the version stored; implement (D2)
-- [ ] 3.4a `Audit` subagent reviews the redaction set and the snapshot→model data flow before task 4.3 lands
+- [x] 3.4a `Audit` subagent reviews the redaction set and the snapshot→model data flow before task 4.3 lands
 - [x] 3.5 Failing tests: per-recipient visibility filter of `questions_update` (no resolver → all; resolver → owner equality, ownerless hidden); implement with add/brief debounce and immediate removals (D7)
 
 ## 4. Brief generation + store

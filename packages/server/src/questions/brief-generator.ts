@@ -10,6 +10,7 @@
  * Logs outcome + latency only — never prompt or brief content.
  * See change: add-pending-question-stack.
  */
+import { redactSecrets } from "@blackbelt-technology/pi-dashboard-shared/redaction.js";
 import type { BatchQuestion } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { BriefLabel, QuestionSnapshot } from "@blackbelt-technology/pi-dashboard-shared/question-types.js";
 import type { BriefModelResolution } from "./brief-model.js";
@@ -19,6 +20,9 @@ export const BRIEF_TIMEOUT_MS = 20_000;
 export const BRIEF_MAX_CONCURRENT = 2;
 /** Defensive ceiling on stored brief text (the prompt asks for ≤ 120 words). */
 const BRIEF_MAX_CHARS = 2000;
+
+/** Control (except \t \n) and bidi-override/isolate chars: a model-written brief is untrusted UI text. */
+const UNSAFE_CHARS_RE = /[\u0000-\u0008\u000B-\u001F\u202A-\u202E\u2066-\u2069]/g;
 
 export interface BriefRequest {
   question: string;
@@ -95,9 +99,10 @@ export function createBriefGenerator(deps: BriefGeneratorDeps): BriefGenerator {
     });
     try {
       const text = await Promise.race([deps.complete(resolved.model, buildBriefPrompt(req), controller.signal), timeout]);
-      const trimmed = typeof text === "string" ? text.trim() : "";
-      if (!trimmed) return { kind: "failed", reason: "empty completion" };
-      return { text: trimmed.slice(0, BRIEF_MAX_CHARS) };
+      // Model output is untrusted: redact (it can echo the prompt), strip control/bidi chars, then cap.
+      const cleaned = typeof text === "string" ? redactSecrets(text).replace(UNSAFE_CHARS_RE, "").trim() : "";
+      if (!cleaned) return { kind: "failed", reason: "empty completion" };
+      return { text: cleaned.slice(0, BRIEF_MAX_CHARS) };
     } catch (err) {
       return { kind: "failed", reason: (err as Error)?.message ?? String(err) };
     } finally {

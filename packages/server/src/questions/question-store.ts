@@ -217,7 +217,7 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
 
   /** One generation per record at a time; `auto` records every outcome, on-demand only a success. */
   function runGeneration(rec: QuestionRecord, mode: "auto" | "on-demand"): Promise<BriefOutcome> {
-    if (rec.inflight) return rec.inflight;
+    if (rec.inflight !== undefined) return rec.inflight;
     const p: Promise<BriefOutcome> = deps.briefs
       .generate(requestOf(rec))
       .catch((err): BriefOutcome => ({ ok: false, kind: "failed", reason: (err as Error)?.message ?? String(err), latencyMs: 0 }))
@@ -328,6 +328,8 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
           rec.briefLabel = "provided";
         } else if (decision.kind === "disabled") {
           rec.briefStatus = "unavailable";
+        } else if (rec.origin === "file") {
+          rec.briefStatus = "unavailable"; // file-access prompts are read-only: never send them to a model
         } else {
           needsGeneration = true;
         }
@@ -336,7 +338,9 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
       byKey.set(key, rec);
       byId.set(rec.id, rec);
       emit({ kind: "added", id: rec.id, sessionId });
-      if (needsGeneration) void runGeneration(rec, "auto");
+      if (needsGeneration) {
+        runGeneration(rec, "auto").catch((err) => console.warn(`[questions] auto brief generation failed for ${rec.id}:`, (err as Error)?.message ?? err));
+      }
       return rec;
     },
 
@@ -409,6 +413,7 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
     async summarize(id) {
       const rec = byId.get(id);
       if (!rec) return { ok: false, reason: "not-found", error: "question not found" };
+      if (rec.origin === "file") return { ok: false, reason: "unavailable", error: "file-access prompts are not summarised" };
       if (rec.briefStatus === "ready" && rec.briefLabel !== "provided") {
         return { ok: false, reason: "already-generated", error: "brief is already generated" };
       }

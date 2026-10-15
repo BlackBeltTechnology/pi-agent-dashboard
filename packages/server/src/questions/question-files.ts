@@ -97,9 +97,12 @@ export function createQuestionFileStore(opts: { dir?: string } = {}): QuestionFi
     write(file) {
       if (!QUESTION_ID_RE.test(file.id)) throw new Error(`invalid question id: ${file.id}`);
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      fs.chmodSync(dir, 0o700); // mkdir's mode is umask-masked and ignored for an existing dir
       const tmp = `${pathOf(file.id)}.${process.pid}.tmp`;
       try {
-        fs.writeFileSync(tmp, JSON.stringify(file), { mode: 0o600 });
+        // A stale tmp would keep its own (possibly looser) mode: unlink, then create exclusively.
+        fs.rmSync(tmp, { force: true });
+        fs.writeFileSync(tmp, JSON.stringify(file), { mode: 0o600, flag: "wx" });
         fs.renameSync(tmp, pathOf(file.id));
       } catch (err) {
         try {

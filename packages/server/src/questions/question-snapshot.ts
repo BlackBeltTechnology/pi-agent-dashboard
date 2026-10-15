@@ -7,11 +7,12 @@
  *   the `@fast` generation prompt (`brief-prompt.ts` re-redacts its assembled
  *   text). Nothing un-redacted leaves this function.
  *
- * Redaction runs BEFORE the 8 KB slice so a secret straddling the cut cannot
- * leave a recognisable fragment.
+ * Inputs are capped (4 × 8 KB of assistant text, 4 KB per tool summary), then
+ * redacted, THEN sliced to the stored size, so a secret straddling the final cut
+ * cannot leave a recognisable fragment.
  * See change: add-pending-question-stack (D2).
  */
-import { REDACTION_VERSION, redactSecrets } from "@blackbelt-technology/pi-dashboard-shared/redaction.js";
+import { REDACTION_PLACEHOLDER, REDACTION_VERSION, redactSecrets } from "@blackbelt-technology/pi-dashboard-shared/redaction.js";
 import type { QuestionSnapshot, QuestionSnapshotToolCall } from "@blackbelt-technology/pi-dashboard-shared/question-types.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 
@@ -20,21 +21,35 @@ export const SNAPSHOT_TOOL_CALLS_MAX = 5;
 export const SNAPSHOT_TOOL_SUMMARY_MAX = 120;
 /** Newest events scanned for text/tool calls (bounds the work per question). */
 export const SNAPSHOT_SCAN_WINDOW = 1000;
+/** Input caps applied BEFORE redaction so regex work is bounded (a secret cut by them is cut again by the final slice). */
+const ASSISTANT_TEXT_INPUT_MAX = 4 * SNAPSHOT_ASSISTANT_TEXT_MAX;
+const TOOL_SUMMARY_INPUT_MAX = 4096;
 
 /** The ask_user call is the question itself, not context for it. */
 const EXCLUDED_TOOLS = new Set(["ask_user"]);
 const SUMMARY_KEYS = ["command", "path", "file_path", "filePath", "pattern", "query", "url", "name", "description", "prompt"];
 
-/** Redact every string in a JSON-like value; non-strings pass through. */
-export function redactDeep<T>(value: T): T {
+/** Object keys whose value is a secret regardless of what it looks like. */
+const SENSITIVE_KEY_RE = /pass(word|wd)?|secret|token|api[_-]?key|auth(orization)?|credential|private[_-]?key|cookie/i;
+/** Nesting deeper than this is replaced (hostile input; also bounds recursion). */
+export const REDACT_DEEP_MAX_DEPTH = 8;
+const DEPTH_PLACEHOLDER = "[…]";
+
+/**
+ * Redact a JSON-like value: every string, plus the whole value under a
+ * sensitive-looking key; anything nested deeper than `REDACT_DEEP_MAX_DEPTH`
+ * is replaced. Non-strings pass through.
+ */
+export function redactDeep<T>(value: T, depth = 0): T {
   if (typeof value === "string") return redactSecrets(value) as unknown as T;
-  if (Array.isArray(value)) return value.map((v) => redactDeep(v)) as unknown as T;
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = redactDeep(v);
-    return out as T;
+  if (!value || typeof value !== "object") return value;
+  if (depth >= REDACT_DEEP_MAX_DEPTH) return DEPTH_PLACEHOLDER as unknown as T;
+  if (Array.isArray(value)) return value.map((v) => redactDeep(v, depth + 1)) as unknown as T;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k] = SENSITIVE_KEY_RE.test(k) ? REDACTION_PLACEHOLDER : redactDeep(v, depth + 1);
   }
-  return value;
+  return out as T;
 }
 
 function assistantTextOf(data: Record<string, unknown> | undefined): string {
@@ -102,8 +117,8 @@ export function buildQuestionSnapshot(input: SnapshotInput): QuestionSnapshot {
       const data = event.data ?? {};
       const name = typeof data.toolName === "string" ? data.toolName : "";
       if (!name || EXCLUDED_TOOLS.has(name) || data.parentToolCallId) continue;
-      const summary = redactSecrets(summarizeArgs(data.args)).slice(0, SNAPSHOT_TOOL_SUMMARY_MAX);
-      tools.push({ name: redactSecrets(name), summary });
+      const summary = redactSecrets(summarizeArgs(data.args).slice(0, TOOL_SUMMARY_INPUT_MAX)).slice(0, SNAPSHOT_TOOL_SUMMARY_MAX);
+      tools.push({ name: redactSecrets(name.slice(0, SNAPSHOT_TOOL_SUMMARY_MAX)), summary });
     }
     if (assistantText !== undefined && tools.length >= SNAPSHOT_TOOL_CALLS_MAX) break;
   }
@@ -111,7 +126,7 @@ export function buildQuestionSnapshot(input: SnapshotInput): QuestionSnapshot {
 
   const snapshot: QuestionSnapshot = { toolCalls: tools, redactionVersion: REDACTION_VERSION };
   if (assistantText !== undefined) {
-    snapshot.assistantText = redactSecrets(assistantText).slice(-SNAPSHOT_ASSISTANT_TEXT_MAX);
+    snapshot.assistantText = redactSecrets(assistantText.slice(-ASSISTANT_TEXT_INPUT_MAX)).slice(-SNAPSHOT_ASSISTANT_TEXT_MAX);
   } else {
     snapshot.assistantAbsentReason = hasRetentionGap(events) ? "evicted" : "none";
   }

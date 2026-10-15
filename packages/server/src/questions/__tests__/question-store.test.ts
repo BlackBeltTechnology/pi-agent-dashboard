@@ -404,6 +404,42 @@ describe("question store", () => {
     });
   });
 
+  describe("provided brief redacted before persist (security audit)", () => {
+    it("a 300-char message holding a PEM key leaves no key in the file or the detail brief", () => {
+      const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\n-----END RSA PRIVATE KEY-----";
+      const message = `${"c".repeat(120)} ${pem} ${"d".repeat(120)}`;
+      expect(message.length).toBeGreaterThanOrEqual(240);
+      const { store, generate } = make();
+      const rec = store.onTracked("s1", promptMsg("s1", "p1", { metadata: { message } }))!;
+      const raw = fs.readFileSync(path.join(qdir(), `${rec.id}.json`), "utf8");
+      expect(raw).not.toContain("MIIEvQIBADANBg");
+      expect(JSON.stringify(store.getDetail(rec.id))).not.toContain("MIIEvQIBADANBg");
+      expect(store.getDetail(rec.id)).toMatchObject({ briefStatus: "provided", briefLabel: "provided" });
+      expect(generate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("file-access prompts are never auto-briefed (security audit)", () => {
+    it.each(["agent-path-gate", "agent-path-gate-confirm"])("%s → unavailable, no model call (auto or on-demand)", async (kind) => {
+      const { store, generate } = make();
+      const rec = store.onTracked("s1", promptMsg("s1", "p1", { metadata: { kind } }))!;
+      await settle();
+      expect(rec.briefStatus).toBe("unavailable");
+      expect(generate).not.toHaveBeenCalled();
+      expect(await store.summarize(rec.id)).toMatchObject({ ok: false, reason: "unavailable" });
+      expect(generate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("auto generation never rejects unhandled", () => {
+    it("a generate() that throws synchronously-ish is contained and recorded as failed", async () => {
+      const { store } = make({ generate: async () => { throw new Error("boom"); } });
+      const rec = store.onTracked("s1", promptMsg("s1", "p1"))!;
+      await settle();
+      expect(rec.briefStatus).toBe("failed");
+    });
+  });
+
   describe("snapshot persisted redacted (test-plan #E15)", () => {
     it("no secret reaches the question file; version stored", () => {
       const es = createMemoryEventStore(() => false, 32, 20000, 100_000, 1_000_000);

@@ -44,6 +44,15 @@ describe("createBriefModelResolver", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it("a malformed providers.json logs a constant message (never the parser text, which can quote file content)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const res = await make({ readProviders: async () => '{"apiKey": "sk-leakyleakyleakyleaky" oops' })();
+    expect(res).toEqual({ ok: false, reason: "providers.json malformed" });
+    const logged = warn.mock.calls.flat().join(" ");
+    expect(logged).not.toContain("sk-leaky");
+    expect(logged).not.toMatch(/Unexpected|position|token/i);
+  });
+
   it("fast → unknown model → unavailable", async () => {
     expect((await make({ getRegistry: async () => registry(null) })()).ok).toBe(false);
   });

@@ -5,7 +5,7 @@
 import { REDACTION_VERSION } from "@blackbelt-technology/pi-dashboard-shared/redaction.js";
 import { describe, expect, it } from "vitest";
 import { createMemoryEventStore } from "../../persistence/memory-event-store.js";
-import { buildQuestionSnapshot, redactDeep } from "../question-snapshot.js";
+import { buildQuestionSnapshot, redactDeep, SNAPSHOT_ASSISTANT_TEXT_MAX } from "../question-snapshot.js";
 
 // String/data caps raised: the production default truncates a field at 4000 chars.
 const store = () => createMemoryEventStore(() => false, 32, 20000, 100_000, 1_000_000);
@@ -170,5 +170,44 @@ describe("buildQuestionSnapshot — redaction (test-plan #E15)", () => {
       a: ["[REDACTED]", 3, null, { b: "[REDACTED]" }],
       c: true,
     });
+  });
+});
+
+describe("redactDeep — keys and depth (security audit)", () => {
+  it("redacts the value of a sensitive object KEY regardless of the value", () => {
+    const out = redactDeep({
+      password: "plain",
+      apiKey: "plain2",
+      "client-secret": "plain3",
+      Authorization: "plain4",
+      nested: { accessToken: "plain5", cookie: "a=b", private_key: "plain6", keep: "visible" },
+      list: [{ passwd: "plain7" }],
+    });
+    const blob = JSON.stringify(out);
+    for (const leak of ["plain", "plain2", "plain3", "plain4", "plain5", "a=b", "plain6", "plain7"]) expect(blob).not.toContain(`"${leak}"`);
+    expect((out.nested as { keep: string }).keep).toBe("visible");
+  });
+
+  it("non-string values under a sensitive key are replaced too", () => {
+    expect(redactDeep({ token: { a: 1 }, secret: 42 })).toEqual({ token: "[REDACTED]", secret: "[REDACTED]" });
+  });
+
+  it("bounds recursion depth against hostile nesting", () => {
+    let deep: unknown = "sk-abcdefghijklmnop1234";
+    for (let i = 0; i < 10_000; i++) deep = { a: deep };
+    const out = JSON.stringify(redactDeep(deep));
+    expect(out).not.toContain("sk-abcdefghijklmnop1234");
+    expect(out.length).toBeLessThan(500);
+  });
+
+  it("caps assistant text / tool summary input before redacting (linear on hostile input)", () => {
+    const es = store();
+    const hostile = "-----BEGIN PRIVATE KEY-----\n".repeat(200_000);
+    assistantEnd(es, "s1", hostile);
+    tool(es, "s1", "bash", { command: hostile });
+    const t0 = performance.now();
+    const snap = buildQuestionSnapshot({ eventStore: es, sessionId: "s1" });
+    expect(performance.now() - t0).toBeLessThan(500);
+    expect(snap.assistantText!.length).toBeLessThanOrEqual(SNAPSHOT_ASSISTANT_TEXT_MAX);
   });
 });

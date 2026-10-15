@@ -53,6 +53,21 @@ describe("question file store", () => {
     expect(JSON.parse(fs.readFileSync(path.join(dir(), `${ID_A}.json`), "utf8"))).toMatchObject({ id: ID_A, sessionId: "s1", promptId: "p1" });
   });
 
+  it("creates the directory 0700 and tightens a pre-existing looser one", () => {
+    fs.mkdirSync(dir(), { recursive: true, mode: 0o755 });
+    fs.chmodSync(dir(), 0o755);
+    createQuestionFileStore().write(file(ID_A, "s1"));
+    expect(fs.statSync(dir()).mode & 0o777).toBe(0o700);
+  });
+
+  it("a stale world-readable tmp file cannot leak into the final file's mode", () => {
+    fs.mkdirSync(dir(), { recursive: true });
+    fs.writeFileSync(path.join(dir(), `${ID_A}.json.${process.pid}.tmp`), "stale", { mode: 0o644 });
+    createQuestionFileStore().write(file(ID_A, "s1"));
+    expect(fs.statSync(path.join(dir(), `${ID_A}.json`)).mode & 0o777).toBe(0o600);
+    expect(fs.readdirSync(dir())).toEqual([`${ID_A}.json`]);
+  });
+
   it("an overwrite replaces atomically and keeps mode 0600", () => {
     const store = createQuestionFileStore();
     store.write(file(ID_A, "s1"));

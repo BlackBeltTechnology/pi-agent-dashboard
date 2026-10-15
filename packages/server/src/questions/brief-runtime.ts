@@ -39,6 +39,7 @@ export async function completeBrief(model: unknown, prompt: { system: string; us
   );
   let text = "";
   for await (const ev of stream) {
+    if (signal.aborted) throw new Error("generation aborted"); // a provider that ignores the signal must not keep us reading
     if (ev.type === "text_delta") text += ev.delta;
     else if (ev.type === "error") throw new Error(ev.error?.errorMessage ?? "model stream error");
     else if (ev.type === "done" && !text) {

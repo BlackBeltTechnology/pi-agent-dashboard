@@ -32,8 +32,9 @@ export function createBriefModelResolver(deps: BriefModelDeps): () => Promise<Br
     if (raw !== undefined) {
       try {
         parsed = JSON.parse(raw);
-      } catch (err) {
-        console.warn(`[questions] providers.json is not valid JSON, brief generation unavailable: ${(err as Error).message}`);
+      } catch {
+        // Constant message: a JSON parse error can quote file content (keys live in this file).
+        console.warn("[questions] providers.json is not valid JSON, brief generation unavailable");
         return { ok: false, reason: "providers.json malformed" };
       }
     }

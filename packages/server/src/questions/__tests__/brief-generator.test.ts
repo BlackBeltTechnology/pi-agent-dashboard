@@ -58,6 +58,24 @@ describe("createBriefGenerator", () => {
     expect(await gen.generate(req())).toMatchObject({ ok: false, kind: "failed" });
   });
 
+  it("sanitises model output: redacts secrets, strips control/bidi chars, caps at 2000", async () => {
+    const dirty = `Use api_key=topsecretvalue1\u202Eevil\u0007 now\u2066x\u2069${"a".repeat(3000)}`;
+    const gen = createBriefGenerator({ resolveModel: okModel, complete: async () => dirty });
+    const out = await gen.generate(req());
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.text).not.toContain("topsecretvalue1");
+      expect(out.text).toContain("[REDACTED]");
+      expect(out.text).not.toMatch(/[\u0000-\u0008\u000B-\u001F\u202A-\u202E\u2066-\u2069]/);
+      expect(out.text.length).toBeLessThanOrEqual(2000);
+    }
+  });
+
+  it("keeps newlines/tabs but strips other control chars", async () => {
+    const gen = createBriefGenerator({ resolveModel: okModel, complete: async () => "line1\nline2\tx\u0000y" });
+    expect(await gen.generate(req())).toMatchObject({ ok: true, text: "line1\nline2\txy" });
+  });
+
   it("an empty completion → failed", async () => {
     const gen = createBriefGenerator({ resolveModel: okModel, complete: async () => "   " });
     expect(await gen.generate(req())).toMatchObject({ ok: false, kind: "failed" });
@@ -74,10 +92,11 @@ describe("createBriefGenerator", () => {
     const p = gen.generate(req());
     await vi.advanceTimersByTimeAsync(19_999);
     let settled = false;
-    void p.then(() => { settled = true; });
+    const watched = p.then(() => { settled = true; });
     await Promise.resolve();
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(2);
+    await watched;
     expect(await p).toMatchObject({ ok: false, kind: "failed", reason: expect.stringMatching(/timed out/i) });
     expect(signal?.aborted).toBe(true);
   });
@@ -88,7 +107,7 @@ describe("createBriefGenerator", () => {
     const started: string[] = [];
     const releases: Array<() => void> = [];
     const complete = vi.fn(async (_m: unknown, prompt: { user: string }) => {
-      started.push(/Question \(select\): (q\d)/.exec(prompt.user)![1]);
+      started.push(/<question[^>]*>\s*(q\d)\s*<\/question>/.exec(prompt.user)![1]);
       inFlight++;
       maxInFlight = Math.max(maxInFlight, inFlight);
       await new Promise<void>((r) => releases.push(r));
@@ -113,7 +132,7 @@ describe("createBriefGenerator", () => {
     vi.useFakeTimers();
     const seen: string[] = [];
     const complete = vi.fn((_m: unknown, p: { user: string }) => {
-      seen.push(/Question \(select\): (q\d)/.exec(p.user)![1]);
+      seen.push(/<question[^>]*>\s*(q\d)\s*<\/question>/.exec(p.user)![1]);
       return seen.length <= 2 ? new Promise<string>(() => {}) : Promise.resolve("ok");
     });
     const gen = createBriefGenerator({ resolveModel: okModel, complete });
