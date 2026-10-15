@@ -121,8 +121,8 @@ describe("ensureServer fall-through invariant", () => {
 // fix-electron-windows-installer-and-server-bootstrap.
 
 describe("SERVER_READY_DEADLINE_MS", () => {
-  it("is 60000 (60 seconds) — bundled boots via runtime type-stripping; Windows+Defender cold boot exceeds 15s", () => {
-    expect(SERVER_READY_DEADLINE_MS).toBe(60_000);
+  it("is 15000 (15 seconds) — see change tighten-electron-server-startup-deadline", () => {
+    expect(SERVER_READY_DEADLINE_MS).toBe(15_000);
   });
 
   // See change: fix-mode-aware-server-ready-deadlines.
