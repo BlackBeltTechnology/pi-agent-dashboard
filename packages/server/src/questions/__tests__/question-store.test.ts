@@ -172,6 +172,15 @@ describe("question store", () => {
       expect(changes).toHaveLength(1); // idempotent: no phantom broadcast
     });
 
+    it("a removal loop flags every change but the last with `more` (one broadcast flush)", () => {
+      const { store, changes } = seeded();
+      store.removeQuestionsForSession("s1", "session-ended");
+      expect(changes.map((c) => c.more === true)).toEqual([true, false]);
+      changes.length = 0;
+      store.removeQuestion("s2", "p3", "cleared");
+      expect(changes).toEqual([expect.not.objectContaining({ more: true })]);
+    });
+
     it("reconcileSession drops prompts missing from the re-sent set", () => {
       const { store, changes } = seeded();
       store.reconcileSession("s1", ["p2"]);
@@ -212,6 +221,47 @@ describe("question store", () => {
       expect(store.listRows()).toEqual([]);
       expect(store.get(rec.id)).toBeDefined();
       expect(store.getDetail(rec.id)!.answerable).toBe(false);
+    });
+  });
+
+  describe("lost answer: bridge re-send reopens a transmitted question", () => {
+    it("transmit → re-send → listed again, answerable once, `added` emitted", () => {
+      const { store, changes } = make();
+      const rec = store.onTracked("s1", promptMsg("s1", "p1"))!;
+      store.claim(rec.id);
+      store.markTransmitted(rec.id);
+      expect(store.listRows()).toEqual([]);
+      expect(store.lookup(rec.id).state).toBe("answered");
+      changes.length = 0;
+
+      const again = store.onTracked("s1", promptMsg("s1", "p1"))!; // bridge still waiting
+      expect(again.id).toBe(rec.id);
+      expect(changes).toEqual([expect.objectContaining({ kind: "added", id: rec.id })]);
+      expect(store.listRows().map((r) => r.id)).toEqual([rec.id]);
+      expect(store.lookup(rec.id).state).toBe("open");
+      expect(store.getDetail(rec.id)!.answerable).toBe(true);
+
+      // at-most-once still holds: exactly one of two concurrent claims wins
+      expect([store.claim(rec.id).status, store.claim(rec.id).status]).toEqual(["claimed", "answered"]);
+    });
+
+    it("a re-send of an open or in-flight (claimed) question changes nothing", () => {
+      const { store, changes } = make();
+      const rec = store.onTracked("s1", promptMsg("s1", "p1"))!;
+      changes.length = 0;
+      store.onTracked("s1", promptMsg("s1", "p1"));
+      store.claim(rec.id);
+      store.onTracked("s1", promptMsg("s1", "p1"));
+      expect(changes).toEqual([]);
+      expect(store.claim(rec.id).status).toBe("answered");
+    });
+  });
+
+  describe("malformed batch metadata (audit)", () => {
+    it("non-object sub-question entries are dropped", () => {
+      const { store } = make();
+      const rec = store.onTracked("s1", promptMsg("s1", "p1", { type: "batch", metadata: { questions: [null, "x", 7, [], { question: "q", method: "confirm" }] } }))!;
+      expect(rec.questions).toEqual([{ question: "q", method: "confirm" }]);
     });
   });
 

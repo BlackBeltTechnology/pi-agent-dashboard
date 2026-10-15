@@ -6310,6 +6310,165 @@ Caps (caps.ts): `maxActiveEmbedSessionsPerVisitor` + `maxActiveEmbedSessionsGlob
 
 See change: add-embed-session-lifecycle.
 
+## Question stack (open prompts → one global list)
+
+One list of every open PromptBus prompt the caller may see. Client: header pill, panel, dialog. Server: `question-store` keyed by `(sessionId, promptId)`. Change: add-pending-question-stack.
+
+```mermaid
+flowchart LR
+    Bridge["Bridge ext · prompt_request"] -->|"WS 9999"| GW["browser-gateway.ts<br/>trackPromptRequest"]
+    GW -->|"notify guard passed"| Reg["pendingPromptRequests<br/>(registry, private)"]
+    GW -->|"onTracked(sid, msg)"| QS["question-store.ts"]
+    QS --> Snap["question-snapshot.ts<br/>redactSecrets"]
+    QS --> Pol["brief-policy.ts"]
+    Pol -->|"generate"| Gen["brief-generator.ts<br/>@fast · cap 2 · 20 s"]
+    Pol -->|"provided"| QS
+    Gen --> QS
+    QS <--> Files[("~/.pi/dashboard/questions/ID.json")]
+    QS -->|"added · brief · hidden · removed"| BC["question-broadcast.ts<br/>250 ms trailing"]
+    BC -->|"questions_update · per recipient"| UI["QuestionStack pill · panel · dialog"]
+    UI -->|"GET /api/questions/:id"| REST["REST /api/questions*"]
+    UI -->|"POST …/answer · …/summarize"| REST
+    REST --> Claim{"claim latch"}
+    BPR["browser prompt_response"] --> Claim
+    Claim -->|"claimed"| Send["sendToSession<br/>prompt_response · dashboard-default"]
+    Send --> Bridge
+    Bridge -->|"prompt_dismiss echo"| GW
+    GW -->|"removeQuestion"| QS
+```
+
+### Records
+
+- Key: `(sessionId, promptId)`. Id: random 128-bit base64url (22 chars).
+- Re-send of same key → same record, nothing recomputed.
+- Re-track after removal → new id.
+- Hook: `trackPromptRequest` → `onTracked` after notify guard.
+- Notify → no record, no snapshot, no model call.
+- Removal funnel (immediate, idempotent): `removeQuestion`, `reconcileSession`, `removeQuestionsForSession`.
+- Callers: `clearPromptRequest`, `reconcilePromptRequests`, `clearPendingRequestsForSession` (session death).
+- Registry map stays private. `hasPendingPromptRequests` unchanged.
+
+### Snapshot (`question-snapshot.ts`)
+
+- Taken once, at first observation. Best-effort. Never completed retroactively.
+- Last assistant text: ≤ 8192 chars (read window 32 KB).
+- Tool calls: ≤ 5 newest, one-line summary ≤ 120 chars, `ask_user` skipped.
+- `metadata.workflowRun` copied when present.
+- Absent part → `reason`: `none` (never produced) or `evicted` (event seq gap).
+- Redact before persist and before generation. Stored with `redactionVersion`.
+
+### Redaction (`REDACTION_PATTERNS_V1`, `packages/shared/src/redaction.ts`)
+
+- Versioned set. Bump `REDACTION_VERSION` + add `_V<N>` on change.
+- Covers: PEM private keys, `Authorization` Bearer/Basic, `sk-…`, `api|access|secret key` / `password` assignments, env-style `*_TOKEN=`/`*_SECRET=`, AWS `AKIA…`, JWT, GitHub tokens.
+- Applied at: snapshot, `brief-policy` (provided brief), `brief-prompt` (last point before provider), `brief-generator` (model output).
+
+### Brief
+
+- `briefStatus`: `provided` · `pending` · `ready` · `failed` · `unavailable`.
+- Label: `provided` · `generated` · `generated-limited` (no assistant text).
+- `decideBriefPolicy` (`brief-policy.ts`):
+  - `message.length ≥ questions.minBriefChars` → `provided` (message redacted, ≤ 32768).
+  - else `autoBrief=false` → `unavailable`.
+  - else → `pending`, generate.
+- `origin: file` → `unavailable`. Never sent to a model.
+- One automatic attempt per question. Failure → `failed` tombstone. No retry, incl. after restart.
+- Restart with file still `pending` → `failed`. Zero model calls.
+- `@fast` resolve (`brief-model.ts`, pure): `~/.pi/agent/providers.json` → `parseRoleConfig` → `resolveModelRef('@fast')` → registry `find`.
+- Unbound / unknown / no registry / no stream fn → `unavailable`. Never throws.
+- Production wiring: `brief-runtime.ts` (`getModelRegistry()`, `getStreamSimpleFn()`).
+- `brief-generator.ts`: `BRIEF_MAX_CONCURRENT=2`, FIFO queue, `BRIEF_TIMEOUT_MS=20_000`, never throws.
+- Prompt (`brief-prompt.ts`): ≤ 120 words. task / why asking / per-option outcome (option types only).
+- Summarize (`POST …/summarize`): on-demand, any non-generated brief. Failure keeps current brief.
+
+### Durable files (`question-files.ts`)
+
+- Path: `~/.pi/dashboard/questions/<id>.json`. Dir 0700, file 0600, tmp + rename.
+- Holds: `(sessionId, promptId)`, snapshot, brief, `briefStatus`.
+- Deleted by: `removeQuestion`, session end, boot sweep.
+- Boot sweep: session absent from persisted store, or recorded ended (`persistedPresence`).
+- No timer sweep. Bridge reconnect pending → files kept.
+- Boot: `loadPersisted()` sync. Re-send rebinds file by key → reuses snapshot + brief.
+
+### Broadcast (`question-broadcast.ts`)
+
+- `questions_update` carries rows only. Detail lazy via `GET /api/questions/:id`.
+- Adds + brief changes: trailing `QUESTIONS_DEBOUNCE_MS=250`.
+- Removed + hidden: immediate flush.
+- Per socket: full replacement, deduped vs last frame. Filtered by `canAccessSession`.
+- Client: `useMessageHandler` → `setQuestions(msg.questions)` (`lib/questions/question-store.ts`). Full replacement, never merge.
+
+### Visibility
+
+- Predicate: session-list predicate `canAccessSession` (`packages/server/src/identity/session-access.ts`).
+- No resolver active → all sessions visible.
+- Resolver active → owner equality per item. Ownerless sessions (automation runs without owner) hidden from human principals.
+- Applies to: broadcast, list, detail, answer. Detail/answer → `404` when invisible.
+- Identity road family `questions` (`identity/http-road-classification.ts`).
+
+### Claim latch + answer path
+
+- `claim(id)` / `claimPrompt(sid, pid)` → `claimed` · `answered` · `unknown`. Synchronous.
+- Shared by REST and browser `prompt_response` (`relayBrowserPromptResponse`, `question-answer.ts`).
+- `claimed` → `sendToSession` `prompt_response`, `source: "dashboard-default"`.
+  - `true` → `markTransmitted`: row hidden from stack.
+  - `false` / throw → `releaseClaim`: `{ transmitted: false }`, question stays open.
+- Registry entry stays until bridge `prompt_dismiss` echo. Pending-ask reaping veto unchanged.
+- Transmitted claim held `TRANSMITTED_WINDOW_MS = 10 min`, in memory only.
+  - In window → `409` (`answered`).
+  - After window → `404`. Restart → `404`.
+- Bridge-side cancel / timeout → remove, not a claim.
+- File-access (`metadata.kind` ∈ `agent-path-gate`, `agent-path-gate-confirm`): `origin: file`. Never claimed. Answer → `403`.
+- Answer validation: `validateQuestionAnswer` (`packages/shared/src/prompt-answer.ts`). Same wire format as chat. Invalid → `400`, nothing sent.
+- REST answers text-only. Images rejected.
+- Chat-gateway sessions: same authz as dashboard chat answer.
+
+### REST (`question-routes.ts`)
+
+| Route | Tier (`route-tiers.ts`) | Behaviour |
+|---|---|---|
+| `GET /api/questions` | `observe` | rows; visibility-filtered |
+| `GET /api/questions/:id` | `observe` | detail; `404` unknown / not open / invisible |
+| `POST /api/questions/:id/answer` | `control` | body `{answer}` XOR `{cancelled:true}`; `400` both/neither; `200 {success,data:{transmitted}}`; `403` file; `404`; `409` window |
+| `POST /api/questions/:id/summarize` | `control` | `404` / `409` / `502` failed / `503` unavailable |
+
+- MCP: all three denylisted (`packages/mcp-server-plugin/src/server/tools.denylist.ts`). Reason: human-in-the-loop; follow-up.
+- Wiring: `server.ts` → `createQuestionStack` (`question-stack.ts`) → `registerQuestionRoutes`.
+
+### Ask timeout override
+
+- Env: `PI_EXT_PI_DASHBOARD_ASK_USER_PROMPT_TIMEOUT_SECONDS`.
+- Read by bridge before PromptBus build: `bridge-handlers/lifecycle.ts` (`ASK_USER_TIMEOUT_ENV`, `resolveAskUserTimeoutMs`).
+- Precedence: env (integer) > `config.askUserPromptTimeoutSeconds` (default `300`).
+- Non-integer env → warning, ignored.
+- Effective `<= 0` → no cancel timer. Wait until answer, session end, or dismiss.
+- Spawn sets it via `scope.extensionConfig: { "pi-dashboard": { askUserPromptTimeoutSeconds: "0" } }`:
+  - automation run spawn: `packages/automation-plugin/src/server/engine.ts`.
+  - goal driver spawn + respawn: `packages/goal-plugin/src/server/index.ts`.
+- Stale-run reaper finalizes run → session terminated → its questions leave stack.
+
+### Config (`questions` block, `packages/shared/src/config.ts`)
+
+- `autoBrief`: bool, default `true`.
+- `minBriefChars`: int, default `240`, clamp `0–4000`.
+- Invalid type / missing → default. `ensureConfig` does not write defaults.
+
+### Client
+
+- `components/questions/QuestionStack.tsx`: header pill `question-pill` (absent at 0). Panel: newest 5 + `question-more` → list max 60vh. Mobile tier: bottom sheet.
+- `components/questions/QuestionDialog.tsx`: brief (label) + collapsible context (≤ 5 tools, plain text) + inputs via interactive renderers. File-access → read-only + link to `/settings/access`.
+- `lib/questions/route-question.ts` `decideQuestionRoute`: visible (board session, not hidden) → `chat` or `slot` (widget bar); else `dialog`.
+- `lib/questions/dialog-answer.ts` `encodeDialogAnswer`: strips images, `encodePromptAnswer`.
+- `lib/questions/questions-api.ts`: `fetchQuestionDetail`, `answerQuestion`, `summarizeQuestion`. Never throws.
+
+### Rollback
+
+- Remove stack component + routes.
+- Delete `~/.pi/dashboard/questions/`.
+- Env override inert without spawners setting it.
+
+See change: add-pending-question-stack.
+
 ## Knowledge Base (KB)
 
 Markdown knowledge base backed by a single FTS5 table (`chunks`) over `node:sqlite`. Zero network, zero LLM — all ranking is mechanical. Backend `SqliteFtsStore` (`packages/kb/src/sqlite-store.ts`). Config layered project → global → defaults (`packages/kb/src/config.ts`).

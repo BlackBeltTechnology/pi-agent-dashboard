@@ -89,7 +89,7 @@ function validateBatchEntry(
     return fail(`${at}: entry must be an object`);
   }
   const e = entry as Record<string, unknown>;
-  const options = sub.options ?? [];
+  const options: readonly string[] = Array.isArray(sub.options) ? sub.options : [];
   switch (sub.method) {
     case "confirm":
       return typeof e.confirmed === "boolean" ? OK : fail(`${at}: confirm needs {confirmed:boolean}`);

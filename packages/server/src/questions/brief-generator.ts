@@ -21,8 +21,8 @@ export const BRIEF_MAX_CONCURRENT = 2;
 /** Defensive ceiling on stored brief text (the prompt asks for ≤ 120 words). */
 const BRIEF_MAX_CHARS = 2000;
 
-/** Control (except \t \n) and bidi-override/isolate chars: a model-written brief is untrusted UI text. */
-const UNSAFE_CHARS_RE = /[\u0000-\u0008\u000B-\u001F\u202A-\u202E\u2066-\u2069]/g;
+/** Control (except \t \n), zero-width (U+200B–U+200F, U+FEFF) and bidi-override/isolate chars: a model-written brief is untrusted UI text. */
+const UNSAFE_CHARS_RE = /[\u0000-\u0008\u000B-\u001F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
 
 export interface BriefRequest {
   question: string;
@@ -96,11 +96,13 @@ export function createBriefGenerator(deps: BriefGeneratorDeps): BriefGenerator {
         controller.abort();
         reject(new Error(`generation timed out after ${timeoutMs} ms`));
       }, timeoutMs);
+      timer.unref?.(); // a pending generation must never hold the process open
     });
     try {
       const text = await Promise.race([deps.complete(resolved.model, buildBriefPrompt(req), controller.signal), timeout]);
-      // Model output is untrusted: redact (it can echo the prompt), strip control/bidi chars, then cap.
-      const cleaned = typeof text === "string" ? redactSecrets(text).replace(UNSAFE_CHARS_RE, "").trim() : "";
+      // Model output is untrusted: strip control/zero-width/bidi chars FIRST (they can split a secret
+      // past the patterns), then redact (it can echo the prompt), then cap.
+      const cleaned = typeof text === "string" ? redactSecrets(text.replace(UNSAFE_CHARS_RE, "")).trim() : "";
       if (!cleaned) return { kind: "failed", reason: "empty completion" };
       return { text: cleaned.slice(0, BRIEF_MAX_CHARS) };
     } catch (err) {

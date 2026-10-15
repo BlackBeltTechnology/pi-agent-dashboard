@@ -66,8 +66,10 @@ export function registerQuestionRoutes(fastify: FastifyInstance, deps: QuestionR
   /** Open + visible record, or the 404/409 reply to send. */
   function openQuestion(request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
     const found = store.lookup(request.params.id);
+    // Visibility first: an answered/invisible question must not reveal itself (404, not 409) to a non-owner.
+    if (found.state === "unknown") return { reply: fail(reply, 404, "question not found") };
+    if (!canSee(request, found.state === "answered" ? found.sessionId : found.record.sessionId)) return { reply: fail(reply, 404, "question not found") };
     if (found.state === "answered") return { reply: fail(reply, 409, "answered") };
-    if (found.state === "unknown" || !canSee(request, found.record.sessionId)) return { reply: fail(reply, 404, "question not found") };
     return { record: found.record };
   }
 

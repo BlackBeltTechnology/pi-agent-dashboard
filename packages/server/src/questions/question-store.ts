@@ -57,10 +57,13 @@ export interface QuestionChange {
   kind: "added" | "brief" | "hidden" | "removed";
   id: string;
   sessionId: string;
+  /** More changes of the same synchronous batch follow (removal loops): consumers may wait for the last one. */
+  more?: boolean;
 }
 
 export type ClaimResult = { status: "claimed"; id: string } | { status: "answered" } | { status: "unknown" };
-export type LookupResult = { state: "open"; record: QuestionRecord } | { state: "answered" } | { state: "unknown" };
+/** `answered` carries the session so callers can apply the visibility check BEFORE revealing it. */
+export type LookupResult = { state: "open"; record: QuestionRecord } | { state: "answered"; sessionId: string } | { state: "unknown" };
 export type SummarizeResult =
   | { ok: true; detail: QuestionDetail }
   | { ok: false; reason: "not-found" | "already-generated" | "unavailable" | "failed"; error: string };
@@ -132,7 +135,8 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
   const byId = new Map<string, QuestionRecord>();
   /** Persisted files not yet re-sent by their bridge (key → file). */
   const persisted = new Map<string, QuestionFile>();
-  const tombstones = new Map<string, number>();
+  /** id → transmit time + owning session (visibility is checked before an `answered` is revealed). */
+  const tombstones = new Map<string, { at: number; sessionId: string }>();
   const listeners = new Set<(c: QuestionChange) => void>();
 
   function emit(change: QuestionChange): void {
@@ -147,11 +151,11 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
 
   function sweepTombstones(): void {
     const cutoff = now() - TRANSMITTED_WINDOW_MS;
-    for (const [id, at] of tombstones) if (at <= cutoff) tombstones.delete(id);
+    for (const [id, t] of tombstones) if (t.at <= cutoff) tombstones.delete(id);
   }
-  const answeredRecently = (id: string): boolean => {
+  const answeredRecently = (id: string): { sessionId: string } | undefined => {
     sweepTombstones();
-    return tombstones.has(id);
+    return tombstones.get(id);
   };
 
   function newId(): string {
@@ -188,11 +192,16 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
     return undefined;
   }
 
-  function dropRecord(rec: QuestionRecord, kind: "removed"): void {
+  function dropRecord(rec: QuestionRecord, more = false): void {
     byKey.delete(keyOf(rec.sessionId, rec.promptId));
     byId.delete(rec.id);
     deps.files.remove(rec.id);
-    emit({ kind, id: rec.id, sessionId: rec.sessionId });
+    emit({ kind: "removed", id: rec.id, sessionId: rec.sessionId, ...(more ? { more: true } : {}) });
+  }
+
+  /** Drop a batch of records; every change but the last is flagged `more` so a fan-out flushes once. */
+  function dropAll(recs: QuestionRecord[]): void {
+    recs.forEach((rec, i) => dropRecord(rec, i < recs.length - 1));
   }
 
   function dropPersisted(key: string): void {
@@ -279,13 +288,27 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
     return answeredRecently(id) ? { status: "answered" } : { status: "unknown" };
   }
 
+  /** Metadata `questions` is untrusted: keep only object entries (a primitive would crash validation downstream). */
+  const batchQuestionsOf = (raw: unknown[]): BatchQuestion[] =>
+    raw.filter((q): q is BatchQuestion => !!q && typeof q === "object" && !Array.isArray(q));
+
   return {
     onTracked(sessionId, msg) {
       const promptId = msg.promptId;
       if (typeof promptId !== "string" || !promptId) return undefined;
       const key = keyOf(sessionId, promptId);
       const existing = byKey.get(key);
-      if (existing) return existing; // re-send: same id, nothing recomputed
+      if (existing) {
+        // The bridge re-sending a prompt we already marked transmitted means it is STILL waiting (the
+        // answer was lost after `send` returned true): reopen it. The claim latch retakes, so at-most-once holds.
+        if (existing.claim === "transmitted") {
+          existing.claim = undefined;
+          existing.transmittedAt = undefined;
+          tombstones.delete(existing.id);
+          emit({ kind: "added", id: existing.id, sessionId });
+        }
+        return existing; // re-send: same id, nothing recomputed
+      }
 
       const prompt = (msg.prompt ?? {}) as { question?: unknown; type?: unknown; options?: unknown; metadata?: Record<string, unknown> };
       const metadata = prompt.metadata && typeof prompt.metadata === "object" ? prompt.metadata : undefined;
@@ -297,7 +320,7 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
         type: typeof prompt.type === "string" ? prompt.type : "unknown",
         question: typeof prompt.question === "string" ? prompt.question : "",
         ...(Array.isArray(prompt.options) ? { options: prompt.options.filter((o): o is string => typeof o === "string") } : {}),
-        ...(Array.isArray(metadata?.questions) ? { questions: metadata!.questions as BatchQuestion[] } : {}),
+        ...(Array.isArray(metadata?.questions) ? { questions: batchQuestionsOf(metadata!.questions as unknown[]) } : {}),
         ...(originOf(msg, session) ? { origin: originOf(msg, session) } : {}),
         ...(message !== undefined ? { message } : {}),
       };
@@ -349,22 +372,20 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
       dropPersisted(key);
       const rec = byKey.get(key);
       if (!rec) return false;
-      dropRecord(rec, "removed");
+      dropRecord(rec);
       return true;
     },
 
     reconcileSession(sessionId, keepPromptIds) {
       const keep = new Set(keepPromptIds);
-      for (const rec of [...byKey.values()]) {
-        if (rec.sessionId === sessionId && !keep.has(rec.promptId)) dropRecord(rec, "removed");
-      }
+      dropAll([...byKey.values()].filter((rec) => rec.sessionId === sessionId && !keep.has(rec.promptId)));
       for (const [key, file] of [...persisted]) {
         if (file.sessionId === sessionId && !keep.has(file.promptId)) dropPersisted(key);
       }
     },
 
     removeQuestionsForSession(sessionId, _reason) {
-      for (const rec of [...byKey.values()]) if (rec.sessionId === sessionId) dropRecord(rec, "removed");
+      dropAll([...byKey.values()].filter((rec) => rec.sessionId === sessionId));
       for (const [key, file] of [...persisted]) if (file.sessionId === sessionId) dropPersisted(key);
     },
 
@@ -385,9 +406,10 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
       const rec = byId.get(id);
       if (rec) {
         if (rec.claim !== "transmitted") return { state: "open", record: rec };
-        return now() - (rec.transmittedAt ?? 0) < TRANSMITTED_WINDOW_MS ? { state: "answered" } : { state: "unknown" };
+        return now() - (rec.transmittedAt ?? 0) < TRANSMITTED_WINDOW_MS ? { state: "answered", sessionId: rec.sessionId } : { state: "unknown" };
       }
-      return answeredRecently(id) ? { state: "answered" } : { state: "unknown" };
+      const t = answeredRecently(id);
+      return t ? { state: "answered", sessionId: t.sessionId } : { state: "unknown" };
     },
 
     claim,
@@ -406,7 +428,7 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
       rec.claim = "transmitted";
       rec.transmittedAt = now();
       sweepTombstones();
-      tombstones.set(id, rec.transmittedAt);
+      tombstones.set(id, { at: rec.transmittedAt, sessionId: rec.sessionId });
       emit({ kind: "hidden", id, sessionId: rec.sessionId });
     },
 

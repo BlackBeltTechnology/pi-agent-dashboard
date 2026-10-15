@@ -140,6 +140,44 @@ describe("question broadcaster", () => {
       expect(a.frames).toHaveLength(1); // the timer's frame was deduped / cancelled
     });
 
+    it("a loop of removals (session end) coalesces into ONE frame per socket (still same tick)", () => {
+      const a = sock("a", anna);
+      const { store } = setup({ active: false, sockets: [a] });
+      for (const p of ["p1", "p2", "p3"]) store.onTracked("s1", promptMsg("s1", p));
+      vi.advanceTimersByTime(QUESTIONS_DEBOUNCE_MS);
+      a.frames.length = 0;
+      store.removeQuestionsForSession("s1", "session-ended");
+      expect(a.frames).toHaveLength(1);
+      expect(last(a).questions).toEqual([]);
+    });
+
+    it("computes each recipient's rows once per flush (no double listRows for a fresh socket)", () => {
+      const a = sock("a", anna);
+      const { store } = setup({ active: false, sockets: [a] });
+      store.onTracked("s1", promptMsg("s1", "p1"));
+      const spy = vi.spyOn(store, "listRows");
+      store.removeQuestion("s1", "nope", "cleared"); // no-op: no flush
+      vi.advanceTimersByTime(QUESTIONS_DEBOUNCE_MS);
+      expect(a.frames).toHaveLength(1);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it("unrefs its debounce timer so it never holds the process open", () => {
+      const a = sock("a", anna);
+      const unref = vi.fn();
+      const realSetTimeout = globalThis.setTimeout;
+      const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void, ms?: number) => {
+        const t = realSetTimeout(fn, ms) as unknown as { unref?: () => void };
+        const orig = t.unref?.bind(t);
+        t.unref = () => { unref(); return orig?.(); };
+        return t;
+      }) as never);
+      const { store } = setup({ active: false, sockets: [a] });
+      store.onTracked("s1", promptMsg("s1", "p1"));
+      expect(unref).toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
     it("transmit (`hidden`) is immediate too", () => {
       const a = sock("a", anna);
       const { store } = setup({ active: false, sockets: [a] });

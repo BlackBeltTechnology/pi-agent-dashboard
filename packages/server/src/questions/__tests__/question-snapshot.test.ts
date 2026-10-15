@@ -126,6 +126,20 @@ describe("buildQuestionSnapshot — immutability + metadata", () => {
     expect("workflowRun" in buildQuestionSnapshot({ eventStore: es, sessionId: "s1", metadata: {} })).toBe(false);
   });
 
+  it("replaces an oversized workflowRun (post-redaction) with a small truncated placeholder", () => {
+    const big = { name: "ship", steps: Array.from({ length: 2000 }, (_, i) => ({ i, note: "x".repeat(50) })), password: "hunter2" };
+    const snap = buildQuestionSnapshot({ eventStore: store(), sessionId: "s1", metadata: { workflowRun: big } });
+    const json = JSON.stringify(snap.workflowRun);
+    expect(json.length).toBeLessThanOrEqual(8192);
+    expect(snap.workflowRun).toMatchObject({ truncated: true });
+    expect(json).not.toContain("hunter2");
+  });
+
+  it("keeps a workflowRun under the cap verbatim", () => {
+    const snap = buildQuestionSnapshot({ eventStore: store(), sessionId: "s1", metadata: { workflowRun: { name: "ship", step: 3 } } });
+    expect(snap.workflowRun).toEqual({ name: "ship", step: 3 });
+  });
+
   it("stamps the redaction version", () => {
     expect(buildQuestionSnapshot({ eventStore: store(), sessionId: "s1" }).redactionVersion).toBe(REDACTION_VERSION);
     expect(REDACTION_VERSION).toBe(1);

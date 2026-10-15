@@ -131,6 +131,15 @@ describe("validateQuestionAnswer", () => {
       const dup = [good[0], good[1], { values: ["x", "x"] }, good[3]];
       expect(validateQuestionAnswer(p, JSON.stringify(dup)).ok).toBe(false);
     });
+    it("malformed sub-question metadata yields a validation failure, never a throw", () => {
+      for (const options of [5, "ab", { 0: "a" }, null, true]) {
+        const bad = { type: "batch", metadata: { questions: [{ method: "select", title: "s", options }] } };
+        expect(() => validateQuestionAnswer(bad as never, JSON.stringify([{ value: "a" }]))).not.toThrow();
+        expect(validateQuestionAnswer(bad as never, JSON.stringify([{ value: "a" }])).ok).toBe(false);
+      }
+      const prims = { type: "batch", metadata: { questions: [null, 7, "x"] } };
+      expect(validateQuestionAnswer(prims as never, JSON.stringify([{}, {}, {}])).ok).toBe(false);
+    });
     it("rejects images (text-only road), non-JSON, and missing sub-questions", () => {
       const withImg = [good[0], good[1], good[2], { value: "v", images: [{ type: "image" }] }];
       expect(validateQuestionAnswer(p, JSON.stringify(withImg)).ok).toBe(false);

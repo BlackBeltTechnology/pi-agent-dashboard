@@ -71,9 +71,35 @@ describe("createBriefGenerator", () => {
     }
   });
 
+  it("strips zero-width chars BEFORE redaction so a split secret is still caught", async () => {
+    const gen = createBriefGenerator({ resolveModel: okModel, complete: async () => "key: api_key=top\u200Bsecret\u200Dvalue1\uFEFF end\u200E" });
+    const out = await gen.generate(req());
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.text).not.toMatch(/[\u200B-\u200F\uFEFF]/);
+      expect(out.text).not.toContain("secretvalue1");
+      expect(out.text).toContain("[REDACTED]");
+    }
+  });
+
   it("keeps newlines/tabs but strips other control chars", async () => {
     const gen = createBriefGenerator({ resolveModel: okModel, complete: async () => "line1\nline2\tx\u0000y" });
     expect(await gen.generate(req())).toMatchObject({ ok: true, text: "line1\nline2\txy" });
+  });
+
+  it("unrefs the generation timeout timer", async () => {
+    const unref = vi.fn();
+    const realSetTimeout = globalThis.setTimeout;
+    const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void, ms?: number) => {
+      const t = realSetTimeout(fn, ms) as unknown as { unref?: () => void };
+      const orig = t.unref?.bind(t);
+      t.unref = () => { unref(); return orig?.(); };
+      return t;
+    }) as never);
+    const gen = createBriefGenerator({ resolveModel: okModel, complete: async () => "fine" });
+    await gen.generate(req());
+    spy.mockRestore();
+    expect(unref).toHaveBeenCalled();
   });
 
   it("an empty completion → failed", async () => {

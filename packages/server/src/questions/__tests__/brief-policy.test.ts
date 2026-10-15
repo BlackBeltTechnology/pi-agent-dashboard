@@ -37,6 +37,18 @@ describe("decideBriefPolicy (test-plan #E2)", () => {
     expect(d.kind === "provided" && d.brief.length).toBeLessThanOrEqual(32_768);
   });
 
+  it("a secret straddling the cap leaves no partial prefix (cap+margin → redact → slice)", () => {
+    const secret = "ghp_" + "Z".repeat(36);
+    const message = "a".repeat(32_768 - 24) + " " + secret + " " + "b".repeat(500);
+    const d = decideBriefPolicy({ message, autoBrief: true, minBriefChars: 240 });
+    expect(d.kind).toBe("provided");
+    if (d.kind === "provided") {
+      expect(d.brief.length).toBeLessThanOrEqual(32_768);
+      expect(d.brief).not.toContain("ghp_");
+      expect(d.brief).not.toMatch(/Z{4}/);
+    }
+  });
+
   it("a provided message wins even with autoBrief=false", () => {
     expect(decideBriefPolicy({ message: msg(240), autoBrief: false, minBriefChars: 240 }).kind).toBe("provided");
   });

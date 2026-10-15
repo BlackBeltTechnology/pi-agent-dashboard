@@ -24,6 +24,10 @@ export const SNAPSHOT_SCAN_WINDOW = 1000;
 /** Input caps applied BEFORE redaction so regex work is bounded (a secret cut by them is cut again by the final slice). */
 const ASSISTANT_TEXT_INPUT_MAX = 4 * SNAPSHOT_ASSISTANT_TEXT_MAX;
 const TOOL_SUMMARY_INPUT_MAX = 4096;
+/** Extra input past a head-slice cap so a secret straddling the cut is redacted whole first. */
+const REDACTION_MARGIN_CHARS = 256;
+/** Serialized `workflowRun` ceiling (after redaction); larger values are replaced by a placeholder. */
+export const SNAPSHOT_WORKFLOW_RUN_MAX = 8192;
 
 /** The ask_user call is the question itself, not context for it. */
 const EXCLUDED_TOOLS = new Set(["ask_user"]);
@@ -94,6 +98,17 @@ function hasRetentionGap(events: ReadonlyArray<{ seq: number }>): boolean {
   return false;
 }
 
+/** Replace an already-redacted `workflowRun` whose JSON exceeds the ceiling by a small placeholder. */
+function capWorkflowRun(value: unknown): unknown {
+  let size: number;
+  try {
+    size = JSON.stringify(value)?.length ?? 0;
+  } catch {
+    size = Number.POSITIVE_INFINITY;
+  }
+  return size <= SNAPSHOT_WORKFLOW_RUN_MAX ? value : { truncated: true, originalChars: Number.isFinite(size) ? size : null };
+}
+
 export interface SnapshotInput {
   eventStore: Pick<EventStore, "getMaxSeq" | "getEventsEndingAt">;
   sessionId: string;
@@ -117,7 +132,7 @@ export function buildQuestionSnapshot(input: SnapshotInput): QuestionSnapshot {
       const data = event.data ?? {};
       const name = typeof data.toolName === "string" ? data.toolName : "";
       if (!name || EXCLUDED_TOOLS.has(name) || data.parentToolCallId) continue;
-      const summary = redactSecrets(summarizeArgs(data.args).slice(0, TOOL_SUMMARY_INPUT_MAX)).slice(0, SNAPSHOT_TOOL_SUMMARY_MAX);
+      const summary = redactSecrets(summarizeArgs(data.args).slice(0, TOOL_SUMMARY_INPUT_MAX + REDACTION_MARGIN_CHARS)).slice(0, SNAPSHOT_TOOL_SUMMARY_MAX);
       tools.push({ name: redactSecrets(name.slice(0, SNAPSHOT_TOOL_SUMMARY_MAX)), summary });
     }
     if (assistantText !== undefined && tools.length >= SNAPSHOT_TOOL_CALLS_MAX) break;
@@ -130,6 +145,6 @@ export function buildQuestionSnapshot(input: SnapshotInput): QuestionSnapshot {
   } else {
     snapshot.assistantAbsentReason = hasRetentionGap(events) ? "evicted" : "none";
   }
-  if (metadata && metadata.workflowRun !== undefined) snapshot.workflowRun = redactDeep(metadata.workflowRun);
+  if (metadata && metadata.workflowRun !== undefined) snapshot.workflowRun = capWorkflowRun(redactDeep(metadata.workflowRun));
   return snapshot;
 }

@@ -347,6 +347,17 @@ describe("question REST roads", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it("an answered question is a 404 (not 409) for a non-owner: no cross-owner oracle", async () => {
+    const { store } = makeStore();
+    store.onTracked("s1", promptMsg("s1", "p1"));
+    const id = idOf(store);
+    const { app } = await makeApp(store, { active: true, owners: { s1: anna } });
+    expect((await post(app, id, { answer: "Resume" }, as(anna))).statusCode).toBe(200);
+    expect((await post(app, id, { answer: "Resume" }, as(anna))).statusCode).toBe(409);
+    expect((await post(app, id, { answer: "Resume" }, as(bela))).statusCode).toBe(404);
+    expect((await app.inject({ method: "POST", url: `/api/questions/${id}/summarize`, headers: as(bela) })).statusCode).toBe(404);
+  });
+
   describe("tier gate + unknown id (test-plan #X7)", () => {
     it("observe-tier token cannot answer; control can; unknown id is 404", async () => {
       const reg = new PairedDeviceRegistry(path.join(home, "paired.json"));

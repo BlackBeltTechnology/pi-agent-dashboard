@@ -57,8 +57,8 @@
 
 ## 9. Docs + verification
 
-- [ ] 9.1 DocScribe: `docs/architecture.md` question-stack section; AGENTS.md rows for new/changed files
-- [ ] 9.2 `Audit` subagent on the answer path, visibility scoping, redaction and brief generation
+- [x] 9.1 DocScribe: `docs/architecture.md` question-stack section; AGENTS.md rows for new/changed files
+- [x] 9.2 `Audit` subagent on the answer path, visibility scoping, redaction and brief generation
 - [ ] 9.3 Full test run + client build; manual check with a hidden automation run asking a question for > 5 min
 
 <!-- Folded from test-plan.md by plan-proposal. One task per manifest row. -->
@@ -121,11 +121,11 @@
 
 ## 17. L3 — Playwright against the docker harness
 
-- [ ] 17.1 Test hidden run answered from the dialog — see tests/e2e/faux-ask.spec.ts — hidden automation run with faux select · pill → panel → "Answer here" → option · count 0, run session receives option, run finalizes (test-plan #F2)
-- [ ] 17.2 Test visible session navigation — see tests/e2e/faux-ask.spec.ts — visible session with pending faux select, other session selected · pill → "Go to session" · session selected, inline prompt in viewport, no dialog (test-plan #F3)
-- [ ] 17.3 Test mobile layout tier — see tests/e2e/faux-ask.spec.ts — 375×812, 2 open questions · pill tap, row tap · pill ≥ 44×44, bottom sheet, full-viewport dialog, composer not covered (test-plan #F7)
-- [ ] 17.4 Test removal propagation p95 ≤ 1 s — see tests/e2e/faux-ask.spec.ts — 2 browser contexts, 20 faux questions answered in A · answer click → row gone in B · p95 ≤ 1000 ms over 20 samples (test-plan #P1)
-- [ ] 17.5 Test restart keeps snapshot and brief — see tests/e2e/pending-prompt-recovery.spec.ts — headless faux session with pending question + generated brief · `POST /api/restart` · same id listed with same brief, model-call counter unchanged (test-plan #X5)
+- [x] 17.1 Test hidden run answered from the dialog — see tests/e2e/faux-ask.spec.ts — hidden automation run with faux select · pill → panel → "Answer here" → option · count 0, run session receives option, run finalizes (test-plan #F2)
+- [x] 17.2 Test visible session navigation — see tests/e2e/faux-ask.spec.ts — visible session with pending faux select, other session selected · pill → "Go to session" · session selected, inline prompt in viewport, no dialog (test-plan #F3)
+- [x] 17.3 Test mobile layout tier — see tests/e2e/faux-ask.spec.ts — 375×812, 2 open questions · pill tap, row tap · pill ≥ 44×44, bottom sheet, full-viewport dialog, composer not covered (test-plan #F7)
+- [x] 17.4 Test removal propagation p95 ≤ 1 s — see tests/e2e/faux-ask.spec.ts — 2 browser contexts, 20 faux questions answered in A · answer click → row gone in B · p95 ≤ 1000 ms over 20 samples (test-plan #P1)
+- [x] 17.5 Test restart keeps snapshot and brief — see tests/e2e/pending-prompt-recovery.spec.ts — headless faux session with pending question + generated brief · `POST /api/restart` · same id listed with same brief, model-call counter unchanged (test-plan #X5)
 
 ## 18. Manual verification
 

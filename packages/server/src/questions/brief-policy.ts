@@ -7,8 +7,10 @@
  */
 import { redactSecrets } from "@blackbelt-technology/pi-dashboard-shared/redaction.js";
 
-/** Cap applied before redaction so regex work on an agent-supplied message is bounded. */
+/** Stored/shown cap for a provided brief. */
 export const PROVIDED_BRIEF_MAX_CHARS = 32_768;
+/** Extra input past the cap so a secret straddling the cut is redacted whole before the final slice. */
+const REDACTION_MARGIN_CHARS = 256;
 
 export type BriefPolicyDecision =
   | { kind: "provided"; brief: string }
@@ -29,6 +31,6 @@ export function contextMessageOf(message: unknown): string | undefined {
 
 export function decideBriefPolicy(input: BriefPolicyInput): BriefPolicyDecision {
   const message = contextMessageOf(input.message);
-  if (message !== undefined && message.length >= input.minBriefChars) return { kind: "provided", brief: redactSecrets(message.slice(0, PROVIDED_BRIEF_MAX_CHARS)) };
+  if (message !== undefined && message.length >= input.minBriefChars) return { kind: "provided", brief: redactSecrets(message.slice(0, PROVIDED_BRIEF_MAX_CHARS + REDACTION_MARGIN_CHARS)).slice(0, PROVIDED_BRIEF_MAX_CHARS) };
   return input.autoBrief ? { kind: "generate" } : { kind: "disabled" };
 }
