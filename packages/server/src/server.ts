@@ -2444,12 +2444,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Plugin session-close hook: closer registry + close requests, shared by
   // the reaper and every plugin's ctx. See change: add-session-close-plugin-hook.
   const sessionClosers = createSessionCloserRegistry();
-  const markArchiveOnEnd = (id: string): void => {
-    sessionManager.update(id, { archiveOnEnd: true });
+  const markArchiveOnEnd = (id: string, value = true): void => {
+    sessionManager.update(id, { archiveOnEnd: value });
     const file = sessionManager.get(id)?.sessionFile;
     if (file) {
       try {
-        mergeSessionMeta(file, { archiveOnEnd: true });
+        mergeSessionMeta(file, { archiveOnEnd: value });
       } catch { /* best-effort */ }
     }
   };

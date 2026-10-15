@@ -59,7 +59,7 @@ export interface EmbedLifecycleControllerDeps {
    */
   isPluginEnabled?: (pluginId: string) => boolean;
   /** Close mode `archive`: mark archive-on-end (+ persist). */
-  markArchiveOnEnd?: (sessionId: string) => void;
+  markArchiveOnEnd?: (sessionId: string, value?: boolean) => void;
   log?: (msg: string) => void;
 }
 

@@ -677,18 +677,70 @@ describe("idle ending (F6–F8; core reaper, add-session-close-plugin-hook)", ()
     expect(h.host.spawns.at(-1)?.lifecycle?.close).toBeUndefined();
   });
 
-  it("E22: the team plugin runs no idle timer of its own (test-plan #E22)", async () => {
+  it("E22: the team sweep never ends a declared session; only core's reaper may (test-plan #E22)", async () => {
     const clock = await withClock({ idleMinutes: 30 });
     const key = await mkPersona("alice", "a");
     const c = (await create("alice", key)).json;
+    expect(h.host.sessions.get(c.sessionId)?.closePolicy).toBeDefined();
     h.host.emit(c.sessionId, { eventType: "agent_end", timestamp: clock.t });
-    expect((h.team.conversations as unknown as Record<string, unknown>).sweepIdle).toBeUndefined();
     clock.t += 24 * 60 * MIN;
+    h.team.conversations.sweepIdle();
     h.team.conversations.stop();
-    h.team.conversations.start();
-    // Nothing ends the session from inside the plugin; only core's reaper may.
+    h.team.conversations.start(0); // activation sweep
     expect(h.host.sessions.get(c.sessionId)?.status).toBe("idle");
     expect(h.host.aborts.some((a) => a.sessionId === c.sessionId)).toBe(false);
+  });
+
+  // Legacy fallback: a session live from before the upgrade carries no
+  // closePolicy, so core never governs it; the team sweep keeps ending it
+  // exactly as before (PR #923 review).
+  const legacy = (sid: string) => {
+    const s = h.host.sessions.get(sid);
+    if (s) delete s.closePolicy;
+    return s;
+  };
+
+  it("legacy: ends an undeclared session idle past idleMinutes; never busy", async () => {
+    const clock = await withClock({ idleMinutes: 30 });
+    const key = await mkPersona("alice", "a");
+    const c = (await create("alice", key)).json;
+    legacy(c.sessionId);
+    h.host.emit(c.sessionId, { eventType: "agent_end", timestamp: clock.t });
+    clock.t += 29 * MIN;
+    h.team.conversations.sweepIdle();
+    expect(h.host.sessions.get(c.sessionId)?.status).toBe("idle");
+    clock.t += 2 * MIN;
+    h.team.conversations.sweepIdle();
+    expect(h.host.sessions.get(c.sessionId)?.status).toBe("ended");
+    expect(h.host.aborts.some((a) => a.sessionId === c.sessionId && a.graceful === true)).toBe(true);
+    const c2 = (await create("alice", key)).json;
+    const s2 = legacy(c2.sessionId);
+    if (s2) s2.status = "streaming";
+    clock.t += 45 * MIN;
+    h.team.conversations.sweepIdle();
+    expect(s2?.status).toBe("streaming");
+  });
+
+  it("legacy: idleMinutes 0 never ends an undeclared session", async () => {
+    const clock = await withClock({ idleMinutes: 0 });
+    const key = await mkPersona("alice", "a");
+    const c = (await create("alice", key)).json;
+    legacy(c.sessionId);
+    clock.t += 24 * 60 * MIN;
+    h.team.conversations.sweepIdle();
+    expect(h.host.sessions.get(c.sessionId)?.status).toBe("idle");
+  });
+
+  it("legacy: idleness survives a plugin restart (activation sweep)", async () => {
+    const clock = await withClock({ idleMinutes: 30 });
+    const key = await mkPersona("alice", "a");
+    const c = (await create("alice", key)).json;
+    legacy(c.sessionId);
+    h.host.emit(c.sessionId, { eventType: "agent_end", timestamp: clock.t });
+    clock.t += 31 * MIN;
+    h.team.conversations.stop();
+    h.team.conversations.start(0);
+    expect(h.host.sessions.get(c.sessionId)?.status).toBe("ended");
   });
 
   it("E23: closer keeps a session while an ensure of its conversation is in flight (test-plan #E23)", async () => {

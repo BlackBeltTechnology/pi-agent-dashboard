@@ -57,7 +57,8 @@ export interface PluginSessionCloseDeps {
    */
   closeNow: (sessionId: string) => Promise<boolean>;
   /** Close mode `archive`: mark archive-on-end (+ persist). */
-  markArchiveOnEnd: (sessionId: string) => void;
+  /** Set (default) or roll back (`false`) the archive-on-end mark. */
+  markArchiveOnEnd: (sessionId: string, value?: boolean) => void;
   onCloseRequest?: () => void;
   log?: (msg: string) => void;
   warn?: (msg: string) => void;
@@ -106,8 +107,15 @@ export function createPluginSessionCloseApi(
         deps.registry.requestIdleClose(sessionId);
         return true;
       }
-      if (session.closePolicy.mode === "archive") deps.markArchiveOnEnd(sessionId);
-      const closed = await deps.closeNow(sessionId);
+      // Mark before the close (the on-end archive reads it); roll back unless confirmed.
+      const marked = session.closePolicy.mode === "archive" && session.archiveOnEnd !== true;
+      if (marked) deps.markArchiveOnEnd(sessionId);
+      let closed = false;
+      try {
+        closed = await deps.closeNow(sessionId);
+      } finally {
+        if (marked && !closed) deps.markArchiveOnEnd(sessionId, false);
+      }
       if (closed) deps.registry.clearCloseRequest(sessionId);
       return closed;
     },

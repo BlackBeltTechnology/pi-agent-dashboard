@@ -36,6 +36,8 @@ export interface TeamDeps {
   spawnTimeoutMs?: number;
   now?: () => number;
   renderPersona?: (persona: Persona, uk: string) => string;
+  /** Legacy idle-sweep period for undeclared sessions (0 = no timer; tests). */
+  sweepEveryMs?: number;
   /** `host.listOperatorSkills` service (D11); absent on older hosts. */
   listOperatorSkills?: () => Promise<{ name: string; description: string; path: string; source: string }[]>;
   /** D8 seam override (tests): called instead of the built-in `invalidateSkill` pass. */
@@ -130,7 +132,7 @@ export function createTeam(d: TeamDeps): Team {
         logger: d.logger,
       });
       mountAppRoutes(d.fastify, d.distAppDir, d.logger);
-      conversations.start();
+      conversations.start(d.sweepEveryMs);
     },
     stop() {
       conversations.stop();

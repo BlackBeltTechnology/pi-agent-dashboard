@@ -85,7 +85,7 @@ Caps reclaim never closes a declared session. Caps are not live-wired today; the
 
 ### D6 — Team migration
 - Spawn adds `close: { idle: { afterMs: idleMinutes*60_000 }, mode: "sleep" }` when `idleMinutes > 0`; nothing when `0` (idle ending disabled, as today).
-- Remove `sweepIdle`, its interval and `sweepEveryMs`.
+- ~~Remove `sweepIdle`, its interval and `sweepEveryMs`.~~ Superseded (PR #923 review): `sweepIdle` stays as a legacy fallback that skips any session carrying a `closePolicy`; it ends only pre-upgrade sessions (and every session on a host without close-policy support), so no live team session is left ungoverned after the upgrade.
 - Register a closer: `records.locate(sessionId)` (`packages/team-plugin/src/server/records.ts:147`) → conversation key → `"keep"` if that key is in the `inFlight` ensure map (`conversations.ts:162`), else `"close"`. This closes the reuse-vs-reap race.
 - `restartConversation` stays an explicit `abortSpawnedRun` kill and is unaffected.
 - `sweepIdle`'s multi-user owner check is no longer needed: the reaper acts on the session itself and never resolves a record across users.

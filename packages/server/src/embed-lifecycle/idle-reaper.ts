@@ -78,7 +78,8 @@ export interface ReaperDeps {
   /** Drop a close request once the session is closed. */
   clearCloseRequest?: (sessionId: string) => void;
   /** Close mode `archive`: mark the session archive-on-end (+ persist). */
-  markArchiveOnEnd?: (sessionId: string) => void;
+  /** Set (default) or roll back (`false`) the archive-on-end mark. */
+  markArchiveOnEnd?: (sessionId: string, value?: boolean) => void;
   /** Closer outcome hook (logs + counters). */
   onCloserVerdict?: (sessionId: string, owner: string, reason: ReapReason, outcome: CloserOutcome) => void;
   /** Wall clock for the closer budget (fake-timer friendly; distinct from `now`). */
@@ -245,27 +246,36 @@ export function createIdleReaper(deps: ReaperDeps): IdleReaper {
       if (!(await closerAllows(s, signals, verdict.reason, budget))) return;
       const owner = s.closePolicy?.owner;
       const declared = owner && (signals.governed || signals.closeRequested) ? { owner } : undefined;
-      // Close mode `archive`: mark before the close so the on-end archive fires.
-      if (declared && s.closePolicy?.mode === "archive") deps.markArchiveOnEnd?.(s.id);
-      if (verdict.reason === "stop-after-turn") {
-        // Terminates nothing: counted on delivery of the latch. Undelivered is
-        // a transient transport state — retried next sweep, never given up.
-        if (deps.sendStopAfterTurn(s.id)) {
+      // Close mode `archive`: mark before the close so the on-end archive
+      // fires; rolled back below unless the close is confirmed.
+      const marked = !!declared && s.closePolicy?.mode === "archive" && s.archiveOnEnd !== true;
+      if (marked) deps.markArchiveOnEnd?.(s.id);
+      let confirmed = false;
+      try {
+        if (verdict.reason === "stop-after-turn") {
+          // Terminates nothing: counted on delivery of the latch. Undelivered is
+          // a transient transport state — retried next sweep, never given up.
+          if (deps.sendStopAfterTurn(s.id)) {
+            confirmed = true;
+            deps.onReap?.(s.id, verdict.reason, declared);
+          } else {
+            console.warn(`[embed-lifecycle] reclaim(${s.id}, stop-after-turn): latch not delivered`);
+            deps.onReclaimFailed?.(s.id, verdict.reason, undefined);
+          }
+          return;
+        }
+        // idle + phantom both use the graceful, resumable kill ladder.
+        const result = await safeTerminate(s.id);
+        if (result.terminated) {
+          confirmed = true;
+          giveUp.clear(s.id);
+          deps.clearCloseRequest?.(s.id);
           deps.onReap?.(s.id, verdict.reason, declared);
         } else {
-          console.warn(`[embed-lifecycle] reclaim(${s.id}, stop-after-turn): latch not delivered`);
-          deps.onReclaimFailed?.(s.id, verdict.reason, undefined);
+          reportFailedKill(s.id, verdict.reason, result);
         }
-        return;
-      }
-      // idle + phantom both use the graceful, resumable kill ladder.
-      const result = await safeTerminate(s.id);
-      if (result.terminated) {
-        giveUp.clear(s.id);
-        deps.clearCloseRequest?.(s.id);
-        deps.onReap?.(s.id, verdict.reason, declared);
-      } else {
-        reportFailedKill(s.id, verdict.reason, result);
+      } finally {
+        if (marked && !confirmed) deps.markArchiveOnEnd?.(s.id, false);
       }
     } finally {
       reaping.delete(s.id);

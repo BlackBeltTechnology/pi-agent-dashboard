@@ -50,6 +50,7 @@ interface Harness {
   reaped: Array<[string, ReapReason, string | undefined]>;
   verdicts: Array<[string, string, CloserOutcome]>;
   archived: string[];
+  restored: Array<[string, boolean]>;
   probes: number;
   registry: SessionCloserRegistry;
 }
@@ -62,6 +63,7 @@ function harness(sessions: DashboardSession[], opts: { enabled?: boolean } = {})
     reaped: [],
     verdicts: [],
     archived: [],
+    restored: [],
     probes: 0,
     registry,
     deps: undefined as unknown as ReaperDeps,
@@ -96,7 +98,10 @@ function harness(sessions: DashboardSession[], opts: { enabled?: boolean } = {})
     closerFor: (owner) => registry.get(owner),
     isCloseRequested: (id) => registry.isCloseRequested(id),
     clearCloseRequest: (id) => registry.clearCloseRequest(id),
-    markArchiveOnEnd: (id) => h.archived.push(id),
+    markArchiveOnEnd: (id, value = true) => {
+      if (value) h.archived.push(id);
+      else h.restored.push([id, value]);
+    },
     onCloserVerdict: (id, owner, _r, outcome) => h.verdicts.push([id, owner, outcome]),
   };
   return h;
@@ -227,6 +232,17 @@ describe("reaper — close requests, mode, attribution (E14, E17, E18)", () => {
     await createIdleReaper(h.deps).sweepOnce();
     expect(h.kills.sort()).toEqual(["a", "b"]);
     expect(h.archived).toEqual(["a"]);
+  });
+
+  it("E17: an unconfirmed kill rolls the archive mark back (PR #923 review)", async () => {
+    const h = harness([declared({ id: "a" }, { mode: "archive" })]);
+    h.deps.terminate = async (id) => {
+      h.kills.push(id);
+      return { outcome: "unconfirmed" as const, terminated: false };
+    };
+    await createIdleReaper(h.deps).sweepOnce();
+    expect(h.archived).toEqual(["a"]);
+    expect(h.restored).toEqual([["a", false]]);
   });
 
   it("E18: declared reaps carry the owner; ephemeral reaps do not (test-plan #E18)", async () => {

@@ -52,6 +52,10 @@ function makeFakeHost(tmp: string): FakeHost {
         principalOwner: ref.principalOwner,
         // The real host stores the whole filed ref under pluginRefs.<pluginId>.
         pluginRefs: { team: ref as unknown as Record<string, unknown> },
+        // Mirrors core: a close declaration is applied on first register.
+        ...(opts.lifecycle?.close
+          ? { closePolicy: { owner: "team", idleAfterMs: opts.lifecycle.close.idle?.afterMs, mode: opts.lifecycle.close.mode ?? "sleep" } }
+          : {}),
       };
       const fire = () => {
         if (!host.behavior.resolve) {
@@ -164,6 +168,7 @@ export async function makeHarness(o: HarnessOptions = {}): Promise<Harness> {
     renderPersona: o.renderPersona,
     now: o.now,
     ops: o.ops,
+    sweepEveryMs: 0,
     listOperatorSkills: o.listOperatorSkills,
     onManagedWrite: o.onManagedWrite,
     resolveCwdPolicy: o.resolveCwdPolicy,

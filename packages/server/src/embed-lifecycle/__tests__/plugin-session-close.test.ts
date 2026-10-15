@@ -32,18 +32,18 @@ function sess(over: Partial<DashboardSession> = {}): DashboardSession {
   } as DashboardSession;
 }
 
-function api(sessions: DashboardSession[], pluginId = "team", trusted = true) {
+function api(sessions: DashboardSession[], pluginId = "team", trusted = true, closeOk = true) {
   const registry = createSessionCloserRegistry();
-  const calls = { kills: [] as string[], archived: [] as string[], warns: [] as string[], requests: 0 };
+  const calls = { kills: [] as string[], archived: [] as string[], restored: [] as string[], warns: [] as string[], requests: 0 };
   const a = createPluginSessionCloseApi(
     {
       registry,
       getSession: (id) => sessions.find((s) => s.id === id),
       closeNow: async (id) => {
         calls.kills.push(id);
-        return true;
+        return closeOk;
       },
-      markArchiveOnEnd: (id) => calls.archived.push(id),
+      markArchiveOnEnd: (id, value = true) => (value ? calls.archived : calls.restored).push(id),
       onCloseRequest: () => {
         calls.requests += 1;
       },
@@ -75,6 +75,14 @@ describe("requestSessionClose", () => {
     const { a, calls } = api([sess({ closePolicy: { owner: "team", mode: "archive" } })]);
     await a.requestSessionClose({ sessionId: "s1", reason: "x", when: "now" });
     expect(calls.archived).toEqual(["s1"]);
+    expect(calls.restored).toEqual([]);
+  });
+
+  it("E13: a failed when:now close rolls the archive mark back (PR #923 review)", async () => {
+    const { a, calls } = api([sess({ closePolicy: { owner: "team", mode: "archive" } })], "team", true, false);
+    expect(await a.requestSessionClose({ sessionId: "s1", reason: "x", when: "now" })).toBe(false);
+    expect(calls.archived).toEqual(["s1"]);
+    expect(calls.restored).toEqual(["s1"]);
   });
 
   it("when:idle records a request instead of killing", async () => {
