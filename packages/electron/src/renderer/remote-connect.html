@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Connect to Remote Dashboard — PI Dashboard</title>
   <style>
@@ -83,6 +84,21 @@
     .badge-current { flex: none; font-size: 0.68rem; color: var(--primary-text); border: 1px solid var(--primary); border-radius: 999px; padding: 0.05rem 0.5rem; }
     .server-remove { flex: none; background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: 1.1rem; line-height: 1; padding: 0.15rem 0.35rem; border-radius: 0.3rem; }
     .server-remove:hover { color: var(--err); background: rgba(239,68,68,0.12); }
+    .section { margin-top: 1.6rem; padding-top: 1.25rem; border-top: 1px solid var(--separator); }
+    .section:first-of-type { border-top: none; margin-top: 1rem; padding-top: 0; }
+    .section h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; margin-bottom: 0.6rem; }
+    .empty { color: var(--muted); font-size: 0.85rem; }
+    .row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+    .row-main .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9rem; }
+    .row-main .meta { color: var(--muted); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .state { flex: none; font-size: 0.7rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.05rem 0.5rem; color: var(--muted); }
+    .state.paired { color: var(--ok); border-color: var(--ok); }
+    .state.warn { color: var(--busy); border-color: var(--busy); }
+    .row-actions { flex: none; display: flex; gap: 0.35rem; }
+    .btn-small { border: 1px solid var(--border); background: var(--secondary); color: var(--text); border-radius: 0.4rem; font-size: 0.78rem; padding: 0.3rem 0.6rem; cursor: pointer; }
+    .btn-small:hover { background: var(--secondary-hover); }
+    .btn-small:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .btn-small.danger:hover { color: var(--err); }
   </style>
 </head>
 <body>
@@ -90,55 +106,87 @@
     <span id="mode-badge" class="mode-badge">
       <span class="dot"></span><span id="mode-text">Currently: Local server</span>
     </span>
-    <h1>Connect to Remote Dashboard</h1>
+    <h1>Connect to Another Dashboard</h1>
     <p class="lead">
-      Point this app at a dashboard running on another machine (for example a Docker
-      host or a server on your network) instead of starting a local one.
+      Pair with a dashboard on your network and open it in its own window while your
+      local dashboard keeps running &mdash; or attach this whole app to one remote dashboard.
     </p>
-    <label class="field-label" for="remote-url">Dashboard URL</label>
-    <div class="form-row">
-      <input id="remote-url" type="text" placeholder="http://hostname:8000" autocomplete="off" spellcheck="false" />
-      <button id="test-btn" class="btn btn-secondary">Test</button>
-    </div>
     <div id="status" class="status" role="status" aria-live="polite"></div>
-    <p class="prereq-note">
-      <span class="icon" aria-hidden="true">ⓘ</span>
-      <span>On the <b>server machine</b>, the dashboard must be started with network
-      access enabled (listening on the network, not just <code>localhost</code>), and
-      the OS firewall must allow the port. Otherwise it won&rsquo;t be reachable from here.</span>
-    </p>
-    <p class="restart-note">
-      Connecting restarts PI Dashboard so it can attach to the remote server.
-      Your local server (if running) keeps running.
-    </p>
-    <div class="actions">
-      <button id="cancel-btn" class="btn btn-ghost">Cancel</button>
-      <button id="connect-btn" class="btn btn-primary" disabled>Connect &amp; Restart</button>
-    </div>
-    <div class="recent">
-      <h2>Servers</h2>
-      <ul id="server-list" class="server-list" aria-label="Saved servers"></ul>
-    </div>
+
+    <section class="section" aria-labelledby="h-paired">
+      <h2 id="h-paired">Paired servers</h2>
+      <ul id="paired-list" class="server-list" aria-label="Paired servers"></ul>
+    </section>
+
+    <section class="section" aria-labelledby="h-discovered">
+      <h2 id="h-discovered">Discovered on this network</h2>
+      <ul id="discovered-list" class="server-list" aria-label="Discovered servers"></ul>
+    </section>
+
+    <section class="section" aria-labelledby="h-url">
+      <h2 id="h-url">Enter a URL</h2>
+      <label class="field-label" for="remote-url">Dashboard URL</label>
+      <div class="form-row">
+        <input id="remote-url" type="text" placeholder="http://hostname:8000" autocomplete="off" spellcheck="false" />
+        <button id="test-btn" class="btn btn-secondary">Test</button>
+      </div>
+      <p class="prereq-note">
+        <span class="icon" aria-hidden="true">ⓘ</span>
+        <span>On the <b>server machine</b>, the dashboard must be started with network
+        access enabled (listening on the network, not just <code>localhost</code>), and
+        the OS firewall must allow the port. Otherwise it won&rsquo;t be reachable from here.</span>
+      </p>
+      <p class="restart-note">
+        <b>Open in window</b> pairs with that dashboard and opens it in its own window; this app stays on your local dashboard.
+        <b>Use as remote dashboard</b> restarts PI Dashboard so it attaches to that server instead (your local server, if running, keeps running).
+      </p>
+      <div class="actions">
+        <button id="cancel-btn" class="btn btn-ghost">Close</button>
+        <button id="window-btn" class="btn btn-secondary" disabled>Open in window</button>
+        <button id="connect-btn" class="btn btn-primary" disabled>Use as remote dashboard</button>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="h-recent">
+      <h2 id="h-recent">Recent remote dashboards</h2>
+      <ul id="server-list" class="server-list" aria-label="Recent remote dashboards"></ul>
+    </section>
   </div>
 
   <script>
     // Talks to the main process via window.remoteConnect (remote-connect-preload.ts):
-    //   probe(url)   → fetch(`${url}/api/health`) in main
-    //   connect(url) → writeModeFile("remote", url) + addRecentRemote + relaunch
-    //   useLocal()   → writeModeFile("standalone") + relaunch
-    //   forget(url)  → removeRecentRemote(url)
+    //   probe(url)        → fetch(`${url}/api/health`) in main
+    //   connect(url)      → writeModeFile("remote", url) + addRecentRemote + relaunch ("Use as remote dashboard")
+    //   useLocal()        → writeModeFile("standalone") + relaunch
+    //   forget(url)       → removeRecentRemote(url)
+    //   listServers() / onServersChanged() / openServer() / connectServer() / openInWindow()
+    //   forgetServer() / pairAgain()  → main-process servers:* (no mode change, no relaunch)
+    // All server-supplied text is rendered with textContent (names are untrusted).
     const api = window.remoteConnect;
     const urlInput   = document.getElementById("remote-url");
     const testBtn    = document.getElementById("test-btn");
     const connectBtn = document.getElementById("connect-btn");
+    const windowBtn  = document.getElementById("window-btn");
     const cancelBtn  = document.getElementById("cancel-btn");
     const status     = document.getElementById("status");
     const modeBadge  = document.getElementById("mode-badge");
     const modeText   = document.getElementById("mode-text");
     const serverList = document.getElementById("server-list");
+    const pairedList = document.getElementById("paired-list");
+    const discList   = document.getElementById("discovered-list");
 
     let state = { mode: "standalone", remoteUrl: undefined, recent: [] };
+    let servers = { paired: [], discovered: [], recent: [] };
     let verifiedUrl = null;
+
+    const REASONS = {
+      unreachable: "unreachable, or it answered with a different identity",
+      identity_mismatch: "it answered with a different identity than the one pinned",
+      needs_pairing: "its credential was refused — pair again",
+      unknown_server: "that server is no longer listed",
+      invalid: "that address is not valid",
+      untrusted: "request refused",
+    };
 
     function normalize(v) {
       v = (v || "").trim();
@@ -160,12 +208,59 @@
     }
     function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
+    function el(tag, cls, text) {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text !== undefined) e.textContent = text;
+      return e;
+    }
+    function actionBtn(label, action, data, danger) {
+      const b = el("button", "btn-small" + (danger ? " danger" : ""), label);
+      b.dataset.action = action;
+      for (const [k, v] of Object.entries(data || {})) b.dataset[k] = v;
+      return b;
+    }
+    function row(name, meta, stateText, stateCls, actions) {
+      const li = el("li", "server-row");
+      const main = el("div", "row-main");
+      main.append(el("span", "name", name), el("span", "meta", meta));
+      li.append(main, el("span", "state " + (stateCls || ""), stateText));
+      const box = el("div", "row-actions");
+      box.append(...actions);
+      li.append(box);
+      return li;
+    }
+
     function renderMode() {
       const isRemote = state.mode === "remote";
       modeBadge.classList.toggle("remote", isRemote);
       modeText.textContent = isRemote ? `Currently: Remote — ${state.remoteUrl}` : "Currently: Local server";
       if (isRemote && state.remoteUrl && !urlInput.value) urlInput.value = state.remoteUrl;
     }
+
+    function renderPaired() {
+      pairedList.replaceChildren();
+      if (servers.paired.length === 0) { pairedList.append(el("li", "empty", "No paired servers yet.")); return; }
+      for (const p of servers.paired) {
+        const needs = p.state === "needs-pairing";
+        const actions = needs
+          ? [actionBtn("Pair again", "pair-again", { fp: p.fingerprint }), actionBtn("Forget", "forget", { fp: p.fingerprint }, true)]
+          : [actionBtn("Open", "open", { fp: p.fingerprint }), actionBtn("Forget", "forget", { fp: p.fingerprint }, true)];
+        pairedList.append(row(p.label, (p.host ? p.host + " · " : "") + p.shortFp, needs ? "Needs pairing" : "Paired", needs ? "warn" : "paired", actions));
+      }
+    }
+
+    function renderDiscovered() {
+      discList.replaceChildren();
+      if (servers.discovered.length === 0) { discList.append(el("li", "empty", "No other dashboards found on this network.")); return; }
+      for (const d of servers.discovered) {
+        const noId = d.state === "identity-not-advertised";
+        const stateText = noId ? "Identity not advertised" : "Not paired";
+        const meta = d.host + ":" + d.port + (d.note ? " · " + d.note : "");
+        discList.append(row(d.name, meta, stateText, noId ? "warn" : "", [actionBtn("Connect", "connect", { key: d.key })]));
+      }
+    }
+
     function renderServers() {
       const isRemote = state.mode === "remote";
       const rows = [];
@@ -180,22 +275,56 @@
         const u = esc(s.url);
         rows.push(
           `<li class="server-row ${current ? "current" : ""}">` +
-            `<button class="server-pick" data-action="connect" data-url="${u}" title="${u}">` +
+            `<button class="server-pick" data-action="use-remote" data-url="${u}" title="Use as remote dashboard: ${u}">` +
               `<span class="dot"></span><span class="label">${u}</span><span class="sub">${relTime(s.lastUsed)}</span>` +
             `</button>` +
             (current
               ? '<span class="badge-current">Current</span>'
-              : `<button class="server-remove" data-action="remove" data-url="${u}" aria-label="Remove ${u}" title="Remove">&times;</button>`) +
+              : `<button class="btn-small" data-action="window-url" data-url="${u}">Open in window</button>` +
+                `<button class="server-remove" data-action="remove" data-url="${u}" aria-label="Remove ${u}" title="Remove">&times;</button>`) +
           `</li>`,
         );
       }
       serverList.innerHTML = rows.join("");
     }
+
+    function renderAll() { renderMode(); renderPaired(); renderDiscovered(); renderServers(); }
+
+    function applyServers(s) { servers = s; renderPaired(); renderDiscovered(); }
+
     async function refresh() {
       state = await api.getState();
-      renderMode();
-      renderServers();
+      try { servers = await api.listServers(); } catch (e) { servers = { paired: [], discovered: [], recent: [] }; }
+      renderAll();
     }
+
+    function reportResult(label, res) {
+      if (res && res.ok) {
+        setStatus(res.pairing ? "busy" : "ok", res.pairing ? `Pairing with ${label} — follow the Connecting window.` : `Opened ${label}.`);
+      } else {
+        setStatus("err", `Could not open ${label}: ${REASONS[res && res.reason] || "unknown error"}.`);
+      }
+    }
+
+    pairedList.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-action]");
+      if (!btn) return;
+      const fp = btn.dataset.fp;
+      const name = (servers.paired.find((p) => p.fingerprint === fp) || {}).label || "server";
+      if (btn.dataset.action === "open") reportResult(name, await api.openServer(fp));
+      if (btn.dataset.action === "pair-again") reportResult(name, await api.pairAgain(fp));
+      if (btn.dataset.action === "forget") {
+        const r = await api.forgetServer(fp);
+        setStatus(r.ok ? "ok" : "err", r.message);
+      }
+    });
+
+    discList.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-action=connect]");
+      if (!btn) return;
+      const d = servers.discovered.find((x) => x.key === btn.dataset.key);
+      reportResult(d ? d.name : "server", await api.connectServer(btn.dataset.key));
+    });
 
     serverList.addEventListener("click", async (e) => {
       const btn = e.target.closest("[data-action]");
@@ -203,7 +332,8 @@
       const { action, url } = btn.dataset;
       if (action === "remove") { state.recent = await api.forget(url); renderServers(); return; }
       if (action === "local") { setStatus("busy", "Switching to local dashboard — restarting…", true); await api.useLocal(); return; }
-      if (action === "connect") { setStatus("busy", `Connecting to ${url} — restarting…`, true); await api.connect(url); }
+      if (action === "use-remote") { setStatus("busy", `Connecting to ${url} — restarting…`, true); await api.connect(url); return; }
+      if (action === "window-url") reportResult(url, await api.openInWindow(url));
     });
 
     async function runTest() {
@@ -226,17 +356,24 @@
     urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") runTest(); });
     urlInput.addEventListener("input", () => {
       verifiedUrl = null; connectBtn.disabled = true;
+      windowBtn.disabled = !normalize(urlInput.value);
       if (status.textContent) setStatus("", "");
+    });
+    windowBtn.addEventListener("click", async () => {
+      const url = normalize(urlInput.value);
+      if (!url) return;
+      reportResult(url, await api.openInWindow(url));
     });
     connectBtn.addEventListener("click", async () => {
       if (!verifiedUrl) return;
       setStatus("busy", `Connecting to ${verifiedUrl} — restarting…`, true);
-      connectBtn.disabled = true; testBtn.disabled = true;
+      connectBtn.disabled = true; testBtn.disabled = true; windowBtn.disabled = true;
       await api.connect(verifiedUrl);
     });
     cancelBtn.addEventListener("click", () => api.close());
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") api.close(); });
 
+    api.onServersChanged(applyServers);
     refresh();
     urlInput.focus();
   </script>

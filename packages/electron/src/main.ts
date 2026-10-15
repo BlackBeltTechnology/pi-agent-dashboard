@@ -16,7 +16,8 @@
 
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
-import { decideWillNavigate } from "./lib/link-handling.js";
+import { decideWillNavigate, openExternalIfAllowed } from "./lib/link-handling.js";
+import { isTrustedSenderUrl, trustedHandler, trustedListener, type SenderEventLike } from "./lib/ipc-trust.js";
 import { resolveCdpActivation } from "./lib/resolve-cdp-activation.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -123,6 +124,7 @@ import {
   setSpawnedPid,
   stopServerIfNeeded,
 } from "./lib/server-lifecycle.js";
+import { type ServerWindowsHandle, startServerWindows } from "./lib/server-windows-main.js";
 import { createTray, destroyTray, type TrayOwnership } from "./lib/tray.js";
 import { startUpdateChecker } from "./lib/update-checker.js";
 import { notifyUpdatesAvailable } from "./lib/update-notifier.js";
@@ -390,10 +392,11 @@ function showSplash(): void {
 function updateSplashStatus(text: string): void {
   log(`splash: ${text}`);
   if (!splashWindow || splashWindow.isDestroyed()) return;
-  const safe = text.replace(/`/g, "\\`").replace(/\$/g, "\\$");
+  // JSON string literal, with `<`, `>`, `/`, U+2028 and U+2029 as \u escapes (the serialize-javascript set).
+  const literal = JSON.stringify(text).replace(/[<>/\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
   splashWindow.webContents
     .executeJavaScript(
-      `(() => { const el = document.getElementById("status"); if (el) el.textContent = \`${safe}\`; })()`,
+      `(() => { const el = document.getElementById("status"); if (el) el.textContent = ${literal}; })()`,
     )
     .catch(() => { /* splash may be closing */ });
 }
@@ -410,12 +413,44 @@ function closeSplash(): void {
  * Resolve the path to the preload script attached to the main window.
  */
 function getMainPreloadPath(): string {
+  // Minimal preload (piDashboard only) — NOT `preload.js`, which carries the
+  // wizard bridges. See change: harden-electron-renderer-boundary (VD5).
   const dir = path.dirname(__filename);
-  const sameDir = path.join(dir, "preload.js");
+  const sameDir = path.join(dir, "preload-main.js");
   if (fs.existsSync(sameDir)) return sameDir;
-  const forgeDev = path.join(process.cwd(), ".vite", "build", "preload.js");
+  const forgeDev = path.join(process.cwd(), ".vite", "build", "preload-main.js");
   if (fs.existsSync(forgeDev)) return forgeDev;
   return sameDir;
+}
+
+/**
+ * Hand a URL to the OS only when its scheme is http/https/mailto; everything
+ * else (file:, ms-msdt:, search-ms:, smb:, …) is dropped.
+ * See change: harden-electron-renderer-boundary (VD4).
+ */
+function safeOpenExternal(url: string): void {
+  const open = (u: string): void => {
+    shell.openExternal(u).catch((err: unknown) => log(`openExternal failed: ${err instanceof Error ? err.message : String(err)}`));
+  };
+  if (!openExternalIfAllowed(url, open)) {
+    log(`openExternal blocked (scheme not allowlisted): ${String(url).slice(0, 80)}`);
+  }
+}
+
+/**
+ * True when an IPC call comes from the local loading page or the LOCAL
+ * dashboard origin — never from remote content. See `lib/ipc-trust.ts`.
+ * See change: harden-electron-renderer-boundary (VD5).
+ */
+function isTrustedSender(event: SenderEventLike | undefined): boolean {
+  return isTrustedSenderUrl(event?.senderFrame?.url, {
+    loadingPagePath: resolveLoadingPagePath(),
+    localPort: loadMinimalConfig().port,
+  });
+}
+
+function logRejectedSender(channel: string, event: SenderEventLike | undefined): void {
+  log(`IPC ${channel} rejected: untrusted sender ${String(event?.senderFrame?.url ?? "<none>").slice(0, 120)}`);
 }
 
 /**
@@ -424,31 +459,37 @@ function getMainPreloadPath(): string {
  */
 function registerPiDashboardIpc(): void {
   ipcMain.removeHandler("dashboard:request-launch");
-  ipcMain.handle("dashboard:request-launch", async (_event, payload: { force?: boolean } = {}) => {
+  ipcMain.handle("dashboard:request-launch", trustedHandler("dashboard:request-launch", isTrustedSender, async (_event: SenderEventLike, payload: { force?: boolean } = {}) => {
     return requestServerLaunch({ force: !!payload?.force });
-  });
+  }, logRejectedSender));
 
   ipcMain.removeHandler("dashboard:read-server-log");
-  ipcMain.handle("dashboard:read-server-log", async (_event, payload: { lines?: number } = {}) => {
+  ipcMain.handle("dashboard:read-server-log", trustedHandler("dashboard:read-server-log", isTrustedSender, async (_event: SenderEventLike, payload: { lines?: number } = {}) => {
     return readServerLogTail(payload?.lines ?? 20);
-  });
+  }, logRejectedSender));
 
   // Settings → Dashboard runtime "Check for app update" (requires_app refusal).
-  // No renderer input. See change: electron-runtime-overlay-updates.
+  // No renderer input. Deliberately NOT sender-gated: the Settings button lives
+  // in the dashboard page, which in remote mode is a remote origin; the worst a
+  // remote page can do is trigger an update check (no data in, none out).
+  // See change: electron-runtime-overlay-updates, harden-electron-renderer-boundary.
   ipcMain.removeHandler("dashboard:check-app-update");
   ipcMain.handle("dashboard:check-app-update", () => handleCheckForUpdates());
 
   ipcMain.removeHandler("dashboard:probe-server");
-  ipcMain.handle("dashboard:probe-server", async (_event, payload: { url?: unknown } = {}) => {
+  ipcMain.handle("dashboard:probe-server", trustedHandler("dashboard:probe-server", isTrustedSender, async (_event: SenderEventLike, payload: { url?: unknown } = {}) => {
     // Untrusted renderer input — normalize before use. Node fetch sends no
     // Origin header, so this is not subject to the remote's CORS policy.
+    // `probeRemote` refuses link-local / unspecified targets (B10).
     const url = normalizeRemoteUrl(payload?.url);
     if (!url) return { ok: false, reason: "Invalid URL" };
     return probeRemote(url);
-  });
+  }, logRejectedSender));
 
   ipcMain.removeAllListeners("dashboard:open-doctor");
-  ipcMain.on("dashboard:open-doctor", () => { void showDoctorDialog(); });
+  ipcMain.on("dashboard:open-doctor", trustedListener("dashboard:open-doctor", isTrustedSender, () => {
+    showDoctorDialog().catch((err: unknown) => log(`doctor dialog failed: ${err instanceof Error ? err.message : String(err)}`));
+  }, logRejectedSender));
 }
 
 /**
@@ -490,8 +531,38 @@ let isQuitting = false;
 let cleanupUpdateChecker: (() => void) | null = null;
 let cleanupAutoUpdater: (() => void) | null = null;
 
-function createMainWindow(serverUrl: string): BrowserWindow {
+/**
+ * Origin of the dashboard this app launched or adopted (never the remote-mode
+ * origin). Gates the open-server-window bridge and the `servers:*` IPC from the
+ * main window. See change: add-electron-server-windows (D9).
+ */
+let localDashboardOrigin: string | undefined;
+let serverWindowsHandle: ServerWindowsHandle | null = null;
+
+/** Start discovery / keyring / server-window IPC once the first main window exists. */
+function ensureServerWindows(): void {
+  if (serverWindowsHandle) return;
+  try {
+    serverWindowsHandle = startServerWindows({
+      getMainWindow: () => mainWindow,
+      getLocalOrigin: () => localDashboardOrigin,
+      openExternal: safeOpenExternal,
+      cdpActive: _cdp.enabled,
+      log,
+    });
+  } catch (err) {
+    log(`[server-windows] failed to start: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+  }
+}
+
+function createMainWindow(serverUrl: string, opts: { local?: boolean } = {}): BrowserWindow {
   const state = loadWindowState();
+  const isLocal = opts.local !== false;
+  try {
+    localDashboardOrigin = isLocal ? new URL(serverUrl).origin : undefined;
+  } catch {
+    localDashboardOrigin = undefined;
+  }
 
   mainWindow = new BrowserWindow({
     title: "PI Dashboard",
@@ -503,6 +574,8 @@ function createMainWindow(serverUrl: string): BrowserWindow {
       nodeIntegration: false,
       contextIsolation: true,
       preload: getMainPreloadPath(),
+      // The preload exposes openServerWindow only when the document is on this origin.
+      additionalArguments: localDashboardOrigin ? [`--pi-local-origin=${localDashboardOrigin}`] : [],
     },
   });
 
@@ -510,7 +583,7 @@ function createMainWindow(serverUrl: string): BrowserWindow {
 
   // External-link hardening (issue #13, change: harden-external-link-handling).
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    void shell.openExternal(details.url);
+    safeOpenExternal(details.url);
     return { action: "deny" };
   });
   mainWindow.webContents.on("will-navigate", (event, url) => {
@@ -518,7 +591,7 @@ function createMainWindow(serverUrl: string): BrowserWindow {
     const decision = decideWillNavigate(serverUrl, currentUrl, url);
     if (decision === "open-external") {
       event.preventDefault();
-      void shell.openExternal(url);
+      safeOpenExternal(url);
     } else if (decision === "cancel") {
       event.preventDefault();
     }
@@ -528,6 +601,8 @@ function createMainWindow(serverUrl: string): BrowserWindow {
   // approval in every mode and for `requireLocalProof`. Falls back to the plain URL.
   // See change: harden-trust-and-credential-boundaries (D2/D6).
   loadWithLocalProof(mainWindow, serverUrl, { host: loadMinimalConfig().host }).catch((e) => log(`loadURL failed: ${e?.message || e}`));
+
+  ensureServerWindows();
 
   mainWindow.on("resize", () => mainWindow && saveWindowState(mainWindow));
   mainWindow.on("move", () => mainWindow && saveWindowState(mainWindow));
@@ -589,6 +664,7 @@ async function quit(): Promise<void> {
   setGracefulShutdownInProgress(true);
   cleanupUpdateChecker?.();
   cleanupAutoUpdater?.();
+  serverWindowsHandle?.dispose();
   await stopServerIfNeeded();
   destroyTray();
   app.quit();
@@ -649,6 +725,9 @@ async function main(): Promise<void> {
 
   app.name = "PI Dashboard";
   setupAppMenu();
+  // Discovery / keyring / `servers:*` IPC are ready before any window exists, so the
+  // Connect… and Servers menu items work during startup. See change: add-electron-server-windows.
+  ensureServerWindows();
 
   // Register loading-page IPC (Start server / Open Doctor / Server log).
   registerPiDashboardIpc();
@@ -666,7 +745,7 @@ async function main(): Promise<void> {
       const remoteUrl = modeConfig.remoteUrl;
       log(`[launch-source] remote mode → attach ${remoteUrl}`);
       updateSplashStatus("Opening remote dashboard…");
-      const win = createMainWindow(remoteUrl);
+      const win = createMainWindow(remoteUrl, { local: false });
       closeSplash();
       showLoadingPage(win, remoteUrl);
       createTray(() => mainWindow, requestQuit, {

@@ -1,6 +1,6 @@
 # DOX — tests/e2e
 
-One row per file. See change: migrate-file-index-to-agents-tree.
+One row per file.
 
 | File | Purpose |
 |------|---------|
@@ -13,6 +13,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `agent-path-gate.spec.ts` | L3 path gate. → see `agent-path-gate.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | L3 #F1/#F5 service-session arc… → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | L3 F8/F11 archived attachment. → see `archived-attachment.spec.ts.AGENTS.md` |
+| `composer-liveness-reload.spec.ts` | L3 → see `composer-liveness-reload.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
 | `first-run-create-project.spec.ts` | F16/F17 → see `first-run-create-project.spec.ts.AGENTS.md` |
@@ -25,6 +26,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
+| `pi-settings-editor.spec.ts` | L3 pi settings (#F13/#F14) |
 | `plugin-embedded-app.spec.ts` | L3 demo `"content"` embedded app (F1/F2). → see `plugin-embedded-app.spec.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | L3 demo-plugin seams, unmocked: F1 start → auth… → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
 | `preview-denial-remedy.spec.ts` | L3 preview denial remedy (#F1,#F4-#F13,#X1,#X2). → see `preview-denial-remedy.spec.ts.AGENTS.md` |
@@ -40,6 +42,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `diagram-preview.spec.ts` | L3 diagram preview (.puml and adoc hydration) in the… → see `diagram-preview.spec.ts.AGENTS.md` |
 | `automation-fanout.spec.ts` | L3 fan-out E2E (test-plan F5/F6). Creates an `actions:`… → see `automation-fanout.spec.ts.AGENTS.md` |
 | `automation-identity-restart.spec.ts` | → see `automation-identity-restart.spec.ts.AGENTS.md` |
+| `automation-stop-tmux.spec.ts` | L3 (X19/X20). Stop kills a tmux run's real pi. → see `automation-stop-tmux.spec.ts.AGENTS.md` |
 | `background-stream-selection.spec.ts` | L3. → see `background-stream-selection.spec.ts.AGENTS.md` |
 | `copy-insecure-context.spec.ts` | L3 test-plan #X3 (change: fix-long-session-u… → see `copy-insecure-context.spec.ts.AGENTS.md` |
 | `drag-body-style.spec.ts` | #F23 — breakpoint flip unmounts dragger mid-drag; body… → see `drag-body-style.spec.ts.AGENTS.md` |
@@ -61,21 +64,21 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `origin-gate.spec.ts` | L3 cross-site gates in browser reality (#F1-#F3): hostile… → see `origin-gate.spec.ts.AGENTS.md` |
 | `csp.spec.ts` | Baseline CSP e2e (§7). Asserts a CSP header (report-only… → see `csp.spec.ts.AGENTS.md` |
 | `ctx-running-render.spec.ts` | Browser E2E for `fix-ctx-running-render`. Drives… → see `ctx-running-render.spec.ts.AGENTS.md` |
-| `custom-entry-fallback.spec.ts` | L3 (change: render-inline-reasoning-and-custom-entries… → see `custom-entry-fallback.spec.ts.AGENTS.md` |
+| `custom-entry-fallback.spec.ts` | L3 (change… → see `custom-entry-fallback.spec.ts.AGENTS.md` |
 | `custom-entry-om-renderer.spec.ts` | L3 (change: add-custom-entry-renderer-slot, F15). → see `custom-entry-om-renderer.spec.ts.AGENTS.md` |
-| `custom-entry-replay-parity.spec.ts` | L3 (change: render-inline-reasoning-and-cust… → see `custom-entry-replay-parity.spec.ts.AGENTS.md` |
+| `custom-entry-replay-parity.spec.ts` | L3 custom-entry replay parity → see `custom-entry-replay-parity.spec.ts.AGENTS.md` |
 | `custom-entry-web-search.spec.ts` | L3 F17/F18. → see `custom-entry-web-search.spec.ts.AGENTS.md` |
 | `dashboard-slash.spec.ts` | Browser E2E: spawn session → `/dashboard:server-health`… → see `dashboard-slash.spec.ts.AGENTS.md` |
 | `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home page… → see `directory-home.spec.ts.AGENTS.md` |
 | `editor-pane.spec.ts` | Playwright E2E for internal Monaco editor pane (change… → see `editor-pane.spec.ts.AGENTS.md` |
-| `durable-session-diff.spec.ts` | L3 (change: fix-session-diff-durable-source, #F1): after… → see `durable-session-diff.spec.ts.AGENTS.md` |
+| `durable-session-diff.spec.ts` | L3 (change… → see `durable-session-diff.spec.ts.AGENTS.md` |
 | `empty-model-selector.spec.ts` | L3 for `open-empty-model-selector`. Proves the… → see `empty-model-selector.spec.ts.AGENTS.md` |
 | `model-favorites-cross-surface.spec.ts` | L3 F3 of… → see `model-favorites-cross-surface.spec.ts.AGENTS.md` |
 | `keeper-log-health.spec.ts` | L3 (test-plan #F1, #F2): `/api/health` carries… → see `keeper-log-health.spec.ts.AGENTS.md` |
 | `ended-session-endedat.spec.ts` | L3 for the evidence-based `endedAt` invarian… → see `ended-session-endedat.spec.ts.AGENTS.md` |
 | `explicit-model-preserved.spec.ts` | L3 for `fix-default-model-clobbers-explicit-… → see `explicit-model-preserved.spec.ts.AGENTS.md` |
 | `extension-slash-inprocess.spec.ts` | L3 in-process extension slash dispatch (test… → see `extension-slash-inprocess.spec.ts.AGENTS.md` |
-| `enhance-tool-call-grouping.spec.ts` | Playwright spec for universal tool-call grou… → see `enhance-tool-call-grouping.spec.ts.AGENTS.md` |
+| `enhance-tool-call-grouping.spec.ts` | L3 tool-call grouping → see `enhance-tool-call-grouping.spec.ts.AGENTS.md` |
 | `error-lifecycle.spec.ts` | Playwright spec. Single-card error-lifecycle surface… → see `error-lifecycle.spec.ts.AGENTS.md` |
 | `faux-ask.spec.ts` | Faux-provider ask_user round trip. → see `faux-ask.spec.ts.AGENTS.md` |
 | `faux-text.spec.ts` | Playwright spec. Faux `[[faux:plain-text]]` roundtrip.… → see `faux-text.spec.ts.AGENTS.md` |
@@ -109,14 +112,14 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `history-backfill-gap.spec.ts` | L3. → see `history-backfill-gap.spec.ts.AGENTS.md` |
 | `history-backfill-perf.spec.ts` | L3 P1/P2 for `fix-lazy-history-backfill-ux`, metric… → see `history-backfill-perf.spec.ts.AGENTS.md` |
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artifacts… → see `inline-screenshot.spec.ts.AGENTS.md` |
-| `inline-terminal-transcript.spec.ts` | L3 gate for `preserve-inline-terminal-transc… → see `inline-terminal-transcript.spec.ts.AGENTS.md` |
+| `inline-terminal-transcript.spec.ts` | L3 inline-terminal transcript → see `inline-terminal-transcript.spec.ts.AGENTS.md` |
 | `kb-folder-slot.spec.ts` | Playwright spec. KB folder slot end-to-end in Docker… → see `kb-folder-slot.spec.ts.AGENTS.md` |
 | `lan-knock.spec.ts` | LAN knock L3 (F10–F14). → see `lan-knock.spec.ts.AGENTS.md` |
 | `large-session-replay.spec.ts` | L3 wire-level gate for `compact-warm-replay-stream`… → see `large-session-replay.spec.ts.AGENTS.md` |
 | `lazy-feature-bootstrap.spec.ts` | L3 cold-landing gate (F1, P1). → see `lazy-feature-bootstrap.spec.ts.AGENTS.md` |
 | `lazy-mdi-icon-set.spec.ts` | L3 lazy MDI icon set (P1, F2). → see `lazy-mdi-icon-set.spec.ts.AGENTS.md` |
 | `lifecycle.ts` | Shared E2E lifecycle module. Port dynamic: probes free… → see `lifecycle.ts.AGENTS.md` |
-| `list-models-registry-ready.spec.ts` | L3 `list_models` registry-readiness discrimi… → see `list-models-registry-ready.spec.ts.AGENTS.md` |
+| `list-models-registry-ready.spec.ts` | L3 `list_models` registry-ready → see `list-models-registry-ready.spec.ts.AGENTS.md` |
 | `manage-worktrees.spec.ts` | L3 for the manage-worktrees surface (test-plan F4, F3, F7… → see `manage-worktrees.spec.ts.AGENTS.md` |
 | `mcp-client-folder-mobile.spec.ts` | L3 mobile folder MCP page → see `mcp-client-folder-mobile.spec.ts.AGENTS.md` |
 | `mcp-client-settings-a11y.spec.ts` | L3 mcp-client settings a11y → see `mcp-client-settings-a11y.spec.ts.AGENTS.md` |
@@ -145,7 +148,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `overlay-layering.spec.ts` | Browser E2E gate for `add-overlay-layering-system`… → see `overlay-layering.spec.ts.AGENTS.md` |
 | `overlay-layout.spec.ts` | L3 GENERIC reachability gate for ALL route-backed overlays… → see `overlay-layout.spec.ts.AGENTS.md` |
 | `oversized-event-liveness.spec.ts` | L3 per-event size ceiling. → see `oversized-event-liveness.spec.ts.AGENTS.md` |
-| `package-queue-visible.spec.ts` | Browser E2E gate for `unify-pi-core-into-package-queue`… → see `package-queue-visible.spec.ts.AGENTS.md` |
+| `package-queue-visible.spec.ts` | Browser E2E gate for… → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR (change… → see `pairing-qr.spec.ts.AGENTS.md` |
 | `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call → sidecar |
 | `runtime-extension-reload-convergence.spec.ts` | F5 → see `runtime-extension-reload-convergence.spec.ts.AGENTS.md` |
@@ -167,7 +170,7 @@ One row per file. See change: migrate-file-index-to-agents-tree.
 | `real-flow-regression.spec.ts` | L3 opt-in real-flow regression. → see `real-flow-regression.spec.ts.AGENTS.md` |
 | `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested at L1 in → see `reap-core.ts.AGENTS.md` |
 | `reasoning-auto-collapse.spec.ts` | Playwright E2E for reasoning-auto-collap… → see `reasoning-auto-collapse.spec.ts.AGENTS.md` |
-| `reasoning-inline-flow.spec.ts` | L3 (change: render-inline-reasoning-and-custom-entries… → see `reasoning-inline-flow.spec.ts.AGENTS.md` |
+| `reasoning-inline-flow.spec.ts` | L3 (change… → see `reasoning-inline-flow.spec.ts.AGENTS.md` |
 | `recommended-local-name-match.spec.ts` | L3 spec (test-plan #F3, change… → see `recommended-local-name-match.spec.ts.AGENTS.md` |
 | `recommended-requires.spec.ts` | E2E for recommended-extension `requires` probe. → see `recommended-requires.spec.ts.AGENTS.md` |
 | `reconcile-heal.spec.ts` | Playwright spec (task 5.1, change… → see `reconcile-heal.spec.ts.AGENTS.md` |

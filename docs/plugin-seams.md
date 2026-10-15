@@ -251,6 +251,74 @@ Optional, additive. Absent → plugin route returns 501. See change: add-skill-a
 
 Consumer: `packages/skill-atlas-plugin` (see [`skill-atlas.md`](skill-atlas.md)).
 
+## Lazy claim modules (`module`)
+
+Lazy-load a claim's `component` into its own chunk. Additive, optional. See change: lazy-plugin-claim-modules.
+
+Manifest (`PluginClaim`, `packages/shared/src/dashboard-plugin/manifest-types.ts`):
+
+- `module?: string`. Package-relative path. Starts `./`. No `..` segment.
+- Requires `component`.
+
+Generator (`packages/dashboard-plugin-runtime/src/vite-plugin/index.ts`):
+
+- Claim with `module` → no static import of `component`.
+- Emits `Component: lazyClaim(() => import("<spec>"), "<component>")`.
+- Import spec: `<pkg>/<subpath>` if `package.json#exports` has exact subpath key targeting module file. Else path relative to generated file, ext stripped.
+- `predicate`, `shouldRender`, `labelComponent` stay static from main client entry.
+- `module` included in registry hash (`deterministicSerializePlugins`, `packages/dashboard-plugin-runtime/src/server/loader.ts`).
+
+Generation FAILS (error names plugin, slot, component, module) when:
+
+- Module file missing.
+- Module lacks named export `component`.
+- Main client entry also exports `component` (named, `export { X } from`, or `export *` resolving to module file).
+
+Production build FAILS (vite `renderChunk`) when lazy module lands in registry's own chunk. Error lists static importers. Cause: eager code imports module.
+
+Runtime:
+
+- `lazyClaim(load, name)` in `packages/dashboard-plugin-runtime/src/lazy-claim.tsx`. Exported from runtime barrel.
+- Memoized `React.lazy` keyed `(loader, name)`. Module fetched once per page.
+- Render path: `SlotErrorBoundary > Suspense(fallback) > CurrentPluginLayer > Component`.
+- Failed load contained to that claim. Siblings render.
+
+Fallback per render site:
+
+- `renderClaim` (`slot-consumers.tsx`): optional `fallback` arg, default `null`. `ContentClaimSkeleton` for `shell-overlay-route`, `content-view`.
+- `renderPaneClaim` (`editor-pane-tab.tsx`): `null`.
+- `ToolCallStep.tsx`: `null`.
+- `CustomEntryRow.tsx`: default `CustomEntryCard`.
+
+When to use:
+
+- Lazy: surfaces opened on demand (settings, overlay routes, content views, editor tabs, command routes). Components ≳10 KB raw with exclusive deps.
+- Eager: session-card badges/chips, predicates, catalogs, composer-inline claims, hot sidebar sections, small chat-history renderers (suspense gap visible).
+
+Author rules:
+
+- Do NOT export lazy component from plugin main client entry.
+- Do NOT import `module` from eager code.
+- Secondary heavy children: `lazy()` inside plugin. Example: automation `FolderAutomationSection` lazy-loads `CreateAutomationDialog`.
+
+Compatibility:
+
+- Plugin adopting `module` needs dashboard shipping this change. Set `engines`/peer floor to that dashboard version.
+- Older dashboard ignores `module` → build fails `does not export`. Loud, not silent.
+- Rollback: remove `module` from manifests. Restore barrel exports (main client entry re-exports `component`).
+
+First-party adoption (lazy):
+
+- settings-section: apple-tools, automation, blackhole, browser, chat-gateway, context-mode-settings, cost-estimator (+ CostView command-route), flows (FlowsSettings), flows-anthropic-bridge, goal, grammar, quota, roles, subagents, system-one.
+- shell-overlay-route: AutomationBoard, AutomationRunMonitor, GoalsBoardClaim, GoalDetailClaim, KbSettingsClaim, FolderMcpPage, SubagentPopoutClaim.
+- mcp-client: McpSettingsClaim (settings).
+- blackhole: PipelineDetailView (content-view).
+- browser: BrowserPaneTab (editor-pane-tab).
+- flows: FlowDashboardClaim (content-header-sticky; pulls FlowGraph dagre/d3/lodash), FlowYamlPreviewClaim, FlowInputWiringClaim, FlowWriteToolRenderer.
+- Already lazy before this change (unchanged): gmail, hermes-memory, skill-atlas heavy parts.
+
+Known follow-up (not in this change): `yaml` (~98 KB raw) still in entry via client `FrontmatterProperties` + flows `flow-idle-state.ts`.
+
 ## Trust boundary
 
 "Private" means NOT observable and NOT forgeable — NOT authenticated.

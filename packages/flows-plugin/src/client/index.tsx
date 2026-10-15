@@ -25,22 +25,17 @@ export { FlowAgentsToolRenderer } from "./FlowAgentsToolRenderer.js";
 // session-card-badge claim was dropped because the badge belongs in the
 // FLOWS subcard, not WORKSPACE. SessionFlowActions now renders the badge
 // directly via the FlowActivityBadge component.
-export { FlowDashboard, FlowDashboardClaim } from "./FlowDashboard.js";
 export { computeLayout, FlowGraph, flowStateToGraphSteps } from "./FlowGraph.js";
 // Input-wiring editor claimed into automation-plugin's `automation-action-editor`
 // slot for `flows.run`. See change: wire-flow-inputs-in-automation.
-export { FlowInputWiring, FlowInputWiringClaim } from "./FlowInputWiring.js";
 export { FlowLaunchDialog } from "./FlowLaunchDialog.js";
 export { FlowSummary, FlowSummaryClaim } from "./FlowSummary.js";
 export type { FlowsPluginConfig } from "./FlowsSettings.js";
 
 // Settings section (global edit-mode default) — manifest `settings-section` claim.
-export { FlowsSettings } from "./FlowsSettings.js";
 export { FlowTabBar } from "./FlowTabBar.js";
 // Authoring tool-renderers (main-session timeline) — referenced by the
 // manifest's `tool-renderer` claims. See change: rework-flows-plugin-for-new-pi-flows.
-export { FlowWriteToolRenderer } from "./FlowWriteToolRenderer.js";
-export { FlowYamlPreviewClaim } from "./FlowYamlPreview.js";
 export { SessionFlowActions, SessionFlowActionsClaim } from "./SessionFlowActions.js";
 
 // Manifest-level shouldRender predicate for the `session-card-flows` claim.

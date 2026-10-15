@@ -1,0 +1,12 @@
+{"id":"file.newSequence","params":{"name":"main","width":1280,"height":720,"fps":30,"fromItem":1}}
+{"id":"source.open","params":{"item":3}}
+{"id":"timeline.setTargeting","params":{"track":"V1","targeted":false}}
+{"id":"timeline.setTargeting","params":{"track":"V2","targeted":true,"sourcePatch":true}}
+{"id":"timeline.setTargeting","params":{"track":"A1","targeted":false}}
+{"id":"playhead.set","params":{"seconds":0}}
+{"id":"source.overwrite","params":{}}
+{"id":"source.open","params":{"item":2}}
+{"id":"timeline.setTargeting","params":{"track":"V2","targeted":false}}
+{"id":"timeline.setTargeting","params":{"track":"A1","targeted":true,"sourcePatch":true}}
+{"id":"playhead.set","params":{"seconds":0}}
+{"id":"source.overwrite","params":{}}

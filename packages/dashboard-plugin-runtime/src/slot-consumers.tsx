@@ -98,14 +98,20 @@ function renderClaim(
   claim: { pluginId: string; Component?: React.ComponentType<Record<string, unknown>> },
   slotId: string,
   props: Record<string, unknown>,
+  fallback: React.ReactNode = null,
 ) {
   if (!claim.Component) return null;
   const Comp = claim.Component;
+  // Suspense sits INSIDE the error boundary: a lazy claim (manifest
+  // `module`) suspends while its chunk loads and a failed load is contained
+  // to this claim. Eager components never suspend. See change: lazy-plugin-claim-modules.
   return (
     <SlotErrorBoundary key={`${claim.pluginId}:${slotId}`} pluginId={claim.pluginId} slotId={slotId}>
-      <CurrentPluginLayer pluginId={claim.pluginId}>
-        <Comp {...props} />
-      </CurrentPluginLayer>
+      <React.Suspense fallback={fallback}>
+        <CurrentPluginLayer pluginId={claim.pluginId}>
+          <Comp {...props} />
+        </CurrentPluginLayer>
+      </React.Suspense>
     </SlotErrorBoundary>
   );
 }
@@ -389,7 +395,7 @@ export function ContentViewSlot({
     session,
     routeParams,
     onClose,
-  });
+  }, <ContentClaimSkeleton />);
 }
 
 export function ContentHeaderStickySlot({ session }: { session: DashboardSession }) {
@@ -773,6 +779,26 @@ export function ResourcePageSectionSlot({
       {claims.map((c) =>
         renderClaim(c as Parameters<typeof renderClaim>[0], "resource-page-section", props),
       )}
+    </>
+  );
+}
+
+/**
+ * `shell-headless` — always-mounted, zero-UI claims (plugin-wide hooks such as
+ * message subscriptions). Mounted once by the shell; renders no wrapper element
+ * and no intents. Re-evaluates on a claims-version bump so enabling/disabling a
+ * plugin at runtime mounts/unmounts its claim. Each claim is isolated by
+ * `SlotErrorBoundary`. See change: fix-empty-status-subcard.
+ */
+export function ShellHeadlessSlot() {
+  useSlotClaimsVersion(); // BEFORE the registry-null guard: stable hook order
+  const registry = useSlotRegistryOrNull();
+  if (!registry) return null;
+  const claims = registry.getClaims("shell-headless");
+  if (!claims.length) return null;
+  return (
+    <>
+      {claims.map((c) => renderClaim(c as Parameters<typeof renderClaim>[0], "shell-headless", {}))}
     </>
   );
 }
@@ -1162,24 +1188,17 @@ function ShellOverlayRouteRender({
   const sessionParam = overlaySessionParam(claim);
   const sessionId = params[sessionParam];
   const session = useShellSessionOrNull(sessionId ?? "");
-  const rendered = renderClaim(claim as Parameters<typeof renderClaim>[0], "shell-overlay-route", {
-    params,
-    session,
-    onBack,
-  });
-  return (
-    <div className="absolute inset-0 flex flex-col overflow-hidden">
-      {claim.presentation === "content" ? (
-        // A "content" claim usually exports a `React.lazy` route component so
-        // the app's code stays out of the initial bundle (D8). The skeleton
-        // keeps the top-bar shape while the chunk loads. See change:
-        // add-plugin-app-host.
-        <React.Suspense fallback={<ContentClaimSkeleton />}>{rendered}</React.Suspense>
-      ) : (
-        rendered
-      )}
-    </div>
+  // `renderClaim` carries the Suspense boundary. The skeleton keeps the
+  // top-bar shape while a lazy claim chunk loads — a "content" claim usually
+  // exports a `React.lazy` route component (add-plugin-app-host D8); a
+  // manifest-`module` claim suspends the same way (lazy-plugin-claim-modules).
+  const rendered = renderClaim(
+    claim as Parameters<typeof renderClaim>[0],
+    "shell-overlay-route",
+    { params, session, onBack },
+    <ContentClaimSkeleton />,
   );
+  return <div className="absolute inset-0 flex flex-col overflow-hidden">{rendered}</div>;
 }
 
 function ContentClaimSkeleton() {

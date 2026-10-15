@@ -11,3 +11,5 @@ See change: align-ui-with-theme-tokens. Diagnostics row name "Session runtime (r
 ## cleanup-post-r3-spec-drift
 
 `TypeScript loader` row checks only the native register module (`resolveNativeTsLoader()`; test seam `SharedChecksDeps.resolveNativeLoader`): ok naming its path, else error `doctor.ts_loader_not_found`; jiti and tsx are never probed or named. `SharedChecksDeps.env` / `resolvePackageJson` REMOVED. See change: strip-only-native-ts-loader.
+
+`formatDoctorReportMarkdown` name and message cells go through `escapeMdTableCell` (backslash, pipe, any line ending). See change: fix-codeql-small-findings.

@@ -54,6 +54,7 @@
       {
         "slot": "settings-section",
         "component": "QuotaSettings",
+        "module": "./src/QuotaSettings.tsx",
         "tab": "general"
       }
     ]

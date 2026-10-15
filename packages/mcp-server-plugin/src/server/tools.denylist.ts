@@ -34,6 +34,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/packages/cleanup", reason: "rewrites ~/.pi/agent/settings.json packages[]; user-mediated Settings UI-only. See change: add-package-health-cleanup" },
   { pattern: "/api/grammar/", reason: "UI-only" },
   { pattern: "/api/pi-resources/commands", reason: "composer `/` list for sessionless UIs (folder home, ended session); agents use getpi_resources. See change: redesign-directory-home-split" },
+  { pattern: "/api/pi-settings", reason: "pi global settings.json editor (code-executing keys); Settings UI-only. See change: edit-pi-agent-settings" },
+  { pattern: "/api/pi-settings/", reason: "pi global settings.json raw write + default-model drift repair; Settings UI-only. See change: edit-pi-agent-settings" },
   { pattern: "/api/roles/used-by", reason: "Model roles page \"used by\" overview; informational, UI-only" },
   { pattern: "/api/kb/", reason: "kb engine admin" },
   // add-acp-session-driver: the spawn picker's {id,name} list; UI-only.
@@ -115,6 +117,9 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "architect_prompt_response", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "archive_session", reason: "duplicate-of:archive_session" },
   { pattern: "attach_proposal", reason: "duplicate-of:attach_proposal" },
+  // add-pending-question-stack: answers stay human-in-the-loop.
+  { pattern: "/api/questions", reason: "agent prompt answers stay human-in-the-loop; follow-up" },
+  { pattern: "/api/questions/", reason: "agent prompt answers stay human-in-the-loop; follow-up" },
   { pattern: "browser_relay_input", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "browser_relay_subscribe", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "browser_relay_unsubscribe", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },

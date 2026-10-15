@@ -24,7 +24,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
         Write-Host "NOTE: registry install failed (pre-publish?); packing the local workspaces"
         $tgz = @()
-        foreach ($pkg in @("nano-banana", "photocraft")) {
+        foreach ($pkg in @("nano-banana", "craft-apps", "photocraft")) {
             $dir = Join-Path $repoRoot "packages\$pkg"
             if (-not (Test-Path $dir)) { Write-Host "FAIL: no local workspace $dir"; exit 1 }
             Push-Location $dir

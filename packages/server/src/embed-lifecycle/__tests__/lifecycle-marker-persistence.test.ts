@@ -143,11 +143,11 @@ describe("lifecyclePolicy marker persistence", () => {
       hasTerminalInCwd: () => false,
       hasPendingAsk: () => false,
       queueCounts: () => ({ followUp: 0, steering: 0 }),
-      killBySessionId: async (id) => {
+      terminate: async (id) => {
         kills.push(id);
-        return true;
+        return { outcome: "confirmed-dead" as const, terminated: true };
       },
-      sendStopAfterTurn: () => {},
+      sendStopAfterTurn: () => true,
       isCloseRequested: (id) => after.isCloseRequested(id),
     }).sweepOnce();
     expect(kills).toEqual([]);

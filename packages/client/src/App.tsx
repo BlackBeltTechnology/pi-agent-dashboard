@@ -78,13 +78,14 @@ import { useSidebarState } from "./hooks/useSidebarState.js";
 import { useStaleToolReconcile } from "./hooks/useStaleToolReconcile.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
 import { fetchArchivedSessionById } from "./lib/api/archived-sessions-api.js";
-import { performServerSwitch } from "./lib/api/server-switch.js";
+import { getInitialWsUrl, LAST_SERVER_KEY, performServerSwitch } from "./lib/api/server-switch.js";
 import { openStagingSocket } from "./lib/api/staging-socket.js";
 import { EMPTY_CANVAS_STATE } from "./lib/canvas/canvas-gate.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
 import { applyPromptTimeout, carryInteractiveRequests, createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
+import { composerLiveness, isComposerWorking } from "./lib/chat/composer-liveness.js";
 import { normalizeFollowUpEntries } from "./lib/chat/followup-entries.js";
 import { nextBackfillRange } from "./lib/chat/history-gap.js";
 import { refreshChat } from "./lib/chat/refresh-chat.js";
@@ -227,6 +228,7 @@ import {
   EmbeddedAppReturnPill,
   EmbeddedAppShellProvider,
   FolderMenuProvider,
+  ShellHeadlessSlot,
   ShellOverlayRouteSlot,
   ShellSessionsProvider,
   useShellOverlayRouteDepth,
@@ -264,29 +266,11 @@ registerPluginRouteDescriptors(
 );
 
 const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-const wsPort = window.location.port ? `:${window.location.port}` : "";
-const DEFAULT_WS_URL = `${wsProtocol}//${window.location.hostname}${wsPort}/ws`;
-const LAST_SERVER_KEY = "pi-dashboard-last-server";
 // Stable empty-array reference for sessions with no pending images.
 // Frozen so accidental mutation throws in strict mode.
 const EMPTY_IMAGES: readonly ImageContent[] = Object.freeze([]);
 /** Stable empty command list — a fresh `[]` per render would re-render the composer. */
 const EMPTY_COMMANDS: CommandInfo[] = Object.freeze([]) as unknown as CommandInfo[];
-
-function getInitialWsUrl(): string {
-  const saved = localStorage.getItem(LAST_SERVER_KEY);
-  if (saved) {
-    try {
-      const [host, port] = saved.split(":");
-      if (host && port) {
-        return `${wsProtocol}//${host}:${port}/ws`;
-      }
-    } catch { /* ignore */ }
-  }
-  return DEFAULT_WS_URL;
-}
-
-
 
 /**
  * URL-driven OpenSpec preview overlay.
@@ -2195,6 +2179,7 @@ export default function App() {
             onSwitch={handleServerSwitch}
             inFlightSwitchKey={inFlightSwitchKey}
             onManageServers={() => navigate("/settings/remote")}
+            onNotifyError={(msg) => showToast(msg, "error")}
           />
         </div>
       }
@@ -2326,6 +2311,11 @@ export default function App() {
       (archivedSummary ? archivedSummaryToSession(archivedSummary) : undefined);
     const selectedCwd = selectedSession?.cwd;
     const selectedState = sessionStates.get(selectedId) ?? createInitialState();
+    // Reconciled composer liveness: the server session status is authoritative when
+    // known, the reducer status is the fallback. A NEW local — never write back onto
+    // `selectedState`, which feeds ChatView (the transcript stays event-sourced).
+    // See change: fix-composer-liveness-on-reload (D2/D3).
+    const composerStatus = composerLiveness(selectedState.status, selectedSession?.status);
     const selectedDraft = drafts.get(selectedId) ?? "";
     const selectedImages = pendingImagesMap.get(selectedId) ?? (EMPTY_IMAGES as ImageContent[]);
     const ownCommands = sessionCommands.get(selectedId);
@@ -2386,10 +2376,10 @@ export default function App() {
             {(selectedState.thinkingLevel || selectedSession.thinkingLevel) && (
               <span>💭 {selectedState.thinkingLevel || selectedSession.thinkingLevel}</span>
             )}
-            {selectedState.status === "streaming" && selectedState.currentTool && (
+            {composerStatus === "streaming" && selectedState.currentTool && (
               <span className="text-yellow-400">⚡ {selectedState.currentTool}</span>
             )}
-            {selectedState.status === "streaming" && !selectedState.currentTool && (
+            {composerStatus === "streaming" && !selectedState.currentTool && (
               <span className="text-green-400">{t("status.thinking", undefined, "Thinking...")}</span>
             )}
             <span className="flex-1" />
@@ -2616,14 +2606,14 @@ export default function App() {
                 onDetach={() => handleDetachProposal(selectedSession.id)}
                 groups={selectedCwd ? openspecGroupsMap.get(selectedCwd)?.groups : undefined}
                 assignments={selectedCwd ? openspecGroupsMap.get(selectedCwd)?.assignments : undefined}
-                working={selectedSession.status === "streaming" || retrySessionIds.has(selectedSession.id)}
+                working={isComposerWorking(composerStatus, retrySessionIds.has(selectedSession.id))}
               />
             </div>
           )}
           {!readOnly && (
             <>
           <StatusBar
-            status={selectedState.status}
+            status={composerStatus}
             currentTool={selectedState.currentTool}
             streamingText={selectedState.streamingText || undefined}
           />
@@ -2650,7 +2640,7 @@ export default function App() {
             onListFiles={handleListFiles}
             fileResults={fileResults}
             disabled={false}
-            sessionStatus={selectedState.status}
+            sessionStatus={composerStatus}
             retrying={selectedState.retryState !== undefined}
             onAbort={handleAbort}
             onForceKill={handleForceKill}
@@ -3116,6 +3106,9 @@ export default function App() {
               <FileAccessToastHost sessions={sessions} selectedId={selectedId} onOpen={handleSelect} />
               {/* Return pill for embedded plugin apps (both layouts). See change: add-plugin-app-host. */}
               <EmbeddedAppReturnPill />
+              {/* Always-mounted zero-UI plugin hosts (e.g. the browser relay feed),
+                  ONCE for every layout branch. See change: fix-empty-status-subcard. */}
+              <ShellHeadlessSlot />
               {/* D22 sign-in dialog: ONE instance for every layout branch (it is
                   `fixed inset-0`, so it need not sit inside the banner slots,
                   which a session route renders twice). */}

@@ -1,5 +1,7 @@
-import { expect, test } from "./fixtures.js";
+import { type APIRequestContext, expect, type Page, test } from "./fixtures.js";
+import { startHiddenPiSession, stopHiddenPiSession } from "./helpers/hidden-session.js";
 import { gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { BASE_URL } from "./lifecycle.js";
 
 // Faux round-trip — interactive ask_user renderer.
 //
@@ -152,5 +154,316 @@ test.describe("prompt-derived tool state — rendered card", () => {
     // The last prompt resolving clears `currentTool`, so the card must leave
     // the needs-you state — the clear path, not just the set path.
     await expect(card.getByText("Needs you")).toHaveCount(0, { timeout: 30_000 });
+  });
+});
+
+// ── Pending-question stack (header pill → panel → dialog / navigation) ───────
+//
+// Browser reality for change: add-pending-question-stack — F2, F3, F7, P1 of its
+// test-plan. REST bodies use the `{success, data}` envelope.
+//
+// Selectors (all existing app testids / roles — nothing added for E2E):
+//   question-pill · question-panel (data-variant "dropdown" | "sheet") ·
+//   question-row-<id> · question-dialog · question-later · [data-pending-ask]
+//   (the pending inline ask card, ChatView) · composer-root.
+//
+// Hidden session: `helpers/hidden-session.ts` (a live pi with the bridge's
+// explicit `PI_DASHBOARD_HIDDEN` visibility intent). The automation engine that
+// would spawn a real hidden run is broken in the harness (#683), and the stack
+// routes on the session's `hidden` flag — the same predicate a hidden
+// automation run trips — so this exercises the identical dialog route.
+//
+// Brief: none of these scenarios depends on one (no `@fast` model in the
+// harness); the dialog's inputs are enabled while a brief is still `pending`.
+// The deterministic-brief scenario is X5 in pending-prompt-recovery.spec.ts.
+
+interface QuestionRowDto {
+  id: string;
+  sessionId: string;
+  briefStatus: string;
+}
+
+/** Open question rows (`GET /api/questions` → `{success, data: QuestionRow[]}`). */
+async function listQuestions(request: APIRequestContext): Promise<QuestionRowDto[]> {
+  const res = await request.get("/api/questions");
+  expect(res.ok(), `GET /api/questions → ${res.status()}`).toBe(true);
+  return ((await res.json()) as { success: boolean; data: QuestionRowDto[] }).data;
+}
+
+/** Wait for `sessionId` to hold an open question; return its opaque id. */
+async function waitForQuestionId(request: APIRequestContext, sessionId: string): Promise<string> {
+  let id = "";
+  await expect
+    .poll(
+      async () => {
+        id = (await listQuestions(request)).find((q) => q.sessionId === sessionId)?.id ?? "";
+        return id;
+      },
+      { timeout: 60_000, intervals: [500] },
+    )
+    .not.toBe("");
+  return id;
+}
+
+/** Open-question count read from the pill's accessible name (0 when the pill is absent). */
+async function pillCount(page: Page): Promise<number> {
+  const pill = page.getByTestId("question-pill");
+  if ((await pill.count()) === 0) return 0;
+  const label = (await pill.getAttribute("aria-label")) ?? "";
+  return Number(/^(\d+)/.exec(label)?.[1] ?? 0); // "1 open question" / "N open questions"
+}
+
+/** Park a fresh visible session on a faux ask; returns its id and card. */
+async function parkVisible(page: Page, scenario: string) {
+  const card = await spawnFreshGitSession(page);
+  const sessionId = (await card.getAttribute("data-session-id")) ?? "";
+  expect(sessionId).toBeTruthy();
+  await card.click();
+  await sendPrompt(page, `[[faux:${scenario}]] go`);
+  await expect(page.locator("[data-pending-ask]").first()).toBeVisible({ timeout: 30_000 });
+  return { sessionId, card };
+}
+
+test.describe("pending-question stack (add-pending-question-stack)", () => {
+  test("#F2 a hidden run's question is answered from the dialog; the run receives it and finishes", async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    await gotoDashboard(page);
+    const hidden = await startHiddenPiSession(page.request);
+    try {
+      // `ask-select-roundtrip` is terminal: after the answer the run replies
+      // "you picked <answer>" and its turn ends (unlike looping `ask-select`).
+      const sent = await page.request.post(`/api/session/${hidden.id}/prompt`, {
+        data: { text: "[[faux:ask-select-roundtrip]] go" },
+      });
+      expect(sent.ok(), `prompt → ${sent.status()}`).toBe(true);
+      const questionId = await waitForQuestionId(page.request, hidden.id);
+
+      const pill = page.getByTestId("question-pill");
+      await expect(pill).toBeVisible({ timeout: 30_000 });
+      const before = await pillCount(page);
+      expect(before).toBeGreaterThanOrEqual(1);
+
+      await pill.click();
+      await expect(page.getByTestId("question-panel")).toBeVisible();
+      const row = page.getByTestId(`question-row-${questionId}`);
+      // Hidden session → "Answer here", never "Go to session".
+      await expect(row).toContainText("Answer here");
+      await row.click();
+
+      const dialog = page.getByTestId("question-dialog");
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toHaveAttribute("aria-modal", "true");
+      // Answer from the dialog, not the chat: the hidden session has no card.
+      await dialog.getByRole("button", { name: /^b$/ }).click();
+      await expect(dialog).toBeHidden({ timeout: 15_000 });
+
+      // Pill count decrements (to 0 when this was the only open question).
+      await expect.poll(() => pillCount(page), { timeout: 15_000 }).toBe(before - 1);
+      await expect
+        .poll(async () => (await listQuestions(page.request)).some((q) => q.id === questionId), {
+          timeout: 15_000,
+        })
+        .toBe(false);
+
+      // The run actually received the option and finished its turn: its
+      // transcript (opened by id — it has no board card) carries the reply.
+      await page.goto(`/session/${hidden.id}`);
+      await expect(page.getByText(/you picked.*\bb\b/).first()).toBeVisible({ timeout: 60_000 });
+    } finally {
+      await stopHiddenPiSession(page.request, hidden.id);
+    }
+  });
+
+  test("#F3 a visible session's entry navigates to the session with its inline prompt in view — no dialog", async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    const { sessionId } = await parkVisible(page, "ask-select");
+    const questionId = await waitForQuestionId(page.request, sessionId);
+
+    // Select ANOTHER session, so the parked one is not on screen. A fresh
+    // session has no pending ask, so any `[data-pending-ask]` afterwards can
+    // only be the parked session's prompt.
+    const other = await spawnFreshGitSession(page);
+    await other.click();
+    await expect(page.locator("[data-pending-ask]")).toHaveCount(0);
+
+    const pill = page.getByTestId("question-pill");
+    await expect(pill).toBeVisible({ timeout: 30_000 });
+    await pill.click();
+    const row = page.getByTestId(`question-row-${questionId}`);
+    await expect(row).toContainText("Go to session");
+    await row.click();
+
+    const ask = page.locator("[data-pending-ask]").first();
+    await expect(ask).toBeVisible({ timeout: 15_000 });
+    await expect(ask).toBeInViewport();
+    await expect(ask.getByRole("button", { name: /alpha/i })).toBeVisible();
+    await expect(page.getByTestId("question-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("question-panel")).toHaveCount(0);
+  });
+
+  test("#F7 mobile 375×812: pill ≥ 44×44, bottom sheet, full-viewport dialog, composer not covered", async ({
+    page,
+  }) => {
+    test.setTimeout(300_000);
+    const MOBILE = { width: 375, height: 812 } as const;
+
+    // Spawn + park at DESKTOP (the spawn helper drives desktop affordances),
+    // then enter the mobile tier. Two open questions: one visible, one hidden.
+    const { sessionId } = await parkVisible(page, "ask-select");
+    const hidden = await startHiddenPiSession(page.request);
+    try {
+      const sent = await page.request.post(`/api/session/${hidden.id}/prompt`, {
+        data: { text: "[[faux:ask-select-roundtrip]] go" },
+      });
+      expect(sent.ok(), `prompt → ${sent.status()}`).toBe(true);
+      const visibleQuestion = await waitForQuestionId(page.request, sessionId);
+      const hiddenQuestion = await waitForQuestionId(page.request, hidden.id);
+
+      await page.setViewportSize(MOBILE);
+      await gotoDashboard(page);
+
+      // Pill: ≥ 44×44 touch target, count ≥ 2.
+      const pill = page.getByTestId("question-pill");
+      await expect(pill).toBeVisible({ timeout: 30_000 });
+      const pillBox = await pill.boundingBox();
+      expect(pillBox, "pill must be laid out").not.toBeNull();
+      expect(pillBox!.width, "pill width").toBeGreaterThanOrEqual(44);
+      expect(pillBox!.height, "pill height").toBeGreaterThanOrEqual(44);
+      expect(await pillCount(page)).toBeGreaterThanOrEqual(2);
+
+      // Panel renders as a bottom sheet pinned to the viewport's bottom edge.
+      await pill.click();
+      const panel = page.getByTestId("question-panel");
+      await expect(panel).toBeVisible();
+      await expect(panel).toHaveAttribute("data-variant", "sheet");
+      const sheet = await panel.boundingBox();
+      expect(sheet, "sheet must be laid out").not.toBeNull();
+      expect(Math.abs(sheet!.x), "sheet spans from the left edge").toBeLessThanOrEqual(1);
+      expect(Math.abs(sheet!.width - MOBILE.width), "sheet spans the viewport width").toBeLessThanOrEqual(1);
+      expect(Math.abs(sheet!.y + sheet!.height - MOBILE.height), "sheet bottom is the viewport bottom").toBeLessThanOrEqual(1);
+      // Row targets are ≥ 44 px tall on the mobile tier.
+      const rowBox = await page.getByTestId(`question-row-${hiddenQuestion}`).boundingBox();
+      expect(rowBox!.height, "row touch target").toBeGreaterThanOrEqual(44);
+
+      // Hidden session's row → the dialog fills the viewport.
+      await page.getByTestId(`question-row-${hiddenQuestion}`).click();
+      const dialog = page.getByTestId("question-dialog");
+      await expect(dialog).toBeVisible();
+      const dlg = await dialog.boundingBox();
+      expect(dlg, "dialog must be laid out").not.toBeNull();
+      expect(Math.abs(dlg!.width - MOBILE.width), "dialog width = viewport").toBeLessThanOrEqual(1);
+      expect(Math.abs(dlg!.height - MOBILE.height), "dialog height = viewport").toBeLessThanOrEqual(1);
+      await page.getByTestId("question-later").click();
+      await expect(dialog).toBeHidden();
+
+      // Visible session's row → its chat; with panel + dialog closed the
+      // composer must be the topmost element at its own centre (nothing —
+      // scrim, sheet, dialog — left covering it).
+      await pill.click();
+      await page.getByTestId(`question-row-${visibleQuestion}`).click();
+      await expect(page.getByTestId("question-panel")).toHaveCount(0);
+      await expect(page.getByTestId("question-dialog")).toHaveCount(0);
+      const composer = page.getByTestId("composer-root").first();
+      await expect(composer).toBeVisible({ timeout: 30_000 });
+      // Poll: the mobile list→chat slide transition must settle before the
+      // composer's centre is inside the viewport (elementFromPoint is null off-screen).
+      await expect
+        .poll(
+          () =>
+            composer.evaluate((el) => {
+              const r = el.getBoundingClientRect();
+              const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+              return hit !== null && el.contains(hit);
+            }),
+          { message: "composer is topmost at its centre", timeout: 10_000, intervals: [100, 250, 500] },
+        )
+        .toBe(true);
+    } finally {
+      await stopHiddenPiSession(page.request, hidden.id);
+    }
+  });
+
+  test("#P1 removal propagation: answer in context A, row gone in context B — p95 ≤ 1000 ms over 20 samples", async ({
+    page,
+    browser,
+  }) => {
+    test.setTimeout(900_000);
+    const SAMPLES = 20;
+    const P95_BUDGET_MS = 1_000;
+
+    // One session answered 20 times. `ask-select-roundtrip` is terminal, so
+    // each sample re-prompts it over REST and gets a NEW question id.
+    const card = await spawnFreshGitSession(page);
+    const sessionId = (await card.getAttribute("data-session-id")) ?? "";
+    expect(sessionId).toBeTruthy();
+    await card.click();
+    await expect(page.getByPlaceholder(/message/i).first()).toBeVisible({ timeout: 60_000 });
+
+    const ctxB = await browser.newContext({ baseURL: BASE_URL });
+    const samples: number[] = [];
+    try {
+      const pageB = await ctxB.newPage();
+      await gotoDashboard(pageB);
+
+      for (let i = 0; i < SAMPLES; i++) {
+        const sent = await page.request.post(`/api/session/${sessionId}/prompt`, {
+          data: { text: "[[faux:ask-select-roundtrip]] go" },
+        });
+        expect(sent.ok(), `sample ${i}: prompt → ${sent.status()}`).toBe(true);
+        const questionId = await waitForQuestionId(page.request, sessionId);
+
+        // B: open the panel on this question's row (the panel closes whenever
+        // the stack empties, so it is re-opened per sample).
+        const pillB = pageB.getByTestId("question-pill");
+        await expect(pillB).toBeVisible({ timeout: 30_000 });
+        if ((await pageB.getByTestId("question-panel").count()) === 0) await pillB.click();
+        const rowTestId = `question-row-${questionId}`;
+        await expect(pageB.getByTestId(rowTestId)).toBeVisible({ timeout: 15_000 });
+
+        // B: arm an in-page observer that resolves with Date.now() the moment
+        // the row leaves the DOM. Node and both pages share one host clock.
+        const goneAt = pageB.evaluate(
+          (testId) =>
+            new Promise<number>((resolve) => {
+              const gone = () => document.querySelector(`[data-testid="${testId}"]`) === null;
+              if (gone()) return resolve(Date.now());
+              const observer = new MutationObserver(() => {
+                if (gone()) {
+                  observer.disconnect();
+                  resolve(Date.now());
+                }
+              });
+              observer.observe(document.body, { subtree: true, childList: true });
+            }),
+          rowTestId,
+        );
+        await pageB.waitForTimeout(150); // observer armed before the click
+
+        // A: answer the inline prompt. t0 is taken just before the click is
+        // dispatched, so the sample also includes Playwright's click overhead
+        // (conservative: it can only inflate the measurement).
+        const pendingA = page.locator("[data-pending-ask]").first();
+        await expect(pendingA.getByRole("button", { name: /^a$/ })).toBeVisible({ timeout: 30_000 });
+        const t0 = Date.now();
+        await pendingA.getByRole("button", { name: /^a$/ }).click();
+        samples.push((await goneAt) - t0);
+
+        // Let the run finish its turn before the next re-prompt.
+        // (The transcript is virtualised, so count the card state, not DOM nodes.)
+        await expect(card).toContainText(/Idle/, { timeout: 60_000 });
+      }
+    } finally {
+      await ctxB.close();
+    }
+
+    const sorted = [...samples].sort((a, b) => a - b);
+    const p95 = sorted[Math.ceil(0.95 * sorted.length) - 1];
+    console.log(`P1 removal propagation (ms) sorted=${JSON.stringify(sorted)} p95=${p95}`);
+    expect(samples).toHaveLength(SAMPLES);
+    expect(p95, `p95 removal propagation ${p95} ms`).toBeLessThanOrEqual(P95_BUDGET_MS);
   });
 });

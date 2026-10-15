@@ -63,6 +63,7 @@ import type React from "react";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAgentAwareSpawn } from "../../hooks/useAgentAwareSpawn.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
+import { cssEscape } from "../../lib/css-escape.js";
 import type { WorktreeAvailability } from "../../lib/git/folder-worktree-availability.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import {
@@ -239,9 +240,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
     lastClickedRef.current = null;
     if (!selectedId) return;
     if (wasClick && !isFirstMount) return;
-    const escaped = (window.CSS && typeof window.CSS.escape === "function")
-      ? window.CSS.escape(selectedId)
-      : selectedId.replace(/"/g, '\\"');
+    const escaped = cssEscape(selectedId);
     const el = boardScrollRef.current?.querySelector(`[data-session-id="${escaped}"]`);
     if (el && typeof (el as HTMLElement).scrollIntoView === "function") {
       (el as HTMLElement).scrollIntoView({ block: "nearest", behavior: "auto" });

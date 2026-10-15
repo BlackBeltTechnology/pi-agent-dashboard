@@ -83,11 +83,14 @@ function harness(sessions: DashboardSession[], opts: { enabled?: boolean } = {})
     hasTerminalInCwd: () => false,
     hasPendingAsk: () => false,
     queueCounts: () => ({ followUp: 0, steering: 0 }),
-    killBySessionId: async (id) => {
+    terminate: async (id) => {
       h.kills.push(id);
+      return { outcome: "confirmed-dead" as const, terminated: true };
+    },
+    sendStopAfterTurn: (id) => {
+      h.stops.push(id);
       return true;
     },
-    sendStopAfterTurn: (id) => h.stops.push(id),
     onReap: (id, reason, d) => h.reaped.push([id, reason, d?.owner]),
     now: () => NOW,
     closerFor: (owner) => registry.get(owner),

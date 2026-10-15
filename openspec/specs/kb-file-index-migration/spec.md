@@ -66,7 +66,7 @@ The migration SHALL batch uncovered (miss) files under size limits, produce a re
 - **THEN** each miss file with a returned purpose is stored under `state.authored[dir][base]` and files with no returned purpose are reported as missing
 
 ### Requirement: Structural validation and grounding gate
-The migration SHALL validate authored rows structurally and run a grounding check on each authored miss purpose before any write, treating structural failure as blocking and reporting ungrounded identifiers.
+The migration SHALL validate authored rows structurally and run a grounding check on each authored miss purpose before any write, treating structural failure as blocking and reporting ungrounded identifiers. An identifier is present in the source text when it occurs literally with no ASCII identifier character (`A-Z`, `a-z`, `0-9`, `_`, `$`) immediately before or after it, so identifiers containing or starting with `$` are found and an identifier is not found inside a longer ASCII identifier.
 
 #### Scenario: Structural validation enforces one row per file
 - **WHEN** authored rows are validated against a plan
@@ -79,6 +79,14 @@ The migration SHALL validate authored rows structurally and run a grounding chec
 #### Scenario: Cross-reference identifiers allowed
 - **WHEN** a backticked identifier matches another source file's stem in the known-stems set
 - **THEN** it is treated as grounded even if absent from the current file
+
+#### Scenario: Dollar-prefixed identifier is grounded
+- **WHEN** a purpose cites `` `$StoreKey` `` and the source text contains `const $StoreKey = 1`
+- **THEN** the grounding check SHALL report no ungrounded identifiers
+
+#### Scenario: Identifier adjacent to a dollar sign is not grounded
+- **WHEN** a purpose cites `` `FooBar` `` and the source text contains only `const $FooBar = 1` and `FooBar$x()`
+- **THEN** `FooBar` SHALL be reported ungrounded
 
 ### Requirement: Idempotent per-directory write
 The migration SHALL assemble one directory's `AGENTS.md` from its hit purposes plus authored miss purposes, run validation and grounding, and write the file only when structural validation passes, producing byte-stable output on re-run.

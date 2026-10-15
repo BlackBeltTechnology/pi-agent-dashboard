@@ -64,6 +64,7 @@
       {
         "slot": "shell-overlay-route",
         "component": "GoalsBoardClaim",
+        "module": "./src/client/GoalsBoardClaim.tsx",
         "path": "/folder/:encodedCwd/goals",
         "depth": 2,
         "parentPath": "/folder/:encodedCwd"
@@ -71,6 +72,7 @@
       {
         "slot": "shell-overlay-route",
         "component": "GoalDetailClaim",
+        "module": "./src/client/GoalDetailClaim.tsx",
         "path": "/folder/:encodedCwd/goals/:goalId",
         "depth": 2,
         "parentPath": "/folder/:encodedCwd/goals"
@@ -78,6 +80,7 @@
       {
         "slot": "settings-section",
         "component": "GoalPluginSettings",
+        "module": "./src/client/GoalPluginSettings.tsx",
         "tab": "general"
       }
     ],

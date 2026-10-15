@@ -52,6 +52,7 @@ import {
   resolveRowLimit,
 } from "../lib/office-preview.js";
 import { isAllowed } from "../lib/path-containment.js";
+import { loadPurify } from "../lib/purify.js";
 
 /**
  * A gate failure. `error` is byte-identical to what the site returned before
@@ -226,6 +227,39 @@ function getAsciidoctor(): any {
     asciidoctorInstance = factory();
   }
   return asciidoctorInstance;
+}
+
+// asciidoctor `safe:"secure"` still passes raw HTML through (`+++…+++`,
+// `pass:[…]`), so the converted HTML is sanitized with DOMPurify before it is
+// returned. `style` survives only as asciidoctor's own `<col style="width: N%;">`
+// column widths. A module-scope hook function so `removeHook` matches by
+// identity. See change: sanitize-untrusted-rendered-content.
+const COL_WIDTH_STYLE_RE = /^\s*width:\s*[\d.]+%?;?\s*$/;
+function keepColWidthStyleOnly(
+  node: { nodeName: string },
+  data: { attrName: string; attrValue: string; keepAttr: boolean },
+): void {
+  if (data.attrName !== "style") return;
+  const tag = node.nodeName.toLowerCase();
+  if ((tag !== "col" && tag !== "colgroup") || !COL_WIDTH_STYLE_RE.test(data.attrValue)) data.keepAttr = false;
+}
+
+async function sanitizeAdocHtml(html: string): Promise<string> {
+  const purify = await loadPurify();
+  // Defense in depth: `loadPurify` already refuses a DOM-less instance, but a
+  // pass-through DOMPurify must never be able to return raw HTML here.
+  if (purify.isSupported !== true) throw new Error("DOMPurify unavailable: cannot sanitize AsciiDoc");
+  // Hooks are global to the shared instance; add → sanitize → remove contains
+  // no `await`, so it cannot interleave with another sanitize call.
+  purify.addHook("uponSanitizeAttribute", keepColWidthStyleOnly);
+  try {
+    return purify.sanitize(html, {
+      USE_PROFILES: { html: true },
+      FORBID_TAGS: ["style", "form", "input", "button", "textarea", "select"],
+    });
+  } finally {
+    purify.removeHook("uponSanitizeAttribute", keepColWidthStyleOnly);
+  }
 }
 
 // Shared anti-traversal gate for the EML routes — the SAME check as
@@ -1184,7 +1218,7 @@ export function registerFileRoutes(
         const adoc = getAsciidoctor();
         // `showtitle`: embedded output otherwise drops the `= Title` doctitle.
         const html = adoc.convert(source, { safe: "secure", standalone: false, attributes: { showtitle: "" } });
-        return { success: true, data: { html: String(html) } } satisfies ApiResponse;
+        return { success: true, data: { html: await sanitizeAdocHtml(String(html)) } } satisfies ApiResponse;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "render failed";
         reply.code(500);

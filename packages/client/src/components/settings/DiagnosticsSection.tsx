@@ -16,6 +16,8 @@
  *
  * See change: doctor-rich-output (tasks 5.2–5.6).
  */
+
+import { escapeMdTableCell } from "@blackbelt-technology/pi-dashboard-shared/md-table-cell.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { type AutoNameOutcomeRow, fetchAutoNameOutcomes } from "../../lib/api/auto-name-outcomes-api.js";
@@ -97,8 +99,7 @@ function formatMarkdown(report: DoctorReport): string {
     out.push(`| Status | Check | Message | Detail |`, `| --- | --- | --- | --- |`);
     for (const c of rows) {
       const icon = c.status === "ok" ? "✅" : c.status === "warning" ? "⚠️" : "❌";
-      const m = c.message.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
-      out.push(`| ${icon} | ${c.name} | ${m} | ${fence(c.detail)} |`);
+      out.push(`| ${icon} | ${escapeMdTableCell(c.name)} | ${escapeMdTableCell(c.message)} | ${fence(c.detail)} |`);
     }
     out.push("");
   }

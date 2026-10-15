@@ -88,7 +88,11 @@ export function parseSourceKey(source: string): SourceKey {
  * source string. Returns lowercase or null.
  */
 function localPathBasename(src: string): string | null {
-	const stripped = src.replace(/\/+$/, "").replace(/\.git$/, "");
+	// Index loop (not `/\/+$/`): a long slash run made the trailing-trim regex quadratic.
+	let end = src.length;
+	while (end > 0 && src[end - 1] === "/") end--;
+	let stripped = src.slice(0, end);
+	if (stripped.endsWith(".git")) stripped = stripped.slice(0, -4);
 	const segments = stripped.split(/[\\/]/);
 	const tail = segments[segments.length - 1];
 	return tail ? tail.toLowerCase() : null;

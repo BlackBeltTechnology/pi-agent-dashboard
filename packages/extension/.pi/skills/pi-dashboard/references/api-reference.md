@@ -498,3 +498,59 @@ List pinned directories.
 ```json
 { "success": true, "data": ["/path/to/project1", "/path/to/project2"] }
 ```
+
+---
+
+## Open Questions
+
+Every open `ask_user` question of every session the caller may see, including hidden, headless, automation and goal-driver sessions. Question ids are opaque URL-safe strings, stable while the question is pending (also across a bridge reconnect). A question the caller may not see is `404`, the same as an unknown id. Reads need the `observe` tier, answers the `control` tier. These routes are not exposed as MCP tools.
+
+### `GET /api/questions`
+List open questions, newest first. Rows carry no context bodies.
+
+**Response:**
+```json
+{ "success": true, "data": [
+  { "id": "Zk3...", "sessionId": "abc", "sessionLabel": "my session", "changeName": "add-x",
+    "preview": "Resume or hand back?", "type": "select", "origin": "chat-gateway",
+    "askedAt": 1700000000000, "briefStatus": "ready" } ] }
+```
+- `origin` (optional): `file` (agent file-access prompt), `chat-gateway`, `widget-bar`
+- `briefStatus`: `provided`, `pending`, `ready`, `failed` or `unavailable`
+
+### `GET /api/questions/:id`
+Full question: options, brief (with `briefLabel`), context snapshot and an `answerable` flag (false for file-access prompts).
+
+**Responses:**
+- `200`: `{ "success": true, "data": { ...row, "question": "...", "options": [], "brief": "...", "snapshot": {}, "answerable": true } }`
+- `404`: Unknown, no longer pending, already answered, or not visible to the caller
+
+### `POST /api/questions/:id/answer`
+Answer or cancel an open question. At most one answer is ever transmitted per question, across this route, the dashboard chat and the question dialog.
+
+**Body** (exactly one form):
+```json
+{ "answer": "Resume" }
+```
+```json
+{ "cancelled": true }
+```
+`answer` uses the encoding the dashboard chat sends: `confirm` → `"true"` / `"false"`; `select` → one of the options; `multiselect` → JSON array of distinct options (`"[]"` allowed, distinct from cancel); `input` / `editor` → any string, empty allowed; `batch` → JSON array with one entry per sub-question. Text only: images cannot be sent on this route.
+
+**Responses:**
+- `200`: `{ "success": true, "data": { "transmitted": true } }`. `transmitted` is not a delivery guarantee. `false` means the session's bridge was not reachable: the question stays open and the same answer can be posted again.
+- `400`: Both or neither of `answer` / `cancelled`, or an answer invalid for the prompt type; nothing is transmitted
+- `403`: File-access prompt (answered on the Access page), or the caller's tier is below `control`
+- `404`: Unknown or not visible (also an id answered more than 10 minutes ago, or before a server restart)
+- `409`: `{ "error": "answered" }`: an answer was transmitted within the last 10 minutes
+
+### `POST /api/questions/:id/summarize`
+Generate a brief for a question whose brief is not a generated one (the dialog's "Summarize" action). The result is stored like an automatic brief.
+
+**Body:** `{}`
+
+**Responses:**
+- `200`: `{ "success": true, "data": { ...question detail with the new brief } }`
+- `404`: Unknown or not visible
+- `409`: Already answered, or the brief is already generated
+- `502` / `503`: Generation failed or timed out / the `@fast` role does not resolve; the current brief is kept and the call may be retried

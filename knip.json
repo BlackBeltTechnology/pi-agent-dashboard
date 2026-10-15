@@ -288,6 +288,7 @@
       "entry": [
         "src/main.ts",
         "src/preload.ts",
+        "src/preload-main.ts",
         "src/preload/*.ts",
         "forge.config.ts",
         "**/vitest.config.ts",
@@ -572,6 +573,13 @@
     },
     "packages/photocraft": {
       "entry": [
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ]
+    },
+    "packages/craft-apps": {
+      "entry": [
+        "src/bin/craft.ts",
         "src/bin/photocraft.ts",
         "scripts/build.mjs",
         "**/vitest.config.ts",

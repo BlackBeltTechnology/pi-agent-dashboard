@@ -9,4 +9,3 @@
  */
 
 export { catalog } from "./i18n.js";
-export { BuiltInRolesSettings } from "./RolesSettingsSection.js";

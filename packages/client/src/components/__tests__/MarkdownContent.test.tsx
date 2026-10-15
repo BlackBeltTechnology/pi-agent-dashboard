@@ -14,6 +14,24 @@ vi.mock("../split/SplitWorkspaceContext.js", () => ({
   useOptionalSplitWorkspace: () => ({ openLiveTarget }),
 }));
 
+// Fault injection for the sanitizer (change: sanitize-untrusted-rendered-content).
+// Wraps the REAL rehype-sanitize; throws only while `sanitizeFault.when` matches
+// the markdown source being processed.
+const sanitizeFault = vi.hoisted(() => ({ when: null as null | ((src: string) => boolean) }));
+vi.mock("rehype-sanitize", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("rehype-sanitize")>();
+  return {
+    ...actual,
+    default: (options: Parameters<typeof actual.default>[0]) => {
+      const transform = actual.default(options);
+      return (tree: Parameters<typeof transform>[0], file: { value?: unknown }) => {
+        if (sanitizeFault.when?.(String(file?.value ?? ""))) throw new Error("sanitizer boom");
+        return transform(tree);
+      };
+    },
+  };
+});
+
 // Each test renders a MarkdownContent into the document; the lightbox
 // portals to document.body. Cleanup unmounts both, removing any open
 // modal so cross-test backdrop queries are unambiguous.
@@ -326,7 +344,10 @@ describe("MarkdownContent", () => {
 
     expect(container.textContent).toContain("Pay");
     expect(container.querySelector("section")?.getAttribute("ref")).toBeNull();
-    expect(container.querySelector("publiccheckoutpanel")?.getAttribute("ref")).toBeNull();
+    // rehype-sanitize now drops the unknown custom element itself (keeping its
+    // text), so no element — and no `ref` — survives.
+    // See change: sanitize-untrusted-rendered-content.
+    expect(container.querySelector("publiccheckoutpanel")).toBeNull();
   });
 
   it("renders mermaid code block as MermaidBlock instead of syntax highlighter", () => {
@@ -1086,4 +1107,253 @@ describe("MarkdownContent override identity under memo-defeating re-render", () 
       after.forEach((n, i) => expect(n).toBe(before[i]));
     });
   }
+});
+
+// ── Untrusted-content sanitization ─────────────────────────────────────────
+// See change: sanitize-untrusted-rendered-content (test-plan E1–E14, F1, X1).
+describe("MarkdownContent — untrusted content sanitization", () => {
+  function renderWith(
+    content: string,
+    opts: { assets?: Record<string, { data: string; mimeType: string }>; imageBase?: { cwd: string; dir: string } } = {},
+  ) {
+    return render(
+      <ThemeProvider>
+        <SessionAssetsProvider assets={opts.assets ?? {}}>
+          <MarkdownContent content={content} imageBase={opts.imageBase} />
+        </SessionAssetsProvider>
+      </ThemeProvider>,
+    );
+  }
+
+  afterEach(() => {
+    sanitizeFault.when = null;
+  });
+
+  it("#E1 neutralizes javascript: links in every spelling", () => {
+    const before = window.location.href;
+    const { container } = renderMd(
+      [
+        "[x](javascript:alert(document.domain))",
+        "[y]( JaVaScRiPt:alert(1))",
+        '<a href="java&#x09;script:alert(1)">z</a>',
+      ].join("\n\n"),
+    );
+    const anchors = Array.from(container.querySelectorAll("a"));
+    expect(anchors.length).toBe(3);
+    for (const a of anchors) {
+      fireEvent.click(a);
+      expect(a.hasAttribute("href")).toBe(false);
+      expect(a.className).not.toContain("text-blue-400");
+    }
+    expect(window.location.href).toBe(before);
+  });
+
+  it("#E2 removes iframe srcdoc", () => {
+    const w = window as unknown as { __pwned?: number };
+    const { container } = renderMd('<iframe srcdoc="<script>window.__pwned=1</script>"></iframe>');
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(w.__pwned).toBeUndefined();
+  });
+
+  it("#E3 removes active elements/attributes without leaking their text", () => {
+    const { container } = renderMd(
+      [
+        "a<style>p{}</style>b",
+        '<object data="x">fb</object>',
+        '<embed src="x">',
+        '<svg><a xlink:href="javascript:alert(1)">s</a></svg>',
+        '<picture>pt<source srcset="https://evil.example/t.png"></picture>',
+        '<div style="position:fixed;inset:0">o</div>',
+        '<img src="x" onerror="window.__pwned=1">',
+        '<p onclick="alert(1)">c</p>',
+      ].join("\n\n"),
+    );
+    for (const sel of ["style", "object", "embed", "svg", "picture", "source"]) {
+      expect(container.querySelector(sel), sel).toBeNull();
+    }
+    for (const el of Array.from(container.querySelectorAll("*"))) {
+      // `img` carries the app's own min-height reservation (PiAssetImg), not author CSS.
+      if (el.tagName !== "IMG") expect(el.hasAttribute("style")).toBe(false);
+      expect(el.hasAttribute("srcset")).toBe(false);
+      expect(el.hasAttribute("xlink:href")).toBe(false);
+      expect(el.getAttributeNames().filter((n) => n.startsWith("on"))).toEqual([]);
+    }
+    const text = container.textContent ?? "";
+    for (const kept of ["ab", "o", "c"]) expect(text).toContain(kept);
+    for (const gone of ["p{}", "fb", "pt"]) expect(text).not.toContain(gone);
+  });
+
+  it("#E4 restricts data: URLs to images", () => {
+    const { container } = renderMd("![ok](data:image/png;base64,AAAA)\n\n[bad](data:text/html,<script>alert(1)</script>)");
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+    expect(screen.getByText("bad").closest("a")?.hasAttribute("href")).toBe(false);
+  });
+
+  it("#E5 drops upper-case / unknown-scheme image sources", () => {
+    const { container } = renderMd(
+      [
+        '<img src="DATA:TEXT/HTML,x">',
+        '<img src="JAVASCRIPT:alert(1)">',
+        "![u](HTTP://example.com/u.png)",
+        "![c](photo:1.png)",
+      ].join("\n\n"),
+    );
+    const imgs = Array.from(container.querySelectorAll("img"));
+    expect(imgs.length).toBe(4);
+    for (const img of imgs) expect(img.hasAttribute("src")).toBe(false);
+  });
+
+  it("#E6 prevents DOM clobbering via id/name", () => {
+    const { container } = renderMd('<img name="getElementById" id="config">');
+    const img = container.querySelector("img")!;
+    expect(img.hasAttribute("id")).toBe(false);
+    expect(img.hasAttribute("name")).toBe(false);
+    expect(typeof document.getElementById).toBe("function");
+  });
+
+  it("#E7 keeps footnotes working", () => {
+    const { container } = renderMd("Text[^1]\n\n[^1]: Note");
+    expect(container.querySelector('a[href="#user-content-fn-1"]')).not.toBeNull();
+    expect(container.querySelector("#user-content-fn-1")).not.toBeNull();
+    expect(container.querySelector("#footnote-label")).not.toBeNull();
+    for (const el of Array.from(container.querySelectorAll("[id]"))) {
+      expect(el.id.startsWith("user-content-user-content-")).toBe(false);
+    }
+  });
+
+  it("#E8 preserves legitimate content", async () => {
+    const md = [
+      "Inline $a^2$ math.",
+      "",
+      "$$",
+      "\\sum_i i",
+      "$$",
+      "",
+      "| h1 | h2 |",
+      "| -- | -- |",
+      "| a | b |",
+      "",
+      "- [ ] task",
+      "",
+      "Foot[^1]",
+      "",
+      "[^1]: Note",
+      "",
+      "<details><summary>S</summary>",
+      "",
+      "body",
+      "",
+      "</details>",
+      "",
+      "<kbd>K</kbd>",
+      "",
+      "```ts",
+      "const a = 1;",
+      "```",
+      "",
+      "```mermaid",
+      "graph TD; A-->B",
+      "```",
+      "",
+      "[l1](http://localhost:8000/x) [l2](./a.md) [l3](#top)",
+      "",
+      "![i1](pi-asset:abc) ![i2](blob:http://localhost/1) ![i3](data:image/png;base64,AAAA) ![i4](https://example.com/a.png)",
+    ].join("\n");
+    const { container } = renderWith(md, { assets: { abc: { data: "AAAA", mimeType: "image/png" } } });
+    await waitFor(() => expect(container.querySelector(".katex-display")).not.toBeNull());
+    expect(container.querySelector(".katex")).not.toBeNull();
+    for (const sel of ["table", 'input[type="checkbox"]', "details", "kbd"]) {
+      expect(container.querySelector(sel), sel).not.toBeNull();
+    }
+    expect(container.textContent).toMatch(/const a = 1/);
+    expect(container.textContent).toMatch(/graph TD|diagram/i);
+    expect(screen.getByText("l1").closest("a")?.getAttribute("href")).toBe("http://localhost:8000/x");
+    expect(screen.getByText("l2").closest("a")?.getAttribute("href")).toBe("./a.md");
+    expect(screen.getByText("l3").closest("a")?.getAttribute("href")).toBe("#top");
+    const srcs = Array.from(container.querySelectorAll("img")).map((i) => i.getAttribute("src"));
+    expect(srcs).toEqual([
+      "data:image/png;base64,AAAA",
+      "blob:http://localhost/1",
+      "data:image/png;base64,AAAA",
+      "https://example.com/a.png",
+    ]);
+  });
+
+  it("#E11 math survives next to blank-line HTML; inline vs display classification", async () => {
+    const { container } = renderMd(
+      "<details>\n\n<summary>Theorem</summary>\n\n$\\forall n \\geq 0$\n\n</details>\n\nInline $a^2$ here.\n\n$$\nx\n$$",
+    );
+    await waitFor(() => expect(container.querySelector("details .katex")).not.toBeNull());
+    const inline = Array.from(container.querySelectorAll(".katex")).filter((k) => !k.closest(".katex-display"));
+    expect(inline.length).toBeGreaterThanOrEqual(2);
+    expect(container.querySelector(".katex-display .katex")).not.toBeNull();
+  });
+
+  it("#E12 a non-image registered asset renders the placeholder, never a data:text/html img", () => {
+    const { container } = renderWith("![pic](pi-asset:abc)", {
+      assets: { abc: { data: "PHNjcmlwdD4=", mimeType: "text/html" } },
+    });
+    expect(container.querySelector('img[src^="data:text/html"]')).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toContain("pic");
+  });
+
+  it("#E13 a dropped-scheme image has no src and is not clickable", () => {
+    const { container } = renderMd("![x](data:text/html;base64,AAAA)");
+    const img = container.querySelector("img")!;
+    expect(img.hasAttribute("src")).toBe(false);
+    fireEvent.click(img);
+    expect(document.querySelector('[data-testid="lightbox-backdrop"]')).toBeNull();
+  });
+
+  it("#E14 non-local schemes are not rewritten to /api/file/raw", () => {
+    const { container } = renderWith("![a](file:///x.png)\n\n![b](cid:x)\n\n![c](pi-asset:abc)", {
+      imageBase: { cwd: "/w", dir: "/w/doc" },
+      assets: { abc: { data: "AAAA", mimeType: "image/png" } },
+    });
+    const imgs = Array.from(container.querySelectorAll("img"));
+    expect(imgs.length).toBe(3);
+    for (const img of imgs) expect(img.getAttribute("src") ?? "").not.toContain("/api/file/raw");
+    expect(imgs[0].hasAttribute("src")).toBe(false);
+    expect(imgs[1].hasAttribute("src")).toBe(false);
+    expect(imgs[2].getAttribute("src")).toMatch(/^data:image\/png/);
+  });
+
+  it("#X1 a sanitizer throw shows the source as plain text, never the raw tree", () => {
+    sanitizeFault.when = () => true;
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { container } = renderMd("Hi <img src=x onerror=alert(1)>");
+      expect(container.querySelector("img")).toBeNull();
+      expect(container.textContent).toContain("Hi <img src=x onerror=alert(1)>");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("#F1 the boundary recovers when the content changes; siblings are untouched", () => {
+    sanitizeFault.when = (src) => src === "A <b>x</b>";
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const Pair = ({ s2 }: { s2: string }) => (
+        <ThemeProvider>
+          <div data-testid="s1">
+            <MarkdownContent content="stable" />
+          </div>
+          <div data-testid="s2">
+            <MarkdownContent content={s2} />
+          </div>
+        </ThemeProvider>
+      );
+      const { rerender } = render(<Pair s2="A <b>x</b>" />);
+      const s1p = screen.getByTestId("s1").querySelector("p");
+      expect(screen.getByTestId("s2").querySelector("b")).toBeNull();
+      expect(screen.getByTestId("s2").textContent).toContain("A <b>x</b>");
+      rerender(<Pair s2="A **y**" />);
+      expect(screen.getByTestId("s2").querySelector("strong")?.textContent).toBe("y");
+      expect(screen.getByTestId("s1").querySelector("p")).toBe(s1p);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

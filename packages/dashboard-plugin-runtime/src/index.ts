@@ -61,6 +61,7 @@ export type { IntentActionSender, IntentRendererProps } from "./intent-renderer.
 export { IntentRenderer, isIntentNode, UnknownPrimitive } from "./intent-renderer.js";
 export type { IntentKey, IntentStoreEntry } from "./intent-store.js";
 export { IntentStore, intentStore, keyToString, useSlotIntents } from "./intent-store.js";
+export { lazyClaim } from "./lazy-claim.js";
 export { createOAuthFlowClient, type OAuthFlowClient, oauthFlowClient } from "./oauth-flow-client.js";
 export { sendPluginAction, setSender } from "./plugin-action-bridge.js";
 export type { InteractiveUiRequestSnapshot, PluginContextProviderProps, PluginLogger, PluginRouter, SubagentStateSnapshot } from "./plugin-context.js";
@@ -89,7 +90,7 @@ export * from "./prompt-component-registry.js";
 export type { RoleRefLabels, RoleRefProps } from "./RoleRef.js";
 export { RoleRef } from "./RoleRef.js";
 export type { SlotAccent, SlotPillProps, SlotSurface } from "./SlotPill.js";
-export { SlotPill } from "./SlotPill.js";
+export { SLOT_PILL_LEGEND, SlotPill } from "./SlotPill.js";
 export {
   __resetSessionDataStoreForTests,
   clearSessionData,

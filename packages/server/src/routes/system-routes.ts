@@ -19,7 +19,7 @@ import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/p
 import { resolveNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RESTART_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
-import type { NetworkInterface, ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { NetworkInterface, PiMirrorResult, ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import type { AccessGrantHealth } from "../access/access-health.js";
@@ -60,6 +60,7 @@ import {
   readCurrentPiVersion,
   readPiCompatibility,
 } from "../pi/pi-version-skew.js";
+import { mirrorDefaultsToPi } from "../pi-agent-settings.js";
 import { EMPTY_KEEPER_LOG_STATS, type KeeperLogStats } from "../rpc-keeper/keeper-manager.js";
 import type { ServerConfig } from "../server.js";
 import { serverHeapTelemetry } from "../server-heap-telemetry.js";
@@ -114,6 +115,41 @@ export interface PiDivergenceHealth {
   /** >1 distinct pi version across every enumerated install — a DIFFERENT question. */
   installSetDiverged: boolean;
   installSetVersions: string[];
+}
+
+/** Tail of the config-save chain: one save's write + pi mirror at a time. */
+let configSaveTail: Promise<unknown> = Promise.resolve();
+
+/**
+ * Persist a config partial and mirror the Default model / thinking level into
+ * pi's global settings (design D1). SERIALISED per process: save B's write
+ * cannot land between save A's write and A's mirror, so an older mirror can
+ * never overwrite a newer persisted default (a busy mirror of the newer save
+ * would otherwise leave pi on the older value). The mirror never fails the
+ * save — config.json is already written. See change: edit-pi-agent-settings.
+ */
+function saveConfigAndMirror(partial: Record<string, any>) {
+  const run = async () => {
+    const result = writeConfigPartial(partial);
+    if (!result.success) return { ok: false as const, error: result.error };
+    const config = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+    const reloaded = config.loadConfig();
+    const mirrorKeys = (["defaultModel", "defaultThinkingLevel"] as const).filter((k) => partial[k] !== undefined);
+    let piMirror: PiMirrorResult | undefined;
+    if (mirrorKeys.length > 0) {
+      try {
+        piMirror = await mirrorDefaultsToPi(config.loadConfig, mirrorKeys);
+      } catch (err) {
+        piMirror = { ok: false, error: "io" };
+        console.warn("[pi-settings] default-model mirror threw:", err instanceof Error ? err.message : err);
+      }
+      if (!piMirror.ok) console.warn(`[pi-settings] default-model mirror failed: ${piMirror.error}`);
+    }
+    return { ok: true as const, result, reloaded, piMirror };
+  };
+  const next = configSaveTail.then(run, run);
+  configSaveTail = next.catch(() => {});
+  return next;
 }
 
 /**
@@ -176,6 +212,7 @@ export function registerSystemRoutes(
       // fix-pending-prompt-lost-on-replay (blocking-class split).
       getDroppedFrameStats?: () => DroppedFrameStats;
       getNotifyLogStats?: () => { evictedEntries: number; bySession: Record<string, number> };
+      getQuestionStats?: () => unknown;
       // DERIVED from the gateway's exported type, same rule as above.
       // See change: fix-backpressure-status-and-subagent-frames.
       getSocketBufferOccupancy?: () => SocketBufferOccupancy;
@@ -542,13 +579,11 @@ export function registerSystemRoutes(
       ) {
         return reply.code(400).send({ success: false, error: "pairing.acceptLanRequests must be a boolean" });
       }
-      const result = writeConfigPartial(partial);
-      if (!result.success) {
-        return reply.code(500).send({ success: false, error: result.error });
+      const saved = await saveConfigAndMirror(partial);
+      if (!saved.ok) {
+        return reply.code(500).send({ success: false, error: saved.error });
       }
-
-      // Apply runtime-safe changes
-      const reloaded = (await import("@blackbelt-technology/pi-dashboard-shared/config.js")).loadConfig();
+      const { result, reloaded, piMirror } = saved;
 
       // Push the recomputed reachability when ANY part of the published fact
       // moved — not just `pendingBindHost`. A write that edits `trustedNetworks`
@@ -631,6 +666,7 @@ export function registerSystemRoutes(
       return {
         success: true,
         restartRequired: result.restartRequired,
+        ...(piMirror ? { piMirror } : {}),
       };
     },
   );
@@ -1021,6 +1057,8 @@ export function registerSystemRoutes(
     try { eventLoopSpikesSnap = eventLoopSpikes?.snapshot() ?? eventLoopSpikesSnap; } catch { /* keep empty */ }
     let notifyLogStats = { evictedEntries: 0, bySession: {} as Record<string, number> };
     try { notifyLogStats = browserGateway?.getNotifyLogStats?.() ?? notifyLogStats; } catch { /* keep zeros */ }
+    let questionStats: unknown;
+    try { questionStats = browserGateway?.getQuestionStats?.(); } catch { /* omit */ }
     // Provider-OAuth readiness. Failure-isolated like the other telemetry reads:
     // when the pi runtime exposes no provider definitions, sign-in is
     // unavailable but EVERY other route keeps serving, and the message names
@@ -1290,6 +1328,8 @@ export function registerSystemRoutes(
       // surfaced beside the other silent-loss counters.
       // See change: split-notify-from-prompt-request.
       notifyLog: notifyLogStats,
+      // Pending-question store + brief fallbacks (task 4.6). See change: add-pending-question-stack.
+      ...(questionStats !== undefined ? { questions: questionStats } : {}),
       // In-memory event-store shed counters (per-session trim + cross-session
       // LRU eviction). The third silent tool_execution_end loss path, made
       // observable beside droppedFrames. See change: instrument-event-store-trim.

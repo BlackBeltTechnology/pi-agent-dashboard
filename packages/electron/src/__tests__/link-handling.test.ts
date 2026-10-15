@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { decideWillNavigate, isSameOriginUrl } from "../lib/link-handling.js";
+import { describe, it, expect, vi } from "vitest";
+import { decideServerWindowNavigation, decideWillNavigate, isAllowedExternalUrl, isSameOriginUrl, openExternalIfAllowed } from "../lib/link-handling.js";
 
 describe("isSameOriginUrl", () => {
 	const origin = "http://localhost:8000";
@@ -143,4 +143,64 @@ describe("decideWillNavigate (current-origin-aware will-navigate decision)", () 
 			decideWillNavigate("not a url", "http://localhost:8000/", "https://example.com/"),
 		).toBe("cancel");
 	});
+});
+
+describe("openExternal scheme allowlist (VD4)", () => {
+	it.each(["https://example.com/a?b=1", "http://example.com", "mailto:a@b.co", "HTTPS://EXAMPLE.COM"])("allows %s", (u) => {
+		expect(isAllowedExternalUrl(u)).toBe(true);
+	});
+
+	it.each([
+		"file:///Applications/Calculator.app", "ms-msdt:/id PCWDiagnostic", "search-ms:query=x&crumb=location:\\\\evil\\s",
+		"smb://evil/share", "javascript:alert(1)", "data:text/html,x", "vscode://file/x", "tel:123", "ftp://h/x",
+		"//example.com", "example.com", "", "not a url",
+	])("drops %s", (u) => {
+		expect(isAllowedExternalUrl(u)).toBe(false);
+	});
+
+	it("drops non-string input", () => {
+		for (const u of [undefined, null, 42, {}]) expect(isAllowedExternalUrl(u)).toBe(false);
+	});
+
+	it("openExternalIfAllowed invokes the opener only for allowlisted schemes", () => {
+		const open = vi.fn();
+		expect(openExternalIfAllowed("https://example.com", open)).toBe(true);
+		expect(open).toHaveBeenCalledWith("https://example.com/");
+		open.mockClear();
+		// parser-stripped control chars never reach the OS: opener sees the clean href
+		expect(openExternalIfAllowed("\u0001https://x.example/a\tb", open)).toBe(true);
+		expect(open).toHaveBeenLastCalledWith("https://x.example/ab");
+		open.mockClear();
+		for (const u of ["file:///etc/passwd", "ms-msdt:/id", "search-ms:q", "smb://x/y"]) {
+			expect(openExternalIfAllowed(u, open), u).toBe(false);
+		}
+		expect(open).not.toHaveBeenCalled();
+	});
+});
+
+// ── Server-window navigation (add-electron-server-windows, test-plan E22) ──────
+
+describe("decideServerWindowNavigation (E22)", () => {
+  const origin = "http://192.168.16.204:8000";
+  it.each([
+    ["/settings", "allow"],
+    ["http://192.168.16.204:8000/x", "allow"],
+    ["https://example.com", "external"],
+    ["mailto:a@b", "external"],
+    ["file:///Applications/Calculator.app", "drop"],
+    ["ms-msdt:/id", "drop"],
+    ["http://[::1", "drop"], // unparseable
+    ["javascript:alert(1)", "drop"],
+    ["http://192.168.16.204:9000/", "external"], // other port ⇒ other origin
+  ])("%s ⇒ %s", (target, expected) => {
+    expect(decideServerWindowNavigation(origin, target)).toBe(expected);
+  });
+
+  it("an unparseable server origin drops everything", () => {
+    expect(decideServerWindowNavigation("not a url", "/x")).toBe("drop");
+  });
+
+  it("decideWillNavigate is unchanged: off-origin current page still allows", () => {
+    expect(decideWillNavigate(origin, "https://accounts.google.com/x", "https://accounts.google.com/y")).toBe("allow");
+  });
 });

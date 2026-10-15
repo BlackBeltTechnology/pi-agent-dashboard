@@ -371,7 +371,7 @@ function InteractiveUiCard({ request, onRespondToUi }: {
   onRespondToUi?: (requestId: string, result?: unknown, cancelled?: boolean) => void;
 }) {
   const Renderer = getInteractiveRenderer(request.method);
-  return (
+  const card = (
     <Renderer
       requestId={request.requestId}
       method={request.method}
@@ -381,6 +381,15 @@ function InteractiveUiCard({ request, onRespondToUi }: {
       onRespond={(result) => onRespondToUi?.(request.requestId, result)}
       onCancel={() => onRespondToUi?.(request.requestId, undefined, true)}
     />
+  );
+  // A pending ask is the scroll/focus target of the question stack's
+  // "Go to session" (`data-pending-ask`). See change: add-pending-question-stack.
+  return request.status === "pending" ? (
+    <div data-pending-ask="" tabIndex={-1} className="focus-ring rounded-lg">
+      {card}
+    </div>
+  ) : (
+    card
   );
 }
 

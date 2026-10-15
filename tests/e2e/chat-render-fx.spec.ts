@@ -92,4 +92,28 @@ test.describe("chat render — Phase 1 FX + auto-follow (umbrella gate)", () => 
       .toBeGreaterThan(start.scrollHeight + 200);
     expect((await scrollMetrics(page)).distanceFromBottom).toBeLessThan(80);
   });
+
+  // ── sanitize-untrusted-rendered-content F5: exploit attempts stay inert ────
+  test("untrusted markdown: javascript: link and iframe srcdoc are inert in a real browser", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:markdown-xss]] go");
+
+    const probe = page.getByText("XSS probe").first();
+    await expect(probe).toBeVisible({ timeout: 60_000 });
+    const urlBefore = page.url();
+    let navigated = false;
+    page.on("framenavigated", () => {
+      navigated = true;
+    });
+
+    const link = page.locator(".markdown-content").getByText("x", { exact: true }).first();
+    await link.click({ force: true });
+    await page.waitForTimeout(500);
+
+    expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
+    expect(page.url()).toBe(urlBefore);
+    expect(navigated).toBe(false);
+    await expect(page.locator(".markdown-content iframe")).toHaveCount(0);
+  });
 });

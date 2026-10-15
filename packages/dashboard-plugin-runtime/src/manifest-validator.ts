@@ -345,6 +345,20 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     );
   }
 
+  // shell-headless: always mounted, never gated. A predicate/shouldRender is
+  // never invoked there, so reject it instead of silently ignoring it.
+  // See change: fix-empty-status-subcard.
+  if (slotId === "shell-headless") {
+    for (const gate of ["predicate", "shouldRender"] as const) {
+      if (c[gate] !== undefined) {
+        throw new ManifestValidationError(
+          pluginId,
+          `claims[${index}] slot "shell-headless" must not declare "${gate}" (headless claims are always mounted)`,
+        );
+      }
+    }
+  }
+
   // settings-section: `tab` is accepted but inert. Every `settings-section`
   // claim renders on its owning plugin's page (`/settings/plugins/<id>`), so
   // rejecting an unknown VALUE would fail a manifest over a field nothing
@@ -377,6 +391,29 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     }
   }
 
+  // Lazy component module: package-relative `./…` path, no `..` segment, only
+  // meaningful next to a `component`. See change: lazy-plugin-claim-modules.
+  if (c.module !== undefined) {
+    if (typeof c.module !== "string" || !c.module.trim()) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}].module must be a non-empty string if provided`,
+      );
+    }
+    if (!c.module.startsWith("./") || c.module.split(/[\\/]/).includes("..")) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}].module "${c.module}" must be a package-relative path starting with "./" and containing no ".." segment`,
+      );
+    }
+    if (typeof c.component !== "string" || !c.component.trim()) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}].module requires a non-empty "component"`,
+      );
+    }
+  }
+
   // settings-section: optional `nav` promotion hint (non-fatal). `nav` on any
   // other slot is dropped silently. See change: promote-model-roles-settings.
   const navHint =
@@ -387,6 +424,7 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
   return {
     slot: slotId,
     ...(typeof c.component === "string" ? { component: c.component } : {}),
+    ...(typeof c.module === "string" ? { module: c.module } : {}),
     ...(typeof c.command === "string" ? { command: c.command } : {}),
     ...(typeof c.trigger === "string" ? { trigger: c.trigger } : {}),
     ...(typeof c.toolName === "string" ? { toolName: c.toolName } : {}),

@@ -51,10 +51,11 @@ export function createSessionCloserRegistry(): SessionCloserRegistry {
 export interface PluginSessionCloseDeps {
   registry: SessionCloserRegistry;
   getSession: (sessionId: string) => DashboardSession | undefined;
-  /** Clean-exit hint to the bridge (dropped when the socket is not open). */
-  sendShutdown: (sessionId: string) => void;
-  /** Graceful SIGTERM→grace→SIGKILL ladder. */
-  killBySessionId: (sessionId: string) => Promise<boolean>;
+  /**
+   * Graceful close now: shutdown hint + shared, confirmed terminator (the
+   * graceful `abortSpawnedRun` path). `true` = termination confirmed.
+   */
+  closeNow: (sessionId: string) => Promise<boolean>;
   /** Close mode `archive`: mark archive-on-end (+ persist). */
   markArchiveOnEnd: (sessionId: string) => void;
   onCloseRequest?: () => void;
@@ -106,8 +107,7 @@ export function createPluginSessionCloseApi(
         return true;
       }
       if (session.closePolicy.mode === "archive") deps.markArchiveOnEnd(sessionId);
-      deps.sendShutdown(sessionId);
-      return deps.killBySessionId(sessionId);
+      return deps.closeNow(sessionId);
     },
   };
 }

@@ -21,6 +21,7 @@
  * See change: electron-attach-ownership-fixes (Electron-E2E harness).
  */
 
+import crypto from "node:crypto";
 import fs from "node:fs";
 import { createServer, type Server } from "node:http";
 import net from "node:net";
@@ -217,6 +218,9 @@ export async function launchElectron(opts: {
   // chrome-sandbox helper under xvfb); harmless on macOS/Windows. Mirrors the
   // repo's qa `08-electron-real-launch.sh`.
   const args: string[] = ["--no-sandbox"];
+  // macOS: `safeStorage` (the server keyring) would otherwise block the main thread on a Keychain
+  // authorisation prompt in an unsigned build. The mock keychain keeps the app unattended-runnable.
+  if (process.platform === "darwin") args.push("--use-mock-keychain");
   if (opts.zombiePrompt === false) args.push("--no-zombie-prompt");
   const env: Record<string, string> = {
     ...process.env,
@@ -225,6 +229,27 @@ export async function launchElectron(opts: {
     ELECTRON_ENABLE_LOGGING: "1",
   };
   delete env.DASHBOARD_STARTER;
+  // PW_ELECTRON_DEV=1: run the WORKING TREE with the workspace's Electron binary instead of a
+  // packaged app — the fast local loop. Builds what forge would (main + both preloads, via the
+  // package's own vite/esbuild) into `packages/electron/.vite/build` and mirrors `renderer/`.
+  if (process.env.PW_ELECTRON_DEV) {
+    const { createRequire } = await import("node:module");
+    const { execFileSync } = await import("node:child_process");
+    const electronBinary = createRequire(import.meta.url)("electron") as string;
+    const bin = (name: string) => path.join(REPO_ROOT, "node_modules", ".bin", name);
+    const outDir = path.join(ELECTRON_DIR, ".vite", "build");
+    execFileSync(bin("vite"), ["build", "-c", "vite.main.config.ts", "--logLevel", "error"], { cwd: ELECTRON_DIR });
+    for (const name of ["preload", "preload-main"]) {
+      execFileSync(bin("esbuild"), [path.join(ELECTRON_DIR, "src", `${name}.ts`), "--bundle", "--platform=node", "--format=cjs", "--external:electron", `--outfile=${path.join(outDir, `${name}.js`)}`, "--log-level=error"]);
+    }
+    fs.cpSync(path.join(ELECTRON_DIR, "src", "renderer"), path.join(ELECTRON_DIR, ".vite", "renderer"), { recursive: true });
+    return await electron.launch({
+      executablePath: electronBinary,
+      args: [path.join(outDir, "main.js"), ...args],
+      env: { ...env, ELECTRON_DEV: "1" },
+      cwd: ELECTRON_DIR,
+    });
+  }
   return await electron.launch({
     executablePath: resolvePackagedBinary(),
     args,
@@ -294,7 +319,183 @@ export async function readMenuTemplates(app: ElectronApplication): Promise<Captu
  * which discards the transient `#doctor-btn` control.
  */
 export async function openDoctorViaIpc(app: ElectronApplication): Promise<void> {
-  await app.evaluate(({ ipcMain }) => {
-    ipcMain.emit("dashboard:open-doctor");
+  // The handler is sender-gated (harden-electron-renderer-boundary): synthesize
+  // the event a real call from the local loading page would carry.
+  await app.evaluate(({ app: electronApp, ipcMain }) => {
+    // No `require` in this ESM evaluate context: build the file URL by hand.
+    const resourcesDir = electronApp.isPackaged
+      ? process.resourcesPath
+      : `${electronApp.getAppPath()}/resources`;
+    const filePath = `${resourcesDir}/loading.html`.replace(/\\/g, "/").replace(/^\/+/, "");
+    const url = new URL(`file:///${filePath}`).href;
+    ipcMain.emit("dashboard:open-doctor", { senderFrame: { url } });
+  });
+}
+
+// ── Fake remote dashboard (add-electron-server-windows) ────────────────────────
+
+interface FakeRemoteRequest {
+  method: string;
+  url: string;
+  authorization?: string;
+  cookie?: string;
+}
+
+export interface FakeRemoteDashboard {
+  /** `http://<non-loopback IPv4>:<port>` — a non-internal address, since manual loopback URLs are refused. */
+  origin: string;
+  host: string;
+  port: number;
+  /** Current identity fingerprint (`sha256:…`). */
+  fingerprint: string;
+  /** The bearer handed out on approval. */
+  token: string;
+  /** Every request, in order (for ordering/credential assertions). */
+  readonly requests: FakeRemoteRequest[];
+  /** Replace the identity key (an address taken over by a different dashboard). */
+  swapKey(): void;
+  /** Make `/api/device-session` answer 403 `network_not_allowed` (revoked device). */
+  revokeDevice(): void;
+  close(): Promise<void>;
+}
+
+function b64url(buf: Buffer): string {
+  return buf.toString("base64url");
+}
+
+function newIdentity() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+  const der = publicKey.export({ format: "der", type: "spki" }) as Buffer;
+  return { privateKey, publicKeyB64: b64url(der), fingerprint: `sha256:${b64url(crypto.createHash("sha256").update(der).digest())}` };
+}
+
+/** First non-internal IPv4 address of this machine (the knock/loopback rules need a real LAN-style address). */
+export function firstNonInternalIPv4(): string | undefined {
+  for (const addrs of Object.values(os.networkInterfaces())) {
+    for (const a of addrs ?? []) if (a.family === "IPv4" && !a.internal) return a.address;
+  }
+  return undefined;
+}
+
+/**
+ * Start a fake REMOTE dashboard with a REAL Ed25519 identity: `/api/pair/challenge`
+ * (signs the nonce), `/api/pair/request` (knock → code `48217730`), `/api/pair/poll`
+ * (approved on the 2nd poll), `/api/device-session` (bearer → `pi_dash_device` cookie),
+ * and an HTML page for any other GET. Bound to the first non-internal IPv4.
+ * `knock: { refuse: "knock_disabled" }` makes the knock refuse instead.
+ */
+export async function startFakeRemoteDashboard(
+  opts: { knock?: { refuse?: string }; token?: string } = {},
+): Promise<FakeRemoteDashboard> {
+  const host = firstNonInternalIPv4();
+  if (!host) throw new Error("[electron-e2e] no non-internal IPv4 address on this machine");
+  let identity = newIdentity();
+  const token = opts.token ?? `B1-${crypto.randomBytes(12).toString("hex")}`;
+  let revoked = false;
+  let polls = 0;
+  const requests: FakeRemoteRequest[] = [];
+
+  type Req = import("node:http").IncomingMessage;
+  type Res = import("node:http").ServerResponse;
+  const readBody = (req: Req): Promise<string> =>
+    new Promise((resolve) => {
+      let data = "";
+      req.on("data", (c) => (data += c));
+      req.on("end", () => resolve(data));
+    });
+  const json = (res: Res, status: number, body: unknown, headers: Record<string, string> = {}) => {
+    res.writeHead(status, { "content-type": "application/json", ...headers });
+    res.end(JSON.stringify(body));
+  };
+
+  // One handler per `POST` route, dispatched by an explicit switch (no lookup by request-controlled name).
+  const challenge = async (req: Req, res: Res): Promise<void> => {
+    const { nonce } = JSON.parse((await readBody(req)) || "{}") as { nonce?: string };
+    const signature = crypto.sign(null, Buffer.from(String(nonce), "utf-8"), identity.privateKey);
+    json(res, 200, { success: true, data: { fingerprint: identity.fingerprint, publicKey: identity.publicKeyB64, signature: b64url(signature), v: 1 } });
+  };
+  const knock = async (req: Req, res: Res): Promise<void> => {
+    await readBody(req);
+    if (opts.knock?.refuse) return json(res, 403, { success: false, error: opts.knock.refuse });
+    polls = 0;
+    json(res, 200, { success: true, data: { pendingId: "p1", confirmCode: "48217730", expiresAt: Date.now() + 300_000, fingerprint: identity.fingerprint } });
+  };
+  const poll = async (req: Req, res: Res): Promise<void> => {
+    await readBody(req);
+    polls++;
+    json(res, 200, { success: true, data: polls >= 2 ? { status: "approved", token } : { status: "pending" } });
+  };
+  const deviceSession = async (req: Req, res: Res): Promise<void> => {
+    if (revoked) return json(res, 403, { success: false, error: "network_not_allowed" });
+    if (req.headers.authorization !== `Bearer ${token}`) return json(res, 401, { success: false, error: "invalid bearer" });
+    json(res, 200, { success: true }, { "set-cookie": `pi_dash_device=${token}; Path=/api/; HttpOnly; SameSite=Strict; Max-Age=34560000` });
+  };
+  const handlePost = async (url: string, req: Req, res: Res): Promise<boolean> => {
+    switch (url) {
+      case "/api/pair/challenge":
+        await challenge(req, res);
+        return true;
+      case "/api/pair/request":
+        await knock(req, res);
+        return true;
+      case "/api/pair/poll":
+        await poll(req, res);
+        return true;
+      case "/api/device-session":
+        await deviceSession(req, res);
+        return true;
+      default:
+        return false;
+    }
+  };
+
+  const server: Server = createServer(async (req, res) => {
+    const url = req.url ?? "";
+    requests.push({
+      method: req.method ?? "",
+      url,
+      ...(req.headers.authorization ? { authorization: String(req.headers.authorization) } : {}),
+      ...(req.headers.cookie ? { cookie: String(req.headers.cookie) } : {}),
+    });
+    if (req.method === "POST" && (await handlePost(url, req, res))) return;
+    if (url.startsWith("/api/")) return json(res, 200, { success: true, cookie: req.headers.cookie ?? null });
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end("<!doctype html><html><head><title>fake remote</title></head><body>fake remote dashboard</body></html>");
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, host, () => resolve());
+  });
+  const port = (server.address() as net.AddressInfo).port;
+  return {
+    origin: `http://${host}:${port}`,
+    host,
+    port,
+    get fingerprint() { return identity.fingerprint; },
+    token,
+    requests,
+    swapKey() { identity = newIdentity(); },
+    revokeDevice() { revoked = true; },
+    close: () => new Promise<void>((resolve) => { server.closeAllConnections?.(); server.close(() => resolve()); }),
+  };
+}
+
+/** Click an application-menu item by its label (searches submenus). */
+export async function clickAppMenuItem(app: ElectronApplication, label: string): Promise<void> {
+  const found = await app.evaluate(({ Menu }, wanted) => {
+    const flat = (items: Electron.MenuItem[]): Electron.MenuItem[] => items.flatMap((i) => [i, ...(i.submenu ? flat(i.submenu.items) : [])]);
+    const item = flat(Menu.getApplicationMenu()?.items ?? []).find((i) => i.label === wanted);
+    item?.click();
+    return !!item;
+  }, label);
+  if (!found) throw new Error(`[electron-e2e] app menu item not found: ${label}`);
+}
+
+/** Labels of the app menu's Servers submenu (rebuilt on keyring change). */
+export async function readServersMenu(app: ElectronApplication): Promise<string[]> {
+  return await app.evaluate(({ Menu }) => {
+    const flat = (items: Electron.MenuItem[]): Electron.MenuItem[] => items.flatMap((i) => [i, ...(i.submenu ? flat(i.submenu.items) : [])]);
+    const servers = flat(Menu.getApplicationMenu()?.items ?? []).find((i) => i.label === "Servers");
+    return (servers?.submenu?.items ?? []).filter((i) => i.type !== "separator").map((i) => i.label);
   });
 }

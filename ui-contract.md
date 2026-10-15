@@ -153,6 +153,11 @@ nothing below 11 px; buttons, labels, links and help text ≥ 12 px
 (`text-[12px]`); dense metadata (model, path, cost) may stay 11 px. The micro
 and chip steps above are legacy and not used on these surfaces.
 
+**One bounded exception:** the capsule legends of `SlotPill`, `SessionSubcard`
+and the SlotPill mirror in `FolderOpenSpecSection` render at 11 px uppercase
+(`text-[11px] font-semibold uppercase tracking-wide`) — the `meta` step and
+the floor, not below it. They are non-interactive labels, not buttons or links.
+
 ## Radius
 
 `rounded` (chips, inputs) · `rounded-md` (buttons, small panels) ·
@@ -188,7 +193,7 @@ drop it on a raised surface.
 | section heading | `text-[12px] font-semibold text-[var(--text-secondary)]` — no uppercase + `--text-muted` |
 | field label | `text-[12px] font-semibold text-[var(--text-primary)]` |
 | settings field | the runtime field family (`dashboard-plugin-runtime/src/settings-fields.tsx`): label row (`text-xs font-semibold text-[var(--text-primary)]`, `htmlFor`, unit chip inside the label) + optional key chip + state pill → control → hint (`text-xs text-[var(--text-secondary)]`, `aria-describedby`) → error (`text-xs text-[var(--severity-error-fg)]`, `role="alert"`, `aria-invalid`). **Exception to the `input` row's "label above":** settings rows keep the label beside the control (stacked only for text inputs). The 12 px unit chip inside a settings `<label>` is an exception to the 11 px chip step (text inside a `<label>` meets the 12 px interactive floor). |
-| capsule legend | `text-[12px] font-semibold uppercase text-[var(--text-secondary)]` on `SlotPill` and `SessionSubcard` — the section-heading recipe plus `uppercase` as an explicit exception. `SessionSubcard`'s border-only panel (no fill) is an exception to the inset-panel row. |
+| capsule legend | `text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]`, overhang `-top-2`, on `SlotPill` (shared `SLOT_PILL_LEGEND`), the SlotPill mirror in `FolderOpenSpecSection` and `SessionSubcard` — the section-heading recipe at the `meta` step plus `uppercase`/`tracking-wide` as an explicit exception (see the aligned-action-surface exception above). `SessionSubcard`'s border-only panel (no fill) is an exception to the inset-panel row. See change: fix-slot-pill-legend-and-stale-overflow. |
 | dialog | scrim `bg-[var(--bg-overlay)]` + panel at card recipe, `max-w-*`, one primary action |
 | input | `rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 py-1.5 text-sm` + persistent label above |
 

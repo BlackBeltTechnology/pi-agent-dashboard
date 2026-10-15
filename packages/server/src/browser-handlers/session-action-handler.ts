@@ -7,7 +7,6 @@ import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js"
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import {
-  isProcessAlive,
   killPidWithGroup,
   killProcess,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
@@ -24,6 +23,7 @@ import { decideResume } from "../session/session-origin.js";
 import { type AcpGuardContext, endedPromptHint, refuseIfAcp, UNSUPPORTED_FOR_ACP, unsupportedMessage } from "./acp-guard.js";
 import { preflightAcpSpawn, spawnAcpSession, validateAcpAgent } from "../spawn-process/acp-spawn.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
+import { createSessionTerminator } from "../spawn-process/session-terminator.js";
 import { getKeeperManager, spawnPiSession } from "../spawn-process/process-manager.js";
 import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
 import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
@@ -987,17 +987,6 @@ export async function handleSpawnSession(
  * See change: fix-tmux-session-shutdown-leak (design D6).
  */
 const SHUTDOWN_GRACE_MS = 1_500;
-const SHUTDOWN_GRACE_POLL_MS = 100;
-
-/** Resolves once the PID is gone, or after `graceMs`. */
-async function waitForExit(pid: number, graceMs: number): Promise<boolean> {
-  const deadline = Date.now() + graceMs;
-  while (Date.now() < deadline) {
-    if (!isProcessAlive(pid)) return true;
-    await new Promise((r) => setTimeout(r, SHUTDOWN_GRACE_POLL_MS));
-  }
-  return !isProcessAlive(pid);
-}
 
 /** Everything ending a session needs. Deliberately narrower than the handler context. */
 export interface ShutdownSessionDeps {
@@ -1049,53 +1038,43 @@ export async function shutdownSession(
   // host-shutdown end). See change: fix-recovery-pi-signal-unregister (D2).
   if (session) sessionManager.update(msg.sessionId, { closedReason: "manual" });
   piGateway.sendToSession(msg.sessionId, { type: "shutdown", sessionId: msg.sessionId });
-  // Escalates SIGTERM → 2 s → SIGKILL via shared killProcess ladder.
-  // See change: fix-keeper-kill-escalation.
-  await headlessPidRegistry.killBySessionId(msg.sessionId);
+  // ---- Terminate whatever strategy spawned this session -------------------
+  // ONE shared ladder (registry kill → session.pid → grace → SIGTERM → 2 s →
+  // SIGKILL → liveness confirm), strategy-agnostic by construction: it keys on
+  // the PID the server stores from `session_register`, not on the spawn
+  // strategy. The registry holds headless spawns only, and the marker scan below
+  // finds nothing for a tmux pane (`cd <cwd> && pi` carries no session id), so
+  // shutdown used to unregister while a ~127 MB pi survived (#452). Killing pi
+  // also collapses its tmux pane (`remain-on-exit` off).
+  // `verifyIdentity: false`: this is the operator path — the unattended callers
+  // add the start-time identity guard, shutdown keeps its shipped signalling.
+  //
+  // See change: fix-tmux-session-shutdown-leak (design D6),
+  //             fix-session-reclaim-tmux (design D1, D7).
+  const { terminate } = createSessionTerminator({ sessionManager, headlessPidRegistry });
+  const result = await terminate(msg.sessionId, { graceMs: SHUTDOWN_GRACE_MS, verifyIdentity: false });
+  // Headless sibling the registry lost (marker scan; caller-only, a no-op for tmux).
   killHeadlessBySessionId(msg.sessionId);
 
-  // ---- Terminate whatever strategy spawned this session -------------------
-  // Both paths above are headless-only: the registry has no entry for a
-  // tmux/wt/wsl-tmux session, and `killHeadlessBySessionId` resolves PIDs via
-  // `findPidByMarker(sessionId)`, which finds nothing because a tmux pane runs
-  // `cd <cwd> && pi` with no session id on the command line. So shutdown used to
-  // unregister and broadcast while the process kept running — the UI reported
-  // success and a ~127 MB pi survived (issue #452; measured 21 panes = 21
-  // resident pi = 0 session records).
-  //
-  // `handleForceKill` never had this problem because it keys on the PID the
-  // server already stores from `session_register`. Shutdown now does the same,
-  // which makes it strategy-agnostic by construction rather than by enumerating
-  // strategies. Killing pi also collapses its tmux pane: the pane's shell exits
-  // when its command does, and `remain-on-exit` is off.
-  //
-  // See change: fix-tmux-session-shutdown-leak (design D6).
-  const pid = session?.pid;
-  if (pid !== undefined) {
-    const exitedGracefully = await waitForExit(pid, SHUTDOWN_GRACE_MS);
-    if (!exitedGracefully) {
-      // Same ladder force-kill uses: SIGTERM → 2 s → SIGKILL, tree-killing on
-      // Windows via taskkill /F /T.
-      await killProcess(pid, { timeoutMs: 2000 });
-    }
-    if (isProcessAlive(pid)) {
-      // C2 — never report a clean removal for a process that outlived its
-      // shutdown. Reporting success we have not verified is what let this bug
-      // hide for so long.
-      //
-      // The record is still released: retaining it would wedge the session in
-      // the UI with no way to clear it but force-kill, and stall the E2E reap,
-      // which awaits `session_removed` per session (design D3 — failure must be
-      // non-blocking). But a log line only reaches whoever reads the server log,
-      // so clients are told explicitly too, ALONGSIDE `session_removed` rather
-      // than instead of it.
-      console.error(
-        `[dashboard] shutdown(${msg.sessionId}): process ${pid} survived SIGTERM→SIGKILL; ` +
-          `the session record is being released but the process is ORPHANED. ` +
-          `See openspec change fix-tmux-session-shutdown-leak.`,
-      );
-      broadcast({ type: "session_orphaned", sessionId: msg.sessionId, pid });
-    }
+  if (result.outcome === "no-identity") {
+    // No pid held → nothing to hand the orphan signal (`session_orphaned.pid` is
+    // required). Log-only: never imply a termination the server did not verify.
+    console.warn(
+      `[dashboard] shutdown(${msg.sessionId}): no process identity held; ` +
+        `termination NOT verified. The session record is being released.`,
+    );
+  } else if (!result.terminated && result.pid !== undefined) {
+    // C2 — never report a clean removal for a process that outlived its
+    // shutdown. The record is still released (retaining it would wedge the UI
+    // and stall the E2E reap, which awaits `session_removed` per session), but
+    // a log line only reaches whoever reads the server log, so clients are told
+    // explicitly too, ALONGSIDE `session_removed` rather than instead of it.
+    console.error(
+      `[dashboard] shutdown(${msg.sessionId}): process ${result.pid} survived SIGTERM→SIGKILL; ` +
+        `the session record is being released but the process is ORPHANED. ` +
+        `See openspec change fix-tmux-session-shutdown-leak.`,
+    );
+    broadcast({ type: "session_orphaned", sessionId: msg.sessionId, pid: result.pid });
   }
 
   sessionManager.unregister(msg.sessionId, { closedReason: "manual" });

@@ -27,6 +27,50 @@ export interface ParseResult {
   parseFailed: boolean; // frontmatter block present but a line did not parse
 }
 
+/**
+ * `[[x]]` scanner. Linear: `close` (next `]`) only moves forward, so unclosed
+ * openers never rescan (the old `/\[\[([^\]]+)\]\]/g` was quadratic).
+ */
+function scanWikilinks(text: string): string[] {
+  const out: string[] = [];
+  let close = -1;
+  let i = text.indexOf("[[");
+  while (i !== -1) {
+    if (close < i + 2) {
+      close = text.indexOf("]", i + 2);
+      if (close === -1) break;
+    }
+    if (close > i + 2 && text[close + 1] === "]") {
+      out.push(text.slice(i + 2, close).trim());
+      i = text.indexOf("[[", close + 2);
+    } else {
+      i = text.indexOf("[[", i + 1);
+    }
+  }
+  return out;
+}
+
+/** `](x.md)` / `](x.mdx)` scanner; same forward-only `close` pointer (next `)`). */
+function scanMdLinks(text: string): string[] {
+  const out: string[] = [];
+  let close = -1;
+  let i = text.indexOf("](");
+  while (i !== -1) {
+    if (close < i + 2) {
+      close = text.indexOf(")", i + 2);
+      if (close === -1) break;
+    }
+    const len = close - (i + 2);
+    if ((len >= 4 && text.endsWith(".md", close)) || (len >= 5 && text.endsWith(".mdx", close))) {
+      out.push(text.slice(i + 2, close).trim());
+      i = text.indexOf("](", close + 1);
+    } else {
+      i = text.indexOf("](", i + 1);
+    }
+  }
+  return out;
+}
+
 export function chunkMarkdown(input: ChunkInput): ParseResult {
   const docType: DocType = input.docType ?? "doc";
   const { body: text, fm, parseFailed } = parseFrontmatter(input.text);
@@ -124,8 +168,8 @@ export function chunkMarkdown(input: ChunkInput): ParseResult {
     bodyHash: sha(c.body.trim()),
   }));
 
-  const wikilinks = [...input.text.matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => m[1].trim());
-  const mdLinks = [...input.text.matchAll(/\]\(([^)]+\.mdx?)\)/g)].map((m) => m[1].trim());
+  const wikilinks = scanWikilinks(input.text);
+  const mdLinks = scanMdLinks(input.text);
 
   return { chunks, frontmatter: fm, wikilinks, mdLinks, parseFailed };
 }

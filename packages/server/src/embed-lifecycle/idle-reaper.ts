@@ -5,11 +5,15 @@
  * a `LifecycleSignals` snapshot for each ephemeral session from injected live
  * deps (liveness probe, subscriber/terminal/ask/queue sources), asks
  * `decideReap` for a verdict, and applies it:
- *   - gear 1 `idle`            → `killBySessionId` (graceful ladder, lossless)
+ *   - gear 1 `idle`            → `terminate` (shared ladder, any spawn strategy)
  *   - gear 2 `stop-after-turn` → `sendStopAfterTurn` (finish turn, clean exit)
- *   - gear 3 `phantom`         → `killBySessionId` (SAME graceful ladder, NOT a
+ *   - gear 3 `phantom`         → `terminate` (SAME graceful ladder, NOT a
  *                                bare SIGKILL — bounds the session-file
  *                                mid-write window, keeps resume intact) (E16)
+ *
+ * A kill reap is counted (`onReap`) only on CONFIRMED termination; a failed
+ * reclaim is logged, counted (`onReclaimFailed`), retried, and given up on
+ * after a bound (shared tracker). Gear 2 is counted on latch delivery.
  *
  * All policy lives in `decideReap`; this file only maps live state → signals and
  * verdict → action, so it stays trivially injectable for tests (no server
@@ -19,6 +23,7 @@
  */
 import type { EmbedLifecycleConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { TerminateResult } from "../spawn-process/session-terminator.js";
 import type { LivenessProbe } from "./liveness-probe.js";
 import {
   decideReap,
@@ -26,6 +31,7 @@ import {
   type LifecycleThresholds,
   type ReapReason,
 } from "./quiescence.js";
+import { createReclaimGiveUpTracker, type ReclaimGiveUpTracker } from "./reclaim-give-up.js";
 import { isEphemeral } from "./session-lifecycle-policy.js";
 
 /** CPU% at or below which a pi tree counts as "~0 CPU" for phantom detection. */
@@ -46,15 +52,20 @@ export interface ReaperDeps {
   hasPendingAsk: (sessionId: string) => boolean;
   /** Queued follow-up / steering counts (pi in-memory queue mirror). */
   queueCounts: (sessionId: string) => { followUp: number; steering: number };
-  /** Graceful SIGTERM→grace→SIGKILL runtime kill (gear 1 + gear 3). */
-  killBySessionId: (sessionId: string) => Promise<boolean>;
-  /** Latch `stop_after_turn` so the session ends cleanly at `turn_end` (gear 2). */
-  sendStopAfterTurn: (sessionId: string) => void;
+  /** Shared terminator: SIGTERM→grace→SIGKILL, confirmed (gear 1 + gear 3). */
+  terminate: (sessionId: string) => Promise<TerminateResult>;
+  /** Latch `stop_after_turn` so the session ends cleanly at `turn_end` (gear 2). Returns whether it was delivered. */
+  sendStopAfterTurn: (sessionId: string) => boolean;
   /**
-   * Fires on every applied reap for the diagnostics counters. `declared`
-   * carries the declaring plugin id for a plugin-governed session.
+   * Fires on every applied (confirmed / delivered) reap for the diagnostics
+   * counters. `declared` carries the declaring plugin id for a plugin-governed
+   * session. See change: add-session-close-plugin-hook.
    */
   onReap?: (sessionId: string, reason: ReapReason, declared?: { owner: string }) => void;
+  /** Fires when a reclaim attempt did not take effect (failed kill or undelivered latch). */
+  onReclaimFailed?: (sessionId: string, reason: ReapReason, result: TerminateResult | undefined) => void;
+  /** Give-up state shared with the caps gate (created locally when omitted). */
+  giveUp?: ReclaimGiveUpTracker;
   /** Injectable clock. */
   now?: () => number;
   /**
@@ -135,6 +146,7 @@ export function createIdleReaper(deps: ReaperDeps): IdleReaper {
   // Guards against re-selecting a session already mid-reap across overlapping
   // sweeps (and, later, coordinating with the caps reclaim path).
   const reaping = new Set<string>();
+  const giveUp = deps.giveUp ?? createReclaimGiveUpTracker();
   let timer: ReturnType<typeof setInterval> | undefined;
 
   async function assembleSignals(s: DashboardSession): Promise<LifecycleSignals> {
@@ -165,6 +177,28 @@ export function createIdleReaper(deps: ReaperDeps): IdleReaper {
     };
   }
 
+  /** Terminator call whose throw is a failed reclaim, not a skipped one. */
+  async function safeTerminate(id: string): Promise<TerminateResult> {
+    try {
+      return await deps.terminate(id);
+    } catch (err) {
+      console.warn(`[embed-lifecycle] terminate(${id}) threw:`, err);
+      return { outcome: "unconfirmed", terminated: false };
+    }
+  }
+
+  function reportFailedKill(id: string, reason: ReapReason, result: TerminateResult): void {
+    const pid = result.pid ?? "unknown";
+    console.warn(`[embed-lifecycle] reclaim(${id}, ${reason}): ${result.outcome}, process ${pid} survived`);
+    deps.onReclaimFailed?.(id, reason, result);
+    if (giveUp.recordFailure(id, result.outcome)) {
+      console.error(
+        `[embed-lifecycle] reclaim(${id}, ${reason}): giving up — outcome ${result.outcome}, process ${pid}; ` +
+          "session stays listed, operator action required (force-kill / shutdown)",
+      );
+    }
+  }
+
   /** Per-sweep closer budget (ms spent so far). */
   interface SweepBudget {
     spentMs: number;
@@ -173,7 +207,8 @@ export function createIdleReaper(deps: ReaperDeps): IdleReaper {
   /**
    * Ask the declaring plugin's closer, within the per-sweep budget. `true` ⇒
    * proceed with the close. Only plugin-governed sessions that are not
-   * close-requested reach here (a request is the plugin's own decision).
+   * close-requested reach a closer (a request is the plugin's own decision).
+   * See change: add-session-close-plugin-hook.
    */
   async function closerAllows(
     s: DashboardSession,
@@ -200,6 +235,7 @@ export function createIdleReaper(deps: ReaperDeps): IdleReaper {
 
   async function reapOne(s: DashboardSession, t: LifecycleThresholds, budget: SweepBudget): Promise<void> {
     if (reaping.has(s.id)) return;
+    if (giveUp.isGivenUp(s.id)) return; // wedged; stay quiet, stay listed
     const signals = await assembleSignals(s);
     const verdict = decideReap(signals, t, now());
     if (verdict.action !== "reap") return;
@@ -207,17 +243,30 @@ export function createIdleReaper(deps: ReaperDeps): IdleReaper {
     reaping.add(s.id);
     try {
       if (!(await closerAllows(s, signals, verdict.reason, budget))) return;
-      const declared = s.closePolicy?.owner ? { owner: s.closePolicy.owner } : undefined;
+      const owner = s.closePolicy?.owner;
+      const declared = owner && (signals.governed || signals.closeRequested) ? { owner } : undefined;
       // Close mode `archive`: mark before the close so the on-end archive fires.
       if (declared && s.closePolicy?.mode === "archive") deps.markArchiveOnEnd?.(s.id);
       if (verdict.reason === "stop-after-turn") {
-        deps.sendStopAfterTurn(s.id);
-      } else {
-        // idle + phantom both use the graceful, resumable kill ladder.
-        await deps.killBySessionId(s.id);
-        deps.clearCloseRequest?.(s.id);
+        // Terminates nothing: counted on delivery of the latch. Undelivered is
+        // a transient transport state — retried next sweep, never given up.
+        if (deps.sendStopAfterTurn(s.id)) {
+          deps.onReap?.(s.id, verdict.reason, declared);
+        } else {
+          console.warn(`[embed-lifecycle] reclaim(${s.id}, stop-after-turn): latch not delivered`);
+          deps.onReclaimFailed?.(s.id, verdict.reason, undefined);
+        }
+        return;
       }
-      deps.onReap?.(s.id, verdict.reason, signals.governed || signals.closeRequested ? declared : undefined);
+      // idle + phantom both use the graceful, resumable kill ladder.
+      const result = await safeTerminate(s.id);
+      if (result.terminated) {
+        giveUp.clear(s.id);
+        deps.clearCloseRequest?.(s.id);
+        deps.onReap?.(s.id, verdict.reason, declared);
+      } else {
+        reportFailedKill(s.id, verdict.reason, result);
+      }
     } finally {
       reaping.delete(s.id);
     }
@@ -226,6 +275,7 @@ export function createIdleReaper(deps: ReaperDeps): IdleReaper {
   /**
    * In scope this sweep: ephemeral (only while the feature is enabled), or
    * plugin-governed / close-requested (always — the declaration is the opt-in).
+   * See change: add-session-close-plugin-hook.
    */
   function inScope(s: DashboardSession, enabled: boolean): boolean {
     if (s.status === "ended") return false; // already gone
@@ -235,9 +285,11 @@ export function createIdleReaper(deps: ReaperDeps): IdleReaper {
 
   async function sweepOnce(): Promise<void> {
     const cfg = deps.config();
+    const sessions = deps.listSessions();
     // Durable undeclared sessions are never governed (E1); with the feature off
     // and nothing declared this is a no-work pass, as before (E22).
-    const candidates = deps.listSessions().filter((s) => inScope(s, cfg.enabled));
+    giveUp.prune(new Set(sessions.map((s) => s.id)));
+    const candidates = sessions.filter((s) => inScope(s, cfg.enabled));
     if (candidates.length === 0) return;
     const t = toThresholds(cfg);
     const budget: SweepBudget = { spentMs: 0 };

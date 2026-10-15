@@ -36,3 +36,5 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 - `VaultConfig {deliveryEnabled, offlineGraceHours}` + `parseVaultConfig` (grace clamped 1–168 h). See change: add-credential-vault.
 
 `PairingConfig.acceptLanRequests: boolean` (default `false`) gates the LAN knock route. Non-boolean → `false` (fail closed); read live per request, no restart. Tests: `__tests__/config-pairing.test.ts`. See change: add-lan-knock-pairing.
+
+`QuestionsConfig {autoBrief=true, minBriefChars=240}` + `parseQuestionsConfig` (non-boolean → true; integer clamp 0–4000, non-number → 240), `DEFAULT_QUESTIONS`, `DashboardConfig.questions`; defaults never written by `ensureConfig`. Tests: `__tests__/config-questions.test.ts`. See change: add-pending-question-stack (D12).

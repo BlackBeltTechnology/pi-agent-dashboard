@@ -129,6 +129,81 @@ export interface PutPiRetryPolicyResult {
 
 export type PutPiRetryPolicyResponse = ApiResponse<PutPiRetryPolicyResult>;
 
+// ── pi settings editor (global ~/.pi/agent/settings.json) ───────────
+// See change: edit-pi-agent-settings.
+
+/** GET /api/pi-settings body (also the 409 `stale` payload minus `error`). */
+export interface PiSettingsReadResponse {
+  success: true;
+  /** Parsed file; `{}` when absent or unparseable. */
+  settings: Record<string, unknown>;
+  /** Raw file text (BOM kept); `""` when absent. */
+  raw: string;
+  /** Concurrency token; `"absent"` for no file. */
+  etag: string;
+  /** Present when the file exists but is not a valid JSON object. */
+  parseError?: string;
+}
+
+/** Leaf-key patch over the typed key set; a `null` leaf deletes the key. */
+export interface PiSettingsPatch {
+  compaction?: { enabled?: boolean | null; reserveTokens?: number | null; keepRecentTokens?: number | null };
+  branchSummary?: { reserveTokens?: number | null; skipPrompt?: boolean | null };
+  steeringMode?: "all" | "one-at-a-time" | null;
+  followUpMode?: "all" | "one-at-a-time" | null;
+  defaultProjectTrust?: "ask" | "always" | "never" | null;
+  hideThinkingBlock?: boolean | null;
+  quietStartup?: boolean | "header" | null;
+}
+
+export interface PutPiSettingsRequest {
+  patch: PiSettingsPatch;
+  baseEtag: string;
+}
+
+export interface PutPiSettingsRawRequest {
+  raw: string;
+  baseEtag: string;
+}
+
+/** Successful write (typed or raw): post-write state so the client re-baselines. */
+export interface PiSettingsWriteResponse {
+  success: true;
+  settings: Record<string, unknown>;
+  raw: string;
+  etag: string;
+  reloadedSessions: number;
+  /** Raw writes only: managed keys whose submitted value was replaced from disk. */
+  restoredKeys?: string[];
+}
+
+/** 409 body: the file changed after the client read it. */
+export interface PiSettingsConflict {
+  success: false;
+  error: "stale";
+  etag: string;
+  settings: Record<string, unknown>;
+  raw: string;
+}
+
+/** Result of mirroring the dashboard default model / thinking level into pi. */
+export interface PiMirrorResult {
+  ok: boolean;
+  /** `ok:false` reason. */
+  error?: "parse" | "busy" | "io";
+  /** The dashboard model id has no `provider/` prefix, so nothing was mirrored. */
+  skipped?: "no-provider-separator";
+}
+
+/** POST /api/pi-settings/sync-defaults success body. */
+export interface PiSettingsSyncResponse {
+  success: true;
+  piMirror: PiMirrorResult;
+  settings: Record<string, unknown>;
+  raw: string;
+  etag: string;
+}
+
 // ── Session Spawn ───────────────────────────────────────────────────
 
 export interface SpawnSessionRequest {

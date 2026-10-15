@@ -14,7 +14,9 @@
  * See OpenSpec change: add-embed-session-lifecycle.
  */
 import type { EmbedLifecycleConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { TerminateResult } from "../spawn-process/session-terminator.js";
 import { visitorIdOf } from "./identity-key.js";
+import type { ReclaimGiveUpTracker } from "./reclaim-give-up.js";
 
 /** Structured capacity error — no active session was terminated (X3). */
 export class CapacityError extends Error {
@@ -43,8 +45,12 @@ export interface CapsDeps {
   config: () => EmbedLifecycleConfig;
   /** Currently-active EPHEMERAL sessions (durable sessions are never listed). */
   listEphemeralActive: () => readonly CapSessionInfo[];
-  /** Graceful reclaim (killBySessionId) of the chosen victim. */
-  reclaim: (sessionId: string) => Promise<void>;
+  /** Shared-terminator reclaim of the chosen victim; the result says whether the process is confirmed dead. */
+  reclaim: (sessionId: string) => Promise<TerminateResult>;
+  /** Give-up state shared with the reaper: given-up sessions are never picked as victims (they still count). */
+  giveUp?: ReclaimGiveUpTracker;
+  /** Fires when a victim's termination was not confirmed (diagnostics). */
+  onReclaimFailed?: (sessionId: string, result: TerminateResult) => void;
   /** Shared with the reaper so both never double-select a victim. */
   reclaimGuard?: Set<string>;
   /** Fires when an acquire is rejected for capacity (diagnostics). */
@@ -74,7 +80,7 @@ export function createCapsAdmission(deps: CapsDeps): CapsAdmission {
     // visitors; a per-visitor breach reclaims only within that visitor.
     const pool = overGlobal ? active : active.filter((s) => s.visitorId === visitorId);
     const victim = pool
-      .filter((s) => s.quiescent && !s.declared)
+      .filter((s) => s.quiescent && !s.declared && !deps.giveUp?.isGivenUp(s.sessionId))
       .sort((a, b) => (a.lastActivityAt ?? 0) - (b.lastActivityAt ?? 0))[0];
 
     if (!victim) {
@@ -83,11 +89,30 @@ export function createCapsAdmission(deps: CapsDeps): CapsAdmission {
     }
 
     guard.add(victim.sessionId);
+    let result: TerminateResult;
     try {
-      await deps.reclaim(victim.sessionId);
+      result = await deps.reclaim(victim.sessionId);
     } finally {
       guard.delete(victim.sessionId);
     }
+    if (result.terminated) {
+      deps.giveUp?.clear(victim.sessionId);
+      return;
+    }
+    // The slot was NOT freed: refuse rather than exceed the cap on an
+    // unverified kill. Exactly one victim per call (no sweep of every
+    // quiescent session because one process is wedged).
+    deps.onReclaimFailed?.(victim.sessionId, result);
+    if (deps.giveUp?.recordFailure(victim.sessionId, result.outcome)) {
+      console.error(
+        `[embed-lifecycle] caps reclaim(${victim.sessionId}): giving up — outcome ${result.outcome}, ` +
+          `process ${result.pid ?? "unknown"}; session stays listed, operator action required`,
+      );
+    }
+    deps.onCapacityReject?.();
+    throw new CapacityError(
+      `embedded-session capacity reached: reclaim of ${victim.sessionId} could not be confirmed (${result.outcome})`,
+    );
   }
 
   return { admit };

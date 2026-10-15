@@ -103,3 +103,23 @@ describe("no direct process.kill outside packages/shared/src/platform/", () => {
     }
   });
 });
+
+/**
+ * The shared session terminator signals ONLY through the platform helpers
+ * (`killProcess` to signal, `signalZero` to probe) — test-plan #E36.
+ *
+ * @structural-pin import-graph lint: session-terminator.ts must signal only via platform helpers; absence of a direct process.kill is the contract
+ *
+ * See change: fix-session-reclaim-tmux.
+ */
+describe("session-terminator signals only via platform helpers", () => {
+  it("has no direct process.kill and imports killProcess + signalZero from platform/process.js", async () => {
+    const here = path.dirname(url.fileURLToPath(import.meta.url));
+    const file = path.resolve(here, "..", "..", "..", "server", "src", "spawn-process", "session-terminator.ts");
+    const content = await fs.readFile(file, "utf-8");
+    expect(content.split(/\r?\n/).filter((l) => PROCESS_KILL_RE.test(l) && !l.includes(OPT_OUT_MARKER))).toEqual([]);
+    expect(content).toMatch(/killProcess as defaultKillProcess/);
+    expect(content).toMatch(/signalZero as defaultSignalZero/);
+    expect(content).toContain("@blackbelt-technology/pi-dashboard-shared/platform/process.js");
+  });
+});

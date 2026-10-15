@@ -8,6 +8,7 @@ import { mdiAlertOutline, mdiArchiveOutline, mdiArrowRightCircleOutline, mdiClos
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
+import { isComposerWorking } from "../../lib/chat/composer-liveness.js";
 import {
   deriveDotColorWithFlags,
   deriveIconStatusColor,
@@ -927,7 +928,7 @@ export function SessionCard({
   // Merge-emphasis decision per card (D6): threaded to the OpenSpec actions
   // (outlines their primary) and to the worktree actions (fills Merge).
   // See change: redesign-composer-session-strip.
-  const working = session.status === "streaming" || isRetrying === true;
+  const working = isComposerWorking(session.status, isRetrying === true);
   // Resolve against active + archived data. Lifecycle state (Merge emphasis)
   // only for a live-active attachment in this session's own cwd.
   // See change: resolve-archived-attached-proposal.
@@ -1482,12 +1483,15 @@ export function SessionCard({
           its `gitWorktree.mainPath` and never gets its own sidebar folder
           card, so this is the only surface that reaches the worktree's KB.
           The plugin claim renders a bare `SlotPill` with no outer margin, so
-          the wrapper supplies the same `mt-1.5` every `SessionSubcard` carries
+          the wrapper supplies the same `mt-2.5` every `SessionSubcard` carries
           — without it the KB row butts flush against the OPENSPEC subcard
-          above while GIT below still gets its gap.
-          See change: kb-row-on-worktree-session-card. */}
+          above while GIT below still gets its gap. `flex flex-col gap-2.5`
+          spaces the claims (a bare fragment) so a stacked claim's capsule
+          legend (-top-2) does not reach into the claim above.
+          See change: kb-row-on-worktree-session-card.
+          See change: fix-slot-pill-legend-and-stale-overflow. */}
       {showKb && session.gitWorktree && (
-        <div className="mt-1.5" data-testid="worktree-card-section-gap">
+        <div className="mt-2.5 flex flex-col gap-2.5" data-testid="worktree-card-section-gap">
           <WorktreeCardSectionSlot folder={{ cwd: session.cwd }} />
         </div>
       )}

@@ -34,13 +34,12 @@ function sess(over: Partial<DashboardSession> = {}): DashboardSession {
 
 function api(sessions: DashboardSession[], pluginId = "team", trusted = true) {
   const registry = createSessionCloserRegistry();
-  const calls = { kills: [] as string[], shutdowns: [] as string[], archived: [] as string[], warns: [] as string[], requests: 0 };
+  const calls = { kills: [] as string[], archived: [] as string[], warns: [] as string[], requests: 0 };
   const a = createPluginSessionCloseApi(
     {
       registry,
       getSession: (id) => sessions.find((s) => s.id === id),
-      sendShutdown: (id) => calls.shutdowns.push(id),
-      killBySessionId: async (id) => {
+      closeNow: async (id) => {
         calls.kills.push(id);
         return true;
       },
@@ -58,7 +57,7 @@ function api(sessions: DashboardSession[], pluginId = "team", trusted = true) {
 }
 
 describe("requestSessionClose", () => {
-  it("E13: when:now closes through the graceful ladder, no closer consult (test-plan #E13)", async () => {
+  it("E13: when:now closes through the graceful shutdown + terminator path, no closer consult (test-plan #E13)", async () => {
     const { a, registry, calls } = api([sess()]);
     let asked = 0;
     a.registerSessionCloser(() => {
@@ -67,7 +66,6 @@ describe("requestSessionClose", () => {
     });
     expect(registry.get("team")).toBeTypeOf("function");
     expect(await a.requestSessionClose({ sessionId: "s1", reason: "owner_revoked", when: "now" })).toBe(true);
-    expect(calls.shutdowns).toEqual(["s1"]);
     expect(calls.kills).toEqual(["s1"]);
     expect(asked).toBe(0);
     expect(calls.requests).toBe(1);
@@ -125,11 +123,11 @@ describe("controller wiring", () => {
       getSubscriberCount: () => 0,
       listTerminalCwds: () => [],
       hasPendingUiRequest: () => false,
-      killBySessionId: async (id) => {
+      terminate: async (id) => {
         kills.push(id);
-        return true;
+        return { outcome: "confirmed-dead" as const, terminated: true };
       },
-      sendStopAfterTurn: () => {},
+      sendStopAfterTurn: () => true,
       probe: async () => ({ ok: true, childCount: 0, cpuPercent: 0 }),
       closers: registry,
       isPluginEnabled: () => false,

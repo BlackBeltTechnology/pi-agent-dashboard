@@ -532,6 +532,24 @@ describe("ComposerPanelSlot", () => {
     expect(screen.getByTestId("panel").textContent).toBe("draft=teh cat lang=en");
   });
 
+  // See change: fix-composer-liveness-on-reload (test-plan #E16): the reconciled
+  // composer liveness reaches panels verbatim; the runtime never re-derives it.
+  it("passes sessionStatus to the panel verbatim", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "probe",
+      priority: 100,
+      slot: "composer-panel",
+      Component: (props: Record<string, unknown>) => <span data-testid="probe">{String(props.sessionStatus)}</span>,
+    });
+    render(
+      <PluginContextProvider registry={registry}>
+        <ComposerPanelSlot draft="x" sessionStatus="streaming" onApplyText={() => {}} />
+      </PluginContextProvider>,
+    );
+    expect(screen.getByTestId("probe").textContent).toBe("streaming");
+  });
+
   it("renders nothing when no plugin claims composer-panel", () => {
     const registry = createSlotRegistry();
     const { container } = render(

@@ -44,13 +44,21 @@ describe("browser-plugin manifest (E31)", () => {
     expect(v.defaultEnabled).toBe(false);
   });
 
-  it("declares settings-section + session-card-badge + editor-pane-tab claims that resolve to exported components (and no content-view)", () => {
+  it("declares settings-section + session-card-badge + shell-headless + editor-pane-tab claims that resolve to exported components (and no content-view)", async () => {
     const v = validateManifest(manifest, "browser");
     expect(v.claims.map((c) => c.slot).sort()).toEqual([
       "editor-pane-tab",
       "session-card-badge",
       "settings-section",
+      "shell-headless",
     ]);
+    // fix-empty-status-subcard: the badge is gated; the feed claim is not.
+    expect(v.claims.find((c) => c.slot === "session-card-badge")?.shouldRender).toBe("hasRelayTabsForBadge");
+    expect(typeof (clientEntry as Record<string, unknown>).hasRelayTabsForBadge).toBe("function");
+    const headless = v.claims.find((c) => c.slot === "shell-headless");
+    expect(headless).toMatchObject({ component: "BrowserRelayFeed" });
+    expect(headless?.shouldRender).toBeUndefined();
+    expect(headless?.predicate).toBeUndefined();
     // D10: the relay no longer takes over the chat.
     expect(v.claims.some((c) => c.slot === "content-view")).toBe(false);
     const pane = v.claims.find((c) => c.slot === "editor-pane-tab");
@@ -59,10 +67,16 @@ describe("browser-plugin manifest (E31)", () => {
     expect(v.bridge).toBe("./src/bridge/index.ts");
 
     for (const claim of v.claims) {
-      const component = (clientEntry as Record<string, unknown>)[claim.component as string];
-      // Slot registry imports the claimed name from the client entry — it
-      // must be present and be a component (function), not undefined.
-      expect(typeof component, `claim ${claim.slot} → ${claim.component}`).toBe("function");
+      // Slot registry imports the claimed name from the client entry, or — for
+      // a lazy claim (`module`, change: lazy-plugin-claim-modules) — from that
+      // module, where the main entry must NOT also export it.
+      const source = claim.module
+        ? ((await import(/* @vite-ignore */ path.resolve(path.dirname(pkgPath), claim.module))) as Record<string, unknown>)
+        : (clientEntry as Record<string, unknown>);
+      expect(typeof source[claim.component as string], `claim ${claim.slot} → ${claim.component}`).toBe("function");
+      if (claim.module) {
+        expect((clientEntry as Record<string, unknown>)[claim.component as string]).toBe(undefined);
+      }
     }
   });
 

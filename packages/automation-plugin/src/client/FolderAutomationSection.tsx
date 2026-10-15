@@ -22,12 +22,17 @@ import {
 import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { mdiCogOutline, mdiPlus } from "@mdi/js";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import type { DiscoveredAutomation } from "../shared/automation-types.js";
 import { listAutomations } from "./api.js";
-import { CreateAutomationDialog } from "./CreateAutomationDialog.js";
 import { encodeFolderPath } from "./folder-encoding.js";
+
+// The create dialog (~27 KB raw) only opens on click; keep it out of the
+// cold-landing chunk. See change: lazy-plugin-claim-modules.
+const CreateAutomationDialog = lazy(() =>
+  import("./CreateAutomationDialog.js").then((m) => ({ default: m.CreateAutomationDialog })),
+);
 
 export function FolderAutomationSection({
   folder,
@@ -101,11 +106,13 @@ export function FolderAutomationSection({
       </SlotPill>
 
       {creating && (
-        <CreateAutomationDialog
-          cwd={folder.cwd}
-          onClose={() => setCreating(false)}
-          onCreated={() => setReloadKey((k) => k + 1)}
-        />
+        <Suspense fallback={null}>
+          <CreateAutomationDialog
+            cwd={folder.cwd}
+            onClose={() => setCreating(false)}
+            onCreated={() => setReloadKey((k) => k + 1)}
+          />
+        </Suspense>
       )}
     </div>
   );

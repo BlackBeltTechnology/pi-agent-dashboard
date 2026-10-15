@@ -43,6 +43,13 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/access/prompts", tier: "observe" },
   { method: "GET", path: "/api/access/store-stats", tier: "observe" },
   { method: "GET", path: "/api/access/yolo/roots", tier: "observe" },
+  // add-pending-question-stack: open ask_user questions. Reads `observe`; the
+  // answer is a control action (same tier as answering in the dashboard chat).
+  { method: "GET", path: "/api/questions", tier: "observe" },
+  { method: "GET", path: "/api/questions/:id", tier: "observe" },
+  { method: "POST", path: "/api/questions/:id/answer", tier: "control" },
+  // On-demand generated brief (a model call): control, like answering.
+  { method: "POST", path: "/api/questions/:id/summarize", tier: "control" },
   // add-acp-session-driver: the spawn picker's `{id, name}` projection. `control`
   // = the tier that may spawn; never exposes command/args/env.
   { method: "GET", path: "/api/acp/agents", tier: "control" },
@@ -177,6 +184,10 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/pi-resources", tier: "observe" },
   { method: "GET", path: "/api/pi-resources/commands", tier: "observe" },
   { method: "GET", path: "/api/pi-retry", tier: "observe" },
+  // edit-pi-agent-settings: the raw file may hold secrets (e.g. credentialed
+  // proxy URLs) and unlisted keys, so reading it is `operate`, like writing it
+  // (code-executing keys: packages, extensions, shellPath, npmCommand).
+  { method: "GET", path: "/api/pi-settings", tier: "operate" },
   { method: "GET", path: "/api/pi/installs", tier: "observe" },
   { method: "GET", path: "/api/pinned-dirs", tier: "observe" },
   { method: "GET", path: "/api/plugins", tier: "observe" },
@@ -315,6 +326,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/packages/install", tier: "operate" },
   { method: "POST", path: "/api/packages/move", tier: "operate" },
   { method: "POST", path: "/api/packages/remove", tier: "operate" },
+  { method: "POST", path: "/api/pi-settings/sync-defaults", tier: "operate" },
   { method: "POST", path: "/api/packages/reset-to-npm", tier: "operate" },
   { method: "POST", path: "/api/packages/update", tier: "operate" },
   { method: "POST", path: "/api/pair/approve", tier: "operate" },
@@ -418,6 +430,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PUT", path: "/api/openspec/groups/assignments", tier: "control" },
   { method: "PUT", path: "/api/openspec/groups/change-order", tier: "control" },
   { method: "PUT", path: "/api/pi-retry", tier: "control" },
+  { method: "PUT", path: "/api/pi-settings", tier: "operate" },
+  { method: "PUT", path: "/api/pi-settings/raw", tier: "operate" },
   { method: "PUT", path: "/api/plugins/blackhole/config", tier: "operate" },
   { method: "PUT", path: "/api/plugins/gmail/client", tier: "operate" },
   { method: "PUT", path: "/api/plugins/hermes-memory/config", tier: "operate" },

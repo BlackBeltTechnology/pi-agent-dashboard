@@ -131,6 +131,7 @@ SHALL be unchanged.
 - **WHEN** the image `src` carries a URI scheme (`http(s):`, `data:`, `blob:`, `pi-asset:<hash>`, `file:`, `cid:`) OR starts with `//` (protocol-relative)
 - **THEN** the src SHALL NOT be rewritten to the raw endpoint
 - **AND** `pi-asset:` SHALL still resolve via `SessionAssetsContext` as before
+- **AND** a scheme outside the URL allowlist of `client-untrusted-content-sanitization` (e.g. `file:`, `cid:`, a non-image `data:`) SHALL reach the renderer with no `src`
 
 #### Scenario: No base means no rewrite
 - **GIVEN** `MarkdownContent` rendered without `imageBase` (chat/thinking surface)

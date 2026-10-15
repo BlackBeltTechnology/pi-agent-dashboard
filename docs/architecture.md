@@ -1103,6 +1103,7 @@ First-party slots (React, possibly also descriptor):
 - `command-route` — maps a slash command or URL route to a `content-view` (replaces today's hand-wired routing in `App.tsx`).
 - `settings-section` — a section in the Settings page (replaces today's hardcoded `Background polling (OpenSpec)` section). React for first-party plugins; descriptor (RJSF/UiField) for third-party extensions.
 - `resource-page-section` — section above resource grid on Folder + Global Skills/Agents/Extensions/Prompts/Themes pages. Multiplicity `many`, react-only. Props `ResourcePageSectionProps` (`resourceType`, `scope: "folder"|"global"`, `cwd?`, `pluginContext`). Claim `resourceType` filter. First claimant: `skill-atlas`. See change: add-skill-atlas-screen; [`skill-atlas.md`](skill-atlas.md).
+- `shell-headless` — always-mounted zero-UI host for plugin-wide hooks (e.g. message subscriptions). Multiplicity `many`, react-only. Props `Record<string, never>`; predicate input `never`. Claim renders `null`. Consumer `ShellHeadlessSlot()` (`packages/dashboard-plugin-runtime/src/slot-consumers.tsx`): calls `useSlotClaimsVersion()`, renders each claim via `renderClaim` (SlotErrorBoundary + Suspense + CurrentPluginLayer). No wrapper element. No intents rendered. Mounted once in `packages/client/src/App.tsx` inside `apiProvider` body (inside `PluginContextProvider`), every layout branch (desktop, mobile, focus), independent of selection/session count. Runtime enable/disable mounts/unmounts claim. `manifest-validator.ts` REJECTS `predicate`/`shouldRender` on `shell-headless` claim (error names plugin + slot). See change: fix-empty-status-subcard.
 - `tool-renderer` — React component for a specific `tool_call` by `toolName` (replaces today's hardcoded `tool-renderers/registry.ts`).
 
 Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `footer-segment`, `agent-metric`, `breadcrumb`, `gate`, `toast`, `rjsf-form`.
@@ -1137,9 +1138,33 @@ See change: add-plugin-app-host.
 
 1. **Discovery** — server globs `packages/*/package.json` on startup, parses the `pi-dashboard-plugin` field, validates against schema, sorts by `priority` (lower first; first-party = 100; default 1000).
 2. **Server load** — dynamic-imports each plugin's `server` entry, invokes `registerPlugin(ctx)` with a typed `ServerPluginContext` (Fastify, session manager, event store, broadcast helper, scoped logger).
-3. **Client bundle** — a Vite plugin (`vite-plugin-dashboard-plugins`) generates `packages/client/src/generated/plugin-registry.tsx` with static imports per plugin manifest; Vite tree-shakes unused exports and code-splits per plugin.
+3. **Client bundle** — a Vite plugin (`vite-plugin-dashboard-plugins`) generates `packages/client/src/generated/plugin-registry.tsx` with static imports per plugin manifest; Vite tree-shakes unused exports and code-splits per plugin. Lazy claims (`module`) excepted: see registry split note below.
 4. **Runtime registration** — client boot calls `getSlotRegistry()` once; slot consumer components (`<SessionCardBadgeSlot/>`, `<ContentViewSlot/>`, etc.) iterate the registry and render contributions in priority order with per-slot error boundaries.
 5. **Bridge auto-register** — plugins declaring a `bridge` entry are auto-registered into `~/.pi/agent/settings.json` under managed `dashboard-<plugin-id>` keys; user-owned entries are never touched.
+
+**Registry split for lazy claims** (`lazy-plugin-claim-modules`):
+
+- Generated `plugin-registry.tsx` statically imports `predicate`, `shouldRender`, `labelComponent`, catalogs from plugin main client entry.
+- Claim with `module` → no static `component` import. Emits `Component: lazyClaim(() => import("<spec>"), "<component>")` (`lazy-claim.tsx`).
+- Entry chunk gz 690,616 → 584,020 B. Landing graph gz 1,135,756 → 1,028,118 B. Gate `INDEX_GZ_CAP_BYTES` 580 KiB (`mdi-chunk-size.test.ts`).
+- Load failure contained to one claim by `SlotErrorBoundary`. Siblings render.
+
+```mermaid
+flowchart LR
+  REG["generated plugin-registry.tsx"]
+  ENTRY["plugin main client entry<br/>predicate · shouldRender · labelComponent"]
+  LAZY["lazy claim module<br/>manifest module: ./…"]
+  SLOT["slot consumer"]
+  EB["SlotErrorBoundary"]
+  SU["React.Suspense"]
+  COMP["Component"]
+  REG -- "static import" --> ENTRY
+  REG -- "lazyClaim(() => import())" --> LAZY
+  SLOT --> EB --> SU --> COMP
+  LAZY -. "resolves Component" .-> COMP
+```
+
+Authoring rules: [`plugin-seams.md`](plugin-seams.md#lazy-claim-modules-module).
 
 **Plugin settings persistence:**
 - All plugin settings live under `plugins.<id>.*` in `~/.pi/dashboard/config.json`. The dashboard core never reads or writes another plugin's namespace.
@@ -1466,7 +1491,7 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - Applied at first register in `packages/server/src/event-wiring.ts` as `DashboardSession.closePolicy = { owner, idleAfterMs?, mode }` (`SessionClosePolicy`, `packages/shared/src/types.ts`). Persisted to `.meta.json` (`session-to-meta.ts` / `session-scanner.ts` / `memory-session-manager.ts` reattach carry-over). `owner` = declaring plugin id; routes its closer + authorizes its close requests; never a pluginRef read.
 - Governed = `closePolicy.idleAfterMs` present. Idle reaper (`packages/server/src/embed-lifecycle/idle-reaper.ts`) governs it regardless of `embedLifecycle.enabled` + `lifecyclePolicy`, with its own threshold. All quiescence vetoes + 3 gears apply (`decideReap`, `quiescence.ts`). Feature off + nothing declared ⇒ no-work sweep (unchanged).
 - `ctx.registerSessionCloser(fn)` — one per plugin. Reaper asks it before closing a governed session it declared. fn gets `{ sessionId, cwd, reason, idleMs }` only; returns `"close" | "keep"`. Throw / >1 s (`CLOSER_TIMEOUT_MS`) / unknown value ⇒ keep. 5 s per-sweep budget (`CLOSER_SWEEP_BUDGET_MS`), overflow deferred. No closer or owner plugin disabled ⇒ close.
-- `ctx.requestSessionClose({ sessionId, reason, when })` — only sessions the caller declared. `when:"now"` ⇒ shutdown hint + `killBySessionId`. `when:"idle"` ⇒ close at next quiet point (all vetoes except idle age; never mid-run). In-memory, lost on restart; no closer consult. Refusal (foreign/undeclared/unknown/ended session, bad `when`, untrusted) ⇒ `false` + one warning.
+- `ctx.requestSessionClose({ sessionId, reason, when })` — only sessions the caller declared. `when:"now"` ⇒ graceful `abortSpawnedRun` path: shutdown hint + shared confirmed terminator (`createSessionTerminator`, `packages/server/src/spawn-process/session-terminator.ts`); `true` only on confirmed termination. `when:"idle"` ⇒ close at next quiet point (all vetoes except idle age; never mid-run). In-memory, lost on restart; no closer consult. Refusal (foreign/undeclared/unknown/ended session, bad `when`, untrusted) ⇒ `false` + one warning.
 - Close mode `archive` ⇒ `archiveOnEnd` set before close (subject to `sessionList.archiveServiceSessionsOnEnd`); `sleep` ⇒ resumable only.
 - Closer NOT consulted on: user Shutdown, `abortSpawnedRun`, spawn-register watchdog, socket-close finalize, heartbeat expiry. Caps reclaim never closes a declared session (`CapSessionInfo.declared`).
 - Metrics (`lifecycle-metrics.ts`): `declaredReaps`, `closerKeeps`, `closerFailures`, `pluginCloseRequests`. Code: `packages/server/src/embed-lifecycle/plugin-session-close.ts` (`createSessionCloserRegistry`, `createPluginSessionCloseApi`).
@@ -4798,7 +4823,7 @@ Protocol: line-framed JSON, fire-and-forget. Keeper forwards the raw line to pi'
 Dual-channel boundary explicit:
 - **Bridge WS** owns: send_prompt non-slash, abort, model switch, thinking-level, compaction, rename, events, flow control.
 - **Server → keeper UDS** owned: extension slash dispatch only — RETIRED. No writer remains; keeper still owns pi's stdin.
-- **headlessPidRegistry kill** owns: kill-by-pid for shutdown / force-kill / reload. `killBySessionId` escalates pi via shared `killProcess(pid, { timeoutMs: 2000 })` ladder (SIGTERM → 2 s → SIGKILL) — uniform with `handleForceKill`. See change: `fix-keeper-kill-escalation`.
+- **headlessPidRegistry kill** owns: kill-by-pid for shutdown / force-kill / reload. `killBySessionId` = registry attempt only inside shared `SessionTerminator.terminate` (see Quiescence + Reaper). Escalation: `killProcess(pid, { timeoutMs: 2000 })` (SIGTERM → 2 s → SIGKILL) — uniform with `handleForceKill`. See change: `fix-keeper-kill-escalation`.
 
 Former constraint: bridge cannot reach `session.prompt` from inside pi. Pi >= 0.84.2 exposes the dispatch through `sendUserMessage({expandPromptTemplates: true})`; the handler runs inside pi, so the RPC route is no longer needed.
 
@@ -5712,6 +5737,8 @@ See change: repair-corrupted-main-specs.
 
 ## Electron Server Lifecycle
 
+Paired remote dashboards open in per-server Electron windows (own origin, device cookie): see [electron-server-windows.md](./electron-server-windows.md).
+
 ### Power-user-mode managed install (Defect 1 fix)
 
 ### LaunchSource V2 Resolution (Phase C default)
@@ -6236,7 +6263,7 @@ Core: pure `decideReap(signals, thresholds, now)` in quiescence.ts. Three gears:
 flowchart LR
     subgraph Gear1[Gear 1: Idle]
         A1[Fully quiescent
-+ past idle timeout] --> K1[killBySessionId]
++ past idle timeout] --> K1[SessionTerminator.terminate]
     end
     subgraph Gear2[Gear 2: Stop-after-turn]
         A2[Streaming
@@ -6267,6 +6294,16 @@ Quiescence vetoes (any one blocks idle reap): active generation, currentTool, pe
 
 Liveness probe (liveness-probe.ts): bounded `ps` pid-tree + CPU sum. Unknown result (ps fail) → safe direction — never idle-reap on unknown child, never phantom on unknown CPU.
 
+Kill path (shared): `createSessionTerminator({sessionManager, headlessPidRegistry})` in `packages/server/src/spawn-process/session-terminator.ts`. `terminate(id, {graceMs?, spawnToken?, verifyIdentity?, stampManualClose?})` → `{outcome, terminated, pid?}`. outcome: `confirmed-dead | unconfirmed | refused-identity | no-identity`.
+
+- Ladder: registry kill (attempt only, never verdict) → `pid = session.pid ?? registryPid` → `signalZero` already-gone → grace poll (shutdown only) → identity guard (unattended only; `processStartedAt(pid) <= pidRecordedAt+2000`; null/win32 → `refused-identity`) → `killProcess(pid,{timeoutMs:2000})` → confirm via `signalZero === "esrch"` only.
+- Callers: reaper gear 1 `idle`, gear 3 `phantom` (`graceMs:0`); caps `reclaim`; automation `abortSpawnedRun` (+ spawn-token rung for pre-register window); `shutdownSession` (`verifyIdentity:false`, `graceMs:SHUTDOWN_GRACE_MS`). `handleForceKill` not rewired (pid-first order kept).
+- Why: tmux/wsl-tmux spawns never enter `headlessPidRegistry` (execFileSync, no handle) → registry-only kill leaked pi (#459). tmux = default spawn strategy.
+- `onReap` counts confirmed termination only (gear 2 `stop-after-turn` counts on latch delivery). Failed reclaim → warn + `failedReclaims` in `/api/health` `embedLifecycle`.
+- Give-up tracker `embed-lifecycle/reclaim-give-up.ts`: 3 consecutive failed attempts (immediate for `no-identity` / `refused-identity`); one `error` log line. Given-up sessions skipped by reaper, excluded from caps victim pick (still counted toward caps). Unconfirmed caps reclaim → `CapacityError` (no admit).
+- Unattended reclaim stamps in-memory `closedReason:"manual"` before signalling; withdrawn if not confirmed → reaped session never becomes shutdown-window recovery candidate.
+- Windows non-headless unattended reclaim → refused + diagnosed (no verifiable identity).
+
 ### Acquire + Caps
 
 Shared layer, consumed by future embed front. `visitor-session-registry.ts`: idempotent `acquire(req)` keyed by `identityKey = visitorId + canonical cwd (realpath + case-normalized) + agent identity` (identity-key.ts). Ladder: reuse-live → resume-ended → spawn. Concurrent acquires coalesce onto one in-flight promise resolved on `session_register`. Bounded register timeout rejects + clears. Server owns key→sessionId, re-points across resume renumber. cwd validated vs allowlist (cwd-allowlist.ts, D11).
@@ -6282,6 +6319,165 @@ Caps (caps.ts): `maxActiveEmbedSessionsPerVisitor` + `maxActiveEmbedSessionsGlob
 `createEmbedLifecycleController` (embed-lifecycle-controller.ts) constructed in server.ts. Reaper `start()`/`stop()` tied to server lifecycle. Dormant when `enabled: false`.
 
 See change: add-embed-session-lifecycle.
+
+## Question stack (open prompts → one global list)
+
+One list of every open PromptBus prompt the caller may see. Client: header pill, panel, dialog. Server: `question-store` keyed by `(sessionId, promptId)`. Change: add-pending-question-stack.
+
+```mermaid
+flowchart LR
+    Bridge["Bridge ext · prompt_request"] -->|"WS 9999"| GW["browser-gateway.ts<br/>trackPromptRequest"]
+    GW -->|"notify guard passed"| Reg["pendingPromptRequests<br/>(registry, private)"]
+    GW -->|"onTracked(sid, msg)"| QS["question-store.ts"]
+    QS --> Snap["question-snapshot.ts<br/>redactSecrets"]
+    QS --> Pol["brief-policy.ts"]
+    Pol -->|"generate"| Gen["brief-generator.ts<br/>@fast · cap 2 · 20 s"]
+    Pol -->|"provided"| QS
+    Gen --> QS
+    QS <--> Files[("~/.pi/dashboard/questions/ID.json")]
+    QS -->|"added · brief · hidden · removed"| BC["question-broadcast.ts<br/>250 ms trailing"]
+    BC -->|"questions_update · per recipient"| UI["QuestionStack pill · panel · dialog"]
+    UI -->|"GET /api/questions/:id"| REST["REST /api/questions*"]
+    UI -->|"POST …/answer · …/summarize"| REST
+    REST --> Claim{"claim latch"}
+    BPR["browser prompt_response"] --> Claim
+    Claim -->|"claimed"| Send["sendToSession<br/>prompt_response · dashboard-default"]
+    Send --> Bridge
+    Bridge -->|"prompt_dismiss echo"| GW
+    GW -->|"removeQuestion"| QS
+```
+
+### Records
+
+- Key: `(sessionId, promptId)`. Id: random 128-bit base64url (22 chars).
+- Re-send of same key → same record, nothing recomputed.
+- Re-track after removal → new id.
+- Hook: `trackPromptRequest` → `onTracked` after notify guard.
+- Notify → no record, no snapshot, no model call.
+- Removal funnel (immediate, idempotent): `removeQuestion`, `reconcileSession`, `removeQuestionsForSession`.
+- Callers: `clearPromptRequest`, `reconcilePromptRequests`, `clearPendingRequestsForSession` (session death).
+- Registry map stays private. `hasPendingPromptRequests` unchanged.
+
+### Snapshot (`question-snapshot.ts`)
+
+- Taken once, at first observation. Best-effort. Never completed retroactively.
+- Last assistant text: ≤ 8192 chars (read window 32 KB).
+- Tool calls: ≤ 5 newest, one-line summary ≤ 120 chars, `ask_user` skipped.
+- `metadata.workflowRun` copied when present.
+- Absent part → `reason`: `none` (never produced) or `evicted` (event seq gap).
+- Redact before persist and before generation. Stored with `redactionVersion`.
+
+### Redaction (`REDACTION_PATTERNS_V1`, `packages/shared/src/redaction.ts`)
+
+- Versioned set. Bump `REDACTION_VERSION` + add `_V<N>` on change.
+- Covers: PEM private keys, `Authorization` Bearer/Basic, `sk-…`, `api|access|secret key` / `password` assignments, env-style `*_TOKEN=`/`*_SECRET=`, AWS `AKIA…`, JWT, GitHub tokens.
+- Applied at: snapshot, `brief-policy` (provided brief), `brief-prompt` (last point before provider), `brief-generator` (model output).
+
+### Brief
+
+- `briefStatus`: `provided` · `pending` · `ready` · `failed` · `unavailable`.
+- Label: `provided` · `generated` · `generated-limited` (no assistant text).
+- `decideBriefPolicy` (`brief-policy.ts`):
+  - `message.length ≥ questions.minBriefChars` → `provided` (message redacted, ≤ 32768).
+  - else `autoBrief=false` → `unavailable`.
+  - else → `pending`, generate.
+- `origin: file` → `unavailable`. Never sent to a model.
+- One automatic attempt per question. Failure → `failed` tombstone. No retry, incl. after restart.
+- Restart with file still `pending` → `failed`. Zero model calls.
+- `@fast` resolve (`brief-model.ts`, pure): `~/.pi/agent/providers.json` → `parseRoleConfig` → `resolveModelRef('@fast')` → registry `find`.
+- Unbound / unknown / no registry / no stream fn → `unavailable`. Never throws.
+- Production wiring: `brief-runtime.ts` (`getModelRegistry()`, `getStreamSimpleFn()`).
+- `brief-generator.ts`: `BRIEF_MAX_CONCURRENT=2`, FIFO queue, `BRIEF_TIMEOUT_MS=20_000`, never throws.
+- Prompt (`brief-prompt.ts`): ≤ 120 words. task / why asking / per-option outcome (option types only).
+- Summarize (`POST …/summarize`): on-demand, any non-generated brief. Failure keeps current brief.
+
+### Durable files (`question-files.ts`)
+
+- Path: `~/.pi/dashboard/questions/<id>.json`. Dir 0700, file 0600, tmp + rename.
+- Holds: `(sessionId, promptId)`, snapshot, brief, `briefStatus`.
+- Deleted by: `removeQuestion`, session end, boot sweep.
+- Boot sweep: session absent from persisted store, or recorded ended (`persistedPresence`).
+- No timer sweep. Bridge reconnect pending → files kept.
+- Boot: `loadPersisted()` sync. Re-send rebinds file by key → reuses snapshot + brief.
+
+### Broadcast (`question-broadcast.ts`)
+
+- `questions_update` carries rows only. Detail lazy via `GET /api/questions/:id`.
+- Adds + brief changes: trailing `QUESTIONS_DEBOUNCE_MS=250`.
+- Removed + hidden: immediate flush.
+- Per socket: full replacement, deduped vs last frame. Filtered by `canAccessSession`.
+- Client: `useMessageHandler` → `setQuestions(msg.questions)` (`lib/questions/question-store.ts`). Full replacement, never merge.
+
+### Visibility
+
+- Predicate: session-list predicate `canAccessSession` (`packages/server/src/identity/session-access.ts`).
+- No resolver active → all sessions visible.
+- Resolver active → owner equality per item. Ownerless sessions (automation runs without owner) hidden from human principals.
+- Applies to: broadcast, list, detail, answer. Detail/answer → `404` when invisible.
+- Identity road family `questions` (`identity/http-road-classification.ts`).
+
+### Claim latch + answer path
+
+- `claim(id)` / `claimPrompt(sid, pid)` → `claimed` · `answered` · `unknown`. Synchronous.
+- Shared by REST and browser `prompt_response` (`relayBrowserPromptResponse`, `question-answer.ts`).
+- `claimed` → `sendToSession` `prompt_response`, `source: "dashboard-default"`.
+  - `true` → `markTransmitted`: row hidden from stack.
+  - `false` / throw → `releaseClaim`: `{ transmitted: false }`, question stays open.
+- Registry entry stays until bridge `prompt_dismiss` echo. Pending-ask reaping veto unchanged.
+- Transmitted claim held `TRANSMITTED_WINDOW_MS = 10 min`, in memory only.
+  - In window → `409` (`answered`).
+  - After window → `404`. Restart → `404`.
+- Bridge-side cancel / timeout → remove, not a claim.
+- File-access (`metadata.kind` ∈ `agent-path-gate`, `agent-path-gate-confirm`): `origin: file`. Never claimed. Answer → `403`.
+- Answer validation: `validateQuestionAnswer` (`packages/shared/src/prompt-answer.ts`). Same wire format as chat. Invalid → `400`, nothing sent.
+- REST answers text-only. Images rejected.
+- Chat-gateway sessions: same authz as dashboard chat answer.
+
+### REST (`question-routes.ts`)
+
+| Route | Tier (`route-tiers.ts`) | Behaviour |
+|---|---|---|
+| `GET /api/questions` | `observe` | rows; visibility-filtered |
+| `GET /api/questions/:id` | `observe` | detail; `404` unknown / not open / invisible |
+| `POST /api/questions/:id/answer` | `control` | body `{answer}` XOR `{cancelled:true}`; `400` both/neither; `200 {success,data:{transmitted}}`; `403` file; `404`; `409` window |
+| `POST /api/questions/:id/summarize` | `control` | `404` / `409` / `502` failed / `503` unavailable |
+
+- MCP: all three denylisted (`packages/mcp-server-plugin/src/server/tools.denylist.ts`). Reason: human-in-the-loop; follow-up.
+- Wiring: `server.ts` → `createQuestionStack` (`question-stack.ts`) → `registerQuestionRoutes`.
+
+### Ask timeout override
+
+- Env: `PI_EXT_PI_DASHBOARD_ASK_USER_PROMPT_TIMEOUT_SECONDS`.
+- Read by bridge before PromptBus build: `bridge-handlers/lifecycle.ts` (`ASK_USER_TIMEOUT_ENV`, `resolveAskUserTimeoutMs`).
+- Precedence: env (integer) > `config.askUserPromptTimeoutSeconds` (default `300`).
+- Non-integer env → warning, ignored.
+- Effective `<= 0` → no cancel timer. Wait until answer, session end, or dismiss.
+- Spawn sets it via `scope.extensionConfig: { "pi-dashboard": { askUserPromptTimeoutSeconds: "0" } }`:
+  - automation run spawn: `packages/automation-plugin/src/server/engine.ts`.
+  - goal driver spawn + respawn: `packages/goal-plugin/src/server/index.ts`.
+- Stale-run reaper finalizes run → session terminated → its questions leave stack.
+
+### Config (`questions` block, `packages/shared/src/config.ts`)
+
+- `autoBrief`: bool, default `true`.
+- `minBriefChars`: int, default `240`, clamp `0–4000`.
+- Invalid type / missing → default. `ensureConfig` does not write defaults.
+
+### Client
+
+- `components/questions/QuestionStack.tsx`: header pill `question-pill` (absent at 0). Panel: newest 5 + `question-more` → list max 60vh. Mobile tier: bottom sheet.
+- `components/questions/QuestionDialog.tsx`: brief (label) + collapsible context (≤ 5 tools, plain text) + inputs via interactive renderers. File-access → read-only + link to `/settings/access`.
+- `lib/questions/route-question.ts` `decideQuestionRoute`: visible (board session, not hidden) → `chat` or `slot` (widget bar); else `dialog`.
+- `lib/questions/dialog-answer.ts` `encodeDialogAnswer`: strips images, `encodePromptAnswer`.
+- `lib/questions/questions-api.ts`: `fetchQuestionDetail`, `answerQuestion`, `summarizeQuestion`. Never throws.
+
+### Rollback
+
+- Remove stack component + routes.
+- Delete `~/.pi/dashboard/questions/`.
+- Env override inert without spawners setting it.
+
+See change: add-pending-question-stack.
 
 ## Knowledge Base (KB)
 
@@ -6657,7 +6853,8 @@ sequenceDiagram
 ### Client surfaces (plugin)
 
 - `settings-section` → `BrowserSettings`: profile rows keyed by `profileDirectory` (label, email, `installed`, `hasToken`, instances/tab count), write-only token input, `Zero-dialog` toggle, `allowedDomains` editor, Connect/Disconnect per `instanceId`, kill switch, Web Store link, capability notice; `AuditList` per profile.
-- `session-card-badge` → `BrowserRelayBadge`: always-mounted `browser_relay_status` subscriber. The relay is GLOBAL (no pi-session linkage), so this module-store feed is what lets the hook-less `content-view` predicate `isLiveViewActive` see it.
+- `session-card-badge` → `BrowserRelayBadge`: reads relay module-store. Gate `shouldRender: "hasRelayTabsForBadge"` (true iff relay snapshot ≥1 tab); required by badge-gate rule, see [`plugin-claim-gates.md`](plugin-claim-gates.md). The relay is GLOBAL (no pi-session linkage), so this module-store feed is what lets the hook-less `content-view` predicate `isLiveViewActive` see it.
+- `shell-headless` → `BrowserRelayFeed`: sole caller of `useRelayStatusFeed()`. Always-mounted `browser_relay_status` subscriber. Re-seeds from `GET /api/browser/profiles` on mount + each shell `connected`. Failed seed clears store; unmount clears store. `setRelayStatus` calls `bumpSlotClaimsVersion()` only when tab-count presence flips. See change: fix-empty-status-subcard.
 - `content-view` → `LiveViewTile`: one tile per `{instanceId, tabId}`; subscribe/unsubscribe lifecycle, JPEG frames, pointer/key/wheel → normalized `browser_relay_input`, no-frames + DevTools overlays.
 
 ## Bundled Package: deck3d

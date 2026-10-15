@@ -7,7 +7,31 @@
  *
  * See change: safe-server-switch.
  */
+import { getOpenServerWindow } from "../electron-server-windows.js";
 import { openStagingSocket } from "./staging-socket.js";
+
+/** localStorage key holding the last-used server (`host:port`). */
+export const LAST_SERVER_KEY = "pi-dashboard-last-server";
+
+/**
+ * Initial WebSocket URL: the saved last-used server, else this page's own origin.
+ * In the Electron local window (open-server-window capability present) a saved
+ * remote is IGNORED — not deleted, so a revert restores the old behaviour — so
+ * an upgrade from an earlier in-page switch cannot pull the local window onto a
+ * remote. See change: add-electron-server-windows (D13).
+ */
+export function getInitialWsUrl(): string {
+  const loc = window.location;
+  const proto = loc.protocol === "https:" ? "wss:" : "ws:";
+  const own = `${proto}//${loc.hostname}${loc.port ? `:${loc.port}` : ""}/ws`;
+  if (getOpenServerWindow()) return own;
+  const saved = localStorage.getItem(LAST_SERVER_KEY);
+  if (saved) {
+    const [host, port] = saved.split(":");
+    if (host && port) return `${proto}//${host}:${port}/ws`;
+  }
+  return own;
+}
 
 export interface ServerSwitchTarget {
   host: string;

@@ -35,10 +35,16 @@
  * add-kb-folder-slot.
  *
  * Colour: every state word is `--text-secondary` with an icon (never an identity
- * teal or a palette class); "index failed" and `⚠ N stale` are severity pills; the
+ * teal or a palette class); "index failed" and the stale marker are severity pills; the
  * card control uses the secondary-button colours. SlotPill's own accent glyph
  * classes are the only palette classes (shared; follow-up).
  * See change: retro-ux-plugin-settings-forms.
+ *
+ * Overflow (fix-slot-pill-legend-and-stale-overflow): the stale marker is a compact
+ * MDI alert icon + bare count (`shrink-0`; full "N stale" in an `sr-only` span + `title`).
+ * Numbers (`shrink-0 tabular-nums`) never truncate; unit words and state/error text
+ * sit in inner `min-w-0 truncate` spans. The sidebar root is `min-w-0` (grid item) and
+ * `folder-kb-count` has no `overflow-hidden`, so nothing clips the marker.
  *
  * Cwd refusal / folder presence (design D3–D6, D11). Full precedence:
  * `denied` (sub-state `pinning`) > `missing` > `error` > `indexing` (pending or
@@ -61,7 +67,7 @@ import {
   useT,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { FolderDescriptor, SlotPlacement } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
-import { mdiDatabaseOutline, mdiDatabaseRefreshOutline, mdiInformationOutline, mdiLoading, mdiPinOutline } from "@mdi/js";
+import { mdiAlertOutline, mdiDatabaseOutline, mdiDatabaseRefreshOutline, mdiInformationOutline, mdiLoading, mdiPinOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useCallback, useMemo } from "react";
@@ -163,14 +169,14 @@ function actionView(
 /** State word + icon in `--text-secondary` (informational; never a palette class). */
 function StateWord({ spin, children }: { spin?: boolean; children: React.ReactNode }): React.ReactElement {
   return (
-    <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-semibold text-[var(--text-secondary)]">
-      <Icon path={spin ? mdiLoading : mdiInformationOutline} size={0.5} className={spin ? "animate-spin" : undefined} aria-hidden="true" />
-      {children}
+    <span className="inline-flex items-center gap-1 min-w-0 whitespace-nowrap text-[11px] font-semibold text-[var(--text-secondary)]">
+      <Icon path={spin ? mdiLoading : mdiInformationOutline} size={0.5} className={`shrink-0${spin ? " animate-spin" : ""}`} aria-hidden="true" />
+      <span className="min-w-0 truncate">{children}</span>
     </span>
   );
 }
 
-const PILL = "inline-flex items-center whitespace-nowrap rounded-full border px-1.5 py-px text-[11px] font-semibold";
+const PILL = "inline-flex items-center min-w-0 whitespace-nowrap rounded-full border px-1.5 py-px text-[11px] font-semibold";
 const UNIT = "text-[11px] font-semibold text-[var(--text-secondary)]";
 
 /** Single-span pill labels. Denied / pinning / missing / no-sources / not-indexed are
@@ -187,7 +193,7 @@ function KbCount({ state, stats, t }: { state: SectionState; stats: KbStats | nu
   if (state === "error") {
     return (
       <span className={`${PILL} border-[var(--severity-error-border)] bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)]`}>
-        {t("labelIndexFailedShort", undefined, "index failed")}
+        <span className="min-w-0 truncate">{t("labelIndexFailedShort", undefined, "index failed")}</span>
       </span>
     );
   }
@@ -198,21 +204,28 @@ function KbCount({ state, stats, t }: { state: SectionState; stats: KbStats | nu
     return (
       <>
         <StateWord spin>{t("labelIndexingShort", undefined, "indexing…")}</StateWord>
-        <span className={`tabular-nums ${UNIT}`}>{files.toLocaleString()} {t("labelFiles", undefined, "files")}</span>
+        <span className={`inline-flex items-baseline gap-1 min-w-0 ${UNIT}`}>
+          <span className="shrink-0 tabular-nums">{files.toLocaleString()}</span>
+          <span className="min-w-0 truncate">{t("labelFiles", undefined, "files")}</span>
+        </span>
       </>
     );
   }
   const staleCount = stats?.staleCount ?? 0;
+  const staleLabel = t("labelStale", { count: staleCount }, `${staleCount} stale`);
   return (
     <>
-      <span className="tabular-nums">{(stats?.chunks ?? 0).toLocaleString()}</span>
-      <span className={UNIT}>{t("labelChunks", undefined, "chunks")}</span>
+      <span data-testid="folder-kb-chunks" className="shrink-0 tabular-nums">{(stats?.chunks ?? 0).toLocaleString()}</span>
+      <span className={`min-w-0 truncate ${UNIT}`}>{t("labelChunks", undefined, "chunks")}</span>
       {state === "stale" && (
         <span
-          className={`${PILL} border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)]`}
+          className={`${PILL} shrink-0 gap-0.5 border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)]`}
           data-testid="folder-kb-stale"
+          title={staleLabel}
         >
-          ⚠ {t("labelStale", { count: staleCount }, `${staleCount} stale`)}
+          <Icon path={mdiAlertOutline} size={0.5} aria-hidden="true" />
+          <span aria-hidden="true">{staleCount}</span>
+          <span className="sr-only">{staleLabel}</span>
         </span>
       )}
     </>
@@ -300,7 +313,7 @@ export function FolderKbSection({ folder, placement = "sidebar" }: { folder: Fol
       data-testid="folder-kb-section"
       data-state={state}
       onClick={(e) => e.stopPropagation()}
-      className={placement === "card" ? "flex items-center gap-1.5 [&>[role=button]]:flex-1 [&>[role=button]]:min-w-0" : undefined}
+      className={placement === "card" ? "flex items-center gap-1.5 min-w-0 [&>[role=button]]:flex-1 [&>[role=button]]:min-w-0" : "min-w-0"}
     >
       <SlotPill
         surface={placement === "card" ? "flat" : "raised"}

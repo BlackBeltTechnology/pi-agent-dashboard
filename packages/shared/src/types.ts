@@ -461,6 +461,13 @@ export interface DashboardSession {
   lastEntryCount?: number;
   /** OS process ID of the pi agent — used for force-kill escalation */
   pid?: number;
+  /**
+   * Server-only: epoch-ms when the server stored `pid` (every register). The
+   * unattended-kill identity guard compares the pid's process start time to it.
+   * In-memory only — never persisted or sent by a bridge.
+   * See change: fix-session-reclaim-tmux.
+   */
+  pidRecordedAt?: number;
   /** Active child processes detected by bridge process scanner. Server
    *  enriches each with classification fields. See change:
    *  classify-process-list-entries. */

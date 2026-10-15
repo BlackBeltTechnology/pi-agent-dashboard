@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-composer-grammar-check. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Feature is opt-in and off by default
 
 The composer grammar-check UI SHALL render nothing and add no behaviour when
@@ -73,6 +75,11 @@ When `grammar.autoCheck` is `true`, the client SHALL run a check automatically
 Auto-check SHALL be skipped while the session is `streaming` and when the draft is a slash
 command (`/…`) or a bare `!`/`!!` shell input.
 
+The session status the skip reads is the reconciled composer liveness handed to composer
+plugin panels — the server-held session status when the server holds one, else the
+event-derived chat status — not the raw event-derived status. A run the
+client only knows about through the server therefore also suppresses auto-check.
+
 #### Scenario: Auto-check fires after typing stops
 - **WHEN** auto-check is on and the user stops typing for `debounceMs` with a draft ≥
   `minChars`
@@ -89,6 +96,11 @@ command (`/…`) or a bare `!`/`!!` shell input.
 #### Scenario: Skipped while streaming
 - **WHEN** the session status is `streaming`
 - **THEN** auto-check SHALL NOT run
+
+#### Scenario: Skipped while only the server reports the run
+- **GIVEN** the event-derived chat status reads `idle` after a reload
+- **WHEN** the server-held status for the session is `streaming`
+- **THEN** the panel SHALL receive `streaming` and auto-check SHALL NOT run
 
 #### Scenario: Skipped for command / shell drafts
 - **WHEN** the draft starts with `/`, `!`, or `!!`
@@ -326,4 +338,3 @@ single radius/size scale (no sub-11px font sizes, no mixed `rounded`/`rounded-md
 - **WHEN** any corrections-panel element renders
 - **THEN** its corner radius SHALL come from the single `rounded-md` scale
 - **AND** no rendered text SHALL be smaller than 11px
-

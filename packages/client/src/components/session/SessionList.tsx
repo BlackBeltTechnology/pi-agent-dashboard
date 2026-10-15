@@ -15,6 +15,7 @@ import { useFlipOnLaneChange } from "../../hooks/useFlipOnLaneChange.js";
 import { useInitStatus } from "../../hooks/useInitStatus.js";
 import { useInstallPrompt } from "../../hooks/useInstallPrompt.js";
 import { useLaneHysteresis } from "../../hooks/useLaneHysteresis.js";
+import { cssEscape } from "../../lib/css-escape.js";
 import { demandsAttention, type FocusIntent, type GroupRenderMode, resolveActiveCwd, resolveGroupRenderMode } from "../../lib/folder-focus.js";
 import { maybeAutoInitWorktreeOnSpawn } from "../../lib/git/auto-init-worktree.js";
 import { resolveWorktreeAvailability } from "../../lib/git/folder-worktree-availability.js";
@@ -60,6 +61,7 @@ import { useCardSectionPrefs } from "../../lib/state/CardSectionsContext.js";
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
 import { YoloPill } from "../access-grant/YoloIndicators.js";
+import { QuestionStack } from "../questions/QuestionStack.js";
 import { TunnelButton } from "../connectivity/TunnelButton.js";
 import { FolderActionBanner } from "../folder/FolderActionBanner.js";
 import { FolderActionsMenu, type FolderMenuItem, type FolderMenuRadioGroup } from "../folder/FolderActionsMenu.js";
@@ -116,12 +118,6 @@ export interface ContextUsageInfo {
 /** Draggable types that can change workspace membership. See change: drag-folders-across-workspaces. */
 function isFolderLike(t: unknown): boolean {
   return t === "workspace-folder" || t === "pinned-group";
-}
-
-function cssEscapeId(id: string): string {
-  return (typeof window !== "undefined" && typeof window.CSS?.escape === "function")
-    ? window.CSS.escape(id)
-    : id.replace(/"/g, '\\"');
 }
 
 interface Props {
@@ -436,7 +432,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
       return;
     }
     if (!selectedId) return;
-    const escaped = cssEscapeId(selectedId);
+    const escaped = cssEscape(selectedId);
     const el = listRef.current?.querySelector(`[data-session-id="${escaped}"]`);
     if (el && typeof (el as HTMLElement).scrollIntoView === "function") {
       (el as HTMLElement).scrollIntoView({ block: "nearest", behavior: "auto" });
@@ -1254,7 +1250,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
     const label = laneMeta(cur.lane).label;
     setLaneAnnouncement(t("sessionList.laneMovedAnnouncement", { name, lane: label }, `${name} moved to ${label}`));
     // Keep the moved selected card in view (no-op when its lane is collapsed).
-    const el = listRef.current?.querySelector(`[data-session-id="${cssEscapeId(cur.id)}"]`);
+    const el = listRef.current?.querySelector(`[data-session-id="${cssEscape(cur.id)}"]`);
     if (el && typeof (el as HTMLElement).scrollIntoView === "function") {
       (el as HTMLElement).scrollIntoView({ block: "nearest", behavior: "auto" });
     }
@@ -1349,7 +1345,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   // `grid-template-rows: 0fr` row keeps a non-null offsetParent at height 0.
   const findLaidOutCard = useCallback((id: string): HTMLElement | null => {
     const el = listRef.current?.querySelector(
-      `[data-session-id="${cssEscapeId(id)}"]`,
+      `[data-session-id="${cssEscape(id)}"]`,
     ) as HTMLElement | null;
     return el && el.getBoundingClientRect().height > 0 ? el : null;
   }, []);
@@ -1495,6 +1491,22 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
     });
   }, [revealRequest?.nonce]);
 
+  // Question-stack activation for a VISIBLE session: bypass any active filter
+  // (search / folder filter / tag axes) so the card can be revealed, select the
+  // session (opens its chat), then reveal the card through collapsed
+  // workspaces / folders / lanes via the seek-to-card path. Selection never
+  // depends on the card being laid out. See change: add-pending-question-stack (D10).
+  const openQuestionSession = useCallback(
+    (sessionId: string) => {
+      setSessionSearch("");
+      setWorkspaceFilter("");
+      clearTagFilters();
+      onSelect(sessionId);
+      onSeekToCard?.(sessionId);
+    },
+    [onSelect, onSeekToCard, clearTagFilters],
+  );
+
   // The ancestor-state echoes landing (async workspace + folder expands
   // resolving) are the primary completion signal — re-check presence when
   // either changes. See change: persist-folder-collapse-server-side (folder
@@ -1532,7 +1544,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
       const tryFocus = () => {
         attempts += 1;
         const el = listRef.current?.querySelector(
-          `[data-folder-openspec-section="${cssEscapeId(cwd)}"]`,
+          `[data-folder-openspec-section="${cssEscape(cwd)}"]`,
         ) as HTMLElement | null;
         if (el) {
           el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1871,6 +1883,10 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   }
 
   function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false, workspaceId?: string, headerAction?: React.ReactNode) {
+    // Project-root gate, computed once per row: shared by both banner call
+    // sites and the row's init-status re-probe gate (`FolderInitScope`).
+    // See change: fix-project-setup-completion-state.
+    const isProjectRoot = isPinned || inWorkspace || group.sessions.some((s) => s.isGitRepo === true) || !!folderGitMap?.get(group.cwd);
     const displayPath = truncatePathMiddle(group.cwd, 45);
     const lastSlash = displayPath.lastIndexOf('/');
     const parentPath = lastSlash >= 0 ? displayPath.slice(0, lastSlash + 1) : '';
@@ -2057,7 +2073,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               (below the git row) and the folder actions menu's Project setup
               tally. A component owner keeps the hook out of this map callback.
               See change: add-folder-action-banner. */}
-          <FolderInitScope cwd={group.cwd}>{({ status: initStatus, refetch: refetchInit }) => (<>
+          <FolderInitScope cwd={group.cwd} sessions={group.sessions} isProjectRoot={isProjectRoot}>{({ status: initStatus, refetch: refetchInit }) => (<>
           {/* Whole header row is clickable to open the directory home page —
               same affordance as clicking a session card selects its session.
               Collapse/expand lives solely on the chevron in the drag gutter
@@ -2196,10 +2212,9 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             <FolderActionBanner
               cwd={group.cwd}
               status={initStatus}
-              isProjectRoot={isPinned || inWorkspace || group.sessions.some((s) => s.isGitRepo === true) || !!folderGitMap?.get(group.cwd)}
+              isProjectRoot={isProjectRoot}
               onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, { initialPrompt: PROJECT_INIT_PROMPT }) : undefined}
               onStatusChange={refetchInit}
-              sessions={group.sessions}
               compact
             />
           )}
@@ -2242,10 +2257,9 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             // is optimistic (unknown → true), so it is NOT sufficient on its
             // own — an unpinned dir with an unknown git probe must not reach
             // tier 0. See change: add-folder-action-banner (D-D2).
-            isProjectRoot={isPinned || inWorkspace || group.sessions.some((s) => s.isGitRepo === true) || !!folderGitMap?.get(group.cwd)}
+            isProjectRoot={isProjectRoot}
             onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, { initialPrompt: PROJECT_INIT_PROMPT }) : undefined}
             onStatusChange={refetchInit}
-            sessions={group.sessions}
             compact={!showFolderBanner}
           />
           {/* Slot-pill grid: the plugin slot sections (Automations / Goals /
@@ -2772,6 +2786,8 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             <TunnelButton showToast={showToast} />
             {/* Conditional active-YOLO pill (sidebar-header row 1). See change: add-access-grant-dialog (8b.7). */}
             <YoloPill />
+            {/* Open-questions pill + panel; absent at 0, AFTER the YOLO slot. See change: add-pending-question-stack. */}
+            <QuestionStack sessions={sessions} onOpenSession={openQuestionSession} />
             <FocusToggle />
             {headerExtra}
             {/* Community entry point. MDI 7 dropped brand icons, so the Discord
@@ -3205,16 +3221,22 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
  * Per-row owner of the shared `GET /init-status` probe. A component (not a call
  * inside `renderGroup`'s `.map`) so the hook obeys the rules of hooks, exposing
  * `{ status, refetch }` to both the tier-0 banner and the menu's setup tally.
- * See change: add-folder-action-banner.
+ * Passes the row's sessions + project-root gate so the hook can re-probe when
+ * a setup turn finishes. See change: add-folder-action-banner,
+ * fix-project-setup-completion-state.
  */
 function FolderInitScope({
   cwd,
+  sessions,
+  isProjectRoot,
   children,
 }: {
   cwd: string;
+  sessions: ReadonlyArray<{ id: string; status: string }>;
+  isProjectRoot: boolean;
   children: (s: { status: WorktreeInitStatus | null; refetch: () => void }) => React.ReactNode;
 }) {
-  const { status, refetch } = useInitStatus(cwd);
+  const { status, refetch } = useInitStatus(cwd, { sessions, isProjectRoot });
   return <>{children({ status, refetch })}</>;
 }
 

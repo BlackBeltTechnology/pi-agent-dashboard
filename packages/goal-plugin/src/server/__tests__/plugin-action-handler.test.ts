@@ -306,6 +306,41 @@ describe("goal-plugin composition root (fake ctx)", () => {
     expect(kills.filter((k) => "sessionId" in k)).toHaveLength(0);
   });
 
+  // test-plan #E21 (add-pending-question-stack, D11): the driver's ask_user
+  // question stays answerable until answered or the driver ends — initial spawn
+  // and respawn carry the same infinite-wait override. (Lives here, not in
+  // goal-supervisor.test.ts: the supervisor's `spawnDriver` dep is mocked there.)
+  it("E21: initial driver spawn and respawn both carry the infinite-wait ask_user override", async () => {
+    const h = makeFakeCtx({ knownCwds: [cwd] });
+    await registerPlugin(h.ctx);
+    app = h.mocks.fastify;
+
+    const goalId = await createGoal(h, { objective: "ship it", autoRespawn: true });
+    h.sessions.set("s1", { id: "s1", cwd, goalId, status: "active" });
+    await app.inject({
+      method: "POST",
+      url: `/api/folders/goals/${goalId}/sessions?cwd=${encodeURIComponent(cwd)}`,
+      payload: { spawn: true },
+    });
+    h.captured.sessionResolved.forEach((h2) => h2("s1", { goalId }));
+    await settle();
+
+    const override = { extensionConfig: { "pi-dashboard": { askUserPromptTimeoutSeconds: "0" } } };
+    const initial = h.mocks.spawnSession.mock.calls.at(-1)![0] as { scope?: unknown; spawnToken?: string };
+    expect(initial.spawnToken).toBeUndefined(); // the route spawn, not a respawn
+    expect(initial.scope).toEqual(override);
+
+    h.captured.sessionEnded.forEach((h2) => h2("s1"));
+    expect(
+      await pumpUntil(
+        () => typeof (h.mocks.spawnSession.mock.calls.at(-1)?.[0] as { spawnToken?: string } | undefined)?.spawnToken === "string",
+      ),
+    ).toBe(true);
+    const respawn = h.mocks.spawnSession.mock.calls.at(-1)![0] as { scope?: unknown; pluginRef?: unknown };
+    expect(respawn.scope).toEqual(override);
+    expect(respawn.pluginRef).toEqual({ goalId }); // existing fields intact
+  });
+
   it("E23b: abort falls through to the session kill when the token kill misses", async () => {
     const h = makeFakeCtx({ knownCwds: [cwd] });
     await registerPlugin(h.ctx);

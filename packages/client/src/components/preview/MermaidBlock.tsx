@@ -73,16 +73,24 @@ function sanitizeMermaidCode(raw: string): string {
 }
 
 // ── SVG sanitisation ────────────────────────────────────────────────────────
-// DOMPurify strips HTML inside <foreignObject> which Mermaid uses for labels.
-// Since the SVG is generated client-side by Mermaid (not from user input),
-// we use a lightweight sanitizer that strips dangerous elements/attributes
-// while preserving foreignObject content.
+// Mermaid source is untrusted (agent / file content) and the SVG is injected
+// via dangerouslySetInnerHTML, so the SVG is sanitized with DOMPurify as the
+// LAST step of `renderOnce` (after colorize, so no later mutation can
+// reintroduce active content). `HTML_INTEGRATION_POINTS` keeps the HTML inside
+// <foreignObject> labels (`<br>` line breaks); without it DOMPurify strips it.
+// Fails closed: an unsupported DOMPurify (no DOM → returns input unchanged)
+// throws, which routes through the normal render-failure / repair path.
+// See change: sanitize-untrusted-rendered-content.
 
-function sanitizeMermaidSvg(svg: string): string {
-  // Remove <script> tags and on* event attributes
-  return svg
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, "");
+export async function sanitizeMermaidSvg(svg: string): Promise<string> {
+  const DOMPurify = (await import("dompurify")).default;
+  if (DOMPurify.isSupported !== true) throw new Error("sanitizer unavailable: DOMPurify has no DOM support");
+  return DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true, html: true },
+    ADD_TAGS: ["foreignObject"],
+    HTML_INTEGRATION_POINTS: { foreignobject: true, "annotation-xml": true },
+    FORBID_TAGS: ["form", "input", "button", "textarea", "select", "iframe", "object", "embed"],
+  });
 }
 
 // ── Default-node colorization ───────────────────────────────────────────────
@@ -157,9 +165,14 @@ function setLabelColor(g: Element, color: string): void {
  */
 export function colorizeDefaultNodes(svg: string, accents: string[], textColor: string): string {
   if (typeof DOMParser === "undefined" || accents.length === 0) return svg;
-  const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
-  const root = doc.documentElement;
-  if (!root || root.querySelector("parsererror")) return svg;
+  const parse = (src: string) => new DOMParser().parseFromString(src, "image/svg+xml").documentElement;
+  const malformed = (el: Element | null) => !el || el.nodeName === "parsererror" || el.querySelector("parsererror") !== null;
+  let root = parse(svg);
+  // mermaid emits HTML void tags inside <foreignObject> labels unclosed
+  // (`one<br>two`), which is not well-formed XML: close them and retry once.
+  // See change: sanitize-untrusted-rendered-content.
+  if (malformed(root)) root = parse(svg.replace(/<(br|hr|wbr)\b([^>]*?)(?<!\/)>/gi, "<$1$2/>"));
+  if (malformed(root)) return svg;
 
   root.querySelectorAll("g.node, g.classGroup").forEach((g) => {
     const shape = g.querySelector("rect.label-container, polygon, circle, path, rect");
@@ -194,20 +207,22 @@ function errorMessage(err: unknown): string {
 
 type MermaidApi = typeof import("mermaid").default;
 
-/** One render attempt: render → sanitize → colorize, then drop any error node mermaid left in the DOM. */
+/** One render attempt: render → colorize → sanitize (last), then drop any error node mermaid left in the DOM. */
 async function renderOnce(mermaid: MermaidApi, id: string, code: string, resolved: string): Promise<string> {
   try {
     const result = await mermaid.render(id, code);
-    // Sanitize → colorize once, before caching, so the cached SVG is the
-    // final injected markup (no per-React-render DOMParser cost). Accents
+    // Colorize → sanitize once, before caching, so the cached SVG is the
+    // final injected markup (no per-React-render DOMParser cost). Colorize
+    // runs first on mermaid's well-formed XML (its `image/svg+xml` re-parse
+    // would fail on DOMPurify's HTML serialization); sanitize is last. Accents
     // resolve live for the current theme.
-    const clean = sanitizeMermaidSvg(result.svg);
-    return colorizeDefaultNodes(
-      clean,
+    const colored = colorizeDefaultNodes(
+      result.svg,
       resolveAccents(),
       // Test-only fallback literals (see FALLBACK_ACCENTS above).
       resolveVar("--text-primary", resolved === "dark" ? "#e5e7eb" : "#111827"),
     );
+    return await sanitizeMermaidSvg(colored);
   } finally {
     document.getElementById(`d${id}`)?.remove();
   }

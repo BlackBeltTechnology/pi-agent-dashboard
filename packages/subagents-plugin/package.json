@@ -47,11 +47,13 @@
       {
         "slot": "settings-section",
         "component": "SubagentsSettings",
+        "module": "./src/client/SubagentsSettings.tsx",
         "tab": "general"
       },
       {
         "slot": "shell-overlay-route",
         "component": "SubagentPopoutClaim",
+        "module": "./src/client/SubagentPopoutClaim.tsx",
         "path": "/session/:sessionId/subagent/:agentId",
         "sessionParam": "sessionId",
         "depth": 2,

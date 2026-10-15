@@ -146,6 +146,18 @@ describe("SessionCard desktop gating", () => {
     expect(present()).toBe(false);
   });
 
+  // See change: fix-slot-pill-legend-and-stale-overflow (test-plan #E14).
+  it("worktree card-slot wrapper is spaced mt-2.5 flex flex-col gap-2.5; non-worktree has none", () => {
+    renderCard({}, { session: { gitWorktree: { mainPath: CWD, name: "wt" } as never, cwd: `${CWD}/.worktrees/wt` } });
+    const wrapper = screen.getByTestId("worktree-card-section-gap");
+    const tokens = wrapper.className.split(/\s+/);
+    for (const t of ["mt-2.5", "flex", "flex-col", "gap-2.5"]) expect(tokens).toContain(t);
+    expect(tokens).not.toContain("mt-1.5");
+    cleanup();
+    renderCard({});
+    expect(screen.queryByTestId("worktree-card-section-gap")).toBeNull();
+  });
+
   it("hides kb for a worktree session via its main folder", () => {
     renderCard(
       { folders: { [CWD]: { kb: false, openspec: false } } },

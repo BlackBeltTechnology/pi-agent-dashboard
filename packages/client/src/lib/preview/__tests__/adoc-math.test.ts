@@ -34,4 +34,18 @@ describe("renderAdocMath", () => {
     expect(hasAdocMath("<p>\\(x\\)</p>")).toBe(true);
     expect(hasAdocMath("<p>plain</p>")).toBe(false);
   });
+
+  // See change: sanitize-untrusted-rendered-content (test-plan E17).
+  it("#E17 rewrites math only in text nodes outside pre/code — never attributes", () => {
+    const html =
+      '<a title="see \\(x\\)">l</a><pre><code>\\(y\\)</code></pre><p>\\(z\\) and \\(a <em>b</em>\\)</p>';
+    const out = renderAdocMath(html, katex);
+    const tpl = document.createElement("template");
+    tpl.innerHTML = out;
+    expect(tpl.content.querySelector("a")?.getAttribute("title")).toBe("see \\(x\\)");
+    expect(tpl.content.querySelector("pre code")?.textContent).toBe("\\(y\\)");
+    expect(tpl.content.querySelectorAll(".katex").length).toBe(1);
+    expect(tpl.content.querySelector("p")?.textContent).toContain("\\(a b\\)");
+    expect(new DOMParser().parseFromString(out, "text/html").querySelector("parsererror")).toBeNull();
+  });
 });

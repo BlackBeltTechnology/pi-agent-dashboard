@@ -8,6 +8,7 @@ import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useStat
 import { useImagePaste } from "../../hooks/useImagePaste.js";
 import { LIST_POPOVER_MIN_HEIGHT, usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import type { ChatMessage, PendingPrompt } from "../../lib/chat/event-reducer.js";
+import { isComposerWorking } from "../../lib/chat/composer-liveness.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import {
   CHAT_COMPOSER_BOUND,
@@ -71,6 +72,13 @@ interface Props {
   onListFiles?: (query: string) => void;
   fileResults?: { query: string; files: FileEntry[] } | null;
   disabled?: boolean;
+  /**
+   * RECONCILED composer liveness (not the raw reducer status): the server
+   * `DashboardSession.status` is authoritative when known, the event-derived chat
+   * status is the fallback (`composerLiveness`). `"ended"` is terminal and suppresses
+   * the `retrying` Stop leg via `isComposerWorking`; the pending-prompt cancel stays.
+   * See change: fix-composer-liveness-on-reload.
+   */
   sessionStatus?: "idle" | "streaming" | "ended";
   /**
    * True iff an LLM-provider auto-retry is in flight (pi-coding-agent
@@ -266,8 +274,10 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     selectModel: onSelectModel ?? (() => {}),
     selectLevel: onSelectThinkingLevel,
   });
-  // Treat retry-sleep as "still working" for Stop/Force-Stop visibility.
-  const isWorking = sessionStatus === "streaming" || retrying === true;
+  // Treat retry-sleep as "still working" for Stop/Force-Stop visibility — unless the
+  // reconciled status is terminal ("ended"): a force-killed session keeps `retryState`.
+  // See change: fix-composer-liveness-on-reload (D6/D7).
+  const isWorking = isComposerWorking(sessionStatus ?? "idle", retrying === true);
   // Merge server commands with built-in + dashboard-local commands, avoiding duplicates.
   const commands = useMemo(() => {
     const names = new Set(externalCommands.map((c) => c.name));
@@ -316,8 +326,8 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
 
   // Reset stop state when session stops streaming
   useEffect(() => {
-    if (sessionStatus !== "streaming" && !retrying) setStopState("idle");
-  }, [sessionStatus, retrying]);
+    if (!isWorking) setStopState("idle");
+  }, [isWorking]);
 
   // Graceful stop-after-turn optimistic pill. Cleared once the session is no
   // longer streaming (next agent_end / session_removed flips status).

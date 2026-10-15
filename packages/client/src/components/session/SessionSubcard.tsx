@@ -11,13 +11,15 @@ import { SubcardLegendMenu, type SubcardMenuTarget } from "./SubcardLegendMenu.j
  *
  * Visual contract:
  *   - Inset panel: no fill (transparent), border-[--border-subtle],
- *     rounded-lg, px-2 py-1.5, mt-1.5
+ *     rounded-lg, px-2 pt-2.5 pb-1.5, mt-2.5
  *   - Title: capsule (pill) overhanging the top border, filled with the card
  *     background (--bg-primary) so it masks the border line, fieldset-legend style
- *     (absolute -top-1.5, centered, uppercase, muted, 9px, tracking-wider)
+ *     (absolute -top-2, centered, uppercase, muted, 11px, semibold, tracking-wide;
+ *     same tokens as `SLOT_PILL_LEGEND`, pinned by a parity test)
  *   - Optional `menu`: a `⋯` options button inside the capsule, revealed on
  *     hover / focus-within (see `SubcardLegendMenu`).
  *     See change: configurable-session-card-sections (D8).
+ * See change: fix-slot-pill-legend-and-stale-overflow.
  */
 export function SessionSubcard({
   title,
@@ -30,8 +32,8 @@ export function SessionSubcard({
 }) {
   if (!hasMeaningfulChildren(children)) return null;
   return (
-    <div className="group/sub relative mt-1.5 rounded-lg border border-[var(--border-subtle)] px-2 py-1.5">
-      <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 inline-flex items-center px-1.5 py-px rounded-full bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[12px] font-semibold uppercase tracking-wider text-[var(--text-secondary)] leading-none">
+    <div className="group/sub relative mt-2.5 rounded-lg border border-[var(--border-subtle)] px-2 pt-2.5 pb-1.5">
+      <span className="absolute -top-2 left-1/2 -translate-x-1/2 inline-flex items-center px-1.5 py-px rounded-full bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)] leading-none">
         {title}
         {menu ? <SubcardLegendMenu target={menu} label={title} /> : null}
       </span>

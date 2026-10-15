@@ -65,6 +65,8 @@ test.describe("EML preview in the editor pane", () => {
 
     // X4 — body iframe sandbox is EXACTLY "" (opaque origin, no allow-same-origin).
     await expect(frame).toHaveAttribute("sandbox", "");
+    // See change: sanitize-untrusted-rendered-content (X6): never script-capable.
+    await expect(frame).not.toHaveAttribute("sandbox", /allow-scripts/);
 
     // Escaped headers — the XSS subject is literal escaped text (no element, no alert).
     await expect(rich).toContainText("onerror=alert(1)");
