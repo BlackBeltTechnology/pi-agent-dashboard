@@ -1702,7 +1702,13 @@ export function wireEvents(deps: EventWiringDeps): void {
         let ref: Record<string, unknown> | undefined;
         let ownerId: string | undefined;
         let lifecycle:
-          | { recover?: boolean; finalizeOnSocketClose?: boolean; hidden?: boolean; archiveOnEnd?: boolean }
+          | {
+              recover?: boolean;
+              finalizeOnSocketClose?: boolean;
+              hidden?: boolean;
+              archiveOnEnd?: boolean;
+              close?: { idle?: { afterMs: number }; mode?: "sleep" | "archive" };
+            }
           | undefined;
         const resolved = msg.spawnToken ? pendingPluginRefRegistry?.resolve(msg.spawnToken) : null;
         if (resolved) {
@@ -1794,6 +1800,24 @@ export function wireEvents(deps: EventWiringDeps): void {
             if (file) {
               try {
                 mergeSessionMeta(file, { archiveOnEnd: lifecycle.archiveOnEnd });
+              } catch { /* best-effort */ }
+            }
+          }
+          // Plugin-declared close policy (validated when filed). `owner` routes
+          // the plugin's closer + authorizes its close requests only; the
+          // reaper's governance reads only the declared fields. Persisted so a
+          // restart keeps the session governed. See change: add-session-close-plugin-hook.
+          if (lifecycle.close && ownerId) {
+            const closePolicy = {
+              owner: ownerId,
+              ...(lifecycle.close.idle ? { idleAfterMs: lifecycle.close.idle.afterMs } : {}),
+              mode: lifecycle.close.mode ?? "sleep",
+            } as const;
+            sessionManager.update(sessionId, { closePolicy });
+            const file = sessionManager.get(sessionId)?.sessionFile ?? msg.sessionFile;
+            if (file) {
+              try {
+                mergeSessionMeta(file, { closePolicy });
               } catch { /* best-effort */ }
             }
           }

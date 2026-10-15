@@ -260,6 +260,9 @@ export function sessionFromMeta(
     // register lifecycle block does not re-run) still archives on end.
     // See change: archive-service-sessions-on-end.
     archiveOnEnd: meta.archiveOnEnd,
+    // Plugin-declared close policy survives a restart (reaper governance).
+    // See change: add-session-close-plugin-hook.
+    closePolicy: meta.closePolicy,
     // Reconstruct worktree parentage from the persisted grouping subset so
     // cold-start grouping (no live bridge) collapses this session under its
     // parent repo via `resolveSessionGroupPath`, matching live-bridge grouping.

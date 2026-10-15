@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
 import type { BootRecord } from "./boot-state.js";
-import type { AutoNamerPersistedState, ClosedReason, NotifyLogEntry, SessionDriver } from "./types.js";
+import type { AutoNamerPersistedState, ClosedReason, NotifyLogEntry, SessionClosePolicy, SessionDriver } from "./types.js";
 
 /**
  * Session metadata stored as a sidecar `.meta.json` file
@@ -247,6 +247,14 @@ export interface SessionMeta {
    * when declared. See change: archive-service-sessions-on-end.
    */
   archiveOnEnd?: boolean;
+  /**
+   * Core-owned close policy, resolved from an owning plugin's lifecycle
+   * declaration `{ close }`. `owner` = declaring plugin id (routes its closer
+   * and authorizes its close requests only). `idleAfterMs` present ⇒ governed
+   * by the idle reaper regardless of `lifecyclePolicy` / the global switch.
+   * Persisted only when declared. See change: add-session-close-plugin-hook.
+   */
+  closePolicy?: SessionClosePolicy;
   /**
    * Core-owned "hidden by its owning plugin" intent, set when a spawn's
    * `lifecycle.hidden` is applied. Persisted (like `recover`) so a NON-reattach

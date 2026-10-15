@@ -32,6 +32,8 @@ function makeFakeContext(): ServerPluginContext {
     shutdownSession: async () => false,
     openEditorTab: () => {},
     abortSpawnedRun: async () => false,
+    registerSessionCloser: () => {},
+    requestSessionClose: async () => false,
     registerCwdPolicy: () => {},
     unregisterCwdPolicy: () => {},
     provide: () => {},

@@ -112,6 +112,9 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // Pass-through: undeclared sessions serialize no key (byte-identity holds).
     // See change: archive-service-sessions-on-end.
     archiveOnEnd: session.archiveOnEnd,
+    // Plugin-declared close policy; same full-overwrite hazard. Undeclared ⇒ no key.
+    // See change: add-session-close-plugin-hook.
+    closePolicy: session.closePolicy,
     // Session classification + automation-run identity. MUST be enumerated here
     // because this save is a FULL overwrite (not a merge) — the spawn seam
     // merges them onto the sidecar, and omitting them here wipes both on the

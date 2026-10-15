@@ -48,7 +48,20 @@ describe("lifecycle metrics", () => {
     expect(s.failedReclaims).toBe(2);
     expect(s.reaped).toEqual({ idle: 0, "stop-after-turn": 0, phantom: 0 });
     expect(Object.keys(s).sort()).toEqual(
-      ["activeEphemeral", "capacityRejections", "failedReclaims", "idleEphemeral", "reaped", "reuseHits", "reuseMisses"].sort(),
+      [
+        "activeEphemeral",
+        "capacityRejections",
+        "failedReclaims",
+        "idleEphemeral",
+        "reaped",
+        "reuseHits",
+        "reuseMisses",
+        // add-session-close-plugin-hook counters
+        "declaredReaps",
+        "closerKeeps",
+        "closerFailures",
+        "pluginCloseRequests",
+      ].sort(),
     );
   });
 });

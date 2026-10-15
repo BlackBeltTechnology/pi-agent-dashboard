@@ -1,5 +1,5 @@
 /**
- * Conversations, agents and the idle sweeper (D5/D8). One conversation = one
+ * Conversations, agents and idle ending (D5/D8; core reaper for declared sessions, legacy sweep otherwise — see change: add-session-close-plugin-hook). One conversation = one
  * persistent pi session found-or-resumed on demand. The host is reached only
  * through the narrow {@link HostPort}, so the service is unit-testable with a
  * fake. See change: add-team-plugin.
@@ -41,6 +41,8 @@ export interface HostSession {
   principalOwner?: { iss: string; sub: string };
   /** `pluginRefs[pluginId]` = the whole ref the plugin filed at spawn. */
   pluginRefs?: Record<string, Record<string, unknown>>;
+  /** Core-applied close declaration (absent on sessions spawned before add-session-close-plugin-hook). */
+  closePolicy?: unknown;
 }
 
 export interface HostPort {
@@ -51,6 +53,12 @@ export interface HostPort {
   onSessionResolved(h: (sessionId: string, ref: Record<string, unknown>) => void): () => void;
   onEvent(h: (sessionId: string, event: unknown) => void): () => void;
   registerPiHandler(type: string, h: (msg: unknown, sessionId: string) => void): void;
+  /**
+   * Register the team session closer consulted by core's idle reaper before it
+   * closes a team session (optional: older hosts lack it).
+   * See change: add-session-close-plugin-hook.
+   */
+  registerSessionCloser?(closer: (req: { sessionId: string }) => "close" | "keep"): void;
 }
 
 export interface Logger {
@@ -224,6 +232,12 @@ export class ConversationService {
       }),
       this.d.host.onEvent((sessionId, event) => this.onEvent(sessionId, event)),
     );
+    // Idle ending is core's quiescence reaper (declared on spawn); the team
+    // closer only keeps a session whose conversation is being ensured.
+    // See change: add-session-close-plugin-hook.
+    this.d.host.registerSessionCloser?.((req) => this.closeVerdict(req.sessionId));
+    // Legacy fallback: sessions without a closePolicy (live from before the
+    // upgrade, or an older host) keep the former team idle sweep.
     this.sweepIdle();
     if (sweepEveryMs > 0) {
       this.sweepTimer = setInterval(() => this.sweepIdle(), sweepEveryMs);
@@ -235,6 +249,13 @@ export class ConversationService {
     for (const u of this.unsubs.splice(0)) u();
     if (this.sweepTimer) clearInterval(this.sweepTimer);
     this.sweepTimer = undefined;
+  }
+
+  /** Team closer: keep while an ensure of the session's conversation is in flight. */
+  closeVerdict(sessionId: string): "close" | "keep" {
+    const loc = this.d.records.locate(sessionId);
+    if (loc && this.inFlight.has(`${loc.uk}|${loc.personaKey}|${loc.t}|${loc.c}`)) return "keep";
+    return "close";
   }
 
   private onEvent(sessionId: string, event: unknown): void {
@@ -260,7 +281,11 @@ export class ConversationService {
     this.d.records.write(loc, rec);
   }
 
-  /** End sessions idle past `idleMinutes` (never `busy`). */
+  /**
+   * Legacy idle sweep: end UNDECLARED sessions idle past `idleMinutes` (never
+   * `busy`). A session carrying a closePolicy is core's reaper's alone.
+   * See change: add-session-close-plugin-hook.
+   */
   sweepIdle(): void {
     const idle = this.idleMs();
     if (idle === 0) return;
@@ -269,6 +294,7 @@ export class ConversationService {
       if (r.archived) continue;
       const s = this.d.host.getSession(r.sessionId);
       if (!s || s.status === "ended" || s.status === "streaming") continue;
+      if (s.closePolicy) continue; // declared: core's reaper owns idle ending
       // Multi-user: only end a session the record's user owns (a misbound record must not reach another user's).
       if (this.d.access.mode() === "multi" && (!s.principalOwner || userKey(s.principalOwner.iss, s.principalOwner.sub) !== lr.uk)) continue;
       const last = Date.parse(r.lastAgentEndAt ?? r.lastActivityAt ?? r.startedAt);
@@ -551,7 +577,15 @@ export class ConversationService {
           team: { personaKey: persona.key, project: t, conversationId: c, uk: caller.uk, runId },
           ...(ownerStamp ? { principalOwner: ownerStamp } : {}),
         },
-        lifecycle: { recover: false, finalizeOnSocketClose: true },
+        lifecycle: {
+          recover: false,
+          finalizeOnSocketClose: true,
+          // Idle ending: core's quiescence reaper with our threshold (none when
+          // `idleMinutes` is 0). See change: add-session-close-plugin-hook.
+          ...(this.idleMs() > 0
+            ? { close: { idle: { afterMs: Math.max(1000, Math.round(this.idleMs())) }, mode: "sleep" as const } }
+            : {}),
+        },
         scope: {
           tools: [...PRESET_TOOLS[persona.tools]],
           // D7: exact skill set — never discovered/settings/package skills.

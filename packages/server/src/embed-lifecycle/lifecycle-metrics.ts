@@ -27,6 +27,14 @@ export interface LifecycleMetricsSnapshot {
   reuseHits: number;
   /** Acquire reuse misses (spawned or resumed). */
   reuseMisses: number;
+  /** Reaps of plugin-declared sessions (also counted in `reaped`). */
+  declaredReaps: number;
+  /** Plugin closer answered `keep`. See change: add-session-close-plugin-hook. */
+  closerKeeps: number;
+  /** Plugin closer threw, timed out, or answered an unknown value (treated as keep). */
+  closerFailures: number;
+  /** Accepted plugin `requestSessionClose` calls. */
+  pluginCloseRequests: number;
 }
 
 export interface LifecycleMetricsDeps {
@@ -42,6 +50,9 @@ export interface LifecycleMetrics {
   /** A reclaim attempt that did not take effect. See change: fix-session-reclaim-tmux. */
   recordReclaimFailure: () => void;
   recordReuse: (hit: boolean) => void;
+  recordDeclaredReap: () => void;
+  recordCloserOutcome: (outcome: "close" | "keep" | "failure") => void;
+  recordPluginCloseRequest: () => void;
   snapshot: () => LifecycleMetricsSnapshot;
 }
 
@@ -51,6 +62,10 @@ export function createLifecycleMetrics(deps: LifecycleMetricsDeps = {}): Lifecyc
   let failedReclaims = 0;
   let reuseHits = 0;
   let reuseMisses = 0;
+  let declaredReaps = 0;
+  let closerKeeps = 0;
+  let closerFailures = 0;
+  let pluginCloseRequests = 0;
 
   return {
     recordReap: (reason) => {
@@ -66,6 +81,16 @@ export function createLifecycleMetrics(deps: LifecycleMetricsDeps = {}): Lifecyc
       if (hit) reuseHits += 1;
       else reuseMisses += 1;
     },
+    recordDeclaredReap: () => {
+      declaredReaps += 1;
+    },
+    recordCloserOutcome: (outcome) => {
+      if (outcome === "keep") closerKeeps += 1;
+      else if (outcome === "failure") closerFailures += 1;
+    },
+    recordPluginCloseRequest: () => {
+      pluginCloseRequests += 1;
+    },
     snapshot: () => ({
       activeEphemeral: deps.countActiveEphemeral?.() ?? 0,
       idleEphemeral: deps.countIdleEphemeral?.() ?? 0,
@@ -74,6 +99,10 @@ export function createLifecycleMetrics(deps: LifecycleMetricsDeps = {}): Lifecyc
       failedReclaims,
       reuseHits,
       reuseMisses,
+      declaredReaps,
+      closerKeeps,
+      closerFailures,
+      pluginCloseRequests,
     }),
   };
 }

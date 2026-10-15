@@ -36,6 +36,7 @@ export interface TeamDeps {
   spawnTimeoutMs?: number;
   now?: () => number;
   renderPersona?: (persona: Persona, uk: string) => string;
+  /** Legacy idle-sweep period for undeclared sessions (0 = no timer; tests). */
   sweepEveryMs?: number;
   /** `host.listOperatorSkills` service (D11); absent on older hosts. */
   listOperatorSkills?: () => Promise<{ name: string; description: string; path: string; source: string }[]>;

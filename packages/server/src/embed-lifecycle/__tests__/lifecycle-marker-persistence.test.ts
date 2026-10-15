@@ -18,6 +18,10 @@ import { createMetaPersistence, type MetaPersistence } from "../../persistence/m
 import { createMemorySessionManager, type SessionManager } from "../../session/memory-session-manager.js";
 import { scanAllSessions } from "../../session/session-scanner.js";
 import { sessionToMeta } from "../../session/session-to-meta.js";
+import { DEFAULT_EMBED_LIFECYCLE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { createIdleReaper } from "../idle-reaper.js";
+import { createSessionCloserRegistry } from "../plugin-session-close.js";
 import { isEphemeral } from "../session-lifecycle-policy.js";
 
 describe("lifecyclePolicy marker persistence", () => {
@@ -102,5 +106,50 @@ describe("lifecyclePolicy marker persistence", () => {
     const result = scanAllSessions(tmpDir);
     const restored = result.sessions.find((s) => s.id === "embed-id");
     expect(isEphemeral(restored ?? {})).toBe(false);
+  });
+
+  // add-session-close-plugin-hook E4 — closePolicy survives the full-overwrite
+  // save and the cold-start scan (test-plan #E4).
+  it("E4: round-trips a plugin closePolicy across save + cold-start scan (test-plan #E4)", () => {
+    const policy = { owner: "team", idleAfterMs: 1_800_000, mode: "sleep" as const };
+    mgr.update("embed-id", { closePolicy: policy });
+    mgr.update("embed-id", { processDrawerCollapsed: true });
+    metaPersistence.flushAll();
+    expect(readSessionMeta(sessionFile)?.closePolicy).toEqual(policy);
+    const restored = scanAllSessions(tmpDir).sessions.find((s) => s.id === "embed-id");
+    expect(restored?.closePolicy).toEqual(policy);
+  });
+
+  // add-session-close-plugin-hook X5 — an idle close request is in-memory and
+  // does not survive a restart (test-plan #X5).
+  it("X5: an idle close request is gone after a restart (test-plan #X5)", async () => {
+    const before = createSessionCloserRegistry();
+    before.requestIdleClose("embed-id");
+    expect(before.isCloseRequested("embed-id")).toBe(true);
+    mgr.update("embed-id", { closePolicy: { owner: "team", idleAfterMs: 1_800_000, mode: "sleep" } });
+    metaPersistence.flushAll();
+    const restored = scanAllSessions(tmpDir).sessions.find((s) => s.id === "embed-id");
+    const after = createSessionCloserRegistry(); // fresh process
+    expect(after.isCloseRequested("embed-id")).toBe(false);
+    // Restored, recently active, below the governed threshold ⇒ not reaped.
+    const kills: string[] = [];
+    const now = Date.now();
+    const s = { ...restored, status: "idle", lastActivityAt: now - 60_000, startedAt: now - 3_600_000 } as DashboardSession;
+    await createIdleReaper({
+      config: () => ({ ...DEFAULT_EMBED_LIFECYCLE, enabled: false }),
+      listSessions: () => [s],
+      probe: async () => ({ ok: true, childCount: 0, cpuPercent: 0 }),
+      hasSubscriber: () => false,
+      hasTerminalInCwd: () => false,
+      hasPendingAsk: () => false,
+      queueCounts: () => ({ followUp: 0, steering: 0 }),
+      terminate: async (id) => {
+        kills.push(id);
+        return { outcome: "confirmed-dead" as const, terminated: true };
+      },
+      sendStopAfterTurn: () => true,
+      isCloseRequested: (id) => after.isCloseRequested(id),
+    }).sweepOnce();
+    expect(kills).toEqual([]);
   });
 });

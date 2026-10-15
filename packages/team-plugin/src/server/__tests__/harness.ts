@@ -21,6 +21,8 @@ interface FakeHost extends HostPort {
   emit(sessionId: string, event: unknown): void;
   resolveLate(runId: string): void;
   piHandlers: Map<string, (msg: unknown, sessionId: string) => void>;
+  /** Closer the plugin registered with core (add-session-close-plugin-hook). */
+  closer?: (req: { sessionId: string }) => "close" | "keep";
 }
 
 function makeFakeHost(tmp: string): FakeHost {
@@ -50,6 +52,10 @@ function makeFakeHost(tmp: string): FakeHost {
         principalOwner: ref.principalOwner,
         // The real host stores the whole filed ref under pluginRefs.<pluginId>.
         pluginRefs: { team: ref as unknown as Record<string, unknown> },
+        // Mirrors core: a close declaration is applied on first register.
+        ...(opts.lifecycle?.close
+          ? { closePolicy: { owner: "team", idleAfterMs: opts.lifecycle.close.idle?.afterMs, mode: opts.lifecycle.close.mode ?? "sleep" } }
+          : {}),
       };
       const fire = () => {
         if (!host.behavior.resolve) {
@@ -84,6 +90,9 @@ function makeFakeHost(tmp: string): FakeHost {
     },
     registerPiHandler(type, h) {
       piHandlers.set(type, h);
+    },
+    registerSessionCloser(c) {
+      host.closer = c;
     },
     emit(sid, ev) {
       for (const h of eventHandlers) h(sid, ev);

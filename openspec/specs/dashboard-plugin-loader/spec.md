@@ -1614,9 +1614,9 @@ The client-side plugin runtime SHALL provide a module-level slot-claims version 
 
 ### Requirement: Generic session-ownership seam on `ServerPluginContext`
 
-`ServerPluginContext` SHALL expose a generic session-ownership seam so any plugin can stamp its own identity onto a session it spawns, without core naming the plugin. When a plugin spawns a session, it files an opaque `pluginRef` — a plugin-namespaced value core carries but never parses — plus an optional lifecycle declaration `{ recover?: boolean; finalizeOnSocketClose?: boolean; hidden?: boolean }`. When the spawned session registers, the host resolves the ref and notifies the owning plugin.
+`ServerPluginContext` SHALL expose a generic session-ownership seam so any plugin can stamp its own identity onto a session it spawns, without core naming the plugin. When a plugin spawns a session, it files an opaque `pluginRef` — a plugin-namespaced value core carries but never parses — plus an optional lifecycle declaration `{ recover?: boolean; finalizeOnSocketClose?: boolean; hidden?: boolean; archiveOnEnd?: boolean; close?: { idle?: { afterMs: number }; mode?: "sleep" | "archive" } }` (the `close` block is specified by capability `plugin-session-close-hook`). When the spawned session registers, the host resolves the ref and notifies the owning plugin.
 
-Core SHALL NOT read the interior of `pluginRef`. Core SHALL make lifecycle decisions only from the declared `{ recover, finalizeOnSocketClose, hidden }` values, never from the plugin's name, from any field inside `pluginRef`, or from the presence of an owner ref.
+Core SHALL NOT read the interior of `pluginRef`. Core SHALL make lifecycle decisions only from the declared `{ recover, finalizeOnSocketClose, hidden, archiveOnEnd, close }` values, never from the plugin's name, from any field inside `pluginRef`, or from the presence of an owner ref. Core MAY record the declaring plugin's id with a `close` declaration and use it only to route that plugin's session closer and to authorize that plugin's close requests; this routing is not a lifecycle decision and SHALL NOT read `pluginRef`.
 
 The first-party features `automation` and `goal` SHALL each own their identity through this seam as ordinary contributions (built-ins are peers, not privileged): `automation` files `{ kind: "automation", automationRun: {...} }`, `goal` files `{ goalId }`. The emitted `.meta.json`, wire protocol, and `DashboardSession` field names and values SHALL be byte-identical to before this change, except that a session whose owner declares `recover: false` gains that single additive core-owned boolean (see the recovery requirement); user sessions never carry it and stay byte-identical.
 
@@ -1660,6 +1660,11 @@ The first-party features `automation` and `goal` SHALL each own their identity t
 
 - **WHEN** `automation` files `{ kind: "automation", automationRun }` and `goal` files `{ goalId }` through the seam
 - **THEN** the resulting `.meta.json` and `DashboardSession` SHALL carry the same `kind` / `automationRun` / `goalId` field names and values as before this change
+
+#### Scenario: Close declaration routes only to its declaring plugin
+- **WHEN** plugin A spawns a session with a `close` declaration and plugin B has registered a session closer
+- **THEN** only plugin A's closer SHALL be consulted for that session
+- **AND** core SHALL NOT read the session's `pluginRef` to decide this
 
 ### Requirement: Core lifecycle decisions read a generic flag, not the plugin name
 

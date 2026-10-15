@@ -400,6 +400,9 @@ export function createMemorySessionManager(
           // archive and wipes it from disk on the next full save.
           // See change: archive-service-sessions-on-end.
           archiveOnEnd: existing.archiveOnEnd,
+          // Plugin-declared close policy: lifecycle block does not re-run on reattach.
+          // See change: add-session-close-plugin-hook.
+          closePolicy: existing.closePolicy,
           // Preserve context usage until bridge sends fresh data
           contextTokens: existing.contextTokens,
           contextWindow: existing.contextWindow,
