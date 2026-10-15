@@ -369,12 +369,19 @@ test.describe("pending-question stack (add-pending-question-stack)", () => {
       await expect(page.getByTestId("question-dialog")).toHaveCount(0);
       const composer = page.getByTestId("composer-root").first();
       await expect(composer).toBeVisible({ timeout: 30_000 });
-      const uncovered = await composer.evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return hit !== null && el.contains(hit);
-      });
-      expect(uncovered, "composer is topmost at its centre").toBe(true);
+      // Poll: the mobile list→chat slide transition must settle before the
+      // composer's centre is inside the viewport (elementFromPoint is null off-screen).
+      await expect
+        .poll(
+          () =>
+            composer.evaluate((el) => {
+              const r = el.getBoundingClientRect();
+              const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+              return hit !== null && el.contains(hit);
+            }),
+          { message: "composer is topmost at its centre", timeout: 10_000, intervals: [100, 250, 500] },
+        )
+        .toBe(true);
     } finally {
       await stopHiddenPiSession(page.request, hidden.id);
     }
@@ -446,7 +453,8 @@ test.describe("pending-question stack (add-pending-question-stack)", () => {
         samples.push((await goneAt) - t0);
 
         // Let the run finish its turn before the next re-prompt.
-        await expect(page.getByText(/you picked/)).toHaveCount(i + 1, { timeout: 60_000 });
+        // (The transcript is virtualised, so count the card state, not DOM nodes.)
+        await expect(card).toContainText(/Idle/, { timeout: 60_000 });
       }
     } finally {
       await ctxB.close();
