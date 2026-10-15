@@ -65,7 +65,7 @@ export function buildBriefPrompt(input: BriefPromptInput): { system: string; use
     "Never recommend or favour an option; describe outcomes neutrally.",
   ].join(" ");
 
-  const parts: string[] = [block("question", untrusted(input.question, PROMPT_QUESTION_MAX), ` type="${untrusted(input.type, 40)}"`)];
+  const parts: string[] = [block("question", untrusted(input.question, PROMPT_QUESTION_MAX), ` type="${String(input.type).replace(/[^A-Za-z_-]/g, "").slice(0, 40)}"`)];
   if (input.options?.length) parts.push(block("options", optionList(input.options)));
   const subs = (input.subQuestions ?? []).slice(0, PROMPT_MAX_SUBQUESTIONS).map((q, i) => {
     const opts = q.options?.length ? ` options: ${optionList(q.options.slice(0, 10))}` : "";

@@ -106,6 +106,12 @@ describe("buildBriefPrompt", () => {
     expect(user).toContain("x");
   });
 
+  it("cannot break out of the <question> type attribute (CodeQL js/incomplete-html-attribute-sanitization)", () => {
+    const { user } = buildBriefPrompt({ question: "q", type: 'select" injected="1' as never, snapshot: snap });
+    expect(user).toContain('<question type="selectinjected">');
+    expect(user).not.toContain('injected="1"');
+  });
+
   it("notes when there is no assistant text", () => {
     const { user } = buildBriefPrompt({ question: "q", type: "confirm", snapshot: { toolCalls: [], redactionVersion: 1, assistantAbsentReason: "none" } });
     expect(user).toMatch(/no assistant text|limited context/i);
