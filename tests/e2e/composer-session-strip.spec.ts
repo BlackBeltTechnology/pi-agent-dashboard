@@ -224,6 +224,15 @@ test.describe("composer session strip (L3)", () => {
     try {
       await openComposer(page, b.sessionId);
       const card = page.getByTestId("composer-card");
+      // Wide composer: the terminal chip shares the delivery control's height and radius.
+      const row0 = page.getByTestId("composer-settings-row");
+      const chipStyle = (l: Locator) =>
+        l.evaluate((el) => ({ h: el.getBoundingClientRect().height, r: getComputedStyle(el).borderTopLeftRadius }));
+      const term = row0.getByTestId("open-inline-terminal-button");
+      await expect(term).toBeVisible();
+      expect(await chipStyle(term)).toEqual(await chipStyle(row0.getByTestId("delivery-control")));
+      await expect(term).toHaveAccessibleName("Open inline terminal");
+
       const setContentWidth = (delta: number) =>
         card.evaluate((el, d) => {
           const cs = getComputedStyle(el);
