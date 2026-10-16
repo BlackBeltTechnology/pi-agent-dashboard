@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>add-remote-access-wizard — Remote access UX</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<script src="icons.js"></script>
+<style>
+  /* Change-local recipes — tokens only (ui-contract.md). */
+  .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .sim { position: sticky; top: 56px; }
+  .sim h3, .surface h3 { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin: 0 0 6px; text-transform: uppercase; letter-spacing: .04em; }
+  .sim label { display: flex; gap: 8px; align-items: center; font-size: 12px; min-height: 28px; color: var(--text-primary); }
+  .sim .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .sim .grp + .grp { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+  .sim input[type=number] { width: 56px; }
+
+  /* app header replica + dialog */
+  .app-bar { display: flex; align-items: center; gap: 10px; justify-content: flex-end; padding: 6px 10px; background: var(--bg-secondary); border-radius: 8px 8px 0 0; border: 1px solid var(--border-secondary); font-size: 12px; color: var(--text-secondary); }
+  .app-bar .brand { margin-right: auto; font-weight: 700; color: var(--accent-text); }
+  .stage { background: var(--bg-overlay); padding: 24px 12px; border: 1px solid var(--border-secondary); border-top: 0; border-radius: 0 0 8px 8px; }
+  .dlg { container-type: inline-size; width: min(640px, 100%); margin: 0 auto; background: var(--bg-surface); border: 1px solid var(--border-strong); border-radius: 12px;
+         box-shadow: inset 0 1px 0 var(--elevation-rim), 0 8px 24px var(--shadow-card); display: flex; flex-direction: column; max-height: 760px; }
+  .dlg > header { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; }
+  .dlg > header h2 { font-size: 16px; margin: 0; flex: 1; display: flex; gap: 8px; align-items: center; }
+  .dlg .body { padding: 0 16px 12px; overflow-y: auto; }
+  .dlg > footer { display: flex; gap: 8px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border-secondary); }
+  .dlg > footer .sp { flex: 1; }
+  .crumb { font-size: 12px; color: var(--text-secondary); font-weight: 400; }
+
+  /* status landing */
+  .roads { border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; }
+  .road { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: var(--bg-tertiary); }
+  .road + .road { border-top: 1px solid var(--border-subtle); }
+  .road .ic { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; background: var(--bg-secondary); color: var(--text-secondary); flex: none; }
+  .road .ic svg.i { width: 18px; height: 18px; }
+  .road[data-on="true"] .ic { color: var(--severity-success-fg); background: var(--severity-success-bg); }
+  .road .t { font-size: 14px; font-weight: 600; }
+  .road .s { font-size: 12px; color: var(--text-secondary); word-break: break-all; }
+  .road .main { flex: 1; min-width: 0; }
+  .tasks { display: grid; gap: 8px; }
+  .task { display: flex; gap: 12px; align-items: center; text-align: left; width: 100%; padding: 10px 12px; min-height: 56px; border-radius: 8px;
+          border: 1px solid var(--border-secondary); background: var(--bg-tertiary); }
+  .task:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+  .task:focus-visible, .step > button:focus-visible, .rc:focus-visible, .ico-cell:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .task .ic { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: var(--tint-blue-bg); color: var(--tint-blue-fg); flex: none; }
+  .task .ic svg.i { width: 20px; height: 20px; }
+  .task .main { flex: 1; min-width: 0; }
+  .task .t { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  .task .d { font-size: 12px; color: var(--text-secondary); }
+  .task .hint { font-size: 11px; font-weight: 600; white-space: nowrap; }
+
+  /* step accordion */
+  .steps { display: grid; gap: 6px; }
+  .step { border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-tertiary); }
+  .step > button { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; padding: 8px 12px; min-height: 44px; }
+  .step .n { width: 22px; height: 22px; border-radius: 999px; display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none;
+             border: 1.5px solid var(--border-strong); color: var(--text-secondary); }
+  .step[data-st="current"] { border-color: var(--tint-blue-border); box-shadow: inset 0 0 0 1px var(--tint-blue-border); }
+  .step[data-st="current"] .n { border-color: var(--accent-primary); background: var(--accent-solid); color: #fff; }
+  .step[data-st="skipped"] .n, .step[data-st="done"] .n { border-color: var(--severity-success-border); background: var(--severity-success-bg); color: var(--severity-success-fg); }
+  .step[data-st="todo"] .st-t { color: var(--text-secondary); }
+  .step .st-t { font-size: 14px; font-weight: 600; flex: 1; min-width: 0; }
+  .step .st-s { font-size: 12px; color: var(--text-secondary); font-weight: 400; display: block; word-break: break-all; }
+  .step .tag { font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+  .step .pane { padding: 0 12px 12px 44px; display: grid; gap: 10px; }
+  @container (max-width: 520px) {
+    .step .pane { padding-left: 12px; }
+    .radio-cards { grid-template-columns: 1fr; }
+    .dlg > header h2 { flex-wrap: wrap; row-gap: 0; }
+    .crumb { flex-basis: 100%; }
+    .task { flex-wrap: wrap; } .task .main { flex-basis: calc(100% - 80px); }
+  }
+
+  .radio-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .rc { display: flex; gap: 8px; align-items: flex-start; text-align: left; padding: 10px 12px; border-radius: 8px;
+        border: 1px solid var(--border-secondary); background: var(--bg-secondary); min-height: 44px; }
+  .rc:hover { background: var(--bg-hover); }
+  .rc[aria-checked="true"] { border-color: var(--tint-blue-border); box-shadow: inset 0 0 0 1px var(--tint-blue-border); }
+  .rc .knob { width: 16px; height: 16px; border-radius: 999px; border: 2px solid var(--border-strong); margin-top: 2px; flex: none; display: grid; place-items: center; }
+  .rc[aria-checked="true"] .knob { border-color: var(--accent-primary); }
+  .rc[aria-checked="true"] .knob::after { content: ""; width: 8px; height: 8px; border-radius: 999px; background: var(--accent-primary); }
+  .rc .t { font-size: 14px; font-weight: 600; color: var(--text-primary); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .rc .d { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+  .cmd { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: 6px; background: var(--bg-code); border: 1px solid var(--border-subtle); font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
+  .cmd span { flex: 1; min-width: 0; word-break: break-all; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .row .p-input { flex: 1; min-width: 160px; width: auto; }
+  .suffix { font-family: "SF Mono", Menlo, monospace; font-size: 12px; color: var(--text-secondary); }
+  .code { font-family: "SF Mono", Menlo, monospace; font-size: 22px; font-weight: 700; letter-spacing: .12em; }
+  .qrbox { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+  .qrbox canvas { width: 160px; height: 160px; border-radius: 4px; padding: 8px; background: #fff; /* documented exception: QR quiet zone must be light (ISO/IEC 18004) */ }
+  .wait { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--text-secondary); }
+  .sim-act { border: 1px dashed var(--border-strong); border-radius: 6px; padding: 2px 8px; font-size: 11px; color: var(--text-secondary); min-height: 28px; }
+  .devrow { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-radius: 6px; background: var(--bg-secondary); border: 1px solid var(--border-subtle); font-size: 12px; }
+  .devrow .main { flex: 1; min-width: 0; }
+
+  /* icon variants */
+  .ico-grid { display: grid; grid-template-columns: 170px repeat(5, minmax(0, 1fr)); gap: 0; border: 1px solid var(--border-secondary); border-radius: 8px; overflow: hidden; font-size: 12px; }
+  .ico-grid > div { padding: 10px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 8px; }
+  .ico-grid > .h { background: var(--bg-secondary); font-weight: 600; color: var(--text-secondary); }
+  .ico-grid > .vn { font-weight: 600; }
+  .ico-cell { position: relative; width: 32px; height: 32px; border-radius: 6px; display: grid; place-items: center; color: var(--text-secondary); }
+  .ico-cell:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .ico-cell svg.i { width: 20px; height: 20px; }
+  .ico-cell .sd { position: absolute; right: 3px; bottom: 3px; width: 9px; height: 9px; border-radius: 999px; box-shadow: 0 0 0 2px var(--bg-secondary); }
+  .ico-cell .bdg { position: absolute; right: -4px; top: -4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; font-size: 10px; font-weight: 700;
+                   display: grid; place-items: center; background: var(--accent-solid); color: #fff; }
+  .sd.local { background: var(--text-tertiary); } .sd.lan { background: var(--accent-primary); } .sd.net { background: var(--status-idle); }
+  .sd.part { background: var(--status-working); } .sd.fail { background: var(--status-error); }
+  .ico-grid .lbl { color: var(--text-secondary); font-size: 11px; }
+  @media (max-width: 760px) { .ico-grid { grid-template-columns: 110px repeat(5, minmax(0, 1fr)); } .ico-grid .lbl { display: none; } }
+
+  .frames { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+  .frame h4 { margin: 0 0 8px; font-size: 12px; color: var(--text-secondary); }
+  .deny-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--severity-warning-border); border-radius: 6px;
+              background: var(--severity-warning-bg); color: var(--severity-warning-fg); font-size: 14px; }
+  .deny-bar .msg { flex: 1; min-width: 200px; display: flex; gap: 8px; align-items: flex-start; }
+  .deny-bar.info { background: var(--severity-info-bg); color: var(--severity-info-fg); border-color: var(--severity-info-border); }
+  .why-list { margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-secondary); }
+</style>
+</head>
+<body data-view="proposed">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Remote access — wizard prototype</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+</div>
+
+<main>
+  <!-- ── A: live prototype ───────────────────────────────────────── -->
+  <section class="surface">
+    <h2>A · Remote access dialog (clickable)</h2>
+    <p class="verdict">Opens on status, then four tasks. Each task is a step list; steps whose check already passes show collapsed with a ✓ "already set" and can be reopened. Steps that do not apply to the chosen provider are not listed. Change the machine state on the left to see steps skip.</p>
+    <div class="layout">
+      <aside class="sim inset" aria-label="Simulated machine state">
+        <h3>Machine state (simulator)</h3>
+        <div class="presets">
+          <button class="p-btn sm secondary" data-preset="fresh">Fresh install</button>
+          <button class="p-btn sm secondary" data-preset="zrokready">zrok ready, offline</button>
+          <button class="p-btn sm secondary" data-preset="all">Everything on</button>
+        </div>
+        <div class="grp" id="sim-fields"></div>
+      </aside>
+
+      <div class="frame">
+        <div class="app-bar" aria-label="Dashboard header (replica)">
+          <span class="brand">π</span>
+          <button class="ico-cell" id="hdr-btn" data-act="open" title=""></button>
+          <span>Local ● Connected ▾</span>
+        </div>
+        <div class="stage">
+          <div class="dlg" role="dialog" aria-modal="false" aria-labelledby="dlg-title" id="dlg"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── B: toolbar icon variants ────────────────────────────────── -->
+  <section class="surface">
+    <h2>B · Toolbar icon variants</h2>
+    <p class="verdict">Replaces <code>mdiQrcode</code>. The button now stands for "who can reach this machine"; the QR is one step inside. A state dot plus a text title (never colour alone), and a count badge when devices are waiting for approval. Pick one row.</p>
+    <div class="ico-grid" id="ico-grid"></div>
+    <p class="note p-help" style="margin-top:8px">Dot: grey = this computer only · blue = LAN · green = internet share up · amber = partly connected · red = failed. Title text carries the same fact, e.g. "Remote access: internet on, 1 device waiting".</p>
+  </section>
+
+  <!-- ── C: folded-in screens ────────────────────────────────────── -->
+  <section class="surface">
+    <h2>C · Screens folded in from in-flight changes</h2>
+    <p class="verdict">Same flow, other end of the wire. These keep the shapes of <code>retire-trusted-networks-bypass</code> and <code>fix-pairing-approval-credential</code>; the wizard links to them instead of duplicating.</p>
+    <div class="frames">
+      <div class="frame">
+        <h4>C1 · Denied device (the phone) — Request access</h4>
+        <div class="deny-bar"><div class="msg"><svg class="i"><path d="" data-ic="AlertOutline"/></svg><span><b>This device isn't paired with home-imac.</b> Ask to connect; you'll type a code on home-imac.</span></div><button class="p-btn primary">Request access</button></div>
+        <div style="height:8px"></div>
+        <div class="deny-bar info"><div class="msg"><svg class="i"><path d="" data-ic="InformationOutline"/></svg><span><b>Waiting for approval.</b> On home-imac, type this code: <span class="code" style="font-size:16px">4821&nbsp;7730</span></span></div><button class="p-btn sm secondary">Cancel</button></div>
+      </div>
+      <div class="frame">
+        <h4>C2 · Approve refused — this browser has no operator credential</h4>
+        <div class="callout error"><svg class="i"><path d="" data-ic="CloseCircleOutline"/></svg><div class="body stack">
+          <b>This browser can't approve devices yet.</b>
+          <div>Pick one, then press Approve again. The code stays valid.</div>
+          <div class="cmd"><span>pi-dashboard open --url http://localhost:8000</span><button class="p-btn icon sm ghost" aria-label="Copy"><svg class="i"><path d="" data-ic="ContentCopy"/></svg></button></div>
+          <div class="cmd"><span>pi-dashboard pair approve 7f3a…</span><button class="p-btn icon sm ghost" aria-label="Copy"><svg class="i"><path d="" data-ic="ContentCopy"/></svg></button></div>
+          <a class="p-link" href="#">Sign in instead →</a>
+        </div></div>
+      </div>
+      <div class="frame">
+        <h4>C3 · "Who may enter" while legacy network trust is on</h4>
+        <div class="callout warning"><svg class="i"><path d="" data-ic="AlertOutline"/></svg><div class="body">
+          <b>5 networks get full access without sign-in.</b> Any device on them skips this step entirely. <a class="p-link" href="#">Switch to "Pair each device" in Settings ▸ Security →</a>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── D: why ───────────────────────────────────────────────────── -->
+  <section class="surface">
+    <h2>D · Decisions</h2>
+    <ul class="why-list">
+      <li><b>Status first, then tasks</b> — Nielsen #1 Visibility of system status; the operator's first question is "can anything reach this machine right now?".</li>
+      <li><b>Tasks named by intent, not by subsystem</b> ("Share over the internet", not "Setup") — Nielsen #2 Match between system and the real world.</li>
+      <li><b>Satisfied steps collapse with ✓ and stay reopenable</b>, never vanish — Nielsen #3 User control and freedom; NN/g "Wizards" (show progress and position).</li>
+      <li><b>Steps that don't apply are omitted</b> (no public name for tailscale/zerotier) — GOV.UK "Don't show users things they can't use".</li>
+      <li><b>Every step that widens exposure states its consequence before the button</b> (LAN bind = unencrypted http; public URL = request page reachable) — Nielsen #5 Error prevention.</li>
+      <li><b>One primary action per step</b>; Settings ▸ Network linked as the expert view — Von Restorff / Hick's Law.</li>
+      <li><b>No default value rendered as fact while loading</b> — every step check shows "Checking…" until its source answers (fixes the dialog's "Off" while loading).</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+const ic = (n, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n] || ""}"/></svg>`;
+document.querySelectorAll("path[data-ic]").forEach((p) => { const s = p.closest("svg"); s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("aria-hidden", "true"); p.setAttribute("d", ICON[p.dataset.ic]); });
+
+/* ── simulated machine state ── */
+const S = {};
+const FIELDS = [
+  ["zInstalled", "zrok installed", "bool"], ["zEnabled", "zrok enabled (token)", "bool"], ["zName", "Public name reserved", "bool"],
+  ["tunnel", "Internet share connected", "bool"], ["lanBind", "Listening on LAN (0.0.0.0)", "bool"], ["lanAccept", "Accept LAN requests", "bool"],
+  ["oauth", "Sign-in provider configured", "bool"], ["legacy", "Legacy trusted networks on", "bool"],
+  ["canApprove", "This browser can approve", "bool"], ["paired", "Paired devices", "num"], ["waiting", "Devices waiting", "num"],
+];
+const PRESETS = {
+  fresh: { provider: "", zInstalled: false, zEnabled: false, zName: false, tunnel: false, lanBind: false, lanAccept: false, oauth: false, legacy: false, canApprove: true, paired: 0, waiting: 0 },
+  zrokready: { provider: "zrok", zInstalled: true, zEnabled: true, zName: true, tunnel: false, lanBind: false, lanAccept: false, oauth: false, legacy: true, canApprove: false, paired: 2, waiting: 0 },
+  all: { provider: "zrok", zInstalled: true, zEnabled: true, zName: true, tunnel: true, lanBind: true, lanAccept: true, oauth: true, legacy: false, canApprove: true, paired: 3, waiting: 1 },
+};
+Object.assign(S, PRESETS.zrokready);
+const NAME = "robson-home";
+const PUBLIC = () => `https://${NAME}.shares.zrok.io`;
+const LANURL = "http://192.168.16.220:8000";
+const PROV = {
+  zrok: { label: "zrok", d: "Free public HTTPS address. Nothing to install on the device.", rec: true, pub: true, install: "brew install openziti/tap/zrok", enable: "Enable this machine", tok: "zrok enable token" },
+  ngrok: { label: "ngrok", d: "Public HTTPS address. Needs an ngrok account.", pub: true, install: "brew install ngrok", enable: "Add your ngrok authtoken", tok: "ngrok authtoken" },
+  tailscale: { label: "tailscale", d: "Private: only devices signed in to your tailnet.", pub: false, install: "brew install tailscale", enable: "Sign in to tailscale", tok: "" },
+  zerotier: { label: "zerotier", d: "Private mesh: only devices that joined your network.", pub: false, install: "brew install zerotier-one", enable: "Join your ZeroTier network", tok: "network id" },
+};
+
+function renderSim() {
+  document.getElementById("sim-fields").innerHTML = FIELDS.map(([k, l, t]) => t === "bool"
+    ? `<label><input type="checkbox" data-sim="${k}" ${S[k] ? "checked" : ""}> ${l}</label>`
+    : `<label><input class="p-input" type="number" min="0" max="9" data-sim="${k}" value="${S[k]}"> ${l}</label>`).join("");
+}
+document.getElementById("sim-fields").addEventListener("change", (e) => {
+  const k = e.target.dataset.sim; if (!k) return;
+  S[k] = e.target.type === "checkbox" ? e.target.checked : Number(e.target.value);
+  render();
+});
+document.querySelector(".presets").addEventListener("click", (e) => {
+  const p = e.target.closest("[data-preset]"); if (!p) return;
+  Object.assign(S, PRESETS[p.dataset.preset]); W = null; renderSim(); render();
+});
+
+/* ── step engine: each step = applies? / satisfied? / summary / body ── */
+const pv = () => PROV[(W && W.pick && PROV[W.pick] ? W.pick : S.provider)] || PROV.zrok;
+const roadsUp = () => ({ lan: S.lanBind && S.lanAccept, net: S.tunnel });
+const STEPS = {
+  provider: { t: "Choose how to share", sat: () => !!S.provider, sum: () => `${pv().label}${pv().pub ? " · public" : " · private"}`,
+    body: () => `<div class="radio-cards" role="radiogroup" aria-label="Provider">${Object.entries(PROV).map(([id, p]) =>
+      `<button class="rc" role="radio" aria-checked="${(W.pick || S.provider || "zrok") === id}" data-act="prov" data-v="${id}"><span class="knob"></span><span><span class="t">${p.label}${p.rec ? ' <span class="pill info">Recommended</span>' : ""}${p.pub ? "" : ' <span class="pill neutral">Private</span>'}</span><span class="d">${p.d}</span></span></button>`).join("")}</div>`,
+    go: () => { S.provider = W.pick || S.provider || "zrok"; return true; } },
+  install: { t: () => `Install ${pv().label}`, sat: () => S.zInstalled, sum: () => `${pv().label} 1.0.4 found on this machine`,
+    body: () => `<div class="p-help">Run this in a terminal on this machine. The dashboard finds it by itself.</div>
+      <div class="cmd"><span>${pv().install}</span><button class="p-btn icon sm ghost" aria-label="Copy command">${ic("ContentCopy")}</button></div>`,
+    btn: "Check again", go: () => (S.zInstalled = true) },
+  enable: { t: () => pv().enable, sat: () => S.zEnabled, sum: () => "This machine is enabled",
+    body: () => pv().tok ? `<div class="p-help">Paste the token from your ${pv().label} account. It is stored on this machine only.</div>
+      <div class="row"><input class="p-input mono" placeholder="${pv().tok}" aria-label="${pv().tok}"><a class="p-link" href="#">Get a token →</a></div>`
+      : `<div class="p-help">Opens ${pv().label}'s sign-in page in a new tab. Come back here when it says connected.</div>`,
+    btn: () => pv().tok ? "Enable" : "Open sign-in", go: () => (S.zEnabled = true) },
+  name: { applies: () => pv().pub, t: "Pick a public address", sat: () => S.zName, sum: () => PUBLIC(),
+    body: () => `<div class="p-help">This is the address you'll open from anywhere. Names are shared by all ${pv().label} users, so short ones are often taken.</div>
+      <div class="row"><input class="p-input mono" value="${NAME}" aria-label="Public name"><span class="suffix">.shares.zrok.io</span></div>`,
+    btn: "Reserve", go: () => (S.zName = true) },
+  connect: { t: "Go online", sat: () => S.tunnel, sum: () => `Online at ${pv().pub ? PUBLIC() : "https://home-imac.tail-net.ts.net"}`,
+    body: () => `<div class="callout info">${ic("InformationOutline")}<div class="body"><b>Anyone with the address reaches a sign-in / request-access page.</b> Nobody gets in until you approve their device or they sign in.</div></div>`,
+    btn: "Connect", busy: true, go: () => (S.tunnel = true) },
+  bind: { t: "Listen on your network", sat: () => S.lanBind, sum: () => `Reachable at ${LANURL}`,
+    body: () => `<div class="callout warning">${ic("AlertOutline")}<div class="body"><b>Devices on your Wi-Fi can open this dashboard's request page over plain http (unencrypted).</b> They still can't get in without your approval.</div></div>
+      <div class="p-help">Restarts the dashboard server (about 5 s). Running sessions keep going.</div>`,
+    btn: "Listen on network & restart", busy: true, go: () => (S.lanBind = true) },
+  accept: { t: "Let devices ask to connect", sat: () => S.lanAccept, sum: () => "Devices on this network may request access",
+    body: () => `<div class="p-help">A device on your network can ask to connect. You approve each one by typing the code it shows.</div>`,
+    btn: "Turn on requests", go: () => (S.lanAccept = true) },
+  door: { t: "Decide who may enter", /* Derived, no saved flag: pair-only (no legacy network trust) or a sign-in provider is configured. */
+    sat: () => !S.legacy || S.oauth, sum: () => S.oauth ? "Approve each device · or sign in" : "Approve each device with a code",
+    body: () => `${S.legacy ? `<div class="callout warning">${ic("AlertOutline")}<div class="body"><b>5 networks get full access without sign-in.</b> <a class="p-link" href="#">Review in Settings ▸ Security →</a></div></div>` : ""}
+      <div class="radio-cards" role="radiogroup" aria-label="Who may enter">
+        <button class="rc" role="radio" aria-checked="true"><span class="knob"></span><span><span class="t">Approve each device <span class="pill info">Recommended</span></span><span class="d">Each phone or laptop is approved once with a code and can be revoked on its own.</span></span></button>
+        <button class="rc" role="radio" aria-checked="false" ${S.oauth ? "" : 'aria-disabled="true"'}><span class="knob"></span><span><span class="t">Also allow sign-in</span><span class="d">${S.oauth ? "GitHub / Google / OIDC accounts you allow." : "No sign-in provider yet — set one up in Settings ▸ Security."}</span></span></button>
+      </div>`,
+    btn: () => S.legacy ? "Continue anyway" : "Continue", go: () => true },
+  road: { t: "Where is the device?", sat: () => roadsUp().net || roadsUp().lan || !!W.branch,
+    sum: () => roadsUp().net ? `Over the internet · ${PUBLIC()}` : roadsUp().lan ? `Same network · ${LANURL}` : W.branch === "net" ? "Anywhere — set up internet share below" : "Same Wi-Fi — set up network access below",
+    body: () => `<div class="p-help">Nothing can reach this machine yet. How will the device connect?</div>
+      <div class="radio-cards" role="radiogroup" aria-label="Where is the device">
+        <button class="rc" role="radio" aria-checked="${W.pick === "lan"}" data-act="branch" data-v="lan"><span class="knob"></span><span><span class="t">${ic("Wifi")} On the same Wi-Fi</span><span class="d">Quick. Adds 2 steps: listen on network, accept requests.</span></span></button>
+        <button class="rc" role="radio" aria-checked="${W.pick === "net"}" data-act="branch" data-v="net"><span class="knob"></span><span><span class="t">${ic("Earth")} Anywhere</span><span class="d">Encrypted public address via zrok. Adds up to 5 steps.</span></span></button>
+      </div>`,
+    btn: "Continue", go: () => { if (!W.pick) return false; W.branch = W.pick; return true; } },
+  qr: { t: "Open it on the device", sat: () => !!W.pending,  sum: () => `${W.pending?.name} asked to connect`,
+    body: () => { const tls = roadsUp().net; const url = tls ? `${PUBLIC()}/pair#pi:pair:v1.eyJ2Ijox…` : LANURL;
+      return `<div class="qrbox"><canvas data-qr="${url}" width="160" height="160" aria-label="QR code for ${url}"></canvas>
+        <div class="stack" style="flex:1;min-width:200px">
+          <div class="p-help">${tls ? "Scan with the phone camera, or open this link on the laptop." : "On the device, open this address and tap <b>Request access</b>."}</div>
+          <div class="cmd"><span>${url}</span><button class="p-btn icon sm ghost" aria-label="Copy link">${ic("ContentCopy")}</button></div>
+          ${tls ? "" : `<div class="p-help">Plain http: the code you compare in the next step is what protects this pairing.</div>`}
+          <div class="wait">${ic("Loading", "i spin")} Waiting for the device…</div>
+          <button class="sim-act" data-act="knock">Simulate: device asks to connect</button>
+        </div></div>`; } },
+  approve: { t: "Approve with the code", sat: () => !!W.paired, sum: () => `${W.pending?.name} is paired`,
+    body: () => `<div class="devrow">${ic("Cellphone")}<div class="main"><b>${W.pending?.name}</b><div class="p-meta">via ${roadsUp().net ? "internet" : "192.168.16.31"} · just now</div></div><span class="pill warning">Waiting</span></div>
+      <label class="p-label" for="code-in">Type the 8-digit code shown on the device</label>
+      <div class="row"><input id="code-in" class="p-input mono" inputmode="numeric" placeholder="0000 0000" aria-describedby="code-help"><button class="p-btn secondary sm" data-act="deny">Deny</button></div>
+      <div id="code-help" class="p-meta">Code expires in 4:52. Wrong codes count against one shared limit.</div>
+      ${W.refused ? `<div class="callout error">${ic("CloseCircleOutline")}<div class="body stack"><b>This browser can't approve devices yet.</b><div>Pick one, then press Approve again. The code stays valid.</div>
+        <div class="cmd"><span>pi-dashboard open --url http://localhost:8000</span><button class="p-btn icon sm ghost" aria-label="Copy">${ic("ContentCopy")}</button></div>
+        <div class="cmd"><span>pi-dashboard pair approve 7f3a…</span><button class="p-btn icon sm ghost" aria-label="Copy">${ic("ContentCopy")}</button></div>
+        ${S.oauth ? '<a class="p-link" href="#">Sign in instead →</a>' : ""}</div></div>` : ""}`,
+    btn: "Approve", go: () => { if (!S.canApprove) { W.refused = true; return false; } W.paired = true; S.paired++; return true; } },
+  addr: { t: "Which machine?", sat: () => !!W.addr, sum: () => W.addr,
+    body: () => `<div class="p-help">Found on your network:</div>
+      ${[["MacBook", "192.168.16.204:8000", "success", "Available"], ["Rob Mac Zrok", "https://6m903hcq2eut.share.zrok.io", "error", "Unreachable"]].map(([n, a, sev, w]) =>
+        `<button class="rc" role="radio" aria-checked="${W.pick === a}" data-act="addr" data-v="${a}" style="width:100%"><span class="knob"></span><span style="flex:1"><span class="t">${n} <span class="pill ${sev}">${w}</span></span><span class="d mono">${a}</span></span></button>`).join("")}
+      <div class="row"><input class="p-input mono" placeholder="host:port or https://…" aria-label="Address of another machine"></div>`,
+    btn: "Continue", go: () => { if (!W.pick) return false; W.addr = W.pick; return true; } },
+  reach: { t: "Check it can be reached", sat: () => !!W.reached, sum: () => "Reachable · identity sha256:hljQK…",
+    body: () => `<div class="p-help">Contacting ${W.addr} and reading its identity. Compare the fingerprint with Settings ▸ Server on that machine if you're unsure.</div>`,
+    btn: "Check", busy: true, go: () => (W.reached = true) },
+  request: { t: "Ask that machine for access", sat: () => !!W.granted, sum: () => "Approved on MacBook",
+    body: () => `<div class="p-help">MacBook now shows "A device wants to connect". Type this code there:</div>
+      <div class="code">4821&nbsp;7730</div><div class="wait">${ic("Loading", "i spin")} Waiting for approval on MacBook…</div>
+      <button class="sim-act" data-act="granted">Simulate: approved on MacBook</button>` },
+};
+const SCEN = {
+  share: { t: "Share over the internet", d: "A public HTTPS address for this dashboard, reachable from anywhere.", icon: "Earth",
+    steps: () => ["provider", "install", "enable", "name", "connect", "door"] },
+  device: { t: "Let a phone or laptop in", d: "Pair a device with a QR code and a one-time code.", icon: "MonitorCellphone",
+    // Inserted steps key on the chosen branch (not on live road state) so they stay listed once done.
+    steps: () => { const pre = W?.branch === "lan" ? ["bind", "accept"] : W?.branch === "net" ? ["provider", "install", "enable", "name", "connect"] : [];
+      return ["road", ...pre, "qr", "approve"]; } },
+  lan: { t: "Allow devices on my network", d: "Phones and laptops on the same Wi-Fi can ask to connect.", icon: "Wifi",
+    steps: () => ["bind", "accept", "door"] },
+  remote: { t: "Connect to another machine", d: "Use another computer's dashboard from here.", icon: "LaptopAccount",
+    steps: () => ["addr", "reach", "request"] },
+};
+const val = (x) => (typeof x === "function" ? x() : x);
+const applicable = (scen) => SCEN[scen].steps().filter((id) => !STEPS[id].applies || STEPS[id].applies());
+
+let W = null; // wizard run: { scen, open: Set, done: Set, pick, branch, ... }
+let busy = false;
+
+function stepState(id) {
+  const st = STEPS[id];
+  if (W.done.has(id)) return "done";
+  if (st.sat && st.sat() && !W.open.has(id)) return "skipped";
+  return "pending";
+}
+function currentStep() { return applicable(W.scen).find((id) => stepState(id) === "pending"); }
+function remaining(scen) { const saveW = W; W = { scen, open: new Set(), done: new Set() }; const n = applicable(scen).filter((id) => stepState(id) === "pending").length; W = saveW; return n; }
+
+function landing() {
+  const r = roadsUp();
+  const road = (on, icn, t, s) => `<div class="road" data-on="${on}"><span class="ic">${ic(icn)}</span><div class="main"><div class="t">${t}</div><div class="s">${s}</div></div><span class="pill ${on ? "success" : "neutral"}">${on ? "On" : "Off"}</span></div>`;
+  const hints = { share: S.tunnel ? ["success", "On"] : null, lan: r.lan ? ["success", "On"] : null };
+  return `<div class="stack-3">
+    <div class="roads" aria-label="Who can reach this machine">
+      ${road(true, "Monitor", "This computer", "http://localhost:8000")}
+      ${road(r.lan, "Wifi", "Devices on my network", r.lan ? `${LANURL} · devices may request access` : S.lanBind ? "Listening, but requests are off" : "Not listening on the network")}
+      ${road(r.net, "Earth", "Internet", r.net ? PUBLIC() : S.zInstalled && S.zEnabled ? "zrok is ready — not connected" : "Not set up")}
+    </div>
+    <div class="row" style="justify-content:space-between"><span class="p-help">${ic("Devices")} <b>${S.paired}</b> paired device${S.paired === 1 ? "" : "s"}</span><a class="p-link" href="#">Manage devices →</a></div>
+    ${S.waiting ? `<div class="callout info">${ic("InformationOutline")}<div class="body"><b>${S.waiting} device${S.waiting > 1 ? "s" : ""} waiting to connect.</b> <button class="p-link" data-act="review">Review →</button></div></div>` : ""}
+    <h3 style="margin-top:14px">What do you want to do?</h3>
+    <div class="tasks">${Object.entries(SCEN).map(([id, s]) => { const n = remaining(id); const h = hints[id] ||
+      (id === "remote" ? null : id === "device" && !r.lan && !r.net ? ["neutral", "network first"] : n === 0 ? ["success", "Ready"] : ["neutral", `${n} step${n > 1 ? "s" : ""}`]);
+      return `<button class="task" data-act="start" data-v="${id}"><span class="ic">${ic(s.icon)}</span><span class="main"><span class="t">${s.t}</span><span class="d" style="display:block">${s.d}</span></span>${h ? `<span class="pill ${h[0]} hint">${h[1]}</span>` : ""}${ic("ChevronRight")}</button>`; }).join("")}</div>
+  </div>`;
+}
+
+function wizard() {
+  const ids = applicable(W.scen), cur = currentStep();
+  // Runs of >=2 consecutive "already set" steps fold into one row until expanded.
+  const groups = []; let run = [];
+  ids.forEach((id) => { if (stepState(id) !== "pending" && !W.showSkipped) run.push(id); else { if (run.length) groups.push(run); run = []; groups.push(id); } });
+  if (run.length) groups.push(run);
+  const folded = (r) => r.length < 2 ? r.map(row).join("") : `<div class="step" data-st="skipped"><button data-act="showskipped" aria-expanded="false">
+      <span class="n">${ic("Check")}</span><span class="st-t">${r.length} steps ${r.every((id) => stepState(id) === "skipped") ? "already set" : "done"}<span class="st-s">${r.map((id) => val(STEPS[id].t)).join(" · ")}</span></span><span class="tag">Show</span></button></div>`;
+  return `<div class="steps">${groups.map((g) => Array.isArray(g) ? folded(g) : row(g)).join("")}</div>
+    ${cur ? "" : `<div class="callout info" style="margin-top:12px">${ic("CheckCircleOutline")}<div class="body"><b>${doneMsg()}</b></div></div>`}`;
+  function row(id) { const i = ids.indexOf(id);
+    const st = STEPS[id], s = stepState(id), isCur = id === cur;
+    const data = isCur ? "current" : s === "pending" ? "todo" : s;
+    const tag = s === "skipped" ? "already set" : s === "done" ? "done" : "";
+    const sum = s !== "pending" && st.sum ? `<span class="st-s">${st.sum()}</span>` : "";
+    const mark = s === "pending" ? i + 1 : ic("Check");
+    return `<div class="step" data-st="${data}">
+      <button ${s === "pending" ? (isCur ? "" : 'aria-disabled="true"') : `data-act="reopen" data-v="${id}"`} aria-expanded="${isCur}">
+        <span class="n">${mark}</span><span class="st-t">${val(st.t)}${sum}</span>
+        ${tag ? `<span class="tag">${tag}${s === "skipped" || s === "done" ? " · Change" : ""}</span>` : ""}</button>
+      ${isCur ? `<div class="pane">${st.body()}</div>` : ""}</div>`; }
+}
+function doneMsg() {
+  return { share: `This dashboard is online at ${PUBLIC()}.`, device: `${W.pending?.name || "The device"} is paired. Revoke it any time under Manage devices.`,
+    lan: `Devices on your network can now ask to connect at ${LANURL}.`, remote: "MacBook was added to your servers." }[W.scen];
+}
+
+function render() {
+  const d = document.getElementById("dlg");
+  const head = W ? `<button class="p-btn icon ghost" data-act="home" aria-label="Back to overview">${ic("ChevronLeft")}</button>` : "";
+  const cur = W && currentStep();
+  const ids = W && applicable(W.scen);
+  const title = W ? `${SCEN[W.scen].t}${cur ? ` <span class="crumb">step ${ids.indexOf(cur) + 1} of ${ids.length}</span>` : ""}` : `${ic("AccessPointNetwork")} Remote access`;
+  const st = cur && STEPS[cur];
+  const primary = !W ? `<button class="p-btn primary" data-act="close">Done</button>`
+    : !cur ? (W.scen === "remote" ? `<button class="p-btn secondary" data-act="home">Stay here</button><button class="p-btn primary">Switch to MacBook</button>` : `<button class="p-btn primary" data-act="home">Finish</button>`)
+    : st.btn || st.go ? `<button class="p-btn primary" data-act="next" ${busy ? "disabled" : ""}>${busy ? `${ic("Loading", "i spin")} Working…` : val(st.btn) || "Continue"}</button>` : "";
+  d.innerHTML = `<header>${head}<h2 id="dlg-title">${title}</h2><button class="p-btn icon ghost" aria-label="Close" data-act="close">${ic("Close")}</button></header>
+    <div class="body">${W ? wizard() : landing()}</div>
+    <footer>${W ? "" : `<a class="p-link" href="#">${ic("Cog")} All network settings</a>`}<span class="sp"></span>${primary}</footer>`;
+  d.querySelectorAll("canvas[data-qr]").forEach(drawQr);
+  renderHeaderBtn();
+}
+
+function act(e) {
+  const b = e.target.closest("[data-act]"); if (!b || b.getAttribute("aria-disabled") === "true") return;
+  const a = b.dataset.act, v = b.dataset.v;
+  if (a === "start") W = { scen: v, open: new Set(), done: new Set() };
+  if (a === "home" || a === "open") W = null;
+  if (a === "close") { W = null; }
+  if (a === "review") { W = { scen: "device", open: new Set(), done: new Set(["road", "qr"]), pending: { name: "iPhone · Safari" } }; S.waiting = Math.max(0, S.waiting - 1); renderSim(); }
+  if (a === "prov" || a === "branch" || a === "addr") W.pick = v;
+  if (a === "showskipped") W.showSkipped = true;
+  if (a === "reopen") { W.open.add(v); W.done.delete(v); }
+  if (a === "knock") { W.pending = { name: "iPhone · Safari" }; W.done.add("qr"); }
+  if (a === "granted") { W.granted = true; W.done.add("request"); }
+  if (a === "deny") { W.pending = null; W.done.delete("qr"); W.refused = false; }
+  if (a === "next") {
+    const cur = currentStep(), st = STEPS[cur];
+    const finish = () => { const ok = st.go ? st.go() : true; if (ok !== false) { W.done.add(cur); W.open.delete(cur); W.pick = undefined; } busy = false; renderSim(); render(); };
+    if (st.busy) { busy = true; render(); setTimeout(finish, 900); return; }
+    finish(); return;
+  }
+  render();
+}
+document.getElementById("dlg").addEventListener("click", act);
+document.getElementById("hdr-btn").addEventListener("click", act);
+
+/* ── header button reflects state (variant A) ── */
+function stateKey() { const r = roadsUp(); if (S.tunnel) return "net"; if (r.lan) return "lan"; if (S.lanBind) return "part"; return "local"; }
+const STATE_T = { local: "this computer only", lan: "network on", net: "internet on", part: "partly connected", fail: "share failed" };
+function renderHeaderBtn() {
+  const k = stateKey(), b = document.getElementById("hdr-btn");
+  b.innerHTML = `${ic("AccessPointNetwork")}<span class="sd ${k}"></span>${S.waiting ? `<span class="bdg">${S.waiting}</span>` : ""}`;
+  b.title = `Remote access: ${STATE_T[k]}${S.waiting ? `, ${S.waiting} device waiting` : ""}`;
+  b.setAttribute("aria-label", b.title);
+}
+
+/* ── icon variant grid ── */
+(function () {
+  const vars = [["A", "AccessPointNetwork", "access point + network"], ["B", "LanConnect", "network plug (LanDisconnect when off)"], ["C", "ShieldAccount", "access control"], ["D", "Web", "web / internet"], ["E", "Router", "router"]];
+  const states = [["local", "Local only"], ["lan", "LAN"], ["net", "Internet"], ["part", "Partial"], ["fail", "Failed + 1 waiting"]];
+  let h = `<div class="h">Variant</div>${states.map(([, l]) => `<div class="h">${l}</div>`).join("")}`;
+  for (const [id, icn, desc] of vars) {
+    h += `<div class="vn">${id} · <span class="lbl">${desc}</span></div>`;
+    for (const [k, l] of states) {
+      const g = icn === "LanConnect" && k === "local" ? "LanDisconnect" : icn;
+      h += `<div><button class="ico-cell" title="Remote access: ${STATE_T[k]}" aria-label="Variant ${id}, ${l}">${ic(g)}<span class="sd ${k}"></span>${k === "fail" ? '<span class="bdg">1</span>' : ""}</button></div>`;
+    }
+  }
+  h += `<div class="vn">today · <span class="lbl">mdiQrcode</span></div>${states.map(() => `<div><span class="ico-cell">${ic("Qrcode")}</span></div>`).join("")}`;
+  document.getElementById("ico-grid").innerHTML = h;
+})();
+
+/* ── fake QR (visual only, deterministic from text) ── */
+function drawQr(c) {
+  const t = c.dataset.qr, n = 29, s = c.width / n, x = c.getContext("2d");
+  let h = 2166136261; for (const ch of t) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+  x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height); x.fillStyle = "#000";
+  const finder = (cx, cy) => { x.fillRect(cx * s, cy * s, 7 * s, 7 * s); x.fillStyle = "#fff"; x.fillRect((cx + 1) * s, (cy + 1) * s, 5 * s, 5 * s); x.fillStyle = "#000"; x.fillRect((cx + 2) * s, (cy + 2) * s, 3 * s, 3 * s); };
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; if ((h & 3) === 0 || (h & 7) === 1) x.fillRect(i * s, j * s, s, s); }
+  x.fillStyle = "#fff"; [[0, 0], [n - 8, 0], [0, n - 8]].forEach(([a, b]) => x.fillRect(a * s, b * s, 8 * s, 8 * s)); x.fillStyle = "#000";
+  finder(0, 0); finder(n - 7, 0); finder(0, n - 7);
+}
+
+/* ── board toolbar ── */
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+  }
+  if (group === "width") document.querySelectorAll(".frame").forEach((f) => f.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`));
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply(seg.dataset.group, b.dataset.v);
+}));
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+
+renderSim(); render();
+</script>
+</body>
+</html>
