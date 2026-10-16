@@ -154,7 +154,8 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
     () => !!currentOverride && Object.keys(currentOverride).length > 0,
     [currentOverride],
   );
-  const changedCount = useMemo(() => countLeaves(currentOverride), [currentOverride]);
+  // Same rule as the row dots: a value toggled back to the global one is not "changed".
+  const changedCount = useMemo(() => countChanged(currentOverride, global), [currentOverride, global]);
 
   return (
     <div ref={ref} className="relative inline-block">
@@ -167,7 +168,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
       >
         <Icon path={mdiCog} size={0.6} />
         <span>{i18nT("common.view", undefined, "View")}</span>
-        {hasAnyOverride && (
+        {changedCount > 0 && (
           <span
             data-testid="chat-view-modified-pill"
             role="img"
@@ -278,12 +279,20 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
   );
 }
 
-/** Number of leaf values in a sparse override (nested arms counted per key). */
-function countLeaves(o: object | undefined): number {
+/**
+ * Number of override leaves whose value differs from global (nested arms counted
+ * per key). Without a global baseline every present leaf counts.
+ */
+function countChanged(o: object | undefined, base: object | undefined): number {
   if (!o) return 0;
-  let n = 0;
-  for (const v of Object.values(o)) n += v && typeof v === "object" ? countLeaves(v) : v === undefined ? 0 : 1;
-  return n;
+  const b = base as Record<string, unknown> | undefined;
+  return Object.entries(o).reduce((n, [k, v]) => n + countLeaf(v, b, k), 0);
+}
+
+function countLeaf(v: unknown, b: Record<string, unknown> | undefined, k: string): number {
+  if (v === undefined) return 0;
+  if (v && typeof v === "object") return countChanged(v, b && ((b[k] ?? {}) as object));
+  return b === undefined || v !== b[k] ? 1 : 0;
 }
 
 /** i18n label for one `notifyMinLevel` stop. */

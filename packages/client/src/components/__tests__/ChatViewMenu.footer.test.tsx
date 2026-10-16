@@ -4,8 +4,10 @@
  * See change: os-add-set-global-view.
  */
 
+import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DisplayPrefsProvider } from "../../lib/state/DisplayPrefsContext.js";
 import { ChatViewMenu } from "../chat/ChatViewMenu.js";
 
 afterEach(() => {
@@ -102,5 +104,30 @@ describe("ChatViewMenu placement", () => {
     open();
     expect(screen.getByTestId("chat-view-popover").className).toContain("max-sm:fixed");
     expect(screen.getByTestId("chat-view-scrim").className).toContain("sm:hidden");
+  });
+});
+
+describe("ChatViewMenu changed count matches the row dots", () => {
+  function openWithGlobal(override: Record<string, unknown>) {
+    render(
+      <DisplayPrefsProvider value={{ global: DISPLAY_PRESETS.standard, getSessionOverride: () => override as never }}>
+        <ChatViewMenu sessionId="s1" send={vi.fn()} currentOverride={override as never} />
+      </DisplayPrefsProvider>,
+    );
+    fireEvent.click(screen.getByText("View"));
+  }
+
+  it("does not count a value toggled back to the global value", () => {
+    const g = DISPLAY_PRESETS.standard;
+    openWithGlobal({ reasoning: g.reasoning, toolCalls: { bash: g.toolCalls.bash } });
+    expect(screen.getByTestId("chat-view-footer").textContent).not.toMatch(/changed/);
+    expect(screen.queryByTestId("chat-view-modified-pill")).toBeNull();
+  });
+
+  it("counts only values that differ from global", () => {
+    const g = DISPLAY_PRESETS.standard;
+    openWithGlobal({ reasoning: !g.reasoning, debugTools: g.debugTools, toolCalls: { bash: !g.toolCalls.bash } });
+    expect(screen.getByTestId("chat-view-footer").textContent).toMatch(/2 changed/);
+    expect(screen.getByTestId("chat-view-modified-pill")).toBeTruthy();
   });
 });
