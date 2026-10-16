@@ -59,6 +59,22 @@ describe("ChatViewMenu footer", () => {
     expect(JSON.parse(init.body).reasoning).toBe(false);
   });
 
+  it("locks rows and actions while Set as global is pending", async () => {
+    let resolve!: (v: unknown) => void;
+    const fetchMock = vi.fn().mockReturnValue(new Promise((r) => { resolve = r; }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { send } = open({ reasoning: false });
+    fireEvent.click(screen.getByTestId("chat-view-set-global"));
+    const setGlobal = screen.getByTestId("chat-view-set-global") as HTMLButtonElement;
+    await waitFor(() => expect(setGlobal.disabled).toBe(true));
+    expect((screen.getByTestId("chat-view-reset") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("chat-view-rows") as HTMLFieldSetElement).disabled).toBe(true);
+    fireEvent.click(setGlobal);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    resolve({ ok: true });
+    await waitFor(() => expect(send).toHaveBeenCalledWith(expect.objectContaining({ override: null })));
+  });
+
   it("keeps the override when the global PATCH fails", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
     const { send } = open({ reasoning: false });

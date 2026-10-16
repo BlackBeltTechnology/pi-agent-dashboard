@@ -70,6 +70,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
     boundaryRef,
   });
   const [setGlobalError, setSetGlobalError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -109,7 +110,9 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
 
   /** Promote this session's effective view to the global default, then drop the override. */
   const setAsGlobal = useCallback(async () => {
+    if (saving) return;
     setSetGlobalError(null);
+    setSaving(true);
     try {
       const res = await fetch("/api/preferences/display", {
         method: "PATCH",
@@ -121,9 +124,11 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
     } catch {
       setSetGlobalError(i18nT("session.setAsGlobalFailed", undefined, "Could not save as global."));
       return;
+    } finally {
+      setSaving(false);
     }
     clearOverride();
-  }, [prefs, clearOverride]);
+  }, [saving, prefs, clearOverride]);
 
   const isOverridden = useCallback(
     (key: keyof Omit<DisplayPrefs, "toolCalls">) =>
@@ -191,6 +196,8 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
           } ${flipUp ? "bottom-full mb-1" : "top-full mt-1"} max-sm:fixed max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:z-50 max-sm:m-0 max-sm:w-auto max-sm:rounded-b-none max-sm:max-h-[75vh]! max-sm:min-h-0! max-sm:max-w-none!`}
         >
           <div data-testid="chat-view-list" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-2">
+          {/* Locked while Set as global is pending: an edit made mid-save would be wiped by the override clear. */}
+          <fieldset data-testid="chat-view-rows" disabled={saving} className="m-0 min-w-0 border-0 p-0">
           <Row label={i18nT("common.tokenStatsBar", undefined, "Token stats bar")} value={prefs.tokenStatsBar} marked={isOverridden("tokenStatsBar")} onChange={(v) => patch({ tokenStatsBar: v })} />
           <Row label={i18nT("common.contextUsageBar", undefined, "Context usage bar")} value={prefs.contextUsageBar} marked={isOverridden("contextUsageBar")} onChange={(v) => patch({ contextUsageBar: v })} />
           <Row label={i18nT("session.reasoningBlocks", undefined, "Reasoning blocks")} value={prefs.reasoning} marked={isOverridden("reasoning")} onChange={(v) => patch({ reasoning: v })} />
@@ -231,6 +238,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
           <Row label={i18nT("common.editWrite", undefined, "Edit / Write")} value={prefs.toolCalls.edit} marked={isToolCallOverridden("edit")} onChange={(v) => patch({ toolCalls: { edit: v } })} />
           <Row label={i18nT("common.agent", undefined, "Agent")} value={prefs.toolCalls.agent} marked={isToolCallOverridden("agent")} onChange={(v) => patch({ toolCalls: { agent: v } })} />
           <Row label={i18nT("common.other", undefined, "Other")} value={prefs.toolCalls.generic} marked={isToolCallOverridden("generic")} onChange={(v) => patch({ toolCalls: { generic: v } })} />
+          </fieldset>
           </div>
           <div
             data-testid="chat-view-footer"
@@ -246,7 +254,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
             <button
               type="button"
               data-testid="chat-view-reset"
-              disabled={!hasAnyOverride}
+              disabled={!hasAnyOverride || saving}
               onClick={clearOverride}
               title={i18nT("settings.useGlobalSettings", undefined, "Use global settings")}
               className="rounded px-1 py-1 text-[var(--accent-text)] hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline max-sm:min-h-[44px]"
@@ -256,7 +264,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
             <button
               type="button"
               data-testid="chat-view-set-global"
-              disabled={!hasAnyOverride}
+              disabled={!hasAnyOverride || saving}
               onClick={() => void setAsGlobal()}
               className="rounded bg-[var(--accent-solid)] px-2.5 py-1 font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed max-sm:min-h-[44px]"
             >
