@@ -20,7 +20,7 @@ See change: fix-popover-container-clip — reads `usePopoverBoundary()`, passes 
 ## os-add-set-global-view
 
 - Popover = flex column: `chat-view-list` (scrolls, `overflow-y-auto`) + pinned `chat-view-footer` (never scrolls away).
-- Footer: `N changed` (`countChanged`: override leaves differing from global — same rule as row dots; trigger dot shows only when N > 0) · `chat-view-reset` (sends `override: null`; replaces "Use global settings") · `chat-view-set-global`.
+- One sameness rule `differs(value, global)` drives row dots, footer `N changed` (`countChanged`), trigger dot, and Reset / Set as global enabled state (`hasChanges`). Value toggled back to global = stored (explicit override kept, see gate-notify-rows-by-level) but NOT changed. · `chat-view-reset` (sends `override: null`; replaces "Use global settings") · `chat-view-set-global`.
 - Set as global: `PATCH /api/preferences/display` with effective `prefs`, then clears override. PATCH failure → `chat-view-set-global-error`, override kept.
 - Placement: `usePopoverFlip({ threshold: Infinity })` → opens toward the side with more room (composer strip trigger → up). Old rule only flipped when below-space < 200px → squeezed downward sliver.
 - Phone (`max-sm`): fixed bottom sheet (`max-h-[75vh]!`, inline flip bounds overridden) + `chat-view-scrim` (`sm:hidden`, click closes); rows `max-sm:min-h-[44px]`; desktop row rhythm unchanged.
