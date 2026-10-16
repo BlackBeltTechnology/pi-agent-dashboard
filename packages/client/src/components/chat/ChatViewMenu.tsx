@@ -12,6 +12,7 @@ import type {
   PartialDisplayPrefs,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import {
+  DISPLAY_PRESETS,
   NOTIFY_MIN_LEVELS,
   normalizeNotifyMinLevel,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
@@ -130,31 +131,25 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
     clearOverride();
   }, [saving, prefs, clearOverride]);
 
+  // ONE sameness rule (`differs`) drives the row dots, the footer count, the
+  // trigger dot, and whether Reset / Set as global are enabled.
+  // Same baseline `useDisplayPrefs` merges onto: unseeded global → standard preset.
+  const baseline = global ?? DISPLAY_PRESETS.standard;
   const isOverridden = useCallback(
-    (key: keyof Omit<DisplayPrefs, "toolCalls">) =>
-      currentOverride?.[key] !== undefined && global !== undefined && currentOverride![key] !== global[key],
-    [currentOverride, global],
+    (key: keyof Omit<DisplayPrefs, "toolCalls">) => differs(currentOverride?.[key], baseline[key]),
+    [currentOverride, baseline],
   );
   const isToolCallOverridden = useCallback(
-    (key: keyof DisplayPrefs["toolCalls"]) =>
-      currentOverride?.toolCalls?.[key] !== undefined &&
-      global !== undefined &&
-      currentOverride!.toolCalls![key] !== global.toolCalls[key],
-    [currentOverride, global],
+    (key: keyof DisplayPrefs["toolCalls"]) => differs(currentOverride?.toolCalls?.[key], baseline.toolCalls[key]),
+    [currentOverride, baseline],
   );
   const isCustomGroupOverridden = useCallback(
-    (gid: string) =>
-      currentOverride?.customEventGroups?.[gid] !== undefined &&
-      global !== undefined &&
-      currentOverride!.customEventGroups![gid] !== global.customEventGroups[gid],
-    [currentOverride, global],
+    (gid: string) => differs(currentOverride?.customEventGroups?.[gid], baseline.customEventGroups[gid]),
+    [currentOverride, baseline],
   );
 
-  const hasAnyOverride = useMemo(
-    () => !!currentOverride && Object.keys(currentOverride).length > 0,
-    [currentOverride],
-  );
-  const changedCount = useMemo(() => countLeaves(currentOverride), [currentOverride]);
+  const changedCount = useMemo(() => countChanged(currentOverride, baseline), [currentOverride, baseline]);
+  const hasChanges = changedCount > 0;
 
   return (
     <div ref={ref} className="relative inline-block">
@@ -167,7 +162,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
       >
         <Icon path={mdiCog} size={0.6} />
         <span>{i18nT("common.view", undefined, "View")}</span>
-        {hasAnyOverride && (
+        {hasChanges && (
           <span
             data-testid="chat-view-modified-pill"
             role="img"
@@ -247,14 +242,14 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
             <span className="flex-1 text-[11px] text-[var(--text-tertiary)]">
               {setGlobalError ? (
                 <span data-testid="chat-view-set-global-error" className="text-[var(--severity-error-fg)]">{setGlobalError}</span>
-              ) : changedCount > 0 ? (
+              ) : hasChanges ? (
                 i18nT("session.viewChangedCount", { n: changedCount }, `${changedCount} changed`)
               ) : null}
             </span>
             <button
               type="button"
               data-testid="chat-view-reset"
-              disabled={!hasAnyOverride || saving}
+              disabled={!hasChanges || saving}
               onClick={clearOverride}
               title={i18nT("settings.useGlobalSettings", undefined, "Use global settings")}
               className="rounded px-1 py-1 text-[var(--accent-text)] hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline max-sm:min-h-[44px]"
@@ -264,7 +259,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
             <button
               type="button"
               data-testid="chat-view-set-global"
-              disabled={!hasAnyOverride || saving}
+              disabled={!hasChanges || saving}
               onClick={() => void setAsGlobal()}
               className="rounded bg-[var(--accent-solid)] px-2.5 py-1 font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed max-sm:min-h-[44px]"
             >
@@ -278,12 +273,24 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
   );
 }
 
-/** Number of leaf values in a sparse override (nested arms counted per key). */
-function countLeaves(o: object | undefined): number {
-  if (!o) return 0;
-  let n = 0;
-  for (const v of Object.values(o)) n += v && typeof v === "object" ? countLeaves(v) : v === undefined ? 0 : 1;
-  return n;
+/** The sameness rule: a stored override value is "changed" only when it differs from global. */
+function differs(value: unknown, globalValue: unknown): boolean {
+  return value !== undefined && value !== globalValue;
+}
+
+/** Entries of `override` that `differs` from `base`, one level of nested arms per key. */
+function countDiffering(override: object, base: Record<string, unknown>): number {
+  return Object.entries(override).filter(([k, v]) => differs(v, base[k])).length;
+}
+
+/** Override leaves that `differs` from the baseline (nested arms per key). */
+function countChanged(override: PartialDisplayPrefs | undefined, global: DisplayPrefs): number {
+  if (!override) return 0;
+  const g = global as unknown as Record<string, unknown>;
+  return Object.entries(override).reduce((n, [k, v]) => {
+    if (v && typeof v === "object") return n + countDiffering(v, (g[k] ?? {}) as Record<string, unknown>);
+    return n + (differs(v, g[k]) ? 1 : 0);
+  }, 0);
 }
 
 /** i18n label for one `notifyMinLevel` stop. */
