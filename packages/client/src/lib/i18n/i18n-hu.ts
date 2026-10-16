@@ -573,6 +573,7 @@ export const huCatalog: Record<string, string> = {
   "command.hintSend": "küldés",
   "command.hintShell": "shell",
   "command.inlineTerminal": "Beágyazott terminál megnyitása",
+  "command.terminal": "Terminál",
   "command.killing": "Folyamat leállítása…",
   "command.more": "Több",
   "command.newDescription": "Új leírás",

@@ -1270,7 +1270,7 @@ describe("CommandInput v2 — mobile adaptation (T4)", () => {
 // test-plan #E15 / #E16 / #E17 (tasks 8.15–8.17, 6.1–6.3).
 
 describe("CommandInput — input row / settings row (#E15)", () => {
-  it("send + terminal live in the input row; ＋ / model / thinking / delivery in the settings row", () => {
+  it("send lives in the input row; ＋ / model / thinking / delivery / terminal in the settings row", () => {
     const { getByTestId } = renderInput({
       draft: "x",
       onDraftChange: vi.fn(),
@@ -1283,8 +1283,11 @@ describe("CommandInput — input row / settings row (#E15)", () => {
     const settings = getByTestId("composer-settings-row");
     expect(input.contains(getByTestId("send-button"))).toBe(true);
     expect(input.querySelector("textarea")).not.toBeNull();
-    // The inline terminal (desktop) sits in the input row; the folded copy is in ⋯.
-    expect(input.querySelector('[data-testid="open-inline-terminal-button"]')).not.toBeNull();
+    // The inline terminal (desktop) sits in the settings row; the folded copy is in ⋯.
+    expect(input.querySelector('[data-testid="open-inline-terminal-button"]')).toBeNull();
+    const term = settings.querySelector('[data-testid="open-inline-terminal-button"]') as HTMLElement;
+    expect(term.getAttribute("aria-label")).toBe("Open inline terminal");
+    expect(term.textContent).toContain("Terminal");
     for (const id of ["attach-button", "model-selector-button", "thinking-level-button", "delivery-control"]) {
       expect(settings.querySelector(`[data-testid="${id}"]`), id).not.toBeNull();
     }

@@ -1067,6 +1067,7 @@ export const zhCNCatalog: Record<string, string> = {
   "command.grammarCheck": "语法检查 (⌘G)",
   "command.forceStop": "强制停止 - 终止进程",
   "command.inlineTerminal": "打开内联终端",
+  "command.terminal": "终端",
   "command.killing": "正在终止进程...",
   "command.newDescription": "启动新会话",
   "command.placeholder": "输入消息、/命令、!shell 或 @文件...",
