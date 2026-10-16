@@ -13,7 +13,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ActionRegistry } from "../server/action-registry.js";
 import { buildRunDispatch, buildRunPrompt, createEngine, effectiveVisibility } from "../server/engine.js";
 import { collectFolderScopeBases } from "../server/folder-scope-contributions.js";
-import { listRuns, readChildRuns, startRun as storeStartRun } from "../server/run-store.js";
+import {
+  finishRun as storeFinishRun,
+  listRuns,
+  readChildRuns,
+  startChildRun as storeStartChildRun,
+  startParentRun as storeStartParentRun,
+  startRun as storeStartRun,
+} from "../server/run-store.js";
 import type { DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
 
 /** The single parent occurrence for `name` (fan-out model: one fire = one parent). */
@@ -762,6 +769,40 @@ describe("session-death finalize + stale-run reaper", () => {
     const after = listRuns(repo, "pull").find((r) => r.runId === orphan.runId)!;
     expect(after.status).toBe("error");
     expect(after.error).toContain("max age");
+  });
+
+  it("reaper finalizes an orphan PARENT (prior process) whose children are all terminal", () => {
+    const nowRef = { v: Date.now() };
+    const { engine } = makeReaperEngine(nowRef, 1000);
+    const parent = storeStartParentRun(repo, "pull");
+    const child = storeStartChildRun(repo, parent.runId, "pull", { actionLabel: "prompt" });
+    storeFinishRun(repo, child.runId, { status: "error", error: "session died" });
+    nowRef.v = parent.startedAt + 2000;
+    engine.reapStaleRuns();
+    const after = listRuns(repo, "pull").find((r) => r.runId === parent.runId)!;
+    expect(after.status).toBe("error");
+    expect(after.endedAt).toBeTypeOf("number");
+  });
+
+  it("reaper finalizes an orphan parent in the same sweep that reaps its stale child", () => {
+    const nowRef = { v: Date.now() };
+    const { engine } = makeReaperEngine(nowRef, 1000);
+    const parent = storeStartParentRun(repo, "pull");
+    storeStartChildRun(repo, parent.runId, "pull", { actionLabel: "prompt" });
+    nowRef.v = parent.startedAt + 2000;
+    engine.reapStaleRuns();
+    expect(listRuns(repo, "pull").find((r) => r.runId === parent.runId)!.status).toBe("error");
+  });
+
+  it("reaper leaves a young orphan parent with terminal children alone (within maxAge)", () => {
+    const nowRef = { v: Date.now() };
+    const { engine } = makeReaperEngine(nowRef, 1000);
+    const parent = storeStartParentRun(repo, "pull");
+    const child = storeStartChildRun(repo, parent.runId, "pull", { actionLabel: "prompt" });
+    storeFinishRun(repo, child.runId, { status: "done", result: "ok" });
+    nowRef.v = parent.startedAt + 500;
+    engine.reapStaleRuns();
+    expect(listRuns(repo, "pull").find((r) => r.runId === parent.runId)!.status).toBe("running");
   });
 
   it("reaper is disabled when maxRunAgeMs <= 0", () => {

@@ -362,7 +362,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
   // "Used by" reporting for the roles plugin (Kind A). The roles plugin may be
   // absent or load later, so look the service up in `onReady` (after every
   // plugin registered); absent → no-op. See change: add-role-aware-model-refs.
-  ctx.fastify.addHook("onReady", async () => {
+  const registerRolesUsage = (): void => {
     const roles = ctx.consume<{
       registerUsage(owner: string, fn: () => Array<{ label: string; ref: string }>): () => void;
     }>("roles.bindings");
@@ -382,7 +382,16 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
       return automationRoleUsage(discovered);
     });
     ctx.onShutdown(dispose);
-  });
+  };
+  // initEngine is deferred (ENGINE_INIT_DELAY_MS), so it normally runs AFTER
+  // the server is listening, where addHook throws. Every plugin is registered
+  // by then — register immediately. The throw must never abort init: the
+  // run-delivery onEvent handler below would be lost and runs stay `running`.
+  try {
+    ctx.fastify.addHook("onReady", async () => registerRolesUsage());
+  } catch {
+    registerRolesUsage();
+  }
 
   // Per-run transcript buffer (run sessionId → captured assistant text),
   // flushed to result.md on `agent_end`. `runPrompt` holds the injected

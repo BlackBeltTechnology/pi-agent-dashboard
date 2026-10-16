@@ -42,7 +42,9 @@ import {
   resolveChildren,
 } from "./resolve-children.js";
 import {
+  listRuns as storeListRuns,
   listStaleRunningRuns,
+  readChildRuns as storeReadChildRuns,
   finishParentRun as storeFinishParentRun,
   finishRun as storeFinishRun,
   setSessionId as storeSetSessionId,
@@ -512,6 +514,28 @@ export function createEngine(deps: EngineDeps): Engine {
         // `path=reaper` on a run whose work completed is a delivery defect, not
         // a normal terminal state. See change: fix-automation-run-lifecycle.
         warn(`[finalize] path=reaper run ${rec.runId} (running > ${maxAgeMs}ms)`);
+      }
+      // Orphan parents: a parent whose in-memory state died with a prior
+      // process never reaches its child counter, so it would stay `running`
+      // forever. Finalize it from disk once overdue and every child is terminal
+      // (runs after the child sweep above, so a just-reaped child counts).
+      let records: ReturnType<typeof storeListRuns>;
+      try {
+        records = storeListRuns(s.base);
+      } catch {
+        continue;
+      }
+      for (const rec of records) {
+        if (!rec.children || rec.status !== "running" || parents.has(rec.runId)) continue;
+        if (now - rec.startedAt <= maxAgeMs) continue;
+        const kids = storeReadChildRuns(s.base, rec);
+        if (kids.some((k) => k.status === "running")) continue;
+        storeFinishParentRun(s.base, rec.runId, {
+          status: aggregateStatus(kids.map((k) => k.status)),
+          findings: kids.reduce((n, k) => n + (k.findings ?? 0), 0),
+          retention: cfg.retention,
+        });
+        warn(`[finalize] path=reaper orphan parent ${rec.runId} (no live state)`);
       }
     }
   }
