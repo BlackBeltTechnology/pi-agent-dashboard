@@ -12,6 +12,7 @@ import type {
   PartialDisplayPrefs,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import {
+  DISPLAY_PRESETS,
   NOTIFY_MIN_LEVELS,
   normalizeNotifyMinLevel,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
@@ -132,22 +133,22 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
 
   // ONE sameness rule (`differs`) drives the row dots, the footer count, the
   // trigger dot, and whether Reset / Set as global are enabled.
+  // Same baseline `useDisplayPrefs` merges onto: unseeded global → standard preset.
+  const baseline = global ?? DISPLAY_PRESETS.standard;
   const isOverridden = useCallback(
-    (key: keyof Omit<DisplayPrefs, "toolCalls">) => global !== undefined && differs(currentOverride?.[key], global[key]),
-    [currentOverride, global],
+    (key: keyof Omit<DisplayPrefs, "toolCalls">) => differs(currentOverride?.[key], baseline[key]),
+    [currentOverride, baseline],
   );
   const isToolCallOverridden = useCallback(
-    (key: keyof DisplayPrefs["toolCalls"]) =>
-      global !== undefined && differs(currentOverride?.toolCalls?.[key], global.toolCalls[key]),
-    [currentOverride, global],
+    (key: keyof DisplayPrefs["toolCalls"]) => differs(currentOverride?.toolCalls?.[key], baseline.toolCalls[key]),
+    [currentOverride, baseline],
   );
   const isCustomGroupOverridden = useCallback(
-    (gid: string) =>
-      global !== undefined && differs(currentOverride?.customEventGroups?.[gid], global.customEventGroups[gid]),
-    [currentOverride, global],
+    (gid: string) => differs(currentOverride?.customEventGroups?.[gid], baseline.customEventGroups[gid]),
+    [currentOverride, baseline],
   );
 
-  const changedCount = useMemo(() => countChanged(currentOverride, global), [currentOverride, global]);
+  const changedCount = useMemo(() => countChanged(currentOverride, baseline), [currentOverride, baseline]);
   const hasChanges = changedCount > 0;
 
   return (
@@ -282,9 +283,9 @@ function countDiffering(override: object, base: Record<string, unknown>): number
   return Object.entries(override).filter(([k, v]) => differs(v, base[k])).length;
 }
 
-/** Override leaves that `differs` from global (nested arms per key); 0 without a global baseline. */
-function countChanged(override: PartialDisplayPrefs | undefined, global: DisplayPrefs | undefined): number {
-  if (!override || !global) return 0;
+/** Override leaves that `differs` from the baseline (nested arms per key). */
+function countChanged(override: PartialDisplayPrefs | undefined, global: DisplayPrefs): number {
+  if (!override) return 0;
   const g = global as unknown as Record<string, unknown>;
   return Object.entries(override).reduce((n, [k, v]) => {
     if (v && typeof v === "object") return n + countDiffering(v, (g[k] ?? {}) as Record<string, unknown>);

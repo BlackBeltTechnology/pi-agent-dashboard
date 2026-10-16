@@ -154,3 +154,17 @@ describe("ChatViewMenu actions follow the changed count", () => {
     expect((screen.getByTestId("chat-view-set-global") as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+describe("ChatViewMenu baseline before first launch", () => {
+  it("compares against DISPLAY_PRESETS.standard when global is unset", () => {
+    const override = { reasoning: !G.reasoning };
+    render(
+      <DisplayPrefsProvider value={{ global: undefined, getSessionOverride: () => override as never }}>
+        <ChatViewMenu sessionId="s1" send={vi.fn()} currentOverride={override as never} />
+      </DisplayPrefsProvider>,
+    );
+    fireEvent.click(screen.getByText("View"));
+    expect(screen.getByTestId("chat-view-footer").textContent).toMatch(/1 changed/);
+    expect((screen.getByTestId("chat-view-reset") as HTMLButtonElement).disabled).toBe(false);
+  });
+});
