@@ -17,7 +17,12 @@ The composer's open-inline-terminal control is a borderless 34×30 icon floating
 - No change to the inline terminal card, PTY lifecycle or `!!` trigger (`inline-terminal` spec untouched).
 - No restyle of other composer controls.
 
+## Discipline Skills
+
+None apply: a client-only restyle and one JSX move, no security, data, perf or migration surface.
+
 ## Capabilities
+
 
 ### New Capabilities
 
