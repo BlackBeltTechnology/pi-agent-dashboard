@@ -42,7 +42,7 @@ describe("ChatViewMenu viewport flip", () => {
     expect(popover.className).toContain("bottom-full");
     expect(popover.className).not.toContain("top-full");
     expect(popover.style.maxHeight).toBe("892px");
-    expect(popover.className).toContain("overflow-y-auto");
+    expect(screen.getByTestId("chat-view-list").className).toContain("overflow-y-auto");
   });
 
   it("flips to left-anchor in a slim panel so row labels stay on-screen", () => {

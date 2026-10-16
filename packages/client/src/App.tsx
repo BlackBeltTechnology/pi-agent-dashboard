@@ -9,7 +9,6 @@ import { useHistoryState } from "wouter/use-browser-location";
 import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
-import { ChatViewMenu } from "./components/chat/ChatViewMenu.js";
 import { CommandInput } from "./components/chat/CommandInput.js";
 import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStatusBanner.js";
 import { ServerSelector } from "./components/connectivity/ServerSelector.js";
@@ -163,6 +162,11 @@ const NAV_TRACKER = { predecessor, popNav };
 // See change: electron-runtime-overlay-updates.
 const RuntimeUpdateBadge = lazy(() =>
   import("./components/packages/RuntimeUpdateBadge.js").then((m) => ({ default: m.RuntimeUpdateBadge })),
+);
+// Per-session View popover: its own chunk, off the entry gzip cap.
+// See change: add-set-global-view.
+const ChatViewMenu = lazy(() =>
+  import("./components/chat/ChatViewMenu.js").then((m) => ({ default: m.ChatViewMenu })),
 );
 const PairingApprovalHost = lazy(() =>
   import("./components/pairing-approval/PairingApprovalHost.js").then((m) => ({ default: m.PairingApprovalHost })),
@@ -2579,11 +2583,13 @@ export default function App() {
                 <>
                   <StatusBarRefreshButton cwd={selectedCwd} onRefresh={handleOpenSpecRefresh} />
                   {selectedId && (
-                    <ChatViewMenu
-                      sessionId={selectedId}
-                      currentOverride={selectedSession?.displayPrefsOverride ?? undefined}
-                      send={(msg) => send({ type: "setSessionDisplayPrefs", sessionId: selectedId, override: msg.override })}
-                    />
+                    <Suspense fallback={null}>
+                      <ChatViewMenu
+                        sessionId={selectedId}
+                        currentOverride={selectedSession?.displayPrefsOverride ?? undefined}
+                        send={(msg) => send({ type: "setSessionDisplayPrefs", sessionId: selectedId, override: msg.override })}
+                      />
+                    </Suspense>
                   )}
                 </>
               )}
