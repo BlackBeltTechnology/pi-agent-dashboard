@@ -54,10 +54,11 @@ At most one control in the whole strip SHALL render as a filled primary. When th
 The strip SHALL additionally render every `composer-context-group` slot contribution between the Git group and the Status group. These contributions SHALL NOT be subject to the working-state disable that gates the strip's action buttons. The strip SHALL render whenever at least one host group or one `composer-context-group` contribution is present.
 
 #### Scenario: Composer renders as one container with toolbar controls
-- **WHEN** the chat view is bound to a session
+- **WHEN** the chat view is bound to a session and the composer container is at least as wide as its natural inline width
 - **THEN** the composer SHALL render a single card containing an input row and a settings row
 - **AND** the input row SHALL contain the textarea and the action button, and SHALL NOT contain the inline-terminal control
-- **AND** the settings row SHALL contain `＋`, the model chip, the thinking chip, the delivery control and the labelled inline-terminal chip, and SHALL NOT contain the action button
+- **AND** the settings row SHALL contain `＋`, the model chip, the thinking chip, the delivery control and the inline-terminal chip, and SHALL NOT contain the action button
+- **AND** the inline-terminal chip SHALL show its `Terminal` label when the label fits, and MAY render icon-only otherwise (narrower composers fold it into `⋯`, see Mobile composer adaptation)
 - **AND** no standalone StatusBar model row SHALL render for that session
 
 #### Scenario: Inline-terminal chip matches the delivery control

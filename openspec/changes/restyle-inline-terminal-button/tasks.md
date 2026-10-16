@@ -11,7 +11,7 @@
 - [x] 2.2 Add unit assertion: terminal button accessible name is "Open inline terminal" and it renders the `Terminal` label text
 - [x] 2.3 Add e2e assertion in `composer-session-strip.spec.ts` (wide composer): terminal chip height and border radius equal `delivery-control`'s
 - [x] 2.4 Run `#F11` (`composer-session-strip.spec.ts`); tune the label breakpoint (`@[52rem]` starting point) until the settings row does not overflow at 44rem+1px
-- [x] 2.5 Run `terminal.spec.ts`, `inline-terminal-transcript.spec.ts`, `split-composer-overflow.spec.ts` unchanged — all pass
+- [x] 2.5 Run `terminal.spec.ts`, `inline-terminal-transcript.spec.ts`, `split-composer-overflow.spec.ts` unchanged — all active tests pass; `terminal.spec.ts` "open inline terminal" and transcript `P1` are `test.fixme` (quarantined, #683) and were skipped, so the opening path is covered by the transcript F1–F11 tests, which click the same button
 
 ## 3. Verification
 
