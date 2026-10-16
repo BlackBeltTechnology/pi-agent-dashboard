@@ -122,7 +122,7 @@ describe("ChatViewMenu — notifyMinLevel row", () => {
   // 2.28 / #F6 — clear-override still returns the session to global.
   it("participates in clear-override", () => {
     const { send } = openMenu({ notifyMinLevel: "errors" });
-    fireEvent.click(screen.getByText("Use global settings"));
+    fireEvent.click(screen.getByTestId("chat-view-reset"));
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({ type: "setSessionDisplayPrefs", override: null }),
     );
@@ -147,6 +147,7 @@ describe("ChatViewMenu — notifyMinLevel row", () => {
   it("leaves the sibling boolean rows untouched", () => {
     openMenu();
     const label = screen.getByText("Reasoning blocks").closest("label");
-    expect(label?.className).not.toContain("min-h-[44px]");
+    // Desktop rows keep their ~26px rhythm; only phones get the 44px tap target.
+    expect(label?.className).not.toMatch(/(^| )min-h-\[44px\]/);
   });
 });

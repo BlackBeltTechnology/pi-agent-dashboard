@@ -16,3 +16,13 @@ See change: fix-popover-container-clip — reads `usePopoverBoundary()`, passes 
 - Reuses the existing override plumbing unchanged — same `patch()` / `clearOverride()` / `isOverridden()`, so it accumulates with sibling overrides and participates in "Use global settings".
 - Selecting the global's own value still RECORDS an explicit override (a later global change must not move the session).
 - `min-h-[44px]` hit area (matches `ThinkingLevelSelector`) rather than the ~26px `py-1` boolean rows; restyling those siblings is deliberately out of scope.
+
+## os-add-set-global-view
+
+- Popover = flex column: `chat-view-list` (scrolls, `overflow-y-auto`) + pinned `chat-view-footer` (never scrolls away).
+- Footer: `N changed` (leaf count of `currentOverride`, `countLeaves`) · `chat-view-reset` (sends `override: null`; replaces "Use global settings") · `chat-view-set-global`.
+- Set as global: `PATCH /api/preferences/display` with effective `prefs`, then clears override. PATCH failure → `chat-view-set-global-error`, override kept.
+- Placement: `usePopoverFlip({ threshold: Infinity })` → opens toward the side with more room (composer strip trigger → up). Old rule only flipped when below-space < 200px → squeezed downward sliver.
+- Phone (`max-sm`): fixed bottom sheet (`max-h-[75vh]!`, inline flip bounds overridden) + `chat-view-scrim` (`sm:hidden`, click closes); rows `max-sm:min-h-[44px]`; desktop row rhythm unchanged.
+- Trigger "modified" pill → amber dot (same `chat-view-modified-pill` testid, `aria-label`).
+- i18n: `session.setAsGlobal`, `session.setAsGlobalFailed`, `session.viewChangedCount` (hu, zh-CN).
