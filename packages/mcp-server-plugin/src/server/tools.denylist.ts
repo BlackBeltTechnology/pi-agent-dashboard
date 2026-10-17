@@ -104,6 +104,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // add-project-scoped-apps: backs the client folder-project cache (claim predicates); not an LLM action.
   { pattern: "/api/folder/project", reason: "UI-only: folder project identity for claim predicates" },
   { pattern: "/api/diagram/render", reason: "UI-only" },
+  { pattern: "/api/mermaid/repair", reason: "UI-only; one-click AI repair of a rendered diagram. See change: add-mermaid-ai-repair" },
   { pattern: "/api/host-gate", reason: "host admission internals" },
   { pattern: "/api/network-interfaces", reason: "fleet enumeration UI" },
   { pattern: "/api/auto-name-outcomes", reason: "UI diagnostics" },
