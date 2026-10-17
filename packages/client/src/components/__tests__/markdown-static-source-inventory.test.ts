@@ -3,6 +3,8 @@
  * On-disk preview surfaces must (M1 completeness + markup repair); chat / thinking /
  * tool surfaces must NOT (streaming gate + no repair stay).
  * See change: add-md-adoc-markup-repair (test-plan F8).
+ *
+ * @structural-pin call-site inventory: whether a JSX call site passes `staticSource` is a static property of the source; no runtime path enumerates every `<MarkdownContent` consumer across packages
  */
 import * as fs from "node:fs";
 import path from "node:path";
