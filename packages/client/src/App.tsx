@@ -137,6 +137,7 @@ import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
 import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
 import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
 import { hydrateMermaidRepairConfig } from "./lib/preview/mermaid-repair-config.js";
+import { reachabilityStore } from "./lib/remote-access/reachability-store.js";
 import { buildHistoryPhaseMap, hasChatContent } from "./lib/replay/history-load-phase.js";
 import { extractUserPromptHistory } from "./lib/replay/message-history.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
@@ -1252,6 +1253,16 @@ export default function App() {
       })
       .catch(() => {});
   }, []);
+
+  // Live bind facts for the toolbar Remote access button and its dialog (the
+  // server replays this on every connect, so a restart converges too).
+  // See change: add-remote-access-wizard.
+  useEffect(() => {
+    if (!onMessage) return;
+    return onMessage((msg: any) => {
+      if (msg?.type === "reachability_updated" && msg.reachability) reachabilityStore.set(msg.reachability);
+    });
+  }, [onMessage]);
 
   // Live re-hydration of the OpenSpec fleet switches: a PUT /api/config with
   // an openspec section (settings toggle, opt-out add/remove) broadcasts

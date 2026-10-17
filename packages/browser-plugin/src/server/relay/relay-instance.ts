@@ -31,7 +31,7 @@ import {
   type RelaySocket,
   WS_OPEN,
 } from "./extension-socket.js";
-import { ScreencastTap, type TapTabState } from "./screencast-tap.js";
+import { ScreencastTap, type SubscribeOptions, type TapTabState } from "./screencast-tap.js";
 import type { CDPMessage, SendToCDPClient } from "./vendor/playwright-core/src/tools/mcp/browserModel.js";
 import { ExtensionProtocolV2 } from "./vendor/playwright-core/src/tools/mcp/cdpRelayV2.js";
 
@@ -63,6 +63,12 @@ export interface RelayInstanceDeps {
   allowedDomains: readonly string[];
   audit: AuditRing;
   logger: RelayLogger;
+  /**
+   * Operator-hosted instance: the `hostId` it runs on, the link id and the
+   * carrier socket the link rides on. Absent = dashboard host.
+   * See change: add-operator-browser-relay.
+   */
+  operator?: { hostId: string; linkId: string; carrier: RelaySocket };
   /** Fired exactly once when the instance dies; the manager removes the guid. */
   onClosed(reason: string): void;
   /** Fired on any instance/tab/state change so status can be rebroadcast. */
@@ -201,7 +207,18 @@ export class RelayInstance {
       agentEmulationActive: (tabId) => this.agentEmulationActive(tabId),
       onStatusChange: () => this.deps.onStatusChange(),
       timers: this.timers,
+      ...(deps.operator ? { tee: { carrier: deps.operator.carrier, linkId: deps.operator.linkId } } : {}),
     });
+  }
+
+  /** `"dashboard"` or the operator `hostId` this instance runs on. */
+  get host(): string {
+    return this.deps.operator?.hostId ?? "dashboard";
+  }
+
+  /** Audit `detail` for attach/detach: operator instances carry `host:<hostId>`. */
+  private _hostDetail(detail: string): string {
+    return this.deps.operator ? `${detail} host:${this.deps.operator.hostId}` : detail;
   }
 
   get instanceId(): string {
@@ -320,7 +337,7 @@ export class RelayInstance {
       profileDirectory: this.deps.profileDirectory,
       instanceId: this.deps.instanceId,
       kind: "attach",
-      detail: "extension",
+      detail: this._hostDetail("extension"),
     });
     this.deps.onStatusChange();
   }
@@ -364,7 +381,7 @@ export class RelayInstance {
           profileDirectory: this.deps.profileDirectory,
           instanceId: this.deps.instanceId,
           kind: "detach",
-          detail: "no-cdp-client",
+          detail: this._hostDetail("no-cdp-client"),
         });
         this.close("no-cdp-client");
       }, this.cdpAttachTimeoutMs);
@@ -778,12 +795,16 @@ export class RelayInstance {
 
   // ── Viewer plane (delegated to the tap) ────────────────────────────────────
 
-  subscribe(viewer: RelaySocket, tabId: number): { ok: boolean; state?: TapTabState | "detached" } {
+  subscribe(
+    viewer: RelaySocket,
+    tabId: number,
+    opts?: SubscribeOptions,
+  ): { ok: boolean; state?: TapTabState | "detached" } {
     if (this.isConnectTab(tabId)) {
       this._auditRefusedExtensionPage(tabId);
       return { ok: false, state: "detached" };
     }
-    const result = this.tap.subscribe(viewer, tabId);
+    const result = this.tap.subscribe(viewer, tabId, opts);
     // Third refresh point (D7): a viewer may be looking at a tab whose
     // navigation never produced a Page.* event (the agent never enabled Page).
     if (result.ok) void this._refreshTabMeta(tabId);

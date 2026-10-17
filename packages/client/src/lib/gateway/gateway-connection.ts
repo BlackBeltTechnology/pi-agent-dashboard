@@ -6,6 +6,7 @@
  * `connected` on the readiness board although the Gateway never connected it,
  * which would pin the toggle to "Disconnect". No I/O.
  */
+import { isLoopbackIpv4 } from "@blackbelt-technology/pi-dashboard-shared/bind-reachability.js";
 import type {
   GatewayProviderState,
   TunnelStatus,
@@ -54,26 +55,62 @@ export function safeApprovalUrl(url: string | undefined): string | null {
   }
 }
 
-/** Toolbar Gateway indicator. `unset`: nothing set up; `off`: set up, none connected. */
-export interface GatewayIndicator {
-  tone: "ok" | "partial" | "off" | "unset";
+/** Toolbar Remote access state, highest precedence first. */
+export type RemoteAccessTone = "failed" | "partial" | "internet" | "network" | "local";
+
+export interface RemoteAccessIndicator {
+  tone: RemoteAccessTone;
+  /** Full accessible name / title: `Remote access: <state>[, N device(s) waiting]`. */
   title: string;
 }
 
+const REMOTE_ACCESS_STATE: Record<RemoteAccessTone, string> = {
+  failed: "a connection failed",
+  partial: "partly online",
+  internet: "internet on",
+  network: "listening on the network",
+  local: "this computer only",
+};
+
 /**
- * Toolbar colour + title across EVERY planned provider (`gateway` counts), not
- * only zrok: a tailscale-only Gateway is up even when zrok is absent. Older
- * servers without counts fall back to the zrok status.
+ * Loopback-only bind host. `0.0.0.0` and `::` are ALL interfaces, not loopback.
+ * The one definition — the step engine, the landing roads and the toolbar dot
+ * must agree, so a malformed `127.x` host cannot read differently in each.
  */
-export function gatewayIndicator(status: TunnelStatus | null): GatewayIndicator {
-  const g = status?.gateway;
-  if (g && g.expected > 0) {
-    const counts = `${g.connected}/${g.expected} connected`;
-    if (g.connected === g.expected) return { tone: "ok", title: `Gateway: ${counts} (click to open)` };
-    if (g.connected > 0) return { tone: "partial", title: `Gateway: ${counts} (click to open)` };
-    return { tone: "off", title: `Gateway: ${counts} (click to connect)` };
-  }
-  if (status?.status === "active") return { tone: "ok", title: `Gateway: ${status.url} (click to open)` };
-  if (status?.status === "inactive") return { tone: "off", title: "Gateway: disconnected (click to configure)" };
-  return { tone: "unset", title: status ? "Gateway: not set up (click for setup)" : "Gateway status" };
+export function isLoopbackHost(host: string): boolean {
+  const h = host.trim().toLowerCase();
+  return h === "localhost" || h === "::1" || h === "[::1]" || isLoopbackIpv4(h);
+}
+
+/**
+ * Toolbar dot + title for the Remote access button. Precedence
+ * failed > partial > internet > network > this computer only.
+ *
+ * Tunnel states come from `gateway` counts across EVERY planned provider (a
+ * tailscale-only gateway is up even when zrok is absent; older servers without
+ * counts fall back to the zrok status). `failed` needs the gated `providers`
+ * list — the ungated counts cannot tell a failure from an idle provider.
+ * `bindHost` is the RUNNING server's resolved bind host, or `null` when it
+ * cannot be read: then the dot reflects only the tunnel states and the title
+ * says so, never "this computer only".
+ *
+ * See change: add-remote-access-wizard (design D8).
+ */
+export function remoteAccessIndicator(
+  tunnel: TunnelStatus | TunnelStatusDetail | null,
+  bindHost: string | null,
+  waiting = 0,
+): RemoteAccessIndicator {
+  const g = tunnel?.gateway;
+  const providers = (tunnel as TunnelStatusDetail | null)?.providers ?? [];
+  const failed = providers.some((p) => p.state === "failed" || p.state === "dropped");
+  let tone: RemoteAccessTone;
+  if (failed) tone = "failed";
+  else if (g && g.expected > 0 && g.connected > 0 && g.connected < g.expected) tone = "partial";
+  else if ((g && g.expected > 0 && g.connected === g.expected) || (!g && tunnel?.status === "active")) tone = "internet";
+  else if (bindHost !== null && !isLoopbackHost(bindHost)) tone = "network";
+  else tone = "local";
+  const state = tone === "local" && bindHost === null ? "network status unknown" : REMOTE_ACCESS_STATE[tone];
+  const suffix = waiting > 0 ? `, ${waiting} ${waiting === 1 ? "device" : "devices"} waiting` : "";
+  return { tone, title: `Remote access: ${state}${suffix}` };
 }

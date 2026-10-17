@@ -146,6 +146,32 @@ function LinkStep({ step }: { step: SetupStep }) {
   );
 }
 
+/** One setup step, whatever its kind — shared by the guide and the wizard's Install / Enable steps. */
+function SetupStepBlock({ provider, step }: { provider: GatewayProviderId; step: SetupStep }) {
+  if (step.kind === "install") return <InstallStep step={step} />;
+  if (step.kind === "auth-token" || step.kind === "activate") return <RunStep provider={provider} step={step} />;
+  return <LinkStep step={step} />;
+}
+
+/**
+ * The provider's steps for ONE wizard step: `install` = the copy-paste install
+ * command(s); `enable` = everything after it (authenticate / join / authorize).
+ * The guide composes the same blocks, so the two surfaces cannot drift.
+ * See change: add-remote-access-wizard (design D5).
+ */
+export function GatewaySetupSteps({ provider, part }: { provider: GatewayProviderId; part: "install" | "enable" }) {
+  const steps = GATEWAY_SETUP_STEPS[provider].filter((s) => (s.kind === "install") === (part === "install"));
+  return (
+    <div className="flex flex-col gap-2.5" data-testid={`gateway-setup-${part}`}>
+      {steps.map((step) => (
+        <div key={`${step.kind}:${step.title}`} className="flex">
+          <SetupStepBlock provider={provider} step={step} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function GatewaySetupGuide({
   provider,
   showGatewayUrls = true,
@@ -176,13 +202,7 @@ export function GatewaySetupGuide({
             <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] text-[10.5px] font-bold text-[var(--text-secondary)]">
               {i + 1}
             </span>
-            {step.kind === "install" ? (
-              <InstallStep step={step} />
-            ) : step.kind === "auth-token" || step.kind === "activate" ? (
-              <RunStep provider={provider} step={step} />
-            ) : (
-              <LinkStep step={step} />
-            )}
+            <SetupStepBlock provider={provider} step={step} />
           </div>
         ))}
       </div>

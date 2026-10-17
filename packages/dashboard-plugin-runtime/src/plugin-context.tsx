@@ -441,6 +441,18 @@ export function usePluginSend(): (message: unknown) => void | Promise<void> {
   return ctx.send;
 }
 
+/**
+ * @public — reactive: the shell's live `/ws` socket (`null` between sockets or
+ * outside a provider). A new instance appears on every (re)connect or server
+ * switch, so a plugin that must act per socket (the browser relay's operator
+ * host carrier, which needs the socket's target origin) keys an effect on it.
+ * Read-only use: send through `usePluginSend`, not the socket.
+ * See change: add-operator-browser-relay.
+ */
+export function usePluginSocket(): WebSocket | null {
+  return useContext(PluginReactContext)?.ws ?? null;
+}
+
 /** @public */
 export function usePluginRouter(): PluginRouter {
   const ctx = useContext(PluginReactContext);

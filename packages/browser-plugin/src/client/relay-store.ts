@@ -115,9 +115,13 @@ export function useRelayStatusFeed(): void {
     getBrowserProfiles()
       .then((res) => {
         if (!fresh()) return;
-        const instances: BrowserRelayInstanceStatus[] = Object.entries(res.profiles).flatMap(([profileDirectory, profile]) =>
-          profile.instances.map((inst) => ({ ...inst, profileDirectory })),
+        const dashboard: BrowserRelayInstanceStatus[] = Object.entries(res.profiles).flatMap(([profileDirectory, profile]) =>
+          profile.instances.map((inst) => ({ ...inst, profileDirectory, host: "dashboard" })),
         );
+        const operator: BrowserRelayInstanceStatus[] = (res.operatorHosts ?? []).flatMap((h) =>
+          h.profiles.flatMap((p) => p.instances.map((inst) => ({ ...inst, profileDirectory: p.profileDirectory, host: h.hostId }))),
+        );
+        const instances = [...dashboard, ...operator];
         setRelayStatus({ type: "browser_relay_status", instances, auditSeq: 0 });
       })
       .catch(() => {

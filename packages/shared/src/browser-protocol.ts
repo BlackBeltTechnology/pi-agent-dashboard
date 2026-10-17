@@ -31,9 +31,6 @@ import type {
   ViewTarget,
 } from "./types.js";
 
-// Batch ask_user contracts live in protocol.ts; re-export so browser-side
-// consumers import from one place. See change: redesign-ask-user-question-cards.
-export type { QuestionsUpdateMessage };
 export type {
   BatchAnswer,
   BatchQuestion,
@@ -41,6 +38,9 @@ export type {
   InteractiveMethod,
   NotifyLevel,
 } from "./protocol.js";
+// Batch ask_user contracts live in protocol.ts; re-export so browser-side
+// consumers import from one place. See change: redesign-ask-user-question-cards.
+export type { QuestionsUpdateMessage };
 
 // ── Configurable chat display ───────────────────────────────────────
 // See change: configurable-chat-display.
@@ -1223,6 +1223,13 @@ export type ServerToBrowserMessage =
   | FileChangedMessage
   | BrowserRelayFrameMessage
   | BrowserRelayStatusMessage
+  | BrowserHostChallengeMessage
+  | BrowserHostRegisteredMessage
+  | BrowserHostConnectMessage
+  | BrowserHostConnectCancelMessage
+  | BrowserHostRelayDataMessage
+  | BrowserHostRelayCloseMessage
+  | BrowserHostTeeMessage
   | GrantChannelMessage
   | GrantRequestMessage
   | GrantDismissMessage
@@ -2183,6 +2190,12 @@ export type BrowserToServerMessage =
   | BrowserRelaySubscribeMessage
   | BrowserRelayUnsubscribeMessage
   | BrowserRelayInputMessage
+  | BrowserHostHelloMessage
+  | BrowserHostRegisterMessage
+  | BrowserHostConnectResultMessage
+  | BrowserHostExtOpenMessage
+  | BrowserHostExtDataMessage
+  | BrowserHostExtCloseMessage
   | GrantResponseBrowserMessage
   | WatchFilesBrowserMessage;
 
@@ -2309,6 +2322,13 @@ export interface BrowserRelaySubscribeMessage {
   type: "browser_relay_subscribe";
   instanceId: string;
   tabId: number;
+  /**
+   * True when the subscriber is the operator window that carries this
+   * instance's host and renders frames from its own local tee. Honoured only
+   * from the instance's carrier socket; any other socket is handled as a
+   * normal subscribe. See change: add-operator-browser-relay (D10).
+   */
+  local?: boolean;
 }
 
 /** Browser → server: stop streaming; the last unsubscribe stops the screencast. */
@@ -2444,6 +2464,8 @@ export interface BrowserRelayTabStatus {
 export interface BrowserRelayInstanceStatus {
   instanceId: string;
   profileDirectory: string;
+  /** `"dashboard"` or the operator `hostId` the instance runs on. See change: add-operator-browser-relay. */
+  host: string;
   /** `no-cdp-client` = extension handshake done, agent has not attached yet. */
   state: "connected" | "no-cdp-client";
   tabs: BrowserRelayTabStatus[];
@@ -2460,6 +2482,164 @@ export interface BrowserRelayStatusMessage {
   instances: BrowserRelayInstanceStatus[];
   auditSeq: number;
 }
+
+// ── Browser relay operator hosts (change: add-operator-browser-relay) ──
+//
+// An operator machine's Electron main registers as a *host* through the
+// dashboard SPA's own `/ws` (the "carrier"). The stock Playwright extension
+// dials a loopback shim in Electron main; frames travel over the carrier as
+// `browser_host_ext_*` (browser→server) and `browser_host_relay_*`
+// (server→browser). NO message below carries the relay guid, a pairing token
+// or a private key — `linkId` is the only on-wire address (design D3).
+// Each type name is used in exactly ONE direction (design D5).
+
+/** Browser → server: announce an identity (step 1 of registration). */
+export interface BrowserHostHelloMessage {
+  type: "browser_host_hello";
+  hostId: string;
+  /** Ed25519 public key, base64 of the SPKI DER. */
+  publicKey: string;
+}
+
+/** One Chrome profile row an operator host offers. */
+export interface BrowserHostProfileRow {
+  profileDirectory: string;
+  label: string;
+  email?: string;
+  installed: boolean;
+}
+
+/** Browser → server: signed registration (step 3). */
+export interface BrowserHostRegisterMessage {
+  type: "browser_host_register";
+  hostId: string;
+  /** Ed25519 signature (base64) over `buildHostSignedMessage(nonce, serverId)`. */
+  signature: string;
+  label: string;
+  platform: string;
+  canOpenChrome: boolean;
+  profiles: BrowserHostProfileRow[];
+}
+
+/** Browser → server: outcome of a `browser_host_connect`. */
+export interface BrowserHostConnectResultMessage {
+  type: "browser_host_connect_result";
+  requestId: string;
+  ok: boolean;
+  /** `denied` | `no-chrome` | other launch failure token. */
+  reason?: string;
+}
+
+/** Browser → server: the extension attached to the shim for `linkId`. */
+export interface BrowserHostExtOpenMessage {
+  type: "browser_host_ext_open";
+  linkId: string;
+}
+
+/** Browser → server: one extension frame. */
+export interface BrowserHostExtDataMessage {
+  type: "browser_host_ext_data";
+  linkId: string;
+  data: string;
+}
+
+/** Browser → server: the extension socket closed. */
+export interface BrowserHostExtCloseMessage {
+  type: "browser_host_ext_close";
+  linkId: string;
+  code: number;
+}
+
+/** Server → browser: challenge (step 2). `serverId` = the server's `/api/health` `instanceId`. */
+export interface BrowserHostChallengeMessage {
+  type: "browser_host_challenge";
+  nonce: string;
+  serverId: string;
+}
+
+/** Server → browser: registration accepted. */
+export interface BrowserHostRegisteredMessage {
+  type: "browser_host_registered";
+  hostId: string;
+}
+
+/** Server → browser (unicast to the bound carrier): ask the operator to open the connect page. */
+export interface BrowserHostConnectMessage {
+  type: "browser_host_connect";
+  requestId: string;
+  linkId: string;
+  instanceId: string;
+  profileDirectory: string;
+  /** Display only. */
+  serverLabel: string;
+}
+
+/** Server → browser: the server abandoned `requestId`. */
+export interface BrowserHostConnectCancelMessage {
+  type: "browser_host_connect_cancel";
+  requestId: string;
+}
+
+/** Server → browser: one relay frame towards the extension. */
+export interface BrowserHostRelayDataMessage {
+  type: "browser_host_relay_data";
+  linkId: string;
+  data: string;
+}
+
+/** Server → browser: close the link's extension socket. */
+export interface BrowserHostRelayCloseMessage {
+  type: "browser_host_relay_close";
+  linkId: string;
+  code: number;
+  reason?: string;
+}
+
+/** Server → browser: start/stop teeing a tab's screencast frames locally. */
+export interface BrowserHostTeeMessage {
+  type: "browser_host_tee";
+  linkId: string;
+  instanceId: string;
+  tabId: number;
+  on: boolean;
+}
+
+export type BrowserHostClientMessage =
+  | BrowserHostHelloMessage
+  | BrowserHostRegisterMessage
+  | BrowserHostConnectResultMessage
+  | BrowserHostExtOpenMessage
+  | BrowserHostExtDataMessage
+  | BrowserHostExtCloseMessage;
+
+export type BrowserHostServerMessage =
+  | BrowserHostChallengeMessage
+  | BrowserHostRegisteredMessage
+  | BrowserHostConnectMessage
+  | BrowserHostConnectCancelMessage
+  | BrowserHostRelayDataMessage
+  | BrowserHostRelayCloseMessage
+  | BrowserHostTeeMessage;
+
+/** Runtime name lists (kept in lockstep with the unions by a type-level test). */
+export const BROWSER_HOST_CLIENT_TYPES = [
+  "browser_host_hello",
+  "browser_host_register",
+  "browser_host_connect_result",
+  "browser_host_ext_open",
+  "browser_host_ext_data",
+  "browser_host_ext_close",
+] as const satisfies readonly BrowserHostClientMessage["type"][];
+
+export const BROWSER_HOST_SERVER_TYPES = [
+  "browser_host_challenge",
+  "browser_host_registered",
+  "browser_host_connect",
+  "browser_host_connect_cancel",
+  "browser_host_relay_data",
+  "browser_host_relay_close",
+  "browser_host_tee",
+] as const satisfies readonly BrowserHostServerMessage["type"][];
 
 // ---------------------------------------------------------------------------
 // Access-grant prompt protocol (change: add-access-grant-dialog)

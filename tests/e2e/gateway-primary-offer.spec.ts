@@ -1,5 +1,6 @@
 import { type APIRequestContext, expect, type Page, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
+import { openGatewayPage } from "./helpers/remote-access.js";
 
 /**
  * Browser E2E for change `add-zrok-custom-reserved-name` — test-plan rows F7
@@ -64,10 +65,8 @@ async function stubReadiness(page: Page): Promise<void> {
 }
 
 async function openSetupTab(page: Page): Promise<void> {
-  const btn = page.getByTestId("tunnel-btn");
-  await expect(btn).toBeVisible({ timeout: 15_000 });
-  await btn.click();
-  await page.getByTestId("gateway-tab-setup").click();
+  // The board and Make-primary live on Settings ▸ Network ▸ Gateway now.
+  await openGatewayPage(page);
   await expect(page.getByTestId("gateway-readiness-tailscale")).toBeVisible({ timeout: 15_000 });
 }
 
