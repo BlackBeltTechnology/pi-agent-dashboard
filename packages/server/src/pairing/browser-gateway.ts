@@ -140,6 +140,11 @@ export function frameClassOf(
     // an approval dialog that never appears. See change: add-pairing-approval-dialog.
     case "pair_pending_changed":
       return { cls: "state", key: "pair_pending" };
+    // Content-free managed-services hint: coalescing state, never shed — a shed
+    // trailing ping leaves the Services page stale until reconnect.
+    // See change: add-services-settings-ui.
+    case "services_changed":
+      return { cls: "state", key: "services_changed" };
     case "terminal_added":
       return { cls: "state", key: `terminal:${msg.terminal.id}` };
     case "terminal_updated":

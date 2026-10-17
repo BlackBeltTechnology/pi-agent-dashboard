@@ -12,7 +12,7 @@ import { t as i18nT } from "../../../lib/i18n/i18n.js";
 
 export type Tone = "success" | "info" | "warning" | "error" | "neutral";
 
-const TONE_PILL: Record<Tone, string> = {
+export const TONE_PILL: Record<Tone, string> = {
   success: "bg-[var(--severity-success-bg)] text-[var(--severity-success-fg)] border-[var(--severity-success-border)]",
   info: "bg-[var(--severity-info-bg)] text-[var(--severity-info-fg)] border-[var(--severity-info-border)]",
   warning: "bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border-[var(--severity-warning-border)]",
@@ -28,7 +28,7 @@ const BUTTON_BASE =
 export const BUTTON_CLASS = `${BUTTON_BASE} border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:text-[var(--text-secondary)] disabled:hover:bg-[var(--bg-tertiary)]`;
 export const PRIMARY_BUTTON_CLASS = `${BUTTON_BASE} bg-[var(--accent-solid)] text-white hover:brightness-110 disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:hover:brightness-100`;
 export const GHOST_BUTTON_CLASS = `${BUTTON_BASE} text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-60 disabled:hover:bg-transparent`;
-const DANGER_BUTTON_CLASS = `${BUTTON_BASE} border border-[var(--tint-red-border)] bg-[var(--tint-red-bg)] text-[var(--tint-red-fg)] disabled:opacity-60`;
+export const DANGER_BUTTON_CLASS = `${BUTTON_BASE} border border-[var(--tint-red-border)] bg-[var(--tint-red-bg)] text-[var(--tint-red-fg)] disabled:opacity-60`;
 export const LABEL_CLASS = "block text-xs font-semibold text-[var(--text-primary)] mb-1";
 export const HELP_CLASS = "text-xs text-[var(--text-secondary)]";
 export const SECTION_TITLE_CLASS = "flex items-center gap-1.5 text-xs font-semibold text-[var(--text-primary)]";

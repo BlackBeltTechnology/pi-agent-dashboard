@@ -26,7 +26,7 @@ import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/mod
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiChip, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiCubeOutline, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
@@ -41,6 +41,7 @@ import { usePiResources } from "../../hooks/usePiResources.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
+import { useServices } from "../../hooks/useServices.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
@@ -57,6 +58,7 @@ import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktr
 import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
 import { logRejection } from "../../lib/report-error.js";
+import { needsAttention } from "../../lib/services/services-model.js";
 import { RESERVED_SETTINGS_LABELS, resolveSettingsPromotions } from "../../lib/settings-promotions.js";
 import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
@@ -96,10 +98,10 @@ import { NodeRuntimeSection } from "./NodeRuntimeSection.js";
 // See change: select-pi-runtime-install (design D12).
 import { PiRuntimeSection } from "./PiRuntimeSection.js";
 import { PiRuntimeStatusRow } from "./PiRuntimeStatusRow.js";
+import { PiSettingsSection } from "./PiSettingsSection.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { PushNotificationsSection } from "./PushNotificationsSection.js";
-import { PiSettingsSection } from "./PiSettingsSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
@@ -534,7 +536,7 @@ function resolveSettingsPage(raw: string | undefined | null): string | null {
  */
 const BACK_SENTINEL = "@@back";
 
-export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd, groupByPrefs, onSetDefaultGroupBy }: {
+export function SettingsPanel({ availableModels, onMessage, ws, onBack, selectedCwd, groupByPrefs, onSetDefaultGroupBy }: {
   /**
    * Per-session `models_list` union pushed by live bridges. Merged with the
    * session-independent `GET /api/models` catalogue this panel fetches itself;
@@ -546,6 +548,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
   selectedCwd?: string;
   /** WS bus subscribe (from App) used to correlate the confirm:"ws" restart. */
   onMessage?: (handler: (msg: ServerToBrowserMessage) => void) => () => void;
+  /** The live socket (`null` while disconnected): a reconnect refetches the Services list. */
+  ws?: WebSocket | null;
   /**
    * Depth-aware back action (App's `goBack`) — returns to the launching route
    * instead of the card list. Falls back to `navigate("/")` when omitted.
@@ -646,6 +650,15 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
   const resolvedRoutePage = resolveSettingsPage(routePage);
   const activeTab = resolvedRoutePage ?? "general";
   const activePluginId = resolvedRoutePage === "plugins" ? (routeParams?.sub ?? null) : null;
+  // `:sub` is also interpreted for `services` (a service id); every other page, `runtimes`
+  // included, ignores it. See change: add-services-settings-ui (D1).
+  const activeServiceId = resolvedRoutePage === "services" ? (routeParams?.sub ?? null) : null;
+  // The preserved `:sub` of a redirect (plugin id or service id), as a path suffix.
+  const activeSubSegment = activePluginId ?? activeServiceId ? `/${activePluginId ?? activeServiceId}` : "";
+  // Live list for the nav attention indicator and the Services pages (list refetch on
+  // `services_changed` / reconnect only — never the probing detail GET).
+  const services = useServices({ onMessage, ws });
+  const servicesNeedingAttention = (services.list?.services ?? []).filter(needsAttention).length;
 
   // Plugin rows back the nav children, the plugin page, and the Save Bar's
   // `Plugins › <name>` labels. See change: plugin-settings-pages (task 4.2).
@@ -731,8 +744,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
     //    `/settings/plugins/<id>` never bounces to General.
     if (resolvedRoutePage) {
       if (resolvedRoutePage !== routePage) {
-        const sub = activePluginId ? `/${activePluginId}` : "";
-        navigate(`/settings/${resolvedRoutePage}${sub}`, { replace: true });
+        navigate(`/settings/${resolvedRoutePage}${activeSubSegment}`, { replace: true });
       }
       return;
     }
@@ -745,7 +757,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
     const legacy = new URLSearchParams(window.location.search).get("tab");
     const resolvedLegacy = resolveSettingsPage(legacy);
     navigate(`/settings/${resolvedLegacy ?? "general"}`, { replace: true });
-  }, [routePage, resolvedRoutePage, activePluginId, navigate]);
+  }, [routePage, resolvedRoutePage, activeSubSegment, navigate]);
 
   // Windows-only live git/sh source readout from /api/health. null on
   // macOS/Linux (section hidden). See change: embed-git-bash-on-windows.
@@ -1185,6 +1197,14 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
       ],
     },
     {
+      id: "services",
+      label: t("settings.groupServices", undefined, "Services"),
+      items: [
+        { id: "services", label: t("settings.services", undefined, "All services"), icon: mdiCubeOutline },
+        { id: "runtimes", label: t("settings.runtimes", undefined, "Runtimes"), icon: mdiChip },
+      ],
+    },
+    {
       id: "add-ons",
       label: t("settings.groupAddons", undefined, "Add-ons"),
       items: [
@@ -1340,6 +1360,14 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                   >
                     <Icon path={item.icon} size={0.65} />
                     {item.label}
+                    {item.id === "services" && servicesNeedingAttention > 0 && (
+                      <span data-testid="nav-services-attention" className="ml-auto flex items-center">
+                        <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-[var(--severity-error-fg)] shrink-0" />
+                        <span className="sr-only">
+                          {t("settings.servicesAttention", { count: servicesNeedingAttention }, `${servicesNeedingAttention} services need attention`)}
+                        </span>
+                      </span>
+                    )}
                     {dirtyPages.has(item.id) && (
                       <span
                         data-testid={`nav-dirty-${item.id}`}
@@ -2279,6 +2307,12 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
               <>
                 <ServersTab />
               </>
+            )}
+
+            {(activeTab === "services" || activeTab === "runtimes") && (
+              <React.Suspense fallback={null}>
+                <ServicesPages page={activeTab} serviceId={activeServiceId} services={services} navigate={navigate} />
+              </React.Suspense>
             )}
 
             {activeTab === "vault" && (
@@ -3567,6 +3601,7 @@ function ListenInterfaceField({
 }
 
 // Vault page: its own chunk, off the entry gzip cap. See change: retro-ux-credential-vault.
+const ServicesPages = React.lazy(() => import("./services/ServicesPages.js").then((m) => ({ default: m.ServicesPages })));
 const VaultSection = React.lazy(() => import("./vault/VaultSection.js").then((m) => ({ default: m.VaultSection })));
 
 // Electron-only: its own chunk, off the entry gzip cap (Settings is eager).
