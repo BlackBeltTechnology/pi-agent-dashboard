@@ -15,14 +15,18 @@ vi.mock("../../lib/openspec/openspec-groups-api.js", () => ({
   setAssignment: vi.fn(async () => {}),
   setChangeOrder: vi.fn(async () => {}),
 }));
+const wfState = vi.hoisted(() => ({ workflows: [] as string[] }));
 vi.mock("../../lib/openspec/openspec-config-api.js", () => ({
-  useOpenSpecConfig: () => ({ profile: "custom", delivery: "both", workflows: [] }),
+  useOpenSpecConfig: () => ({ profile: "custom", delivery: "both", workflows: wfState.workflows }),
 }));
 
 import type { DashboardSession, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { OpenSpecBoardView } from "../openspec/OpenSpecBoardView.js";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  wfState.workflows = [];
+});
 beforeEach(() => {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
@@ -98,6 +102,26 @@ describe("OpenSpecBoardView", () => {
     expect(p.onDetachProposal).toHaveBeenCalledWith("s1");
     expect(p.onNavigateToSession).not.toHaveBeenCalled();
     expect(screen.getByTestId("board-card-add-auth").className).not.toContain("opacity-40");
+  });
+
+  // The desktop session CARD condenses to state only, but the board's per-session
+  // panel keeps the full OpenSpec block. See change: add-session-actions-flyout (E22).
+  it("session-row panel keeps the Apply primary and a ⋯ listing Explore… and Detach (E22)", () => {
+    const implementing: OpenSpecData = {
+      ...data,
+      changes: [
+        { name: "add-auth", status: "in-progress", completedTasks: 3, totalTasks: 8, groupId: "in-flight", artifacts: [{ id: "proposal", status: "done" }, { id: "design", status: "done" }, { id: "specs", status: "done" }] },
+        ...data.changes.slice(1),
+      ],
+    };
+    wfState.workflows = ["apply", "explore", "continue", "ff", "verify", "archive"];
+    render(<OpenSpecBoardView {...props({ data: implementing, openspecMap: new Map([["/p", implementing]]) })} />);
+    fireEvent.click(screen.getByTestId("session-os-menu-s1"));
+    const panel = screen.getByTestId("session-os-menu-panel");
+    expect(panel.querySelector('[data-testid="apply-btn"]')).toBeTruthy();
+    fireEvent.click(panel.querySelector('[data-testid="openspec-overflow-btn"]')!);
+    expect(screen.getByTestId("explore-menu-item")).toBeTruthy();
+    expect(screen.getByTestId("detach-btn")).toBeTruthy();
   });
 
   it("navigates back via Back button", () => {

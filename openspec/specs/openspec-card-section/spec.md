@@ -20,7 +20,7 @@ A proposal card on the board SHALL list the sessions attached to that change, ea
 - **THEN** the app SHALL navigate to that session's chat view
 
 ### Requirement: Per-session actions on proposal cards
-Each session row SHALL expose lifecycle actions — resume/continue, fork, and hide/unhide — and an OpenSpec command menu. The menu SHALL expose the session OpenSpec block exactly as the session card renders it: for an attached session, the header with at most one state-driven primary action plus a `⋯` overflow (Fast-forward / Verify / Archive anyway… / Explore… / Detach as applicable), and the lifecycle bar. Action clicks SHALL NOT trigger row navigation.
+Each session row SHALL expose lifecycle actions — resume/continue, fork, and hide/unhide — and an OpenSpec command menu. The menu SHALL expose the session OpenSpec block as defined by `openspec-attach-combo` (independent of how the desktop session card condenses its own controls): for an attached session, the header with at most one state-driven primary action plus a `⋯` overflow (Fast-forward / Verify / Archive anyway… / Explore… / Detach as applicable), and the lifecycle bar. Action clicks SHALL NOT trigger row navigation.
 
 #### Scenario: Resume and fork available
 - **WHEN** a session row has a session file
@@ -38,6 +38,10 @@ Each session row SHALL expose lifecycle actions — resume/continue, fork, and h
 #### Scenario: Action click does not navigate
 - **WHEN** the user clicks any session-row action
 - **THEN** the app SHALL NOT navigate to the session chat view
+
+#### Scenario: Board rows keep inline OpenSpec controls after the session card condenses
+- **WHEN** a session row for a session attached to an `IMPLEMENTING` change renders on a proposal card, while the desktop session card for the same session shows no Apply button
+- **THEN** the board row's OpenSpec command menu SHALL still show the **Apply** primary action and its `⋯` button
 
 ### Requirement: Worktree state visualization on session rows
 A session whose cwd is a git worktree SHALL show a worktree marker on its row displaying the worktree name and that worktree's own task progress (`completed/total`) with a delta relative to the proposal's main-checkout progress. The proposal card's lifecycle bar (its `Tasks` segment count and fill) SHALL continue to reflect the main checkout, not the worktree.

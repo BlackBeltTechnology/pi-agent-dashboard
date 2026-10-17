@@ -1,8 +1,10 @@
 /**
- * FLOWS subcard "Open flow…" action: hidden with no flows, enabled when idle,
+ * Session actions menu "Open flow…" action (flows `session-card-action-bar`
+ * claim, `SessionFlowMenuClaim`): hidden with no flows, enabled when idle,
  * disabled while any flow runs; the picker lists every flow and selecting one
- * writes the per-session attachment with the resolved baseline.
- * See change: attach-flow-before-run (D7).
+ * writes the per-session attachment with the resolved baseline. Also covers the
+ * edit-mode reconcile hosted by the claim (F20).
+ * See change: attach-flow-before-run (D7), add-session-actions-flyout (E26, F20).
  */
 import {
   CurrentPluginLayer,
@@ -15,11 +17,12 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { DashboardEvent, DashboardSession, FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { initPluginConfigs } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetFlowAttachStoreForTests, getAttachment } from "../client/flow-attach-store.js";
-import { SessionFlowActionsClaim } from "../client/SessionFlowActions.js";
+import { SessionFlowMenuClaim } from "../client/SessionFlowMenuClaim.js";
 
 const registry = createUiPrimitiveRegistry();
 registerUiPrimitive(registry, UI_PRIMITIVE_KEYS.confirmDialog, (() => null) as never);
@@ -52,28 +55,36 @@ const TWO: FlowInfo[] = [
   { name: "pkg:review", description: "package flow", taskRequired: false, source: "/home/.pi/agent/npm/node_modules/pkg/flows/review/flow.yaml" },
 ];
 
-function renderClaim(sid: string) {
+/** Flows available for `sid` (a `flows` command published), unless `commands` overrides. */
+function openGate(sid: string, commands: Array<{ name: string }> = [{ name: "flows" }]) {
+  publishSessionData(sid, "commandsList", commands);
+}
+
+function renderClaim(sid: string, send?: (m: unknown) => void) {
   return render(
-    <PluginContextProvider>
+    <PluginContextProvider send={send}>
       <UiPrimitiveProvider value={registry}>
         <CurrentPluginLayer pluginId="flows">
-          <SessionFlowActionsClaim session={{ id: sid } as DashboardSession} />
+          <SessionFlowMenuClaim session={{ id: sid } as DashboardSession} />
         </CurrentPluginLayer>
       </UiPrimitiveProvider>
     </PluginContextProvider>,
   );
 }
-const openBtn = () => screen.queryByTestId("flows-open-button") as HTMLButtonElement | null;
+const openBtn = () => screen.queryByRole("button", { name: /Open flow/ }) as HTMLButtonElement | null;
 
 beforeEach(() => {
   localStorage.clear();
   __resetFlowAttachStoreForTests();
+  initPluginConfigs({ flows: { editFlow: false } });
 });
 afterEach(() => cleanup());
 
 describe("Open flow… visibility (E9)", () => {
   it("(a) hidden with no flows", () => {
     const sid = nextSid();
+    openGate(sid);
+    publishSessionData(sid, "flowsList", []);
     publishSessionEvents(sid, [started("A", 1)]);
     renderClaim(sid);
     expect(openBtn()).toBeNull();
@@ -81,6 +92,7 @@ describe("Open flow… visibility (E9)", () => {
 
   it("(b) enabled with flows and nothing running", () => {
     const sid = nextSid();
+    openGate(sid);
     publishSessionData(sid, "flowsList", TWO);
     renderClaim(sid);
     expect(openBtn()?.disabled).toBe(false);
@@ -88,19 +100,21 @@ describe("Open flow… visibility (E9)", () => {
 
   it("(c) disabled while any flowStates entry runs, even if the latest is completed", () => {
     const sid = nextSid();
+    openGate(sid);
     publishSessionData(sid, "flowsList", TWO);
     // B starts, then A starts and completes: latest flowState = completed A,
     // flowStates still holds running B.
     publishSessionEvents(sid, [started("B", 1), started("A", 2), ev("flow_complete", 3, { flowName: "A", status: "success" })]);
     renderClaim(sid);
     expect(openBtn()?.disabled).toBe(true);
-    expect(openBtn()?.title).toMatch(/running/i);
+    expect(openBtn()?.title).toBe("A flow is running");
   });
 });
 
 describe("Open flow… picker (E10)", () => {
   it("lists every flow with its description and attaches with the resolved baseline", () => {
     const sid = nextSid();
+    openGate(sid);
     publishSessionData(sid, "flowsList", TWO);
     publishSessionEvents(sid, [started("X", 700), ev("flow_complete", 800, { flowName: "X", status: "success" })]);
     renderClaim(sid);
@@ -116,10 +130,88 @@ describe("Open flow… picker (E10)", () => {
 
   it("empty stream → null baseline", () => {
     const sid = nextSid();
+    openGate(sid);
     publishSessionData(sid, "flowsList", TWO);
     renderClaim(sid);
     fireEvent.click(openBtn()!);
     fireEvent.click(screen.getByText(/test:capabilities/));
     expect(getAttachment(sid)?.baselineStartedAt).toBeNull();
+  });
+});
+
+describe("flows menu claim gate + actions", () => {
+  it("renders nothing before the first commandsList publish", () => {
+    const sid = nextSid();
+    publishSessionData(sid, "flowsList", TWO);
+    const { container } = renderClaim(sid);
+    expect(container.textContent).toBe("");
+  });
+
+  it("flows:new alone does not open the claim", () => {
+    const sid = nextSid();
+    openGate(sid, [{ name: "flows:new" }]);
+    publishSessionData(sid, "flowsList", TWO);
+    const { container } = renderClaim(sid);
+    expect(container.textContent).toBe("");
+  });
+
+  it("active-but-empty cwd offers New / Edit… in edit mode (no flowsList, no events)", () => {
+    const sid = nextSid();
+    openGate(sid);
+    publishSessionData(sid, "flowsList", []);
+    initPluginConfigs({ flows: { editFlow: true } });
+    renderClaim(sid);
+    expect(screen.getByRole("button", { name: /New \/ Edit/ })).toBeTruthy();
+    expect(openBtn()).toBeNull();
+    expect(screen.queryByRole("button", { name: /Run Flow/ })).toBeNull();
+  });
+
+  it("Run Flow… / Delete… follow flowsList and flows:delete", () => {
+    const sid = nextSid();
+    openGate(sid, [{ name: "flows" }, { name: "flows:delete" }]);
+    publishSessionData(sid, "flowsList", TWO);
+    renderClaim(sid);
+    expect(screen.getByRole("button", { name: /Run Flow/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Delete/ })).toBeTruthy();
+  });
+
+  it("Delete… absent without the flows:delete command", () => {
+    const sid = nextSid();
+    openGate(sid);
+    publishSessionData(sid, "flowsList", TWO);
+    renderClaim(sid);
+    expect(screen.queryByRole("button", { name: /Delete/ })).toBeNull();
+  });
+});
+
+describe("edit-mode reconcile from the menu claim (F20 / 2.45)", () => {
+  const editMsgs = (send: ReturnType<typeof vi.fn>) =>
+    send.mock.calls.filter(([m]) => (m as { action?: string }).action === "set-edit-mode");
+
+  it("dispatches set-edit-mode exactly once when flows is available and nothing was opened", () => {
+    const sid = nextSid();
+    openGate(sid);
+    initPluginConfigs({ flows: { editFlow: true } });
+    const send = vi.fn();
+    const { rerender } = renderClaim(sid, send);
+    expect(editMsgs(send)).toEqual([[{ type: "flow_management", sessionId: sid, action: "set-edit-mode", enabled: true }]]);
+    rerender(
+      <PluginContextProvider send={send}>
+        <UiPrimitiveProvider value={registry}>
+          <CurrentPluginLayer pluginId="flows">
+            <SessionFlowMenuClaim session={{ id: sid } as DashboardSession} />
+          </CurrentPluginLayer>
+        </UiPrimitiveProvider>
+      </PluginContextProvider>,
+    );
+    expect(editMsgs(send)).toHaveLength(1);
+  });
+
+  it("waits for availability: nothing is sent before the first commandsList publish", () => {
+    const sid = nextSid();
+    initPluginConfigs({ flows: { editFlow: true } });
+    const send = vi.fn();
+    renderClaim(sid, send);
+    expect(editMsgs(send)).toHaveLength(0);
   });
 });

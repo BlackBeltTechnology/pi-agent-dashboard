@@ -59,6 +59,22 @@ export function ensureLocalToken(dir = defaultLocalTokenDir()): string {
   return token;
 }
 
+/**
+ * Read the local IPC token WITHOUT creating anything: no dir, no file, no chmod.
+ * `null` when the file is absent, unreadable (mode 000, a directory, ...) or
+ * empty. Used by `pi-dashboard pair` so an approval attempt on a host where the
+ * server never ran leaves no token behind, and never replaces a credential the
+ * real server holds. See change: fix-pairing-approval-credential (D9).
+ */
+export function readLocalTokenIfPresent(dir = defaultLocalTokenDir()): string | null {
+  try {
+    const token = fs.readFileSync(path.join(dir, "token"), "utf-8").trim();
+    return token || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Constant-time compare of a presented local-token header against expected. */
 export function verifyLocalToken(
   headers: Record<string, unknown> | undefined,

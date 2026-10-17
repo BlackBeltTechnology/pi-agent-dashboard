@@ -15,20 +15,47 @@ const read = (rel: string) => readFileSync(path.resolve(__dirname, "..", "..", r
 const stripComments = (s: string) => s.replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
 
 const exposed: string[] = [];
+const exposedApis: Array<Record<string, unknown>> = [];
 vi.mock("electron", () => ({
-  contextBridge: { exposeInMainWorld: (key: string) => { exposed.push(key); } },
+  contextBridge: {
+    exposeInMainWorld: (key: string, api?: Record<string, unknown>) => {
+      exposed.push(key);
+      if (api) exposedApis.push(api);
+    },
+  },
   ipcRenderer: { invoke: vi.fn(), send: vi.fn(), on: vi.fn(), removeListener: vi.fn() },
 }));
 
 describe("preload split (VD5)", () => {
   beforeEach(() => {
     exposed.length = 0;
+    exposedApis.length = 0;
     vi.resetModules();
   });
 
   it("T1: main-window preload exposes ONLY piDashboard (no remoteConnect / electron.doctor)", async () => {
     await import("../preload-main.js");
     expect(exposed).toEqual(["piDashboard"]);
+  });
+
+  it("E57: the exposed piDashboard API has exactly the closed key list (no openServerWindow off the local origin)", async () => {
+    const argv = process.argv;
+    process.argv = argv.filter((a) => !a.startsWith("--pi-local-origin="));
+    try {
+      await import("../preload-main.js");
+    } finally {
+      process.argv = argv;
+    }
+    expect(Object.keys(exposedApis[0]!).sort()).toEqual(
+      ["requestLaunch", "openDoctor", "readServerLog", "onStatus", "probeServer", "checkAppUpdate", "navigateToServer"].sort(),
+    );
+  });
+
+  it("navigateToServer sends only the target on dashboard:navigate-to-server", async () => {
+    await import("../preload-main.js");
+    const { ipcRenderer } = await import("electron");
+    await (exposedApis[0]!.navigateToServer as (t: string) => Promise<unknown>)("http://localhost:8000");
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith("dashboard:navigate-to-server", { target: "http://localhost:8000" });
   });
 
   it("T5: wizard preload exposes only its trusted-page bridges (connecting, electron(doctor), remoteConnect), never piDashboard", async () => {
@@ -55,12 +82,17 @@ describe("main.ts wiring", () => {
   });
 
   it("T2: every gated channel is registered through the sender-frame wrapper", () => {
-    for (const ch of ["request-launch", "read-server-log", "probe-server"]) {
+    for (const ch of ["request-launch", "read-server-log", "probe-server", "navigate-to-server"]) {
       expect(main, ch).toMatch(new RegExp(`ipcMain\\.handle\\("dashboard:${ch}", trustedHandler\\(`));
     }
     expect(main).toMatch(/ipcMain\.on\("dashboard:open-doctor", trustedListener\(/);
     // no ungated registration of the four privileged channels
-    expect(main).not.toMatch(/ipcMain\.handle\("dashboard:(request-launch|read-server-log|probe-server)", async/);
+    expect(main).not.toMatch(/ipcMain\.handle\("dashboard:(request-launch|read-server-log|probe-server|navigate-to-server)", async/);
+  });
+
+  it("X10: dashboard:navigate-to-server is registered via trustedHandler with isTrustedSender, never a raw handle", () => {
+    expect(main).toMatch(/ipcMain\.handle\("dashboard:navigate-to-server", trustedHandler\("dashboard:navigate-to-server", isTrustedSender,/);
+    expect(main).toContain("navigateToServer(mainWindow");
   });
 
   it("T3: shell.openExternal is only reachable through the scheme allowlist", () => {

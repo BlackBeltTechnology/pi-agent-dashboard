@@ -140,7 +140,7 @@ The server SHALL expose `GET /api/git/worktree/diff-stat?cwd=<path>` returning a
 - **THEN** the response SHALL be `{ success: true, data: { summary: "", filesChanged: 0, insertions: 0, deletions: 0 } }`
 
 ### Requirement: WorktreeActionsMenu component
-The client SHALL render `<WorktreeActionsMenu>` inside the WORKSPACE subcard, and inside the composer strip's Git group, whenever `session.gitWorktree` is set.
+The client SHALL offer the worktree actions inside the composer strip's Git group, rendered as `<WorktreeActionsMenu>`, whenever `session.gitWorktree` is set. On the desktop session card, the same actions SHALL render as items of the session actions menu's GIT group, and the card SHALL NOT mount `<WorktreeActionsMenu>`. The card keeps the PR status as a clickable pill. The state rules below, covering the PR segment, which actions show per PR state, Merge emphasis and the working-disabled rule, SHALL apply identically to those menu items. When Merge emphasis holds, Merge SHALL be that menu's NEXT item rather than a GIT item.
 
 When `session.gitPrNumber` is set, the menu SHALL render a **PR status segment** in place of the former "View PR #N" label.
 - The segment SHALL show the PR number and its state. Each state SHALL have a distinct glyph and a word or accessible name, never colour alone:
@@ -234,17 +234,17 @@ While the session is working (streaming or auto-retrying), Push, Open PR and Mer
 - **THEN** Merge SHALL render outlined
 
 #### Scenario: Session card keeps a single filled primary
-- **WHEN** the session card shows a `COMPLETE` attached change and an open, non-draft PR with passing checks
-- **THEN** the card's Merge SHALL render filled
-- **AND** the card's OpenSpec primary SHALL render outlined
+- **WHEN** a desktop session card's session has a `COMPLETE` attached change and an open, non-draft PR with passing checks
+- **THEN** its session actions menu SHALL show Merge as the single emphasised NEXT item
+- **AND** the OpenSpec primary (Archive) SHALL render without emphasis in the OPENSPEC group
 
 #### Scenario: Non-worktree session never demotes the OpenSpec primary
 - **WHEN** a session outside any worktree has an open, green PR and an attached `IMPLEMENTING` change
-- **THEN** the OpenSpec primary SHALL render filled
+- **THEN** the OpenSpec primary SHALL be the emphasised one: the NEXT item of the desktop session card's menu, and the filled primary in the composer
 
 #### Scenario: Card worktree actions disabled while working
 - **WHEN** a worktree session is streaming
-- **THEN** the session card's Push and Merge SHALL be disabled
+- **THEN** the Push and Merge items of the desktop session card's menu SHALL be disabled
 - **AND** Merge SHALL render outlined, even if the PR is open and green
 
 #### Scenario: Menu hidden for non-worktree sessions
@@ -254,6 +254,11 @@ While the session is working (streaming or auto-retrying), Push, Open PR and Mer
 #### Scenario: Mobile renders single action sheet trigger
 - **WHEN** `useMobile()` returns true
 - **THEN** the menu SHALL collapse into a single `⋯` button opening an action sheet listing the same visible actions, including the PR status segment
+
+#### Scenario: Desktop session card offers worktree actions in the menu
+- **WHEN** a desktop session card renders for a worktree session with no PR, while `gh` is available
+- **THEN** no `<WorktreeActionsMenu>` SHALL render on the card
+- **AND** the session actions menu's GIT group SHALL contain Push, Open PR, Merge and Close worktree…, with Close worktree… last
 
 ### Requirement: CloseWorktreeDialog presents active-session guard
 The client SHALL render a confirm dialog before invoking `worktree/remove` whenever the server returns `code: "active_sessions"`. The dialog SHALL list every session ID returned by the server and offer a single confirm button "End N sessions and remove worktree".

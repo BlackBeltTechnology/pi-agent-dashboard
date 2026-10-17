@@ -19,4 +19,14 @@ vi.mock("../components/openspec/lazy-openspec-dialogs.js", async () => ({
 vi.mock("../components/worktree/lazy-worktree-dialogs.js", async () => ({
   LazyCloseWorktreeDialog: (await import("../components/worktree/CloseWorktreeDialog.js")).CloseWorktreeDialog,
   LazyMergeConfirmDialog: (await import("../components/worktree/MergeConfirmDialog.js")).MergeConfirmDialog,
+  LazyWorktreeSpawnDialog: (await import("../components/worktree/WorktreeSpawnDialog.js")).WorktreeSpawnDialog,
+  LazyBranchSwitchDialog: (await import("../components/worktree/BranchSwitchDialog.js")).BranchSwitchDialog,
+}));
+
+// The session actions flyout's code-split panel + per-card dialog host
+// (`lazy-session-menu.ts`). See change: add-session-actions-flyout.
+vi.mock("../components/session/lazy-session-menu.js", async () => ({
+  LazySessionActionsPanel: (await import("../components/session/SessionActionsPanel.js")).SessionActionsPanel,
+  LazySessionCardDialogs: (await import("../components/session/SessionCardDialogs.js")).SessionCardDialogs,
+  prefetchSessionActionsPanel: () => undefined,
 }));

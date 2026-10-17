@@ -3,7 +3,7 @@
  * See change: add-acp-session-driver (test-plan #E46).
  */
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -54,13 +54,16 @@ describe("ACP driver UI (E46)", () => {
     _setAcpAgentsForTests([{ id: "qmt", name: "querymt" }]);
     const acp = card({ ...base, driver: "acp", acpAgentId: "qmt" });
     expect(screen.getByTestId("session-driver-chip").textContent).toContain("querymt");
-    expect(screen.queryByText("Resume")).toBeNull();
-    expect(screen.queryByText("Fork")).toBeNull();
+    // Resume / Fork are session-menu items; an ACP session offers neither.
+    fireEvent.click(screen.getByTestId("session-actions-trigger-s1"));
+    expect(screen.queryByTestId("session-menu-item-resume")).toBeNull();
+    expect(screen.queryByTestId("session-menu-item-fork")).toBeNull();
     acp.unmount();
     card(base);
     expect(screen.queryByTestId("session-driver-chip")).toBeNull();
-    expect(screen.getByText("Resume")).toBeTruthy();
-    expect(screen.getByText("Fork")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("session-actions-trigger-s1"));
+    expect(screen.getByTestId("session-menu-item-resume")).toBeTruthy();
+    expect(screen.getByTestId("session-menu-item-fork")).toBeTruthy();
   });
 
   it("DriverChip renders nothing for pi; falls back to the agent id when the agent is no longer configured", () => {

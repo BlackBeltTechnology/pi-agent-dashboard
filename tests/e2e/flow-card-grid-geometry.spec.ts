@@ -6,6 +6,7 @@ import {
   gridOf,
   openIdleGrid,
 } from "./helpers/flow-card-grid.js";
+import { flowMenuItem, openSessionMenu } from "./helpers/session-actions-menu.js";
 import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
@@ -64,9 +65,10 @@ async function expectControlRowAtCardBottom(card: import("@playwright/test").Loc
 async function runSyntheticToSummary(page: import("@playwright/test").Page) {
   const card = await spawnFreshGitSession(page);
   await card.click();
-  const open = card.getByTestId("flows-open-button");
+  await openSessionMenu(page, card);
+  const open = flowMenuItem(page, /open flow/i);
   await expect(open).toBeVisible({ timeout: 60_000 });
-  await expect(open).toBeEnabled();
+  await expect(open).not.toHaveAttribute("aria-disabled", "true");
   await open.click();
   const search = page.getByPlaceholder("Search flows...");
   await search.waitFor({ state: "visible", timeout: 15_000 });

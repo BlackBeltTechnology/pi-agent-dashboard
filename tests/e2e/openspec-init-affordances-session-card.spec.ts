@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
 import { expandFolder, folderCard, gotoDashboard, pinDirectory } from "./helpers/index.js";
+import { closeSessionMenu, openSessionMenu } from "./helpers/session-actions-menu.js";
 import { BASE_URL, DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
@@ -603,7 +604,10 @@ test.describe("openspec init affordances — session card", () => {
       await expect(skillsCard.getByTestId("session-openspec-disabled")).toBeVisible({ timeout: 30_000 });
       // profileStale is still READY — its card is LIVE (control sanity).
       await expect(profileCard.getByTestId("session-openspec-disabled")).toHaveCount(0);
-      await expect(profileCard.getByTestId("explore-unattached-btn").or(profileCard.getByTestId("openspec-overflow-btn")).first()).toBeVisible();
+      // Its OpenSpec actions are session-menu items now: the menu offers Attach/Explore.
+      await openSessionMenu(page, profileCard);
+      await expect(page.getByTestId("session-menu-group-openspec")).toBeVisible();
+      await closeSessionMenu(page);
 
       const reasonOf = async (card: Locator): Promise<string> => {
         const t = await card.getByTestId("session-openspec-disabled-reason").textContent();

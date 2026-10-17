@@ -17,7 +17,8 @@ The dashboard SHALL ship flow rendering as a dedicated workspace package at `pac
 - **WHEN** the dashboard is built from a fresh checkout
 - **THEN** `packages/client/package.json` SHALL list `@blackbelt-technology/pi-dashboard-flows-plugin` as a dependency
 - **AND** `packages/flows-plugin/package.json` SHALL include a `pi-dashboard-plugin` manifest field
-- **AND** the manifest SHALL claim at minimum: `session-card-badge`, `session-card-action-bar`, `content-header-sticky`, `content-view` (route `flow-agent-detail/:agentId`), `content-view` (route `architect-detail`), `content-inline-footer`
+- **AND** the manifest SHALL claim at minimum: `session-card-flows` (flow status), `session-card-action-bar` (flow actions, rendered in the session actions menu), `content-header-sticky`, `content-view` (route `flow-agent-detail/:agentId`), `content-view` (route `architect-detail`)
+- **AND** the manifest SHALL NOT claim `session-card-badge` (see `flows-running-status-pill`)
 
 ### Requirement: Flow state tracked in SessionState
 The `SessionState` SHALL include a `flowState` field of type `FlowState | null`. `FlowState` SHALL contain: `flowName`, `task`, `status` (running/success/error/aborted), `autonomousMode`, `agents` (ordered map of agent name → `FlowAgentState`), and `flowResult` (set on completion). The type definition SHALL live in `packages/shared/src/types.ts` so both the plugin and the core client can reference it without an import cycle.
@@ -108,36 +109,6 @@ If the dashboard is configured with the `flows-plugin` disabled (`plugins.flows.
 - **THEN** the dashboard SHALL not throw
 - **AND** no `FlowDashboard`, `FlowActivityBadge`, `FlowSummary`, or `FlowAgentDetail` SHALL render in the DOM
 
-### Requirement: FLOWS subcard availability is gated on extension presence, not flow count
-
-The flows-plugin's `shouldRenderFlowsSubcard` predicate (manifest `session-card-flows` claim) SHALL report the FLOWS subcard as available when the pi-flows extension is active in the session's cwd — detected by a flows-namespaced command in the session's `commandsList` (pi-flows registers `/flows` plus `flows:*` in every session it loads into) — OR when the session has any flow event (live or replayed). It SHALL NOT gate on `flowsList` length, so a cwd where pi-flows is active but no flows are authored yet still shows the subcard (the author-first-flow / edit-mode case). The removed `flows:new` command SHALL NOT be used as a signal.
-
-The availability cache SHALL remain closed-by-default (returns `false` until the first `commandsList` publish for the session) to avoid cold-boot flicker, and SHALL recompute on `commandsList` / `flowsList` publishes via the existing module-level subscriber.
-
-#### Scenario: Active-but-empty flows cwd shows the subcard
-- **WHEN** a session's `commandsList` contains a command named `flows` (pi-flows active) and its `flowsList` is empty
-- **THEN** `shouldRenderFlowsSubcard(session)` SHALL return `true`
-
-#### Scenario: Any flows-namespaced command counts as presence
-- **WHEN** a session's `commandsList` contains a command whose name starts with `flows:` (e.g. `flows:delete`)
-- **THEN** `shouldRenderFlowsSubcard(session)` SHALL return `true`
-
-#### Scenario: No flows command hides the subcard even if flows are listed
-- **WHEN** a session has a non-empty `flowsList` but no `flows` / `flows:*` command in `commandsList`
-- **THEN** `shouldRenderFlowsSubcard(session)` SHALL return `false`
-
-#### Scenario: A run keeps the subcard visible
-- **WHEN** a session has any `flow_*` event (live or replayed) regardless of its current `commandsList`
-- **THEN** `shouldRenderFlowsSubcard(session)` SHALL return `true`
-
-#### Scenario: Closed by default before first publish
-- **WHEN** no `commandsList` has been published for a session and it has no flow events
-- **THEN** `shouldRenderFlowsSubcard(session)` SHALL return `false`
-
-#### Scenario: `flows:new` is not a signal
-- **WHEN** availability is computed for a session
-- **THEN** the presence of (or absence of) a `flows:new` command SHALL NOT affect the result (the command was removed upstream)
-
 ### Requirement: Flows registers automation actions
 
 The flows plugin SHALL register `flows.run` as an automation action that dispatches by **emitting a configured event** into the run session (not by seeding a slash-command prompt), gated on flows existing in the cwd. The set of "flows in the cwd" SHALL be the live per-session flows list held by the flows-plugin server (`stateStore`, populated by the bridge-forwarded `flows_list`), resolved by mapping the cwd to its running pi session(s) via the plugin `sessionManager` and unioning their reported flows. The gate SHALL NOT be a static filesystem scan of `<cwd>/.pi/flows/flows/`, so package-bundled and event-registered flows (which pi-flows discovers at runtime) are reflected. `flows.run` SHALL declare a `flow` enum field (options = the same live cwd flows list) and a `task` multiline field. It SHALL declare `emits: ["flow:run"]`. Its `buildEvent` SHALL return `{ eventType: "flow:run", data: { flowName, task } }`; a malformed `flow` id SHALL emit nothing (`null`). Its event SHALL declare `completion: { eventType: "flow_complete" }`; run finalization is governed by `automation-run-lifecycle`.
@@ -170,3 +141,34 @@ The flows plugin SHALL NOT register `flows.resume` or `flows.cancel` — pi-flow
 
 - **WHEN** the flows plugin registers its actions
 - **THEN** neither `flows.resume` nor `flows.cancel` SHALL be present in the registry.
+
+### Requirement: Flow actions and the FLOWS subcard are gated separately
+
+The flows plugin SHALL use two gates:
+- **Actions gate.** Its `session-card-action-bar` claim, which renders Run Flow…, Open flow…, New / Edit… and Delete in the session actions menu, SHALL be gated by flows availability. Flows is available when the pi-flows extension is active in the session's cwd, detected by a command named `flows` or starting with `flows:` in the session's `commandsList`, OR when the session has any flow event (live or replayed). It SHALL NOT gate on `flowsList` length, so a cwd where pi-flows is active but no flows are authored yet still offers New / Edit… in edit mode. The removed `flows:new` command SHALL NOT be used as a signal.
+- **Subcard gate.** The `session-card-flows` claim (the FLOWS subcard, now carrying flow status only) SHALL render only when the session has any flow event (live or replayed).
+
+The availability cache SHALL remain closed by default (unavailable until the first `commandsList` publish for the session) and SHALL recompute on `commandsList` / `flowsList` publishes.
+
+The edit-mode reconcile, which pushes the global edit-flow default to the session once flows are available, SHALL run from the action-bar claim. That claim is mounted for the card's lifetime unless the per-plugin visibility filter hides the flows plugin, so the reconcile runs whether or not the FLOWS subcard or the menu is shown. When the filter hides the plugin, the reconcile does not run; the same holds for the FLOWS-subcard claim today.
+
+#### Scenario: Active-but-empty flows cwd offers authoring in the menu
+- **WHEN** a session's `commandsList` contains `flows`, its `flowsList` is empty, edit mode is on, and it has no flow events
+- **THEN** the session actions menu SHALL offer **New / Edit…**
+- **AND** no FLOWS subcard SHALL render
+
+#### Scenario: A run shows the FLOWS subcard
+- **WHEN** a session has any `flow_*` event (live or replayed)
+- **THEN** the FLOWS subcard SHALL render its flow status
+
+#### Scenario: No flows command and no events offers nothing
+- **WHEN** a session has a non-empty `flowsList` but no `flows` / `flows:*` command and no flow event
+- **THEN** no flow action SHALL appear in the menu and no FLOWS subcard SHALL render
+
+#### Scenario: Closed by default before first publish
+- **WHEN** no `commandsList` has been published for a session and it has no flow events
+- **THEN** no flow action SHALL appear and no FLOWS subcard SHALL render
+
+#### Scenario: Edit-mode reconcile runs without opening the menu
+- **WHEN** flows becomes available for a session and the menu has never been opened
+- **THEN** the edit-mode reconcile message SHALL be sent once for the current global default

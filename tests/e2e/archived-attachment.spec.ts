@@ -20,6 +20,7 @@
 import { execFileSync } from "node:child_process";
 import { expect, type Page, test } from "./fixtures.js";
 import { ensureGitSession, FIXTURE_GIT } from "./helpers/index.js";
+import { closeSessionMenu, expandMore, openSessionMenu, sessionMenuItem } from "./helpers/session-actions-menu.js";
 import { harnessProject } from "./lifecycle.js";
 
 const CHANGE = "e2e-archive-flip";
@@ -61,21 +62,27 @@ async function attachSeededChange(page: Page) {
   // Propose dialog once).
   await card.click({ position: { x: 6, y: 6 } });
   // Specs share one container: a previous spec may have left the session attached.
-  const combo = page.getByTestId("attach-combo").first();
-  if (!(await combo.isVisible({ timeout: 5_000 }).catch(() => false))) {
-    await page.getByTestId("openspec-overflow-btn").first().click();
-    await page.getByTestId("detach-btn").first().click();
-  }
-  // Cold container: the card re-lays out while the openspec poll settles, so a
-  // click can land on a neighbouring control (opened the Propose dialog once).
-  // Wait for the combo to be enabled with the seeded change counted, then click.
-  await expect(combo).toBeEnabled({ timeout: 60_000 });
-  await expect(combo).toContainText(/Attach change/, { timeout: 60_000 });
-  await page.waitForTimeout(500);
-  await combo.click();
+  // Attach / Detach are session-menu items now, so drive them through the menu.
+  await detachIfAttached(page);
+  // Cold container: the card re-lays out while the openspec poll settles. Wait for
+  // the Attach change… item to be enabled (changes counted), then activate it.
+  await openSessionMenu(page, card);
+  const attach = sessionMenuItem(page, "openspec-attach");
+  await expect(attach).toBeVisible({ timeout: 60_000 });
+  await expect(attach).not.toHaveAttribute("aria-disabled", "true", { timeout: 60_000 });
+  await attach.click();
   await page.getByText(CHANGE, { exact: false }).first().click();
   await page.getByTestId("attached-badge").first().waitFor({ state: "visible", timeout: 30_000 });
   return card;
+}
+
+/** Detach the shared session's attachment through the menu, when it has one. */
+async function detachIfAttached(page: Page): Promise<void> {
+  await openSessionMenu(page);
+  await expandMore(page, "openspec");
+  const detach = sessionMenuItem(page, "openspec-detach");
+  if (await detach.isVisible().catch(() => false)) await detach.click();
+  else await closeSessionMenu(page);
 }
 
 /** `mv` the change into the archive exactly like `openspec archive` does. Returns the entry date. */
@@ -93,8 +100,7 @@ test.describe("archived attachment (resolve-archived-attached-proposal)", () => 
   test.afterEach(async ({ page }) => {
     cleanupChange();
     // Best effort: leave the shared session unattached for later specs.
-    await page.getByTestId("openspec-overflow-btn").first().click({ timeout: 3_000 }).catch(() => {});
-    await page.getByTestId("detach-btn").first().click({ timeout: 3_000 }).catch(() => {});
+    await detachIfAttached(page).catch(() => {});
   });
 
   test("F8: a running session's card flips to Archived live — no reload, never Not found", async ({ page }) => {
@@ -114,9 +120,14 @@ test.describe("archived attachment (resolve-archived-attached-proposal)", () => 
     const badge = page.getByTestId("attachment-archived-badge").first();
     await expect(badge).toHaveText(`Archived ${today}`, { timeout: 60_000 });
     expect(await page.evaluate(() => (window as unknown as { __notFoundSeen: boolean }).__notFoundSeen)).toBe(false);
-    // Lifecycle UI is gone for an archived attachment.
-    await expect(page.getByTestId("apply-btn")).toHaveCount(0);
-    await expect(page.getByTestId("archive-btn")).toHaveCount(0);
+    // Lifecycle UI is gone for an archived attachment: no stepper on the card and
+    // no workflow item in the menu — only letters + Detach.
+    await expect(page.getByTestId("openspec-stepper")).toHaveCount(0);
+    await openSessionMenu(page);
+    await expect(sessionMenuItem(page, "openspec-apply")).toHaveCount(0);
+    await expect(sessionMenuItem(page, "openspec-archive")).toHaveCount(0);
+    await expect(sessionMenuItem(page, "openspec-detach")).toBeVisible();
+    await closeSessionMenu(page);
   });
 
   test("F11: letter P opens the archived proposal; browser Back restores the session view", async ({ page }) => {

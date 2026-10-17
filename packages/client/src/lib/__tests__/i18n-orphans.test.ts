@@ -96,3 +96,52 @@ describe("lifecycle bar i18n keys (E12)", () => {
     }
   });
 });
+
+/**
+ * Pairing-dialog remedy rows (test-plan E55). The `pairingApproval.*` copy lives
+ * as inline English defaults at the `i18nT(key, vars, "English")` call site (the
+ * dialog is a lazy island, not part of the catalogs), so "no orphan / missing
+ * key" means: the dialog source references exactly this set, each with a
+ * non-empty English default, and no catalog carries a stray copy of one.
+ * See change: fix-pairing-approval-credential.
+ */
+describe("pairing dialog remedy keys (E55)", () => {
+  const REMEDY_KEYS = [
+    "pairingApproval.remedy.intro",
+    "pairingApproval.remedy.authorizeBrowser",
+    "pairingApproval.remedy.approveOnHost",
+    "pairingApproval.remedy.signIn",
+    "pairingApproval.remedy.signInLink",
+    "pairingApproval.remedy.copyAuthorize",
+    "pairingApproval.remedy.copyApprove",
+    "pairingApproval.remedy.deviceCredential",
+  ] as const;
+  const dialogSource = readFileSync(
+    join(root, "src/components/pairing-approval/PairingApprovalDialog.tsx"),
+    "utf8",
+  );
+  /** `i18nT("key",<vars>, "default")` → { key → default } for the remedy namespace. */
+  const referenced = new Map<string, string>();
+  for (const m of dialogSource.matchAll(
+    /i18nT\(\s*"(pairingApproval\.remedy\.[A-Za-z]+)"\s*,\s*[^,]+,\s*"((?:[^"\\]|\\.)*)"/g,
+  )) {
+    referenced.set(m[1], m[2]);
+  }
+
+  it("the dialog references exactly the remedy keys — none missing, none orphaned", () => {
+    expect([...referenced.keys()].sort()).toEqual([...REMEDY_KEYS].sort());
+    // Every remedy-namespace literal in the source is one of the call sites above.
+    const literals = new Set([...dialogSource.matchAll(/"(pairingApproval\.remedy\.[A-Za-z]+)"/g)].map((m) => m[1]));
+    expect([...literals].sort()).toEqual([...REMEDY_KEYS].sort());
+  });
+
+  it("every remedy key carries a non-empty English default", () => {
+    for (const key of REMEDY_KEYS) {
+      expect(referenced.get(key)?.trim().length, `${key} has no English default`).toBeGreaterThan(0);
+    }
+  });
+
+  it("the English defaults never embed a confirmation code placeholder", () => {
+    for (const [key, text] of referenced) expect(text, key).not.toMatch(/\{(code|confirm)/i);
+  });
+});

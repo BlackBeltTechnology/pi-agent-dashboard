@@ -473,8 +473,8 @@ The shell SHALL NOT directly import or render any `Flow*` component.
 All flow rendering SHALL go through slot consumers populated by
 `flows-plugin` claims. Specifically:
 
-- `FlowActivityBadge` rendered via `session-card-badge` slot.
-- `SessionFlowActions` rendered via `session-card-flows` slot.
+- The flow status part of `SessionFlowActions` (the running / completed flow badge and its abort control) rendered via the `session-card-flows` slot, inside the FLOWS subcard.
+- The flow actions (Run Flow…, Open flow…, New / Edit…, Delete) rendered via the `session-card-action-bar` slot. On the desktop session card their output appears in the session actions menu's PLUGINS group.
 - `FlowDashboard` and `FlowArchitect` rendered via
   `content-header-sticky` slot.
 - `FlowAgentDetail`, `FlowArchitectDetail`, `FlowYamlPreview`
@@ -518,10 +518,11 @@ Slot consumers receive the standard prop contract for their slot
 
 #### Scenario: SessionFlowActions renders inside FLOWS subcard
 
-- **GIVEN** a session whose `flowsList` is non-empty OR whose `commandsList` includes `flows:new`
+- **GIVEN** a session with a running flow, whose `commandsList` includes a flows-namespaced command
 - **WHEN** the desktop session card is rendered
-- **THEN** `<SessionFlowActions>` SHALL render exactly once inside the FLOWS subcard via the `session-card-flows` slot
-- **AND** SHALL NOT render via the `session-card-action-bar` slot
+- **THEN** the flow status SHALL render exactly once inside the FLOWS subcard via the `session-card-flows` slot
+- **AND** the flow actions SHALL NOT render inside the FLOWS subcard
+- **AND** they SHALL render via the `session-card-action-bar` slot in the session actions menu's PLUGINS group
 
 ### Requirement: New plugin slot `session-card-flows` is reserved and consumed by FLOWS subcard
 

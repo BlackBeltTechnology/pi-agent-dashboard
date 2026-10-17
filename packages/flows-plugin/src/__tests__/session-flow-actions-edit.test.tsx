@@ -1,22 +1,26 @@
 /**
- * SessionFlowActions edit-mode gating + New/Edit launcher.
- * The New/Edit button shows only when editMode is on. Selecting a flow (or
- * "+ New flow") opens an intent-capture dialog; submitting it invokes
- * onEditFlow(name|undefined, instruction) so the claim can send
- * `/skill:manage-flows ...`. See change: rework-flows-plugin-for-new-pi-flows.
+ * SessionFlowMenuClaim edit-mode gating + New/Edit launcher.
+ * The New/Edit action shows only when editMode is on. Selecting a flow (or
+ * "+ New flow") opens an intent-capture dialog; submitting it makes the claim
+ * send `/skill:manage-flows ...`. See change: rework-flows-plugin-for-new-pi-flows,
+ * add-session-actions-flyout.
  */
 
 import {
+  CurrentPluginLayer,
   createUiPrimitiveRegistry,
+  PluginContextProvider,
+  publishSessionData,
   registerUiPrimitive,
   UiPrimitiveProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { initPluginConfigs } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import type { DashboardSession, FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SessionFlowActions } from "../client/SessionFlowActions.js";
+import { SessionFlowMenuClaim } from "../client/SessionFlowMenuClaim.js";
 
 const registry = createUiPrimitiveRegistry();
 registerUiPrimitive(registry, UI_PRIMITIVE_KEYS.confirmDialog, (() => null) as never);
@@ -42,49 +46,58 @@ registerUiPrimitive(
 
 const flows: FlowInfo[] = [{ name: "invoice-research" } as FlowInfo];
 
-function renderActions(props: Partial<React.ComponentProps<typeof SessionFlowActions>>) {
-  return render(
-    <UiPrimitiveProvider value={registry}>
-      <SessionFlowActions
-        flows={flows}
-        editMode={false}
-        onFlowAction={() => {}}
-        onEditFlow={() => {}}
-        {...props}
-      />
-    </UiPrimitiveProvider>,
-  );
+let n = 0;
+function renderActions({ editMode, send = () => {} }: { editMode: boolean; send?: (m: unknown) => void }) {
+  const sid = `edit-S-${++n}`;
+  publishSessionData(sid, "commandsList", [{ name: "flows" }]);
+  publishSessionData(sid, "flowsList", flows);
+  initPluginConfigs({ flows: { editFlow: editMode } });
+  return {
+    sid,
+    ...render(
+      <PluginContextProvider send={send}>
+        <UiPrimitiveProvider value={registry}>
+          <CurrentPluginLayer pluginId="flows">
+            <SessionFlowMenuClaim session={{ id: sid } as DashboardSession} />
+          </CurrentPluginLayer>
+        </UiPrimitiveProvider>
+      </PluginContextProvider>,
+    ),
+  };
 }
+const editButton = () => screen.queryByRole("button", { name: /New \/ Edit/ });
+const promptsSent = (send: ReturnType<typeof vi.fn>) =>
+  send.mock.calls.map(([m]) => m as { type: string; text?: string }).filter((m) => m.type === "send_prompt");
 
 afterEach(() => cleanup());
 
-describe("SessionFlowActions edit mode", () => {
+describe("SessionFlowMenuClaim edit mode", () => {
   it("hides New / Edit when edit mode is off", () => {
-    const { queryByTestId } = renderActions({ editMode: false });
-    expect(queryByTestId("flows-new-edit-button")).toBeNull();
+    renderActions({ editMode: false });
+    expect(editButton()).toBeNull();
   });
 
   it("shows New / Edit when edit mode is on", () => {
-    const { getByTestId } = renderActions({ editMode: true });
-    expect(getByTestId("flows-new-edit-button")).toBeTruthy();
+    renderActions({ editMode: true });
+    expect(editButton()).toBeTruthy();
   });
 
-  it("editing a flow prompts for an instruction, then calls onEditFlow(name, instruction)", () => {
-    const onEditFlow = vi.fn();
-    const { getByTestId, getByText } = renderActions({ editMode: true, onEditFlow });
-    fireEvent.click(getByTestId("flows-new-edit-button"));
+  it("editing a flow prompts for an instruction, then sends /skill:manage-flows <name>", () => {
+    const send = vi.fn();
+    const { sid, getByTestId, getByText } = renderActions({ editMode: true, send });
+    fireEvent.click(editButton()!);
     fireEvent.click(getByText("invoice-research"));
     // Intent dialog appears; edit instruction is optional → submit empty.
     const submit = getByTestId("flow-author-submit");
     expect(submit).toBeTruthy();
     fireEvent.click(submit);
-    expect(onEditFlow).toHaveBeenCalledWith("invoice-research", "");
+    expect(promptsSent(send)).toEqual([{ type: "send_prompt", sessionId: sid, text: "/skill:manage-flows invoice-research" }]);
   });
 
-  it("new flow requires a description before onEditFlow(undefined, text) fires", () => {
-    const onEditFlow = vi.fn();
-    const { getByTestId, getByText, getByPlaceholderText } = renderActions({ editMode: true, onEditFlow });
-    fireEvent.click(getByTestId("flows-new-edit-button"));
+  it("new flow requires a description before /skill:manage-flows <text> is sent", () => {
+    const send = vi.fn();
+    const { sid, getByTestId, getByText, getByPlaceholderText } = renderActions({ editMode: true, send });
+    fireEvent.click(editButton()!);
     fireEvent.click(getByText("+ New flow"));
     const submit = getByTestId("flow-author-submit") as HTMLButtonElement;
     // Required: disabled until text entered.
@@ -94,6 +107,6 @@ describe("SessionFlowActions edit mode", () => {
     });
     expect(submit.disabled).toBe(false);
     fireEvent.click(submit);
-    expect(onEditFlow).toHaveBeenCalledWith(undefined, "Summarize PRs");
+    expect(promptsSent(send)).toEqual([{ type: "send_prompt", sessionId: sid, text: "/skill:manage-flows Summarize PRs" }]);
   });
 });
