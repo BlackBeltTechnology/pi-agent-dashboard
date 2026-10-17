@@ -128,7 +128,7 @@ export function sanitizeNextPath(raw: unknown): string {
 }
 
 /** Subset of the minimal config `navigateToServer` needs (main passes `loadMinimalConfig()`). */
-export interface NavigateConfig {
+interface NavigateConfig {
   port: number;
   host?: string;
   knownServers: ReadonlyArray<{ host: string; port: number }>;

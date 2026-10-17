@@ -13,7 +13,7 @@ import vm from "node:vm";
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const LOADING_HTML = path.resolve(here, "..", "..", "resources", "loading.html");
 
-export interface StubElement {
+interface StubElement {
   style: Record<string, string>;
   textContent: string;
   disabled: boolean;
