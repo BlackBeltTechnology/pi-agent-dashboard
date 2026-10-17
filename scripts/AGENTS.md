@@ -64,6 +64,11 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/sync-served-client.test.mjs` | E15/E16/X3/X4: the `sync-served-client.mjs` outcome table over temp dirs — no-op (dest == source, source must… → see `__tests__/sync-served-client.test.mjs.AGENTS.md` |
 | `__tests__/verify-release-deps-client-build-deps.test.mjs` | Vitest tests for the E7 client build-dep rules in verify-release-deps.mjs. → see `__tests__/verify-release-deps-client-build-deps.test.mjs.AGENTS.md` |
 | `__tests__/theme-token-guard.test.mjs` | Scan/ratchet/bootstrap tests for all three guard arms. → see `__tests__/theme-token-guard.test.mjs.AGENTS.md` |
+| `__tests__/harness-audit-armed.test.mjs` | Armed rule + max lifetime + unscoped mode of project-scoped `docker/harness-audit.sh` (stub docker, injected poll/max). See change: add-missing-ci-legs. |
+| `__tests__/harness-recorder-helpers.mjs` | Shared docker stub + sandbox for the harness recorder tests (not a test file). See change: add-missing-ci-legs. |
+| `__tests__/site-drift-decision.test.mjs` | E21–E23/X7–X9: drift decision table, marker boundaries, LAST path set, fetch/`gh` faults (git fixture repos + stub `curl`/`gh`). See change: add-missing-ci-legs. |
+| `__tests__/test-down-recorder.test.mjs` | `test-down.sh` teardown marker, ≤10 s destroy wait, dead/absent recorder (stub docker). See change: add-missing-ci-legs. |
+| `__tests__/test-up-recorder.test.mjs` | `test-up.sh` lifecycle recorder: state fields, events path, ordering, re-up idempotence, best-effort faults. See change: add-missing-ci-legs. |
 | `__tests__/test-up-oversubscribe-guard.test.mjs` | Vitest tests for the co-resident harness oversubscription guard (change: stabilize-browser-e2e, #451 part 2)… → see `__tests__/test-up-oversubscribe-guard.test.mjs.AGENTS.md` |
 | `__tests__/test-up-port-derivation.test.mjs` | Vitest tests for parallel-worktree test-harness port/project derivation. → see `__tests__/test-up-port-derivation.test.mjs.AGENTS.md` |
 | `_windows-introspection-probe.ts` | Probe child for Windows introspection smoke. Imports real `isVirtualMachine` + `defaultGetCmdline` (relative… → see `_windows-introspection-probe.ts.AGENTS.md` |
@@ -100,6 +105,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `rebuild-and-restart.sh` | Build → verify served client → `pi-dashboard restart` → `npm run reload`. → see `rebuild-and-restart.sh.AGENTS.md` |
 | `rebuild-restart.sh` | Build (+ optional `--check` tsc) → verify served client (`node scripts/sync-served-client.mjs`) →… → see `rebuild-restart.sh.AGENTS.md` |
 | `refresh-vendor.mjs` | Owns the vendored-relay refresh: copy → verify upstream (in memory, before any write) → patch → rehash. → see `refresh-vendor.mjs.AGENTS.md` |
+| `site-drift-decision.mjs` | Decision script of `.github/workflows/site-drift-check.yml`: live `deploy-sha.txt` vs last site-relevant commit on `--ref` (push filter's path set); stale/unknown/missing marker → `::warning::` + `gh workflow run deploy-site.yml --ref develop`; skips (`::notice::`) while a deploy is queued/in progress or `gh run list` fails; exit 1 when the dispatch is rejected. See change: add-missing-ci-legs (#579). |
 | `sync-claude-plugin.mjs` | Derives the control skill's `references/api-reference.md` from the extension skill's (drops the bus-verbs section; fails when the heading is absent). `transformApiReference`, `SECTION_HEADING`. See change: add-claude-code-plugin. |
 | `sync-served-client.mjs` | Resolves the served destination via the SERVER's `resolveStaticClientDir` (jiti) and mirrors the fresh… → see `sync-served-client.mjs.AGENTS.md` |
 | `heap-probe.mjs` | CDP heap probe for a RUNNING dashboard: `SIGUSR1`s the pid (from `--pid` or `/api/health`), attaches to… → see `heap-probe.mjs.AGENTS.md` |

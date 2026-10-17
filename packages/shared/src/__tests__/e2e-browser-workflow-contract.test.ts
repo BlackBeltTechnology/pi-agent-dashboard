@@ -299,3 +299,176 @@ describe("ci-e2e-browser.yml — browser-relay variant leg", () => {
     expect(job).toMatch(/docker\/test-down\.sh/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Variant legs `e2e-team` / `e2e-identity-matrix` (change: add-missing-ci-legs,
+// #861). The pure check below takes the three artifacts as strings so every
+// failure class is exercised on a mutated copy of the real workflow.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DOCKERFILE = fs.readFileSync(path.join(REPO_ROOT, "docker", "Dockerfile"), "utf8");
+const PLAYWRIGHT_CONFIG = fs.readFileSync(path.join(REPO_ROOT, "playwright.config.ts"), "utf8");
+
+const TEAM_BUILD = "build:app --workspace=@blackbelt-technology/pi-dashboard-team-plugin";
+const REPORT_NAME: Record<string, string> = {
+  "e2e-team": "playwright-report-team",
+  "e2e-identity-matrix": "playwright-report-identity-matrix",
+};
+const LEG_CONFIG: Record<string, string> = {
+  "e2e-team": "playwright.team.config.ts",
+  "e2e-identity-matrix": "playwright.identity-matrix.config.ts",
+};
+
+/** Normalised job-level `if:` expression of `id` ("" when absent). */
+function jobIf(block: string): string {
+  const m = block.match(/^ {4}if:\s*>-?\n((?: {6}.*\n?)+)/m) ?? block.match(/^ {4}if:\s*(.+)$/m);
+  return (m?.[1] ?? "").replace(/\s+/g, " ").trim();
+}
+
+/** The exact `continue-on-error:` line of a job ("" when absent). */
+function jobContinueOnError(block: string): string {
+  return block.match(/^ {4}continue-on-error:.*$/m)?.[0].trim() ?? "";
+}
+
+/** Pinned `pi-coding-agent@<v>` literal in a text, or null. */
+function piPin(text: string): string | null {
+  return text.match(/@earendil-works\/pi-coding-agent@(\S+)/)?.[1] ?? null;
+}
+
+/** Every contract violation of the two variant legs; each names job id + clause. */
+export function variantLegViolations(workflow: string, dockerfile: string, config: string): string[] {
+  const out: string[] = [];
+  const shard = jobBlock(workflow, "e2e");
+  const shardIf = jobIf(shard);
+  const shardCoe = jobContinueOnError(shard);
+  const ignoresTeam = /testIgnore:[^\]]*tests\/e2e\/team\/\*\*/.test(config);
+  const ignoresIdentity = /testIgnore:[^\]]*tests\/e2e\/identity-matrix\/\*\*/.test(config);
+
+  for (const id of Object.keys(LEG_CONFIG)) {
+    const block = jobBlock(workflow, id);
+    if (block === "") {
+      // Spike-fallback shape (design D3): team leg + its testIgnore entry may be
+      // absent TOGETHER; the identity leg is unconditional.
+      if (id !== "e2e-team" || ignoresTeam) out.push(`${id}: job missing`);
+      continue;
+    }
+    if (jobIf(block) !== shardIf) out.push(`${id}: \`if:\` gate differs from the shard matrix's`);
+    if (jobContinueOnError(block) !== shardCoe) out.push(`${id}: \`continue-on-error\` differs from the shard matrix's`);
+    if (!/^ {4}timeout-minutes:\s*\d+\s*$/m.test(block)) out.push(`${id}: timeout-minutes missing`);
+
+    const runAt = block.search(/playwright test\b/);
+    const buildClient = block.search(/run:\s*pnpm run build\s*$/m);
+    if (buildClient === -1 || (runAt !== -1 && buildClient > runAt)) out.push(`${id}: \`pnpm run build\` step missing or after playwright test`);
+    if (id === "e2e-team") {
+      const teamBuild = block.search(new RegExp(`run:\\s*npm run ${TEAM_BUILD.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m"));
+      if (teamBuild === -1 || (runAt !== -1 && teamBuild > runAt)) out.push(`${id}: team-app build step missing or after playwright test (no reliance on pretest:*)`);
+    }
+
+    const pin = piPin(block);
+    const dockerPin = piPin(dockerfile);
+    if (pin !== dockerPin) out.push(`${id}: pi pin \`${pin}\` != docker/Dockerfile pin \`${dockerPin}\``);
+
+    if (!block.includes(`--config ${LEG_CONFIG[id]}`)) out.push(`${id}: does not run ${LEG_CONFIG[id]}`);
+    if (!/--reporter=list,html\b/.test(block)) out.push(`${id}: no \`--reporter=list,html\` (own HTML report)`);
+    const upload = block.match(/- name: Upload HTML report\n((?: {8}.*\n?)+)/)?.[1] ?? "";
+    if (!/if:\s*\$\{\{\s*always\(\)\s*\}\}/.test(upload)) out.push(`${id}: report upload missing or not \`if: always()\``);
+    const artifact = upload.match(/name:\s*(\S+)/)?.[1];
+    if (artifact !== REPORT_NAME[id]) out.push(`${id}: report artifact \`${artifact}\` must be named \`${REPORT_NAME[id]}\``);
+  }
+
+  const needs = jobBlock(workflow, "merge-report").match(/^ {4}needs:\s*\[([^\]]*)\]/m)?.[1].replace(/\s+/g, "");
+  if (needs !== "e2e,e2e-browser-relay") out.push(`merge-report: needs must stay [e2e, e2e-browser-relay] (got [${needs}])`);
+
+  // Cross-read with playwright.config.ts: ownership must match the legs that exist.
+  const hasTeamJob = jobBlock(workflow, "e2e-team") !== "";
+  if (ignoresTeam && !hasTeamJob) out.push("tests/e2e/team ignored but no leg runs playwright.team.config.ts");
+  if (!ignoresTeam && hasTeamJob) out.push("e2e-team exists but the default config still collects tests/e2e/team");
+  if (!ignoresIdentity) out.push("tests/e2e/identity-matrix not ignored by the default config (double run)");
+  return out;
+}
+
+describe("ci-e2e-browser.yml — team / identity-matrix variant legs (#861)", () => {
+  const check = (wf = yaml, df = DOCKERFILE, cfg = PLAYWRIGHT_CONFIG) => variantLegViolations(wf, df, cfg);
+  const mutate = (from: string | RegExp, to: string, text = yaml): string => {
+    const next = text.replace(from, to);
+    expect(next, "fixture mutation did not change the workflow").not.toBe(text);
+    return next;
+  };
+  /** Mutate only inside one job block. */
+  const mutateJob = (id: string, from: string | RegExp, to: string): string => {
+    const block = jobBlock(yaml, id);
+    return yaml.replace(block, mutate(from, to, block));
+  };
+
+  it("the real workflow satisfies the whole variant-leg contract", () => {
+    expect(check()).toEqual([]);
+  });
+
+  it("(E1) a deleted leg fails naming the job id", () => {
+    for (const id of ["e2e-team", "e2e-identity-matrix"]) {
+      const without = yaml.replace(jobBlock(yaml, id), "");
+      expect(check(without).join("\n")).toContain(`${id}: job missing`);
+    }
+  });
+
+  it("(E2) the gate and continue-on-error must be the shard matrix's verbatim copy", () => {
+    expect(check(mutateJob("e2e-team", /\n {6}contains\(github\.event\.pull_request\.labels\.\*\.name, 'e2e-browser'\)/, "\n      true")).join("\n")).toContain("e2e-team: `if:` gate");
+    expect(check(mutateJob("e2e-team", /continue-on-error:.*/, "continue-on-error: true")).join("\n")).toContain("e2e-team: `continue-on-error`");
+    expect(check(mutateJob("e2e-identity-matrix", /\n {4}continue-on-error:.*/, "")).join("\n")).toContain("e2e-identity-matrix: `continue-on-error`");
+  });
+
+  it("(E4) explicit, correctly ordered build steps — identity needs no team build", () => {
+    expect(check(mutateJob("e2e-team", /\n {6}- name: Build team app\n.*\n.*\n/, "\n")).join("\n")).toContain("e2e-team: team-app build");
+    // `pnpm run build` moved after the playwright step
+    const block = jobBlock(yaml, "e2e-team");
+    const buildStep = block.match(/ {6}- name: Build client\n.*\n/)![0];
+    const moved = block.replace(buildStep, "").replace(/(\n {6}- name: Upload HTML report)/, `\n${buildStep.trimEnd()}$1`);
+    expect(check(yaml.replace(block, moved)).join("\n")).toContain("e2e-team: `pnpm run build`");
+    // identity leg carries no team build and still passes
+    expect(jobBlock(yaml, "e2e-identity-matrix")).not.toContain("build:app");
+    expect(check().filter((v) => v.startsWith("e2e-identity-matrix"))).toEqual([]);
+  });
+
+  it("(E5) every variant leg declares timeout-minutes", () => {
+    expect(check(mutateJob("e2e-identity-matrix", /\n {4}timeout-minutes:.*/, "")).join("\n")).toContain("e2e-identity-matrix: timeout-minutes missing");
+  });
+
+  it("(E3) the pi pin equals the Dockerfile pin exactly; the package.json floor is never consulted", () => {
+    const dockerLiteral = piPin(DOCKERFILE);
+    expect(dockerLiteral, "docker/Dockerfile no longer pins pi").toMatch(/^\d+\.\d+\.\d+$/);
+    for (const wrong of ["1.1.1", "1.0.9", "latest", ">=1.1.0"]) {
+      const v = check(mutateJob("e2e-team", /pi-coding-agent@\S+/, `pi-coding-agent@${wrong}`)).join("\n");
+      expect(v).toContain(`pi pin \`${wrong}\` != docker/Dockerfile pin \`${dockerLiteral}\``);
+    }
+    const unpinned = check(mutateJob("e2e-team", /pi-coding-agent@\S+/, "pi-coding-agent")).join("\n");
+    expect(unpinned).toContain("pi pin `null`");
+    // Dockerfile bumped, workflow not → fails naming both literals.
+    const bumped = DOCKERFILE.replace(`pi-coding-agent@${dockerLiteral}`, "pi-coding-agent@1.2.0");
+    expect(check(yaml, bumped).join("\n")).toContain(`\`${dockerLiteral}\` != docker/Dockerfile pin \`1.2.0\``);
+  });
+
+  it("(E34) each variant leg publishes its own HTML report and stays out of merge-report", () => {
+    expect(check(mutateJob("e2e-team", "--reporter=list,html", "--reporter=list")).join("\n")).toContain("e2e-team: no `--reporter=list,html`");
+    const noUpload = jobBlock(yaml, "e2e-team").replace(/ {6}- name: Upload HTML report\n(?: {8}.*\n?)+/, "");
+    expect(check(yaml.replace(jobBlock(yaml, "e2e-team"), noUpload)).join("\n")).toContain("e2e-team: report upload missing");
+    expect(check(mutateJob("e2e-team", /(Upload HTML report\n {8}if: )\$\{\{ always\(\) \}\}/, "$1success()")).join("\n")).toContain("not `if: always()`");
+    expect(check(mutateJob("e2e-team", "name: playwright-report-team", "name: blob-report-team")).join("\n")).toContain("`blob-report-team` must be named `playwright-report-team`");
+    expect(check(mutateJob("e2e-identity-matrix", "name: playwright-report-identity-matrix", "name: playwright-report")).join("\n")).toContain("e2e-identity-matrix: report artifact `playwright-report`");
+    expect(check(mutate("needs: [e2e, e2e-browser-relay]", "needs: [e2e, e2e-browser-relay, e2e-team]")).join("\n")).toContain("merge-report: needs must stay");
+  });
+
+  it("(E8) the workflow legs and the default config's testIgnore agree", () => {
+    const both = PLAYWRIGHT_CONFIG;
+    expect(check(yaml, DOCKERFILE, both)).toEqual([]);
+    // (b) spike-fallback shape: identity only — no team job, no team ignore entry
+    const noTeamJob = yaml.replace(jobBlock(yaml, "e2e-team"), "");
+    const identityOnlyCfg = both.replace(', "tests/e2e/team/**"', "");
+    expect(identityOnlyCfg).not.toBe(both);
+    expect(check(noTeamJob, DOCKERFILE, identityOnlyCfg)).toEqual([]);
+    // (c) team ignored but no leg runs it
+    expect(check(noTeamJob, DOCKERFILE, both).join("\n")).toContain("tests/e2e/team ignored but no leg runs playwright.team.config.ts");
+    // (d) identity ignore removed
+    const noIdentityIgnore = both.replace(', "tests/e2e/identity-matrix/**"', "");
+    expect(check(yaml, DOCKERFILE, noIdentityIgnore).join("\n")).toContain("tests/e2e/identity-matrix not ignored");
+  });
+});

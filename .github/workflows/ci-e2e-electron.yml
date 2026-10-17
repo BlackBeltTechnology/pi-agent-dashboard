@@ -5,16 +5,39 @@ name: CI Electron E2E
 # foreign row. Packages the app (electron-forge package) then runs the specs.
 # Matrix: ubuntu-latest (POSIX zombie branch, under xvfb) + windows-latest (the
 # win32 `decideIsZombie` branch — bootParentAlive-only — in the REAL app; task
-# 7.4b detection safety net).
+# 7.4b detection safety net) + macos-latest (darwin native-surface path, #531).
 #
-# Cadence (change: run-electron-e2e-native-surface): workflow_dispatch (on
-# demand) + a pull_request path-filter so only electron-touching PRs pay the
-# ~5–8 min cost. ADVISORY — not a required check (no branch-protection gate);
-# the job-object-windows job is `continue-on-error`.
+# Cadence (change: run-electron-e2e-native-surface, add-missing-ci-legs): the
+# `electron-e2e` matrix is keyed on `github.event_name` ONLY (defined on every
+# event), so GitHub-hosted macOS minutes (10x billing) never land on the PR path:
+#
+#   event                      ubuntu  windows  macOS  job-object-windows  runtime-overlay-e2e
+#   pull_request (path filter)   x       x        -           x                    x
+#   workflow_dispatch (any ref)  x       x        x           x                    x
+#   schedule (nightly, default)  -       -        x           -                    -
+#
+# Opt a PR in (any PR, incl. an Electron major bump outside the path filter):
+#   gh workflow run ci-e2e-electron.yml --ref <branch>
+# There is deliberately NO `labeled` trigger: an unrelated label event would
+# join the per-ref concurrency group and cancel the in-flight run.
+# ADVISORY — not a required check (no branch-protection gate); no matrix leg is
+# `continue-on-error` (a darwin regression must turn the run red, not hide);
+# job-object-windows alone is `continue-on-error`. macOS is arm64 only (the app
+# is packaged and run on the same runner, so arch matches by construction).
+# COVERAGE GAP (#531): while the `test.fixme(process.platform === "darwin", …/issues/531)`
+# quarantine in tests/e2e-electron/zombie-adoption.electron.spec.ts stands, the
+# macOS leg does NOT cover zombie-adoption (all three of its tests hang on
+# darwin); it covers the remaining native-surface specs (Doctor version-skew,
+# tray foreign row). Exit criteria are recorded on #531.
+# Locked by packages/shared/src/__tests__/e2e-electron-workflow-contract.test.ts.
 # See change: electron-attach-ownership-fixes (harness), run-electron-e2e-native-surface (cadence).
 
 on:
   workflow_dispatch:
+  # Nightly, macOS only (see the matrix expression); every other job is gated
+  # off `schedule` below.
+  schedule:
+    - cron: '17 3 * * *'
   pull_request:
     branches: [develop]
     paths:
@@ -44,7 +67,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: ${{ fromJSON(
+          github.event_name == 'schedule' && '["macos-latest"]' ||
+          github.event_name == 'workflow_dispatch' && '["ubuntu-latest","windows-latest","macos-latest"]' ||
+          '["ubuntu-latest","windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -88,9 +114,11 @@ jobs:
         run: xvfb-run -a pnpm run test:e2e:electron
         env:
           CI: "1"
-      - name: Run Electron E2E (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+      # Windows + macOS: both have a desktop session, so Electron launches
+      # directly. `!= 'Linux'` (not `== 'Windows'`) so the macOS leg actually
+      # runs specs instead of packaging the app and going green on nothing.
+      - name: Run Electron E2E (Windows, macOS)
+        if: runner.os != 'Linux'
         run: pnpm run test:e2e:electron
         env:
           CI: "1"
@@ -114,6 +142,7 @@ jobs:
   # skip there). ADVISORY like the rest of this workflow.
   # See change: electron-runtime-release-pipeline (tasks 3.1–3.4).
   runtime-overlay-e2e:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -190,6 +219,7 @@ jobs:
           retention-days: 14
 
   job-object-windows:
+    if: github.event_name != 'schedule'
     runs-on: windows-latest
     # Advisory: exercising the Job Object cascade needs the packaged app's FULL
     # spawn path to boot a real server, which a lightweight `electron-forge

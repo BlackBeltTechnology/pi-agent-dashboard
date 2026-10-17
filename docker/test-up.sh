@@ -83,6 +83,70 @@ else
   fi
 fi
 
+# ---------------------------------------------------------------- lifecycle recorder
+# #451 part 1 (change: add-missing-ci-legs, design D7). A worktree's harness
+# container was once destroyed mid-run by something outside its own test-down.sh
+# and the run reported a wall of unattributable failures. The evidence has to
+# exist BEFORE the incident, so the recorder is started HERE (every caller — the
+# Playwright managed mode, ship-it, a developer — goes through this script),
+# scoped to THIS project, before `compose up` so the create/start lines are kept.
+# The events file lives under $TMPDIR, NOT in the worktree: ship-it removes the
+# worktree right after teardown, which would delete an in-worktree record.
+# Best-effort: any "no working recorder" cause (events stream cannot be opened,
+# events dir unwritable) prints ONE warning line and the harness boots normally.
+EVENTS_DIR="$(printf '%s' "${TMPDIR:-/tmp}" | sed 's:/*$::')/pi-dash-test"
+EVENTS_FILE="${EVENTS_DIR}/${COMPOSE_PROJECT_NAME}.events.log"
+RECORDER_PID=""
+CONTAINER_ID=""
+
+state_field() { # <field> — scalar field of the PRIOR state file ("" when absent)
+  [ -f "$STATE_FILE" ] || return 0
+  sed -n "s/.*\"$1\"[: ]*\"\{0,1\}\([^\",} ]*\).*/\1/p" "$STATE_FILE" | head -1
+}
+PRIOR_RECORDER_PID="$(state_field recorderPid)"
+PRIOR_CONTAINER_ID="$(state_field containerId)"
+PRIOR_EVENTS_FILE="$(state_field eventsFile)"
+
+start_recorder() {
+  # Idempotent re-up: reuse a live recorder instead of spawning a second one.
+  if [[ "$PRIOR_RECORDER_PID" =~ ^[0-9]+$ ]] && kill -0 "$PRIOR_RECORDER_PID" 2>/dev/null; then
+    RECORDER_PID="$PRIOR_RECORDER_PID"
+    [ -n "$PRIOR_EVENTS_FILE" ] && EVENTS_FILE="$PRIOR_EVENTS_FILE"
+    return 0
+  fi
+  local reason="" errf
+  if ! mkdir -p "$EVENTS_DIR" 2>/dev/null || ! : >> "$EVENTS_FILE" 2>/dev/null; then
+    reason="events dir ${EVENTS_DIR} is not writable"
+  else
+    errf="$(mktemp "${EVENTS_DIR}/.recorder-err.XXXXXX" 2>/dev/null || mktemp)"
+    nohup "${SCRIPT_DIR}/harness-audit.sh" "$EVENTS_FILE" "$COMPOSE_PROJECT_NAME" </dev/null >/dev/null 2>"$errf" &
+    RECORDER_PID=$!
+    disown "$RECORDER_PID" 2>/dev/null || true
+    sleep 0.5 # an unusable `docker events` (permissions, no daemon) exits at once
+    if ! kill -0 "$RECORDER_PID" 2>/dev/null; then
+      reason="$(grep -v '^harness-audit:' "$errf" 2>/dev/null | head -1 || true)"
+      [ -n "$reason" ] || reason="docker events exited"
+      RECORDER_PID=""
+    fi
+    rm -f "$errf"
+  fi
+  if [ -z "$RECORDER_PID" ]; then
+    echo "harness-audit: lifecycle capture unavailable (${reason}); continuing" >&2
+  fi
+  return 0
+}
+start_recorder
+
+# A failed boot must not leak the recorder it started; a successful one hands
+# it to test-down.sh (or its own armed self-termination).
+UP_OK=0
+stop_recorder_on_failure() {
+  if [ "$UP_OK" != "1" ] && [ -n "$RECORDER_PID" ] && [ "$RECORDER_PID" != "$PRIOR_RECORDER_PID" ]; then
+    kill "$RECORDER_PID" 2>/dev/null || true
+  fi
+}
+trap 'stop_recorder_on_failure' EXIT # replaced (superset) once UP_STDERR exists
+
 # Whether WE own the chosen ports (derived/reused) and may re-derive them on a
 # bind-race retry, vs. pinned verbatim by an external caller (contract: honour
 # exactly, never re-derive). Set to 1 only in the verbatim branch below.
@@ -161,8 +225,13 @@ export PI_E2E_GOOGLE_BASE_URL="${PI_E2E_GOOGLE_BASE_URL:-http://127.0.0.1:18090}
 # Record the resolved ports + project for teardown + the Playwright lifecycle.
 # Gitignored; harmless inside the container (read-only overlay lower).
 write_state_file() {
+  local extra=""
+  if [ -n "$RECORDER_PID" ]; then
+    extra=", \"recorderPid\": ${RECORDER_PID}, \"eventsFile\": \"${EVENTS_FILE}\""
+  fi
+  [ -n "$CONTAINER_ID" ] && extra="${extra}, \"containerId\": \"${CONTAINER_ID}\""
   cat > "$STATE_FILE" <<EOF
-{ "project": "${COMPOSE_PROJECT_NAME}", "dashboardPort": ${DASHBOARD_PORT}, "gatewayPort": ${PI_GATEWAY_PORT} }
+{ "project": "${COMPOSE_PROJECT_NAME}", "dashboardPort": ${DASHBOARD_PORT}, "gatewayPort": ${PI_GATEWAY_PORT}${extra} }
 EOF
 }
 write_state_file
@@ -202,7 +271,7 @@ echo "────────────────────────�
 # See change fix-parallel-e2e-docker-collisions D2.
 MAX_BIND_RETRIES=5
 UP_STDERR="$(mktemp)"
-trap 'rm -f "$UP_STDERR"' EXIT
+trap 'rm -f "$UP_STDERR"; stop_recorder_on_failure' EXIT
 attempt=0
 while true; do
   # Capture docker's stderr through a REAL pipe (not process substitution): bash
@@ -230,3 +299,20 @@ while true; do
   export DASHBOARD_PORT PI_GATEWAY_PORT
   write_state_file
 done
+
+# Compose is up. Record WHICH container this boot produced: the boot line, the
+# teardown marker and any destroy line are all matched by container ID (the
+# project name is stable across boots, the ID is not), so an earlier boot's
+# teardown can never explain away a foreign destroy of this boot's container.
+# Attached (no -d) runs never reach here while the harness lives; there the
+# recorder writes the boot line itself when it sees the create event.
+UP_OK=1
+if [ -n "$RECORDER_PID" ]; then
+  CONTAINER_ID="$(docker compose -p "$COMPOSE_PROJECT_NAME" ps -q 2>/dev/null | head -1 || true)"
+  if [ -n "$CONTAINER_ID" ]; then
+    if [ "$CONTAINER_ID" != "$PRIOR_CONTAINER_ID" ] && ! grep -q "^boot .* ${CONTAINER_ID}\$" "$EVENTS_FILE" 2>/dev/null; then
+      printf 'boot %s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$COMPOSE_PROJECT_NAME" "$CONTAINER_ID" >> "$EVENTS_FILE" 2>/dev/null || true
+    fi
+    write_state_file
+  fi
+fi

@@ -62,6 +62,12 @@ test.afterEach(async () => {
 });
 
 test("shows the adoption modal with the zombie PID", async () => {
+  // #531 quarantine (darwin only, narrowest scope): the launch/close path hangs
+  // on macOS under Electron 43.4.1 and the previous 32.3.3 pin. Exit criteria:
+  // removed in the PR that fixes #531; re-tested on every Electron major bump via
+  // `gh workflow run ci-e2e-electron.yml --ref <branch>`.
+  // See change: add-missing-ci-legs (design D5).
+  test.fixme(process.platform === "darwin", "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/531");
   server = await startFakeHealthServer(zombieHealth);
   home = makeThrowawayHome(server.port);
   app = await launchElectron({ home, zombiePrompt: true });
@@ -78,6 +84,12 @@ test("shows the adoption modal with the zombie PID", async () => {
 });
 
 test("--no-zombie-prompt suppresses the modal", async () => {
+  // #531 quarantine (darwin only, narrowest scope): the launch/close path hangs
+  // on macOS under Electron 43.4.1 and the previous 32.3.3 pin. Exit criteria:
+  // removed in the PR that fixes #531; re-tested on every Electron major bump via
+  // `gh workflow run ci-e2e-electron.yml --ref <branch>`.
+  // See change: add-missing-ci-legs (design D5).
+  test.fixme(process.platform === "darwin", "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/531");
   server = await startFakeHealthServer(zombieHealth);
   home = makeThrowawayHome(server.port);
   app = await launchElectron({ home, zombiePrompt: false });
@@ -91,6 +103,12 @@ test("--no-zombie-prompt suppresses the modal", async () => {
 });
 
 test("Take ownership → tray flips to electron-owned (Restart server)", async () => {
+  // #531 quarantine (darwin only, narrowest scope): the launch/close path hangs
+  // on macOS under Electron 43.4.1 and the previous 32.3.3 pin. Exit criteria:
+  // removed in the PR that fixes #531; re-tested on every Electron major bump via
+  // `gh workflow run ci-e2e-electron.yml --ref <branch>`.
+  // See change: add-missing-ci-legs (design D5).
+  test.fixme(process.platform === "darwin", "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/531");
   server = await startFakeHealthServer(zombieHealth);
   home = makeThrowawayHome(server.port);
   app = await launchElectron({ home, zombiePrompt: true });
