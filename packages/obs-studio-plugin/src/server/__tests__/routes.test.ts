@@ -235,3 +235,30 @@ describe("P2 state cache + bridge idle", () => {
     expect(Date.now() - t0).toBeGreaterThanOrEqual(110);
   });
 });
+
+describe("review follow-ups (non-blocking findings of round 1)", () => {
+  it("a failed state read is not cached for the window", async () => {
+    const { createStateReader } = await import("../service-state.js");
+    let calls = 0;
+    const reader = createStateReader({
+      async run() {
+        calls++;
+        if (calls === 1) throw new Error("spawn failed");
+        return { code: 0, stdout: JSON.stringify({ ok: true, data: { state: "healthy" } }), stderr: "" };
+      },
+    });
+    await expect(reader.read("obs")).rejects.toThrow("spawn failed");
+    expect((await reader.read("obs")).state).toBe("healthy");
+    expect(calls).toBe(2);
+  });
+
+  it("an endpoint change reopens the bridge", async () => {
+    const { bridges, children } = await mk();
+    await bridges.request("obs", "ws://127.0.0.1:4455", "status");
+    await bridges.request("obs", "ws://127.0.0.1:4456", "status");
+    expect(children).toHaveLength(2);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(children[0].stdinEnded).toBe(true);
+    expect(children[1].argv.at(-1)).toBe("ws://127.0.0.1:4456");
+  });
+});

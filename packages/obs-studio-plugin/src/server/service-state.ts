@@ -47,6 +47,10 @@ export function createStateReader(cli: DashboardCli, now: () => number = Date.no
       if (hit && now() - hit.at < ttlMs) return hit.value;
       const value = load(id);
       cache.set(id, { at: now(), value });
+      // A failed read (CLI could not be spawned) is not cached for the window: retry on the next poll.
+      value.catch(() => {
+        if (cache.get(id)?.value === value) cache.delete(id);
+      });
       return value;
     },
     invalidate: (id) => cache.delete(id),

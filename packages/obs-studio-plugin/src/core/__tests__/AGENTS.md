@@ -7,6 +7,7 @@ Never talk to real OBS: `fake-obs.ts` (obs-websocket v5 over `ws`) + `obs-model.
 | `cli-harness.ts` | `runCli`, `baseDeps`, `recordingCli`, temp home, `writeServices`. |
 | `connection.test.ts` | E1 resolution decision table, X1 closed port / auth-failed / Hello withheld / unanswered request. |
 | `fake-obs.ts` | Fake server: Hello/Identify with real auth challenge, scripted handlers, frame log, `withholdHello`. |
+| `instances.test.ts` | Registry prune is best-effort (read-only state dir does not fail the read). |
 | `install-doctor-stop.test.ts` | E12 install (plan, no brew, no digest, zip-slip/symlink), E13 doctor log fixtures, E14 stop. |
 | `launch.test.ts` | E8 strike table, E9 races + retention + darwin argv. |
 | `obs-model.ts` | Scenes/inputs/filters/outputs model; 601 on taken names. |

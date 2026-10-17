@@ -48,6 +48,7 @@ interface Pending {
 }
 
 interface Bridge {
+  url: string;
   child: ChildProcess;
   pending: Map<number, Pending>;
   exited: boolean;
@@ -95,10 +96,14 @@ export class BridgeManager {
 
   private open(id: string, url: string): Bridge {
     const existing = this.bridges.get(id);
-    if (existing && !existing.exited && !existing.ending) return existing;
+    if (existing && !existing.exited && !existing.ending) {
+      if (existing.url === url) return existing;
+      // The definition's endpoint changed (re-provision): never keep talking to the old one.
+      void this.terminate(id, existing);
+    }
     const argv = this.argvFor(id, url);
     const child = this.deps.spawn(argv);
-    const b: Bridge = { child, pending: new Map(), exited: false, ending: false };
+    const b: Bridge = { url, child, pending: new Map(), exited: false, ending: false };
     this.bridges.set(id, b);
     const s = this.stat(id);
     if (child.stdout) {

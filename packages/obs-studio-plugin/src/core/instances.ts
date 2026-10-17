@@ -33,8 +33,12 @@ export function readInstances(state: string, hasDefinition: (id: string) => bool
   const ids = readIds(state);
   const live = ids.filter(hasDefinition);
   if (live.length !== ids.length) {
-    ensureStateDir(state);
-    writeJsonAtomic(instancesFile(state), { instances: live });
+    try {
+      ensureStateDir(state);
+      writeJsonAtomic(instancesFile(state), { instances: live });
+    } catch {
+      // Pruning is best-effort: a read path never fails because the state dir is read-only.
+    }
   }
   return live;
 }
