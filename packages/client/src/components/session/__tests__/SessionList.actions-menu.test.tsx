@@ -55,6 +55,13 @@ function make(id: string, cwd: string): DashboardSession {
   return { id, cwd, source: "tui", status: "idle", startedAt: Date.now() - 60_000, gitBranch: "main" } as DashboardSession;
 }
 
+/** The hover controller is a code-split chunk: wait for it to be installed. */
+async function hoverReady(): Promise<void> {
+  await act(async () => {
+    await vi.dynamicImportSettled();
+  });
+}
+
 function list(sessions: DashboardSession[], extra: Partial<React.ComponentProps<typeof SessionList>> = {}) {
   return (
     <Router_>
@@ -111,9 +118,10 @@ describe("hover strip through the list's document listener", () => {
     target.dispatchEvent(e);
   }
 
-  it("a dwell in the strip opens the card's menu without moving focus; Escape closes it", () => {
+  it("a dwell in the strip opens the card's menu without moving focus; Escape closes it", async () => {
     vi.useFakeTimers();
     render(list([make("s1", "/a")]));
+    await hoverReady();
     const li = stripOf("s1");
     const input = document.createElement("input");
     document.body.appendChild(input);
@@ -129,10 +137,11 @@ describe("hover strip through the list's document listener", () => {
     expect(document.activeElement).toBe(input);
   });
 
-  it("never arms on a device without fine hover, while the trigger still opens the menu (F10)", () => {
+  it("never arms on a device without fine hover, while the trigger still opens the menu (F10)", async () => {
     fineHover = false;
     vi.useFakeTimers();
     render(list([make("s1", "/a")]));
+    await hoverReady();
     const li = stripOf("s1");
     act(() => {
       move(li.querySelector("span.font-semibold") as Element, 290);
@@ -143,9 +152,10 @@ describe("hover strip through the list's document listener", () => {
     expect(screen.getByTestId("session-actions-menu-s1")).toBeTruthy();
   });
 
-  it("does not arm while a click-opened menu is open (F10)", () => {
+  it("does not arm while a click-opened menu is open (F10)", async () => {
     vi.useFakeTimers();
     render(list([make("s1", "/a"), make("s2", "/a")]));
+    await hoverReady();
     fireEvent.click(screen.getByTestId("session-actions-trigger-s1"));
     const li2 = stripOf("s2");
     act(() => {
@@ -156,7 +166,7 @@ describe("hover strip through the list's document listener", () => {
     expect(screen.getByTestId("session-actions-menu-s1")).toBeTruthy();
   });
 
-  it("P1: a pointer sweep across 50 cards (never dwelling) causes zero React commits", () => {
+  it("P1: a pointer sweep across 50 cards (never dwelling) causes zero React commits", async () => {
     vi.useFakeTimers();
     const sessions = Array.from({ length: 50 }, (_, i) => make(`s${i}`, `/proj/${i % 5}`));
     let commits = 0;
@@ -165,6 +175,7 @@ describe("hover strip through the list's document listener", () => {
         {list(sessions)}
       </Profiler>,
     );
+    await hoverReady();
     const cards = Array.from(document.querySelectorAll<HTMLElement>("[data-session-card]"));
     expect(cards.length).toBeGreaterThan(0);
     for (const c of cards) {

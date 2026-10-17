@@ -11,7 +11,8 @@ const git = vi.hoisted(() => ({
 }));
 vi.mock("../../../lib/git/git-api.js", () => git);
 
-import { deriveWorktreeActions, labelForCode, runWorktreeOpenPr, runWorktreePush } from "../worktree-actions.js";
+import { deriveWorktreeActions } from "../worktree-actions.js";
+import { labelForCode, runWorktreeOpenPr, runWorktreePush } from "../worktree-runners.js";
 
 afterEach(() => {
   vi.restoreAllMocks();

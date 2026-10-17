@@ -125,7 +125,7 @@ export function SessionFlowMenuClaim({ session }: { session: DashboardSession })
   ];
 
   const onFlowAction = (action: string, opts?: { flowName?: string; task?: string }) =>
-    send({
+    dispatch({
       type: "flow_management",
       sessionId: session.id,
       action,

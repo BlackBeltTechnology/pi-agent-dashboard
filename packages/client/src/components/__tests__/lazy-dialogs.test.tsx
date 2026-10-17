@@ -23,5 +23,6 @@ describe("code-split dialog loaders", () => {
     );
     expect((await L.CloseWorktreeDialog()).default).toBe((await import("../worktree/CloseWorktreeDialog.js")).CloseWorktreeDialog);
     expect((await L.MergeConfirmDialog()).default).toBe((await import("../worktree/MergeConfirmDialog.js")).MergeConfirmDialog);
+    expect((await L.WorktreeSpawnDialog()).default).toBe((await import("../worktree/WorktreeSpawnDialog.js")).WorktreeSpawnDialog);
   });
 });

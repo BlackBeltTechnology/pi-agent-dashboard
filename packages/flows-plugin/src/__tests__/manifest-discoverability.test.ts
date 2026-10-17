@@ -66,6 +66,8 @@ describe("flows-plugin manifest discoverability", () => {
     expect(actionBar.map((c) => c.component)).toEqual(["SessionFlowMenuClaim"]);
     // The claim stays mounted and decides its own output: no manifest shouldRender.
     expect((actionBar[0] as { shouldRender?: string }).shouldRender).toBeUndefined();
+    // Lazy chunk (cold-landing entry cap): the claim lives in its own module.
+    expect((actionBar[0] as { module?: string }).module).toBe("./src/client/SessionFlowMenuClaim.tsx");
   });
 
   it("SessionFlowActionsClaim does not occupy the `session-card-action-bar` slot", () => {
@@ -90,7 +92,8 @@ describe("flows-plugin manifest discoverability", () => {
 
   it("client entry exports every manifest-referenced claim component and the gate", () => {
     const entry = flowsClientEntry as Record<string, unknown>;
-    expect(entry.SessionFlowMenuClaim).toBeTypeOf("function");
+    // SessionFlowMenuClaim is a lazy `module` claim: it must NOT be re-exported from the eager entry.
+    expect(entry.SessionFlowMenuClaim).toBeUndefined();
     expect(entry.flowsActionsAvailable).toBeTypeOf("function");
   });
 

@@ -31,7 +31,8 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { LazyCloseWorktreeDialog, LazyMergeConfirmDialog } from "./lazy-worktree-dialogs.js";
-import { deriveWorktreeActions, runWorktreeOpenPr, runWorktreePush, type WorktreeToast } from "./worktree-actions.js";
+import { deriveWorktreeActions } from "./worktree-actions.js";
+import type { WorktreeToast } from "./worktree-runners.js";
 
 /**
  * Module-level cache of `gh` availability — one fetch per page load,
@@ -240,6 +241,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
   const onPush = async () => {
     setBusy("push");
     setToast(null);
+    const { runWorktreePush } = await import("./worktree-runners.js");
     const next = await runWorktreePush(session.cwd);
     setBusy(null);
     setToast(next);
@@ -248,6 +250,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
   const onOpenPr = async () => {
     setBusy("pr");
     setToast(null);
+    const { runWorktreeOpenPr } = await import("./worktree-runners.js");
     const next = await runWorktreeOpenPr(session.cwd);
     setBusy(null);
     if (next) setToast(next);

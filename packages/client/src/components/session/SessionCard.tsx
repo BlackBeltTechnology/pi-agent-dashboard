@@ -7,7 +7,8 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/host-pressure.js";
 import { mdiAlertOutline, mdiArchiveOutline, mdiArrowRightCircleOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiFlash, mdiLoading, mdiPaperclip, mdiPlay, mdiRefresh, mdiRemoteDesktop, mdiSourceBranch } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type React from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { buildFolderSettingsUrl } from "../../lib/nav/route-builders.js";
@@ -54,7 +55,7 @@ import type { HistoryLoadPhase } from "../../lib/replay/history-load-phase.js";
 import { selectBadgeTimestamp } from "../../lib/session/session-card-time.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
 import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
-import { deriveSessionMenu, type SessionDialogKind, type SessionMenuActions } from "../../lib/session/session-menu-items.js";
+import type { SessionDialogKind, SessionMenuActions, SessionMenuCtx } from "../../lib/session/session-menu-items.js";
 import { hasMovedAway, isRemoteOrigin } from "../../lib/session/session-origin-view.js";
 import { useCardSectionVisible, usePluginNames, usePluginSectionFilter, useCardToast } from "../../lib/state/CardSectionsContext.js";
 import { sessionScopeKey, useSessionMenuScope } from "../../lib/state/SessionMenuScopeContext.js";
@@ -73,14 +74,13 @@ import { type ProcessEntry, ProcessList } from "../terminal/ProcessList.js";
 import { useCommitDialog } from "../worktree/CommitDialog.js";
 import { GitDirtyPill } from "../worktree/GitDirtyPill.js";
 import { probeGhAvailable } from "../worktree/WorktreeActionsMenu.js";
-import { runWorktreeOpenPr, runWorktreePush } from "../worktree/worktree-actions.js";
 import { ContextUsageBar } from "./ContextUsageBar.js";
 import { DriverChip } from "./DriverChip.js";
 import { PiBelowFloorWarning } from "./PiBelowFloorWarning.js";
 import { formatElapsed, SessionActivityBar, truncateCommand } from "./SessionActivityBar.js";
 import type { ContextUsageInfo } from "./SessionList.js";
 import { SessionActionsMenu } from "./SessionActionsMenu.js";
-import { SessionCardDialogs } from "./SessionCardDialogs.js";
+import { LazySessionCardDialogs } from "./lazy-session-menu.js";
 import { SessionStatusChip } from "./SessionStatusChip.js";
 import { SessionSubcard } from "./SessionSubcard.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
@@ -1070,8 +1070,10 @@ export function SessionCard({
   );
 
   const attachedName = session.attachedProposal || undefined;
-  const menuGroups = useMemo(() => {
-    if (!menuOpen) return [];
+  // The menu CONTEXT (not the derived groups): the lazily loaded panel derives the
+  // groups from it on every render while open, so the deriver stays off the entry chunk.
+  const menuCtx = useMemo<SessionMenuCtx | undefined>(() => {
+    if (!menuOpen) return undefined;
     const wfCfg = openspecConfig.workflows;
     const actions: SessionMenuActions = {
       resume: onResume,
@@ -1097,13 +1099,13 @@ export function SessionCard({
       detach: () => onDetachProposal?.(),
       readArtifact: onReadArtifact,
       navigate,
-      push: () => { void runWorktreePush(session.cwd).then(toastOutcome); },
-      openPr: () => { void runWorktreeOpenPr(session.cwd).then(toastOutcome); },
+      push: () => { void import("../worktree/worktree-runners.js").then((m) => m.runWorktreePush(session.cwd)).then(toastOutcome); },
+      openPr: () => { void import("../worktree/worktree-runners.js").then((m) => m.runWorktreeOpenPr(session.cwd)).then(toastOutcome); },
       openUrl: (url) => { window.open(url, "_blank", "noopener,noreferrer"); },
       openCardSections: () => navigate(buildFolderSettingsUrl(sectionFolderPath, "cards")),
       openCardDefaults: () => navigate("/settings/general"),
     };
-    return deriveSessionMenu(session, {
+    return {
       working,
       mergeIsPrimary,
       isHidden,
@@ -1123,9 +1125,7 @@ export function SessionCard({
       ghAvailable,
       dirtyCount: dirtyStatus?.dirtyCount ?? 0,
       actions,
-    });
-    // The menu re-derives on every render while open (live state), so the whole
-    // closure is intentionally a dependency of nothing: recompute each render.
+    };
     // biome-ignore lint/correctness/useExhaustiveDependencies: live re-derive while open
   }, [menuOpen, session, working, mergeIsPrimary, isHidden, showSpawn, canRename, canArchive, openspecChanges, openspecReadiness, openspecHasDir, openspecInitialized, openspecPending, openspecConfig, attachmentResolution, ghAvailable, dirtyStatus, onResume, onSpawnSibling, onSpawnWorktree, onShutdown, onSendPrompt, onAttachProposal, onDetachProposal, onReadArtifact, onBulkArchive, onArchive, attachedName, navigate, sectionFolderPath, toastOutcome, openCommitDialog]);
 
@@ -1427,7 +1427,7 @@ export function SessionCard({
         )}
         <SessionActionsMenu
           session={session}
-          groups={menuGroups}
+          ctx={menuCtx}
           open={menuOpen}
           source={menuScope.state.source}
           point={menuScope.state.point}
@@ -1672,7 +1672,9 @@ export function SessionCard({
       </div>{/* end flex row */}
       {/* Idle-alive archive confirmation (ended archives without a dialog).
           Portalled by Dialog — placement in the tree is irrelevant. */}
-      <SessionCardDialogs
+      {dialog && (
+      <Suspense fallback={null}>
+      <LazySessionCardDialogs
         session={session}
         dialog={dialog}
         onClose={() => {
@@ -1690,6 +1692,8 @@ export function SessionCard({
         onBulkArchive={onBulkArchive}
         onWorktreeRemoved={() => showToast?.(i18nT("worktree.worktreeRemoved", undefined, "Worktree removed."), "success")}
       />
+      </Suspense>
+      )}
       {archiveConfirmOpen && (
         <Confirm
           open

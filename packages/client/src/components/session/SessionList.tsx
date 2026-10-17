@@ -8,7 +8,7 @@ import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent,
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { mdiArchiveOutline, mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiFileDocumentOutline, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { ARCHIVE_PAGE_SIZE, useArchivedSessions } from "../../hooks/useArchivedSessions.js";
 import { useFlipOnLaneChange } from "../../hooks/useFlipOnLaneChange.js";
@@ -88,7 +88,7 @@ import { SortableWorkspaceFolder } from "../workspace/SortableWorkspaceFolder.js
 import { WorkspaceHeader } from "../workspace/WorkspaceHeader.js";
 import { BranchSwitchDialog } from "../worktree/BranchSwitchDialog.js";
 import { ManageWorktreesDialog } from "../worktree/ManageWorktreesDialog.js";
-import { WorktreeSpawnDialog } from "../worktree/WorktreeSpawnDialog.js";
+import { LazyWorktreeSpawnDialog } from "../worktree/lazy-worktree-dialogs.js";
 import { ArchivedSessionRow } from "./ArchivedSessionRow.js";
 import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
 import { FocusToggle } from "./FocusToggle.js";
@@ -98,7 +98,6 @@ import { PlaceholderSessionCard } from "./PlaceholderSessionCard.js";
 import { branchCache, GroupGitInfo, SessionCard } from "./SessionCard.js";
 import { SortablePinnedGroup, useFolderDragHandle } from "./SortablePinnedGroup.js";
 import { SortableSessionCard } from "./SortableSessionCard.js";
-import { createHoverIntent } from "./session-hover-intent.js";
 import { SpawnErrorBanner } from "./SpawnErrorBanner.js";
 
 /** Community invite surfaced in the app header. */
@@ -963,26 +962,36 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   const menuStateRef = React.useRef(menuState);
   menuStateRef.current = menuState;
   // Hover intent (strip on each card's right edge). ONE document listener; refs
-  // only — see `session-hover-intent.ts`. Torn down/rebuilt only on mount.
+  // only — see `session-hover-intent.ts`. The controller is code-split (only a
+  // fine-hover device ever loads it) and torn down on unmount.
   React.useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
     const fine = window.matchMedia("(hover: hover) and (pointer: fine)");
-    const controller = createHoverIntent(document, {
-      matches: () => fine.matches,
-      suppressed: () => {
-        const st = menuStateRef.current;
-        if (st.menuFor !== null && st.source !== "hover") return true;
-        return document.querySelector("[role='dialog'][aria-modal='true']") !== null;
-      },
-      open: (id) => setMenuState({ menuFor: sessionScopeKey(id), source: "hover" }),
-      close: () => setMenuState((cur) => (cur.source === "hover" ? { menuFor: null } : cur)),
-      hoverOpenFor: () => {
-        const st = menuStateRef.current;
-        return st.source === "hover" && st.menuFor?.startsWith("session:") ? st.menuFor.slice("session:".length) : null;
-      },
-      menuEl: () => document.querySelector<HTMLElement>("[role='menu'][data-testid^='session-actions-menu-']"),
+    if (!fine.matches) return;
+    let destroyed = false;
+    let controller: { destroy(): void } | null = null;
+    void import("./session-hover-intent.js").then(({ createHoverIntent }) => {
+      if (destroyed) return;
+      controller = createHoverIntent(document, {
+        matches: () => fine.matches,
+        suppressed: () => {
+          const st = menuStateRef.current;
+          if (st.menuFor !== null && st.source !== "hover") return true;
+          return document.querySelector("[role='dialog'][aria-modal='true']") !== null;
+        },
+        open: (id) => setMenuState({ menuFor: sessionScopeKey(id), source: "hover" }),
+        close: () => setMenuState((cur) => (cur.source === "hover" ? { menuFor: null } : cur)),
+        hoverOpenFor: () => {
+          const st = menuStateRef.current;
+          return st.source === "hover" && st.menuFor?.startsWith("session:") ? st.menuFor.slice("session:".length) : null;
+        },
+        menuEl: () => document.querySelector<HTMLElement>("[role='menu'][data-testid^='session-actions-menu-']"),
+      });
     });
-    return () => controller.destroy();
+    return () => {
+      destroyed = true;
+      controller?.destroy();
+    };
   }, []);
   // Broken-session cleanup confirm (moved off the deleted FolderActionBar into
   // the folder actions menu). See change: add-folder-action-banner.
@@ -3190,7 +3199,8 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
         );
       })()}
       {worktreeDialogCwd && (
-        <WorktreeSpawnDialog
+        <Suspense fallback={null}>
+        <LazyWorktreeSpawnDialog
           cwd={worktreeDialogCwd}
           onCancel={() => setWorktreeDialogCwd(null)}
           onSpawnStart={(c) => addSpawningCwd?.(c)}
@@ -3206,9 +3216,11 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             void maybeAutoInitWorktreeOnSpawn(path);
           }}
         />
+        </Suspense>
       )}
       {worktreeForChange && (
-        <WorktreeSpawnDialog
+        <Suspense fallback={null}>
+        <LazyWorktreeSpawnDialog
           cwd={worktreeForChange.cwd}
           initialBranch={`os/${worktreeForChange.changeName}`}
           attachProposal={worktreeForChange.changeName}
@@ -3223,6 +3235,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             void maybeAutoInitWorktreeOnSpawn(path);
           }}
         />
+        </Suspense>
       )}
       {branchDialogCwd && (
         <BranchSwitchDialog
