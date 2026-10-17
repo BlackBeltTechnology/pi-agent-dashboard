@@ -2,7 +2,7 @@
 
 import { FolderAutomationSection, AutomationBadge, isAutomationRun, catalog as automation_catalog } from "@blackbelt-technology/pi-dashboard-automation-plugin";
 import { catalog as context_mode_settings_catalog } from "@blackbelt-technology/pi-dashboard-context-mode-settings-plugin";
-import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, isFlowYamlPreviewActive, FlowAgentsToolRenderer, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
+import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, SessionFlowMenuClaim, isFlowYamlPreviewActive, FlowAgentsToolRenderer, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
 import { GrammarComposerPanel, catalog as grammar_catalog } from "@blackbelt-technology/pi-dashboard-grammar-plugin";
 import { HermesMemorySettings, catalog as hermes_memory_catalog } from "@blackbelt-technology/pi-dashboard-hermes-memory-plugin";
@@ -210,8 +210,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
             },
             {
                 "slot": "session-card-action-bar",
-                "component": "SessionFlowMenuClaim",
-                "module": "./src/client/SessionFlowMenuClaim.tsx"
+                "component": "SessionFlowMenuClaim"
             },
             {
                 "slot": "content-header-sticky",
@@ -258,7 +257,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     },
     claims: [
       { pluginId: "flows", priority: 100, slot: "session-card-flows", Component: SessionFlowActionsClaim, shouldRender: shouldRenderFlowsSubcard },
-      { pluginId: "flows", priority: 100, slot: "session-card-action-bar", Component: lazyClaim(() => import("../../../flows-plugin/src/client/SessionFlowMenuClaim"), "SessionFlowMenuClaim") },
+      { pluginId: "flows", priority: 100, slot: "session-card-action-bar", Component: SessionFlowMenuClaim },
       { pluginId: "flows", priority: 100, slot: "content-header-sticky", Component: lazyClaim(() => import("../../../flows-plugin/src/client/FlowDashboard"), "FlowDashboardClaim") },
       { pluginId: "flows", priority: 100, slot: "content-view", Component: lazyClaim(() => import("../../../flows-plugin/src/client/FlowYamlPreview"), "FlowYamlPreviewClaim"), predicate: isFlowYamlPreviewActive },
       { pluginId: "flows", priority: 100, slot: "tool-renderer", toolName: "flow_write", Component: lazyClaim(() => import("../../../flows-plugin/src/client/FlowWriteToolRenderer"), "FlowWriteToolRenderer") },
@@ -857,4 +856,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "5ca817aca32e6a930d44b0f749393cf4282fbbedd3d5b6923d18562af5ce9972";
+export const PLUGIN_REGISTRY_HASH = "f5b094eeee15fc7c2d53e42cfdc13cddf00197ccfb6d1ec95ee43c005f5abbee";

@@ -42,8 +42,7 @@ export { SessionFlowActions, SessionFlowActionsClaim } from "./SessionFlowAction
 // in the session actions menu + dialogs + edit-mode reconcile, and its
 // availability gate. See change: add-session-actions-flyout.
 export { flowsActionsAvailable, hasFlowsCommand } from "./flowsActionsGate.js";
-// `SessionFlowMenuClaim` is a manifest `module` claim (lazy chunk) — deliberately NOT re-exported
-// here, so the flow-action dialogs stay off the cold-landing entry chunk.
+export { SessionFlowMenuClaim } from "./SessionFlowMenuClaim.js";
 
 // Manifest-level shouldRender predicate for the `session-card-flows` claim
 // (any flow event). See change: add-flows-subcard, add-session-actions-flyout.

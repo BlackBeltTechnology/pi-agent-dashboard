@@ -51,8 +51,7 @@
       },
       {
         "slot": "session-card-action-bar",
-        "component": "SessionFlowMenuClaim",
-        "module": "./src/client/SessionFlowMenuClaim.tsx"
+        "component": "SessionFlowMenuClaim"
       },
       {
         "slot": "content-header-sticky",
