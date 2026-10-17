@@ -141,6 +141,24 @@
       "name": "Browser Agent",
       "color": "#14b8a6",
       "order": 23
+    },
+    {
+      "id": "openspec-workflow",
+      "name": "OpenSpec Workflow",
+      "color": "#22c55e",
+      "order": 24
+    },
+    {
+      "id": "automation-scheduler",
+      "name": "Automation Scheduler",
+      "color": "#eab308",
+      "order": 25
+    },
+    {
+      "id": "gmail",
+      "name": "Gmail",
+      "color": "#ea4335",
+      "order": 26
     }
   ],
   "assignments": {
@@ -452,12 +470,16 @@
     "add-session-actions-flyout": "ui",
     "mirror-dashboard-trust-live-remote": "pi-trust-mirror",
     "add-dedicated-agent-browser": "browser-agent",
-    "fix-global-automation-duplicate-fire": "ui",
-    "fix-automation-key-collision": "ui",
-    "improve-gmail-plugin-setup-ux": "ui",
-    "add-automation-occurrence-guard": "ui",
+    "improve-gmail-plugin-setup-ux": "gmail",
     "fix-kb-index-integrity": "kowledge-base",
-    "add-kb-worktree-seed": "kowledge-base"
+    "add-kb-worktree-seed": "kowledge-base",
+    "add-gmail-auto-setup": "gmail",
+    "use-openspec-status-all": "openspec-workflow",
+    "add-pi-spec-driven-schema": "openspec-workflow",
+    "add-openspec-change-dependencies": "openspec-workflow",
+    "pi-settings-full-coverage": "ui",
+    "fix-home-folder-scope-double-arm": "automation-scheduler",
+    "fix-automation-key-collision": "automation-scheduler"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -471,10 +493,10 @@
       "retest-plain-language-hard-battery",
       "ab-test-rlm-delegation-claim",
       "fix-npm12-remote-tarball-install",
-      "fix-kb-index-integrity",
       "close-residual-audit-findings"
     ],
     "ui": [
+      "pi-settings-full-coverage",
       "add-session-actions-flyout",
       "restyle-inline-terminal-button",
       "add-services-settings-ui",
@@ -482,10 +504,7 @@
       "add-request-access-remedy",
       "add-operator-browser-relay",
       "audit-plugin-bundles-non-secure-context",
-      "fix-orphaned-ended-session-archive",
-      "add-automation-occurrence-guard",
-      "improve-gmail-plugin-setup-ux",
-      "fix-automation-key-collision"
+      "fix-orphaned-ended-session-archive"
     ],
     "addons-hub": [
       "addons-hub-feature-catalog",
@@ -622,6 +641,19 @@
     "kowledge-base": [
       "fix-kb-index-integrity",
       "add-kb-worktree-seed"
+    ],
+    "openspec-workflow": [
+      "use-openspec-status-all",
+      "add-pi-spec-driven-schema",
+      "add-openspec-change-dependencies"
+    ],
+    "automation-scheduler": [
+      "fix-home-folder-scope-double-arm",
+      "fix-automation-key-collision"
+    ],
+    "gmail": [
+      "improve-gmail-plugin-setup-ux",
+      "add-gmail-auto-setup"
     ]
   }
 }

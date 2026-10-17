@@ -3,7 +3,7 @@
  * solo/worktree card, `GroupGitInfo` on a folder header). Extracted so both
  * hosts render identically.
  *
- * `● N` amber pill = N uncommitted files (staged + unstaged + untracked).
+ * `● N` filled severity-warning capsule (AA contrast; compact-session-card-header) = N uncommitted files (staged + unstaged + untracked).
  * `↑A` / `↓B` chips = commits ahead / behind upstream (only when non-zero).
  * The whole pill is a button → opens the commit dialog. Hidden when the tree
  * is clean AND in sync, and when `status` is absent (legacy/inconclusive).
@@ -40,8 +40,9 @@ export function GitDirtyPill({ status, onClick, className }: Props) {
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       className={`inline-flex items-center gap-1 px-1.5 py-px rounded-full text-[10px] leading-none border transition-colors hover:brightness-110 ${className ?? ""}`}
       style={{
-        borderColor: "var(--status-warning, #d97706)",
-        color: "var(--status-warning, #d97706)",
+        backgroundColor: "var(--severity-warning-bg)",
+        borderColor: "var(--severity-warning-border)",
+        color: "var(--severity-warning-fg)",
       }}
     >
       {dirtyCount > 0 && (
