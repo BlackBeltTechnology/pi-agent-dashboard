@@ -58,6 +58,11 @@ async function removeAll(request: APIRequestContext): Promise<void> {
 const exec = (script: string): string =>
   execFileSync("docker", ["exec", resolveContainer(), "sh", "-c", script], { encoding: "utf8" }).trim();
 
+/** Up and answering: `healthy`, or `idle` once the 30 s tick has seen a lease-less start (both mean running). */
+async function expectRunning(page: Page, id: string): Promise<void> {
+  await expect.poll(() => pill(page, id).getAttribute("data-state"), { timeout: 30_000 }).toMatch(/^(healthy|idle)$/);
+}
+
 const row = (page: Page, id: string) => page.getByTestId(`service-row-${id}`);
 const pill = (page: Page, id: string) => row(page, id).getByTestId("service-state-pill");
 
@@ -122,7 +127,7 @@ test.describe("Settings → Services", () => {
 
     const start = request.post("/api/services/e2e-slow/start", { headers: op.headers() }); // resolves once healthy
     await expect(pill(page, "e2e-slow")).toHaveAttribute("data-state", "starting", { timeout: 15_000 });
-    await expect(pill(page, "e2e-slow")).toHaveAttribute("data-state", "healthy", { timeout: 30_000 });
+    await expectRunning(page, "e2e-slow");
     await start;
     expect(await page.evaluate(() => (window as unknown as { __noReload?: boolean }).__noReload)).toBe(true);
     expect(detailGets).toEqual([]);
@@ -154,7 +159,7 @@ test.describe("Settings → Services", () => {
 
     gate.drop = false;
     routes[routes.length - 1].close(); // drop the socket; the client reconnects
-    await expect(pill(page, "e2e-recon")).toHaveAttribute("data-state", "healthy", { timeout: 30_000 });
+    await expectRunning(page, "e2e-recon");
     expect(await page.evaluate(() => (window as unknown as { __noReload?: boolean }).__noReload)).toBe(true);
   });
 
