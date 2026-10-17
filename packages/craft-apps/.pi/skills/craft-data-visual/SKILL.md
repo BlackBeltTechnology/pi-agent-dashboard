@@ -1,6 +1,6 @@
 ---
 name: craft-data-visual
-description: Turn data into a finished visual with ArtCraft apps - GridCraft workbook with a cell read-back check for formula errors, chart export, a VectorCraft badge and DesignCraft infographic, a DeckCraft slide; verified and resumable. Use for "make a chart from this spreadsheet", "build an infographic from these numbers", "put the revenue chart on a slide", "check that my formulas have no errors before charting".
+description: Turn data into a finished visual with ArtCraft apps - GridCraft workbook with a formula-error read-back, chart, VectorCraft/DesignCraft infographic, DeckCraft slide; verified and resumable. Use for "make a chart from this spreadsheet", "build an infographic from these numbers", "put the revenue chart on a slide".
 ---
 
 # craft-data-visual — data → workbook + read-back → chart → infographic → slide

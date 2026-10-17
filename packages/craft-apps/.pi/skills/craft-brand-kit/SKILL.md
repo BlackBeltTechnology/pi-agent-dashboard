@@ -1,6 +1,6 @@
 ---
 name: craft-brand-kit
-description: Build a brand kit from a logo with ArtCraft apps - trace or take the vector logo, make colour/mono variants, export a PNG/TIFF set, lay out a one-page brand sheet and package it as a PDF; verified and resumable. Starts from the user's own logo; generated concepts only on explicit request. Use for "make a brand kit from this logo", "export my logo in all sizes", "turn this png logo into a vector with variants", "a one-page brand sheet for ACME".
+description: Build a brand kit from a logo with ArtCraft apps - trace or take the vector logo, colour/mono variants, PNG/TIFF set, one-page brand sheet, PDF package; verified and resumable. Starts from the user's logo; generated concepts only on explicit request. Use for "make a brand kit from this logo", "export my logo in all sizes", "a one-page brand sheet for ACME".
 ---
 
 # craft-brand-kit — logo → vector variants → raster set → brand sheet → PDF package

@@ -1,6 +1,6 @@
 ---
 name: craft-doc-publish
-description: Publish Markdown with frontmatter as a templated DOCX and PDF with ArtCraft apps - fill the company template (variables, cover textboxes, first-page header), inline images and Mermaid diagrams, WordCraft body and table of contents, PDF export, optional PdfCraft combine/audit/protect; verified and resumable. Use for "make a DOCX from this markdown with our template", "publish this report as a PDF with the company template", "render the offer with a table of contents", "markdown to Word with the default template".
+description: Publish Markdown with frontmatter as a templated DOCX and PDF with ArtCraft apps - fill the company template, inline images and Mermaid, WordCraft body and TOC, optional PdfCraft package/protect; verified and resumable. Use for "make a DOCX from this markdown with our template", "publish this report as a PDF", "markdown to Word with a table of contents".
 ---
 
 # craft-doc-publish — Markdown + template → DOCX + PDF (→ packaged PDF)

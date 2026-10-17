@@ -1,6 +1,6 @@
 ---
 name: craft-photo-pipeline
-description: Process a photo from RAW to delivery with ArtCraft apps - LightCraft develop and denoise, PhotoCraft retouch (content-aware removal, or generative replace-region with pi-nano-banana when credentials exist), then a PNG/JPG/WebP/TIFF export set; verified and resumable. Use for "develop this RAW and retouch it", "remove the object from this photo and export for web and print", "denoise and grade this shot", "give me a web and print version of this photo".
+description: Process a photo from RAW to delivery with ArtCraft apps - LightCraft develop and denoise, PhotoCraft retouch (content-aware removal, or generative replace-region when credentials exist), PNG/JPG/WebP/TIFF export set; verified and resumable. Use for "develop this RAW and retouch it", "remove the object and export for web and print".
 ---
 
 # craft-photo-pipeline — RAW → develop/denoise → retouch → export set
