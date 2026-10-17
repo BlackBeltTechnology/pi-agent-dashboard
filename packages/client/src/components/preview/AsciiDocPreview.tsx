@@ -7,16 +7,18 @@
  * at text nodes outside `pre`/`code`.
  * See changes: render-file-previews, sanitize-untrusted-rendered-content.
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { type AdocSegment, splitAdocDiagramSegments } from "../../lib/preview/adoc-diagram-splitter.js";
 import { hasAdocMath, renderAdocMath } from "../../lib/preview/adoc-math.js";
-import { splitAdocDiagramSegments, type AdocSegment } from "../../lib/preview/adoc-diagram-splitter.js";
+import { loadMathEngine } from "../../lib/preview/math-engine.js";
+import { MermaidSourceContext } from "../../lib/preview/mermaid-source-context.js";
+import { useMermaidSource } from "../../lib/preview/use-mermaid-source.js";
+import { logRejection } from "../../lib/report-error.js";
 import { DiagramPreview } from "./DiagramPreview.js";
 import { MermaidBlock } from "./MermaidBlock.js";
 import { renderUrl } from "./raw-url.js";
-import { loadMathEngine } from "../../lib/preview/math-engine.js";
-import { logRejection } from "../../lib/report-error.js";
-import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
@@ -28,7 +30,11 @@ export function AsciiDocPreview({ target }: Props) {
   const { fetch: previewFetch } = usePreviewFetch();
   const [html, setHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Re-fetch after "Apply fix to file". See change: add-preview-apply-fix-to-file.
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const reload = useCallback(() => setReloadNonce((n) => n + 1), []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadNonce is the intentional re-fetch trigger, not a read (apply-fix reload)
   useEffect(() => {
     let cancelled = false;
     setHtml(null);
@@ -58,17 +64,23 @@ export function AsciiDocPreview({ target }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [target.cwd, target.path, previewFetch]);
+  }, [target.cwd, target.path, previewFetch, reloadNonce]);
 
   const segments = useMemo<AdocSegment[]>(() => {
     if (!html) return [];
     return splitAdocDiagramSegments(html);
   }, [html]);
 
+  // Mermaid segments in render order; the count backs the locator's parity guard.
+  const mermaidCount = useMemo(() => segments.filter((s) => s.kind === "diagram" && s.type === "mermaid").length, [segments]);
+  const mermaidSource = useMermaidSource({ cwd: target.cwd, path: target.path, kind: "adoc", reload, expectedCount: mermaidCount });
+
   if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;
   if (html == null) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>;
 
+  let mermaidOrdinal = 0;
   return (
+    <MermaidSourceContext.Provider value={mermaidSource}>
     <div className="asciidoc-body">
       {segments.map((seg, idx) => {
         if (seg.kind === "raw") {
@@ -85,6 +97,7 @@ export function AsciiDocPreview({ target }: Props) {
               key={idx}
               code={seg.source}
               complete={true}
+              ordinal={mermaidOrdinal++}
             />
           );
         }
@@ -99,5 +112,6 @@ export function AsciiDocPreview({ target }: Props) {
         );
       })}
     </div>
+    </MermaidSourceContext.Provider>
   );
 }

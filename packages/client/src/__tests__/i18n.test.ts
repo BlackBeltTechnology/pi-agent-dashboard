@@ -181,6 +181,28 @@ describe("add-mermaid-auto-repair — i18n sweep (X4)", () => {
     }
   });
 
+  // See change: add-preview-apply-fix-to-file (test-plan F10)
+  it("apply-fix-to-file action, dialog, status and error keys are in both catalogues", () => {
+    for (const key of [
+      "applyToFile",
+      "applyReading",
+      "applyDirtyHint",
+      "applyDialogTitle",
+      "applyDialogBody",
+      "applyConfirm",
+      "applyWriting",
+      "applyChanged",
+      "applyReload",
+      "applyNotApplicable",
+      "applyError",
+      "applyDiffAdded",
+      "applyDiffRemoved",
+    ].map((k) => `preview.mermaid.${k}`)) {
+      expect(zh, `zh-CN: ${key}`).toContain(`"${key}":`);
+      expect(hu, `hu: ${key}`).toContain(`"${key}":`);
+    }
+  });
+
   // See change: add-mermaid-ai-repair (test-plan X10)
   it("AI repair action, pending, retry, badge, failure and disclosure keys are in both catalogues", () => {
     for (const key of [

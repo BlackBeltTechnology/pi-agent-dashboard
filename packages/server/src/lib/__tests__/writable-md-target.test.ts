@@ -31,6 +31,12 @@ beforeAll(async () => {
   await fs.writeFile(path.join(cwd, "guide.adoc"), "= g");
   await fs.writeFile(path.join(cwd, "guide.asciidoc"), "= g");
   await fs.writeFile(path.join(cwd, "data.csv"), "a,b");
+  await fs.writeFile(path.join(cwd, "flow.mmd"), "graph TD\n");
+  await fs.writeFile(path.join(cwd, "flow.mermaid"), "graph TD\n");
+  await fs.writeFile(path.join(cwd, "FLOW.MMD"), "graph TD\n");
+  await fs.writeFile(path.join(root, "sibling", "x.mmd"), "graph TD\n");
+  await fs.writeFile(path.join(home, ".pi", "agent", "flow.mmd"), "graph TD\n");
+  await fs.symlink(path.join(root, "sibling", "x.mmd"), path.join(cwd, "escape.mmd"));
   await fs.writeFile(path.join(root, "sibling", "evil.adoc"), "= e");
   await fs.writeFile(path.join(root, "sibling", "evil.md"), "# e");
   await fs.writeFile(path.join(home, ".pi", "agent", "MEMORY.md"), "# m");
@@ -60,6 +66,16 @@ describe("isWritableMdTarget — directory scope", () => {
     for (const f of ["guide.adoc", "guide.asciidoc", "data.csv"]) {
       expect(await isWritableMdTarget(path.join(cwd, f), { cwd }), f).toBe(true);
     }
+  });
+
+  it("allows in-scope Mermaid sources (.mmd, .mermaid, case-insensitive)", async () => {
+    for (const f of ["flow.mmd", "flow.mermaid", "FLOW.MMD"]) {
+      expect(await isWritableMdTarget(path.join(cwd, f), { cwd }), f).toBe(true);
+    }
+  });
+
+  it("rejects a Mermaid symlink whose realpath escapes the cwd", async () => {
+    expect(await isWritableMdTarget(path.join(cwd, "escape.mmd"), { cwd })).toBe(false);
   });
 
   it("rejects an .adoc .. traversal escaping cwd", async () => {
@@ -118,6 +134,10 @@ describe("isWritableMdTarget — global scope", () => {
     const p = path.join(home, ".pi", "agent", "config.json");
     await fs.writeFile(p, "{}");
     expect(await isWritableMdTarget(p, { home })).toBe(false);
+  });
+
+  it("rejects Mermaid sources in global scope", async () => {
+    expect(await isWritableMdTarget(path.join(home, ".pi", "agent", "flow.mmd"), { home })).toBe(false);
   });
 
   it("fails closed when home cannot be resolved", async () => {
