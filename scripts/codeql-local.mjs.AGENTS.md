@@ -6,7 +6,7 @@ Flow: snapshot → `database create` + `database analyze` per language (`javascr
 
 Modes: default analyse (`--json`) · `--prune` · `--accept <rule> <file> <lineHash> --reason <text>` · `--triage …` · `--write-baseline` (seed) · `--check-baseline-diff <ref> [--no-growth]`. Exit 0 pass/skipped · 1 new alerts or growth violation · 2 error.
 
-Snapshot: copy of the worktree index → `git add -A` → drop baseline → `git write-tree`. Tree id = snapshot id. Real index/worktree untouched. Unmerged entries → exit 2. Materialized with `git checkout-index`. State dir `$TMPDIR/pi-codeql/<sha1 toplevel>/`: `lock/owner.json` (pid + `ps` start time; stale lock taken over; no start time → stale after 30 min), `last-run.json` `{snapshotId, counts, results}`, `run-<pid>/` (src, `db-<lang>`, SARIF).
+Snapshot: copy of the worktree index → `git add -A` → drop baseline → `git write-tree`. Tree id = snapshot id. Real index/worktree untouched. Unmerged entries → exit 2. Materialized with `git checkout-index`. State dir `$TMPDIR/pi-codeql/<sha1 toplevel>/`: `lock/owner.json` (pid + `ps` start time; stale lock taken over; no start time → stale after 30 min), `last-run.json` `{snapshotId, counts, results, baselineHash?}`, `run-<pid>/` (src, `db-<lang>`, SARIF).
 
 Shared config: `.github/codeql/codeql-config.yml` `paths-ignore` → `LGTM_INDEX_FILTERS` (`exclude:<glob>`, trailing `/**` dropped, newline-joined). Offline-safe: no `--codescanning-config`, no `--download`; `resolve queries` before `pack download` (60 s). Any result in an ignored path → exit 2.
 
@@ -18,6 +18,8 @@ Exports (pure, tested): `resultKeys`, `countResults`, `validateBaseline`, `reaso
 
 Measured (task 2.5, develop d739f4bd, CLI 2.27.2, packs cached, 8 threads): full run ~85-90 s wall; `.mjs` (289) and `.cjs` (14) files extracted; results carry `primaryLocationLineHash`; `LGTM_INDEX_FILTERS` exclusions verified by the real-CLI test (#E4); offline run with cached packs verified (#X6); `js/path-injection` count identical (100) with and without the cwd-guard model pack.
 
+Baseline binding: `baselineHash` = sha256(`serializeBaseline(parsed)`) — canonical, formatting/order-insensitive. Plain run records hash of baseline its verdict used; seed re-records hash of written baseline. `requireFreshRun(cwd, baseline)`: mismatch → exit 2 "baseline changed since the recorded run; re-run the analysis first"; hashless (legacy) record → `CODEQL NOTE:` on stderr, proceeds. `--prune`/`--accept` re-bind via `rebindLastRun` after write. `--triage` re-binds only when record hash = pre-triage baseline hash (no laundering); no record → none written.
+
 Known limit: local ≠ GitHub on same commit (150/179 matched); see `openspec/changes/archive/2026-10-14-add-local-codeql-ratchet/evidence/local-vs-github.md`.
 
-See change: add-local-codeql-ratchet.
+See change: add-local-codeql-ratchet, harden-codeql-ratchet-followups.
