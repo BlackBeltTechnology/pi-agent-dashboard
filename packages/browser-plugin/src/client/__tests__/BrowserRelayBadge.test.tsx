@@ -27,6 +27,7 @@ function status(tabCount: number): BrowserRelayStatusMessage {
 						{
 							instanceId: "i1",
 							profileDirectory: "OSS",
+							host: "dashboard",
 							state: "connected",
 							tabs: Array.from({ length: tabCount }, (_, i) => ({
 								tabId: i + 1,
