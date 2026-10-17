@@ -9,7 +9,7 @@ import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { type MessageKey, tr } from "../i18n.js";
+import { type MessageKey, tr } from "../messages.js";
 import { API, ApiError, api, authState, type InstanceStatus } from "./api.js";
 
 const muted = "text-xs text-[var(--text-secondary)]";

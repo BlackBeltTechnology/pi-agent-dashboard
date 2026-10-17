@@ -9,7 +9,7 @@
  */
 import type React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { type MessageKey, tr } from "../i18n.js";
+import { type MessageKey, tr } from "../messages.js";
 import { API, ApiError, api, authState, type Fetcher, type InstanceStatus, lifecycleAction } from "./api.js";
 import { usePreview } from "./usePreview.js";
 

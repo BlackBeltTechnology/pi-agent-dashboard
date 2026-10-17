@@ -4,7 +4,8 @@
  * See change: add-obs-studio-plugin (test-plan F4).
  */
 import { describe, expect, it } from "vitest";
-import { catalog, en } from "../../i18n.js";
+import { catalog } from "../../i18n.js";
+import { en } from "../../messages.js";
 
 const vars = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
 

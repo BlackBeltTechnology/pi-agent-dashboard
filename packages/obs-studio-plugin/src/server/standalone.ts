@@ -11,7 +11,8 @@
 import type { PluginNetworkGuard } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import rateLimit from "@fastify/rate-limit";
 import type { FastifyInstance } from "fastify";
-import { catalog, en } from "../i18n.js";
+import { catalog } from "../i18n.js";
+import { en } from "../messages.js";
 import { PREFIX } from "./routes.js";
 
 const APP_PATH = "/apps/obs";

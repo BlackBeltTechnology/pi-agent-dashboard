@@ -10,7 +10,7 @@ import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { EmbeddedApp } from "@blackbelt-technology/dashboard-plugin-runtime/embedded-app";
 import { defineDashboardApp, useAppHost } from "@blackbelt-technology/pi-dashboard-app-kit/react";
 import { createContext, useContext } from "react";
-import { en } from "../i18n.js";
+import { en } from "../messages.js";
 import { ObsPanel, type TFn } from "./ObsPanel.js";
 
 const TContext = createContext<TFn>((_k, _v, fallback) => fallback ?? "");
