@@ -1,12 +1,12 @@
 /**
- * Red `cwd gone` pill on the WORKSPACE subcard. Renders only when
- * `session.cwdMissing === true`. Companion to `<WorktreePill>`.
+ * Red `folder missing` pill in the desktop session card's TITLE row (after the
+ * name, before the time). Renders only when `session.cwdMissing === true`,
+ * independent of git / worktree / folder-group state.
  *
- * See change: add-worktree-lifecycle-actions.
+ * See changes: add-worktree-lifecycle-actions, compact-session-card-header.
  */
 
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import React from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 export function CwdGonePill({ session }: { session: DashboardSession }) {
@@ -14,10 +14,10 @@ export function CwdGonePill({ session }: { session: DashboardSession }) {
   return (
     <span
       data-testid="cwd-gone-pill"
-      title={i18nT("folders.sessionSDirectoryNoLongerExists", undefined, "session's directory no longer exists")}
-      className="inline-flex items-center px-1.5 py-px rounded-full text-[9px] uppercase tracking-wider border border-red-500/60 text-red-300 bg-red-500/10"
+      title={i18nT("folders.sessionSDirectoryNoLongerExists", undefined, "This session's folder no longer exists")}
+      className="inline-flex items-center flex-shrink-0 px-1.5 py-0 rounded-full text-[11px] border border-[var(--tint-red-border)] text-[var(--tint-red-fg)] bg-[var(--tint-red-bg)]"
     >
-      {i18nT("common.cwdGone", undefined, "cwd gone")}
+      {i18nT("common.cwdGone", undefined, "folder missing")}
     </span>
   );
 }
