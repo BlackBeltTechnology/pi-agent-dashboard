@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-07-16
+# Audit-only change: writes the findings register, no product code and no spec deltas.
+skip_specs: true
