@@ -96,58 +96,63 @@
       "order": 15
     },
     {
+      "id": "customer-web-chat",
+      "name": "Customer Web Chat",
+      "order": 16
+    },
+    {
       "id": "fix-mermaid",
       "name": "Fix mermaid",
       "color": "#3b82f6",
-      "order": 16
+      "order": 17
     },
     {
       "id": "unify-context-manager",
       "name": "Unify Context Manager",
       "color": "#06b6d4",
-      "order": 17
+      "order": 18
     },
     {
       "id": "ai-team",
       "name": "AI Team",
       "color": "#a855f7",
-      "order": 18
+      "order": 19
     },
     {
       "id": "next-phase",
       "name": "Next phase",
       "color": "#3b82f6",
-      "order": 19
+      "order": 20
     },
     {
       "id": "kowledge-base",
       "name": "Kowledge Base",
       "color": "#f97316",
-      "order": 20
+      "order": 21
     },
     {
       "id": "electrun-execution",
       "name": "Electrun execution",
       "color": "#a855f7",
-      "order": 21
+      "order": 22
     },
     {
       "id": "future",
       "name": "Future",
       "color": "#f97316",
-      "order": 22
+      "order": 23
     },
     {
       "id": "separate-functions-to-plugins",
       "name": "Separate functions to plugins",
       "color": "#ef4444",
-      "order": 23
+      "order": 24
     },
     {
       "id": "ui-extensions",
       "name": "UI Extensions",
       "color": "#eab308",
-      "order": 24
+      "order": 25
     }
   ],
   "assignments": {
@@ -403,14 +408,14 @@
     "add-native-pi-tui-view": "next-phase",
     "live-viewer-allow-downloads": "ui",
     "strip-only-native-ts-loader": "update-to-node-26",
-    "close-loopback-legacy-window": "security",
+    "close-loopback-legacy-window": "customer-web-chat",
     "raise-node-floor-to-26": "update-to-node-26",
     "migrate-typecheck-to-ts7": "update-to-node-26",
     "close-e2e-tooling-followups": "ui",
     "stabilize-mdns-server-identity": "lan-pairing-trust",
     "add-lan-knock-pairing": "vault-access-remedy",
     "add-electron-server-windows": "vault-access-remedy",
-    "retire-trusted-networks-bypass": "vault-access-remedy",
+    "retire-trusted-networks-bypass": "customer-web-chat",
     "update-pi-core-1-1-adopt-apis": "pi-update",
     "spawn-scope-no-mcp": "pi-update",
     "mcp-client-project-overrides": "pi-update",
@@ -439,7 +444,7 @@
     "add-pending-question-stack": "project-workflows",
     "add-kb-git-forge-scope": "ui",
     "redesign-directory-home-split": "ui",
-    "add-plugin-spawn-worktree": "project-workflows",
+    "add-plugin-spawn-worktree": "customer-web-chat",
     "add-project-workflows": "project-workflows",
     "add-workflow-auto-advance": "project-workflows",
     "surface-operate-required-remedy": "vault-access-remedy",
@@ -448,7 +453,7 @@
     "shrink-client-entry-lazy-islands": "bundle-index-size",
     "lazy-plugin-claim-modules": "bundle-index-size",
     "fix-codeql-small-findings": "codeql",
-    "add-plugin-capability-routes": "copilot-assistant",
+    "add-plugin-capability-routes": "customer-web-chat",
     "add-welcome-tutorial": "next-phase",
     "add-tailscale-cert-tls": "lan-pairing-trust",
     "add-acme-dns01-certs": "lan-pairing-trust",
@@ -460,13 +465,27 @@
     "fix-doc-engine-arm64-chromium": "github-bug-fixes",
     "triage-browser-e2e-offbox-poison": "github-bug-fixes",
     "add-missing-ci-legs": "github-bug-fixes",
-    "add-local-codeql-ratchet": "codeql",
     "fix-project-setup-completion-state": "ui",
     "fix-slot-pill-legend-and-stale-overflow": "ui",
     "add-craft-apps-core": "artcraft-craft-apps",
     "add-craft-media-workflows": "artcraft-craft-apps",
     "add-craft-office-workflows": "artcraft-craft-apps",
-    "add-artcraft-studio": "artcraft-craft-apps"
+    "add-artcraft-studio": "artcraft-craft-apps",
+    "fix-orphaned-ended-session-archive": "ui",
+    "fix-empty-status-subcard": "ui",
+    "add-plugin-spawn-agent-dir-isolation": "ui",
+    "edit-pi-agent-settings": "ui",
+    "add-plugin-isolation-and-public-routes": "customer-web-chat",
+    "add-web-chat-plugin": "customer-web-chat",
+    "harden-codeql-ratchet-followups": "codeql",
+    "add-obs-studio-plugin": "ui",
+    "add-services-settings-ui": "ui",
+    "restyle-inline-terminal-button": "ui",
+    "fix-browser-relay-pane-input": "ui",
+    "add-remote-access-wizard": "ui",
+    "add-operator-browser-relay": "ui",
+    "audit-plugin-bundles-non-secure-context": "ui",
+    "add-request-access-remedy": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -479,9 +498,7 @@
       "implement-it",
       "retest-plain-language-hard-battery",
       "ab-test-rlm-delegation-claim",
-      "fix-npm12-remote-tarball-install",
-      "add-request-access-remedy",
-      "audit-plugin-bundles-non-secure-context"
+      "fix-npm12-remote-tarball-install"
     ],
     "bundle-index-size": [
       "fix-kb-gitignore-excluded-parent",
@@ -492,12 +509,20 @@
       "surface-operate-required-remedy",
       "retro-ux-credential-vault",
       "add-lan-knock-pairing",
-      "add-electron-server-windows",
-      "retire-trusted-networks-bypass"
+      "add-electron-server-windows"
     ],
     "ui": [
-      "fix-project-setup-completion-state",
-      "fix-slot-pill-legend-and-stale-overflow"
+      "restyle-inline-terminal-button",
+      "add-services-settings-ui",
+      "fix-browser-relay-pane-input",
+      "add-remote-access-wizard",
+      "add-request-access-remedy",
+      "add-operator-browser-relay",
+      "audit-plugin-bundles-non-secure-context",
+      "add-obs-studio-plugin",
+      "edit-pi-agent-settings",
+      "fix-empty-status-subcard",
+      "fix-orphaned-ended-session-archive"
     ],
     "addons-hub": [
       "addons-hub-feature-catalog",
@@ -505,7 +530,6 @@
     ],
     "project-workflows": [
       "add-pending-question-stack",
-      "add-plugin-spawn-worktree",
       "add-project-workflows",
       "add-workflow-auto-advance"
     ],
@@ -525,11 +549,9 @@
       "sanitize-untrusted-rendered-content",
       "harden-server-capability-bounds",
       "harden-electron-renderer-boundary",
-      "close-loopback-legacy-window",
       "add-supervised-tool-approval"
     ],
     "copilot-assistant": [
-      "add-plugin-capability-routes",
       "add-voice-wall-plugin",
       "add-voice-assistant-dashboard-plugin"
     ],
@@ -609,13 +631,21 @@
     "codeql": [
       "sanitize-untrusted-rendered-content",
       "fix-codeql-small-findings",
-      "add-local-codeql-ratchet"
+      "harden-codeql-ratchet-followups"
     ],
     "artcraft-craft-apps": [
       "add-craft-apps-core",
       "add-craft-media-workflows",
       "add-craft-office-workflows",
       "add-artcraft-studio"
+    ],
+    "customer-web-chat": [
+      "add-plugin-spawn-worktree",
+      "close-loopback-legacy-window",
+      "add-plugin-capability-routes",
+      "add-plugin-isolation-and-public-routes",
+      "add-web-chat-plugin",
+      "retire-trusted-networks-bypass"
     ]
   }
 }
