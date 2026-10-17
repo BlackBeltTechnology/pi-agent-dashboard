@@ -11,7 +11,7 @@ import { useRepoFixture } from "./helpers/git-repo.js";
 
 vi.mock("../reindex.js", async (orig) => {
   const m = await orig<typeof import("../reindex.js")>();
-  return { ...m, reindexNow: vi.fn(m.reindexNow), ensurePopulated: vi.fn(m.ensurePopulated) };
+  return { ...m, reindexNow: vi.fn(m.reindexNow), ensurePopulated: vi.fn(m.ensurePopulated), awaitFreshness: vi.fn(m.awaitFreshness) };
 });
 
 const fx = useRepoFixture();
@@ -132,14 +132,19 @@ describe("kb_search scope selection", () => {
     const t = load();
     const reindex = vi.mocked(reindexModule.reindexNow);
     const populate = vi.mocked(reindexModule.ensurePopulated);
+    // The extension's docs freshness now goes through the bounded `awaitFreshness`
+    // (change: bound-kb-search-freshness), which owns starting the reindex.
+    const freshness = vi.mocked(reindexModule.awaitFreshness);
     reindex.mockClear();
     populate.mockClear();
+    freshness.mockClear();
     await call(t.search, dir, { query: "alpha", scope: "git" });
     await call(t.get, dir, { scope: "git", path: "commit/0000000" });
     expect(reindex).not.toHaveBeenCalled();
     expect(populate).not.toHaveBeenCalled();
+    expect(freshness).not.toHaveBeenCalled();
     await call(t.search, dir, { query: "alpha" });
-    expect(reindex).toHaveBeenCalled(); // the docs path still does
+    expect(freshness).toHaveBeenCalled(); // the docs path still does
   });
 });
 

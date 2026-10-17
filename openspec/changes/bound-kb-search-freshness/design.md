@@ -31,6 +31,22 @@ Provisional baseline, one warm macOS run while drafting (this repo, 4 sources, 2
 
 Caveats, stated because the budget default leans on this number: one host, one tree shape, warm only, no cold or deep-tree point, nothing from the Docker image or the Windows QA VM. It is an order-of-magnitude indication that the pre-search freshness pass costs hundreds of milliseconds on a repo with no pathology at all — not a calibration, and deliberately not compared against the 50 ms `store.search` median (`openspec/specs/kb-fts5-search-store/spec.md:315-319`), which measures a different stage on a different corpus size. Task 1.1 replaces it with warm + cold + deep-tree numbers before the default is frozen; the default stays overridable either way.
 
+### Measured baseline and after (tasks 1.1, 5.1, 6.62 — recorded once, K3)
+
+One macOS arm64 host, this repo (4 sources, 3,073 selected files). "Before" = `HEAD` indexer sources, "after" = this change, same script, same host, same session. Wall ms / max event-loop delay ms (`monitorEventLoopDelay`, 10 ms resolution).
+
+| Case | Before | After |
+|---|---|---|
+| This repo, warm, median of 5 (K2) | 765 ms (host noisy; drafting runs were 439–486) | **447 ms** (≤ baseline + 10 %) |
+| This repo, warm, max lag | 599 ms | 31 ms |
+| This repo, cold (empty index) | 116.6 s, lag 16.6 s | 97.0 s, lag 11.6 s |
+| Deep tree, 50,500 dirs (10,100 gitignored), cold | 2.57 s | 1.58 s, lag 20 ms |
+| Deep tree, warm | 2.39 s | 1.58 s, lag 21 ms |
+| Wide dir, 100,000 direct entries | 301 ms | 182 ms, lag 10 ms (R10 residual: one listing is not a problem at this size on this host) |
+| Rename scan `git diff HEAD -M -z`, this repo | 184 ms | 92 ms (async, 2000 ms timeout) |
+
+Findings: (1) the 1500 ms default is kept — warm pass 447 ms is ~3.4× headroom, deep tree pass is 1.6 s total (so a deep cold walk abandons the wait at the budget, background continues). (2) The cold full-repo pass spends its lag in the per-batch upsert (100 files per batch, FTS5 deletes/inserts), not in the walk; that is pre-existing, outside this change, and is why a cold first call returns the index-being-built line rather than waiting. (3) Slow-filesystem case (per-directory latency, test-plan X10) is not bounded by entry-count yields alone: a long run of cheap directories with slow `readdirSync` yields only every `WALK_YIELD_EVERY` entries. Not automated; candidate follow-up is a time-based supplementary yield.
+
 ## Goals
 
 - A `kb_search` / `kb_get` / `kb_neighbors` call has a bounded worst case regardless of tree shape.

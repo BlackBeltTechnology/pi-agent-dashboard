@@ -36,10 +36,50 @@ export interface ReindexState {
   // freshness) would interleave BEGIN/COMMIT and corrupt the transaction.
   // Coalesce them onto one walk. See change: fix-kb-index-feedback.
   inflight: Map<string, Promise<{ changed: number; chunks: number }>>;
+  // cwds for which a REAL pass (every source's `indexSource` resolved) has finished
+  // successfully in this process. Distinguishes "index still being built" from
+  // "legitimately empty". Not set by the removed-cwd no-op, the warm `if-empty`
+  // skip or a rejected pass; forgotten on close. See change: bound-kb-search-freshness.
+  completed: Set<string>;
 }
 
 export function createReindexState(): ReindexState {
-  return { timers: new Map(), nudged: new Set(), kb: new Map(), inflight: new Map() };
+  return { timers: new Map(), nudged: new Set(), kb: new Map(), inflight: new Map(), completed: new Set() };
+}
+
+// --- freshness budget (change: bound-kb-search-freshness) ---
+
+export const DEFAULT_FRESHNESS_BUDGET_MS = 1500;
+export const MAX_FRESHNESS_BUDGET_MS = 60000;
+
+/** Resolve `KB_FRESHNESS_BUDGET_MS`. Trimmed; absent/empty → default; strict
+ *  non-negative decimal integer → itself (`0` = never wait), clamped to the
+ *  ceiling; anything else (`-1`, `1.5`, `1e3`, `10ms`) → default. */
+export function resolveFreshnessBudgetMs(raw: string | undefined): number {
+  const v = (raw ?? "").trim();
+  if (!/^\d+$/.test(v)) return DEFAULT_FRESHNESS_BUDGET_MS;
+  const n = Number(v);
+  return Math.min(n, MAX_FRESHNESS_BUDGET_MS);
+}
+
+/** Model-facing status lines (text channel; `details` is rendering-only). */
+export const STALE_LINE = "(index refresh still running — results may be stale)";
+export const BUILDING_LINE = "(index is still being built — no results available yet; retry shortly)";
+export const CANCELLED_LINE = "(cancelled — no results retrieved)";
+
+export type FreshnessOutcome = "done" | "timeout" | "failed" | "aborted";
+export type FreshnessStatus = "none" | "stale" | "building" | "cancelled";
+
+/** Outcome → which status line applies (one rule for all three tools). */
+export function freshnessStatus(state: ReindexState, cwd: string, outcome: FreshnessOutcome): FreshnessStatus {
+  if (outcome === "done") return "none";
+  if (outcome === "aborted") return "cancelled";
+  if (outcome === "failed") return "stale"; // never "building": a deterministic failure would say "retry shortly" forever
+  let chunks = 1;
+  try {
+    chunks = getKb(state, cwd).store.counts().chunks;
+  } catch { /* can't tell → treat as populated (stale label, never a false "building") */ }
+  return chunks === 0 && !state.completed.has(cwd) ? "building" : "stale";
 }
 
 function stalenessPath(cwd: string): string {
@@ -166,12 +206,77 @@ export function reindexNow(state: ReindexState, cwd: string): Promise<{ changed:
       const st = await indexSource(store, { root: s.id, dir: s.dir }, { indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions, respectGitignore: cfg.respectGitignore, cwd });
       changed += st.changed; chunks += st.chunks;
     }
+    // Only after every source resolved, and only if the cwd was not closed
+    // mid-pass (closeKbForCwd evicts the handle).
+    if (state.kb.has(cwd)) state.completed.add(cwd);
     return { changed, chunks };
   })().finally(() => {
     if (state.inflight.get(cwd) === p) state.inflight.delete(cwd);
   });
+  // Attached at CREATION (not at abandon time): a pass whose every waiter gave
+  // up would otherwise reject with no handler → unhandledRejection. This is the
+  // single place a failed pass is logged. Waiters still observe the rejection
+  // through their own await. See change: bound-kb-search-freshness.
+  p.catch((e) => {
+    const msg = (e as Error)?.message ?? String(e);
+    // A concurrent writer (another dox-describe subagent) can hold the write
+    // lock. Tolerate it: log + drop — a later scheduled reindex or the
+    // parent's final reindex is authoritative (design D8).
+    if (/SQLITE_BUSY|database is locked/i.test(msg)) console.warn(`[kb] reindex deferred (index busy): ${msg}`);
+    else console.warn(`[kb] reindex failed: ${msg}`);
+  });
   state.inflight.set(cwd, p);
   return p;
+}
+
+/** Bounded wait for index freshness. Races the SHARED in-flight pass against an
+ *  unref'd timer and the caller's signal. Expiry / abort abandons the WAIT, never
+ *  the work: the pass keeps running for the debounce path and later callers.
+ *  - `start: "always"` (kb_search): join the in-flight pass, else start one.
+ *  - `start: "if-empty"` (kb_get / kb_neighbors): join an in-flight pass (any chunk
+ *    count — a mid-walk index is partial); else start one only when the index is
+ *    empty; else `"done"` with no walk.
+ *  Never throws. See change: bound-kb-search-freshness. */
+export async function awaitFreshness(
+  state: ReindexState,
+  cwd: string,
+  opts: { start: "always" | "if-empty"; budgetMs: number; signal?: AbortSignal },
+): Promise<FreshnessOutcome> {
+  const { start, budgetMs, signal } = opts;
+  if (signal?.aborted) return "aborted";
+  if (!existsSync(cwd)) {
+    if (start === "always") await reindexNow(state, cwd).catch(() => undefined); // evicts the handle (removed-cwd no-op)
+    return "done";
+  }
+  let pass: Promise<unknown> | undefined = state.inflight.get(cwd);
+  if (!pass) {
+    try {
+      if (start === "always" || getKb(state, cwd).store.counts().chunks === 0) pass = reindexNow(state, cwd);
+    } catch (e) {
+      console.warn(`[kb] freshness check failed, using existing index: ${(e as Error).message}`);
+      return "failed";
+    }
+  }
+  if (!pass) return "done";
+  if (budgetMs <= 0) {
+    pass.catch(() => undefined);
+    return "timeout"; // never wait; the pass continues in the background
+  }
+  return new Promise<FreshnessOutcome>((resolve) => {
+    let settled = false;
+    const finish = (o: FreshnessOutcome) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer); // every settle path, including the fast one: no leaked wakeup
+      signal?.removeEventListener("abort", onAbort);
+      resolve(o);
+    };
+    const timer = setTimeout(() => finish("timeout"), budgetMs);
+    timer.unref?.();
+    const onAbort = () => finish("aborted");
+    signal?.addEventListener("abort", onAbort, { once: true });
+    pass.then(() => finish("done"), () => finish("failed"));
+  });
 }
 
 /** Cold-start guard for the pull tools. Builds the index once when it is empty
@@ -184,6 +289,13 @@ export function reindexNow(state: ReindexState, cwd: string): Promise<{ changed:
  *  fix-kb-neighbors-get-cold-start. */
 export async function ensurePopulated(state: ReindexState, cwd: string): Promise<void> {
   if (!existsSync(cwd)) return;
+  // A pass in flight means the index may be partial whatever its chunk count
+  // (batched commits): join it before the empty-index test.
+  const running = state.inflight.get(cwd);
+  if (running) {
+    await running;
+    return;
+  }
   const { store } = getKb(state, cwd);
   if (store.counts().chunks === 0) {
     await reindexNow(state, cwd);
@@ -197,14 +309,8 @@ export function scheduleReindex(state: ReindexState, cwd: string, _path: string,
   if (existing) clearTimeout(existing);
   state.timers.set(key, setTimeout(() => {
     state.timers.delete(key);
-    reindexNow(state, cwd).catch((e) => {
-      const msg = (e as Error)?.message ?? String(e);
-      // A concurrent writer (another dox-describe subagent) can hold the write
-      // lock. Tolerate it: log + drop — a later scheduled reindex or the
-      // parent's final reindex is authoritative (design D8).
-      if (/SQLITE_BUSY|database is locked/i.test(msg)) console.warn(`[kb] reindex deferred (index busy): ${msg}`);
-      else console.warn(`[kb] reindex failed: ${msg}`);
-    });
+    // Failure is logged once at pass creation (reindexNow); nothing to add here.
+    reindexNow(state, cwd).catch(() => undefined);
   }, debounceMs));
 }
 
@@ -216,6 +322,7 @@ export function closeKbForCwd(state: ReindexState, cwd: string): void {
   const entry = state.kb.get(cwd);
   if (entry) { try { entry.store.close(); } catch { /* */ } }
   state.kb.delete(cwd);
+  state.completed.delete(cwd);
   const t = state.timers.get(cwd);
   if (t) { clearTimeout(t); state.timers.delete(cwd); }
 }
@@ -224,6 +331,7 @@ export function closeKbForCwd(state: ReindexState, cwd: string): void {
 export function closeKb(state: ReindexState): void {
   for (const { store } of state.kb.values()) { try { store.close(); } catch { /* */ } }
   state.kb.clear();
+  state.completed.clear();
   for (const t of state.timers.values()) clearTimeout(t);
   state.timers.clear();
 }

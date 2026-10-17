@@ -26,15 +26,23 @@
 // Adapted from Heimdall's kb_search_verify.py (MIT), minus its path-mining
 // heuristic (our chunks carry real paths), its uncalibrated threshold (we have
 // golden sets), and its index-mutating handle_stale (D4).
-import { execFileSync } from "node:child_process"; // ban:child_process-ok (kb package is self-contained; owns the batched git rename scan, no pi-dashboard-shared dep)
+import { execFile } from "node:child_process"; // ban:child_process-ok (kb package is self-contained; owns the batched git rename scan, no pi-dashboard-shared dep)
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
+import { promisify } from "node:util";
 import { chunkMarkdown } from "./chunker.js";
 import { resolveRowPath } from "./dox.js";
 import { parseRows } from "./dox-triage.js";
 import { type AckRecord, readStaleness } from "./staleness.js";
 import type { HitVerdict, KbHit, VerdictCounts, VerdictLabel } from "./types.js";
+
+const execFileAsync = promisify(execFile);
+
+/** Wall-clock bound on the repo-wide rename scan. On timeout the scan degrades
+ *  like a spawn failure: no renames known → absent subjects report GONE.
+ *  See change: bound-kb-search-freshness (K6). */
+export const RENAME_SCAN_TIMEOUT_MS = 2000;
 
 /** Subjects checked per hit, in DOX row order (design D11). */
 export const SUBJECT_CAP = 8;
@@ -97,8 +105,12 @@ export interface EnrichCtx {
    *  carry an inline `body` (synthetic/test hits); it wins when present. */
   loadBody?(hit: KbHit): string | null | undefined;
   fs?: VerdictFs;
-  /** Injectable git runner (tests: spawn failure → GONE). Default execFileSync. */
-  git?(args: string[], cwd: string): string;
+  /** Injectable git runner (tests: spawn failure → GONE). Default: async
+   *  `execFile` with RENAME_SCAN_TIMEOUT_MS + `signal`. May return a promise. */
+  git?(args: string[], cwd: string): string | Promise<string>;
+  /** Caller cancellation. Aborting kills the default rename scan; the scan then
+   *  degrades to "no renames" (the caller decides what an abort means). */
+  signal?: AbortSignal;
   /** Opt-in content coverage (design D5) — undefined/absent = OFF. */
   coverage?: { query: string };
 }
@@ -216,16 +228,17 @@ function parseRenameRecords(out: string, map: Map<string, string>): void {
 }
 
 /** Shorthand git runner for the rename scan (injectable via ctx.git). */
-function runGit(cwd: string, git: EnrichCtx["git"], args: string[]): string {
-  const run = git ?? ((a: string[], c: string) => execFileSync("git", a, { cwd: c, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }));
-  return run(args, cwd);
+async function runGit(cwd: string, git: EnrichCtx["git"], args: string[], signal?: AbortSignal): Promise<string> {
+  if (git) return git(args, cwd);
+  const { stdout } = await execFileAsync("git", args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: RENAME_SCAN_TIMEOUT_MS, signal });
+  return stdout;
 }
 
-function renameBatch(cwd: string, git: EnrichCtx["git"]): Map<string, string> {
+async function renameBatch(cwd: string, git: EnrichCtx["git"], signal?: AbortSignal): Promise<Map<string, string>> {
   const map = new Map<string, string>();
   let out: string;
   try {
-    out = runGit(cwd, git, ["diff", "HEAD", "--name-status", "-M", "-z"]);
+    out = await runGit(cwd, git, ["diff", "HEAD", "--name-status", "-M", "-z"], signal);
   } catch {
     return map; // non-git / no commits / spawn failure → no renames known
   }
@@ -335,14 +348,14 @@ function verdictForHit(
 
 /** Enrich ONE hit in place. Not eligible (non-agents / zero resolvable rows)
  *  → `verdict: null` — the honest "no verdict", never a vacuous label. */
-function enrichOne(
+async function enrichOne(
   hit: KbHit,
   ctx: EnrichCtx,
   fs: VerdictFs,
   acks: Record<string, AckRecord>,
   bodyCache: Map<string, string>,
-  getRenames: () => Map<string, string>,
-): void {
+  getRenames: () => Promise<Map<string, string>>,
+): Promise<void> {
   if (hit.docType !== "agents") {
     hit.verdict = null; // prose reports no verdict rather than a vacuous one
     return;
@@ -362,7 +375,7 @@ function enrichOne(
     }
   }
   // The page-level lazy rename batch: one subprocess per enrichment at most.
-  const renames = stats.some((s) => s === null) ? getRenames() : new Map<string, string>();
+  const renames = stats.some((s) => s === null) ? await getRenames() : new Map<string, string>();
   hit.verdict = verdictForHit(checked, subjects.length, stats, renames, acks, fs);
   // Opt-in coverage (D5): own field, its own capped read, verdict untouched.
   if (ctx.coverage?.query) hit.coverage = coverageScore(checked, fs, ctx.coverage.query);
@@ -382,9 +395,10 @@ export async function enrichHits(hits: KbHit[], ctx: EnrichCtx): Promise<KbHit[]
   // Pass 1 — resolve subjects + stat, per eligible hit.
   // ONE batched rename scan per ENRICHMENT (spec: per repository per
   // enrichment, NOT per hit) — computed lazily on the first absence.
-  let renamesCache: Map<string, string> | null = null;
-  const getRenames = (): Map<string, string> => (renamesCache ??= renameBatch(ctx.cwd, ctx.git));
-  for (const hit of hits) enrichOne(hit, ctx, fs, acks, pageBodyCache, getRenames);
+  // The PROMISE is memoized, so concurrent/sequential absences still share one scan.
+  let renamesCache: Promise<Map<string, string>> | null = null;
+  const getRenames = (): Promise<Map<string, string>> => (renamesCache ??= renameBatch(ctx.cwd, ctx.git, ctx.signal));
+  for (const hit of hits) await enrichOne(hit, ctx, fs, acks, pageBodyCache, getRenames);
   return hits;
 }
 
