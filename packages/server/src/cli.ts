@@ -958,7 +958,8 @@ export async function cmdOpen(
   const out = opts.out ?? ((s: string) => console.log(s));
   const err = opts.err ?? ((s: string) => console.error(s));
   const fetchFn = opts.fetchImpl ?? fetch;
-  let base = `http://localhost:${config.port}`;
+  const base = `http://localhost:${config.port}`;
+  let launchBase = base;
   if (opts.url !== undefined) {
     // Refused BEFORE a token is touched or a code is minted: the code is a 60 s
     // bearer for a proof cookie, so it must never be aimed at a foreign origin.
@@ -967,7 +968,7 @@ export async function cmdOpen(
       err(`refusing --url: ${checked.reason}`);
       return 2;
     }
-    base = checked.origin;
+    launchBase = checked.origin;
   }
   const token = safeEnsureLocalToken();
   if (!token) {
@@ -997,7 +998,7 @@ export async function cmdOpen(
     err("server returned no valid local-proof code");
     return 1;
   }
-  const url = `${base}/auth/local-proof?code=${encodeURIComponent(code)}`;
+  const url = `${launchBase}/auth/local-proof?code=${encodeURIComponent(code)}`;
   out(url);
   if (!opts.print) (opts.open ?? openUrlInBrowser)(url);
   return 0;
