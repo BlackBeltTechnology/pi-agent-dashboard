@@ -49,9 +49,6 @@ export function registerLocalProofRoutes(
     });
     // `next` is the one same-origin return-path predicate shared with the OAuth
     // `return` param: anything off-origin, with control chars, or non-string → `/`.
-    const next = sanitizeReturnUrl(query.next);
-    // Defence in depth, written as a plain guard so static analysis can see it:
-    // only a site-relative path (single leading `/`) is ever a redirect target.
-    return reply.redirect(next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/");
+    return reply.redirect(sanitizeReturnUrl(query.next));
   });
 }
