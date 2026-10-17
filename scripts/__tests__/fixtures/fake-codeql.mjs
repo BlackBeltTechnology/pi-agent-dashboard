@@ -4,7 +4,9 @@
  *
  * Driven by the JSON plan at $FAKE_CODEQL_PLAN:
  *   { log, version, resolveExit, downloadExit, createExit, createStderr,
- *     analyzeExit, sarif: { "<language>": <SARIF doc> } }
+ *     analyzeExit, analyzeWrites: { path, content }, sarif: { "<language>": <SARIF doc> } }
+ * `analyzeWrites` (optional) writes `content` to the absolute `path` during
+ * `database analyze` — simulates a concurrent edit (harden-codeql-ratchet-followups #E3).
  * Every invocation appends one JSON line to `plan.log`:
  *   { argv, env: { LGTM_INDEX_FILTERS }, sourceRoot?: { "<relpath>": "<content>" } }
  *
@@ -55,6 +57,7 @@ if (cmd === "version") {
     process.stderr.write("analyze failed\n");
     done(plan.analyzeExit);
   }
+  if (plan.analyzeWrites) writeFileSync(plan.analyzeWrites.path, plan.analyzeWrites.content);
   const language = basename(argv[2]).replace(/^db-/, "");
   const out = flag("--output");
   mkdirSync(dirname(out), { recursive: true });

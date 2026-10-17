@@ -10,7 +10,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { processStartTime, snapshotId } from "../codeql-local.mjs";
+import { createHash } from "node:crypto";
+import { processStartTime, serializeBaseline, snapshotId } from "../codeql-local.mjs";
 import {
   analyzes,
   baselineOf,
@@ -363,6 +364,160 @@ describe("prune and accept (#E25, #E26)", () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("github-dismissed (#12, false positive): x");
     expect(JSON.parse(readBaseline(repo)).entries.map((e) => [e.file, e.count])).toEqual([["a.js", 1]]);
+  });
+});
+
+/* harden-codeql-ratchet-followups: prune/accept bound to the baseline the run compared against (test-plan #E1\u2013#E12, #X1). */
+describe("baseline binding (harden-codeql-ratchet-followups)", () => {
+  const NOTE = /baseline binding was not checked/;
+  const canonicalHash = (text) => createHash("sha256").update(serializeBaseline(JSON.parse(text))).digest("hex");
+  const lastRunFile = (repo) => join(stateDirOf(repo), "last-run.json");
+  const readLastRun = (repo) => JSON.parse(readFileSync(lastRunFile(repo), "utf8"));
+  const dropHash = (repo) => {
+    const { baselineHash: _drop, ...rest } = readLastRun(repo);
+    writeFileSync(lastRunFile(repo), JSON.stringify(rest));
+  };
+  const editBaseline = (repo, fn) => {
+    const b = JSON.parse(readBaseline(repo));
+    fn(b);
+    writeBaselineFile(repo, b);
+    return readBaseline(repo);
+  };
+  const r1 = { ruleId: PI, file: "a.js", line: 1, hash: "aa:1" };
+  const r2 = { ruleId: LOG, file: "b.js", line: 1, hash: "bb:1" };
+  const r3 = { ruleId: PI, file: "c.js", line: 1, hash: "cc:1" };
+
+  it("#E1 a hand edit after the run is refused by --accept and --prune", () => {
+    const repo = seeded([entry(PI, "a.js", "aa:1", 1, "false-positive: x")]);
+    expect(run(repo, [], { plan: bothLanguages([r1, r2]) }).status).toBe(1);
+    const edited = editBaseline(repo, (b) => {
+      b.entries[0].count = 5;
+    });
+    for (const args of [["--accept", LOG, "b.js", "bb:1", "--reason", "false-positive: constant input"], ["--prune"]]) {
+      const r = run(repo, args);
+      expect(r.status, args[0]).toBe(2);
+      expect(r.stderr).toMatch(/re-run/);
+      expect(readBaseline(repo)).toBe(edited);
+    }
+  });
+
+  it("#E2 a legacy record without a hash is accepted with a note and re-bound", () => {
+    const repo = seeded([entry(PI, "a.js", "aa:1", 2)]);
+    run(repo, [], { plan: bothLanguages([r1]) });
+    dropHash(repo);
+    const r = run(repo, ["--prune"]);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toMatch(NOTE);
+    expect(readLastRun(repo).baselineHash).toBe(canonicalHash(readBaseline(repo)));
+  });
+
+  it("#E3 an edit during the analysis is refused afterwards", () => {
+    const repo = seeded([entry(PI, "a.js", "aa:1", 1, "false-positive: x")]);
+    const mid = `${JSON.stringify(baselineOf([entry(PI, "a.js", "aa:1", 1, "false-positive: edited mid-run")]), null, 2)}\n`;
+    run(repo, [], { plan: { ...bothLanguages([r1]), analyzeWrites: { path: join(repo.dir, BASELINE), content: mid } } });
+    expect(readBaseline(repo)).toBe(mid);
+    expect(run(repo, ["--prune"]).status).toBe(2);
+    expect(readBaseline(repo)).toBe(mid);
+  });
+
+  it("#E4 a triage between the run and an accept keeps the chain working", () => {
+    const repo = seeded([entry(PI, "a.js", "aa:1", 1)]);
+    expect(run(repo, [], { plan: bothLanguages([r1, r2]) }).status).toBe(1);
+    expect(run(repo, ["--triage", PI, "a.js", "aa:1", "--reason", "false-positive: x"]).status).toBe(0);
+    const a = run(repo, ["--accept", LOG, "b.js", "bb:1", "--reason", "false-positive: y"]);
+    expect(a.status).toBe(0);
+    expect(a.stdout).toContain("codeql ratchet: pass");
+    expect(JSON.parse(readBaseline(repo)).entries.map((e) => e.reason)).toEqual(["false-positive: x", "false-positive: y"]);
+  });
+
+  it("#E5 a triage does not launder a hand edit", () => {
+    const repo = seeded([entry(PI, "a.js", "aa:1", 1), entry(LOG, "b.js", "bb:1", 1, "false-positive: x")]);
+    run(repo, [], { plan: bothLanguages([r1, r2]) });
+    editBaseline(repo, (b) => {
+      b.entries.find((e) => e.file === "b.js").count = 4;
+    });
+    expect(run(repo, ["--triage", PI, "a.js", "aa:1", "--reason", "false-positive: y"]).status).toBe(0);
+    const postTriage = readBaseline(repo);
+    expect(run(repo, ["--prune"]).status).toBe(2);
+    expect(readBaseline(repo)).toBe(postTriage);
+  });
+
+  it("#E6 a triage after a legacy run does not add a hash", () => {
+    const repo = seeded([entry(PI, "a.js", "aa:1", 1), entry(LOG, "b.js", "bb:1", 1, "false-positive: x")]);
+    run(repo, [], { plan: bothLanguages([r1, r2]) });
+    dropHash(repo);
+    editBaseline(repo, (b) => {
+      b.entries.find((e) => e.file === "b.js").count = 4;
+    });
+    expect(run(repo, ["--triage", PI, "a.js", "aa:1", "--reason", "false-positive: y"]).status).toBe(0);
+    expect(readLastRun(repo)).not.toHaveProperty("baselineHash");
+  });
+
+  it("#E7 reformatting and reordering do not invalidate the run", () => {
+    const repo = seeded([entry(PI, "a.js", "aa:1", 1, "false-positive: x"), entry(LOG, "b.js", "bb:1", 1, "false-positive: y")]);
+    run(repo, [], { plan: bothLanguages([r1, r2]) });
+    const b = JSON.parse(readBaseline(repo));
+    b.entries.reverse();
+    write(repo.dir, BASELINE, `${JSON.stringify(b, null, 4)}\n`);
+    const r = run(repo, ["--prune"]);
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toMatch(/re-run/);
+  });
+
+  it("#E8 a whitespace change inside a string is not formatting", () => {
+    const repo = seeded([entry(PI, "a.js", "aa:1", 1, "false-positive: constant input")]);
+    run(repo, [], { plan: bothLanguages([r1]) });
+    // Still a valid reason (REASON_PREFIX), so only the binding can refuse it.
+    const edited = editBaseline(repo, (b) => {
+      b.entries[0].reason = "false-positive: constant  input";
+    });
+    expect(run(repo, ["--prune"]).status).toBe(2);
+    expect(readBaseline(repo)).toBe(edited);
+  });
+
+  it("#E9 a seed run records the written baseline's hash", () => {
+    const repo = makeRepo();
+    expect(run(repo, ["--write-baseline"], { plan: bothLanguages([r1]) }).status).toBe(0);
+    expect(readLastRun(repo).baselineHash).toBe(canonicalHash(readBaseline(repo)));
+    const r = run(repo, ["--prune"]);
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toMatch(NOTE);
+  });
+
+  it("#E10 prune, accept, accept after one run all succeed and keep the record bound", () => {
+    const repo = seeded([entry(PI, "gone.js", "ff:1", 1, "false-positive: z")]);
+    expect(run(repo, [], { plan: bothLanguages([r2, r3]) }).status).toBe(1);
+    expect(run(repo, ["--prune"]).status).toBe(1);
+    expect(run(repo, ["--accept", LOG, "b.js", "bb:1", "--reason", "false-positive: y"]).status).toBe(1);
+    const last = run(repo, ["--accept", PI, "c.js", "cc:1", "--reason", "false-positive: y"]);
+    expect(last.status).toBe(0);
+    expect(last.stdout).toContain("codeql ratchet: pass");
+    expect(readLastRun(repo).baselineHash).toBe(canonicalHash(readBaseline(repo)));
+  });
+
+  it("#E11 a plain run records the canonical hash of the parsed baseline", () => {
+    const repo = seeded([entry(LOG, "b.js", "bb:1", 1, "false-positive: y"), entry(PI, "a.js", "aa:1", 1, "false-positive: x")]);
+    run(repo, [], { plan: bothLanguages([r1, r2]) });
+    expect(readLastRun(repo).baselineHash).toBe(canonicalHash(readBaseline(repo)));
+  });
+
+  it("#E12 a triage without a recorded run writes no record", () => {
+    const repo = seeded([entry(PI, "a.js", "aa:1", 1)]);
+    expect(run(repo, ["--triage", PI, "a.js", "aa:1", "--reason", "false-positive: x"]).status).toBe(0);
+    expect(existsSync(lastRunFile(repo))).toBe(false);
+  });
+
+  it("#X1 an invalid baseline is refused before the binding, nothing written", () => {
+    const repo = seeded([entry(PI, "a.js", "aa:1", 1, "false-positive: x")]);
+    run(repo, [], { plan: bothLanguages([r1]) });
+    const record = readFileSync(lastRunFile(repo), "utf8");
+    const truncated = readBaseline(repo).slice(0, 20);
+    write(repo.dir, BASELINE, truncated);
+    const r = run(repo, ["--prune"]);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("is not valid JSON");
+    expect(readBaseline(repo)).toBe(truncated);
+    expect(readFileSync(lastRunFile(repo), "utf8")).toBe(record);
   });
 });
 
