@@ -25,6 +25,5 @@ describe("code-split dialog loaders", () => {
     expect((await L.MergeConfirmDialog()).default).toBe((await import("../worktree/MergeConfirmDialog.js")).MergeConfirmDialog);
     expect((await L.WorktreeSpawnDialog()).default).toBe((await import("../worktree/WorktreeSpawnDialog.js")).WorktreeSpawnDialog);
     expect((await L.BranchSwitchDialog()).default).toBe((await import("../worktree/BranchSwitchDialog.js")).BranchSwitchDialog);
-    expect((await L.ManageWorktreesDialog()).default).toBe((await import("../worktree/ManageWorktreesDialog.js")).ManageWorktreesDialog);
   });
 });

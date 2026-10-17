@@ -13,11 +13,9 @@ export const worktreeDialogLoaders = {
   // session): ~14 KB raw off the cold-landing entry. See change: add-session-actions-flyout.
   WorktreeSpawnDialog: () => import("./WorktreeSpawnDialog.js").then((m) => ({ default: m.WorktreeSpawnDialog })),
   BranchSwitchDialog: () => import("./BranchSwitchDialog.js").then((m) => ({ default: m.BranchSwitchDialog })),
-  ManageWorktreesDialog: () => import("./ManageWorktreesDialog.js").then((m) => ({ default: m.ManageWorktreesDialog })),
 };
 
 export const LazyCloseWorktreeDialog = lazy(worktreeDialogLoaders.CloseWorktreeDialog);
 export const LazyMergeConfirmDialog = lazy(worktreeDialogLoaders.MergeConfirmDialog);
 export const LazyWorktreeSpawnDialog = lazy(worktreeDialogLoaders.WorktreeSpawnDialog);
 export const LazyBranchSwitchDialog = lazy(worktreeDialogLoaders.BranchSwitchDialog);
-export const LazyManageWorktreesDialog = lazy(worktreeDialogLoaders.ManageWorktreesDialog);

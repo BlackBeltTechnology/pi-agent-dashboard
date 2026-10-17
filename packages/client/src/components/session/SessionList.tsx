@@ -86,7 +86,8 @@ import { PinnedTierDropZone } from "../workspace/PinnedTierDropZone.js";
 import { SortableWorkspace } from "../workspace/SortableWorkspace.js";
 import { SortableWorkspaceFolder } from "../workspace/SortableWorkspaceFolder.js";
 import { WorkspaceHeader } from "../workspace/WorkspaceHeader.js";
-import { LazyBranchSwitchDialog, LazyManageWorktreesDialog, LazyWorktreeSpawnDialog } from "../worktree/lazy-worktree-dialogs.js";
+import { ManageWorktreesDialog } from "../worktree/ManageWorktreesDialog.js";
+import { LazyBranchSwitchDialog, LazyWorktreeSpawnDialog } from "../worktree/lazy-worktree-dialogs.js";
 import { ArchivedSessionRow } from "./ArchivedSessionRow.js";
 import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
 import { FocusToggle } from "./FocusToggle.js";
@@ -3175,14 +3176,12 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
         </div>
       )}
       {manageWorktreesCwd && (
-        <Suspense fallback={null}>
-        <LazyManageWorktreesDialog
+        <ManageWorktreesDialog
           cwd={manageWorktreesCwd}
           allSessions={sessions}
           onShutdownSession={(id) => onShutdown?.(id)}
           onClose={() => setManageWorktreesCwd(null)}
         />
-        </Suspense>
       )}
       {cleanupCwd && (() => {
         const broken = sessions.filter((s) => s.cwd === cleanupCwd && s.cwdMissing === true && s.status === "ended" && !s.hidden);

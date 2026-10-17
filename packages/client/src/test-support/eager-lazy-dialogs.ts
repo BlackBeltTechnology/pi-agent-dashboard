@@ -21,7 +21,6 @@ vi.mock("../components/worktree/lazy-worktree-dialogs.js", async () => ({
   LazyMergeConfirmDialog: (await import("../components/worktree/MergeConfirmDialog.js")).MergeConfirmDialog,
   LazyWorktreeSpawnDialog: (await import("../components/worktree/WorktreeSpawnDialog.js")).WorktreeSpawnDialog,
   LazyBranchSwitchDialog: (await import("../components/worktree/BranchSwitchDialog.js")).BranchSwitchDialog,
-  LazyManageWorktreesDialog: (await import("../components/worktree/ManageWorktreesDialog.js")).ManageWorktreesDialog,
 }));
 
 // The session actions flyout's code-split panel + per-card dialog host
