@@ -985,6 +985,9 @@ describe("liveKnocks() and onKnockResolved (#E11 #E18)", () => {
 
 // ── test-plan #E43: one INVISIBLE_OR_SEPARATOR, shared by the server and the CLI ──
 // See change: fix-pairing-approval-credential (D8, task 3.4).
+/**
+ * @structural-pin single-definition invariant: the shared char class must be defined once and imported by pairing.ts and the CLI; a second regex copy is the failure, and only a source scan can see that
+ */
 describe("INVISIBLE_OR_SEPARATOR single definition (#E43)", () => {
   const serverSrc = path.resolve(__dirname, "..");
   const sharedModule = path.resolve(serverSrc, "../../shared/src/terminal-safe.ts");
