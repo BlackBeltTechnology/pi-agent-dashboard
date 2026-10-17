@@ -141,6 +141,12 @@
       "name": "Browser Agent",
       "color": "#14b8a6",
       "order": 23
+    },
+    {
+      "id": "openspec-workflow",
+      "name": "OpenSpec Workflow",
+      "color": "#22c55e",
+      "order": 24
     }
   ],
   "assignments": {
@@ -458,7 +464,11 @@
     "add-automation-occurrence-guard": "ui",
     "fix-kb-index-integrity": "kowledge-base",
     "add-kb-worktree-seed": "kowledge-base",
-    "add-gmail-auto-setup": "browser-agent"
+    "add-gmail-auto-setup": "browser-agent",
+    "use-openspec-status-all": "openspec-workflow",
+    "add-pi-spec-driven-schema": "openspec-workflow",
+    "add-openspec-change-dependencies": "openspec-workflow",
+    "pi-settings-full-coverage": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -472,10 +482,11 @@
       "retest-plain-language-hard-battery",
       "ab-test-rlm-delegation-claim",
       "fix-npm12-remote-tarball-install",
-      "fix-kb-index-integrity",
-      "close-residual-audit-findings"
+      "close-residual-audit-findings",
+      "gate-automation-triggers-on-home-owner"
     ],
     "ui": [
+      "pi-settings-full-coverage",
       "add-session-actions-flyout",
       "restyle-inline-terminal-button",
       "add-services-settings-ui",
@@ -484,7 +495,6 @@
       "add-operator-browser-relay",
       "audit-plugin-bundles-non-secure-context",
       "fix-orphaned-ended-session-archive",
-      "add-automation-occurrence-guard",
       "improve-gmail-plugin-setup-ux",
       "fix-automation-key-collision"
     ],
@@ -625,6 +635,11 @@
     "kowledge-base": [
       "fix-kb-index-integrity",
       "add-kb-worktree-seed"
+    ],
+    "openspec-workflow": [
+      "use-openspec-status-all",
+      "add-pi-spec-driven-schema",
+      "add-openspec-change-dependencies"
     ]
   }
 }
