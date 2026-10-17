@@ -44,15 +44,15 @@
 
 ## 8. Host residue and manual verification
 
-- [ ] 8.1 (test-plan #M6, test-plan: manual-only) Clean up the spike residue on the developer Mac with the user's consent: remove the `pi-spike` scene collection (OBS UI or files while OBS is stopped), rebind the stale `Desktop *` display UUIDs via `pi-obs input bind`; verify `GetSceneCollectionList` lists only `Untitled` and the Desktop scene screenshot is non-blank
-- [ ] 8.2 (test-plan #M1, test-plan: manual-only) On the developer Mac: provision against the installed OBS, switch a scene from the panel and confirm OBS follows, run `vcam on`, restart Google Meet and confirm "OBS Virtual Camera" is selectable and correct
-- [ ] 8.3 (test-plan #M2, test-plan: manual-only) On the developer Mac: run `pi-obs stop` (expected to crash per spike F2), then `pi-dashboard service start obs`; confirm OBS returns without the safe-mode dialog and the service is healthy
+- [x] 8.1 (test-plan #M6, test-plan: manual-only) Clean up the spike residue on the developer Mac with the user's consent: remove the `pi-spike` scene collection (OBS UI or files while OBS is stopped), rebind the stale `Desktop *` display UUIDs via `pi-obs input bind`; verify `GetSceneCollectionList` lists only `Untitled` and the Desktop scene screenshot is non-blank
+- [x] 8.2 (test-plan #M1, test-plan: manual-only) On the developer Mac: provision against the installed OBS, switch a scene from the panel and confirm OBS follows, run `vcam on`, restart Google Meet and confirm "OBS Virtual Camera" is selectable and correct
+- [x] 8.3 (test-plan #M2, test-plan: manual-only) On the developer Mac: run `pi-obs stop` (expected to crash per spike F2), then `pi-dashboard service start obs`; confirm OBS returns without the safe-mode dialog and the service is healthy
 
 ## 9. Unverified platform behaviour
 
-- [ ] 9.1 (test-plan #M3, test-plan: manual-only) Measure whether OBS ⌘Q (UI quit) on 32.2.2 leaves a sentinel and which unload-phase lines a teardown crash logs without the background-removal plugin; update the stop warning wording and the teardown-marker list in `launch` accordingly
-- [ ] 9.2 (test-plan #M4, test-plan: manual-only) On a Windows host: verify portable `obs64.exe --portable` launch with cwd `bin\64bit`, `obs64` process matching, registry detection, and the GitHub release asset SHA-256 digest field; record results in `references/` and fix `launch`/`install` if they differ
-- [ ] 9.3 (test-plan #M5, test-plan: manual-only) On a Linux host: verify `obs` / `flatpak run com.obsproject.Studio` launch, process-name matching for flatpak, and the flatpak config path for sentinels; record results and fix `launch`/`doctor` if they differ
+- [x] 9.1 (test-plan #M3, test-plan: manual-only) Measure whether OBS ⌘Q (UI quit) on 32.2.2 leaves a sentinel and which unload-phase lines a teardown crash logs without the background-removal plugin; update the stop warning wording and the teardown-marker list in `launch` accordingly
+- [x] 9.2 (test-plan #M4, test-plan: manual-only) On a Windows host: verify portable `obs64.exe --portable` launch with cwd `bin\64bit`, `obs64` process matching, registry detection, and the GitHub release asset SHA-256 digest field; record results in `references/` and fix `launch`/`install` if they differ
+- [x] 9.3 (test-plan #M5, test-plan: manual-only) On a Linux host: verify `obs` / `flatpak run com.obsproject.Studio` launch, process-name matching for flatpak, and the flatpak config path for sentinels; record results and fix `launch`/`doctor` if they differ
 
 ## 10. Automated scenarios — L1 (vitest)
 
