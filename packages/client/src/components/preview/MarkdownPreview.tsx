@@ -65,6 +65,7 @@ export function MarkdownPreview({ target }: Props) {
       frontmatter="properties"
       imageBase={imageBase}
       mermaidSource={mermaidSource}
+      staticSource
     />
   );
 }

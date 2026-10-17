@@ -77,7 +77,47 @@ async function planApply(
   }
 }
 
-function DiffView({ before, after }: { before: string; after: string }) {
+/** Unchanged runs longer than `2 * context` collapse to their edges (whole-file diffs). */
+function visibleLines(lines: string[], pi: number, count: number, context: number | undefined): Array<string | null> {
+  if (context === undefined || lines.length <= 2 * context) return lines;
+  const head = pi === 0 ? [] : lines.slice(0, context);
+  const tail = pi === count - 1 ? [] : lines.slice(-context);
+  return [...head, null, ...tail];
+}
+
+function DiffRow({ line, kind }: { line: string | null; kind: "added" | "removed" | "same" }) {
+  if (line === null) {
+    return (
+      <div aria-hidden="true" className="select-none text-[var(--text-muted)]">
+        …
+      </div>
+    );
+  }
+  const cls =
+    kind === "added"
+      ? "bg-[var(--severity-success-bg)] text-[var(--severity-success-fg)]"
+      : kind === "removed"
+        ? "bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)]"
+        : "text-[var(--text-secondary)]";
+  const mark = kind === "added" ? "+" : kind === "removed" ? "-" : " ";
+  const sr =
+    kind === "added"
+      ? i18nT("preview.mermaid.applyDiffAdded", undefined, "Added:")
+      : kind === "removed"
+        ? i18nT("preview.mermaid.applyDiffRemoved", undefined, "Removed:")
+        : null;
+  return (
+    <div data-diff={kind} className={`whitespace-pre-wrap break-all ${cls}`}>
+      {sr ? <span className="sr-only">{sr} </span> : null}
+      <span aria-hidden="true" className="select-none pr-2">
+        {mark}
+      </span>
+      {line}
+    </div>
+  );
+}
+
+export function DiffView({ before, after, context }: { before: string; after: string; context?: number }) {
   const parts = diffLines(before, after);
   return (
     <pre
@@ -85,39 +125,24 @@ function DiffView({ before, after }: { before: string; after: string }) {
       className="max-h-[50vh] overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-code)] p-2 text-xs font-mono"
     >
       {parts.flatMap((part, pi) => {
-        const lines = part.value.replace(/\n$/, "").split("\n");
-        const cls = part.added
-          ? "bg-[var(--severity-success-bg)] text-[var(--severity-success-fg)]"
-          : part.removed
-            ? "bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)]"
-            : "text-[var(--text-secondary)]";
-        const mark = part.added ? "+" : part.removed ? "-" : " ";
-        const sr = part.added
-          ? i18nT("preview.mermaid.applyDiffAdded", undefined, "Added:")
-          : part.removed
-            ? i18nT("preview.mermaid.applyDiffRemoved", undefined, "Removed:")
-            : null;
-        return lines.map((line, li) => (
-          <div key={`${pi}:${li}`} data-diff={part.added ? "added" : part.removed ? "removed" : "same"} className={`whitespace-pre-wrap break-all ${cls}`}>
-            {sr ? <span className="sr-only">{sr} </span> : null}
-            <span aria-hidden="true" className="select-none pr-2">
-              {mark}
-            </span>
-            {line}
-          </div>
-        ));
+        const kind = part.added ? "added" : part.removed ? "removed" : "same";
+        const lines = visibleLines(part.value.replace(/\n$/, "").split("\n"), pi, parts.length, kind === "same" ? context : undefined);
+        return lines.map((line, li) => <DiffRow key={`${pi}:${li}`} line={line} kind={kind} />);
       })}
     </pre>
   );
 }
 
-function ConfirmDialog({
+export function ConfirmDialog({
   path,
   before,
   after,
   writing,
   onConfirm,
   onCancel,
+  title,
+  body,
+  diffContext,
 }: {
   path: string;
   before: string;
@@ -125,6 +150,10 @@ function ConfirmDialog({
   writing: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Overrides (markup repair reuses this dialog for a whole-file diff). */
+  title?: string;
+  body?: string;
+  diffContext?: number;
 }) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -169,17 +198,18 @@ function ConfirmDialog({
           onKeyDown={onKeyDown}
         >
           <h2 id={titleId} className="mb-1 text-base font-semibold text-[var(--text-primary)]">
-            {i18nT("preview.mermaid.applyDialogTitle", undefined, "Apply fix to file?")}
+            {title ?? i18nT("preview.mermaid.applyDialogTitle", undefined, "Apply fix to file?")}
           </h2>
           <p className="mb-3 break-all font-mono text-[11px] text-[var(--text-muted)]">{path}</p>
           <p className="mb-2 text-xs text-[var(--text-tertiary)]">
-            {i18nT(
-              "preview.mermaid.applyDialogBody",
-              undefined,
-              "Only this diagram's content is replaced. Review the change before writing.",
-            )}
+            {body ??
+              i18nT(
+                "preview.mermaid.applyDialogBody",
+                undefined,
+                "Only this diagram's content is replaced. Review the change before writing.",
+              )}
           </p>
-          <DiffView before={before} after={after} />
+          <DiffView before={before} after={after} context={diffContext} />
           <div className="mt-3 flex justify-end gap-2">
             <button
               ref={cancelRef}
@@ -215,6 +245,7 @@ export function MermaidApplyFix({ source, ordinal, originalCode, fixedSource }: 
   const buttonRef = useRef<HTMLButtonElement>(null);
   const hintId = useId();
   const dirty = source.isDirty === true;
+  const markupBlocked = source.markupRepairActive === true;
   const inFlight = useRef(false);
   // Opted out of the access-grant dialog (md-read mints no remedy: its scope guard only 403s).
   const { fetch: previewFetch } = usePreviewFetch();
@@ -283,9 +314,9 @@ export function MermaidApplyFix({ source, ordinal, originalCode, fixedSource }: 
         ref={buttonRef}
         type="button"
         onClick={() => void start()}
-        disabled={dirty || phase.kind === "reading" || showDialog}
+        disabled={dirty || markupBlocked || phase.kind === "reading" || showDialog}
         aria-busy={phase.kind === "reading"}
-        aria-describedby={dirty ? hintId : undefined}
+        aria-describedby={dirty || markupBlocked ? hintId : undefined}
         data-testid="mermaid-apply-fix-button"
         className="focus-ring inline-flex items-center gap-1 rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 tap-target text-[12px] text-[var(--text-primary)] disabled:opacity-60"
       >
@@ -294,9 +325,11 @@ export function MermaidApplyFix({ source, ordinal, originalCode, fixedSource }: 
           ? i18nT("preview.mermaid.applyReading", undefined, "Reading file…")
           : i18nT("preview.mermaid.applyToFile", undefined, "Apply fix to file")}
       </button>
-      {dirty ? (
+      {dirty || markupBlocked ? (
         <span id={hintId} className="text-xs text-[var(--text-secondary)]">
-          {i18nT("preview.mermaid.applyDirtyHint", undefined, "Save or discard edits first")}
+          {markupBlocked
+            ? i18nT("markupRepair.diagramBlocked", undefined, "Apply the markup fix first")
+            : i18nT("preview.mermaid.applyDirtyHint", undefined, "Save or discard edits first")}
         </span>
       ) : null}
       {phase.kind === "changed" ? (

@@ -106,7 +106,7 @@ export function MarkdownPreviewView({
           </div>
         )}
         {content && !isLoading && !error && (
-          <MarkdownContent content={content} frontmatter="properties" />
+          <MarkdownContent content={content} frontmatter="properties" staticSource />
         )}
       </div>
     </div>
