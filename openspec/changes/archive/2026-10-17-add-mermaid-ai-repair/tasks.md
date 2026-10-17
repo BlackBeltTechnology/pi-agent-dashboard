@@ -57,6 +57,6 @@
 
 - [x] 4.1 Run the `security-hardening` checklist on the diff (input caps, output-as-untrusted, guard, single in-flight, no secret echo); record findings in this change's design.md Risks; verify no open High findings
 - [x] 4.2 Add `mermaid-repair-routes.ts` row to `packages/server/src/routes/AGENTS.md` and update `MermaidBlock.tsx.AGENTS.md` (See change: add-mermaid-ai-repair); delegate the `docs/` config reference entry for `mermaidRepair` to DocScribe; verify rows present
-- [ ] 4.3 Full suite + `npm run quality:changed`; verify green
-- [ ] 4.4 Manual: AI badge legibility in light + dark, narrow chat bubble and wide preview — badge readable, distinct from the rule badge, not crowding the diagram (test-plan: manual-only, #F12)
-- [ ] 4.5 Manual: configure `mermaidRepair` with a real `provider/id`, restart, open a `.md` with an unbalanced flowchart `subgraph`, click Fix with AI — AI-fixed diagram renders and the `[mermaid-repair]` server.log line has no diagram text (test-plan: manual-only, #X11)
+- [x] 4.3 Full suite + `npm run quality:changed`; verify green
+- [x] 4.4 Manual: AI badge legibility in light + dark, narrow chat bubble and wide preview — badge readable, distinct from the rule badge, not crowding the diagram (test-plan: manual-only, #F12)
+- [x] 4.5 Manual: configure `mermaidRepair` with a real `provider/id`, restart, open a `.md` with an unbalanced flowchart `subgraph`, click Fix with AI — AI-fixed diagram renders and the `[mermaid-repair]` server.log line has no diagram text (test-plan: manual-only, #X11)
