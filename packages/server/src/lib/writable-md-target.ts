@@ -31,6 +31,14 @@ import { safeRealpath, within } from "./path-containment.js";
  */
 const WRITABLE_MD_EXTENSIONS = new Set([".md", ".mdx", ".adoc", ".asciidoc", ".csv"]);
 
+/**
+ * Mermaid source extensions — writable in DIRECTORY scope only (the "apply fix
+ * to file" write-back for `.mmd`/`.mermaid`). The global `~/.pi/agent` branch
+ * never accepts them. Not a picker candidate (`md-candidates` stays `.md`/`.mdx`).
+ * See change: add-preview-apply-fix-to-file.
+ */
+const DIRECTORY_ONLY_WRITABLE_EXTENSIONS = new Set([".mmd", ".mermaid"]);
+
 /** Lowercased extension including the leading dot, or `""` when none (dotfiles count as none). */
 function extOf(p: string): string {
   const base = path.basename(p);
@@ -92,7 +100,10 @@ export async function isWritableMdTarget(
     const real = await safeRealpath(path.resolve(absPath));
     // Extension is checked on the *resolved* target so a same-dir symlink to a
     // non-markdown file (e.g. notes.md → secret.txt) is rejected.
-    if (!WRITABLE_MD_EXTENSIONS.has(extOf(real))) return false;
+    const ext = extOf(real);
+    if (!WRITABLE_MD_EXTENSIONS.has(ext) && !(opts.cwd && DIRECTORY_ONLY_WRITABLE_EXTENSIONS.has(ext))) {
+      return false;
+    }
     return within(real, root);
   } catch {
     return false;

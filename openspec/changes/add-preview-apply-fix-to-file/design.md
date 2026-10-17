@@ -23,7 +23,7 @@ See proposal.md — Why. Current code:
 ### D1 — Block identity = parser ordinal + exact source
 Each file surface provides `MermaidSourceContext` = `{ cwd, path, kind: "md" | "adoc" | "mmd", reload, isDirty?, expectedCount? }` (stable identity, memoized). No context → no action (chat, tool cards). The surface provides the context only when `cwd` is a live session cwd: `md-read` and `write` both go through `resolveScopedMdPath`, which 403s any other cwd (`packages/server/src/routes/file-routes.ts:119-126`), so pinned-dir-only previews do not offer the action.
 
-- **md:** a remark plugin `remarkMermaidOrdinal` visits mdast `code` nodes with `lang === "mermaid"` in document order and stamps `data.hProperties["data-mermaid-ordinal"] = String(n)` (mdast-util-to-hast applies it to the inner `code` element). `MarkdownCode` today discards non-inline props (`MarkdownContent.tsx:496`), so it reads the stamp explicitly and passes it to `MermaidBlock`; `stripReactRefAttributes` only deletes `ref` (`MarkdownContent.tsx:119-127`). No stamp (raw-HTML `<pre>`, `mermaid-foo` lang matched by the `\w+` regex) → no action. Ordinal is computed in the tree, not by a render-time counter (StrictMode/memo-safe).
+- **md:** a remark plugin `remarkMermaidOrdinal` visits mdast `code` nodes with `lang === "mermaid"` in document order and stamps `data.hProperties["data-mermaid-ordinal"] = String(n)` (mdast-util-to-hast applies it to the inner `code` element). `MarkdownCode` today discards non-inline props (`MarkdownContent.tsx:496`), so it reads the stamp explicitly and passes it to `MermaidBlock`; `stripReactRefAttributes` only deletes `ref` (`MarkdownContent.tsx:119-127`). No stamp (raw-HTML `<pre>`, `mermaid-foo` lang matched by the `\w+` regex) → no action. The stamp value is `<per-page-load nonce>:<n>` and the sanitizer allowlists only that pattern (`ORDINAL_STAMP_PATTERN`), so a raw-HTML `<code data-mermaid-ordinal=…>` in untrusted markdown cannot forge an ordinal. Ordinal is computed in the tree, not by a render-time counter (StrictMode/memo-safe).
 - **adoc:** ordinal = index among the splitter's mermaid diagram segments; `expectedCount` = number of those segments.
 - **mmd:** ordinal 0, whole file.
 
@@ -76,6 +76,8 @@ After 200 the surface's `reload` (from the context) re-fetches its content; the 
 `MarkdownViewer` edit mode with unsaved changes passes `isDirty: true`; Apply is disabled with "save or discard edits first". Other editors on the same file (Instructions page, another tab) are covered only by the mtime 409.
 
 ## Risks / Trade-offs
+
+- [Fix source breaks out of the fence/delimiter] → `replace()` returns `null` (not-applicable) when any fixed line would itself close the fence (same marker char, ≥ length) or the AsciiDoc delimiter; the write never happens.
 
 - [Duplicate identical diagrams] → ordinal + exact verify targets the right one.
 - [Content string-transform reinstated in `MarkdownContent`] → the `markdown-rendering` spec still names `wrapAsciiTables` pre-processing, but code has it disabled (`processedContent = content`, `MarkdownContent.tsx:579-580`); re-enabling it (it can add fences) would break raw-file ordinal parity. The ordinal-parity test (tasks 3.1) fails if that happens. `remarkMermaidOrdinal` is remark-level; the rehype chain pinned by `markdown-rendering` is unchanged.

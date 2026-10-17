@@ -63,3 +63,5 @@ Mounts `<ShellHeadlessSlot />` once in the `apiProvider` body (inside `PluginCon
 ## add-set-global-view
 
 - `ChatViewMenu` now `lazy()` (own chunk, off the `mdi-chunk-size` entry gzip cap); composer-strip mount wrapped in its own `<Suspense fallback={null}>`.
+
+`LiveSessionCwdsProvider cwdKey={liveCwdKey(session cwds)}` wraps the shell inside `ShellSessionsProvider`: file previews offer "Apply fix to file" only for live session cwds. See change: add-preview-apply-fix-to-file.

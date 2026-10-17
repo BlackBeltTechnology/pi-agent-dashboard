@@ -4,16 +4,17 @@ One row per file.
 
 | File | Purpose |
 |------|---------|
-| `acp-automation.spec.ts` | ACP L3. → see `acp-automation.spec.ts.AGENTS.md` |
-| `acp-permission.spec.ts` | ACP L3. → see `acp-permission.spec.ts.AGENTS.md` |
-| `acp-restart-midturn.spec.ts` | ACP L3. → see `acp-restart-midturn.spec.ts.AGENTS.md` |
-| `acp-session-queue.spec.ts` | ACP L3. → see `acp-session-queue.spec.ts.AGENTS.md` |
-| `acp-session.spec.ts` | ACP L3. → see `acp-session.spec.ts.AGENTS.md` |
-| `acp-spawn-picker.spec.ts` | ACP L3. → see `acp-spawn-picker.spec.ts.AGENTS.md` |
-| `agent-path-gate.spec.ts` | L3 path gate. → see `agent-path-gate.spec.ts.AGENTS.md` |
+| `acp-automation.spec.ts` | → see `acp-automation.spec.ts.AGENTS.md` |
+| `acp-permission.spec.ts` | → see `acp-permission.spec.ts.AGENTS.md` |
+| `acp-restart-midturn.spec.ts` | → see `acp-restart-midturn.spec.ts.AGENTS.md` |
+| `acp-session-queue.spec.ts` | → see `acp-session-queue.spec.ts.AGENTS.md` |
+| `acp-session.spec.ts` | → see `acp-session.spec.ts.AGENTS.md` |
+| `acp-spawn-picker.spec.ts` | → see `acp-spawn-picker.spec.ts.AGENTS.md` |
+| `agent-path-gate.spec.ts` | → see `agent-path-gate.spec.ts.AGENTS.md` |
+| `apply-fix-to-file.spec.ts` | → see `apply-fix-to-file.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | L3 #F1/#F5 service-session arc… → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
-| `archived-attachment.spec.ts` | L3 F8/F11 archived attachment. → see `archived-attachment.spec.ts.AGENTS.md` |
-| `composer-liveness-reload.spec.ts` | L3 → see `composer-liveness-reload.spec.ts.AGENTS.md` |
+| `archived-attachment.spec.ts` | → see `archived-attachment.spec.ts.AGENTS.md` |
+| `composer-liveness-reload.spec.ts` | → see `composer-liveness-reload.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
 | `first-run-create-project.spec.ts` | F16/F17 → see `first-run-create-project.spec.ts.AGENTS.md` |
@@ -43,7 +44,7 @@ One row per file.
 | `automation-fanout.spec.ts` | L3 fan-out E2E (test-plan F5/F6). Creates an `actions:`… → see `automation-fanout.spec.ts.AGENTS.md` |
 | `automation-identity-restart.spec.ts` | → see `automation-identity-restart.spec.ts.AGENTS.md` |
 | `automation-stop-tmux.spec.ts` | L3 (X19/X20). Stop kills a tmux run's real pi. → see `automation-stop-tmux.spec.ts.AGENTS.md` |
-| `background-stream-selection.spec.ts` | L3. → see `background-stream-selection.spec.ts.AGENTS.md` |
+| `background-stream-selection.spec.ts` | → see `background-stream-selection.spec.ts.AGENTS.md` |
 | `copy-insecure-context.spec.ts` | L3 test-plan #X3 (change: fix-long-session-u… → see `copy-insecure-context.spec.ts.AGENTS.md` |
 | `drag-body-style.spec.ts` | #F23 — breakpoint flip unmounts dragger mid-drag; body… → see `drag-body-style.spec.ts.AGENTS.md` |
 | `idle-fx-pause.spec.ts` | L3 for idle FX pause (test-plan #F16-#F20): idle delay… → see `idle-fx-pause.spec.ts.AGENTS.md` |
@@ -109,7 +110,7 @@ One row per file.
 | `headless-reload-dispatch.spec.ts` | L3 fix-out-of-band-reload #F1–#F3. → see `headless-reload-dispatch.spec.ts.AGENTS.md` |
 | `host-gate-allow.spec.ts` | L3 for the Host-gate operator flow (test-plan #F9/#F10… → see `host-gate-allow.spec.ts.AGENTS.md` |
 | `host-pressure-badge.spec.ts` | L3 for `fix-false-unresponsive-badge` (#F3, #F4).… → see `host-pressure-badge.spec.ts.AGENTS.md` |
-| `history-backfill-gap.spec.ts` | L3. → see `history-backfill-gap.spec.ts.AGENTS.md` |
+| `history-backfill-gap.spec.ts` | → see `history-backfill-gap.spec.ts.AGENTS.md` |
 | `history-backfill-perf.spec.ts` | L3 P1/P2 for `fix-lazy-history-backfill-ux`, metric… → see `history-backfill-perf.spec.ts.AGENTS.md` |
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artifacts… → see `inline-screenshot.spec.ts.AGENTS.md` |
 | `inline-terminal-transcript.spec.ts` | L3 inline-terminal transcript → see `inline-terminal-transcript.spec.ts.AGENTS.md` |
@@ -139,7 +140,7 @@ One row per file.
 | `openspec-board-drop.spec.ts` | L3 drop. → see `openspec-board-drop.spec.ts.AGENTS.md` |
 | `openspec-board-spawn-no-focus.spec.ts` | L3 board no-focus. → see `openspec-board-spawn-no-focus.spec.ts.AGENTS.md` |
 | `openspec-board-worktree-availability.spec.ts` | → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
-| `openspec-connect-coverage.spec.ts` | L3. → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
+| `openspec-connect-coverage.spec.ts` | → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
 | `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice. → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board segment… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
 | `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-att… → see `openspec-locality-gate.spec.ts.AGENTS.md` |
@@ -163,7 +164,7 @@ One row per file.
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-… → see `popover-container-clip.spec.ts.AGENTS.md` |
 | `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4… → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
 | `quota-context-strip.spec.ts` | L3 quota chips in context strip (F7–F9, X3). → see `quota-context-strip.spec.ts.AGENTS.md` |
-| `retro-ux-chat-rendering.spec.ts` | L3 → see `retro-ux-chat-rendering.spec.ts.AGENTS.md` |
+| `retro-ux-chat-rendering.spec.ts` | → see `retro-ux-chat-rendering.spec.ts.AGENTS.md` |
 | `retro-ux-identity-connectivity.spec.ts` | L3 retro-ux probes. → see `retro-ux-identity-connectivity.spec.ts.AGENTS.md` |
 | `retro-ux-model-selector.spec.ts` | L3 retro-ux model selector. → see `retro-ux-model-selector.spec.ts.AGENTS.md` |
 | `retro-ux-plugin-settings-forms.spec.ts` | L3 E24. → see `retro-ux-plugin-settings-forms.spec.ts.AGENTS.md` |
@@ -227,7 +228,7 @@ One row per file.
 | `terminal-reload-inprocess.spec.ts` | L3 terminal-hosted (tmux) `/reload`. → see `terminal-reload-inprocess.spec.ts.AGENTS.md` |
 | `terminal-tab.spec.ts` | Terminal-as-tab spec (change: terminals-in-tabbed-panes). → see `terminal-tab.spec.ts.AGENTS.md` |
 | `terminal.spec.ts` | Scenario 5.4 spec. `ensureGitSession`, c… → see `terminal.spec.ts.AGENTS.md` |
-| `tmux-session-shutdown.spec.ts` | L3. → see `tmux-session-shutdown.spec.ts.AGENTS.md` |
+| `tmux-session-shutdown.spec.ts` | → see `tmux-session-shutdown.spec.ts.AGENTS.md` |
 | `tool-burst.spec.ts` | Playwright spec for temporal burst grouping. Sends… → see `tool-burst.spec.ts.AGENTS.md` |
 | `tool-collapse-narration.spec.ts` | Playwright spec for the semantic-first compo… → see `tool-collapse-narration.spec.ts.AGENTS.md` |
 | `tool-created-files.spec.ts` | L3 spec (change: detect-tool-created-files, U1+U3).… → see `tool-created-files.spec.ts.AGENTS.md` |
