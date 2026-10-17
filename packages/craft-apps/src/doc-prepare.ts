@@ -275,7 +275,7 @@ const unescapeXml = (s: string): string =>
   });
 
 /** Escape for XML text; also drops characters XML 1.0 forbids. */
-const escapeXml = (s: string): string => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ud800-\udfff\ufffe\uffff]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const escapeXml = (s: string): string => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ud800-\udfff\ufffe\uffff]/gu, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 interface TemplateMeta {
   defaults: Map<string, string>;
@@ -808,23 +808,59 @@ const safeDecode = (s: string): string => {
   }
 };
 
-/** nano-banana route: the md5 cache, else one `pi-nano-banana` call. null = fall back to mmdc. */
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** A cache hit: a plain file (never a symlink — the cache sits in the untrusted input's tree) that is a real png. */
+function readCachedPng(file: string): Buffer | null {
+  try {
+    if (!fs.lstatSync(file).isFile()) return null;
+    const png = fs.readFileSync(file);
+    return png.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC) ? png : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The cache dir must be a plain directory (or absent): a symlinked `.mermaid-cache` would redirect reads and writes. */
+function ensureCacheDir(dir: string): boolean {
+  try {
+    return fs.lstatSync(dir).isDirectory();
+  } catch {
+    fs.mkdirSync(dir, { recursive: true });
+    return true;
+  }
+}
+
+/**
+ * nano-banana route: the md5 cache, else one `pi-nano-banana` call written to a private temp name and renamed into place
+ * (a partial png never becomes a hit; a symlink at the cache name is replaced, never followed). null = fall back to mmdc.
+ */
 async function renderViaNano(source: string, c: BodyCtx): Promise<{ png: Buffer; cached: boolean } | null> {
   const cacheDir = path.join(c.mdDir, ".mermaid-cache");
   // The key covers the style's name AND its prompt text, so editing a style under the same name never reuses a stale png.
   const cached = path.join(cacheDir, `${md5(`${c.style.name ?? ""}\n${c.style.prompt}\n${source}`)}.png`);
-  if (fs.existsSync(cached)) return { png: fs.readFileSync(cached), cached: true };
+  const hit = readCachedPng(cached);
+  if (hit) return { png: hit, cached: true };
   const nano = c.deps.nanoBanana();
   if (!nano) return null;
-  fs.mkdirSync(cacheDir, { recursive: true });
+  if (!ensureCacheDir(cacheDir)) {
+    c.report.warnings.push(".mermaid-cache is not a plain directory: nano-banana diagrams skipped");
+    return null;
+  }
+  const tmp = path.join(cacheDir, `.${randomBytes(6).toString("hex")}.tmp.png`);
   // A leading label keeps diagram text that starts with `-` from being read as an option by the CLI.
   const prompt = `Diagram:\n${source}${c.style.prompt ? `\n\n${c.style.prompt}` : ""}`;
   try {
-    await c.deps.run(nano.file, [...nano.prefix, prompt, "--output", cached], { timeout: 180_000 });
+    await c.deps.run(nano.file, [...nano.prefix, prompt, "--output", tmp], { timeout: 180_000 });
+    const png = readCachedPng(tmp);
+    if (!png) return null;
+    fs.renameSync(tmp, cached);
+    return { png, cached: false };
   } catch {
     return null;
+  } finally {
+    fs.rmSync(tmp, { force: true });
   }
-  return fs.existsSync(cached) ? { png: fs.readFileSync(cached), cached: false } : null;
 }
 
 /** Host `mmdc`, argv only. Returns the png, or the reason it could not render. */

@@ -76,7 +76,7 @@ Each local image SHALL be inlined as a `data:` URI. Image paths SHALL resolve re
 When the template's document part owns an image relationship (for example a cover logo), WordCraft 0.7.0 maps a Markdown-imported image onto the template's first image. In that case every image and rendered diagram SHALL instead be written to `<dir>/images/<NNNN>.<ext>`, replaced in `body.md` by the token `CRAFTIMG<NNNN>`, and listed in `prepare.json` under `pictures` as `{marker, file, alt}`.
 
 Each Mermaid block SHALL be rendered to PNG and inlined:
-- with nano-banana when frontmatter `nano_banana.enabled` is true, using the style from the template's `nano-banana-styles.yaml` and the cache `.mermaid-cache/<md5 of style and source>.png`, falling back to `mmdc` on failure;
+- with nano-banana when frontmatter `nano_banana.enabled` is true, using the style from the template's `nano-banana-styles.yaml` and the cache `.mermaid-cache/<md5 of style name, style prompt and source>.png`, falling back to `mmdc` on failure. A cache entry SHALL be used only when it is a plain file holding a png; a symlinked entry or cache directory SHALL never be read or written through, and a generated png SHALL reach its cache name only by an atomic rename;
 - otherwise with host `mmdc`, spawned without a shell.
 
 When `mmdc` is unavailable, the block SHALL be left as code and counted as unrendered. PlantUML blocks SHALL be left as code and reported as warnings.
@@ -96,6 +96,10 @@ When `mmdc` is unavailable, the block SHALL be left as code and counted as unren
 #### Scenario: Mermaid cache hit
 - **WHEN** a nano-banana-styled diagram with an unchanged source is prepared a second time
 - **THEN** the cached PNG is reused and the nano-banana CLI is not called
+
+#### Scenario: Symlinked cache entry ignored
+- **WHEN** `.mermaid-cache/<key>.png` is a symlink to a local file
+- **THEN** it is not a cache hit, the file it points at is not read into `body.md` or modified, and a freshly generated png replaces the link
 
 #### Scenario: mmdc missing
 - **WHEN** the input has a Mermaid block, nano-banana is not enabled, and `mmdc` is not on PATH

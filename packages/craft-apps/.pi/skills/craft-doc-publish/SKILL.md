@@ -108,7 +108,9 @@ ARGS+=(--cmd "file.properties=$(jq -c '{title:.title}' "$D/prepare.json")")
 pi-craft wordcraft exec run --file "$D/template.filled.docx" "${ARGS[@]}" --save "$JOB/02-render/out.docx"
 pi-craft wordcraft exec convert "$JOB/02-render/out.docx" "$JOB/02-render/out.pdf"
 N=$(pi-craft wordcraft exec info "$JOB/02-render/out.docx" | jq -r .pages)
-pi-craft verify "$JOB/02-render/out.pdf" --pages "$N" --text-contains "$(jq -r .title "$D/prepare.json")" --text-contains "$CLIENT"
+TITLE=$(jq -r .title "$D/prepare.json")
+CLIENT=${CLIENT:?set CLIENT to a variable value you supplied, e.g. the --var client_name value}
+pi-craft verify "$JOB/02-render/out.pdf" --pages "$N" --text-contains "$TITLE" --text-contains "$CLIENT"
 ```
 
 A page-count mismatch or a missing title stops the workflow here: the package step does not start. Look at the rendered pages
@@ -124,7 +126,7 @@ step is checked by `check: protected` (opening without the password must fail).
 ```bash
 pi-craft pdfcraft exec combine "$JOB/02-render/out.pdf" appendix.pdf --out "$JOB/03-package/final.pdf"     # skip when there is nothing to add
 pi-craft pdfcraft exec audit "$JOB/03-package/final.pdf"                                                   # faux-redaction finder, fails when found
-pi-craft verify "$JOB/03-package/final.pdf" --pages 5 --text-contains "$TITLE"
+pi-craft verify "$JOB/03-package/final.pdf" --pages 5 --text-contains "$(jq -r .title "$JOB/01-prepare/prepare.json")"
 ```
 
 Protect only when asked. The password comes from the user at run time; it goes to a `0600` temp file outside the job directory

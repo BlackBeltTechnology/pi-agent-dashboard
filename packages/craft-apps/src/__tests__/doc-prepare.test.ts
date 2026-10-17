@@ -215,6 +215,13 @@ describe("placeholder fill", () => {
     }
   });
 
+  it("keeps characters outside the BMP and strips lone surrogates", async () => {
+    const r = await prep({ md: "x\n", args: ["--var", "client_name=ACME 🚀", "--var", `version=a${String.fromCharCode(0xd800)}b`] });
+    const t = textsOf(partText(r.docx, "word/document.xml")).join("|");
+    expect(t).toContain("ACME 🚀");
+    expect(t).toContain("ab");
+  });
+
   it("E8 <name> only for manifest `both` (or undeclared-syntax variables.xml) names", async () => {
     const tpl: TemplateSpec = {
       document: [para("<client_name>"), para("<$date>"), para("<draft>")],
@@ -388,6 +395,38 @@ describe("body preparation", () => {
     await rerun(a.work, stubs.env);
     expect(stubs.calls("pi-nano-banana")).toHaveLength(3);
     expect(cached(key("ros-3d", "STYLE ROS v2\n\nAVOID: no cartoon"))).toBe(true);
+  });
+
+  it("a symlinked cache entry or cache dir is never read or written through; a garbage cache file is regenerated", async () => {
+    const stubs = stubPath({ nano: "ok", mmdc: true });
+    const tpl = { ...standardTemplate(), stylesYaml: STYLES };
+    const secret = path.join(tmpDir("craft-secret-"), "secret.png");
+    fs.writeFileSync(secret, Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from("TOPSECRET")]));
+    const key = createHash("md5").update("ros-3d\nSTYLE ROS\n\nAVOID: no cartoon\ngraph TD; A-->B").digest("hex");
+    // 1) a symlink at the cache name pointing at a local file: not a hit; the generated png replaces the link, the target is untouched
+    const a = await prep({ md: NB, stubs, template: tpl, before: (work) => {
+      fs.mkdirSync(path.join(work, ".mermaid-cache"));
+      fs.symlinkSync(secret, path.join(work, ".mermaid-cache", `${key}.png`));
+    } });
+    expect(a.report.mermaid).toMatchObject({ rendered: 1, cached: 0 });
+    expect(a.body).not.toContain(Buffer.from("TOPSECRET").toString("base64").slice(0, 8));
+    expect(fs.readFileSync(secret).toString()).toContain("TOPSECRET");
+    expect(fs.lstatSync(path.join(a.work, ".mermaid-cache", `${key}.png`)).isFile()).toBe(true);
+    // 2) a symlinked cache directory: nano-banana is skipped (mmdc renders), nothing is written through the link
+    const outside = tmpDir("craft-outside-cache-");
+    const calls = stubs.calls("pi-nano-banana").length;
+    const b = await prep({ md: NB, stubs, template: tpl, before: (work) => fs.symlinkSync(outside, path.join(work, ".mermaid-cache")) });
+    expect(stubs.calls("pi-nano-banana")).toHaveLength(calls);
+    expect(fs.readdirSync(outside)).toEqual([]);
+    expect(b.report.mermaid).toMatchObject({ rendered: 1, fallback: 1 });
+    expect(b.report.warnings.join(" ")).toContain("not a plain directory");
+    // 3) a truncated / non-png cache file is a miss and is regenerated
+    const c = await prep({ md: NB, stubs, template: tpl, before: (work) => {
+      fs.mkdirSync(path.join(work, ".mermaid-cache"));
+      fs.writeFileSync(path.join(work, ".mermaid-cache", `${key}.png`), "not a png");
+    } });
+    expect(c.report.mermaid).toMatchObject({ rendered: 1, cached: 0 });
+    expect(fs.readFileSync(path.join(c.work, ".mermaid-cache", `${key}.png`)).subarray(0, 4).toString("hex")).toBe("89504e47");
   });
 
   it("E21 a failing nano-banana falls back to mmdc", async () => {
