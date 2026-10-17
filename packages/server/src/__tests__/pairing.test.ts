@@ -982,3 +982,39 @@ describe("liveKnocks() and onKnockResolved (#E11 #E18)", () => {
     expect(seen).toEqual([]);
   });
 });
+
+// ── test-plan #E43: one INVISIBLE_OR_SEPARATOR, shared by the server and the CLI ──
+// See change: fix-pairing-approval-credential (D8, task 3.4).
+/**
+ * @structural-pin single-definition invariant: the shared char class must be defined once and imported by pairing.ts and the CLI; a second regex copy is the failure, and only a source scan can see that
+ */
+describe("INVISIBLE_OR_SEPARATOR single definition (#E43)", () => {
+  const serverSrc = path.resolve(__dirname, "..");
+  const sharedModule = path.resolve(serverSrc, "../../shared/src/terminal-safe.ts");
+  const importsShared = /from\s+"@blackbelt-technology\/pi-dashboard-shared\/terminal-safe\.js"/;
+
+  function productionSources(dir: string, acc: string[] = []): string[] {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name !== "__tests__" && e.name !== "node_modules") productionSources(p, acc);
+      } else if (e.name.endsWith(".ts") && !e.name.endsWith(".test.ts")) acc.push(p);
+    }
+    return acc;
+  }
+
+  it("is defined exactly once, in shared/src/terminal-safe.ts", () => {
+    const defining = [...productionSources(serverSrc), ...productionSources(path.dirname(sharedModule))].filter((f) =>
+      /(?:const|let|var)\s+INVISIBLE_OR_SEPARATOR\b/.test(fs.readFileSync(f, "utf-8")),
+    );
+    expect(defining).toEqual([sharedModule]);
+  });
+
+  it("pairing.ts and cli.ts import it from the shared module instead of redefining it", () => {
+    for (const f of ["pairing/pairing.ts", "cli.ts"]) {
+      const src = fs.readFileSync(path.join(serverSrc, f), "utf-8");
+      expect(src, f).toMatch(importsShared);
+      expect(src, f).not.toMatch(/(?:const|let|var)\s+INVISIBLE_OR_SEPARATOR\b/);
+    }
+  });
+});

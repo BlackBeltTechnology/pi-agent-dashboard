@@ -12,14 +12,28 @@
  * as React text children only, never HTML, never a link.
  */
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import { mdiAlertCircle, mdiCellphoneLink, mdiCheckCircle, mdiClockAlertOutline, mdiLockOpenVariantOutline } from "@mdi/js";
+import {
+  mdiAlertCircle,
+  mdiCellphoneLink,
+  mdiCheckCircle,
+  mdiClockAlertOutline,
+  mdiContentCopy,
+  mdiLockOpenVariantOutline,
+} from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { loginPathFor } from "../../lib/identity/dashboard-login.js";
 import { describeUserAgent, deviceNameFromUserAgent } from "../../lib/pairing/describe-user-agent.js";
 import type { Tier } from "../../lib/pairing/paired-devices-api.js";
-import type { ApprovePendingOutcome, PendingPairing } from "../../lib/pairing/pairing-approval-api.js";
+import {
+  type ApprovePendingOutcome,
+  isCredentialRefusalError,
+  type PendingPairing,
+  type RefusalRemedies,
+} from "../../lib/pairing/pairing-approval-api.js";
 import { TIER_OPTIONS } from "../connectivity/PairedDevicesSection.js";
+import { CopyButton } from "../primitives/CopyButton.js";
 
 const CODE_DIGITS = 8;
 /** Server bound on the device label (UTF-8 bytes, `MAX_DEVICE_LABEL_BYTES`). */
@@ -40,7 +54,12 @@ export interface PairingApprovalDialogProps {
    * is passed for a knock entry only (QR keeps its two-argument call).
    */
   onApprove(confirmCode: string, label: string | undefined, tier?: Tier): Promise<ApprovePendingOutcome>;
-  onDeny(): Promise<void>;
+  /**
+   * Resolves with nothing once answered (the host closes the dialog), or the
+   * refusal's remedies when the deny was refused for want of an operator
+   * credential — the request stays open; rejects only on a transport failure.
+   */
+  onDeny(): Promise<RefusalRemedies | void>;
   /** Closed without answering — the request stays pending ("decide later"). */
   onDismiss(): void;
   /** A terminal state (success / locked / expired) was closed. */
@@ -86,7 +105,22 @@ interface NextState {
   pairedName?: string;
   fieldError?: string;
   formError?: string;
+  refusal?: RefusalRemedies;
   handledElsewhere?: true;
+}
+
+/** Legacy one-sentence refusal copy — older servers send no `remedies`. */
+function needsOperatorText(): string {
+  return i18nT(
+    "pairingApproval.needsOperator",
+    undefined,
+    "Approval needs an operator credential. Open the dashboard with `pi-dashboard open` (or the desktop app), or sign in.",
+  );
+}
+
+/** A credential refusal: remedy rows when the server sent a list, else the legacy sentence. */
+function refusalState(r: RefusalRemedies): NextState {
+  return r.remedies === undefined ? { formError: needsOperatorText() } : { refusal: r };
 }
 
 /** Server approve outcome → dialog state (design D6). */
@@ -98,16 +132,130 @@ function nextFromOutcome(outcome: ApprovePendingOutcome): NextState {
   if (outcome.error === "no_pending") return { handledElsewhere: true };
   // 401 from the approval guard: bare loopback is not an operator credential.
   // See change: harden-trust-and-credential-boundaries (D6).
-  if (outcome.error === "operator credential required" || outcome.error === "Authentication required") {
-    return {
-      formError: i18nT(
-        "pairingApproval.needsOperator",
-        undefined,
-        "Approval needs an operator credential. Open the dashboard with `pi-dashboard open` (or the desktop app), or sign in.",
-      ),
-    };
-  }
+  if (isCredentialRefusalError(outcome.error)) return refusalState(outcome as RefusalRemedies);
   return { formError: i18nT("pairingApproval.failed", undefined, "Couldn't approve this device. Try again.") };
+}
+
+type KnownRemedy = "authorize-browser" | "approve-on-host" | "sign-in";
+const KNOWN_REMEDIES: ReadonlySet<string> = new Set<KnownRemedy>(["authorize-browser", "approve-on-host", "sign-in"]);
+
+/** Only plain origin / id characters may reach a copyable shell command. */
+const SAFE_ORIGIN = /^https?:\/\/[A-Za-z0-9.[\]:-]+$/;
+const SAFE_ID = /^[A-Za-z0-9-]+$/;
+
+/**
+ * `pi-dashboard open [--url <origin>]` for THIS tab: the proof cookie it mints is
+ * host-only, so the command must name the origin being credentialed. The flag is
+ * dropped for the launcher default (`http://localhost:<port>`); `null` when the
+ * origin is not one a copyable command can safely carry.
+ */
+function authorizeCommand(origin: string): string | null {
+  if (!SAFE_ORIGIN.test(origin)) return null;
+  const u = new URL(origin);
+  return u.protocol === "http:" && u.hostname === "localhost" ? "pi-dashboard open" : `pi-dashboard open --url ${origin}`;
+}
+
+/** `pi-dashboard pair approve <pendingId>` — the identifier only, NEVER the confirmation code. */
+function approveCommand(pendingId: string): string {
+  return SAFE_ID.test(pendingId) ? `pi-dashboard pair approve ${pendingId}` : "pi-dashboard pair approve";
+}
+
+function CommandRow({ remedy, label, command, copyTitle }: { remedy: KnownRemedy; label: string; command: string; copyTitle: string }) {
+  return (
+    <li data-testid="pairing-remedy-row" data-remedy={remedy} className="space-y-1">
+      <p>{label}</p>
+      <div className="flex items-center gap-1">
+        <code className="min-w-0 flex-1 select-all break-all rounded px-2 py-1 font-mono text-xs bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border-secondary)]">
+          {command}
+        </code>
+        <CopyButton getText={() => command} icon={<Icon path={mdiContentCopy} size={0.6} aria-hidden="true" />} title={copyTitle} />
+      </div>
+    </li>
+  );
+}
+
+/**
+ * Credential refusal with the server's `remedies`: one row per RECOGNISED value in
+ * the order received. Unknown values are dropped; nothing here retries anything.
+ * See change: fix-pairing-approval-credential (D5, D7, D10).
+ */
+function RemedyBlock({ refusal, pendingId }: { refusal: RefusalRemedies | null; pendingId: string }) {
+  if (refusal === null) return null;
+  const origin = window.location.origin;
+  const wanted = [...new Set(refusal.remedies ?? [])].filter((r): r is KnownRemedy => KNOWN_REMEDIES.has(r));
+  const authorize = wanted.includes("authorize-browser") && !import.meta.env.DEV ? authorizeCommand(origin) : null;
+  const rows = wanted.filter((r) => r !== "authorize-browser" || authorize !== null);
+  return (
+    <div
+      role="alert"
+      data-testid="pairing-dialog-remedies"
+      className="space-y-2 px-3 py-2 rounded text-xs bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] border border-[var(--severity-error-border)]"
+    >
+      {rows.length === 0 ? (
+        <p>
+          {refusal.reason === "device-credential"
+            ? i18nT(
+                "pairingApproval.remedy.deviceCredential",
+                undefined,
+                "This browser is paired as a device, and a paired device can't approve pairing requests. Use the computer that runs the dashboard, or an operator sign-in.",
+              )
+            : needsOperatorText()}
+        </p>
+      ) : (
+        <>
+          <p className="font-semibold">
+            {i18nT("pairingApproval.remedy.intro", undefined, "This browser can't approve yet. Pick one:")}
+          </p>
+          <ul className="list-none m-0 p-0 space-y-2">
+            {rows.map((remedy) => {
+              if (remedy === "authorize-browser" && authorize) {
+                return (
+                  <CommandRow
+                    key={remedy}
+                    remedy={remedy}
+                    label={i18nT(
+                      "pairingApproval.remedy.authorizeBrowser",
+                      undefined,
+                      "Run this in a terminal on the computer that runs the dashboard, then press Approve device again:",
+                    )}
+                    command={authorize}
+                    copyTitle={i18nT("pairingApproval.remedy.copyAuthorize", undefined, "Copy the command that authorizes this browser")}
+                  />
+                );
+              }
+              if (remedy === "approve-on-host") {
+                return (
+                  <CommandRow
+                    key={remedy}
+                    remedy={remedy}
+                    label={i18nT(
+                      "pairingApproval.remedy.approveOnHost",
+                      undefined,
+                      "Or approve on the computer that runs the dashboard. It asks for the code shown on the device:",
+                    )}
+                    command={approveCommand(pendingId)}
+                    copyTitle={i18nT("pairingApproval.remedy.copyApprove", undefined, "Copy the command that approves this request on the host")}
+                  />
+                );
+              }
+              return (
+                <li key={remedy} data-testid="pairing-remedy-row" data-remedy={remedy}>
+                  {i18nT("pairingApproval.remedy.signIn", undefined, "Or sign in with an operator account.")}{" "}
+                  <a
+                    href={loginPathFor(`${window.location.pathname}${window.location.search}`)}
+                    data-testid="pairing-remedy-signin"
+                    className="font-semibold underline text-inherit max-sm:inline-flex max-sm:items-center max-sm:min-h-[44px]"
+                  >
+                    {i18nT("pairingApproval.remedy.signInLink", undefined, "Sign in")}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+    </div>
+  );
 }
 
 /** Redeemer context — untrusted, rendered as text children only (D4). */
@@ -352,6 +500,7 @@ export function PairingApprovalDialog({
   const [pairedName, setPairedName] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<RefusalRemedies | null>(null);
   const [busy, setBusy] = useState(false);
   const codeRef = useRef<HTMLInputElement>(null);
   const codeId = useId();
@@ -374,6 +523,7 @@ export function PairingApprovalDialog({
     if (busy) return;
     const digits = code.replace(/\D/g, "");
     setFormError(null);
+    setRefusal(null);
     if (digits.length !== CODE_DIGITS) {
       setFieldError(i18nT("pairingApproval.enterAll", undefined, "Enter all 8 digits"));
       codeRef.current?.focus();
@@ -410,14 +560,21 @@ export function PairingApprovalDialog({
       codeRef.current?.focus();
     }
     if (next.formError) setFormError(next.formError);
+    if (next.refusal) setRefusal(next.refusal);
   };
 
   const deny = async () => {
     if (busy) return;
     setBusy(true);
     setFormError(null);
+    setRefusal(null);
     try {
-      await onDeny();
+      const refused = await onDeny();
+      if (refused) {
+        // Refused for want of an operator credential: stay open, Deny stays usable.
+        setBusy(false);
+        applyNext(refusalState(refused));
+      }
     } catch {
       setBusy(false);
       setFormError(i18nT("pairingApproval.transport", undefined, "Couldn't reach the dashboard. Try again."));
@@ -536,6 +693,8 @@ export function PairingApprovalDialog({
       )}
 
       {phase !== "form" && <ResultBlock phase={phase} pairedName={pairedName} />}
+
+      <RemedyBlock refusal={refusal} pendingId={entry.pendingId} />
 
       {formError && (
         <p role="alert" data-testid="pairing-dialog-error" className="text-xs text-[var(--severity-error-fg)]">

@@ -7,6 +7,7 @@ import {
   trustedListener,
   UntrustedSenderError,
 } from "../lib/ipc-trust.js";
+import { navigateToServer } from "../lib/local-proof-bootstrap.js";
 
 const loadingPagePath = path.resolve("/app/resources/loading.html");
 const ctx = { loadingPagePath, localPort: 8000 };
@@ -83,5 +84,52 @@ describe("trustedHandler / trustedListener", () => {
     expect(l).toHaveBeenCalledTimes(1);
     expect(() => wrapped(remote)).not.toThrow();
     expect(l).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── dashboard:navigate-to-server gating (fix-pairing-approval-credential; X8, X9) ──
+// Composes the real `trustedHandler` + `isTrustedSenderUrl` around the real
+// `navigateToServer`, exactly as `registerPiDashboardIpc` does (that wiring is pinned in
+// renderer-boundary.test.ts, since main.ts imports electron and cannot be loaded).
+describe("dashboard:navigate-to-server sender gate", () => {
+  const isTrusted = (e: { senderFrame?: { url?: string } | null }) => isTrustedSenderUrl(e.senderFrame?.url, ctx);
+  function build() {
+    const win = { loadURL: vi.fn(async (_u: string) => {}) };
+    const mintFetch = vi.fn(async () => new Response(JSON.stringify({ data: { code: "C" } }), { status: 200 })) as unknown as typeof fetch;
+    const onReject = vi.fn();
+    const handler = trustedHandler(
+      "dashboard:navigate-to-server",
+      isTrusted,
+      (_e: { senderFrame?: { url?: string } | null }, payload: { target?: unknown }) =>
+        navigateToServer(win, payload.target, { config: { port: 8000, knownServers: [] }, windowServerUrl: "http://192.168.16.242:8000", fetchImpl: mintFetch, token: "tok" }),
+      onReject,
+    );
+    return { win, mintFetch, onReject, handler };
+  }
+
+  it.each([
+    "http://192.168.16.242:8000/", "http://127.0.0.1:9999/", "https://evil.example/", "file:///other.html",
+  ])("X8 untrusted sender %s → UntrustedSenderError; loadURL 0; mint 0; rejection logged", (url) => {
+    const { win, mintFetch, onReject, handler } = build();
+    const event = { senderFrame: { url } };
+    expect(() => handler(event, { target: "http://localhost:8000" })).toThrow(UntrustedSenderError);
+    expect(win.loadURL).not.toHaveBeenCalled();
+    expect(mintFetch).not.toHaveBeenCalled();
+    expect(onReject).toHaveBeenCalledWith("dashboard:navigate-to-server", event);
+  });
+
+  it("X8 null / absent sender frame → UntrustedSenderError; loadURL 0; mint 0", () => {
+    const { win, mintFetch, handler } = build();
+    expect(() => handler({ senderFrame: null }, { target: "http://localhost:8000" })).toThrow(UntrustedSenderError);
+    expect(() => handler({}, { target: "http://localhost:8000" })).toThrow(UntrustedSenderError);
+    expect(win.loadURL).not.toHaveBeenCalled();
+    expect(mintFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([loadingUrl, "http://localhost:8000/"])("X9 trusted sender %s → handler runs and navigates", async (url) => {
+    const { win, onReject, handler } = build();
+    await expect(handler({ senderFrame: { url } }, { target: "http://localhost:8000" })).resolves.toEqual({ navigated: true });
+    expect(win.loadURL).toHaveBeenCalledTimes(1);
+    expect(onReject).not.toHaveBeenCalled();
   });
 });

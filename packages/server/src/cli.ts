@@ -1,6 +1,8 @@
 #!/usr/bin/env node
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 /**
  * PI Dashboard Server CLI
@@ -18,7 +20,14 @@ import { fileURLToPath } from "node:url";
  *   pi-dashboard restart [flags]    Restart daemon
  *   pi-dashboard status             Show daemon status
  *   pi-dashboard runtime            Print the resolved spawn runtime (diagnostic)
- *   pi-dashboard open [--print]     Open the dashboard in a browser with local proof (requireLocalProof)
+ *   pi-dashboard open [--print] [--url <origin>]
+ *                                   Open the dashboard in a browser with local proof (requireLocalProof).
+ *                                   --url: a loopback origin on the configured port (e.g. http://127.0.0.1:8000)
+ *   pi-dashboard pair list [--json]
+ *   pi-dashboard pair approve [<pendingId>] [--code <8 digits>] [--name <label>] [--tier observe|control|operate]
+ *   pi-dashboard pair deny <pendingId>
+ *                                   Approve/deny a pending device pairing from this host. The code is read from a
+ *                                   prompt or stdin; --code is visible in `ps`.
  *
  * Flags:
  *   --port <n>       HTTP port (default: 8000)
@@ -32,6 +41,7 @@ import { fileURLToPath } from "node:url";
 // the process. The type-only import here is fully erased at runtime.
 import { ensureConfig, loadConfig, SERVER_STARTUP_DEADLINE_MS } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { isLauncherOrigin } from "@blackbelt-technology/pi-dashboard-shared/launcher-origin.js";
 import { httpProofHeaders, localDialHost } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import {
   findPortHolders as platformFindPortHolders,
@@ -44,7 +54,8 @@ import {
   launchDashboardServer,
   PortConflictError,
 } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
-import { ensureLocalToken } from "./auth/local-token.js";
+import { terminalSafe } from "@blackbelt-technology/pi-dashboard-shared/terminal-safe.js";
+import { defaultLocalTokenDir, ensureLocalToken, readLocalTokenIfPresent } from "./auth/local-token.js";
 import { migrateSubagentTickThrottle } from "./config-api.js";
 import { classifyDashboardPort, type PortClassification } from "./lifecycle/classify-dashboard-port.js";
 import {
@@ -934,11 +945,26 @@ function openUrlInBrowser(url: string): void {
  */
 export async function cmdOpen(
   config: ServerConfig,
-  opts: { print?: boolean; out?: (s: string) => void; err?: (s: string) => void; fetchImpl?: typeof fetch; open?: (url: string) => void } = {},
+  opts: {
+    print?: boolean;
+    /** Origin the browser is sent to (default `http://localhost:<port>`); see {@link validateOpenUrl}. */
+    url?: string;
+    out?: (s: string) => void;
+    err?: (s: string) => void;
+    fetchImpl?: typeof fetch;
+    open?: (url: string) => void;
+  } = {},
 ): Promise<number> {
   const out = opts.out ?? ((s: string) => console.log(s));
   const err = opts.err ?? ((s: string) => console.error(s));
   const fetchFn = opts.fetchImpl ?? fetch;
+  // `--url` is validated BEFORE a token is touched or a code is minted: the code is a 60 s
+  // bearer for a proof cookie, so it must never be aimed at a foreign origin.
+  const checked = opts.url === undefined ? undefined : validateOpenUrl(opts.url, config.port);
+  if (checked && !checked.ok) {
+    err(`refusing --url: ${checked.reason}`);
+    return 2;
+  }
   const base = `http://localhost:${config.port}`;
   const token = safeEnsureLocalToken();
   if (!token) {
@@ -968,10 +994,37 @@ export async function cmdOpen(
     err("server returned no valid local-proof code");
     return 1;
   }
-  const url = `${base}/auth/local-proof?code=${encodeURIComponent(code)}`;
+  const launchBase = checked?.ok ? checked.origin : base;
+  const url = `${launchBase}/auth/local-proof?code=${encodeURIComponent(code)}`;
   out(url);
   if (!opts.print) (opts.open ?? openUrlInBrowser)(url);
   return 0;
+}
+
+/**
+ * `pi-dashboard open --url` bound (D7): http/https, no userinfo / query / fragment,
+ * path `/` at most, and a loopback host on the CONFIGURED server port
+ * (`isLauncherOrigin`, the predicate the server's `authorize-browser` remedy uses).
+ */
+function validateOpenUrl(raw: string, configPort: number): { ok: true; origin: string } | { ok: false; reason: string } {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return { ok: false, reason: "not a valid URL" };
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return { ok: false, reason: "scheme must be http or https" };
+  if (u.username || u.password) return { ok: false, reason: "the URL must not carry credentials (user:password@)" };
+  if (raw.includes("?") || raw.includes("#")) return { ok: false, reason: "the URL must not carry a query or fragment" };
+  if (u.pathname !== "/") return { ok: false, reason: "the URL must be an origin only (no path)" };
+  const port = u.port || (u.protocol === "https:" ? "443" : "80");
+  if (!isLauncherOrigin(u.hostname, port, configPort)) {
+    return {
+      ok: false,
+      reason: `only a loopback origin on the configured port ${configPort} is accepted (open the dashboard on http://localhost:${configPort}, or run \`pi-dashboard pair approve\`)`,
+    };
+  }
+  return { ok: true, origin: `${u.protocol}//${u.host}` };
 }
 
 function safeEnsureLocalToken(): string | null {
@@ -979,6 +1032,403 @@ function safeEnsureLocalToken(): string | null {
     return ensureLocalToken();
   } catch {
     return null;
+  }
+}
+
+// ── `pi-dashboard pair` — host-side approval of a pending device ─────────────
+// Uses ONLY the existing routes (GET /api/pair/pending, POST /api/pair/approve-pending,
+// POST /api/pair/deny) with a single-use `X-Pi-Local-Proof` minted from the READ-ONLY
+// local token: no new route, no guard change, no authority beyond the token file.
+// See change: fix-pairing-approval-credential (D2, D3, D8, D9, D10, D12).
+
+/** Exit status classes (D3 / P1). */
+const PAIR_EXIT = { usage: 2, credential: 1, refused: 3, unreachable: 4 } as const;
+
+const PAIR_USAGE =
+  "usage: pi-dashboard pair list [--json] | approve [<pendingId>] [--code <8 digits>] [--name <label>] [--tier observe|control|operate] | deny <pendingId>";
+
+/** Print-boundary caps in Unicode code points (D8 / P4). `pendingId` is printed in full. */
+const PAIR_CAPS = { requesterName: 64, userAgent: 120, viaHost: 64, remoteAddress: 64 } as const;
+const PENDING_ID_CAP = Number.MAX_SAFE_INTEGER;
+
+/** The pending-request fields the CLI reads; a confirm code is never one of them. */
+export interface PendingRowInput {
+  pendingId: string;
+  provenance?: string;
+  requesterName?: string;
+  unencrypted?: boolean;
+  userAgent?: string;
+  viaHost?: string;
+  remoteAddress?: string;
+  createdAt?: number;
+  expiresAt?: number;
+  attemptsLeft?: number;
+}
+
+/** Whitelist + sanitise one pending entry (the only shape `list` ever prints or emits). */
+function sanitizePending(p: PendingRowInput): PendingRowInput {
+  const str = (v: unknown, max: number): string | undefined => (typeof v === "string" ? terminalSafe(v, max) : undefined);
+  const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const out: PendingRowInput = {
+    pendingId: terminalSafe(p.pendingId, PENDING_ID_CAP),
+    provenance: str(p.provenance, 16),
+    requesterName: str(p.requesterName, PAIR_CAPS.requesterName),
+    unencrypted: typeof p.unencrypted === "boolean" ? p.unencrypted : undefined,
+    userAgent: str(p.userAgent, PAIR_CAPS.userAgent),
+    viaHost: str(p.viaHost, PAIR_CAPS.viaHost),
+    remoteAddress: str(p.remoteAddress, PAIR_CAPS.remoteAddress),
+    createdAt: num(p.createdAt),
+    expiresAt: num(p.expiresAt),
+    attemptsLeft: num(p.attemptsLeft),
+  };
+  for (const k of Object.keys(out) as (keyof PendingRowInput)[]) if (out[k] === undefined) delete out[k];
+  return out;
+}
+
+/**
+ * Render one pending request for the terminal: the pendingId on its own line (in
+ * full, the operator pastes it back), then one `key: value` line per field. Every
+ * server-supplied string passes through `terminalSafe` (D8).
+ */
+export function formatPendingRow(p: PendingRowInput, now: number = Date.now()): string[] {
+  const s = sanitizePending(p);
+  const lines = [s.pendingId];
+  const add = (k: string, v: string | number | undefined) => {
+    if (v !== undefined) lines.push(`  ${k}: ${v}`);
+  };
+  add("name", s.requesterName);
+  add("provenance", s.provenance);
+  add("user-agent", s.userAgent);
+  add("address", s.remoteAddress);
+  add("via", s.viaHost);
+  if (s.unencrypted) add("transport", "unencrypted");
+  if (s.expiresAt !== undefined) add("expires in", `${Math.max(0, Math.round((s.expiresAt - now) / 1000))}s`);
+  add("attempts left", s.attemptsLeft);
+  return lines;
+}
+
+/** `stdin` seam: non-TTY input is read for its first line; `isTTY` selects the prompt. */
+export type PairStdin = AsyncIterable<unknown> & { isTTY?: boolean };
+
+export interface PairDeps {
+  fetchImpl?: typeof fetch;
+  out?: (line: string) => void;
+  err?: (line: string) => void;
+  /** Interactive code prompt (TTY only); default reads a line from the terminal. */
+  prompt?: (question: string) => Promise<string>;
+  stdin?: PairStdin;
+  /** Local-IPC token; `undefined` reads it (read-only) from `tokenDir`; `null` = unreadable. */
+  localToken?: string | null;
+  /** Directory holding the `token` file (default `~/.pi/dashboard/local`). */
+  tokenDir?: string;
+  /** Per-request bound (ms); default 5000, the same bound as the other CLI verbs. */
+  timeoutMs?: number;
+  now?: () => number;
+}
+
+async function defaultPairPrompt(question: string): Promise<string> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr, terminal: true });
+  try {
+    return await new Promise<string>((resolve) => rl.question(question, resolve));
+  } finally {
+    rl.close();
+  }
+}
+
+/** First line of a non-terminal stdin; `null` at EOF with no bytes. Bounded, never waits past the line. */
+async function readFirstLine(stdin: AsyncIterable<unknown>): Promise<string | null> {
+  let buf = "";
+  for await (const chunk of stdin) {
+    buf += typeof chunk === "string" ? chunk : Buffer.from(chunk as Uint8Array).toString("utf8");
+    const nl = buf.indexOf("\n");
+    if (nl >= 0) return buf.slice(0, nl);
+    if (buf.length > 1024) break;
+  }
+  return buf.length > 0 ? buf : null;
+}
+
+/** Spaces and dashes stripped (P2); `null` unless exactly 8 decimal digits. */
+function normalizePairCode(raw: string): string | null {
+  const stripped = raw.replace(/[\s-]/g, "");
+  return /^\d{8}$/.test(stripped) ? stripped : null;
+}
+
+interface PairArgs {
+  verb: "list" | "approve" | "deny";
+  pendingId?: string;
+  json: boolean;
+  code?: string;
+  name?: string;
+  tier?: string;
+}
+
+/** Cross-option rules for a parsed `pair` command line; a string is a usage error message. */
+function checkPairArgs(a: PairArgs): string | null {
+  if (a.json && a.verb !== "list") return "--json is only valid for `list`";
+  if (a.verb === "list" && a.pendingId !== undefined) return "`list` takes no pendingId";
+  if (a.verb !== "approve" && (a.code !== undefined || a.name !== undefined || a.tier !== undefined)) {
+    return "--code, --name and --tier are only valid for `approve`";
+  }
+  if (a.verb === "deny" && a.pendingId === undefined) return "`deny` needs a pendingId";
+  if (a.tier !== undefined && !(TOKEN_TIERS as readonly string[]).includes(a.tier)) {
+    return `invalid --tier: ${terminalSafe(a.tier, 40)} (expected ${TOKEN_TIERS.join(" | ")})`;
+  }
+  if (a.name !== undefined && a.name.trim() === "") return "--name must not be empty";
+  return null;
+}
+
+const PAIR_VALUED_FLAGS = { "--code": "code", "--name": "name", "--tier": "tier" } as const;
+
+/** Apply the option at `argv[i]`; returns the index of the last argv entry it consumed, or a usage error. */
+function applyPairOption(a: PairArgs, argv: string[], i: number): number | string {
+  const arg = argv[i];
+  if (arg === "--json") {
+    a.json = true;
+    return i;
+  }
+  if (arg in PAIR_VALUED_FLAGS) {
+    const v = argv[i + 1];
+    if (v === undefined) return `${arg} needs a value`;
+    a[PAIR_VALUED_FLAGS[arg as keyof typeof PAIR_VALUED_FLAGS]] = v;
+    return i + 1;
+  }
+  if (arg === "--port" || arg === "--host" || arg === "--pi-port") return i + 1; // consumed by buildConfig
+  if (arg.startsWith("--")) return `unknown option: ${terminalSafe(arg, 40)}`;
+  if (a.pendingId !== undefined) return "too many arguments";
+  a.pendingId = arg;
+  return i;
+}
+
+/** Parse `pair` argv; a string is a usage error message. */
+function parsePairArgs(argv: string[]): PairArgs | string {
+  const verb = argv[0];
+  if (verb !== "list" && verb !== "approve" && verb !== "deny") {
+    return verb === undefined ? "missing verb" : `unknown verb: ${terminalSafe(verb, 40)}`;
+  }
+  const a: PairArgs = { verb, json: false };
+  for (let i = 1; i < argv.length; i++) {
+    const next = applyPairOption(a, argv, i);
+    if (typeof next === "string") return next;
+    i = next;
+  }
+  return checkPairArgs(a) ?? a;
+}
+
+class PairUnreachable extends Error {}
+class PairNoCredential extends Error {}
+
+type PairCall = (method: "GET" | "POST", route: string, body?: unknown) => Promise<{ status: number; json: unknown }>;
+
+/** One HTTP call per proof (a proof is single-use); no proof header ⇒ nothing is sent (D9). */
+function makePairCall(base: string, token: string, fetchFn: typeof fetch, timeoutMs: number): PairCall {
+  return async (method, route, body) => {
+    const url = `${base}${route}`;
+    const proof = localCredentialHeaders(method, url, token);
+    if (!proof["X-Pi-Local-Proof"]) throw new PairNoCredential();
+    try {
+      const res = await fetchFn(url, {
+        method,
+        headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...proof },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      return { status: res.status, json: await res.json().catch(() => null) };
+    } catch (e) {
+      throw new PairUnreachable(terminalSafe((e as Error)?.message ?? String(e), 120));
+    }
+  };
+}
+
+const PAIR_REFUSAL_TEXT: Record<string, string> = {
+  locked_out: "[pair] locked out: too many wrong codes for this request; the device must request pairing again",
+  expired: "[pair] the request has expired; the device must request pairing again",
+  no_pending: "[pair] no such pending request (already approved, denied or expired)",
+};
+
+/** The one distinct message per server-refused outcome (exit 3). */
+function pairRefusalMessage(status: number, json: unknown, tokenFile: string): string {
+  const body = (json ?? {}) as { error?: unknown; attemptsLeft?: unknown };
+  const reason = typeof body.error === "string" ? body.error : "";
+  if (status === 401) {
+    return `[pair] credential rejected (HTTP 401): the server did not accept this host's local credential; the token at ${tokenFile} may belong to a different server or user`;
+  }
+  if (reason === "mismatch") {
+    const n = typeof body.attemptsLeft === "number" ? body.attemptsLeft : undefined;
+    return `[pair] the code does not match${n === undefined ? "" : `; ${n} ${n === 1 ? "attempt" : "attempts"} left`}`;
+  }
+  const known = PAIR_REFUSAL_TEXT[status === 429 ? "locked_out" : reason];
+  return known ?? `[pair] server refused: HTTP ${status}${reason ? ` ${terminalSafe(reason, 120)}` : ""}`;
+}
+
+interface PairCtx {
+  call: PairCall;
+  out: (l: string) => void;
+  err: (l: string) => void;
+  deps: PairDeps;
+  tokenFile: string;
+  /** Print the refusal and return exit 3 for a non-2xx answer; `null` for a 2xx. */
+  refuse: (r: { status: number; json: unknown }) => number | null;
+}
+
+/** Live pending entries from the server (`pendingId` is the only field required). */
+async function fetchPending(ctx: PairCtx): Promise<{ rows: PendingRowInput[] } | { exit: number }> {
+  const r = await ctx.call("GET", "/api/pair/pending");
+  const data = (r.json as { data?: unknown } | null)?.data;
+  if (r.status < 200 || r.status >= 300 || !Array.isArray(data)) {
+    return { exit: ctx.refuse({ status: r.status, json: r.json }) ?? PAIR_EXIT.refused };
+  }
+  const isRow = (p: unknown): p is PendingRowInput => typeof p === "object" && p !== null && typeof (p as { pendingId?: unknown }).pendingId === "string";
+  return { rows: data.filter(isRow) };
+}
+
+async function pairList(ctx: PairCtx, json: boolean): Promise<number> {
+  const l = await fetchPending(ctx);
+  if ("exit" in l) return l.exit;
+  if (json) ctx.out(JSON.stringify(l.rows.map(sanitizePending), null, 2));
+  else if (l.rows.length === 0) ctx.out("no pending pairing requests");
+  else for (const row of l.rows) for (const line of formatPendingRow(row, ctx.deps.now?.())) ctx.out(line);
+  return 0;
+}
+
+async function pairDeny(ctx: PairCtx, pendingId: string): Promise<number> {
+  const r = await ctx.call("POST", "/api/pair/deny", { pendingId });
+  const refused = ctx.refuse(r);
+  if (refused !== null) return refused;
+  ctx.out(`denied ${terminalSafe(pendingId, PENDING_ID_CAP)}`);
+  return 0;
+}
+
+/** The single pending request's id, or an exit code after printing why none could be chosen. */
+async function resolveSinglePending(ctx: PairCtx): Promise<{ pendingId: string } | { exit: number }> {
+  const l = await fetchPending(ctx);
+  if ("exit" in l) return l;
+  if (l.rows.length === 1) return { pendingId: l.rows[0].pendingId };
+  ctx.err(l.rows.length === 0 ? "[pair] no pending pairing requests" : `[pair] ${l.rows.length} pending requests; pass the pendingId to approve`);
+  for (const row of l.rows) for (const line of formatPendingRow(row, ctx.deps.now?.())) ctx.out(line);
+  return { exit: PAIR_EXIT.usage };
+}
+
+/** Prompt (TTY) or first stdin line (P3) → 8 digits, else `null`. */
+async function readPairCode(deps: PairDeps): Promise<string | null> {
+  const stdin = deps.stdin ?? (process.stdin as PairStdin);
+  const raw = stdin.isTTY
+    ? await (deps.prompt ?? defaultPairPrompt)("Confirmation code shown on the device (8 digits): ")
+    : await readFirstLine(stdin);
+  return raw === null || raw === undefined ? null : normalizePairCode(raw);
+}
+
+async function pairApprove(ctx: PairCtx, a: PairArgs, presetCode: string | undefined): Promise<number> {
+  let pendingId = a.pendingId;
+  if (pendingId === undefined) {
+    const one = await resolveSinglePending(ctx);
+    if ("exit" in one) return one.exit;
+    pendingId = one.pendingId;
+  }
+  const code = presetCode ?? (await readPairCode(ctx.deps));
+  if (code === null) {
+    ctx.err("[pair] expected 8 digits for the confirmation code (none given on stdin or not 8 digits)");
+    return PAIR_EXIT.usage;
+  }
+  const r = await ctx.call("POST", "/api/pair/approve-pending", {
+    pendingId,
+    confirmCode: code,
+    ...(a.name === undefined ? {} : { label: a.name }),
+    ...(a.tier === undefined ? {} : { tier: a.tier }),
+  });
+  const refused = ctx.refuse(r);
+  if (refused !== null) return refused;
+  const device = (r.json as { data?: { label?: unknown; tier?: unknown } } | null)?.data;
+  const label = typeof device?.label === "string" ? terminalSafe(device.label, PAIR_CAPS.requesterName) : undefined;
+  const tier = typeof device?.tier === "string" ? terminalSafe(device.tier, 16) : undefined;
+  ctx.out(`approved${label ? ` "${label}"` : ""}${tier ? ` (${tier})` : ""}`);
+  return 0;
+}
+
+/**
+ * Credential: READ the token (never create it) and require a dial host a proof can
+ * bind to (D9). A host-name bind has no address literal, so it is refused upfront.
+ */
+function pairCredential(opts: { host?: string }, deps: PairDeps): { token: string; tokenFile: string } | { message: string } {
+  const tokenDir = deps.tokenDir ?? defaultLocalTokenDir();
+  const tokenFile = path.join(tokenDir, "token");
+  const token = deps.localToken !== undefined ? deps.localToken : readLocalTokenIfPresent(tokenDir);
+  if (!token) {
+    return { message: `[pair] cannot read the local token (${tokenFile}); run this on the host and as the OS user that runs the server` };
+  }
+  const bindHost = (opts.host ?? "").trim().replace(/^\[(.*)\]$/, "$1");
+  if (bindHost !== "" && bindHost.toLowerCase() !== "localhost" && !net.isIP(bindHost)) {
+    return { message: `[pair] server host "${terminalSafe(bindHost, 64)}" is a name, not an IP address; set "host" in config.json to an IP literal` };
+  }
+  return { token, tokenFile };
+}
+
+/** Everything `cmdPair` needs after the local (no-network) checks passed. */
+interface PairRun {
+  parsed: PairArgs;
+  presetCode: string | undefined;
+  token: string;
+  tokenFile: string;
+}
+
+/** Local checks, in order: usage, `--code` shape, credential. A failure carries its message and exit status. */
+function preparePair(argv: string[], opts: { host?: string }, deps: PairDeps): PairRun | { message: string; exit: number } {
+  const parsed = parsePairArgs(argv);
+  if (typeof parsed === "string") return { message: `[pair] ${parsed}\n${PAIR_USAGE}`, exit: PAIR_EXIT.usage };
+  // A malformed --code is refused locally — it must not spend one of the 5 shared attempts.
+  const presetCode = parsed.code === undefined ? undefined : normalizePairCode(parsed.code);
+  if (presetCode === null) return { message: "[pair] expected 8 digits for the confirmation code", exit: PAIR_EXIT.usage };
+  const cred = pairCredential(opts, deps);
+  if ("message" in cred) return { message: cred.message, exit: PAIR_EXIT.credential };
+  return { parsed, presetCode, ...cred };
+}
+
+/** Exit status for a transport-level failure of a `pair` request. */
+function pairFailureExit(e: unknown, base: string, host: string | undefined, err: (l: string) => void): number {
+  if (e instanceof PairNoCredential) {
+    err(`[pair] cannot derive a local credential for server host ${terminalSafe(host?.trim() || "(default)", 64)}; set "host" in config.json to an IP address`);
+    return PAIR_EXIT.credential;
+  }
+  if (e instanceof PairUnreachable) {
+    err(`[pair] server not running at ${base} (${e.message})`);
+    return PAIR_EXIT.unreachable;
+  }
+  throw e;
+}
+
+/**
+ * `pi-dashboard pair list | approve | deny` (D2/D3). Returns the exit code:
+ * 2 usage/input, 1 credential/config, 3 server refused, 4 server unreachable.
+ */
+export async function cmdPair(argv: string[], opts: { port: number; host?: string }, deps: PairDeps = {}): Promise<number> {
+  const out = deps.out ?? ((l: string) => console.log(l));
+  const err = deps.err ?? ((l: string) => console.error(l));
+
+  const run = preparePair(argv, opts, deps);
+  if ("exit" in run) {
+    err(run.message);
+    return run.exit;
+  }
+  const { parsed, presetCode, token, tokenFile } = run;
+
+  const base = localBase(opts);
+  const ctx: PairCtx = {
+    call: makePairCall(base, token, deps.fetchImpl ?? fetch, deps.timeoutMs ?? 5000),
+    out,
+    err,
+    deps,
+    tokenFile,
+    refuse: (r) => {
+      if (r.status >= 200 && r.status < 300) return null;
+      err(pairRefusalMessage(r.status, r.json, tokenFile));
+      return PAIR_EXIT.refused;
+    },
+  };
+  try {
+    if (parsed.verb === "list") return await pairList(ctx, parsed.json);
+    if (parsed.verb === "deny") return await pairDeny(ctx, parsed.pendingId as string);
+    return await pairApprove(ctx, parsed, presetCode);
+  } catch (e) {
+    return pairFailureExit(e, base, opts.host, err);
   }
 }
 
@@ -1119,6 +1569,12 @@ function installCrashSafetyNet(): void {
   });
 }
 
+/** Value following `flag` in argv; `""` when the flag is last (so a bare `--url` is refused, not ignored). */
+function flagValue(args: string[], flag: string): string | undefined {
+  const i = args.indexOf(flag);
+  return i === -1 ? undefined : (args[i + 1] ?? "");
+}
+
 async function main() {
   installCrashSafetyNet();
   ensureConfig();
@@ -1156,6 +1612,13 @@ async function main() {
     );
   }
 
+  if (rawArgs[0] === "pair") {
+    // Host-side approval of a pending device. See change: fix-pairing-approval-credential.
+    const { flags } = parseArgs(rawArgs.slice(1));
+    const config = buildConfig(flags, () => {});
+    process.exit(await cmdPair(rawArgs.slice(1), { port: config.port, host: config.host }));
+  }
+
   if (rawArgs[0] === "login") {
     const { flags } = parseArgs(rawArgs.slice(1));
     const config = buildConfig(flags);
@@ -1183,7 +1646,7 @@ async function main() {
       cmdRuntime();
       break;
     case "open":
-      process.exit(await cmdOpen(config, { print: rawArgs.includes("--print") }));
+      process.exit(await cmdOpen(config, { print: rawArgs.includes("--print"), url: flagValue(rawArgs, "--url") }));
       break;
     default:
       // No subcommand — run in foreground (backward compatible)
