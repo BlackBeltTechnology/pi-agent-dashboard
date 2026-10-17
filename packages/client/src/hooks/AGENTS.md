@@ -61,6 +61,7 @@ Files in this directory. One row per source file.
 | `useSessionDiff.ts` | Fetches `GET /api/session-diff?sessionId=`, returns `SessionDiffResponse` + `isLoading`/`error`/`refresh`. Refetches on `sessionId` change. Exports `useSessionDiff`, `UseSessionDiffResult`. |
 | `useSessionState.ts` | Embed-side session-state accumulator. Exports `useSessionState(sessionId?)` (`{state, apply, reset}`) and the… → see `useSessionState.ts.AGENTS.md` |
 | `useSidebarState.ts` | Persists sidebar `width` + `collapsed` to `localStorage` (`dashboard:sidebar-width`,… → see `useSidebarState.ts.AGENTS.md` |
+| `useSideFlyoutPosition.ts` | Side placement for the session flyout: `computeSideFlyoutPosition` (card.right+8, clamp, maxHeight) + hook writing `left/top/maxHeight` through refs on capture-phase scroll (ignores the panel's own scroll), resize and card `ResizeObserver`. Anchor and point modes; never React state. See change: add-session-actions-flyout. |
 | `useStaleToolReconcile.ts` | Session-scoped stale running-tool heal (survives transcript virtualization). → see `useStaleToolReconcile.ts.AGENTS.md` |
 | `useSubagentResyncCadence.ts` | Open-inspector liveness (D4 v1): a mounted detail view re-fires `subagent_resync_request` on a backoff… → see `useSubagentResyncCadence.ts.AGENTS.md` |
 | `useSwipeBack.ts` | iOS-style left-edge swipe-back gesture. Touch listeners decide horizontal vs vertical after 10px, triggers… → see `useSwipeBack.ts.AGENTS.md` |

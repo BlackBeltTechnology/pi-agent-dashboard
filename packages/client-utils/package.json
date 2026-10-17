@@ -109,6 +109,10 @@
       "types": "./src/ActionList.tsx",
       "default": "./src/ActionList.tsx"
     },
+    "./ActionListMenuContext": {
+      "types": "./src/ActionListMenuContext.ts",
+      "default": "./src/ActionListMenuContext.ts"
+    },
     "./mdi-by-key": {
       "types": "./src/mdi-by-key.ts",
       "default": "./src/mdi-by-key.ts"

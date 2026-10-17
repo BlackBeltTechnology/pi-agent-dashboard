@@ -27,11 +27,11 @@ import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { fetchTool } from "../../lib/api/tools-api.js";
-import { createWorktreePR, pushWorktreeBranch } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { LazyCloseWorktreeDialog, LazyMergeConfirmDialog } from "./lazy-worktree-dialogs.js";
+import { deriveWorktreeActions, runWorktreeOpenPr, runWorktreePush, type WorktreeToast } from "./worktree-actions.js";
 
 /**
  * Module-level cache of `gh` availability — one fetch per page load,
@@ -90,31 +90,7 @@ interface Props {
   appearance?: "chips" | "segments";
 }
 
-interface ToastMsg {
-  level: "info" | "error" | "success";
-  text: string;
-  /** Optional captured stderr (gh / git output) rendered in a collapsible `<details>` block. */
-  stderr?: string;
-}
-
-/**
- * Human-readable label for a stable error code returned by the server
- * lifecycle endpoints. Falls back to the raw code when unknown.
- * See change: add-worktree-lifecycle-actions.
- */
-function labelForCode(code: string): string {
-  switch (code) {
-    case "no_remote":            return i18nT("worktree.errNoRemote", undefined, "no `origin` remote configured");
-    case "auth_failed":          return i18nT("worktree.errAuthFailed", undefined, "git auth failed");
-    case "non_fast_forward":     return i18nT("worktree.errNonFastForward", undefined, "remote has commits you don't have — pull first");
-    case "gh_not_found":         return i18nT("worktree.errGhNotFound", undefined, "`gh` CLI not installed");
-    case "gh_not_authed":        return i18nT("worktree.errGhNotAuthed", undefined, "`gh` not authenticated — run `gh auth login`");
-    case "pr_exists":            return i18nT("worktree.errPrExists", undefined, "PR already exists for this branch");
-    case "base_not_found":       return i18nT("worktree.errBaseNotFound", undefined, "base branch not found on origin");
-    case "pushed_but_pr_failed": return i18nT("worktree.errPushedButPrFailed", undefined, "branch pushed, but `gh pr create` failed");
-    default:                     return code;
-  }
-}
+type ToastMsg = WorktreeToast;
 
 /** Glyph + state word for the PR segment (never colour-only). */
 function prSegmentParts(session: DashboardSession): {
@@ -251,38 +227,30 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
 
   if (!session.gitWorktree) return null;
 
-  // PR-state-dependent action set (design D6):
-  //   no PR / closed → Push, Open PR (gh-gated), Merge
-  //   open / draft (and legacy number-only) → Push, Merge
-  //   merged → Push only when ahead, no Merge
-  // Close is always last, after a separator. The PR itself is the status
+  // PR-state-dependent action set (design D6) lives in `deriveWorktreeActions`
+  // (shared with the session actions menu): no PR / closed → Push, Open PR
+  // (gh-gated), Merge; open / draft → Push, Merge; merged → Push only when
+  // ahead. Close is always last, after a separator. The PR itself is the status
   // segment (a link), not a "View PR #N" button.
-  const prState = session.gitPrNumber == null ? "none" : (session.gitPrState ?? "open");
-  const noOpenPr = prState === "none" || prState === "closed";
-  const showPrButton = noOpenPr && ghAvailable === true;
-  const showPush = prState !== "merged" || (session.gitStatus?.ahead ?? 0) > 0;
-  const showMerge = prState !== "merged";
+  const derived = deriveWorktreeActions(session, { ghAvailable, working: false });
+  const showPrButton = derived?.openPr !== undefined;
+  const showPush = derived?.push !== undefined;
+  const showMerge = derived?.merge !== undefined;
 
   const onPush = async () => {
     setBusy("push");
     setToast(null);
-    const result = await pushWorktreeBranch({ cwd: session.cwd });
+    const next = await runWorktreePush(session.cwd);
     setBusy(null);
-    if (result.ok) setToast({ level: "success", text: i18nT("worktree.pushed", undefined, "Pushed.") });
-    else setToast({ level: "error", text: i18nT("worktree.pushFailed", { reason: labelForCode(result.code) }, "push failed: {reason}"), stderr: result.stderr });
+    setToast(next);
   };
 
   const onOpenPr = async () => {
     setBusy("pr");
     setToast(null);
-    const result = await createWorktreePR({ cwd: session.cwd });
+    const next = await runWorktreeOpenPr(session.cwd);
     setBusy(null);
-    if (result.ok && result.data?.url) {
-      window.open(result.data.url, "_blank", "noopener,noreferrer");
-      setToast({ level: "success", text: i18nT("worktree.prOpened", undefined, "PR opened.") });
-    } else if (!result.ok) {
-      setToast({ level: "error", text: i18nT("worktree.prFailed", { reason: labelForCode(result.code) }, "PR failed: {reason}"), stderr: result.stderr });
-    }
+    if (next) setToast(next);
   };
 
   type BtnVariant = "warn" | "success" | "danger" | "neutral";

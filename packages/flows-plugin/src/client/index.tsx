@@ -38,8 +38,14 @@ export { FlowTabBar } from "./FlowTabBar.js";
 // manifest's `tool-renderer` claims. See change: rework-flows-plugin-for-new-pi-flows.
 export { SessionFlowActions, SessionFlowActionsClaim } from "./SessionFlowActions.js";
 
-// Manifest-level shouldRender predicate for the `session-card-flows` claim.
-// See change: add-flows-subcard.
+// `session-card-action-bar` claim: flow actions (Run / Open / New-Edit / Delete)
+// in the session actions menu + dialogs + edit-mode reconcile, and its
+// availability gate. See change: add-session-actions-flyout.
+export { flowsActionsAvailable, hasFlowsCommand } from "./flowsActionsGate.js";
+export { SessionFlowMenuClaim } from "./SessionFlowMenuClaim.js";
+
+// Manifest-level shouldRender predicate for the `session-card-flows` claim
+// (any flow event). See change: add-flows-subcard, add-session-actions-flyout.
 export { shouldRenderFlowsSubcard } from "./shouldRender.js";
 
 // Flow slash commands (`/flows`, `/flows:new`, `/flows:edit`, `/flows:delete`)

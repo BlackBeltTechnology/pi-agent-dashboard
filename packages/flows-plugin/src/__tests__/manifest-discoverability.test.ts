@@ -8,8 +8,9 @@
  * Specifically asserts:
  *   - manifest is present and schema-valid
  *   - plugin id is `flows`
- *   - `SessionFlowActionsClaim` lives in the `session-card-flows` slot
- *     (not `session-card-action-bar` — see change: add-flows-subcard)
+ *   - `SessionFlowActionsClaim` (status) lives in the `session-card-flows` slot
+ *     (see change: add-flows-subcard); `SessionFlowMenuClaim` (actions) lives in
+ *     `session-card-action-bar` (see change: add-session-actions-flyout)
  *   - the `session-card-flows` claim declares the `shouldRenderFlowsSubcard`
  *     gate so the FLOWS subcard hides cleanly when no flows are available
  *   - `shouldRenderFlowsSubcard` is exported from the client entry so the
@@ -59,9 +60,16 @@ describe("flows-plugin manifest discoverability", () => {
     expect(components.has("SessionFlowActionsClaim")).toBe(true);
   });
 
-  it("no claim occupies the deprecated `session-card-action-bar` mapping", () => {
-    // Defensive: ensure the legacy slot mapping is gone (would silently
-    // double-render the actions outside the FLOWS subcard otherwise).
+  it("routes the flow actions through `session-card-action-bar` via SessionFlowMenuClaim", () => {
+    const validated = validateManifest(manifest, pkg.name);
+    const actionBar = validated.claims.filter((c) => c.slot === "session-card-action-bar");
+    expect(actionBar.map((c) => c.component)).toEqual(["SessionFlowMenuClaim"]);
+    // The claim stays mounted and decides its own output: no manifest shouldRender.
+    expect((actionBar[0] as { shouldRender?: string }).shouldRender).toBeUndefined();
+  });
+
+  it("SessionFlowActionsClaim does not occupy the `session-card-action-bar` slot", () => {
+    // The status claim stays in the FLOWS subcard (would double-render otherwise).
     const validated = validateManifest(manifest, pkg.name);
     const actionBarClaims = validated.claims.filter(
       (c) =>
@@ -69,6 +77,21 @@ describe("flows-plugin manifest discoverability", () => {
         c.component === "SessionFlowActionsClaim",
     );
     expect(actionBarClaims).toHaveLength(0);
+  });
+
+  it("E27: claims include flows subcard, action bar, header-sticky and content-view; no session-card-badge", () => {
+    const validated = validateManifest(manifest, pkg.name);
+    const slots = validated.claims.map((c) => c.slot);
+    for (const slot of ["session-card-flows", "session-card-action-bar", "content-header-sticky", "content-view"]) {
+      expect(slots).toContain(slot);
+    }
+    expect(slots).not.toContain("session-card-badge");
+  });
+
+  it("client entry exports every manifest-referenced claim component and the gate", () => {
+    const entry = flowsClientEntry as Record<string, unknown>;
+    expect(entry.SessionFlowMenuClaim).toBeTypeOf("function");
+    expect(entry.flowsActionsAvailable).toBeTypeOf("function");
   });
 
   it("every `session-card-flows` claim declares the shouldRenderFlowsSubcard gate", () => {

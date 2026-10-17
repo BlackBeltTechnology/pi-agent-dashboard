@@ -90,6 +90,11 @@ function makeSession(over: Partial<DashboardSession> = {}): DashboardSession {
   };
 }
 
+/** Open the (single) card's session actions menu — the +Worktree action is a menu item. */
+function openCardMenu() {
+  fireEvent.click(screen.getByTestId("session-actions-trigger-s1"));
+}
+
 function renderList(session: DashboardSession, gitWorktreeEnabled = true) {
   return render(
     <TestRouter>
@@ -106,8 +111,9 @@ function renderList(session: DashboardSession, gitWorktreeEnabled = true) {
 }
 
 describe("SessionList — card +Worktree routing (session-card-plus-session-button)", () => {
-  it("8.3 click with attachedProposal opens proposal-aware dialog (branch os/<change>)", async () => {
+  it("8.3 activation with attachedProposal opens proposal-aware dialog (branch os/<change>)", async () => {
     renderList(makeSession({ attachedProposal: "add-dark-mode" }));
+    openCardMenu();
     fireEvent.click(screen.getByTestId("session-card-spawn-worktree"));
     await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
     const branchInput = screen.getByTestId("worktree-new-branch-input") as HTMLInputElement;
@@ -116,8 +122,9 @@ describe("SessionList — card +Worktree routing (session-card-plus-session-butt
 
   // Plain +Worktree (no proposal) now defaults to checkout mode: no
   // new-branch input rendered. See change: worktree-checkout-existing-branch.
-  it("8.3 click without proposal opens plain dialog in checkout mode (no new-branch input)", async () => {
+  it("8.3 activation without proposal opens plain dialog in checkout mode (no new-branch input)", async () => {
     renderList(makeSession({ attachedProposal: undefined }));
+    openCardMenu();
     fireEvent.click(screen.getByTestId("session-card-spawn-worktree"));
     await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
     expect(screen.queryByTestId("worktree-new-branch-input")).toBeNull();
@@ -125,6 +132,7 @@ describe("SessionList — card +Worktree routing (session-card-plus-session-butt
 
   it("8.3 empty-string proposal still opens plain dialog in checkout mode (no new-branch input)", async () => {
     renderList(makeSession({ attachedProposal: "" }));
+    openCardMenu();
     fireEvent.click(screen.getByTestId("session-card-spawn-worktree"));
     await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
     expect(screen.queryByTestId("worktree-new-branch-input")).toBeNull();
@@ -132,6 +140,7 @@ describe("SessionList — card +Worktree routing (session-card-plus-session-butt
 
   it("8.x card +Worktree button hidden when gitWorktreeEnabled=false", () => {
     renderList(makeSession(), false);
+    openCardMenu();
     expect(screen.queryByTestId("session-card-spawn-worktree")).toBeNull();
   });
 });
@@ -140,16 +149,19 @@ describe("SessionList — +Worktree isGitRepo gate (gate-session-worktree-button
   // Card button (`session-card-spawn-worktree`).
   it("card +Worktree ABSENT when isGitRepo === false (confirmed non-git)", () => {
     renderList(makeSession({ isGitRepo: false }));
+    openCardMenu();
     expect(screen.queryByTestId("session-card-spawn-worktree")).toBeNull();
   });
 
   it("card +Worktree PRESENT when isGitRepo === true", () => {
     renderList(makeSession({ isGitRepo: true }));
+    openCardMenu();
     expect(screen.getByTestId("session-card-spawn-worktree")).toBeTruthy();
   });
 
   it("card +Worktree PRESENT when isGitRepo === undefined (unknown / legacy — no regression)", () => {
     renderList(makeSession({ isGitRepo: undefined }));
+    openCardMenu();
     expect(screen.getByTestId("session-card-spawn-worktree")).toBeTruthy();
   });
 

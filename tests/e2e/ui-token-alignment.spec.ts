@@ -12,6 +12,7 @@ import {
   sizeFailures,
 } from "./helpers/computed-contrast.js";
 import { ensureGitSession, FIXTURE_GIT, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { closeSessionMenu, openSessionMenu, sessionMenuTrigger } from "./helpers/session-actions-menu.js";
 import { openIdleGrid } from "./helpers/flow-card-grid.js";
 import { unpinViaBus } from "./helpers/folder-collapse.js";
 import { BOARD_FIXTURE, openBoard } from "./helpers/openspec-board.js";
@@ -116,35 +117,31 @@ test.describe("new-session tray (F1)", () => {
   });
 });
 
-// ── F2 / F9 — session card chips ──────────────────────────────────────────
-test.describe("session card action chips (F2, F9)", () => {
+// ── F2 / F9 — session card actions trigger + menu ─────────────────────────
+// The inline Resume / Fork / +Session / +Worktree chips moved into the session
+// actions menu (change: add-session-actions-flyout); the card keeps one `⋯`
+// trigger, and the menu's items carry the readable-text contract instead.
+test.describe("session card actions trigger and menu (F2, F9)", () => {
   test.setTimeout(180_000);
 
-  test("chips: tint bg, ≥ 4.5:1, ≥ 12 px, ≥ 32 px tall at 1280 — dark + light", async ({ page }) => {
+  test("trigger: ≥ 32 px target with a focus indicator; menu text ≥ 4.5:1 — dark + light", async ({ page }) => {
     await gotoDashboard(page);
     for (const mode of MODES) {
       await setThemeMode(page, mode);
       const card = await ensureGitSession(page);
-      const sibling = card.getByTestId("session-card-spawn-sibling");
-      const wt = card.getByTestId("session-card-spawn-worktree");
-      await expect(sibling).toBeVisible();
+      const trigger = sessionMenuTrigger(card);
+      await expect(trigger).toBeVisible();
 
-      await readable(sibling);
-      await expectTint(page, sibling, "green");
-      if (await wt.isVisible()) {
-        await readable(wt);
-        await expectTint(page, wt, "orange");
-      }
-      const fork = card.getByRole("button", { name: /^Fork$/ });
-      if (await fork.isVisible()) {
-        await readable(fork);
-        await expectTint(page, fork, "blue");
-      }
-
-      const row = sibling.locator("xpath=..");
+      const row = trigger.locator("xpath=..");
       const boxes = await buttonBoxes(row);
-      expect(boxes.filter((b) => b.h < 32), `${mode}: chips under 32 px`).toEqual([]);
+      expect(boxes.filter((b) => b.h < 32), `${mode}: trigger under 32 px`).toEqual([]);
       expect(await buttonsWithoutFocusIndicator(page, row), `${mode}: no focus indicator`).toEqual([]);
+
+      const panel = await openSessionMenu(page, card);
+      const measured = await measureText(panel);
+      expect(measured.length, `${mode}: menu renders text`).toBeGreaterThan(0);
+      expect(contrastFailures(measured), `${mode}: menu text contrast`).toEqual([]);
+      await closeSessionMenu(page);
 
       // The card's meta line (status word, timestamps) stays readable too.
       const meta = card.getByTestId("session-card-meta");
@@ -154,13 +151,12 @@ test.describe("session card action chips (F2, F9)", () => {
     }
   });
 
-  test("F9: at a 320 px sidebar the chip row wraps instead of clipping", async ({ page }) => {
+  test("F9: at a 320 px sidebar the header controls stay inside the card", async ({ page }) => {
     await gotoDashboard(page);
     await page.evaluate(() => localStorage.setItem("dashboard:sidebar-width", "320"));
     await page.reload();
     const card = await ensureGitSession(page);
-    const sibling = card.getByTestId("session-card-spawn-sibling");
-    await expect(sibling).toBeVisible();
+    await expect(sessionMenuTrigger(card)).toBeVisible();
     const overflow = await card.evaluate((el) => {
       const cardBox = el.getBoundingClientRect();
       const clipped = [...el.querySelectorAll("button")]

@@ -138,15 +138,16 @@ Activating `More…` SHALL reveal the hidden items in place inside the same menu
 The rare set SHALL be: in `OPENSPEC`, Fast-forward, Explore…, Archive anyway…, Detach; in `GIT`, Close worktree….
 
 #### Scenario: OpenSpec rare items fold
-- **WHEN** the menu opens for a session attached to a change with all workflows enabled
-- **THEN** Fast-forward, Explore…, Archive anyway… and Detach SHALL NOT be visible
-- **AND** a `More…` item showing `4` SHALL render at the end of the `OPENSPEC` group
+- **WHEN** the menu opens for a session attached to a `PLANNING` change (Continue is the primary) with all workflows enabled
+- **THEN** Fast-forward, Explore… and Detach SHALL NOT be visible
+- **AND** a `More…` item showing `3` SHALL render at the end of the `OPENSPEC` group
+- **AND** the same holds with Archive anyway… in place of Fast-forward for an `IMPLEMENTING` change whose artifacts are all done and tasks are complete (Fast-forward and Archive anyway… never co-occur)
 
 #### Scenario: Expanding More… moves focus into the revealed items
 - **WHEN** focus is on the `OPENSPEC` `More…` item and the user presses Enter
-- **THEN** the four hidden items SHALL become visible in place
-- **AND** focus SHALL move to Fast-forward
-- **AND** ArrowDown SHALL move focus to Explore…
+- **THEN** the hidden items SHALL become visible in place
+- **AND** focus SHALL move to the first revealed item
+- **AND** ArrowDown SHALL move focus to the next revealed item
 - **AND** the menu SHALL remain open
 
 #### Scenario: A single rare item is not folded

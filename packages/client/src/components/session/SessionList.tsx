@@ -58,6 +58,7 @@ import {
 } from "../../lib/session/session-lanes.js";
 import { selectedCardScrollFingerprint } from "../../lib/session/session-list-scroll.js";
 import { useCardSectionPrefs } from "../../lib/state/CardSectionsContext.js";
+import { type SessionMenuScope, SessionMenuScopeContext, type SessionMenuState, sessionScopeKey } from "../../lib/state/SessionMenuScopeContext.js";
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
 import { YoloPill } from "../access-grant/YoloIndicators.js";
@@ -97,6 +98,7 @@ import { PlaceholderSessionCard } from "./PlaceholderSessionCard.js";
 import { branchCache, GroupGitInfo, SessionCard } from "./SessionCard.js";
 import { SortablePinnedGroup, useFolderDragHandle } from "./SortablePinnedGroup.js";
 import { SortableSessionCard } from "./SortableSessionCard.js";
+import { createHoverIntent } from "./session-hover-intent.js";
 import { SpawnErrorBanner } from "./SpawnErrorBanner.js";
 
 /** Community invite surfaced in the app header. */
@@ -949,7 +951,39 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   // Folder actions menu open flag, keyed by folder SCOPE (`folder:<cwd>`) the
   // same way `addToWsMenuFor` is — a cwd key would co-open a folder row and a
   // same-cwd card. See change: add-folder-actions-menu.
-  const [folderMenuFor, setFolderMenuFor] = React.useState<string | null>(null);
+  //
+  // The SAME state also keys SESSION menus (`session:<id>`) — one actions menu is
+  // open at a time across both scopes, so opening one closes the other. It also
+  // records how a session menu opened (hover / click / right-click / keyboard).
+  // See change: add-session-actions-flyout (D6).
+  const [menuState, setMenuState] = React.useState<SessionMenuState>({ menuFor: null });
+  const folderMenuFor = menuState.menuFor;
+  const setFolderMenuFor = React.useCallback((next: string | null) => setMenuState({ menuFor: next }), []);
+  const menuScopeValue = React.useMemo<SessionMenuScope>(() => ({ state: menuState, setState: setMenuState }), [menuState]);
+  const menuStateRef = React.useRef(menuState);
+  menuStateRef.current = menuState;
+  // Hover intent (strip on each card's right edge). ONE document listener; refs
+  // only — see `session-hover-intent.ts`. Torn down/rebuilt only on mount.
+  React.useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const fine = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const controller = createHoverIntent(document, {
+      matches: () => fine.matches,
+      suppressed: () => {
+        const st = menuStateRef.current;
+        if (st.menuFor !== null && st.source !== "hover") return true;
+        return document.querySelector("[role='dialog'][aria-modal='true']") !== null;
+      },
+      open: (id) => setMenuState({ menuFor: sessionScopeKey(id), source: "hover" }),
+      close: () => setMenuState((cur) => (cur.source === "hover" ? { menuFor: null } : cur)),
+      hoverOpenFor: () => {
+        const st = menuStateRef.current;
+        return st.source === "hover" && st.menuFor?.startsWith("session:") ? st.menuFor.slice("session:".length) : null;
+      },
+      menuEl: () => document.querySelector<HTMLElement>("[role='menu'][data-testid^='session-actions-menu-']"),
+    });
+    return () => controller.destroy();
+  }, []);
   // Broken-session cleanup confirm (moved off the deleted FolderActionBar into
   // the folder actions menu). See change: add-folder-action-banner.
   const [cleanupCwd, setCleanupCwd] = React.useState<string | null>(null);
@@ -2771,6 +2805,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   }
 
   return (
+    <SessionMenuScopeContext.Provider value={menuScopeValue}>
     <div className="w-full border-r border-[var(--border-primary)] flex flex-col min-h-0 h-full">
       <div className="border-b border-[var(--border-primary)]">
         <div className="flex items-center justify-between px-3 py-1.5" data-testid="header-app-bar">
@@ -2961,7 +2996,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
           </div>
         )}
       </div>
-      <div ref={listRef} data-testid="session-list-scroll" className="flex-1 overflow-y-auto">
+      <div ref={listRef} data-testid="session-list-scroll" data-session-list-region="" tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
       {/* session-list-group-by: widget-bar probes feeding the status-lane
           classifier, and the polite lane-change announcement. */}
       {askUserCandidates.map((x) => (
@@ -3205,6 +3240,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
           nothing unless identity is enforced and a principal resolved. */}
       <SignedInUserBar connected={connected === true} />
     </div>
+    </SessionMenuScopeContext.Provider>
   );
 }
 

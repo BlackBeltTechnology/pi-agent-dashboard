@@ -227,10 +227,17 @@ export function SessionCardBadgeSlot({
 export function SessionCardActionBarSlot({
   session,
   isPluginVisible,
+  wrapPlugin,
 }: {
   session: DashboardSession;
   /** Host per-plugin visibility filter (legacy claims + intents); absent = render all. */
   isPluginVisible?: (pluginId: string) => boolean;
+  /**
+   * Host wrapper applied around each plugin's output (legacy claim or intent).
+   * The session actions menu uses it to give every plugin a labelled group. The
+   * claim itself stays mounted whatever the wrapper renders.
+   */
+  wrapPlugin?: (pluginId: string, node: React.ReactNode) => React.ReactNode;
 }) {
   useSlotClaimsVersion();
   const registry = useSlotRegistryOrNull();
@@ -243,13 +250,19 @@ export function SessionCardActionBarSlot({
     : []
   ).filter((c) => !isPluginVisible || isPluginVisible(c.pluginId));
   if (!legacyClaims.length && intents.size === 0) return null;
+  const wrap = (pluginId: string, key: string, node: React.ReactNode) =>
+    wrapPlugin ? <React.Fragment key={key}>{wrapPlugin(pluginId, node)}</React.Fragment> : node;
   return (
     <>
       {legacyClaims.map((c) =>
-        renderClaim(c as Parameters<typeof renderClaim>[0], "session-card-action-bar", { session }),
+        wrap(
+          c.pluginId,
+          `claim:${c.pluginId}`,
+          renderClaim(c as Parameters<typeof renderClaim>[0], "session-card-action-bar", { session }),
+        ),
       )}
       {Array.from(intents.entries()).map(([pluginId, intent]) =>
-        renderIntent(pluginId, "session-card-action-bar", intent, session.id),
+        wrap(pluginId, `intent:${pluginId}`, renderIntent(pluginId, "session-card-action-bar", intent, session.id)),
       )}
     </>
   );

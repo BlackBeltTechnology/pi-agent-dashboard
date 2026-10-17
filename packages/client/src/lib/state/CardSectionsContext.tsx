@@ -131,6 +131,11 @@ export function usePluginSectionFilter(kind: PluginSectionKind, folderKey: strin
   );
 }
 
+/** The app toast sink (absent outside the app shell). */
+export function useCardToast(): CardSectionsContextValue["showToast"] {
+  return useContext(CardSectionsContext).showToast;
+}
+
 export function usePluginNames(): Record<string, string> | undefined {
   return useContext(CardSectionsContext).pluginNames;
 }
