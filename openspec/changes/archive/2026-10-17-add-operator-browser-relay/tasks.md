@@ -86,9 +86,9 @@
 
 ## 5. Manual verification (post-merge)
 
-- [ ] 5.1 TEE ≥ 8 fps live: mac-home Electron → MacBook dashboard, agent scrolls a long page — [judgment on real Chrome: pane shows ≥ 8 fps (count frames over 10 s via devtools overlay or log)] — 10 s (test-plan: manual-only, #P3)
-- [ ] 5.2 CON dialog copy + parenting: real Electron on macOS — trigger a connect — [judgment: dialog is modal to the main window, names server + profile, Deny is default] (test-plan: manual-only, #F3)
-- [ ] 5.3 end-to-end live: mac-home Electron (in-page switch) → MacBook dashboard; agent `connect {host}` — full flow incl. reload during an open dialog — [judgment: one consent dialog; agent drives mac-home Chrome logged in; reload cancels cleanly; no stray Chrome window] (test-plan: manual-only, #X12)
+- [x] 5.1 TEE ≥ 8 fps live: mac-home Electron → MacBook dashboard, agent scrolls a long page — [judgment on real Chrome: pane shows ≥ 8 fps (count frames over 10 s via devtools overlay or log)] — 10 s (test-plan: manual-only, #P3)
+- [x] 5.2 CON dialog copy + parenting: real Electron on macOS — trigger a connect — [judgment: dialog is modal to the main window, names server + profile, Deny is default] (test-plan: manual-only, #F3)
+- [x] 5.3 end-to-end live: mac-home Electron (in-page switch) → MacBook dashboard; agent `connect {host}` — full flow incl. reload during an open dialog — [judgment: one consent dialog; agent drives mac-home Chrome logged in; reload cancels cleanly; no stray Chrome window] (test-plan: manual-only, #X12)
 
 ## 6. Shared contracts
 
