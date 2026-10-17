@@ -79,6 +79,7 @@ import { useWebSocket } from "./hooks/useWebSocket.js";
 import { fetchArchivedSessionById } from "./lib/api/archived-sessions-api.js";
 import { getInitialWsUrl, LAST_SERVER_KEY, performServerSwitch } from "./lib/api/server-switch.js";
 import { openStagingSocket } from "./lib/api/staging-socket.js";
+import { hydrateMermaidRepairConfig } from "./lib/preview/mermaid-repair-config.js";
 import { EMPTY_CANVAS_STATE } from "./lib/canvas/canvas-gate.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
@@ -1224,6 +1225,9 @@ export default function App() {
         if (d.success && d.data?.plugins && typeof d.data.plugins === "object") {
           initPluginConfigs(d.data.plugins as Record<string, Record<string, unknown>>);
         }
+        // On-demand AI mermaid repair gate (opt-in; server resolves enabled/model).
+        // See change: add-mermaid-ai-repair.
+        hydrateMermaidRepairConfig(d);
         if (d.success) {
           setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
           if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);

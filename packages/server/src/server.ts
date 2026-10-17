@@ -264,6 +264,7 @@ import { registerPackageRoutes } from "./routes/package-routes.js";
 import { PUBLIC_PAIRING_PREFIXES, registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
+import { registerMermaidRepairRoutes } from "./routes/mermaid-repair-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPiSettingsRoutes } from "./routes/pi-settings-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
@@ -2297,6 +2298,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     return ids.length;
   };
   registerPiRetryRoutes(fastify, { networkGuard, reloadConnectedSessions });
+  // On-demand AI mermaid repair (opt-in via `mermaidRepair` config; 404 when off).
+  // See change: add-mermaid-ai-repair.
+  registerMermaidRepairRoutes(fastify, {
+    networkGuard,
+    getConfig: () => loadConfig().mermaidRepair,
+    getRegistry: async () => {
+      try {
+        return await getModelRegistry();
+      } catch {
+        return null;
+      }
+    },
+    getStreamSimple: getStreamSimpleFn,
+  });
   // pi global settings.json editor (typed form + raw JSON) and the
   // default-model mirror/drift repair. See change: edit-pi-agent-settings.
   registerPiSettingsRoutes(fastify, { networkGuard, reloadConnectedSessions, readDashboardConfig: loadConfig });

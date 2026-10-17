@@ -1,8 +1,17 @@
-import { mdiAlertCircleOutline, mdiAutoFix, mdiContentCopy, mdiLoading } from "@mdi/js";
+import {
+  mdiAlertCircleOutline,
+  mdiAutoFix,
+  mdiContentCopy,
+  mdiCreationOutline,
+  mdiLoading,
+  mdiRefresh,
+} from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
+import { repairMermaidWithAi } from "../../lib/api/mermaid-repair-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useMermaidRepairClientConfig } from "../../lib/preview/mermaid-repair-config.js";
 import { type RuleId, repairMermaid } from "../../lib/preview/mermaid-repair.js";
 import { copyText } from "../../lib/util/clipboard.js";
 import { CopyButton } from "../primitives/CopyButton.js";
@@ -27,6 +36,11 @@ export type MermaidOutcome =
   | { kind: "error"; message: string };
 
 export const _outcomeCache = new Map<string, MermaidOutcome>();
+
+// Page-lifetime cache of SUCCESSFUL AI repairs, keyed `code \0 configuredModel`.
+// Holds theme-independent source only (the render goes through _outcomeCache);
+// failures are never cached. See change: add-mermaid-ai-repair (design D6).
+export const _aiFixCache = new Map<string, { fixedCode: string; model: string }>();
 
 // Cache identity is the composite theme id (`<themeName>:<resolved>`), not just
 // light/dark: accent palettes differ per named theme, so colorized output must
@@ -359,11 +373,17 @@ function ErrorView({
   message,
   headline,
   copyable = true,
+  actions,
+  notes,
 }: {
   code: string;
   message: string;
   headline: string;
   copyable?: boolean;
+  /** Extra buttons in the callout's action bar (the AI repair control). */
+  actions?: React.ReactNode;
+  /** Text under the action bar (disclosure line, failure status). */
+  notes?: React.ReactNode;
 }) {
   return (
     <div className="mb-2" data-testid="mermaid-error">
@@ -372,11 +392,13 @@ function ErrorView({
         <div className="min-w-0 flex-1">
           <strong className="font-semibold">{headline}</strong>
           <code className="mt-0.5 block whitespace-pre-wrap break-words font-mono text-xs">{message}</code>
-          {copyable ? (
-            <div className="mt-2">
-              <CopySourceButton getText={() => code} />
+          {copyable || actions ? (
+            <div className={actions ? "mt-2 flex flex-wrap items-center gap-2" : "mt-2"}>
+              {actions}
+              {copyable ? <CopySourceButton getText={() => code} /> : null}
             </div>
           ) : null}
+          {notes}
         </div>
       </div>
       <pre className="mt-1 bg-[var(--bg-code)] rounded-md p-4 overflow-x-auto text-sm">
@@ -447,6 +469,192 @@ function RepairBadge({
       )}
     </>
   );
+}
+
+type AiState =
+  | { kind: "idle" }
+  | { kind: "pending" }
+  | { kind: "fixed"; fixedCode: string; model: string }
+  | { kind: "failed"; reason: string };
+
+/**
+ * "Fix with AI" control inside the error callout: secondary button (idle /
+ * pending / retry) + a visible provider disclosure linked by aria-describedby
+ * + a role="status" failure line. See change: add-mermaid-ai-repair.
+ */
+function useAiControls(state: AiState, model: string, onFix: () => void) {
+  const discId = useId();
+  const pending = state.kind === "pending";
+  const failed = state.kind === "failed";
+  const label = pending
+    ? i18nT("preview.mermaid.aiPending", undefined, "Fixing with AI…")
+    : failed
+      ? i18nT("preview.mermaid.aiRetry", undefined, "Retry AI fix")
+      : i18nT("preview.mermaid.aiFix", undefined, "Fix with AI");
+  const actions = (
+    <button
+      type="button"
+      onClick={onFix}
+      disabled={pending}
+      aria-busy={pending}
+      aria-describedby={discId}
+      data-testid="mermaid-ai-fix"
+      className="focus-ring inline-flex items-center gap-1 rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 tap-target text-[12px] text-[var(--text-primary)] disabled:opacity-60"
+    >
+      <Icon
+        path={pending ? mdiLoading : failed ? mdiRefresh : mdiCreationOutline}
+        size={0.6}
+        className={pending ? "animate-spin" : undefined}
+        aria-hidden="true"
+      />
+      {label}
+    </button>
+  );
+  const notes = (
+    <>
+      <p id={discId} className="mt-1 text-xs">
+        {i18nT(
+          "preview.mermaid.aiDisclosure",
+          { model },
+          "The diagram source and the error are sent to {model} to attempt a fix.",
+        )}
+      </p>
+      {failed ? (
+        <p role="status" className="mt-1 text-xs">
+          {i18nT("preview.mermaid.aiFailed", { reason: state.reason }, "AI fix failed: {reason}")}
+        </p>
+      ) : null}
+    </>
+  );
+  return { actions, notes };
+}
+
+/**
+ * AI-fixed badge row (purple tint pill naming the model, show-original toggle,
+ * copy-fixed), then the original source + error while toggled on.
+ * See change: add-mermaid-ai-repair.
+ */
+function AiBadge({
+  model,
+  originalCode,
+  originalError,
+  fixedSource,
+  showOriginal,
+  onToggle,
+}: {
+  model: string;
+  originalCode: string;
+  originalError: string;
+  fixedSource: string;
+  showOriginal: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <>
+      <div data-testid="mermaid-ai-badge" className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-2">
+        <span className="inline-flex items-center gap-1 rounded-full border border-[var(--tint-purple-border)] bg-[var(--tint-purple-bg)] px-1.5 py-0.5 text-[11px] text-[var(--tint-purple-fg)]">
+          <Icon path={mdiCreationOutline} size={0.5} aria-hidden="true" />
+          {i18nT("preview.mermaid.aiFixed", undefined, "AI-fixed")} · {model}
+        </span>
+        <button
+          type="button"
+          aria-pressed={showOriginal}
+          onClick={onToggle}
+          className="focus-ring rounded-md px-2 tap-target text-[12px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:underline underline-offset-2"
+        >
+          {i18nT("preview.mermaid.showOriginal", undefined, "Show original")}
+        </button>
+        <CopyButton
+          getText={() => fixedSource}
+          icon={<Icon path={mdiContentCopy} size={0.6} aria-hidden="true" />}
+          title={i18nT("preview.mermaid.copyFixed", undefined, "Copy fixed source")}
+          testId="mermaid-copy-fixed"
+        />
+      </div>
+      {showOriginal && (
+        <ErrorView
+          code={originalCode}
+          message={originalError}
+          headline={i18nT("preview.mermaid.originalError", undefined, "Original render error")}
+          copyable={false}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * On-demand AI repair state for one diagram. The result is accepted ONLY if
+ * it renders (through the same queued render + sanitize path); a successful,
+ * rendered fix is cached for the page lifetime. State is keyed on
+ * `code + configured model`, so a source/model change discards it; the
+ * request is aborted on unmount or key change.
+ * See change: add-mermaid-ai-repair (design D3, D6).
+ */
+function useAiRepair(
+  code: string,
+  themeId: string,
+  resolved: string,
+  originalOutcome: MermaidOutcome | null,
+  cfg: { enabled: boolean; model?: string },
+) {
+  const model = cfg.model ?? "";
+  const aiKey = `${code}\0${model}`;
+  const [held, setHeld] = useState<{ key: string; state: AiState } | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const idBase = useId().replace(/:/g, "");
+
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    },
+    [aiKey],
+  );
+
+  const failedOriginal = originalOutcome?.kind === "error" ? originalOutcome : null;
+  const cached = cfg.enabled && failedOriginal ? _aiFixCache.get(aiKey) : undefined;
+  const state: AiState =
+    held && held.key === aiKey
+      ? held.state
+      : cached
+        ? { kind: "fixed", fixedCode: cached.fixedCode, model: cached.model }
+        : { kind: "idle" };
+
+  const start = () => {
+    if (!failedOriginal || abortRef.current) return;
+    const ac = new AbortController();
+    abortRef.current = ac;
+    const set = (next: AiState) => {
+      if (!ac.signal.aborted) setHeld({ key: aiKey, state: next });
+    };
+    set({ kind: "pending" });
+    void (async () => {
+      try {
+        const res = await repairMermaidWithAi(code, failedOriginal.message, ac.signal);
+        if (ac.signal.aborted) return;
+        const result = await renderMermaid(`mermaid-${idBase}-ai${mermaidIdCounter++}`, res.code, resolved);
+        if (ac.signal.aborted) return;
+        if (result.kind === "error") {
+          set({
+            kind: "failed",
+            reason: i18nT("preview.mermaid.aiNotRenderable", undefined, "the returned diagram did not render either."),
+          });
+          return;
+        }
+        _outcomeCache.set(cacheKey(res.code, themeId), result);
+        _aiFixCache.set(aiKey, { fixedCode: res.code, model: res.model });
+        set({ kind: "fixed", fixedCode: res.code, model: res.model });
+      } catch (err) {
+        if (ac.signal.aborted) return;
+        set({ kind: "failed", reason: err instanceof Error ? err.message : String(err) });
+      } finally {
+        if (abortRef.current === ac) abortRef.current = null;
+      }
+    })();
+  };
+
+  return { state, start, offer: cfg.enabled && failedOriginal !== null, model };
 }
 
 /**
@@ -532,13 +740,24 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
   // re-render must key on both the named theme and its light/dark resolution.
   const themeId = `${themeName}:${resolved}`;
   const key = cacheKey(code, themeId);
-  const { outcome, svg, repaired, showOriginal, toggleShowOriginal } = useMermaidOutcome(
-    code,
-    themeId,
-    key,
-    resolved,
-    complete,
-  );
+  const orig = useMermaidOutcome(code, themeId, key, resolved, complete);
+  const aiCfg = useMermaidRepairClientConfig();
+  const ai = useAiRepair(code, themeId, resolved, orig.outcome, aiCfg);
+  // An AI fix renders through the normal outcome path under ITS source, so a
+  // theme change re-renders it without a new request.
+  const fixedCode = ai.state.kind === "fixed" ? ai.state.fixedCode : "";
+  const fixedKey = cacheKey(fixedCode, themeId);
+  const fixedView = useMermaidOutcome(fixedCode, themeId, fixedKey, resolved, complete && fixedCode !== "");
+  const aiActive = ai.state.kind === "fixed" && fixedView.outcome?.kind !== "error";
+  const aiControls = useAiControls(ai.state, ai.model, ai.start);
+  const [aiShowOriginalFor, setAiShowOriginalFor] = useState<string | null>(null);
+  const view = aiActive ? fixedView : orig;
+  const { outcome, svg } = view;
+  const repaired = aiActive ? null : orig.repaired;
+  const showOriginal = aiActive ? aiShowOriginalFor === fixedKey : orig.showOriginal;
+  const toggleShowOriginal = aiActive
+    ? () => setAiShowOriginalFor(showOriginal ? null : fixedKey)
+    : orig.toggleShowOriginal;
   const [focused, setFocused] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const refocusViewportRef = useRef(false);
@@ -614,6 +833,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
         code={code}
         message={outcome.message}
         headline={i18nT("preview.mermaid.errorHeadline", undefined, "This diagram could not be rendered.")}
+        {...(ai.offer ? { actions: aiControls.actions, notes: aiControls.notes } : {})}
       />
     );
   }
@@ -638,12 +858,23 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
   // structure (first child div = viewport, only svg = the diagram) is unchanged.
   return (
     <>
-      <RepairBadge
-        code={code}
-        outcome={repaired}
-        showOriginal={showOriginal}
-        onToggle={toggleOriginal}
-      />
+      {aiActive && ai.state.kind === "fixed" ? (
+        <AiBadge
+          model={ai.state.model}
+          originalCode={code}
+          originalError={orig.outcome?.kind === "error" ? orig.outcome.message : ""}
+          fixedSource={outcome?.kind === "repaired" ? outcome.code : ai.state.fixedCode}
+          showOriginal={showOriginal}
+          onToggle={toggleOriginal}
+        />
+      ) : (
+        <RepairBadge
+          code={code}
+          outcome={repaired}
+          showOriginal={showOriginal}
+          onToggle={toggleOriginal}
+        />
+      )}
       <div className="mermaid-diagram relative my-2">
         {/* Viewport: clips zoomed/panned content. Hidden (not unmounted) while the
             original is shown, so zoom/pan state survives the toggle. */}
