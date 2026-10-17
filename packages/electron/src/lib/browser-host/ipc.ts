@@ -267,11 +267,17 @@ export function createBrowserHost(deps: BrowserHostDeps): BrowserHost {
       return;
     }
     const pending = [...requests.values()].filter((x) => !x.settled).length;
-    if (requests.has(req.requestId) || [...requests.values()].some((x) => x.linkId === req.linkId)) return void answer(req.requestId, null, false, "invalid");
-    if (pending >= MAX_PENDING_CONNECTS || requests.size >= MAX_LINKS) return void answer(req.requestId, null, false, "host-busy");
+    if (requests.has(req.requestId) || [...requests.values()].some((x) => x.linkId === req.linkId)) {
+      answer(req.requestId, null, false, "invalid");
+      return;
+    }
+    if (pending >= MAX_PENDING_CONNECTS || requests.size >= MAX_LINKS) {
+      answer(req.requestId, null, false, "host-busy");
+      return;
+    }
     const r: Request = { linkId: req.linkId, ctl: new AbortController(), settled: false };
     requests.set(req.requestId, r);
-    void runConnect(req, r);
+    runConnect(req, r).catch((e) => log(`[browser-host] connect crashed: ${(e as Error).message}`));
   };
 
   // ── window lifecycle ─────────────────────────────────────────────────────

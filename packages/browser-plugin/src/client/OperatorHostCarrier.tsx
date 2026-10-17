@@ -42,7 +42,8 @@ import type { BrowserHostBridge } from "@blackbelt-technology/pi-dashboard-share
 import type React from "react";
 import { useEffect, useRef } from "react";
 import { getBrowserStatus } from "./browser-api.js";
-import { setOperatorHostId } from "./relay-store.js";
+import { getBrowserHost } from "./browser-host.js";
+import { setOperatorHostId } from "./operator-host-store.js";
 
 /** How long to wait for `browser_host_registered` before treating the register as refused. */
 export const HOST_REGISTER_TIMEOUT_MS = 10_000;
@@ -56,11 +57,6 @@ const swallow = (p: Promise<unknown>): void => {
   p.catch(() => {});
 };
 
-/** `window.piDashboard.browserHost`, or `undefined` outside the trusted Electron main window. */
-export function getBrowserHost(): BrowserHostBridge | undefined {
-  if (typeof window === "undefined") return undefined;
-  return (window as unknown as { piDashboard?: { browserHost?: BrowserHostBridge } }).piDashboard?.browserHost;
-}
 
 /** The dashboard origin a shell socket targets (`ws(s)://h:p/ws?…` → `http(s)://h:p`), or `null`. */
 function targetOrigin(ws: WebSocket): string | null {

@@ -131,4 +131,4 @@
 ## 11. Closeout
 
 - [x] 11.1 Security pass on the diff with the `Audit` subagent (identity/pin, carrier input on both ends, shim gate, consent, token handling); fix findings
-- [ ] 11.2 Full rebuild (`full-rebuild.ts`) and live check: mac-home Electron → MacBook dashboard, agent connects with `host`, operator sees one consent dialog
+- [x] 11.2 Full rebuild (`full-rebuild.ts`) and live check: mac-home Electron → MacBook dashboard, agent connects with `host`, operator sees one consent dialog

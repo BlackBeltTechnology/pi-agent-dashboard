@@ -36,8 +36,9 @@ import type { BrowserRelayFrameMessage } from "@blackbelt-technology/pi-dashboar
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getBrowserHost } from "./OperatorHostCarrier.js";
-import { findRelayTab, useOperatorHostId, useRelayStatus } from "./relay-store.js";
+import { getBrowserHost } from "./browser-host.js";
+import { useOperatorHostId } from "./operator-host-store.js";
+import { findRelayTab, useRelayStatus } from "./relay-store.js";
 import { parseBrowserTabPath } from "./tab-path.js";
 
 export interface BrowserPaneTabProps {

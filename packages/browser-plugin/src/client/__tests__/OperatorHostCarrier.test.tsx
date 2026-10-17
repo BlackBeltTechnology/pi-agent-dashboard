@@ -7,8 +7,9 @@
  */
 import { act, cleanup, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BrowserRelayFeed } from "../BrowserRelayFeed.js";
 import { HOST_REGISTER_TIMEOUT_MS, OperatorHostCarrier } from "../OperatorHostCarrier.js";
-import { __resetRelayStoreForTests, getOperatorHostId } from "../relay-store.js";
+import { __resetOperatorHostForTests, getOperatorHostId } from "../operator-host-store.js";
 import {
 	FAKE_HOST_ID,
 	type FakeBrowserHost,
@@ -23,7 +24,7 @@ let statusBody: Record<string, unknown>;
 let statusCalls: number;
 
 beforeEach(() => {
-	__resetRelayStoreForTests();
+	__resetOperatorHostForTests();
 	host = makeFakeBrowserHost();
 	installBrowserHost(host);
 	statusBody = { enabled: true, canOpenChrome: true, operatorHosts: true };
@@ -42,7 +43,7 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup();
 	installBrowserHost(null);
-	__resetRelayStoreForTests();
+	__resetOperatorHostForTests();
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
 });
@@ -64,6 +65,21 @@ async function register(r: ReturnType<typeof mount>, nonce = "n1", serverId = "s
 	act(() => r.ws.emit({ type: "browser_host_registered", hostId: FAKE_HOST_ID }));
 	await waitFor(() => expect(getOperatorHostId()).toBe(FAKE_HOST_ID));
 }
+
+describe("mounted through BrowserRelayFeed (lazy chunk)", () => {
+	it("inside the Electron window the feed lazy-loads the carrier and it registers", async () => {
+		const r = renderWithPlugin(<BrowserRelayFeed />, { feed: false, connectionStatus: "connected" });
+		await waitFor(() => expect(ofType(r.send, "browser_host_hello").length).toBeGreaterThan(0));
+	});
+
+	it("outside Electron the feed mounts no carrier (nothing is even imported)", async () => {
+		installBrowserHost(null);
+		const r = renderWithPlugin(<BrowserRelayFeed />, { feed: false, connectionStatus: "connected" });
+		await act(async () => {});
+		expect(hostMsgs(r.send)).toEqual([]);
+		expect(statusCalls).toBe(0);
+	});
+});
 
 describe("gating (#E8 #E9)", () => {
 	it("#E8 older server (no operatorHosts in status): zero browser_host_* messages, no IPC", async () => {

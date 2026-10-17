@@ -12,7 +12,8 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserPaneTab } from "../BrowserPaneTab.js";
 import { BrowserTabLabel } from "../BrowserTabLabel.js";
-import { __resetRelayStoreForTests, setOperatorHostId } from "../relay-store.js";
+import { __resetOperatorHostForTests, setOperatorHostId } from "../operator-host-store.js";
+import { __resetRelayStoreForTests } from "../relay-store.js";
 import { parseBrowserTabPath } from "../tab-path.js";
 import { FAKE_HOST_ID, type FakeBrowserHost, installBrowserHost, makeFakeBrowserHost, renderWithPlugin, SESSION } from "./test-utils.js";
 
@@ -84,6 +85,7 @@ class FakeResizeObserver {
 
 beforeEach(() => {
 	__resetRelayStoreForTests();
+	__resetOperatorHostForTests();
 	resizeCallbacks = [];
 	vi.stubGlobal("PointerEvent", FakePointerEvent);
 	vi.stubGlobal("ResizeObserver", FakeResizeObserver);
@@ -93,6 +95,7 @@ afterEach(() => {
 	cleanup();
 	installBrowserHost(null);
 	__resetRelayStoreForTests();
+	__resetOperatorHostForTests();
 	vi.useRealTimers();
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();

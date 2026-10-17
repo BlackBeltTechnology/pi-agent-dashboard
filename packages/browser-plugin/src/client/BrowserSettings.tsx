@@ -42,7 +42,7 @@ import {
   setBrowserEnabled,
   writeBrowserProfile,
 } from "./browser-api.js";
-import { getBrowserHost } from "./OperatorHostCarrier.js";
+import { getBrowserHost } from "./browser-host.js";
 import { ThisComputerBlock } from "./ThisComputerBlock.js";
 
 export function BrowserSettings(): React.ReactElement {
