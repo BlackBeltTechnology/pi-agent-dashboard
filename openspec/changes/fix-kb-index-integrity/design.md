@@ -223,7 +223,8 @@ flowchart TD
   chunks with `DELETE FROM chunks WHERE rowid=? AND root=? AND path=?` for each mapped rowid
   (verify-before-delete: a reused rowid now holding another file's chunk is never deleted), then the
   map rows.
-- Map validity: the docs rows of `item_rows` are rebuilt from `chunks` (`DELETE` docs rows, then
+- Map validity (exported as `reconcileChunkMap(store)`, callable on its own; `add-kb-worktree-seed`
+  calls it before its acceptance step): the docs rows of `item_rows` are rebuilt from `chunks` (`DELETE` docs rows, then
   `INSERT OR IGNORE … SELECT root, path, rowid FROM chunks`, 25 ms on main) inside one
   `BEGIN IMMEDIATE` transaction at the start of a connection's first pass and of every pass where
   `PRAGMA data_version` shows another connection committed since this connection's last pass. A
