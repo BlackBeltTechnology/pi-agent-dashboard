@@ -6,6 +6,7 @@
  * `connected` on the readiness board although the Gateway never connected it,
  * which would pin the toggle to "Disconnect". No I/O.
  */
+import { isLoopbackIpv4 } from "@blackbelt-technology/pi-dashboard-shared/bind-reachability.js";
 import type {
   GatewayProviderState,
   TunnelStatus,
@@ -71,10 +72,14 @@ const REMOTE_ACCESS_STATE: Record<RemoteAccessTone, string> = {
   local: "this computer only",
 };
 
-/** Loopback-only bind hosts. `0.0.0.0` and `::` are ALL interfaces. */
-function isLoopbackBind(host: string): boolean {
+/**
+ * Loopback-only bind host. `0.0.0.0` and `::` are ALL interfaces, not loopback.
+ * The one definition — the step engine, the landing roads and the toolbar dot
+ * must agree, so a malformed `127.x` host cannot read differently in each.
+ */
+export function isLoopbackHost(host: string): boolean {
   const h = host.trim().toLowerCase();
-  return h === "localhost" || h === "::1" || h === "[::1]" || /^127(\.\d{1,3}){3}$/.test(h);
+  return h === "localhost" || h === "::1" || h === "[::1]" || isLoopbackIpv4(h);
 }
 
 /**
@@ -103,7 +108,7 @@ export function remoteAccessIndicator(
   if (failed) tone = "failed";
   else if (g && g.expected > 0 && g.connected > 0 && g.connected < g.expected) tone = "partial";
   else if ((g && g.expected > 0 && g.connected === g.expected) || (!g && tunnel?.status === "active")) tone = "internet";
-  else if (bindHost !== null && !isLoopbackBind(bindHost)) tone = "network";
+  else if (bindHost !== null && !isLoopbackHost(bindHost)) tone = "network";
   else tone = "local";
   const state = tone === "local" && bindHost === null ? "network status unknown" : REMOTE_ACCESS_STATE[tone];
   const suffix = waiting > 0 ? `, ${waiting} ${waiting === 1 ? "device" : "devices"} waiting` : "";

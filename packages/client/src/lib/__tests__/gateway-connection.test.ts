@@ -102,6 +102,11 @@ describe("remoteAccessIndicator — toolbar dot + title (test-plan #E11)", () =>
     expect(remoteAccessIndicator(null, "127.0.0.1").tone).toBe("local");
   });
 
+  it("treats malformed 127.x hosts as non-loopback, like the step engine", () => {
+    expect(remoteAccessIndicator(counts(0, 1), "127.999.999.999").tone).toBe("network");
+    expect(remoteAccessIndicator(counts(0, 1), "127.0.0.2").tone).toBe("local");
+  });
+
   it("appends the waiting-device count", () => {
     expect(remoteAccessIndicator(counts(0, 1), "127.0.0.1", 1).title).toBe("Remote access: this computer only, 1 device waiting");
     expect(remoteAccessIndicator(counts(0, 1), "127.0.0.1", 2).title).toBe("Remote access: this computer only, 2 devices waiting");

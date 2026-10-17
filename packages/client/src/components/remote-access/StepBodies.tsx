@@ -10,6 +10,7 @@
 import type { TunnelMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { disconnectTunnel } from "../../lib/gateway/gateway-api.js";
+import { isLoopbackHost } from "../../lib/gateway/gateway-connection.js";
 import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { listPairedDevices } from "../../lib/pairing/paired-devices-api.js";
@@ -23,7 +24,6 @@ import {
   deviceEndpoint,
   endpointTransport,
   evaluate,
-  isLoopbackHost,
   openEntries,
 } from "../../lib/remote-access/steps.js";
 import { copyText } from "../../lib/util/clipboard.js";
@@ -68,10 +68,14 @@ export function ProviderBody({ ctx }: { ctx: StepCtx }) {
   const [mode, setMode] = useState<TunnelMode>(storedMode);
   const [blocked, setBlocked] = useState(false);
   const [busy, setBusy] = useState(false);
+  const statusKnown = ctx.snap.status.status === "value";
   const connectedPrimary =
     !!stored &&
     ctx.snap.status.status === "value" &&
     (ctx.snap.status.value.connectedProviders ?? []).includes(stored);
+  // Whether the primary is connected decides if a switch is allowed; until that
+  // is known, a pick that differs from the stored primary must not be written.
+  const awaitingStatus = !!stored && provider !== stored && !statusKnown;
   const needsWrite = stored === undefined || provider !== stored || mode !== storedMode;
 
   const next = async () => {
@@ -132,7 +136,10 @@ export function ProviderBody({ ctx }: { ctx: StepCtx }) {
           </button>
         </Callout>
       )}
-      <PrimaryButton testId={needsWrite ? "gateway-save" : "remote-access-continue"} onClick={() => void next()} disabled={busy}>
+      {awaitingStatus && (
+        <UnknownNote pending={ctx.snap.status.status === "error" ? "error" : "loading"} onRetry={() => void ctx.refresh()} />
+      )}
+      <PrimaryButton testId={needsWrite ? "gateway-save" : "remote-access-continue"} onClick={() => void next()} disabled={busy || awaitingStatus}>
         {busy ? t("gateway.saving", undefined, "Saving…") : needsWrite ? t("gateway.save", undefined, "Save") : t("remoteAccess.continue", undefined, "Continue")}
       </PrimaryButton>
     </div>
@@ -435,7 +442,23 @@ export function QrBody({ ctx }: { ctx: StepCtx }) {
   const { t } = useI18n();
   const ep = deviceEndpoint(ctx.snap);
   const [copied, setCopied] = useState(false);
-  if (!ep) return <UnknownNote pending={ctx.snap.status.status === "error" || ctx.snap.config.status === "error" ? "error" : "loading"} onRetry={() => void ctx.refresh()} />;
+  if (!ep) {
+    const loadedAll = ctx.snap.endpoints.status === "value" && ctx.snap.status.status === "value" && ctx.snap.config.status === "value";
+    if (loadedAll) {
+      // The road is on but exposes no address to hand to a device — say so, don't spin.
+      return (
+        <div className="space-y-2">
+          <Callout severity="warning" testId="remote-access-qr-no-endpoint">
+            {t("remoteAccess.qr.noEndpoint", undefined, "No address was found for this road yet. Check again in a moment.")}
+          </Callout>
+          <SmallButton testId="remote-access-qr-recheck" onClick={() => void ctx.refresh()}>
+            {t("remoteAccess.recheck", undefined, "Check again")}
+          </SmallButton>
+        </div>
+      );
+    }
+    return <UnknownNote pending={ctx.snap.status.status === "error" || ctx.snap.config.status === "error" || ctx.snap.endpoints.status === "error" ? "error" : "loading"} onRetry={() => void ctx.refresh()} />;
+  }
   const transport = endpointTransport(ep);
   if (transport === "https") {
     return <GatewayPairQR httpsOnly showLanPanel={false} showWaiting={false} onSetupRequested={() => ctx.patchRun({ open: "provider" })} />;
@@ -498,6 +521,7 @@ export function ApproveBody({
   const { pending } = useSyncExternalStore(pairingApprovalStore.subscribe, pairingApprovalStore.getState);
   const [outcome, setOutcome] = useState<ApproveOutcome | null>(null);
   const [readFailed, setReadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const stillPending = !!tracked && pending.some((p) => p.pendingId === tracked.pendingId);
 
   useEffect(() => {
@@ -512,7 +536,8 @@ export function ApproveBody({
     return () => {
       cancelled = true;
     };
-  }, [tracked, stillPending, outcome]);
+    // `attempt` re-runs the read after a failure (Retry).
+  }, [tracked, stillPending, outcome, attempt]);
 
   if (outcome?.kind === "paired") {
     const devs = outcome.devices;
@@ -545,7 +570,15 @@ export function ApproveBody({
         {t("remoteAccess.approve.help", undefined, "The approval dialog asks you to type the code the device shows. If you closed it, press Review.")}
       </p>
       <WaitingDevices />
-      {readFailed && <UnknownNote pending="error" onRetry={() => setReadFailed(false)} />}
+      {readFailed && (
+        <UnknownNote
+          pending="error"
+          onRetry={() => {
+            setReadFailed(false);
+            setAttempt((a) => a + 1);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -2709,4 +2709,5 @@ export const zhCNCatalog: Record<string, string> = {
   "remoteAccess.finish.openTab": "在新标签页中打开",
   "remoteAccess.finish.openWindow": "打开其窗口",
   "remoteAccess.finish.stay": "留在此处",
+  "remoteAccess.qr.noEndpoint": "尚未找到此途径的地址。请稍后再试。",
 };

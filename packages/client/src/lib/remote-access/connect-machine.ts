@@ -94,7 +94,7 @@ export function knockDecision(opts: { pin?: string; advert?: string; proven: str
 /** Where the remote's own request-access page lives. `http:` — LAN servers have no TLS; 443 is https. */
 export function remoteOrigin(addr: Address): string {
   const host = addr.host.includes(":") && !addr.host.startsWith("[") ? `[${addr.host}]` : addr.host;
-  return `${addr.port === 443 ? "https" : "http"}://${host}:${addr.port}`;
+  return addr.port === 443 ? `https://${host}` : `http://${host}:${addr.port}`;
 }
 
 export const remoteRequestUrl = (addr: Address): string => `${remoteOrigin(addr)}/pair?request`;

@@ -7,6 +7,7 @@ import type { ProviderReadiness, TunnelEndpoint } from "@blackbelt-technology/pi
 import { describe, expect, it } from "vitest";
 import {
   approveOutcome,
+  deviceEndpoint,
   EMPTY_SNAPSHOT,
   evaluate,
   FAILED,
@@ -214,6 +215,13 @@ describe("device task", () => {
     expect(states(satisfied, "device", { task: "device", done: [], branch: "wifi" })).toMatchObject({
       road: "skipped", bind: "skipped", accept: "skipped", qr: "current",
     });
+  });
+
+  it("LAN only: never shows a stale public TLS endpoint, and prefers an https LAN address", () => {
+    const lanOnly = snap({ resolved: "0.0.0.0", acceptLan: true, endpoints: [https, lanEp] });
+    expect(deviceEndpoint(lanOnly)).toEqual(lanEp);
+    const tlsLan: TunnelEndpoint = { kind: "lan", url: "https://192.168.16.220:8443", tls: true };
+    expect(deviceEndpoint(snap({ resolved: "0.0.0.0", acceptLan: true, endpoints: [lanEp, tlsLan] }))).toEqual(tlsLan);
   });
 
   it("with a road already up nothing is inserted and Open it on the device is current", () => {

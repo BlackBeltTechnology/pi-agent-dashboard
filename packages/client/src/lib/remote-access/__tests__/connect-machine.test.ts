@@ -4,7 +4,7 @@
  */
 import type { KnownServerListEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ensureKnown, knockDecision, parseAddress, remoteRequestUrl, sameAddress } from "../connect-machine.js";
+import { ensureKnown, knockDecision, parseAddress, remoteOrigin, remoteRequestUrl, sameAddress } from "../connect-machine.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -69,6 +69,13 @@ describe("knockDecision (E16)", () => {
   });
   it("with neither a pin nor an advert the proven fingerprint needs operator confirmation", () => {
     expect(knockDecision({ proven: "H" })).toEqual({ kind: "confirm", fingerprint: "H" });
+  });
+});
+
+describe("remoteOrigin", () => {
+  it("omits the scheme-default port (443) and brackets IPv6", () => {
+    expect(remoteOrigin({ host: "box.example", port: 443 })).toBe("https://box.example");
+    expect(remoteOrigin({ host: "::1", port: 8000 })).toBe("http://[::1]:8000");
   });
 });
 

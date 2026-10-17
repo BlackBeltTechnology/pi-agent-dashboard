@@ -118,8 +118,11 @@ export function Landing({
   const open = unauthenticatedNetworkCount(snap);
   const [busy, setBusy] = useState(false);
 
+  const [pairedAttempt, setPairedAttempt] = useState(0);
   useEffect(() => {
     let alive = true;
+    // `pairedAttempt` re-runs the read when Retry is pressed.
+    void pairedAttempt;
     listPairedDevices().then(
       (d) => alive && setPaired(d.length),
       () => alive && setPaired("error"),
@@ -127,7 +130,7 @@ export function Landing({
     return () => {
       alive = false;
     };
-  }, []);
+  }, [pairedAttempt]);
 
   const disconnect = async () => {
     setBusy(true);
@@ -180,7 +183,13 @@ export function Landing({
         {paired === "loading" ? (
           <UnknownNote pending="loading" />
         ) : paired === "error" ? (
-          <UnknownNote pending="error" />
+          <UnknownNote
+            pending="error"
+            onRetry={() => {
+              setPaired("loading");
+              setPairedAttempt((a) => a + 1);
+            }}
+          />
         ) : (
           t(
             "remoteAccess.paired",

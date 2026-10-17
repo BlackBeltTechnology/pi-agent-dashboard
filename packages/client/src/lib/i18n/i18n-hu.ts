@@ -2707,4 +2707,5 @@ export const huCatalog: Record<string, string> = {
   "remoteAccess.finish.openTab": "Megnyitás új lapon",
   "remoteAccess.finish.openWindow": "Ablakának megnyitása",
   "remoteAccess.finish.stay": "Maradok itt",
+  "remoteAccess.qr.noEndpoint": "Ehhez az úthoz még nem található cím. Próbálja újra egy pillanat múlva.",
 };

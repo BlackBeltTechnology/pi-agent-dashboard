@@ -326,3 +326,64 @@ describe("scenario steps", () => {
     await waitFor(() => expect(screen.getByTestId("remote-access-fold").textContent).toMatch(/steps done/));
   });
 });
+
+describe("review round 1 fixes", () => {
+  it("B1: a failed paired-devices read on Approve offers a retry that really re-reads", async () => {
+    let failNext = false;
+    let reads = 0;
+    let paired: unknown[] = [];
+    mockApi({
+      status: connectedZrok,
+      endpoints: [{ kind: "public", url: "https://robson-home.shares.zrok.io", tls: true }],
+      routes: {
+        "GET /api/paired-devices": () => {
+          reads++;
+          return failNext ? [500, { success: false, error: "boom" }] : [200, { success: true, data: paired }];
+        },
+      },
+    });
+    renderDialog({ run: run("device") });
+    await screen.findByTestId("stub-pair-qr");
+    act(() => pairingApprovalStore.setPending([request("p1")]));
+    await waitFor(() => expect(screen.getByTestId("remote-access-step-approve").getAttribute("data-state")).toBe("current"));
+    failNext = true;
+    act(() => pairingApprovalStore.setPending([]));
+    const retry = await screen.findByTestId("remote-access-retry");
+    const before = reads;
+    failNext = false;
+    paired = [{ id: "d2", label: "iPhone · Safari" }];
+    fireEvent.click(retry);
+    await waitFor(() => expect(reads).toBeGreaterThan(before));
+    expect((await screen.findByTestId("remote-access-approve-paired")).textContent).toMatch(/is paired/);
+  });
+
+  it("B2: Choose provider never writes while the connected-primary status is not known", async () => {
+    const { calls } = mockApi({
+      readiness: [READY("tailscale", "disconnected"), READY("zrok", "connected")],
+      routes: { "GET /api/tunnel-status-detail": [500, { error: "boom" }] },
+    });
+    renderDialog({ run: run("share", { open: "provider" }) });
+    fireEvent.click(await screen.findByTestId("gateway-provider-tailscale"));
+    const save = screen.getByTestId("gateway-save") as HTMLButtonElement;
+    await waitFor(() => expect(save.disabled).toBe(true));
+    fireEvent.click(save);
+    expect(calls.some((c) => c.method === "PUT")).toBe(false);
+  });
+
+  it("Landing: a failed paired-devices read shows unknown with a working retry", async () => {
+    let fail = true;
+    mockApi({ routes: { "GET /api/paired-devices": () => (fail ? [500, { success: false }] : [200, { success: true, data: [{ id: "a", label: "x" }] }]) } });
+    renderDialog();
+    const paired = await screen.findByTestId("remote-access-paired");
+    await waitFor(() => expect(within(paired).getByTestId("remote-access-unknown").textContent).toMatch(/unknown/));
+    fail = false;
+    fireEvent.click(within(paired).getByTestId("remote-access-retry"));
+    await waitFor(() => expect(paired.textContent).toMatch(/1 paired device/));
+  });
+
+  it("QR step: a road that is on but exposes no endpoint says so instead of 'Checking…' forever", async () => {
+    mockApi({ config: baseConfig({ pairing: { acceptLanRequests: true }, reachability: reach("0.0.0.0") }), endpoints: [] });
+    renderDialog({ run: run("device") });
+    expect((await screen.findByTestId("remote-access-qr-no-endpoint")).textContent).toMatch(/No address/);
+  });
+});

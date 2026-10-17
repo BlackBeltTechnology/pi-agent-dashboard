@@ -13,11 +13,11 @@
 import {
   type BindReachability,
   collectTrustedEntries,
-  isLoopbackIpv4,
   isLoopbackOnlyEntry,
 } from "@blackbelt-technology/pi-dashboard-shared/bind-reachability.js";
 import type { TunnelStatusDetail } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ProviderReadiness, TunnelEndpoint } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
+import { isLoopbackHost } from "../gateway/gateway-connection.js";
 import { isPairingEligible } from "../gateway/gateway-endpoints.js";
 
 // ── Tri-state ────────────────────────────────────────────────────────
@@ -97,12 +97,6 @@ export interface RunState {
 export const newRun = (task: TaskId): RunState => ({ task, done: [] });
 
 // ── Bind-host helpers ────────────────────────────────────────────────
-
-/** Loopback-only host. `0.0.0.0` / `::` are ALL interfaces, not loopback. */
-export function isLoopbackHost(host: string): boolean {
-  const h = host.trim().toLowerCase();
-  return h === "localhost" || h === "::1" || h === "[::1]" || isLoopbackIpv4(h);
-}
 
 function bindLabel(host: string): string {
   const h = host.trim();
@@ -242,9 +236,9 @@ export function deviceEndpoint(snap: Snapshot): TunnelEndpoint | null {
     if (remote[0]) return remote[0];
   }
   if (r.lan.state === "on") {
-    const tlsAny = eps.find((e) => isPairingEligible(e) && e.kind !== "local");
-    if (tlsAny) return tlsAny;
-    return eps.find((e) => e.kind === "lan") ?? null;
+    // LAN road only: this machine's own addresses — never a cached public URL.
+    const lan = eps.filter((e) => e.kind === "lan");
+    return lan.find(isPairingEligible) ?? lan[0] ?? null;
   }
   return null;
 }
