@@ -265,6 +265,7 @@ describe("pairing approval never honors bare loopback (E19, E20)", () => {
       registry: reg,
       localToken: TOKEN,
       localTrust: ctx,
+      getPort: () => 8000,
       hostAdmission: () => ({ allowedHosts: [], publicBaseUrls: [], configuredOrigins: [], getLiveTunnelOrigins: () => [], bindHost: "localhost" }),
     });
     await app.ready();
@@ -310,6 +311,19 @@ describe("pairing approval never honors bare loopback (E19, E20)", () => {
       expect(res.json().error).toBe("host_not_admitted");
     });
   }
+
+  it("E8 refusal remedies are byte-identical under requireLocalProof true and false, both offering authorize-browser", async () => {
+    const bodies: string[] = [];
+    for (const strictMode of [false, true]) {
+      strict = strictMode;
+      const d = pend();
+      const res = await post("/api/pair/approve-pending", { pendingId: d.pendingId, confirmCode: d.confirmCode });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().remedies).toContain("authorize-browser");
+      bodies.push(JSON.stringify(res.json().remedies));
+    }
+    expect(bodies[0]).toBe(bodies[1]);
+  });
 
   it("E12 operator routes follow D2: bare admitted off, 401 on", async () => {
     const get = () => app.inject({ method: "GET", url: "/api/pair/pending", remoteAddress: LOOP, headers: { host: "localhost:8000" } });

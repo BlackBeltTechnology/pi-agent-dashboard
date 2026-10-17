@@ -558,6 +558,42 @@ describe("REST host gate — real server wiring", () => {
     expect([401, 403]).toContain(gate.status);
   }, 30000);
 
+  // Folds test-plan #E12/#E13 of change fix-pairing-approval-credential: a non-admitted
+  // Host never learns `reason`/`remedies` (login configured — so `sign-in` would be a
+  // disclosure — and a loopback peer — so `authorize-browser` would be one).
+  it("#E12/#E13 credential-less approval from a non-admitted Host gets no remedies in report, the host-gate body in enforce", async () => {
+    const approve = (port: number) =>
+      request(
+        port,
+        "POST",
+        "/api/pair/approve-pending",
+        { "content-type": "application/json", host: "evil.example" },
+        JSON.stringify({ pendingId: "00000000-0000-4000-8000-000000000000", confirmCode: "12345678" }),
+      );
+    const authConfig = { secret: "test-secret-abc", providers: { github: { clientId: "x", clientSecret: "y" } } };
+
+    fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "report" } }));
+    handle = await createTestServer({ authConfig });
+    const reported = await approve(handle.httpPort);
+    expect(reported.status).toBe(401);
+    const reportedBody = JSON.parse(reported.text);
+    expect(Object.keys(reportedBody)).toEqual(["success", "error"]);
+    expect(reportedBody.error).toBe("operator credential required");
+    await handle.stop();
+    handle = undefined;
+
+    resetConfigSnapshot();
+    fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "enforce" } }));
+    handle = await createTestServer({ authConfig });
+    const enforced = await approve(handle.httpPort);
+    expect(enforced.status).toBe(403);
+    const enforcedBody = JSON.parse(enforced.text);
+    expect(enforcedBody).toMatchObject({ success: false, error: "host_not_allowed" });
+    // The host-gate body carries its own `reason` prose; never a pairing reason or remedies.
+    expect(["no-credential", "device-credential"]).not.toContain(enforcedBody.reason);
+    expect(enforcedBody).not.toHaveProperty("remedies");
+  }, 30000);
+
   it("#X7 enforce keeps plain-LAN pairing working (IP-literal Host, no Origin)", async () => {
     fs.writeFileSync(configFile, JSON.stringify({}));
     setGateEnv("enforce");

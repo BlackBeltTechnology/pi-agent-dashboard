@@ -18,6 +18,7 @@ import type { TLSSocket } from "node:tls";
 import { isTier, TIERS } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { describeApprovalRefusal } from "../auth/approval-refusal.js";
 import { type HostAdmissionOptions, isHostAdmitted } from "../auth/host-admission.js";
 import type { ServerIdentity } from "../auth/identity.js";
 import { signNonce } from "../auth/identity.js";
@@ -143,18 +144,42 @@ function createApprovalGuard(deps: {
   localToken?: string;
   hostAdmission: () => HostAdmissionOptions;
   localTrust?: LocalTrustContext;
+  /** Live "is a usable login method configured" check (drives the `sign-in` remedy). */
+  loginAvailable?: () => boolean;
+  /** The server's configured port, read per refusal (drives the `authorize-browser` remedy). */
+  getConfigPort?: () => number;
 }) {
   const proofCtx = deps.localTrust ?? (deps.localToken ? createLocalTrustContext(deps.localToken, () => false) : undefined);
+  /**
+   * The 401 body. `reason`/`remedies` are attached only when the request's Host is
+   * admitted (same predicate and options as the 403 check below), so a non-admitted
+   * Host still gets the legacy two-key body. Best-effort: a failure here never
+   * turns the 401 into a 5xx. See change: fix-pairing-approval-credential (D5).
+   */
+  const refusalBody = (request: FastifyRequest) => {
+    const legacy = { success: false as const, error: "operator credential required" as const };
+    try {
+      const refusal = describeApprovalRefusal(request, {
+        hostAdmitted: isHostAdmitted(request.headers.host, deps.hostAdmission()),
+        loginAvailable: deps.loginAvailable,
+        configPort: deps.getConfigPort?.(),
+        localTrust: proofCtx,
+      });
+      return refusal ? { ...legacy, ...refusal } : legacy;
+    } catch {
+      return legacy;
+    }
+  };
   return async function approvalGuard(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     const via = (request as any).authVia;
     if (via === "device") {
-      reply.code(401).send({ success: false, error: "operator credential required" });
+      reply.code(401).send(refusalBody(request));
       return;
     }
     const headers = request.headers as Record<string, unknown>;
     const ok = via === "session" || (proofCtx !== undefined && hasLocalProof(headers, proofCtx));
     if (!ok) {
-      reply.code(401).send({ success: false, error: "operator credential required" });
+      reply.code(401).send(refusalBody(request));
       return;
     }
     if (!isHostAdmitted(request.headers.host, deps.hostAdmission())) {
@@ -187,6 +212,12 @@ export function registerPairingRoutes(
     /** Bound HTTP port, used to enumerate loopback/LAN endpoints. A thunk so
      * a `port: 0` server reports the real bound port per request. */
     getPort?: () => number;
+    /**
+     * Live "is a usable login method configured" check — the same instance the vault
+     * and services routes receive. Absent ⇒ the approval refusal omits `sign-in`.
+     * See change: fix-pairing-approval-credential (D5).
+     */
+    loginAvailable?: () => boolean;
     /** Live `pairing.acceptLanRequests` (read per request, no restart). Absent = off. */
     getAcceptLanRequests?: () => boolean;
     /** Non-internal interface addresses the server's bind covers (for the on-link gate). */
@@ -198,7 +229,13 @@ export function registerPairingRoutes(
 ) {
   const { networkGuard, identity, pairing, registry, localToken, hostAdmission } = deps;
   const operatorGuard = createOperatorGuard({ localToken, hostAdmission, localTrust: deps.localTrust });
-  const approvalGuard = createApprovalGuard({ localToken, hostAdmission, localTrust: deps.localTrust });
+  const approvalGuard = createApprovalGuard({
+    localToken,
+    hostAdmission,
+    localTrust: deps.localTrust,
+    loginAvailable: deps.loginAvailable,
+    getConfigPort: deps.getPort,
+  });
   const knockLimiter = deps.knockLimiter ?? new KnockLimiter();
   const logKnockRefusal = deps.logKnockRefusal ?? createRefusalLogger();
   // Denial / lockout start the source's cooldown; approve + expiry do not (D12).
@@ -429,10 +466,12 @@ export function registerPairingRoutes(
     },
   );
 
-  // ── Dashboard: deny a pending device (operator-only, D3) ───────────────
+  // ── Dashboard: deny a pending device (approval credential, D3/D11) ────
+  // Same guard as approve: "Denial SHALL require the same operator authentication
+  // as approval" — a bare-loopback caller must not burn a pairing code.
   fastify.post<{ Body: { pendingId?: unknown } }>(
     "/api/pair/deny",
-    { preHandler: operatorGuard },
+    { preHandler: approvalGuard },
     async (request, reply): Promise<ApiResponse> => {
       const pendingId = request.body?.pendingId;
       if (typeof pendingId !== "string") {

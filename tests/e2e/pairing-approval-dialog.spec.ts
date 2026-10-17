@@ -1,5 +1,6 @@
 /**
- * E2E: add-pairing-approval-dialog (test-plan F1, F2, F6, F7, F13).
+ * E2E: add-pairing-approval-dialog (test-plan F1, F2, F6, F7, F13);
+ * fix-pairing-approval-credential (test-plan F8).
  *
  * WHAT ONLY THIS LEVEL CAN PROVE
  * ------------------------------
@@ -185,6 +186,56 @@ test.describe("pairing approval dialog", () => {
       await expect(device.getByTestId("pair-landing-rejected")).toBeVisible({ timeout: 5_000 });
       await expect(device.getByTestId("pair-landing-rejected")).toContainText("The dashboard declined this device");
       expect(await pairedLabels(request)).toEqual(before);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  /**
+   * fix-pairing-approval-credential F8 — the rendered remedies against the real
+   * server. The tab sits on `http://localhost:<dashboardPort>` (BASE_URL, read
+   * from `.pi-test-harness.json`; NOT the container's configured port) and the
+   * server sees a docker-bridge peer, i.e. a NON-loopback caller. The operator
+   * credential is kept for the list fetch (so the dialog raises) but stripped from
+   * the approve request, so the REAL server answers its real 401 + remedies: a
+   * remote caller is never offered `authorize-browser`.
+   */
+  test("F8: a refused approve lists the approve-on-host command (no authorize-browser) and keeps the typed code", async ({
+    page,
+    browser,
+    request,
+  }) => {
+    await page.route("**/api/pair/approve-pending", async (route) => {
+      const headers = { ...route.request().headers() };
+      delete headers["x-pi-local-token"];
+      delete headers["x-pi-local-proof"];
+      await route.continue({ headers });
+    });
+    const op = await operatorPage(page);
+    const { ctx, confirmCode } = await deviceRedeems(browser, request);
+    try {
+      const dialog = op.getByTestId("pairing-dialog");
+      await expect(dialog).toBeVisible({ timeout: 10_000 });
+      await op.getByTestId("pairing-code-input").fill(confirmCode);
+      await op.getByTestId("pairing-approve").click();
+
+      const alert = op.getByTestId("pairing-dialog-remedies");
+      await expect(alert).toBeVisible({ timeout: 10_000 });
+      await expect(alert).toHaveAttribute("role", "alert");
+
+      const [pendingId] = await pendingIds(request);
+      expect(pendingId).toBeTruthy();
+      const approveRow = alert.locator('[data-testid="pairing-remedy-row"][data-remedy="approve-on-host"]');
+      await expect(approveRow.locator("code")).toHaveText(`pi-dashboard pair approve ${pendingId}`);
+      await expect(approveRow.getByRole("button")).toHaveAccessibleName(/\S/);
+      await expect(alert.locator('[data-remedy="authorize-browser"]')).toHaveCount(0);
+
+      // Retry in place: the typed code survives, Approve stays usable, and the
+      // confirmation code is nowhere in the alert.
+      await expect(op.getByTestId("pairing-code-input")).toHaveValue(/^\d{4} \d{4}$/);
+      await expect(op.getByTestId("pairing-approve")).toBeEnabled();
+      expect(await alert.textContent()).not.toContain(confirmCode);
+      expect(await pendingIds(request)).toEqual([pendingId]);
     } finally {
       await ctx.close();
     }

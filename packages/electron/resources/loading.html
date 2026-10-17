@@ -74,6 +74,20 @@
       const logPanel = document.getElementById("log-panel");
       const logContent = document.getElementById("log-content");
 
+      // Every dashboard navigation goes through MAIN (`navigateToServer`): main
+      // validates the target, bootstraps local proof for this host's server and
+      // loads the URL itself. This page never assigns `location.href` for a
+      // dashboard target and never sees a code or bootstrap URL.
+      // See change: fix-pairing-approval-credential (D4).
+      async function goTo(target) {
+        const nav = window.piDashboard && window.piDashboard.navigateToServer;
+        if (!nav) return false;
+        try {
+          const r = await nav(target);
+          return !!(r && r.navigated);
+        } catch (_) { return false; }
+      }
+
       // Render known-servers list (passed via query as base64 JSON to avoid quoting issues).
       try {
         const ksRaw = params.get("knownServers");
@@ -93,8 +107,11 @@
                 '<span class="server-label"></span><span class="server-addr"></span>';
               btn.querySelector(".server-label").textContent = s.label || s.host;
               btn.querySelector(".server-addr").textContent = s.host + ":" + s.port;
-              btn.addEventListener("click", () => {
-                location.href = "http://" + s.host + ":" + s.port;
+              btn.addEventListener("click", async () => {
+                if (!(await goTo("http://" + s.host + ":" + s.port))) {
+                  statusEl.style.display = "block";
+                  statusEl.textContent = "Could not open " + s.host + ":" + s.port;
+                }
               });
               wrap.appendChild(btn);
             }
@@ -151,7 +168,7 @@
       }
 
       async function tryConnect() {
-        if (await reachable()) { location.href = serverUrl; return; }
+        if (await reachable() && await goTo(serverUrl)) return;
         attempts++;
         if (attempts === MAX_ATTEMPTS_BEFORE_ERROR) showError();
         setTimeout(tryConnect, 1500);
@@ -171,7 +188,10 @@
             if (outcome.kind === "started" || outcome.kind === "already-running") {
               statusEl.style.display = "block";
               statusEl.textContent = "Server started \u2014 reloading\u2026";
-              setTimeout(() => { location.href = outcome.url; }, 300);
+              setTimeout(async () => {
+                // On refusal the poll loop (tryConnect) still hands off once reachable.
+                if (!(await goTo(outcome.url))) statusEl.textContent = "Server started \u2014 waiting to connect\u2026";
+              }, 300);
               return;
             }
             // failed
