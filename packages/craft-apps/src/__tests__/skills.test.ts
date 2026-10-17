@@ -1,10 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
 import { CRAFT_APPS, getApp } from "../registry.js";
-import { commandLines, fences, loadFixture, loadSkill, quotedIds, SKILL_NAMES } from "./helpers/skills.js";
+import { cleanupTmp, tmpDir } from "./helpers/fixtures.js";
+import {
+  checkSnippet,
+  commandLines,
+  fences,
+  loadFixture,
+  loadSkill,
+  PKG_DIR,
+  quotedIds,
+  SKILL_NAMES,
+  stepSections,
+  unknownWorkflowIds,
+  WORKFLOW_APPS,
+  WORKFLOW_SIBLINGS,
+  WORKFLOW_SKILL_NAMES,
+} from "./helpers/skills.js";
 
-/** `CRAFT_SKILLS=filmcraft,soundcraft` lints a subset (skill authors run it per skill; CI runs all 14). */
+afterAll(cleanupTmp);
+
+/** `CRAFT_SKILLS=filmcraft,soundcraft` lints a subset (skill authors run it per skill; CI runs all 18). */
 const only = process.env.CRAFT_SKILLS?.split(",").filter(Boolean);
 const skills = SKILL_NAMES.filter((n) => !only || only.includes(n)).map((n) => loadSkill(n));
+const workflows = WORKFLOW_SKILL_NAMES.filter((n) => !only || only.includes(n)).map((n) => loadSkill(n));
 const appSkills = skills.filter((s) => s.name !== "craft-studio");
 const full = !only;
 
@@ -72,7 +93,7 @@ describe("skill set", () => {
 
 describe("recipes are verified", () => {
   it("every recipe fence contains a `pi-craft verify` line and ends with one", () => {
-    for (const s of skills) {
+    for (const s of [...skills, ...workflows]) {
       for (const f of fences(s.body).filter((x) => x.recipe)) {
         const lines = commandLines(f.code);
         expect(lines.some((l) => /^pi-craft verify\b/.test(l)), `${s.name} recipe "${f.recipe}" has no pi-craft verify line`).toBe(true);
@@ -82,7 +103,7 @@ describe("recipes are verified", () => {
   });
 
   it("recipe ids are unique inside a skill", () => {
-    for (const s of skills) {
+    for (const s of [...skills, ...workflows]) {
       const ids = fences(s.body).flatMap((f) => (f.recipe ? [f.recipe] : []));
       expect(new Set(ids).size, s.name).toBe(ids.length);
     }
@@ -126,5 +147,164 @@ describe("dialect facts the spec pins", () => {
     const t = loadSkill("pdfcraft").body;
     expect(t).toContain("pdfcraft-cli tools");
     expect(t).not.toMatch(/pdfcraft-cli commands|pi-craft pdfcraft exec commands/);
+  });
+});
+
+// ── Workflow skills (spec craft-media-workflow-skills) ───────────────────────────────────────────────
+
+const hasJq = spawnSync("jq", ["--version"]).status === 0;
+const router = () => loadSkill("craft-studio");
+
+describe("workflow skills (lint)", () => {
+  it.skipIf(!!only)("ships the four media workflow skills", () => {
+    expect(workflows.map((s) => s.name)).toEqual(["craft-video-post", "craft-beat-cut", "craft-podcast-master", "craft-motion-titles"]);
+  });
+
+  it("E2 frontmatter name == dir, description > 60 chars with a quoted user phrasing of >= 6 chars", () => {
+    for (const s of workflows) {
+      expect(s.frontmatter.name, s.name).toBe(s.name);
+      const d = s.frontmatter.description ?? "";
+      expect(d.length, s.name).toBeGreaterThan(60);
+      expect(d, `${s.name} needs a quoted user phrasing`).toMatch(/"[^"]{6,}"/);
+    }
+  });
+
+  it("E3 app-only lint is scoped: workflow skills are not app skills", () => {
+    expect(appSkills.map((s) => s.name).filter((n) => n.startsWith("craft-"))).toEqual([]);
+    for (const s of appSkills) expect(() => getApp(s.name), s.name).not.toThrow();
+    for (const s of workflows) expect(() => getApp(s.name), s.name).toThrow();
+  });
+
+  it.skipIf(!skills.some((x) => x.name === "craft-studio"))("E4 the router lists the workflows, both splits and defines Craft jobs once", () => {
+    const t = router().body;
+    for (const n of WORKFLOW_SKILL_NAMES) expect(t, `router misses ${n}`).toContain(n);
+    expect(t).toContain("hyperframes-showreel");
+    expect(t).toMatch(/^##\s+Craft jobs/m);
+    for (const needle of ["craft-jobs/<slug>/", "job.json", "[a-z0-9-]"]) expect(t, needle).toContain(needle);
+    expect(t).toMatch(/FilmCraft vs HyperFrames/);
+    expect(t).toMatch(/craft-beat-cut[^\n]*vs[^\n]*hyperframes-showreel/);
+  });
+
+  it("E5 every step names an output and a gate; media steps carry a pi-craft verify, text steps a check fence", () => {
+    for (const s of workflows) {
+      const steps = stepSections(s.body);
+      expect(steps.length, s.name).toBeGreaterThanOrEqual(4);
+      expect(steps.map((x) => x.n), `${s.name} steps are numbered 0..n`).toEqual(steps.map((_, i) => i));
+      for (const st of steps) {
+        const out = /^\*\*Output:\*\*\s*(.*)$/m.exec(st.text)?.[1];
+        const gate = /^\*\*Gate:\*\*\s*(.*)$/m.exec(st.text)?.[1];
+        expect(out, `${s.name} step ${st.n} has no **Output:**`).toBeTruthy();
+        expect(gate, `${s.name} step ${st.n} has no **Gate:**`).toBeTruthy();
+        const code = st.fences.map((f) => f.code).join("\n");
+        const verifies = st.fences.flatMap((f) => commandLines(f.code)).filter((l) => /^pi-craft verify\b/.test(l));
+        const checks = st.fences.filter((f) => /\bcheck:/.test(f.info));
+        if (/\.(wav|mov|mp4)\b/.test(out ?? "")) expect(verifies.length, `${s.name} step ${st.n} outputs media but has no pi-craft verify`).toBeGreaterThan(0);
+        if (/\.(srt|json|txt)\b/.test(out ?? "")) expect(checks.length, `${s.name} step ${st.n} outputs a text artefact but has no check: fence`).toBeGreaterThan(0);
+        expect(code.length, `${s.name} step ${st.n} has no commands`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("E6 the delivery gate asserts h264 + aac and a frame diff", () => {
+    for (const s of workflows) {
+      const last = stepSections(s.body).at(-1);
+      const verifies = (last?.fences ?? []).flatMap((f) => commandLines(f.code)).filter((l) => /^pi-craft verify\b/.test(l));
+      expect(
+        verifies.some((l) => l.includes("--codec video=h264") && l.includes("--codec audio=aac") && l.includes("--frame-diff")),
+        `${s.name}: the final step needs a verify with --codec video=h264 --codec audio=aac --frame-diff`,
+      ).toBe(true);
+    }
+  });
+
+  it("E10 the resume step links the router and mentions job.json, recorded inputs and downstream re-run; the slug rule is not restated", () => {
+    for (const s of workflows) {
+      const resume = /^## Resume\n([\s\S]*?)(?=^## )/m.exec(s.body)?.[1] ?? "";
+      expect(resume, `${s.name} has no ## Resume`).not.toBe("");
+      expect(resume).toContain("job.json");
+      expect(resume).toMatch(/recorded inputs/);
+      expect(resume).toMatch(/downstream/);
+      expect(resume).toMatch(/craft-studio/);
+      expect(resume).toMatch(/Craft jobs/);
+      expect(s.body, `${s.name} restates the slug rule`).not.toContain("[a-z0-9-]");
+    }
+  });
+
+  it("E11 step 0 names every sibling skill, its package, the CLI and a degraded path or stop", () => {
+    for (const s of workflows) {
+      const step0 = stepSections(s.body).find((x) => x.n === 0);
+      expect(step0, s.name).toBeTruthy();
+      const text = step0?.text ?? "";
+      const map = WORKFLOW_SIBLINGS[s.name as keyof typeof WORKFLOW_SIBLINGS];
+      for (const sib of map.skills) expect(text, `${s.name} step 0 misses ${sib}`).toContain(sib);
+      for (const pkg of map.packages) expect(text, `${s.name} step 0 misses package ${pkg}`).toContain(pkg);
+      for (const cli of map.clis) expect(text, `${s.name} step 0 misses ${cli}`).toContain(cli);
+      expect(text, `${s.name} step 0 needs a degraded path or stop`).toMatch(/\b(stop|skip|continue|ask|offer|degraded|supplies|use the anonymous)\b/i);
+    }
+  });
+
+  it("E12 craft-video-post: HyperFrames only for code-driven motion, alpha overlay branch and full-frame --size branch", () => {
+    const s = workflows.find((x) => x.name === "craft-video-post");
+    if (!s) return;
+    expect(s.body).toContain("hyperframes-showreel");
+    expect(s.body).toMatch(/Alpha branch[^\n]*pi-craft verify --alpha|Alpha branch[\s\S]{0,200}--alpha/);
+    expect(s.body).toMatch(/Full-frame branch[\s\S]{0,400}--size/);
+    expect(s.body).toMatch(/never author a composition/i);
+  });
+
+  it("E13 a failed gate says: re-discover with describe, at most 2 retries, then stop", () => {
+    for (const s of workflows) {
+      const sec = /^## When a gate fails\n([\s\S]*?)(?=^## )/m.exec(s.body)?.[1] ?? "";
+      expect(sec, `${s.name} has no ## When a gate fails`).not.toBe("");
+      expect(sec).toMatch(/describe/);
+      expect(sec).toMatch(/at most\s+2\s+retries/i);
+      expect(sec).toMatch(/stop/i);
+    }
+  });
+
+  it("E14 every command id a workflow quotes in `pi-craft <app> exec` lines or jsonl rows exists in the union of its apps' command lists", () => {
+    for (const s of workflows) {
+      const unknown = unknownWorkflowIds(s.body, WORKFLOW_APPS[s.name as keyof typeof WORKFLOW_APPS]);
+      expect(unknown, `${s.name} quotes ids unknown to ${WORKFLOW_APPS[s.name as keyof typeof WORKFLOW_APPS].join("+")}`).toEqual([]);
+    }
+  });
+
+  it("E15 the workflow drift guard names an unknown id and ignores sibling CLI lines", () => {
+    const body = [
+      "```bash",
+      "pi-craft filmcraft exec run --cmd timeline.fooBar",
+      "pi-transcribe in.mp4 --lang x.y --out timeline.nope",
+      "npx hyperframes render . -o out.mp4 --format timeline.other",
+      "pi-craft filmcraft exec --project p.fcproj exec playhead.set seconds=1",
+      "```",
+    ].join("\n");
+    expect(unknownWorkflowIds(body, ["filmcraft", "soundcraft", "effectcraft"])).toEqual(["timeline.fooBar"]);
+    expect(unknownWorkflowIds('```jsonl\n{"id":"timeline.nope2","params":{}}\n{"id":"playhead.set","params":{}}\n```', ["filmcraft"])).toEqual(["timeline.nope2"]);
+  });
+
+  it("packaging: workflow skills declare the same name in package.json order", () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(PKG_DIR, "package.json"), "utf8")) as { pi: { skills: string[] } };
+    for (const n of WORKFLOW_SKILL_NAMES) expect(pkg.pi.skills).toContain(`.pi/skills/${n}`);
+  });
+});
+
+describe.skipIf(!hasJq)("workflow skill-level checks (executed)", () => {
+  const FIX = path.join(PKG_DIR, "src", "__tests__", "fixtures");
+  const runCheck = (skill: string, name: string, file: string, as: string) => {
+    const cwd = tmpDir("craft-check-");
+    fs.copyFileSync(file, path.join(cwd, as));
+    const code = checkSnippet(loadSkill(skill), name);
+    return spawnSync("bash", ["-e", "-o", "pipefail", "-c", code], { cwd, encoding: "utf8" });
+  };
+
+  it("E8 the srt check fails on an empty file (0 cues) and passes on one cue", () => {
+    expect(runCheck("craft-video-post", "srt", path.join(FIX, "empty.srt"), "cues.srt").status).not.toBe(0);
+    expect(runCheck("craft-video-post", "srt", path.join(FIX, "one.srt"), "cues.srt").status).toBe(0);
+  });
+
+  it("E9 the hits check passes only for a valid music-hits/1 file with at least one hit", () => {
+    const dir = path.join(FIX, "music-hits");
+    expect(runCheck("craft-beat-cut", "hits", path.join(dir, "valid.json"), "hits.json").status).toBe(0);
+    expect(runCheck("craft-beat-cut", "hits", path.join(dir, "no-hits.json"), "hits.json").status).not.toBe(0);
+    expect(runCheck("craft-beat-cut", "hits", path.join(dir, "schema0.json"), "hits.json").status).not.toBe(0);
   });
 });
