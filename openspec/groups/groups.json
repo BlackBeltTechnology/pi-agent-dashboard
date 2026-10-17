@@ -153,6 +153,12 @@
       "name": "UI Extensions",
       "color": "#eab308",
       "order": 25
+    },
+    {
+      "id": "pi-trust-mirror",
+      "name": "Pi Trust Mirror",
+      "color": "#0ea5e9",
+      "order": 26
     }
   ],
   "assignments": {
@@ -415,7 +421,7 @@
     "stabilize-mdns-server-identity": "lan-pairing-trust",
     "add-lan-knock-pairing": "vault-access-remedy",
     "add-electron-server-windows": "vault-access-remedy",
-    "retire-trusted-networks-bypass": "customer-web-chat",
+    "retire-trusted-networks-bypass": "pi-trust-mirror",
     "update-pi-core-1-1-adopt-apis": "pi-update",
     "spawn-scope-no-mcp": "pi-update",
     "mcp-client-project-overrides": "pi-update",
@@ -485,7 +491,10 @@
     "add-remote-access-wizard": "ui",
     "add-operator-browser-relay": "ui",
     "audit-plugin-bundles-non-secure-context": "ui",
-    "add-request-access-remedy": "ui"
+    "add-request-access-remedy": "ui",
+    "mirror-dashboard-trust-to-pi": "pi-trust-mirror",
+    "add-session-actions-flyout": "ui",
+    "mirror-dashboard-trust-live-remote": "pi-trust-mirror"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -498,7 +507,9 @@
       "implement-it",
       "retest-plain-language-hard-battery",
       "ab-test-rlm-delegation-claim",
-      "fix-npm12-remote-tarball-install"
+      "fix-npm12-remote-tarball-install",
+      "fix-kb-index-integrity",
+      "close-residual-audit-findings"
     ],
     "bundle-index-size": [
       "fix-kb-gitignore-excluded-parent",
@@ -512,6 +523,7 @@
       "add-electron-server-windows"
     ],
     "ui": [
+      "add-session-actions-flyout",
       "restyle-inline-terminal-button",
       "add-services-settings-ui",
       "fix-browser-relay-pane-input",
@@ -519,9 +531,6 @@
       "add-request-access-remedy",
       "add-operator-browser-relay",
       "audit-plugin-bundles-non-secure-context",
-      "add-obs-studio-plugin",
-      "edit-pi-agent-settings",
-      "fix-empty-status-subcard",
       "fix-orphaned-ended-session-archive"
     ],
     "addons-hub": [
@@ -644,8 +653,12 @@
       "close-loopback-legacy-window",
       "add-plugin-capability-routes",
       "add-plugin-isolation-and-public-routes",
-      "add-web-chat-plugin",
-      "retire-trusted-networks-bypass"
+      "add-web-chat-plugin"
+    ],
+    "pi-trust-mirror": [
+      "retire-trusted-networks-bypass",
+      "mirror-dashboard-trust-to-pi",
+      "mirror-dashboard-trust-live-remote"
     ]
   }
 }
