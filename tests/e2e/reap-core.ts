@@ -313,7 +313,7 @@ export interface DestroyAttribution {
 }
 
 /** Where `docker/test-up.sh` keeps the per-project lifecycle record (outside the worktree). */
-export const EVENTS_DIR_HINT = "${TMPDIR:-/tmp}/pi-dash-test/";
+const EVENTS_DIR_HINT = "${TMPDIR:-/tmp}/pi-dash-test/";
 
 /**
  * Was this boot's container destroyed by someone other than its own
