@@ -155,7 +155,9 @@ function ConfirmDialog({
 
   return (
     <DialogPortal>
-      <div className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60" onClick={onCancel}>
+      {/* z-lightbox (70): the dialog opens from inside FilePreviewOverlay (raw z-70, earlier in the DOM),
+          so it must sit on that tier or the overlay covers it. */}
+      <div className="fixed inset-0 z-lightbox flex items-center justify-center bg-black/60" onClick={onCancel}>
         <div
           ref={dialogRef}
           role="dialog"

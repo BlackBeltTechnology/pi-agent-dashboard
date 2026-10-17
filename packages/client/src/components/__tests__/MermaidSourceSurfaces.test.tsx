@@ -4,7 +4,7 @@
  * See change: add-preview-apply-fix-to-file (test-plan F8, F9).
  */
 import { __resetEscapeStack } from "@blackbelt-technology/pi-dashboard-client-utils/escape-stack";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type MermaidSourceInfo, useMermaidSourceContext } from "../../lib/preview/mermaid-source-context.js";
@@ -140,5 +140,16 @@ describe("MermaidViewer (.mmd)", () => {
     expect(first.ctx).toMatchObject({ cwd: LIVE, path: "flow.mmd", kind: "mmd" });
     rerender(view("flow.mmd"));
     expect(Object.is(last(blocks).ctx, first.ctx)).toBe(true);
+  });
+
+  it("reload re-fetches the raw file bypassing the HTTP cache (raw is max-age=60)", async () => {
+    render(wrap(<MermaidViewer cwd={LIVE} path="flow.mmd" kind="mermaid" mimeType="text/plain" size={0} />));
+    await waitFor(() => expect(blocks.length).toBeGreaterThan(0));
+    const rawCalls = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([u]) => String(u).includes("/api/file/raw"));
+    expect(rawCalls()).toHaveLength(1);
+    expect((rawCalls()[0][1] as RequestInit | undefined)?.cache).toBeUndefined();
+    act(() => last(blocks).ctx?.reload());
+    await waitFor(() => expect(rawCalls()).toHaveLength(2));
+    expect((rawCalls()[1][1] as RequestInit).cache).toBe("no-store");
   });
 });

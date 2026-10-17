@@ -28,7 +28,12 @@ export default function MermaidViewer({ cwd, path }: ViewerProps) {
     let active = true;
     setCode(null);
     setError(null);
-    previewFetch(`${getApiBase()}/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`)
+    // `/api/file/raw` is `Cache-Control: private, max-age=60`: a reload after an apply-fix write
+    // must bypass the HTTP cache or it re-reads the stale body. See change: add-preview-apply-fix-to-file.
+    previewFetch(
+      `${getApiBase()}/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`,
+      reloadNonce > 0 ? { cache: "no-store" } : undefined,
+    )
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((t) => active && setCode(t))
       .catch((e) => active && setError(e instanceof Error ? e.message : "failed to load"));
